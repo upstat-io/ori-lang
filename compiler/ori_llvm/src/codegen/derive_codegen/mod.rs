@@ -25,7 +25,7 @@ use tracing::{debug, trace, warn};
 
 use super::abi::{compute_function_abi, FunctionAbi, ReturnPassing};
 use super::function_compiler::FunctionCompiler;
-use super::value_id::{FunctionId, ValueId};
+use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 use field_ops::{coerce_to_i64, emit_field_compare, emit_field_eq};
 use string_helpers::{emit_field_to_string, emit_str_concat, emit_str_literal};
@@ -135,6 +135,9 @@ struct DeriveSetup {
     self_val: Option<ValueId>,
     /// Value for `other` parameter. `None` for unary/nullary methods.
     other_val: Option<ValueId>,
+    /// Resolved `str` type for string operations. `None` for shapes that
+    /// don't need string handling (Nullary, UnaryIdentity).
+    str_ty_id: Option<LLVMTypeId>,
 }
 
 /// Common scaffolding for all derived trait codegen functions.
@@ -175,11 +178,23 @@ fn setup_derive_function<'a>(
         None
     };
 
+    let str_ty_id = match shape {
+        DerivedMethodShape::BinaryPredicate
+        | DerivedMethodShape::BinaryToOrdering
+        | DerivedMethodShape::UnaryToInt
+        | DerivedMethodShape::UnaryToStr => {
+            let str_ty = fc.resolve_type(Idx::STR);
+            Some(fc.builder_mut().register_type(str_ty))
+        }
+        DerivedMethodShape::Nullary | DerivedMethodShape::UnaryIdentity => None,
+    };
+
     DeriveSetup {
         func_id,
         abi,
         self_val: self_opt,
         other_val: other_opt,
+        str_ty_id,
     }
 }
 
@@ -238,10 +253,7 @@ fn compile_derive_eq<'a>(
 
     let true_bb = fc.builder_mut().append_block(func_id, "eq.true");
     let false_bb = fc.builder_mut().append_block(func_id, "eq.false");
-
-    // Resolve str type once for string field comparisons
-    let str_ty = fc.resolve_type(Idx::STR);
-    let str_ty_id = fc.builder_mut().register_type(str_ty);
+    let str_ty_id = setup.str_ty_id.expect("Eq needs str_ty_id");
 
     if fields.is_empty() {
         fc.builder_mut().br(true_bb);
@@ -309,10 +321,7 @@ fn compile_derive_comparable<'a>(
     let self_val = setup.self_val.expect("Comparable has self");
     let other_val = setup.other_val.expect("Comparable has other");
     let func_id = setup.func_id;
-
-    // Resolve str type once for string field comparisons
-    let str_ty = fc.resolve_type(Idx::STR);
-    let str_ty_id = fc.builder_mut().register_type(str_ty);
+    let str_ty_id = setup.str_ty_id.expect("Comparable needs str_ty_id");
 
     let equal_bb = fc.builder_mut().append_block(func_id, "cmp.equal");
 
@@ -431,6 +440,7 @@ fn compile_derive_hash<'a>(
         type_name_str,
     );
     let self_val = setup.self_val.expect("Hashable has self");
+    let str_ty_id = setup.str_ty_id.expect("Hashable needs str_ty_id");
 
     let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
     let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
@@ -446,7 +456,8 @@ fn compile_derive_hash<'a>(
             continue;
         };
 
-        let field_as_i64 = coerce_to_i64(fc, fv, field.ty, &format!("hash.{field_name}"));
+        let field_as_i64 =
+            coerce_to_i64(fc, fv, field.ty, &format!("hash.{field_name}"), str_ty_id);
 
         let xored = fc
             .builder_mut()
@@ -482,10 +493,7 @@ fn compile_derive_printable<'a>(
         type_name_str,
     );
     let self_val = setup.self_val.expect("Printable has self");
-
-    // Resolve str type once for all string operations
-    let str_ty = fc.resolve_type(Idx::STR);
-    let str_ty_id = fc.builder_mut().register_type(str_ty);
+    let str_ty_id = setup.str_ty_id.expect("Printable needs str_ty_id");
 
     // Build opening: "TypeName("
     let prefix = format!("{type_name_str}(");
@@ -564,31 +572,16 @@ fn make_sig(
 }
 
 /// Emit return instruction respecting ABI (direct, sret, or void).
+///
+/// Delegates to [`FunctionCompiler::emit_return`] which includes proper
+/// error recording for the Direct branch's `None` case.
 fn emit_derive_return<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     func_id: FunctionId,
     abi: &FunctionAbi,
     result: Option<ValueId>,
 ) {
-    match &abi.return_abi.passing {
-        ReturnPassing::Sret { .. } => {
-            if let Some(val) = result {
-                let sret_ptr = fc.builder_mut().get_param(func_id, 0);
-                fc.builder_mut().store(val, sret_ptr);
-            }
-            fc.builder_mut().ret_void();
-        }
-        ReturnPassing::Direct => {
-            if let Some(val) = result {
-                fc.builder_mut().ret(val);
-            } else {
-                fc.builder_mut().ret_void();
-            }
-        }
-        ReturnPassing::Void => {
-            fc.builder_mut().ret_void();
-        }
-    }
+    fc.emit_return(func_id, abi, result, "<derive>");
 }
 
 /// Emit a method call for a derived method (handles sret return).
@@ -605,11 +598,19 @@ fn emit_method_call_for_derive<'a>(
             let ret_ty_id = fc.builder_mut().register_type(ret_ty);
             fc.builder_mut()
                 .call_with_sret(func_id, args, ret_ty_id, name)
-                .unwrap_or_else(|| fc.builder_mut().const_i64(0))
+                .unwrap_or_else(|| {
+                    warn!(name, "sret call in derive method produced no value");
+                    fc.builder_mut().record_codegen_error();
+                    fc.builder_mut().const_i64(0)
+                })
         }
         _ => fc
             .builder_mut()
             .call(func_id, args, name)
-            .unwrap_or_else(|| fc.builder_mut().const_i64(0)),
+            .unwrap_or_else(|| {
+                warn!(name, "call in derive method produced no value");
+                fc.builder_mut().record_codegen_error();
+                fc.builder_mut().const_i64(0)
+            }),
     }
 }

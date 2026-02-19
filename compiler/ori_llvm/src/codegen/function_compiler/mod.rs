@@ -168,11 +168,63 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.declare_function_with_symbol(name, &symbol, sig, span);
     }
 
+    /// Declare an LLVM function from pre-computed ABI and symbol name.
+    ///
+    /// Shared core for function declaration: builds LLVM parameter types
+    /// (sret pointer, direct, indirect/reference), declares the function
+    /// (direct vs void return), sets calling convention, and applies sret
+    /// attributes. Callers handle ABI computation, debug info, and registration.
+    fn declare_function_llvm(&mut self, symbol: &str, abi: &FunctionAbi) -> FunctionId {
+        let mut llvm_param_types = Vec::with_capacity(abi.params.len() + 1);
+
+        let return_llvm_type = self.type_resolver.resolve(abi.return_abi.ty);
+        let return_llvm_id = self.builder.register_type(return_llvm_type);
+
+        if matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }) {
+            llvm_param_types.push(self.builder.ptr_type());
+        }
+
+        for param in &abi.params {
+            match &param.passing {
+                ParamPassing::Direct => {
+                    let ty = self.type_resolver.resolve(param.ty);
+                    llvm_param_types.push(self.builder.register_type(ty));
+                }
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    llvm_param_types.push(self.builder.ptr_type());
+                }
+                ParamPassing::Void => {}
+            }
+        }
+
+        let func_id = match &abi.return_abi.passing {
+            ReturnPassing::Direct => {
+                self.builder
+                    .declare_function(symbol, &llvm_param_types, return_llvm_id)
+            }
+            ReturnPassing::Sret { .. } | ReturnPassing::Void => self
+                .builder
+                .declare_void_function(symbol, &llvm_param_types),
+        };
+
+        match abi.call_conv {
+            CallConv::Fast => self.builder.set_fastcc(func_id),
+            CallConv::C => self.builder.set_ccc(func_id),
+        }
+
+        if let ReturnPassing::Sret { .. } = &abi.return_abi.passing {
+            self.builder.add_sret_attribute(func_id, 0, return_llvm_id);
+            self.builder.add_noalias_attribute(func_id, 0);
+        }
+
+        func_id
+    }
+
     /// Declare a function with an explicit LLVM symbol name.
     ///
-    /// Shared implementation for `declare_function` (top-level) and
-    /// `declare_impl_method` (impl block methods with type-qualified names).
-    /// `span` is the source location of the function definition for debug info.
+    /// Computes ABI from signature, delegates to [`Self::declare_function_llvm`]
+    /// for LLVM-level declaration, then attaches debug info and registers the
+    /// function for internal lookup.
     fn declare_function_with_symbol(
         &mut self,
         name: Name,
@@ -182,7 +234,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     ) {
         let name_str = self.interner.lookup(name);
 
-        // Use borrow-aware ABI when annotations are available
         let abi = match (self.annotated_sigs, self.arc_classifier) {
             (Some(sigs), Some(classifier)) => {
                 let annotated = sigs.get(&name);
@@ -200,59 +251,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             "declaring function"
         );
 
-        // Build LLVM parameter types
-        let mut llvm_param_types = Vec::with_capacity(abi.params.len() + 1);
+        let func_id = self.declare_function_llvm(symbol, &abi);
 
-        // If sret, the first LLVM param is the hidden return pointer
-        let return_llvm_type = self.type_resolver.resolve(abi.return_abi.ty);
-        let return_llvm_id = self.builder.register_type(return_llvm_type);
-
-        if matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }) {
-            // Hidden sret pointer as first param
-            llvm_param_types.push(self.builder.ptr_type());
-        }
-
-        // User-visible parameters
-        for param in &abi.params {
-            match &param.passing {
-                ParamPassing::Direct => {
-                    let ty = self.type_resolver.resolve(param.ty);
-                    llvm_param_types.push(self.builder.register_type(ty));
-                }
-                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    // Passed as pointer (Indirect: large struct, Reference: borrowed)
-                    llvm_param_types.push(self.builder.ptr_type());
-                }
-                ParamPassing::Void => {
-                    // Not physically passed — skip
-                }
-            }
-        }
-
-        // Declare the LLVM function using the mangled symbol name
-        let func_id = match &abi.return_abi.passing {
-            ReturnPassing::Direct => {
-                self.builder
-                    .declare_function(symbol, &llvm_param_types, return_llvm_id)
-            }
-            ReturnPassing::Sret { .. } | ReturnPassing::Void => self
-                .builder
-                .declare_void_function(symbol, &llvm_param_types),
-        };
-
-        // Set calling convention
-        match abi.call_conv {
-            CallConv::Fast => self.builder.set_fastcc(func_id),
-            CallConv::C => self.builder.set_ccc(func_id),
-        }
-
-        // Apply sret attributes
-        if let ReturnPassing::Sret { .. } = &abi.return_abi.passing {
-            self.builder.add_sret_attribute(func_id, 0, return_llvm_id);
-            self.builder.add_noalias_attribute(func_id, 0);
-        }
-
-        // Attach DISubprogram for debug info
         if let Some(dc) = self.debug_context {
             if span != Span::DUMMY {
                 if let Ok(subprogram) = dc.create_function_at_offset(name_str, span.start) {
@@ -480,7 +480,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Emit the return instruction based on ABI passing mode.
-    fn emit_return(
+    pub(crate) fn emit_return(
         &mut self,
         func_id: FunctionId,
         abi: &FunctionAbi,
@@ -510,62 +510,67 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
+    /// Load all parameter values from an LLVM function, respecting ABI passing.
+    ///
+    /// Returns one `ValueId` per non-Void parameter in ABI order. Direct params
+    /// are returned as-is; Indirect/Reference params are loaded from their
+    /// pointers. Does not set value names or bind to scope — callers handle that.
+    fn load_param_values(&mut self, func_id: FunctionId, abi: &FunctionAbi) -> Vec<ValueId> {
+        let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let mut llvm_idx: u32 = u32::from(has_sret);
+        let mut values = Vec::with_capacity(abi.params.len());
+
+        for (i, param) in abi.params.iter().enumerate() {
+            match &param.passing {
+                ParamPassing::Direct => {
+                    values.push(self.builder.get_param(func_id, llvm_idx));
+                    llvm_idx += 1;
+                }
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    let ptr = self.builder.get_param(func_id, llvm_idx);
+                    let ty = self.type_resolver.resolve(param.ty);
+                    let ty_id = self.builder.register_type(ty);
+                    values.push(self.builder.load(ty_id, ptr, &format!("param.{i}")));
+                    llvm_idx += 1;
+                }
+                ParamPassing::Void => {}
+            }
+        }
+
+        values
+    }
+
     /// Bind function parameters to a `Scope`, accounting for sret offset.
     ///
-    /// `Reference` parameters are received as pointers and loaded on entry,
-    /// so downstream `ExprLowerer` code sees a value (not a pointer). This
-    /// is correct because borrowed values are alive for the function's
-    /// entire duration — the caller retains ownership.
+    /// Uses [`Self::load_param_values`] to load raw values, then names them
+    /// and binds to the scope. `Reference` parameters are received as pointers
+    /// and loaded on entry, so downstream code sees values (not pointers).
     fn bind_parameters(&mut self, func_id: FunctionId, abi: &FunctionAbi) -> Scope {
+        let values = self.load_param_values(func_id, abi);
         let mut scope = Scope::new();
-        let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
-        let param_offset: u32 = u32::from(has_sret);
-
         let emit_debug = self
             .debug_context
             .is_some_and(|dc| dc.level() == DebugLevel::Full);
 
-        let mut llvm_param_idx = param_offset;
-        // DWARF arg numbers are 1-based
+        let mut val_iter = values.into_iter();
         let mut dwarf_arg_no: u32 = 1;
 
         for param in &abi.params {
             match &param.passing {
-                ParamPassing::Direct => {
-                    let param_val = self.builder.get_param(func_id, llvm_param_idx);
-                    let name_str = self.interner.lookup(param.name);
-                    self.builder.set_value_name(param_val, name_str);
-
-                    scope.bind_immutable(param.name, param_val);
-
-                    if emit_debug {
-                        self.emit_param_debug(param_val, name_str, dwarf_arg_no, param.ty);
-                    }
-
-                    llvm_param_idx += 1;
-                    dwarf_arg_no += 1;
-                }
-                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    // Indirect or borrowed: received as pointer, load the struct value
-                    let param_ptr = self.builder.get_param(func_id, llvm_param_idx);
-                    let name_str = self.interner.lookup(param.name);
-                    self.builder
-                        .set_value_name(param_ptr, &format!("{name_str}.ptr"));
-
-                    let param_ty = self.type_resolver.resolve(param.ty);
-                    let param_ty_id = self.builder.register_type(param_ty);
-                    let loaded = self.builder.load(param_ty_id, param_ptr, name_str);
-                    scope.bind_immutable(param.name, loaded);
-
-                    if emit_debug {
-                        self.emit_param_debug(loaded, name_str, dwarf_arg_no, param.ty);
-                    }
-
-                    llvm_param_idx += 1;
-                    dwarf_arg_no += 1;
-                }
                 ParamPassing::Void => {
-                    // Void parameters aren't physically passed — no LLVM param to bind
+                    dwarf_arg_no += 1;
+                }
+                _ => {
+                    let val = val_iter
+                        .next()
+                        .expect("load_param_values: one value per non-Void param");
+                    let name_str = self.interner.lookup(param.name);
+                    self.builder.set_value_name(val, name_str);
+                    scope.bind_immutable(param.name, val);
+
+                    if emit_debug {
+                        self.emit_param_debug(val, name_str, dwarf_arg_no, param.ty);
+                    }
                     dwarf_arg_no += 1;
                 }
             }
@@ -1101,10 +1106,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
     /// Declare a derived method LLVM function, create entry block, bind params.
     ///
-    /// This method lives on `FunctionCompiler` because it needs simultaneous
-    /// access to `builder` (mutable) and `type_resolver` (shared) for type
-    /// resolution during function declaration — a borrow pattern that free
-    /// functions can't express.
+    /// Delegates to [`Self::declare_function_llvm`] for declaration and
+    /// [`Self::load_param_values`] for parameter loading. Registers the method
+    /// in `method_functions` and `type_idx_to_name` for dispatch.
     ///
     /// Returns `(func_id, self_value, other_param_values)`.
     pub(crate) fn declare_and_bind_derive(
@@ -1115,91 +1119,19 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         method_name: Name,
         type_idx: Idx,
     ) -> (FunctionId, ValueId, Vec<ValueId>) {
-        use super::abi::ParamPassing;
+        let func_id = self.declare_function_llvm(symbol, abi);
 
-        // Declare the LLVM function
-        let mut param_types = Vec::with_capacity(abi.params.len() + 1);
-
-        let return_ty = self.type_resolver.resolve(abi.return_abi.ty);
-        let return_ty_id = self.builder.register_type(return_ty);
-
-        if matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }) {
-            param_types.push(self.builder.ptr_type());
-        }
-
-        for param in &abi.params {
-            match &param.passing {
-                ParamPassing::Direct => {
-                    let ty = self.type_resolver.resolve(param.ty);
-                    param_types.push(self.builder.register_type(ty));
-                }
-                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    param_types.push(self.builder.ptr_type());
-                }
-                ParamPassing::Void => {}
-            }
-        }
-
-        let func_id = match &abi.return_abi.passing {
-            ReturnPassing::Direct => {
-                self.builder
-                    .declare_function(symbol, &param_types, return_ty_id)
-            }
-            ReturnPassing::Sret { .. } | ReturnPassing::Void => {
-                self.builder.declare_void_function(symbol, &param_types)
-            }
-        };
-
-        if let ReturnPassing::Sret { .. } = &abi.return_abi.passing {
-            self.builder.add_sret_attribute(func_id, 0, return_ty_id);
-            self.builder.add_noalias_attribute(func_id, 0);
-        }
-
-        self.builder.set_fastcc(func_id);
-
-        // Create entry block
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
         self.builder.set_current_function(func_id);
 
-        // Bind parameters
-        let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
-        let param_offset: u32 = u32::from(has_sret);
+        let values = self.load_param_values(func_id, abi);
+        let self_value = values
+            .first()
+            .copied()
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let other_vals = values.into_iter().skip(1).collect();
 
-        let mut self_val = None;
-        let mut other_vals = Vec::new();
-        let mut llvm_idx = param_offset;
-
-        for (i, param) in abi.params.iter().enumerate() {
-            match &param.passing {
-                ParamPassing::Direct => {
-                    let pv = self.builder.get_param(func_id, llvm_idx);
-                    if i == 0 {
-                        self_val = Some(pv);
-                    } else {
-                        other_vals.push(pv);
-                    }
-                    llvm_idx += 1;
-                }
-                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    let ptr = self.builder.get_param(func_id, llvm_idx);
-                    let ty = self.type_resolver.resolve(param.ty);
-                    let ty_id = self.builder.register_type(ty);
-                    let loaded = self.builder.load(ty_id, ptr, &format!("param.{i}"));
-                    if i == 0 {
-                        self_val = Some(loaded);
-                    } else {
-                        other_vals.push(loaded);
-                    }
-                    llvm_idx += 1;
-                }
-                ParamPassing::Void => {}
-            }
-        }
-
-        let self_value = self_val.unwrap_or_else(|| self.builder.const_i64(0));
-
-        // Register in method_functions and type_idx_to_name
         self.method_functions
             .insert((type_name, method_name), (func_id, abi.clone()));
         self.type_idx_to_name.insert(type_idx, type_name);
