@@ -2,8 +2,9 @@
 section: "15D"
 title: Bindings & Types
 status: not-started
-tier: 5
+tier: 1
 goal: Implement binding syntax changes and type system simplifications
+priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Spec/grammar already removed mut but compiler still accepts it. 163 let mut occurrences across 28 test files — migration cost grows with every commit."
 sections:
   - id: "15D.1"
     title: Pre/Post Checks for run Pattern

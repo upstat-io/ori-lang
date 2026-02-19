@@ -197,7 +197,7 @@ Permitted optimizations include but are not limited to:
 3. Values stored and retrieved through any language operation are identical
 4. `debug()` and `print()` display semantic values
 5. `x == y` and `hash(x) == hash(y)` relationships are representation-independent
-6. Value/reference type classification is determined by canonical size, not machine size
+6. Type classification for reference counting is determined by type containment, not representation size (see [Memory Model § Type Classification](15-memory-model.md#type-classification))
 
 ### Non-Guarantees
 
@@ -206,3 +206,55 @@ Permitted optimizations include but are not limited to:
 3. Struct field order in memory may differ from declaration order
 
 > **Note:** For the full specification including optimization tiers, cross-cutting invariants, and interaction with `#repr` attributes, see [Representation Optimization Proposal](../../proposals/approved/representation-optimization-proposal.md).
+
+## ARC Runtime
+
+This section specifies the runtime support for reference-counted heap objects in AOT-compiled programs.
+
+> **Note:** The ARC runtime ABI is not stable. Heap object layout and runtime function signatures may change between compiler versions. This section applies to the AOT compilation target only; the interpreter and JIT may use different representations.
+
+### Heap Object Layout
+
+A reference-counted heap object has the following layout:
+
+```
++──────────────────+───────────────────────────+
+| strong_count: i64 | data bytes ...           |
++──────────────────+───────────────────────────+
+^                    ^
+base (data_ptr - 8)  data_ptr
+```
+
+The `data_ptr` returned by allocation points to the data area, not to the header. The strong count is stored at `data_ptr - 8`. Minimum alignment is 8 bytes.
+
+The data pointer may be passed to foreign functions without adjustment.
+
+### Runtime Functions
+
+All runtime functions use the C calling convention (`extern "C"`).
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `ori_rc_alloc` | `(size: usize, align: usize) -> *mut u8` | Allocate `size + 8` bytes, initialize strong count to 1, return data pointer |
+| `ori_rc_inc` | `(data_ptr: *mut u8)` | Increment the strong count |
+| `ori_rc_dec` | `(data_ptr: *mut u8, drop_fn: fn(*mut u8))` | Decrement the strong count; if zero, call `drop_fn` |
+| `ori_rc_free` | `(data_ptr: *mut u8, size: usize, align: usize)` | Deallocate from `data_ptr - 8` with total size `size + 8` |
+| `ori_rc_count` | `(data_ptr: *const u8) -> i64` | Return the current strong count (diagnostic use only) |
+
+### Drop Functions
+
+Each reference type has a compiler-generated _drop function_ with signature `extern "C" fn(*mut u8)`. The drop function:
+
+1. Decrements reference counts of any reference-typed child fields (calling `ori_rc_dec` for each)
+2. Calls `ori_rc_free(data_ptr, size, align)` to release the allocation
+
+If the type implements the `Drop` trait, `Drop.drop` is called before step 1.
+
+### Built-in Type Representations
+
+| Type | Representation |
+|------|----------------|
+| `str` | `{ len: i64, data: *const u8 }` |
+| `[T]` | `{ len: i64, cap: i64, data: *mut u8 }` |
+| `Option<T>` | `{ tag: i8, value: T }` (tag 0 = `None`, 1 = `Some`) |
+| `Result<T, E>` | `{ tag: i8, value: max(T, E) }` (tag 0 = `Ok`, 1 = `Err`) |

@@ -104,8 +104,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 // false < true: zext to i8 then unsigned compare
                 let i8_ty = self.builder.i8_type();
                 let lhs = self.builder.zext(recv, i8_ty, "b2i8.self");
-                let i8_ty2 = self.builder.i8_type();
-                let rhs = self.builder.zext(other, i8_ty2, "b2i8.other");
+                let rhs = self.builder.zext(other, i8_ty, "b2i8.other");
                 Some(self.emit_icmp_ordering(lhs, rhs, "bcmp", false))
             }
             "hash" => {

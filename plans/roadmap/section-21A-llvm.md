@@ -735,6 +735,8 @@ When implementing these features, ensure they also work across module boundaries
 - `proposals/approved/memory-model-edge-cases-proposal.md`
 - `proposals/approved/clone-trait-proposal.md`
 
+- [x] **Spec**: Type classification in `15-memory-model.md` updated to type-containment model (matches `ori_arc`)
+
 - [ ] **Implement**: Reference counting
   - [ ] Heap allocation with atomic refcount header: `{ refcount: AtomicU64, data: T }`
   - [ ] `fetch_add(1, Acquire)` on clone/share

@@ -31,7 +31,9 @@
 //! ├── lower_for_loop.rs    — For-loops (range, list, str, option, set, map)
 //! ├── lower_error_handling.rs — Ok, Err, Some, None, Try
 //! ├── lower_collections.rs — List, map, tuple, struct, range, field, index
-//! ├── lower_calls.rs      — Call, MethodCall, Lambda
+//! ├── lower_calls.rs      — Call, MethodCall, invoke helpers
+//! ├── lower_lambdas.rs    — Lambda compilation + capture analysis
+//! ├── lower_conversion_builtins.rs — str(), int(), float(), byte(), assert_eq()
 //! ├── lower_constructs.rs — FunctionSeq, FunctionExp, SelfRef, Await
 //! ├── lower_builtin_methods/ — Built-in method dispatch (Section 04.1)
 //! │   ├── primitives.rs   — int, float, bool, byte, char, ordering, str
@@ -41,7 +43,10 @@
 //! │   ├── collections.rs  — List/Map/Set dispatch wrappers
 //! │   ├── inner_dispatch.rs — Type-agnostic eq/compare/hash
 //! │   └── helpers.rs      — Shared emit utilities
-//! └── lower_collection_methods.rs — Loop-based collection ops
+//! ├── lower_collection_methods/ — Loop-based collection ops
+//! │   ├── list.rs         — List compare/hash/equals
+//! │   ├── set.rs          — Set equals/hash
+//! │   └── map.rs          — Map equals/hash
 //! ```
 //!
 //! # Architecture Note
@@ -73,8 +78,10 @@ mod lower_collection_methods;
 mod lower_collections;
 mod lower_constructs;
 mod lower_control_flow;
+mod lower_conversion_builtins;
 mod lower_error_handling;
 mod lower_for_loop;
+mod lower_lambdas;
 mod lower_literals;
 mod lower_operators;
 

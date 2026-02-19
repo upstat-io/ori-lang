@@ -152,8 +152,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 // false(0) < true(1): zext to i8 then unsigned
                 let i8_ty = self.builder.i8_type();
                 let l = self.builder.zext(lhs, i8_ty, &format!("{name}.l.ext"));
-                let i8_ty2 = self.builder.i8_type();
-                let r = self.builder.zext(rhs, i8_ty2, &format!("{name}.r.ext"));
+                let r = self.builder.zext(rhs, i8_ty, &format!("{name}.r.ext"));
                 self.emit_icmp_ordering(l, r, name, false)
             }
             TypeInfo::Float => self.emit_fcmp_ordering(lhs, rhs, name),
