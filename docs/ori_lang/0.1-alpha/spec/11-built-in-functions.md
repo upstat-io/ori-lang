@@ -334,6 +334,54 @@ Causes a compile-time error with the given message. Valid only in contexts that 
 
 See [Conditional Compilation](24-conditional-compilation.md) for conditional compilation semantics.
 
+### embed
+
+```
+embed(path_expr) -> str | [byte]
+```
+
+Embeds the contents of a file at compile time. The path must be a const-evaluable `str` expression, resolved relative to the source file containing the `embed` expression. The return type is determined by the expected type in context:
+
+- If `str` is expected, the file must be valid UTF-8. A compile-time error is produced if the file contains invalid UTF-8 sequences.
+- If `[byte]` is expected, the file is read as raw bytes with no encoding validation.
+
+If the expected type cannot be inferred, it is an error. The compiler must require an explicit type annotation.
+
+```ori
+// UTF-8 text embedding
+let $SCHEMA: str = embed("schema.sql")
+
+// Binary embedding
+let $ICON: [byte] = embed("assets/icon.png")
+
+// Const expression paths (not limited to literals)
+let $DATA_DIR = "data"
+let $CONFIG: str = embed(`{$DATA_DIR}/config.toml`)
+```
+
+**Path restrictions:**
+- Absolute paths are an error.
+- Paths that resolve outside the project root (via `..`) are an error.
+- Path separators must be `/` (normalized by the compiler across platforms).
+
+**Size limit:** The default maximum embedded file size is 10 MB. This limit may be overridden per-expression with `#embed_limit(size:)` or project-wide in `ori.toml`.
+
+**Dependency tracking:** The compiler must track embedded files as build dependencies. Modifications to an embedded file must trigger recompilation of the module containing the `embed` expression.
+
+### has_embed
+
+```
+has_embed(path_expr) -> bool
+```
+
+Compile-time boolean expression. Evaluates to `true` if the file at `path_expr` exists and is readable, `false` otherwise. The path is resolved with the same rules as `embed`.
+
+```ori
+let $HELP: str = if has_embed("HELP.md") then embed("HELP.md") else "No help available"
+```
+
+**Dependency tracking:** The compiler must track files referenced by `has_embed`. A change in file existence must trigger recompilation.
+
 ## Prelude
 
 Available without import:
@@ -346,6 +394,7 @@ Available without import:
 - `todo`, `unreachable`, `dbg`
 - `repeat`, `drop_early`
 - `compile_error`
+- `embed`, `has_embed`
 - `is_cancelled` (async contexts only)
 - `CancellationError`, `CancellationReason` types
 - `PanicInfo` type (with `message`, `location`, `stack_trace`, `thread_id`)
