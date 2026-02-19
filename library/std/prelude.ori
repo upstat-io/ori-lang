@@ -37,8 +37,16 @@ pub trait Printable {
 
 // Supports custom formatting with format specifications (spec §3.16)
 // All Printable types get a blanket impl that falls back to to_str()
+//
+// Built-in format types (registered by the compiler, like Ordering):
+// - pub type Alignment = Left | Center | Right
+// - pub type Sign = Plus | Minus | Space
+// - pub type FormatType = Binary | Octal | Hex | HexUpper | Exp | ExpUpper | Fixed | Percent
+// - pub type FormatSpec = { fill: Option<char>, align: Option<Alignment>,
+//     sign: Option<Sign>, width: Option<int>, precision: Option<int>,
+//     format_type: Option<FormatType> }
 pub trait Formattable {
-    @format (self, spec: str) -> str
+    @format (self, spec: FormatSpec) -> str
 }
 
 // Developer-facing structural representation

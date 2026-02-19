@@ -2,6 +2,7 @@
 //!
 //! Handles Ori's unique expression patterns:
 //! - `FunctionExp`: `print(...)`, `panic(...)`, `todo`, `recurse`, etc.
+//! - `FormatWith`: template string format specs (`{value:>10.2f}`)
 //! - `SelfRef`: recursive self-reference
 //! - `Await`: async (stub)
 //! - `WithCapability`: capability provision
@@ -252,62 +253,111 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
     }
 
     // -----------------------------------------------------------------------
-    // FormatWith (stub)
+    // FormatWith
     // -----------------------------------------------------------------------
 
-    /// Lower `CanExpr::FormatWith { expr, spec }` — stub implementation.
+    /// Lower `CanExpr::FormatWith { expr, spec }`.
     ///
-    /// Full format spec support in LLVM codegen is a roadmap item. For now,
-    /// convert the inner expression to a string using runtime functions.
-    /// The format spec is ignored — values are formatted with default
-    /// representation. This matches `emit_field_to_string` in derive codegen.
-    pub(crate) fn lower_format_with_stub(&mut self, expr: CanId, _id: CanId) -> Option<ValueId> {
+    /// Embeds the format spec as a global string constant and dispatches to
+    /// type-specific runtime functions (`ori_format_int`, `ori_format_float`,
+    /// etc.) that parse the spec and apply formatting.
+    pub(crate) fn lower_format_with(
+        &mut self,
+        expr: CanId,
+        spec: Name,
+        _id: CanId,
+    ) -> Option<ValueId> {
         let inner_ty = self.expr_type(expr);
         let val = self.lower(expr)?;
 
-        // If already a string, return it directly
-        if inner_ty == ori_types::Idx::STR {
+        let spec_str = self.resolve_name(spec).to_owned();
+        let str_ty_id = self.resolve_type(Idx::STR);
+
+        // Empty spec on a string: return it directly (no formatting needed)
+        if spec_str.is_empty() && inner_ty == Idx::STR {
             return Some(val);
         }
 
-        // Convert to string via runtime functions (format spec ignored for now)
-        tracing::debug!("FormatWith stub: converting to string via runtime, spec ignored");
-        let str_ty_id = self.resolve_type(ori_types::Idx::STR);
+        // Embed spec string as a global constant
+        let spec_len = spec_str.len();
+        let spec_ptr = self.builder.build_global_string_ptr(&spec_str, "fmt.spec");
+        let spec_len_val = self.builder.const_i64(spec_len as i64);
 
-        match inner_ty {
-            ori_types::Idx::INT | ori_types::Idx::DURATION | ori_types::Idx::SIZE => {
-                let i64_ty = self.builder.i64_type();
-                let f =
-                    self.builder
-                        .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
-                self.builder.call(f, &[val], "fmt.int")
+        self.lower_format_dispatch(val, inner_ty, spec_ptr, spec_len_val, str_ty_id)
+    }
+
+    /// Dispatch to the appropriate `ori_format_*` runtime function based on type.
+    fn lower_format_dispatch(
+        &mut self,
+        val: ValueId,
+        ty: Idx,
+        spec_ptr: ValueId,
+        spec_len: ValueId,
+        str_ty_id: super::value_id::LLVMTypeId,
+    ) -> Option<ValueId> {
+        let i64_ty = self.builder.i64_type();
+        let ptr_ty = self.builder.ptr_type();
+
+        match ty {
+            Idx::INT | Idx::DURATION | Idx::SIZE => {
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_int",
+                    &[i64_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder.call(f, &[val, spec_ptr, spec_len], "fmt.int")
             }
-            ori_types::Idx::FLOAT => {
+            Idx::FLOAT => {
                 let f64_ty = self.builder.f64_type();
                 let f = self.builder.get_or_declare_function(
-                    "ori_str_from_float",
-                    &[f64_ty],
+                    "ori_format_float",
+                    &[f64_ty, ptr_ty, i64_ty],
                     str_ty_id,
                 );
-                self.builder.call(f, &[val], "fmt.float")
+                self.builder
+                    .call(f, &[val, spec_ptr, spec_len], "fmt.float")
             }
-            ori_types::Idx::BOOL => {
+            Idx::BOOL => {
                 let bool_ty = self.builder.bool_type();
                 let f = self.builder.get_or_declare_function(
-                    "ori_str_from_bool",
-                    &[bool_ty],
+                    "ori_format_bool",
+                    &[bool_ty, ptr_ty, i64_ty],
                     str_ty_id,
                 );
-                self.builder.call(f, &[val], "fmt.bool")
+                self.builder.call(f, &[val, spec_ptr, spec_len], "fmt.bool")
+            }
+            Idx::CHAR => {
+                let i32_ty = self.builder.i32_type();
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_char",
+                    &[i32_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder.call(f, &[val, spec_ptr, spec_len], "fmt.char")
+            }
+            Idx::STR => {
+                // String: pass by pointer (alloca + store pattern)
+                let str_alloca = self.builder.alloca(str_ty_id, "fmt.str.tmp");
+                self.builder.store(val, str_alloca);
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_str",
+                    &[ptr_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder
+                    .call(f, &[str_alloca, spec_ptr, spec_len], "fmt.str")
             }
             _ => {
-                // Fallback: coerce to int and format as int
-                let coerced = self.coerce_to_i64(val, inner_ty);
-                let i64_ty = self.builder.i64_type();
-                let f =
-                    self.builder
-                        .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
-                self.builder.call(f, &[coerced], "fmt.coerced")
+                // Fallback: coerce to int and format
+                tracing::debug!("FormatWith: unknown type, coercing to int");
+                let coerced = self.coerce_to_i64(val, ty);
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_int",
+                    &[i64_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder
+                    .call(f, &[coerced, spec_ptr, spec_len], "fmt.coerced")
             }
         }
     }

@@ -12,12 +12,18 @@
 use ori_ir::canon::CanId;
 use ori_ir::format_spec::{parse_format_spec, Align, FormatType, ParsedFormatSpec, Sign};
 use ori_ir::Name;
-use ori_patterns::{EvalError, EvalResult, Value};
+use ori_patterns::{EvalError, EvalResult, StructValue, Value};
+use rustc_hash::FxHashMap;
 
 use super::Interpreter;
 
 impl Interpreter<'_> {
     /// Evaluate a `FormatWith` expression: format `expr` using `spec`.
+    ///
+    /// Dispatch order:
+    /// 1. Built-in types (int, float, str, bool, char) — fast path, no struct construction
+    /// 2. User types with `Formattable` impl — construct `FormatSpec` value, call `format()`
+    /// 3. Fallback — `display_value()` + alignment (blanket impl behavior)
     pub(super) fn eval_format_with(
         &mut self,
         can_id: CanId,
@@ -36,6 +42,7 @@ impl Interpreter<'_> {
         })?;
 
         let result = match &value {
+            // Fast path: built-in type formatting
             Value::Int(n) => format_int(n.raw(), &parsed),
             Value::Float(f) => format_float(*f, &parsed),
             Value::Str(s) => format_str(s, &parsed),
@@ -44,8 +51,22 @@ impl Interpreter<'_> {
                 format_str(s, &parsed)
             }
             Value::Char(c) => format_str(&c.to_string(), &parsed),
-            // Fallback: use display_value() and apply alignment
+            // User types: check for Formattable impl, then blanket fallback
             _ => {
+                let format_method = self.interner.intern("format");
+                let type_name = self.get_value_type_name(&value);
+                let has_user_impl = self
+                    .user_method_registry
+                    .read()
+                    .has_method(type_name, format_method);
+
+                if has_user_impl {
+                    let spec_value = build_format_spec_value(&parsed, self.interner);
+                    let result = self.eval_method_call(value, format_method, vec![spec_value])?;
+                    return Ok(result);
+                }
+
+                // Blanket fallback: display_value() + alignment
                 let base = value.display_value();
                 apply_alignment(&base, &parsed)
             }
@@ -53,6 +74,89 @@ impl Interpreter<'_> {
 
         Ok(Value::string(result))
     }
+}
+
+/// Build a `Value::Struct(FormatSpec{...})` from a parsed format spec.
+///
+/// Converts the Rust-side `ParsedFormatSpec` to an Ori-side `FormatSpec` struct value
+/// for passing to user-defined `Formattable::format()` implementations.
+fn build_format_spec_value(parsed: &ParsedFormatSpec, interner: &ori_ir::StringInterner) -> Value {
+    let type_name = interner.intern("FormatSpec");
+    let fill_name = interner.intern("fill");
+    let align_name = interner.intern("align");
+    let sign_name = interner.intern("sign");
+    let width_name = interner.intern("width");
+    let precision_name = interner.intern("precision");
+    let format_type_name = interner.intern("format_type");
+
+    let fill_val = match parsed.fill {
+        Some(c) => Value::some(Value::Char(c)),
+        None => Value::None,
+    };
+
+    let align_val = match parsed.align {
+        Some(align) => {
+            let alignment_type = interner.intern("Alignment");
+            let variant = match align {
+                Align::Left => interner.intern("Left"),
+                Align::Center => interner.intern("Center"),
+                Align::Right => interner.intern("Right"),
+            };
+            Value::some(Value::variant(alignment_type, variant, vec![]))
+        }
+        None => Value::None,
+    };
+
+    let sign_val = match parsed.sign {
+        Some(sign) => {
+            let sign_type = interner.intern("Sign");
+            let variant = match sign {
+                Sign::Plus => interner.intern("Plus"),
+                Sign::Minus => interner.intern("Minus"),
+                Sign::Space => interner.intern("Space"),
+            };
+            Value::some(Value::variant(sign_type, variant, vec![]))
+        }
+        None => Value::None,
+    };
+
+    let width_val = match parsed.width {
+        Some(w) => Value::some(Value::int(i64::try_from(w).unwrap_or(i64::MAX))),
+        None => Value::None,
+    };
+
+    let precision_val = match parsed.precision {
+        Some(p) => Value::some(Value::int(i64::try_from(p).unwrap_or(i64::MAX))),
+        None => Value::None,
+    };
+
+    let format_type_val = match parsed.format_type {
+        Some(ft) => {
+            let ft_type = interner.intern("FormatType");
+            let variant = match ft {
+                FormatType::Binary => interner.intern("Binary"),
+                FormatType::Octal => interner.intern("Octal"),
+                FormatType::Hex => interner.intern("Hex"),
+                FormatType::HexUpper => interner.intern("HexUpper"),
+                FormatType::Exp => interner.intern("Exp"),
+                FormatType::ExpUpper => interner.intern("ExpUpper"),
+                FormatType::Fixed => interner.intern("Fixed"),
+                FormatType::Percent => interner.intern("Percent"),
+            };
+            Value::some(Value::variant(ft_type, variant, vec![]))
+        }
+        None => Value::None,
+    };
+
+    let mut fields = FxHashMap::default();
+    fields.insert(fill_name, fill_val);
+    fields.insert(align_name, align_val);
+    fields.insert(sign_name, sign_val);
+    fields.insert(width_name, width_val);
+    fields.insert(precision_name, precision_val);
+    fields.insert(format_type_name, format_type_val);
+
+    Value::Struct(StructValue::new(type_name, fields))
 }
 
 /// Format an integer value according to the spec.
