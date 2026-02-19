@@ -536,23 +536,12 @@ fn all_derived_traits_have_well_known_names() {
     for &trait_kind in DerivedTrait::ALL {
         let trait_name = interner.intern(trait_kind.trait_name());
 
-        // Map each DerivedTrait to its WellKnownNames field.
-        // This match is exhaustive — adding a new variant without
-        // a WellKnownNames field causes a compile error here.
-        let wk_name = match trait_kind {
-            DerivedTrait::Eq => wk.eq,
-            DerivedTrait::Clone => wk.clone_trait,
-            DerivedTrait::Hashable => wk.hashable,
-            DerivedTrait::Printable => wk.printable,
-            DerivedTrait::Debug => wk.debug_trait,
-            DerivedTrait::Default => wk.default_trait,
-            DerivedTrait::Comparable => wk.comparable,
-        };
-
-        assert_eq!(
-            trait_name,
-            wk_name,
-            "DerivedTrait::{:?} trait_name '{}' doesn't match WellKnownNames field",
+        // Verify each DerivedTrait's name is registered in the trait satisfaction
+        // bitfield. Adding a DerivedTrait without a trait_bits entry means it
+        // won't participate in satisfaction checks.
+        assert!(
+            wk.has_trait_bit(trait_name),
+            "DerivedTrait::{:?} trait_name '{}' has no bit in trait satisfaction system",
             trait_kind,
             trait_kind.trait_name()
         );

@@ -963,15 +963,15 @@ fn well_known_generic_types_consistent() {
     };
 
     // 1. Verify the single source of truth contains all types.
-    let well_known_path = workspace.join("ori_types/src/check/well_known.rs");
+    let well_known_path = workspace.join("ori_types/src/check/well_known/mod.rs");
     let well_known_src = std::fs::read_to_string(&well_known_path)
-        .unwrap_or_else(|e| panic!("failed to read well_known.rs: {e}"));
+        .unwrap_or_else(|e| panic!("failed to read well_known/mod.rs: {e}"));
 
     for &ty in WELL_KNOWN_GENERIC_TYPES {
         let pattern = format!("\"{ty}\"");
         assert!(
             well_known_src.contains(&pattern),
-            "Well-known generic type `{ty}` missing from check/well_known.rs\n\
+            "Well-known generic type `{ty}` missing from check/well_known/mod.rs\n\
              Add a match arm for `(\"{ty}\", N)` in resolve_well_known_generic()."
         );
     }
