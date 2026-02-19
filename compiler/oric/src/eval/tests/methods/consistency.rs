@@ -839,13 +839,13 @@ fn read_workspace_file(rel_path: &str) -> String {
 /// Scans the source file for the string array in `register_format_type_type()`.
 #[test]
 fn format_type_variants_synced_with_types_registration() {
-    let src = read_workspace_file("ori_types/src/check/registration/mod.rs");
+    let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
     for name in ir_format_type_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
             "FormatType variant `{name}` missing from ori_types registration \
-             (register_format_type_type in check/registration/mod.rs)"
+             (register_format_type_type in check/registration/builtin_types.rs)"
         );
     }
 }
@@ -871,13 +871,13 @@ fn format_type_variants_synced_with_eval_registration() {
 /// `ori_ir::Align` variants.
 #[test]
 fn alignment_variants_synced_with_types_registration() {
-    let src = read_workspace_file("ori_types/src/check/registration/mod.rs");
+    let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
     for name in ir_align_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
             "Alignment variant `{name}` missing from ori_types registration \
-             (register_alignment_type in check/registration/mod.rs)"
+             (register_alignment_type in check/registration/builtin_types.rs)"
         );
     }
 }
@@ -901,13 +901,13 @@ fn alignment_variants_synced_with_eval_registration() {
 /// `ori_ir::Sign` variants.
 #[test]
 fn sign_variants_synced_with_types_registration() {
-    let src = read_workspace_file("ori_types/src/check/registration/mod.rs");
+    let src = read_workspace_file("ori_types/src/check/registration/builtin_types.rs");
     for name in ir_sign_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
             "Sign variant `{name}` missing from ori_types registration \
-             (register_sign_type in check/registration/mod.rs)"
+             (register_sign_type in check/registration/builtin_types.rs)"
         );
     }
 }
@@ -978,7 +978,10 @@ fn well_known_generic_types_consistent() {
 
     // 2. Verify all three consumers delegate to the shared helper.
     let consumers: &[(&str, &str)] = &[
-        ("registration", "ori_types/src/check/registration/mod.rs"),
+        (
+            "registration",
+            "ori_types/src/check/registration/type_resolution.rs",
+        ),
         ("signatures", "ori_types/src/check/signatures/mod.rs"),
         (
             "type_resolution",

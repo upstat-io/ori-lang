@@ -42,7 +42,7 @@ Tag, Idx, Pool, trait checking
 ---
 
 ### Section 03: Registration Module Split
-**File:** `section-03-registration-split.md` | **Status:** Not Started
+**File:** `section-03-registration-split.md` | **Status:** Complete
 
 ```
 registration, mod.rs, 1761 lines, file split, submodule
