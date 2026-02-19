@@ -127,6 +127,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Ordering", "is_less_or_equal"),
     ("Ordering", "reverse"),
     ("Ordering", "then"),
+    ("Ordering", "then_with"),
     ("Ordering", "to_str"),
     // Result
     ("Result", "and_then"),
@@ -159,6 +160,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Set", "hash"),
     ("Set", "insert"),
     ("Set", "intersection"),
+    ("Set", "into"),
     ("Set", "is_empty"),
     ("Set", "iter"),
     ("Set", "len"),
@@ -228,6 +230,15 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("char", "to_lowercase"),
     ("char", "to_str"),
     ("char", "to_uppercase"),
+    // error - Traceable trait and accessors
+    ("error", "clone"),
+    ("error", "debug"),
+    ("error", "has_trace"),
+    ("error", "message"),
+    ("error", "to_str"),
+    ("error", "trace"),
+    ("error", "trace_entries"),
+    ("error", "with_trace"),
     // float
     ("float", "abs"),
     ("float", "acos"),
@@ -274,6 +285,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("int", "debug"),
     ("int", "equals"),
     ("int", "hash"),
+    ("int", "into"),
     ("int", "is_even"),
     ("int", "is_negative"),
     ("int", "is_odd"),
@@ -376,6 +388,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "escape"),
     ("str", "hash"),
     ("str", "index_of"),
+    ("str", "into"),
     ("str", "is_empty"),
     ("str", "iter"),
     ("str", "last_index_of"),
@@ -434,6 +447,7 @@ pub(crate) fn resolve_builtin_method(
             resolve_iterator_method(engine, receiver_ty, method_name)
         }
         Tag::Named | Tag::Applied => resolve_named_type_method(engine, receiver_ty, method_name),
+        Tag::Error => resolve_error_method(engine, method_name),
         Tag::Bool => resolve_bool_method(method_name),
         Tag::Byte => resolve_byte_method(method_name),
         Tag::Char => resolve_char_method(method_name),
@@ -561,7 +575,7 @@ fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
         "insert" | "remove" | "union" | "intersection" | "difference" | "clone" => {
             Some(receiver_ty)
         }
-        "to_list" => Some(engine.pool_mut().list(elem)),
+        "to_list" | "into" => Some(engine.pool_mut().list(elem)),
         "debug" => Some(Idx::STR),
         _ => None,
     }
@@ -569,6 +583,10 @@ fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
 
 fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx> {
     match method {
+        "into" => {
+            // str.into() -> Error (wraps string as error message)
+            Some(Idx::ERROR)
+        }
         "len" | "byte_len" | "hash" => Some(Idx::INT),
         "iter" => Some(engine.pool_mut().double_ended_iterator(Idx::CHAR)),
         "is_empty" | "starts_with" | "ends_with" | "contains" | "equals" => Some(Idx::BOOL),
@@ -590,7 +608,7 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
 fn resolve_int_method(method: &str) -> Option<Idx> {
     match method {
         "abs" | "min" | "max" | "clamp" | "pow" | "signum" | "clone" | "hash" => Some(Idx::INT),
-        "to_float" => Some(Idx::FLOAT),
+        "to_float" | "into" => Some(Idx::FLOAT),
         "to_str" | "debug" => Some(Idx::STR),
         "to_byte" => Some(Idx::BYTE),
         "is_positive" | "is_negative" | "is_zero" | "is_even" | "is_odd" | "equals" => {
@@ -718,9 +736,19 @@ fn resolve_ordering_method(method_name: &str) -> Option<Idx> {
         | "is_less_or_equal"
         | "is_greater_or_equal"
         | "equals" => Some(Idx::BOOL),
-        "reverse" | "clone" | "compare" | "then" => Some(Idx::ORDERING),
+        "reverse" | "clone" | "compare" | "then" | "then_with" => Some(Idx::ORDERING),
         "hash" => Some(Idx::INT),
         "to_str" | "debug" => Some(Idx::STR),
+        _ => None,
+    }
+}
+
+fn resolve_error_method(engine: &mut InferEngine<'_>, method_name: &str) -> Option<Idx> {
+    match method_name {
+        "message" | "to_str" | "debug" | "trace" => Some(Idx::STR),
+        "has_trace" => Some(Idx::BOOL),
+        "clone" | "with_trace" => Some(Idx::ERROR),
+        "trace_entries" => Some(engine.pool_mut().fresh_var()),
         _ => None,
     }
 }

@@ -348,10 +348,12 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     .call(f, &[str_alloca, spec_ptr, spec_len], "fmt.str")
             }
             _ => {
-                // User Formattable impls are not yet supported in AOT codegen.
-                // The evaluator dispatches to user `format()` methods, but LLVM
-                // codegen cannot yet emit general trait method calls. Coercing
-                // to i64 would produce silently wrong output, so record an error.
+                // GAP(formattable-aot): User Formattable impls require general
+                // trait method call codegen (§3.16). The evaluator dispatches to
+                // user `format()` methods via `eval_method_call`, but LLVM codegen
+                // cannot yet emit general trait method calls. Emitting placeholder
+                // IR + `record_codegen_error()` prevents binary emission, which is
+                // correct — silently wrong output would be worse than a build error.
                 tracing::warn!(
                     "FormatWith: user Formattable impls not yet supported in AOT, \
                      falling back to int coercion for type {:?}",

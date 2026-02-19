@@ -93,6 +93,11 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 let other = self.lower(*arg_ids.first()?)?;
                 Some(self.builder.icmp_eq(recv, other, "int.eq"))
             }
+            // Into<float>: lossless widening via sitofp
+            "into" | "to_float" => {
+                let f64_ty = self.builder.f64_type();
+                Some(self.builder.si_to_fp(recv, f64_ty, "int.into"))
+            }
             _ => None,
         }
     }
@@ -1068,6 +1073,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 self.emit_set_equals(recv, other, element)
             }
             "hash" => self.emit_set_hash(recv, element),
+            // Into<[T]>: Set and List share layout {i64 len, i64 cap, ptr data}
+            "into" | "to_list" => Some(recv),
             _ => None,
         }
     }

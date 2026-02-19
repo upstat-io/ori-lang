@@ -222,6 +222,20 @@ pub trait Index<Key, Value> {
 }
 
 // =============================================================================
+// Conversion Traits
+// =============================================================================
+//
+// Explicit, lossless type conversion via `.into()`.
+// Distinct from `as`/`as?` (built-in primitive casts).
+// No blanket identity impl. No auto-chaining.
+// Standard impls: str -> Error, int -> float, Set<T> -> [T]
+
+// Explicit type conversion
+pub trait Into<T> {
+    @into (self) -> T
+}
+
+// =============================================================================
 // Capability Traits
 // =============================================================================
 //

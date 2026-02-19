@@ -539,7 +539,16 @@ pub(crate) fn infer_field(
         // (following V1 pattern: the actual field type will be resolved later)
         Tag::Var => engine.fresh_var(),
 
-        // Error, or unsupported types for field access — return ERROR silently.
+        // Error type has field-like accessors (spec §6: Error = { message: str })
+        Tag::Error => {
+            let field_str = engine.lookup_name(field).unwrap_or("");
+            match field_str {
+                "message" => Idx::STR,
+                _ => Idx::ERROR,
+            }
+        }
+
+        // Unsupported types for field access — return ERROR silently.
         // Don't report errors here since module namespace access
         // (e.g., `Counter.new`) and other patterns may reach this point
         // and would require method/namespace resolution to diagnose properly.

@@ -2191,6 +2191,7 @@ fn typeck_builtin_methods_all_resolve() {
             "Iterator" => (Tag::Iterator, iterator_ty),
             "DoubleEndedIterator" => (Tag::DoubleEndedIterator, dei_ty),
             "Channel" => (Tag::Channel, channel_ty),
+            "error" => (Tag::Error, Idx::ERROR),
             "tuple" => (Tag::Tuple, tuple_ty),
             other => panic!("unknown type name in TYPECK_BUILTIN_METHODS: {other:?}"),
         };
@@ -2804,4 +2805,171 @@ fn well_known_trait_satisfaction_sync() {
             );
         }
     }
+}
+
+// ========================================================================
+// Printable Trait Satisfaction — E2038 coverage
+// ========================================================================
+
+/// Verify Printable trait satisfaction for all types relevant to string
+/// interpolation. Primitives with Printable should pass; void should not.
+/// Compound types (collections, wrappers, tuples) should all satisfy Printable.
+#[test]
+fn printable_satisfaction_primitives_and_compounds() {
+    use crate::check::WellKnownNames;
+
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+
+    let wk = WellKnownNames::new(&interner);
+    let printable = wk.printable;
+
+    // Primitives WITH Printable
+    let printable_primitives = [
+        (Idx::INT, "int"),
+        (Idx::FLOAT, "float"),
+        (Idx::BOOL, "bool"),
+        (Idx::STR, "str"),
+        (Idx::CHAR, "char"),
+        (Idx::BYTE, "byte"),
+        (Idx::DURATION, "Duration"),
+        (Idx::SIZE, "Size"),
+        (Idx::ORDERING, "Ordering"),
+    ];
+    for &(ty, name) in &printable_primitives {
+        assert!(
+            wk.type_satisfies_trait(ty, printable, &pool),
+            "{name} should satisfy Printable"
+        );
+    }
+
+    // Primitives WITHOUT Printable
+    assert!(
+        !wk.type_satisfies_trait(Idx::UNIT, printable, &pool),
+        "void should NOT satisfy Printable"
+    );
+    assert!(
+        !wk.type_satisfies_trait(Idx::NEVER, printable, &pool),
+        "Never should NOT satisfy Printable (via trait check)"
+    );
+
+    // Compound types WITH Printable
+    let list_ty = pool.list(Idx::INT);
+    let map_ty = pool.map(Idx::STR, Idx::INT);
+    let set_ty = pool.set(Idx::INT);
+    let opt_ty = pool.option(Idx::INT);
+    let res_ty = pool.result(Idx::INT, Idx::STR);
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+    let range_ty = pool.range(Idx::INT);
+
+    let printable_compounds = [
+        (list_ty, "[int]"),
+        (map_ty, "{str: int}"),
+        (set_ty, "Set<int>"),
+        (opt_ty, "Option<int>"),
+        (res_ty, "Result<int, str>"),
+        (tuple_ty, "(int, str)"),
+        (range_ty, "Range<int>"),
+    ];
+    for &(ty, name) in &printable_compounds {
+        assert!(
+            wk.type_satisfies_trait(ty, printable, &pool),
+            "{name} should satisfy Printable (for interpolation)"
+        );
+    }
+}
+
+// ========================================================================
+// Into Trait — Builtin Method Resolution (§3.17)
+// ========================================================================
+
+/// `int.into()` resolves to `float` via `resolve_builtin_method`.
+#[test]
+fn into_int_resolves_to_float() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, Idx::INT, Tag::Int, "into");
+    assert_eq!(
+        result,
+        Some(Idx::FLOAT),
+        "int.into() should return float (numeric widening)"
+    );
+}
+
+/// `str.into()` resolves to `Error` — wraps string as error message.
+#[test]
+fn into_str_resolves_to_error() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, Idx::STR, Tag::Str, "into");
+    assert_eq!(
+        result,
+        Some(Idx::ERROR),
+        "str.into() should return Error (string wraps as error message)"
+    );
+}
+
+/// `Set<int>.into()` resolves to `[int]` — set converts to list.
+#[test]
+fn into_set_resolves_to_list() {
+    let mut pool = Pool::new();
+    let set_ty = pool.set(Idx::INT);
+    let expected_list = pool.list(Idx::INT);
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, set_ty, Tag::Set, "into");
+    assert_eq!(
+        result,
+        Some(expected_list),
+        "Set<int>.into() should return [int]"
+    );
+}
+
+/// Set's `.into()` preserves the element type parameter.
+#[test]
+fn into_set_preserves_element_type() {
+    let mut pool = Pool::new();
+    let set_ty = pool.set(Idx::STR);
+    let expected_list = pool.list(Idx::STR);
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, set_ty, Tag::Set, "into");
+    assert_eq!(
+        result,
+        Some(expected_list),
+        "Set<str>.into() should return [str], preserving element type"
+    );
+}
+
+/// `Ordering.then_with()` resolves to `Ordering` via `resolve_builtin_method`.
+#[test]
+fn then_with_ordering_resolves_to_ordering() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, Idx::ORDERING, Tag::Ordering, "then_with");
+    assert_eq!(
+        result,
+        Some(Idx::ORDERING),
+        "Ordering.then_with() should return Ordering"
+    );
+}
+
+/// Named (user-defined) types do NOT resolve `.into()` via builtins —
+/// custom Into impls are dispatched through the TraitRegistry.
+#[test]
+fn into_not_on_named_types_via_builtins() {
+    let mut pool = Pool::new();
+    let interner = StringInterner::new();
+    let user_type_name = interner.intern("Celsius");
+    let user_ty = pool.named(user_type_name);
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, user_ty, Tag::Named, "into");
+    assert_eq!(
+        result, None,
+        "Named types should not resolve .into() via builtins (uses TraitRegistry)"
+    );
 }

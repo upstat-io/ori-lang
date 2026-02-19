@@ -82,6 +82,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Set", "debug"),
     ("Set", "equals"),
     ("Set", "hash"),
+    ("Set", "into"),
     ("Set", "iter"),
     ("Set", "len"),
     // Size - operators and traits
@@ -161,6 +162,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("int", "equals"),
     ("int", "floor_div"),
     ("int", "hash"),
+    ("int", "into"),
     ("int", "mul"),
     ("int", "neg"),
     ("int", "rem"),
@@ -208,6 +210,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "equals"),
     ("str", "escape"),
     ("str", "hash"),
+    ("str", "into"),
     ("str", "is_empty"),
     ("str", "iter"),
     ("str", "len"),

@@ -64,7 +64,7 @@ sections:
     status: complete
   - id: "3.17"
     title: Into Trait
-    status: not-started
+    status: in-progress
   - id: "3.18"
     title: Ordering Type
     status: in-progress
@@ -447,7 +447,7 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Fixed**: Derive methods wired into LLVM codegen — synthetic IR functions for Eq, Clone, Hashable, Printable [done] (2026-02-13)
 - [x] Operator traits (3.21): User-defined operator dispatch complete — type checker desugaring, evaluator dispatch, LLVM codegen, error messages [done] (2026-02-15)
   - [x] Remaining: spec and CLAUDE.md updates verified complete (2026-02-15). Derive for newtypes tracked as optional in 3.21 [done] (2026-02-18)
-- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). §3.14 Comparable/Hashable complete — all phases for list/tuple/option/result/primitives + derive(Comparable/Hashable) + LLVM codegen (2026-02-18). §3.16 Formattable complete — FormatSpec types, user dispatch, LLVM codegen + str.concat, 17 AOT tests (2026-02-18). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, 3.9 Debug LLVM, 3.13 Traceable LLVM, Into — not started (3.7 Clone complete [done])
+- [ ] Proposals (3.8-3.17): Iterator Phase 1-5 complete + repeat() + for/yield desugaring + prelude registration + Range<float> rejection + spec verification [in-progress] (2026-02-16). Default trait complete with E2028 sum type rejection (2026-02-17). §3.14 Comparable/Hashable complete — all phases for list/tuple/option/result/primitives + derive(Comparable/Hashable) + LLVM codegen (2026-02-18). §3.16 Formattable complete — FormatSpec types, user dispatch, LLVM codegen + str.concat, 17 AOT tests (2026-02-18). §3.13 error messages complete — E2038 Missing Printable for interpolation (2026-02-18). Remaining: LLVM iterator codegen, 3.8.1 performance/semantics, 3.9 Debug LLVM, 3.13 Traceable LLVM, Into — not started (3.7 Clone complete [done])
 
 **Exit Criteria**: Core trait-based code compiles and runs in evaluator [done]. LLVM codegen for built-in and user methods works [done]. User-defined operator traits complete [done] (2026-02-15). Formal trait proposals (3.8-3.17) pending.
 
@@ -962,8 +962,8 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [ ] **LLVM Support**: LLVM codegen for Traceable Result delegation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_method_tests.rs` — Traceable Result codegen
 
-- [ ] **Implement**: Error messages (E1040)
-  - [ ] E1040: Missing Printable for string interpolation
+- [x] **Implement**: Error messages (E1040→E2038, E1042→E2028) (2026-02-18)
+  - [x] E2038: Missing Printable for string interpolation (was E1040) — `TypeErrorKind::MissingPrintable`, check in template literal inference, `type_satisfies_trait` + `WellKnownNames` updated with Printable for compound types; compile-fail test `tests/compile-fail/interpolation_missing_printable.ori`, Rust unit test `printable_satisfaction_primitives_and_compounds` (2026-02-18)
   - [x] E2028: Cannot derive Default for sum type (was E1042) — implemented with TypeErrorKind::CannotDeriveDefaultForSumType (2026-02-17)
 
 - [x] **Update Spec**: `07-properties-of-types.md` — add Printable, Default, Traceable sections (verified 2026-02-17: already present)
@@ -1258,6 +1258,7 @@ Formalizes the `Formattable` trait and format specification syntax for customize
 - [x] **Implement**: User-defined Formattable with FormatSpec dispatch (2026-02-18)
   - [x] Evaluator constructs `Value::Struct(FormatSpec{...})` for user-type dispatch
   - [x] **Ori Tests**: `tests/spec/traits/formattable/user_impl.ori`
+  - [ ] **GAP(formattable-aot)**: LLVM codegen for user `Formattable::format()` impls requires general trait method call codegen. Currently blocked with `record_codegen_error()` at `lower_constructs.rs`. Evaluator works correctly.
 
 - [x] **Implement**: Edge cases (bool, char, empty spec, negative hex, zero precision) (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/formattable/edge_cases.ori`
@@ -1284,55 +1285,63 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
 
 ### Implementation
 
-- [ ] **Implement**: `Into<T>` trait definition in type system
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — into trait parsing/bounds
-  - [ ] **Ori Tests**: `tests/spec/traits/into/definition.ori`
+- [x] **Implement**: `Into<T>` trait definition in type system
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_not_on_named_types_via_builtins` (trait dispatch path)
+  - [x] **Ori Tests**: `tests/spec/traits/into/definition.ori`
 
-- [ ] **Implement**: Into implementation for str→Error
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — str to error conversion
-  - [ ] **Ori Tests**: `tests/spec/traits/into/str_to_error.ori`
-  - [ ] **LLVM Support**: LLVM codegen for str→Error conversion
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/into_tests.rs`
+- [x] **Implement**: Into implementation for str→Error
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_str_resolves_to_error`
+  - [x] **Ori Tests**: `tests/spec/traits/into/str_to_error.ori`
+  - [ ] **LLVM Support**: LLVM codegen for str→Error conversion <!-- blocked: Error type has no LLVM representation (TypeInfo::Error is a sentinel) -->
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — str→Error AOT
 
-- [ ] **Implement**: Into implementation for int→float (numeric widening)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — int to float conversion
-  - [ ] **Ori Tests**: `tests/spec/traits/into/int_to_float.ori`
-  - [ ] **LLVM Support**: LLVM codegen for int→float conversion
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/into_tests.rs`
+- [x] **Implement**: Into implementation for int→float (numeric widening)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_int_resolves_to_float`
+  - [x] **Ori Tests**: `tests/spec/traits/into/int_to_float.ori`
+  - [x] **LLVM Support**: LLVM codegen for int→float conversion (sitofp)
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 3 AOT tests (basic, negative, zero)
 
-- [ ] **Implement**: Into implementation for Set<T>→[T] (with T: Eq + Hashable constraint)
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — set to list conversion
-  - [ ] **Ori Tests**: `tests/spec/traits/into/set_to_list.ori`
-  - [ ] **LLVM Support**: LLVM codegen for Set→List conversion
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/into_tests.rs`
+- [x] **Implement**: Into implementation for Set<T>→[T] (with T: Eq + Hashable constraint)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_set_resolves_to_list`, `into_set_preserves_element_type`
+  - [x] **Ori Tests**: `tests/spec/traits/into/set_to_list.ori`
+  - [x] **LLVM Support**: LLVM codegen for Set→List conversion (identity — same layout)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — Set→List AOT <!-- blocked: Set literal construction not yet in AOT -->
 
-- [ ] **Implement**: Custom Into implementations for user types
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — custom into impl
-  - [ ] **Ori Tests**: `tests/spec/traits/into/custom_impl.ori`
+- [x] **Implement**: Custom Into implementations for user types
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_not_on_named_types_via_builtins` (verifies trait registry dispatch path)
+  - [x] **Ori Tests**: `tests/spec/traits/into/definition.ori` (Celsius→str, Wrapper→int)
 
-- [ ] **Implement**: No blanket identity (no impl<T> Into<T> for T)
-  - [ ] **Ori Tests**: `tests/compile-fail/into_no_identity.ori`
+- [x] **Implement**: No blanket identity (no impl<T> Into<T> for T)
+  - [x] **Ori Tests**: `tests/compile-fail/into_no_identity.ori`
 
-- [ ] **Implement**: No automatic conversion chaining
-  - [ ] **Ori Tests**: `tests/compile-fail/into_no_chaining.ori`
+- [x] **Implement**: No automatic conversion chaining
+  - [x] **Ori Tests**: `tests/compile-fail/into_no_chaining.ori`
 
-- [ ] **Implement**: Orphan rule enforcement for Into implementations
+- [ ] **Implement**: Orphan rule enforcement for Into implementations <!-- blocked-by:4 -->
   - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — orphan rule tests
   - [ ] **Ori Compile-Fail Tests**: `tests/compile-fail/into_orphan_rule.ori`
 
-- [ ] **Implement**: Error messages (E0960-E0961)
-  - [ ] E0960: Type does not implement Into<T>
-  - [ ] E0961: Multiple Into implementations apply (ambiguous)
+- [x] **Implement**: Error messages (E2036-E2037)
+  - [x] E2036: Type does not implement Into<T>
+  - [x] E2037: Multiple Into implementations apply (ambiguous)
 
-- [ ] **Update Spec**: `07-properties-of-types.md` — add Into trait section
-- [ ] **Update Spec**: `12-modules.md` — verify Into in prelude traits list
-- [ ] **Update**: `CLAUDE.md` — add Into documentation to prelude
+- [x] **Update Spec**: `07-properties-of-types.md` — Into trait section (already present, fixed error codes E0960→E2036, E0961→E2037)
+- [x] **Update Spec**: `12-modules.md` — Into already in prelude traits list (verified)
+- [x] **Update**: `.claude/rules/ori-syntax.md` — Into already documented in prelude traits (verified)
+
+<!-- note: str.into() returns Idx::ERROR directly (pre-interned primitive) rather than
+     pool.named("Error"). The WellKnownNames.error_type field was removed as unused.
+     If a future feature needs to resolve "Error" by name at type-check time (e.g. for
+     user-visible error messages referencing the Error type), re-add it to well_known.rs.
+     Also: Error.message field access was added to both type checker (infer_field in
+     structs.rs) and evaluator (eval_field_access in expr.rs) — these are the only
+     field-style accessors on Error; if more are added (e.g. .source), update both. -->
 
 ---
 
 ## 3.18 Ordering Type
 
-**STATUS: Partial — Core methods + `then` complete, `then_with` deferred (needs closure calling in method dispatch)**
+**STATUS: Partial — All methods complete (`then`, `then_with`). Only `Ordering.default()` deferred (needs static method support).**
 
 **Proposal**: `proposals/approved/ordering-type-proposal.md`
 
@@ -1369,9 +1378,13 @@ Formalizes the `Ordering` type that represents comparison results. Defines the t
   - [x] **Ori Tests**: `tests/spec/types/ordering/methods.ori` — 5 tests (equal chains, non-equal keeps self, chaining)
   - [x] **Rust Tests**: `ori_eval/src/tests/methods_tests.rs` — `then_equal_chains`, `then_non_equal_keeps_self`
 
-- [ ] **Implement**: `then_with` method for lazy lexicographic chaining
-  - Deferred: requires closure-calling capability in method dispatch (`DispatchCtx` only has names/interner)
-  - [ ] **Ori Tests**: `tests/spec/types/ordering/then_with.ori`
+- [x] **Implement**: `then_with` method for lazy lexicographic chaining (2026-02-18)
+  - Dispatched via `CollectionMethodResolver` → `OrderingThenWith` (closure needs interpreter access)
+  - [x] **Type checker**: `resolve_ordering_method()` — returns `Idx::ORDERING`
+  - [x] **Collection resolver**: `CollectionMethod::OrderingThenWith` variant + resolution on `Value::Ordering`
+  - [x] **Method dispatch**: `eval_ordering_then_with()` — Equal calls closure, non-Equal returns self
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `then_with_ordering_resolves_to_ordering`
+  - [x] **Ori Tests**: `tests/spec/types/ordering/then_with.ori` — 9 tests (equal/non-equal, laziness, chaining)
 
 - [x] **Implement**: Trait methods for Ordering (Clone, Printable, Hashable) [done] (2026-02-10)
   - [x] `clone()` → returns self — verified in ordering/methods.ori

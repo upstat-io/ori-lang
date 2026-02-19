@@ -1,0 +1,45 @@
+// Spec: §3.17 Into Trait
+// Tests for int -> float built-in Into conversion
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Basic int -> float conversion
+// =============================================================================
+
+@int_to_float_basic () -> float = run(
+    let n: int = 42,
+    n.into()
+)
+
+@test_int_to_float_basic tests @int_to_float_basic () -> void =
+    assert_eq(actual: int_to_float_basic(), expected: 42.0)
+
+@int_to_float_zero () -> float = run(
+    let n: int = 0,
+    n.into()
+)
+
+@test_int_to_float_zero tests @int_to_float_zero () -> void =
+    assert_eq(actual: int_to_float_zero(), expected: 0.0)
+
+@int_to_float_negative () -> float = run(
+    let n: int = -100,
+    n.into()
+)
+
+@test_int_to_float_negative tests @int_to_float_negative () -> void =
+    assert_eq(actual: int_to_float_negative(), expected: -100.0)
+
+// =============================================================================
+// Into returns correct type (verified by type annotation)
+// =============================================================================
+
+@int_to_float_typed () -> float = run(
+    let n = 7,
+    let f: float = n.into(),
+    f
+)
+
+@test_int_to_float_typed tests @int_to_float_typed () -> void =
+    assert_eq(actual: int_to_float_typed(), expected: 7.0)

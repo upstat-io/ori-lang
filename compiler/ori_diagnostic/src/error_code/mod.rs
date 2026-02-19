@@ -155,6 +155,12 @@ pub enum ErrorCode {
     E2034,
     /// Format type not supported for expression type
     E2035,
+    /// Type does not implement `Into<T>` (no conversion available)
+    E2036,
+    /// Multiple `Into` implementations apply, ambiguous conversion
+    E2037,
+    /// Type does not implement `Printable` (cannot be used in string interpolation)
+    E2038,
 
     // Pattern Errors (E3xxx)
     /// Unknown pattern
@@ -341,6 +347,9 @@ impl ErrorCode {
         ErrorCode::E2033,
         ErrorCode::E2034,
         ErrorCode::E2035,
+        ErrorCode::E2036,
+        ErrorCode::E2037,
+        ErrorCode::E2038,
         // Pattern
         ErrorCode::E3001,
         ErrorCode::E3002,
@@ -472,6 +481,9 @@ impl ErrorCode {
             ErrorCode::E2033 => "E2033",
             ErrorCode::E2034 => "E2034",
             ErrorCode::E2035 => "E2035",
+            ErrorCode::E2036 => "E2036",
+            ErrorCode::E2037 => "E2037",
+            ErrorCode::E2038 => "E2038",
             // Pattern
             ErrorCode::E3001 => "E3001",
             ErrorCode::E3002 => "E3002",
@@ -612,6 +624,9 @@ impl ErrorCode {
                 | ErrorCode::E2033
                 | ErrorCode::E2034
                 | ErrorCode::E2035
+                | ErrorCode::E2036
+                | ErrorCode::E2037
+                | ErrorCode::E2038
         )
     }
 
