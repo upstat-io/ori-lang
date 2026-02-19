@@ -228,6 +228,36 @@ impl Interpreter<'_> {
             | CollectionMethod::IterCollect
             | CollectionMethod::IterCollectSet
             | CollectionMethod::IterJoin => self.eval_iterator_method(receiver, method, args),
+
+            // Ordering — lazy lexicographic chaining
+            CollectionMethod::OrderingThenWith => self.eval_ordering_then_with(receiver, args),
+        }
+    }
+
+    // Ordering Methods
+
+    /// Lazy lexicographic chaining: `ordering.then_with(() -> compare(...))`.
+    ///
+    /// If `self` is `Equal`, evaluates the closure `f` and returns its result.
+    /// Otherwise returns `self` without evaluating `f` (lazy semantics).
+    fn eval_ordering_then_with(&mut self, receiver: Value, args: &[Value]) -> EvalResult {
+        use ori_patterns::{EvalError, OrderingValue};
+
+        let Value::Ordering(ord) = receiver else {
+            unreachable!("OrderingThenWith dispatched on non-Ordering receiver");
+        };
+
+        if args.len() != 1 {
+            return Err(EvalError::new(format!(
+                "then_with expects 1 argument, got {}",
+                args.len()
+            ))
+            .into());
+        }
+
+        match ord {
+            OrderingValue::Equal => self.eval_call(&args[0], &[]),
+            _ => Ok(Value::Ordering(ord)),
         }
     }
 

@@ -529,9 +529,16 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
 /// Tuple, Set, and Range — types that aren't simple Idx constants but can be
 /// identified by their Pool tag.
 pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bool {
-    const COLLECTION_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Len", "IsEmpty"];
-    const WRAPPER_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Default"];
-    const RESULT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable"];
+    const COLLECTION_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Printable", "Len", "IsEmpty"];
+    const WRAPPER_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Printable",
+        "Default",
+    ];
+    const RESULT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
 
     // First check primitives (no pool access needed)
     if primitive_satisfies_trait(ty, trait_name) {
@@ -550,7 +557,7 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
         Tag::Option => WRAPPER_TRAITS.contains(&trait_name),
         Tag::Result => RESULT_TRAITS.contains(&trait_name),
         Tag::Tuple => RESULT_TRAITS.contains(&trait_name) || trait_name == "Len",
-        Tag::Range => matches!(trait_name, "Len" | "Iterable"),
+        Tag::Range => matches!(trait_name, "Printable" | "Len" | "Iterable"),
         Tag::Str => trait_name == "Iterable",
         Tag::DoubleEndedIterator => trait_name == "Iterator" || trait_name == "DoubleEndedIterator",
         Tag::Iterator => trait_name == "Iterator",
@@ -609,6 +616,10 @@ pub(crate) fn infer_method_call(
     for &arg_id in arena.get_expr_list(args) {
         infer_expr(engine, arena, arg_id);
     }
+
+    // Emit E2036 for unresolved `.into()` calls
+    emit_into_not_implemented(engine, resolved, method, span);
+
     Idx::ERROR
 }
 
@@ -656,6 +667,10 @@ pub(crate) fn infer_method_call_named(
     for arg in arena.get_call_args(args) {
         infer_expr(engine, arena, arg.value);
     }
+
+    // Emit E2036 for unresolved `.into()` calls
+    emit_into_not_implemented(engine, resolved, method, span);
+
     Idx::ERROR
 }
 
@@ -971,4 +986,26 @@ fn resolve_impl_signature(
         params: method_params,
         ret,
     }))
+}
+
+/// Emit E2036 when `.into()` is called on a type with no Into implementation.
+///
+/// Only fires when the method name matches the well-known `into` name.
+/// Non-into methods fall through silently (handled by other error paths).
+fn emit_into_not_implemented(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: Name,
+    span: Span,
+) {
+    let is_into = engine
+        .well_known()
+        .map_or(false, |wk| method == wk.into_method);
+    if is_into {
+        engine.push_error(TypeCheckError::into_not_implemented(
+            span,
+            receiver_ty,
+            None,
+        ));
+    }
 }

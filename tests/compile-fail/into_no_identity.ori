@@ -1,0 +1,21 @@
+// Spec: §3.17 Into Trait — No blanket identity conversion
+// There is no impl<T> Into<T> for T. A type does not automatically
+// convert to itself via .into().
+
+type Point = { x: int, y: int }
+
+// Point has no Into<Point> impl — .into() should fail with E2036
+#[compile_fail("does not implement `Into`")]
+@test_no_identity () -> void = run(
+    let p = Point { x: 1, y: 2 },
+    let _: Point = p.into(),
+    ()
+)
+
+// bool has no Into impl at all
+#[compile_fail("does not implement `Into`")]
+@test_bool_no_into () -> void = run(
+    let b = true,
+    let _: bool = b.into(),
+    ()
+)

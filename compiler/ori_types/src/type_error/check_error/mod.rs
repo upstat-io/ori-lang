@@ -568,6 +568,32 @@ impl TypeCheckError {
                     format_type(*expr_type)
                 )
             }
+            TypeErrorKind::IntoNotImplemented { ty, target } => {
+                if let Some(t) = target {
+                    format!(
+                        "type `{}` does not implement `Into<{}>`",
+                        format_type(*ty),
+                        format_type(*t)
+                    )
+                } else {
+                    format!(
+                        "type `{}` does not implement `Into` for any target type",
+                        format_type(*ty)
+                    )
+                }
+            }
+            TypeErrorKind::AmbiguousInto { ty } => {
+                format!(
+                    "ambiguous `.into()` call on `{}`: multiple `Into` implementations apply",
+                    format_type(*ty)
+                )
+            }
+            TypeErrorKind::MissingPrintable { ty } => {
+                format!(
+                    "`{}` does not implement `Printable` (cannot be used in string interpolation)",
+                    format_type(*ty)
+                )
+            }
         }
     }
 
@@ -761,6 +787,29 @@ impl TypeCheckError {
                     expr_type.display_name()
                 )
             }
+            TypeErrorKind::IntoNotImplemented { ty, target } => {
+                if let Some(t) = target {
+                    format!(
+                        "type `{}` does not implement `Into<{}>`",
+                        ty.display_name(),
+                        t.display_name()
+                    )
+                } else {
+                    format!("type `{}` does not implement `Into`", ty.display_name())
+                }
+            }
+            TypeErrorKind::AmbiguousInto { ty } => {
+                format!(
+                    "ambiguous `.into()` call on `{}`: multiple `Into` implementations apply",
+                    ty.display_name()
+                )
+            }
+            TypeErrorKind::MissingPrintable { ty } => {
+                format!(
+                    "`{}` does not implement `Printable` (cannot be used in string interpolation)",
+                    ty.display_name()
+                )
+            }
         }
     }
 
@@ -858,6 +907,15 @@ impl TypeCheckError {
 
             // E2035: Format type not supported for expression type
             TypeErrorKind::FormatTypeMismatch { .. } => ErrorCode::E2035,
+
+            // E2036: Type does not implement Into<T>
+            TypeErrorKind::IntoNotImplemented { .. } => ErrorCode::E2036,
+
+            // E2037: Ambiguous Into conversion
+            TypeErrorKind::AmbiguousInto { .. } => ErrorCode::E2037,
+
+            // E2038: Missing Printable for string interpolation
+            TypeErrorKind::MissingPrintable { .. } => ErrorCode::E2038,
         }
     }
 
@@ -1456,6 +1514,54 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an "into not implemented" error (E2036).
+    ///
+    /// Emitted when `.into()` is called on a type that has no `Into`
+    /// implementation for the expected target type.
+    pub fn into_not_implemented(span: Span, ty: Idx, target: Option<Idx>) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::IntoNotImplemented { ty, target },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "implement `Into<T>` for this type, or use a different conversion method",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "ambiguous into" error (E2037).
+    ///
+    /// Emitted when `.into()` is called on a type with multiple `Into`
+    /// implementations and the target type cannot be inferred.
+    pub fn ambiguous_into(span: Span, ty: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AmbiguousInto { ty },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add a type annotation to disambiguate: `let x: TargetType = value.into()`",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "missing printable" error (E2038).
+    ///
+    /// Emitted when a value used in string interpolation doesn't implement
+    /// the `Printable` trait (required for `to_str()` conversion).
+    pub fn missing_printable(span: Span, ty: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::MissingPrintable { ty },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add `#derive(Printable)` to the type, or implement `Printable` manually",
+                0,
+            )],
+        }
+    }
+
     /// Create a "format type mismatch" error (E2035).
     ///
     /// Emitted when a format type (e.g., `x`, `b`) is used with an
@@ -1756,6 +1862,26 @@ pub enum TypeErrorKind {
         format_type: String,
         /// Which types are valid for this format type.
         valid_for: &'static str,
+    },
+
+    /// Type does not implement `Into<T>` — no conversion available (E2036).
+    IntoNotImplemented {
+        /// The source type that `.into()` was called on.
+        ty: Idx,
+        /// The expected target type, if known from context.
+        target: Option<Idx>,
+    },
+
+    /// Multiple `Into` implementations apply — ambiguous conversion (E2037).
+    AmbiguousInto {
+        /// The source type that `.into()` was called on.
+        ty: Idx,
+    },
+
+    /// Type does not implement `Printable` — cannot be used in string interpolation (E2038).
+    MissingPrintable {
+        /// The type that doesn't implement Printable.
+        ty: Idx,
     },
 }
 

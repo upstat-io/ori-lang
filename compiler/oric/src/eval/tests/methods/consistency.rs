@@ -65,6 +65,18 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "to_str"),
     // Iterable — iter() returns Iterator<T>, not expressible in current IR ReturnSpec
     ("str", "iter"),
+    // error — Traceable trait and accessors, not in IR registry
+    ("error", "clone"),
+    ("error", "debug"),
+    ("error", "has_trace"),
+    ("error", "message"),
+    ("error", "to_str"),
+    ("error", "trace"),
+    ("error", "trace_entries"),
+    ("error", "with_trace"),
+    // Into — return type depends on Into<T> impl, not expressible in IR ReturnSpec
+    ("int", "into"),
+    ("str", "into"),
 ];
 
 /// Build the set of `(type_name, method_name)` from the IR registry.
@@ -279,6 +291,17 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("char", "to_int"),
     ("char", "to_lowercase"),
     ("char", "to_uppercase"),
+    // Ordering — then_with takes closure, not expressible in IR ParamSpec
+    ("Ordering", "then_with"),
+    // error — Into trait and Traceable, not in IR registry
+    ("error", "clone"),
+    ("error", "debug"),
+    ("error", "has_trace"),
+    ("error", "message"),
+    ("error", "to_str"),
+    ("error", "trace"),
+    ("error", "trace_entries"),
+    ("error", "with_trace"),
     // float — typeck has many math methods not in IR
     ("float", "acos"),
     ("float", "asin"),
@@ -308,6 +331,7 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("float", "trunc"),
     // int — typeck has methods not in IR
     ("int", "clamp"),
+    ("int", "into"),
     ("int", "is_even"),
     ("int", "is_negative"),
     ("int", "is_odd"),
@@ -322,6 +346,7 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "bytes"),
     ("str", "chars"),
     ("str", "index_of"),
+    ("str", "into"),
     ("str", "iter"),
     ("str", "last_index_of"),
     ("str", "lines"),
@@ -406,7 +431,9 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Duration", "to_nanos"),
     ("Duration", "to_seconds"),
     ("Duration", "zero"),
-    // Ordering — typeck has debug, to_str
+    // Ordering — typeck methods not in EVAL_BUILTIN_METHODS
+    // (then_with dispatched via CollectionMethodResolver, to_str not yet in eval)
+    ("Ordering", "then_with"),
     ("Ordering", "to_str"),
     // Option — higher-order methods not in eval
     ("Option", "and_then"),
@@ -725,6 +752,177 @@ fn eval_iterator_method_names_sorted() {
             "ITERATOR_METHOD_NAMES not sorted: {:?} > {:?}",
             window[0],
             window[1]
+        );
+    }
+}
+
+// ── Format spec variant registration consistency ─────────────────────
+//
+// The `FormatType`, `Alignment`, and `Sign` enums appear as string arrays in
+// 4 independent locations:
+//   1. `ori_ir/src/format_spec.rs` — enum definition (source of truth)
+//   2. `ori_types/src/check/registration/mod.rs` — type registration
+//   3. `ori_eval/src/interpreter/mod.rs` — `register_format_variants()` globals
+//   4. `ori_rt/src/format/mod.rs` — runtime enum + parse (guarded by ori_rt tests)
+//
+// ori_rt ↔ ori_ir sync is guarded by `format_type_variant_count()` in ori_rt.
+// These tests guard ori_types ↔ ori_ir and ori_eval ↔ ori_ir sync.
+
+/// Source-of-truth variant names for `ori_ir::FormatType`.
+///
+/// Exhaustive match ensures compile failure if a variant is added to `ori_ir`.
+fn ir_format_type_names() -> Vec<&'static str> {
+    use ori_ir::format_spec::FormatType;
+    [
+        FormatType::Binary,
+        FormatType::Octal,
+        FormatType::Hex,
+        FormatType::HexUpper,
+        FormatType::Exp,
+        FormatType::ExpUpper,
+        FormatType::Fixed,
+        FormatType::Percent,
+    ]
+    .iter()
+    .map(|ft| match ft {
+        FormatType::Binary => "Binary",
+        FormatType::Octal => "Octal",
+        FormatType::Hex => "Hex",
+        FormatType::HexUpper => "HexUpper",
+        FormatType::Exp => "Exp",
+        FormatType::ExpUpper => "ExpUpper",
+        FormatType::Fixed => "Fixed",
+        FormatType::Percent => "Percent",
+    })
+    .collect()
+}
+
+/// Source-of-truth variant names for `ori_ir::Align`.
+fn ir_align_names() -> Vec<&'static str> {
+    use ori_ir::format_spec::Align;
+    [Align::Left, Align::Center, Align::Right]
+        .iter()
+        .map(|a| match a {
+            Align::Left => "Left",
+            Align::Center => "Center",
+            Align::Right => "Right",
+        })
+        .collect()
+}
+
+/// Source-of-truth variant names for `ori_ir::Sign`.
+fn ir_sign_names() -> Vec<&'static str> {
+    use ori_ir::format_spec::Sign;
+    [Sign::Plus, Sign::Minus, Sign::Space]
+        .iter()
+        .map(|s| match s {
+            Sign::Plus => "Plus",
+            Sign::Minus => "Minus",
+            Sign::Space => "Space",
+        })
+        .collect()
+}
+
+/// Read a source file relative to the compiler workspace root.
+fn read_workspace_file(rel_path: &str) -> String {
+    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let Some(workspace) = manifest_dir.parent() else {
+        panic!("oric crate should be inside compiler/");
+    };
+    std::fs::read_to_string(workspace.join(rel_path))
+        .unwrap_or_else(|e| panic!("failed to read {rel_path}: {e}"))
+}
+
+/// Verify that `ori_types` registration for `FormatType` contains all
+/// `ori_ir::FormatType` variants.
+///
+/// Scans the source file for the string array in `register_format_type_type()`.
+#[test]
+fn format_type_variants_synced_with_types_registration() {
+    let src = read_workspace_file("ori_types/src/check/registration/mod.rs");
+    for name in ir_format_type_names() {
+        let pattern = format!("\"{name}\"");
+        assert!(
+            src.contains(&pattern),
+            "FormatType variant `{name}` missing from ori_types registration \
+             (register_format_type_type in check/registration/mod.rs)"
+        );
+    }
+}
+
+/// Verify that `ori_eval` registration for `FormatType` contains all
+/// `ori_ir::FormatType` variants.
+///
+/// Scans the source file for the string array in `register_format_variants()`.
+#[test]
+fn format_type_variants_synced_with_eval_registration() {
+    let src = read_workspace_file("ori_eval/src/interpreter/mod.rs");
+    for name in ir_format_type_names() {
+        let pattern = format!("\"{name}\"");
+        assert!(
+            src.contains(&pattern),
+            "FormatType variant `{name}` missing from ori_eval registration \
+             (register_format_variants in interpreter/mod.rs)"
+        );
+    }
+}
+
+/// Verify that `ori_types` registration for `Alignment` contains all
+/// `ori_ir::Align` variants.
+#[test]
+fn alignment_variants_synced_with_types_registration() {
+    let src = read_workspace_file("ori_types/src/check/registration/mod.rs");
+    for name in ir_align_names() {
+        let pattern = format!("\"{name}\"");
+        assert!(
+            src.contains(&pattern),
+            "Alignment variant `{name}` missing from ori_types registration \
+             (register_alignment_type in check/registration/mod.rs)"
+        );
+    }
+}
+
+/// Verify that `ori_eval` registration for `Alignment` contains all
+/// `ori_ir::Align` variants.
+#[test]
+fn alignment_variants_synced_with_eval_registration() {
+    let src = read_workspace_file("ori_eval/src/interpreter/mod.rs");
+    for name in ir_align_names() {
+        let pattern = format!("\"{name}\"");
+        assert!(
+            src.contains(&pattern),
+            "Alignment variant `{name}` missing from ori_eval registration \
+             (register_format_variants in interpreter/mod.rs)"
+        );
+    }
+}
+
+/// Verify that `ori_types` registration for `Sign` contains all
+/// `ori_ir::Sign` variants.
+#[test]
+fn sign_variants_synced_with_types_registration() {
+    let src = read_workspace_file("ori_types/src/check/registration/mod.rs");
+    for name in ir_sign_names() {
+        let pattern = format!("\"{name}\"");
+        assert!(
+            src.contains(&pattern),
+            "Sign variant `{name}` missing from ori_types registration \
+             (register_sign_type in check/registration/mod.rs)"
+        );
+    }
+}
+
+/// Verify that `ori_eval` registration for `Sign` contains all
+/// `ori_ir::Sign` variants.
+#[test]
+fn sign_variants_synced_with_eval_registration() {
+    let src = read_workspace_file("ori_eval/src/interpreter/mod.rs");
+    for name in ir_sign_names() {
+        let pattern = format!("\"{name}\"");
+        assert!(
+            src.contains(&pattern),
+            "Sign variant `{name}` missing from ori_eval registration \
+             (register_format_variants in interpreter/mod.rs)"
         );
     }
 }

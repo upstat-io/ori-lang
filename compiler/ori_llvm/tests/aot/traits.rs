@@ -1593,3 +1593,47 @@ fn test_aot_list_hash_empty() {
         "list_hash_empty",
     );
 }
+
+// 3.17: Into Trait — .into() codegen
+
+#[test]
+fn test_aot_int_into_float() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let n = 42,
+    let f: float = n.into(),
+    if f == 42.0 then 0 else 1
+)
+"#,
+        "int_into_float",
+    );
+}
+
+#[test]
+fn test_aot_int_into_float_negative() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let n = -100,
+    let f: float = n.into(),
+    if f == -100.0 then 0 else 1
+)
+"#,
+        "int_into_float_neg",
+    );
+}
+
+#[test]
+fn test_aot_int_into_float_zero() {
+    assert_aot_success(
+        r#"
+@main () -> int = run(
+    let n = 0,
+    let f: float = n.into(),
+    if f == 0.0 then 0 else 1
+)
+"#,
+        "int_into_float_zero",
+    );
+}

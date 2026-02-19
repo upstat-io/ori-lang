@@ -82,6 +82,7 @@ pub(crate) struct WellKnownNames {
     pub len_trait: Name,
     pub is_empty: Name,
     pub iterable: Name,
+    pub into_method: Name,
 
     // Well-known keyword names
     pub self_kw: Name,
@@ -140,6 +141,7 @@ impl WellKnownNames {
             len_trait: interner.intern("Len"),
             is_empty: interner.intern("IsEmpty"),
             iterable: interner.intern("Iterable"),
+            into_method: interner.intern("into"),
             self_kw: interner.intern("self"),
         }
     }
@@ -391,6 +393,7 @@ impl WellKnownNames {
                 t == self.eq
                     || t == self.clone_trait
                     || t == self.hashable
+                    || t == self.printable
                     || t == self.len_trait
                     || t == self.is_empty
                     || t == self.comparable
@@ -400,6 +403,7 @@ impl WellKnownNames {
                 t == self.eq
                     || t == self.clone_trait
                     || t == self.hashable
+                    || t == self.printable
                     || t == self.len_trait
                     || t == self.is_empty
                     || t == self.iterable
@@ -409,19 +413,25 @@ impl WellKnownNames {
                     || t == self.comparable
                     || t == self.clone_trait
                     || t == self.hashable
+                    || t == self.printable
                     || t == self.default_trait
             }
             Tag::Result => {
-                t == self.eq || t == self.comparable || t == self.clone_trait || t == self.hashable
+                t == self.eq
+                    || t == self.comparable
+                    || t == self.clone_trait
+                    || t == self.hashable
+                    || t == self.printable
             }
             Tag::Tuple => {
                 t == self.eq
                     || t == self.comparable
                     || t == self.clone_trait
                     || t == self.hashable
+                    || t == self.printable
                     || t == self.len_trait
             }
-            Tag::Range => t == self.len_trait || t == self.iterable,
+            Tag::Range => t == self.printable || t == self.len_trait || t == self.iterable,
             Tag::Str => t == self.iterable,
             Tag::DoubleEndedIterator => t == self.iterator || t == self.double_ended_iterator,
             Tag::Iterator => t == self.iterator,

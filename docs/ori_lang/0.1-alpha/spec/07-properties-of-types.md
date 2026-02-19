@@ -663,5 +663,5 @@ let c: C = a.into().into()  // OK: explicit A → B → C
 
 | Code | Description |
 |------|-------------|
-| E0960 | Type does not implement `Into<T>` |
-| E0961 | Multiple `Into` implementations apply (ambiguous) |
+| E2036 | Type does not implement `Into<T>` |
+| E2037 | Multiple `Into` implementations apply (ambiguous) |

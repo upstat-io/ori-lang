@@ -125,6 +125,14 @@ pub fn eval_field_access(value: Value, field: Name, interner: &StringInterner) -
                 no_member_in_module(member_name).into()
             })
         }
+        Value::Error(ref ev) => {
+            // Error fields: message (spec §6 defines Error as { message: str, ... })
+            let field_name = interner.lookup(field);
+            match field_name {
+                "message" => Ok(Value::string(ev.message())),
+                _ => Err(cannot_access_field(value.type_name()).into()),
+            }
+        }
         value => Err(cannot_access_field(value.type_name()).into()),
     }
 }

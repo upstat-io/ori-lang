@@ -238,6 +238,23 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_type(*expr_type)
                 )
             }
+            TypeErrorKind::IntoNotImplemented { ty, target } => {
+                if let Some(t) = target {
+                    format!(
+                        "`{}` has no `Into<{}>`",
+                        self.format_type(*ty),
+                        self.format_type(*t)
+                    )
+                } else {
+                    format!("`{}` has no `Into` impl", self.format_type(*ty))
+                }
+            }
+            TypeErrorKind::AmbiguousInto { ty } => {
+                format!("ambiguous `.into()` on `{}`", self.format_type(*ty))
+            }
+            TypeErrorKind::MissingPrintable { ty } => {
+                format!("`{}` does not implement `Printable`", self.format_type(*ty))
+            }
         }
     }
 

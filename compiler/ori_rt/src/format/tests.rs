@@ -1,11 +1,17 @@
-//! Conformance tests for the `ori_rt` format spec parser.
+//! Conformance tests for the `ori_rt` format spec parser and formatters.
 //!
-//! Verifies that `ori_rt::format::parse_format_spec` (the AOT runtime parser)
-//! produces identical results to `ori_ir::format_spec::parse_format_spec` (the
-//! compilation-time parser) for the same inputs.
+//! Two categories of conformance:
 //!
-//! This catches drift when a variant or parsing rule is added to one parser
-//! but missed in the other.
+//! 1. **Parser conformance**: Verifies that `ori_rt::format::parse_format_spec`
+//!    (the AOT runtime parser) produces identical results to
+//!    `ori_ir::format_spec::parse_format_spec` (the compilation-time parser).
+//!
+//! 2. **Formatter conformance (golden output)**: Verifies that `ori_rt`'s
+//!    formatter functions (`format_int`, `format_float`, `fmt_str`) produce
+//!    the same output as `ori_eval`'s formatters for the same (value, spec)
+//!    pairs. Since `ori_rt` can't depend on `ori_eval`, both test files use
+//!    the same golden-output triples — drift in either formatter triggers a
+//!    test failure.
 
 use ori_ir::format_spec as ir;
 
@@ -255,4 +261,132 @@ fn unknown_type_falls_back_to_none() {
     // ori_rt silently ignores unknown types (type-checker already validated)
     let spec = parse_format_spec("z");
     assert!(spec.format_type.is_none());
+}
+
+// Cross-formatter conformance tests (golden output)
+//
+// These tests define (input, spec_string, expected_output) triples that MUST
+// produce identical results in both `ori_rt` (AOT runtime) and `ori_eval`
+// (tree-walking evaluator). The same triples appear in
+// `ori_eval/src/interpreter/format/tests.rs` — if either formatter drifts,
+// its golden tests fail.
+
+/// Helper: parse spec string, format an int, compare against expected.
+fn assert_int_formats_to(n: i64, spec_str: &str, expected: &str) {
+    let parsed = parse_format_spec(spec_str);
+    let result = super::format_int(n, &parsed);
+    assert_eq!(
+        result, expected,
+        "ori_rt format_int({n}, \"{spec_str}\") = \"{result}\", expected \"{expected}\""
+    );
+}
+
+/// Helper: parse spec string, format a float, compare against expected.
+fn assert_float_formats_to(f: f64, spec_str: &str, expected: &str) {
+    let parsed = parse_format_spec(spec_str);
+    let result = super::format_float(f, &parsed);
+    assert_eq!(
+        result, expected,
+        "ori_rt format_float({f}, \"{spec_str}\") = \"{result}\", expected \"{expected}\""
+    );
+}
+
+/// Helper: parse spec string, format a string, compare against expected.
+fn assert_str_formats_to(s: &str, spec_str: &str, expected: &str) {
+    let parsed = parse_format_spec(spec_str);
+    let result = super::fmt_str(s, &parsed);
+    assert_eq!(
+        result, expected,
+        "ori_rt fmt_str(\"{s}\", \"{spec_str}\") = \"{result}\", expected \"{expected}\""
+    );
+}
+
+/// Golden output conformance for integer formatting.
+///
+/// These exact triples are duplicated in `ori_eval/src/interpreter/format/tests.rs`.
+/// If this test fails, the `ori_rt` formatter has drifted from the evaluator.
+#[test]
+fn golden_int_conformance() {
+    // Decimal
+    assert_int_formats_to(42, "", "42");
+    assert_int_formats_to(-42, "", "-42");
+    assert_int_formats_to(0, "", "0");
+    // Binary
+    assert_int_formats_to(42, "b", "101010");
+    assert_int_formats_to(42, "#b", "0b101010");
+    // Octal
+    assert_int_formats_to(42, "o", "52");
+    assert_int_formats_to(42, "#o", "0o52");
+    // Hex
+    assert_int_formats_to(255, "x", "ff");
+    assert_int_formats_to(255, "X", "FF");
+    assert_int_formats_to(255, "#x", "0xff");
+    // Sign
+    assert_int_formats_to(42, "+", "+42");
+    assert_int_formats_to(42, " ", " 42");
+    // Zero-pad
+    assert_int_formats_to(42, "08", "00000042");
+    assert_int_formats_to(-42, "08", "-0000042");
+    assert_int_formats_to(255, "08x", "000000ff");
+    // Width + alignment
+    assert_int_formats_to(42, ">10", "        42");
+    assert_int_formats_to(42, "<10", "42        ");
+    assert_int_formats_to(42, "^10", "    42    ");
+    // Fill + alignment
+    assert_int_formats_to(42, "*>10", "********42");
+    assert_int_formats_to(42, "*^10", "****42****");
+}
+
+/// Golden output conformance for float formatting.
+#[test]
+#[allow(clippy::approx_constant, reason = "3.14 is a test value, not PI")]
+fn golden_float_conformance() {
+    // Default
+    assert_float_formats_to(3.14, "", "3.14");
+    // Precision
+    assert_float_formats_to(3.14159, ".2", "3.14");
+    // Fixed
+    assert_float_formats_to(3.14159, ".2f", "3.14");
+    assert_float_formats_to(3.14, "f", "3.140000");
+    // Scientific
+    assert_float_formats_to(1234.5, ".4e", "1.2345e3");
+    assert_float_formats_to(1234.5, ".4E", "1.2345E3");
+    // Percent
+    assert_float_formats_to(0.75, ".0%", "75%");
+    // Sign
+    assert_float_formats_to(3.14, "+", "+3.14");
+    // Zero-pad
+    assert_float_formats_to(3.14, "010.2", "0000003.14");
+    // Negative
+    assert_float_formats_to(-3.14, "", "-3.14");
+}
+
+/// Golden output conformance for string formatting.
+#[test]
+fn golden_str_conformance() {
+    // No format
+    assert_str_formats_to("hello", "", "hello");
+    // Width + alignment
+    assert_str_formats_to("hello", "<10", "hello     ");
+    assert_str_formats_to("hello", ">10", "     hello");
+    assert_str_formats_to("hello", "^10", "  hello   ");
+    // Fill + alignment
+    assert_str_formats_to("hello", "*^10", "**hello***");
+    // Precision truncation
+    assert_str_formats_to("hello", ".3", "hel");
+    assert_str_formats_to("hello", ".10", "hello");
+}
+
+/// Golden output conformance for bool (formatted as string).
+#[test]
+fn golden_bool_conformance() {
+    assert_str_formats_to("true", ">10", "      true");
+    assert_str_formats_to("false", "<10", "false     ");
+}
+
+/// Golden output conformance for char (formatted as string).
+#[test]
+fn golden_char_conformance() {
+    assert_str_formats_to("A", ">5", "    A");
+    assert_str_formats_to("A", "*^5", "**A**");
 }

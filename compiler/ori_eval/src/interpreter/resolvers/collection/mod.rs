@@ -36,6 +36,8 @@ struct MethodNames {
     join: Name,
     // Internal (rewritten by canonicalization)
     collect_set: Name,
+    // Ordering — closure-taking method
+    then_with: Name,
 }
 
 impl MethodNames {
@@ -66,6 +68,7 @@ impl MethodNames {
             rfold: interner.intern("rfold"),
             join: interner.intern("join"),
             collect_set: interner.intern(ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD),
+            then_with: interner.intern("then_with"),
         }
     }
 }
@@ -208,6 +211,9 @@ impl MethodResolver for CollectionMethodResolver {
             Value::Iterator(_) => self
                 .resolve_iterator_method(method_name)
                 .map_or(MethodResolution::NotFound, MethodResolution::Collection),
+            Value::Ordering(_) if method_name == self.methods.then_with => {
+                MethodResolution::Collection(CollectionMethod::OrderingThenWith)
+            }
             _ => MethodResolution::NotFound,
         }
     }
