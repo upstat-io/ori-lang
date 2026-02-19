@@ -4,6 +4,7 @@
 //! field-to-string conversion. Used by `compile_derive_printable()` to build
 //! `"TypeName(val1, val2)"` representations.
 
+use ori_ir::DerivedTrait;
 use ori_types::Idx;
 
 use super::super::function_compiler::FunctionCompiler;
@@ -113,7 +114,7 @@ pub(super) fn emit_field_to_string<'a>(
         }
         TypeInfo::Struct { .. } => {
             let nested_name = fc.type_idx_to_name(field_type);
-            let ts_name = fc.intern("to_str");
+            let ts_name = fc.intern(DerivedTrait::Printable.method_name());
             if let Some(type_name) = nested_name {
                 if let Some((fid, abi)) = fc.get_method_function(type_name, ts_name) {
                     return emit_method_call_for_derive(fc, fid, &abi, &[val], name);

@@ -1296,7 +1296,14 @@ impl TypeCheckError {
             kind: TypeErrorKind::TraitNotDerivable { trait_name },
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
-                "derivable traits are: Eq, Clone, Hashable, Comparable, Printable, Debug, Default",
+                format!(
+                    "derivable traits are: {}",
+                    DerivedTrait::ALL
+                        .iter()
+                        .map(|t| t.trait_name())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
                 0,
             )],
         }
