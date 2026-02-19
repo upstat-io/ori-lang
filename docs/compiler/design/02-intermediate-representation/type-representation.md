@@ -71,12 +71,12 @@ pub enum Type {
 Primitive types are simple variants with no data:
 
 ```rust
-Type::Int    // 64-bit signed integer
-Type::Float  // 64-bit floating point
+Type::Int    // Signed integer (canonical: 64-bit, range: [-2⁶³, 2⁶³-1])
+Type::Float  // IEEE 754 double-precision (canonical: 64-bit)
 Type::Bool   // Boolean
 Type::String // UTF-8 string
-Type::Char   // Unicode codepoint
-Type::Byte   // 8-bit unsigned
+Type::Char   // Unicode scalar value
+Type::Byte   // Unsigned integer (range: [0, 255])
 Type::Void   // Unit type
 Type::Never  // Bottom type (for panic, etc.)
 ```

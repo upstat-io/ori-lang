@@ -305,6 +305,8 @@ type Point = { x: int, y: int }      // Value: 16 bytes, primitives
 type User = { id: int, name: str }   // Reference: contains str
 ```
 
+> **Note:** The size thresholds above (≤32 bytes) refer to the _canonical representation_. The compiler's representation optimization may reduce the actual machine size, but value/reference classification is determined by the canonical layout. A type that is canonically 40 bytes (reference) remains a reference type even if representation optimization reduces it to 20 bytes. See [System Considerations § Representation Optimization](22-system-considerations.md#representation-optimization).
+
 ## Constraints
 
 - Self-referential types are compile errors

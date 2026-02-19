@@ -50,7 +50,7 @@ Ori provides these fundamental types:
 
 ### Numbers
 
-**Integers** (`int`) are 64-bit signed:
+**Integers** (`int`) are signed, with range -2⁶³ to 2⁶³ - 1:
 
 ```ori
 let a = 42
@@ -61,7 +61,7 @@ let e = 0b1010         // Binary (10)
 let f = 0o755          // Octal (493)
 ```
 
-**Floats** (`float`) are 64-bit IEEE 754:
+**Floats** (`float`) follow IEEE 754 double-precision semantics:
 
 ```ori
 let pi = 3.14159

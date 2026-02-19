@@ -15,16 +15,18 @@ Every value has a type determined at compile time.
 
 | Type | Description | Default |
 |------|-------------|---------|
-| `int` | 64-bit signed integer | `0` |
-| `float` | 64-bit IEEE 754 | `0.0` |
+| `int` | Signed integer (range: -2⁶³ to 2⁶³ - 1) | `0` |
+| `float` | IEEE 754 double-precision (range: ±1.8 × 10³⁰⁸, ~15-17 digits) | `0.0` |
 | `bool` | `true` or `false` | `false` |
 | `str` | UTF-8 string | `""` |
-| `byte` | 8-bit unsigned | `0` |
+| `byte` | Unsigned integer (range: 0 to 255) | `0` |
 | `char` | Unicode scalar value (U+0000–U+10FFFF, excluding surrogates) | — |
 | `void` | Unit type, alias for `()` | `()` |
 | `Never` | Bottom type, uninhabited | — |
 | `Duration` | Time span (nanoseconds) | `0ns` |
 | `Size` | Byte count | `0b` |
+
+> **Note:** The ranges above define the _semantic contract_ — the set of values a type can hold and the precision of its operations. The compiler may use a narrower machine representation when it can prove semantic equivalence. See [System Considerations § Representation Optimization](22-system-considerations.md#representation-optimization).
 
 `Never` is the _bottom type_ — a type with no values. It represents computations that never complete normally.
 

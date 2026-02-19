@@ -353,9 +353,9 @@ Programs requiring wrapping or saturating arithmetic should use functions from `
 16 >> 64    // panic: shift count exceeds bit width
 ```
 
-For `int` (64-bit signed), valid shift counts are 0 to 62 for left shift when the result must remain representable. For right shift, counts 0 to 63 are valid.
+For `int` (signed, range -2⁶³ to 2⁶³ - 1), valid shift counts are 0 to 62 for left shift when the result must remain representable. For right shift, counts 0 to 63 are valid.
 
-For `byte` (8-bit unsigned), valid shift counts are 0 to 7.
+For `byte` (unsigned, range 0 to 255), valid shift counts are 0 to 7.
 
 **Integer division and modulo overflow**: The expression `int.min / -1` and `int.min % -1` panic because the mathematical result cannot be represented.
 
