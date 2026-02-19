@@ -136,16 +136,20 @@ fn abi_size_inner(ty: Idx, store: &TypeInfoStore<'_>, visiting: &mut FxHashSet<I
     }
 
     // Dynamic-size types: compute recursively
+    //
+    // FIXME: abi_size_inner sums field sizes WITHOUT alignment padding.
+    // A struct { byte, int, byte } computes as 10 bytes here, but LLVM
+    // lays it out as 24 bytes (1 + 7 padding + 8 + 1 + 7 padding).
+    // This can misclassify as Direct (≤16) when Indirect (>16) is needed.
+    // Currently safe because built-in composite types (Range, Option, etc.)
+    // use pre-computed TypeInfo::size() that accounts for LLVM layout.
+    // Will need the proper fix (querying LLVM TargetData for actual struct
+    // layout size) when mixed-alignment user-defined structs land in Pool.
     let result = match &info {
-        TypeInfo::Tuple { elements } => {
-            // Sum of element sizes (simplified — ignores padding between fields,
-            // but sufficient for ABI classification where we only care about
-            // the ≤16 byte threshold).
-            elements
-                .iter()
-                .map(|&e| abi_size_inner(e, store, visiting))
-                .sum()
-        }
+        TypeInfo::Tuple { elements } => elements
+            .iter()
+            .map(|&e| abi_size_inner(e, store, visiting))
+            .sum(),
         TypeInfo::Struct { fields } => fields
             .iter()
             .map(|&(_, ty)| abi_size_inner(ty, store, visiting))

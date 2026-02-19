@@ -405,6 +405,60 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 // Runtime mappings
 // ---------------------------------------------------------------------------
 
+/// Runtime functions declared in `runtime_decl` that are intentionally NOT
+/// in the JIT mapping table. These are only used in AOT compilation.
+#[cfg(test)]
+pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
+    // ori_run_main wraps @main with catch_unwind — JIT compiles tests directly
+    "ori_run_main",
+];
+
+/// Names of all runtime functions registered in the JIT mapping table.
+///
+/// Used by sync tests to verify declarations and JIT mappings stay aligned.
+pub(crate) const JIT_MAPPED_RUNTIME_FUNCTIONS: &[&str] = &[
+    "ori_print",
+    "ori_print_int",
+    "ori_print_float",
+    "ori_print_bool",
+    "ori_panic",
+    "ori_panic_cstr",
+    "ori_assert",
+    "ori_assert_eq_int",
+    "ori_assert_eq_bool",
+    "ori_assert_eq_float",
+    "ori_list_alloc_data",
+    "ori_list_free_data",
+    "ori_list_new",
+    "ori_list_free",
+    "ori_list_len",
+    "ori_compare_int",
+    "ori_min_int",
+    "ori_max_int",
+    "ori_str_concat",
+    "ori_str_eq",
+    "ori_str_ne",
+    "ori_str_compare",
+    "ori_str_hash",
+    "ori_str_next_char",
+    "ori_assert_eq_str",
+    "ori_str_from_int",
+    "ori_str_from_bool",
+    "ori_str_from_float",
+    "ori_format_int",
+    "ori_format_float",
+    "ori_format_str",
+    "ori_format_bool",
+    "ori_format_char",
+    "ori_rc_alloc",
+    "ori_rc_inc",
+    "ori_rc_dec",
+    "ori_rc_free",
+    "ori_args_from_argv",
+    "ori_register_panic_handler",
+    "rust_eh_personality",
+];
+
 /// Add runtime function mappings to an execution engine.
 ///
 /// Maps declared function names to actual Rust function addresses so the
@@ -475,6 +529,11 @@ fn add_runtime_mappings_to_engine(
             "ori_str_compare",
             runtime::ori_str_compare as *const () as usize,
         ),
+        ("ori_str_hash", runtime::ori_str_hash as *const () as usize),
+        (
+            "ori_str_next_char",
+            runtime::ori_str_next_char as *const () as usize,
+        ),
         (
             "ori_assert_eq_str",
             runtime::ori_assert_eq_str as *const () as usize,
@@ -529,6 +588,13 @@ fn add_runtime_mappings_to_engine(
         // so MCJIT's dlsym-based resolution can't find it automatically.
         ("rust_eh_personality", rust_eh_personality_addr()),
     ];
+
+    // Verify the mapping array stays in sync with JIT_MAPPED_RUNTIME_FUNCTIONS.
+    debug_assert_eq!(
+        mappings.len(),
+        JIT_MAPPED_RUNTIME_FUNCTIONS.len(),
+        "JIT mapping array and JIT_MAPPED_RUNTIME_FUNCTIONS constant have different lengths"
+    );
 
     for &(name, addr) in mappings {
         if let Some(func) = module.get_function(name) {
