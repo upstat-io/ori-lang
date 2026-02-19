@@ -368,7 +368,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         // 10. Debug: print IR if requested
         if std::env::var("ORI_DEBUG_LLVM").is_ok() {
             eprintln!("=== LLVM IR for compiled module ===");
-            eprintln!("{}", scx.llmod.print_to_string().to_string());
+            eprintln!("{}", scx.llmod.print_to_string());
             eprintln!("=== END IR ===");
         }
 
@@ -377,8 +377,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // Drop scx to free the Module while Context is alive (see codegen_errors note).
             drop(ManuallyDrop::into_inner(scx));
             return Err(LLVMEvalError::new(format!(
-                "LLVM IR verification failed: {}",
-                msg.to_string()
+                "LLVM IR verification failed: {msg}"
             )));
         }
 
