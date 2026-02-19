@@ -68,7 +68,7 @@ type group, numeric, text, containers, collections
 ---
 
 ### Section 05: Cross-Crate Sync Enforcement
-**File:** `section-05-sync-enforcement.md` | **Status:** Not Started
+**File:** `section-05-sync-enforcement.md` | **Status:** Complete
 
 ```
 sync, drift, completeness test, cross-crate

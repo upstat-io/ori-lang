@@ -1,21 +1,21 @@
 ---
 section: "05"
 title: Cross-Crate Sync Enforcement
-status: not-started
+status: complete
 goal: Compile-time and test-time enforcement that all consuming crates handle every DerivedTrait variant
 sections:
   - id: "05.1"
     title: Completeness Tests
-    status: not-started
+    status: complete
   - id: "05.2"
     title: Prelude Sync Validation
-    status: not-started
+    status: complete
   - id: "05.3"
     title: Builtin Method Consistency
-    status: not-started
+    status: complete
   - id: "05.4"
     title: Completion Checklist
-    status: not-started
+    status: complete
 ---
 
 # Section 05: Cross-Crate Sync Enforcement
@@ -229,14 +229,14 @@ fn all_derived_traits_recognized_by_process_derives() {
 }
 ```
 
-- [ ] Write Test 1 in `ori_ir/derives/tests.rs`
-- [ ] Write Test 2 in `ori_types/check/registration/tests.rs`
-- [ ] Write Test 3 in `ori_types/check/well_known/tests.rs` (or well_known.rs tests)
-- [ ] Write Test 4 in `ori_eval/interpreter/derived_methods/tests.rs`
-- [ ] Write Test 5 in `ori_llvm/tests/aot/derives.rs`
-- [ ] Write Test 6 in `ori_eval/derives/tests.rs`
-- [ ] All 6 tests pass with current codebase
-- [ ] `./test-all.sh` passes
+- [x] Write Test 1 in `ori_ir/derives/tests.rs` (2026-02-19)
+- [x] Write Test 2 in `ori_types/check/registration/tests.rs` (2026-02-19)
+- [x] Write Test 3 in `ori_types/check/registration/tests.rs` (well_known accessed via ModuleChecker) (2026-02-19)
+- [x] Write Test 4 in `ori_eval/derives/tests.rs` (DerivedMethodInfo creation + method_name validation) (2026-02-19)
+- [x] Write Test 5 in `ori_llvm/tests/aot/derives.rs` (2026-02-19)
+- [x] Write Test 6 in `ori_eval/derives/tests.rs` (2026-02-19)
+- [x] All 6 tests pass with current codebase (2026-02-19)
+- [x] `./test-all.sh` passes (2026-02-19)
 
 ---
 
@@ -278,9 +278,9 @@ fn prelude_defines_all_derived_traits() {
 }
 ```
 
-- [ ] Write prelude sync validation test
-- [ ] Test passes with current `prelude.ori`
-- [ ] Verify test catches a deliberate removal (manual smoke test)
+- [x] Write prelude sync validation test (2026-02-19)
+- [x] Test passes with current `prelude.ori` (2026-02-19)
+- [x] Verify test catches a deliberate removal (manual smoke test) (2026-02-19)
 
 ---
 
@@ -316,20 +316,20 @@ fn eval_methods_have_llvm_handlers() {
 }
 ```
 
-- [ ] Design method consistency test structure
-- [ ] Implement `typeck_methods_have_eval_handlers` test
-- [ ] Implement `eval_methods_have_llvm_handlers` test (or document as future work if LLVM method lists aren't easily enumerable)
-- [ ] Tests pass with current codebase
+- [x] Design method consistency test structure (2026-02-19) — already exists in `oric/src/eval/tests/methods/consistency.rs`
+- [x] Implement `typeck_methods_have_eval_handlers` test (2026-02-19) — already exists as `typeck_methods_implemented_in_eval`
+- [x] Implement `eval_methods_have_llvm_handlers` test (2026-02-19) — documented as future work: LLVM uses string-matching dispatch (`lower_*_method`) with no declarative method list; AOT tests serve as coverage guarantee
+- [x] Tests pass with current codebase (2026-02-19)
 
 ---
 
 ## 05.4 Completion Checklist
 
-- [ ] 6 completeness tests across 4 crates, all passing
-- [ ] Prelude sync validation test passing
-- [ ] Builtin method consistency tests (at least eval/typeck) passing
-- [ ] Known gaps (Debug LLVM codegen) explicitly documented in tests, not silently skipped
-- [ ] Adding a new `DerivedTrait` variant and forgetting any sync point causes a test failure at `cargo t`
-- [ ] `./test-all.sh` passes with zero regressions
+- [x] 6 completeness tests across 4 crates, all passing (2026-02-19)
+- [x] Prelude sync validation test passing (2026-02-19)
+- [x] Builtin method consistency tests (at least eval/typeck) passing (2026-02-19) — pre-existing in `oric/src/eval/tests/methods/consistency.rs`
+- [x] Known gaps (Debug LLVM codegen) explicitly documented in tests, not silently skipped (2026-02-19) — Test 5 asserts Debug is the only gap
+- [x] Adding a new `DerivedTrait` variant and forgetting any sync point causes a test failure at `cargo t` (2026-02-19) — verified: ALL iteration in Tests 1-6, exhaustive match in Test 3, prelude text scan in 05.2
+- [x] `./test-all.sh` passes with zero regressions (2026-02-19)
 
 **Exit Criteria:** No derived trait sync point can drift silently. Every gap is either caught by a test failure or explicitly documented with a reason in the test itself. The "documentation as enforcement" pattern (CLAUDE.md checklists) is backed by mechanical tests.

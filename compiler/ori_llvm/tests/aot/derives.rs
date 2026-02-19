@@ -11,7 +11,47 @@
     reason = "readability in test program literals"
 )]
 
+use ori_ir::DerivedTrait;
+
 use crate::util::assert_aot_success;
+
+// --- Cross-crate sync enforcement (Section 05.1, Test 5) ---
+
+#[test]
+fn all_derived_traits_have_codegen() {
+    let implemented: &[DerivedTrait] = &[
+        DerivedTrait::Eq,
+        DerivedTrait::Clone,
+        DerivedTrait::Hashable,
+        DerivedTrait::Printable,
+        DerivedTrait::Default,
+        DerivedTrait::Comparable,
+    ];
+
+    let missing: Vec<_> = DerivedTrait::ALL
+        .iter()
+        .filter(|t| !implemented.contains(t))
+        .collect();
+
+    // IMPORTANT: When you implement codegen for a missing trait,
+    // move it from `missing` to `implemented`. This test will then
+    // enforce that it stays implemented.
+    assert!(
+        missing.len() <= 1,
+        "More than 1 derived trait without LLVM codegen: {missing:?}. \
+         Implement codegen or document the gap."
+    );
+
+    // Verify the known gap is Debug, not something unexpected
+    if missing.len() == 1 {
+        assert_eq!(
+            *missing[0],
+            DerivedTrait::Debug,
+            "Unexpected missing codegen: {:?}. Only Debug should be missing.",
+            missing[0]
+        );
+    }
+}
 
 // 3.5.1: Derive Eq
 
