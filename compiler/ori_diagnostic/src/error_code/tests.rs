@@ -82,28 +82,51 @@ fn test_all_variants_classified() {
     }
 }
 
-/// Verify `ErrorCode::ALL` actually contains every variant.
+/// Verify `ErrorCode::ALL` has no duplicate entries and matches expected count.
 ///
-/// Uses `as_str()` round-tripping: every variant in `ALL` maps to a unique string.
-/// If `ALL` is missing a variant, the count here won't match the exhaustive match in
-/// `as_str()`. Checked by comparing `ALL.len()` against the count of arms in `as_str()`
-/// (which Rust enforces to be exhaustive).
+/// With the `define_error_codes!` macro, `ALL` is guaranteed to contain every
+/// variant. This test catches accidental duplicates and verifies the count
+/// hasn't changed unintentionally.
 #[test]
 fn test_all_is_complete() {
     use std::collections::HashSet;
     let strings: HashSet<&str> = ErrorCode::ALL.iter().map(ErrorCode::as_str).collect();
-    // No duplicates — each variant maps to a unique string.
     assert_eq!(
         strings.len(),
         ErrorCode::ALL.len(),
         "ALL contains duplicate entries"
     );
-    // ALL has the right count. When a variant is added to the enum and `as_str()`
-    // but not ALL, this number must be bumped — causing the test to fail.
+    assert_eq!(ErrorCode::ALL.len(), ErrorCode::COUNT);
     assert_eq!(
-        ErrorCode::ALL.len(),
+        ErrorCode::COUNT,
         116,
-        "ALL length changed — did you add a new ErrorCode variant? Update ALL."
+        "COUNT changed — did you add a new ErrorCode variant? Update this number."
+    );
+}
+
+/// Every error code has a non-empty description.
+#[test]
+fn test_all_have_descriptions() {
+    for &code in ErrorCode::ALL {
+        assert!(
+            !code.description().is_empty(),
+            "{}: description is empty",
+            code.as_str()
+        );
+    }
+}
+
+/// Spot-check that descriptions match expectations.
+#[test]
+fn test_description_examples() {
+    assert_eq!(ErrorCode::E2001.description(), "Type mismatch");
+    assert_eq!(
+        ErrorCode::E0001.description(),
+        "Unterminated string literal"
+    );
+    assert_eq!(
+        ErrorCode::W2001.description(),
+        "Infinite iterator consumed without bound"
     );
 }
 
