@@ -70,7 +70,7 @@ pub(crate) struct PropNames {
     pub(crate) message: Name,
     pub(crate) value: Name,
     pub(crate) expr: Name,
-    // Trait method names (used by inner dispatch in lower_builtin_methods.rs)
+    // Trait method names (used by inner dispatch in lower_builtin_methods/)
     pub(crate) eq: Name,
     pub(crate) compare: Name,
     pub(crate) hash: Name,

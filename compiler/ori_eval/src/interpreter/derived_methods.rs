@@ -122,52 +122,57 @@ impl Interpreter<'_> {
     /// Evaluate derived `hash` method for structs.
     ///
     /// Combines hashes of all fields.
+    /// Evaluate derived `hash` method using FNV-1a.
+    ///
+    /// Algorithm: `hash = (hash XOR field_hash) * FNV_PRIME` per field,
+    /// starting from `FNV_OFFSET_BASIS`. This matches the LLVM backend's
+    /// `compile_derive_hash` in `derive_codegen/mod.rs`.
+    ///
+    /// Note: type name is NOT included in the hash — the LLVM backend doesn't
+    /// hash it, and type discrimination is handled by the type system.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "Consistent derived method dispatch signature"
     )]
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "Returns EvalResult for consistent derived method dispatch interface"
-    )]
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "Hash values are opaque identifiers; wrapping is acceptable"
-    )]
     fn eval_derived_hash(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+        use crate::methods::compare::{hash_value, FNV_OFFSET_BASIS, FNV_PRIME};
 
         match &receiver {
             Value::Struct(struct_val) => {
-                let mut hasher = DefaultHasher::new();
-                self.interner.lookup(struct_val.type_name).hash(&mut hasher);
+                let mut hash = FNV_OFFSET_BASIS;
                 for field_name in &info.field_names {
                     if let Some(val) = struct_val.get_field(*field_name) {
-                        val.hash(&mut hasher);
+                        let field_hash = hash_value(val, self.interner)? as u64;
+                        hash ^= field_hash;
+                        hash = hash.wrapping_mul(FNV_PRIME);
                     }
                 }
-                Ok(Value::int(hasher.finish() as i64))
+                Ok(Value::int(hash as i64))
             }
             Value::Variant {
-                type_name,
                 variant_name,
                 fields,
+                ..
             } => {
-                let mut hasher = DefaultHasher::new();
-                // Hash type + variant name for discriminant
-                self.interner.lookup(*type_name).hash(&mut hasher);
-                self.interner.lookup(*variant_name).hash(&mut hasher);
+                let mut hash = FNV_OFFSET_BASIS;
+                // Include variant discriminant to distinguish payloadless variants.
+                // Use variant name hash as discriminant (stable, unique per enum).
+                let variant_str = self.interner.lookup(*variant_name);
+                let discriminant =
+                    crate::methods::compare::fnv1a_hash(variant_str.as_bytes()) as u64;
+                hash ^= discriminant;
+                hash = hash.wrapping_mul(FNV_PRIME);
                 // Hash each payload field
                 for field in fields.as_ref() {
-                    field.hash(&mut hasher);
+                    let field_hash = hash_value(field, self.interner)? as u64;
+                    hash ^= field_hash;
+                    hash = hash.wrapping_mul(FNV_PRIME);
                 }
-                Ok(Value::int(hasher.finish() as i64))
+                Ok(Value::int(hash as i64))
             }
             _ => {
-                let mut hasher = DefaultHasher::new();
-                receiver.type_name().hash(&mut hasher);
-                Ok(Value::int(hasher.finish() as i64))
+                // Fallback: hash of 0 (should not reach here for well-typed code)
+                Ok(Value::int(FNV_OFFSET_BASIS as i64))
             }
         }
     }

@@ -24,6 +24,10 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
+> **PRIORITY ESCALATION — Section 15D.3** (after `catch(expr)`): Remove `mut` keyword, implement `$` immutability bindings. The spec and grammar already removed `mut`, but the compiler still accepts it. There are 163 `let mut` occurrences across 28 test files — this count grows with every new feature. Syntax migrations become exponentially harder to land as more code accumulates. Promoted from Tier 5 → Tier 1 to minimize migration debt.
+
+---
+
 ## How to Use
 
 1. **Search this file** (Ctrl+F / Cmd+F) for keywords related to what you're looking for
@@ -470,7 +474,7 @@ overload, operator trait
 ---
 
 ### Section 15D: Bindings & Types
-**File:** `section-15D-bindings-types.md` | **Tier:** 5 | **Status:** Not Started
+**File:** `section-15D-bindings-types.md` | **Tier:** 1 | **Status:** Not Started (escalated from Tier 5)
 
 ```
 let, binding, variable
@@ -647,7 +651,7 @@ ori publish, registry, cache
 | 15A | Attributes & Comments | 5 | `section-15A-attributes-comments.md` |
 | 15B | Function Syntax | 5 | `section-15B-function-syntax.md` |
 | 15C | Literals & Operators | 5 | `section-15C-literals-operators.md` |
-| 15D | Bindings & Types | 5 | `section-15D-bindings-types.md` |
+| 15D | Bindings & Types | 1 | `section-15D-bindings-types.md` |
 | 16 | Async | 6 | `section-16-async.md` |
 | 17 | Concurrency | 6 | `section-17-concurrency.md` |
 | 18 | Const Generics | 7 | `section-18-const-generics.md` |

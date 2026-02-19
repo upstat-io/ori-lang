@@ -150,15 +150,17 @@ References are dropped when variables go out of scope or are reassigned.
 
 ### Atomicity
 
-All reference count operations are atomic (thread-safe). This ensures correct behavior when values are shared across concurrent tasks:
+All reference count operations are atomic. This ensures correct deallocation when values are shared across concurrent tasks.
 
-| Operation | Implementation |
-|-----------|----------------|
-| Increment refcount | Atomic fetch-add |
-| Decrement refcount | Atomic fetch-sub |
-| Check for zero | Part of decrement operation |
+| Operation | Atomic Instruction | Memory Ordering |
+|-----------|-------------------|-----------------|
+| Increment | Fetch-add | Acquire |
+| Decrement | Fetch-sub | Release |
+| Deallocation check | Fence before free | Acquire |
 
-Without atomic refcounts, concurrent decrements could both observe a non-zero count, leading to double-free or use-after-free bugs.
+The acquire fence before deallocation ensures the deallocating task observes all prior writes to the object from other tasks.
+
+> **Note:** An implementation may use non-atomic operations for values that provably do not escape the current task. This is an optimization; the observable behavior must be identical.
 
 ## Destruction
 
@@ -268,6 +270,48 @@ impl Drop for AsyncResource {
 
 When a task is cancelled, destructors still run during unwinding.
 
+## Reference Counting Optimizations
+
+An implementation may optimize reference counting operations provided the following observable behavior is preserved:
+
+1. Every reference-counted value is deallocated no later than the end of the scope in which it becomes unreachable
+2. `Drop.drop` is called exactly once per value, in the order specified by [§ Destruction Order](#destruction-order)
+3. No value is accessed after deallocation
+
+The following optimizations are permitted:
+
+| Optimization | Description |
+|-------------|-------------|
+| Scalar elision | No reference counting operations for scalar types (see [§ Type Classification](#type-classification)) |
+| Borrow inference | Omit increment/decrement for parameters that are borrowed and do not outlive the callee |
+| Move optimization | Elide the increment/decrement pair when a value is transferred on last use |
+| Redundant pair elimination | Remove an increment immediately followed by a decrement on the same value |
+| Constructor reuse | Reuse the existing allocation when the reference count is one (requires a runtime uniqueness check) |
+| Early drop | Deallocate a value before scope end when it is provably unreferenced for the remainder of the scope |
+
+These are permissions, not requirements. A conforming implementation may perform all, some, or none of these optimizations.
+
+## Ownership and Borrowing
+
+Every reference-counted value has exactly one _owner_. The owner is the binding, field, or container element that holds the value.
+
+### Ownership Transfer
+
+Ownership transfers on:
+
+- Assignment to a new binding
+- Passing as a function argument
+- Returning from a function
+- Storage in a container element or struct field
+
+On transfer, the previous owner relinquishes access. The reference count does not change; ownership moves without an increment/decrement pair.
+
+### Borrowed References
+
+A _borrowed reference_ provides temporary read access to a value without incrementing the reference count. A borrowed reference must not outlive its owner.
+
+The compiler infers ownership and borrowing. There is no user-visible syntax for ownership annotations or borrow markers.
+
 ## Cycle Prevention
 
 Cycles prevented at compile time:
@@ -284,35 +328,53 @@ type Graph = { nodes: [Node], edges: [(int, int)] }
 type Node = { next: Option<Node> }  // compile error
 ```
 
-## Value vs Reference Types
+## Type Classification
 
-| Semantics | Criteria |
-|-----------|----------|
-| Value | ≤32 bytes AND primitives only |
-| Reference | >32 bytes OR contains references |
+Every type is classified as either _scalar_ or _reference_ for the purpose of reference counting. Classification is determined by type containment, not by representation size.
 
-**Value types** (copied):
-- Primitives: `int`, `float`, `bool`, `char`, `byte`, `Duration`, `Size`
-- Small structs with only primitives
+### Scalar Types
 
-**Reference types** (shared, counted):
-- `str`, `[T]`, `{K: V}`, `Set<T>`
-- Structs containing references
-- Structs >32 bytes
+A type is scalar if it requires no reference counting. The following types are scalar:
 
-```ori
-type Point = { x: int, y: int }      // Value: 16 bytes, primitives
-type User = { id: int, name: str }   // Reference: contains str
-```
+- Primitive types: `int`, `float`, `bool`, `char`, `byte`, `Duration`, `Size`, `Ordering`
+- `unit` and `never`
+- Compound types (structs, enums, tuples, `Option<T>`, `Result<T, E>`, `Range<T>`) whose fields are all scalar
 
-> **Note:** The size thresholds above (≤32 bytes) refer to the _canonical representation_. The compiler's representation optimization may reduce the actual machine size, but value/reference classification is determined by the canonical layout. A type that is canonically 40 bytes (reference) remains a reference type even if representation optimization reduces it to 20 bytes. See [System Considerations § Representation Optimization](22-system-considerations.md#representation-optimization).
+### Reference Types
+
+A type is a reference type if it requires reference counting. The following types are reference types:
+
+- Heap-allocated types: `str`, `[T]`, `{K: V}`, `Set<T>`, `Channel<T>`
+- Function types and iterator types
+- Compound types containing at least one reference type field
+
+### Transitive Rule
+
+Classification is transitive: if any field of a compound type is a reference type, the compound type is a reference type.
+
+| Type | Classification | Reason |
+|------|---------------|--------|
+| `int` | Scalar | Primitive |
+| `(int, float, bool)` | Scalar | All fields scalar |
+| `{ x: int, y: int }` | Scalar | All fields scalar |
+| `str` | Reference | Heap-allocated |
+| `{ id: int, name: str }` | Reference | `name` is reference |
+| `Option<str>` | Reference | Inner type is reference |
+| `Option<int>` | Scalar | Inner type is scalar |
+| `[int]` | Reference | List is heap-allocated |
+| `Result<int, str>` | Reference | `str` is reference |
+
+Classification is independent of type size. A struct with ten `int` fields is scalar. A struct with one `str` field is a reference type regardless of its total size.
+
+### Generic Type Parameters
+
+Unresolved type parameters are conservatively treated as reference types. After monomorphization, all type parameters are concrete and classification is exact.
 
 ## Constraints
 
 - Self-referential types are compile errors
-- Cyclic structures are compile errors
 - Destruction in reverse creation order
-- Values destroyed when count reaches zero
+- Values destroyed when reference count reaches zero
 
 ## ARC Safety Invariants
 
@@ -357,6 +419,14 @@ If weak references are added to the language, they must:
 - Use distinct syntax (`Weak<T>`)
 - Require explicit upgrade operations returning `Option<T>`
 - Never be implicitly created
+
+### Task Isolation
+
+Values shared across task boundaries are reference-counted. Each task may independently increment and decrement the reference count of a shared value. Atomic reference count operations (see [§ Atomicity](#atomicity)) ensure that deallocation occurs exactly once, regardless of which task drops the last reference.
+
+A task must not hold a borrowed reference to a value owned by another task. All cross-task value sharing uses ownership transfer or reference count increment.
+
+See [Concurrency Model § Task Isolation](23-concurrency-model.md#task-isolation) for task isolation rules.
 
 ### Handler Frame State
 
