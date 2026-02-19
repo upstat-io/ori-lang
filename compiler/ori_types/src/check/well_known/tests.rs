@@ -579,6 +579,17 @@ fn str_compound_iterable() {
 fn trait_bit_map_covers_all_trait_names() {
     let (interner, wk) = make_wk();
 
+    // Bidirectional sync: ALL_TRAIT_NAMES must list exactly one entry per trait bit.
+    // Without this, a new bit added to trait_bits + build_trait_bit_map() could be
+    // silently untested if ALL_TRAIT_NAMES isn't updated.
+    assert_eq!(
+        ALL_TRAIT_NAMES.len(),
+        trait_bits::COUNT as usize,
+        "ALL_TRAIT_NAMES ({}) out of sync with trait_bits::COUNT ({})",
+        ALL_TRAIT_NAMES.len(),
+        trait_bits::COUNT,
+    );
+
     for &name in ALL_TRAIT_NAMES {
         let interned = interner.intern(name);
         assert!(
