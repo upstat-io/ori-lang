@@ -182,15 +182,25 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::AmbiguousIndex { ty } => {
                 format!("ambiguous index on `{}`", self.format_type(*ty))
             }
-            TypeErrorKind::CannotDeriveDefaultForSumType { type_name } => {
+            TypeErrorKind::CannotDeriveForSumType {
+                type_name,
+                trait_kind,
+            } => {
                 format!(
-                    "cannot derive `Default` for sum type `{}`",
+                    "cannot derive `{}` for sum type `{}`",
+                    trait_kind.trait_name(),
                     self.format_name(*type_name)
                 )
             }
-            TypeErrorKind::CannotDeriveHashableWithoutEq { type_name } => {
+            TypeErrorKind::CannotDeriveWithoutSupertrait {
+                type_name,
+                trait_kind,
+                required,
+            } => {
                 format!(
-                    "cannot derive `Hashable` without `Eq` for `{}`",
+                    "cannot derive `{}` without `{}` for `{}`",
+                    trait_kind.trait_name(),
+                    required.trait_name(),
                     self.format_name(*type_name)
                 )
             }

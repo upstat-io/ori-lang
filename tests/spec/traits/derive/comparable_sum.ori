@@ -7,12 +7,12 @@ use std.testing { assert }
 
 // Variants declared in order: Low < Medium < High
 
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Priority = Low | Medium | High
 
 // Variants with payloads
 
-#[derive(Comparable)]
+#[derive(Eq, Comparable)]
 type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
 
 // --- Declaration order: earlier < later ---

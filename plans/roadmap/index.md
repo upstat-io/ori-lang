@@ -6,7 +6,21 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **PRIORITY BLOCKER — Do This First**: Section 10.7 `catch(expr)` pattern must be implemented before other roadmap work. `assert_panics` depends on `catch`, and 16 spec tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) are `#skip`ped until it lands. Without `catch`, panic-related tests cannot verify correct behavior.
+> **ACTIVE REROUTE — Trait Architecture Refactor**
+>
+> **All roadmap work is suspended until `plans/trait_arch/` is complete.**
+>
+> Analysis of the last 40 commits revealed that 35% of all work is reactive (fixing sync drift, filling codegen gaps, cleaning hygiene). The root cause is structural: adding a new trait requires 12+ file edits across 5 crates with no compile-time enforcement. Every future roadmap section (especially Sections 03, 07A-07D, and 21A) will pay this tax repeatedly unless the architecture is fixed first.
+>
+> **What to do:** Read `plans/trait_arch/00-overview.md` for the full plan. Execute sections in order: 01 → 05 → 02 → 03 → 04 → 06 → 07. Use `plans/trait_arch/index.md` for keyword search. When all 7 sections are complete, remove this reroute block and resume normal roadmap work.
+>
+> **Plan location:** `plans/trait_arch/`
+> **Sections:** 7 (Trait Metadata, Trait Satisfaction, Registration Split, LLVM Refactor, Sync Enforcement, Error Codegen, Derive Strategy)
+> **Exit criteria:** `./test-all.sh` passes, no trait infrastructure file exceeds 500 lines, `cargo t` catches all sync drift
+
+---
+
+> **PRIORITY BLOCKER — Do This First** (after trait_arch reroute is complete): Section 10.7 `catch(expr)` pattern must be implemented before other roadmap work. `assert_panics` depends on `catch`, and 16 spec tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) are `#skip`ped until it lands. Without `catch`, panic-related tests cannot verify correct behavior.
 
 ---
 

@@ -155,7 +155,7 @@ pub use ast::{
 };
 pub use builtin_type::BuiltinType;
 pub use comment::{Comment, CommentKind, CommentList};
-pub use derives::{DerivedMethodInfo, DerivedTrait};
+pub use derives::{DerivedMethodInfo, DerivedMethodShape, DerivedTrait};
 pub use expr_id::{
     BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
     MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,
