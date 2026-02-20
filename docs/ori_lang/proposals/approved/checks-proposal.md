@@ -12,11 +12,11 @@
 Extend the `run` pattern with optional `pre_check:` and `post_check:` properties to support contract-style defensive programming without introducing new syntax or keywords.
 
 ```ori
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0,
-    a div b,
+@divide (a: int, b: int) -> int = {
+    pre_check: b != 0
+    a div b
     post_check: r -> r * b <= a
-)
+}
 ```
 
 ---
@@ -34,12 +34,12 @@ Currently in Ori, these checks are ad-hoc:
 
 ```ori
 // Current approach: manual, verbose, inconsistent
-@divide (a: int, b: int) -> int = run(
-    if b == 0 then panic(msg: "divisor must be non-zero"),
-    let result = a div b,
-    if !(result * b <= a) then panic(msg: "postcondition failed"),
+@divide (a: int, b: int) -> int = {
+    if b == 0 then panic(msg: "divisor must be non-zero")
+    let result = a div b
+    if !(result * b <= a) then panic(msg: "postcondition failed")
     result
-)
+}
 ```
 
 Problems with this approach:
@@ -85,18 +85,18 @@ Adding `pre_check:` and `post_check:` as optional properties requires zero new c
 ### Syntax
 
 ```ori
-run(
+{
     pre_check: condition,                    // Optional: checked before body
     pre_check: condition | "message",        // Optional: with custom message
     pre_check: another_condition,            // Optional: multiple checks allowed
 
-    // ... body statements and expressions ...,
+    // ... body statements and expressions ...
 
-    final_expression,
+    final_expression
 
     post_check: result -> condition,         // Optional: checked after body
     post_check: result -> condition | "msg", // Optional: with custom message
-)
+}
 ```
 
 ### Grammar
@@ -117,32 +117,32 @@ This is enforced by the parser, not convention. The following is a syntax error:
 
 ```ori
 // ERROR: pre_check: must appear before body statements
-run(
-    let x = compute(),
+{
+    let x = compute()
     pre_check: input > 0,  // Syntax error!
     x + 1
-)
+}
 
 // ERROR: post_check: must appear after all body statements
-run(
+{
     post_check: r -> r > 0,  // Syntax error!
-    let x = compute(),
+    let x = compute()
     x + 1
-)
+}
 ```
 
 Valid ordering:
 
 ```ori
-run(
+{
     pre_check: a > 0,           // First: all pre_checks
     pre_check: b > 0,           // (can have multiple)
     let x = a + b,              // Then: body
-    let y = x * 2,
+    let y = x * 2
     y,                          // Last expression before post_check
     post_check: r -> r > 0,     // Last: all post_checks
-    post_check: r -> r < 1000,
-)
+    post_check: r -> r < 1000
+}
 ```
 
 This constraint ensures the semantics are unambiguous: pre_checks run before any body code, post_checks run after all body code.
@@ -174,19 +174,19 @@ This constraint ensures the semantics are unambiguous: pre_checks run before any
 #### Desugaring
 
 ```ori
-run(
-    pre_check: P,
-    body,
+{
+    pre_check: P
+    body
     post_check: r -> Q
-)
+}
 
 // Desugars to:
-run(
+{
     if !P then panic(msg: "pre_check failed: P"),  // "P" is source text
-    let __result = body,
+    let __result = body
     if !Q(__result) then panic(msg: "post_check failed: Q"),  // "Q" is source text
     __result
-)
+}
 ```
 
 The compiler embeds the condition's source text as a string literal for default messages.
@@ -194,38 +194,38 @@ The compiler embeds the condition's source text as a string literal for default 
 #### With Custom Messages
 
 ```ori
-run(
-    pre_check: x > 0 | "x must be positive",
+{
+    pre_check: x > 0 | "x must be positive"
     body
-)
+}
 
 // Desugars to:
-run(
-    if !(x > 0) then panic(msg: "x must be positive"),
+{
+    if !(x > 0) then panic(msg: "x must be positive")
     body
-)
+}
 ```
 
 #### Multiple Checks
 
 ```ori
-run(
-    pre_check: A | "first check",
-    pre_check: B,
-    body,
-    post_check: r -> C,
-    post_check: r -> D | "fourth check",
-)
+{
+    pre_check: A | "first check"
+    pre_check: B
+    body
+    post_check: r -> C
+    post_check: r -> D | "fourth check"
+}
 
 // Desugars to:
-run(
-    if !A then panic(msg: "first check"),
-    if !B then panic(msg: "pre_check failed: B"),
-    let __result = body,
-    if !C(__result) then panic(msg: "post_check failed: C"),
-    if !D(__result) then panic(msg: "fourth check"),
+{
+    if !A then panic(msg: "first check")
+    if !B then panic(msg: "pre_check failed: B")
+    let __result = body
+    if !C(__result) then panic(msg: "post_check failed: C")
+    if !D(__result) then panic(msg: "fourth check")
     __result
-)
+}
 ```
 
 ---
@@ -235,98 +235,98 @@ run(
 ### Basic Usage
 
 ```ori
-@abs (x: int) -> int = run(
-    if x < 0 then -x else x,
+@abs (x: int) -> int = {
+    if x < 0 then -x else x
     post_check: r -> r >= 0
-)
+}
 
-@sqrt (x: float) -> float = run(
-    pre_check: x >= 0.0,
-    newton_raphson(x: x),
+@sqrt (x: float) -> float = {
+    pre_check: x >= 0.0
+    newton_raphson(x: x)
     post_check: r -> r >= 0.0
-)
+}
 
-@get<T> (items: [T], index: int) -> T = run(
-    pre_check: index >= 0 && index < len(collection: items),
+@get<T> (items: [T], index: int) -> T = {
+    pre_check: index >= 0 && index < len(collection: items)
     items[index]
-)
+}
 ```
 
 ### Multiple Conditions
 
 ```ori
-@binary_search<T: Comparable> (items: [T], target: T) -> Option<int> = run(
-    pre_check: len(collection: items) > 0 | "items must not be empty",
-    pre_check: is_sorted(items: items) | "items must be sorted",
-    binary_search_impl(items: items, target: target, lo: 0, hi: len(collection: items)),
-    post_check: r -> match(r,
-        Some(i) -> items[i] == target,
+@binary_search<T: Comparable> (items: [T], target: T) -> Option<int> = {
+    pre_check: len(collection: items) > 0 | "items must not be empty"
+    pre_check: is_sorted(items: items) | "items must be sorted"
+    binary_search_impl(items: items, target: target, lo: 0, hi: len(collection: items))
+    post_check: r -> match r {
+        Some(i) -> items[i] == target
         None -> !items.contains(value: target)
-    )
-)
+    }
+}
 ```
 
 ### Financial Example
 
 ```ori
-@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
-    pre_check: amount > 0 | "transfer amount must be positive",
-    pre_check: from.balance >= amount | "insufficient funds",
-    pre_check: from.id != to.id | "cannot transfer to same account",
-    let new_from = Account { id: from.id, balance: from.balance - amount },
-    let new_to = Account { id: to.id, balance: to.balance + amount },
-    (new_from, new_to),
-    post_check: (f, t) -> f.balance == from.balance - amount,
-    post_check: (f, t) -> t.balance == to.balance + amount,
-    post_check: (f, t) -> f.balance + t.balance == from.balance + to.balance,
-)
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = {
+    pre_check: amount > 0 | "transfer amount must be positive"
+    pre_check: from.balance >= amount | "insufficient funds"
+    pre_check: from.id != to.id | "cannot transfer to same account"
+    let new_from = Account { id: from.id, balance: from.balance - amount }
+    let new_to = Account { id: to.id, balance: to.balance + amount }
+    (new_from, new_to)
+    post_check: (f, t) -> f.balance == from.balance - amount
+    post_check: (f, t) -> t.balance == to.balance + amount
+    post_check: (f, t) -> f.balance + t.balance == from.balance + to.balance
+}
 ```
 
 ### Composing with Other Patterns
 
 ```ori
 // check + try
-@safe_divide (a: int, b: int) -> Result<int, MathError> = run(
-    try(
-        if b == 0 then Err(MathError.DivideByZero),
+@safe_divide (a: int, b: int) -> Result<int, MathError> = {
+    try {
+        if b == 0 then Err(MathError.DivideByZero)
         Ok(a div b)
-    ),
+    }
     post_check: r -> is_ok(result: r) || b == 0
-)
+}
 
 // check + validate
-@create_user (input: UserInput) -> Result<User, [str]> = run(
-    pre_check: input.source == "trusted",
+@create_user (input: UserInput) -> Result<User, [str]> = {
+    pre_check: input.source == "trusted"
     validate(
         rules: [
-            len(collection: input.name) > 0 | "name required",
+            len(collection: input.name) > 0 | "name required"
             input.age >= 0 | "invalid age"
-        ],
-        then: User { name: input.name, age: input.age },
+        ]
+        then: User { name: input.name, age: input.age }
     )
-)
+}
 ```
 
 ### Testing Checks
 
 ```ori
-@test_divide tests @divide () -> void = run(
+@test_divide tests @divide () -> void = {
     // Normal cases
-    assert_eq(actual: divide(a: 10, b: 2), expected: 5),
-    assert_eq(actual: divide(a: 7, b: 3), expected: 2),
+    assert_eq(actual: divide(a: 10, b: 2), expected: 5)
+    assert_eq(actual: divide(a: 7, b: 3), expected: 2)
 
     // Pre-check violations
     assert_panics(f: () -> divide(a: 10, b: 0))
-)
+}
 
-@test_sqrt tests @sqrt () -> void = run(
+@test_sqrt tests @sqrt () -> void = {
     // Normal cases
-    assert_eq(actual: sqrt(x: 4.0), expected: 2.0),
-    assert_eq(actual: sqrt(x: 0.0), expected: 0.0),
+    assert_eq(actual: sqrt(x: 4.0), expected: 2.0)
+    assert_eq(actual: sqrt(x: 0.0), expected: 0.0)
 
     // Pre-check violations
     assert_panics(f: () -> sqrt(x: -1.0))
-)
+}
 ```
 
 ---
@@ -347,19 +347,19 @@ run(
 
 ```ori
 // Before: manual, verbose
-@sqrt (x: float) -> float = run(
-    if x < 0.0 then panic(msg: "x must be non-negative"),
-    let result = newton_raphson(x: x),
-    if result < 0.0 then panic(msg: "result must be non-negative"),
+@sqrt (x: float) -> float = {
+    if x < 0.0 then panic(msg: "x must be non-negative")
+    let result = newton_raphson(x: x)
+    if result < 0.0 then panic(msg: "result must be non-negative")
     result
-)
+}
 
 // After: declarative, clear
-@sqrt (x: float) -> float = run(
-    pre_check: x >= 0.0,
-    newton_raphson(x: x),
+@sqrt (x: float) -> float = {
+    pre_check: x >= 0.0
+    newton_raphson(x: x)
     post_check: r -> r >= 0.0
-)
+}
 ```
 
 ### vs. Separate `check` Pattern
@@ -391,7 +391,7 @@ Ori patterns use named properties (`over:`, `transform:`, `predicate:`). This is
 ```ori
 for(over: items, match: Some(x) -> x, default: 0)
 recurse(condition: n <= 1, base: n, step: self(n - 1))
-run(pre_check: x > 0, body, post_check: r -> r > x)
+{pre_check: x > 0, body, post_check: r -> r > x}
 ```
 
 ### Why `pre_check` and `post_check`?
@@ -429,10 +429,10 @@ int sqrt(float x) pre(x >= 0) post(r: r >= 0);
 Ori puts them in the body:
 
 ```ori
-@sqrt (x: float) -> float = run(
-    pre_check: x >= 0.0,
+@sqrt (x: float) -> float = {
+    pre_check: x >= 0.0
     ...
-)
+}
 ```
 
 Tradeoffs:
@@ -520,10 +520,10 @@ type BankAccount = { id: str, balance: int }
 Tooling could verify that callers satisfy callees' preconditions:
 
 ```ori
-@caller () -> int = run(
-    let x = -5,
+@caller () -> int = {
+    let x = -5
     sqrt(x: float(x))  // Warning: sqrt pre_check (x >= 0.0) may fail
-)
+}
 ```
 
 ---
@@ -539,3 +539,41 @@ The `pre_check:` and `post_check:` properties for `run` provide contract-style d
 5. **Solves real problems** — Clear preconditions, postconditions, better error messages
 
 The design prioritizes consistency with Ori's existing patterns over visibility in function signatures, a tradeoff appropriate for a language with mandatory testing and short function bodies.
+
+---
+
+## Errata (added 2026-02-19)
+
+> **Superseded by `block-expression-syntax`**: The approved block expression syntax proposal removes `run()` from the language entirely, replacing it with `{ }` block expressions. Since contracts (`pre_check:`/`post_check:`) were housed inside `run()`, they move to **function-level declarations** using C++-style `pre()`/`post()` syntax:
+>
+> ```ori
+> // Old (this proposal): contracts inside {}
+> @divide (a: int, b: int) -> int = {
+>     pre_check: b != 0
+>     a div b
+>     post_check: r -> r * b <= a
+> }
+>
+> // New (block-expression-syntax): contracts on function declaration
+> @divide (a: int, b: int) -> int
+>     pre(b != 0)
+>     post(r -> r * b <= a)
+> = {
+>     a div b
+> }
+> ```
+>
+> **What changed:**
+> - **Placement**: Body-level (`run()`) -> function-level (between signature and `=`)
+> - **Keywords**: `pre_check`/`post_check` -> `pre`/`post`
+> - **Syntax**: Named properties (`pre_check: expr`) -> function-like (`pre(expr)`)
+>
+> **What is preserved:**
+> - Evaluation order (pre before body, post after body)
+> - Scope constraints (pre sees params only, post sees result)
+> - Type constraints (pre: bool, post: T -> bool, no post on void)
+> - Message syntax (`| "message"`)
+> - Desugaring to conditional panic
+> - Multiple checks allowed
+>
+> The "Why Not in the Signature?" rationale (Section: Design Rationale) was based on the premise "extend what already exists (`run`)." With `run()` removed, that premise no longer holds, and function-level placement becomes the natural choice.

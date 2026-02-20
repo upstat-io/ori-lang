@@ -33,15 +33,15 @@ The spec defines error return traces (collected at `?` propagation) but leaves u
 Trace entries are added at each `?` propagation point:
 
 ```ori
-@outer () -> Result<int, Error> = run(
+@outer () -> Result<int, Error> = {
     let x = inner()?,  // Entry added here
-    Ok(x),
-)
+    Ok(x)
+}
 
-@inner () -> Result<int, Error> = run(
+@inner () -> Result<int, Error> = {
     let y = deep()?,   // Entry added here
-    Ok(y),
-)
+    Ok(y)
+}
 
 @deep () -> Result<int, Error> =
     Err(Error { message: "failed" })  // Original error, no trace yet
@@ -76,11 +76,11 @@ error.trace_entries()
 Traces work normally within a task — `?` adds entries as expected:
 
 ```ori
-@async_fn () -> Result<Data, Error> uses Suspend = run(
+@async_fn () -> Result<Data, Error> uses Suspend = {
     let x = step1()?,  // Entry added
     let y = step2()?,  // Entry added
-    Ok(y),
-)
+    Ok(y)
+}
 ```
 
 ### Across Task Boundaries
@@ -88,13 +88,13 @@ Traces work normally within a task — `?` adds entries as expected:
 When errors cross task boundaries (via channel or nursery results), traces are **preserved**:
 
 ```ori
-@outer () -> Result<[int], Error> uses Suspend = run(
+@outer () -> Result<[int], Error> uses Suspend = {
     let results = parallel(
         tasks: items.map(i -> () -> process(i)),  // May return errors
-    ),
+    )
     // results[n].err() contains full trace from spawned task
     ...
-)
+}
 ```
 
 The trace includes entries from the spawned task's call stack.
@@ -164,10 +164,10 @@ If caught code returns `Err` (not panic), traces work normally:
 ```ori
 @returns_error () -> Result<int, Error> = Err(Error { ... })
 
-let result = catch(expr: run(
+let result = catch(expr: {
     let x = returns_error()?,  // Trace entry added
-    Ok(x),
-))
+    Ok(x)
+})
 // result: Result<Result<int, Error>, str>
 // Inner Err has trace; outer Ok means no panic
 ```
@@ -190,13 +190,13 @@ let x = fallible()
 Contexts chain, with most recent first:
 
 ```ori
-@load_config () -> Result<Config, Error> = run(
+@load_config () -> Result<Config, Error> = {
     let raw = read_file(path: "config.json")
-        .context(msg: "reading config file")?,
+        .context(msg: "reading config file")?
     let parsed = parse_json(raw)
-        .context(msg: "parsing config JSON")?,
-    Ok(parsed),
-)
+        .context(msg: "parsing config JSON")?
+    Ok(parsed)
+}
 
 // If parse_json fails, error message shows:
 // "parsing config JSON"
@@ -314,23 +314,23 @@ When `E: Traceable`, these delegate to the error's trace methods. When `E` does 
 ### Complete Trace Example
 
 ```ori
-@main () -> void = run(
-    match(load_user(id: 123),
-        Ok(user) -> print(msg: user.name),
-        Err(e) -> run(
-            print(msg: `Error: {e.message}`),
-            print(msg: `Trace:\n{e.trace()}`),
-        ),
-    ),
-)
+@main () -> void = {
+    match load_user(id: 123) {
+        Ok(user) -> print(msg: user.name)
+        Err(e) -> {
+            print(msg: `Error: {e.message}`)
+            print(msg: `Trace:\n{e.trace()}`)
+        }
+    }
+}
 
-@load_user (id: int) -> Result<User, Error> uses Http = run(
+@load_user (id: int) -> Result<User, Error> uses Http = {
     let response = fetch(url: `/users/{id}`)
-        .context(msg: "fetching user data")?,
+        .context(msg: "fetching user data")?
     let user = parse_user(response)
-        .context(msg: "parsing user response")?,
-    Ok(user),
-)
+        .context(msg: "parsing user response")?
+    Ok(user)
+}
 
 // Output on error:
 // Error: invalid JSON at position 42

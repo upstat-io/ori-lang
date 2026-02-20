@@ -331,13 +331,13 @@ type Container<T> = {
 
 // Reflects when T: Reflect
 impl<T: Reflect> Reflect for Container<T> {
-    @type_info (self) -> TypeInfo = run(
-        let base = $CONTAINER_TYPE_INFO,
+    @type_info (self) -> TypeInfo = {
+        let base = $CONTAINER_TYPE_INFO
         TypeInfo {
-            ...base,
-            type_params: [T.type_info().name],
-        },
-    )
+            ...base
+            type_params: [T.type_info().name]
+        }
+    }
 
     // ... other methods
 
@@ -349,17 +349,17 @@ impl<T: Reflect> Reflect for Container<T> {
 
 ```ori
 // Types can be compared by TypeInfo
-@types_equal<A: Reflect, B: Reflect> () -> bool = run(
-    let a_info = A.type_info(),
-    let b_info = B.type_info(),
-    a_info.name == b_info.name && a_info.module == b_info.module,
-)
+@types_equal<A: Reflect, B: Reflect> () -> bool = {
+    let a_info = A.type_info()
+    let b_info = B.type_info()
+    a_info.name == b_info.name && a_info.module == b_info.module
+}
 
 // Get type identity from a value
-@type_id_of<T: Reflect> (value: T) -> int = run(
-    let info = value.type_info(),
-    hash_combine(seed: info.name.hash(), value: info.module.hash()),
-)
+@type_id_of<T: Reflect> (value: T) -> int = {
+    let info = value.type_info()
+    hash_combine(seed: info.name.hash(), value: info.module.hash())
+}
 ```
 
 ### 8. Iteration Over Fields
@@ -367,16 +367,16 @@ impl<T: Reflect> Reflect for Container<T> {
 ```ori
 // Helper for iterating all fields of a reflecting value
 extend<T: Reflect> T {
-    @fields (self) -> impl Iterator where Item == (str, Unknown) = run(
-        let count = self.field_count(),
-        let info = self.type_info(),
+    @fields (self) -> impl Iterator where Item == (str, Unknown) = {
+        let count = self.field_count()
+        let info = self.type_info()
         (0..count).iter()
-            .filter_map(transform: i -> run(
-                let field_info = info.fields[i],
+            .filter_map(transform: i -> {
+                let field_info = info.fields[i]
                 self.field_by_index(index: i)
-                    .map(transform: v -> (field_info.name, v)),
-            )),
-    )
+                    .map(transform: v -> (field_info.name, v))
+            })
+    }
 }
 ```
 
@@ -412,23 +412,23 @@ use std.json { Json, JsonValue }
 use std.reflect { Reflect, TypeKind }
 
 // Generic to_json for any reflecting type
-@to_json_generic<T: Reflect> (value: T) -> JsonValue = run(
-    let info = value.type_info(),
+@to_json_generic<T: Reflect> (value: T) -> JsonValue = {
+    let info = value.type_info()
     match info.kind {
-        Primitive -> to_json_primitive(value:),
-        Struct -> to_json_struct(value:),
-        Enum -> to_json_enum(value:),
-        List -> to_json_list(value:),
-        Map -> to_json_map(value:),
-        _ -> JsonValue.Null,
-    },
-)
+        Primitive -> to_json_primitive(value:)
+        Struct -> to_json_struct(value:)
+        Enum -> to_json_enum(value:)
+        List -> to_json_list(value:)
+        Map -> to_json_map(value:)
+        _ -> JsonValue.Null
+    }
+}
 
-@to_json_struct<T: Reflect> (value: T) -> JsonValue = run(
+@to_json_struct<T: Reflect> (value: T) -> JsonValue = {
     let pairs = for (name, field_value) in value.fields()
-        yield (name, to_json_unknown(value: field_value)),
-    JsonValue.Object(pairs.collect()),
-)
+        yield (name, to_json_unknown(value: field_value))
+    JsonValue.Object(pairs.collect())
+}
 
 @to_json_unknown (value: Unknown) -> JsonValue = match value.type_info().kind {
     Primitive -> match value.type_name() {
@@ -449,27 +449,27 @@ use std.reflect { Reflect, TypeKind }
 ```ori
 use std.reflect { Reflect, TypeKind }
 
-@debug_print<T: Reflect> (value: T, indent: int = 0) -> str = run(
-    let info = value.type_info(),
-    let prefix = " ".repeat(count: indent * 2),
+@debug_print<T: Reflect> (value: T, indent: int = 0) -> str = {
+    let info = value.type_info()
+    let prefix = " ".repeat(count: indent * 2)
     match info.kind {
-        Struct -> run(
+        Struct -> {
             let fields_str = for (name, field) in value.fields()
-                yield `{prefix}  {name}: {debug_print(value: field, indent: indent + 1)}`,
-            `{info.name} {{\n{fields_str.join(separator: ",\n")}\n{prefix}}}`,
-        ),
-        Enum -> run(
-            let variant = value.current_variant().unwrap().name,
+                yield `{prefix}  {name}: {debug_print(value: field, indent: indent + 1)}`
+            `{info.name} {{\n{fields_str.join(separator: ",\n")}\n{prefix}}}`
+        }
+        Enum -> {
+            let variant = value.current_variant().unwrap().name
             if value.field_count() == 0 then variant
-            else run(
+            else {
                 let fields_str = for (_, field) in value.fields()
-                    yield debug_print(value: field, indent: indent + 1),
-                `{variant}({fields_str.join(separator: ", ")})`,
-            ),
-        ),
-        _ -> value.to_str(),
-    },
-)
+                    yield debug_print(value: field, indent: indent + 1)
+                `{variant}({fields_str.join(separator: ", ")})`
+            }
+        }
+        _ -> value.to_str()
+    }
+}
 ```
 
 ### Example 3: Struct Validation
@@ -482,16 +482,16 @@ type ValidationError = {
     message: str,
 }
 
-@validate_not_empty<T: Reflect> (value: T) -> [ValidationError] = run(
-    let info = value.type_info(),
+@validate_not_empty<T: Reflect> (value: T) -> [ValidationError] = {
+    let info = value.type_info()
     for field_info in info.fields if field_info.type_name == "str"
         let field_value = value.field_by_name(name: field_info.name)
         if field_value.is_some() && is_empty_str(value: field_value.unwrap())
             yield ValidationError {
-                field: field_info.name,
-                message: "cannot be empty",
-            },
-)
+                field: field_info.name
+                message: "cannot be empty"
+            }
+}
 
 @is_empty_str (value: Unknown) -> bool = match value.downcast<str>() {
     Some(s) -> is_empty(collection: s),
@@ -506,14 +506,14 @@ type ValidationError = {
 @deep_clone<T: Reflect + Clone> (value: T) -> T = value.clone()
 
 // Reflection-based clone for types that can't derive Clone
-@reflect_clone<T: Reflect> (value: T) -> T = run(
-    let info = value.type_info(),
+@reflect_clone<T: Reflect> (value: T) -> T = {
+    let info = value.type_info()
     match info.kind {
-        Struct -> reflect_clone_struct(value:),
-        Enum -> reflect_clone_enum(value:),
+        Struct -> reflect_clone_struct(value:)
+        Enum -> reflect_clone_enum(value:)
         _ -> value,  // Primitives are Copy
-    },
-)
+    }
+}
 ```
 
 ### Example 5: Configuration Loading
@@ -522,11 +522,11 @@ type ValidationError = {
 use std.reflect { Reflect, TypeInfo }
 use std.toml { TomlValue }
 
-@load_config<T: Reflect + Default> (toml: TomlValue) -> Result<T, str> = run(
-    let default = T.default(),
-    let info = default.type_info(),
-    populate_from_toml(target: default, source: toml, info:),
-)
+@load_config<T: Reflect + Default> (toml: TomlValue) -> Result<T, str> = {
+    let default = T.default()
+    let info = default.type_info()
+    populate_from_toml(target: default, source: toml, info:)
+}
 
 @populate_from_toml<T: Reflect> (target: T, source: TomlValue, info: TypeInfo) -> Result<T, str> =
     // Build new value from TOML using reflection
@@ -547,12 +547,12 @@ use std.toml { TomlValue }
 All reflection operations are testable:
 
 ```ori
-@test_person_type_info tests @type_info () -> void = run(
-    let person = Person { name: "Test", age: 0, email: None },
-    let info = person.type_info(),
-    assert_eq(actual: info.name, expected: "Person"),
-    assert_eq(actual: info.fields[0].name, expected: "name"),
-)
+@test_person_type_info tests @type_info () -> void = {
+    let person = Person { name: "Test", age: 0, email: None }
+    let info = person.type_info()
+    assert_eq(actual: info.name, expected: "Person")
+    assert_eq(actual: info.fields[0].name, expected: "name")
+}
 ```
 
 ### Explicit Effects

@@ -196,6 +196,14 @@ New proposals from Rust prelude comparison (2026-01-27). These enhance Ori's pre
 
 ## Section Execution Order
 
+### Tier 0: Syntax Foundation (BLOCKS ALL OTHER WORK)
+
+| Order | Section | Document | Focus |
+|-------|-------|----------|-------|
+| 0 | Block Syntax | [section-00-parser.md](./section-00-parser.md) § 0.10 | `{ }` blocks replace `run()`/`match()`/`try()`, function-level `pre()`/`post()` contracts |
+
+> **PRIORITY**: Block expression syntax (approved 2026-02-19) must be implemented before continuing any other roadmap work. Every feature built on the old `run()`/`match()`/`try()` syntax creates migration debt. Proposal: `proposals/approved/block-expression-syntax.md`. Migration script: `scripts/migrate_block_syntax.py`.
+
 ### Tier 1: Foundation (REQUIRED FIRST)
 
 | Order | Section | Document | Focus |

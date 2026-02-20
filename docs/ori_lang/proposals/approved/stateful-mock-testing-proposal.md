@@ -22,15 +22,15 @@ A test in `tests/spec/expressions/with_expr.ori` is skipped because it expects s
 
 ```ori
 #skip("test expects mutable state but Counter.increment is pure")
-@test_with_expression_body tests @with_expression_body () -> void = run(
-    let mock = MockCounter { value: 0 },
-    let result = with Counter = mock in run(
+@test_with_expression_body tests @with_expression_body () -> void = {
+    let mock = MockCounter { value: 0 }
+    let result = with Counter = mock in {
         let a = mock.increment(),  // expects 1
         let b = mock.increment(),  // expects 2 (accumulated!)
-        a + b,
-    ),
+        a + b
+    }
     assert_eq(actual: result, expected: 3), // 1 + 2
-)
+}
 ```
 
 Since `MockCounter` is a value type, `mock.increment()` returns `self.value + 1` every time -- always `1` for a mock initialized with `value: 0`. There is no mechanism for `increment()` to modify `mock` in-place across calls.
@@ -160,17 +160,17 @@ Thread state explicitly through each call, returning `(updated_mock, result)`.
 Extend `with...in` to support stateful handlers. The `handler(state: expr) { ... }` construct creates a handler frame with local mutable state that its operations can read and modify:
 
 ```ori
-@test_counter () -> void = run(
+@test_counter () -> void = {
     let result = with Counter = handler(state: 0) {
-        increment: (s) -> (s + 1, s + 1),
-        get: (s) -> (s, s),
-    } in run(
+        increment: (s) -> (s + 1, s + 1)
+        get: (s) -> (s, s)
+    } in {
         let a = Counter.increment(),  // handler state: 0 -> 1, returns 1
         let b = Counter.increment(),  // handler state: 1 -> 2, returns 2
-        a + b,
-    ),
-    assert_eq(actual: result, expected: 3),
-)
+        a + b
+    }
+    assert_eq(actual: result, expected: 3)
+}
 ```
 
 ### How It Works
@@ -207,10 +207,10 @@ Handlers support a **single state value**. For multiple independent state values
 
 ```ori
 with Counter = handler(state: { count: 0, log: [] }) {
-    increment: (s) -> run(
-        let new_count = s.count + 1,
-        ({ count: new_count, log: [...s.log, "inc"] }, new_count),
-    ),
+    increment: (s) -> {
+        let new_count = s.count + 1
+        ({ count: new_count, log: [...s.log, "inc"] }, new_count)
+    },
     get: (s) -> (s, s.count),
     calls: (s) -> (s, s.log),
 } in ...
@@ -225,11 +225,11 @@ with Counter = handler(state: { count: 0, log: [] }) {
 let (result, final_count) = with Counter = handler(state: 0) {
     increment: (s) -> (s + 1, s + 1),
     get: (s) -> (s, s),
-} in run(
-    let a = Counter.increment(),
-    let b = Counter.increment(),
-    (a + b, Counter.get()),
-),
+} in {
+    let a = Counter.increment()
+    let b = Counter.increment()
+    (a + b, Counter.get())
+},
 ```
 
 This preserves backward compatibility of `with...in` semantics -- no type system special-casing is needed.
@@ -308,16 +308,16 @@ with Logger = handler(state: []) {
     entries: (s) -> (s, s),
 } in
     with Counter = handler(state: 0) {
-        increment: (s) -> run(
+        increment: (s) -> {
             Logger.log(msg: "increment called"),  // invokes outer handler
-            (s + 1, s + 1),
-        ),
+            (s + 1, s + 1)
+        },
         get: (s) -> (s, s),
-    } in run(
-        Counter.increment(),
-        Counter.increment(),
-        assert_eq(actual: Logger.entries(), expected: ["increment called", "increment called"]),
-    )
+    } in {
+        Counter.increment()
+        Counter.increment()
+        assert_eq(actual: Logger.entries(), expected: ["increment called", "increment called"])
+    }
 ```
 
 Each handler's state is threaded independently through its own operations. Cross-handler calls dispatch through the normal capability resolution chain.
@@ -391,16 +391,16 @@ This approach aligns with Ori's existing design trajectory:
 The spec's `MockClock.advance()` pattern (interior mutability in a runtime-provided type) becomes a stateful handler:
 
 ```ori
-@test_expiry tests @is_expired () -> void = run(
+@test_expiry tests @is_expired () -> void = {
     let result = with Clock = handler(state: Instant.from_unix_secs(secs: 1700000000)) {
-        now: (s) -> (s, s),
-        advance: (s, by: Duration) -> (s + by, ()),
-    } in run(
-        assert(!is_expired(token: token)),
-        Clock.advance(by: 1h),
-        assert(is_expired(token: token)),
-    ),
-)
+        now: (s) -> (s, s)
+        advance: (s, by: Duration) -> (s + by, ())
+    } in {
+        assert(!is_expired(token: token))
+        Clock.advance(by: 1h)
+        assert(is_expired(token: token))
+    }
+}
 ```
 
 This eliminates the need for a runtime-provided `MockClock` type entirely. Users can build their own stateful clock mock using the handler mechanism.
@@ -460,31 +460,31 @@ Add a note clarifying that handler frame state is frame-local mutable state (sim
 
 ```ori
 #skip("test expects mutable state but Counter.increment is pure")
-@test_with_expression_body tests @with_expression_body () -> void = run(
-    let mock = MockCounter { value: 0 },
-    let result = with Counter = mock in run(
-        let a = mock.increment(),
-        let b = mock.increment(),
-        a + b,
-    ),
-    assert_eq(actual: result, expected: 3),
-)
+@test_with_expression_body tests @with_expression_body () -> void = {
+    let mock = MockCounter { value: 0 }
+    let result = with Counter = mock in {
+        let a = mock.increment()
+        let b = mock.increment()
+        a + b
+    }
+    assert_eq(actual: result, expected: 3)
+}
 ```
 
 ### With Stateful Handlers:
 
 ```ori
-@test_with_expression_body tests @with_expression_body () -> void = run(
+@test_with_expression_body tests @with_expression_body () -> void = {
     let result = with Counter = handler(state: 0) {
-        increment: (s) -> (s + 1, s + 1),
-        get: (s) -> (s, s),
-    } in run(
-        let a = Counter.increment(),
-        let b = Counter.increment(),
-        a + b,
-    ),
-    assert_eq(actual: result, expected: 3),
-)
+        increment: (s) -> (s + 1, s + 1)
+        get: (s) -> (s, s)
+    } in {
+        let a = Counter.increment()
+        let b = Counter.increment()
+        a + b
+    }
+    assert_eq(actual: result, expected: 3)
+}
 ```
 
 ---

@@ -44,10 +44,10 @@ The `$` prefix marks a binding as immutable. See [Constants](04-constants.md) fo
 - Loop variables
 
 ```ori
-@add (a: int, b: int) -> int = run(
+@add (a: int, b: int) -> int = {
     a = 10,  // error: cannot assign to parameter
-    a + b,
-)
+    a + b
+}
 
 for item in items do
     item = other  // error: cannot assign to loop variable
@@ -58,11 +58,11 @@ for item in items do
 Bindings are visible from declaration to end of enclosing block.
 
 ```ori
-run(
-    let x = 10,
+{
+    let x = 10
     let y = x + 5,  // x visible
-    y,
-)
+    y
+}
 // x, y not visible
 ```
 
@@ -71,20 +71,20 @@ run(
 Bindings may shadow earlier bindings with the same name. Shadowing can change mutability:
 
 ```ori
-run(
+{
     let x = 10,           // mutable
     let $x = x + 5,       // immutable, shadows outer x
     $x,                   // 15
-)
+}
 
-run(
+{
     let $x = 10,          // immutable
-    run(
+    {
         let x = $x * 2,   // mutable, shadows outer $x
         x = x + 1,        // OK: inner x is mutable
-        x,
-    ),
-)
+        x
+    }
+}
 ```
 
 The `$` prefix must match between definition and usage within the same binding scope.

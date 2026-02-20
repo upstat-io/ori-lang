@@ -61,22 +61,20 @@ The most direct way to handle `Option`:
 ```ori
 let maybe_user = find_user(id: 42)
 
-let message = match(
-    maybe_user,
-    Some(user) -> `Found: {user.name}`,
-    None -> "User not found",
-)
+let message = match maybe_user {
+    Some(user) -> `Found: {user.name}`
+    None -> "User not found"
+}
 ```
 
 The compiler ensures you handle both cases. This won't compile:
 
 ```ori
 // ERROR: non-exhaustive match
-let message = match(
-    maybe_user,
-    Some(user) -> `Found: {user.name}`,
+let message = match maybe_user {
+    Some(user) -> `Found: {user.name}`
     // Forgot to handle None!
-)
+}
 ```
 
 ### Option Methods
@@ -119,11 +117,10 @@ let still_nothing = nothing.map(transform: x -> x * 2)  // None
 
 ```ori
 // Without map (verbose)
-let display = match(
-    find_user(id: 42),
-    Some(user) -> Some(`Name: {user.name}`),
-    None -> None,
-)
+let display = match find_user(id: 42) {
+    Some(user) -> Some(`Name: {user.name}`)
+    None -> None
+}
 
 // With map (concise)
 let display = find_user(id: 42).map(transform: u -> `Name: {u.name}`)
@@ -144,15 +141,13 @@ let address = find_user(id: 42)
 Without `and_then`, you'd need nested matches:
 
 ```ori
-let address = match(
-    find_user(id: 42),
-    None -> None,
-    Some(user) -> match(
-        get_address(user: user),
-        None -> None,
-        Some(addr) -> Some(addr),
-    ),
-)
+let address = match find_user(id: 42) {
+    None -> None
+    Some(user) -> match get_address(user: user) {
+        None -> None
+        Some(addr) -> Some(addr)
+    }
+}
 // Much more verbose!
 ```
 
@@ -224,11 +219,10 @@ let failure: Result<int, str> = Err("something went wrong")
 ```ori
 let result = read_file(path: "config.json")
 
-match(
-    result,
-    Ok(content) -> process(data: content),
-    Err(e) -> print(msg: `Error: {e.message}`),
-)
+match result {
+    Ok(content) -> process(data: content)
+    Err(e) -> print(msg: `Error: {e.message}`)
+}
 ```
 
 ### Result Methods
@@ -360,18 +354,18 @@ let user = fetch_user(id: id).unwrap_or(default: guest_user)
 ### First Success
 
 ```ori
-@try_sources (id: int) -> Option<Data> = run(
+@try_sources (id: int) -> Option<Data> = {
     // Try cache first
-    let cached = cache_lookup(id: id),
-    if is_some(option: cached) then return cached,
+    let cached = cache_lookup(id: id)
+    if is_some(option: cached) then return cached
 
     // Try database
-    let from_db = db_lookup(id: id),
-    if is_some(option: from_db) then return from_db,
+    let from_db = db_lookup(id: id)
+    if is_some(option: from_db) then return from_db
 
     // Try remote
-    remote_lookup(id: id).ok(),
-)
+    remote_lookup(id: id).ok()
+}
 ```
 
 ### Chaining Multiple Optionals
@@ -393,73 +387,70 @@ type ValidationError = { field: str, message: str }
 @parse_id (s: str) -> Option<int> =
     s as? int
 
-@test_parse_id tests @parse_id () -> void = run(
-    assert_eq(actual: parse_id(s: "42"), expected: Some(42)),
-    assert_eq(actual: parse_id(s: "abc"), expected: None),
-)
+@test_parse_id tests @parse_id () -> void = {
+    assert_eq(actual: parse_id(s: "42"), expected: Some(42))
+    assert_eq(actual: parse_id(s: "abc"), expected: None)
+}
 
 // Validate email format
 @validate_email (email: str) -> Option<str> =
     if email.contains(substring: "@") then Some(email) else None
 
-@test_validate_email tests @validate_email () -> void = run(
-    assert_some(option: validate_email(email: "test@example.com")),
-    assert_none(option: validate_email(email: "invalid")),
-)
+@test_validate_email tests @validate_email () -> void = {
+    assert_some(option: validate_email(email: "test@example.com"))
+    assert_none(option: validate_email(email: "invalid"))
+}
 
 // Validate user data
-@validate_user (name: str, email: str) -> Result<void, [ValidationError]> = run(
-    let errors: [ValidationError] = [],
+@validate_user (name: str, email: str) -> Result<void, [ValidationError]> = {
+    let errors: [ValidationError] = []
 
     let errors = if is_empty(collection: name) then
         [...errors, ValidationError { field: "name", message: "Name required" }]
-    else errors,
+    else errors
 
     let errors = if is_none(option: validate_email(email: email)) then
         [...errors, ValidationError { field: "email", message: "Invalid email" }]
-    else errors,
+    else errors
 
-    if is_empty(collection: errors) then Ok(()) else Err(errors),
-)
+    if is_empty(collection: errors) then Ok(()) else Err(errors)
+}
 
-@test_validate_user tests @validate_user () -> void = run(
-    assert_ok(result: validate_user(name: "Alice", email: "a@b.com")),
-    assert_err(result: validate_user(name: "", email: "invalid")),
-)
+@test_validate_user tests @validate_user () -> void = {
+    assert_ok(result: validate_user(name: "Alice", email: "a@b.com"))
+    assert_err(result: validate_user(name: "", email: "invalid"))
+}
 
 // Process user request
-@process_request (id_str: str) -> str = run(
-    let id = parse_id(s: id_str),
+@process_request (id_str: str) -> str = {
+    let id = parse_id(s: id_str)
 
-    match(
-        id,
-        None -> "Invalid ID format",
-        Some(id) -> match(
-            find_user(id: id),
-            None -> `User {id} not found`,
-            Some(user) -> `Found: {user.name}`,
-        ),
-    ),
-)
+    match id {
+        None -> "Invalid ID format"
+        Some(id) -> match find_user(id: id) {
+            None -> `User {id} not found`
+            Some(user) -> `Found: {user.name}`
+        }
+    }
+}
 
 // Simulated user lookup
-@find_user (id: int) -> Option<User> = match(
-    id,
-    1 -> Some(User { id: 1, name: "Alice", email: "alice@example.com" }),
-    2 -> Some(User { id: 2, name: "Bob", email: "bob@example.com" }),
-    _ -> None,
-)
+@find_user (id: int) -> Option<User> = match id {
+    1 -> Some(User { id: 1, name: "Alice", email: "alice@example.com" })
+    2 -> Some(User { id: 2, name: "Bob", email: "bob@example.com" })
+    _ -> None
+}
 
-@test_find_user tests @find_user () -> void = run(
-    assert_some(option: find_user(id: 1)),
-    assert_none(option: find_user(id: 999)),
-)
+@test_find_user tests @find_user () -> void = {
+    assert_some(option: find_user(id: 1))
+    assert_none(option: find_user(id: 999))
+}
 
-@test_process_request tests @process_request () -> void = run(
-    assert_eq(actual: process_request(id_str: "abc"), expected: "Invalid ID format"),
-    assert_eq(actual: process_request(id_str: "1"), expected: "Found: Alice"),
-    assert_eq(actual: process_request(id_str: "999"), expected: "User 999 not found"),
-)
+@test_process_request tests @process_request () -> void = {
+    assert_eq(actual: process_request(id_str: "abc"), expected: "Invalid ID format")
+    assert_eq(actual: process_request(id_str: "1"), expected: "Found: Alice")
+    assert_eq(actual: process_request(id_str: "999"), expected: "User 999 not found")
+}
 ```
 
 ## Quick Reference

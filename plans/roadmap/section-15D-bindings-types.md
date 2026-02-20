@@ -41,20 +41,20 @@ sections:
 Extend `run` pattern with `pre_check:` and `post_check:` properties for contract-style defensive programming.
 
 ```ori
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0,
-    a div b,
-    post_check: r -> r * b <= a,
-)
+@divide (a: int, b: int) -> int = {
+    pre_check: b != 0
+    a div b
+    post_check: r -> r * b <= a
+}
 
 // Multiple conditions via multiple properties
-@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
-    pre_check: amount > 0 | "amount must be positive",
-    pre_check: from.balance >= amount | "insufficient funds",
-    // ... body ...,
-    post_check: (f, t) -> f.balance == from.balance - amount,
-    post_check: (f, t) -> t.balance == to.balance + amount,
-)
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = {
+    pre_check: amount > 0 | "amount must be positive"
+    pre_check: from.balance >= amount | "insufficient funds"
+    // ... body ...
+    post_check: (f, t) -> f.balance == from.balance - amount
+    post_check: (f, t) -> t.balance == to.balance + amount
+}
 ```
 
 ### Key Design Decisions

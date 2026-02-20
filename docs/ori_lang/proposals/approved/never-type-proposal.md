@@ -99,10 +99,10 @@ unreachable(reason: "impossible") // -> Never
 Inside loops, `break` and `continue` have type `Never`:
 
 ```ori
-loop(
+loop {
     if done then break,  // break: Never
-    process(),
-)
+    process()
+}
 ```
 
 ### Error Propagation
@@ -119,9 +119,9 @@ let x = fallible()?  // x: T (unwrapped success type)
 A loop with no `break` has type `Never`:
 
 ```ori
-let forever: Never = loop(
+let forever: Never = loop {
     process_events(),  // No break, never terminates
-)
+}
 ```
 
 ---
@@ -135,18 +135,18 @@ Functions returning `Never` never return normally:
 ```ori
 @fail (msg: str) -> Never = panic(msg: msg)
 
-@infinite_loop () -> Never = loop(
-    process(),
-)
+@infinite_loop () -> Never = loop {
+    process()
+}
 ```
 
 ### Calling Diverging Functions
 
 ```ori
-@process (x: Option<int>) -> int = match(x,
-    Some(v) -> v,
+@process (x: Option<int>) -> int = match x {
+    Some(v) -> v
     None -> fail(msg: "expected value"),  // Never coerces to int
-)
+}
 ```
 
 ---
@@ -167,10 +167,10 @@ let x = if condition then 42 else panic(msg: "fail")
 `Never` arms don't affect the result type:
 
 ```ori
-let result = match(opt,
+let result = match opt {
     Some(v) -> v,        // int
     None -> panic(...),  // Never coerces to int
-)
+}
 // result: int
 ```
 
@@ -214,10 +214,10 @@ let opt: Option<Never> = None  // Can never be Some
 ```ori
 type MaybeNever = Value(int) | Impossible(Never)
 
-let x = match(maybe,
-    Value(v) -> v,
+let x = match maybe {
+    Value(v) -> v
     // Impossible case can be omitted — it can never occur
-)
+}
 ```
 
 ### With Explicit Match
@@ -225,10 +225,10 @@ let x = match(maybe,
 Matching `Never` is allowed but the arm is unreachable:
 
 ```ori
-match(maybe,
-    Value(v) -> v,
-    Impossible(n) -> match(n, ),  // Empty match on Never
-)
+match maybe {
+    Value(v) -> v
+    Impossible(n) -> match n { },  // Empty match on Never
+}
 ```
 
 ---
@@ -262,10 +262,10 @@ This is useful for `Result<Never, E>` (always `Err`) and `Result<T, Never>` (alw
 ### Assertion Helper
 
 ```ori
-@assert_some<T> (opt: Option<T>) -> T = match(opt,
-    Some(v) -> v,
+@assert_some<T> (opt: Option<T>) -> T = match opt {
+    Some(v) -> v
     None -> panic(msg: "expected Some"),  // Never coerces to T
-)
+}
 ```
 
 ### Placeholder Implementation
@@ -278,12 +278,12 @@ This is useful for `Result<Never, E>` (always `Err`) and `Result<T, Never>` (alw
 ### Unreachable Branches
 
 ```ori
-@process (status: Status) -> str = match(status,
-    Active -> "running",
-    Paused -> "paused",
+@process (status: Status) -> str = match status {
+    Active -> "running"
+    Paused -> "paused"
     // Completed and Failed handled elsewhere
-    _ -> unreachable(reason: "invalid status"),
-)
+    _ -> unreachable(reason: "invalid status")
+}
 ```
 
 ---

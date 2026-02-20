@@ -42,12 +42,12 @@ let interleaved = [a] + middle + [b]
 let merged = map1  // How to add map2's entries?
 
 // Must iterate manually or use stdlib
-let merged = run(
-    let result = map1,
+let merged = {
+    let result = map1
     for (k, v) in map2.entries() do
-        result = result.insert(key: k, value: v),
-    result,
-)
+        result = result.insert(key: k, value: v)
+    result
+}
 ```
 
 **Structs:**
@@ -216,10 +216,10 @@ let $defaults = {
     "verbose": false,
 }
 
-@create_client (overrides: {str: any}) -> Client = run(
-    let config = {...$defaults, ...overrides},
-    Client.new(config: config),
-)
+@create_client (overrides: {str: any}) -> Client = {
+    let config = {...$defaults, ...overrides}
+    Client.new(config: config)
+}
 
 // Usage
 create_client(overrides: {"timeout": 60s})
@@ -250,12 +250,12 @@ type User = { id: int, name: str, email: str, active: bool }
 @interleave<T> (a: [T], b: [T], separator: [T]) -> [T] =
     [...a, ...separator, ...b]
 
-@flatten<T> (lists: [[T]]) -> [T] = run(
-    let result = [],
+@flatten<T> (lists: [[T]]) -> [T] = {
+    let result = []
     for list in lists do
-        result = [...result, ...list],
-    result,
-)
+        result = [...result, ...list]
+    result
+}
 ```
 
 ### Request Building
@@ -292,13 +292,13 @@ type AppState = {
     error: Option<str>,
 }
 
-@reduce (state: AppState, action: Action) -> AppState = match(action,
-    LoadStart -> AppState { ...state, loading: true, error: None },
-    LoadSuccess(items) -> AppState { ...state, loading: false, items: items },
-    LoadError(msg) -> AppState { ...state, loading: false, error: Some(msg) },
-    AddItem(item) -> AppState { ...state, items: [...state.items, item] },
-    ClearItems -> AppState { ...state, items: [] },
-)
+@reduce (state: AppState, action: Action) -> AppState = match action {
+    LoadStart -> AppState { ...state, loading: true, error: None }
+    LoadSuccess(items) -> AppState { ...state, loading: false, items: items }
+    LoadError(msg) -> AppState { ...state, loading: false, error: Some(msg) }
+    AddItem(item) -> AppState { ...state, items: [...state.items, item] }
+    ClearItems -> AppState { ...state, items: [] }
+}
 ```
 
 ### Variadic-like Patterns

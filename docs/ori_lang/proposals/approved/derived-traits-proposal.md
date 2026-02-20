@@ -78,12 +78,12 @@ type Status = Pending | Running(progress: int) | Done
 
 // Generated:
 impl Eq for Status {
-    @equals (self, other: Status) -> bool = match((self, other),
-        (Pending, Pending) -> true,
-        (Running(a), Running(b)) -> a == b,
-        (Done, Done) -> true,
-        _ -> false,
-    )
+    @equals (self, other: Status) -> bool = match (self, other) {
+        (Pending, Pending) -> true
+        (Running(a), Running(b)) -> a == b
+        (Done, Done) -> true
+        _ -> false
+    }
 }
 ```
 
@@ -97,12 +97,12 @@ type Point = { x: int, y: int }
 
 // Generated:
 impl Hashable for Point {
-    @hash (self) -> int = run(
-        let h = 0,
-        h = hash_combine(seed: h, value: self.x.hash()),
-        h = hash_combine(seed: h, value: self.y.hash()),
-        h,
-    )
+    @hash (self) -> int = {
+        let h = 0
+        h = hash_combine(seed: h, value: self.x.hash())
+        h = hash_combine(seed: h, value: self.y.hash())
+        h
+    }
 }
 ```
 
@@ -118,10 +118,10 @@ type Point = { x: int, y: int }
 
 // Generated:
 impl Comparable for Point {
-    @compare (self, other: Point) -> Ordering = match(compare(left: self.x, right: other.x),
-        Equal -> compare(left: self.y, right: other.y),
-        result -> result,
-    )
+    @compare (self, other: Point) -> Ordering = match compare(left: self.x, right: other.x) {
+        Equal -> compare(left: self.y, right: other.y)
+        result -> result
+    }
 }
 ```
 

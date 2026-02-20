@@ -242,11 +242,11 @@ result.map(transform: x -> x * 2)
 ```ori
 @test_fetch_user tests @fetch_user () -> void =
     with Http = MockHttp { responses: { "/users/1": json_user } } in
-    run(
-        let result = fetch_user(id: 1),
-        assert_ok(result: result),
-        assert_eq(actual: result.unwrap().name, expected: "Alice"),
-    )
+    {
+        let result = fetch_user(id: 1)
+        assert_ok(result: result)
+        assert_eq(actual: result.unwrap().name, expected: "Alice")
+    }
 ```
 
 ---

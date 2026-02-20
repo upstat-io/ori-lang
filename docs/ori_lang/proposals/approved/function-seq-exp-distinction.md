@@ -50,11 +50,11 @@ Currently, all patterns are loosely grouped together. But they have fundamentall
 
 ```ori
 // function_seq: sequence of expressions, order is meaning
-run(
-    let x = step1(),
-    let y = step2(x),
-    x + y,
-)
+{
+    let x = step1()
+    let y = step2(x)
+    x + y
+}
 
 // function_exp: named expressions, names are meaning
 fold(

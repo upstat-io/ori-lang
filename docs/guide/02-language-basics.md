@@ -33,11 +33,11 @@ let sign = if x > 0 then "positive" else "negative"  // Returns "positive"
 This means you can use any expression anywhere a value is expected:
 
 ```ori
-let result = run(
-    let a = 10,
-    let b = 20,
+let result = {
+    let a = 10
+    let b = 20
     a + b,        // This expression's value (30) becomes the result
-)
+}
 
 let message = `The answer is {if ready then compute() else "pending"}`
 ```
@@ -235,11 +235,11 @@ let active = true
 The variable exists from its declaration to the end of its scope:
 
 ```ori
-@main () -> void = run(
+@main () -> void = {
     let x = 10,          // x exists from here...
     let y = x + 5,       // ...can use it here...
     print(msg: `{y}`),   // ...and here
-)                        // x and y go out of scope
+}                        // x and y go out of scope
 ```
 
 ### Type Inference
@@ -323,17 +323,17 @@ let data = transform(validated: data)
 Variables are scoped to their containing block:
 
 ```ori
-@example () -> int = run(
-    let outer = 10,
+@example () -> int = {
+    let outer = 10
 
-    let inner_result = run(
+    let inner_result = {
         let inner = 20,        // Only visible in this run block
         outer + inner,         // outer is still visible
-    ),
+    }
 
     // inner is not visible here
-    outer + inner_result,
-)
+    outer + inner_result
+}
 ```
 
 ## Operators
@@ -479,10 +479,10 @@ for item in items do
 **With `run` for multiple statements:**
 
 ```ori
-for item in items do run(
-    let processed = transform(input: item),
-    print(msg: processed),
-)
+for item in items do {
+    let processed = transform(input: item)
+    print(msg: processed)
+}
 ```
 
 **Collecting with `yield`:**
@@ -532,30 +532,30 @@ for i in 0..100 by 10 do
 **`break`** exits a loop early:
 
 ```ori
-let found = loop(
-    let item = next_item(),
-    if item == target then break item,
-    if is_empty(collection: remaining) then break None,
-)
+let found = loop {
+    let item = next_item()
+    if item == target then break item
+    if is_empty(collection: remaining) then break None
+}
 ```
 
 **`continue`** skips to the next iteration:
 
 ```ori
-for item in items do run(
-    if should_skip(item: item) then continue,
-    process(item: item),
-)
+for item in items do {
+    if should_skip(item: item) then continue
+    process(item: item)
+}
 ```
 
 **Labeled loops** for nested control:
 
 ```ori
 for:outer i in 0..10 do
-    for j in 0..10 do run(
-        if condition(x: i, y: j) then break:outer,
-        process(x: i, y: j),
-    )
+    for j in 0..10 do {
+        if condition(x: i, y: j) then break:outer
+        process(x: i, y: j)
+    }
 ```
 
 ### The `loop` Pattern
@@ -563,11 +563,11 @@ for:outer i in 0..10 do
 For loops that don't iterate over a collection:
 
 ```ori
-let result = loop(
-    let input = read_line(),
-    if input == "quit" then break "goodbye",
-    print(msg: `You said: {input}`),
-)
+let result = loop {
+    let input = read_line()
+    if input == "quit" then break "goodbye"
+    print(msg: `You said: {input}`)
+}
 ```
 
 `loop` runs forever until `break` is called. The value passed to `break` becomes the loop's result.
@@ -646,10 +646,10 @@ Use special markers for documentation:
 // !Panics if radius is negative
 // >area(radius: 5.0) -> 78.54
 
-@area (radius: float) -> float = run(
-    pre_check: radius >= 0.0 | "radius must be non-negative",
-    3.14159 * radius * radius,
-)
+@area (radius: float) -> float = {
+    pre_check: radius >= 0.0 | "radius must be non-negative"
+    3.14159 * radius * radius
+}
 ```
 
 ## Putting It Together
@@ -668,59 +668,59 @@ type Item = { name: str, price: float, quantity: int }
 @item_total (item: Item) -> float =
     float(item.quantity) * item.price
 
-@test_item_total tests @item_total () -> void = run(
-    let item = Item { name: "Widget", price: 10.0, quantity: 3 },
-    assert_eq(actual: item_total(item: item), expected: 30.0),
-)
+@test_item_total tests @item_total () -> void = {
+    let item = Item { name: "Widget", price: 10.0, quantity: 3 }
+    assert_eq(actual: item_total(item: item), expected: 30.0)
+}
 
 // Calculate subtotal
 @subtotal (items: [Item]) -> float =
     items.map(item -> item_total(item: item))
         .fold(initial: 0.0, op: (acc, x) -> acc + x)
 
-@test_subtotal tests @subtotal () -> void = run(
+@test_subtotal tests @subtotal () -> void = {
     let items = [
-        Item { name: "A", price: 10.0, quantity: 2 },
-        Item { name: "B", price: 5.0, quantity: 3 },
-    ],
-    assert_eq(actual: subtotal(items: items), expected: 35.0),
-)
+        Item { name: "A", price: 10.0, quantity: 2 }
+        Item { name: "B", price: 5.0, quantity: 3 }
+    ]
+    assert_eq(actual: subtotal(items: items), expected: 35.0)
+}
 
 // Calculate discount
 @discount (amount: float) -> float =
     if amount >= $DISCOUNT_THRESHOLD then amount * 0.10 else 0.0
 
-@test_discount tests @discount () -> void = run(
-    assert_eq(actual: discount(amount: 150.0), expected: 15.0),
-    assert_eq(actual: discount(amount: 50.0), expected: 0.0),
-)
+@test_discount tests @discount () -> void = {
+    assert_eq(actual: discount(amount: 150.0), expected: 15.0)
+    assert_eq(actual: discount(amount: 50.0), expected: 0.0)
+}
 
 // Calculate final total
-@calculate_total (items: [Item]) -> float = run(
-    let sub = subtotal(items: items),
-    let disc = discount(amount: sub),
-    let tax = (sub - disc) * $TAX_RATE,
-    sub - disc + tax,
-)
+@calculate_total (items: [Item]) -> float = {
+    let sub = subtotal(items: items)
+    let disc = discount(amount: sub)
+    let tax = (sub - disc) * $TAX_RATE
+    sub - disc + tax
+}
 
-@test_calculate_total tests @calculate_total () -> void = run(
+@test_calculate_total tests @calculate_total () -> void = {
     let items = [
-        Item { name: "Widget", price: 50.0, quantity: 3 },
-    ],
+        Item { name: "Widget", price: 50.0, quantity: 3 }
+    ]
     // subtotal: 150, discount: 15, taxable: 135, tax: 10.8
-    assert_eq(actual: calculate_total(items: items), expected: 145.8),
-)
+    assert_eq(actual: calculate_total(items: items), expected: 145.8)
+}
 
 // Main program
-@main () -> void = run(
+@main () -> void = {
     let $cart = [
-        Item { name: "Keyboard", price: 75.0, quantity: 1 },
-        Item { name: "Mouse", price: 25.0, quantity: 2 },
-        Item { name: "Cable", price: 10.0, quantity: 3 },
-    ],
-    print(msg: `Subtotal: ${subtotal(items: cart):.2}`),
-    print(msg: `Total:    ${calculate_total(items: cart):.2}`),
-)
+        Item { name: "Keyboard", price: 75.0, quantity: 1 }
+        Item { name: "Mouse", price: 25.0, quantity: 2 }
+        Item { name: "Cable", price: 10.0, quantity: 3 }
+    ]
+    print(msg: `Subtotal: ${subtotal(items: cart):.2}`)
+    print(msg: `Total:    ${calculate_total(items: cart):.2}`)
+}
 ```
 
 ## Quick Reference
@@ -762,7 +762,7 @@ if cond then a else b
 for x in items do expr
 for x in items yield expr
 for x in items if cond yield expr
-loop(expr)
+loop {expr}
 break value
 continue
 ```

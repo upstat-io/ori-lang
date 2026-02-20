@@ -182,7 +182,7 @@ let outer = () -> inner()    // outer captures inner, which is Sendable
 When closures cross task boundaries, the compiler verifies Sendability:
 
 ```ori
-@spawn_tasks () -> void uses Suspend = run(
+@spawn_tasks () -> void uses Suspend = {
     let data = create_data(),     // data: Sendable
     let handle = open_file(),     // handle: NOT Sendable
 
@@ -190,9 +190,9 @@ When closures cross task boundaries, the compiler verifies Sendability:
         tasks: [
             () -> process(data),   // OK: captures Sendable
             () -> read(handle),    // ERROR: captures non-Sendable
-        ],
-    ),
-)
+        ]
+    )
+}
 ```
 
 Error message:

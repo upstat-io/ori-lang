@@ -755,7 +755,7 @@ The `loop(...)` expression repeatedly evaluates its body until a `break` is enco
 ### Syntax
 
 ```ori
-loop(body)
+loop {body}
 loop:name(body)  // labeled
 ```
 
@@ -765,14 +765,14 @@ The body is a single expression. For multiple expressions, use `run(...)`:
 
 ```ori
 // Single expression
-loop(process_next())
+loop {process_next()}
 
 // Multiple expressions
-loop(run(
-    let x = compute(),
-    if done(x) then break x,
-    update(x),
-))
+loop {
+    let x = compute()
+    if done(x) then break x
+    update(x)
+}
 ```
 
 ### Loop Type
@@ -784,18 +784,18 @@ The type of a `loop` expression is determined by its break values:
 - **No break**: Loop type is `Never` (infinite loop)
 
 ```ori
-let result: int = loop(run(
-    let x = compute(),
-    if x > 100 then break x,
-))  // type: int
+let result: int = loop {
+    let x = compute()
+    if x > 100 then break x
+}  // type: int
 
-loop(run(
-    let msg = receive(),
-    if is_shutdown(msg) then break,
-    process(msg),
-))  // type: void
+loop {
+    let msg = receive()
+    if is_shutdown(msg) then break
+    process(msg)
+}  // type: void
 
-@server () -> Never = loop(handle_request())  // type: Never
+@server () -> Never = loop {handle_request()}  // type: Never
 ```
 
 ### Multiple Break Paths
@@ -803,10 +803,10 @@ loop(run(
 All break paths must produce compatible types:
 
 ```ori
-loop(run(
+loop {
     if a then break 1,      // int
     if b then break "two",  // error E0860: expected int, found str
-))
+}
 ```
 
 ### Continue
@@ -814,12 +814,12 @@ loop(run(
 `continue` skips the rest of the current iteration:
 
 ```ori
-loop(run(
-    let item = next(),
-    if is_none(item) then break,
-    if skip(item.unwrap()) then continue,
-    process(item.unwrap()),
-))
+loop {
+    let item = next()
+    if is_none(item) then break
+    if skip(item.unwrap()) then continue
+    process(item.unwrap())
+}
 ```
 
 `continue value` in a loop is an error (E0861). Loops do not accumulate values.

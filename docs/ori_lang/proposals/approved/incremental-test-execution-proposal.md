@@ -17,15 +17,15 @@ Two related changes to Ori's testing system:
 
 ```ori
 // Attached test - runs during compilation when @add changes
-@test_add tests @add () -> void = run(
+@test_add tests @add () -> void = {
     assert_eq(actual: add(a: 1, b: 2), expected: 3)
-)
+}
 
 // Floating test - only runs via `ori test`
-@integration_suite tests _ () -> void = run(
-    let result = full_pipeline("input"),
+@integration_suite tests _ () -> void = {
+    let result = full_pipeline("input")
     assert_ok(result: result)
-)
+}
 ```
 
 ---
@@ -41,10 +41,10 @@ Current spec: floating tests are identified by naming convention (`test_` prefix
 @test_helper () -> void = setup_data()
 
 // This is a floating test (by naming convention)
-@test_integration () -> void = run(...)
+@test_integration () -> void = {...}
 
 // This is a function (no test_ prefix)
-@integration_check () -> void = run(...)
+@integration_check () -> void = {...}
 ```
 
 Problems:
@@ -88,13 +88,13 @@ All tests must use the `tests` keyword. Floating tests use `_` as the target:
 
 ```ori
 // Attached test
-@test_add tests @add () -> void = run(...)
+@test_add tests @add () -> void = {...}
 
 // Multiple targets
-@test_roundtrip tests @parse tests @format () -> void = run(...)
+@test_roundtrip tests @parse tests @format () -> void = {...}
 
 // Floating test (explicit)
-@test_integration tests _ () -> void = run(...)
+@test_integration tests _ () -> void = {...}
 ```
 
 #### Grammar
@@ -121,10 +121,10 @@ The `tests` keyword is required from the start. The `test_` naming convention is
 
 ```ori
 // This is NOT a test (no `tests` keyword)
-@test_integration () -> void = run(...)
+@test_integration () -> void = {...}
 
 // This IS a test (explicit floating)
-@test_integration tests _ () -> void = run(...)
+@test_integration tests _ () -> void = {...}
 ```
 
 ### Part 2: Incremental Test Execution
@@ -219,17 +219,17 @@ Attached tests run during compilation, so they should be fast.
 
 ```ori
 // Good: attached test is fast and focused
-@test_parse_int tests @parse_int () -> void = run(
-    assert_eq(actual: parse_int("42"), expected: Some(42)),
-    assert_eq(actual: parse_int("abc"), expected: None),
-)
+@test_parse_int tests @parse_int () -> void = {
+    assert_eq(actual: parse_int("42"), expected: Some(42))
+    assert_eq(actual: parse_int("abc"), expected: None)
+}
 
 // Good: slow test is floating
-@test_full_compile_cycle tests _ () -> void = run(
-    let source = read_file("large_program.ori"),
-    let result = compile_and_run(source),
-    assert_ok(result: result),
-)
+@test_full_compile_cycle tests _ () -> void = {
+    let source = read_file("large_program.ori")
+    let result = compile_and_{source}
+    assert_ok(result: result)
+}
 ```
 
 #### Compiler Warning
@@ -269,20 +269,20 @@ Supported units: `ms`, `s`, `m`. Default is `100ms`.
 @multiply (a: int, b: int) -> int = a * b
 
 // Targeted: runs when @add changes
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+}
 
 // Targeted: runs when @multiply changes
-@test_multiply tests @multiply () -> void = run(
-    assert_eq(actual: multiply(a: 2, b: 3), expected: 6),
-)
+@test_multiply tests @multiply () -> void = {
+    assert_eq(actual: multiply(a: 2, b: 3), expected: 6)
+}
 
 // Floating: only runs via `ori test`
-@test_math_integration tests _ () -> void = run(
-    let result = add(a: multiply(a: 2, b: 3), b: 1),
-    assert_eq(actual: result, expected: 7),
-)
+@test_math_integration tests _ () -> void = {
+    let result = add(a: multiply(a: 2, b: 3), b: 1)
+    assert_eq(actual: result, expected: 7)
+}
 ```
 
 ### Transitive Dependencies
@@ -293,9 +293,9 @@ Supported units: `ms`, `s`, `m`. Default is `100ms`.
 @process (x: int) -> int = helper(x) + 1
 
 // Runs when @helper OR @process changes
-@test_process tests @process () -> void = run(
-    assert_eq(actual: process(5), expected: 11),
-)
+@test_process tests @process () -> void = {
+    assert_eq(actual: process(5), expected: 11)
+}
 ```
 
 ### Multiple Targets
@@ -305,11 +305,11 @@ Supported units: `ms`, `s`, `m`. Default is `100ms`.
 @format (a: Ast) -> str = ...
 
 // Runs when @parse OR @format changes
-@test_roundtrip tests @parse tests @format () -> void = run(
-    let ast = parse("x + 1"),
-    let output = format(ast),
-    assert_eq(actual: output, expected: "x + 1"),
-)
+@test_roundtrip tests @parse tests @format () -> void = {
+    let ast = parse("x + 1")
+    let output = format(ast)
+    assert_eq(actual: output, expected: "x + 1")
+}
 ```
 
 ### Test Organization
@@ -320,19 +320,19 @@ Supported units: `ms`, `s`, `m`. Default is `100ms`.
 @tokenize (input: str) -> [Token] = ...
 
 // Fast unit test - runs during compilation
-@test_tokenize_basic tests @tokenize () -> void = run(
+@test_tokenize_basic tests @tokenize () -> void = {
     assert_eq(
-        actual: tokenize("1 + 2"),
-        expected: [Int(1), Plus, Int(2)],
-    ),
-)
+        actual: tokenize("1 + 2")
+        expected: [Int(1), Plus, Int(2)]
+    )
+}
 
 // Slow integration test - runs only via `ori test`
-@test_tokenize_large_file tests _ () -> void = run(
-    let input = read_file("fixtures/large.ori"),
-    let tokens = tokenize(input),
-    assert(condition: len(collection: tokens) > 10000),
-)
+@test_tokenize_large_file tests _ () -> void = {
+    let input = read_file("fixtures/large.ori")
+    let tokens = tokenize(input)
+    assert(condition: len(collection: tokens) > 10000)
+}
 ```
 
 ---
@@ -514,8 +514,8 @@ The `tests` keyword becomes the universal marker for "this is a test", with the 
 @parse (input: str) -> Ast = ...
 
 // ...and this test runs automatically
-@test_parse tests @parse () -> void = run(...)
+@test_parse tests @parse () -> void = {...}
 
 // ...but this one waits for explicit `ori test`
-@test_e2e tests _ () -> void = run(...)
+@test_e2e tests _ () -> void = {...}
 ```

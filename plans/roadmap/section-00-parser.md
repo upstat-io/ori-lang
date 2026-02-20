@@ -43,6 +43,9 @@ sections:
   - id: "0.9"
     title: Parser Bugs (from Comprehensive Tests)
     status: in-progress
+  - id: "0.10"
+    title: "Block Expression Syntax (PRIORITY)"
+    status: not-started
 ---
 
 # Section 0: Full Parser Support
@@ -1084,3 +1087,86 @@ trait_object_bounds = type_path "+" type_path { "+" type_path } .
 ---
 
 **Resolution Status:** All grammar inconsistencies resolved.
+
+---
+
+## 0.10 Block Expression Syntax (PRIORITY)
+
+**Proposal**: `proposals/approved/block-expression-syntax.md`
+**Migration script**: `scripts/migrate_block_syntax.py`
+
+> **This section blocks all other roadmap work.** Every feature built on `run()`/`match()`/`try()` syntax creates migration debt. Complete this before continuing.
+
+### Overview
+
+Replace parenthesized `function_seq` syntax with curly-brace block expressions. Remove `run()` entirely. Move contracts to function-level `pre()`/`post()` declarations.
+
+| Old | New |
+|-----|-----|
+| `run(a, b, c)` | `{ a \n b \n c }` |
+| `match(expr, P -> e)` | `match expr { P -> e }` |
+| `try(a, b)` | `try { a \n b }` |
+| `loop(run(a, b))` | `loop { a \n b }` |
+| `unsafe(run(a, b))` | `unsafe { a \n b }` |
+| `run(pre_check: c, body, post_check: r -> c)` | `pre(c) post(r -> c)` on function decl |
+
+### Implementation
+
+#### Phase 1: Parser — Block Expressions
+- [ ] **Implement**: Newline-as-separator tokenization inside `{ }` blocks
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — newline separation tests
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/newline_separation.ori`
+- [ ] **Implement**: Block expression parsing (`{ block_body }`)
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — block expression tests
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/basic_blocks.ori`
+- [ ] **Implement**: Block vs map vs struct disambiguation (2-token lookahead)
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — disambiguation tests
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/disambiguation.ori`
+- [ ] **Implement**: Balanced delimiter continuation rules (newlines suppressed inside `()`, `[]`, `{}`)
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — continuation tests
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/continuation.ori`
+
+#### Phase 2: Parser — Construct Migration
+- [ ] **Implement**: `match expr { arms }` syntax (scrutinee before block)
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — match block syntax
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/match_block.ori`
+- [ ] **Implement**: `try { block_body }` syntax
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — try block syntax
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/try_block.ori`
+- [ ] **Implement**: `loop { block_body }` syntax (drop parens)
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/loop_block.ori`
+- [ ] **Implement**: `unsafe { block_body }` syntax (retain `unsafe(expr)` for single-expression)
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/unsafe_block.ori`
+- [ ] **Implement**: `for...do { block_body }` and `for...yield { block_body }`
+  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/for_block.ori`
+- [ ] **Implement**: Remove old `run()`/`match()`/`try()` paren forms from parser
+  - [ ] **Rust Tests**: Verify old syntax produces helpful error messages
+  - [ ] **Ori Tests**: `tests/compile-fail/syntax/old_run_syntax.ori`
+
+#### Phase 3: Parser — Function-Level Contracts
+- [ ] **Implement**: `pre(condition)` parsing between return type and `=`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — pre contract parsing
+  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/pre_basic.ori`
+- [ ] **Implement**: `post(r -> condition)` parsing between return type and `=`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — post contract parsing
+  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/post_basic.ori`
+- [ ] **Implement**: Multiple `pre()`/`post()` declarations
+  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/multiple_contracts.ori`
+- [ ] **Implement**: Message syntax `pre(condition | "message")`
+  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/contract_messages.ori`
+- [ ] **Implement**: IR changes — move `pre_checks`/`post_checks` from `FunctionSeq::Run` to function definition node
+
+#### Phase 4: Migration
+- [ ] **Run**: `scripts/migrate_block_syntax.py` on all documentation (.md files)
+- [ ] **Manual**: Migrate `pre_check:`/`post_check:` references to function-level `pre()`/`post()`
+- [ ] **Run**: `scripts/migrate_block_syntax.py` on all `.ori` test files
+- [ ] **Update**: `grammar.ebnf` with new block/match/try/contract rules
+- [ ] **Update**: `.claude/rules/ori-syntax.md` with new syntax
+- [ ] **Update**: Spec files with new syntax (invoke `/sync-spec`)
+- [ ] **Verify**: `./test-all.sh` passes with new syntax
+
+#### Phase 5: Formatter
+- [ ] **Implement**: Block formatting rules (indentation, newline separation)
+- [ ] **Implement**: Blank-line-before-result enforcement
+- [ ] **Implement**: Match block formatting (arm alignment)
+- [ ] **Implement**: Contract formatting (pre/post between signature and `=`)

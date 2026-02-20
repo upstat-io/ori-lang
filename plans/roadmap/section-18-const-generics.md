@@ -594,9 +594,9 @@ impl FixedSize for [int, max 5] {
 @total_size<T: FixedSize, $N: int> () -> int = T.SIZE * N
 
 // Associated const in generic context
-@print_size<T: FixedSize> () -> void = run(
+@print_size<T: FixedSize> () -> void = {
     print(msg: `Size: {T.SIZE}`)
-)
+}
 ```
 
 ### Implementation
@@ -650,17 +650,17 @@ impl<$ROWS: int, $COLS: int> Matrix<ROWS, COLS> {
         data: [],  // Will be filled with zeros
     }
 
-    @get (self, row: int, col: int) -> float = run(
-        assert(condition: row >= 0 && row < ROWS),
-        assert(condition: col >= 0 && col < COLS),
+    @get (self, row: int, col: int) -> float = {
+        assert(condition: row >= 0 && row < ROWS)
+        assert(condition: col >= 0 && col < COLS)
         self.data[row * COLS + col]
-    )
+    }
 
-    @set (self, row: int, col: int, value: float) -> void = run(
-        assert(condition: row >= 0 && row < ROWS),
-        assert(condition: col >= 0 && col < COLS),
+    @set (self, row: int, col: int, value: float) -> void = {
+        assert(condition: row >= 0 && row < ROWS)
+        assert(condition: col >= 0 && col < COLS)
         self.data[row * COLS + col] = value
-    )
+    }
 
     @rows (self) -> int = ROWS  // Compile-time constant
 
@@ -671,18 +671,18 @@ impl<$ROWS: int, $COLS: int> Matrix<ROWS, COLS> {
 @multiply<$M: int, $N: int, $P: int> (
     a: Matrix<M, N>,
     b: Matrix<N, P>,
-) -> Matrix<M, P> = run(
-    let result = Matrix.new(),
+) -> Matrix<M, P> = {
+    let result = Matrix.new()
 
     for i in 0..M do
         for j in 0..P do
-            let sum = 0.0,
+            let sum = 0.0
             for k in 0..N do
-                sum = sum + a.get(row: i, col: k) * b.get(row: k, col: j),
-            result.set(row: i, col: j, value: sum),
+                sum = sum + a.get(row: i, col: k) * b.get(row: k, col: j)
+            result.set(row: i, col: j, value: sum)
 
     result
-)
+}
 
 // Usage
 let a: Matrix<2, 3> = Matrix.new()

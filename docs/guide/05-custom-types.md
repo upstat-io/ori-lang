@@ -212,13 +212,12 @@ You **must** use pattern matching to work with sum types:
 ```ori
 type Status = Pending | Running | Done | Failed(reason: str)
 
-@describe (s: Status) -> str = match(
-    s,
-    Pending -> "Waiting to start",
-    Running -> "In progress",
-    Done -> "Complete",
-    Failed(reason) -> `Failed: {reason}`,
-)
+@describe (s: Status) -> str = match s {
+    Pending -> "Waiting to start"
+    Running -> "In progress"
+    Done -> "Complete"
+    Failed(reason) -> `Failed: {reason}`
+}
 ```
 
 The compiler ensures you handle every case.
@@ -327,11 +326,11 @@ impl Point {
     @magnitude (self) -> float =
         sqrt(x: float(self.x * self.x + self.y * self.y))
 
-    @distance_to (self, other: Point) -> float = run(
-        let dx = self.x - other.x,
-        let dy = self.y - other.y,
-        sqrt(x: float(dx * dx + dy * dy)),
-    )
+    @distance_to (self, other: Point) -> float = {
+        let dx = self.x - other.x
+        let dy = self.y - other.y
+        sqrt(x: float(dx * dx + dy * dy))
+    }
 
     @translate (self, dx: int, dy: int) -> Point =
         Point { x: self.x + dx, y: self.y + dy }
@@ -370,17 +369,15 @@ type Shape =
     | Rectangle(width: float, height: float)
 
 impl Shape {
-    @area (self) -> float = match(
-        self,
-        Circle(radius) -> 3.14159 * radius * radius,
-        Rectangle(width, height) -> width * height,
-    )
+    @area (self) -> float = match self {
+        Circle(radius) -> 3.14159 * radius * radius
+        Rectangle(width, height) -> width * height
+    }
 
-    @perimeter (self) -> float = match(
-        self,
-        Circle(radius) -> 2.0 * 3.14159 * radius,
-        Rectangle(width, height) -> 2.0 * (width + height),
-    )
+    @perimeter (self) -> float = match self {
+        Circle(radius) -> 2.0 * 3.14159 * radius
+        Rectangle(width, height) -> 2.0 * (width + height)
+    }
 }
 
 let circle = Circle(radius: 5.0)
@@ -508,52 +505,49 @@ impl Task {
     @block (self, reason: str) -> Task =
         Task { ...self, status: Blocked(reason: reason) }
 
-    @is_actionable (self) -> bool = match(
-        self.status,
-        Todo | InProgress(_) -> true,
-        Done(_) | Blocked(_) -> false,
-    )
+    @is_actionable (self) -> bool = match self.status {
+        Todo | InProgress(_) -> true
+        Done(_) | Blocked(_) -> false
+    }
 }
 
 // Convert priority to number for sorting
-@priority_score (p: Priority) -> int = match(
-    p,
-    Low -> 1,
-    Medium -> 2,
-    High -> 3,
-    Urgent -> 4,
-)
+@priority_score (p: Priority) -> int = match p {
+    Low -> 1
+    Medium -> 2
+    High -> 3
+    Urgent -> 4
+}
 
-@test_priority_score tests @priority_score () -> void = run(
-    assert_eq(actual: priority_score(p: Low), expected: 1),
-    assert_eq(actual: priority_score(p: Urgent), expected: 4),
-)
+@test_priority_score tests @priority_score () -> void = {
+    assert_eq(actual: priority_score(p: Low), expected: 1)
+    assert_eq(actual: priority_score(p: Urgent), expected: 4)
+}
 
 // Describe task status
-@status_description (s: TaskStatus) -> str = match(
-    s,
-    Todo -> "not started",
-    InProgress(started) -> `in progress since {started}`,
-    Done(completed) -> `completed at {completed}`,
-    Blocked(reason) -> `blocked: {reason}`,
-)
+@status_description (s: TaskStatus) -> str = match s {
+    Todo -> "not started"
+    InProgress(started) -> `in progress since {started}`
+    Done(completed) -> `completed at {completed}`
+    Blocked(reason) -> `blocked: {reason}`
+}
 
-@test_status tests @status_description () -> void = run(
-    assert_eq(actual: status_description(s: Todo), expected: "not started"),
-    assert_eq(actual: status_description(s: Blocked(reason: "waiting")), expected: "blocked: waiting"),
-)
+@test_status tests @status_description () -> void = {
+    assert_eq(actual: status_description(s: Todo), expected: "not started")
+    assert_eq(actual: status_description(s: Blocked(reason: "waiting")), expected: "blocked: waiting")
+}
 
 // Test task workflow
-@test_task_workflow tests @Task.new tests @Task.start tests @Task.is_actionable () -> void = run(
-    let task = Task.new(id: 1, title: "Fix bug", priority: High),
-    assert(condition: task.is_actionable()),
+@test_task_workflow tests @Task.new tests @Task.start tests @Task.is_actionable () -> void = {
+    let task = Task.new(id: 1, title: "Fix bug", priority: High)
+    assert(condition: task.is_actionable())
 
-    let started = task.start(at: 0s),
-    assert(condition: started.is_actionable()),
+    let started = task.start(at: 0s)
+    assert(condition: started.is_actionable())
 
-    let done = started.complete(at: 30m),
-    assert(condition: !done.is_actionable()),
-)
+    let done = started.complete(at: 30m)
+    assert(condition: !done.is_actionable())
+}
 ```
 
 ## Quick Reference

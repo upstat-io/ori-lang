@@ -72,12 +72,12 @@ def impl Http { ... }
 def impl Cache { ... }
 def impl Logger { ... }
 
-@test_with_mock_http () -> void = run(
-    let mock = MockHttp { ... },
+@test_with_mock_http () -> void = {
+    let mock = MockHttp { ... }
 
     with Http = mock in
         complex_operation(),  // MockHttp + default Cache + default Logger
-)
+}
 ```
 
 Only `Http` is overridden; `Cache` and `Logger` use their `def impl`.
@@ -108,14 +108,14 @@ with Http = mock_http in
 Inner bindings shadow outer bindings:
 
 ```ori
-with Http = OuterHttp in run(
+with Http = OuterHttp in {
     use_http(),  // OuterHttp
 
     with Http = InnerHttp in
         use_http(),  // InnerHttp (shadows Outer)
 
     use_http(),  // OuterHttp again
-)
+}
 ```
 
 ### Multiple Capabilities Nesting
@@ -153,10 +153,10 @@ Can a function requiring `uses Http` be called in a context that has `uses Http,
 @needs_http () -> void uses Http = ...
 @needs_both () -> void uses Http, Cache = ...
 
-@caller () -> void uses Http, Cache = run(
+@caller () -> void uses Http, Cache = {
     needs_http(),  // OK: caller has Http
     needs_both(),  // OK: caller has both
-)
+}
 ```
 
 ### Reverse Not Allowed
@@ -166,9 +166,9 @@ A function requiring MORE capabilities cannot be called from one with FEWER:
 ```ori
 @needs_both () -> void uses Http, Cache = ...
 
-@caller () -> void uses Http = run(
+@caller () -> void uses Http = {
     needs_both(),  // ERROR: caller lacks Cache
-)
+}
 ```
 
 Error message:
@@ -202,16 +202,16 @@ Capability requirements must be explicitly declared in function signatures. The 
 
 ```ori
 // Correct: capabilities declared
-@caller () -> void uses Http, Cache = run(
-    Http.get(url: "/data"),
-    Cache.set(key: "k", value: "v"),
-)
+@caller () -> void uses Http, Cache = {
+    Http.get(url: "/data")
+    Cache.set(key: "k", value: "v")
+}
 
 // Error: Http used but not declared
-@caller () -> void uses Cache = run(
+@caller () -> void uses Cache = {
     Http.get(url: "/data"),  // ERROR: uses Http without declaring it
-    Cache.set(key: "k", value: "v"),
-)
+    Cache.set(key: "k", value: "v")
+}
 ```
 
 Error:
@@ -247,12 +247,12 @@ When resolving a capability, the compiler checks in order:
 ```ori
 def impl Http { ... }  // Priority 4 (local)
 
-with Http = MiddleHttp in run(  // Priority 2
+with Http = MiddleHttp in {  // Priority 2
     with Http = InnerHttp in
         fetch(),  // Uses InnerHttp (priority 1)
 
     fetch(),  // Uses MiddleHttp (priority 2)
-)
+}
 
 fetch()  // Uses def impl (priority 3 or 4)
 ```
@@ -376,10 +376,10 @@ error[E1203]: `Async` capability cannot be explicitly bound
 - Concurrency patterns: `parallel`, `spawn`, `nursery`
 
 ```ori
-@main () -> void uses Suspend = run(
+@main () -> void uses Suspend = {
     // Async context exists here
     parallel(tasks: [...]),  // Creates sub-contexts for tasks
-)
+}
 ```
 
 ---
@@ -392,10 +392,10 @@ Capabilities are called using the trait name as a namespace:
 @fetch (url: str) -> Result<Response, Error> uses Http =
     Http.get(url: url)
 
-@log_and_fetch (url: str) -> Result<Response, Error> uses Http, Logger = run(
-    Logger.info(message: `Fetching {url}`),
-    Http.get(url: url),
-)
+@log_and_fetch (url: str) -> Result<Response, Error> uses Http, Logger = {
+    Logger.info(message: `Fetching {url}`)
+    Http.get(url: url)
+}
 ```
 
 The compiler resolves `Http.get(...)` to the currently bound implementation based on the resolution priority order.
@@ -411,7 +411,7 @@ Function signatures declare capability sets:
 ```ori
 @fn1 () uses Http, Cache = ...
 @fn2 () uses Cache, Logger = ...
-@fn3 () uses Http, Cache, Logger = run(fn1(), fn2())  // Must declare union
+@fn3 () uses Http, Cache, Logger = {fn1(), fn2()}  // Must declare union
 ```
 
 ### Set Operations
@@ -446,38 +446,38 @@ impl Http for ProdHttp { ... }
 
 // Application code
 @fetch_and_store (url: str) -> Result<void, Error> uses Http, Database, Logger =
-    run(
-        Logger.info(message: `Fetching {url}`),
-        let response = Http.get(url: url)?,
-        Database.query(sql: `INSERT INTO cache VALUES ('{url}', '{response}')`)?,
-        Ok(()),
-    )
+    {
+        Logger.info(message: `Fetching {url}`)
+        let response = Http.get(url: url)?
+        Database.query(sql: `INSERT INTO cache VALUES ('{url}', '{response}')`)?
+        Ok(())
+    }
 
 // Main wiring
-@main () -> void uses Suspend = run(
-    let db = ProdDatabase { connection: connect() },
-    let http = ProdHttp { client: create_client() },
+@main () -> void uses Suspend = {
+    let db = ProdDatabase { connection: connect() }
+    let http = ProdHttp { client: create_client() }
 
     with Database = db, Http = http in
-        fetch_and_store(url: "https://example.com"),
+        fetch_and_store(url: "https://example.com")
     // Logger uses def impl automatically
-)
+}
 ```
 
 ### Testing with Mocks
 
 ```ori
-@test_fetch_and_store tests @fetch_and_store () -> void = run(
-    let mock_http = MockHttp { responses: {"https://example.com": "data"} },
-    let mock_db = MockDatabase { queries: [] },
-    let mock_logger = MockLogger { messages: [] },
+@test_fetch_and_store tests @fetch_and_store () -> void = {
+    let mock_http = MockHttp { responses: {"https://example.com": "data"} }
+    let mock_db = MockDatabase { queries: [] }
+    let mock_logger = MockLogger { messages: [] }
 
     with Http = mock_http, Database = mock_db, Logger = mock_logger in
-        fetch_and_store(url: "https://example.com"),
+        fetch_and_store(url: "https://example.com")
 
-    assert_eq(actual: mock_db.queries.len(), expected: 1),
-    assert_eq(actual: mock_logger.messages.len(), expected: 1),
-)
+    assert_eq(actual: mock_db.queries.len(), expected: 1)
+    assert_eq(actual: mock_logger.messages.len(), expected: 1)
+}
 ```
 
 ---

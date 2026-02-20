@@ -126,17 +126,17 @@ Const functions must not:
 Const functions may use mutable bindings for local computation. Local mutation is deterministic — given the same inputs, the function produces the same output:
 
 ```ori
-$sum_to (n: int) -> int = run(
-    let total = 0,
-    for i in 1..=n do total = total + i,
-    total,
-)
+$sum_to (n: int) -> int = {
+    let total = 0
+    for i in 1..=n do total = total + i
+    total
+}
 
-$sum_squares (n: int) -> int = run(
-    let result = 0,
-    for i in 1..=n do result = result + i * i,
-    result,
-)
+$sum_squares (n: int) -> int = {
+    let result = 0
+    for i in 1..=n do result = result + i * i
+    result
+}
 ```
 
 ### Compile-Time Evaluation

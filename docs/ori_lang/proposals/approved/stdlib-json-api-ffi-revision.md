@@ -218,24 +218,24 @@ extern "js" {
 use "./ffi_native" { ... }
 
 pub @parse (source: str) -> Result<JsonValue, JsonError> uses FFI =
-    run(
-        let doc = _yyjson_read(dat: source, len: len(collection: source), flg: $YYJSON_READ_NOFLAG),
+    {
+        let doc = _yyjson_read(dat: source, len: len(collection: source), flg: $YYJSON_READ_NOFLAG)
 
         if doc.is_null() then
             Err(JsonError {
-                kind: ParseError,
-                message: "Invalid JSON",
-                path: "",
-                position: 0,
+                kind: ParseError
+                message: "Invalid JSON"
+                path: ""
+                position: 0
             })
         else
-            run(
-                let root = _yyjson_doc_get_root(doc: doc),
-                let result = yyjson_val_to_json_value(val: root),
-                _yyjson_doc_free(doc: doc),
-                Ok(result),
-            ),
-    )
+            {
+                let root = _yyjson_doc_get_root(doc: doc)
+                let result = yyjson_val_to_json_value(val: root)
+                _yyjson_doc_free(doc: doc)
+                Ok(result)
+            }
+    }
 
 // Convert yyjson value tree to Ori JsonValue
 @yyjson_val_to_json_value (val: YyjsonVal) -> JsonValue uses FFI =
@@ -255,31 +255,31 @@ pub @parse (source: str) -> Result<JsonValue, JsonError> uses FFI =
         JsonValue.Null  // Should not happen
 
 @yyjson_arr_to_list (arr: YyjsonVal) -> [JsonValue] uses FFI =
-    run(
-        let result: [JsonValue] = [],
-        let arr_len = _yyjson_get_len(val: arr),
+    {
+        let result: [JsonValue] = []
+        let arr_len = _yyjson_get_len(val: arr)
         for i in 0..arr_len do
-            run(
-                let elem = _yyjson_arr_get(arr: arr, idx: i),
-                result = [...result, yyjson_val_to_json_value(val: elem)],
-            ),
-        result,
-    )
+            {
+                let elem = _yyjson_arr_get(arr: arr, idx: i)
+                result = [...result, yyjson_val_to_json_value(val: elem)]
+            }
+        result
+    }
 
 @yyjson_obj_to_map (obj: YyjsonVal) -> {str: JsonValue} uses FFI =
-    run(
-        let result: {str: JsonValue} = {},
-        let iter = alloc_obj_iter(),
-        _yyjson_obj_iter_init(obj: obj, iter: iter),
-        loop(
-            let key_val = _yyjson_obj_iter_next(iter: iter),
-            if key_val.is_null() then break result,
-            let key = _yyjson_get_str(val: key_val),
-            let val = _yyjson_obj_iter_get_val(key: key_val),
-            result = {...result, [key]: yyjson_val_to_json_value(val: val)},
-            continue,
-        ),
-    )
+    {
+        let result: {str: JsonValue} = {}
+        let iter = alloc_obj_iter()
+        _yyjson_obj_iter_init(obj: obj, iter: iter)
+        loop {
+            let key_val = _yyjson_obj_iter_next(iter: iter)
+            if key_val.is_null() then break result
+            let key = _yyjson_get_str(val: key_val)
+            let val = _yyjson_obj_iter_get_val(key: key_val)
+            result = {...result, [key]: yyjson_val_to_json_value(val: val)}
+            continue
+        }
+    }
 ```
 
 ### Serialization (Native)
@@ -292,61 +292,61 @@ pub @parse (source: str) -> Result<JsonValue, JsonError> uses FFI =
 use "./ffi_native" { ... }
 
 pub @stringify (value: JsonValue) -> str uses FFI =
-    run(
-        let doc = _yyjson_mut_doc_new(alc: CPtr.null()),
-        let root = json_value_to_yyjson_mut(doc: doc, value: value),
-        _yyjson_mut_doc_set_root(doc: doc, root: root),
-        let len_ptr = alloc_size_t(),
-        let result = _yyjson_mut_write(doc: doc, flg: $YYJSON_WRITE_NOFLAG, len: len_ptr),
-        _yyjson_mut_doc_free(doc: doc),
-        result,
-    )
+    {
+        let doc = _yyjson_mut_doc_new(alc: CPtr.null())
+        let root = json_value_to_yyjson_mut(doc: doc, value: value)
+        _yyjson_mut_doc_set_root(doc: doc, root: root)
+        let len_ptr = alloc_size_t()
+        let result = _yyjson_mut_write(doc: doc, flg: $YYJSON_WRITE_NOFLAG, len: len_ptr)
+        _yyjson_mut_doc_free(doc: doc)
+        result
+    }
 
 pub @stringify_pretty (value: JsonValue, indent: int = 2) -> str uses FFI =
-    run(
-        let doc = _yyjson_mut_doc_new(alc: CPtr.null()),
-        let root = json_value_to_yyjson_mut(doc: doc, value: value),
-        _yyjson_mut_doc_set_root(doc: doc, root: root),
-        let len_ptr = alloc_size_t(),
-        let result = _yyjson_mut_write(doc: doc, flg: $YYJSON_WRITE_PRETTY, len: len_ptr),
-        _yyjson_mut_doc_free(doc: doc),
+    {
+        let doc = _yyjson_mut_doc_new(alc: CPtr.null())
+        let root = json_value_to_yyjson_mut(doc: doc, value: value)
+        _yyjson_mut_doc_set_root(doc: doc, root: root)
+        let len_ptr = alloc_size_t()
+        let result = _yyjson_mut_write(doc: doc, flg: $YYJSON_WRITE_PRETTY, len: len_ptr)
+        _yyjson_mut_doc_free(doc: doc)
         // yyjson uses 4-space indent; adjust if needed
-        if indent == 4 then result else adjust_indent(s: result, spaces: indent),
-    )
+        if indent == 4 then result else adjust_indent(s: result, spaces: indent)
+    }
 
 @json_value_to_yyjson_mut (doc: YyjsonMutDoc, value: JsonValue) -> YyjsonMutVal uses FFI =
-    match(value,
-        Null -> _yyjson_mut_null(doc: doc),
-        Bool(b) -> _yyjson_mut_bool(doc: doc, val: b),
-        Number(n) -> _yyjson_mut_real(doc: doc, val: n),
-        String(s) -> _yyjson_mut_str(doc: doc, val: s),
-        Array(arr) -> run(
-            let mut_arr = _yyjson_mut_arr(doc: doc),
+    match value {
+        Null -> _yyjson_mut_null(doc: doc)
+        Bool(b) -> _yyjson_mut_bool(doc: doc, val: b)
+        Number(n) -> _yyjson_mut_real(doc: doc, val: n)
+        String(s) -> _yyjson_mut_str(doc: doc, val: s)
+        Array(arr) -> {
+            let mut_arr = _yyjson_mut_arr(doc: doc)
             for item in arr do
                 _yyjson_mut_arr_append(
-                    arr: mut_arr,
-                    val: json_value_to_yyjson_mut(doc: doc, value: item),
-                ),
-            mut_arr,
-        ),
-        Object(obj) -> run(
-            let mut_obj = _yyjson_mut_obj(doc: doc),
+                    arr: mut_arr
+                    val: json_value_to_yyjson_mut(doc: doc, value: item)
+                )
+            mut_arr
+        }
+        Object(obj) -> {
+            let mut_obj = _yyjson_mut_obj(doc: doc)
             for (k, v) in obj.entries() do
                 _yyjson_mut_obj_add(
-                    obj: mut_obj,
-                    key: _yyjson_mut_str(doc: doc, val: k),
-                    val: json_value_to_yyjson_mut(doc: doc, value: v),
-                ),
-            mut_obj,
-        ),
-    )
+                    obj: mut_obj
+                    key: _yyjson_mut_str(doc: doc, val: k)
+                    val: json_value_to_yyjson_mut(doc: doc, value: v)
+                )
+            mut_obj
+        }
+    }
 
 @adjust_indent (s: str, spaces: int) -> str =
-    run(
-        let indent_str = " ".repeat(count: spaces),
-        let four_spaces = "    ",
-        s.replace(old: four_spaces, new: indent_str),
-    )
+    {
+        let indent_str = " ".repeat(count: spaces)
+        let four_spaces = "    "
+        s.replace(old: four_spaces, new: indent_str)
+    }
 ```
 
 ---
@@ -363,71 +363,71 @@ pub @stringify_pretty (value: JsonValue, indent: int = 2) -> str uses FFI =
 use "./ffi_wasm" { ... }
 
 pub @parse (source: str) -> Result<JsonValue, JsonError> uses FFI =
-    match(_js_json_parse(source: source),
-        Ok(js_val) -> run(
-            let result = js_value_to_json_value(val: js_val),
-            _js_drop(handle: js_val),
-            Ok(result),
-        ),
+    match _js_json_parse(source: source) {
+        Ok(js_val) -> {
+            let result = js_value_to_json_value(val: js_val)
+            _js_drop(handle: js_val)
+            Ok(result)
+        }
         Err(msg) -> Err(JsonError {
-            kind: ParseError,
-            message: msg,
-            path: "",
-            position: 0,
-        }),
-    )
+            kind: ParseError
+            message: msg
+            path: ""
+            position: 0
+        })
+    }
 
 @js_value_to_json_value (val: JsValue) -> JsonValue uses FFI =
     if _js_is_null(value: val) then
         JsonValue.Null
     else
-        run(
-            let type_str = _js_typeof(value: val),
-            match(type_str,
-                "boolean" -> JsonValue.Bool(_js_to_bool(value: val)),
-                "number" -> JsonValue.Number(_js_to_number(value: val)),
-                "string" -> JsonValue.String(_js_to_string(value: val)),
+        {
+            let type_str = _js_typeof(value: val)
+            match type_str {
+                "boolean" -> JsonValue.Bool(_js_to_bool(value: val))
+                "number" -> JsonValue.Number(_js_to_number(value: val))
+                "string" -> JsonValue.String(_js_to_string(value: val))
                 "object" ->
                     if _js_is_array(value: val) then
                         JsonValue.Array(js_array_to_list(arr: val))
                     else
-                        JsonValue.Object(js_object_to_map(obj: val)),
-                _ -> JsonValue.Null,
-            ),
-        )
+                        JsonValue.Object(js_object_to_map(obj: val))
+                _ -> JsonValue.Null
+            }
+        }
 
 @js_array_to_list (arr: JsValue) -> [JsonValue] uses FFI =
-    run(
-        let result: [JsonValue] = [],
-        let arr_len = _js_array_length(arr: arr),
+    {
+        let result: [JsonValue] = []
+        let arr_len = _js_array_length(arr: arr)
         for i in 0..arr_len do
-            run(
-                let elem = _js_array_get(arr: arr, idx: i),
-                let json_elem = js_value_to_json_value(val: elem),
-                _js_drop(handle: elem),
-                result = [...result, json_elem],
-            ),
-        result,
-    )
+            {
+                let elem = _js_array_get(arr: arr, idx: i)
+                let json_elem = js_value_to_json_value(val: elem)
+                _js_drop(handle: elem)
+                result = [...result, json_elem]
+            }
+        result
+    }
 
 @js_object_to_map (obj: JsValue) -> {str: JsonValue} uses FFI =
-    run(
-        let result: {str: JsonValue} = {},
-        let keys = _js_get_keys(obj: obj),
-        let keys_len = _js_array_length(arr: keys),
+    {
+        let result: {str: JsonValue} = {}
+        let keys = _js_get_keys(obj: obj)
+        let keys_len = _js_array_length(arr: keys)
         for i in 0..keys_len do
-            run(
-                let key_js = _js_array_get(arr: keys, idx: i),
-                let key = _js_to_string(value: key_js),
-                _js_drop(handle: key_js),
-                let val_js = _js_get_prop(obj: obj, key: key),
-                let val = js_value_to_json_value(val: val_js),
-                _js_drop(handle: val_js),
-                result = {...result, [key]: val},
-            ),
-        _js_drop(handle: keys),
-        result,
-    )
+            {
+                let key_js = _js_array_get(arr: keys, idx: i)
+                let key = _js_to_string(value: key_js)
+                _js_drop(handle: key_js)
+                let val_js = _js_get_prop(obj: obj, key: key)
+                let val = js_value_to_json_value(val: val_js)
+                _js_drop(handle: val_js)
+                result = {...result, [key]: val}
+            }
+        _js_drop(handle: keys)
+        result
+    }
 ```
 
 ### Serialization (WASM)
@@ -440,49 +440,49 @@ pub @parse (source: str) -> Result<JsonValue, JsonError> uses FFI =
 use "./ffi_wasm" { ... }
 
 pub @stringify (value: JsonValue) -> str uses FFI =
-    run(
-        let js_val = json_value_to_js_value(value: value),
-        let result = _js_json_stringify(value: js_val),
-        _js_drop(handle: js_val),
-        result,
-    )
+    {
+        let js_val = json_value_to_js_value(value: value)
+        let result = _js_json_stringify(value: js_val)
+        _js_drop(handle: js_val)
+        result
+    }
 
 pub @stringify_pretty (value: JsonValue, indent: int = 2) -> str uses FFI =
-    run(
-        let js_val = json_value_to_js_value(value: value),
+    {
+        let js_val = json_value_to_js_value(value: value)
         // JSON.stringify with space parameter
-        let result = _js_json_stringify_pretty(value: js_val, indent: indent),
-        _js_drop(handle: js_val),
-        result,
-    )
+        let result = _js_json_stringify_pretty(value: js_val, indent: indent)
+        _js_drop(handle: js_val)
+        result
+    }
 
 @json_value_to_js_value (value: JsonValue) -> JsValue uses FFI =
-    match(value,
-        Null -> _js_null(),
-        Bool(b) -> _js_from_bool(val: b),
-        Number(n) -> _js_from_number(val: n),
-        String(s) -> _js_from_string(val: s),
-        Array(arr) -> run(
-            let js_arr = _js_new_array(),
+    match value {
+        Null -> _js_null()
+        Bool(b) -> _js_from_bool(val: b)
+        Number(n) -> _js_from_number(val: n)
+        String(s) -> _js_from_string(val: s)
+        Array(arr) -> {
+            let js_arr = _js_new_array()
             for item in arr do
-                run(
-                    let js_item = json_value_to_js_value(value: item),
-                    _js_array_push(arr: js_arr, val: js_item),
-                    _js_drop(handle: js_item),
-                ),
-            js_arr,
-        ),
-        Object(obj) -> run(
-            let js_obj = _js_new_object(),
+                {
+                    let js_item = json_value_to_js_value(value: item)
+                    _js_array_push(arr: js_arr, val: js_item)
+                    _js_drop(handle: js_item)
+                }
+            js_arr
+        }
+        Object(obj) -> {
+            let js_obj = _js_new_object()
             for (k, v) in obj.entries() do
-                run(
-                    let js_val = json_value_to_js_value(value: v),
-                    _js_set_prop(obj: js_obj, key: k, val: js_val),
-                    _js_drop(handle: js_val),
-                ),
-            js_obj,
-        ),
-    )
+                {
+                    let js_val = json_value_to_js_value(value: v)
+                    _js_set_prop(obj: js_obj, key: k, val: js_val)
+                    _js_drop(handle: js_val)
+                }
+            js_obj
+        }
+    }
 ```
 
 ---
@@ -500,40 +500,40 @@ type PureJsonParser = {
 }
 
 pub @parse_pure (source: str) -> Result<JsonValue, JsonError> =
-    run(
-        let parser = PureJsonParser { source: source, pos: 0 },
-        match(parser.parse_value(),
-            Ok((value, _)) -> Ok(value),
-            Err(e) -> Err(e),
-        ),
-    )
+    {
+        let parser = PureJsonParser { source: source, pos: 0 }
+        match parser.parse_value() {
+            Ok((value, _)) -> Ok(value)
+            Err(e) -> Err(e)
+        }
+    }
 
 impl PureJsonParser {
     @parse_value (self) -> Result<(JsonValue, PureJsonParser), JsonError> =
-        run(
-            let self = self.skip_whitespace(),
-            match(self.peek(),
-                Some('n') -> self.parse_null(),
-                Some('t') -> self.parse_true(),
-                Some('f') -> self.parse_false(),
-                Some('"') -> self.parse_string(),
+        {
+            let self = self.skip_whitespace()
+            match self.peek() {
+                Some('n') -> self.parse_null()
+                Some('t') -> self.parse_true()
+                Some('f') -> self.parse_false()
+                Some('"') -> self.parse_string()
                 Some('[') -> self.parse_array(),
                 Some('{') -> self.parse_object(),
-                Some('-') -> self.parse_number(),
-                Some(c) if c.is_digit() -> self.parse_number(),
+                Some('-') -> self.parse_number()
+                Some(c) if c.is_digit() -> self.parse_number()
                 Some(c) -> Err(JsonError {
-                    kind: ParseError,
-                    message: `Unexpected character '{c}'`,
-                    path: "",
-                    position: self.pos,
-                }),
+                    kind: ParseError
+                    message: `Unexpected character '{c}'`
+                    path: ""
+                    position: self.pos
+                })
                 None -> Err(JsonError {
-                    kind: ParseError,
-                    message: "Unexpected end of input",
-                    path: "",
-                    position: self.pos,
-                }),
-            ),
+                    kind: ParseError
+                    message: "Unexpected end of input"
+                    path: ""
+                    position: self.pos
+                })
+            )
         )
 
     @parse_null (self) -> Result<(JsonValue, PureJsonParser), JsonError> =
@@ -555,170 +555,170 @@ impl PureJsonParser {
             Err(self.error(message: "Expected 'false'"))
 
     @parse_string (self) -> Result<(JsonValue, PureJsonParser), JsonError> =
-        run(
-            let self = self.expect(ch: '"')?,
-            let (s, self) = self.parse_string_contents()?,
-            let self = self.expect(ch: '"')?,
-            Ok((JsonValue.String(s), self)),
-        )
+        {
+            let self = self.expect(ch: '"')?
+            let (s, self) = self.parse_string_contents()?
+            let self = self.expect(ch: '"')?
+            Ok((JsonValue.String(s), self))
+        }
 
     @parse_string_contents (self) -> Result<(str, PureJsonParser), JsonError> =
-        run(
-            let result = "",
-            let self = self,
-            loop(
-                match(self.peek(),
-                    None -> break Err(self.error(message: "Unterminated string")),
-                    Some('"') -> break Ok((result, self)),
-                    Some('\\') -> run(
-                        let self = self.advance(n: 1),
-                        match(self.peek(),
-                            Some('"') -> run(result = result + "\"", self = self.advance(n: 1), continue),
-                            Some('\\') -> run(result = result + "\\", self = self.advance(n: 1), continue),
-                            Some('/') -> run(result = result + "/", self = self.advance(n: 1), continue),
-                            Some('n') -> run(result = result + "\n", self = self.advance(n: 1), continue),
-                            Some('r') -> run(result = result + "\r", self = self.advance(n: 1), continue),
-                            Some('t') -> run(result = result + "\t", self = self.advance(n: 1), continue),
-                            Some('u') -> run(
-                                let (ch, self) = self.parse_unicode_escape()?,
-                                result = result + ch,
-                                continue,
-                            ),
-                            _ -> break Err(self.error(message: "Invalid escape sequence")),
-                        ),
-                    ),
-                    Some(c) -> run(
-                        result = result + c.to_str(),
-                        self = self.advance(n: 1),
-                        continue,
-                    ),
-                ),
-            ),
+        {
+            let result = ""
+            let self = self
+            loop {
+                match self.peek() {
+                    None -> break Err(self.error(message: "Unterminated string"))
+                    Some('"') -> break Ok((result, self))
+                    Some('\\') -> {
+                        let self = self.advance(n: 1)
+                        match self.peek() {
+                            Some('"') -> {result = result + "\"", self = self.advance(n: 1), continue}
+                            Some('\\') -> {result = result + "\\", self = self.advance(n: 1), continue}
+                            Some('/') -> {result = result + "/", self = self.advance(n: 1), continue}
+                            Some('n') -> {result = result + "\n", self = self.advance(n: 1), continue}
+                            Some('r') -> {result = result + "\r", self = self.advance(n: 1), continue}
+                            Some('t') -> {result = result + "\t", self = self.advance(n: 1), continue}
+                            Some('u') -> {
+                                let (ch, self) = self.parse_unicode_escape()?
+                                result = result + ch
+                                continue
+                            }
+                            _ -> break Err(self.error(message: "Invalid escape sequence"))
+                        }
+                    }
+                    Some(c) -> {
+                        result = result + c.to_str()
+                        self = self.advance(n: 1)
+                        continue
+                    }
+                }
+            },
         )
 
     @parse_unicode_escape (self) -> Result<(str, PureJsonParser), JsonError> =
-        run(
+        {
             let self = self.advance(n: 1),  // skip 'u'
-            let hex = self.take(n: 4),
+            let hex = self.take(n: 4)
             if hex.len() < 4 then
                 Err(self.error(message: "Invalid unicode escape"))
             else
-                match(int_from_hex(s: hex),
-                    Some(code) -> Ok((char_from_code(code: code), self.advance(n: 4))),
-                    None -> Err(self.error(message: "Invalid unicode escape")),
-                ),
-        )
+                match int_from_hex(s: hex) {
+                    Some(code) -> Ok((char_from_code(code: code), self.advance(n: 4)))
+                    None -> Err(self.error(message: "Invalid unicode escape"))
+                }
+        }
 
     @parse_number (self) -> Result<(JsonValue, PureJsonParser), JsonError> =
-        run(
-            let start = self.pos,
-            let self = self,
+        {
+            let start = self.pos
+            let self = self
 
             // Optional minus
-            let self = if self.peek() == Some('-') then self.advance(n: 1) else self,
+            let self = if self.peek() == Some('-') then self.advance(n: 1) else self
 
             // Integer part
-            let self = match(self.peek(),
-                Some('0') -> self.advance(n: 1),
-                Some(c) if c.is_digit() && c != '0' -> self.skip_digits(),
-                _ -> Err(self.error(message: "Invalid number"))?,
-            ),
+            let self = match self.peek() {
+                Some('0') -> self.advance(n: 1)
+                Some(c) if c.is_digit() && c != '0' -> self.skip_digits()
+                _ -> Err(self.error(message: "Invalid number"))?
+            }
 
             // Fractional part
             let self = if self.peek() == Some('.') then
-                run(
-                    let self = self.advance(n: 1),
-                    self.skip_digits(),
-                )
+                {
+                    let self = self.advance(n: 1)
+                    self.skip_digits()
+                }
             else
-                self,
+                self
 
             // Exponent part
-            let self = match(self.peek(),
-                Some('e') | Some('E') -> run(
-                    let self = self.advance(n: 1),
-                    let self = match(self.peek(),
-                        Some('+') | Some('-') -> self.advance(n: 1),
-                        _ -> self,
-                    ),
-                    self.skip_digits(),
-                ),
-                _ -> self,
-            ),
+            let self = match self.peek() {
+                Some('e') | Some('E') -> {
+                    let self = self.advance(n: 1)
+                    let self = match self.peek() {
+                        Some('+') | Some('-') -> self.advance(n: 1)
+                        _ -> self
+                    }
+                    self.skip_digits()
+                }
+                _ -> self
+            }
 
-            let num_str = self.source.slice(start: start, end: self.pos),
-            match(num_str as? float,
-                Some(n) -> Ok((JsonValue.Number(n), self)),
-                None -> Err(self.error(message: "Invalid number")),
-            ),
-        )
+            let num_str = self.source.slice(start: start, end: self.pos)
+            match num_str as? float {
+                Some(n) -> Ok((JsonValue.Number(n), self))
+                None -> Err(self.error(message: "Invalid number"))
+            }
+        }
 
     @parse_array (self) -> Result<(JsonValue, PureJsonParser), JsonError> =
-        run(
+        {
             let self = self.expect(ch: '[')?,
-            let self = self.skip_whitespace(),
+            let self = self.skip_whitespace()
 
             if self.peek() == Some(']') then
                 Ok((JsonValue.Array([]), self.advance(n: 1)))
             else
-                run(
-                    let items: [JsonValue] = [],
-                    let self = self,
-                    loop(
-                        let (value, new_self) = self.parse_value()?,
-                        items = [...items, value],
-                        let self = new_self.skip_whitespace(),
-                        match(self.peek(),
-                            Some(']') -> break Ok((JsonValue.Array(items), self.advance(n: 1))),
-                            Some(',') -> run(
-                                self = self.advance(n: 1).skip_whitespace(),
-                                continue,
-                            ),
-                            _ -> break Err(self.error(message: "Expected ',' or ']'")),
-                        ),
-                    ),
-                ),
+                {
+                    let items: [JsonValue] = []
+                    let self = self
+                    loop {
+                        let (value, new_self) = self.parse_value()?
+                        items = [...items, value]
+                        let self = new_self.skip_whitespace()
+                        match self.peek() {
+                            Some(']'} -> break Ok((JsonValue.Array(items), self.advance(n: 1)))
+                            Some(',') -> {
+                                self = self.advance(n: 1).skip_whitespace()
+                                continue
+                            }
+                            _ -> break Err(self.error(message: "Expected ',' or ']'"))
+                        }
+                    }
+                },
         )
 
     @parse_object (self) -> Result<(JsonValue, PureJsonParser), JsonError> =
-        run(
+        {
             let self = self.expect(ch: '{')?,
-            let self = self.skip_whitespace(),
+            let self = self.skip_whitespace()
 
             if self.peek() == Some('}') then
                 Ok((JsonValue.Object({}), self.advance(n: 1)))
             else
-                run(
-                    let entries: {str: JsonValue} = {},
-                    let self = self,
-                    loop(
+                {
+                    let entries: {str: JsonValue} = {}
+                    let self = self
+                    loop {
                         // Parse key
-                        let (key_value, new_self) = self.parse_string()?,
-                        let key = match(key_value,
-                            JsonValue.String(s) -> s,
-                            _ -> Err(self.error(message: "Object key must be string"))?,
-                        ),
-                        let self = new_self.skip_whitespace(),
+                        let (key_value, new_self) = self.parse_string()?
+                        let key = match key_value {
+                            JsonValue.String(s) -> s
+                            _ -> Err(self.error(message: "Object key must be string"))?
+                        }
+                        let self = new_self.skip_whitespace()
 
                         // Expect colon
-                        let self = self.expect(ch: ':')?,
-                        let self = self.skip_whitespace(),
+                        let self = self.expect(ch: ':')?
+                        let self = self.skip_whitespace()
 
                         // Parse value
-                        let (value, new_self) = self.parse_value()?,
-                        entries = {...entries, [key]: value},
-                        let self = new_self.skip_whitespace(),
+                        let (value, new_self) = self.parse_value()?
+                        entries = {...entries, [key]: value}
+                        let self = new_self.skip_whitespace()
 
-                        match(self.peek(),
-                            Some('}') -> break Ok((JsonValue.Object(entries), self.advance(n: 1))),
-                            Some(',') -> run(
-                                self = self.advance(n: 1).skip_whitespace(),
-                                continue,
-                            ),
-                            _ -> break Err(self.error(message: "Expected ',' or '}'")),
-                        ),
-                    ),
-                ),
+                        match self.peek() {
+                            Some('}'} -> break Ok((JsonValue.Object(entries), self.advance(n: 1)))
+                            Some(',') -> {
+                                self = self.advance(n: 1).skip_whitespace()
+                                continue
+                            }
+                            _ -> break Err(self.error(message: "Expected ',' or '}'"))
+                        }
+                    }
+                },
         )
 
     // Helper methods
@@ -732,27 +732,27 @@ impl PureJsonParser {
         PureJsonParser { ...self, pos: self.pos + n }
 
     @skip_whitespace (self) -> PureJsonParser =
-        run(
-            let self = self,
-            loop(
-                match(self.peek(),
+        {
+            let self = self
+            loop {
+                match self.peek() {
                     Some(' ') | Some('\t') | Some('\n') | Some('\r') ->
-                        run(self = self.advance(n: 1), continue),
-                    _ -> break self,
-                ),
-            ),
-        )
+                        {self = self.advance(n: 1), continue}
+                    _ -> break self
+                }
+            }
+        }
 
     @skip_digits (self) -> PureJsonParser =
-        run(
-            let self = self,
-            loop(
-                match(self.peek(),
-                    Some(c) if c.is_digit() -> run(self = self.advance(n: 1), continue),
-                    _ -> break self,
-                ),
-            ),
-        )
+        {
+            let self = self
+            loop {
+                match self.peek() {
+                    Some(c) if c.is_digit() -> {self = self.advance(n: 1), continue}
+                    _ -> break self
+                }
+            }
+        }
 
     @starts_with (self, prefix: str) -> bool =
         self.source.slice(start: self.pos, end: self.pos + prefix.len()) == prefix
@@ -777,23 +777,23 @@ impl PureJsonParser {
 
 // Pure Ori stringify (no FFI needed)
 pub @stringify_pure (value: JsonValue) -> str =
-    match(value,
-        Null -> "null",
-        Bool(true) -> "true",
-        Bool(false) -> "false",
-        Number(n) -> n.to_str(),
-        String(s) -> `"{escape_string(s: s)}"`,
-        Array(items) -> run(
-            let parts = items.map(v -> stringify_pure(value: v)),
-            `[{parts.join(separator: ",")}]`,
-        ),
-        Object(entries) -> run(
+    match value {
+        Null -> "null"
+        Bool(true) -> "true"
+        Bool(false) -> "false"
+        Number(n) -> n.to_str()
+        String(s) -> `"{escape_string(s: s)}"`
+        Array(items) -> {
+            let parts = items.map(v -> stringify_pure(value: v))
+            `[{parts.join(separator: ",")}]`
+        }
+        Object(entries) -> {
             let parts = entries.entries().map((k, v) ->
                 `"{escape_string(s: k)}":` + stringify_pure(value: v)
-            ),
-            `\{{parts.join(separator: ",")}\}`,
-        ),
-    )
+            )
+            `\{{parts.join(separator: ",")}\}`
+        }
+    }
 
 @escape_string (s: str) -> str =
     s.replace(old: "\\", new: "\\\\")
@@ -832,20 +832,20 @@ type StackValue =
 impl JsonParser {
     #target(not_arch: "wasm32")
     pub @new (source: str) -> JsonParser uses FFI =
-        run(
+        {
             let doc = _yyjson_read(
-                dat: source,
-                len: len(collection: source),
-                flg: $YYJSON_READ_NOFLAG,
-            ),
-            let root = if doc.is_null() then CPtr.null() else _yyjson_doc_get_root(doc: doc),
+                dat: source
+                len: len(collection: source)
+                flg: $YYJSON_READ_NOFLAG
+            )
+            let root = if doc.is_null() then CPtr.null() else _yyjson_doc_get_root(doc: doc)
             JsonParser {
-                source: source,
-                doc: if doc.is_null() then None else Some(doc),
-                stack: if root.is_null() then [] else [initial_frame(val: root)],
-                finished: doc.is_null(),
-            },
-        )
+                source: source
+                doc: if doc.is_null() then None else Some(doc)
+                stack: if root.is_null() then [] else [initial_frame(val: root)]
+                finished: doc.is_null()
+            }
+        }
 
     #target(arch: "wasm32")
     pub @new (source: str) -> JsonParser uses FFI =
@@ -891,75 +891,75 @@ impl Iterator for JsonParser {
         else if self.stack.is_empty() then
             (None, JsonParser { ...self, finished: true })
         else
-            run(
-                let frame = self.stack[# - 1],
-                let rest = self.stack.slice(start: 0, end: # - 1),
+            {
+                let frame = self.stack[# - 1]
+                let rest = self.stack.slice(start: 0, end: # - 1)
 
-                match(frame.value,
+                match frame.value {
                     ArrayFrame(arr) ->
                         if frame.index == 0 && frame.iter.is_some() then
                             // First visit: emit StartArray
-                            run(
-                                _yyjson_arr_iter_init(arr: arr, iter: frame.iter.unwrap()),
-                                let new_frame = StackFrame { ...frame, index: 1 },
-                                (Some(StartArray), JsonParser { ...self, stack: [...rest, new_frame] }),
-                            )
+                            {
+                                _yyjson_arr_iter_init(arr: arr, iter: frame.iter.unwrap())
+                                let new_frame = StackFrame { ...frame, index: 1 }
+                                (Some(StartArray), JsonParser { ...self, stack: [...rest, new_frame] })
+                            }
                         else if frame.index <= frame.len then
                             // Emit array elements
-                            run(
-                                let elem = _yyjson_arr_iter_next(iter: frame.iter.unwrap()),
+                            {
+                                let elem = _yyjson_arr_iter_next(iter: frame.iter.unwrap())
                                 if elem.is_null() then
                                     (Some(EndArray), JsonParser { ...self, stack: rest })
                                 else
-                                    run(
-                                        let new_frame = StackFrame { ...frame, index: frame.index + 1 },
-                                        let event = value_to_event(val: elem),
-                                        let new_stack = maybe_push_frame(stack: [...rest, new_frame], val: elem),
-                                        (Some(event), JsonParser { ...self, stack: new_stack }),
-                                    ),
-                            )
+                                    {
+                                        let new_frame = StackFrame { ...frame, index: frame.index + 1 }
+                                        let event = value_to_event(val: elem)
+                                        let new_stack = maybe_push_frame(stack: [...rest, new_frame], val: elem)
+                                        (Some(event), JsonParser { ...self, stack: new_stack })
+                                    }
+                            }
                         else
-                            (Some(EndArray), JsonParser { ...self, stack: rest }),
+                            (Some(EndArray), JsonParser { ...self, stack: rest })
 
                     ObjectFrame(obj) ->
                         if frame.index == 0 then
                             // First visit: emit StartObject
-                            run(
-                                _yyjson_obj_iter_init(obj: obj, iter: frame.iter.unwrap()),
-                                let new_frame = StackFrame { ...frame, index: 1 },
-                                (Some(StartObject), JsonParser { ...self, stack: [...rest, new_frame] }),
-                            )
+                            {
+                                _yyjson_obj_iter_init(obj: obj, iter: frame.iter.unwrap())
+                                let new_frame = StackFrame { ...frame, index: 1 }
+                                (Some(StartObject), JsonParser { ...self, stack: [...rest, new_frame] })
+                            }
                         else
                             // Get next key-value pair
-                            run(
-                                let key_val = _yyjson_obj_iter_next(iter: frame.iter.unwrap()),
+                            {
+                                let key_val = _yyjson_obj_iter_next(iter: frame.iter.unwrap())
                                 if key_val.is_null() then
                                     (Some(EndObject), JsonParser { ...self, stack: rest })
                                 else
-                                    run(
-                                        let key = _yyjson_get_str(val: key_val),
-                                        let val = _yyjson_obj_iter_get_val(key: key_val),
+                                    {
+                                        let key = _yyjson_get_str(val: key_val)
+                                        let val = _yyjson_obj_iter_get_val(key: key_val)
                                         // Push value frame, then key frame
                                         let key_frame = StackFrame {
-                                            value: ObjectKeyFrame(val),
-                                            iter: None,
-                                            index: 0,
-                                            len: 0,
-                                        },
-                                        let new_frame = StackFrame { ...frame, index: frame.index + 1 },
-                                        (Some(Key(key)), JsonParser { ...self, stack: [...rest, new_frame, key_frame] }),
-                                    ),
-                            ),
+                                            value: ObjectKeyFrame(val)
+                                            iter: None
+                                            index: 0
+                                            len: 0
+                                        }
+                                        let new_frame = StackFrame { ...frame, index: frame.index + 1 }
+                                        (Some(Key(key)), JsonParser { ...self, stack: [...rest, new_frame, key_frame] })
+                                    }
+                            }
 
                     ObjectKeyFrame(val) ->
                         // Emit the value after a key
-                        run(
-                            let event = value_to_event(val: val),
-                            let new_stack = maybe_push_frame(stack: rest, val: val),
-                            (Some(event), JsonParser { ...self, stack: new_stack }),
-                        ),
-                ),
-            )
+                        {
+                            let event = value_to_event(val: val)
+                            let new_stack = maybe_push_frame(stack: rest, val: val)
+                            (Some(event), JsonParser { ...self, stack: new_stack })
+                        }
+                }
+            }
 
     #target(arch: "wasm32")
     @next (self) -> (Option<JsonEvent>, JsonParser) =

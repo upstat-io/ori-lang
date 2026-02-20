@@ -434,12 +434,12 @@ When using format specifiers on types with custom `Formattable` impl:
 
 ```ori
 @process_request (req: Request) -> Response uses Logger =
-    run(
-        Logger.info(`Processing request {req.id} from {req.client_ip}`),
-        let result = handle(req: req),
-        Logger.info(`Request {req.id} completed in {result.duration}`),
-        result.response,
-    )
+    {
+        Logger.info(`Processing request {req.id} from {req.client_ip}`)
+        let result = handle(req: req)
+        Logger.info(`Request {req.id} completed in {result.duration}`)
+        result.response
+    }
 ```
 
 ### SQL Queries (Parameterized)
@@ -639,10 +639,10 @@ User-defined format types:
 ```ori
 impl Formattable for Money {
     @format (self, spec: FormatSpec) -> str =
-        match(spec.format_type,
-            Some(Currency) -> `${self.dollars}.{self.cents:02}`,
-            _ -> self.to_str(),
-        )
+        match spec.format_type {
+            Some(Currency) -> `${self.dollars}.{self.cents:02}`
+            _ -> self.to_str()
+        }
 }
 
 `{price:$}`  // "$19.99"

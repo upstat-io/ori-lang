@@ -229,10 +229,10 @@ All `Printable` types have a blanket `Formattable` implementation:
 
 ```ori
 impl<T: Printable> Formattable for T {
-    @format (self, spec: FormatSpec) -> str = run(
-        let base = self.to_str(),
-        apply_format(s: base, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = {
+        let base = self.to_str()
+        apply_format(s: base, spec: spec)
+    }
 }
 ```
 
@@ -246,12 +246,12 @@ User types may implement `Formattable` for custom formatting:
 type Money = { cents: int }
 
 impl Formattable for Money {
-    @format (self, spec: FormatSpec) -> str = run(
-        let dollars = self.cents / 100,
-        let cents = self.cents % 100,
-        let base = `${dollars}.{cents:02}`,
-        apply_alignment(s: base, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = {
+        let dollars = self.cents / 100
+        let cents = self.cents % 100
+        let base = `${dollars}.{cents:02}`
+        apply_alignment(s: base, spec: spec)
+    }
 }
 ```
 
@@ -337,10 +337,10 @@ trait Traceable {
 The `?` operator automatically adds trace entries at propagation points:
 
 ```ori
-@outer () -> Result<int, Error> = run(
+@outer () -> Result<int, Error> = {
     let x = inner()?,  // Adds trace entry for this location
-    Ok(x * 2),
-)
+    Ok(x * 2)
+}
 ```
 
 ### TraceEntry Type

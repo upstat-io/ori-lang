@@ -33,11 +33,11 @@ Extensions add methods to existing types without modifying their definition:
 
 ```ori
 extend Iterator {
-    @count (self) -> int = run(
-        let count = 0,
-        for _ in self do count = count + 1,
-        count,
-    )
+    @count (self) -> int = {
+        let count = 0
+        for _ in self do count = count + 1
+        count
+    }
 }
 ```
 

@@ -160,10 +160,10 @@ impl Eq for Point {
 }
 
 impl Comparable for Point {
-    @compare (self, other: Self) -> Ordering = run(
-        let by_x = compare(left: self.x, right: other.x),
-        if by_x != Equal then by_x else compare(left: self.y, right: other.y),
-    )
+    @compare (self, other: Self) -> Ordering = {
+        let by_x = compare(left: self.x, right: other.x)
+        if by_x != Equal then by_x else compare(left: self.y, right: other.y)
+    }
 }
 ```
 
@@ -172,10 +172,10 @@ impl Comparable for Point {
 Require multiple traits with `+`:
 
 ```ori
-@sort_and_display<T: Comparable + Displayable> (items: [T]) -> void = run(
-    let sorted = items.sort(),
-    for item in sorted do print(msg: item.display()),
-)
+@sort_and_display<T: Comparable + Displayable> (items: [T]) -> void = {
+    let sorted = items.sort()
+    for item in sorted do print(msg: item.display())
+}
 ```
 
 ## Where Clauses
@@ -185,10 +185,10 @@ For complex bounds, use `where`:
 ```ori
 @process<T, U> (input: T, transformer: (T) -> U) -> [U]
     where T: Clone,
-          U: Displayable + Default = run(
-    let items = [input.clone(), input.clone(), input.clone()],
-    for item in items yield transformer(item),
-)
+          U: Displayable + Default = {
+    let items = [input.clone(), input.clone(), input.clone()]
+    for item in items yield transformer(item)
+}
 ```
 
 ## Generic Trait Implementations
@@ -198,10 +198,10 @@ Implement traits for generic types:
 ```ori
 // Implement Displayable for any list of Displayable items
 impl<T: Displayable> Displayable for [T] {
-    @display (self) -> str = run(
-        let items = for item in self yield item.display(),
-        `[{items.join(sep: ", ")}]`,
-    )
+    @display (self) -> str = {
+        let items = for item in self yield item.display()
+        `[{items.join(sep: ", ")}]`
+    }
 }
 
 // Now [Point] is Displayable
@@ -476,36 +476,36 @@ impl Printable for Player {
     @to_str (self) -> str = `{self.name}: {self.score()} points`
 }
 
-@test_player_score tests @Scorable.score () -> void = run(
-    let player = Player { name: "Alice", kills: 10, deaths: 3, assists: 5 },
-    assert_eq(actual: player.score(), expected: 32),
-)
+@test_player_score tests @Scorable.score () -> void = {
+    let player = Player { name: "Alice", kills: 10, deaths: 3, assists: 5 }
+    assert_eq(actual: player.score(), expected: 32)
+}
 
 // Generic leaderboard for any Rankable
 @leaderboard<T: Rankable + Printable + Clone> (
     items: [T],
     top_n: int,
-) -> [str] = run(
-    let sorted = items.clone(),
+) -> [str] = {
+    let sorted = items.clone()
     sorted.sort_by(key: item -> -item.score()),  // Descending
 
     sorted.iter()
         .take(count: top_n)
         .enumerate()
         .map(transform: (rank, item) -> `#{rank + 1} {item.to_str()}`)
-        .collect(),
-)
+        .collect()
+}
 
-@test_leaderboard tests @leaderboard () -> void = run(
+@test_leaderboard tests @leaderboard () -> void = {
     let players = [
-        Player { name: "Alice", kills: 10, deaths: 3, assists: 5 },
-        Player { name: "Bob", kills: 5, deaths: 5, assists: 10 },
-        Player { name: "Charlie", kills: 15, deaths: 10, assists: 2 },
-    ],
+        Player { name: "Alice", kills: 10, deaths: 3, assists: 5 }
+        Player { name: "Bob", kills: 5, deaths: 5, assists: 10 }
+        Player { name: "Charlie", kills: 15, deaths: 10, assists: 2 }
+    ]
 
-    let top_2 = leaderboard(items: players, top_n: 2),
-    assert_eq(actual: len(collection: top_2), expected: 2),
-)
+    let top_2 = leaderboard(items: players, top_n: 2)
+    assert_eq(actual: len(collection: top_2), expected: 2)
+}
 
 // Team type also implementing Scorable
 type Team = { name: str, players: [Player] }
@@ -517,17 +517,17 @@ impl Scorable for Team {
             .fold(initial: 0, op: (a, b) -> a + b)
 }
 
-@test_team_score tests @Scorable.score () -> void = run(
+@test_team_score tests @Scorable.score () -> void = {
     let team = Team {
-        name: "Red Team",
+        name: "Red Team"
         players: [
-            Player { name: "Alice", kills: 10, deaths: 3, assists: 5 },
-            Player { name: "Bob", kills: 5, deaths: 5, assists: 10 },
-        ],
-    },
+            Player { name: "Alice", kills: 10, deaths: 3, assists: 5 }
+            Player { name: "Bob", kills: 5, deaths: 5, assists: 10 }
+        ]
+    }
     // Alice: 32, Bob: 20
-    assert_eq(actual: team.score(), expected: 52),
-)
+    assert_eq(actual: team.score(), expected: 52)
+}
 ```
 
 ## Quick Reference

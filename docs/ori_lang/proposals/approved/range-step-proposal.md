@@ -164,10 +164,10 @@ let range = 0..10 by by  // Valid: second `by` is the keyword, third is the vari
 ### Matrix Diagonal
 
 ```ori
-@diagonal<T> (matrix: [[T]]) -> [T] = run(
-    let size = len(collection: matrix),
-    for i in 0..size yield matrix[i][i],
-)
+@diagonal<T> (matrix: [[T]]) -> [T] = {
+    let size = len(collection: matrix)
+    for i in 0..size yield matrix[i][i]
+}
 ```
 
 ### Sampling Every Nth Element
@@ -184,20 +184,20 @@ sample(items: data, every: 3)  // [1, 4, 7, 10]
 
 ```ori
 @process_in_batches<T> (items: [T], batch_size: int) -> void =
-    for start in 0..len(collection: items) by batch_size do run(
-        let end = min(left: start + batch_size, right: len(collection: items)),
-        let batch = items[start..end],
-        process_batch(batch),
-    )
+    for start in 0..len(collection: items) by batch_size do {
+        let end = min(left: start + batch_size, right: len(collection: items))
+        let batch = items[start..end]
+        process_batch(batch)
+    }
 ```
 
 ### Animation Frames
 
 ```ori
-@animate (from: float, to: float, frames: int) -> [float] = run(
-    let step = (to - from) / float(frames),
-    for i in 0..=frames yield from + float(i) * step,
-)
+@animate (from: float, to: float, frames: int) -> [float] = {
+    let step = (to - from) / float(frames)
+    for i in 0..=frames yield from + float(i) * step
+}
 
 animate(from: 0.0, to: 1.0, frames: 5)
 // [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]

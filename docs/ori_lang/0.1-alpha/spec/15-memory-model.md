@@ -50,12 +50,12 @@ Each binding in a sequence:
 3. Is destroyed when the sequence ends
 
 ```ori
-@process (input: Data) -> Result<Output, Error> = try(
+@process (input: Data) -> Result<Output, Error> = try {
     let validated = validate(data: input)?,   // A: sees input
     let enriched = enrich(data: validated)?,  // B: sees input, validated
     let saved = save(data: enriched)?,        // C: sees input, validated, enriched
-    Ok(saved),
-)
+    Ok(saved)
+}
 ```
 
 There is no mechanism for `saved` to reference the function `process`, or for `enriched` and `validated` to reference each other bidirectionally. Data flows forward through transformations.
@@ -198,12 +198,12 @@ Values may be dropped before scope end if no longer referenced (compiler optimiz
 Reverse creation order within a scope:
 
 ```ori
-run(
+{
     let a = create_a(),  // Destroyed 3rd
     let b = create_b(),  // Destroyed 2nd
     let c = create_c(),  // Destroyed 1st
     // destroyed: c, b, a
-)
+}
 ```
 
 Struct fields are destroyed in reverse declaration order:

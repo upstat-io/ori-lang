@@ -23,13 +23,13 @@ Ori has one canonical code style, enforced by `ori fmt`. No configuration, no de
 Four spaces per level, no tabs:
 
 ```ori
-@example () -> void = run(
-    let x = 10,
-    if x > 0 then run(
-        let y = x * 2,
-        print(msg: `{y}`),
-    ),
-)
+@example () -> void = {
+    let x = 10
+    if x > 0 then {
+        let y = x * 2
+        print(msg: `{y}`)
+    }
+}
 ```
 
 ### Spacing Around Operators
@@ -148,28 +148,27 @@ Some constructs always stack, regardless of width:
 
 ```ori
 // Always stacked
-run(
-    let x = compute(),
-    let y = process(input: x),
-    y,
-)
+{
+    let x = compute()
+    let y = process(input: x)
+    y
+}
 
-try(
-    let data = fetch()?,
-    let result = parse(data: data)?,
-    Ok(result),
-)
+try {
+    let data = fetch()?
+    let result = parse(data: data)?
+    Ok(result)
+}
 ```
 
 ### match Arms
 
 ```ori
 // One arm per line
-match(
-    value,
-    Some(x) -> process(x: x),
-    None -> default_value,
-)
+match value {
+    Some(x) -> process(x: x)
+    None -> default_value
+}
 ```
 
 ### recurse, parallel, spawn, nursery
@@ -325,11 +324,11 @@ Break after `->` only for always-stacked patterns:
 x -> x + 1
 
 // With run (always stacked)
-x -> run(
-    let y = compute(input: x),
-    let z = process(input: y),
-    z,
-)
+x -> {
+    let y = compute(input: x)
+    let z = process(input: y)
+    z
+}
 ```
 
 ## Trailing Commas
@@ -462,26 +461,26 @@ impl Displayable for Point {
 }
 
 impl<T: Displayable> Displayable for [T] {
-    @display (self) -> str = run(
-        let items = self.iter().map(transform: x -> x.display()).collect(),
-        `[{items.join(sep: ", ")}]`,
-    )
+    @display (self) -> str = {
+        let items = self.iter().map(transform: x -> x.display()).collect()
+        `[{items.join(sep: ", ")}]`
+    }
 }
 ```
 
 ### Tests
 
 ```ori
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-    assert_eq(actual: add(a: -1, b: 1), expected: 0),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+    assert_eq(actual: add(a: -1, b: 1), expected: 0)
+}
 
 @test_with_mock tests @fetch () -> void =
-    with Http = MockHttp { responses: {} } in run(
-        let result = fetch(url: "/test"),
-        assert_err(result: result),
-    )
+    with Http = MockHttp { responses: {} } in {
+        let result = fetch(url: "/test")
+        assert_err(result: result)
+    }
 ```
 
 ## Running the Formatter
