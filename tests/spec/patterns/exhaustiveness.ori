@@ -36,7 +36,7 @@ use std.testing { assert_eq }
 // User-defined enum exhaustive (unit variants)
 // =============================================================================
 
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 @test_color_exhaustive tests @color_exhaustive () -> void = {
     assert_eq(actual: color_exhaustive(Red), expected: "red");
@@ -54,7 +54,7 @@ type Color = Red | Green | Blue
 // User-defined enum exhaustive (variants with fields)
 // =============================================================================
 
-type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int);
 
 @test_shape_exhaustive tests @shape_exhaustive () -> void = {
     assert_eq(actual: shape_exhaustive(Circle(radius: 5)), expected: 5);
@@ -159,7 +159,7 @@ type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
 // Never variant omitted from exhaustiveness (uninhabited variant)
 // =============================================================================
 
-type MaybeNever = Value(v: int) | Impossible(n: Never)
+type MaybeNever = Value(v: int) | Impossible(n: Never);
 
 @test_never_variant_omittable tests @never_variant_omittable () -> void = {
     assert_eq(actual: never_variant_omittable(Value(v: 42)), expected: 42)

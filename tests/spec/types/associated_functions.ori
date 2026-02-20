@@ -23,7 +23,7 @@ impl Point {
     @new (x: int, y: int) -> Self = Point { x, y }
 
     // Instance method for comparison
-    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y
+    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y;
 }
 
 @test_basic_associated_function tests @_use_point () -> void = {
@@ -39,7 +39,7 @@ impl Point {
 }
 
 // Helper function to trigger tests
-@_use_point (p: Point) -> int = p.x + p.y
+@_use_point (p: Point) -> int = p.x + p.y;
 
 // -----------------------------------------------------------------------------
 // Method Chaining with Builder Pattern
@@ -65,7 +65,7 @@ impl Builder {
     assert(cond: b.enabled)
 }
 
-@_use_builder (b: Builder) -> str = b.name
+@_use_builder (b: Builder) -> str = b.name;
 
 // -----------------------------------------------------------------------------
 // Self Return Type
@@ -77,7 +77,7 @@ impl Counter {
     @zero () -> Self = Counter { count: 0 }
     @starting_at (n: int) -> Self = Counter { count: n }
     @increment (self) -> Self = Counter { count: self.count + 1 }
-    @value (self) -> int = self.count
+    @value (self) -> int = self.count;
 }
 
 @test_self_return_type tests @_use_counter () -> void = {
@@ -90,7 +90,7 @@ impl Counter {
     assert_eq(actual: c.value(), expected: 11)
 }
 
-@_use_counter (c: Counter) -> int = c.count
+@_use_counter (c: Counter) -> int = c.count;
 
 // -----------------------------------------------------------------------------
 // Multiple Associated Functions
@@ -103,7 +103,7 @@ impl Rectangle {
     @from_dimensions (w: int, h: int) -> Self = Rectangle { width: w, height: h }
     @unit () -> Self = Rectangle { width: 1, height: 1 }
 
-    @area (self) -> int = self.width * self.height
+    @area (self) -> int = self.width * self.height;
 }
 
 @test_multiple_associated_functions tests @_use_rect () -> void = {
@@ -115,7 +115,7 @@ impl Rectangle {
     assert_eq(actual: unit.area(), expected: 1)
 }
 
-@_use_rect (r: Rectangle) -> int = r.width
+@_use_rect (r: Rectangle) -> int = r.width;
 
 // -----------------------------------------------------------------------------
 // Built-in Types Still Work (Duration, Size)
@@ -131,8 +131,8 @@ impl Rectangle {
     assert_eq(actual: s.megabytes(), expected: 2)
 }
 
-@_duration_helper (d: Duration) -> int = d.seconds()
-@_size_helper (s: Size) -> int = s.bytes()
+@_duration_helper (d: Duration) -> int = d.seconds();
+@_size_helper (s: Size) -> int = s.bytes();
 
 // -----------------------------------------------------------------------------
 // Instance vs Associated Function Distinction
@@ -145,7 +145,7 @@ impl Pair {
     @create (x: int, y: int) -> Self = Pair { a: x, b: y }
 
     // Instance methods (called on values)
-    @sum (self) -> int = self.a + self.b
+    @sum (self) -> int = self.a + self.b;
     @swap (self) -> Self = Pair { a: self.b, b: self.a }
 }
 
@@ -160,5 +160,5 @@ impl Pair {
     assert_eq(actual: swapped.b, expected: 3)
 }
 
-@_use_pair (p: Pair) -> int = p.a
+@_use_pair (p: Pair) -> int = p.a;
 

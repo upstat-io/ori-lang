@@ -7,4 +7,4 @@
 type BadStruct = { value: int, impossible: Never }
 
 #[compile_fail("cannot use `Never` as struct field type")]
-@test_never_struct_field () -> void = ()
+@test_never_struct_field () -> void = ();

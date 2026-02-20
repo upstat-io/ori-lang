@@ -301,6 +301,8 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             } => with_capability_width(self, *capability, *provider, *body),
 
             // Sequential patterns - always stacked
+            // TODO(§0.10-cleanup): FunctionSeq::Run arm is dead — parser no longer produces Run nodes.
+            // Remove when IR variant is removed (see roadmap section-00-parser.md § 0.10).
             ExprKind::FunctionSeq(seq_id) => {
                 let seq = self.arena.get_function_seq(*seq_id);
                 match seq {

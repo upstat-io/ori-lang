@@ -1,6 +1,6 @@
 use std.testing { assert_eq }
 
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 @_use_color (c: Color) -> bool = match c { Red -> true, _ -> false}
 

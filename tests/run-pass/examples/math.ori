@@ -1,10 +1,10 @@
 // Math functions in Ori
 
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@multiply (a: int, b: int) -> int = a * b
+@multiply (a: int, b: int) -> int = a * b;
 
-@square (n: int) -> int = n * n
+@square (n: int) -> int = n * n;
 
 @main () -> void = {
     print(msg: "2 + 3 = " + str(add(a: 2, b: 3)));

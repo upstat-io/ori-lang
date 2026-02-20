@@ -12,7 +12,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: b, expected: "hello")
 }
 
-@clone_pair () -> (int, str) = (42, "hello").clone()
+@clone_pair () -> (int, str) = (42, "hello").clone();
 
 // (T, U, V).clone() — triple
 @test_clone_triple tests @clone_triple () -> void = {

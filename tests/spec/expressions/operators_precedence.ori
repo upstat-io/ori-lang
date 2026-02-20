@@ -52,21 +52,21 @@ type Point = { x: int, y: int }
     assert_eq(actual: unary_before_mul(), expected: -6)
 }
 
-@unary_before_mul () -> int = -2 * 3
+@unary_before_mul () -> int = -2 * 3;
 
 @test_not_before_and tests @not_before_and () -> void = {
     // !false && true is (!false) && true = true && true = true
     assert(cond: !false && true)
 }
 
-@not_before_and () -> bool = !false && true
+@not_before_and () -> bool = !false && true;
 
 @test_bitnot_before_bitand tests @bitnot_before_bitand () -> void = {
     // ~0 & 0xFF is (~0) & 0xFF = -1 & 0xFF = 0xFF = 255
     assert_eq(actual: bitnot_before_bitand(), expected: 255)
 }
 
-@bitnot_before_bitand () -> int = ~0 & 0xFF
+@bitnot_before_bitand () -> int = ~0 & 0xFF;
 
 // =============================================================================
 // Precedence Level 3: Multiplicative (* / % div)
@@ -77,35 +77,35 @@ type Point = { x: int, y: int }
     assert_eq(actual: mul_before_add(), expected: 14)
 }
 
-@mul_before_add () -> int = 2 + 3 * 4
+@mul_before_add () -> int = 2 + 3 * 4;
 
 @test_div_before_sub tests @div_before_sub () -> void = {
     // 10 - 6 / 2 = 10 - 3 = 7
     assert_eq(actual: div_before_sub(), expected: 7)
 }
 
-@div_before_sub () -> int = 10 - 6 / 2
+@div_before_sub () -> int = 10 - 6 / 2;
 
 @test_mod_before_add tests @mod_before_add () -> void = {
     // 10 + 7 % 3 = 10 + 1 = 11
     assert_eq(actual: mod_before_add(), expected: 11)
 }
 
-@mod_before_add () -> int = 10 + 7 % 3
+@mod_before_add () -> int = 10 + 7 % 3;
 
 @test_floor_div_before_add tests @floor_div_before_add () -> void = {
     // 10 + 7 div 3 = 10 + 2 = 12
     assert_eq(actual: floor_div_before_add(), expected: 12)
 }
 
-@floor_div_before_add () -> int = 10 + 7 div 3
+@floor_div_before_add () -> int = 10 + 7 div 3;
 
 @test_mul_div_left_assoc tests @mul_div_left_assoc () -> void = {
     // 100 / 10 * 2 = (100 / 10) * 2 = 10 * 2 = 20
     assert_eq(actual: mul_div_left_assoc(), expected: 20)
 }
 
-@mul_div_left_assoc () -> int = 100 / 10 * 2
+@mul_div_left_assoc () -> int = 100 / 10 * 2;
 
 // =============================================================================
 // Precedence Level 4: Additive (+ -)
@@ -116,21 +116,21 @@ type Point = { x: int, y: int }
     assert_eq(actual: add_before_shift(), expected: 8)
 }
 
-@add_before_shift () -> int = 1 + 1 << 2
+@add_before_shift () -> int = 1 + 1 << 2;
 
 @test_sub_before_shift tests @sub_before_shift () -> void = {
     // 5 - 1 >> 1 = (5 - 1) >> 1 = 4 >> 1 = 2
     assert_eq(actual: sub_before_shift(), expected: 2)
 }
 
-@sub_before_shift () -> int = 5 - 1 >> 1
+@sub_before_shift () -> int = 5 - 1 >> 1;
 
 @test_add_sub_left_assoc tests @add_sub_left_assoc () -> void = {
     // 10 - 5 + 3 = (10 - 5) + 3 = 5 + 3 = 8
     assert_eq(actual: add_sub_left_assoc(), expected: 8)
 }
 
-@add_sub_left_assoc () -> int = 10 - 5 + 3
+@add_sub_left_assoc () -> int = 10 - 5 + 3;
 
 // =============================================================================
 // Precedence Level 5: Shift (<< >>)
@@ -141,14 +141,14 @@ type Point = { x: int, y: int }
     assert(cond: shift_before_comparison())
 }
 
-@shift_before_comparison () -> bool = 1 << 2 < 10
+@shift_before_comparison () -> bool = 1 << 2 < 10;
 
 @test_shift_left_assoc tests @shift_left_assoc () -> void = {
     // 1 << 2 << 1 = (1 << 2) << 1 = 4 << 1 = 8
     assert_eq(actual: shift_left_assoc(), expected: 8)
 }
 
-@shift_left_assoc () -> int = 1 << 2 << 1
+@shift_left_assoc () -> int = 1 << 2 << 1;
 
 // =============================================================================
 // Precedence Level 6: Range (.. ..= by)
@@ -174,7 +174,7 @@ type Point = { x: int, y: int }
     assert(cond: relational_before_equality())
 }
 
-@relational_before_equality () -> bool = 1 < 2 == true
+@relational_before_equality () -> bool = 1 < 2 == true;
 
 @test_relational_chain_not_supported tests @relational_chain_not_supported () -> void = {
     // In Ori, 1 < 2 < 3 would parse as (1 < 2) < 3 = true < 3
@@ -183,7 +183,7 @@ type Point = { x: int, y: int }
     assert(cond: 1 < 2 && 2 < 3)
 }
 
-@relational_chain_not_supported () -> bool = 1 < 2 && 2 < 3
+@relational_chain_not_supported () -> bool = 1 < 2 && 2 < 3;
 
 // =============================================================================
 // Precedence Level 8: Equality (== !=)
@@ -200,14 +200,14 @@ type Point = { x: int, y: int }
     assert(cond: (5 & 3) == 1)
 }
 
-@equality_before_bitand () -> bool = (5 & 3) == 1
+@equality_before_bitand () -> bool = (5 & 3) == 1;
 
 @test_equality_left_assoc tests @equality_left_assoc () -> void = {
     // 1 == 1 == true = (1 == 1) == true = true == true = true
     assert(cond: equality_left_assoc())
 }
 
-@equality_left_assoc () -> bool = 1 == 1 == true
+@equality_left_assoc () -> bool = 1 == 1 == true;
 
 // =============================================================================
 // Precedence Level 9: Bitwise AND (&)
@@ -218,7 +218,7 @@ type Point = { x: int, y: int }
     assert_eq(actual: bitand_before_bitxor(), expected: 255)
 }
 
-@bitand_before_bitxor () -> int = 0xFF & 0x0F ^ 0xF0
+@bitand_before_bitxor () -> int = 0xFF & 0x0F ^ 0xF0;
 
 // =============================================================================
 // Precedence Level 10: Bitwise XOR (^)
@@ -229,7 +229,7 @@ type Point = { x: int, y: int }
     assert_eq(actual: bitxor_before_bitor(), expected: 255)
 }
 
-@bitxor_before_bitor () -> int = 0xFF | 0x0F ^ 0xFF
+@bitxor_before_bitor () -> int = 0xFF | 0x0F ^ 0xFF;
 
 // =============================================================================
 // Precedence Level 11: Bitwise OR (|)
@@ -242,7 +242,7 @@ type Point = { x: int, y: int }
     assert(cond: (0 | 1) > 0 && true)
 }
 
-@bitor_before_and () -> bool = (0 | 1) > 0 && true
+@bitor_before_and () -> bool = (0 | 1) > 0 && true;
 
 // =============================================================================
 // Precedence Level 12: Logical AND (&&)
@@ -253,14 +253,14 @@ type Point = { x: int, y: int }
     assert(cond: and_before_or())
 }
 
-@and_before_or () -> bool = false && true || true
+@and_before_or () -> bool = false && true || true;
 
 @test_and_left_assoc tests @and_left_assoc () -> void = {
     // true && false && true = (true && false) && true = false && true = false
     assert(cond: !(true && false && true))
 }
 
-@and_left_assoc () -> bool = true && false && true
+@and_left_assoc () -> bool = true && false && true;
 
 // =============================================================================
 // Precedence Level 13: Logical OR (||)
@@ -280,14 +280,14 @@ type Point = { x: int, y: int }
     assert(cond: b)
 }
 
-@or_before_coalesce () -> bool = true || false
+@or_before_coalesce () -> bool = true || false;
 
 @test_or_left_assoc tests @or_left_assoc () -> void = {
     // false || false || true = (false || false) || true = false || true = true
     assert(cond: or_left_assoc())
 }
 
-@or_left_assoc () -> bool = false || false || true
+@or_left_assoc () -> bool = false || false || true;
 
 // =============================================================================
 // Precedence Level 14: Coalesce (??)
@@ -349,7 +349,7 @@ type Point = { x: int, y: int }
     assert_eq(actual: complex_arithmetic(), expected: 10)
 }
 
-@complex_arithmetic () -> int = 2 + 3 * 4 - 10 / 2 + 1
+@complex_arithmetic () -> int = 2 + 3 * 4 - 10 / 2 + 1;
 
 @test_complex_logical tests @complex_logical () -> void = {
     // !false && true || false && !true
@@ -359,7 +359,7 @@ type Point = { x: int, y: int }
     assert(cond: complex_logical())
 }
 
-@complex_logical () -> bool = !false && true || false && !true
+@complex_logical () -> bool = !false && true || false && !true;
 
 @test_complex_bitwise tests @complex_bitwise () -> void = {
     // ~0 & 0xFF | 0x100 ^ 0x0FF
@@ -369,7 +369,7 @@ type Point = { x: int, y: int }
     assert_eq(actual: complex_bitwise(), expected: 511)
 }
 
-@complex_bitwise () -> int = ~0 & 0xFF | 0x100 ^ 0x0FF
+@complex_bitwise () -> int = ~0 & 0xFF | 0x100 ^ 0x0FF;
 
 @test_parens_override_all tests @parens_override_all () -> void = {
     // Parentheses always override precedence
@@ -378,7 +378,7 @@ type Point = { x: int, y: int }
     assert(cond: (true || false) && false == false)
 }
 
-@parens_override_all () -> int = (2 + 3) * 4
+@parens_override_all () -> int = (2 + 3) * 4;
 
 // =============================================================================
 // Unary and Binary Interaction
@@ -389,14 +389,14 @@ type Point = { x: int, y: int }
     assert_eq(actual: unary_binary_mix(), expected: -5)
 }
 
-@unary_binary_mix () -> int = -2 + -3
+@unary_binary_mix () -> int = -2 + -3;
 
 @test_double_unary tests @double_unary () -> void = {
     // --5 is -(-5) = 5
     assert_eq(actual: double_unary(), expected: 5)
 }
 
-@double_unary () -> int = --5
+@double_unary () -> int = --5;
 
 @test_not_comparison tests @not_comparison () -> void = {
     // !(5 > 3) vs !5 > 3
@@ -405,7 +405,7 @@ type Point = { x: int, y: int }
     assert(cond: !(5 > 3) == false)
 }
 
-@not_comparison () -> bool = !(5 > 3)
+@not_comparison () -> bool = !(5 > 3);
 
 // =============================================================================
 // Practical Expressions

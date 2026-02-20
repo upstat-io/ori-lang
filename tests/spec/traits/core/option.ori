@@ -13,7 +13,7 @@ use std.testing { assert, assert_eq }
     assert(cond: x.is_some())
 }
 
-@some_is_some () -> bool = Some(42).is_some()
+@some_is_some () -> bool = Some(42).is_some();
 
 @test_none_is_some tests @none_is_some () -> void = {
     let x: Option<int> = None;
@@ -30,7 +30,7 @@ use std.testing { assert, assert_eq }
     assert(cond: x.is_some())
 }
 
-@nested_some_is_some () -> bool = Some(Some(1)).is_some()
+@nested_some_is_some () -> bool = Some(Some(1)).is_some();
 
 // =============================================================================
 // is_none Method
@@ -51,7 +51,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !x.is_none())
 }
 
-@some_is_none () -> bool = Some("hello").is_none()
+@some_is_none () -> bool = Some("hello").is_none();
 
 // =============================================================================
 // is_some and is_none Built-in Functions
@@ -62,7 +62,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !is_some(opt: None))
 }
 
-@is_some_builtin () -> bool = is_some(opt: Some(1))
+@is_some_builtin () -> bool = is_some(opt: Some(1));
 
 @test_is_none_builtin tests @is_none_builtin () -> void = {
     assert(cond: is_none(opt: None));
@@ -86,7 +86,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@unwrap_some () -> int = Some(42).unwrap()
+@unwrap_some () -> int = Some(42).unwrap();
 
 @test_unwrap_string tests @unwrap_string () -> void = {
     let x = Some("hello");
@@ -96,7 +96,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@unwrap_string () -> str = Some("hello").unwrap()
+@unwrap_string () -> str = Some("hello").unwrap();
 
 // =============================================================================
 // unwrap_or Method
@@ -110,7 +110,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@unwrap_or_some () -> int = Some(42).unwrap_or(default: 0)
+@unwrap_or_some () -> int = Some(42).unwrap_or(default: 0);
 
 @test_unwrap_or_none tests @unwrap_or_none () -> void = {
     let x: Option<int> = None;
@@ -151,7 +151,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@option_list () -> int = Some([1, 2]).unwrap().len()
+@option_list () -> int = Some([1, 2]).unwrap().len();
 
 @test_option_bool tests @option_bool () -> void = {
     let t = Some(true);
@@ -160,7 +160,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !f.unwrap())
 }
 
-@option_bool () -> bool = Some(true).unwrap()
+@option_bool () -> bool = Some(true).unwrap();
 
 // =============================================================================
 // Chained Option Operations

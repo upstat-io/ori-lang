@@ -18,9 +18,9 @@ trait Counter {
 type MockCounter = { value: int }
 
 impl Counter for MockCounter {
-    @increment (self) -> int = self.value + 1
+    @increment (self) -> int = self.value + 1;
 
-    @get (self) -> int = self.value
+    @get (self) -> int = self.value;
 }
 
 // A function that uses the capability
@@ -93,7 +93,7 @@ trait Logger {
 type MockLogger = { messages: [str] }
 
 impl Logger for MockLogger {
-    @log (self, msg: str) -> void = ()
+    @log (self, msg: str) -> void = ();
 }
 
 @use_both () -> int uses Counter, Logger = {

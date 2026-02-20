@@ -20,7 +20,7 @@ fn parse_source(source: &str) -> ParseOutput {
 
 #[test]
 fn test_parse_literal() {
-    let result = parse_source("@main () -> int = 42");
+    let result = parse_source("@main () -> int = 42;");
 
     assert!(!result.has_errors());
     assert_eq!(result.module.functions.len(), 1);
@@ -32,7 +32,7 @@ fn test_parse_literal() {
 
 #[test]
 fn test_parse_binary_expr() {
-    let result = parse_source("@add () -> int = 1 + 2 * 3");
+    let result = parse_source("@add () -> int = 1 + 2 * 3;");
 
     assert!(!result.has_errors());
 
@@ -66,7 +66,7 @@ fn test_parse_binary_expr() {
 
 #[test]
 fn test_parse_if_expr() {
-    let result = parse_source("@test () -> int = if true then 1 else 2");
+    let result = parse_source("@test () -> int = if true then 1 else 2;");
 
     assert!(!result.has_errors());
 
@@ -124,7 +124,7 @@ fn test_parse_block_expr() {
 
 #[test]
 fn test_parse_let_expression() {
-    let result = parse_source("@test () -> void = let x = 1");
+    let result = parse_source("@test () -> void = let x = 1;");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -153,7 +153,7 @@ fn test_parse_let_expression() {
 
 #[test]
 fn test_parse_let_with_type() {
-    let result = parse_source("@test () -> void = let x: int = 1");
+    let result = parse_source("@test () -> void = let x: int = 1;");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -198,7 +198,7 @@ fn test_parse_block_with_let() {
 #[test]
 fn test_parse_function_exp_print() {
     // Test parsing print function_exp (one of the remaining compiler patterns)
-    let result = parse_source("@test () -> void = print(msg: \"hello\")");
+    let result = parse_source("@test () -> void = print(msg: \"hello\");");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -225,7 +225,7 @@ fn test_parse_timeout_multiline() {
         r#"@test () -> void = timeout(
         operation: print(msg: "hi"),
         after: 5s
-    )"#,
+    );"#,
     );
 
     if result.has_errors() {
@@ -236,7 +236,7 @@ fn test_parse_timeout_multiline() {
 
 #[test]
 fn test_parse_list() {
-    let result = parse_source("@test () -> int = [1, 2, 3]");
+    let result = parse_source("@test () -> int = [1, 2, 3];");
 
     assert!(!result.has_errors());
 
@@ -255,9 +255,9 @@ fn test_parse_result_hash() {
     use std::collections::HashSet;
     let mut set = HashSet::new();
 
-    let result1 = parse_source("@main () -> int = 42");
-    let result2 = parse_source("@main () -> int = 42");
-    let result3 = parse_source("@main () -> int = 43");
+    let result1 = parse_source("@main () -> int = 42;");
+    let result2 = parse_source("@main () -> int = 42;");
+    let result3 = parse_source("@main () -> int = 43;");
 
     set.insert(result1);
     set.insert(result2); // duplicate
@@ -272,7 +272,7 @@ fn test_parse_timeout_pattern() {
         r#"@main () -> void = timeout(
         operation: print(msg: "hello"),
         after: 5s
-    )"#,
+    );"#,
     );
 
     for err in &result.errors {
@@ -290,7 +290,7 @@ fn test_parse_block_in_test() {
     // Test block expression syntax in a test function with target
     let result = parse_source(
         r#"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 @test_add tests @add () -> void = {
     let result = add(a: 1, b: 2);
@@ -317,7 +317,7 @@ fn test_at_in_expression_is_error() {
     // Using @name(...) in an expression should be a syntax error
     let result = parse_source(
         r"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 @test_add tests @add () -> void = {
     @add(a: 1, b: 2)
@@ -335,7 +335,7 @@ fn test_at_in_expression_is_error() {
 fn test_uses_clause_single_capability() {
     let result = parse_source(
         r"
-@fetch (url: str) -> str uses Http = Http.get(url: url)
+@fetch (url: str) -> str uses Http = Http.get(url: url);
 ",
     );
 
@@ -350,7 +350,7 @@ fn test_uses_clause_single_capability() {
 fn test_uses_clause_multiple_capabilities() {
     let result = parse_source(
         r#"
-@save (data: str) -> void uses FileSystem, Async = FileSystem.write(path: "/data", content: data)
+@save (data: str) -> void uses FileSystem, Async = FileSystem.write(path: "/data", content: data);
 "#,
     );
 
@@ -366,7 +366,7 @@ fn test_uses_clause_with_where() {
     // uses clause must come before where clause
     let result = parse_source(
         r"
-@process<T> (data: T) -> T uses Logger where T: Clone = data
+@process<T> (data: T) -> T uses Logger where T: Clone = data;
 ",
     );
 
@@ -383,7 +383,7 @@ fn test_no_uses_clause() {
     // Pure function - no uses clause
     let result = parse_source(
         r"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 ",
     );
 
@@ -401,7 +401,7 @@ fn test_with_capability_expression() {
         r"
 @example () -> int =
     with Http = MockHttp in
-        42
+        42;
 ",
     );
 
@@ -429,7 +429,7 @@ fn test_with_capability_with_struct_provider() {
         r#"
 @example () -> int =
     with Http = RealHttp { base_url: "https://api.example.com" } in
-        fetch(url: "/data")
+        fetch(url: "/data");
 "#,
     );
 
@@ -448,7 +448,7 @@ fn test_with_capability_nested() {
 @example () -> int =
     with Http = MockHttp in
         with Cache = MockCache in
-            42
+            42;
 ",
     );
 
@@ -466,7 +466,7 @@ fn test_no_async_type_modifier() {
     // The `async` keyword is reserved but should cause a parse error when used as type.
     let result = parse_source(
         r"
-@example () -> async int = 42
+@example () -> async int = 42;
 ",
     );
 
@@ -500,7 +500,7 @@ fn test_uses_async_capability_parses() {
         r"
 trait Async {}
 
-@async_op () -> int uses Async = 42
+@async_op () -> int uses Async = 42;
 ",
     );
 
@@ -518,7 +518,7 @@ trait Async {}
 #[test]
 fn test_shift_right_operator() {
     // >> is detected as two adjacent > tokens in expression context
-    let result = parse_source("@test () -> int = 8 >> 2");
+    let result = parse_source("@test () -> int = 8 >> 2;");
 
     assert!(
         !result.has_errors(),
@@ -545,7 +545,7 @@ fn test_shift_right_operator() {
 #[test]
 fn test_greater_equal_operator() {
     // >= is detected as adjacent > and = tokens in expression context
-    let result = parse_source("@test () -> bool = 5 >= 3");
+    let result = parse_source("@test () -> bool = 5 >= 3;");
 
     assert!(
         !result.has_errors(),
@@ -572,7 +572,7 @@ fn test_greater_equal_operator() {
 #[test]
 fn test_shift_left_operator() {
     // << should still work (single token from lexer)
-    let result = parse_source("@test () -> int = 2 << 3");
+    let result = parse_source("@test () -> int = 2 << 3;");
 
     assert!(
         !result.has_errors(),
@@ -599,7 +599,7 @@ fn test_shift_left_operator() {
 #[test]
 fn test_greater_than_operator() {
     // Single > should still work
-    let result = parse_source("@test () -> bool = 5 > 3");
+    let result = parse_source("@test () -> bool = 5 > 3;");
 
     assert!(
         !result.has_errors(),
@@ -626,7 +626,7 @@ fn test_greater_than_operator() {
 #[test]
 fn test_shift_right_with_space() {
     // > > with space should NOT be treated as >>
-    let result = parse_source("@test () -> int = 8 > > 2");
+    let result = parse_source("@test () -> int = 8 > > 2;");
 
     // This should have errors because `> > 2` is invalid syntax
     // (comparison followed by another >)
@@ -639,7 +639,7 @@ fn test_shift_right_with_space() {
 #[test]
 fn test_greater_equal_with_space() {
     // > = with space should NOT be treated as >=
-    let result = parse_source("@test () -> bool = 5 > = 3");
+    let result = parse_source("@test () -> bool = 5 > = 3;");
 
     // This should have errors because `> = 3` is invalid syntax
     assert!(
@@ -675,7 +675,7 @@ fn test_struct_literal_in_expression() {
         r"
 type Point = { x: int, y: int }
 
-@test () -> int = Point { x: 1, y: 2 }.x
+@test () -> int = Point { x: 1, y: 2 }.x;
 ",
     );
 
@@ -693,7 +693,7 @@ fn test_struct_literal_in_if_then_body() {
         r"
 type Point = { x: int, y: int }
 
-@test () -> int = if true then Point { x: 1, y: 2 }.x else 0
+@test () -> int = if true then Point { x: 1, y: 2 }.x else 0;
 ",
     );
 
@@ -714,7 +714,7 @@ fn test_if_condition_disallows_struct_literal() {
         r"
 type Point = { x: int, y: int }
 
-@test () -> int = if Point { x: 1, y: 2 }.x > 0 then 1 else 0
+@test () -> int = if Point { x: 1, y: 2 }.x > 0 then 1 else 0;
 ",
     );
 
@@ -729,7 +729,7 @@ type Point = { x: int, y: int }
 fn test_context_methods() {
     // Exercise the context API to ensure it compiles and works
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@test () = 42", &interner);
+    let tokens = ori_lexer::lex("@test () = 42;", &interner);
     let mut parser = Parser::new(&tokens, &interner);
 
     // Test context() getter
@@ -775,7 +775,7 @@ mod metadata_tests {
         let source = r"// #Description
 // This is a test
 
-@main () -> void = ()
+@main () -> void = ();
 ";
         let output = parse_with_comments(source);
 
@@ -794,7 +794,7 @@ mod metadata_tests {
         let source = r"// #Description
 // A simple function
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let output = parse_with_comments(source);
 
@@ -823,7 +823,7 @@ mod metadata_tests {
 // #Second description
 
 // #This one should attach
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let output = parse_with_comments(source);
 
@@ -849,7 +849,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_no_comments() {
-        let output = parse_with_comments("@main () -> int = 42");
+        let output = parse_with_comments("@main () -> int = 42;");
 
         assert!(output.metadata.comments.is_empty());
     }
@@ -858,7 +858,7 @@ mod metadata_tests {
     fn test_metadata_regular_vs_doc_comments() {
         let source = r"// Regular comment
 // #Doc comment
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let output = parse_with_comments(source);
 
@@ -873,10 +873,10 @@ mod metadata_tests {
     #[test]
     fn test_metadata_multiple_functions_with_comments() {
         let source = r"// #Function 1
-@foo () -> int = 1
+@foo () -> int = 1;
 
 // #Function 2
-@bar () -> int = 2
+@bar () -> int = 2;
 ";
         let output = parse_with_comments(source);
 
@@ -900,7 +900,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_multiline() {
-        let source = "@main () -> int =\n    let x = 1\n    x + 1\n";
+        let source = "@main () -> int = {\n    let x = 1;\n    x + 1\n}\n";
         let output = parse_with_comments(source);
 
         assert_eq!(
@@ -934,7 +934,7 @@ mod metadata_tests {
     fn test_parse_with_empty_metadata() {
         // Test that parse() produces empty metadata by default
         let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+        let tokens = ori_lexer::lex("@main () -> int = 42;", &interner);
         let output = crate::parse(&tokens, &interner);
 
         // Default parse produces empty metadata
@@ -971,7 +971,7 @@ mod metadata_tests {
     #[test]
     fn test_no_warnings_when_doc_comments_attached() {
         let source = r"// #Description
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -986,7 +986,7 @@ mod metadata_tests {
     fn test_warning_for_detached_doc_comment_blank_line() {
         let source = r"// #Detached doc
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1004,7 +1004,7 @@ mod metadata_tests {
 
     #[test]
     fn test_warning_for_doc_comment_at_end_of_file() {
-        let source = r"@main () -> int = 42
+        let source = r"@main () -> int = 42;
 // #Orphan at end
 ";
         let mut output = parse_with_comments(source);
@@ -1029,7 +1029,7 @@ mod metadata_tests {
     fn test_no_warning_for_regular_comments() {
         let source = r"// Regular comment (not a doc comment)
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1045,7 +1045,7 @@ mod metadata_tests {
     fn test_warning_includes_helpful_hint() {
         let source = r"// #Detached
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1063,7 +1063,7 @@ mod metadata_tests {
     fn test_warning_to_diagnostic() {
         let source = r"// #Detached
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1086,31 +1086,31 @@ mod metadata_tests {
 fn test_valid_declarations_at_module_level() {
     let valid_sources = &[
         // Functions
-        "@add (a: int, b: int) -> int = a + b",
-        "@main () -> void = print(msg: \"hello\")",
+        "@add (a: int, b: int) -> int = a + b;",
+        "@main () -> void = print(msg: \"hello\");",
         // Types
         "type Point = { x: int, y: int }",
-        "type Color = Red | Green | Blue",
+        "type Color = Red | Green | Blue;",
         // Traits
         "trait Printable {\n    @to_str (self) -> str\n}",
         // Impl blocks
-        "type Foo = { x: int }\nimpl Foo {\n    @get_x (self) -> int = self.x\n}",
+        "type Foo = { x: int }\nimpl Foo {\n    @get_x (self) -> int = self.x;\n}",
         // Constants
-        "let $x = 42",
-        "let $name = \"hello\"",
+        "let $x = 42;",
+        "let $name = \"hello\";",
         // Constants without `let` (backwards compat)
-        "$y = 100",
+        "$y = 100;",
         // Imports
         "use std.math { sqrt }",
         // Extend blocks
-        "type Bar = { v: int }\nextend Bar {\n    @val (self) -> int = self.v\n}",
+        "type Bar = { v: int }\nextend Bar {\n    @val (self) -> int = self.v;\n}",
         // Visibility modifiers
-        "pub @add (a: int, b: int) -> int = a + b",
-        "pub type Color = Red | Green | Blue",
-        "pub let $x = 42",
+        "pub @add (a: int, b: int) -> int = a + b;",
+        "pub type Color = Red | Green | Blue;",
+        "pub let $x = 42;",
         // Multiple declarations
         "type A = { x: int }\ntype B = { y: str }",
-        "@foo () -> int = 1\n@bar () -> int = 2",
+        "@foo () -> int = 1;\n@bar () -> int = 2;",
         // Empty file
         "",
         // Only whitespace/newlines
@@ -1186,7 +1186,7 @@ fn test_return_at_module_level_produces_specific_error() {
 /// `return` inside a function body also produces a specific error (via `parse_control_flow_primary`).
 #[test]
 fn test_return_in_function_body_produces_error() {
-    let result = parse_source("@foo () -> int = return 42");
+    let result = parse_source("@foo () -> int = return 42;");
     assert!(result.has_errors());
     let return_err = result
         .errors
@@ -1215,7 +1215,7 @@ fn test_mutable_let_at_module_level_rejected() {
 /// `let $x = 42` at module level parses as a constant.
 #[test]
 fn test_const_let_at_module_level_accepted() {
-    let result = parse_source("let $timeout = 30");
+    let result = parse_source("let $timeout = 30;");
     assert!(!result.has_errors());
     assert_eq!(result.module.consts.len(), 1);
 }
@@ -1223,7 +1223,7 @@ fn test_const_let_at_module_level_accepted() {
 /// `pub let $x = 42` at module level parses as a public constant.
 #[test]
 fn test_pub_const_let_at_module_level_accepted() {
-    let result = parse_source("pub let $api_base = \"https://example.com\"");
+    let result = parse_source("pub let $api_base = \"https://example.com\";");
     assert!(!result.has_errors());
     assert_eq!(result.module.consts.len(), 1);
 }
@@ -1264,7 +1264,7 @@ fn test_multiple_invalid_tokens_each_produce_error() {
 /// Valid declarations mixed with invalid tokens: valid parts still parse.
 #[test]
 fn test_mixed_valid_and_invalid_at_module_level() {
-    let result = parse_source("@foo () -> int = 42\n42\n@bar () -> int = 1");
+    let result = parse_source("@foo () -> int = 42;\n42\n@bar () -> int = 1;");
     assert!(result.has_errors());
     // The valid functions should still be parsed
     assert_eq!(
@@ -1339,7 +1339,7 @@ fn test_labeled_break() {
 #[test]
 fn test_labeled_continue() {
     let (result, interner) =
-        parse_source_with_interner("@f () -> void = for:outer x in [1] do continue:outer");
+        parse_source_with_interner("@f () -> void = for:outer x in [1] do continue:outer;");
     assert!(
         !result.has_errors(),
         "labeled continue should parse: {result:?}"
@@ -1400,7 +1400,7 @@ fn test_unlabeled_break_still_works() {
 
 #[test]
 fn test_unlabeled_continue_still_works() {
-    let result = parse_source("@f () -> void = for x in [1] do continue");
+    let result = parse_source("@f () -> void = for x in [1] do continue;");
     assert!(
         !result.has_errors(),
         "unlabeled continue should still parse"
@@ -1410,7 +1410,7 @@ fn test_unlabeled_continue_still_works() {
 #[test]
 fn test_labeled_for_loop() {
     let (result, interner) =
-        parse_source_with_interner("@f () -> void = for:items x in [1, 2, 3] do break");
+        parse_source_with_interner("@f () -> void = for:items x in [1, 2, 3] do break;");
     assert!(!result.has_errors(), "labeled for should parse: {result:?}");
 
     let func = &result.module.functions[0];
@@ -1476,7 +1476,7 @@ fn test_nested_labels() {
 fn test_label_with_space_is_not_label() {
     // `break :outer` with a space should NOT parse as a label.
     // The `:outer` is treated as a value expression which is invalid.
-    let result = parse_source("@f () -> void = for x in [1] do break :outer");
+    let result = parse_source("@f () -> void = for x in [1] do break :outer;");
     assert!(
         result.has_errors(),
         "space before colon should prevent label parsing"
@@ -1486,7 +1486,7 @@ fn test_label_with_space_is_not_label() {
 #[test]
 fn test_tuple_field_access() {
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: (int, int)) -> int = t.0", &interner);
+    let tokens = ori_lexer::lex("@f (t: (int, int)) -> int = t.0;", &interner);
     let result = parse(&tokens, &interner);
 
     assert!(
@@ -1509,7 +1509,7 @@ fn test_chained_tuple_field_access_with_parens() {
     // Chained tuple field access requires parentheses: (t.0).1
     // because the lexer tokenizes `0.1` as a float literal.
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = (t.0).1", &interner);
+    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = (t.0).1;", &interner);
     let result = parse(&tokens, &interner);
 
     assert!(
@@ -1542,7 +1542,7 @@ fn test_bare_chained_tuple_field_is_error() {
     // `t.0.1` without parens fails because lexer tokenizes `0.1` as float.
     // This is a known limitation — use `(t.0).1` instead.
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = t.0.1", &interner);
+    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = t.0.1;", &interner);
     let result = parse(&tokens, &interner);
     assert!(
         result.has_errors(),

@@ -5,11 +5,11 @@
 use std.testing { assert_eq }
 
 trait Source {
-    @tag (self) -> str = "from Source"
+    @tag (self) -> str = "from Source";
 }
 
 trait Sink {
-    @tag (self) -> str = "from Sink"
+    @tag (self) -> str = "from Sink";
 }
 
 trait Pipeline: Source + Sink {
@@ -23,8 +23,8 @@ impl Sink for Stream {}
 
 // Explicit override resolves the conflict between Source.tag and Sink.tag
 impl Pipeline for Stream {
-    @tag (self) -> str = "overridden"
-    @run (self) -> str = "running:" + str(self.id)
+    @tag (self) -> str = "overridden";
+    @run (self) -> str = "running:" + str(self.id);
 }
 
 // Verify that the impl compiles (no E2022) and non-conflicting methods work
@@ -35,7 +35,7 @@ impl Pipeline for Stream {
 
 // Non-conflicting defaults: only one super-trait has the default method
 trait Alpha {
-    @info (self) -> str = "alpha info"
+    @info (self) -> str = "alpha info";
 }
 
 trait Beta {
@@ -50,11 +50,11 @@ type Widget = { name: str }
 
 impl Alpha for Widget {}
 impl Beta for Widget {
-    @process (self) -> str = "processed:" + self.name
+    @process (self) -> str = "processed:" + self.name;
 }
 
 impl Gamma for Widget {
-    @label (self) -> str = "widget:" + self.name
+    @label (self) -> str = "widget:" + self.name;
 }
 
 @test_non_conflicting_default tests @info () -> void = {

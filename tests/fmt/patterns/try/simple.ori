@@ -1,7 +1,7 @@
 // Simple try pattern
 // Spec: 10-patterns.md § try
 
-@succeed (x: int) -> Result<int, str> = Ok(x)
+@succeed (x: int) -> Result<int, str> = Ok(x);
 
 @process () -> Result<int, str> = try {
     let x = succeed(5);

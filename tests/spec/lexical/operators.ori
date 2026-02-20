@@ -10,43 +10,43 @@ use std.testing { assert, assert_eq }
 // Arithmetic Operators
 // =============================================================================
 
-@arith_add () -> int = 1 + 2
+@arith_add () -> int = 1 + 2;
 
 @test_arith_add tests @arith_add () -> void = {
     assert_eq(actual: arith_add(), expected: 3)
 }
 
-@arith_sub () -> int = 5 - 2
+@arith_sub () -> int = 5 - 2;
 
 @test_arith_sub tests @arith_sub () -> void = {
     assert_eq(actual: arith_sub(), expected: 3)
 }
 
-@arith_mul () -> int = 3 * 4
+@arith_mul () -> int = 3 * 4;
 
 @test_arith_mul tests @arith_mul () -> void = {
     assert_eq(actual: arith_mul(), expected: 12)
 }
 
-@arith_div () -> int = 10 / 2
+@arith_div () -> int = 10 / 2;
 
 @test_arith_div tests @arith_div () -> void = {
     assert_eq(actual: arith_div(), expected: 5)
 }
 
-@arith_mod () -> int = 10 % 3
+@arith_mod () -> int = 10 % 3;
 
 @test_arith_mod tests @arith_mod () -> void = {
     assert_eq(actual: arith_mod(), expected: 1)
 }
 
-@arith_floordiv () -> int = 7 div 3
+@arith_floordiv () -> int = 7 div 3;
 
 @test_arith_floordiv tests @arith_floordiv () -> void = {
     assert_eq(actual: arith_floordiv(), expected: 2)
 }
 
-@arith_neg_floordiv () -> int = -7 div 3
+@arith_neg_floordiv () -> int = -7 div 3;
 
 @test_arith_neg_floordiv tests @arith_neg_floordiv () -> void = {
     // Floor division rounds toward negative infinity
@@ -57,37 +57,37 @@ use std.testing { assert, assert_eq }
 // Unary Operators
 // =============================================================================
 
-@unary_neg () -> int = -42
+@unary_neg () -> int = -42;
 
 @test_unary_neg tests @unary_neg () -> void = {
     assert_eq(actual: unary_neg(), expected: -42)
 }
 
-@unary_double_neg () -> int = --42
+@unary_double_neg () -> int = --42;
 
 @test_unary_double_neg tests @unary_double_neg () -> void = {
     assert_eq(actual: unary_double_neg(), expected: 42)
 }
 
-@unary_not () -> bool = !false
+@unary_not () -> bool = !false;
 
 @test_unary_not tests @unary_not () -> void = {
     assert(cond: unary_not())
 }
 
-@unary_double_not () -> bool = !!true
+@unary_double_not () -> bool = !!true;
 
 @test_unary_double_not tests @unary_double_not () -> void = {
     assert(cond: unary_double_not())
 }
 
-@unary_bit_not () -> int = ~0
+@unary_bit_not () -> int = ~0;
 
 @test_unary_bit_not tests @unary_bit_not () -> void = {
     assert_eq(actual: unary_bit_not(), expected: -1)
 }
 
-@unary_bit_not_value () -> int = ~0xFF
+@unary_bit_not_value () -> int = ~0xFF;
 
 @test_unary_bit_not_value tests @unary_bit_not_value () -> void = {
     // ~0xFF = -256 in two's complement
@@ -98,31 +98,31 @@ use std.testing { assert, assert_eq }
 // Comparison Operators
 // =============================================================================
 
-@cmp_eq_true () -> bool = 1 == 1
+@cmp_eq_true () -> bool = 1 == 1;
 
 @test_cmp_eq_true tests @cmp_eq_true () -> void = {
     assert(cond: cmp_eq_true())
 }
 
-@cmp_eq_false () -> bool = 1 == 2
+@cmp_eq_false () -> bool = 1 == 2;
 
 @test_cmp_eq_false tests @cmp_eq_false () -> void = {
     assert(cond: !cmp_eq_false())
 }
 
-@cmp_neq_true () -> bool = 1 != 2
+@cmp_neq_true () -> bool = 1 != 2;
 
 @test_cmp_neq_true tests @cmp_neq_true () -> void = {
     assert(cond: cmp_neq_true())
 }
 
-@cmp_neq_false () -> bool = 1 != 1
+@cmp_neq_false () -> bool = 1 != 1;
 
 @test_cmp_neq_false tests @cmp_neq_false () -> void = {
     assert(cond: !cmp_neq_false())
 }
 
-@cmp_lt () -> bool = 1 < 2
+@cmp_lt () -> bool = 1 < 2;
 
 @test_cmp_lt tests @cmp_lt () -> void = {
     assert(cond: cmp_lt());
@@ -130,7 +130,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !(1 < 1))
 }
 
-@cmp_gt () -> bool = 2 > 1
+@cmp_gt () -> bool = 2 > 1;
 
 @test_cmp_gt tests @cmp_gt () -> void = {
     assert(cond: cmp_gt());
@@ -138,7 +138,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !(1 > 1))
 }
 
-@cmp_lte () -> bool = 1 <= 1
+@cmp_lte () -> bool = 1 <= 1;
 
 @test_cmp_lte tests @cmp_lte () -> void = {
     assert(cond: cmp_lte());
@@ -146,7 +146,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !(2 <= 1))
 }
 
-@cmp_gte () -> bool = 2 >= 2
+@cmp_gte () -> bool = 2 >= 2;
 
 @test_cmp_gte tests @cmp_gte () -> void = {
     assert(cond: cmp_gte());
@@ -158,61 +158,61 @@ use std.testing { assert, assert_eq }
 // Logical Operators
 // =============================================================================
 
-@logic_and_tt () -> bool = true && true
+@logic_and_tt () -> bool = true && true;
 
 @test_logic_and_tt tests @logic_and_tt () -> void = {
     assert(cond: logic_and_tt())
 }
 
-@logic_and_tf () -> bool = true && false
+@logic_and_tf () -> bool = true && false;
 
 @test_logic_and_tf tests @logic_and_tf () -> void = {
     assert(cond: !logic_and_tf())
 }
 
-@logic_and_ft () -> bool = false && true
+@logic_and_ft () -> bool = false && true;
 
 @test_logic_and_ft tests @logic_and_ft () -> void = {
     assert(cond: !logic_and_ft())
 }
 
-@logic_and_ff () -> bool = false && false
+@logic_and_ff () -> bool = false && false;
 
 @test_logic_and_ff tests @logic_and_ff () -> void = {
     assert(cond: !logic_and_ff())
 }
 
-@logic_or_tt () -> bool = true || true
+@logic_or_tt () -> bool = true || true;
 
 @test_logic_or_tt tests @logic_or_tt () -> void = {
     assert(cond: logic_or_tt())
 }
 
-@logic_or_tf () -> bool = true || false
+@logic_or_tf () -> bool = true || false;
 
 @test_logic_or_tf tests @logic_or_tf () -> void = {
     assert(cond: logic_or_tf())
 }
 
-@logic_or_ft () -> bool = false || true
+@logic_or_ft () -> bool = false || true;
 
 @test_logic_or_ft tests @logic_or_ft () -> void = {
     assert(cond: logic_or_ft())
 }
 
-@logic_or_ff () -> bool = false || false
+@logic_or_ff () -> bool = false || false;
 
 @test_logic_or_ff tests @logic_or_ff () -> void = {
     assert(cond: !logic_or_ff())
 }
 
-@logic_not_true () -> bool = !true
+@logic_not_true () -> bool = !true;
 
 @test_logic_not_true tests @logic_not_true () -> void = {
     assert(cond: !logic_not_true())
 }
 
-@logic_not_false () -> bool = !false
+@logic_not_false () -> bool = !false;
 
 @test_logic_not_false tests @logic_not_false () -> void = {
     assert(cond: logic_not_false())
@@ -222,44 +222,44 @@ use std.testing { assert, assert_eq }
 // Bitwise Operators
 // =============================================================================
 
-@bit_and () -> int = 0b1100 & 0b1010
+@bit_and () -> int = 0b1100 & 0b1010;
 
 @test_bit_and tests @bit_and () -> void = {
     assert_eq(actual: bit_and(), expected: 0b1000) // 8
 }
 
-@bit_or () -> int = 0b1100 | 0b1010
+@bit_or () -> int = 0b1100 | 0b1010;
 
 @test_bit_or tests @bit_or () -> void = {
     assert_eq(actual: bit_or(), expected: 0b1110) // 14
 }
 
-@bit_xor () -> int = 0b1100 ^ 0b1010
+@bit_xor () -> int = 0b1100 ^ 0b1010;
 
 @test_bit_xor tests @bit_xor () -> void = {
     assert_eq(actual: bit_xor(), expected: 0b0110) // 6
 }
 
-@bit_shl () -> int = 1 << 4
+@bit_shl () -> int = 1 << 4;
 
 @test_bit_shl tests @bit_shl () -> void = {
     assert_eq(actual: bit_shl(), expected: 16)
 }
 
-@bit_shr () -> int = 16 >> 2
+@bit_shr () -> int = 16 >> 2;
 
 @test_bit_shr tests @bit_shr () -> void = {
     assert_eq(actual: bit_shr(), expected: 4)
 }
 
-@bit_shl_multi () -> int = 3 << 3
+@bit_shl_multi () -> int = 3 << 3;
 
 @test_bit_shl_multi tests @bit_shl_multi () -> void = {
     // 3 << 3 = 3 * 8 = 24
     assert_eq(actual: bit_shl_multi(), expected: 24)
 }
 
-@bit_shr_multi () -> int = 64 >> 3
+@bit_shr_multi () -> int = 64 >> 3;
 
 @test_bit_shr_multi tests @bit_shr_multi () -> void = {
     // 64 >> 3 = 64 / 8 = 8
@@ -270,35 +270,35 @@ use std.testing { assert, assert_eq }
 // Range Operators
 // =============================================================================
 
-@range_excl () -> [int] = for x in 0..5 yield x
+@range_excl () -> [int] = for x in 0..5 yield x;
 
 @test_range_excl tests @range_excl () -> void = {
     let sum = range_excl().fold(initial: 0, combine: (a, b) -> a + b);
     assert_eq(actual: sum, expected: 10) // 0+1+2+3+4
 }
 
-@range_incl () -> [int] = for x in 0..=4 yield x
+@range_incl () -> [int] = for x in 0..=4 yield x;
 
 @test_range_incl tests @range_incl () -> void = {
     let sum = range_incl().fold(initial: 0, combine: (a, b) -> a + b);
     assert_eq(actual: sum, expected: 10) // 0+1+2+3+4
 }
 
-@range_step () -> [int] = for x in 0..10 by 2 yield x
+@range_step () -> [int] = for x in 0..10 by 2 yield x;
 
 @test_range_step tests @range_step () -> void = {
     let result = range_step();
     assert_eq(actual: result.len(), expected: 5) // 0, 2, 4, 6, 8
 }
 
-@range_step_incl () -> [int] = for x in 0..=10 by 2 yield x
+@range_step_incl () -> [int] = for x in 0..=10 by 2 yield x;
 
 @test_range_step_incl tests @range_step_incl () -> void = {
     let result = range_step_incl();
     assert_eq(actual: result.len(), expected: 6) // 0, 2, 4, 6, 8, 10
 }
 
-@range_descending () -> [int] = for x in 5..0 by -1 yield x
+@range_descending () -> [int] = for x in 5..0 by -1 yield x;
 
 @test_range_descending tests @range_descending () -> void = {
     let result = range_descending();
@@ -401,41 +401,41 @@ type DotTestStruct = { x: int, y: int }
 // =============================================================================
 
 // Multiplicative > Additive
-@prec_mul_add () -> int = 2 + 3 * 4
+@prec_mul_add () -> int = 2 + 3 * 4;
 
 @test_prec_mul_add tests @prec_mul_add () -> void = {
     assert_eq(actual: prec_mul_add(), expected: 14) // 2 + 12, not 20
 }
 
-@prec_add_mul () -> int = 3 * 4 + 2
+@prec_add_mul () -> int = 3 * 4 + 2;
 
 @test_prec_add_mul tests @prec_add_mul () -> void = {
     assert_eq(actual: prec_add_mul(), expected: 14) // 12 + 2
 }
 
 // Unary > Multiplicative
-@prec_unary_mul () -> int = -2 * 3
+@prec_unary_mul () -> int = -2 * 3;
 
 @test_prec_unary_mul tests @prec_unary_mul () -> void = {
     assert_eq(actual: prec_unary_mul(), expected: -6)
 }
 
 // Shift > Comparison
-@prec_shift_cmp () -> bool = 1 << 2 < 10
+@prec_shift_cmp () -> bool = 1 << 2 < 10;
 
 @test_prec_shift_cmp tests @prec_shift_cmp () -> void = {
     assert(cond: prec_shift_cmp()) // 4 < 10
 }
 
 // Comparison > Equality
-@prec_cmp_eq () -> bool = 1 < 2 == true
+@prec_cmp_eq () -> bool = 1 < 2 == true;
 
 @test_prec_cmp_eq tests @prec_cmp_eq () -> void = {
     assert(cond: prec_cmp_eq()) // (1 < 2) == true
 }
 
 // Bitwise AND > Bitwise XOR > Bitwise OR
-@prec_bitwise () -> int = 0xFF | 0x0F ^ 0x0F & 0xFF
+@prec_bitwise () -> int = 0xFF | 0x0F ^ 0x0F & 0xFF;
 
 @test_prec_bitwise tests @prec_bitwise () -> void = {
     // 0xFF & 0x0F = 0x0F, 0x0F ^ 0x0F = 0, 0xFF | 0 = 0xFF
@@ -447,20 +447,20 @@ type DotTestStruct = { x: int, y: int }
 }
 
 // Logical AND > Logical OR
-@prec_logic () -> bool = false || true && true
+@prec_logic () -> bool = false || true && true;
 
 @test_prec_logic tests @prec_logic () -> void = {
     assert(cond: prec_logic()) // false || (true && true) = true
 }
 
-@prec_logic_2 () -> bool = true && false || true
+@prec_logic_2 () -> bool = true && false || true;
 
 @test_prec_logic_2 tests @prec_logic_2 () -> void = {
     assert(cond: prec_logic_2()) // (true && false) || true = true
 }
 
 // Parentheses override precedence
-@prec_parens () -> int = (2 + 3) * 4
+@prec_parens () -> int = (2 + 3) * 4;
 
 @test_prec_parens tests @prec_parens () -> void = {
     assert_eq(actual: prec_parens(), expected: 20)
@@ -471,20 +471,20 @@ type DotTestStruct = { x: int, y: int }
 // =============================================================================
 
 // Left associativity for arithmetic
-@assoc_sub () -> int = 10 - 4 - 2
+@assoc_sub () -> int = 10 - 4 - 2;
 
 @test_assoc_sub tests @assoc_sub () -> void = {
     assert_eq(actual: assoc_sub(), expected: 4) // (10 - 4) - 2 = 4
 }
 
-@assoc_div () -> int = 100 / 10 / 2
+@assoc_div () -> int = 100 / 10 / 2;
 
 @test_assoc_div tests @assoc_div () -> void = {
     assert_eq(actual: assoc_div(), expected: 5) // (100 / 10) / 2 = 5
 }
 
 // Left associativity for shifts
-@assoc_shl () -> int = 1 << 2 << 1
+@assoc_shl () -> int = 1 << 2 << 1;
 
 @test_assoc_shl tests @assoc_shl () -> void = {
     assert_eq(actual: assoc_shl(), expected: 8) // (1 << 2) << 1 = 8
@@ -494,26 +494,26 @@ type DotTestStruct = { x: int, y: int }
 // Complex Expressions
 // =============================================================================
 
-@complex_expr_1 () -> int = 1 + 2 * 3 - 4 / 2
+@complex_expr_1 () -> int = 1 + 2 * 3 - 4 / 2;
 
 @test_complex_expr_1 tests @complex_expr_1 () -> void = {
     // 1 + 6 - 2 = 5
     assert_eq(actual: complex_expr_1(), expected: 5)
 }
 
-@complex_expr_2 () -> bool = 1 < 2 && 3 > 1 || false
+@complex_expr_2 () -> bool = 1 < 2 && 3 > 1 || false;
 
 @test_complex_expr_2 tests @complex_expr_2 () -> void = {
     assert(cond: complex_expr_2())
 }
 
-@complex_expr_3 () -> int = (1 + 2) * (3 + 4)
+@complex_expr_3 () -> int = (1 + 2) * (3 + 4);
 
 @test_complex_expr_3 tests @complex_expr_3 () -> void = {
     assert_eq(actual: complex_expr_3(), expected: 21)
 }
 
-@complex_expr_4 () -> int = ~0 & 0xFF
+@complex_expr_4 () -> int = ~0 & 0xFF;
 
 @test_complex_expr_4 tests @complex_expr_4 () -> void = {
     // ~0 = -1 (all 1s), -1 & 0xFF = 0xFF
@@ -524,19 +524,19 @@ type DotTestStruct = { x: int, y: int }
 // Edge Cases
 // =============================================================================
 
-@edge_double_minus () -> int = 5 - -3
+@edge_double_minus () -> int = 5 - -3;
 
 @test_edge_double_minus tests @edge_double_minus () -> void = {
     assert_eq(actual: edge_double_minus(), expected: 8)
 }
 
-@edge_not_eq () -> bool = !true == false
+@edge_not_eq () -> bool = !true == false;
 
 @test_edge_not_eq tests @edge_not_eq () -> void = {
     assert(cond: edge_not_eq())
 }
 
-@edge_chained_cmp () -> bool = 1 < 2 && 2 < 3 && 3 < 4
+@edge_chained_cmp () -> bool = 1 < 2 && 2 < 3 && 3 < 4;
 
 @test_edge_chained_cmp tests @edge_chained_cmp () -> void = {
     assert(cond: edge_chained_cmp())

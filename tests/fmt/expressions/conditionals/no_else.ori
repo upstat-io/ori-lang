@@ -1,4 +1,4 @@
 // If-then without else
 // Spec: 06-expressions.md § Conditionals
 
-@maybe_print (x: int) -> void = if x > 0 then print(msg: "positive")
+@maybe_print (x: int) -> void = if x > 0 then print(msg: "positive");

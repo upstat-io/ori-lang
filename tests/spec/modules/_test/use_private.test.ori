@@ -20,7 +20,7 @@ use "../use_imports" {
 }
 
 // Dummy function to satisfy test target requirement
-@internal_helper (x: int) -> int = x * 2
+@internal_helper (x: int) -> int = x * 2;
 
 @test_private_with_public tests @add () -> void = {
     // Mix of public and private imports works

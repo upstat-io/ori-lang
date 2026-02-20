@@ -196,14 +196,14 @@ impl Point {
     assert_eq(actual: list.len(), expected: 5)
 }
 
-@list_len () -> int = [1, 2, 3, 4, 5].len()
+@list_len () -> int = [1, 2, 3, 4, 5].len();
 
 @test_str_len tests @str_len () -> void = {
     let s = "hello";
     assert_eq(actual: s.len(), expected: 5)
 }
 
-@str_len () -> int = "hello".len()
+@str_len () -> int = "hello".len();
 
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - ?? operator not implemented
 // See tests/spec/expressions/coalesce.ori for full details.
@@ -217,7 +217,7 @@ impl Point {
     assert_eq(actual: default_value, expected: 99)
 }
 
-@option_coalesce () -> int = Some(42) ?? 0
+@option_coalesce () -> int = Some(42) ?? 0;
 
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - ?? operator not implemented
 @test_result_coalesce tests @result_coalesce () -> void = {
@@ -230,7 +230,7 @@ impl Point {
     assert_eq(actual: default_value, expected: 99)
 }
 
-@result_coalesce () -> int = Ok(42) ?? 0
+@result_coalesce () -> int = Ok(42) ?? 0;
 
 // =============================================================================
 // For-Yield as Map/Filter (equivalent to iterator methods)
@@ -272,7 +272,7 @@ impl Counter {
 
     @increment (self) -> Counter = Counter { value: self.value + 1 }
 
-    @get (self) -> int = self.value
+    @get (self) -> int = self.value;
 }
 
 @test_associated_function tests @associated_function () -> void = {
@@ -280,21 +280,21 @@ impl Counter {
     assert_eq(actual: c.value, expected: 0)
 }
 
-@associated_function () -> Counter = Counter.new()
+@associated_function () -> Counter = Counter.new();
 
 @test_associated_with_args tests @associated_with_args () -> void = {
     let c = Counter.with_value(initial: 42);
     assert_eq(actual: c.value, expected: 42)
 }
 
-@associated_with_args () -> Counter = Counter.with_value(initial: 42)
+@associated_with_args () -> Counter = Counter.with_value(initial: 42);
 
 @test_assoc_then_method tests @assoc_then_method () -> void = {
     let c = Counter.new().increment().increment();
     assert_eq(actual: c.get(), expected: 2)
 }
 
-@assoc_then_method () -> int = Counter.new().increment().increment().get()
+@assoc_then_method () -> int = Counter.new().increment().increment().get();
 
 // =============================================================================
 // Field Access with Expressions
@@ -307,7 +307,7 @@ impl Counter {
     assert_eq(actual: x, expected: 100)
 }
 
-@func_result_field () -> int = get_point().x
+@func_result_field () -> int = get_point().x;
 
 @test_conditional_field tests @conditional_field () -> void = {
     let cond = true;
@@ -394,7 +394,7 @@ impl Container {
         if self.points.len() > 0 then Some(self.points[0]) else None
     }
 
-    @count (self) -> int = self.points.len()
+    @count (self) -> int = self.points.len();
 }
 
 @test_complex_chain tests @complex_chain () -> void = {

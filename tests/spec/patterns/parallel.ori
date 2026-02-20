@@ -11,7 +11,7 @@ use std.testing { assert, assert_eq }
 // fully implemented. These tests are designed to expose missing features.
 
 // Simple task that returns immediately
-@simple_task (n: int) -> int uses Suspend = n * 2
+@simple_task (n: int) -> int uses Suspend = n * 2;
 
 // @test_parallel_basic tests @parallel_basic () -> void = {
 //     let results = parallel(tasks: [
@@ -137,7 +137,7 @@ use std.testing { assert, assert_eq }
 
 // These tests verify basic functionality without requiring async runtime
 
-@compute_square (n: int) -> int = n * n
+@compute_square (n: int) -> int = n * n;
 
 @test_compute_tasks tests @compute_tasks () -> void = {
     let tasks = [1, 2, 3, 4, 5];
@@ -145,7 +145,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: results, expected: [1, 4, 9, 16, 25])
 }
 
-@compute_tasks () -> [int] = for t in [1, 2, 3, 4, 5] yield compute_square(n: t)
+@compute_tasks () -> [int] = for t in [1, 2, 3, 4, 5] yield compute_square(n: t);
 
 @test_task_list tests @task_list () -> void = {
     // Build a list of functions and evaluate them
@@ -178,7 +178,7 @@ use std.testing { assert, assert_eq }
     assert(cond: is_ok(r: results[4]))
 }
 
-@task_results () -> [Result<int, str>] = for n in [1, -2, 3] yield process_item(n: n)
+@task_results () -> [Result<int, str>] = for n in [1, -2, 3] yield process_item(n: n);
 
 // =============================================================================
 // spawn Pattern (Fire-and-Forget)
@@ -226,14 +226,14 @@ use std.testing { assert, assert_eq }
 
 // These tests verify the semantics without actual parallelism
 
-@accumulate_results (items: [int]) -> [int] = for item in items yield item * 2
+@accumulate_results (items: [int]) -> [int] = for item in items yield item * 2;
 
 @test_accumulate tests @accumulate () -> void = {
     let result = accumulate_results(items: [1, 2, 3, 4, 5]);
     assert_eq(actual: result, expected: [2, 4, 6, 8, 10])
 }
 
-@accumulate () -> [int] = accumulate_results(items: [1, 2, 3, 4, 5])
+@accumulate () -> [int] = accumulate_results(items: [1, 2, 3, 4, 5]);
 
 // Test that errors don't prevent other results
 @test_collect_all_semantics tests @collect_all_semantics () -> void = {
@@ -244,4 +244,4 @@ use std.testing { assert, assert_eq }
 }
 
 @collect_all_semantics () -> [Result<int, str>] = for n in [1, 0, 3] yield
-    if n == 0 then Err("zero") else Ok(n * 2)
+    if n == 0 then Err("zero") else Ok(n * 2);

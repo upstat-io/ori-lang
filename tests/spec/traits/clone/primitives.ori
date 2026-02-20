@@ -10,19 +10,19 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: y, expected: 42)
 }
 
-@clone_int () -> int = 42.clone()
+@clone_int () -> int = 42.clone();
 
 @test_clone_int_zero tests @clone_int_zero () -> void = {
     assert_eq(actual: 0.clone(), expected: 0)
 }
 
-@clone_int_zero () -> int = 0.clone()
+@clone_int_zero () -> int = 0.clone();
 
 @test_clone_int_negative tests @clone_int_neg () -> void = {
     assert_eq(actual: (-7).clone(), expected: -7)
 }
 
-@clone_int_neg () -> int = (-7).clone()
+@clone_int_neg () -> int = (-7).clone();
 
 // float.clone()
 @test_clone_float tests @clone_float () -> void = {
@@ -31,26 +31,26 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: y, expected: 3.14)
 }
 
-@clone_float () -> float = 3.14.clone()
+@clone_float () -> float = 3.14.clone();
 
 @test_clone_float_zero tests @clone_float_zero () -> void = {
     assert_eq(actual: 0.0.clone(), expected: 0.0)
 }
 
-@clone_float_zero () -> float = 0.0.clone()
+@clone_float_zero () -> float = 0.0.clone();
 
 // bool.clone()
 @test_clone_bool_true tests @clone_true () -> void = {
     assert_eq(actual: true.clone(), expected: true)
 }
 
-@clone_true () -> bool = true.clone()
+@clone_true () -> bool = true.clone();
 
 @test_clone_bool_false tests @clone_false () -> void = {
     assert_eq(actual: false.clone(), expected: false)
 }
 
-@clone_false () -> bool = false.clone()
+@clone_false () -> bool = false.clone();
 
 // str.clone()
 @test_clone_str tests @clone_str () -> void = {
@@ -59,13 +59,13 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s2, expected: "hello")
 }
 
-@clone_str () -> str = "hello".clone()
+@clone_str () -> str = "hello".clone();
 
 @test_clone_str_empty tests @clone_str_empty () -> void = {
     assert_eq(actual: "".clone(), expected: "")
 }
 
-@clone_str_empty () -> str = "".clone()
+@clone_str_empty () -> str = "".clone();
 
 // char.clone()
 @test_clone_char tests @clone_char () -> void = {
@@ -74,7 +74,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: c2, expected: 'a')
 }
 
-@clone_char () -> char = 'a'.clone()
+@clone_char () -> char = 'a'.clone();
 
 // byte.clone()
 @test_clone_byte tests @clone_byte () -> void = {
@@ -84,7 +84,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: b2 as int, expected: 255)
 }
 
-@clone_byte () -> byte = (0xFF as byte).clone()
+@clone_byte () -> byte = (0xFF as byte).clone();
 
 // Duration.clone() — already tested in duration_size_clone_printable.ori
 // Verify basic case here for completeness
@@ -94,7 +94,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: d2, expected: 100ms)
 }
 
-@clone_dur () -> Duration = 100ms.clone()
+@clone_dur () -> Duration = 100ms.clone();
 
 // Size.clone()
 @test_clone_size tests @clone_size () -> void = {
@@ -103,7 +103,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s2, expected: 1kb)
 }
 
-@clone_size () -> Size = 1kb.clone()
+@clone_size () -> Size = 1kb.clone();
 
 @main () -> void = {
     print(msg: "Clone primitives tests passed")

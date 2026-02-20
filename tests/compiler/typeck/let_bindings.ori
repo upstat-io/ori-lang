@@ -93,9 +93,9 @@ use std.prelude { is_ok }
 // =============================================================================
 
 // Helper that returns Result
-@succeed (x: int) -> Result<int, str> = Ok(x)
+@succeed (x: int) -> Result<int, str> = Ok(x);
 
-@fail_always () -> Result<int, str> = Err("failed")
+@fail_always () -> Result<int, str> = Err("failed");
 
 // Valid: try with Result unwrapping and type annotation
 @test_try_result_annotation () -> void = {
@@ -180,7 +180,7 @@ use std.prelude { is_ok }
 }
 
 // Valid: inferred type from function call
-@helper_int () -> int = 42
+@helper_int () -> int = 42;
 
 @test_let_inferred_call tests @helper_int () -> void = {
     let x = helper_int();

@@ -8,7 +8,7 @@ use std.testing { assert, assert_eq }
 // --- Recursive sum type ---
 
 #[derive(Eq, Clone, Printable)]
-type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 
 // --- Eq on recursive type ---
 
@@ -16,7 +16,7 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
     assert(cond: Leaf(value: 1) == Leaf(value: 1));
     assert(cond: Leaf(value: 1) != Leaf(value: 2))
 }
-@leaf_eq () -> bool = Leaf(value: 1) == Leaf(value: 1)
+@leaf_eq () -> bool = Leaf(value: 1) == Leaf(value: 1);
 
 @test_node_eq tests @node_eq () -> void = {
     let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
@@ -65,13 +65,15 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
 @test_leaf_print tests @leaf_print () -> void = {
     assert_eq(actual: Leaf(value: 42).to_str(), expected: "Leaf(42)")
 }
-@leaf_print () -> str = Leaf(value: 42).to_str()
+@leaf_print () -> str = Leaf(value: 42).to_str();
 
 @test_node_print tests @node_print () -> void = {
     let t = Node(left: Leaf(value: 1), right: Leaf(value: 2));
     assert_eq(actual: t.to_str(), expected: "Node(Leaf(1), Leaf(2))")
 }
-@node_print () -> str = Node(left: Leaf(value: 1), right: Leaf(value: 2)).to_str()
+@node_print () -> str = {
+    Node(left: Leaf(value: 1), right: Leaf(value: 2)).to_str()
+}
 
 // --- Deep nesting ---
 

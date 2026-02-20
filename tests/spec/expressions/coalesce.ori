@@ -295,23 +295,23 @@ use std.testing { assert, assert_eq }
 // With Function Calls
 // =============================================================================
 
-@get_some () -> Option<int> = Some(42)
-@get_none () -> Option<int> = None
-@compute_default () -> int = 99
+@get_some () -> Option<int> = Some(42);
+@get_none () -> Option<int> = None;
+@compute_default () -> int = 99;
 
 @test_coalesce_function_some tests @coalesce_function_some () -> void = {
     let result = get_some() ?? compute_default();
     assert_eq(actual: result, expected: 42)
 }
 
-@coalesce_function_some () -> int = get_some() ?? compute_default()
+@coalesce_function_some () -> int = get_some() ?? compute_default();
 
 @test_coalesce_function_none tests @coalesce_function_none () -> void = {
     let result = get_none() ?? compute_default();
     assert_eq(actual: result, expected: 99)
 }
 
-@coalesce_function_none () -> int = get_none() ?? compute_default()
+@coalesce_function_none () -> int = get_none() ?? compute_default();
 
 @test_coalesce_lazy_default tests @coalesce_lazy_default () -> void = {
     // Default should only be computed if needed

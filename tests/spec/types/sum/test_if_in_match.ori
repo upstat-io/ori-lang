@@ -1,6 +1,6 @@
 use std.testing { assert_eq }
 
-type Either = Left(value: int) | Middle(text: str) | Right(flag: bool)
+type Either = Left(value: int) | Middle(text: str) | Right(flag: bool);
 
 @either_to_int (e: Either) -> int = match e {
     Left(v) -> v,

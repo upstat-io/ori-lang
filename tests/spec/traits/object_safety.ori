@@ -20,11 +20,11 @@ trait Hashable {
 type Point = { x: int, y: int }
 
 impl Describable for Point {
-    @describe (self) -> str = "Point(" + self.x.to_str() + ", " + self.y.to_str() + ")"
+    @describe (self) -> str = "Point(" + self.x.to_str() + ", " + self.y.to_str() + ")";
 }
 
 impl Hashable for Point {
-    @hash (self) -> int = self.x * 31 + self.y
+    @hash (self) -> int = self.x * 31 + self.y;
 }
 
 // Verify: calling trait methods directly on concrete types still works

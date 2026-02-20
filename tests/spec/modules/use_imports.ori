@@ -11,13 +11,13 @@ use std.testing { assert_eq }
 // This file serves as a module that can be imported by test files.
 
 // A simple public function
-pub @add (a: int, b: int) -> int = a + b
+pub @add (a: int, b: int) -> int = a + b;
 
 // A public function that returns a closure
-pub @make_multiplier (n: int) -> (int) -> int = x -> x * n
+pub @make_multiplier (n: int) -> (int) -> int = x -> x * n;
 
 // A private function (no pub)
-@internal_helper (x: int) -> int = x * 2
+@internal_helper (x: int) -> int = x * 2;
 
 // A public config variable
 pub $default_timeout = 30
@@ -26,10 +26,10 @@ pub $default_timeout = 30
 $internal_limit = 100
 
 // A public function that uses the private helper
-pub @double (x: int) -> int = internal_helper(x)
+pub @double (x: int) -> int = internal_helper(x);
 
 // A function with multiple parameters
-pub @calculate (a: int, b: int, c: int) -> int = a + b * c
+pub @calculate (a: int, b: int, c: int) -> int = a + b * c;
 
 // =============================================================================
 // Tests for this module (self-tests)
@@ -77,14 +77,14 @@ pub @point_sum (x: int, y: int) -> int = {
 
 // Function with optional-looking parameters (all required in Ori)
 pub @format_value (value: int, prefix: str, suffix: str) -> str =
-    prefix + str(value) + suffix
+    prefix + str(value) + suffix;
 
 // Higher-order function
-pub @apply_twice (f: (int) -> int, x: int) -> int = f(f(x))
+pub @apply_twice (f: (int) -> int, x: int) -> int = f(f(x));
 
 // Nested closure
 pub @make_adder_chain (a: int, b: int) -> (int) -> int =
-    x -> x + a + b
+    x -> x + a + b;
 
 // Tests for extended functions
 @test_make_point tests @make_point () -> void = {

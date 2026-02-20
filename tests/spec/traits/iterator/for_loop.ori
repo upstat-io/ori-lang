@@ -8,13 +8,13 @@ use std.testing { assert, assert_eq }
 // List iteration (basic regression)
 // =============================================================================
 
-@for_yield_list () -> [int] = for x in [1, 2, 3] yield x * 2
+@for_yield_list () -> [int] = for x in [1, 2, 3] yield x * 2;
 
 @test_for_yield_list tests @for_yield_list () -> void = {
     assert_eq(actual: for_yield_list(), expected: [2, 4, 6])
 }
 
-@for_yield_list_empty () -> [int] = for x in [] yield x * 2
+@for_yield_list_empty () -> [int] = for x in [] yield x * 2;
 
 @test_for_yield_list_empty tests @for_yield_list_empty () -> void = {
     assert_eq(actual: for_yield_list_empty(), expected: [])
@@ -24,13 +24,13 @@ use std.testing { assert, assert_eq }
 // Range iteration (basic regression)
 // =============================================================================
 
-@for_yield_range () -> [int] = for x in 0..5 yield x
+@for_yield_range () -> [int] = for x in 0..5 yield x;
 
 @test_for_yield_range tests @for_yield_range () -> void = {
     assert_eq(actual: for_yield_range(), expected: [0, 1, 2, 3, 4])
 }
 
-@for_yield_range_inclusive () -> [int] = for x in 1..=3 yield x
+@for_yield_range_inclusive () -> [int] = for x in 1..=3 yield x;
 
 @test_for_yield_range_inclusive tests @for_yield_range_inclusive () -> void = {
     assert_eq(actual: for_yield_range_inclusive(), expected: [1, 2, 3])
@@ -40,7 +40,7 @@ use std.testing { assert, assert_eq }
 // String iteration (basic regression)
 // =============================================================================
 
-@for_yield_str () -> [char] = for c in "hi" yield c
+@for_yield_str () -> [char] = for c in "hi" yield c;
 
 @test_for_yield_str tests @for_yield_str () -> void = {
     assert_eq(actual: for_yield_str(), expected: ['h', 'i'])
@@ -109,7 +109,7 @@ use std.testing { assert, assert_eq }
 // Iterator pass-through (iterating over .iter() result)
 // =============================================================================
 
-@for_iter_passthrough () -> [int] = for x in [1, 2, 3].iter() yield x * 10
+@for_iter_passthrough () -> [int] = for x in [1, 2, 3].iter() yield x * 10;
 
 @test_for_iter_passthrough tests @for_iter_passthrough () -> void = {
     assert_eq(actual: for_iter_passthrough(), expected: [10, 20, 30])
@@ -119,19 +119,19 @@ use std.testing { assert, assert_eq }
 // Guard clause (for...if...yield)
 // =============================================================================
 
-@for_guard_yield () -> [int] = for x in [1, 2, 3, 4, 5] if x > 3 yield x
+@for_guard_yield () -> [int] = for x in [1, 2, 3, 4, 5] if x > 3 yield x;
 
 @test_for_guard_yield tests @for_guard_yield () -> void = {
     assert_eq(actual: for_guard_yield(), expected: [4, 5])
 }
 
-@for_guard_yield_none () -> [int] = for x in [1, 2, 3] if x > 10 yield x
+@for_guard_yield_none () -> [int] = for x in [1, 2, 3] if x > 10 yield x;
 
 @test_for_guard_yield_none tests @for_guard_yield_none () -> void = {
     assert_eq(actual: for_guard_yield_none(), expected: [])
 }
 
-@for_guard_yield_all () -> [int] = for x in [1, 2, 3] if x > 0 yield x
+@for_guard_yield_all () -> [int] = for x in [1, 2, 3] if x > 0 yield x;
 
 @test_for_guard_yield_all tests @for_guard_yield_all () -> void = {
     assert_eq(actual: for_guard_yield_all(), expected: [1, 2, 3])
@@ -141,7 +141,7 @@ use std.testing { assert, assert_eq }
 // yield with transformation
 // =============================================================================
 
-@for_yield_transform () -> [int] = for x in [1, 2, 3, 4, 5] yield x * x
+@for_yield_transform () -> [int] = for x in [1, 2, 3, 4, 5] yield x * x;
 
 @test_for_yield_transform tests @for_yield_transform () -> void = {
     assert_eq(actual: for_yield_transform(), expected: [1, 4, 9, 16, 25])

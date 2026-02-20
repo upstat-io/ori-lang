@@ -15,7 +15,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@list_len () -> int = [1, 2, 3].len()
+@list_len () -> int = [1, 2, 3].len();
 
 @test_empty_list_len tests @empty_list_len () -> void = {
     assert_eq(
@@ -24,7 +24,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@empty_list_len () -> int = [].len()
+@empty_list_len () -> int = [].len();
 
 @test_nested_list_len tests @nested_list_len () -> void = {
     let nested = [[1, 2], [3, 4, 5], [6]];
@@ -34,7 +34,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@nested_list_len () -> int = [[1, 2], [3]].len()
+@nested_list_len () -> int = [[1, 2], [3]].len();
 
 // =============================================================================
 // String Length
@@ -47,7 +47,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@str_method_len () -> int = "hello".len()
+@str_method_len () -> int = "hello".len();
 
 @test_empty_str_len tests @empty_str_len () -> void = {
     assert_eq(
@@ -56,7 +56,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@empty_str_len () -> int = "".len()
+@empty_str_len () -> int = "".len();
 
 @test_unicode_str_len tests @unicode_str_len () -> void = {
     // Note: len() returns byte count, not codepoint count
@@ -64,7 +64,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.len() > 0)
 }
 
-@unicode_str_len () -> int = "café".len()
+@unicode_str_len () -> int = "café".len();
 
 // =============================================================================
 // Map Length
@@ -78,7 +78,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@map_len () -> int = {"x": 1}.len()
+@map_len () -> int = { {"x": 1}.len() }
 
 @test_empty_map_len tests @empty_map_len () -> void = {
     let m: {str: int} = {};
@@ -105,7 +105,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@range_len () -> int = (0..5).len()
+@range_len () -> int = (0..5).len();
 
 @test_inclusive_range_len tests @inclusive_range_len () -> void = {
     let r = 0..=10;
@@ -115,7 +115,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@inclusive_range_len () -> int = (0..=5).len()
+@inclusive_range_len () -> int = (0..=5).len();
 
 // =============================================================================
 // Tuple Length
@@ -128,7 +128,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@tuple_len () -> int = (1, "hello").len()
+@tuple_len () -> int = (1, "hello").len();
 
 @test_pair_len tests @pair_len () -> void = {
     assert_eq(
@@ -137,7 +137,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@pair_len () -> int = (42, 99).len()
+@pair_len () -> int = (42, 99).len();
 
 @test_single_tuple_len tests @single_tuple_len () -> void = {
     assert_eq(
@@ -146,7 +146,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@single_tuple_len () -> int = (1,).len()
+@single_tuple_len () -> int = (1,).len();
 
 // =============================================================================
 // Len Built-in Function
@@ -159,7 +159,7 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@len_builtin_list () -> int = len(collection: [1, 2, 3])
+@len_builtin_list () -> int = len(collection: [1, 2, 3]);
 
 // =============================================================================
 // Len Built-in Function with Strings
@@ -172,13 +172,13 @@ use std.testing { assert, assert_eq }
     )
 }
 
-@len_builtin_str () -> int = len(collection: "hello")
+@len_builtin_str () -> int = len(collection: "hello");
 
 // =============================================================================
 // Len Trait Bound
 // =============================================================================
 
-@get_length<T: Len> (x: T) -> int = x.len()
+@get_length<T: Len> (x: T) -> int = x.len();
 
 @test_len_bound_list tests @get_length () -> void = {
     assert_eq(

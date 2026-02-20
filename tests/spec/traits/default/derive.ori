@@ -33,7 +33,7 @@ type Wrapper = { value: int }
     assert_eq(actual: w.value, expected: 0)
 }
 
-@single_field () -> int = Wrapper.default().value
+@single_field () -> int = Wrapper.default().value;
 
 // =============================================================================
 // Mixed Field Types
@@ -87,7 +87,7 @@ type Entity = { pos: Position, name: str }
     assert(cond: a.eq(other: b))
 }
 
-@two_defaults_equal () -> bool = Config.default().eq(other: Config.default())
+@two_defaults_equal () -> bool = Config.default().eq(other: Config.default());
 
 // =============================================================================
 // Default Then Override — Create Default and Modify
@@ -107,7 +107,7 @@ type Settings = { volume: int, muted: bool }
     assert_eq(actual: s2.muted, expected: false)
 }
 
-@default_modify () -> int = Settings.default().volume
+@default_modify () -> int = Settings.default().volume;
 
 // =============================================================================
 // Multiple Derives Together
@@ -127,6 +127,6 @@ type MultiDerive = { x: int, name: str }
     assert_eq(actual: m.to_str(), expected: "MultiDerive(0, )")
 }
 
-@multi_derive () -> str = MultiDerive.default().to_str()
+@multi_derive () -> str = MultiDerive.default().to_str();
 
-@main () -> void = print(msg: "Default derive tests")
+@main () -> void = print(msg: "Default derive tests");

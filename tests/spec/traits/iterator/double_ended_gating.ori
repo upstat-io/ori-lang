@@ -88,7 +88,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rev_map () -> bool = true
+@_target_rev_map () -> bool = true;
 
 // =============================================================================
 // Negative: rev() on set iterator (non-double-ended) — compile error
@@ -101,7 +101,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rev_set () -> bool = true
+@_target_rev_set () -> bool = true;
 
 // =============================================================================
 // Negative: last() on map iterator — compile error
@@ -114,7 +114,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_last_map () -> bool = true
+@_target_last_map () -> bool = true;
 
 // =============================================================================
 // Negative: rfind() on set iterator — compile error
@@ -127,7 +127,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rfind_set () -> bool = true
+@_target_rfind_set () -> bool = true;
 
 // =============================================================================
 // Negative: rfold() on map iterator — compile error
@@ -140,7 +140,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rfold_map () -> bool = true
+@_target_rfold_map () -> bool = true;
 
 // =============================================================================
 // Negative: rev() on repeat() (infinite, non-double-ended) — compile error
@@ -152,7 +152,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rev_repeat () -> bool = true
+@_target_rev_repeat () -> bool = true;
 
 // =============================================================================
 // Negative: rev() after take() (downgrades to Iterator) — compile error
@@ -164,7 +164,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rev_take () -> bool = true
+@_target_rev_take () -> bool = true;
 
 // =============================================================================
 // Negative: rev() after skip() (downgrades to Iterator) — compile error
@@ -176,7 +176,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rev_skip () -> bool = true
+@_target_rev_skip () -> bool = true;
 
 // =============================================================================
 // Negative: rev() after enumerate() (downgrades to Iterator) — compile error
@@ -188,4 +188,4 @@ use std.testing { assert_eq }
     ()
 }
 
-@_target_rev_enum () -> bool = true
+@_target_rev_enum () -> bool = true;

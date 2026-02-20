@@ -14,7 +14,7 @@ use std.testing { assert_eq }
     assert_eq(actual: `{"hi":^10}`, expected: "    hi    ")
 }
 
-@str_width () -> str = `{"hi":>10}`
+@str_width () -> str = `{"hi":>10}`;
 
 // No format spec — pass through
 @test_no_spec tests @no_spec () -> void = {
@@ -23,7 +23,7 @@ use std.testing { assert_eq }
     assert_eq(actual: `{"hello"}`, expected: "hello")
 }
 
-@no_spec () -> str = `{42}`
+@no_spec () -> str = `{42}`;
 
 // =============================================================================
 // String Formatting — Precision Truncation
@@ -34,6 +34,6 @@ use std.testing { assert_eq }
     assert_eq(actual: `{"hi":.10}`, expected: "hi")
 }
 
-@str_precision () -> str = `{"hello":.3}`
+@str_precision () -> str = `{"hello":.3}`;
 
-@main () -> void = print(msg: "Formattable definition tests")
+@main () -> void = print(msg: "Formattable definition tests");

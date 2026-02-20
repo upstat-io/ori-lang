@@ -12,7 +12,7 @@ use std.testing { assert_eq, assert }
 // -----------------------------------------------------------------------------
 
 // Unit variant sum type
-type Status = Pending | Running | Completed
+type Status = Pending | Running | Completed;
 
 // Test unit variant construction
 @test_unit_variant_construction tests @unit_variant () -> void = {
@@ -55,7 +55,7 @@ type Status = Pending | Running | Completed
 }
 
 // Sum type with single field
-type Message = Text(content: str) | Empty
+type Message = Text(content: str) | Empty;
 
 // Test single-field variant construction
 @test_single_field_construction tests @get_message () -> void = {
@@ -81,7 +81,7 @@ type Message = Text(content: str) | Empty
 }
 
 // Test wildcard pattern with variant
-type Result2 = Success(value: int) | Failure(msg: str)
+type Result2 = Success(value: int) | Failure(msg: str);
 
 @is_success (r: Result2) -> bool = match r {
     Success(_) -> true,
@@ -115,7 +115,7 @@ type Result2 = Success(value: int) | Failure(msg: str)
 // -----------------------------------------------------------------------------
 
 // Sum type with multiple fields per variant
-type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
+type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit;
 
 @describe_event (e: Event) -> str = match e {
     Click(x, y) -> "click at " + str(x) + "," + str(y),
@@ -214,7 +214,7 @@ type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
 // =============================================================================
 
 // Complex sum type with various field types
-type Shape = Circle(radius: int) | Rectangle(width: int, height: int) | Triangle(base: int, height: int)
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int) | Triangle(base: int, height: int);
 
 @area (s: Shape) -> int = match s {
     Circle(r) -> r * r * 3,
@@ -229,7 +229,7 @@ type Shape = Circle(radius: int) | Rectangle(width: int, height: int) | Triangle
 }
 
 // Sum type with nested sum type
-type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 
 @tree_sum (t: Tree) -> int = match t {
     Leaf(v) -> v,
@@ -244,7 +244,7 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
 }
 
 // Sum type with Option-like semantics
-type MaybeInt = JustInt(value: int) | NothingInt
+type MaybeInt = JustInt(value: int) | NothingInt;
 
 @maybe_double (m: MaybeInt) -> MaybeInt = match m {
     JustInt(v) -> JustInt(value: v * 2),
@@ -267,7 +267,7 @@ type MaybeInt = JustInt(value: int) | NothingInt
 }
 
 // Sum type used in a list
-type Item = Product(name: str, price: int) | Service(name: str, hours: int)
+type Item = Product(name: str, price: int) | Service(name: str, hours: int);
 
 @item_cost (i: Item) -> int = match i {
     Product(_, price) -> price,
@@ -288,7 +288,7 @@ type Item = Product(name: str, price: int) | Service(name: str, hours: int)
 }
 
 // Sum type with string data
-type LogLevel = Debug(msg: str) | Info(msg: str) | Warn(msg: str) | Error(msg: str)
+type LogLevel = Debug(msg: str) | Info(msg: str) | Warn(msg: str) | Error(msg: str);
 
 @log_prefix (l: LogLevel) -> str = match l {
     Debug(m) -> "[DEBUG] " + m,
@@ -305,7 +305,7 @@ type LogLevel = Debug(msg: str) | Info(msg: str) | Warn(msg: str) | Error(msg: s
 }
 
 // Sum type with bool field
-type FilterResult = Pass(value: int) | Fail(reason: str, recoverable: bool)
+type FilterResult = Pass(value: int) | Fail(reason: str, recoverable: bool);
 
 @describe_filter (f: FilterResult) -> str = match f {
     Pass(v) -> "Passed with " + str(v),
@@ -320,7 +320,7 @@ type FilterResult = Pass(value: int) | Fail(reason: str, recoverable: bool)
 }
 
 // Three-variant with extraction
-type Either = Left(value: int) | Middle(text: str) | Right(flag: bool)
+type Either = Left(value: int) | Middle(text: str) | Right(flag: bool);
 
 @either_to_int (e: Either) -> int = match e {
     Left(v) -> v,

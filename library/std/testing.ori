@@ -4,16 +4,16 @@
 // Import with: `use std.testing { assert, assert_eq, ... }`
 
 // Assert that a condition is true
-pub @assert (cond: bool) -> void = if !cond then panic(msg: "assertion failed")
+pub @assert (cond: bool) -> void = if !cond then panic(msg: "assertion failed");
 
 // Assert that two values are equal
 pub @assert_eq<T: Eq> (actual: T, expected: T) -> void =
     if actual != expected then
-        panic(msg: "assertion failed: " + str(actual) + " != " + str(expected))
+        panic(msg: "assertion failed: " + str(actual) + " != " + str(expected));
 
 // Assert that two values are not equal
 pub @assert_ne<T: Eq> (actual: T, unexpected: T) -> void =
-    if actual == unexpected then panic(msg: "assertion failed: values are equal: " + str(actual))
+    if actual == unexpected then panic(msg: "assertion failed: values are equal: " + str(actual));
 
 // Assert that an Option is Some
 pub @assert_some<T> (opt: Option<T>) -> void =

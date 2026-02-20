@@ -16,7 +16,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !result.is_greater())
 }
 
-@duration_cmp_less () -> Ordering = 100ms.compare(other: 200ms)
+@duration_cmp_less () -> Ordering = 100ms.compare(other: 200ms);
 
 @test_duration_compare_equal tests @duration_cmp_equal () -> void = {
     let result = 1s.compare(other: 1000ms);
@@ -25,7 +25,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !result.is_greater())
 }
 
-@duration_cmp_equal () -> Ordering = 1s.compare(other: 1000ms)
+@duration_cmp_equal () -> Ordering = 1s.compare(other: 1000ms);
 
 @test_duration_compare_greater tests @duration_cmp_greater () -> void = {
     let result = 500ms.compare(other: 100ms);
@@ -34,14 +34,14 @@ use std.testing { assert, assert_eq }
     assert(cond: !result.is_equal())
 }
 
-@duration_cmp_greater () -> Ordering = 500ms.compare(other: 100ms)
+@duration_cmp_greater () -> Ordering = 500ms.compare(other: 100ms);
 
 @test_duration_compare_zero tests @duration_cmp_zero () -> void = {
     let result = 0ns.compare(other: 0ms);
     assert(cond: result.is_equal())
 }
 
-@duration_cmp_zero () -> Ordering = 0ns.compare(other: 0ms)
+@duration_cmp_zero () -> Ordering = 0ns.compare(other: 0ms);
 
 @test_duration_compare_negative tests @duration_cmp_neg () -> void = {
     // Negative is less than positive
@@ -49,7 +49,7 @@ use std.testing { assert, assert_eq }
     assert(cond: result.is_less())
 }
 
-@duration_cmp_neg () -> Ordering = (-100ms).compare(other: 100ms)
+@duration_cmp_neg () -> Ordering = (-100ms).compare(other: 100ms);
 
 @test_duration_compare_both_negative tests @duration_cmp_both_neg () -> void = {
     // -200ms is less than -100ms
@@ -57,7 +57,7 @@ use std.testing { assert, assert_eq }
     assert(cond: result.is_less())
 }
 
-@duration_cmp_both_neg () -> Ordering = (-200ms).compare(other: -100ms)
+@duration_cmp_both_neg () -> Ordering = (-200ms).compare(other: -100ms);
 
 @test_duration_compare_mixed_units tests @duration_cmp_mixed () -> void = {
     // 1 second equals 1000 milliseconds
@@ -68,7 +68,7 @@ use std.testing { assert, assert_eq }
     assert(cond: 59s.compare(other: 1m).is_less())
 }
 
-@duration_cmp_mixed () -> bool = 100ms < 200ms
+@duration_cmp_mixed () -> bool = 100ms < 200ms;
 
 @test_duration_compare_ordering_methods tests @duration_ordering_methods () -> void = {
     let less = 100ms.compare(other: 200ms);
@@ -86,7 +86,7 @@ use std.testing { assert, assert_eq }
     assert(cond: greater.is_greater_or_equal())
 }
 
-@duration_ordering_methods () -> bool = 100ms < 200ms
+@duration_ordering_methods () -> bool = 100ms < 200ms;
 
 // =============================================================================
 // Size — Comparable Trait (compare method)
@@ -99,7 +99,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !result.is_greater())
 }
 
-@size_cmp_less () -> Ordering = 100b.compare(other: 200b)
+@size_cmp_less () -> Ordering = 100b.compare(other: 200b);
 
 @test_size_compare_equal tests @size_cmp_equal () -> void = {
     // SI units: 1kb = 1000 bytes (decimal notation)
@@ -109,7 +109,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !result.is_greater())
 }
 
-@size_cmp_equal () -> Ordering = 1kb.compare(other: 1000b)
+@size_cmp_equal () -> Ordering = 1kb.compare(other: 1000b);
 
 @test_size_compare_greater tests @size_cmp_greater () -> void = {
     let result = 1mb.compare(other: 512kb);
@@ -118,14 +118,14 @@ use std.testing { assert, assert_eq }
     assert(cond: !result.is_equal())
 }
 
-@size_cmp_greater () -> Ordering = 1mb.compare(other: 512kb)
+@size_cmp_greater () -> Ordering = 1mb.compare(other: 512kb);
 
 @test_size_compare_zero tests @size_cmp_zero () -> void = {
     let result = 0b.compare(other: 0kb);
     assert(cond: result.is_equal())
 }
 
-@size_cmp_zero () -> Ordering = 0b.compare(other: 0kb)
+@size_cmp_zero () -> Ordering = 0b.compare(other: 0kb);
 
 @test_size_compare_mixed_units tests @size_cmp_mixed () -> void = {
     // SI units: 1kb = 1000 bytes (decimal notation - what you see is what you get)
@@ -136,7 +136,7 @@ use std.testing { assert, assert_eq }
     assert(cond: 999b.compare(other: 1kb).is_less())
 }
 
-@size_cmp_mixed () -> bool = 1kb == 1000b
+@size_cmp_mixed () -> bool = 1kb == 1000b;
 
 @test_size_compare_large tests @size_cmp_large () -> void = {
     // SI units: 1tb = 1000gb (decimal notation)
@@ -144,7 +144,7 @@ use std.testing { assert, assert_eq }
     assert(cond: 2tb.compare(other: 1tb).is_greater())
 }
 
-@size_cmp_large () -> Ordering = 1tb.compare(other: 1000gb)
+@size_cmp_large () -> Ordering = 1tb.compare(other: 1000gb);
 
 @test_size_compare_ordering_methods tests @size_ordering_methods () -> void = {
     let less = 100b.compare(other: 200b);
@@ -162,7 +162,7 @@ use std.testing { assert, assert_eq }
     assert(cond: greater.is_greater_or_equal())
 }
 
-@size_ordering_methods () -> bool = 100b < 200b
+@size_ordering_methods () -> bool = 100b < 200b;
 
 // =============================================================================
 // Ordering Type Tests
@@ -176,7 +176,7 @@ use std.testing { assert, assert_eq }
     assert(cond: greater.reverse().is_less())
 }
 
-@ordering_reverse () -> Ordering = 100ms.compare(other: 200ms)
+@ordering_reverse () -> Ordering = 100ms.compare(other: 200ms);
 
 // Note: The `then` and `then_with` methods are specified but not yet implemented.
 // Parser treats `then` as a keyword even in method position.

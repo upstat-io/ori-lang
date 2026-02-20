@@ -20,7 +20,7 @@ use "../use_imports" {
 }
 
 // Dummy function to satisfy test target requirement
-@plus (a: int, b: int) -> int = a + b
+@plus (a: int, b: int) -> int = a + b;
 
 @test_import_alias_closure tests @create_multiplier () -> void = {
     // 'make_multiplier' imported as 'create_multiplier'
@@ -29,7 +29,7 @@ use "../use_imports" {
 }
 
 // Dummy function to satisfy test target requirement
-@create_multiplier (n: int) -> (int) -> int = x -> x * n
+@create_multiplier (n: int) -> (int) -> int = x -> x * n;
 
 @test_import_alias_all tests @twice () -> void = {
     // 'double' imported as 'twice'
@@ -37,4 +37,4 @@ use "../use_imports" {
 }
 
 // Dummy function to satisfy test target requirement
-@twice (x: int) -> int = x * 2
+@twice (x: int) -> int = x * 2;

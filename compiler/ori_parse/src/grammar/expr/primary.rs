@@ -11,7 +11,8 @@ use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, FieldBinding, FunctionExpKind,
-    Name, Param, ParamRange, ParsedTypeId, SizeUnit, Stmt, StmtKind, TemplatePart, TokenKind,
+    Mutability, Name, Param, ParamRange, ParsedTypeId, SizeUnit, Stmt, StmtKind, TemplatePart,
+    TokenKind,
 };
 use tracing::{debug, trace};
 
@@ -1041,7 +1042,7 @@ impl Parser<'_> {
         // For compound patterns (tuple, struct, list), default to mutable
         // since per-binding mutability is tracked on sub-patterns.
         let mutable = match &pattern {
-            BindingPattern::Name { mutable, .. } => *mutable,
+            BindingPattern::Name { mutable, .. } => mutable.is_mutable(),
             _ => true,
         };
         let pattern_id = self.arena.alloc_binding_pattern(pattern);
@@ -1237,6 +1238,7 @@ impl Parser<'_> {
         // - `let $x = ...` → immutable
         let mutable = if self.cursor.check(&TokenKind::Dollar) {
             self.cursor.advance();
+            // ExprKind::Let still uses bool; pattern carries Mutability
             false
         } else {
             true
@@ -1285,14 +1287,14 @@ impl Parser<'_> {
                 self.cursor.advance();
                 return Ok(BindingPattern::Name {
                     name,
-                    mutable: false,
+                    mutable: Mutability::Immutable,
                 });
             }
             if let TokenKind::Ident(name) = *self.cursor.current_kind() {
                 self.cursor.advance();
                 return Ok(BindingPattern::Name {
                     name,
-                    mutable: false,
+                    mutable: Mutability::Immutable,
                 });
             }
             return Err(ParseError::new(
@@ -1310,7 +1312,7 @@ impl Parser<'_> {
             self.cursor.advance();
             return Ok(BindingPattern::Name {
                 name,
-                mutable: true,
+                mutable: Mutability::Mutable,
             });
         }
 
@@ -1319,7 +1321,7 @@ impl Parser<'_> {
                 self.cursor.advance();
                 Ok(BindingPattern::Name {
                     name,
-                    mutable: true,
+                    mutable: Mutability::Mutable,
                 })
             }
             TokenKind::Underscore => {
@@ -1352,9 +1354,9 @@ impl Parser<'_> {
                         // Per grammar: field_binding = [ "$" ] identifier [ ":" binding_pattern ]
                         let mutable = if p.cursor.check(&TokenKind::Dollar) {
                             p.cursor.advance();
-                            false
+                            Mutability::Immutable
                         } else {
-                            true
+                            Mutability::Mutable
                         };
 
                         let field_name = p.cursor.expect_ident()?;
@@ -1385,8 +1387,15 @@ impl Parser<'_> {
                 while !self.cursor.check(&TokenKind::RBracket) && !self.cursor.is_at_end() {
                     if self.cursor.check(&TokenKind::DotDot) {
                         self.cursor.advance();
+                        // Check for optional `$` (immutable) prefix on rest binding
+                        let rest_mutable = if self.cursor.check(&TokenKind::Dollar) {
+                            self.cursor.advance();
+                            Mutability::Immutable
+                        } else {
+                            Mutability::Mutable
+                        };
                         if let TokenKind::Ident(name) = *self.cursor.current_kind() {
-                            rest = Some(name);
+                            rest = Some((name, rest_mutable));
                             self.cursor.advance();
                         }
                         break;

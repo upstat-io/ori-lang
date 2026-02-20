@@ -132,27 +132,6 @@ impl CodeFix for FixTrailingComma {
 }
 ```
 
-### Fix: Semicolon → Remove (E0007)
-
-Ori does not use semicolons. When a user coming from C/Java/TypeScript types `;`:
-
-```rust
-struct FixSemicolon;
-
-impl CodeFix for FixSemicolon {
-    fn error_codes(&self) -> &'static [ErrorCode] {
-        &[ErrorCode::E0007] // Unnecessary semicolon
-    }
-
-    fn get_fixes(&self, ctx: &FixContext) -> Vec<CodeAction> {
-        vec![CodeAction::new(
-            "remove semicolon",
-            vec![TextEdit::delete(ctx.primary_span().unwrap())],
-        ).preferred()]
-    }
-}
-```
-
 ### Fix: `===` → `==` (E0008)
 
 ```rust
@@ -231,14 +210,12 @@ impl CodeFix for FixSingleQuoteString {
 | Fix | Error Code | Description |
 |-----|-----------|-------------|
 | `FixTrailingComma` | E1001 | Add missing trailing comma |
-| `FixSemicolon` | E0007 | Remove unnecessary semicolon |
 | `FixTripleEquals` | E0008 | Replace `===` with `==` |
 | `FixSingleQuoteString` | E0009 | Replace `'...'` with `"..."` |
 | `FixIncrementDecrement` | E0010/E0011 | Replace `++`/`--` with `+= 1`/`-= 1` |
 | `FixReservedKeyword` | E0015 | Suggest alternative to reserved future keyword |
 
 - [ ] Implement `FixTrailingComma`
-- [ ] Implement `FixSemicolon`
 - [ ] Implement `FixTripleEquals`
 - [ ] Implement `FixSingleQuoteString`
 - [ ] Implement `FixIncrementDecrement`

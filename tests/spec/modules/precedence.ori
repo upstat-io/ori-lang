@@ -1,4 +1,4 @@
 // File module for testing precedence
 // When both utils.ori and utils/mod.ori exist, utils.ori should win
 
-pub @source () -> str = "file_module"
+pub @source () -> str = "file_module";

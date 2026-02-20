@@ -11,25 +11,25 @@ use std.testing { assert, assert_eq }
     assert(cond: and_true_true())
 }
 
-@and_true_true () -> bool = true && true
+@and_true_true () -> bool = true && true;
 
 @test_and_true_false tests @and_true_false () -> void = {
     assert(cond: !and_true_false())
 }
 
-@and_true_false () -> bool = true && false
+@and_true_false () -> bool = true && false;
 
 @test_and_false_true tests @and_false_true () -> void = {
     assert(cond: !and_false_true())
 }
 
-@and_false_true () -> bool = false && true
+@and_false_true () -> bool = false && true;
 
 @test_and_false_false tests @and_false_false () -> void = {
     assert(cond: !and_false_false())
 }
 
-@and_false_false () -> bool = false && false
+@and_false_false () -> bool = false && false;
 
 @test_and_chain tests @and_chain () -> void = {
     assert(cond: true && true && true);
@@ -37,7 +37,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !(false && true && true))
 }
 
-@and_chain () -> bool = true && true && true
+@and_chain () -> bool = true && true && true;
 
 // =============================================================================
 // Logical OR (||)
@@ -47,25 +47,25 @@ use std.testing { assert, assert_eq }
     assert(cond: or_true_true())
 }
 
-@or_true_true () -> bool = true || true
+@or_true_true () -> bool = true || true;
 
 @test_or_true_false tests @or_true_false () -> void = {
     assert(cond: or_true_false())
 }
 
-@or_true_false () -> bool = true || false
+@or_true_false () -> bool = true || false;
 
 @test_or_false_true tests @or_false_true () -> void = {
     assert(cond: or_false_true())
 }
 
-@or_false_true () -> bool = false || true
+@or_false_true () -> bool = false || true;
 
 @test_or_false_false tests @or_false_false () -> void = {
     assert(cond: !or_false_false())
 }
 
-@or_false_false () -> bool = false || false
+@or_false_false () -> bool = false || false;
 
 @test_or_chain tests @or_chain () -> void = {
     assert(cond: true || false || false);
@@ -73,7 +73,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !(false || false || false))
 }
 
-@or_chain () -> bool = true || false || false
+@or_chain () -> bool = true || false || false;
 
 // =============================================================================
 // Logical NOT (!)
@@ -83,25 +83,25 @@ use std.testing { assert, assert_eq }
     assert(cond: !not_true())
 }
 
-@not_true () -> bool = !true
+@not_true () -> bool = !true;
 
 @test_not_false tests @not_false () -> void = {
     assert(cond: not_false())
 }
 
-@not_false () -> bool = !false
+@not_false () -> bool = !false;
 
 @test_double_not tests @double_not () -> void = {
     assert(cond: double_not())
 }
 
-@double_not () -> bool = !!true
+@double_not () -> bool = !!true;
 
 @test_triple_not tests @triple_not () -> void = {
     assert(cond: !triple_not())
 }
 
-@triple_not () -> bool = !!!true
+@triple_not () -> bool = !!!true;
 
 // =============================================================================
 // Short-Circuit AND
@@ -113,7 +113,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !result)
 }
 
-@and_short_circuit () -> bool = false && panic(msg: "should not execute")
+@and_short_circuit () -> bool = false && panic(msg: "should not execute");
 
 @test_and_short_circuit_side_effect tests @and_short_circuit_side_effect () -> void = {
     // When left is false, right side effect should not occur
@@ -151,7 +151,7 @@ use std.testing { assert, assert_eq }
     assert(cond: result)
 }
 
-@or_short_circuit () -> bool = true || panic(msg: "should not execute")
+@or_short_circuit () -> bool = true || panic(msg: "should not execute");
 
 @test_or_short_circuit_side_effect tests @or_short_circuit_side_effect () -> void = {
     // When left is true, right side effect should not occur
@@ -189,14 +189,14 @@ use std.testing { assert, assert_eq }
     assert(cond: true || false && false)
 }
 
-@and_or_combined () -> bool = true || false && false
+@and_or_combined () -> bool = true || false && false;
 
 @test_or_and_combined tests @or_and_combined () -> void = {
     // false && true || true = (false && true) || true = false || true = true
     assert(cond: false && true || true)
 }
 
-@or_and_combined () -> bool = false && true || true
+@or_and_combined () -> bool = false && true || true;
 
 // Parentheses change associativity: (true || false) && false = false
 @test_parens_change_precedence tests @parens_change_precedence () -> void = {
@@ -204,21 +204,21 @@ use std.testing { assert, assert_eq }
     assert(cond: !((true || false) && false))
 }
 
-@parens_change_precedence () -> bool = (true || false) && false
+@parens_change_precedence () -> bool = (true || false) && false;
 
 @test_not_with_and tests @not_with_and () -> void = {
     assert(cond: !false && true);
     assert(cond: !(false && true))
 }
 
-@not_with_and () -> bool = !false && true
+@not_with_and () -> bool = !false && true;
 
 @test_not_with_or tests @not_with_or () -> void = {
     assert(cond: !false || false);
     assert(cond: !(false || false))
 }
 
-@not_with_or () -> bool = !false || false
+@not_with_or () -> bool = !false || false;
 
 // =============================================================================
 // De Morgan's Laws
@@ -391,7 +391,7 @@ use std.testing { assert, assert_eq }
     condition || true
 }
 
-@is_valid (x: int) -> bool = x > 0 && x < 100
+@is_valid (x: int) -> bool = x > 0 && x < 100;
 
 @test_function_in_condition tests @function_in_condition () -> void = {
     assert(cond: is_valid(x: 50));
@@ -399,4 +399,4 @@ use std.testing { assert, assert_eq }
     assert(cond: !is_valid(x: 100))
 }
 
-@function_in_condition () -> bool = is_valid(x: 50)
+@function_in_condition () -> bool = is_valid(x: 50);

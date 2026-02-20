@@ -12,28 +12,28 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: list[0], expected: 10)
 }
 
-@list_index_first () -> int = [10, 20, 30][0]
+@list_index_first () -> int = [10, 20, 30][0];
 
 @test_list_index_middle tests @list_index_middle () -> void = {
     let list = [10, 20, 30];
     assert_eq(actual: list[1], expected: 20)
 }
 
-@list_index_middle () -> int = [10, 20, 30][1]
+@list_index_middle () -> int = [10, 20, 30][1];
 
 @test_list_index_last tests @list_index_last () -> void = {
     let list = [10, 20, 30];
     assert_eq(actual: list[2], expected: 30)
 }
 
-@list_index_last () -> int = [10, 20, 30][2]
+@list_index_last () -> int = [10, 20, 30][2];
 
 @test_list_single_element tests @list_single_element () -> void = {
     let list = [42];
     assert_eq(actual: list[0], expected: 42)
 }
 
-@list_single_element () -> int = [42][0]
+@list_single_element () -> int = [42][0];
 
 // =============================================================================
 // List Indexing - With Variables
@@ -130,14 +130,14 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: map["c"] ?? 0, expected: 3)
 }
 
-@map_index_found () -> int = {"a": 1, "b": 2, "c": 3}["a"] ?? 0
+@map_index_found () -> int = { {"a": 1, "b": 2, "c": 3}["a"] ?? 0 }
 
 @test_map_index_not_found tests @map_index_not_found () -> void = {
     let map = {"a": 1, "b": 2};
     assert(cond: is_none(opt: map["missing"]))
 }
 
-@map_index_not_found () -> Option<int> = {"a": 1}["missing"]
+@map_index_not_found () -> Option<int> = { {"a": 1}["missing"] }
 
 @test_map_empty tests @map_empty () -> void = {
     let map: {str: int} = {};
@@ -186,7 +186,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: value, expected: 42)
 }
 
-@map_coalesce_found () -> int = {"key": 42}["key"] ?? 0
+@map_coalesce_found () -> int = { {"key": 42}["key"] ?? 0 }
 
 @test_map_coalesce_missing tests @map_coalesce_missing () -> void = {
     let map = {"key": 42};
@@ -194,7 +194,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: value, expected: 99)
 }
 
-@map_coalesce_missing () -> int = {"key": 42}["missing"] ?? 99
+@map_coalesce_missing () -> int = { {"key": 42}["missing"] ?? 99 }
 
 // =============================================================================
 // String Indexing
@@ -208,7 +208,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: s[0], expected: "h")
 }
 
-@str_index_first () -> str = "hello"[0]
+@str_index_first () -> str = "hello"[0];
 
 @test_str_index_last tests @str_index_last () -> void = {
     let s = "hello";
@@ -225,7 +225,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: s[2], expected: "l")
 }
 
-@str_index_middle () -> str = "hello"[2]
+@str_index_middle () -> str = "hello"[2];
 
 // =============================================================================
 // Nested Indexing
@@ -238,7 +238,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: matrix[2][2], expected: 9)
 }
 
-@nested_list () -> int = [[1, 2, 3], [4, 5, 6], [7, 8, 9]][1][1]
+@nested_list () -> int = [[1, 2, 3], [4, 5, 6], [7, 8, 9]][1][1];
 
 @test_list_of_maps tests @list_of_maps () -> void = {
     let records = [{"name": "Alice"}, {"name": "Bob"}];
@@ -308,16 +308,16 @@ type Container = { items: [int] }
 // Index with Function Results
 // =============================================================================
 
-@get_list () -> [int] = [100, 200, 300]
+@get_list () -> [int] = [100, 200, 300];
 
 @test_func_result_index tests @func_result_index () -> void = {
     let value = get_list()[1];
     assert_eq(actual: value, expected: 200)
 }
 
-@func_result_index () -> int = get_list()[1]
+@func_result_index () -> int = get_list()[1];
 
-@get_index () -> int = 2
+@get_index () -> int = 2;
 
 @test_func_index tests @func_index () -> void = {
     let list = [10, 20, 30, 40];
@@ -340,7 +340,7 @@ type Container = { items: [int] }
     assert_eq(actual: value, expected: 3)
 }
 
-@chain_list_index () -> int = [[1, 2], [3, 4], [5, 6]][1][0]
+@chain_list_index () -> int = [[1, 2], [3, 4], [5, 6]][1][0];
 
 @test_triple_nested tests @triple_nested () -> void = {
     let data = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
@@ -348,7 +348,7 @@ type Container = { items: [int] }
     assert_eq(actual: data[1][1][1], expected: 8)
 }
 
-@triple_nested () -> int = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]][1][1][1]
+@triple_nested () -> int = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]][1][1][1];
 
 // =============================================================================
 // Index Assignment
@@ -403,4 +403,4 @@ type Container = { items: [int] }
     assert(cond: is_none(opt: map[99]))
 }
 
-@map_int_key () -> str = {1: "one", 2: "two"}[1] ?? ""
+@map_int_key () -> str = { {1: "one", 2: "two"}[1] ?? "" }

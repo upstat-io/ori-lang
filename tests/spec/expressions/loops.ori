@@ -39,7 +39,7 @@ use std.testing { assert, assert_eq }
     assert(cond: true) // Just verify it compiles as void
 }
 
-@for_do_returns_void () -> void = for x in [1] do ()
+@for_do_returns_void () -> void = for x in [1] do ();
 
 // =============================================================================
 // For-Do with Guard
@@ -78,7 +78,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: [2, 4, 6])
 }
 
-@for_yield_basic () -> [int] = for x in [1, 2, 3] yield x * 2
+@for_yield_basic () -> [int] = for x in [1, 2, 3] yield x * 2;
 
 @test_for_yield_empty tests @for_yield_empty () -> void = {
     let empty: [int] = [];
@@ -96,7 +96,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: [1, 2, 3])
 }
 
-@for_yield_identity () -> [int] = for x in [1, 2, 3] yield x
+@for_yield_identity () -> [int] = for x in [1, 2, 3] yield x;
 
 // =============================================================================
 // For-Yield with Guard
@@ -107,14 +107,14 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: [2, 4])
 }
 
-@for_yield_with_guard () -> [int] = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x
+@for_yield_with_guard () -> [int] = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x;
 
 @test_for_yield_guard_transform tests @for_yield_guard_transform () -> void = {
     let result = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10;
     assert_eq(actual: result, expected: [30, 40, 50])
 }
 
-@for_yield_guard_transform () -> [int] = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10
+@for_yield_guard_transform () -> [int] = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10;
 
 // =============================================================================
 // For with Destructuring
@@ -178,7 +178,7 @@ type Point = { x: int, y: int }
     assert_eq(actual: result, expected: [[11, 21], [12, 22]])
 }
 
-@nested_for_yield () -> [[int]] = for x in [1, 2] yield for y in [10, 20] yield x + y
+@nested_for_yield () -> [[int]] = for x in [1, 2] yield for y in [10, 20] yield x + y;
 
 // =============================================================================
 // Loop Basic

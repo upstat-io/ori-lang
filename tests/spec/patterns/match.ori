@@ -343,7 +343,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // Match with Function Calls
 // =============================================================================
 
-@helper_add (a: int, b: int) -> int = a + b
+@helper_add (a: int, b: int) -> int = a + b;
 
 @test_match_with_function_in_scrutinee tests @match_with_function_in_scrutinee () -> void = {
     assert_eq(actual: match_with_function_in_scrutinee(2, 3), expected: "five");
@@ -358,7 +358,7 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 // Match with function call in arm
-@helper_square (n: int) -> int = n * n
+@helper_square (n: int) -> int = n * n;
 
 @test_match_with_function_in_arm tests @match_with_function_in_arm () -> void = {
     assert_eq(actual: match_with_function_in_arm(Some(4)), expected: 16);
@@ -831,7 +831,7 @@ type Point = { x: int, y: int }
     assert_eq(actual: classifier(5), expected: "nonzero")
 }
 
-@match_in_lambda () -> void = ()
+@match_in_lambda () -> void = ();
 
 // =============================================================================
 // Match with captured variables
@@ -846,9 +846,9 @@ type Point = { x: int, y: int }
 }
 
 @classify_with_threshold (n: int, threshold: int) -> str =
-    if n < threshold then "below" else "above or equal"
+    if n < threshold then "below" else "above or equal";
 
-@match_with_captured_var () -> void = ()
+@match_with_captured_var () -> void = ();
 
 // =============================================================================
 // Match with early returns via Result
@@ -913,7 +913,7 @@ type Point = { x: int, y: int }
     0 -> "zero",
     42 -> "answer",
     _ -> "other",
-)
+);
 
 @test_method_match_nested tests @method_match_nested () -> void = {
     assert_eq(actual: method_match_nested(x: 0, y: 0), expected: "both zero");
@@ -927,7 +927,7 @@ type Point = { x: int, y: int }
         _ -> "x zero",
     ),
     _ -> "x nonzero",
-)
+);
 
 @test_method_match_with_guard tests @method_match_with_guard () -> void = {
     assert_eq(actual: method_match_with_guard(n: 20), expected: "large");
@@ -939,7 +939,7 @@ type Point = { x: int, y: int }
     x.match(x > 10) -> "large",
     x.match(x > 0) -> "small",
     _ -> "non-positive",
-)
+);
 
 @test_method_match_on_expr tests @method_match_on_expr () -> void = {
     assert_eq(actual: method_match_on_expr(x: -1), expected: "zero");
@@ -951,5 +951,5 @@ type Point = { x: int, y: int }
     0 -> "zero",
     1 -> "one",
     _ -> "other",
-)
+);
 

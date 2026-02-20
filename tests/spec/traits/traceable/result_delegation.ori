@@ -5,7 +5,7 @@ use std.testing { assert_eq, assert }
 
 // Setup: Result with a traced error
 @fail () -> Result<int, Error> =
-    Err(Error("fail"))
+    Err(Error("fail"));
 
 @traced () -> Result<int, Error> = {
     let x = fail()?;

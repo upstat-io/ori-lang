@@ -132,11 +132,7 @@ impl ArcLowerer<'_> {
 
             // Control flow
             CanExpr::Block { stmts, result } => self.lower_block(stmts, result, ty),
-            CanExpr::Let {
-                pattern,
-                init,
-                mutable,
-            } => self.lower_let(pattern, init, mutable),
+            CanExpr::Let { pattern, init, .. } => self.lower_let(pattern, init),
             CanExpr::If {
                 cond,
                 then_branch,

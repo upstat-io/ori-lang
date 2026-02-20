@@ -5,4 +5,4 @@
 type Numbers = { values: [int] }
 
 #[compile_fail("trait cannot be derived")]
-@test_not_derivable () -> void = ()
+@test_not_derivable () -> void = ();

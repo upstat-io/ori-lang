@@ -10,7 +10,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: items2.len(), expected: 3)
 }
 
-@clone_list () -> [int] = [1, 2, 3].clone()
+@clone_list () -> [int] = [1, 2, 3].clone();
 
 // [T].clone() — empty list
 @test_clone_list_empty tests @clone_list_empty () -> void = {
@@ -31,7 +31,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: items2.len(), expected: 2)
 }
 
-@clone_list_str () -> [str] = ["hello", "world"].clone()
+@clone_list_str () -> [str] = ["hello", "world"].clone();
 
 @main () -> void = {
     print(msg: "Clone collections tests passed")

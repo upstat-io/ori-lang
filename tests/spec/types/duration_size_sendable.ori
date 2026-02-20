@@ -12,7 +12,7 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // Helper that accepts any Sendable type and returns it
-@identity_sendable<T: Sendable> (value: T) -> T = value
+@identity_sendable<T: Sendable> (value: T) -> T = value;
 
 @test_duration_sendable_bound tests @duration_sendable () -> void = {
     // Duration satisfies Sendable bound
@@ -21,7 +21,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 100ms)
 }
 
-@duration_sendable () -> Duration = identity_sendable(value: 100ms)
+@duration_sendable () -> Duration = identity_sendable(value: 100ms);
 
 @test_duration_sendable_zero tests @duration_sendable_zero () -> void = {
     // Zero duration satisfies Sendable bound
@@ -30,7 +30,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 0ns)
 }
 
-@duration_sendable_zero () -> Duration = identity_sendable(value: 0ns)
+@duration_sendable_zero () -> Duration = identity_sendable(value: 0ns);
 
 @test_duration_sendable_negative tests @duration_sendable_neg () -> void = {
     // Negative duration satisfies Sendable bound
@@ -39,7 +39,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: -100ms)
 }
 
-@duration_sendable_neg () -> Duration = identity_sendable(value: -100ms)
+@duration_sendable_neg () -> Duration = identity_sendable(value: -100ms);
 
 @test_duration_sendable_large tests @duration_sendable_large () -> void = {
     // Large duration satisfies Sendable bound
@@ -48,7 +48,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 24h)
 }
 
-@duration_sendable_large () -> Duration = identity_sendable(value: 24h)
+@duration_sendable_large () -> Duration = identity_sendable(value: 24h);
 
 // =============================================================================
 // Size — Sendable Trait
@@ -61,7 +61,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 1kb)
 }
 
-@size_sendable () -> Size = identity_sendable(value: 1kb)
+@size_sendable () -> Size = identity_sendable(value: 1kb);
 
 @test_size_sendable_zero tests @size_sendable_zero () -> void = {
     // Zero size satisfies Sendable bound
@@ -70,7 +70,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 0b)
 }
 
-@size_sendable_zero () -> Size = identity_sendable(value: 0b)
+@size_sendable_zero () -> Size = identity_sendable(value: 0b);
 
 @test_size_sendable_large tests @size_sendable_large () -> void = {
     // Large size satisfies Sendable bound
@@ -79,14 +79,14 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 1tb)
 }
 
-@size_sendable_large () -> Size = identity_sendable(value: 1tb)
+@size_sendable_large () -> Size = identity_sendable(value: 1tb);
 
 // =============================================================================
 // Combined — Both types in Sendable context
 // =============================================================================
 
 // Helper that accepts two Sendable values
-@pair_sendable<T: Sendable, U: Sendable> (first: T, second: U) -> (T, U) = (first, second)
+@pair_sendable<T: Sendable, U: Sendable> (first: T, second: U) -> (T, U) = (first, second);
 
 @test_duration_size_sendable_together tests @both_sendable () -> void = {
     // Both Duration and Size satisfy Sendable in same generic context
@@ -94,4 +94,4 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: (100ms, 1kb))
 }
 
-@both_sendable () -> (Duration, Size) = pair_sendable(first: 100ms, second: 1kb)
+@both_sendable () -> (Duration, Size) = pair_sendable(first: 100ms, second: 1kb);

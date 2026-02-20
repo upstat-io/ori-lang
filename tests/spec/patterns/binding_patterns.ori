@@ -252,9 +252,9 @@ type PointPair = { first: (int, int), second: (int, int) }
 //
 // Note: Destructuring patterns in function params (`{ x, y }: Point`) not yet supported.
 // Tests use named params with field access/internal destructuring as workaround.
-@sum_point (p: Point) -> int = p.x + p.y
+@sum_point (p: Point) -> int = p.x + p.y;
 
-@param_destructure () -> int = sum_point(p: Point { x: 10, y: 20 })
+@param_destructure () -> int = sum_point(p: Point { x: 10, y: 20 });
 
 @test_param_destructure tests @param_destructure () -> void = {
     let result = sum_point(p: Point { x: 10, y: 20 });
@@ -268,7 +268,7 @@ type PointPair = { first: (int, int), second: (int, int) }
     a + b
 }
 
-@param_tuple_destructure () -> int = sum_tuple(pair: (5, 10))
+@param_tuple_destructure () -> int = sum_tuple(pair: (5, 10));
 
 @test_param_tuple_destructure tests @param_tuple_destructure () -> void = {
     let result = sum_tuple(pair: (5, 10));
@@ -332,7 +332,7 @@ type PointPair = { first: (int, int), second: (int, int) }
 // Destructuring from Function Returns
 // =============================================================================
 
-@make_pair () -> (int, str) = (42, "hello")
+@make_pair () -> (int, str) = (42, "hello");
 
 @test_destructure_return tests @destructure_return () -> void = {
     let (n, s) = make_pair();

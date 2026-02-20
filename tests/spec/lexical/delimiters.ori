@@ -8,19 +8,19 @@ use std.testing { assert, assert_eq }
 // Parentheses - Grouping
 // =============================================================================
 
-@parens_group () -> int = (1 + 2) * 3
+@parens_group () -> int = (1 + 2) * 3;
 
 @test_parens_group tests @parens_group () -> void = {
     assert_eq(actual: parens_group(), expected: 9)
 }
 
-@parens_nested () -> int = ((1 + 2) * (3 + 4))
+@parens_nested () -> int = ((1 + 2) * (3 + 4));
 
 @test_parens_nested tests @parens_nested () -> void = {
     assert_eq(actual: parens_nested(), expected: 21)
 }
 
-@parens_deeply_nested () -> int = (((((1)))))
+@parens_deeply_nested () -> int = (((((1)))));
 
 @test_parens_deeply_nested tests @parens_deeply_nested () -> void = {
     assert_eq(actual: parens_deeply_nested(), expected: 1)
@@ -77,37 +77,37 @@ use std.testing { assert, assert_eq }
 // Parentheses - Function Calls
 // =============================================================================
 
-@parens_helper (x: int) -> int = x * 2
+@parens_helper (x: int) -> int = x * 2;
 
 @test_parens_helper tests @parens_helper () -> void = {
     assert_eq(actual: parens_helper(x: 21), expected: 42)
 }
 
-@parens_fn_call () -> int = parens_helper(x: 21)
+@parens_fn_call () -> int = parens_helper(x: 21);
 
 @test_parens_fn_call tests @parens_fn_call () -> void = {
     assert_eq(actual: parens_fn_call(), expected: 42)
 }
 
-@parens_fn_multi_args (a: int, b: int, c: int) -> int = a + b + c
+@parens_fn_multi_args (a: int, b: int, c: int) -> int = a + b + c;
 
 @test_parens_fn_multi_args tests @parens_fn_multi_args () -> void = {
     assert_eq(actual: parens_fn_multi_args(a: 1, b: 2, c: 3), expected: 6)
 }
 
-@parens_fn_call_multi () -> int = parens_fn_multi_args(a: 1, b: 2, c: 3)
+@parens_fn_call_multi () -> int = parens_fn_multi_args(a: 1, b: 2, c: 3);
 
 @test_parens_fn_call_multi tests @parens_fn_call_multi () -> void = {
     assert_eq(actual: parens_fn_call_multi(), expected: 6)
 }
 
-@parens_fn_no_args () -> int = 42
+@parens_fn_no_args () -> int = 42;
 
 @test_parens_fn_no_args tests @parens_fn_no_args () -> void = {
     assert_eq(actual: parens_fn_no_args(), expected: 42)
 }
 
-@parens_fn_call_no_args () -> int = parens_fn_no_args()
+@parens_fn_call_no_args () -> int = parens_fn_no_args();
 
 @test_parens_fn_call_no_args tests @parens_fn_call_no_args () -> void = {
     assert_eq(actual: parens_fn_call_no_args(), expected: 42)
@@ -148,19 +148,19 @@ use std.testing { assert, assert_eq }
 // Brackets - Lists
 // =============================================================================
 
-@brackets_empty_list () -> int = [].len()
+@brackets_empty_list () -> int = [].len();
 
 @test_brackets_empty_list tests @brackets_empty_list () -> void = {
     assert_eq(actual: brackets_empty_list(), expected: 0)
 }
 
-@brackets_single_list () -> int = [42].len()
+@brackets_single_list () -> int = [42].len();
 
 @test_brackets_single_list tests @brackets_single_list () -> void = {
     assert_eq(actual: brackets_single_list(), expected: 1)
 }
 
-@brackets_multi_list () -> int = [1, 2, 3, 4, 5].len()
+@brackets_multi_list () -> int = [1, 2, 3, 4, 5].len();
 
 @test_brackets_multi_list tests @brackets_multi_list () -> void = {
     assert_eq(actual: brackets_multi_list(), expected: 5)
@@ -337,7 +337,7 @@ type DelimNestedStruct = { point: DelimTestPoint, value: int }
 // Comma - Lists and Tuples
 // =============================================================================
 
-@comma_list () -> int = [1, 2, 3, 4, 5].len()
+@comma_list () -> int = [1, 2, 3, 4, 5].len();
 
 @test_comma_list tests @comma_list () -> void = {
     assert_eq(actual: comma_list(), expected: 5)
@@ -357,7 +357,7 @@ type DelimNestedStruct = { point: DelimTestPoint, value: int }
     1,
     2,
     3,
-].len()
+].len();
 
 @test_comma_trailing_list tests @comma_trailing_list () -> void = {
     assert_eq(actual: comma_trailing_list(), expected: 3)
@@ -367,13 +367,13 @@ type DelimNestedStruct = { point: DelimTestPoint, value: int }
 // Comma - Function Arguments
 // =============================================================================
 
-@comma_fn_args (a: int, b: int, c: int, d: int) -> int = a + b + c + d
+@comma_fn_args (a: int, b: int, c: int, d: int) -> int = a + b + c + d;
 
 @test_comma_fn_args tests @comma_fn_args () -> void = {
     assert_eq(actual: comma_fn_args(a: 1, b: 2, c: 3, d: 4), expected: 10)
 }
 
-@comma_call_args () -> int = comma_fn_args(a: 1, b: 2, c: 3, d: 4)
+@comma_call_args () -> int = comma_fn_args(a: 1, b: 2, c: 3, d: 4);
 
 @test_comma_call_args tests @comma_call_args () -> void = {
     assert_eq(actual: comma_call_args(), expected: 10)
@@ -414,13 +414,13 @@ type DelimNestedStruct = { point: DelimTestPoint, value: int }
 // Colon - Named Arguments
 // =============================================================================
 
-@colon_helper (name: str, value: int) -> int = value
+@colon_helper (name: str, value: int) -> int = value;
 
 @test_colon_helper tests @colon_helper () -> void = {
     assert_eq(actual: colon_helper(name: "test", value: 42), expected: 42)
 }
 
-@colon_named_args () -> int = colon_helper(name: "test", value: 42)
+@colon_named_args () -> int = colon_helper(name: "test", value: 42);
 
 @test_colon_named_args tests @colon_named_args () -> void = {
     assert_eq(actual: colon_named_args(), expected: 42)
@@ -482,7 +482,7 @@ type DelimNestedStruct = { point: DelimTestPoint, value: int }
 // Dot - Method Calls
 // =============================================================================
 
-@dot_method () -> int = [1, 2, 3].len()
+@dot_method () -> int = [1, 2, 3].len();
 
 @test_dot_method tests @dot_method () -> void = {
     assert_eq(actual: dot_method(), expected: 3)
@@ -502,13 +502,13 @@ type DelimNestedStruct = { point: DelimTestPoint, value: int }
 // At Sign - Function Definitions
 // =============================================================================
 
-@at_simple () -> int = 42
+@at_simple () -> int = 42;
 
 @test_at_simple tests @at_simple () -> void = {
     assert_eq(actual: at_simple(), expected: 42)
 }
 
-@at_with_params (x: int) -> int = x * 2
+@at_with_params (x: int) -> int = x * 2;
 
 @test_at_with_params tests @at_with_params () -> void = {
     assert_eq(actual: at_with_params(x: 21), expected: 42)

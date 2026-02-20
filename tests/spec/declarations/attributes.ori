@@ -18,7 +18,7 @@ type EqPoint = { x: int, y: int }
     assert(cond: p1 != p3)
 }
 
-@_use_eq_point (p: EqPoint) -> int = p.x
+@_use_eq_point (p: EqPoint) -> int = p.x;
 
 // =============================================================================
 // #derive Attribute - Clone
@@ -34,7 +34,7 @@ type ClonePoint = { x: int, y: int }
     assert_eq(actual: p2.y, expected: 20)
 }
 
-@_use_clone_point (p: ClonePoint) -> int = p.x
+@_use_clone_point (p: ClonePoint) -> int = p.x;
 
 // =============================================================================
 // #derive Attribute - Hashable
@@ -50,7 +50,7 @@ type HashPoint = { x: int, y: int }
     assert_eq(actual: p1.hash(), expected: p2.hash())
 }
 
-@_use_hash_point (p: HashPoint) -> int = p.x
+@_use_hash_point (p: HashPoint) -> int = p.x;
 
 // =============================================================================
 // #derive Attribute - Multiple Derives
@@ -66,7 +66,7 @@ type FullPoint = { x: int, y: int }
     assert_eq(actual: p1.hash(), expected: p2.hash())
 }
 
-@_use_full_point (p: FullPoint) -> int = p.x
+@_use_full_point (p: FullPoint) -> int = p.x;
 
 // =============================================================================
 // #derive on Empty Struct
@@ -81,7 +81,7 @@ type EmptyDerived = { }
     assert(cond: e1 == e2)
 }
 
-@_use_empty (e: EmptyDerived) -> bool = true
+@_use_empty (e: EmptyDerived) -> bool = true;
 
 // =============================================================================
 // #derive on Single Field
@@ -96,14 +96,14 @@ type SingleFieldDerived = { value: int }
     assert(cond: s1 == s2)
 }
 
-@_use_single (s: SingleFieldDerived) -> int = s.value
+@_use_single (s: SingleFieldDerived) -> int = s.value;
 
 // =============================================================================
 // #derive on Sum Types
 // =============================================================================
 
 #[derive(Eq)]
-type DerivedColor = DRed | DGreen | DBlue
+type DerivedColor = DRed | DGreen | DBlue;
 
 @test_derive_sum_eq tests @_use_derived_color () -> void = {
     let c1 = DRed;
@@ -116,7 +116,7 @@ type DerivedColor = DRed | DGreen | DBlue
 @_use_derived_color (c: DerivedColor) -> bool = match c { DRed -> true, _ -> false}
 
 #[derive(Eq)]
-type DerivedOption = DSome(value: int) | DNone
+type DerivedOption = DSome(value: int) | DNone;
 
 @test_derive_sum_payload_eq tests @_use_derived_option () -> void = {
     let s1 = DSome(value: 42);
@@ -140,7 +140,7 @@ type DerivedOption = DSome(value: int) | DNone
     assert(cond: false)
 }
 
-@_dummy () -> bool = true
+@_dummy () -> bool = true;
 
 // =============================================================================
 // #fail Attribute
@@ -155,7 +155,7 @@ type DerivedOption = DSome(value: int) | DNone
     ()
 }
 
-@_trigger_panic () -> bool = true
+@_trigger_panic () -> bool = true;
 
 #fail("division")
 @test_division_panic tests @_trigger_division () -> void = {
@@ -163,7 +163,7 @@ type DerivedOption = DSome(value: int) | DNone
     ()
 }
 
-@_trigger_division () -> bool = true
+@_trigger_division () -> bool = true;
 
 // =============================================================================
 // #compile_fail Attribute
@@ -180,7 +180,7 @@ type DerivedOption = DSome(value: int) | DNone
     ()
 }
 
-@_type_error () -> bool = true
+@_type_error () -> bool = true;
 
 // Unknown variable should fail
 // Actual error message is "unknown identifier" not "not found"
@@ -190,7 +190,7 @@ type DerivedOption = DSome(value: int) | DNone
     ()
 }
 
-@_undefined () -> bool = true
+@_undefined () -> bool = true;
 
 // =============================================================================
 // #repr Attribute
@@ -207,7 +207,7 @@ type CStruct = { x: int, y: int }
     assert_eq(actual: s.x, expected: 10)
 }
 
-@_use_c_struct (s: CStruct) -> int = s.x
+@_use_c_struct (s: CStruct) -> int = s.x;
 
 // =============================================================================
 // #target Attribute
@@ -219,13 +219,13 @@ type CStruct = { x: int, y: int }
 // regardless of target. This section verifies the parser accepts #target syntax.
 
 #target(os: "linux")
-@linux_function () -> str = "linux"
+@linux_function () -> str = "linux";
 
 #target(os: "macos")
-@macos_function () -> str = "macos"
+@macos_function () -> str = "macos";
 
 #target(os: "windows")
-@windows_function () -> str = "windows"
+@windows_function () -> str = "windows";
 
 @test_target_linux tests @linux_function () -> void = {
     assert_eq(actual: linux_function(), expected: "linux")
@@ -249,10 +249,10 @@ type CStruct = { x: int, y: int }
 // regardless of cfg flags. This section verifies the parser accepts #cfg syntax.
 
 #cfg(debug)
-@debug_only_fn () -> str = "debug mode"
+@debug_only_fn () -> str = "debug mode";
 
 #cfg(release)
-@release_only_fn () -> str = "release mode"
+@release_only_fn () -> str = "release mode";
 
 @test_cfg_debug tests @debug_only_fn () -> void = {
     assert_eq(actual: debug_only_fn(), expected: "debug mode")
@@ -264,7 +264,7 @@ type CStruct = { x: int, y: int }
 
 // Feature flags
 #cfg(feature: "experimental")
-@experimental_feature () -> str = "experimental"
+@experimental_feature () -> str = "experimental";
 
 @test_cfg_feature tests @experimental_feature () -> void = {
     assert_eq(actual: experimental_feature(), expected: "experimental")
@@ -277,7 +277,7 @@ type CStruct = { x: int, y: int }
 // STATUS: Lexer [OK], Parser [OK] - parses correctly (2026-02-13)
 
 #cfg(not_debug)
-@not_debug_fn () -> str = "not debug"
+@not_debug_fn () -> str = "not debug";
 
 @test_cfg_not_debug tests @not_debug_fn () -> void = {
     assert_eq(actual: not_debug_fn(), expected: "not debug")
@@ -294,7 +294,7 @@ trait Marked {
 type MarkedItem = { id: int }
 
 impl Marked for MarkedItem {
-    @mark (self) -> str = "marked: " + str(self.id)
+    @mark (self) -> str = "marked: " + str(self.id);
 }
 
 @test_impl_works tests @_use_marked () -> void = {
@@ -302,7 +302,7 @@ impl Marked for MarkedItem {
     assert_eq(actual: item.mark(), expected: "marked: 42")
 }
 
-@_use_marked (m: MarkedItem) -> int = m.id
+@_use_marked (m: MarkedItem) -> int = m.id;
 
 // =============================================================================
 // Derive on Nested Types
@@ -322,7 +322,7 @@ type Outer = { inner: Inner }
     assert(cond: o1 != o3)
 }
 
-@_use_outer (o: Outer) -> int = o.inner.value
+@_use_outer (o: Outer) -> int = o.inner.value;
 
 // =============================================================================
 // Derive Debug
@@ -338,7 +338,7 @@ type DebugPoint = { x: int, y: int }
     assert(cond: debug_str.len() > 0)
 }
 
-@_use_debug (p: DebugPoint) -> int = p.x
+@_use_debug (p: DebugPoint) -> int = p.x;
 
 // =============================================================================
 // Derive Printable
@@ -353,7 +353,7 @@ type PrintablePoint = { x: int, y: int }
     assert(cond: str_repr.len() > 0)
 }
 
-@_use_printable (p: PrintablePoint) -> int = p.x
+@_use_printable (p: PrintablePoint) -> int = p.x;
 
 // =============================================================================
 // Multiple Attributes on Same Declaration
@@ -370,7 +370,7 @@ type MultiAttrPoint = { x: int, y: int }
     assert_eq(actual: p.hash(), expected: cloned.hash())
 }
 
-@_use_multi (p: MultiAttrPoint) -> int = p.x
+@_use_multi (p: MultiAttrPoint) -> int = p.x;
 
 // =============================================================================
 // Derive on Generic Types
@@ -387,4 +387,4 @@ type GenericDerived<T: Eq> = { value: T }
     assert(cond: g1 != g3)
 }
 
-@_use_generic (g: GenericDerived<int>) -> int = g.value
+@_use_generic (g: GenericDerived<int>) -> int = g.value;

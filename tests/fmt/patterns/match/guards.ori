@@ -2,8 +2,8 @@
 // Spec: 10-patterns.md § match
 
 @classify_num (n: int) -> str = match n {
-    x.match(x > 10) -> "large",
-    x.match(x > 0) -> "small",
+    x if x > 10 -> "large",
+    x if x > 0 -> "small",
     0 -> "zero",
     _ -> "negative"
 }

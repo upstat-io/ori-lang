@@ -1168,3 +1168,19 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 - [ ] **Implement**: Blank-line-before-result enforcement
 - [ ] **Implement**: Match block formatting (arm alignment)
 - [ ] **Implement**: Contract formatting (pre/post between signature and `=`)
+
+#### Phase 6: Dead Code Cleanup — `FunctionSeq::Run` Removal
+> Parser removal done (Phase 2), but `FunctionSeq::Run` IR variant and all downstream consumers
+> remain as dead code. Requires coordinated removal across 6 crates (13+ files).
+> Blocked on Phase 3 (contracts) since `pre_checks`/`post_checks` live on `FunctionSeq::Run`.
+- [ ] **Remove**: `FunctionSeq::Run` variant from `ori_ir/src/ast/patterns/seq/mod.rs`
+- [ ] **Remove**: Formatter dead paths (marked with `TODO(§0.10-cleanup)`):
+  - `ori_fmt/src/formatter/stacked.rs` — `emit_function_seq()` Run arm + `emit_run_with_checks()`
+  - `ori_fmt/src/rules/run_rule.rs` — entire module (`RunRule`, `RunContext`, `is_run()`)
+  - `ori_fmt/src/width/mod.rs` — `FunctionSeq::Run` arm in width calculation
+- [ ] **Remove**: Type checker dead paths: `ori_types/src/infer/expr/sequences.rs`, `ori_types/src/infer/expr/mod.rs`
+- [ ] **Remove**: Canon lowering dead paths: `ori_canon/src/lower/sequences.rs`
+- [ ] **Remove**: Incremental copier dead paths: `ori_parse/src/incremental/copier.rs`
+- [ ] **Remove**: Visitor dead paths: `ori_ir/src/visitor.rs`
+- [ ] **Remove**: Test references: `ori_fmt/src/width/tests.rs`, `ori_ir/src/ast/patterns/seq/tests.rs`, `ori_types/src/infer/expr/tests.rs`
+- [ ] **Verify**: `./test-all.sh` passes after removal

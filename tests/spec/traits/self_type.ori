@@ -54,7 +54,7 @@ trait Doubler {
 type Number = { n: int }
 
 impl Doubler for Number {
-    @value (self) -> int = self.n
+    @value (self) -> int = self.n;
     @double (self) -> Self = Number { n: self.n * 2 }
 }
 

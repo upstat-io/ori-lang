@@ -12,14 +12,14 @@ use std.testing { assert_eq, assert_panics }
     assert_panics(f: () -> 9223372036854775807 + 1)
 }
 
-@add_overflow_max () -> int = 9223372036854775807
+@add_overflow_max () -> int = 9223372036854775807;
 
 // MIN + (-1) panics
 @test_add_overflow_min tests @add_overflow_min () -> void = {
     assert_panics(f: () -> -9223372036854775808 + -1)
 }
 
-@add_overflow_min () -> int = -9223372036854775808
+@add_overflow_min () -> int = -9223372036854775808;
 
 // MAX - 1 + 1 does NOT panic (near-boundary valid)
 @test_add_near_boundary_valid tests @add_near_boundary_valid () -> void = {
@@ -30,7 +30,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@add_near_boundary_valid () -> int = 9223372036854775806 + 1
+@add_near_boundary_valid () -> int = 9223372036854775806 + 1;
 
 // =============================================================================
 // Integer Overflow — Subtraction
@@ -41,14 +41,14 @@ use std.testing { assert_eq, assert_panics }
     assert_panics(f: () -> -9223372036854775808 - 1)
 }
 
-@sub_overflow_min () -> int = -9223372036854775808
+@sub_overflow_min () -> int = -9223372036854775808;
 
 // MAX - (-1) panics (equivalent to MAX + 1)
 @test_sub_overflow_max tests @sub_overflow_max () -> void = {
     assert_panics(f: () -> 9223372036854775807 - -1)
 }
 
-@sub_overflow_max () -> int = 9223372036854775807
+@sub_overflow_max () -> int = 9223372036854775807;
 
 // MIN + 1 - 1 does NOT panic (near-boundary valid)
 @test_sub_near_boundary_valid tests @sub_near_boundary_valid () -> void = {
@@ -59,7 +59,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@sub_near_boundary_valid () -> int = -9223372036854775807 - 1
+@sub_near_boundary_valid () -> int = -9223372036854775807 - 1;
 
 // =============================================================================
 // Integer Overflow — Multiplication
@@ -70,14 +70,14 @@ use std.testing { assert_eq, assert_panics }
     assert_panics(f: () -> 9223372036854775807 * 2)
 }
 
-@mul_overflow_max () -> int = 9223372036854775807
+@mul_overflow_max () -> int = 9223372036854775807;
 
 // MIN * 2 panics
 @test_mul_overflow_min tests @mul_overflow_min () -> void = {
     assert_panics(f: () -> -9223372036854775808 * 2)
 }
 
-@mul_overflow_min () -> int = -9223372036854775808
+@mul_overflow_min () -> int = -9223372036854775808;
 
 // =============================================================================
 // Division by Zero
@@ -88,21 +88,21 @@ use std.testing { assert_eq, assert_panics }
     assert_panics(f: () -> 1 / 0)
 }
 
-@div_by_zero () -> int = 1
+@div_by_zero () -> int = 1;
 
 // 1 % 0 panics
 @test_mod_by_zero tests @mod_by_zero () -> void = {
     assert_panics(f: () -> 1 % 0)
 }
 
-@mod_by_zero () -> int = 1
+@mod_by_zero () -> int = 1;
 
 // 0 / 0 panics
 @test_zero_div_zero tests @zero_div_zero () -> void = {
     assert_panics(f: () -> 0 / 0)
 }
 
-@zero_div_zero () -> int = 0
+@zero_div_zero () -> int = 0;
 
 // =============================================================================
 // Division Overflow — MIN / -1
@@ -113,7 +113,7 @@ use std.testing { assert_eq, assert_panics }
     assert_panics(f: () -> -9223372036854775808 / -1)
 }
 
-@div_overflow_min () -> int = -9223372036854775808
+@div_overflow_min () -> int = -9223372036854775808;
 
 // =============================================================================
 // Valid Boundary Operations (must NOT panic)
@@ -127,7 +127,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@max_add_zero () -> int = 9223372036854775807 + 0
+@max_add_zero () -> int = 9223372036854775807 + 0;
 
 // MIN + 0 = MIN
 @test_min_add_zero tests @min_add_zero () -> void = {
@@ -137,7 +137,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@min_add_zero () -> int = -9223372036854775808 + 0
+@min_add_zero () -> int = -9223372036854775808 + 0;
 
 // MAX * 1 = MAX
 @test_max_mul_one tests @max_mul_one () -> void = {
@@ -147,7 +147,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@max_mul_one () -> int = 9223372036854775807 * 1
+@max_mul_one () -> int = 9223372036854775807 * 1;
 
 // MIN * 1 = MIN
 @test_min_mul_one tests @min_mul_one () -> void = {
@@ -157,7 +157,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@min_mul_one () -> int = -9223372036854775808 * 1
+@min_mul_one () -> int = -9223372036854775808 * 1;
 
 // MAX - MAX = 0
 @test_max_sub_self tests @max_sub_self () -> void = {
@@ -167,7 +167,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@max_sub_self () -> int = 9223372036854775807 - 9223372036854775807
+@max_sub_self () -> int = 9223372036854775807 - 9223372036854775807;
 
 // MIN - MIN = 0
 @test_min_sub_self tests @min_sub_self () -> void = {
@@ -177,7 +177,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@min_sub_self () -> int = -9223372036854775808 - -9223372036854775808
+@min_sub_self () -> int = -9223372036854775808 - -9223372036854775808;
 
 // =============================================================================
 // Arithmetic Identity Properties at Boundaries
@@ -191,7 +191,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@max_mul_zero () -> int = 9223372036854775807 * 0
+@max_mul_zero () -> int = 9223372036854775807 * 0;
 
 // MIN * 0 = 0
 @test_min_mul_zero tests @min_mul_zero () -> void = {
@@ -201,7 +201,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@min_mul_zero () -> int = -9223372036854775808 * 0
+@min_mul_zero () -> int = -9223372036854775808 * 0;
 
 // MIN + MAX = -1
 @test_min_plus_max tests @min_plus_max () -> void = {
@@ -211,7 +211,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@min_plus_max () -> int = -9223372036854775808 + 9223372036854775807
+@min_plus_max () -> int = -9223372036854775808 + 9223372036854775807;
 
 // MAX / MAX = 1
 @test_max_div_self tests @max_div_self () -> void = {
@@ -221,7 +221,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@max_div_self () -> int = 9223372036854775807 / 9223372036854775807
+@max_div_self () -> int = 9223372036854775807 / 9223372036854775807;
 
 // =============================================================================
 // Remainder Semantics
@@ -235,7 +235,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@rem_negative_numerator () -> int = -7 % 3
+@rem_negative_numerator () -> int = -7 % 3;
 
 // 7 % -3 = 1 (sign follows numerator)
 @test_rem_negative_denominator tests @rem_negative_denominator () -> void = {
@@ -245,7 +245,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@rem_negative_denominator () -> int = 7 % -3
+@rem_negative_denominator () -> int = 7 % -3;
 
 // MAX % 2 = 1 (MAX is odd)
 @test_max_mod_2 tests @max_mod_2 () -> void = {
@@ -255,7 +255,7 @@ use std.testing { assert_eq, assert_panics }
     )
 }
 
-@max_mod_2 () -> int = 9223372036854775807 % 2
+@max_mod_2 () -> int = 9223372036854775807 % 2;
 
 // =============================================================================
 // Negation Overflow
@@ -266,4 +266,4 @@ use std.testing { assert_eq, assert_panics }
     assert_panics(f: () -> 0 - -9223372036854775808 - -9223372036854775808)
 }
 
-@neg_min_overflow () -> int = 0
+@neg_min_overflow () -> int = 0;

@@ -253,6 +253,15 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [x] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori` — tuple, struct, list destructuring with `$`
   - [ ] **LLVM Support**: LLVM codegen for destructure immutable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — destructure immutable codegen
+- [x] **Fix**: List rest binding `..rest` tracks `$` mutability (2026-02-20)
+  - [x] IR: `BindingPattern::List.rest` changed from `Option<Name>` to `Option<(Name, bool)>` (`ori_ir/src/ast/patterns/binding.rs:31`)
+  - [x] IR: `CanBindingPattern::List.rest` changed to `Option<(Name, bool)>` (`ori_ir/src/canon/patterns.rs:32`)
+  - [x] Parser: `parse_binding_pattern` handles `$` before rest identifier (`ori_parse/src/grammar/expr/primary.rs:1386`)
+  - [x] Type checker: `bind_pattern()` uses `bind_with_mutability()` for rest (`ori_types/src/infer/expr/sequences.rs:489`)
+  - [x] Evaluator: `bind_can_pattern()` uses per-binding `rest_mutable` (`ori_eval/src/interpreter/can_eval.rs:758`)
+  - [x] Canon: lowering passes through `(Name, bool)` tuple (`ori_canon/src/lower/patterns.rs:261`)
+  - [x] Formatter: emits `$` prefix on immutable rest bindings (`ori_fmt/src/formatter/patterns.rs:183`)
+  - [x] Grammar: `grammar.ebnf` updated to allow `[ "$" ]` on rest identifier (line 581)
 
 ### Semantic Analysis
 

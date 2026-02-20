@@ -146,7 +146,7 @@ fn test_aot_string_is_empty_false() {
 fn test_aot_option_is_some_true() {
     assert_aot_success(
         r#"
-@get () -> Option<int> = Some(42)
+@get () -> Option<int> = Some(42);
 
 @main () -> int = {
     let o = get();
@@ -161,7 +161,7 @@ fn test_aot_option_is_some_true() {
 fn test_aot_option_is_some_false() {
     assert_aot_success(
         r#"
-@get () -> Option<int> = None
+@get () -> Option<int> = None;
 
 @main () -> int = {
     let o = get();
@@ -176,7 +176,7 @@ fn test_aot_option_is_some_false() {
 fn test_aot_option_is_none_true() {
     assert_aot_success(
         r#"
-@get () -> Option<int> = None
+@get () -> Option<int> = None;
 
 @main () -> int = {
     let o = get();
@@ -191,7 +191,7 @@ fn test_aot_option_is_none_true() {
 fn test_aot_option_is_none_false() {
     assert_aot_success(
         r#"
-@get () -> Option<int> = Some(7)
+@get () -> Option<int> = Some(7);
 
 @main () -> int = {
     let o = get();
@@ -206,7 +206,7 @@ fn test_aot_option_is_none_false() {
 fn test_aot_option_unwrap_some() {
     assert_aot_success(
         r#"
-@get () -> Option<int> = Some(42)
+@get () -> Option<int> = Some(42);
 
 @main () -> int = {
     let o = get();
@@ -222,7 +222,7 @@ fn test_aot_option_unwrap_some() {
 fn test_aot_option_unwrap_or_some() {
     assert_aot_success(
         r#"
-@get () -> Option<int> = Some(42)
+@get () -> Option<int> = Some(42);
 
 @main () -> int = {
     let o = get();
@@ -238,7 +238,7 @@ fn test_aot_option_unwrap_or_some() {
 fn test_aot_option_unwrap_or_none() {
     assert_aot_success(
         r#"
-@get () -> Option<int> = None
+@get () -> Option<int> = None;
 
 @main () -> int = {
     let o = get();
@@ -256,7 +256,7 @@ fn test_aot_option_unwrap_or_none() {
 fn test_aot_result_is_ok_true() {
     assert_aot_success(
         r#"
-@get () -> Result<int, str> = Ok(42)
+@get () -> Result<int, str> = Ok(42);
 
 @main () -> int = {
     let r = get();
@@ -271,7 +271,7 @@ fn test_aot_result_is_ok_true() {
 fn test_aot_result_is_ok_false() {
     assert_aot_success(
         r#"
-@get () -> Result<int, str> = Err("bad")
+@get () -> Result<int, str> = Err("bad");
 
 @main () -> int = {
     let r = get();
@@ -286,7 +286,7 @@ fn test_aot_result_is_ok_false() {
 fn test_aot_result_is_err_true() {
     assert_aot_success(
         r#"
-@get () -> Result<int, str> = Err("bad")
+@get () -> Result<int, str> = Err("bad");
 
 @main () -> int = {
     let r = get();
@@ -301,7 +301,7 @@ fn test_aot_result_is_err_true() {
 fn test_aot_result_is_err_false() {
     assert_aot_success(
         r#"
-@get () -> Result<int, str> = Ok(42)
+@get () -> Result<int, str> = Ok(42);
 
 @main () -> int = {
     let r = get();
@@ -316,7 +316,7 @@ fn test_aot_result_is_err_false() {
 fn test_aot_result_unwrap_ok() {
     assert_aot_success(
         r#"
-@get () -> Result<int, str> = Ok(42)
+@get () -> Result<int, str> = Ok(42);
 
 @main () -> int = {
     let r = get();
@@ -499,9 +499,9 @@ fn test_aot_inherent_impl_method() {
 type Point = { x: int, y: int }
 
 impl Point {
-    @get_x (self) -> int = self.x
-    @get_y (self) -> int = self.y
-    @sum (self) -> int = self.x + self.y
+    @get_x (self) -> int = self.x;
+    @get_y (self) -> int = self.y;
+    @sum (self) -> int = self.x + self.y;
 }
 
 @main () -> int = {
@@ -523,8 +523,8 @@ fn test_aot_inherent_impl_with_params() {
 type Counter = { value: int }
 
 impl Counter {
-    @add (self, n: int) -> int = self.value + n
-    @is_above (self, threshold: int) -> bool = self.value > threshold
+    @add (self, n: int) -> int = self.value + n;
+    @is_above (self, threshold: int) -> bool = self.value > threshold;
 }
 
 @main () -> int = {
@@ -552,7 +552,7 @@ trait Describable {
 type Widget = { name: str }
 
 impl Describable for Widget {
-    @describe (self) -> str = self.name
+    @describe (self) -> str = self.name;
 }
 
 @main () -> int = {
@@ -577,8 +577,8 @@ trait Calculator {
 type Num = { value: int }
 
 impl Calculator for Num {
-    @add (self, n: int) -> int = self.value + n
-    @double (self) -> int = self.value * 2
+    @add (self, n: int) -> int = self.value + n;
+    @double (self) -> int = self.value * 2;
 }
 
 @main () -> int = {
@@ -600,13 +600,13 @@ fn test_aot_trait_default_method() {
         r#"
 trait Summarizable {
     @name (self) -> str
-    @summary (self) -> str = "Item: " + self.name()
+    @summary (self) -> str = "Item: " + self.name();
 }
 
 type Item = { label: str }
 
 impl Summarizable for Item {
-    @name (self) -> str = self.label
+    @name (self) -> str = self.label;
 }
 
 @main () -> int = {
@@ -632,11 +632,11 @@ trait Greetable {
 type Person = { name: str }
 
 impl Person {
-    @greet (self) -> str = "Hi, I'm " + self.name
+    @greet (self) -> str = "Hi, I'm " + self.name;
 }
 
 impl Greetable for Person {
-    @greet (self) -> str = "Hello from " + self.name
+    @greet (self) -> str = "Hello from " + self.name;
 }
 
 @main () -> int = {
@@ -658,9 +658,9 @@ fn test_aot_impl_method_field_access() {
 type Rect = { width: int, height: int }
 
 impl Rect {
-    @area (self) -> int = self.width * self.height
-    @perimeter (self) -> int = 2 * (self.width + self.height)
-    @is_square (self) -> bool = self.width == self.height
+    @area (self) -> int = self.width * self.height;
+    @perimeter (self) -> int = 2 * (self.width + self.height);
+    @is_square (self) -> bool = self.width == self.height;
 }
 
 @main () -> int = {
@@ -690,11 +690,11 @@ trait Printable {
 type Color = { r: int, g: int, b: int }
 
 impl Color {
-    @brightness (self) -> int = (self.r + self.g + self.b) / 3
+    @brightness (self) -> int = (self.r + self.g + self.b) / 3;
 }
 
 impl Printable for Color {
-    @to_str (self) -> str = "color"
+    @to_str (self) -> str = "color";
 }
 
 @main () -> int = {
@@ -719,7 +719,7 @@ fn test_aot_operator_trait_add() {
 type Point = { x: int, y: int }
 
 impl Add for Point {
-    type Output = Point
+    type Output = Point;
     @add (self, rhs: Point) -> Point = Point {
         x: self.x + rhs.x,
         y: self.y + rhs.y,
@@ -744,7 +744,7 @@ fn test_aot_operator_trait_sub() {
 type Point = { x: int, y: int }
 
 impl Sub for Point {
-    type Output = Point
+    type Output = Point;
     @subtract (self, rhs: Point) -> Point = Point {
         x: self.x - rhs.x,
         y: self.y - rhs.y,
@@ -769,7 +769,7 @@ fn test_aot_operator_trait_neg() {
 type Point = { x: int, y: int }
 
 impl Neg for Point {
-    type Output = Point
+    type Output = Point;
     @negate (self) -> Point = Point {
         x: -self.x,
         y: -self.y,
@@ -793,7 +793,7 @@ fn test_aot_operator_trait_mul_mixed() {
 type Vec2 = { x: int, y: int }
 
 impl Mul<int> for Vec2 {
-    type Output = Vec2
+    type Output = Vec2;
     @multiply (self, rhs: int) -> Vec2 = Vec2 {
         x: self.x * rhs,
         y: self.y * rhs,
@@ -817,7 +817,7 @@ fn test_aot_operator_trait_chained() {
 type Point = { x: int, y: int }
 
 impl Add for Point {
-    type Output = Point
+    type Output = Point;
     @add (self, rhs: Point) -> Point = Point {
         x: self.x + rhs.x,
         y: self.y + rhs.y,
@@ -825,7 +825,7 @@ impl Add for Point {
 }
 
 impl Sub for Point {
-    type Output = Point
+    type Output = Point;
     @subtract (self, rhs: Point) -> Point = Point {
         x: self.x - rhs.x,
         y: self.y - rhs.y,
@@ -851,12 +851,12 @@ fn test_aot_operator_trait_bitwise() {
 type Mask = { bits: int }
 
 impl BitAnd for Mask {
-    type Output = Mask
+    type Output = Mask;
     @bit_and (self, rhs: Mask) -> Mask = Mask { bits: self.bits & rhs.bits }
 }
 
 impl BitOr for Mask {
-    type Output = Mask
+    type Output = Mask;
     @bit_or (self, rhs: Mask) -> Mask = Mask { bits: self.bits | rhs.bits }
 }
 
@@ -879,7 +879,7 @@ fn test_aot_operator_trait_not() {
 type Toggle = { on: bool }
 
 impl Not for Toggle {
-    type Output = Toggle
+    type Output = Toggle;
     @not (self) -> Toggle = Toggle { on: !self.on }
 }
 
@@ -1369,8 +1369,8 @@ fn test_aot_str_hash_same_length_different_content() {
 fn test_aot_nested_option_equals() {
     assert_aot_success(
         r#"
-@wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
-@wrap_none () -> Option<Option<int>> = None
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x);
+@wrap_none () -> Option<Option<int>> = None;
 
 @main () -> int = {
     let a = wrap(x: Some(42));
@@ -1399,8 +1399,8 @@ fn test_aot_nested_option_equals() {
 fn test_aot_nested_option_compare() {
     assert_aot_success(
         r#"
-@wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
-@wrap_none () -> Option<Option<int>> = None
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x);
+@wrap_none () -> Option<Option<int>> = None;
 
 @main () -> int = {
     let a = wrap(x: Some(10));
@@ -1423,7 +1423,7 @@ fn test_aot_nested_option_compare() {
 fn test_aot_nested_option_hash() {
     assert_aot_success(
         r#"
-@wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
+@wrap (x: Option<int>) -> Option<Option<int>> = Some(x);
 
 @main () -> int = {
     let a = wrap(x: Some(42));
@@ -1449,7 +1449,7 @@ fn test_aot_nested_option_hash() {
 fn test_aot_option_tuple_equals() {
     assert_aot_success(
         r#"
-@wrap (t: (int, int)) -> Option<(int, int)> = Some(t)
+@wrap (t: (int, int)) -> Option<(int, int)> = Some(t);
 
 @main () -> int = {
     let a = wrap(t: (1, 2));

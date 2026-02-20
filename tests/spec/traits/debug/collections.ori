@@ -11,14 +11,14 @@ use std.testing { assert_eq }
     assert_eq(actual: [1, 2, 3].debug(), expected: "[1, 2, 3]")
 }
 
-@list_debug_ints () -> str = [1, 2, 3].debug()
+@list_debug_ints () -> str = [1, 2, 3].debug();
 
 @test_list_debug_strings tests @list_debug_strings () -> void = {
     // Strings inside list should be quoted
     assert_eq(actual: ["a", "b"].debug(), expected: "[\"a\", \"b\"]")
 }
 
-@list_debug_strings () -> str = ["a", "b"].debug()
+@list_debug_strings () -> str = ["a", "b"].debug();
 
 @test_list_debug_empty tests @list_debug_empty () -> void = {
     let empty: [int] = [];
@@ -34,7 +34,7 @@ use std.testing { assert_eq }
     assert_eq(actual: [[1, 2], [3]].debug(), expected: "[[1, 2], [3]]")
 }
 
-@list_debug_nested () -> str = [[1, 2], [3]].debug()
+@list_debug_nested () -> str = [[1, 2], [3]].debug();
 
 // =============================================================================
 // Map Debug
@@ -46,4 +46,4 @@ use std.testing { assert_eq }
     assert_eq(actual: m.debug(), expected: "{x: 1}")
 }
 
-@map_debug () -> str = { "x": 1 }.debug()
+@map_debug () -> str = { { "x": 1 }.debug() }

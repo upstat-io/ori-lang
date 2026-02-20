@@ -59,7 +59,7 @@ fn test_combine_hashes() {
 
 #[test]
 fn test_source_hasher_file() {
-    let path = create_temp_file("@main () -> void = print(msg: \"hello\")");
+    let path = create_temp_file("@main () -> void = print(msg: \"hello\");");
     let mut hasher = SourceHasher::new();
 
     let hash1 = hasher.hash_file(&path).unwrap();

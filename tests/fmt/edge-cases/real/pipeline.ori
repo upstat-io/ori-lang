@@ -17,7 +17,7 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
 //     let is_valid = record.valid,
 //     has_id && has_value && is_valid,
 // }
-@validate_record (record: DataRecord) -> bool = true
+@validate_record (record: DataRecord) -> bool = true;
 
 // TODO: LLVM backend doesn't support struct field access
 // @transform_record (record: DataRecord) -> ProcessedRecord = ProcessedRecord {
@@ -39,7 +39,7 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
 //         },
 //     result,
 // }
-@filter_by_category (records: [DataRecord], category: str) -> [DataRecord] = []
+@filter_by_category (records: [DataRecord], category: str) -> [DataRecord] = [];
 
 // TODO: LLVM backend doesn't support struct field access in for-loop iteration
 // @process_pipeline (records: [DataRecord]) -> [ProcessedRecord] = {
@@ -50,7 +50,7 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
 //     let transformed = for record in validated yield transform_record(record: record),
 //     transformed,
 // }
-@process_pipeline (records: [DataRecord]) -> [ProcessedRecord] = []
+@process_pipeline (records: [DataRecord]) -> [ProcessedRecord] = [];
 
 @compute_stats (input: [DataRecord], output: [ProcessedRecord]) -> PipelineStats = {
     let total = 0;

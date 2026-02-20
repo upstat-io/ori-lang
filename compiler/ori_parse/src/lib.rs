@@ -804,24 +804,33 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Expect a trailing semicolon after a top-level item.
+    /// Consume a trailing semicolon if present.
     ///
-    /// Items like `use`, `let $`, `capset`, and trait method signatures
-    /// always require `;`.
+    /// Used after items like `use`, `capset`, and trait method signatures
+    /// where `;` terminates the declaration but is not enforced by the parser.
     pub(crate) fn eat_optional_semicolon(&mut self) {
         if self.cursor.check(&TokenKind::Semicolon) {
             self.cursor.advance();
         }
     }
 
-    /// Consume a semicolon if the previous token was NOT `}`.
+    /// Consume a required trailing semicolon after an item with an expression body.
     ///
     /// Per grammar: function/test/method bodies that end with `}` (block body)
     /// don't need a trailing `;`. Non-block bodies (e.g., `@f () -> int = 42;`)
-    /// require `;` to terminate.
+    /// require `;` to terminate the declaration.
     pub(crate) fn eat_optional_item_semicolon(&mut self) {
         if self.cursor.check(&TokenKind::Semicolon) {
             self.cursor.advance();
+        } else if !self.cursor.previous_non_newline_is_rbrace() {
+            self.deferred_errors.push(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1016,
+                    "expected `;` after item declaration",
+                    self.cursor.current_span(),
+                )
+                .with_help("Block bodies ending with `}` don't need `;`, but expression bodies do"),
+            );
         }
     }
 
@@ -924,6 +933,9 @@ impl<'a> Parser<'a> {
 
                     state.stats.reused_count += 1;
                     self.skip_to_span_end(decl_ref.span);
+                    // Consume trailing `;` that was eaten by the original parse
+                    // but not included in the declaration span.
+                    self.eat_optional_semicolon();
                     continue;
                 }
             }

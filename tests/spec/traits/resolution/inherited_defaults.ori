@@ -8,7 +8,7 @@ use std.testing { assert_eq }
 // A has a default method; C should inherit it through B.
 
 trait A {
-    @greet (self) -> str = "hello from A"
+    @greet (self) -> str = "hello from A";
 }
 
 trait B: A {
@@ -24,11 +24,11 @@ type Item = { name: str }
 impl A for Item {}  // uses default greet from A
 
 impl B for Item {
-    @info (self) -> str = "info:" + self.name
+    @info (self) -> str = "info:" + self.name;
 }
 
 impl C for Item {
-    @label (self) -> str = "label:" + self.name
+    @label (self) -> str = "label:" + self.name;
 }
 
 // Test that default method from A is available

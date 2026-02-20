@@ -152,7 +152,7 @@ use std.testing { assert, assert_eq }
     Err(e) -> "err: " + e
 }
 
-type Status = Pending | Running(progress: int) | Done
+type Status = Pending | Running(progress: int) | Done;
 
 @test_sum_type_patterns tests @sum_type_patterns () -> void = {
     assert_eq(actual: sum_type_patterns(Pending), expected: "waiting");
@@ -531,7 +531,7 @@ type Rect = { x: int, y: int, width: int, height: int }
     (None, _) -> "none with nonempty list"
 }
 
-type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree)
+type Tree = Leaf(value: int) | Branch(left: Tree, right: Tree);
 
 @test_recursive_pattern tests @recursive_pattern () -> void = {
     let leaf = Leaf(42);

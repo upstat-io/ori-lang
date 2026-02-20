@@ -19,7 +19,7 @@ type IntBox = { value: int }
     assert_eq(actual: b.value, expected: 0)
 }
 
-@int_default () -> int = IntBox.default().value
+@int_default () -> int = IntBox.default().value;
 
 // float default = 0.0
 #[derive(Default, Eq)]
@@ -30,7 +30,7 @@ type FloatBox = { value: float }
     assert_eq(actual: b.value, expected: 0.0)
 }
 
-@float_default () -> float = FloatBox.default().value
+@float_default () -> float = FloatBox.default().value;
 
 // bool default = false
 #[derive(Default, Eq)]
@@ -41,7 +41,7 @@ type BoolBox = { value: bool }
     assert_eq(actual: b.value, expected: false)
 }
 
-@bool_default () -> bool = BoolBox.default().value
+@bool_default () -> bool = BoolBox.default().value;
 
 // str default = ""
 #[derive(Default, Eq)]
@@ -52,7 +52,7 @@ type StrBox = { value: str }
     assert_eq(actual: b.value, expected: "")
 }
 
-@str_default () -> str = StrBox.default().value
+@str_default () -> str = StrBox.default().value;
 
 // =============================================================================
 // Multiple Primitive Types in One Struct
@@ -88,14 +88,14 @@ type AllPrimitives = {
     assert_eq(actual: d, expected: 0ns)
 }
 
-@duration_default () -> Duration = Duration.default()
+@duration_default () -> Duration = Duration.default();
 
 @test_size_default tests @size_default () -> void = {
     let s = Size.default();
     assert_eq(actual: s, expected: 0b)
 }
 
-@size_default () -> Size = Size.default()
+@size_default () -> Size = Size.default();
 
 // =============================================================================
 // Default Produces Equal Values (idempotency)
@@ -107,7 +107,7 @@ type AllPrimitives = {
     assert(cond: p1.eq(other: p2))
 }
 
-@default_idempotent () -> bool = IntBox.default().eq(other: IntBox.default())
+@default_idempotent () -> bool = IntBox.default().eq(other: IntBox.default());
 
 // =============================================================================
 // Nested Struct Defaults
@@ -149,6 +149,6 @@ type Level3 = { child: Level2 }
     assert_eq(actual: l.child.child.value, expected: 0)
 }
 
-@deep_nesting_default () -> int = Level3.default().child.child.value
+@deep_nesting_default () -> int = Level3.default().child.child.value;
 
-@main () -> void = print(msg: "Default definition tests")
+@main () -> void = print(msg: "Default definition tests");

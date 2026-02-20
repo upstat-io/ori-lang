@@ -7,7 +7,7 @@ use std.testing { assert, assert_eq }
 // Unit Variants (Enum-like)
 // =============================================================================
 
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 @test_unit_red tests @_use_color () -> void = {
     let c = Red;
@@ -27,7 +27,7 @@ type Color = Red | Green | Blue
 @_use_color (c: Color) -> bool = match c { Red -> true, _ -> false}
 
 // More unit variants
-type Direction = North | South | East | West
+type Direction = North | South | East | West;
 
 @test_direction tests @_use_direction () -> void = {
     let d = North;
@@ -43,7 +43,7 @@ type Direction = North | South | East | West
 @_use_direction (d: Direction) -> int = match d { North -> 0, _ -> 1}
 
 // Binary enum
-type Toggle = On | Off
+type Toggle = On | Off;
 
 @test_toggle tests @_use_toggle () -> void = {
     let t = On;
@@ -57,7 +57,7 @@ type Toggle = On | Off
 // Single-Field Variants
 // =============================================================================
 
-type MyOption = MySome(value: int) | MyNone
+type MyOption = MySome(value: int) | MyNone;
 
 @test_single_field_some tests @_use_myoption () -> void = {
     let opt = MySome(value: 42);
@@ -80,7 +80,7 @@ type MyOption = MySome(value: int) | MyNone
 @_use_myoption (opt: MyOption) -> int = match opt { MySome(v) -> v, MyNone -> 0}
 
 // String payload
-type Message = Text(content: str) | Empty
+type Message = Text(content: str) | Empty;
 
 @test_string_payload tests @_use_message () -> void = {
     let m = Text(content: "hello");
@@ -97,7 +97,7 @@ type Message = Text(content: str) | Empty
 // Multi-Field Variants
 // =============================================================================
 
-type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int);
 
 @test_circle tests @_use_shape () -> void = {
     let s = Circle(radius: 5);
@@ -120,7 +120,7 @@ type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
 @_use_shape (s: Shape) -> int = match s { Circle(r) -> r, Rectangle(w, _) -> w}
 
 // Three fields
-type Point3D = Point(x: int, y: int, z: int)
+type Point3D = Point(x: int, y: int, z: int);
 
 @test_three_fields tests @_use_point3d () -> void = {
     let p = Point(x: 1, y: 2, z: 3);
@@ -134,7 +134,7 @@ type Point3D = Point(x: int, y: int, z: int)
 // Mixed Variant Types
 // =============================================================================
 
-type Event = Click(x: int, y: int) | KeyPress(key: char) | Quit
+type Event = Click(x: int, y: int) | KeyPress(key: char) | Quit;
 
 @test_click_event tests @_use_event () -> void = {
     let e = Click(x: 100, y: 200);
@@ -172,8 +172,8 @@ type Event = Click(x: int, y: int) | KeyPress(key: char) | Quit
 // Nested Sum Types
 // =============================================================================
 
-type Inner = A | B(value: int)
-type Outer = Wrap(inner: Inner) | Direct(n: int)
+type Inner = A | B(value: int);
+type Outer = Wrap(inner: Inner) | Direct(n: int);
 
 @test_nested_sum tests @_use_outer () -> void = {
     let o = Wrap(inner: B(value: 42));
@@ -190,7 +190,7 @@ type Outer = Wrap(inner: Inner) | Direct(n: int)
 // Generic Sum Types
 // =============================================================================
 
-type MyResult<T, E> = MyOk(value: T) | MyErr(error: E)
+type MyResult<T, E> = MyOk(value: T) | MyErr(error: E);
 
 @test_generic_ok tests @_use_result () -> void = {
     let r: MyResult<int, str> = MyOk(value: 42);
@@ -213,7 +213,7 @@ type MyResult<T, E> = MyOk(value: T) | MyErr(error: E)
 @_use_result (r: MyResult<int, str>) -> int = match r { MyOk(v) -> v, MyErr(_) -> 0}
 
 // Single type parameter
-type MyOptional<T> = MySome2(value: T) | MyNone2
+type MyOptional<T> = MySome2(value: T) | MyNone2;
 
 @test_generic_option tests @_use_myoptional () -> void = {
     let some: MyOptional<str> = MySome2(value: "hello");
@@ -232,7 +232,7 @@ type MyOptional<T> = MySome2(value: T) | MyNone2
 // Recursive Sum Types
 // =============================================================================
 
-type LinkedList<T> = Cons(head: T, tail: LinkedList<T>) | Nil
+type LinkedList<T> = Cons(head: T, tail: LinkedList<T>) | Nil;
 
 @test_recursive_list tests @_use_list () -> void = {
     let list: LinkedList<int> = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
@@ -245,7 +245,7 @@ type LinkedList<T> = Cons(head: T, tail: LinkedList<T>) | Nil
 
 @_use_list (l: LinkedList<int>) -> int = match l { Cons(h, _) -> h, Nil -> 0}
 
-type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)
+type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>);
 
 @test_tree tests @_use_tree () -> void = {
     let tree = Branch(
@@ -268,7 +268,7 @@ type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)
 // Exhaustiveness in Match
 // =============================================================================
 
-type Status = Pending | Running | Done | Failed
+type Status = Pending | Running | Done | Failed;
 
 @test_exhaustive_match tests @_use_status () -> void = {
     let s = Running;
@@ -332,7 +332,7 @@ type Status = Pending | Running | Done | Failed
 // Sum Types with Same Field Names
 // =============================================================================
 
-type Animal = Dog(name: str) | Cat(name: str) | Bird(name: str)
+type Animal = Dog(name: str) | Cat(name: str) | Bird(name: str);
 
 @test_same_field_names tests @_use_animal () -> void = {
     let a = Cat(name: "Whiskers");
@@ -350,7 +350,7 @@ type Animal = Dog(name: str) | Cat(name: str) | Bird(name: str)
 // Sum Types with Struct-like Variants
 // =============================================================================
 
-type Response = Success(code: int, body: str) | Error(code: int, message: str)
+type Response = Success(code: int, body: str) | Error(code: int, message: str);
 
 @test_struct_variant tests @_use_response () -> void = {
     let r = Success(code: 200, body: "OK");
@@ -367,7 +367,7 @@ type Response = Success(code: int, body: str) | Error(code: int, message: str)
 // Public Sum Types
 // =============================================================================
 
-pub type PublicStatus = Active | Inactive
+pub type PublicStatus = Active | Inactive;
 
 @test_public_sum tests @_use_public_status () -> void = {
     let s = Active;
@@ -394,7 +394,7 @@ pub type PublicStatus = Active | Inactive
 // Sum Type as Return Type
 // =============================================================================
 
-@make_status (active: bool) -> PublicStatus = if active then Active else Inactive
+@make_status (active: bool) -> PublicStatus = if active then Active else Inactive;
 
 @test_sum_return tests @make_status () -> void = {
     let s1 = make_status(active: true);
@@ -417,7 +417,7 @@ pub type PublicStatus = Active | Inactive
 // Sum Type with Boolean Payload
 // =============================================================================
 
-type Condition = True(reason: str) | False(reason: str)
+type Condition = True(reason: str) | False(reason: str);
 
 @test_bool_sum tests @_use_condition () -> void = {
     let c = True(reason: "passed check");
@@ -435,7 +435,7 @@ type Condition = True(reason: str) | False(reason: str)
 // =============================================================================
 
 #[derive(Eq)]
-type EqColor = EqRed | EqGreen | EqBlue
+type EqColor = EqRed | EqGreen | EqBlue;
 
 @test_sum_eq tests @_use_eq_color () -> void = {
     let c1 = EqRed;
@@ -448,7 +448,7 @@ type EqColor = EqRed | EqGreen | EqBlue
 @_use_eq_color (c: EqColor) -> bool = match c { EqRed -> true, _ -> false}
 
 #[derive(Eq)]
-type EqOption = EqSome(value: int) | EqNone
+type EqOption = EqSome(value: int) | EqNone;
 
 @test_payload_eq tests @_use_eq_option () -> void = {
     let a = EqSome(value: 42);
@@ -466,7 +466,7 @@ type EqOption = EqSome(value: int) | EqNone
 // Complex Nested Match
 // =============================================================================
 
-type Expr = Num(n: int) | Add(left: Expr, right: Expr) | Mul(left: Expr, right: Expr)
+type Expr = Num(n: int) | Add(left: Expr, right: Expr) | Mul(left: Expr, right: Expr);
 
 @eval_expr (e: Expr) -> int = match e {
     Num(n) -> n,

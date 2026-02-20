@@ -11,7 +11,7 @@ use std.testing { assert, assert_eq }
 // All-Named Calls
 // =============================================================================
 
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 @test_all_named tests @add () -> void = {
     assert_eq(actual: add(a: 1, b: 2), expected: 3);
@@ -19,7 +19,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: add(a: -5, b: 10), expected: 5)
 }
 
-@combine (a: int, b: int, c: int) -> int = a * b + c
+@combine (a: int, b: int, c: int) -> int = a * b + c;
 
 @test_three_named tests @combine () -> void = {
     assert_eq(actual: combine(a: 2, b: 3, c: 4), expected: 10);
@@ -31,7 +31,7 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 // The desugar pass must reorder args to match declaration order.
 
-@subtract (a: int, b: int) -> int = a - b
+@subtract (a: int, b: int) -> int = a - b;
 
 @test_reordered_two tests @subtract () -> void = {
     // b: before a: — should still evaluate as a - b
@@ -39,7 +39,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: subtract(b: 100, a: 50), expected: -50)
 }
 
-@three_arg (x: int, y: int, z: int) -> int = x * 100 + y * 10 + z
+@three_arg (x: int, y: int, z: int) -> int = x * 100 + y * 10 + z;
 
 @test_reordered_three tests @three_arg () -> void = {
     // All permutations produce the same result
@@ -50,7 +50,7 @@ use std.testing { assert, assert_eq }
 }
 
 // Non-commutative operations are the real test — wrong order gives wrong result
-@format_pair (first: str, second: str) -> str = first + " and " + second
+@format_pair (first: str, second: str) -> str = first + " and " + second;
 
 @test_reordered_str tests @format_pair () -> void = {
     assert_eq(actual: format_pair(first: "A", second: "B"), expected: "A and B");
@@ -61,7 +61,7 @@ use std.testing { assert, assert_eq }
 // Named Arguments with Default Parameters
 // =============================================================================
 
-@greet (name: str = "World") -> str = "Hello, " + name
+@greet (name: str = "World") -> str = "Hello, " + name;
 
 @test_default_used tests @greet () -> void = {
     assert_eq(actual: greet(), expected: "Hello, World")
@@ -71,7 +71,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice")
 }
 
-@with_two_defaults (a: int = 1, b: int = 2) -> int = a + b
+@with_two_defaults (a: int = 1, b: int = 2) -> int = a + b;
 
 @test_both_defaults tests @with_two_defaults () -> void = {
     assert_eq(actual: with_two_defaults(), expected: 3)
@@ -93,7 +93,7 @@ use std.testing { assert, assert_eq }
 // Mixed Required and Optional Parameters
 // =============================================================================
 
-@mixed (required: int, optional: int = 100) -> int = required + optional
+@mixed (required: int, optional: int = 100) -> int = required + optional;
 
 @test_mixed_all tests @mixed () -> void = {
     assert_eq(actual: mixed(required: 5, optional: 10), expected: 15)
@@ -107,7 +107,7 @@ use std.testing { assert, assert_eq }
 // Default Expressions (not just literals)
 // =============================================================================
 
-@expr_default (x: int = 2 + 3) -> int = x
+@expr_default (x: int = 2 + 3) -> int = x;
 
 @test_expr_default_used tests @expr_default () -> void = {
     assert_eq(actual: expr_default(), expected: 5)
@@ -117,7 +117,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: expr_default(x: 10), expected: 10)
 }
 
-@complex_default (n: int = 10 * 5 - 7) -> int = n
+@complex_default (n: int = 10 * 5 - 7) -> int = n;
 
 @test_complex_default tests @complex_default () -> void = {
     assert_eq(actual: complex_default(), expected: 43)

@@ -12,20 +12,20 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: bitand_basic(), expected: 8)
 }
 
-@bitand_basic () -> int = 12 & 10
+@bitand_basic () -> int = 12 & 10;
 
 @test_bitand_zero tests @bitand_zero () -> void = {
     assert_eq(actual: bitand_zero(), expected: 0)
 }
 
-@bitand_zero () -> int = 255 & 0
+@bitand_zero () -> int = 255 & 0;
 
 @test_bitand_identity tests @bitand_identity () -> void = {
     // x & -1 = x (all bits set)
     assert_eq(actual: bitand_identity(), expected: 42)
 }
 
-@bitand_identity () -> int = 42 & -1
+@bitand_identity () -> int = 42 & -1;
 
 @test_bitand_self tests @bitand_self () -> void = {
     assert_eq(actual: bitand_self(), expected: 42)
@@ -41,7 +41,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: bitand_mask(), expected: 5)
 }
 
-@bitand_mask () -> int = 0xFF5 & 0xF
+@bitand_mask () -> int = 0xFF5 & 0xF;
 
 // =============================================================================
 // Bitwise OR (|)
@@ -52,13 +52,13 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: bitor_basic(), expected: 14)
 }
 
-@bitor_basic () -> int = 12 | 10
+@bitor_basic () -> int = 12 | 10;
 
 @test_bitor_zero tests @bitor_zero () -> void = {
     assert_eq(actual: bitor_zero(), expected: 255)
 }
 
-@bitor_zero () -> int = 255 | 0
+@bitor_zero () -> int = 255 | 0;
 
 @test_bitor_self tests @bitor_self () -> void = {
     assert_eq(actual: bitor_self(), expected: 42)
@@ -74,7 +74,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: bitor_combine(), expected: 0xFF)
 }
 
-@bitor_combine () -> int = 0xF0 | 0x0F
+@bitor_combine () -> int = 0xF0 | 0x0F;
 
 // =============================================================================
 // Bitwise XOR (^)
@@ -85,13 +85,13 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: bitxor_basic(), expected: 6)
 }
 
-@bitxor_basic () -> int = 12 ^ 10
+@bitxor_basic () -> int = 12 ^ 10;
 
 @test_bitxor_zero tests @bitxor_zero () -> void = {
     assert_eq(actual: bitxor_zero(), expected: 255)
 }
 
-@bitxor_zero () -> int = 255 ^ 0
+@bitxor_zero () -> int = 255 ^ 0;
 
 @test_bitxor_self tests @bitxor_self () -> void = {
     // x ^ x = 0
@@ -109,7 +109,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: x ^ -1, expected: ~x)
 }
 
-@bitxor_inverse () -> int = 42 ^ -1
+@bitxor_inverse () -> int = 42 ^ -1;
 
 @test_bitxor_toggle tests @bitxor_toggle () -> void = {
     // Toggle specific bit
@@ -120,7 +120,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: toggled_back, expected: 0b1000)
 }
 
-@bitxor_toggle () -> int = 0b1000 ^ 0b1000
+@bitxor_toggle () -> int = 0b1000 ^ 0b1000;
 
 // =============================================================================
 // Bitwise NOT (~)
@@ -131,28 +131,28 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: bitnot_zero(), expected: -1)
 }
 
-@bitnot_zero () -> int = ~0
+@bitnot_zero () -> int = ~0;
 
 @test_bitnot_minus_one tests @bitnot_minus_one () -> void = {
     // ~(-1) = 0
     assert_eq(actual: bitnot_minus_one(), expected: 0)
 }
 
-@bitnot_minus_one () -> int = ~(-1)
+@bitnot_minus_one () -> int = ~(-1);
 
 @test_bitnot_positive tests @bitnot_positive () -> void = {
     // ~x = -(x + 1)
     assert_eq(actual: bitnot_positive(), expected: -6)
 }
 
-@bitnot_positive () -> int = ~5
+@bitnot_positive () -> int = ~5;
 
 @test_bitnot_double tests @bitnot_double () -> void = {
     // ~~x = x
     assert_eq(actual: bitnot_double(), expected: 42)
 }
 
-@bitnot_double () -> int = ~~42
+@bitnot_double () -> int = ~~42;
 
 // =============================================================================
 // Left Shift (<<)
@@ -163,27 +163,27 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: shl_basic(), expected: 8)
 }
 
-@shl_basic () -> int = 1 << 3
+@shl_basic () -> int = 1 << 3;
 
 @test_shl_zero tests @shl_zero () -> void = {
     assert_eq(actual: shl_zero(), expected: 42)
 }
 
-@shl_zero () -> int = 42 << 0
+@shl_zero () -> int = 42 << 0;
 
 @test_shl_multiply tests @shl_multiply () -> void = {
     // x << n = x * 2^n
     assert_eq(actual: shl_multiply(), expected: 80)
 }
 
-@shl_multiply () -> int = 5 << 4
+@shl_multiply () -> int = 5 << 4;
 
 @test_shl_negative_value tests @shl_negative_value () -> void = {
     // Left shift of negative value
     assert_eq(actual: shl_negative_value(), expected: -16)
 }
 
-@shl_negative_value () -> int = -2 << 3
+@shl_negative_value () -> int = -2 << 3;
 
 // Per spec, shift overflow panics (e.g. 1 << 63 overflows into sign bit).
 @test_shl_overflow_panic tests @shl_overflow_panic () -> void = {
@@ -191,21 +191,21 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_panics(f: () -> 1 << 63)
 }
 
-@shl_overflow_panic () -> int = 1 << 63
+@shl_overflow_panic () -> int = 1 << 63;
 
 @test_shl_bit_width_panic tests @shl_bit_width_panic () -> void = {
     // Shift count >= bit width should panic
     assert_panics(f: () -> 1 << 64)
 }
 
-@shl_bit_width_panic () -> int = 1 << 64
+@shl_bit_width_panic () -> int = 1 << 64;
 
 @test_shl_negative_count_panic tests @shl_negative_count_panic () -> void = {
     // Negative shift count should panic
     assert_panics(f: () -> 1 << -1)
 }
 
-@shl_negative_count_panic () -> int = 1 << -1
+@shl_negative_count_panic () -> int = 1 << -1;
 
 // =============================================================================
 // Right Shift (>>)
@@ -216,41 +216,41 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: shr_basic(), expected: 1)
 }
 
-@shr_basic () -> int = 8 >> 3
+@shr_basic () -> int = 8 >> 3;
 
 @test_shr_zero tests @shr_zero () -> void = {
     assert_eq(actual: shr_zero(), expected: 42)
 }
 
-@shr_zero () -> int = 42 >> 0
+@shr_zero () -> int = 42 >> 0;
 
 @test_shr_divide tests @shr_divide () -> void = {
     // x >> n = x / 2^n (for positive x)
     assert_eq(actual: shr_divide(), expected: 5)
 }
 
-@shr_divide () -> int = 80 >> 4
+@shr_divide () -> int = 80 >> 4;
 
 @test_shr_negative_value tests @shr_negative_value () -> void = {
     // Arithmetic right shift preserves sign
     assert_eq(actual: shr_negative_value(), expected: -2)
 }
 
-@shr_negative_value () -> int = -16 >> 3
+@shr_negative_value () -> int = -16 >> 3;
 
 @test_shr_bit_width_panic tests @shr_bit_width_panic () -> void = {
     // Shift count >= bit width should panic
     assert_panics(f: () -> 1 >> 64)
 }
 
-@shr_bit_width_panic () -> int = 1 >> 64
+@shr_bit_width_panic () -> int = 1 >> 64;
 
 @test_shr_negative_count_panic tests @shr_negative_count_panic () -> void = {
     // Negative shift count should panic
     assert_panics(f: () -> 1 >> -1)
 }
 
-@shr_negative_count_panic () -> int = 1 >> -1
+@shr_negative_count_panic () -> int = 1 >> -1;
 
 // =============================================================================
 // Byte Operations (requires `as` conversion - NOT YET IMPLEMENTED)
@@ -277,7 +277,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: and_before_or(), expected: 14)
 }
 
-@and_before_or () -> int = 0b1100 | 0b1010 & 0b0011
+@and_before_or () -> int = 0b1100 | 0b1010 & 0b0011;
 
 @test_xor_between_and_or tests @xor_between_and_or () -> void = {
     // Precedence: & > ^ > |
@@ -289,7 +289,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: xor_between_and_or(), expected: 15)
 }
 
-@xor_between_and_or () -> int = 0b1111 | 0b1100 ^ 0b1010 & 0b0011
+@xor_between_and_or () -> int = 0b1111 | 0b1100 ^ 0b1010 & 0b0011;
 
 @test_shift_before_bitwise tests @shift_before_bitwise () -> void = {
     // << and >> have higher precedence than &
@@ -297,7 +297,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: shift_before_bitwise(), expected: 4)
 }
 
-@shift_before_bitwise () -> int = 1 << 2 & 0xF
+@shift_before_bitwise () -> int = 1 << 2 & 0xF;
 
 // =============================================================================
 // Chained Operations
@@ -307,20 +307,20 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: chain_and(), expected: 0)
 }
 
-@chain_and () -> int = 0xFF & 0xF0 & 0x0F
+@chain_and () -> int = 0xFF & 0xF0 & 0x0F;
 
 @test_chain_or tests @chain_or () -> void = {
     assert_eq(actual: chain_or(), expected: 0xFF)
 }
 
-@chain_or () -> int = 0xF0 | 0x0F | 0x00
+@chain_or () -> int = 0xF0 | 0x0F | 0x00;
 
 @test_chain_xor tests @chain_xor () -> void = {
     // 0b1100 ^ 0b1010 ^ 0b0110 = 0b0110 ^ 0b0110 = 0
     assert_eq(actual: chain_xor(), expected: 0)
 }
 
-@chain_xor () -> int = 0b1100 ^ 0b1010 ^ 0b0110
+@chain_xor () -> int = 0b1100 ^ 0b1010 ^ 0b0110;
 
 // =============================================================================
 // Common Patterns
@@ -347,7 +347,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: with_bit1, expected: 0b1010)
 }
 
-@set_bit () -> int = 0b1000 | 0b0010
+@set_bit () -> int = 0b1000 | 0b0010;
 
 @test_clear_bit tests @clear_bit () -> void = {
     let value = 0b1010;
@@ -355,7 +355,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: without_bit1, expected: 0b1000)
 }
 
-@clear_bit () -> int = 0b1010 & ~0b0010
+@clear_bit () -> int = 0b1010 & ~0b0010;
 
 @test_toggle_bit tests @toggle_bit () -> void = {
     let value = 0b1010;
@@ -363,7 +363,7 @@ use std.testing { assert, assert_eq, assert_panics }
     assert_eq(actual: toggled, expected: 0b1000)
 }
 
-@toggle_bit () -> int = 0b1010 ^ 0b0010
+@toggle_bit () -> int = 0b1010 ^ 0b0010;
 
 @test_is_power_of_two tests @is_power_of_two () -> void = {
     // n is power of 2 if n > 0 && (n & (n - 1)) == 0

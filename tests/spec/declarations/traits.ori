@@ -14,7 +14,7 @@ trait Describable {
 type Item = { name: str }
 
 impl Describable for Item {
-    @describe (self) -> str = self.name
+    @describe (self) -> str = self.name;
 }
 
 @test_basic_trait tests @_use_item () -> void = {
@@ -22,7 +22,7 @@ impl Describable for Item {
     assert_eq(actual: item.describe(), expected: "widget")
 }
 
-@_use_item (i: Item) -> str = i.name
+@_use_item (i: Item) -> str = i.name;
 
 // =============================================================================
 // Trait with Multiple Methods
@@ -36,8 +36,8 @@ trait Geometric {
 type Square = { side: int }
 
 impl Geometric for Square {
-    @area (self) -> int = self.side * self.side
-    @perimeter (self) -> int = 4 * self.side
+    @area (self) -> int = self.side * self.side;
+    @perimeter (self) -> int = 4 * self.side;
 }
 
 @test_multiple_methods tests @_use_square () -> void = {
@@ -46,14 +46,14 @@ impl Geometric for Square {
     assert_eq(actual: s.perimeter(), expected: 20)
 }
 
-@_use_square (s: Square) -> int = s.side
+@_use_square (s: Square) -> int = s.side;
 
 // =============================================================================
 // Trait with Default Method
 // =============================================================================
 
 trait Greetable {
-    @greet (self) -> str = "Hello"
+    @greet (self) -> str = "Hello";
 }
 
 type Person = { name: str }
@@ -67,13 +67,13 @@ impl Greetable for Person {
     assert_eq(actual: p.greet(), expected: "Hello")
 }
 
-@_use_person (p: Person) -> str = p.name
+@_use_person (p: Person) -> str = p.name;
 
 // Override default
 type VIP = { name: str }
 
 impl Greetable for VIP {
-    @greet (self) -> str = "Welcome, esteemed " + self.name
+    @greet (self) -> str = "Welcome, esteemed " + self.name;
 }
 
 @test_override_default tests @_use_vip () -> void = {
@@ -81,7 +81,7 @@ impl Greetable for VIP {
     assert_eq(actual: v.greet(), expected: "Welcome, esteemed Guest")
 }
 
-@_use_vip (v: VIP) -> str = v.name
+@_use_vip (v: VIP) -> str = v.name;
 
 // =============================================================================
 // Trait Inheritance
@@ -98,11 +98,11 @@ trait Derived: Base {
 type Widget = { id: int }
 
 impl Base for Widget {
-    @base_method (self) -> int = self.id
+    @base_method (self) -> int = self.id;
 }
 
 impl Derived for Widget {
-    @derived_method (self) -> int = self.id * 2
+    @derived_method (self) -> int = self.id * 2;
 }
 
 @test_trait_inheritance tests @_use_widget () -> void = {
@@ -111,7 +111,7 @@ impl Derived for Widget {
     assert_eq(actual: w.derived_method(), expected: 10)
 }
 
-@_use_widget (w: Widget) -> int = w.id
+@_use_widget (w: Widget) -> int = w.id;
 
 // Multiple inheritance
 trait A {
@@ -129,15 +129,15 @@ trait C: A + B {
 type Triple = { value: int }
 
 impl A for Triple {
-    @method_a (self) -> int = self.value
+    @method_a (self) -> int = self.value;
 }
 
 impl B for Triple {
-    @method_b (self) -> int = self.value * 2
+    @method_b (self) -> int = self.value * 2;
 }
 
 impl C for Triple {
-    @method_c (self) -> int = self.value * 3
+    @method_c (self) -> int = self.value * 3;
 }
 
 @test_multiple_inheritance tests @_use_triple () -> void = {
@@ -147,7 +147,7 @@ impl C for Triple {
     assert_eq(actual: t.method_c(), expected: 30)
 }
 
-@_use_triple (t: Triple) -> int = t.value
+@_use_triple (t: Triple) -> int = t.value;
 
 // =============================================================================
 // Associated Types
@@ -161,8 +161,8 @@ trait Container {
 type IntBox = { value: int }
 
 impl Container for IntBox {
-    type Item = int
-    @get (self) -> int = self.value
+    type Item = int;
+    @get (self) -> int = self.value;
 }
 
 @test_associated_type tests @_use_intbox () -> void = {
@@ -170,13 +170,13 @@ impl Container for IntBox {
     assert_eq(actual: box.get(), expected: 42)
 }
 
-@_use_intbox (b: IntBox) -> int = b.value
+@_use_intbox (b: IntBox) -> int = b.value;
 
 type StrBox = { value: str }
 
 impl Container for StrBox {
-    type Item = str
-    @get (self) -> str = self.value
+    type Item = str;
+    @get (self) -> str = self.value;
 }
 
 @test_associated_type_str tests @_use_strbox () -> void = {
@@ -184,14 +184,14 @@ impl Container for StrBox {
     assert_eq(actual: box.get(), expected: "hello")
 }
 
-@_use_strbox (b: StrBox) -> str = b.value
+@_use_strbox (b: StrBox) -> str = b.value;
 
 // =============================================================================
 // Default Associated Types
 // =============================================================================
 
 trait Processor {
-    type Output = int  // Default associated type
+    type Output = int  // Default associated type;
     @process (self) -> Self.Output
 }
 
@@ -199,7 +199,7 @@ type Counter = { count: int }
 
 impl Processor for Counter {
     // Uses default Output = int
-    @process (self) -> int = self.count * 2
+    @process (self) -> int = self.count * 2;
 }
 
 @test_default_assoc_type tests @_use_counter () -> void = {
@@ -207,13 +207,13 @@ impl Processor for Counter {
     assert_eq(actual: c.process(), expected: 10)
 }
 
-@_use_counter (c: Counter) -> int = c.count
+@_use_counter (c: Counter) -> int = c.count;
 
 type StrProcessor = { prefix: str }
 
 impl Processor for StrProcessor {
-    type Output = str  // Override default
-    @process (self) -> str = self.prefix + "!"
+    type Output = str  // Override default;
+    @process (self) -> str = self.prefix + "!";
 }
 
 @test_override_assoc_type tests @_use_str_proc () -> void = {
@@ -221,7 +221,7 @@ impl Processor for StrProcessor {
     assert_eq(actual: p.process(), expected: "hello!")
 }
 
-@_use_str_proc (p: StrProcessor) -> str = p.prefix
+@_use_str_proc (p: StrProcessor) -> str = p.prefix;
 
 // =============================================================================
 // Default Type Parameters
@@ -245,7 +245,7 @@ impl Addable for Point {
     assert_eq(actual: sum.y, expected: 6)
 }
 
-@_use_point (p: Point) -> int = p.x
+@_use_point (p: Point) -> int = p.x;
 
 // Multiple default type params
 trait Transform<Input = Self, Output = Input> {
@@ -265,7 +265,7 @@ type MyBox = { inner: int }
 
 impl Wrapper<int> for MyBox {
     @wrap (value: int) -> Self = MyBox { inner: value }
-    @unwrap (self) -> int = self.inner
+    @unwrap (self) -> int = self.inner;
 }
 
 @test_generic_trait tests @_use_mybox () -> void = {
@@ -273,7 +273,7 @@ impl Wrapper<int> for MyBox {
     assert_eq(actual: b.unwrap(), expected: 42)
 }
 
-@_use_mybox (b: MyBox) -> int = b.inner
+@_use_mybox (b: MyBox) -> int = b.inner;
 
 // =============================================================================
 // Self Type in Traits
@@ -295,7 +295,7 @@ impl Clonable for Copyable {
     assert_eq(actual: copy.value, expected: 42)
 }
 
-@_use_copyable (c: Copyable) -> int = c.value
+@_use_copyable (c: Copyable) -> int = c.value;
 
 // =============================================================================
 // Associated Functions in Traits
@@ -317,7 +317,7 @@ impl Factory for Product {
     assert_eq(actual: p.id, expected: 1)
 }
 
-@_use_product (p: Product) -> int = p.id
+@_use_product (p: Product) -> int = p.id;
 
 // =============================================================================
 // Inherent Impl (not trait impl)
@@ -328,7 +328,7 @@ type Calculator = { value: int }
 impl Calculator {
     @new (value: int) -> Self = Calculator { value }
     @add (self, n: int) -> Self = Calculator { value: self.value + n }
-    @get (self) -> int = self.value
+    @get (self) -> int = self.value;
 }
 
 @test_inherent_impl tests @_use_calculator () -> void = {
@@ -337,7 +337,7 @@ impl Calculator {
     assert_eq(actual: c2.get(), expected: 15)
 }
 
-@_use_calculator (c: Calculator) -> int = c.value
+@_use_calculator (c: Calculator) -> int = c.value;
 
 // =============================================================================
 // Generic Implementation
@@ -350,7 +350,7 @@ trait Stringify {
 type GenericBox<T> = { value: T }
 
 impl<T: Printable> Stringify for GenericBox<T> {
-    @to_string (self) -> str = self.value.to_str()
+    @to_string (self) -> str = self.value.to_str();
 }
 
 @test_generic_impl tests @_use_gen_box () -> void = {
@@ -358,7 +358,7 @@ impl<T: Printable> Stringify for GenericBox<T> {
     assert_eq(actual: b.to_string(), expected: "42")
 }
 
-@_use_gen_box (b: GenericBox<int>) -> int = b.value
+@_use_gen_box (b: GenericBox<int>) -> int = b.value;
 
 // =============================================================================
 // Multiple Traits on Same Type
@@ -375,11 +375,11 @@ trait Aged {
 type Entity = { name: str, age: int }
 
 impl Named for Entity {
-    @name (self) -> str = self.name
+    @name (self) -> str = self.name;
 }
 
 impl Aged for Entity {
-    @age (self) -> int = self.age
+    @age (self) -> int = self.age;
 }
 
 @test_multiple_traits tests @_use_entity () -> void = {
@@ -388,7 +388,7 @@ impl Aged for Entity {
     assert_eq(actual: e.age(), expected: 30)
 }
 
-@_use_entity (e: Entity) -> str = e.name
+@_use_entity (e: Entity) -> str = e.name;
 
 // =============================================================================
 // Trait Bounds in Functions
@@ -397,14 +397,14 @@ impl Aged for Entity {
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - no method 'to_str' on primitives
 // Primitives (int, str, etc.) do not have trait methods registered in the evaluator.
 
-@stringify<T: Printable> (val: T) -> str = val.to_str()
+@stringify<T: Printable> (val: T) -> str = val.to_str();
 
 @test_trait_bound tests @stringify () -> void = {
     assert_eq(actual: stringify(val: 42), expected: "42");
     assert_eq(actual: stringify(val: "hello"), expected: "hello")
 }
 
-@compare_eq<T: Eq> (a: T, b: T) -> bool = a == b
+@compare_eq<T: Eq> (a: T, b: T) -> bool = a == b;
 
 @test_eq_bound tests @compare_eq () -> void = {
     assert(cond: compare_eq(a: 42, b: 42));
@@ -418,7 +418,7 @@ impl Aged for Entity {
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - no method 'clone' on primitives
 // Primitives (int, str, etc.) do not have trait methods registered in the evaluator.
 
-@clone_and_stringify<T: Clone + Printable> (val: T) -> str = val.clone().to_str()
+@clone_and_stringify<T: Clone + Printable> (val: T) -> str = val.clone().to_str();
 
 @test_multi_bound tests @clone_and_stringify () -> void = {
     assert_eq(actual: clone_and_stringify(val: 42), expected: "42")
@@ -432,7 +432,7 @@ impl Aged for Entity {
 // Primitives (int, str, etc.) do not have trait methods registered in the evaluator.
 
 @hash_equal<T> (a: T, b: T) -> bool where T: Eq, T: Hashable =
-    a == b && a.hash() == b.hash()
+    a == b && a.hash() == b.hash();
 
 @test_where_trait tests @hash_equal () -> void = {
     assert(cond: hash_equal(a: 42, b: 42))
@@ -459,7 +459,7 @@ impl Scalable for Vector {
     assert_eq(actual: scaled.y, expected: 9)
 }
 
-@_use_vector (v: Vector) -> int = v.x
+@_use_vector (v: Vector) -> int = v.x;
 
 // =============================================================================
 // Public Traits
@@ -472,7 +472,7 @@ pub trait PublicTrait {
 type PublicImpl = { value: int }
 
 impl PublicTrait for PublicImpl {
-    @public_method (self) -> int = self.value
+    @public_method (self) -> int = self.value;
 }
 
 @test_public_trait tests @_use_public () -> void = {
@@ -480,7 +480,7 @@ impl PublicTrait for PublicImpl {
     assert_eq(actual: p.public_method(), expected: 42)
 }
 
-@_use_public (p: PublicImpl) -> int = p.value
+@_use_public (p: PublicImpl) -> int = p.value;
 
 // =============================================================================
 // Trait with Complex Return Type
@@ -493,7 +493,7 @@ trait Optional {
 type MaybeValue = { value: Option<int> }
 
 impl Optional for MaybeValue {
-    @try_get (self) -> Option<int> = self.value
+    @try_get (self) -> Option<int> = self.value;
 }
 
 @test_optional_trait tests @_use_maybe () -> void = {
@@ -503,7 +503,7 @@ impl Optional for MaybeValue {
     assert(cond: is_none(opt: none.try_get()))
 }
 
-@_use_maybe (m: MaybeValue) -> bool = is_some(opt: m.value)
+@_use_maybe (m: MaybeValue) -> bool = is_some(opt: m.value);
 
 // =============================================================================
 // Chained Method Calls on Trait
@@ -527,7 +527,7 @@ impl Chainable for Number {
     assert_eq(actual: result.n, expected: 12)  // 1*2*3*2 = 12
 }
 
-@_use_number (n: Number) -> int = n.n
+@_use_number (n: Number) -> int = n.n;
 
 // =============================================================================
 // Trait with Boolean Method
@@ -540,7 +540,7 @@ trait Checkable {
 type Validated = { valid: bool }
 
 impl Checkable for Validated {
-    @is_valid (self) -> bool = self.valid
+    @is_valid (self) -> bool = self.valid;
 }
 
 @test_bool_method tests @_use_validated () -> void = {
@@ -550,7 +550,7 @@ impl Checkable for Validated {
     assert(cond: !invalid.is_valid())
 }
 
-@_use_validated (v: Validated) -> bool = v.valid
+@_use_validated (v: Validated) -> bool = v.valid;
 
 // =============================================================================
 // Built-in Traits
@@ -562,7 +562,7 @@ impl Checkable for Validated {
     assert(cond: "hello" == "hello")
 }
 
-@_eq_test () -> bool = 42 == 42
+@_eq_test () -> bool = 42 == 42;
 
 @test_builtin_comparable tests @_cmp_test () -> void = {
     assert(cond: 10 < 20);
@@ -571,7 +571,7 @@ impl Checkable for Validated {
     assert(cond: 10 >= 10)
 }
 
-@_cmp_test () -> bool = 10 < 20
+@_cmp_test () -> bool = 10 < 20;
 
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - no method 'clone' on type str
 @test_builtin_clone tests @_clone_test () -> void = {
@@ -580,7 +580,7 @@ impl Checkable for Validated {
     assert_eq(actual: cloned, expected: "hello")
 }
 
-@_clone_test () -> str = "hello".clone()
+@_clone_test () -> str = "hello".clone();
 
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - no method 'hash' on type int
 @test_builtin_hash tests @_hash_test () -> void = {
@@ -589,4 +589,4 @@ impl Checkable for Validated {
     assert_eq(actual: h1, expected: h2)
 }
 
-@_hash_test () -> int = 42.hash()
+@_hash_test () -> int = 42.hash();

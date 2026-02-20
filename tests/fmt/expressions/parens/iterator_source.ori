@@ -1,8 +1,8 @@
 // Iterator expression in for...in source
 // Spec: 16-formatting.md § Parentheses Preservation
 
-@double_then_add (items: [int]) -> [int] = for x in (for y in items yield y * 2) yield x + 1
+@double_then_add (items: [int]) -> [int] = for x in (for y in items yield y * 2) yield x + 1;
 
 @process_pairs (items: [int]) -> [(int, int)] =
     for pair in (for x in items yield (x, x * 2)) yield
-        pair
+        pair;

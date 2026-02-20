@@ -210,7 +210,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: x + y, expected: 21)
 }
 
-@unify_conditional_branches () -> int = if true then 1 else 2
+@unify_conditional_branches () -> int = if true then 1 else 2;
 
 @test_unify_complex_conditional tests @unify_complex_conditional () -> void = {
     // Nested conditionals require unification
@@ -218,7 +218,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: result, expected: 2)
 }
 
-@unify_complex_conditional () -> int = if true then (if false then 1 else 2) else 3
+@unify_complex_conditional () -> int = if true then (if false then 1 else 2) else 3;
 
 @test_unify_option_branches tests @unify_option_branches () -> void = {
     // Option in conditional branches
@@ -309,7 +309,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: diff, expected: 10)
 }
 
-@unify_arithmetic_result () -> int = 10 + 20
+@unify_arithmetic_result () -> int = 10 + 20;
 
 @test_unify_comparison_result tests @unify_comparison_result () -> void = {
     // Comparison operations produce bool
@@ -321,7 +321,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: equal)
 }
 
-@unify_comparison_result () -> bool = 10 < 20
+@unify_comparison_result () -> bool = 10 < 20;
 
 @test_unify_logical_result tests @unify_logical_result () -> void = {
     // Logical operations on bools
@@ -333,7 +333,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: or_result)
 }
 
-@unify_logical_result () -> bool = true && false
+@unify_logical_result () -> bool = true && false;
 
 @test_unify_string_concat tests @unify_string_concat () -> void = {
     // String concatenation unifies to str
@@ -343,7 +343,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert_eq(actual: combined, expected: "hello world")
 }
 
-@unify_string_concat () -> str = "hello" + " world"
+@unify_string_concat () -> str = "hello" + " world";
 
 @test_unify_map_lookup tests @unify_map_lookup () -> void = {
     // Map lookup type inference - returns Option<V>

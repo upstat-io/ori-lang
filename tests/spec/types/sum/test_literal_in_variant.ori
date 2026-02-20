@@ -1,7 +1,7 @@
 use std.testing { assert_eq }
 
 // Literal matching inside variant pattern
-type FilterResult = Pass(value: int) | Fail(reason: str, recoverable: bool)
+type FilterResult = Pass(value: int) | Fail(reason: str, recoverable: bool);
 
 @describe_filter (f: FilterResult) -> str = match f {
     Pass(v) -> "Passed with " + str(v),

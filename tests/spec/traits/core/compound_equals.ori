@@ -12,14 +12,14 @@ use std.testing { assert, assert_eq }
     assert(cond: ["a", "b"].equals(other: ["a", "b"]))
 }
 
-@list_eq_same () -> bool = [1, 2].equals(other: [1, 2])
+@list_eq_same () -> bool = [1, 2].equals(other: [1, 2]);
 
 @test_list_equals_different tests @list_eq_diff () -> void = {
     assert(cond: ![1, 2].equals(other: [1, 3]));
     assert(cond: ![1].equals(other: [1, 2]))
 }
 
-@list_eq_diff () -> bool = ![1].equals(other: [2])
+@list_eq_diff () -> bool = ![1].equals(other: [2]);
 
 @test_list_equals_empty tests @list_eq_empty () -> void = {
     let a: [int] = [];
@@ -64,9 +64,9 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_option_equals_none tests @opt_eq_none () -> void =
-    assert(cond: None.equals(other: None))
+    assert(cond: None.equals(other: None));
 
-@opt_eq_none () -> bool = None.equals(other: None)
+@opt_eq_none () -> bool = None.equals(other: None);
 
 @test_option_equals_some tests @opt_eq_some () -> void = {
     assert(cond: Some(42).equals(other: Some(42)));
@@ -75,7 +75,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !None.equals(other: Some(1)))
 }
 
-@opt_eq_some () -> bool = Some(5).equals(other: Some(5))
+@opt_eq_some () -> bool = Some(5).equals(other: Some(5));
 
 // =============================================================================
 // Result .equals()
@@ -86,21 +86,21 @@ use std.testing { assert, assert_eq }
     assert(cond: !Ok(1).equals(other: Ok(2)))
 }
 
-@res_eq_ok () -> bool = Ok(1).equals(other: Ok(1))
+@res_eq_ok () -> bool = Ok(1).equals(other: Ok(1));
 
 @test_result_equals_err tests @res_eq_err () -> void = {
     assert(cond: Err("x").equals(other: Err("x")));
     assert(cond: !Err("a").equals(other: Err("b")))
 }
 
-@res_eq_err () -> bool = Err("x").equals(other: Err("x"))
+@res_eq_err () -> bool = Err("x").equals(other: Err("x"));
 
 @test_result_equals_mixed tests @res_eq_mixed () -> void = {
     assert(cond: !Ok(1).equals(other: Err("x")));
     assert(cond: !Err("x").equals(other: Ok(1)))
 }
 
-@res_eq_mixed () -> bool = !Ok(1).equals(other: Err("x"))
+@res_eq_mixed () -> bool = !Ok(1).equals(other: Err("x"));
 
 // =============================================================================
 // Tuple .equals()
@@ -111,11 +111,11 @@ use std.testing { assert, assert_eq }
     assert(cond: (true, 42, "hi").equals(other: (true, 42, "hi")))
 }
 
-@tup_eq_same () -> bool = (1, 2).equals(other: (1, 2))
+@tup_eq_same () -> bool = (1, 2).equals(other: (1, 2));
 
 @test_tuple_equals_different tests @tup_eq_diff () -> void = {
     assert(cond: !(1, "a").equals(other: (1, "b")));
     assert(cond: !(1, 2).equals(other: (2, 1)))
 }
 
-@tup_eq_diff () -> bool = !(1, 2).equals(other: (2, 1))
+@tup_eq_diff () -> bool = !(1, 2).equals(other: (2, 1));

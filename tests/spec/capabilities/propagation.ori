@@ -23,14 +23,14 @@ trait Logger {
 type MockHttp = { base_url: str }
 
 impl Http for MockHttp {
-    @get (self, url: str) -> str = self.base_url + url
-    @post (self, url: str, body: str) -> str = self.base_url + url + ":" + body
+    @get (self, url: str) -> str = self.base_url + url;
+    @post (self, url: str, body: str) -> str = self.base_url + url + ":" + body;
 }
 
 type MockLogger = { prefix: str }
 
 impl Logger for MockLogger {
-    @log (self, msg: str) -> void = ()
+    @log (self, msg: str) -> void = ();
 }
 
 // =============================================================================
@@ -38,7 +38,7 @@ impl Logger for MockLogger {
 // =============================================================================
 
 // Function that uses Http capability
-@fetch_data (url: str) -> str uses Http = Http.get(url: url)
+@fetch_data (url: str) -> str uses Http = Http.get(url: url);
 
 // Function that uses multiple capabilities
 @fetch_and_log (url: str) -> str uses Http, Logger = {
@@ -47,14 +47,14 @@ impl Logger for MockLogger {
 }
 
 // Pure function (no capabilities)
-@pure_transform (s: str) -> str = s + "!"
+@pure_transform (s: str) -> str = s + "!";
 
 // =============================================================================
 // Valid Propagation: Caller Declares Capability
 // =============================================================================
 
 // Caller declares same capability as callee - valid
-@caller_with_http (url: str) -> str uses Http = fetch_data(url: url)
+@caller_with_http (url: str) -> str uses Http = fetch_data(url: url);
 
 @test_caller_with_http tests @caller_with_http () -> void = {
     let result = with Http = MockHttp { base_url: "https://api.com" } in
@@ -64,7 +64,7 @@ impl Logger for MockLogger {
 
 // Caller declares multiple capabilities - valid
 @caller_with_both (url: str) -> str uses Http, Logger =
-    fetch_and_log(url: url)
+    fetch_and_log(url: url);
 
 @test_caller_with_both tests @caller_with_both () -> void = {
     let result = with Http = MockHttp { base_url: "https://test.com" } in
@@ -80,7 +80,7 @@ impl Logger for MockLogger {
 // Pure caller provides capability for callee - valid
 @pure_caller_with_provide (url: str) -> str =
     with Http = MockHttp { base_url: "mock://" } in
-        fetch_data(url: url)
+        fetch_data(url: url);
 
 @test_pure_caller_with_provide tests @pure_caller_with_provide () -> void = {
     let result = pure_caller_with_provide(url: "/test");
@@ -91,7 +91,7 @@ impl Logger for MockLogger {
 @caller_nested_provide (url: str) -> str =
     with Http = MockHttp { base_url: "nested://" } in
         with Logger = MockLogger { prefix: "[LOG]" } in
-            fetch_and_log(url: url)
+            fetch_and_log(url: url);
 
 @test_caller_nested_provide tests @caller_nested_provide () -> void = {
     let result = caller_nested_provide(url: "/nested");
@@ -103,7 +103,7 @@ impl Logger for MockLogger {
 // =============================================================================
 
 // Calling pure functions never requires capabilities
-@caller_of_pure (s: str) -> str = pure_transform(s: s)
+@caller_of_pure (s: str) -> str = pure_transform(s: s);
 
 @test_caller_of_pure tests @caller_of_pure () -> void = {
     let result = caller_of_pure(s: "hello");

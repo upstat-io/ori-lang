@@ -6,4 +6,4 @@ type Container<T> = { value: T }
 
 type Pair<A, B> = { first: A, second: B }
 
-type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>)
+type Tree<T> = Leaf(value: T) | Branch(left: Tree<T>, right: Tree<T>);

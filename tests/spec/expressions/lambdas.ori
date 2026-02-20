@@ -227,7 +227,7 @@ use std.testing { assert_eq }
     assert_eq(actual: result[1], expected: 4)
 }
 
-@inline_lambda_in_for () -> [int] = for x in [1, 2, 3] yield (y -> y * 2)(x)
+@inline_lambda_in_for () -> [int] = for x in [1, 2, 3] yield (y -> y * 2)(x);
 
 // =============================================================================
 // Immediately Invoked Lambdas
@@ -238,21 +238,21 @@ use std.testing { assert_eq }
     assert_eq(actual: result, expected: 10)
 }
 
-@iife () -> int = (x -> x * 2)(5)
+@iife () -> int = (x -> x * 2)(5);
 
 @test_iife_no_params tests @iife_no_params () -> void = {
     let result = (() -> 42)();
     assert_eq(actual: result, expected: 42)
 }
 
-@iife_no_params () -> int = (() -> 42)()
+@iife_no_params () -> int = (() -> 42)();
 
 @test_iife_multi_param tests @iife_multi_param () -> void = {
     let result = ((a, b) -> a + b)(3, 4);
     assert_eq(actual: result, expected: 7)
 }
 
-@iife_multi_param () -> int = ((a, b) -> a + b)(3, 4)
+@iife_multi_param () -> int = ((a, b) -> a + b)(3, 4);
 
 // =============================================================================
 // Lambda in Different Contexts
@@ -334,14 +334,14 @@ use std.testing { assert_eq }
 // Higher-Order Function Patterns
 // =============================================================================
 
-@apply_fn (f: (int) -> int, x: int) -> int = f(x)
+@apply_fn (f: (int) -> int, x: int) -> int = f(x);
 
 @test_pass_lambda_to_function tests @pass_lambda_to_function () -> void = {
     let result = apply_fn(f: x -> x * 2, x: 5);
     assert_eq(actual: result, expected: 10)
 }
 
-@pass_lambda_to_function () -> int = apply_fn(f: x -> x * 2, x: 5)
+@pass_lambda_to_function () -> int = apply_fn(f: x -> x * 2, x: 5);
 
 // =============================================================================
 // Edge Cases

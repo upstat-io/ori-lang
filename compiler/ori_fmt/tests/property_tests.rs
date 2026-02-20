@@ -483,7 +483,7 @@ proptest! {
     /// Test idempotence for generated list literals.
     #[test]
     fn prop_list_idempotence(items in prop::collection::vec(simple_expr_strategy(), 0..10)) {
-        let source = format!("@test_fn () -> [int] = [{}]", items.join(", "));
+        let source = format!("@test_fn () -> [int] = [{}];", items.join(", "));
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));
@@ -494,7 +494,7 @@ proptest! {
     /// Test idempotence for generated tuples.
     #[test]
     fn prop_tuple_idempotence(items in prop::collection::vec(simple_expr_strategy(), 2..8)) {
-        let source = format!("@test_fn () -> int = ({})", items.join(", "));
+        let source = format!("@test_fn () -> int = ({});", items.join(", "));
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));
@@ -970,7 +970,7 @@ proptest! {
         d in int_literal_strategy()
     ) {
         // Mix of different precedence levels
-        let source = format!("@test_fn () -> int = {} + {} * {} - {} / 2", a, b, c, d);
+        let source = format!("@test_fn () -> int = {} + {} * {} - {} / 2;", a, b, c, d);
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));
@@ -1046,7 +1046,7 @@ proptest! {
         let params: Vec<String> = (0..param_count)
             .map(|i| format!("param_{}: int", i))
             .collect();
-        let source = format!("@many_params ({}) -> int = 0", params.join(", "));
+        let source = format!("@many_params ({}) -> int = 0;", params.join(", "));
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));
@@ -1060,7 +1060,7 @@ proptest! {
         let generics: Vec<String> = (0..generic_count)
             .map(|i| format!("T{}", i))
             .collect();
-        let source = format!("@generic_fn<{}> (x: T0) -> T0 = x", generics.join(", "));
+        let source = format!("@generic_fn<{}> (x: T0) -> T0 = x;", generics.join(", "));
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));
@@ -1074,55 +1074,55 @@ proptest! {
 #[test]
 fn test_single_element_tuple_idempotence() {
     // Single-element tuples need trailing comma
-    let source = "@test_fn () -> int = (42,)";
+    let source = "@test_fn () -> int = (42,);";
     test_idempotence(source).expect("single element tuple should be idempotent");
 }
 
 #[test]
 fn test_empty_list_idempotence() {
-    let source = "@test_fn () -> [int] = []";
+    let source = "@test_fn () -> [int] = [];";
     test_idempotence(source).expect("empty list should be idempotent");
 }
 
 #[test]
 fn test_nested_if_idempotence() {
-    let source = "@test_fn (x: int) -> int = if x > 0 then if x > 10 then 100 else 10 else 0";
+    let source = "@test_fn (x: int) -> int = if x > 0 then if x > 10 then 100 else 10 else 0;";
     test_idempotence(source).expect("nested if should be idempotent");
 }
 
 #[test]
 fn test_lambda_idempotence() {
-    let source = "@test_fn () -> (int) -> int = x -> x + 1";
+    let source = "@test_fn () -> (int) -> int = x -> x + 1;";
     test_idempotence(source).expect("lambda should be idempotent");
 }
 
 #[test]
 fn test_multi_param_lambda_idempotence() {
-    let source = "@test_fn () -> (int, int) -> int = (a, b) -> a + b";
+    let source = "@test_fn () -> (int, int) -> int = (a, b) -> a + b;";
     test_idempotence(source).expect("multi-param lambda should be idempotent");
 }
 
 #[test]
 fn test_option_some_idempotence() {
-    let source = "@test_fn () -> Option<int> = Some(42)";
+    let source = "@test_fn () -> Option<int> = Some(42);";
     test_idempotence(source).expect("Some should be idempotent");
 }
 
 #[test]
 fn test_option_none_idempotence() {
-    let source = "@test_fn () -> Option<int> = None";
+    let source = "@test_fn () -> Option<int> = None;";
     test_idempotence(source).expect("None should be idempotent");
 }
 
 #[test]
 fn test_result_ok_idempotence() {
-    let source = "@test_fn () -> Result<int, str> = Ok(42)";
+    let source = "@test_fn () -> Result<int, str> = Ok(42);";
     test_idempotence(source).expect("Ok should be idempotent");
 }
 
 #[test]
 fn test_result_err_idempotence() {
-    let source = r#"@test_fn () -> Result<int, str> = Err("error")"#;
+    let source = r#"@test_fn () -> Result<int, str> = Err("error");"#;
     test_idempotence(source).expect("Err should be idempotent");
 }
 
@@ -1135,38 +1135,38 @@ fn test_complex_struct_idempotence() {
 #[test]
 fn test_sum_type_idempotence() {
     // Note: Ok/Err are reserved (Result constructors), use different names
-    let source = "type Status = Success | Failure | Pending";
+    let source = "type Status = Success | Failure | Pending;";
     test_idempotence(source).expect("sum type should be idempotent");
 }
 
 #[test]
 fn test_generic_function_idempotence() {
-    let source = "@identity<T> (x: T) -> T = x";
+    let source = "@identity<T> (x: T) -> T = x;";
     test_idempotence(source).expect("generic function should be idempotent");
 }
 
 #[test]
 fn test_where_clause_idempotence() {
-    let source = "@compare<T> (a: T, b: T) -> bool where T: Eq = a == b";
+    let source = "@compare<T> (a: T, b: T) -> bool where T: Eq = a == b;";
     test_idempotence(source).expect("where clause should be idempotent");
 }
 
 #[test]
 fn test_const_def_idempotence() {
-    let source = "let $PI = 3.14159";
+    let source = "let $PI = 3.14159;";
     test_idempotence(source).expect("const should be idempotent");
 }
 
 #[test]
 fn test_multiple_declarations_idempotence() {
     let source = r"
-let $MAX = 100
+let $MAX = 100;
 
 type Point = { x: int, y: int }
 
 @origin () -> Point = Point { x: 0, y: 0 }
 
-@distance (p: Point) -> float = 0.0
+@distance (p: Point) -> float = 0.0;
 ";
     test_idempotence(source).expect("module should be idempotent");
 }
@@ -1175,7 +1175,7 @@ type Point = { x: int, y: int }
 fn test_binary_expr_line_break() {
     // Regression test: binary expression breaking must preserve semantics.
     // The parser must accept binary operators at line start.
-    let source = r#"@test (a: str, b: str) -> bool = "string" <= other"#;
+    let source = r#"@test (a: str, b: str) -> bool = "string" <= other;"#;
     test_idempotence(source).expect("binary expression with line break should be idempotent");
 }
 
@@ -1185,60 +1185,60 @@ fn test_binary_expr_line_break() {
 
 #[test]
 fn test_zero_literal() {
-    let source = "@f () -> int = 0";
+    let source = "@f () -> int = 0;";
     test_idempotence(source).expect("zero should be idempotent");
 }
 
 #[test]
 fn test_negative_literal() {
-    let source = "@f () -> int = -42";
+    let source = "@f () -> int = -42;";
     test_idempotence(source).expect("negative should be idempotent");
 }
 
 #[test]
 fn test_large_int_literal() {
-    let source = "@f () -> int = 9_223_372_036_854_775_807";
+    let source = "@f () -> int = 9_223_372_036_854_775_807;";
     test_idempotence(source).expect("large int should be idempotent");
 }
 
 #[test]
 fn test_float_zero() {
-    let source = "@f () -> float = 0.0";
+    let source = "@f () -> float = 0.0;";
     test_idempotence(source).expect("float zero should be idempotent");
 }
 
 #[test]
 fn test_float_scientific() {
-    let source = "@f () -> float = 1.5e10";
+    let source = "@f () -> float = 1.5e10;";
     test_idempotence(source).expect("scientific notation should be idempotent");
 }
 
 #[test]
 fn test_float_negative_exponent() {
-    let source = "@f () -> float = 2.5e-8";
+    let source = "@f () -> float = 2.5e-8;";
     test_idempotence(source).expect("negative exponent should be idempotent");
 }
 
 #[test]
 fn test_empty_string() {
-    let source = r#"@f () -> str = """#;
+    let source = r#"@f () -> str = "";"#;
     test_idempotence(source).expect("empty string should be idempotent");
 }
 
 #[test]
 fn test_string_with_escapes() {
-    let source = r#"@f () -> str = "hello\nworld\ttab""#;
+    let source = r#"@f () -> str = "hello\nworld\ttab";"#;
     test_idempotence(source).expect("escaped string should be idempotent");
 }
 
 #[test]
 fn test_char_escape_sequences() {
     let sources = [
-        r"@f () -> char = '\n'",
-        r"@f () -> char = '\t'",
-        r"@f () -> char = '\r'",
-        r"@f () -> char = '\0'",
-        r"@f () -> char = '\\'",
+        r"@f () -> char = '\n';",
+        r"@f () -> char = '\t';",
+        r"@f () -> char = '\r';",
+        r"@f () -> char = '\0';",
+        r"@f () -> char = '\\';",
     ];
     for source in sources {
         test_idempotence(source).expect("char escape should be idempotent");
@@ -1249,67 +1249,67 @@ fn test_char_escape_sequences() {
 
 #[test]
 fn test_bitwise_and() {
-    let source = "@f (a: int, b: int) -> int = a & b";
+    let source = "@f (a: int, b: int) -> int = a & b;";
     test_idempotence(source).expect("bitwise and should be idempotent");
 }
 
 #[test]
 fn test_bitwise_or() {
-    let source = "@f (a: int, b: int) -> int = a | b";
+    let source = "@f (a: int, b: int) -> int = a | b;";
     test_idempotence(source).expect("bitwise or should be idempotent");
 }
 
 #[test]
 fn test_bitwise_xor() {
-    let source = "@f (a: int, b: int) -> int = a ^ b";
+    let source = "@f (a: int, b: int) -> int = a ^ b;";
     test_idempotence(source).expect("bitwise xor should be idempotent");
 }
 
 #[test]
 fn test_left_shift() {
-    let source = "@f (a: int) -> int = a << 2";
+    let source = "@f (a: int) -> int = a << 2;";
     test_idempotence(source).expect("left shift should be idempotent");
 }
 
 #[test]
 fn test_right_shift() {
-    let source = "@f (a: int) -> int = a >> 2";
+    let source = "@f (a: int) -> int = a >> 2;";
     test_idempotence(source).expect("right shift should be idempotent");
 }
 
 #[test]
 fn test_modulo() {
-    let source = "@f (a: int, b: int) -> int = a % b";
+    let source = "@f (a: int, b: int) -> int = a % b;";
     test_idempotence(source).expect("modulo should be idempotent");
 }
 
 #[test]
 fn test_unary_not() {
-    let source = "@f (a: bool) -> bool = !a";
+    let source = "@f (a: bool) -> bool = !a;";
     test_idempotence(source).expect("unary not should be idempotent");
 }
 
 #[test]
 fn test_unary_negate() {
-    let source = "@f (a: int) -> int = -a";
+    let source = "@f (a: int) -> int = -a;";
     test_idempotence(source).expect("unary negate should be idempotent");
 }
 
 #[test]
 fn test_double_negation() {
-    let source = "@f (a: int) -> int = --a";
+    let source = "@f (a: int) -> int = --a;";
     test_idempotence(source).expect("double negation should be idempotent");
 }
 
 #[test]
 fn test_complex_operator_precedence() {
-    let source = "@f (a: int, b: int, c: int) -> int = a + b * c - (a / b) % c";
+    let source = "@f (a: int, b: int, c: int) -> int = a + b * c - (a / b) % c;";
     test_idempotence(source).expect("complex precedence should be idempotent");
 }
 
 #[test]
 fn test_mixed_comparison_logical() {
-    let source = "@f (a: int, b: int) -> bool = a > 0 && b < 10 || a == b";
+    let source = "@f (a: int, b: int) -> bool = a > 0 && b < 10 || a == b;";
     test_idempotence(source).expect("mixed comparison/logical should be idempotent");
 }
 
@@ -1317,25 +1317,25 @@ fn test_mixed_comparison_logical() {
 
 #[test]
 fn test_list_of_lists() {
-    let source = "@f () -> [[int]] = [[1, 2], [3, 4], [5, 6]]";
+    let source = "@f () -> [[int]] = [[1, 2], [3, 4], [5, 6]];";
     test_idempotence(source).expect("nested lists should be idempotent");
 }
 
 #[test]
 fn test_list_of_tuples() {
-    let source = "@f () -> [(int, str)] = [(1, \"a\"), (2, \"b\")]";
+    let source = "@f () -> [(int, str)] = [(1, \"a\"), (2, \"b\")];";
     test_idempotence(source).expect("list of tuples should be idempotent");
 }
 
 #[test]
 fn test_tuple_of_lists() {
-    let source = "@f () -> ([int], [str]) = ([1, 2], [\"a\", \"b\"])";
+    let source = "@f () -> ([int], [str]) = ([1, 2], [\"a\", \"b\"]);";
     test_idempotence(source).expect("tuple of lists should be idempotent");
 }
 
 #[test]
 fn test_empty_tuple() {
-    let source = "@f () -> () = ()";
+    let source = "@f () -> () = ();";
     test_idempotence(source).expect("empty tuple should be idempotent");
 }
 
@@ -1364,13 +1364,13 @@ type Outer = { inner: Inner, b: int }
 
 #[test]
 fn test_range_exclusive() {
-    let source = "@f () -> int = for i in 0..10 yield i";
+    let source = "@f () -> int = for i in 0..10 yield i;";
     test_idempotence(source).expect("exclusive range should be idempotent");
 }
 
 #[test]
 fn test_range_inclusive() {
-    let source = "@f () -> int = for i in 0..=10 yield i";
+    let source = "@f () -> int = for i in 0..=10 yield i;";
     test_idempotence(source).expect("inclusive range should be idempotent");
 }
 
@@ -1378,31 +1378,31 @@ fn test_range_inclusive() {
 
 #[test]
 fn test_if_without_else() {
-    let source = "@f (x: int) -> void = if x > 0 then print(msg: \"positive\")";
+    let source = "@f (x: int) -> void = if x > 0 then print(msg: \"positive\");";
     test_idempotence(source).expect("if without else should be idempotent");
 }
 
 #[test]
 fn test_chained_if_else() {
-    let source = "@f (x: int) -> str = if x < 0 then \"negative\" else if x == 0 then \"zero\" else \"positive\"";
+    let source = "@f (x: int) -> str = if x < 0 then \"negative\" else if x == 0 then \"zero\" else \"positive\";";
     test_idempotence(source).expect("chained if-else should be idempotent");
 }
 
 #[test]
 fn test_deeply_nested_if() {
-    let source = "@f (a: bool, b: bool, c: bool) -> int = if a then if b then if c then 1 else 2 else 3 else 4";
+    let source = "@f (a: bool, b: bool, c: bool) -> int = if a then if b then if c then 1 else 2 else 3 else 4;";
     test_idempotence(source).expect("deeply nested if should be idempotent");
 }
 
 #[test]
 fn test_for_with_filter() {
-    let source = "@f (items: [int]) -> [int] = for x in items if x > 0 yield x";
+    let source = "@f (items: [int]) -> [int] = for x in items if x > 0 yield x;";
     test_idempotence(source).expect("for with filter should be idempotent");
 }
 
 #[test]
 fn test_nested_for() {
-    let source = "@f (rows: [[int]]) -> [int] = for row in rows yield for x in row yield x";
+    let source = "@f (rows: [[int]]) -> [int] = for row in rows yield for x in row yield x;";
     test_idempotence(source).expect("nested for should be idempotent");
 }
 
@@ -1460,49 +1460,49 @@ fn test_match_list_pattern() {
 
 #[test]
 fn test_simple_call() {
-    let source = "@f (x: int) -> int = x\n\n@g () -> int = f(x: 42)";
+    let source = "@f (x: int) -> int = x;\n\n@g () -> int = f(x: 42);";
     test_idempotence(source).expect("simple call should be idempotent");
 }
 
 #[test]
 fn test_nested_calls() {
-    let source = "@f (x: int) -> int = x\n\n@g () -> int = f(x: f(x: f(x: 1)))";
+    let source = "@f (x: int) -> int = x;\n\n@g () -> int = f(x: f(x: f(x: 1)));";
     test_idempotence(source).expect("nested calls should be idempotent");
 }
 
 #[test]
 fn test_call_with_lambda() {
-    let source = "@f (transform: (int) -> int) -> int = transform(1)\n\n@g () -> int = f(transform: x -> x + 1)";
+    let source = "@f (transform: (int) -> int) -> int = transform(1);\n\n@g () -> int = f(transform: x -> x + 1);";
     test_idempotence(source).expect("call with lambda should be idempotent");
 }
 
 #[test]
 fn test_method_call_chain_long() {
-    let source = "@f (x: int) -> int = x.foo().bar().baz().qux().quux()";
+    let source = "@f (x: int) -> int = x.foo().bar().baz().qux().quux();";
     test_idempotence(source).expect("long method chain should be idempotent");
 }
 
 #[test]
 fn test_mixed_access_chain() {
-    let source = "@f (obj: int) -> int = obj.field.method().another_field.final_method()";
+    let source = "@f (obj: int) -> int = obj.field.method().another_field.final_method();";
     test_idempotence(source).expect("mixed access chain should be idempotent");
 }
 
 #[test]
 fn test_index_access() {
-    let source = "@f (list: [int]) -> int = list[0]";
+    let source = "@f (list: [int]) -> int = list[0];";
     test_idempotence(source).expect("index access should be idempotent");
 }
 
 #[test]
 fn test_index_with_hash() {
-    let source = "@f (list: [int]) -> int = list[# - 1]";
+    let source = "@f (list: [int]) -> int = list[# - 1];";
     test_idempotence(source).expect("index with hash should be idempotent");
 }
 
 #[test]
 fn test_nested_index() {
-    let source = "@f (matrix: [[int]]) -> int = matrix[0][1]";
+    let source = "@f (matrix: [[int]]) -> int = matrix[0][1];";
     test_idempotence(source).expect("nested index should be idempotent");
 }
 
@@ -1510,37 +1510,37 @@ fn test_nested_index() {
 
 #[test]
 fn test_lambda_no_params() {
-    let source = "@f () -> (() -> int) = () -> 42";
+    let source = "@f () -> (() -> int) = () -> 42;";
     test_idempotence(source).expect("no-param lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_single_param() {
-    let source = "@f () -> ((int) -> int) = x -> x * 2";
+    let source = "@f () -> ((int) -> int) = x -> x * 2;";
     test_idempotence(source).expect("single-param lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_multi_param() {
-    let source = "@f () -> ((int, int, int) -> int) = (a, b, c) -> a + b + c";
+    let source = "@f () -> ((int, int, int) -> int) = (a, b, c) -> a + b + c;";
     test_idempotence(source).expect("multi-param lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_with_type_annotation() {
-    let source = "@f () -> ((int) -> int) = (x: int) -> int = x + 1";
+    let source = "@f () -> ((int) -> int) = (x: int) -> int = x + 1;";
     test_idempotence(source).expect("typed lambda should be idempotent");
 }
 
 #[test]
 fn test_nested_lambda() {
-    let source = "@f () -> ((int) -> (int) -> int) = x -> y -> x + y";
+    let source = "@f () -> ((int) -> (int) -> int) = x -> y -> x + y;";
     test_idempotence(source).expect("nested lambda should be idempotent");
 }
 
 #[test]
 fn test_lambda_with_complex_body() {
-    let source = "@f () -> ((int) -> int) = x -> if x > 0 then x * 2 else 0";
+    let source = "@f () -> ((int) -> int) = x -> if x > 0 then x * 2 else 0;";
     test_idempotence(source).expect("lambda with complex body should be idempotent");
 }
 
@@ -1566,13 +1566,13 @@ fn test_struct_many_fields() {
 
 #[test]
 fn test_sum_type_two_variants() {
-    let source = "type Either = Left | Right";
+    let source = "type Either = Left | Right;";
     test_idempotence(source).expect("two variant sum should be idempotent");
 }
 
 #[test]
 fn test_sum_type_with_fields() {
-    let source = "type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)";
+    let source = "type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);";
     test_idempotence(source).expect("sum with fields should be idempotent");
 }
 
@@ -1629,7 +1629,7 @@ fn test_trait_multiple_methods() {
 #[test]
 fn test_trait_with_default() {
     let source =
-        "trait WithDefault {\n    @required (self) -> int\n    @optional (self) -> int = 0\n}";
+        "trait WithDefault {\n    @required (self) -> int\n    @optional (self) -> int = 0;\n}";
     test_idempotence(source).expect("trait with default should be idempotent");
 }
 
@@ -1647,7 +1647,7 @@ fn test_impl_inherent() {
 
 #[test]
 fn test_impl_trait() {
-    let source = "trait Printable {\n    @to_str (self) -> str\n}\n\ntype Num = { value: int }\n\nimpl Printable for Num {\n    @to_str (self) -> str = \"num\"\n}";
+    let source = "trait Printable {\n    @to_str (self) -> str\n}\n\ntype Num = { value: int }\n\nimpl Printable for Num {\n    @to_str (self) -> str = \"num\";\n}";
     test_idempotence(source).expect("trait impl should be idempotent");
 }
 
@@ -1661,73 +1661,73 @@ fn test_impl_generic() {
 
 #[test]
 fn test_function_no_params() {
-    let source = "@constant () -> int = 42";
+    let source = "@constant () -> int = 42;";
     test_idempotence(source).expect("no params should be idempotent");
 }
 
 #[test]
 fn test_function_single_param() {
-    let source = "@identity (x: int) -> int = x";
+    let source = "@identity (x: int) -> int = x;";
     test_idempotence(source).expect("single param should be idempotent");
 }
 
 #[test]
 fn test_function_many_params() {
-    let source = "@sum (a: int, b: int, c: int, d: int, e: int) -> int = a + b + c + d + e";
+    let source = "@sum (a: int, b: int, c: int, d: int, e: int) -> int = a + b + c + d + e;";
     test_idempotence(source).expect("many params should be idempotent");
 }
 
 #[test]
 fn test_function_void_return() {
-    let source = "@log (msg: str) -> void = print(msg: msg)";
+    let source = "@log (msg: str) -> void = print(msg: msg);";
     test_idempotence(source).expect("void return should be idempotent");
 }
 
 #[test]
 fn test_function_generic_single() {
-    let source = "@identity<T> (x: T) -> T = x";
+    let source = "@identity<T> (x: T) -> T = x;";
     test_idempotence(source).expect("single generic should be idempotent");
 }
 
 #[test]
 fn test_function_generic_multiple() {
-    let source = "@pair<A, B> (a: A, b: B) -> (A, B) = (a, b)";
+    let source = "@pair<A, B> (a: A, b: B) -> (A, B) = (a, b);";
     test_idempotence(source).expect("multiple generics should be idempotent");
 }
 
 #[test]
 fn test_function_generic_bounded() {
-    let source = "@compare<T: Eq> (a: T, b: T) -> bool = a == b";
+    let source = "@compare<T: Eq> (a: T, b: T) -> bool = a == b;";
     test_idempotence(source).expect("bounded generic should be idempotent");
 }
 
 #[test]
 fn test_function_where_single() {
-    let source = "@f<T> (x: T) -> T where T: Clone = x.clone()";
+    let source = "@f<T> (x: T) -> T where T: Clone = x.clone();";
     test_idempotence(source).expect("single where should be idempotent");
 }
 
 #[test]
 fn test_function_where_multiple() {
-    let source = "@f<T, U> (x: T, y: U) -> T where T: Clone, U: Default = x.clone()";
+    let source = "@f<T, U> (x: T, y: U) -> T where T: Clone, U: Default = x.clone();";
     test_idempotence(source).expect("multiple where should be idempotent");
 }
 
 #[test]
 fn test_function_capability_single() {
-    let source = "@fetch (url: str) -> str uses Http = \"response\"";
+    let source = "@fetch (url: str) -> str uses Http = \"response\";";
     test_idempotence(source).expect("single capability should be idempotent");
 }
 
 #[test]
 fn test_function_capability_multiple() {
-    let source = "@complex () -> void uses Http, FileSystem, Clock = ()";
+    let source = "@complex () -> void uses Http, FileSystem, Clock = ();";
     test_idempotence(source).expect("multiple capabilities should be idempotent");
 }
 
 #[test]
 fn test_function_public() {
-    let source = "pub @public_fn () -> int = 42";
+    let source = "pub @public_fn () -> int = 42;";
     test_idempotence(source).expect("public function should be idempotent");
 }
 
@@ -1735,7 +1735,7 @@ fn test_function_public() {
 fn test_function_all_features() {
     // Order: generics, params, return, uses, where, body
     let source =
-        "pub @complex<T, U> (a: T, b: U) -> T uses Http where T: Clone, U: Default = a.clone()";
+        "pub @complex<T, U> (a: T, b: U) -> T uses Http where T: Clone, U: Default = a.clone();";
     test_idempotence(source).expect("function with all features should be idempotent");
 }
 
@@ -1743,25 +1743,26 @@ fn test_function_all_features() {
 
 #[test]
 fn test_import_single() {
-    let source = "use std.math { sqrt }\n\n@f () -> float = sqrt(value: 4.0)";
+    let source = "use std.math { sqrt }\n\n@f () -> float = sqrt(value: 4.0);";
     test_idempotence(source).expect("single import should be idempotent");
 }
 
 #[test]
 fn test_import_multiple() {
-    let source = "use std.math { sqrt, abs, min, max }\n\n@f () -> float = sqrt(value: 4.0)";
+    let source = "use std.math { sqrt, abs, min, max }\n\n@f () -> float = sqrt(value: 4.0);";
     test_idempotence(source).expect("multiple imports should be idempotent");
 }
 
 #[test]
 fn test_import_alias() {
-    let source = "use std.math { sqrt as square_root }\n\n@f () -> float = square_root(value: 4.0)";
+    let source =
+        "use std.math { sqrt as square_root }\n\n@f () -> float = square_root(value: 4.0);";
     test_idempotence(source).expect("import alias should be idempotent");
 }
 
 #[test]
 fn test_import_relative() {
-    let source = "use \"./helper\" { util }\n\n@f () -> int = util(x: 1)";
+    let source = "use \"./helper\" { util }\n\n@f () -> int = util(x: 1);";
     test_idempotence(source).expect("relative import should be idempotent");
 }
 
@@ -1769,31 +1770,31 @@ fn test_import_relative() {
 
 #[test]
 fn test_const_int() {
-    let source = "let $MAX_SIZE = 1000";
+    let source = "let $MAX_SIZE = 1000;";
     test_idempotence(source).expect("int const should be idempotent");
 }
 
 #[test]
 fn test_const_float() {
-    let source = "let $PI = 3.14159";
+    let source = "let $PI = 3.14159;";
     test_idempotence(source).expect("float const should be idempotent");
 }
 
 #[test]
 fn test_const_string() {
-    let source = "let $GREETING = \"Hello, World!\"";
+    let source = "let $GREETING = \"Hello, World!\";";
     test_idempotence(source).expect("string const should be idempotent");
 }
 
 #[test]
 fn test_const_bool() {
-    let source = "let $DEBUG = true";
+    let source = "let $DEBUG = true;";
     test_idempotence(source).expect("bool const should be idempotent");
 }
 
 #[test]
 fn test_const_public() {
-    let source = "pub let $PUBLIC_CONST = 42";
+    let source = "pub let $PUBLIC_CONST = 42;";
     test_idempotence(source).expect("public const should be idempotent");
 }
 
@@ -1801,14 +1802,14 @@ fn test_const_public() {
 
 #[test]
 fn test_targeted_test() {
-    let source = "@add (a: int, b: int) -> int = a + b\n\n@test_add tests @add () -> void = assert_eq(actual: add(a: 1, b: 2), expected: 3)";
+    let source = "@add (a: int, b: int) -> int = a + b;\n\n@test_add tests @add () -> void = assert_eq(actual: add(a: 1, b: 2), expected: 3);";
     test_idempotence(source).expect("targeted test should be idempotent");
 }
 
 #[test]
 fn test_free_floating_test() {
     // Free-floating tests use @name syntax without a target
-    let source = "@test_something () -> void = assert(condition: true)";
+    let source = "@test_something () -> void = assert(condition: true);";
     test_idempotence(source).expect("free floating test should be idempotent");
 }
 
@@ -1816,26 +1817,26 @@ fn test_free_floating_test() {
 
 #[test]
 fn test_single_comment() {
-    let source = "// This is a comment\n@f () -> int = 42";
+    let source = "// This is a comment\n@f () -> int = 42;";
     test_idempotence(source).expect("single comment should be idempotent");
 }
 
 #[test]
 fn test_doc_comment() {
-    let source = "// #Description of function\n@f () -> int = 42";
+    let source = "// #Description of function\n@f () -> int = 42;";
     test_idempotence(source).expect("doc comment should be idempotent");
 }
 
 #[test]
 fn test_param_comment() {
-    let source = "// * x: The input value\n@f (x: int) -> int = x";
+    let source = "// * x: The input value\n@f (x: int) -> int = x;";
     test_idempotence(source).expect("param comment should be idempotent");
 }
 
 #[test]
 fn test_multiple_comments() {
     let source =
-        "// #Description\n// * x: Input\n// * y: Another input\n@f (x: int, y: int) -> int = x + y";
+        "// #Description\n// * x: Input\n// * y: Another input\n@f (x: int, y: int) -> int = x + y;";
     test_idempotence(source).expect("multiple comments should be idempotent");
 }
 
@@ -1844,31 +1845,32 @@ fn test_multiple_comments() {
 #[test]
 fn test_long_int_chain() {
     // Create a line with many integers
-    let source = "@f () -> int = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15";
+    let source = "@f () -> int = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15;";
     test_idempotence(source).expect("long int chain should be idempotent");
 }
 
 #[test]
 fn test_long_function_name() {
-    let source = "@this_is_a_very_long_function_name_that_goes_on_for_quite_a_while () -> int = 42";
+    let source =
+        "@this_is_a_very_long_function_name_that_goes_on_for_quite_a_while () -> int = 42;";
     test_idempotence(source).expect("long function name should be idempotent");
 }
 
 #[test]
 fn test_long_param_names() {
-    let source = "@f (this_is_a_long_parameter_name: int, another_very_long_parameter_name: str) -> int = 42";
+    let source = "@f (this_is_a_long_parameter_name: int, another_very_long_parameter_name: str) -> int = 42;";
     test_idempotence(source).expect("long param names should be idempotent");
 }
 
 #[test]
 fn test_long_type_annotation() {
-    let source = "@f () -> Result<Option<[int]>, str> = Ok(None)";
+    let source = "@f () -> Result<Option<[int]>, str> = Ok(None);";
     test_idempotence(source).expect("long type annotation should be idempotent");
 }
 
 #[test]
 fn test_very_long_expression() {
-    let source = "@f () -> int = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20";
+    let source = "@f () -> int = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15 + 16 + 17 + 18 + 19 + 20;";
     test_idempotence(source).expect("very long expression should be idempotent");
 }
 
@@ -1877,7 +1879,7 @@ fn test_very_long_expression() {
 #[test]
 fn test_full_module() {
     let source = r#"
-let $MAX = 100
+let $MAX = 100;
 
 type Point = { x: int, y: int }
 
@@ -1890,10 +1892,10 @@ impl Point {
 }
 
 impl Printable for Point {
-    @to_str (self) -> str = "point"
+    @to_str (self) -> str = "point";
 }
 
-@distance (p1: Point, p2: Point) -> float = 0.0
+@distance (p1: Point, p2: Point) -> float = 0.0;
 "#;
     test_idempotence(source).expect("full module should be idempotent");
 }
@@ -1901,13 +1903,13 @@ impl Printable for Point {
 #[test]
 fn test_complex_expression_composition() {
     // Simpler method chain that doesn't trigger lambda line-break issues
-    let source = "@f (data: [int]) -> int = data.filter(predicate: x -> x > 0).map(transform: x -> x * 2).fold(init: 0, f: (a, b) -> a + b)";
+    let source = "@f (data: [int]) -> int = data.filter(predicate: x -> x > 0).map(transform: x -> x * 2).fold(init: 0, f: (a, b) -> a + b);";
     test_idempotence(source).expect("complex expression should be idempotent");
 }
 
 #[test]
 fn test_deeply_nested_everything() {
-    let source = "@f () -> int = if true then match [1, 2, 3] { [x, ..rest] -> { let sum = x + for r in rest yield r; sum }, [] -> 0 } else 0";
+    let source = "@f () -> int = if true then match [1, 2, 3] { [x, ..rest] -> { let sum = x + for r in rest yield r; sum }, [] -> 0 } else 0;";
     test_idempotence(source).expect("deeply nested everything should be idempotent");
 }
 
@@ -2108,7 +2110,7 @@ proptest! {
                 _ => format!("Result<{}, str>", ty),
             };
         }
-        let source = format!("@f () -> {} = panic(msg: \"unimplemented\")", ty);
+        let source = format!("@f () -> {} = panic(msg: \"unimplemented\");", ty);
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));
@@ -2121,7 +2123,7 @@ proptest! {
     fn prop_fn_type_idempotence(param_count in 1usize..4) {
         let params: Vec<&str> = (0..param_count).map(|_| "int").collect();
         let fn_type = format!("({}) -> int", params.join(", "));
-        let source = format!("@f () -> {} = panic(msg: \"unimplemented\")", fn_type);
+        let source = format!("@f () -> {} = panic(msg: \"unimplemented\");", fn_type);
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));
@@ -2136,7 +2138,7 @@ proptest! {
             .map(|i| match i % 3 { 0 => "int", 1 => "str", _ => "bool" })
             .collect();
         let tuple_type = format!("({})", elems.join(", "));
-        let source = format!("@f () -> {} = panic(msg: \"unimplemented\")", tuple_type);
+        let source = format!("@f () -> {} = panic(msg: \"unimplemented\");", tuple_type);
         if let Err(e) = test_idempotence(&source) {
             if e.contains("Idempotence failure") {
                 return Err(TestCaseError::fail(e));

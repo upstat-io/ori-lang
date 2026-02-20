@@ -154,7 +154,7 @@ type MockDataStore = { data: [int] }
 type Config = { name: str, port: int }
 
 impl Config {
-    @get_address (self) -> str = self.name + ":" + str(self.port)
+    @get_address (self) -> str = self.name + ":" + str(self.port);
 }
 
 @test_capability_method_call () -> void = {
@@ -164,7 +164,7 @@ impl Config {
 }
 
 // Test capability preserves through function call
-@uses_cap () -> int uses Value = Value
+@uses_cap () -> int uses Value = Value;
 
 @test_capability_through_function () -> void = {
     let result = with Value = 42 in uses_cap();

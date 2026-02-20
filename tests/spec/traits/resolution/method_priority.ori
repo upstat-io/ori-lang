@@ -11,12 +11,12 @@ type Item = { name: str }
 
 // Inherent method
 impl Item {
-    @format (self) -> str = "inherent:" + self.name
+    @format (self) -> str = "inherent:" + self.name;
 }
 
 // Trait method with same name
 impl Formatter for Item {
-    @format (self) -> str = "trait:" + self.name
+    @format (self) -> str = "trait:" + self.name;
 }
 
 // Inherent method should win over trait method
@@ -33,7 +33,7 @@ trait Displayable {
 type Widget = { label: str }
 
 impl Displayable for Widget {
-    @display (self) -> str = "widget:" + self.label
+    @display (self) -> str = "widget:" + self.label;
 }
 
 @test_single_trait_unambiguous tests @display () -> void = {

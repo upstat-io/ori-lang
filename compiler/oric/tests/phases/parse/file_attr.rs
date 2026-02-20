@@ -12,7 +12,7 @@ use ori_ir::FileAttr;
 
 #[test]
 fn test_file_attr_target_os() {
-    let output = parse_ok("#!target(os: \"linux\")\n@main () -> void = ()");
+    let output = parse_ok("#!target(os: \"linux\")\n@main () -> void = ();");
     assert!(output.module.file_attr.is_some());
     let attr = output.module.file_attr.unwrap();
     match attr {
@@ -27,7 +27,7 @@ fn test_file_attr_target_os() {
 
 #[test]
 fn test_file_attr_target_arch() {
-    let output = parse_ok("#!target(arch: \"x86_64\")\n@main () -> void = ()");
+    let output = parse_ok("#!target(arch: \"x86_64\")\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Target { attr: target, .. } => {
             assert!(target.os.is_none());
@@ -39,7 +39,7 @@ fn test_file_attr_target_arch() {
 
 #[test]
 fn test_file_attr_target_multiple_params() {
-    let output = parse_ok("#!target(os: \"linux\", arch: \"x86_64\")\n@main () -> void = ()");
+    let output = parse_ok("#!target(os: \"linux\", arch: \"x86_64\")\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Target { attr: target, .. } => {
             assert!(target.os.is_some());
@@ -51,7 +51,7 @@ fn test_file_attr_target_multiple_params() {
 
 #[test]
 fn test_file_attr_target_family() {
-    let output = parse_ok("#!target(family: \"unix\")\n@main () -> void = ()");
+    let output = parse_ok("#!target(family: \"unix\")\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Target { attr: target, .. } => {
             assert!(target.family.is_some());
@@ -62,7 +62,7 @@ fn test_file_attr_target_family() {
 
 #[test]
 fn test_file_attr_target_not_os() {
-    let output = parse_ok("#!target(not_os: \"windows\")\n@main () -> void = ()");
+    let output = parse_ok("#!target(not_os: \"windows\")\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Target { attr: target, .. } => {
             assert!(target.not_os.is_some());
@@ -75,7 +75,7 @@ fn test_file_attr_target_not_os() {
 
 #[test]
 fn test_file_attr_cfg_debug() {
-    let output = parse_ok("#!cfg(debug)\n@main () -> void = ()");
+    let output = parse_ok("#!cfg(debug)\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Cfg { attr: cfg, .. } => {
             assert!(cfg.debug, "debug should be true");
@@ -87,7 +87,7 @@ fn test_file_attr_cfg_debug() {
 
 #[test]
 fn test_file_attr_cfg_release() {
-    let output = parse_ok("#!cfg(release)\n@main () -> void = ()");
+    let output = parse_ok("#!cfg(release)\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Cfg { attr: cfg, .. } => {
             assert!(!cfg.debug);
@@ -99,7 +99,7 @@ fn test_file_attr_cfg_release() {
 
 #[test]
 fn test_file_attr_cfg_feature() {
-    let output = parse_ok("#!cfg(feature: \"logging\")\n@main () -> void = ()");
+    let output = parse_ok("#!cfg(feature: \"logging\")\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Cfg { attr: cfg, .. } => {
             assert!(cfg.feature.is_some());
@@ -110,7 +110,7 @@ fn test_file_attr_cfg_feature() {
 
 #[test]
 fn test_file_attr_cfg_not_debug() {
-    let output = parse_ok("#!cfg(not_debug)\n@main () -> void = ()");
+    let output = parse_ok("#!cfg(not_debug)\n@main () -> void = ();");
     match output.module.file_attr.unwrap() {
         FileAttr::Cfg { attr: cfg, .. } => {
             assert!(cfg.not_debug);
@@ -123,13 +123,13 @@ fn test_file_attr_cfg_not_debug() {
 
 #[test]
 fn test_no_file_attr() {
-    let output = parse_ok("@main () -> void = ()");
+    let output = parse_ok("@main () -> void = ();");
     assert!(output.module.file_attr.is_none());
 }
 
 #[test]
 fn test_no_file_attr_with_item_attrs() {
-    let output = parse_ok("#skip(\"reason\")\n@test_foo () -> void = ()");
+    let output = parse_ok("#skip(\"reason\")\n@test_foo () -> void = ();");
     assert!(
         output.module.file_attr.is_none(),
         "item-level # should not be parsed as file-level #!"
@@ -141,7 +141,7 @@ fn test_no_file_attr_with_item_attrs() {
 #[test]
 fn test_file_attr_before_imports() {
     let output =
-        parse_ok("#!target(os: \"linux\")\nuse std.testing { assert }\n@main () -> void = ()");
+        parse_ok("#!target(os: \"linux\")\nuse std.testing { assert }\n@main () -> void = ();");
     assert!(output.module.file_attr.is_some());
     assert_eq!(output.module.imports.len(), 1);
 }
@@ -151,7 +151,7 @@ fn test_file_attr_before_imports() {
 #[test]
 fn test_file_attr_invalid_derive() {
     parse_err(
-        "#!derive(Eq)\n@main () -> void = ()",
+        "#!derive(Eq)\n@main () -> void = ();",
         "not valid as a file-level attribute",
     );
 }
@@ -159,7 +159,7 @@ fn test_file_attr_invalid_derive() {
 #[test]
 fn test_file_attr_invalid_skip() {
     parse_err(
-        "#!skip(\"reason\")\n@main () -> void = ()",
+        "#!skip(\"reason\")\n@main () -> void = ();",
         "not valid as a file-level attribute",
     );
 }
@@ -167,12 +167,12 @@ fn test_file_attr_invalid_skip() {
 #[test]
 fn test_file_attr_invalid_repr() {
     parse_err(
-        "#!repr(\"c\")\n@main () -> void = ()",
+        "#!repr(\"c\")\n@main () -> void = ();",
         "not valid as a file-level attribute",
     );
 }
 
 #[test]
 fn test_file_attr_unknown_name() {
-    parse_err("#!foobar()\n@main () -> void = ()", "unknown attribute");
+    parse_err("#!foobar()\n@main () -> void = ();", "unknown attribute");
 }

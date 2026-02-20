@@ -6,26 +6,26 @@
 use std.testing { assert_eq }
 
 // Simple arithmetic functions
-pub @add (a: int, b: int) -> int = a + b
+pub @add (a: int, b: int) -> int = a + b;
 
-pub @subtract (a: int, b: int) -> int = a - b
+pub @subtract (a: int, b: int) -> int = a - b;
 
-pub @multiply (a: int, b: int) -> int = a * b
+pub @multiply (a: int, b: int) -> int = a * b;
 
 // A function that uses another function in this module
-pub @square (x: int) -> int = multiply(a: x, b: x)
+pub @square (x: int) -> int = multiply(a: x, b: x);
 
 // A function with a single parameter
-pub @double (x: int) -> int = x * 2
+pub @double (x: int) -> int = x * 2;
 
 // A function that returns a closure
-pub @make_adder (n: int) -> (int) -> int = x -> x + n
+pub @make_adder (n: int) -> (int) -> int = x -> x + n;
 
 // Private function (should not be accessible via module alias)
-@internal_helper (x: int) -> int = x + 100
+@internal_helper (x: int) -> int = x + 100;
 
 // Public function using private helper
-pub @use_internal (x: int) -> int = internal_helper(x: x)
+pub @use_internal (x: int) -> int = internal_helper(x: x);
 
 // Tests for this module
 @test_add tests @add () -> void = {

@@ -429,7 +429,9 @@ pub(crate) fn bind_pattern(
 
     match pattern {
         BindingPattern::Name { name, mutable } => {
-            engine.env_mut().bind_with_mutability(*name, ty, *mutable);
+            engine
+                .env_mut()
+                .bind_with_mutability(*name, ty, mutable.is_mutable());
         }
 
         BindingPattern::Tuple(patterns) => {
@@ -472,9 +474,11 @@ pub(crate) fn bind_pattern(
                     bind_pattern(engine, arena, sub_pat, field_ty);
                 } else {
                     // Shorthand: { x } or { $x } — use field's own mutability
-                    engine
-                        .env_mut()
-                        .bind_with_mutability(field.name, field_ty, field.mutable);
+                    engine.env_mut().bind_with_mutability(
+                        field.name,
+                        field_ty,
+                        field.mutable.is_mutable(),
+                    );
                 }
             }
         }
@@ -486,9 +490,11 @@ pub(crate) fn bind_pattern(
                 for pat in elements {
                     bind_pattern(engine, arena, pat, elem_ty);
                 }
-                if let Some(rest_name) = rest {
-                    // Rest binding gets the full list type
-                    engine.env_mut().bind(*rest_name, ty);
+                if let Some((rest_name, rest_mut)) = rest {
+                    // Rest binding gets the full list type, respecting $ mutability
+                    engine
+                        .env_mut()
+                        .bind_with_mutability(*rest_name, ty, rest_mut.is_mutable());
                 }
             } else {
                 // Type mismatch - bind each to fresh var
@@ -496,8 +502,10 @@ pub(crate) fn bind_pattern(
                     let var = engine.fresh_var();
                     bind_pattern(engine, arena, pat, var);
                 }
-                if let Some(rest_name) = rest {
-                    engine.env_mut().bind(*rest_name, ty);
+                if let Some((rest_name, rest_mut)) = rest {
+                    engine
+                        .env_mut()
+                        .bind_with_mutability(*rest_name, ty, rest_mut.is_mutable());
                 }
             }
         }

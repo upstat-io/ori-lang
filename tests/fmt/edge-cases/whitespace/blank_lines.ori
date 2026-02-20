@@ -1,5 +1,5 @@
-@first () -> int = 1
+@first () -> int = 1;
 
 
 
-@second () -> int = 2
+@second () -> int = 2;

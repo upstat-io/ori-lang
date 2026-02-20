@@ -8,22 +8,22 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // Function with single capability
-@fetch_data (url: str) -> str uses Http = url
+@fetch_data (url: str) -> str uses Http = url;
 
 // Function with multiple capabilities
-@save_and_log (data: str) -> void uses FileSystem, Logger = ()
+@save_and_log (data: str) -> void uses FileSystem, Logger = ();
 
 // Function with capability and return type
-@read_file (path: str) -> Result<str, Error> uses FileSystem = Ok(path)
+@read_file (path: str) -> Result<str, Error> uses FileSystem = Ok(path);
 
 // Pure function - no uses clause
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 // =============================================================================
 // Capability with Generics
 // =============================================================================
 
-@process<T> (data: T) -> T uses Logger where T: Clone = data
+@process<T> (data: T) -> T uses Logger where T: Clone = data;
 
 // =============================================================================
 // Tests

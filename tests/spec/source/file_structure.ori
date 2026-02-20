@@ -47,7 +47,7 @@ type FilePoint = { x: int, y: int }
 // Function Declarations
 // =============================================================================
 
-@file_fn (x: int) -> int = x * 2
+@file_fn (x: int) -> int = x * 2;
 
 @test_file_fn tests @file_fn () -> void = {
     assert_eq(actual: file_fn(x: 5), expected: 10)
@@ -57,9 +57,9 @@ type FilePoint = { x: int, y: int }
 // Multiple Declarations
 // =============================================================================
 
-@multi_a () -> int = 1
-@multi_b () -> int = 2
-@multi_c () -> int = 3
+@multi_a () -> int = 1;
+@multi_b () -> int = 2;
+@multi_c () -> int = 3;
 
 @test_multi tests @multi_a tests @multi_b tests @multi_c () -> void = {
     assert_eq(actual: multi_a() + multi_b() + multi_c(), expected: 6)

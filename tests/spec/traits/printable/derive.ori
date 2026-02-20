@@ -15,7 +15,7 @@ type Point = { x: int, y: int }
     assert_eq(actual: p.to_str(), expected: "Point(1, 2)")
 }
 
-@derived_basic () -> str = Point { x: 1, y: 2 }.to_str()
+@derived_basic () -> str = Point { x: 1, y: 2 }.to_str();
 
 // =============================================================================
 // Single Field Struct
@@ -29,7 +29,7 @@ type Wrapper = { value: int }
     assert_eq(actual: w.to_str(), expected: "Wrapper(42)")
 }
 
-@derived_single () -> str = Wrapper { value: 42 }.to_str()
+@derived_single () -> str = Wrapper { value: 42 }.to_str();
 
 // =============================================================================
 // Multiple Field Types
@@ -43,7 +43,7 @@ type Person = { name: str, age: int, active: bool }
     assert_eq(actual: p.to_str(), expected: "Person(Alice, 30, true)")
 }
 
-@derived_mixed () -> str = Person { name: "Alice", age: 30, active: true }.to_str()
+@derived_mixed () -> str = Person { name: "Alice", age: 30, active: true }.to_str();
 
 // =============================================================================
 // Nested Derived Printable
@@ -103,7 +103,7 @@ type Color = { r: int, g: int, b: int }
     assert_eq(actual: debug_str, expected: "Color { r: 255, g: 128, b: 0 }")
 }
 
-@printable_vs_debug () -> str = Color { r: 255, g: 128, b: 0 }.to_str()
+@printable_vs_debug () -> str = Color { r: 255, g: 128, b: 0 }.to_str();
 
 // =============================================================================
 // String Interpolation with Derived Printable
@@ -120,4 +120,4 @@ type Color = { r: int, g: int, b: int }
     `point: {p}`
 }
 
-@main () -> void = print(msg: "Printable derive tests")
+@main () -> void = print(msg: "Printable derive tests");

@@ -13,13 +13,13 @@ use std.testing { assert_eq }
     assert_eq(actual: ["a", "b", "c"].iter().join(sep: "-"), expected: "a-b-c")
 }
 
-@join_strings () -> str = ["hello", "world"].iter().join(sep: ", ")
+@join_strings () -> str = ["hello", "world"].iter().join(sep: ", ");
 
 @test_join_single tests @join_single () -> void = {
     assert_eq(actual: ["only"].iter().join(sep: ", "), expected: "only")
 }
 
-@join_single () -> str = ["only"].iter().join(sep: ", ")
+@join_single () -> str = ["only"].iter().join(sep: ", ");
 
 @test_join_empty tests @join_empty () -> void = {
     let empty: [str] = [];
@@ -39,13 +39,13 @@ use std.testing { assert_eq }
     assert_eq(actual: ["a", "b", "c"].iter().join(sep: ""), expected: "abc")
 }
 
-@join_empty_sep () -> str = ["a", "b", "c"].iter().join(sep: "")
+@join_empty_sep () -> str = ["a", "b", "c"].iter().join(sep: "");
 
 @test_join_multi_char_sep tests @join_multi_char_sep () -> void = {
     assert_eq(actual: ["x", "y"].iter().join(sep: " :: "), expected: "x :: y")
 }
 
-@join_multi_char_sep () -> str = ["x", "y"].iter().join(sep: " :: ")
+@join_multi_char_sep () -> str = ["x", "y"].iter().join(sep: " :: ");
 
 // =============================================================================
 // Non-string elements (via to_str/Printable)
@@ -59,7 +59,7 @@ use std.testing { assert_eq }
 }
 
 @join_ints_via_map () -> str =
-    [1, 2, 3].iter().map(transform: n -> n.to_str()).join(sep: ", ")
+    [1, 2, 3].iter().map(transform: n -> n.to_str()).join(sep: ", ");
 
 // =============================================================================
 // Chaining with other iterator methods
@@ -75,7 +75,7 @@ use std.testing { assert_eq }
 }
 
 @join_after_filter () -> str =
-    ["a", "b", "c", "d"].iter().filter(predicate: s -> s != "b").join(sep: "-")
+    ["a", "b", "c", "d"].iter().filter(predicate: s -> s != "b").join(sep: "-");
 
 @test_join_after_take tests @join_after_take () -> void = {
     assert_eq(
@@ -85,7 +85,7 @@ use std.testing { assert_eq }
 }
 
 @join_after_take () -> str =
-    ["w", "x", "y", "z"].iter().take(count: 2).join(sep: ",")
+    ["w", "x", "y", "z"].iter().take(count: 2).join(sep: ",");
 
 @test_join_after_skip tests @join_after_skip () -> void = {
     assert_eq(
@@ -95,7 +95,7 @@ use std.testing { assert_eq }
 }
 
 @join_after_skip () -> str =
-    ["a", "b", "c", "d"].iter().skip(count: 2).join(sep: " ")
+    ["a", "b", "c", "d"].iter().skip(count: 2).join(sep: " ");
 
 // =============================================================================
 // Debug output using join (the primary use case from the proposal)
@@ -126,4 +126,4 @@ use std.testing { assert_eq }
 }
 
 @join_range () -> str =
-    (1..4).iter().map(transform: n -> n.to_str()).join(sep: "+")
+    (1..4).iter().map(transform: n -> n.to_str()).join(sep: "+");

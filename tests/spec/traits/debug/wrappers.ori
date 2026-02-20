@@ -11,7 +11,7 @@ use std.testing { assert_eq }
     assert_eq(actual: Some(42).debug(), expected: "Some(42)")
 }
 
-@some_debug () -> str = Some(42).debug()
+@some_debug () -> str = Some(42).debug();
 
 @test_none_debug tests @none_debug () -> void = {
     let n: Option<int> = None;
@@ -28,7 +28,7 @@ use std.testing { assert_eq }
     assert_eq(actual: Some("hi").debug(), expected: "Some(\"hi\")")
 }
 
-@some_string_debug () -> str = Some("hi").debug()
+@some_string_debug () -> str = Some("hi").debug();
 
 // =============================================================================
 // Result Debug

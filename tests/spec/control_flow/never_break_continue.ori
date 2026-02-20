@@ -23,7 +23,7 @@ use std.prelude { len }
 
 @break_to_int () -> void =
     for x in [1, 2, 3] do
-        if x == 2 then x else break
+        if x == 2 then x else break;
 
 // Break in then branch coerces to match else branch type
 @test_break_in_then tests @break_in_then () -> void = {
@@ -34,7 +34,7 @@ use std.prelude { len }
 
 @break_in_then () -> void =
     for x in [1, 2, 3, 4, 5] do
-        if x > 3 then break else x
+        if x > 3 then break else x;
 
 // =============================================================================
 // Continue Has Type Never - Coerces in Conditionals
@@ -49,7 +49,7 @@ use std.prelude { len }
 
 @continue_to_int () -> void =
     for x in [1, 2, 3] do
-        if x % 2 == 0 then x else continue
+        if x % 2 == 0 then x else continue;
 
 // Continue in then branch coerces to match else branch type
 @test_continue_in_then tests @continue_in_then () -> void = {
@@ -60,7 +60,7 @@ use std.prelude { len }
 
 @continue_in_then () -> void =
     for x in [1, 2, 3] do
-        if x == 1 then continue else x
+        if x == 1 then continue else x;
 
 // =============================================================================
 // Break/Continue in Nested Conditionals
@@ -77,7 +77,7 @@ use std.prelude { len }
 @nested_break () -> void =
     for x in [1, 2, 3, 4, 5] do
         if x < 3 then x
-        else (if x > 4 then break else x)
+        else (if x > 4 then break else x);
 
 // Nested continue coerces through multiple levels
 @test_nested_continue tests @nested_continue () -> void = {
@@ -90,7 +90,7 @@ use std.prelude { len }
 @nested_continue () -> void =
     for x in [1, 2, 3, 4, 5] do
         if x < 3 then x
-        else (if x == 3 then continue else x)
+        else (if x == 3 then continue else x);
 
 // =============================================================================
 // Break/Continue Coerce to Complex Types
@@ -105,7 +105,7 @@ use std.prelude { len }
 
 @break_to_str () -> void =
     for x in [1, 2, 3] do
-        if x == 2 then "found" else break
+        if x == 2 then "found" else break;
 
 // Continue coerces to list
 @test_continue_to_list tests @continue_to_list () -> void = {
@@ -116,7 +116,7 @@ use std.prelude { len }
 
 @continue_to_list () -> void =
     for x in [[1], [2], [3]] do
-        if len(collection: x) > 0 then x else continue
+        if len(collection: x) > 0 then x else continue;
 
 // =============================================================================
 // Break with Value (for yield loops)
@@ -131,7 +131,7 @@ use std.prelude { len }
 
 @break_with_value () -> [int] =
     for x in [1, 2, 3, 4, 5] yield
-        if x > 3 then break 100 else x
+        if x > 3 then break 100 else x;
 
 // =============================================================================
 // Continue with Value (for yield loops)
@@ -146,7 +146,7 @@ use std.prelude { len }
 
 @continue_with_value () -> [int] =
     for x in [1, 2, 3, 4, 5] yield
-        if x == 3 then continue 0 else x
+        if x == 3 then continue 0 else x;
 
 // =============================================================================
 // Multiple Break/Continue in Same Loop
@@ -164,4 +164,4 @@ use std.prelude { len }
     for x in [1, 2, 3, 4, 5, 6] yield
         if x == 2 then continue 0
         else if x == 5 then break 99
-        else x
+        else x;

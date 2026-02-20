@@ -7,13 +7,13 @@ use std.testing { assert, assert_eq }
 // Literals
 // =============================================================================
 
-@expr_int () -> int = 42
+@expr_int () -> int = 42;
 
 @test_expr_int tests @expr_int () -> void = {
     assert_eq(actual: expr_int(), expected: 42)
 }
 
-@expr_bool () -> bool = true
+@expr_bool () -> bool = true;
 
 @test_expr_bool tests @expr_bool () -> void = {
     assert(cond: expr_bool())
@@ -23,13 +23,13 @@ use std.testing { assert, assert_eq }
 // Grouped Expressions
 // =============================================================================
 
-@expr_grouped () -> int = (1 + 2) * 3
+@expr_grouped () -> int = (1 + 2) * 3;
 
 @test_expr_grouped tests @expr_grouped () -> void = {
     assert_eq(actual: expr_grouped(), expected: 9)
 }
 
-@expr_nested_group () -> int = ((1 + 2) * (3 + 4))
+@expr_nested_group () -> int = ((1 + 2) * (3 + 4));
 
 @test_expr_nested_group tests @expr_nested_group () -> void = {
     assert_eq(actual: expr_nested_group(), expected: 21)
@@ -39,7 +39,7 @@ use std.testing { assert, assert_eq }
 // Binary Expressions
 // =============================================================================
 
-@expr_binary () -> int = 10 + 5 * 2
+@expr_binary () -> int = 10 + 5 * 2;
 
 @test_expr_binary tests @expr_binary () -> void = {
     assert_eq(actual: expr_binary(), expected: 20) // precedence: 10 + (5 * 2)
@@ -49,13 +49,13 @@ use std.testing { assert, assert_eq }
 // Unary Expressions
 // =============================================================================
 
-@expr_neg () -> int = -42
+@expr_neg () -> int = -42;
 
 @test_expr_neg tests @expr_neg () -> void = {
     assert_eq(actual: expr_neg(), expected: -42)
 }
 
-@expr_not () -> bool = !false
+@expr_not () -> bool = !false;
 
 @test_expr_not tests @expr_not () -> void = {
     assert(cond: expr_not())
@@ -65,13 +65,13 @@ use std.testing { assert, assert_eq }
 // If Expressions
 // =============================================================================
 
-@expr_if () -> int = if true then 1 else 2
+@expr_if () -> int = if true then 1 else 2;
 
 @test_expr_if tests @expr_if () -> void = {
     assert_eq(actual: expr_if(), expected: 1)
 }
 
-@expr_if_chain () -> int = if false then 1 else if false then 2 else 3
+@expr_if_chain () -> int = if false then 1 else if false then 2 else 3;
 
 @test_expr_if_chain tests @expr_if_chain () -> void = {
     assert_eq(actual: expr_if_chain(), expected: 3)
@@ -185,7 +185,7 @@ type Point = { x: int, y: int }
 // Method Calls
 // =============================================================================
 
-@expr_method () -> int = [1, 2, 3].len()
+@expr_method () -> int = [1, 2, 3].len();
 
 @test_expr_method tests @expr_method () -> void = {
     assert_eq(actual: expr_method(), expected: 3)

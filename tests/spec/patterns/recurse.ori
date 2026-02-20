@@ -26,7 +26,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n <= 1,
     base: 1,
     step: n * self(n - 1),
-)
+);
 
 @test_fibonacci tests @fibonacci () -> void = {
     assert_eq(
@@ -48,7 +48,7 @@ use std.testing { assert, assert_eq, assert_ne }
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true,
-)
+);
 
 @test_sum_to_n tests @sum_to_n () -> void = {
     assert_eq(
@@ -69,7 +69,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n <= 0,
     base: 0,
     step: n + self(n - 1),
-)
+);
 
 @test_power tests @power () -> void = {
     assert_eq(
@@ -102,7 +102,7 @@ use std.testing { assert, assert_eq, assert_ne }
         base: base,
         exp: exp - 1,
     ),
-)
+);
 
 // =============================================================================
 // Parallel Recursion (stub - executes sequentially)
@@ -130,7 +130,7 @@ use std.testing { assert, assert_eq, assert_ne }
     base: n,
     step: self(n - 1) + self(n - 2),
     parallel: 5,
-)
+);
 
 // =============================================================================
 // Memoization Tests
@@ -147,7 +147,7 @@ use std.testing { assert, assert_eq, assert_ne }
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true,
-)
+);
 
 @test_fib_large tests @fib_large () -> void = {
     // Test larger fibonacci that would be impossible without memoization
@@ -169,7 +169,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: b == 0,
     base: a,
     step: self(a: b, b: a % b),
-)
+);
 
 @test_ackermann tests @ackermann () -> void = {
     // Ackermann function - tests deep recursion with memo
@@ -183,7 +183,7 @@ use std.testing { assert, assert_eq, assert_ne }
     base: n + 1,
     step: if n == 0 then self(m: m - 1, n: 1) else self(m: m - 1, n: self(m: m, n: n - 1)),
     memo: true,
-)
+);
 
 // =============================================================================
 // Tail Recursion Optimization
@@ -198,7 +198,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n == 0,
     base: acc,
     step: self(n: n - 1, acc: acc + n),
-)
+);
 
 @test_factorial_tail tests @factorial_tail () -> void = {
     assert_eq(actual: factorial_tail(n: 5, acc: 1), expected: 120);
@@ -209,7 +209,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n <= 1,
     base: acc,
     step: self(n: n - 1, acc: acc * n),
-)
+);
 
 // =============================================================================
 // Recurse with List Processing
@@ -224,7 +224,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: idx >= items.len(),
     base: 0,
     step: items[idx] + self(items: items, idx: idx + 1),
-)
+);
 
 @test_list_max tests @list_max () -> void = {
     assert_eq(actual: list_max(items: [3, 1, 4, 1, 5, 9, 2, 6], idx: 0, current: 0), expected: 9)
@@ -238,7 +238,7 @@ use std.testing { assert, assert_eq, assert_ne }
         idx: idx + 1,
         current: if items[idx] > current then items[idx] else current,
     ),
-)
+);
 
 // =============================================================================
 // Recurse with String Processing
@@ -256,7 +256,7 @@ use std.testing { assert, assert_eq, assert_ne }
         let count = if s[idx] == str(c) then 1 else 0;
         count + self(s: s, c: c, idx: idx + 1)
     },
-)
+);
 
 // =============================================================================
 // Recurse with Complex Conditions
@@ -280,7 +280,7 @@ use std.testing { assert, assert_eq, assert_ne }
         else if mid_val < target then self(items: items, target: target, lo: mid + 1, hi: hi)
         else self(items: items, target: target, lo: lo, hi: mid - 1)
     },
-)
+);
 
 // =============================================================================
 // Recurse Returning Collections
@@ -293,7 +293,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // NOTE: List spread in recurse step may not be supported
 // Simplified to use for/yield
-@range_list (start: int, end: int) -> [int] = for i in start..=end yield i
+@range_list (start: int, end: int) -> [int] = for i in start..=end yield i;
 
 // =============================================================================
 // Recurse with Boolean Condition
@@ -311,7 +311,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n == 0,
     base: true,
     step: !self(n - 1),
-)
+);
 
 // =============================================================================
 // Mutual Recursion via Recurse
@@ -329,4 +329,4 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n < 0,
     base: "",
     step: str(n) + if n > 0 then " " + self(n - 1) else "",
-)
+);

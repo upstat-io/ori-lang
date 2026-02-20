@@ -2,14 +2,14 @@ use super::*;
 
 #[test]
 fn test_parse_source_simple_function() {
-    let output = parse_source("@add(a: int, b: int) -> int = a + b");
+    let output = parse_source("@add(a: int, b: int) -> int = a + b;");
     assert!(!output.has_errors());
     assert_eq!(output.module.functions.len(), 1);
 }
 
 #[test]
 fn test_parse_ok_succeeds() {
-    let output = parse_ok("let $x = 42");
+    let output = parse_ok("let $x = 42;");
     assert!(!output.has_errors());
 }
 

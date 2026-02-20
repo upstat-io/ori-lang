@@ -13,7 +13,7 @@ use std.testing { assert_eq }
 }
 
 @test_int_to_float_basic tests @int_to_float_basic () -> void =
-    assert_eq(actual: int_to_float_basic(), expected: 42.0)
+    assert_eq(actual: int_to_float_basic(), expected: 42.0);
 
 @int_to_float_zero () -> float = {
     let n: int = 0;
@@ -21,7 +21,7 @@ use std.testing { assert_eq }
 }
 
 @test_int_to_float_zero tests @int_to_float_zero () -> void =
-    assert_eq(actual: int_to_float_zero(), expected: 0.0)
+    assert_eq(actual: int_to_float_zero(), expected: 0.0);
 
 @int_to_float_negative () -> float = {
     let n: int = -100;
@@ -29,7 +29,7 @@ use std.testing { assert_eq }
 }
 
 @test_int_to_float_negative tests @int_to_float_negative () -> void =
-    assert_eq(actual: int_to_float_negative(), expected: -100.0)
+    assert_eq(actual: int_to_float_negative(), expected: -100.0);
 
 // =============================================================================
 // Into returns correct type (verified by type annotation)
@@ -42,4 +42,4 @@ use std.testing { assert_eq }
 }
 
 @test_int_to_float_typed tests @int_to_float_typed () -> void =
-    assert_eq(actual: int_to_float_typed(), expected: 7.0)
+    assert_eq(actual: int_to_float_typed(), expected: 7.0);

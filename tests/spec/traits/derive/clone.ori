@@ -19,10 +19,10 @@ type Nested = { origin: Point, label: str }
 // --- Sum types ---
 
 #[derive(Eq, Clone)]
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 #[derive(Eq, Clone)]
-type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
+type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 
 // --- Basic struct clone ---
 

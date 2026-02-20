@@ -1079,43 +1079,31 @@ impl Parser<'_> {
         )
     }
 
-    /// Parse an optional pattern guard: `.match(condition)`
+    /// Parse an optional pattern guard: `if condition` or `.match(condition)` (legacy).
     ///
     /// Returns `Some(expr_id)` if a guard is present, `None` otherwise.
     pub(crate) fn parse_pattern_guard(&mut self) -> Result<Option<ExprId>, ParseError> {
-        // Check for .match(condition) syntax
-        if !self.cursor.check(&TokenKind::Dot) {
-            return Ok(None);
+        // New syntax: `if condition`
+        if self.cursor.check(&TokenKind::If) {
+            self.cursor.advance();
+            let condition = self.parse_expr().into_result()?;
+            return Ok(Some(condition));
         }
 
-        // Peek ahead to see if it's .match specifically
-        if !self.is_guard_syntax() {
-            return Ok(None);
+        // Legacy syntax: `.match(condition)` — kept for migration period
+        if self.cursor.check(&TokenKind::Dot) && self.is_guard_syntax() {
+            self.cursor.advance(); // consume `.`
+            self.cursor.advance(); // consume `match`
+            self.cursor.expect(&TokenKind::LParen)?;
+            let condition = self.parse_expr().into_result()?;
+            self.cursor.expect(&TokenKind::RParen)?;
+            return Ok(Some(condition));
         }
 
-        // Consume the `.`
-        self.cursor.advance();
-
-        // Expect `match` identifier
-        if !self.cursor.check(&TokenKind::Match) {
-            // Not a guard, could be a field access (but that's not valid here)
-            return Err(ParseError::new(
-                ori_diagnostic::ErrorCode::E1002,
-                "expected `match` after `.` in pattern guard",
-                self.cursor.current_span(),
-            ));
-        }
-        self.cursor.advance();
-
-        // Expect (condition)
-        self.cursor.expect(&TokenKind::LParen)?;
-        let condition = self.parse_expr().into_result()?;
-        self.cursor.expect(&TokenKind::RParen)?;
-
-        Ok(Some(condition))
+        Ok(None)
     }
 
-    /// Check if the current position has `.match(` syntax (guard syntax).
+    /// Check if the current position has `.match(` syntax (legacy guard syntax).
     fn is_guard_syntax(&self) -> bool {
         if !self.cursor.check(&TokenKind::Dot) {
             return false;

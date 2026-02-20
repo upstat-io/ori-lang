@@ -10,7 +10,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: opt2 ?? 0, expected: 42)
 }
 
-@clone_option_some () -> Option<int> = Some(42).clone()
+@clone_option_some () -> Option<int> = Some(42).clone();
 
 // Option<T>.clone() — None variant
 @test_clone_option_none tests @clone_option_none () -> void = {
@@ -31,7 +31,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: r2.unwrap(), expected: 42)
 }
 
-@clone_result_ok () -> Result<int, str> = Ok(42).clone()
+@clone_result_ok () -> Result<int, str> = Ok(42).clone();
 
 // Result<T, E>.clone() — Err variant
 @test_clone_result_err tests @clone_result_err () -> void = {
@@ -40,7 +40,9 @@ use std.testing { assert, assert_eq }
     assert(cond: r2.is_err())
 }
 
-@clone_result_err () -> Result<int, str> = Err("fail").clone()
+@clone_result_err () -> Result<int, str> = {
+    Err("fail").clone()
+}
 
 @main () -> void = {
     print(msg: "Clone wrappers tests passed")

@@ -12,19 +12,19 @@ use std.testing { assert, assert_eq }
     assert(cond: [].is_empty())
 }
 
-@empty_list_is_empty () -> bool = [].is_empty()
+@empty_list_is_empty () -> bool = [].is_empty();
 
 @test_non_empty_list_is_empty tests @non_empty_list_is_empty () -> void = {
     assert(cond: ![1, 2, 3].is_empty())
 }
 
-@non_empty_list_is_empty () -> bool = [1].is_empty()
+@non_empty_list_is_empty () -> bool = [1].is_empty();
 
 @test_single_element_list tests @single_element_list () -> void = {
     assert(cond: ![42].is_empty())
 }
 
-@single_element_list () -> bool = [42].is_empty()
+@single_element_list () -> bool = [42].is_empty();
 
 // =============================================================================
 // String IsEmpty
@@ -34,13 +34,13 @@ use std.testing { assert, assert_eq }
     assert(cond: "".is_empty())
 }
 
-@empty_str_is_empty () -> bool = "".is_empty()
+@empty_str_is_empty () -> bool = "".is_empty();
 
 @test_non_empty_str_is_empty tests @non_empty_str_is_empty () -> void = {
     assert(cond: !"hello".is_empty())
 }
 
-@non_empty_str_is_empty () -> bool = "hello".is_empty()
+@non_empty_str_is_empty () -> bool = "hello".is_empty();
 
 @test_whitespace_str tests @whitespace_str () -> void = {
     // A string with only whitespace is NOT empty
@@ -49,7 +49,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !"\t".is_empty())
 }
 
-@whitespace_str () -> bool = " ".is_empty()
+@whitespace_str () -> bool = " ".is_empty();
 
 // =============================================================================
 // Map IsEmpty
@@ -70,7 +70,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !m.is_empty())
 }
 
-@non_empty_map_is_empty () -> bool = {"a": 1}.is_empty()
+@non_empty_map_is_empty () -> bool = { {"a": 1}.is_empty() }
 
 // =============================================================================
 // IsEmpty Built-in Function
@@ -81,7 +81,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !is_empty(collection: [1]))
 }
 
-@is_empty_builtin_list () -> bool = is_empty(collection: [])
+@is_empty_builtin_list () -> bool = is_empty(collection: []);
 
 // =============================================================================
 // IsEmpty Built-in Function with Strings

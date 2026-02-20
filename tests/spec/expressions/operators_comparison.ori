@@ -11,37 +11,37 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: int_eq_true())
 }
 
-@int_eq_true () -> bool = 42 == 42
+@int_eq_true () -> bool = 42 == 42;
 
 @test_int_eq_false tests @int_eq_false () -> void = {
     assert(cond: !int_eq_false())
 }
 
-@int_eq_false () -> bool = 42 == 43
+@int_eq_false () -> bool = 42 == 43;
 
 @test_int_ne_true tests @int_ne_true () -> void = {
     assert(cond: int_ne_true())
 }
 
-@int_ne_true () -> bool = 42 != 43
+@int_ne_true () -> bool = 42 != 43;
 
 @test_int_ne_false tests @int_ne_false () -> void = {
     assert(cond: !int_ne_false())
 }
 
-@int_ne_false () -> bool = 42 != 42
+@int_ne_false () -> bool = 42 != 42;
 
 @test_int_eq_negative tests @int_eq_negative () -> void = {
     assert(cond: int_eq_negative())
 }
 
-@int_eq_negative () -> bool = -5 == -5
+@int_eq_negative () -> bool = -5 == -5;
 
 @test_int_eq_zero tests @int_eq_zero () -> void = {
     assert(cond: int_eq_zero())
 }
 
-@int_eq_zero () -> bool = 0 == 0
+@int_eq_zero () -> bool = 0 == 0;
 
 // =============================================================================
 // Integer Ordering
@@ -51,73 +51,73 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: int_lt_true())
 }
 
-@int_lt_true () -> bool = 5 < 10
+@int_lt_true () -> bool = 5 < 10;
 
 @test_int_lt_false tests @int_lt_false () -> void = {
     assert(cond: !int_lt_false())
 }
 
-@int_lt_false () -> bool = 10 < 5
+@int_lt_false () -> bool = 10 < 5;
 
 @test_int_lt_equal tests @int_lt_equal () -> void = {
     assert(cond: !int_lt_equal())
 }
 
-@int_lt_equal () -> bool = 5 < 5
+@int_lt_equal () -> bool = 5 < 5;
 
 @test_int_gt_true tests @int_gt_true () -> void = {
     assert(cond: int_gt_true())
 }
 
-@int_gt_true () -> bool = 10 > 5
+@int_gt_true () -> bool = 10 > 5;
 
 @test_int_gt_false tests @int_gt_false () -> void = {
     assert(cond: !int_gt_false())
 }
 
-@int_gt_false () -> bool = 5 > 10
+@int_gt_false () -> bool = 5 > 10;
 
 @test_int_gt_equal tests @int_gt_equal () -> void = {
     assert(cond: !int_gt_equal())
 }
 
-@int_gt_equal () -> bool = 5 > 5
+@int_gt_equal () -> bool = 5 > 5;
 
 @test_int_le_true tests @int_le_true () -> void = {
     assert(cond: int_le_true())
 }
 
-@int_le_true () -> bool = 5 <= 10
+@int_le_true () -> bool = 5 <= 10;
 
 @test_int_le_equal tests @int_le_equal () -> void = {
     assert(cond: int_le_equal())
 }
 
-@int_le_equal () -> bool = 5 <= 5
+@int_le_equal () -> bool = 5 <= 5;
 
 @test_int_le_false tests @int_le_false () -> void = {
     assert(cond: !int_le_false())
 }
 
-@int_le_false () -> bool = 10 <= 5
+@int_le_false () -> bool = 10 <= 5;
 
 @test_int_ge_true tests @int_ge_true () -> void = {
     assert(cond: int_ge_true())
 }
 
-@int_ge_true () -> bool = 10 >= 5
+@int_ge_true () -> bool = 10 >= 5;
 
 @test_int_ge_equal tests @int_ge_equal () -> void = {
     assert(cond: int_ge_equal())
 }
 
-@int_ge_equal () -> bool = 5 >= 5
+@int_ge_equal () -> bool = 5 >= 5;
 
 @test_int_ge_false tests @int_ge_false () -> void = {
     assert(cond: !int_ge_false())
 }
 
-@int_ge_false () -> bool = 5 >= 10
+@int_ge_false () -> bool = 5 >= 10;
 
 // =============================================================================
 // Integer Edge Cases
@@ -130,14 +130,14 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: -5 >= -5)
 }
 
-@int_compare_negatives () -> bool = -10 < -5
+@int_compare_negatives () -> bool = -10 < -5;
 
 @test_int_compare_mixed_sign tests @int_compare_mixed_sign () -> void = {
     assert(cond: -100 < 1);
     assert(cond: 0 > -1)
 }
 
-@int_compare_mixed_sign () -> bool = -100 < 1
+@int_compare_mixed_sign () -> bool = -100 < 1;
 
 // =============================================================================
 // Float Equality
@@ -147,20 +147,20 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: float_eq_true())
 }
 
-@float_eq_true () -> bool = 3.14 == 3.14
+@float_eq_true () -> bool = 3.14 == 3.14;
 
 @test_float_eq_false tests @float_eq_false () -> void = {
     assert(cond: !float_eq_false())
 }
 
-@float_eq_false () -> bool = 3.14 == 3.15
+@float_eq_false () -> bool = 3.14 == 3.15;
 
 @test_float_precision_issue tests @float_precision_issue () -> void = {
     // 0.1 + 0.2 != 0.3 due to floating-point representation
     assert(cond: !float_precision_issue())
 }
 
-@float_precision_issue () -> bool = 0.1 + 0.2 == 0.3
+@float_precision_issue () -> bool = 0.1 + 0.2 == 0.3;
 
 @test_float_nan_eq tests @float_nan_eq () -> void = {
     // NaN != NaN per IEEE 754
@@ -192,27 +192,27 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: float_lt())
 }
 
-@float_lt () -> bool = 1.5 < 2.5
+@float_lt () -> bool = 1.5 < 2.5;
 
 @test_float_gt tests @float_gt () -> void = {
     assert(cond: float_gt())
 }
 
-@float_gt () -> bool = 2.5 > 1.5
+@float_gt () -> bool = 2.5 > 1.5;
 
 @test_float_le tests @float_le () -> void = {
     assert(cond: 1.5 <= 2.5);
     assert(cond: 1.5 <= 1.5)
 }
 
-@float_le () -> bool = 1.5 <= 2.5
+@float_le () -> bool = 1.5 <= 2.5;
 
 @test_float_ge tests @float_ge () -> void = {
     assert(cond: 2.5 >= 1.5);
     assert(cond: 2.5 >= 2.5)
 }
 
-@float_ge () -> bool = 2.5 >= 1.5
+@float_ge () -> bool = 2.5 >= 1.5;
 
 // =============================================================================
 // String Equality
@@ -222,32 +222,32 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: str_eq_true())
 }
 
-@str_eq_true () -> bool = "hello" == "hello"
+@str_eq_true () -> bool = "hello" == "hello";
 
 @test_str_eq_false tests @str_eq_false () -> void = {
     assert(cond: !str_eq_false())
 }
 
-@str_eq_false () -> bool = "hello" == "world"
+@str_eq_false () -> bool = "hello" == "world";
 
 @test_str_ne_true tests @str_ne_true () -> void = {
     assert(cond: str_ne_true())
 }
 
-@str_ne_true () -> bool = "hello" != "world"
+@str_ne_true () -> bool = "hello" != "world";
 
 @test_str_empty tests @str_empty () -> void = {
     assert(cond: "" == "");
     assert(cond: !("" == "x"))
 }
 
-@str_empty () -> bool = "" == ""
+@str_empty () -> bool = "" == "";
 
 @test_str_case_sensitive tests @str_case_sensitive () -> void = {
     assert(cond: str_case_sensitive())
 }
 
-@str_case_sensitive () -> bool = "Hello" != "hello"
+@str_case_sensitive () -> bool = "Hello" != "hello";
 
 // =============================================================================
 // String Ordering (Lexicographic)
@@ -257,34 +257,34 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: str_lt())
 }
 
-@str_lt () -> bool = "apple" < "banana"
+@str_lt () -> bool = "apple" < "banana";
 
 @test_str_gt tests @str_gt () -> void = {
     assert(cond: str_gt())
 }
 
-@str_gt () -> bool = "banana" > "apple"
+@str_gt () -> bool = "banana" > "apple";
 
 @test_str_le tests @str_le () -> void = {
     assert(cond: "apple" <= "banana");
     assert(cond: "apple" <= "apple")
 }
 
-@str_le () -> bool = "apple" <= "banana"
+@str_le () -> bool = "apple" <= "banana";
 
 @test_str_ge tests @str_ge () -> void = {
     assert(cond: "banana" >= "apple");
     assert(cond: "apple" >= "apple")
 }
 
-@str_ge () -> bool = "banana" >= "apple"
+@str_ge () -> bool = "banana" >= "apple";
 
 @test_str_prefix tests @str_prefix () -> void = {
     // "ab" < "abc" (prefix is less than longer string)
     assert(cond: "ab" < "abc")
 }
 
-@str_prefix () -> bool = "ab" < "abc"
+@str_prefix () -> bool = "ab" < "abc";
 
 // =============================================================================
 // Boolean Equality
@@ -296,14 +296,14 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: !(true == false))
 }
 
-@bool_eq () -> bool = true == true
+@bool_eq () -> bool = true == true;
 
 @test_bool_ne tests @bool_ne () -> void = {
     assert(cond: true != false);
     assert(cond: !(true != true))
 }
 
-@bool_ne () -> bool = true != false
+@bool_ne () -> bool = true != false;
 
 // =============================================================================
 // Char Equality
@@ -313,26 +313,26 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: char_eq())
 }
 
-@char_eq () -> bool = 'a' == 'a'
+@char_eq () -> bool = 'a' == 'a';
 
 @test_char_ne tests @char_ne () -> void = {
     assert(cond: char_ne())
 }
 
-@char_ne () -> bool = 'a' != 'b'
+@char_ne () -> bool = 'a' != 'b';
 
 @test_char_lt tests @char_lt () -> void = {
     assert(cond: char_lt())
 }
 
-@char_lt () -> bool = 'a' < 'b'
+@char_lt () -> bool = 'a' < 'b';
 
 @test_char_unicode tests @char_unicode () -> void = {
     assert(cond: 'a' < 'z');
     assert(cond: 'A' < 'a') // ASCII: uppercase before lowercase
 }
 
-@char_unicode () -> bool = 'a' < 'z'
+@char_unicode () -> bool = 'a' < 'z';
 
 // =============================================================================
 // Option Comparison
@@ -342,7 +342,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: option_eq_some())
 }
 
-@option_eq_some () -> bool = Some(42) == Some(42)
+@option_eq_some () -> bool = Some(42) == Some(42);
 
 @test_option_eq_none tests @option_eq_none () -> void = {
     let a: Option<int> = None;
@@ -360,7 +360,7 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: option_ne_some_none())
 }
 
-@option_ne_some_none () -> bool = Some(42) != None
+@option_ne_some_none () -> bool = Some(42) != None;
 
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - operator '<' not implemented for Option
 @test_option_order tests @option_order () -> void = {
@@ -423,19 +423,19 @@ use std.testing { assert, assert_eq, assert_ne }
     assert(cond: list_eq())
 }
 
-@list_eq () -> bool = [1, 2, 3] == [1, 2, 3]
+@list_eq () -> bool = [1, 2, 3] == [1, 2, 3];
 
 @test_list_ne_values tests @list_ne_values () -> void = {
     assert(cond: list_ne_values())
 }
 
-@list_ne_values () -> bool = [1, 2, 3] != [1, 2, 4]
+@list_ne_values () -> bool = [1, 2, 3] != [1, 2, 4];
 
 @test_list_ne_length tests @list_ne_length () -> void = {
     assert(cond: list_ne_length())
 }
 
-@list_ne_length () -> bool = [1, 2] != [1, 2, 3]
+@list_ne_length () -> bool = [1, 2] != [1, 2, 3];
 
 @test_list_empty_eq tests @list_empty_eq () -> void = {
     let a: [int] = [];
@@ -507,12 +507,12 @@ type Point = { x: int, y: int }
     assert(cond: compare_expressions())
 }
 
-@compare_expressions () -> bool = (2 + 3) == (1 + 4)
+@compare_expressions () -> bool = (2 + 3) == (1 + 4);
 
 @test_compare_function_results tests @compare_function_results () -> void = {
     assert(cond: compare_function_results())
 }
 
-@double (x: int) -> int = x * 2
+@double (x: int) -> int = x * 2;
 
-@compare_function_results () -> bool = double(x: 5) == 10
+@compare_function_results () -> bool = double(x: 5) == 10;

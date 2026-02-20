@@ -1,6 +1,6 @@
 use std.testing { assert_eq, assert }
 
-type Result2 = Success(value: int) | Failure(msg: str)
+type Result2 = Success(value: int) | Failure(msg: str);
 
 @is_success (r: Result2) -> bool = match r {
     Success(_) -> true,

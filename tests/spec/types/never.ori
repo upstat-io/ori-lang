@@ -14,7 +14,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: result, expected: 42)
 }
 
-@never_to_int () -> int = if false then panic(msg: "unreachable") else 42
+@never_to_int () -> int = if false then panic(msg: "unreachable") else 42;
 
 // Never coerces to str in conditional
 @test_never_coerces_to_str tests @never_to_str () -> void = {
@@ -22,7 +22,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: result, expected: "hello")
 }
 
-@never_to_str () -> str = if true then "hello" else panic(msg: "unreachable")
+@never_to_str () -> str = if true then "hello" else panic(msg: "unreachable");
 
 // Never coerces to bool in conditional
 @test_never_coerces_to_bool tests @never_to_bool () -> void = {
@@ -30,7 +30,7 @@ use std.testing { assert_eq, assert }
     assert(cond: result)
 }
 
-@never_to_bool () -> bool = if true then true else panic(msg: "unreachable")
+@never_to_bool () -> bool = if true then true else panic(msg: "unreachable");
 
 // =============================================================================
 // Never in Complex Types
@@ -42,7 +42,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: len(collection: result), expected: 3)
 }
 
-@never_to_list () -> [int] = if true then [1, 2, 3] else panic(msg: "unreachable")
+@never_to_list () -> [int] = if true then [1, 2, 3] else panic(msg: "unreachable");
 
 // Never coerces to Option type
 @test_never_coerces_to_option tests @never_to_option () -> void = {
@@ -50,7 +50,7 @@ use std.testing { assert_eq, assert }
     assert(cond: is_some(opt: result))
 }
 
-@never_to_option () -> Option<int> = if true then Some(42) else panic(msg: "unreachable")
+@never_to_option () -> Option<int> = if true then Some(42) else panic(msg: "unreachable");
 
 // Never coerces to Result type
 @test_never_coerces_to_result tests @never_to_result () -> void = {
@@ -58,7 +58,7 @@ use std.testing { assert_eq, assert }
     assert(cond: is_ok(r: result))
 }
 
-@never_to_result () -> Result<int, str> = if true then Ok(42) else panic(msg: "unreachable")
+@never_to_result () -> Result<int, str> = if true then Ok(42) else panic(msg: "unreachable");
 
 // =============================================================================
 // Never-Producing Expressions
@@ -70,7 +70,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: x, expected: 1)
 }
 
-@panic_coerces () -> int = if false then panic(msg: "fail") else 1
+@panic_coerces () -> int = if false then panic(msg: "fail") else 1;
 
 // todo returns Never and coerces
 @test_todo_coerces tests @todo_coerces () -> void = {
@@ -78,7 +78,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: x, expected: 2)
 }
 
-@todo_coerces () -> int = if false then todo() else 2
+@todo_coerces () -> int = if false then todo() else 2;
 
 // todo with reason returns Never and coerces
 @test_todo_with_reason_coerces tests @todo_reason_coerces () -> void = {
@@ -86,7 +86,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: x, expected: 3)
 }
 
-@todo_reason_coerces () -> int = if false then todo(reason: "implement") else 3
+@todo_reason_coerces () -> int = if false then todo(reason: "implement") else 3;
 
 // unreachable returns Never and coerces
 @test_unreachable_coerces tests @unreachable_coerces () -> void = {
@@ -94,7 +94,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: x, expected: 4)
 }
 
-@unreachable_coerces () -> int = if false then unreachable() else 4
+@unreachable_coerces () -> int = if false then unreachable() else 4;
 
 // unreachable with reason returns Never and coerces
 @test_unreachable_with_reason_coerces tests @unreachable_reason_coerces () -> void = {
@@ -102,7 +102,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: x, expected: 5)
 }
 
-@unreachable_reason_coerces () -> int = if false then unreachable(reason: "impossible") else 5
+@unreachable_reason_coerces () -> int = if false then unreachable(reason: "impossible") else 5;
 
 // =============================================================================
 // Never in Match Expressions
@@ -149,7 +149,7 @@ use std.testing { assert_eq, assert }
     assert(cond: is_err(r: result))
 }
 
-@result_never_ok () -> bool = is_err(r: Err("error"))
+@result_never_ok () -> bool = is_err(r: Err("error"));
 
 // Option<Never> can only be None (conceptually)
 @test_option_never tests @option_never () -> void = {
@@ -157,7 +157,7 @@ use std.testing { assert_eq, assert }
     assert(cond: is_none(opt: opt))
 }
 
-@option_never () -> bool = is_none(opt: None)
+@option_never () -> bool = is_none(opt: None);
 
 // =============================================================================
 // Never in Else Branch
@@ -182,7 +182,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: result, expected: "handled")
 }
 
-@never_else_todo () -> str = if true then "handled" else todo()
+@never_else_todo () -> str = if true then "handled" else todo();
 
 // =============================================================================
 // Never in Then Branch
@@ -195,7 +195,7 @@ use std.testing { assert_eq, assert }
     assert_eq(actual: result, expected: 42)
 }
 
-@never_then_panic () -> int = if false then panic(msg: "not this") else 42
+@never_then_panic () -> int = if false then panic(msg: "not this") else 42;
 
 // =============================================================================
 // Nested Never Coercion
@@ -225,7 +225,7 @@ use std.testing { assert_eq, assert }
     assert(cond: !result)
 }
 
-@and_short_circuit_never () -> bool = false && panic(msg: "skip")
+@and_short_circuit_never () -> bool = false && panic(msg: "skip");
 
 // || short-circuits before Never
 @test_or_short_circuit_never tests @or_short_circuit_never () -> void = {
@@ -233,4 +233,4 @@ use std.testing { assert_eq, assert }
     assert(cond: result)
 }
 
-@or_short_circuit_never () -> bool = true || panic(msg: "skip")
+@or_short_circuit_never () -> bool = true || panic(msg: "skip");

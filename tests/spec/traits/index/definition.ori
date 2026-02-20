@@ -10,7 +10,7 @@ use std.testing { assert_eq }
 type Pair = { first: int, second: int }
 
 impl Index<int, int> for Pair {
-    @index (self, key: int) -> int = if key == 0 then self.first else self.second
+    @index (self, key: int) -> int = if key == 0 then self.first else self.second;
 }
 
 @pair_index_first () -> int = {
@@ -19,7 +19,7 @@ impl Index<int, int> for Pair {
 }
 
 @test_pair_index_first tests @pair_index_first () -> void =
-    assert_eq(actual: pair_index_first(), expected: 10)
+    assert_eq(actual: pair_index_first(), expected: 10);
 
 @pair_index_second () -> int = {
     let p = Pair { first: 10, second: 20 };
@@ -27,7 +27,7 @@ impl Index<int, int> for Pair {
 }
 
 @test_pair_index_second tests @pair_index_second () -> void =
-    assert_eq(actual: pair_index_second(), expected: 20)
+    assert_eq(actual: pair_index_second(), expected: 20);
 
 // =============================================================================
 // Index with string key
@@ -49,7 +49,7 @@ impl Index<str, str> for Config {
 }
 
 @test_config_index tests @config_index () -> void =
-    assert_eq(actual: config_index(), expected: "localhost")
+    assert_eq(actual: config_index(), expected: "localhost");
 
 // =============================================================================
 // Index result used in expressions
@@ -61,7 +61,7 @@ impl Index<str, str> for Config {
 }
 
 @test_pair_index_in_arithmetic tests @pair_index_in_arithmetic () -> void =
-    assert_eq(actual: pair_index_in_arithmetic(), expected: 30)
+    assert_eq(actual: pair_index_in_arithmetic(), expected: 30);
 
 // =============================================================================
 // Chained indexing — Index returns a list, then list is indexed
@@ -70,7 +70,7 @@ impl Index<str, str> for Config {
 type Grid = { rows: [[int]] }
 
 impl Index<int, [int]> for Grid {
-    @index (self, key: int) -> [int] = self.rows[key]
+    @index (self, key: int) -> [int] = self.rows[key];
 }
 
 @chained_index () -> int = {
@@ -79,4 +79,4 @@ impl Index<int, [int]> for Grid {
 }
 
 @test_chained_index tests @chained_index () -> void =
-    assert_eq(actual: chained_index(), expected: 3)
+    assert_eq(actual: chained_index(), expected: 3);

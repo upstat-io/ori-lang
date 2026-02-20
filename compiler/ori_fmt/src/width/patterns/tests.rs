@@ -1,5 +1,5 @@
 use super::*;
-use ori_ir::{FieldBinding, StringInterner};
+use ori_ir::{FieldBinding, Mutability, StringInterner};
 
 #[test]
 fn test_binding_pattern_name() {
@@ -7,7 +7,7 @@ fn test_binding_pattern_name() {
     let name = interner.intern("foo");
     let pattern = BindingPattern::Name {
         name,
-        mutable: true,
+        mutable: Mutability::Mutable,
     };
 
     assert_eq!(binding_pattern_width(&pattern, &interner), 3);
@@ -19,7 +19,7 @@ fn test_binding_pattern_immutable_name() {
     let name = interner.intern("foo");
     let pattern = BindingPattern::Name {
         name,
-        mutable: false,
+        mutable: Mutability::Immutable,
     };
 
     // "$foo" = 4
@@ -50,11 +50,11 @@ fn test_binding_pattern_tuple() {
     let pattern = BindingPattern::Tuple(vec![
         BindingPattern::Name {
             name: a,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
         BindingPattern::Name {
             name: b,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
     ]);
 
@@ -70,11 +70,11 @@ fn test_binding_pattern_nested_tuple() {
     let inner = BindingPattern::Tuple(vec![
         BindingPattern::Name {
             name: a,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
         BindingPattern::Name {
             name: b,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
     ]);
     let pattern = BindingPattern::Tuple(vec![inner, BindingPattern::Wildcard]);
@@ -100,12 +100,12 @@ fn test_binding_pattern_struct_shorthand() {
         fields: vec![
             FieldBinding {
                 name: x,
-                mutable: true,
+                mutable: Mutability::Mutable,
                 pattern: None,
             },
             FieldBinding {
                 name: y,
-                mutable: true,
+                mutable: Mutability::Mutable,
                 pattern: None,
             },
         ],
@@ -123,10 +123,10 @@ fn test_binding_pattern_struct_with_rename() {
     let pattern = BindingPattern::Struct {
         fields: vec![FieldBinding {
             name: x,
-            mutable: true,
+            mutable: Mutability::Mutable,
             pattern: Some(BindingPattern::Name {
                 name: a,
-                mutable: true,
+                mutable: Mutability::Mutable,
             }),
         }],
     };
@@ -155,11 +155,11 @@ fn test_binding_pattern_list() {
         elements: vec![
             BindingPattern::Name {
                 name: a,
-                mutable: true,
+                mutable: Mutability::Mutable,
             },
             BindingPattern::Name {
                 name: b,
-                mutable: true,
+                mutable: Mutability::Mutable,
             },
         ],
         rest: None,
@@ -177,9 +177,9 @@ fn test_binding_pattern_list_with_rest() {
     let pattern = BindingPattern::List {
         elements: vec![BindingPattern::Name {
             name: a,
-            mutable: true,
+            mutable: Mutability::Mutable,
         }],
-        rest: Some(rest_name),
+        rest: Some((rest_name, Mutability::Mutable)),
     };
 
     // "[a, ..rest]" = 1 + 1 + 2 + 2 + 4 + 1 = 11
@@ -192,7 +192,7 @@ fn test_binding_pattern_list_only_rest() {
     let rest_name = interner.intern("xs");
     let pattern = BindingPattern::List {
         elements: vec![],
-        rest: Some(rest_name),
+        rest: Some((rest_name, Mutability::Mutable)),
     };
 
     // "[..xs]" = 1 + 2 + 2 + 1 = 6
