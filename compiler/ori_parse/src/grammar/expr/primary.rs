@@ -1233,17 +1233,19 @@ impl Parser<'_> {
         let span = self.cursor.current_span();
         self.cursor.advance();
 
-        // Per spec: mutable by default, $ prefix for immutable
-        // - `let x = ...` → mutable (default)
-        // - `let $x = ...` → immutable
-        let mutable = if self.cursor.check(&TokenKind::Dollar) {
-            self.cursor.advance();
-            Mutability::Immutable
-        } else {
-            Mutability::Mutable
-        };
-
+        // Don't consume `$` here — let parse_binding_pattern() handle it
+        // so that BindingPattern::Name.mutable is set correctly for both
+        // simple bindings (`let $x = 5`) and destructuring (`let ($a, b) = ...`).
         let pattern = committed!(self.parse_binding_pattern());
+
+        // Derive expression-level mutability from the pattern.
+        // For simple Name patterns, this comes from the `$` prefix.
+        // For compound patterns (tuple, struct, list), default to mutable
+        // since per-binding mutability is tracked on sub-patterns.
+        let mutable = match &pattern {
+            BindingPattern::Name { mutable, .. } => *mutable,
+            _ => Mutability::Mutable,
+        };
         let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
         let ty = if self.cursor.check(&TokenKind::Colon) {
