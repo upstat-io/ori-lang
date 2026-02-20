@@ -15,10 +15,13 @@
 //! - **List**: `len`, `is_empty`, `clone`, `compare`, `equals`, `hash`
 //! - **Map**: `clone`, `equals`, `hash`
 //! - **Set**: `clone`, `equals`, `hash`
+//! - **Iterator**: `map`, `filter`, `take`, `skip`, `enumerate`, `collect`, `count`
+//! - **Range**: `iter`
 
 mod collections;
 mod helpers;
 mod inner_dispatch;
+mod iterator;
 mod option;
 mod primitives;
 mod result;
@@ -68,6 +71,10 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                     self.lower_map_method(recv_val, key, value, method, args)
                 }
                 TypeInfo::Set { element } => self.lower_set_method(recv_val, element, method, args),
+                TypeInfo::Iterator { element } => {
+                    self.lower_iterator_method(recv_val, element, method, args)
+                }
+                TypeInfo::Range if method == "iter" => self.lower_range_iter(recv_val),
                 _ => None,
             },
         }

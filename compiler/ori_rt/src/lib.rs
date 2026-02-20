@@ -52,6 +52,7 @@
 )]
 
 pub mod format;
+pub mod iterator;
 
 use std::cell::{Cell, RefCell};
 use std::ffi::CStr;

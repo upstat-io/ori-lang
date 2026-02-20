@@ -408,6 +408,18 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 /// in the JIT mapping table. These are only used in AOT compilation.
 #[cfg(test)]
 pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
+    // Iterator runtime — AOT uses opaque handles; JIT uses native IteratorValue
+    "ori_iter_collect",
+    "ori_iter_count",
+    "ori_iter_drop",
+    "ori_iter_enumerate",
+    "ori_iter_filter",
+    "ori_iter_from_list",
+    "ori_iter_from_range",
+    "ori_iter_map",
+    "ori_iter_next",
+    "ori_iter_skip",
+    "ori_iter_take",
     // ori_run_main wraps @main with catch_unwind — JIT compiles tests directly
     "ori_run_main",
 ];

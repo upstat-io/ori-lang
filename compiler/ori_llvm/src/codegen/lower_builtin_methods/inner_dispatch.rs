@@ -32,6 +32,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             | TypeInfo::Char
             | TypeInfo::Byte
             | TypeInfo::Ordering
+            | TypeInfo::Iterator { .. }
             | TypeInfo::Channel { .. } => self.builder.icmp_eq(lhs, rhs, name),
 
             TypeInfo::Float => self.builder.fcmp_oeq(lhs, rhs, name),
@@ -191,6 +192,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             TypeInfo::Map { .. }
             | TypeInfo::Set { .. }
             | TypeInfo::Range
+            | TypeInfo::Iterator { .. }
             | TypeInfo::Channel { .. }
             | TypeInfo::Function { .. }
             | TypeInfo::Unit
@@ -278,7 +280,8 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
 
             // Types without meaningful hash — should not reach here if the
             // type checker is correct. Return 0 as a safe fallback.
-            TypeInfo::Channel { .. }
+            TypeInfo::Iterator { .. }
+            | TypeInfo::Channel { .. }
             | TypeInfo::Function { .. }
             | TypeInfo::Unit
             | TypeInfo::Never

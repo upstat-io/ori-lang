@@ -10,6 +10,7 @@ pub mod cross;
 pub mod derives;
 pub mod for_loops;
 pub mod formattable;
+pub mod iterators;
 pub mod linking;
 pub mod lto;
 pub mod spec;

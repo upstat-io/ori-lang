@@ -1,6 +1,6 @@
 //! For-loop lowering for V2 codegen.
 //!
-//! Handles for-loops over all iterable types: Range, List, Str, Option, Set, Map.
+//! Handles for-loops over all iterable types: Range, List, Str, Option, Set, Map, Iterator.
 //! Supports both `for x in iter do body` (side effects) and
 //! `for x in iter yield body` (list collection).
 //!
@@ -62,6 +62,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             TypeInfo::Map { key, value } => self.lower_for_map(
                 binding, iter_val, key, value, guard, body, is_yield, expr_id,
             ),
+            TypeInfo::Iterator { element } => {
+                self.lower_for_iterator(binding, iter_val, element, guard, body, is_yield, expr_id)
+            }
             _ => {
                 tracing::warn!(?iter_type, ?type_info, "for-loop over unsupported type");
                 self.builder.record_codegen_error();
@@ -715,6 +718,135 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         }
 
         self.build_for_result(&loop_ctx, "formap.result")
+    }
+
+    // -----------------------------------------------------------------------
+    // For-loop over Iterator (runtime opaque handle)
+    // -----------------------------------------------------------------------
+
+    /// For-loop over an iterator: calls `ori_iter_next` to advance.
+    ///
+    /// Pattern: alloca scratch → header (call next) → body (load elem) →
+    /// latch → header → exit (drop iter).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "for-loop lowering needs all loop components + type info"
+    )]
+    fn lower_for_iterator(
+        &mut self,
+        binding: Name,
+        iter_val: ValueId,
+        element: Idx,
+        guard: CanId,
+        body: CanId,
+        is_yield: bool,
+        expr_id: CanId,
+    ) -> Option<ValueId> {
+        let elem_llvm_ty = self.resolve_type(element);
+        let elem_size = self.type_info.get(element).size().unwrap_or(8);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+
+        // Allocate scratch space for element on the stack
+        let scratch = self.builder.alloca(elem_llvm_ty, "foriter.scratch");
+
+        // Yield setup: unknown capacity, start with 0
+        let yield_ctx = if is_yield {
+            let zero = self.builder.const_i64(0);
+            Some(self.setup_yield_context_with_capacity(zero, expr_id)?)
+        } else {
+            None
+        };
+
+        let header_bb = self
+            .builder
+            .append_block(self.current_function, "foriter.header");
+        let body_bb = self
+            .builder
+            .append_block(self.current_function, "foriter.body");
+        let latch_bb = self
+            .builder
+            .append_block(self.current_function, "foriter.latch");
+        let exit_bb = self
+            .builder
+            .append_block(self.current_function, "foriter.exit");
+
+        self.builder.br(header_bb);
+
+        // Header: call ori_iter_next(iter, scratch, elem_size) -> i8
+        self.builder.position_at_end(header_bb);
+
+        let ptr_ty = self.builder.ptr_type();
+        let i64_ty = self.builder.i64_type();
+        let i8_ty = self.builder.i8_type();
+        let next_fn =
+            self.builder
+                .get_or_declare_function("ori_iter_next", &[ptr_ty, ptr_ty, i64_ty], i8_ty);
+        let has_next =
+            self.builder
+                .call(next_fn, &[iter_val, scratch, elem_size_val], "foriter.has")?;
+
+        // Branch on result: 0 = done, 1 = has element
+        let zero_i8 = self.builder.const_i8(0);
+        let not_done = self.builder.icmp_ne(has_next, zero_i8, "foriter.notdone");
+        self.builder.cond_br(not_done, body_bb, exit_bb);
+
+        // Body: load element from scratch, bind, execute
+        self.builder.position_at_end(body_bb);
+        let elem_val = self.builder.load(elem_llvm_ty, scratch, "foriter.elem");
+
+        // Handle guard
+        if guard.is_valid() {
+            self.scope.bind_immutable(binding, elem_val);
+            let guard_val = self.lower(guard);
+            if let Some(gv) = guard_val {
+                let guarded_bb = self
+                    .builder
+                    .append_block(self.current_function, "foriter.guarded");
+                self.builder.cond_br(gv, guarded_bb, latch_bb);
+                self.builder.position_at_end(guarded_bb);
+            }
+        } else {
+            self.scope.bind_immutable(binding, elem_val);
+        }
+
+        // Loop context
+        let prev_loop = self.loop_ctx.take();
+        self.loop_ctx = Some(LoopContext {
+            exit_block: exit_bb,
+            continue_block: latch_bb,
+            break_values: Vec::new(),
+        });
+
+        let body_val = self.lower(body);
+
+        if let (Some(ref yc), Some(bv)) = (&yield_ctx, body_val) {
+            self.emit_yield_store(yc, bv);
+        }
+
+        if !self.builder.current_block_terminated() {
+            self.builder.br(latch_bb);
+        }
+
+        // Latch: just branch back to header (no index to increment)
+        self.builder.position_at_end(latch_bb);
+        self.builder.br(header_bb);
+
+        // Restore loop context
+        let loop_ctx = self.loop_ctx.take().unwrap();
+        self.loop_ctx = prev_loop;
+
+        // Exit: drop iterator
+        self.builder.position_at_end(exit_bb);
+        let drop_fn = self
+            .builder
+            .get_or_declare_void_function("ori_iter_drop", &[ptr_ty]);
+        self.builder.call(drop_fn, &[iter_val], "foriter.drop");
+
+        if let Some(yc) = yield_ctx {
+            return self.finish_yield_list(&yc, expr_id);
+        }
+
+        self.build_for_result(&loop_ctx, "foriter.result")
     }
 
     // -----------------------------------------------------------------------

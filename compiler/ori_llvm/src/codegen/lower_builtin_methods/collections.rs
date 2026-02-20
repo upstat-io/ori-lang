@@ -38,6 +38,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 }
             }
             "hash" => self.emit_list_hash(recv, element),
+            "iter" => self.lower_list_iter(recv, element),
             _ => None,
         }
     }
