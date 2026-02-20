@@ -565,23 +565,20 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         let mut dwarf_arg_no: u32 = 1;
 
         for param in &abi.params {
-            match &param.passing {
-                ParamPassing::Void => {
-                    dwarf_arg_no += 1;
-                }
-                _ => {
-                    let val = val_iter
-                        .next()
-                        .expect("load_param_values: one value per non-Void param");
-                    let name_str = self.interner.lookup(param.name);
-                    self.builder.set_value_name(val, name_str);
-                    scope.bind_immutable(param.name, val);
+            if param.passing == ParamPassing::Void {
+                dwarf_arg_no += 1;
+            } else {
+                let val = val_iter
+                    .next()
+                    .expect("load_param_values: one value per non-Void param");
+                let name_str = self.interner.lookup(param.name);
+                self.builder.set_value_name(val, name_str);
+                scope.bind_immutable(param.name, val);
 
-                    if emit_debug {
-                        self.emit_param_debug(val, name_str, dwarf_arg_no, param.ty);
-                    }
-                    dwarf_arg_no += 1;
+                if emit_debug {
+                    self.emit_param_debug(val, name_str, dwarf_arg_no, param.ty);
                 }
+                dwarf_arg_no += 1;
             }
         }
 
@@ -1186,7 +1183,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// Entry-block placement ensures LLVM's frame lowering accounts for the
     /// alloca during prologue emission. Allocas interleaved with calls can
-    /// cause stack corruption in `fastcc` functions at O0 (LLVM FastISel
+    /// cause stack corruption in `fastcc` functions at O0 (LLVM `FastISel`
     /// miscalculates stack adjustments).
     pub(crate) fn entry_alloca(&mut self, ty: LLVMTypeId, name: &str) -> ValueId {
         let func = self

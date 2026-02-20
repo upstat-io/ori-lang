@@ -161,7 +161,7 @@ pub(crate) fn resolve_parsed_type_simple(
 ///
 /// Type parameters are looked up by name and replaced with fresh type variables
 /// during inference. `Self` becomes a Named placeholder. Recurses into compound
-/// types (List, Map, Tuple, Function, TraitBounds) so that nested `Self` and
+/// types (List, Map, Tuple, Function, `TraitBounds`) so that nested `Self` and
 /// type parameter references are resolved correctly — without this recursion,
 /// types like `-> List<Self>` or `-> (T, int)` would silently map the nested
 /// `Self`/param to `Idx::ERROR` via `resolve_parsed_type_simple`.

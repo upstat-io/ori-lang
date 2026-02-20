@@ -1300,7 +1300,7 @@ impl TypeCheckError {
                     "derivable traits are: {}",
                     DerivedTrait::ALL
                         .iter()
-                        .map(|t| t.trait_name())
+                        .map(DerivedTrait::trait_name)
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),

@@ -805,7 +805,7 @@ impl TokenKind {
             23 => Some("let"),
             24 => Some("loop"),
             25 => Some("match"),
-            26 => Some("mut"),
+            // 26 was "mut" — removed
             27 => Some("pub"),
             28 => Some("self"),
             29 => Some("Self"),

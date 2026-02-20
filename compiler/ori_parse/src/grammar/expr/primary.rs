@@ -968,7 +968,6 @@ impl Parser<'_> {
     /// Per spec (05-variables.md): Bindings are mutable by default.
     /// - `let x = ...` → mutable (default)
     /// - `let $x = ...` → immutable ($ prefix)
-    /// - `let mut x = ...` → mutable (legacy, redundant)
     ///
     /// Guard: returns `EmptyErr` if not at `let`.
     fn parse_let_expr(&mut self) -> ParseOutcome<ExprId> {

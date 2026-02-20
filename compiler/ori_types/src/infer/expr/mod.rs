@@ -250,13 +250,13 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
             for part in arena.get_template_parts(*parts) {
                 let part_ty = infer_expr(engine, arena, part.expr);
 
-                if part.format_spec != Name::EMPTY {
+                if part.format_spec == Name::EMPTY {
+                    // {expr} — requires Printable for to_str() conversion (E2038)
+                    check_interpolation_printable(engine, part_ty, span);
+                } else {
                     // {expr:spec} — validate format spec (E2034/E2035)
                     // Formattable requirement is implied; Printable not needed
                     validate_format_spec(engine, part.format_spec, part_ty, span);
-                } else {
-                    // {expr} — requires Printable for to_str() conversion (E2038)
-                    check_interpolation_printable(engine, part_ty, span);
                 }
             }
             Idx::STR

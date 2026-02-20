@@ -202,10 +202,6 @@ pub(super) fn build_prim_trait_sets() -> [TraitSet; Idx::PRIMITIVE_COUNT as usiz
 ///
 /// Returns one `TraitSet` per compound type category: List, Map/Set,
 /// Option, Result, Tuple, Range, Str (compound), `DoubleEndedIterator`, Iterator.
-#[expect(
-    clippy::type_complexity,
-    reason = "tuple return for struct initialization"
-)]
 pub(super) fn build_compound_trait_sets() -> (
     TraitSet, // list
     TraitSet, // map/set

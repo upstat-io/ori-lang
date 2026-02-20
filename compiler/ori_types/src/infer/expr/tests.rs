@@ -2958,7 +2958,7 @@ fn then_with_ordering_resolves_to_ordering() {
 }
 
 /// Named (user-defined) types do NOT resolve `.into()` via builtins —
-/// custom Into impls are dispatched through the TraitRegistry.
+/// custom Into impls are dispatched through the `TraitRegistry`.
 #[test]
 fn into_not_on_named_types_via_builtins() {
     let mut pool = Pool::new();

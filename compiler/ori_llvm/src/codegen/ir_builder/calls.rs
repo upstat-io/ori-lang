@@ -438,7 +438,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
     /// Add the `noredzone` attribute to a function.
     ///
     /// Prevents the function from using the 128-byte red zone below `%rsp`
-    /// (x86_64 SysV ABI). Required for JIT-compiled code where `fastcc`
+    /// (`x86_64` `SysV` ABI). Required for JIT-compiled code where `fastcc`
     /// functions call into host runtime functions: the host functions create
     /// their own stack frames by pushing below `%rsp`, which can clobber
     /// red-zone data if the JIT code was using it.
