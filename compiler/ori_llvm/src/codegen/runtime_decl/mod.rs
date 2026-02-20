@@ -166,6 +166,48 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     );
     builder.declare_extern_function("ori_args_from_argv", &[i32_ty, ptr_ty], Some(list_ty));
 
+    // -- Iterator functions --
+    // Constructors: return opaque iterator handle (ptr)
+    builder.declare_extern_function(
+        "ori_iter_from_list",
+        &[ptr_ty, i64_ty, i64_ty],
+        Some(ptr_ty),
+    );
+    builder.declare_extern_function(
+        "ori_iter_from_range",
+        &[i64_ty, i64_ty, i64_ty, bool_ty],
+        Some(ptr_ty),
+    );
+
+    // Next: ori_iter_next(iter, out_ptr, elem_size) -> i8 (0=done, 1=has_next)
+    builder.declare_extern_function("ori_iter_next", &[ptr_ty, ptr_ty, i64_ty], Some(i8_ty));
+
+    // Adapters: take source handle, return new handle
+    // ori_iter_map(iter, transform_fn, transform_env, in_size) -> ptr
+    builder.declare_extern_function(
+        "ori_iter_map",
+        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        Some(ptr_ty),
+    );
+    // ori_iter_filter(iter, predicate_fn, predicate_env, elem_size) -> ptr
+    builder.declare_extern_function(
+        "ori_iter_filter",
+        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        Some(ptr_ty),
+    );
+    builder.declare_extern_function("ori_iter_take", &[ptr_ty, i64_ty], Some(ptr_ty));
+    builder.declare_extern_function("ori_iter_skip", &[ptr_ty, i64_ty], Some(ptr_ty));
+    builder.declare_extern_function("ori_iter_enumerate", &[ptr_ty], Some(ptr_ty));
+
+    // Consumers
+    // ori_iter_collect(iter, elem_size, out_ptr) -> void (sret pattern)
+    builder.declare_extern_function("ori_iter_collect", &[ptr_ty, i64_ty, ptr_ty], void);
+    // ori_iter_count(iter, elem_size) -> i64
+    builder.declare_extern_function("ori_iter_count", &[ptr_ty, i64_ty], Some(i64_ty));
+
+    // Cleanup
+    builder.declare_extern_function("ori_iter_drop", &[ptr_ty], void);
+
     // -- Panic handler registration --
     builder.declare_extern_function("ori_register_panic_handler", &[ptr_ty], void);
 

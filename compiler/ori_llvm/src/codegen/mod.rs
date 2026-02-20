@@ -81,6 +81,7 @@ mod lower_control_flow;
 mod lower_conversion_builtins;
 mod lower_error_handling;
 mod lower_for_loop;
+mod lower_iterator_trampolines;
 mod lower_lambdas;
 mod lower_literals;
 mod lower_operators;
