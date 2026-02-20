@@ -16,8 +16,6 @@ fn test_range_empty_constant() {
     assert!(MapElementRange::EMPTY.is_empty());
     assert!(FieldInitRange::EMPTY.is_empty());
     assert!(StructLitFieldRange::EMPTY.is_empty());
-    assert!(SeqBindingRange::EMPTY.is_empty());
-    assert!(CheckRange::EMPTY.is_empty());
     assert!(NamedExprRange::EMPTY.is_empty());
     assert!(CallArgRange::EMPTY.is_empty());
 }

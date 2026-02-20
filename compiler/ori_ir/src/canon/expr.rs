@@ -9,7 +9,9 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::{BinaryOp, DurationUnit, FunctionExpKind, Name, SizeUnit, Span, TypeId, UnaryOp};
+use crate::{
+    BinaryOp, DurationUnit, FunctionExpKind, Mutability, Name, SizeUnit, Span, TypeId, UnaryOp,
+};
 
 use super::ids::{CanBindingPatternId, CanFieldRange, CanId, CanMapEntryRange, CanRange};
 use super::patterns::{CanNamedExprRange, CanParamRange};
@@ -161,7 +163,7 @@ pub enum CanExpr {
     Let {
         pattern: CanBindingPatternId,
         init: CanId,
-        mutable: bool,
+        mutable: Mutability,
     },
     /// Assignment: `target = value`
     Assign { target: CanId, value: CanId },
@@ -321,7 +323,7 @@ impl fmt::Debug for CanExpr {
                 init,
                 mutable,
             } => {
-                write!(f, "Let({pattern:?}, {init:?}, mut={mutable})")
+                write!(f, "Let({pattern:?}, {init:?}, {mutable:?})")
             }
             CanExpr::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
             CanExpr::Lambda { params, body } => {

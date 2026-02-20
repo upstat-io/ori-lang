@@ -1042,8 +1042,8 @@ impl Parser<'_> {
         // For compound patterns (tuple, struct, list), default to mutable
         // since per-binding mutability is tracked on sub-patterns.
         let mutable = match &pattern {
-            BindingPattern::Name { mutable, .. } => mutable.is_mutable(),
-            _ => true,
+            BindingPattern::Name { mutable, .. } => *mutable,
+            _ => Mutability::Mutable,
         };
         let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
@@ -1238,10 +1238,9 @@ impl Parser<'_> {
         // - `let $x = ...` → immutable
         let mutable = if self.cursor.check(&TokenKind::Dollar) {
             self.cursor.advance();
-            // ExprKind::Let still uses bool; pattern carries Mutability
-            false
+            Mutability::Immutable
         } else {
-            true
+            Mutability::Mutable
         };
 
         let pattern = committed!(self.parse_binding_pattern());

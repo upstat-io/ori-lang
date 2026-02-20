@@ -10,8 +10,8 @@ use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
-    MatchPatternId, MatchPatternRange, Name, NamedExpr, ParsedTypeId, ParsedTypeRange, SeqBinding,
-    Span, TokenKind,
+    MatchPatternId, MatchPatternRange, Mutability, Name, NamedExpr, ParsedTypeId, ParsedTypeRange,
+    Span, Stmt, StmtKind, TokenKind,
 };
 
 // === Token sets for match pattern EmptyErr reporting ===
@@ -54,12 +54,12 @@ impl Parser<'_> {
 
     /// Parse a `let` binding inside a `try { }` block.
     /// Assumes the `let` token has already been consumed.
-    fn parse_try_let_binding(&mut self, item_span: Span) -> ParseOutcome<SeqBinding> {
+    fn parse_try_let_binding(&mut self, item_span: Span) -> ParseOutcome<Stmt> {
         let mutable = if self.cursor.check(&TokenKind::Dollar) {
             self.cursor.advance();
-            false
+            Mutability::Immutable
         } else {
-            true
+            Mutability::Mutable
         };
 
         let pattern = committed!(self.parse_binding_pattern());
@@ -77,13 +77,15 @@ impl Parser<'_> {
         let value = require!(self, self.parse_expr(), "expression after `=`");
         let end_span = self.arena.get_expr(value).span;
 
-        let binding = SeqBinding::Let {
-            pattern: pattern_id,
-            ty,
-            value,
-            mutable,
-            span: item_span.merge(end_span),
-        };
+        let binding = Stmt::new(
+            StmtKind::Let {
+                pattern: pattern_id,
+                ty,
+                init: value,
+                mutable,
+            },
+            item_span.merge(end_span),
+        );
 
         self.cursor.skip_newlines();
         if self.cursor.check(&TokenKind::Semicolon) {
@@ -110,7 +112,7 @@ impl Parser<'_> {
         committed!(self.cursor.expect(&TokenKind::LBrace));
         self.cursor.skip_newlines();
 
-        let mut bindings: Vec<SeqBinding> = Vec::new();
+        let mut bindings: Vec<Stmt> = Vec::new();
         let mut result_expr: Option<ExprId> = None;
 
         while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
@@ -125,10 +127,7 @@ impl Parser<'_> {
                 // Flush any pending expression as a binding statement
                 if let Some(prev) = result_expr.take() {
                     let prev_span = self.arena.get_expr(prev).span;
-                    bindings.push(SeqBinding::Stmt {
-                        expr: prev,
-                        span: prev_span,
-                    });
+                    bindings.push(Stmt::new(StmtKind::Expr(prev), prev_span));
                 }
 
                 self.cursor.advance(); // consume `let`
@@ -152,13 +151,10 @@ impl Parser<'_> {
                 // Expression
                 let expr = require!(self, self.parse_expr(), "expression in try block");
 
-                // Flush any pending expression as a binding statement
+                // Flush any pending expression as a statement
                 if let Some(prev) = result_expr.take() {
                     let prev_span = self.arena.get_expr(prev).span;
-                    bindings.push(SeqBinding::Stmt {
-                        expr: prev,
-                        span: prev_span,
-                    });
+                    bindings.push(Stmt::new(StmtKind::Expr(prev), prev_span));
                 }
 
                 self.cursor.skip_newlines();
@@ -166,10 +162,7 @@ impl Parser<'_> {
                 if self.cursor.check(&TokenKind::Semicolon) {
                     self.cursor.advance();
                     let expr_span = self.arena.get_expr(expr).span;
-                    bindings.push(SeqBinding::Stmt {
-                        expr,
-                        span: expr_span,
-                    });
+                    bindings.push(Stmt::new(StmtKind::Expr(expr), expr_span));
                 } else if self.cursor.check(&TokenKind::RBrace) || self.cursor.is_at_end() {
                     result_expr = Some(expr);
                 } else {
@@ -194,9 +187,13 @@ impl Parser<'_> {
         let result = result_expr.unwrap_or(ExprId::INVALID);
         let span = start_span.merge(end_span);
 
-        let binding_range = self.arena.alloc_seq_bindings(bindings);
+        let stmt_start = self.arena.start_stmts();
+        for stmt in bindings {
+            self.arena.push_stmt(stmt);
+        }
+        let stmts = self.arena.finish_stmts(stmt_start);
         let func_seq = FunctionSeq::Try {
-            bindings: binding_range,
+            stmts,
             result,
             span,
         };

@@ -20,7 +20,7 @@
 //! # Always-Stacked Constructs
 //!
 //! Some constructs always use stacked format regardless of width:
-//! - `run`, `try` (sequential blocks)
+//! - `try` (sequential blocks)
 //! - `match` arms
 //! - `recurse`, `parallel`, `spawn`, `nursery`
 
@@ -219,7 +219,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 }
 
                 // "let " (4 chars, mutable default) or "let $" (5 chars, immutable)
-                let mut total = if *mutable { 4 } else { 5 };
+                let mut total = if mutable.is_mutable() { 4 } else { 5 };
                 let pat = self.arena.get_binding_pattern(*pattern);
                 total += binding_pattern_width(pat, self.interner);
                 if ty.is_valid() {
@@ -301,13 +301,10 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             } => with_capability_width(self, *capability, *provider, *body),
 
             // Sequential patterns - always stacked
-            // TODO(§0.10-cleanup): FunctionSeq::Run arm is dead — parser no longer produces Run nodes.
-            // Remove when IR variant is removed (see roadmap section-00-parser.md § 0.10).
             ExprKind::FunctionSeq(seq_id) => {
                 let seq = self.arena.get_function_seq(*seq_id);
                 match seq {
-                    FunctionSeq::Run { .. }
-                    | FunctionSeq::Try { .. }
+                    FunctionSeq::Try { .. }
                     | FunctionSeq::Match { .. }
                     | FunctionSeq::ForPattern { .. } => ALWAYS_STACKED,
                 }

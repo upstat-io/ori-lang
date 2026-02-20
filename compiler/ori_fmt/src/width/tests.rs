@@ -754,34 +754,14 @@ fn test_always_stacked_match() {
 }
 
 #[test]
-fn test_always_stacked_run() {
-    let mut arena = ExprArena::new();
-    let interner = StringInterner::new();
-
-    let result = make_expr(&mut arena, ExprKind::Int(1));
-    let bindings = arena.alloc_seq_bindings([]);
-    let seq_id = arena.alloc_function_seq(FunctionSeq::Run {
-        pre_checks: ori_ir::CheckRange::EMPTY,
-        bindings,
-        result,
-        post_checks: ori_ir::CheckRange::EMPTY,
-        span: Span::new(0, 1),
-    });
-    let run = make_expr(&mut arena, ExprKind::FunctionSeq(seq_id));
-
-    let mut calc = WidthCalculator::new(&arena, &interner);
-    assert_eq!(calc.width(run), ALWAYS_STACKED);
-}
-
-#[test]
 fn test_always_stacked_try() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
     let result = make_expr(&mut arena, ExprKind::Int(1));
-    let bindings = arena.alloc_seq_bindings([]);
+    let stmts = StmtRange::EMPTY;
     let seq_id = arena.alloc_function_seq(FunctionSeq::Try {
-        bindings,
+        stmts,
         result,
         span: Span::new(0, 1),
     });

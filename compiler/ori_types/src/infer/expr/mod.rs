@@ -325,75 +325,10 @@ pub fn check_expr(
         }
     }
 
-    // Propagate expected type through `run(...)` to the result expression.
-    // This enables bidirectional type checking to flow through function bodies,
-    // which are always wrapped in `run(...)` (FunctionSeq::Run).
-    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
-        let func_seq = arena.get_function_seq(*seq_id);
-        if let ori_ir::FunctionSeq::Run {
-            pre_checks,
-            bindings,
-            result,
-            post_checks,
-            ..
-        } = func_seq
-        {
-            let result_ty = check_run_seq(
-                engine,
-                arena,
-                *pre_checks,
-                *bindings,
-                *result,
-                *post_checks,
-                expected,
-                span,
-            );
-            engine.store_type(expr_id.raw() as usize, result_ty);
-            return result_ty;
-        }
-    }
-
     // Default: infer the type and check against expected
     let inferred = infer_expr(engine, arena, expr_id);
     let _ = engine.check_type(inferred, expected, span);
     inferred
-}
-
-/// Bidirectional `run(...)`: propagate expected type to result expression.
-///
-/// Mirrors `infer_run_seq` but calls `check_expr` on the result expression
-/// instead of `infer_expr`, enabling expected type propagation through function
-/// bodies (which are always wrapped in `run(...)`).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors infer_run_seq signature plus expected/span"
-)]
-fn check_run_seq(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    pre_checks: ori_ir::CheckRange,
-    bindings: ori_ir::SeqBindingRange,
-    result: ExprId,
-    post_checks: ori_ir::CheckRange,
-    expected: &Expected,
-    span: Span,
-) -> Idx {
-    engine.enter_scope();
-
-    infer_pre_checks(engine, arena, pre_checks);
-
-    let seq_bindings = arena.get_seq_bindings(bindings);
-    for binding in seq_bindings {
-        infer_seq_binding(engine, arena, binding, false);
-    }
-
-    // Check result expression against expected type (bidirectional)
-    let result_ty = check_expr(engine, arena, result, expected, span);
-
-    infer_post_checks(engine, arena, post_checks, result_ty);
-
-    engine.exit_scope();
-    result_ty
 }
 
 /// Bidirectional collect: resolve `iter.collect()` to `Set<T>` when expected.

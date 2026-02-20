@@ -10,7 +10,7 @@ use std::mem;
 use ori_ir::canon::{
     CanBindingPattern, CanBindingPatternId, CanExpr, CanId, CanRange, DecisionTreeId,
 };
-use ori_ir::{Name, Span};
+use ori_ir::{Mutability, Name, Span};
 use ori_types::Idx;
 
 use crate::aot::debug::DebugLevel;
@@ -120,7 +120,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         pattern: CanBindingPatternId,
         init: CanId,
-        mutable: bool,
+        mutable: Mutability,
     ) -> Option<ValueId> {
         let init_val = self.lower(init)?;
         let binding_pattern = self.canon.arena.get_binding_pattern(pattern);
@@ -190,7 +190,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         pattern: &CanBindingPattern,
         val: ValueId,
-        mutable: bool,
+        mutable: Mutability,
         init_id: CanId,
     ) {
         match pattern {
