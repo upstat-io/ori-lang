@@ -14,7 +14,7 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **ACTIVE REROUTE — Block Unification (2026-02-20)**: `plans/block_unify/` — Eliminate `FunctionSeq::Run` / `ExprKind::Block` duality. Kill `SeqBinding`, unify to single `StmtKind`. Adopt Gleam pattern. 5 sections, touches ori_ir, ori_parse, ori_types, ori_canon, ori_eval, ori_llvm, ori_fmt. Remove this block when all 5 sections are complete.
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-20)**: `plans/block_unify/` — Block Unification complete. `FunctionSeq::Run` / `SeqBinding` eliminated. Single `ExprKind::Block` + `StmtKind` representation (Gleam pattern). TypeEnv parallel maps merged into single `Binding` struct. Parser block parsing deduplicated via `collect_block_stmts()`. All 5 sections complete, 10,219 tests passing.
 
 ---
 

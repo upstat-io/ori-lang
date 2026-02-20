@@ -13,11 +13,13 @@
 //! # Module Structure
 //!
 //! - `mod.rs`: Entry point (`parse_expr`) and Pratt parser for binary operators
+//! - `blocks.rs`: Shared block-statement parsing (used by block and try)
 //! - `operators.rs`: Operator matching helpers and binding power table
 //! - `primary.rs`: Literals, identifiers, variant constructors
 //! - `postfix.rs`: Call, method call, field, index
-//! - `patterns.rs`: run, try, match, for, `function_exp`
+//! - `patterns.rs`: try, match, for, `function_exp`
 
+mod blocks;
 mod operators;
 mod patterns;
 mod postfix;

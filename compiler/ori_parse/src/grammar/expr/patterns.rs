@@ -9,9 +9,8 @@ use crate::context::ParseContext;
 use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    BindingPattern, Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm,
-    MatchPattern, MatchPatternId, MatchPatternRange, Mutability, Name, NamedExpr, ParsedTypeId,
-    ParsedTypeRange, Span, Stmt, StmtKind, TokenKind,
+    Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
+    MatchPatternId, MatchPatternRange, Name, NamedExpr, ParsedTypeRange, TokenKind,
 };
 
 // === Token sets for match pattern EmptyErr reporting ===
@@ -52,154 +51,32 @@ impl Parser<'_> {
         self.parse_try_block()
     }
 
-    /// Parse a `let` binding inside a `try { }` block.
-    /// Assumes the `let` token has already been consumed.
-    fn parse_try_let_binding(&mut self, item_span: Span) -> ParseOutcome<Stmt> {
-        // Don't consume `$` here — let parse_binding_pattern() handle it
-        // so that BindingPattern::Name.mutable is set correctly for both
-        // simple bindings (`let $x = 5`) and destructuring (`let ($a, b) = ...`).
-        let pattern = committed!(self.parse_binding_pattern());
-
-        // Derive statement-level mutability from the pattern.
-        let mutable = match &pattern {
-            BindingPattern::Name { mutable, .. } => *mutable,
-            _ => Mutability::Mutable,
-        };
-        let pattern_id = self.arena.alloc_binding_pattern(pattern);
-
-        let ty = if self.cursor.check(&TokenKind::Colon) {
-            self.cursor.advance();
-            self.parse_type()
-                .map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
-        } else {
-            ParsedTypeId::INVALID
-        };
-
-        committed!(self.cursor.expect(&TokenKind::Eq));
-        let value = require!(self, self.parse_expr(), "expression after `=`");
-        let end_span = self.arena.get_expr(value).span;
-
-        let binding = Stmt::new(
-            StmtKind::Let {
-                pattern: pattern_id,
-                ty,
-                init: value,
-                mutable,
-            },
-            item_span.merge(end_span),
-        );
-
-        self.cursor.skip_newlines();
-        if self.cursor.check(&TokenKind::Semicolon) {
-            self.cursor.advance();
-        } else if !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
-            return ParseOutcome::consumed_err(
-                ParseError::new(
-                    ori_diagnostic::ErrorCode::E1002,
-                    "expected `;` or `}` after let binding in try block",
-                    self.cursor.current_span(),
-                )
-                .with_help("Add `;` after the let binding: `let x = value;`"),
-                item_span,
-            );
-        }
-
-        ParseOutcome::consumed_ok(binding)
-    }
-
     /// Parse `try { stmts; result }` — parses block contents as `FunctionSeq::Try`
-    /// bindings so that let bindings get auto-unwrap semantics.
+    /// with auto-unwrap semantics on let bindings.
     fn parse_try_block(&mut self) -> ParseOutcome<ExprId> {
         let start_span = self.cursor.previous_span();
         committed!(self.cursor.expect(&TokenKind::LBrace));
-        self.cursor.skip_newlines();
 
-        let mut bindings: Vec<Stmt> = Vec::new();
-        let mut result_expr: Option<ExprId> = None;
+        let (stmts_vec, result, end_span) = require!(
+            self,
+            self.collect_block_stmts("try block"),
+            "try block body"
+        );
 
-        while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
-            self.cursor.skip_newlines();
-            if self.cursor.check(&TokenKind::RBrace) {
-                break;
-            }
-
-            let item_span = self.cursor.current_span();
-
-            if self.cursor.check(&TokenKind::Let) {
-                // Flush any pending expression as a binding statement
-                if let Some(prev) = result_expr.take() {
-                    let prev_span = self.arena.get_expr(prev).span;
-                    bindings.push(Stmt::new(StmtKind::Expr(prev), prev_span));
-                }
-
-                self.cursor.advance(); // consume `let`
-                match self.parse_try_let_binding(item_span) {
-                    ParseOutcome::ConsumedOk { value } => bindings.push(value),
-                    ParseOutcome::ConsumedErr {
-                        error,
-                        consumed_span,
-                    } => {
-                        return ParseOutcome::ConsumedErr {
-                            error,
-                            consumed_span,
-                        }
-                    }
-                    ParseOutcome::EmptyErr { expected, position } => {
-                        return ParseOutcome::EmptyErr { expected, position };
-                    }
-                    ParseOutcome::EmptyOk { .. } => {}
-                }
-            } else {
-                // Expression
-                let expr = require!(self, self.parse_expr(), "expression in try block");
-
-                // Flush any pending expression as a statement
-                if let Some(prev) = result_expr.take() {
-                    let prev_span = self.arena.get_expr(prev).span;
-                    bindings.push(Stmt::new(StmtKind::Expr(prev), prev_span));
-                }
-
-                self.cursor.skip_newlines();
-
-                if self.cursor.check(&TokenKind::Semicolon) {
-                    self.cursor.advance();
-                    let expr_span = self.arena.get_expr(expr).span;
-                    bindings.push(Stmt::new(StmtKind::Expr(expr), expr_span));
-                } else if self.cursor.check(&TokenKind::RBrace) || self.cursor.is_at_end() {
-                    result_expr = Some(expr);
-                } else {
-                    return ParseOutcome::consumed_err(
-                        ParseError::new(
-                            ori_diagnostic::ErrorCode::E1002,
-                            "expected `;` or `}` after expression in try block",
-                            self.cursor.current_span(),
-                        )
-                        .with_help("Add `;` to make this a statement, or `}` to end the try block"),
-                        item_span,
-                    );
-                }
-            }
-
-            self.cursor.skip_newlines();
-        }
-
-        let end_span = self.cursor.current_span();
-        committed!(self.cursor.expect(&TokenKind::RBrace));
-
-        let result = result_expr.unwrap_or(ExprId::INVALID);
         let span = start_span.merge(end_span);
 
+        // Batch-push statements to arena after nested parsing completes.
         let stmt_start = self.arena.start_stmts();
-        for stmt in bindings {
+        for stmt in stmts_vec {
             self.arena.push_stmt(stmt);
         }
         let stmts = self.arena.finish_stmts(stmt_start);
+
         let func_seq = FunctionSeq::Try {
             stmts,
             result,
             span,
         };
-
         let func_seq_id = self.arena.alloc_function_seq(func_seq);
         ParseOutcome::consumed_ok(
             self.arena

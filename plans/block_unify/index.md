@@ -19,7 +19,7 @@ This plan adopts the **Gleam pattern**: one unified `Block` expression type, one
 ## Keyword Clusters by Section
 
 ### Section 01: IR Type Unification
-**File:** `section-01-ir-types.md` | **Status:** Not Started
+**File:** `section-01-ir-types.md` | **Status:** Complete
 
 ```
 SeqBinding, StmtKind, Stmt, Statement
@@ -34,7 +34,7 @@ visitor, walk_function_seq, walk_seq_binding
 ---
 
 ### Section 02: Parser Unification
-**File:** `section-02-parser.md` | **Status:** Not Started
+**File:** `section-02-parser.md` | **Status:** Complete
 
 ```
 parse_block_expr_body, parse_try_block, parse_block_let_binding
@@ -49,7 +49,7 @@ copier, incremental, copy_seq_binding
 ---
 
 ### Section 03: Type Checker Unification
-**File:** `section-03-type-checker.md` | **Status:** Not Started
+**File:** `section-03-type-checker.md` | **Status:** Complete
 
 ```
 infer_function_seq, infer_run_seq, infer_try_seq
@@ -63,7 +63,7 @@ ori_types, infer, env
 ---
 
 ### Section 04: Downstream Consumers
-**File:** `section-04-downstream.md` | **Status:** Not Started
+**File:** `section-04-downstream.md` | **Status:** Complete
 
 ```
 ori_canon, lower_function_seq, lower_seq_bindings
@@ -76,7 +76,7 @@ stacked, inline, width, run_rule
 ---
 
 ### Section 05: Cleanup & Verification
-**File:** `section-05-cleanup.md` | **Status:** Not Started
+**File:** `section-05-cleanup.md` | **Status:** Complete
 
 ```
 dead code, unused imports, FunctionSeq::Run removal
@@ -91,8 +91,8 @@ benchmark, performance, parser throughput
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | IR Type Unification | `section-01-ir-types.md` | Not Started |
-| 02 | Parser Unification | `section-02-parser.md` | Not Started |
-| 03 | Type Checker Unification | `section-03-type-checker.md` | Not Started |
-| 04 | Downstream Consumers | `section-04-downstream.md` | Not Started |
-| 05 | Cleanup & Verification | `section-05-cleanup.md` | Not Started |
+| 01 | IR Type Unification | `section-01-ir-types.md` | Complete |
+| 02 | Parser Unification | `section-02-parser.md` | Complete |
+| 03 | Type Checker Unification | `section-03-type-checker.md` | Complete |
+| 04 | Downstream Consumers | `section-04-downstream.md` | Complete |
+| 05 | Cleanup & Verification | `section-05-cleanup.md` | Complete |

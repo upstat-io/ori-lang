@@ -286,9 +286,7 @@ pub(crate) fn bind_pattern(
 
     match pattern {
         BindingPattern::Name { name, mutable } => {
-            engine
-                .env_mut()
-                .bind_with_mutability(*name, ty, mutable.is_mutable());
+            engine.env_mut().bind_with_mutability(*name, ty, *mutable);
         }
 
         BindingPattern::Tuple(patterns) => {
@@ -331,11 +329,9 @@ pub(crate) fn bind_pattern(
                     bind_pattern(engine, arena, sub_pat, field_ty);
                 } else {
                     // Shorthand: { x } or { $x } — use field's own mutability
-                    engine.env_mut().bind_with_mutability(
-                        field.name,
-                        field_ty,
-                        field.mutable.is_mutable(),
-                    );
+                    engine
+                        .env_mut()
+                        .bind_with_mutability(field.name, field_ty, field.mutable);
                 }
             }
         }
@@ -351,7 +347,7 @@ pub(crate) fn bind_pattern(
                     // Rest binding gets the full list type, respecting $ mutability
                     engine
                         .env_mut()
-                        .bind_with_mutability(*rest_name, ty, rest_mut.is_mutable());
+                        .bind_with_mutability(*rest_name, ty, *rest_mut);
                 }
             } else {
                 // Type mismatch - bind each to fresh var
@@ -362,7 +358,7 @@ pub(crate) fn bind_pattern(
                 if let Some((rest_name, rest_mut)) = rest {
                     engine
                         .env_mut()
-                        .bind_with_mutability(*rest_name, ty, rest_mut.is_mutable());
+                        .bind_with_mutability(*rest_name, ty, *rest_mut);
                 }
             }
         }
