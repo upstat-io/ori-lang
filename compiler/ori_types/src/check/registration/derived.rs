@@ -34,15 +34,14 @@ pub(super) fn register_derived_impl(
     // 0. Reject non-derivable traits (E2033)
     let trait_kind = {
         let trait_str = checker.interner().lookup(trait_name);
-        match DerivedTrait::from_name(trait_str) {
-            Some(kind) => kind,
-            None => {
-                checker.push_error(TypeCheckError::trait_not_derivable(
-                    type_decl.span,
-                    trait_name,
-                ));
-                return;
-            }
+        if let Some(kind) = DerivedTrait::from_name(trait_str) {
+            kind
+        } else {
+            checker.push_error(TypeCheckError::trait_not_derivable(
+                type_decl.span,
+                trait_name,
+            ));
+            return;
         }
     };
 

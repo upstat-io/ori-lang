@@ -74,7 +74,6 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         args: CanRange,
     ) -> Option<ValueId> {
         match method {
-            "clone" => Some(recv),
             "equals" => {
                 let arg_ids = self.canon.arena.get_expr_list(args);
                 let other = self.lower(*arg_ids.first()?)?;
@@ -82,7 +81,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             }
             "hash" => self.emit_set_hash(recv, element),
             // Into<[T]>: Set and List share layout {i64 len, i64 cap, ptr data}
-            "into" | "to_list" => Some(recv),
+            "clone" | "into" | "to_list" => Some(recv),
             _ => None,
         }
     }

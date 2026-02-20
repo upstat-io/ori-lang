@@ -1000,7 +1000,7 @@ fn emit_into_not_implemented(
 ) {
     let is_into = engine
         .well_known()
-        .map_or(false, |wk| method == wk.into_method);
+        .is_some_and(|wk| method == wk.into_method);
     if is_into {
         engine.push_error(TypeCheckError::into_not_implemented(
             span,

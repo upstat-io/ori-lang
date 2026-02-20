@@ -1,7 +1,7 @@
 //! User-defined type registration (Pass 0b).
 //!
 //! Registers struct, enum (sum type), and newtype declarations from user code
-//! into both the Pool (for type interning) and TypeRegistry (for field access
+//! into both the Pool (for type interning) and `TypeRegistry` (for field access
 //! and type checking).
 
 use super::type_resolution::{collect_generic_params, convert_visibility, resolve_field_type};

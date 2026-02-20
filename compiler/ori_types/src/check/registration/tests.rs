@@ -726,8 +726,7 @@ fn all_derived_traits_have_type_signatures() {
         let method_name = interner.intern(trait_kind.method_name());
         assert!(
             methods.contains_key(&method_name),
-            "DerivedTrait::{:?} registered method name doesn't match method_name()",
-            trait_kind
+            "DerivedTrait::{trait_kind:?} registered method name doesn't match method_name()",
         );
     }
 }

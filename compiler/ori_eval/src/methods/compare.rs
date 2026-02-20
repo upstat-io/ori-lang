@@ -197,7 +197,7 @@ pub fn fnv1a_hash(bytes: &[u8]) -> i64 {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(FNV_PRIME);
     }
-    hash as i64
+    hash.cast_signed()
 }
 
 /// Combine two hash values using the Boost hash combine algorithm.
@@ -218,10 +218,6 @@ pub fn hash_combine(seed: i64, value: i64) -> i64 {
 /// `DefaultHasher` (str). For compound types, combines element hashes
 /// with `hash_combine`. Float normalization ensures `-0.0` and `+0.0`
 /// produce the same hash, and all NaN representations hash identically.
-#[expect(
-    clippy::only_used_in_recursion,
-    reason = "interner needed for future struct/newtype deep hashing via method dispatch"
-)]
 pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError> {
     match v {
         Value::Int(n) => Ok(n.raw()),
@@ -277,11 +273,11 @@ pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError
         Value::Struct(sv) => {
             let mut hash = FNV_OFFSET_BASIS;
             for field_val in sv.fields.iter() {
-                let field_hash = hash_value(field_val, interner)? as u64;
+                let field_hash = (hash_value(field_val, interner)?).cast_unsigned();
                 hash ^= field_hash;
                 hash = hash.wrapping_mul(FNV_PRIME);
             }
-            Ok(hash as i64)
+            Ok(hash.cast_signed())
         }
         // Variant: discriminant (variant name hash) + payload fields
         Value::Variant {
@@ -291,15 +287,15 @@ pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError
         } => {
             let mut hash = FNV_OFFSET_BASIS;
             let variant_str = interner.lookup(*variant_name);
-            let discriminant = fnv1a_hash(variant_str.as_bytes()) as u64;
+            let discriminant = fnv1a_hash(variant_str.as_bytes()).cast_unsigned();
             hash ^= discriminant;
             hash = hash.wrapping_mul(FNV_PRIME);
             for field in fields.as_ref() {
-                let field_hash = hash_value(field, interner)? as u64;
+                let field_hash = (hash_value(field, interner)?).cast_unsigned();
                 hash ^= field_hash;
                 hash = hash.wrapping_mul(FNV_PRIME);
             }
-            Ok(hash as i64)
+            Ok(hash.cast_signed())
         }
         _ => Err(EvalError::new(format!("cannot hash {}", v.type_name()))),
     }

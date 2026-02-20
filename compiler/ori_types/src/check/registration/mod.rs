@@ -5,7 +5,7 @@
 //!
 //! # Pass Order
 //!
-//! - **Pass 0a**: Built-in types (Ordering, TraceEntry, format types)
+//! - **Pass 0a**: Built-in types (Ordering, `TraceEntry`, format types)
 //! - **Pass 0b**: User-defined types (struct, enum, newtype)
 //! - **Pass 0c**: Traits and implementations
 //! - **Pass 0d**: Derived implementations (`#[derive(...)]`)
@@ -40,11 +40,11 @@ pub(super) use type_resolution::{resolve_parsed_type_simple, resolve_type_with_s
 
 // Re-exports for tests — internal functions accessed by registration/tests.rs
 #[cfg(test)]
-pub(self) use derived::{build_derived_methods, register_derived_impl};
+use derived::{build_derived_methods, register_derived_impl};
 #[cfg(test)]
-pub(self) use traits::compute_object_safety_violations;
+use traits::compute_object_safety_violations;
 #[cfg(test)]
-pub(self) use type_resolution::{parsed_type_contains_self, resolve_type_with_params};
+use type_resolution::{parsed_type_contains_self, resolve_type_with_params};
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]

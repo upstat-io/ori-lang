@@ -1,6 +1,6 @@
 //! Trait definition registration (Pass 0c, part 1).
 //!
-//! Registers trait definitions from the IR into the TraitRegistry. This enables
+//! Registers trait definitions from the IR into the `TraitRegistry`. This enables
 //! method resolution and trait bound checking. Handles both local and imported
 //! (foreign-module) traits.
 
