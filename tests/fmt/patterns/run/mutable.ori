@@ -1,17 +1,17 @@
 // Run pattern with mutable bindings (default, no $ prefix)
 // Spec: 05-variables.md § Mutability
 
-@counter () -> int = run(
-    let x = 0,
-    x = x + 1,
-    x = x + 1,
-    x,
-)
+@counter () -> int = {
+    let x = 0;
+    x = x + 1;
+    x = x + 1;
+    x
+}
 
-@swap () -> int = run(
-    let a = 10,
-    let b = 20,
-    a = a + b,
-    b = a - b,
-    a - b,
-)
+@swap () -> int = {
+    let a = 10;
+    let b = 20;
+    a = a + b;
+    b = a - b;
+    a - b
+}

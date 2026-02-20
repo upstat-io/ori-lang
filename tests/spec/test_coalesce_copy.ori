@@ -6,186 +6,186 @@ use std.testing { assert, assert_eq }
 // Basic Option Coalescing
 // =============================================================================
 
-@test_some_returns_value tests @some_returns_value () -> void = run(
-    assert_eq(actual: some_returns_value(), expected: 42),
-)
+@test_some_returns_value tests @some_returns_value () -> void = {
+    assert_eq(actual: some_returns_value(), expected: 42)
+}
 
-@some_returns_value () -> int = run(
-    let opt = Some(42),
-    opt ?? 0,
-)
+@some_returns_value () -> int = {
+    let opt = Some(42);
+    opt ?? 0
+}
 
-@test_none_returns_default tests @none_returns_default () -> void = run(
-    assert_eq(actual: none_returns_default(), expected: 0),
-)
+@test_none_returns_default tests @none_returns_default () -> void = {
+    assert_eq(actual: none_returns_default(), expected: 0)
+}
 
-@none_returns_default () -> int = run(
-    let opt: Option<int> = None,
-    opt ?? 0,
-)
+@none_returns_default () -> int = {
+    let opt: Option<int> = None;
+    opt ?? 0
+}
 
-@test_some_with_zero tests @some_with_zero () -> void = run(
-    assert_eq(actual: some_with_zero(), expected: 0),
-)
+@test_some_with_zero tests @some_with_zero () -> void = {
+    assert_eq(actual: some_with_zero(), expected: 0)
+}
 
-@some_with_zero () -> int = run(
-    let opt = Some(0),
-    opt ?? 99,
-)
+@some_with_zero () -> int = {
+    let opt = Some(0);
+    opt ?? 99
+}
 
-@test_some_with_false tests @some_with_false () -> void = run(
-    let opt = Some(false),
-    let result = opt ?? true,
-    assert(cond: !result),
-)
+@test_some_with_false tests @some_with_false () -> void = {
+    let opt = Some(false);
+    let result = opt ?? true;
+    assert(cond: !result)
+}
 
-@some_with_false () -> bool = run(
-    let opt = Some(false),
-    opt ?? true,
-)
+@some_with_false () -> bool = {
+    let opt = Some(false);
+    opt ?? true
+}
 
 // =============================================================================
 // Short-Circuit Evaluation
 // =============================================================================
 
-@test_some_skips_default tests @some_skips_default () -> void = run(
-    let opt = Some(42),
-    let result = opt ?? panic(msg: "should not execute"),
-    assert_eq(actual: result, expected: 42),
-)
+@test_some_skips_default tests @some_skips_default () -> void = {
+    let opt = Some(42);
+    let result = opt ?? panic(msg: "should not execute");
+    assert_eq(actual: result, expected: 42)
+}
 
-@some_skips_default () -> int = run(
-    let opt = Some(42),
-    opt ?? panic(msg: "should not execute"),
-)
+@some_skips_default () -> int = {
+    let opt = Some(42);
+    opt ?? panic(msg: "should not execute")
+}
 
-@test_none_evaluates_default tests @none_evaluates_default () -> void = run(
-    let evaluated = false,
-    let opt: Option<int> = None,
-    let result = opt ?? run(evaluated = true, 99),
-    assert(cond: evaluated),
-    assert_eq(actual: result, expected: 99),
-)
+@test_none_evaluates_default tests @none_evaluates_default () -> void = {
+    let evaluated = false;
+    let opt: Option<int> = None;
+    let result = opt ?? {evaluated = true; 99};
+    assert(cond: evaluated);
+    assert_eq(actual: result, expected: 99)
+}
 
-@none_evaluates_default () -> int = run(
-    let opt: Option<int> = None,
-    opt ?? 99,
-)
+@none_evaluates_default () -> int = {
+    let opt: Option<int> = None;
+    opt ?? 99
+}
 
-@test_some_skips_side_effect tests @some_skips_side_effect () -> void = run(
-    let counter = 0,
-    let opt = Some(42),
-    let result = opt ?? run(counter = counter + 1, 0),
-    assert_eq(actual: counter, expected: 0),
-    assert_eq(actual: result, expected: 42),
-)
+@test_some_skips_side_effect tests @some_skips_side_effect () -> void = {
+    let counter = 0;
+    let opt = Some(42);
+    let result = opt ?? {counter = counter + 1; 0};
+    assert_eq(actual: counter, expected: 0);
+    assert_eq(actual: result, expected: 42)
+}
 
-@some_skips_side_effect () -> int = run(
-    let counter = 0,
-    let opt = Some(42),
-    opt ?? run(counter = counter + 1, 0),
-)
+@some_skips_side_effect () -> int = {
+    let counter = 0;
+    let opt = Some(42);
+    opt ?? {counter = counter + 1; 0}
+}
 
 // =============================================================================
 // Chaining
 // =============================================================================
 
-@test_chain_all_none tests @chain_all_none () -> void = run(
-    let a: Option<int> = None,
-    let b: Option<int> = None,
-    let c: Option<int> = None,
-    let result = a ?? b ?? c ?? 99,
-    assert_eq(actual: result, expected: 99),
-)
+@test_chain_all_none tests @chain_all_none () -> void = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    let c: Option<int> = None;
+    let result = a ?? b ?? c ?? 99;
+    assert_eq(actual: result, expected: 99)
+}
 
-@chain_all_none () -> int = run(
-    let a: Option<int> = None,
-    let b: Option<int> = None,
-    let c: Option<int> = None,
-    a ?? b ?? c ?? 99,
-)
+@chain_all_none () -> int = {
+    let a: Option<int> = None;
+    let b: Option<int> = None;
+    let c: Option<int> = None;
+    a ?? b ?? c ?? 99
+}
 
-@test_chain_first_some tests @chain_first_some () -> void = run(
-    let a = Some(1),
-    let b = Some(2),
-    let c = Some(3),
-    let result = a ?? b ?? c ?? 99,
-    assert_eq(actual: result, expected: 1),
-)
+@test_chain_first_some tests @chain_first_some () -> void = {
+    let a = Some(1);
+    let b = Some(2);
+    let c = Some(3);
+    let result = a ?? b ?? c ?? 99;
+    assert_eq(actual: result, expected: 1)
+}
 
-@chain_first_some () -> int = run(
-    let a = Some(1),
-    let b = Some(2),
-    let c = Some(3),
-    a ?? b ?? c ?? 99,
-)
+@chain_first_some () -> int = {
+    let a = Some(1);
+    let b = Some(2);
+    let c = Some(3);
+    a ?? b ?? c ?? 99
+}
 
 // =============================================================================
 // Result Coalescing
 // =============================================================================
 
-@test_ok_returns_value tests @ok_returns_value () -> void = run(
-    let result: Result<int, str> = Ok(42),
-    let value = result ?? 0,
-    assert_eq(actual: value, expected: 42),
-)
+@test_ok_returns_value tests @ok_returns_value () -> void = {
+    let result: Result<int, str> = Ok(42);
+    let value = result ?? 0;
+    assert_eq(actual: value, expected: 42)
+}
 
-@ok_returns_value () -> int = run(
-    let result: Result<int, str> = Ok(42),
-    result ?? 0,
-)
+@ok_returns_value () -> int = {
+    let result: Result<int, str> = Ok(42);
+    result ?? 0
+}
 
-@test_err_returns_default tests @err_returns_default () -> void = run(
-    let result: Result<int, str> = Err("error"),
-    let value = result ?? 0,
-    assert_eq(actual: value, expected: 0),
-)
+@test_err_returns_default tests @err_returns_default () -> void = {
+    let result: Result<int, str> = Err("error");
+    let value = result ?? 0;
+    assert_eq(actual: value, expected: 0)
+}
 
-@err_returns_default () -> int = run(
-    let result: Result<int, str> = Err("error"),
-    result ?? 0,
-)
+@err_returns_default () -> int = {
+    let result: Result<int, str> = Err("error");
+    result ?? 0
+}
 
 // =============================================================================
 // Type Inference
 // =============================================================================
 
-@test_string_coalesce tests @string_coalesce () -> void = run(
-    let opt: Option<str> = None,
-    let value = opt ?? "default",
-    assert_eq(actual: value, expected: "default"),
-)
+@test_string_coalesce tests @string_coalesce () -> void = {
+    let opt: Option<str> = None;
+    let value = opt ?? "default";
+    assert_eq(actual: value, expected: "default")
+}
 
-@string_coalesce () -> str = run(
-    let opt: Option<str> = None,
-    opt ?? "default",
-)
+@string_coalesce () -> str = {
+    let opt: Option<str> = None;
+    opt ?? "default"
+}
 
-@test_list_coalesce tests @list_coalesce () -> void = run(
-    let opt: Option<[int]> = None,
-    let value = opt ?? [1, 2, 3],
-    assert_eq(actual: value, expected: [1, 2, 3]),
-)
+@test_list_coalesce tests @list_coalesce () -> void = {
+    let opt: Option<[int]> = None;
+    let value = opt ?? [1, 2, 3];
+    assert_eq(actual: value, expected: [1, 2, 3])
+}
 
-@list_coalesce () -> [int] = run(
-    let opt: Option<[int]> = None,
-    opt ?? [1, 2, 3],
-)
+@list_coalesce () -> [int] = {
+    let opt: Option<[int]> = None;
+    opt ?? [1, 2, 3]
+}
 
 // =============================================================================
 // Precedence
 // =============================================================================
 
-@test_coalesce_lowest_precedence tests @coalesce_lowest_precedence () -> void = run(
-    let opt: Option<int> = None,
-    let value = opt ?? 1 + 2,
-    assert_eq(actual: value, expected: 3),
-)
+@test_coalesce_lowest_precedence tests @coalesce_lowest_precedence () -> void = {
+    let opt: Option<int> = None;
+    let value = opt ?? 1 + 2;
+    assert_eq(actual: value, expected: 3)
+}
 
-@coalesce_lowest_precedence () -> int = run(
-    let opt: Option<int> = None,
-    opt ?? 1 + 2,
-)
+@coalesce_lowest_precedence () -> int = {
+    let opt: Option<int> = None;
+    opt ?? 1 + 2
+}
 
 // =============================================================================
 // With Function Calls
@@ -195,17 +195,17 @@ use std.testing { assert, assert_eq }
 @get_none () -> Option<int> = None
 @compute_default () -> int = 99
 
-@test_coalesce_function_some tests @coalesce_function_some () -> void = run(
-    let result = get_some() ?? compute_default(),
-    assert_eq(actual: result, expected: 42),
-)
+@test_coalesce_function_some tests @coalesce_function_some () -> void = {
+    let result = get_some() ?? compute_default();
+    assert_eq(actual: result, expected: 42)
+}
 
 @coalesce_function_some () -> int = get_some() ?? compute_default()
 
-@test_coalesce_function_none tests @coalesce_function_none () -> void = run(
-    let result = get_none() ?? compute_default(),
-    assert_eq(actual: result, expected: 99),
-)
+@test_coalesce_function_none tests @coalesce_function_none () -> void = {
+    let result = get_none() ?? compute_default();
+    assert_eq(actual: result, expected: 99)
+}
 
 @coalesce_function_none () -> int = get_none() ?? compute_default()
 
@@ -213,15 +213,15 @@ use std.testing { assert, assert_eq }
 // Map lookups
 // =============================================================================
 
-@test_map_lookup_default tests @map_lookup_default () -> void = run(
-    let map = {"key": 42},
-    let value = map["missing"] ?? 0,
-    assert_eq(actual: value, expected: 0),
-    let existing = map["key"] ?? 0,
-    assert_eq(actual: existing, expected: 42),
-)
+@test_map_lookup_default tests @map_lookup_default () -> void = {
+    let map = {"key": 42};
+    let value = map["missing"] ?? 0;
+    assert_eq(actual: value, expected: 0);
+    let existing = map["key"] ?? 0;
+    assert_eq(actual: existing, expected: 42)
+}
 
-@map_lookup_default () -> int = run(
-    let map = {"key": 42},
-    map["missing"] ?? 0,
-)
+@map_lookup_default () -> int = {
+    let map = {"key": 42};
+    map["missing"] ?? 0
+}

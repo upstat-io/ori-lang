@@ -3,18 +3,18 @@ use std.testing { assert_eq }
 // Sum type with single-field data variant
 type Message = Text(content: str) | Empty
 
-@get_message (m: Message) -> str = match(m,
+@get_message (m: Message) -> str = match m {
     Text(content) -> content,
-    Empty -> "empty",
-)
+    Empty -> "empty"
+}
 
-@test_single_field tests @get_message () -> void = run(
+@test_single_field tests @get_message () -> void = {
     assert_eq(
         actual: get_message(m: Text("hello")),
         expected: "hello",
-    ),
+    );
     assert_eq(
         actual: get_message(m: Empty),
         expected: "empty",
-    ),
-)
+    )
+}

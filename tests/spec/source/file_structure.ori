@@ -19,14 +19,14 @@ use std.testing { assert, assert_eq }
 // Note: Module-level constants (let $NAME = ...) parse correctly but the
 // evaluator doesn't fully support immutable binding semantics yet.
 // Testing basic constant pattern via regular local binding.
-@file_const () -> int = run(
-    let local = 42,
-    local,
-)
+@file_const () -> int = {
+    let local = 42;
+    local
+}
 
-@test_file_const tests @file_const () -> void = run(
-    assert_eq(actual: file_const(), expected: 42),
-)
+@test_file_const tests @file_const () -> void = {
+    assert_eq(actual: file_const(), expected: 42)
+}
 
 // =============================================================================
 // Type Declarations
@@ -34,14 +34,14 @@ use std.testing { assert, assert_eq }
 
 type FilePoint = { x: int, y: int }
 
-@file_type () -> int = run(
-    let p = FilePoint { x: 1, y: 2 },
-    p.x + p.y,
-)
+@file_type () -> int = {
+    let p = FilePoint { x: 1, y: 2 };
+    p.x + p.y
+}
 
-@test_file_type tests @file_type () -> void = run(
-    assert_eq(actual: file_type(), expected: 3),
-)
+@test_file_type tests @file_type () -> void = {
+    assert_eq(actual: file_type(), expected: 3)
+}
 
 // =============================================================================
 // Function Declarations
@@ -49,9 +49,9 @@ type FilePoint = { x: int, y: int }
 
 @file_fn (x: int) -> int = x * 2
 
-@test_file_fn tests @file_fn () -> void = run(
-    assert_eq(actual: file_fn(x: 5), expected: 10),
-)
+@test_file_fn tests @file_fn () -> void = {
+    assert_eq(actual: file_fn(x: 5), expected: 10)
+}
 
 // =============================================================================
 // Multiple Declarations
@@ -61,6 +61,6 @@ type FilePoint = { x: int, y: int }
 @multi_b () -> int = 2
 @multi_c () -> int = 3
 
-@test_multi tests @multi_a tests @multi_b tests @multi_c () -> void = run(
-    assert_eq(actual: multi_a() + multi_b() + multi_c(), expected: 6),
-)
+@test_multi tests @multi_a tests @multi_b tests @multi_c () -> void = {
+    assert_eq(actual: multi_a() + multi_b() + multi_c(), expected: 6)
+}

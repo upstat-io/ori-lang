@@ -450,11 +450,12 @@ fn no_error_on_valid_token() {
 }
 
 #[test]
-fn has_error_on_semicolon() {
+fn semicolon_is_valid_token() {
     let interner = StringInterner::new();
     let tokens = lex(";", &interner);
+    assert_eq!(tokens[0].kind, TokenKind::Semicolon);
     let flags = tokens.flags();
-    assert!(flags[0].has_error(), "semicolon should have HAS_ERROR");
+    assert!(!flags[0].has_error(), "semicolon should not have HAS_ERROR");
 }
 
 // === CONTEXTUAL_KW flag tests ===

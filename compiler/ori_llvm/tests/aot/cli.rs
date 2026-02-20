@@ -30,19 +30,19 @@ fn create_test_source(dir: &TempDir, name: &str, content: &str) -> PathBuf {
 
 /// Simple Ori program that prints a value.
 const SIMPLE_PROGRAM: &str = r#"
-@main () -> void = run(
-    let x = 42,
-    let y = x + 1,
+@main () -> void = {
+    let x = 42;
+    let y = x + 1;
     print(msg: "Hello from Ori!")
-)
+}
 "#;
 
 /// Ori program with a type error.
 const INVALID_PROGRAM: &str = r#"
-@main () -> void = run(
-    let x: int = "not an int",
+@main () -> void = {
+    let x: int = "not an int";
     print(msg: "should fail")
-)
+}
 "#;
 
 /// Ori program that just returns an exit code.
@@ -716,9 +716,9 @@ fn test_build_unsupported_target() {
 const MISSING_DEPENDENCY_PROGRAM: &str = r#"
 use "./nonexistent_module" { some_function }
 
-@main () -> void = run(
-    some_function(),
-)
+@main () -> void = {
+    some_function()
+}
 "#;
 
 /// Test: `ori build` with missing dependency fails gracefully.

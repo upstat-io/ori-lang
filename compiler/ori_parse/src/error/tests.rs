@@ -376,8 +376,8 @@ fn test_enhanced_hint_semicolon() {
         context: None,
     };
     let hint = kind.hint().unwrap();
-    assert!(hint.contains("semicolons"));
-    assert!(hint.contains("Remove"));
+    assert!(hint.contains("Semicolons"));
+    assert!(hint.contains("block expressions"));
 }
 
 #[test]

@@ -26,15 +26,15 @@
 //
 // @int_to_byte_zero () -> byte = 0 as byte
 //
-// @byte_to_int () -> int = run(
+// @byte_to_int () -> int = {
 //     let b = 42 as byte,
 //     b as int,
-// )
+// }
 //
-// @byte_to_int_max () -> int = run(
+// @byte_to_int_max () -> int = {
 //     let b = 255 as byte,
 //     b as int,
-// )
+// }
 //
 // // ASCII 'A'
 // @char_to_int () -> int = 'A' as int
@@ -90,10 +90,10 @@
 // // With parens: (10 + 20) as float = 30 as float = 30.0
 // @convert_expression () -> float = (10 + 20) as float
 //
-// @convert_in_condition () -> str = run(
+// @convert_in_condition () -> str = {
 //     let input = "42",
 //     if is_some(opt: input as? int) then "valid" else "invalid",
-// )
+// }
 //
 // @fallible_with_coalesce () -> int = "not a number" as? int ?? 0
 //
@@ -115,15 +115,15 @@
 // // list[0] as float - postfix chains
 // @as_after_index () -> float = [1, 2, 3][0] as float
 //
-// @as_after_field () -> float = run(
+// @as_after_field () -> float = {
 //     let p = ConvPoint { x: 5, y: 10 },
 //     p.x as float,
-// )
+// }
 //
-// @safe_parse () -> [int] = run(
+// @safe_parse () -> [int] = {
 //     let inputs = ["1", "2", "three", "4"],
 //     for s in inputs yield s as? int ?? 0,
-// )
+// }
 //
 // // Note: `as` binds tighter than `+`, so parentheses are needed
 // // Without parens: ('A' as int) + (1 as char) = int + char (type error)
@@ -131,11 +131,11 @@
 // @char_arithmetic () -> char = ('A' as int + 1) as char
 //
 // // Note: Large ints may lose precision
-// @roundtrip_int_float () -> int = run(
+// @roundtrip_int_float () -> int = {
 //     let i = 42,
 //     let f = i as float,
 //     f.truncate(),
-// )
+// }
 //
 // @parse_with_leading_zero () -> Option<int> = "007" as? int
 //
@@ -145,207 +145,207 @@
 // // Infallible Conversions (as)
 // // =============================================================================
 // // int -> float
-// @test_int_to_float tests @int_to_float () -> void = run(
+// @test_int_to_float tests @int_to_float () -> void = {
 //     let f = 42 as float,
 //     assert(cond: f > 41.9),
 //     assert(cond: f < 42.1),
-// )
+// }
 //
-// @test_int_to_float_zero tests @int_to_float_zero () -> void = run(
+// @test_int_to_float_zero tests @int_to_float_zero () -> void = {
 //     let f = 0 as float,
 //     assert_eq(actual: f, expected: 0.0),
-// )
+// }
 //
-// @test_int_to_float_negative tests @int_to_float_negative () -> void = run(
+// @test_int_to_float_negative tests @int_to_float_negative () -> void = {
 //     let f = -100 as float,
 //     assert(cond: f < -99.9),
 //     assert(cond: f > -100.1),
-// )
+// }
 //
-// @test_int_to_float_large tests @int_to_float_large () -> void = run(
+// @test_int_to_float_large tests @int_to_float_large () -> void = {
 //     let f = 1000000 as float,
 //     assert(cond: f > 999999.0),
 //     assert(cond: f < 1000001.0),
-// )
+// }
 //
 // // int -> byte
-// @test_int_to_byte tests @int_to_byte () -> void = run(
+// @test_int_to_byte tests @int_to_byte () -> void = {
 //     let b = 255 as byte,
 //     assert_eq(actual: b as int, expected: 255),
-// )
+// }
 //
-// @test_int_to_byte_zero tests @int_to_byte_zero () -> void = run(
+// @test_int_to_byte_zero tests @int_to_byte_zero () -> void = {
 //     let b = 0 as byte,
 //     assert_eq(actual: b as int, expected: 0),
-// )
+// }
 //
 // // byte -> int
-// @test_byte_to_int tests @byte_to_int () -> void = run(
+// @test_byte_to_int tests @byte_to_int () -> void = {
 //     let b = 42 as byte,
 //     let i = b as int,
 //     assert_eq(actual: i, expected: 42),
-// )
+// }
 //
-// @test_byte_to_int_max tests @byte_to_int_max () -> void = run(
+// @test_byte_to_int_max tests @byte_to_int_max () -> void = {
 //     let b = 255 as byte,
 //     let i = b as int,
 //     assert_eq(actual: i, expected: 255),
-// )
+// }
 //
 // // char -> int
-// @test_char_to_int tests @char_to_int () -> void = run(
+// @test_char_to_int tests @char_to_int () -> void = {
 //     let c = 'A',
 //     let i = c as int,
 //     assert_eq(actual: i, expected: 65),
-// )
+// }
 //
-// @test_char_to_int_lowercase tests @char_to_int_lowercase () -> void = run(
+// @test_char_to_int_lowercase tests @char_to_int_lowercase () -> void = {
 //     let c = 'a',
 //     let i = c as int,
 //     assert_eq(actual: i, expected: 97),
-// )
+// }
 //
-// @test_char_to_int_digit tests @char_to_int_digit () -> void = run(
+// @test_char_to_int_digit tests @char_to_int_digit () -> void = {
 //     let c = '0',
 //     let i = c as int,
 //     assert_eq(actual: i, expected: 48),
-// )
+// }
 //
 // // int -> char
-// @test_int_to_char tests @int_to_char () -> void = run(
+// @test_int_to_char tests @int_to_char () -> void = {
 //     let i = 65,
 //     let c = i as char,
 //     assert_eq(actual: c, expected: 'A'),
-// )
+// }
 //
-// @test_int_to_char_lowercase tests @int_to_char_lowercase () -> void = run(
+// @test_int_to_char_lowercase tests @int_to_char_lowercase () -> void = {
 //     let i = 97,
 //     let c = i as char,
 //     assert_eq(actual: c, expected: 'a'),
-// )
+// }
 //
 // // =============================================================================
 // // Fallible Conversions (as?)
 // // =============================================================================
 // // str -> int
-// @test_str_to_int_valid tests @str_to_int_valid () -> void = run(
+// @test_str_to_int_valid tests @str_to_int_valid () -> void = {
 //     let result = "42" as? int,
 //     assert_eq(actual: result, expected: Some(42)),
-// )
+// }
 //
-// @test_str_to_int_negative tests @str_to_int_negative () -> void = run(
+// @test_str_to_int_negative tests @str_to_int_negative () -> void = {
 //     let result = "-100" as? int,
 //     assert_eq(actual: result, expected: Some(-100)),
-// )
+// }
 //
-// @test_str_to_int_zero tests @str_to_int_zero () -> void = run(
+// @test_str_to_int_zero tests @str_to_int_zero () -> void = {
 //     let result = "0" as? int,
 //     assert_eq(actual: result, expected: Some(0)),
-// )
+// }
 //
-// @test_str_to_int_invalid tests @str_to_int_invalid () -> void = run(
+// @test_str_to_int_invalid tests @str_to_int_invalid () -> void = {
 //     let result = "hello" as? int,
 //     assert_eq(actual: result, expected: None),
-// )
+// }
 //
-// @test_str_to_int_empty tests @str_to_int_empty () -> void = run(
+// @test_str_to_int_empty tests @str_to_int_empty () -> void = {
 //     let result = "" as? int,
 //     assert_eq(actual: result, expected: None),
-// )
+// }
 //
-// @test_str_to_int_mixed tests @str_to_int_mixed () -> void = run(
+// @test_str_to_int_mixed tests @str_to_int_mixed () -> void = {
 //     let result = "42abc" as? int,
 //     assert_eq(actual: result, expected: None),
-// )
+// }
 //
-// @test_str_to_int_whitespace tests @str_to_int_whitespace () -> void = run(
+// @test_str_to_int_whitespace tests @str_to_int_whitespace () -> void = {
 //     let result = " 42 " as? int,
 //     assert(cond: is_some(opt: result) || is_none(opt: result)),
-// )
+// }
 //
 // // str -> float
-// @test_str_to_float_valid tests @str_to_float_valid () -> void = run(
+// @test_str_to_float_valid tests @str_to_float_valid () -> void = {
 //     let result = "3.14" as? float,
 //     assert(cond: is_some(opt: result)),
 //     let value = result ?? 0.0,
 //     assert(cond: value > 3.13),
 //     assert(cond: value < 3.15),
-// )
+// }
 //
-// @test_str_to_float_int_format tests @str_to_float_int_format () -> void = run(
+// @test_str_to_float_int_format tests @str_to_float_int_format () -> void = {
 //     let result = "42" as? float,
 //     assert(cond: is_some(opt: result)),
 //     let value = result ?? 0.0,
 //     assert(cond: value > 41.9),
 //     assert(cond: value < 42.1),
-// )
+// }
 //
-// @test_str_to_float_scientific tests @str_to_float_scientific () -> void = run(
+// @test_str_to_float_scientific tests @str_to_float_scientific () -> void = {
 //     let result = "1e10" as? float,
 //     assert(cond: is_some(opt: result)),
-// )
+// }
 //
-// @test_str_to_float_invalid tests @str_to_float_invalid () -> void = run(
+// @test_str_to_float_invalid tests @str_to_float_invalid () -> void = {
 //     let result = "not a number" as? float,
 //     assert_eq(actual: result, expected: None),
-// )
+// }
 //
 // // str -> bool
 // //
 // // STATUS: Evaluator [BROKEN] - str to bool fallible conversion not implemented
 // // "true" as? bool returns None instead of Some(true)
 // #skip("str to bool fallible conversion not implemented")
-// @test_str_to_bool_true tests @str_to_bool_true () -> void = run(
+// @test_str_to_bool_true tests @str_to_bool_true () -> void = {
 //     let result = "true" as? bool,
 //     assert_eq(actual: result, expected: Some(true)),
-// )
+// }
 //
 // #skip("str to bool fallible conversion not implemented")
-// @test_str_to_bool_false tests @str_to_bool_false () -> void = run(
+// @test_str_to_bool_false tests @str_to_bool_false () -> void = {
 //     let result = "false" as? bool,
 //     assert_eq(actual: result, expected: Some(false)),
-// )
+// }
 //
-// @test_str_to_bool_invalid tests @str_to_bool_invalid () -> void = run(
+// @test_str_to_bool_invalid tests @str_to_bool_invalid () -> void = {
 //     let result = "yes" as? bool,
 //     assert_eq(actual: result, expected: None),
-// )
+// }
 //
 // // =============================================================================
 // // Chained Conversions
 // // =============================================================================
-// @test_chain_conversions tests @chain_conversions () -> void = run(
+// @test_chain_conversions tests @chain_conversions () -> void = {
 //     let f = 10 as float,
 //     let result = f * 2.5,
 //     assert(cond: result > 24.9),
 //     assert(cond: result < 25.1),
-// )
+// }
 //
-// @test_as_then_method tests @as_then_method () -> void = run(
+// @test_as_then_method tests @as_then_method () -> void = {
 //     let opt = "42" as? int,
 //     let value = opt.unwrap_or(default: 0),
 //     assert_eq(actual: value, expected: 42),
-// )
+// }
 //
 // // =============================================================================
 // // Conversion with Expressions
 // // =============================================================================
-// @test_convert_expression tests @convert_expression () -> void = run(
+// @test_convert_expression tests @convert_expression () -> void = {
 //     let sum = (10 + 20) as float,
 //     assert(cond: sum > 29.9),
 //     assert(cond: sum < 30.1),
-// )
+// }
 //
-// @test_convert_in_condition tests @convert_in_condition () -> void = run(
+// @test_convert_in_condition tests @convert_in_condition () -> void = {
 //     let input = "42",
 //     let result = if is_some(opt: input as? int) then "valid" else "invalid",
 //     assert_eq(actual: result, expected: "valid"),
-// )
+// }
 //
-// @test_fallible_with_coalesce tests @fallible_with_coalesce () -> void = run(
+// @test_fallible_with_coalesce tests @fallible_with_coalesce () -> void = {
 //     let value = "not a number" as? int ?? 0,
 //     assert_eq(actual: value, expected: 0),
-// )
+// }
 //
 // // =============================================================================
 // // Type Conversion Functions
@@ -353,106 +353,106 @@
 // //
 // // STATUS: Evaluator [BROKEN] - int(str) conversion function not implemented
 // #skip("int(str) conversion function not implemented")
-// @test_int_function tests @int_function () -> void = run(
+// @test_int_function tests @int_function () -> void = {
 //     let s = "42",
 //     let result = int(s),
 //     assert(cond: is_some(opt: result)),
-// )
+// }
 //
-// @test_float_function tests @float_function () -> void = run(
+// @test_float_function tests @float_function () -> void = {
 //     let i = 42,
 //     let f = float(i),
 //     assert(cond: f > 41.9),
 //     assert(cond: f < 42.1),
-// )
+// }
 //
-// @test_str_function tests @str_function () -> void = run(
+// @test_str_function tests @str_function () -> void = {
 //     let i = 42,
 //     let s = str(i),
 //     assert_eq(actual: s, expected: "42"),
-// )
+// }
 //
-// @test_str_from_bool tests @str_from_bool () -> void = run(
+// @test_str_from_bool tests @str_from_bool () -> void = {
 //     assert_eq(actual: str(true), expected: "true"),
 //     assert_eq(actual: str(false), expected: "false"),
-// )
+// }
 //
-// @test_str_from_float tests @str_from_float () -> void = run(
+// @test_str_from_float tests @str_from_float () -> void = {
 //     let s = str(3.14),
 //     assert(cond: s.len() > 0),
-// )
+// }
 //
 // // =============================================================================
 // // Precedence Tests
 // // =============================================================================
-// @test_as_binds_tight tests @as_binds_tight () -> void = run(
+// @test_as_binds_tight tests @as_binds_tight () -> void = {
 //     let result = 10 as float + 5.0,
 //     assert(cond: result > 14.9),
 //     assert(cond: result < 15.1),
-// )
+// }
 //
-// @test_as_after_index tests @as_after_index () -> void = run(
+// @test_as_after_index tests @as_after_index () -> void = {
 //     let list = [1, 2, 3],
 //     let f = list[0] as float,
 //     assert(cond: f > 0.9),
 //     assert(cond: f < 1.1),
-// )
+// }
 //
-// @test_as_after_field tests @as_after_field () -> void = run(
+// @test_as_after_field tests @as_after_field () -> void = {
 //     let p = ConvPoint { x: 5, y: 10 },
 //     let f = p.x as float,
 //     assert(cond: f > 4.9),
 //     assert(cond: f < 5.1),
-// )
+// }
 //
 // // =============================================================================
 // // Practical Patterns
 // // =============================================================================
-// @test_safe_parse tests @safe_parse () -> void = run(
+// @test_safe_parse tests @safe_parse () -> void = {
 //     let inputs = ["1", "2", "three", "4"],
 //     let numbers = for s in inputs yield s as? int ?? 0,
 //     assert_eq(actual: numbers, expected: [1, 2, 0, 4]),
-// )
+// }
 //
-// @test_numeric_operations tests @test_numeric_operations () -> void = run(
+// @test_numeric_operations tests @test_numeric_operations () -> void = {
 //     let i = 10,
 //     let f = 3.0,
 //     let result = i as float / f,
 //     assert(cond: result > 3.3),
 //     assert(cond: result < 3.4),
-// )
+// }
 //
 // // Mix int and float operations
-// @test_numeric_operations () -> float = run(
+// @test_numeric_operations () -> float = {
 //     let i = 10,
 //     let f = 3.0,
 //     i as float / f,
-// )
+// }
 //
-// @test_char_arithmetic tests @char_arithmetic () -> void = run(
+// @test_char_arithmetic tests @char_arithmetic () -> void = {
 //     let c = 'A',
 //     let i = c as int,
 //     let next_char = (i + 1) as char,
 //     assert_eq(actual: next_char, expected: 'B'),
-// )
+// }
 //
 // // =============================================================================
 // // Edge Cases
 // // =============================================================================
 // #skip("float.truncate() method not implemented")
-// @test_roundtrip_int_float tests @roundtrip_int_float () -> void = run(
+// @test_roundtrip_int_float tests @roundtrip_int_float () -> void = {
 //     let i = 42,
 //     let f = i as float,
 //     let back = f.truncate(),
 //     assert_eq(actual: back, expected: 42),
-// )
+// }
 //
-// @test_parse_with_leading_zero tests @parse_with_leading_zero () -> void = run(
+// @test_parse_with_leading_zero tests @parse_with_leading_zero () -> void = {
 //     let result = "007" as? int,
 //     assert_eq(actual: result, expected: Some(7)),
-// )
+// }
 //
-// @test_negative_zero tests @negative_zero () -> void = run(
+// @test_negative_zero tests @negative_zero () -> void = {
 //     let result = "-0" as? int,
 //     assert_eq(actual: result, expected: Some(0)),
-// )
+// }

@@ -8,19 +8,19 @@ use std.testing { assert, assert_eq, assert_ne }
 // Integer Equality
 // =============================================================================
 
-@test_int_eq tests @int_eq () -> void = run(
-    assert(cond: 42 == 42),
-    assert(cond: 0 == 0),
-    assert(cond: -5 == -5),
-)
+@test_int_eq tests @int_eq () -> void = {
+    assert(cond: 42 == 42);
+    assert(cond: 0 == 0);
+    assert(cond: -5 == -5)
+}
 
 @int_eq () -> bool = 42 == 42
 
-@test_int_ne tests @int_ne () -> void = run(
-    assert(cond: 1 != 2),
-    assert(cond: 0 != 1),
-    assert(cond: -1 != 1),
-)
+@test_int_ne tests @int_ne () -> void = {
+    assert(cond: 1 != 2);
+    assert(cond: 0 != 1);
+    assert(cond: -1 != 1)
+}
 
 @int_ne () -> bool = 1 != 2
 
@@ -28,18 +28,18 @@ use std.testing { assert, assert_eq, assert_ne }
 // Float Equality
 // =============================================================================
 
-@test_float_eq tests @float_eq () -> void = run(
-    assert(cond: 3.14 == 3.14),
-    assert(cond: 0.0 == 0.0),
-    assert(cond: -1.5 == -1.5),
-)
+@test_float_eq tests @float_eq () -> void = {
+    assert(cond: 3.14 == 3.14);
+    assert(cond: 0.0 == 0.0);
+    assert(cond: -1.5 == -1.5)
+}
 
 @float_eq () -> bool = 3.14 == 3.14
 
-@test_float_ne tests @float_ne () -> void = run(
-    assert(cond: 1.0 != 2.0),
-    assert(cond: 0.1 != 0.2),
-)
+@test_float_ne tests @float_ne () -> void = {
+    assert(cond: 1.0 != 2.0);
+    assert(cond: 0.1 != 0.2)
+}
 
 @float_ne () -> bool = 1.0 != 2.0
 
@@ -47,17 +47,17 @@ use std.testing { assert, assert_eq, assert_ne }
 // Boolean Equality
 // =============================================================================
 
-@test_bool_eq tests @bool_eq () -> void = run(
-    assert(cond: true == true),
-    assert(cond: false == false),
-)
+@test_bool_eq tests @bool_eq () -> void = {
+    assert(cond: true == true);
+    assert(cond: false == false)
+}
 
 @bool_eq () -> bool = true == true
 
-@test_bool_ne tests @bool_ne () -> void = run(
-    assert(cond: true != false),
-    assert(cond: false != true),
-)
+@test_bool_ne tests @bool_ne () -> void = {
+    assert(cond: true != false);
+    assert(cond: false != true)
+}
 
 @bool_ne () -> bool = true != false
 
@@ -65,19 +65,19 @@ use std.testing { assert, assert_eq, assert_ne }
 // String Equality
 // =============================================================================
 
-@test_str_eq tests @str_eq () -> void = run(
-    assert(cond: "hello" == "hello"),
-    assert(cond: "" == ""),
-    assert(cond: "abc" == "abc"),
-)
+@test_str_eq tests @str_eq () -> void = {
+    assert(cond: "hello" == "hello");
+    assert(cond: "" == "");
+    assert(cond: "abc" == "abc")
+}
 
 @str_eq () -> bool = "hello" == "hello"
 
-@test_str_ne tests @str_ne () -> void = run(
-    assert(cond: "hello" != "world"),
-    assert(cond: "abc" != "ABC"),
-    assert(cond: "" != " "),
-)
+@test_str_ne tests @str_ne () -> void = {
+    assert(cond: "hello" != "world");
+    assert(cond: "abc" != "ABC");
+    assert(cond: "" != " ")
+}
 
 @str_ne () -> bool = "a" != "b"
 
@@ -85,17 +85,17 @@ use std.testing { assert, assert_eq, assert_ne }
 // Character Equality
 // =============================================================================
 
-@test_char_eq tests @char_eq () -> void = run(
-    assert(cond: 'a' == 'a'),
-    assert(cond: '\n' == '\n'),
-)
+@test_char_eq tests @char_eq () -> void = {
+    assert(cond: 'a' == 'a');
+    assert(cond: '\n' == '\n')
+}
 
 @char_eq () -> bool = 'a' == 'a'
 
-@test_char_ne tests @char_ne () -> void = run(
-    assert(cond: 'a' != 'b'),
-    assert(cond: 'A' != 'a'),
-)
+@test_char_ne tests @char_ne () -> void = {
+    assert(cond: 'a' != 'b');
+    assert(cond: 'A' != 'a')
+}
 
 @char_ne () -> bool = 'a' != 'b'
 
@@ -103,19 +103,19 @@ use std.testing { assert, assert_eq, assert_ne }
 // List Equality
 // =============================================================================
 
-@test_list_eq tests @list_eq () -> void = run(
-    assert(cond: [1, 2, 3] == [1, 2, 3]),
-    assert(cond: [] == []),
-    assert(cond: ["a", "b"] == ["a", "b"]),
-)
+@test_list_eq tests @list_eq () -> void = {
+    assert(cond: [1, 2, 3] == [1, 2, 3]);
+    assert(cond: [] == []);
+    assert(cond: ["a", "b"] == ["a", "b"])
+}
 
 @list_eq () -> bool = [1, 2] == [1, 2]
 
-@test_list_ne tests @list_ne () -> void = run(
-    assert(cond: [1, 2] != [1, 3]),
-    assert(cond: [1] != [1, 2]),
-    assert(cond: [] != [1]),
-)
+@test_list_ne tests @list_ne () -> void = {
+    assert(cond: [1, 2] != [1, 3]);
+    assert(cond: [1] != [1, 2]);
+    assert(cond: [] != [1])
+}
 
 @list_ne () -> bool = [1] != [2]
 
@@ -125,74 +125,74 @@ use std.testing { assert, assert_eq, assert_ne }
 
 @are_equal<T: Eq> (a: T, b: T) -> bool = a == b
 
-@test_eq_bound_int tests @are_equal () -> void = run(
-    assert(cond: are_equal(a: 42, b: 42)),
-    assert(cond: !are_equal(a: 1, b: 2)),
-)
+@test_eq_bound_int tests @are_equal () -> void = {
+    assert(cond: are_equal(a: 42, b: 42));
+    assert(cond: !are_equal(a: 1, b: 2))
+}
 
-@test_eq_bound_str tests @are_equal () -> void = run(
-    assert(cond: are_equal(a: "hello", b: "hello")),
-    assert(cond: !are_equal(a: "foo", b: "bar")),
-)
+@test_eq_bound_str tests @are_equal () -> void = {
+    assert(cond: are_equal(a: "hello", b: "hello"));
+    assert(cond: !are_equal(a: "foo", b: "bar"))
+}
 
-@test_eq_bound_bool tests @are_equal () -> void = run(
-    assert(cond: are_equal(a: true, b: true)),
-    assert(cond: !are_equal(a: true, b: false)),
-)
+@test_eq_bound_bool tests @are_equal () -> void = {
+    assert(cond: are_equal(a: true, b: true));
+    assert(cond: !are_equal(a: true, b: false))
+}
 
 @are_different<T: Eq> (a: T, b: T) -> bool = a != b
 
-@test_ne_bound_int tests @are_different () -> void = run(
-    assert(cond: are_different(a: 1, b: 2)),
-    assert(cond: !are_different(a: 42, b: 42)),
-)
+@test_ne_bound_int tests @are_different () -> void = {
+    assert(cond: are_different(a: 1, b: 2));
+    assert(cond: !are_different(a: 42, b: 42))
+}
 
 // =============================================================================
 // assert_eq and assert_ne Built-in Functions
 // =============================================================================
 
-@test_assert_eq_int tests @assert_eq_int () -> void = run(
+@test_assert_eq_int tests @assert_eq_int () -> void = {
     assert_eq(
         actual: 42,
         expected: 42,
-    ),
-)
+    )
+}
 
 @assert_eq_int () -> void = assert_eq(
     actual: 1,
     expected: 1,
 )
 
-@test_assert_eq_str tests @assert_eq_str () -> void = run(
+@test_assert_eq_str tests @assert_eq_str () -> void = {
     assert_eq(
         actual: "hello",
         expected: "hello",
-    ),
-)
+    )
+}
 
 @assert_eq_str () -> void = assert_eq(
     actual: "a",
     expected: "a",
 )
 
-@test_assert_ne_int tests @assert_ne_int () -> void = run(
+@test_assert_ne_int tests @assert_ne_int () -> void = {
     assert_ne(
         actual: 1,
         unexpected: 2,
-    ),
-)
+    )
+}
 
 @assert_ne_int () -> void = assert_ne(
     actual: 1,
     unexpected: 2,
 )
 
-@test_assert_ne_str tests @assert_ne_str () -> void = run(
+@test_assert_ne_str tests @assert_ne_str () -> void = {
     assert_ne(
         actual: "foo",
         unexpected: "bar",
-    ),
-)
+    )
+}
 
 @assert_ne_str () -> void = assert_ne(
     actual: "x",
@@ -203,37 +203,37 @@ use std.testing { assert, assert_eq, assert_ne }
 // Complex Equality
 // =============================================================================
 
-@test_nested_list_eq tests @nested_list_eq () -> void = run(
-    let a = [[1, 2], [3, 4]],
-    let b = [[1, 2], [3, 4]],
-    assert(cond: a == b),
-)
+@test_nested_list_eq tests @nested_list_eq () -> void = {
+    let a = [[1, 2], [3, 4]];
+    let b = [[1, 2], [3, 4]];
+    assert(cond: a == b)
+}
 
 @nested_list_eq () -> bool = [[1]] == [[1]]
 
-@test_equality_reflexive tests @equality_reflexive () -> void = run(
+@test_equality_reflexive tests @equality_reflexive () -> void = {
     // a == a for any a (reflexivity)
-    let x = 42,
-    assert(cond: x == x),
-    let s = "test",
-    assert(cond: s == s),
-)
+    let x = 42;
+    assert(cond: x == x);
+    let s = "test";
+    assert(cond: s == s)
+}
 
-@equality_reflexive () -> bool = run(
-    let x = 1,
-    x == x,
-)
+@equality_reflexive () -> bool = {
+    let x = 1;
+    x == x
+}
 
-@test_equality_symmetric tests @equality_symmetric () -> void = run(
+@test_equality_symmetric tests @equality_symmetric () -> void = {
     // a == b implies b == a (symmetry)
-    let a = 42,
-    let b = 42,
-    assert(cond: a == b),
-    assert(cond: b == a),
-)
+    let a = 42;
+    let b = 42;
+    assert(cond: a == b);
+    assert(cond: b == a)
+}
 
-@equality_symmetric () -> bool = run(
-    let a = 1,
-    let b = 1,
-    (a == b) == (b == a),
-)
+@equality_symmetric () -> bool = {
+    let a = 1;
+    let b = 1;
+    (a == b) == (b == a)
+}

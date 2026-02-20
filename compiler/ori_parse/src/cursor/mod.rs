@@ -110,6 +110,20 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Get the previous token's kind.
+    ///
+    /// Returns `TokenKind::Eof` if at the beginning of the stream (no previous token).
+    /// Used to check whether a parsed expression ended with `}` (block body detection).
+    #[inline]
+    pub fn previous_kind(&self) -> &TokenKind {
+        static EOF: TokenKind = TokenKind::Eof;
+        if self.pos > 0 {
+            &self.tokens[self.pos - 1].kind
+        } else {
+            &EOF
+        }
+    }
+
     /// Get the discriminant tag of the current token.
     ///
     /// Reads from the dense `u8` tag array — a single byte load
@@ -156,9 +170,18 @@ impl<'a> Cursor<'a> {
     /// Returns `TokenKind::Eof` if at the end of the stream.
     #[inline]
     pub fn peek_next_kind(&self) -> &TokenKind {
+        self.peek_kind_at(1)
+    }
+
+    /// Peek at the token kind at offset `n` from current position.
+    ///
+    /// `peek_kind_at(0)` is the current token, `peek_kind_at(1)` is the next, etc.
+    /// Returns `TokenKind::Eof` if past the end of the stream.
+    #[inline]
+    pub fn peek_kind_at(&self, n: usize) -> &TokenKind {
         static EOF: TokenKind = TokenKind::Eof;
-        if self.pos + 1 < self.tokens.len() {
-            &self.tokens[self.pos + 1].kind
+        if self.pos + n < self.tokens.len() {
+            &self.tokens[self.pos + n].kind
         } else {
             &EOF
         }

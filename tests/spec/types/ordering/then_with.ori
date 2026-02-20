@@ -58,20 +58,20 @@ use std.testing { assert, assert_eq }
 // then_with: Lexicographic comparison chaining
 // =============================================================================
 
-@test_then_with_chained_equal_first tests @then_with_chained_equal () -> void = run(
+@test_then_with_chained_equal_first tests @then_with_chained_equal () -> void = {
     // Compare (1, 2) with (1, 3): first equal, so evaluate second
-    let result = 1.compare(other: 1).then_with(f: () -> 2.compare(other: 3)),
-    assert(cond: result.is_less()),
-)
+    let result = 1.compare(other: 1).then_with(f: () -> 2.compare(other: 3));
+    assert(cond: result.is_less())
+}
 
 @then_with_chained_equal () -> Ordering =
     1.compare(other: 1).then_with(f: () -> 2.compare(other: 3))
 
-@test_then_with_chained_less_first tests @then_with_chained_less () -> void = run(
+@test_then_with_chained_less_first tests @then_with_chained_less () -> void = {
     // Compare (1, 5) with (2, 3): first is less, so don't evaluate second
-    let result = 1.compare(other: 2).then_with(f: () -> 5.compare(other: 3)),
-    assert(cond: result.is_less()),
-)
+    let result = 1.compare(other: 2).then_with(f: () -> 5.compare(other: 3));
+    assert(cond: result.is_less())
+}
 
 @then_with_chained_less () -> Ordering =
     1.compare(other: 2).then_with(f: () -> 5.compare(other: 3))

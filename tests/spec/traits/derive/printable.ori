@@ -24,39 +24,39 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
 
 // --- Struct to_str ---
 
-@test_struct_basic tests @struct_basic () -> void = run(
-    assert_eq(actual: Point { x: 10, y: 20 }.to_str(), expected: "Point(10, 20)"),
-)
+@test_struct_basic tests @struct_basic () -> void = {
+    assert_eq(actual: Point { x: 10, y: 20 }.to_str(), expected: "Point(10, 20)")
+}
 @struct_basic () -> str = Point { x: 10, y: 20 }.to_str()
 
-@test_struct_str_field tests @str_field () -> void = run(
-    assert_eq(actual: Single { value: "hello" }.to_str(), expected: "Single(hello)"),
-)
+@test_struct_str_field tests @str_field () -> void = {
+    assert_eq(actual: Single { value: "hello" }.to_str(), expected: "Single(hello)")
+}
 @str_field () -> str = Single { value: "hello" }.to_str()
 
-@test_struct_nested tests @nested () -> void = run(
-    let n = Nested { origin: Point { x: 1, y: 2 }, label: "test" },
-    assert_eq(actual: n.to_str(), expected: "Nested(Point(1, 2), test)"),
-)
+@test_struct_nested tests @nested () -> void = {
+    let n = Nested { origin: Point { x: 1, y: 2 }, label: "test" };
+    assert_eq(actual: n.to_str(), expected: "Nested(Point(1, 2), test)")
+}
 @nested () -> str = Nested { origin: Point { x: 1, y: 2 }, label: "test" }.to_str()
 
 // --- Payloadless variant to_str ---
 
-@test_variant_payloadless tests @pl_variant () -> void = run(
-    assert_eq(actual: Red.to_str(), expected: "Red"),
-    assert_eq(actual: Green.to_str(), expected: "Green"),
-    assert_eq(actual: Blue.to_str(), expected: "Blue"),
-)
+@test_variant_payloadless tests @pl_variant () -> void = {
+    assert_eq(actual: Red.to_str(), expected: "Red");
+    assert_eq(actual: Green.to_str(), expected: "Green");
+    assert_eq(actual: Blue.to_str(), expected: "Blue")
+}
 @pl_variant () -> str = Red.to_str()
 
 // --- Variant with payload ---
 
-@test_variant_payload tests @payload_variant () -> void = run(
-    assert_eq(actual: Circle(radius: 5).to_str(), expected: "Circle(5)"),
-)
+@test_variant_payload tests @payload_variant () -> void = {
+    assert_eq(actual: Circle(radius: 5).to_str(), expected: "Circle(5)")
+}
 @payload_variant () -> str = Circle(radius: 5).to_str()
 
-@test_variant_multi_payload tests @multi_variant () -> void = run(
-    assert_eq(actual: Rectangle(w: 3, h: 4).to_str(), expected: "Rectangle(3, 4)"),
-)
+@test_variant_multi_payload tests @multi_variant () -> void = {
+    assert_eq(actual: Rectangle(w: 3, h: 4).to_str(), expected: "Rectangle(3, 4)")
+}
 @multi_variant () -> str = Rectangle(w: 3, h: 4).to_str()

@@ -8,42 +8,42 @@ use std.testing { assert_eq }
 // Basic joining
 // =============================================================================
 
-@test_join_strings tests @join_strings () -> void = run(
-    assert_eq(actual: ["hello", "world"].iter().join(sep: ", "), expected: "hello, world"),
-    assert_eq(actual: ["a", "b", "c"].iter().join(sep: "-"), expected: "a-b-c"),
-)
+@test_join_strings tests @join_strings () -> void = {
+    assert_eq(actual: ["hello", "world"].iter().join(sep: ", "), expected: "hello, world");
+    assert_eq(actual: ["a", "b", "c"].iter().join(sep: "-"), expected: "a-b-c")
+}
 
 @join_strings () -> str = ["hello", "world"].iter().join(sep: ", ")
 
-@test_join_single tests @join_single () -> void = run(
-    assert_eq(actual: ["only"].iter().join(sep: ", "), expected: "only"),
-)
+@test_join_single tests @join_single () -> void = {
+    assert_eq(actual: ["only"].iter().join(sep: ", "), expected: "only")
+}
 
 @join_single () -> str = ["only"].iter().join(sep: ", ")
 
-@test_join_empty tests @join_empty () -> void = run(
-    let empty: [str] = [],
-    assert_eq(actual: empty.iter().join(sep: ", "), expected: ""),
-)
+@test_join_empty tests @join_empty () -> void = {
+    let empty: [str] = [];
+    assert_eq(actual: empty.iter().join(sep: ", "), expected: "")
+}
 
-@join_empty () -> str = run(
-    let empty: [str] = [],
-    empty.iter().join(sep: ", "),
-)
+@join_empty () -> str = {
+    let empty: [str] = [];
+    empty.iter().join(sep: ", ")
+}
 
 // =============================================================================
 // Different separators
 // =============================================================================
 
-@test_join_empty_sep tests @join_empty_sep () -> void = run(
-    assert_eq(actual: ["a", "b", "c"].iter().join(sep: ""), expected: "abc"),
-)
+@test_join_empty_sep tests @join_empty_sep () -> void = {
+    assert_eq(actual: ["a", "b", "c"].iter().join(sep: ""), expected: "abc")
+}
 
 @join_empty_sep () -> str = ["a", "b", "c"].iter().join(sep: "")
 
-@test_join_multi_char_sep tests @join_multi_char_sep () -> void = run(
-    assert_eq(actual: ["x", "y"].iter().join(sep: " :: "), expected: "x :: y"),
-)
+@test_join_multi_char_sep tests @join_multi_char_sep () -> void = {
+    assert_eq(actual: ["x", "y"].iter().join(sep: " :: "), expected: "x :: y")
+}
 
 @join_multi_char_sep () -> str = ["x", "y"].iter().join(sep: " :: ")
 
@@ -51,12 +51,12 @@ use std.testing { assert_eq }
 // Non-string elements (via to_str/Printable)
 // =============================================================================
 
-@test_join_ints_via_map tests @join_ints_via_map () -> void = run(
+@test_join_ints_via_map tests @join_ints_via_map () -> void = {
     assert_eq(
         actual: [1, 2, 3].iter().map(transform: n -> n.to_str()).join(sep: ", "),
         expected: "1, 2, 3",
-    ),
-)
+    )
+}
 
 @join_ints_via_map () -> str =
     [1, 2, 3].iter().map(transform: n -> n.to_str()).join(sep: ", ")
@@ -65,34 +65,34 @@ use std.testing { assert_eq }
 // Chaining with other iterator methods
 // =============================================================================
 
-@test_join_after_filter tests @join_after_filter () -> void = run(
+@test_join_after_filter tests @join_after_filter () -> void = {
     assert_eq(
         actual: ["a", "b", "c", "d"].iter()
             .filter(predicate: s -> s != "b")
             .join(sep: "-"),
         expected: "a-c-d",
-    ),
-)
+    )
+}
 
 @join_after_filter () -> str =
     ["a", "b", "c", "d"].iter().filter(predicate: s -> s != "b").join(sep: "-")
 
-@test_join_after_take tests @join_after_take () -> void = run(
+@test_join_after_take tests @join_after_take () -> void = {
     assert_eq(
         actual: ["w", "x", "y", "z"].iter().take(count: 2).join(sep: ","),
         expected: "w,x",
-    ),
-)
+    )
+}
 
 @join_after_take () -> str =
     ["w", "x", "y", "z"].iter().take(count: 2).join(sep: ",")
 
-@test_join_after_skip tests @join_after_skip () -> void = run(
+@test_join_after_skip tests @join_after_skip () -> void = {
     assert_eq(
         actual: ["a", "b", "c", "d"].iter().skip(count: 2).join(sep: " "),
         expected: "c d",
-    ),
-)
+    )
+}
 
 @join_after_skip () -> str =
     ["a", "b", "c", "d"].iter().skip(count: 2).join(sep: " ")
@@ -101,29 +101,29 @@ use std.testing { assert_eq }
 // Debug output using join (the primary use case from the proposal)
 // =============================================================================
 
-@test_join_debug_pattern tests @join_debug_pattern () -> void = run(
+@test_join_debug_pattern tests @join_debug_pattern () -> void = {
     // This is the pattern used by Debug trait for collection formatting:
     //   iter().map(x -> x.debug()).join(sep: ", ")
-    let items = [10, 20, 30],
-    let debug_strs = items.iter().map(transform: x -> x.debug()),
-    assert_eq(actual: debug_strs.join(sep: ", "), expected: "10, 20, 30"),
-)
+    let items = [10, 20, 30];
+    let debug_strs = items.iter().map(transform: x -> x.debug());
+    assert_eq(actual: debug_strs.join(sep: ", "), expected: "10, 20, 30")
+}
 
-@join_debug_pattern () -> str = run(
-    let items = [10, 20, 30],
-    items.iter().map(transform: x -> x.debug()).join(sep: ", "),
-)
+@join_debug_pattern () -> str = {
+    let items = [10, 20, 30];
+    items.iter().map(transform: x -> x.debug()).join(sep: ", ")
+}
 
 // =============================================================================
 // Range iterator join
 // =============================================================================
 
-@test_join_range tests @join_range () -> void = run(
+@test_join_range tests @join_range () -> void = {
     assert_eq(
         actual: (1..4).iter().map(transform: n -> n.to_str()).join(sep: "+"),
         expected: "1+2+3",
-    ),
-)
+    )
+}
 
 @join_range () -> str =
     (1..4).iter().map(transform: n -> n.to_str()).join(sep: "+")

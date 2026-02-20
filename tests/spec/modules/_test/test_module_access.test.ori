@@ -17,17 +17,17 @@ use "../use_imports" {
 // Test: Test module private access
 // =============================================================================
 
-@test_private_access_without_prefix tests @internal_helper () -> void = run(
+@test_private_access_without_prefix tests @internal_helper () -> void = {
     // Test module can access private function without :: prefix
-    assert_eq(actual: internal_helper(3), expected: 6),
+    assert_eq(actual: internal_helper(3), expected: 6);
     assert_eq(actual: internal_helper(10), expected: 20)
-)
+}
 
 // Dummy function to satisfy test target requirement
 @internal_helper (x: int) -> int = x * 2
 
-@test_both_public_and_private tests @add () -> void = run(
+@test_both_public_and_private tests @add () -> void = {
     // Both public and private access work from test module
-    assert_eq(actual: add(a: 1, b: 2), expected: 3),
+    assert_eq(actual: add(a: 1, b: 2), expected: 3);
     assert_eq(actual: internal_helper(5), expected: 10)
-)
+}

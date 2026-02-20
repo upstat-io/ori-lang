@@ -1,6 +1,6 @@
 // Spec: 09-expressions.md § For Expression, § Loop Expression
 // Spec: 19-control-flow.md § Loop Control, § Labeled Loops
-// Tests for for/do, for/yield, loop(), break, continue, labels
+// Tests for for/do, for/yield, loop {}, break, continue, labels
 
 use std.testing { assert, assert_eq }
 
@@ -8,36 +8,36 @@ use std.testing { assert, assert_eq }
 // For-Do Basic
 // =============================================================================
 
-@test_for_do_basic tests @for_do_basic () -> void = run(
-    let sum = 0,
-    for x in [1, 2, 3] do sum = sum + x,
-    assert_eq(actual: sum, expected: 6),
-)
+@test_for_do_basic tests @for_do_basic () -> void = {
+    let sum = 0;
+    for x in [1, 2, 3] do sum = sum + x;
+    assert_eq(actual: sum, expected: 6)
+}
 
-@for_do_basic () -> int = run(
-    let sum = 0,
-    for x in [1, 2, 3] do sum = sum + x,
-    sum,
-)
+@for_do_basic () -> int = {
+    let sum = 0;
+    for x in [1, 2, 3] do sum = sum + x;
+    sum
+}
 
-@test_for_do_empty tests @for_do_empty () -> void = run(
-    let called = false,
-    let empty: [int] = [],
-    for x in empty do called = true,
-    assert(cond: !called),
-)
+@test_for_do_empty tests @for_do_empty () -> void = {
+    let called = false;
+    let empty: [int] = [];
+    for x in empty do called = true;
+    assert(cond: !called)
+}
 
-@for_do_empty () -> bool = run(
-    let called = false,
-    let empty: [int] = [],
-    for x in empty do called = true,
-    called,
-)
+@for_do_empty () -> bool = {
+    let called = false;
+    let empty: [int] = [];
+    for x in empty do called = true;
+    called
+}
 
-@test_for_do_returns_void tests @for_do_returns_void () -> void = run(
-    for x in [1, 2, 3] do (),
-    assert(cond: true), // Just verify it compiles as void
-)
+@test_for_do_returns_void tests @for_do_returns_void () -> void = {
+    for x in [1, 2, 3] do ();
+    assert(cond: true) // Just verify it compiles as void
+}
 
 @for_do_returns_void () -> void = for x in [1] do ()
 
@@ -45,56 +45,56 @@ use std.testing { assert, assert_eq }
 // For-Do with Guard
 // =============================================================================
 
-@test_for_do_with_guard tests @for_do_with_guard () -> void = run(
-    let sum = 0,
-    for x in [1, 2, 3, 4, 5] if x % 2 == 0 do sum = sum + x,
-    assert_eq(actual: sum, expected: 6), // 2 + 4
-)
+@test_for_do_with_guard tests @for_do_with_guard () -> void = {
+    let sum = 0;
+    for x in [1, 2, 3, 4, 5] if x % 2 == 0 do sum = sum + x;
+    assert_eq(actual: sum, expected: 6) // 2 + 4
+}
 
-@for_do_with_guard () -> int = run(
-    let sum = 0,
-    for x in [1, 2, 3, 4, 5] if x % 2 == 0 do sum = sum + x,
-    sum,
-)
+@for_do_with_guard () -> int = {
+    let sum = 0;
+    for x in [1, 2, 3, 4, 5] if x % 2 == 0 do sum = sum + x;
+    sum
+}
 
-@test_for_do_guard_all_filtered tests @for_do_guard_all_filtered () -> void = run(
-    let count = 0,
-    for x in [1, 3, 5] if x % 2 == 0 do count = count + 1,
-    assert_eq(actual: count, expected: 0),
-)
+@test_for_do_guard_all_filtered tests @for_do_guard_all_filtered () -> void = {
+    let count = 0;
+    for x in [1, 3, 5] if x % 2 == 0 do count = count + 1;
+    assert_eq(actual: count, expected: 0)
+}
 
-@for_do_guard_all_filtered () -> int = run(
-    let count = 0,
-    for x in [1, 3, 5] if x % 2 == 0 do count = count + 1,
-    count,
-)
+@for_do_guard_all_filtered () -> int = {
+    let count = 0;
+    for x in [1, 3, 5] if x % 2 == 0 do count = count + 1;
+    count
+}
 
 // =============================================================================
 // For-Yield Basic
 // =============================================================================
 
-@test_for_yield_basic tests @for_yield_basic () -> void = run(
-    let result = for x in [1, 2, 3] yield x * 2,
-    assert_eq(actual: result, expected: [2, 4, 6]),
-)
+@test_for_yield_basic tests @for_yield_basic () -> void = {
+    let result = for x in [1, 2, 3] yield x * 2;
+    assert_eq(actual: result, expected: [2, 4, 6])
+}
 
 @for_yield_basic () -> [int] = for x in [1, 2, 3] yield x * 2
 
-@test_for_yield_empty tests @for_yield_empty () -> void = run(
-    let empty: [int] = [],
-    let result = for x in empty yield x * 2,
-    assert_eq(actual: result, expected: []),
-)
+@test_for_yield_empty tests @for_yield_empty () -> void = {
+    let empty: [int] = [];
+    let result = for x in empty yield x * 2;
+    assert_eq(actual: result, expected: [])
+}
 
-@for_yield_empty () -> [int] = run(
-    let empty: [int] = [],
-    for x in empty yield x * 2,
-)
+@for_yield_empty () -> [int] = {
+    let empty: [int] = [];
+    for x in empty yield x * 2
+}
 
-@test_for_yield_identity tests @for_yield_identity () -> void = run(
-    let result = for x in [1, 2, 3] yield x,
-    assert_eq(actual: result, expected: [1, 2, 3]),
-)
+@test_for_yield_identity tests @for_yield_identity () -> void = {
+    let result = for x in [1, 2, 3] yield x;
+    assert_eq(actual: result, expected: [1, 2, 3])
+}
 
 @for_yield_identity () -> [int] = for x in [1, 2, 3] yield x
 
@@ -102,17 +102,17 @@ use std.testing { assert, assert_eq }
 // For-Yield with Guard
 // =============================================================================
 
-@test_for_yield_with_guard tests @for_yield_with_guard () -> void = run(
-    let result = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x,
-    assert_eq(actual: result, expected: [2, 4]),
-)
+@test_for_yield_with_guard tests @for_yield_with_guard () -> void = {
+    let result = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x;
+    assert_eq(actual: result, expected: [2, 4])
+}
 
 @for_yield_with_guard () -> [int] = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x
 
-@test_for_yield_guard_transform tests @for_yield_guard_transform () -> void = run(
-    let result = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10,
-    assert_eq(actual: result, expected: [30, 40, 50]),
-)
+@test_for_yield_guard_transform tests @for_yield_guard_transform () -> void = {
+    let result = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10;
+    assert_eq(actual: result, expected: [30, 40, 50])
+}
 
 @for_yield_guard_transform () -> [int] = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 10
 
@@ -120,63 +120,63 @@ use std.testing { assert, assert_eq }
 // For with Destructuring
 // =============================================================================
 
-@test_for_tuple_destructure tests @for_tuple_destructure () -> void = run(
-    let pairs = [(1, "a"), (2, "b"), (3, "c")],
-    let sum = 0,
-    for pair in pairs do run(
-        let (n, s) = pair,
-        sum = sum + n,
-    ),
-    assert_eq(actual: sum, expected: 6),
-)
+@test_for_tuple_destructure tests @for_tuple_destructure () -> void = {
+    let pairs = [(1, "a"), (2, "b"), (3, "c")];
+    let sum = 0;
+    for pair in pairs do {
+        let (n, s) = pair;
+        sum = sum + n
+    };
+    assert_eq(actual: sum, expected: 6)
+}
 
-@for_tuple_destructure () -> int = run(
-    let pairs = [(1, "a"), (2, "b")],
-    let sum = 0,
-    for pair in pairs do run(
-        let (n, s) = pair,
-        sum = sum + n,
-    ),
-    sum,
-)
+@for_tuple_destructure () -> int = {
+    let pairs = [(1, "a"), (2, "b")];
+    let sum = 0;
+    for pair in pairs do {
+        let (n, s) = pair;
+        sum = sum + n
+    };
+    sum
+}
 
 type Point = { x: int, y: int }
 
-@test_for_struct_destructure tests @for_struct_destructure () -> void = run(
-    let points = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }],
-    let xs = for p in points yield p.x,
-    assert_eq(actual: xs, expected: [1, 3]),
-)
+@test_for_struct_destructure tests @for_struct_destructure () -> void = {
+    let points = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+    let xs = for p in points yield p.x;
+    assert_eq(actual: xs, expected: [1, 3])
+}
 
-@for_struct_destructure () -> [int] = run(
-    let points = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }],
-    for p in points yield p.x,
-)
+@for_struct_destructure () -> [int] = {
+    let points = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }];
+    for p in points yield p.x
+}
 
 // =============================================================================
 // Nested For
 // =============================================================================
 
-@test_nested_for_do tests @nested_for_do () -> void = run(
-    let sum = 0,
+@test_nested_for_do tests @nested_for_do () -> void = {
+    let sum = 0;
     for x in [1, 2] do
         for y in [10, 20] do
-            sum = sum + x * y,
-    assert_eq(actual: sum, expected: 90), // 1*10 + 1*20 + 2*10 + 2*20
-)
+            sum = sum + x * y;
+    assert_eq(actual: sum, expected: 90) // 1*10 + 1*20 + 2*10 + 2*20
+}
 
-@nested_for_do () -> int = run(
-    let sum = 0,
+@nested_for_do () -> int = {
+    let sum = 0;
     for x in [1, 2] do
         for y in [10, 20] do
-            sum = sum + x * y,
-    sum,
-)
+            sum = sum + x * y;
+    sum
+}
 
-@test_nested_for_yield tests @nested_for_yield () -> void = run(
-    let result = for x in [1, 2] yield for y in [10, 20] yield x + y,
-    assert_eq(actual: result, expected: [[11, 21], [12, 22]]),
-)
+@test_nested_for_yield tests @nested_for_yield () -> void = {
+    let result = for x in [1, 2] yield for y in [10, 20] yield x + y;
+    assert_eq(actual: result, expected: [[11, 21], [12, 22]])
+}
 
 @nested_for_yield () -> [[int]] = for x in [1, 2] yield for y in [10, 20] yield x + y
 
@@ -184,178 +184,178 @@ type Point = { x: int, y: int }
 // Loop Basic
 // =============================================================================
 
-@test_loop_with_break tests @loop_with_break () -> void = run(
-    let count = 0,
-    loop(run(
-        count = count + 1,
-        if count >= 5 then break,
-    )),
-    assert_eq(actual: count, expected: 5),
-)
+@test_loop_with_break tests @loop_with_break () -> void = {
+    let count = 0;
+    loop {
+        count = count + 1;
+        if count >= 5 then break
+    };
+    assert_eq(actual: count, expected: 5)
+}
 
-@loop_with_break () -> int = run(
-    let count = 0,
-    loop(run(
-        count = count + 1,
-        if count >= 5 then break,
-    )),
-    count,
-)
+@loop_with_break () -> int = {
+    let count = 0;
+    loop {
+        count = count + 1;
+        if count >= 5 then break
+    };
+    count
+}
 
-@test_loop_break_value tests @loop_break_value () -> void = run(
-    let result = loop(run(
-        let x = 42,
-        break x,
-    )),
-    assert_eq(actual: result, expected: 42),
-)
+@test_loop_break_value tests @loop_break_value () -> void = {
+    let result = loop {
+        let x = 42;
+        break x
+    };
+    assert_eq(actual: result, expected: 42)
+}
 
-@loop_break_value () -> int = loop(run(
-    let x = 42,
-    break x,
-))
+@loop_break_value () -> int = loop {
+    let x = 42;
+    break x
+}
 
-@test_loop_conditional_break tests @loop_conditional_break () -> void = run(
-    let n = 0,
-    let result = loop(run(
-        n = n + 1,
-        if n > 10 then break n * 2,
-    )),
-    assert_eq(actual: result, expected: 22), // 11 * 2
-)
+@test_loop_conditional_break tests @loop_conditional_break () -> void = {
+    let n = 0;
+    let result = loop {
+        n = n + 1;
+        if n > 10 then break n * 2
+    };
+    assert_eq(actual: result, expected: 22) // 11 * 2
+}
 
-@loop_conditional_break () -> int = run(
-    let n = 0,
-    loop(run(
-        n = n + 1,
-        if n > 10 then break n * 2,
-    )),
-)
+@loop_conditional_break () -> int = {
+    let n = 0;
+    loop {
+        n = n + 1;
+        if n > 10 then break n * 2
+    }
+}
 
 // =============================================================================
 // Loop with Continue
 // =============================================================================
 
-@test_loop_continue tests @loop_continue () -> void = run(
-    let count = 0,
-    let sum = 0,
-    loop(run(
-        count = count + 1,
-        if count > 10 then break,
-        if count % 2 == 0 then continue, // Skip even numbers
-        sum = sum + count,
-    )),
-    assert_eq(actual: sum, expected: 25), // 1 + 3 + 5 + 7 + 9
-)
+@test_loop_continue tests @loop_continue () -> void = {
+    let count = 0;
+    let sum = 0;
+    loop {
+        count = count + 1;
+        if count > 10 then break;
+        if count % 2 == 0 then continue; // Skip even numbers
+        sum = sum + count
+    };
+    assert_eq(actual: sum, expected: 25) // 1 + 3 + 5 + 7 + 9
+}
 
-@loop_continue () -> int = run(
-    let count = 0,
-    let sum = 0,
-    loop(run(
-        count = count + 1,
-        if count > 10 then break,
-        if count % 2 == 0 then continue,
-        sum = sum + count,
-    )),
-    sum,
-)
+@loop_continue () -> int = {
+    let count = 0;
+    let sum = 0;
+    loop {
+        count = count + 1;
+        if count > 10 then break;
+        if count % 2 == 0 then continue;
+        sum = sum + count
+    };
+    sum
+}
 
 // =============================================================================
 // For with Break
 // =============================================================================
 
-@test_for_do_break tests @for_do_break () -> void = run(
-    let sum = 0,
-    for x in [1, 2, 3, 4, 5] do run(
-        if x == 4 then break,
-        sum = sum + x,
-    ),
-    assert_eq(actual: sum, expected: 6), // 1 + 2 + 3
-)
+@test_for_do_break tests @for_do_break () -> void = {
+    let sum = 0;
+    for x in [1, 2, 3, 4, 5] do {
+        if x == 4 then break;
+        sum = sum + x
+    };
+    assert_eq(actual: sum, expected: 6) // 1 + 2 + 3
+}
 
-@for_do_break () -> int = run(
-    let sum = 0,
-    for x in [1, 2, 3, 4, 5] do run(
-        if x == 4 then break,
-        sum = sum + x,
-    ),
-    sum,
-)
+@for_do_break () -> int = {
+    let sum = 0;
+    for x in [1, 2, 3, 4, 5] do {
+        if x == 4 then break;
+        sum = sum + x
+    };
+    sum
+}
 
-@test_for_yield_break tests @for_yield_break () -> void = run(
-    let result = for x in [1, 2, 3, 4, 5] yield run(
-        if x == 4 then break,
-        x * 2,
-    ),
-    assert_eq(actual: result, expected: [2, 4, 6]),
-)
+@test_for_yield_break tests @for_yield_break () -> void = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 4 then break;
+        x * 2
+    };
+    assert_eq(actual: result, expected: [2, 4, 6])
+}
 
-@for_yield_break () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
-    if x == 4 then break,
-    x * 2,
-)
+@for_yield_break () -> [int] = for x in [1, 2, 3, 4, 5] yield {
+    if x == 4 then break;
+    x * 2
+}
 
-@test_for_yield_break_value tests @for_yield_break_value () -> void = run(
-    let result = for x in [1, 2, 3, 4, 5] yield run(
-        if x == 4 then break 99,
-        x,
-    ),
+@test_for_yield_break_value tests @for_yield_break_value () -> void = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 4 then break 99;
+        x
+    };
     // Break adds final element
-    assert_eq(actual: result, expected: [1, 2, 3, 99]),
-)
+    assert_eq(actual: result, expected: [1, 2, 3, 99])
+}
 
-@for_yield_break_value () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
-    if x == 4 then break 99,
-    x,
-)
+@for_yield_break_value () -> [int] = for x in [1, 2, 3, 4, 5] yield {
+    if x == 4 then break 99;
+    x
+}
 
 // =============================================================================
 // For with Continue
 // =============================================================================
 
-@test_for_do_continue tests @for_do_continue () -> void = run(
-    let sum = 0,
-    for x in [1, 2, 3, 4, 5] do run(
-        if x == 3 then continue,
-        sum = sum + x,
-    ),
-    assert_eq(actual: sum, expected: 12), // 1 + 2 + 4 + 5
-)
+@test_for_do_continue tests @for_do_continue () -> void = {
+    let sum = 0;
+    for x in [1, 2, 3, 4, 5] do {
+        if x == 3 then continue;
+        sum = sum + x
+    };
+    assert_eq(actual: sum, expected: 12) // 1 + 2 + 4 + 5
+}
 
-@for_do_continue () -> int = run(
-    let sum = 0,
-    for x in [1, 2, 3, 4, 5] do run(
-        if x == 3 then continue,
-        sum = sum + x,
-    ),
-    sum,
-)
+@for_do_continue () -> int = {
+    let sum = 0;
+    for x in [1, 2, 3, 4, 5] do {
+        if x == 3 then continue;
+        sum = sum + x
+    };
+    sum
+}
 
-@test_for_yield_continue tests @for_yield_continue () -> void = run(
-    let result = for x in [1, 2, 3, 4, 5] yield run(
-        if x == 3 then continue,
-        x,
-    ),
-    assert_eq(actual: result, expected: [1, 2, 4, 5]),
-)
+@test_for_yield_continue tests @for_yield_continue () -> void = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 3 then continue;
+        x
+    };
+    assert_eq(actual: result, expected: [1, 2, 4, 5])
+}
 
-@for_yield_continue () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
-    if x == 3 then continue,
-    x,
-)
+@for_yield_continue () -> [int] = for x in [1, 2, 3, 4, 5] yield {
+    if x == 3 then continue;
+    x
+}
 
-@test_for_yield_continue_value tests @for_yield_continue_value () -> void = run(
-    let result = for x in [1, 2, 3, 4, 5] yield run(
-        if x == 3 then continue 0,
-        x,
-    ),
-    assert_eq(actual: result, expected: [1, 2, 0, 4, 5]),
-)
+@test_for_yield_continue_value tests @for_yield_continue_value () -> void = {
+    let result = for x in [1, 2, 3, 4, 5] yield {
+        if x == 3 then continue 0;
+        x
+    };
+    assert_eq(actual: result, expected: [1, 2, 0, 4, 5])
+}
 
-@for_yield_continue_value () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
-    if x == 3 then continue 0,
-    x,
-)
+@for_yield_continue_value () -> [int] = for x in [1, 2, 3, 4, 5] yield {
+    if x == 3 then continue 0;
+    x
+}
 
 // =============================================================================
 // Labeled Loops (NOT YET IMPLEMENTED)
@@ -375,30 +375,30 @@ type Point = { x: int, y: int }
 // Loop Type Inference
 // =============================================================================
 
-@test_loop_void tests @loop_void () -> void = run(
-    let count = 0,
-    loop(run(
-        count = count + 1,
-        if count >= 3 then break,
-    )),
+@test_loop_void tests @loop_void () -> void = {
+    let count = 0;
+    loop {
+        count = count + 1;
+        if count >= 3 then break
+    };
     // No value from break, loop is void
-    assert_eq(actual: count, expected: 3),
-)
+    assert_eq(actual: count, expected: 3)
+}
 
-@loop_void () -> void = run(
-    let count = 0,
-    loop(run(
-        count = count + 1,
-        if count >= 3 then break,
-    )),
-)
+@loop_void () -> void = {
+    let count = 0;
+    loop {
+        count = count + 1;
+        if count >= 3 then break
+    }
+}
 
-@test_loop_int tests @loop_int () -> void = run(
-    let result: int = loop(break 42),
-    assert_eq(actual: result, expected: 42),
-)
+@test_loop_int tests @loop_int () -> void = {
+    let result: int = loop {break 42};
+    assert_eq(actual: result, expected: 42)
+}
 
-@loop_int () -> int = loop(break 42)
+@loop_int () -> int = loop {break 42}
 
 // =============================================================================
 // Complex Patterns
@@ -409,73 +409,73 @@ type Point = { x: int, y: int }
 // This test requires labeled breaks (break:name) which are not yet implemented.
 
 #skip("requires labeled breaks (loop:name, break:name) - see line 361")
-@test_find_first tests @find_first () -> void = run(
-    let items = [1, 3, 5, 8, 10],
-    let first_even = loop(run(
-        for x in items do run(
-            if x % 2 == 0 then break x,
-        ),
-        break 0, // Not found
-    )),
-    assert_eq(actual: first_even, expected: 8),
-)
+@test_find_first tests @find_first () -> void = {
+    let items = [1, 3, 5, 8, 10];
+    let first_even = loop {
+        for x in items do {
+            if x % 2 == 0 then break x
+        };
+        break 0 // Not found
+    };
+    assert_eq(actual: first_even, expected: 8)
+}
 
-@find_first () -> int = run(
-    let items = [1, 3, 5, 8, 10],
-    loop(run(
-        for x in items do run(
-            if x % 2 == 0 then break x,
-        ),
-        break 0,
-    )),
-)
+@find_first () -> int = {
+    let items = [1, 3, 5, 8, 10];
+    loop {
+        for x in items do {
+            if x % 2 == 0 then break x
+        };
+        break 0
+    }
+}
 
-@test_flatten_with_break tests @flatten_with_break () -> void = run(
-    let matrix = [[1, 2], [3, 4], [5, 6]],
-    let count = 0,
-    for row in matrix do run(
-        for x in row do run(
-            if x == 4 then break,
-            count = count + x,
-        ),
-    ),
+@test_flatten_with_break tests @flatten_with_break () -> void = {
+    let matrix = [[1, 2], [3, 4], [5, 6]];
+    let count = 0;
+    for row in matrix do {
+        for x in row do {
+            if x == 4 then break;
+            count = count + x
+        }
+    };
     // Breaks inner loop at 4, continues to next row
     // 1 + 2 + 3 + 5 + 6 = 17
-    assert_eq(actual: count, expected: 17),
-)
+    assert_eq(actual: count, expected: 17)
+}
 
-@flatten_with_break () -> int = run(
-    let matrix = [[1, 2], [3, 4], [5, 6]],
-    let count = 0,
-    for row in matrix do run(
-        for x in row do run(
-            if x == 4 then break,
-            count = count + x,
-        ),
-    ),
-    count,
-)
+@flatten_with_break () -> int = {
+    let matrix = [[1, 2], [3, 4], [5, 6]];
+    let count = 0;
+    for row in matrix do {
+        for x in row do {
+            if x == 4 then break;
+            count = count + x
+        }
+    };
+    count
+}
 
-@test_accumulate_until tests @accumulate_until () -> void = run(
-    let sum = 0,
-    let limit = 10,
-    let i = 0,
-    loop(run(
-        sum = sum + i,
-        i = i + 1,
-        if sum >= limit then break,
-    )),
+@test_accumulate_until tests @accumulate_until () -> void = {
+    let sum = 0;
+    let limit = 10;
+    let i = 0;
+    loop {
+        sum = sum + i;
+        i = i + 1;
+        if sum >= limit then break
+    };
     // 0 + 1 + 2 + 3 + 4 = 10 >= 10, break
-    assert(cond: sum >= limit),
-)
+    assert(cond: sum >= limit)
+}
 
-@accumulate_until () -> int = run(
-    let sum = 0,
-    let i = 0,
-    loop(run(
-        sum = sum + i,
-        i = i + 1,
-        if sum >= 10 then break,
-    )),
-    sum,
-)
+@accumulate_until () -> int = {
+    let sum = 0;
+    let i = 0;
+    loop {
+        sum = sum + i;
+        i = i + 1;
+        if sum >= 10 then break
+    };
+    sum
+}

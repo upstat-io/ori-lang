@@ -3,14 +3,14 @@ use std.testing { assert_eq }
 // Literal matching inside variant pattern
 type FilterResult = Pass(value: int) | Fail(reason: str, recoverable: bool)
 
-@describe_filter (f: FilterResult) -> str = match(f,
+@describe_filter (f: FilterResult) -> str = match f {
     Pass(v) -> "Passed with " + str(v),
     Fail(r, true) -> "Failed (recoverable): " + r,
-    Fail(r, false) -> "Failed (fatal): " + r,
-)
+    Fail(r, false) -> "Failed (fatal): " + r
+}
 
-@test_literal_in_variant tests @describe_filter () -> void = run(
-    assert_eq(actual: describe_filter(f: Pass(value: 42)), expected: "Passed with 42"),
-    assert_eq(actual: describe_filter(f: Fail(reason: "timeout", recoverable: true)), expected: "Failed (recoverable): timeout"),
-    assert_eq(actual: describe_filter(f: Fail(reason: "crash", recoverable: false)), expected: "Failed (fatal): crash"),
-)
+@test_literal_in_variant tests @describe_filter () -> void = {
+    assert_eq(actual: describe_filter(f: Pass(value: 42)), expected: "Passed with 42");
+    assert_eq(actual: describe_filter(f: Fail(reason: "timeout", recoverable: true)), expected: "Failed (recoverable): timeout");
+    assert_eq(actual: describe_filter(f: Fail(reason: "crash", recoverable: false)), expected: "Failed (fatal): crash")
+}

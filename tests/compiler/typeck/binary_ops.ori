@@ -11,326 +11,326 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Valid: int arithmetic
-@test_int_add () -> void = run(
-    let result: int = 1 + 2,
-    assert_eq(actual: result, expected: 3),
-)
+@test_int_add () -> void = {
+    let result: int = 1 + 2;
+    assert_eq(actual: result, expected: 3)
+}
 
-@test_int_sub () -> void = run(
-    let result: int = 5 - 3,
-    assert_eq(actual: result, expected: 2),
-)
+@test_int_sub () -> void = {
+    let result: int = 5 - 3;
+    assert_eq(actual: result, expected: 2)
+}
 
-@test_int_mul () -> void = run(
-    let result: int = 4 * 3,
-    assert_eq(actual: result, expected: 12),
-)
+@test_int_mul () -> void = {
+    let result: int = 4 * 3;
+    assert_eq(actual: result, expected: 12)
+}
 
-@test_int_div () -> void = run(
-    let result: int = 10 / 3,
-    assert_eq(actual: result, expected: 3),
-)
+@test_int_div () -> void = {
+    let result: int = 10 / 3;
+    assert_eq(actual: result, expected: 3)
+}
 
 // Valid: float arithmetic
-@test_float_add () -> void = run(
-    let result: float = 1.5 + 2.5,
-    assert_eq(actual: result, expected: 4.0),
-)
+@test_float_add () -> void = {
+    let result: float = 1.5 + 2.5;
+    assert_eq(actual: result, expected: 4.0)
+}
 
-@test_float_sub () -> void = run(
-    let result: float = 5.0 - 3.0,
-    assert_eq(actual: result, expected: 2.0),
-)
+@test_float_sub () -> void = {
+    let result: float = 5.0 - 3.0;
+    assert_eq(actual: result, expected: 2.0)
+}
 
-@test_float_mul () -> void = run(
-    let result: float = 2.0 * 3.0,
-    assert_eq(actual: result, expected: 6.0),
-)
+@test_float_mul () -> void = {
+    let result: float = 2.0 * 3.0;
+    assert_eq(actual: result, expected: 6.0)
+}
 
-@test_float_div () -> void = run(
-    let result: float = 10.0 / 4.0,
-    assert_eq(actual: result, expected: 2.5),
-)
+@test_float_div () -> void = {
+    let result: float = 10.0 / 4.0;
+    assert_eq(actual: result, expected: 2.5)
+}
 
 // Invalid: mixed int/float arithmetic
 #[compile_fail("type mismatch")]
-@test_int_float_add () -> void = run(
-    let result = 1 + 2.5,
-    (),
-)
+@test_int_float_add () -> void = {
+    let result = 1 + 2.5;
+    ()
+}
 
 #[compile_fail("type mismatch")]
-@test_float_int_add () -> void = run(
-    let result = 1.5 + 2,
-    (),
-)
+@test_float_int_add () -> void = {
+    let result = 1.5 + 2;
+    ()
+}
 
 #[compile_fail("type mismatch")]
-@test_int_float_mul () -> void = run(
-    let result = 2 * 3.0,
-    (),
-)
+@test_int_float_mul () -> void = {
+    let result = 2 * 3.0;
+    ()
+}
 
 #[compile_fail("type mismatch")]
-@test_int_float_div () -> void = run(
-    let result = 10 / 2.5,
-    (),
-)
+@test_int_float_div () -> void = {
+    let result = 10 / 2.5;
+    ()
+}
 
 // Invalid: arithmetic with non-numeric types
 #[compile_fail("type mismatch")]
-@test_str_int_add () -> void = run(
-    let result = "hello" + 5,
-    (),
-)
+@test_str_int_add () -> void = {
+    let result = "hello" + 5;
+    ()
+}
 
 #[compile_fail("type mismatch")]
-@test_bool_int_add () -> void = run(
-    let result = true + 1,
-    (),
-)
+@test_bool_int_add () -> void = {
+    let result = true + 1;
+    ()
+}
 
 // =============================================================================
 // String concatenation (+)
 // =============================================================================
 
 // Valid: string concatenation
-@test_str_concat () -> void = run(
-    let result: str = "hello" + " world",
-    assert_eq(actual: result, expected: "hello world"),
-)
+@test_str_concat () -> void = {
+    let result: str = "hello" + " world";
+    assert_eq(actual: result, expected: "hello world")
+}
 
 // Invalid: string with non-string
 #[compile_fail("type mismatch")]
-@test_str_int_concat () -> void = run(
-    let result = "count: " + 42,
-    (),
-)
+@test_str_int_concat () -> void = {
+    let result = "count: " + 42;
+    ()
+}
 
 // =============================================================================
 // Integer-only operators (%, &, |, ^, <<, >>)
 // =============================================================================
 
 // Valid: modulo
-@test_int_modulo () -> void = run(
-    let result: int = 10 % 3,
-    assert_eq(actual: result, expected: 1),
-)
+@test_int_modulo () -> void = {
+    let result: int = 10 % 3;
+    assert_eq(actual: result, expected: 1)
+}
 
 // Valid: bitwise operations
-@test_int_bitwise_and () -> void = run(
-    let result: int = 12 & 10,
-    assert_eq(actual: result, expected: 8),
-)
+@test_int_bitwise_and () -> void = {
+    let result: int = 12 & 10;
+    assert_eq(actual: result, expected: 8)
+}
 
-@test_int_bitwise_or () -> void = run(
-    let result: int = 12 | 10,
-    assert_eq(actual: result, expected: 14),
-)
+@test_int_bitwise_or () -> void = {
+    let result: int = 12 | 10;
+    assert_eq(actual: result, expected: 14)
+}
 
-@test_int_bitwise_xor () -> void = run(
-    let result: int = 12 ^ 10,
-    assert_eq(actual: result, expected: 6),
-)
+@test_int_bitwise_xor () -> void = {
+    let result: int = 12 ^ 10;
+    assert_eq(actual: result, expected: 6)
+}
 
 // Valid: shift operations
-@test_int_left_shift () -> void = run(
-    let result: int = 1 << 4,
-    assert_eq(actual: result, expected: 16),
-)
+@test_int_left_shift () -> void = {
+    let result: int = 1 << 4;
+    assert_eq(actual: result, expected: 16)
+}
 
-@test_int_right_shift () -> void = run(
-    let result: int = 16 >> 2,
-    assert_eq(actual: result, expected: 4),
-)
+@test_int_right_shift () -> void = {
+    let result: int = 16 >> 2;
+    assert_eq(actual: result, expected: 4)
+}
 
 // Invalid: modulo with float
 #[compile_fail("type mismatch")]
-@test_float_modulo () -> void = run(
-    let result = 10.0 % 3.0,
-    (),
-)
+@test_float_modulo () -> void = {
+    let result = 10.0 % 3.0;
+    ()
+}
 
 // Invalid: bitwise with float
 #[compile_fail("left operand of bitwise operator must be `int`")]
-@test_float_bitwise () -> void = run(
-    let result = 5.0 & 3.0,
-    (),
-)
+@test_float_bitwise () -> void = {
+    let result = 5.0 & 3.0;
+    ()
+}
 
 // Invalid: shift with float
 #[compile_fail("left operand of bitwise operator must be `int`")]
-@test_float_shift () -> void = run(
-    let result = 1.0 << 4,
-    (),
-)
+@test_float_shift () -> void = {
+    let result = 1.0 << 4;
+    ()
+}
 
 // =============================================================================
 // Comparison operators (<, >, <=, >=)
 // =============================================================================
 
 // Valid: int comparison
-@test_int_less_than () -> void = run(
-    let result: bool = 1 < 2,
-    assert_eq(actual: result, expected: true),
-)
+@test_int_less_than () -> void = {
+    let result: bool = 1 < 2;
+    assert_eq(actual: result, expected: true)
+}
 
-@test_int_greater_than () -> void = run(
-    let result: bool = 2 > 1,
-    assert_eq(actual: result, expected: true),
-)
+@test_int_greater_than () -> void = {
+    let result: bool = 2 > 1;
+    assert_eq(actual: result, expected: true)
+}
 
 // Valid: float comparison
-@test_float_less_than () -> void = run(
-    let result: bool = 1.0 < 2.0,
-    assert_eq(actual: result, expected: true),
-)
+@test_float_less_than () -> void = {
+    let result: bool = 1.0 < 2.0;
+    assert_eq(actual: result, expected: true)
+}
 
 // Valid: string comparison (lexicographic)
-@test_str_less_than () -> void = run(
-    let result: bool = "apple" < "banana",
-    assert_eq(actual: result, expected: true),
-)
+@test_str_less_than () -> void = {
+    let result: bool = "apple" < "banana";
+    assert_eq(actual: result, expected: true)
+}
 
 // Invalid: comparison with mismatched types
 #[compile_fail("type mismatch")]
-@test_int_str_compare () -> void = run(
-    let result = 1 < "2",
-    (),
-)
+@test_int_str_compare () -> void = {
+    let result = 1 < "2";
+    ()
+}
 
 #[compile_fail("type mismatch")]
-@test_int_float_compare () -> void = run(
-    let result = 1 < 2.0,
-    (),
-)
+@test_int_float_compare () -> void = {
+    let result = 1 < 2.0;
+    ()
+}
 
 // =============================================================================
 // Equality operators (==, !=)
 // =============================================================================
 
 // Valid: equality comparisons
-@test_int_eq () -> void = run(
-    let result: bool = 42 == 42,
-    assert_eq(actual: result, expected: true),
-)
+@test_int_eq () -> void = {
+    let result: bool = 42 == 42;
+    assert_eq(actual: result, expected: true)
+}
 
-@test_int_neq () -> void = run(
-    let result: bool = 42 != 0,
-    assert_eq(actual: result, expected: true),
-)
+@test_int_neq () -> void = {
+    let result: bool = 42 != 0;
+    assert_eq(actual: result, expected: true)
+}
 
-@test_str_eq () -> void = run(
-    let result: bool = "hello" == "hello",
-    assert_eq(actual: result, expected: true),
-)
+@test_str_eq () -> void = {
+    let result: bool = "hello" == "hello";
+    assert_eq(actual: result, expected: true)
+}
 
-@test_bool_eq () -> void = run(
-    let result: bool = true == true,
-    assert_eq(actual: result, expected: true),
-)
+@test_bool_eq () -> void = {
+    let result: bool = true == true;
+    assert_eq(actual: result, expected: true)
+}
 
 // Invalid: equality with mismatched types
 #[compile_fail("type mismatch")]
-@test_int_str_eq () -> void = run(
-    let result = 42 == "42",
-    (),
-)
+@test_int_str_eq () -> void = {
+    let result = 42 == "42";
+    ()
+}
 
 #[compile_fail("type mismatch")]
-@test_int_bool_eq () -> void = run(
-    let result = 1 == true,
-    (),
-)
+@test_int_bool_eq () -> void = {
+    let result = 1 == true;
+    ()
+}
 
 // =============================================================================
 // Logical operators (&&, ||)
 // =============================================================================
 
 // Valid: logical operations
-@test_logical_and () -> void = run(
-    let result: bool = true && false,
-    assert_eq(actual: result, expected: false),
-)
+@test_logical_and () -> void = {
+    let result: bool = true && false;
+    assert_eq(actual: result, expected: false)
+}
 
-@test_logical_or () -> void = run(
-    let result: bool = true || false,
-    assert_eq(actual: result, expected: true),
-)
+@test_logical_or () -> void = {
+    let result: bool = true || false;
+    assert_eq(actual: result, expected: true)
+}
 
 // Invalid: logical with non-bool
 #[compile_fail("left operand of logical operator must be `bool`")]
-@test_int_logical_and () -> void = run(
-    let result = 1 && 2,
-    (),
-)
+@test_int_logical_and () -> void = {
+    let result = 1 && 2;
+    ()
+}
 
 #[compile_fail("left operand of logical operator must be `bool`")]
-@test_str_logical_or () -> void = run(
-    let result = "a" || "b",
-    (),
-)
+@test_str_logical_or () -> void = {
+    let result = "a" || "b";
+    ()
+}
 
 // =============================================================================
 // Range operators (.., ..=)
 // =============================================================================
 
 // Valid: range operations
-@test_int_range () -> void = run(
-    let range = 0..10,
-    (),
-)
+@test_int_range () -> void = {
+    let range = 0..10;
+    ()
+}
 
-@test_int_range_inclusive () -> void = run(
-    let range = 0..=10,
-    (),
-)
+@test_int_range_inclusive () -> void = {
+    let range = 0..=10;
+    ()
+}
 
 // Invalid: range with mismatched types
 #[compile_fail("type mismatch")]
-@test_mixed_range () -> void = run(
-    let range = 0.."10",
-    (),
-)
+@test_mixed_range () -> void = {
+    let range = 0.."10";
+    ()
+}
 
 // =============================================================================
 // Unary operators
 // =============================================================================
 
 // Valid: negation
-@test_int_negate () -> void = run(
-    let result: int = -42,
-    assert_eq(actual: result, expected: -42),
-)
+@test_int_negate () -> void = {
+    let result: int = -42;
+    assert_eq(actual: result, expected: -42)
+}
 
-@test_float_negate () -> void = run(
-    let result: float = -3.14,
-    assert_eq(actual: result, expected: -3.14),
-)
+@test_float_negate () -> void = {
+    let result: float = -3.14;
+    assert_eq(actual: result, expected: -3.14)
+}
 
 // Valid: logical not
-@test_bool_not () -> void = run(
-    let result: bool = !true,
-    assert_eq(actual: result, expected: false),
-)
+@test_bool_not () -> void = {
+    let result: bool = !true;
+    assert_eq(actual: result, expected: false)
+}
 
 // Valid: bitwise not
-@test_int_bitwise_not () -> void = run(
-    let x: int = 0,
-    let result: int = ~x,
-    assert_eq(actual: result, expected: -1),
-)
+@test_int_bitwise_not () -> void = {
+    let x: int = 0;
+    let result: int = ~x;
+    assert_eq(actual: result, expected: -1)
+}
 
 // Invalid: negate string
 #[compile_fail("cannot apply `-` to `str`")]
-@test_str_negate () -> void = run(
-    let result = -"hello",
-    (),
-)
+@test_str_negate () -> void = {
+    let result = -"hello";
+    ()
+}
 
 // Invalid: logical not on int
 #[compile_fail("cannot apply `!` to `int`")]
-@test_int_not () -> void = run(
-    let result = !42,
-    (),
-)
+@test_int_not () -> void = {
+    let result = !42;
+    ()
+}

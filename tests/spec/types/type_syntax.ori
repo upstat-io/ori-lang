@@ -7,67 +7,67 @@ use std.testing { assert, assert_eq }
 // Simple Type Paths
 // =============================================================================
 
-@type_path () -> int = run(
-    let x: int = 42,
-    x,
-)
+@type_path () -> int = {
+    let x: int = 42;
+    x
+}
 
-@test_type_path tests @type_path () -> void = run(
-    assert_eq(actual: type_path(), expected: 42),
-)
+@test_type_path tests @type_path () -> void = {
+    assert_eq(actual: type_path(), expected: 42)
+}
 
 // =============================================================================
 // List Types
 // =============================================================================
 
-@list_type () -> int = run(
-    let items: [int] = [1, 2, 3],
-    items.len(),
-)
+@list_type () -> int = {
+    let items: [int] = [1, 2, 3];
+    items.len()
+}
 
-@test_list_type tests @list_type () -> void = run(
-    assert_eq(actual: list_type(), expected: 3),
-)
+@test_list_type tests @list_type () -> void = {
+    assert_eq(actual: list_type(), expected: 3)
+}
 
 // =============================================================================
 // Nested List Types
 // =============================================================================
 
-@nested_list () -> int = run(
-    let matrix: [[int]] = [[1, 2], [3, 4]],
-    matrix.len(),
-)
+@nested_list () -> int = {
+    let matrix: [[int]] = [[1, 2], [3, 4]];
+    matrix.len()
+}
 
-@test_nested_list tests @nested_list () -> void = run(
-    assert_eq(actual: nested_list(), expected: 2),
-)
+@test_nested_list tests @nested_list () -> void = {
+    assert_eq(actual: nested_list(), expected: 2)
+}
 
 // =============================================================================
 // Map Types
 // =============================================================================
 
-@map_type () -> int = run(
-    let m: {str: int} = {"a": 1, "b": 2},
-    m.len(),
-)
+@map_type () -> int = {
+    let m: {str: int} = {"a": 1, "b": 2};
+    m.len()
+}
 
-@test_map_type tests @map_type () -> void = run(
-    assert_eq(actual: map_type(), expected: 2),
-)
+@test_map_type tests @map_type () -> void = {
+    assert_eq(actual: map_type(), expected: 2)
+}
 
 // =============================================================================
 // Tuple Types
 // =============================================================================
 
-@tuple_type () -> int = run(
-    let t: (int, int) = (1, 2),
-    let (a, b) = t,
-    a + b,
-)
+@tuple_type () -> int = {
+    let t: (int, int) = (1, 2);
+    let (a, b) = t;
+    a + b
+}
 
-@test_tuple_type tests @tuple_type () -> void = run(
-    assert_eq(actual: tuple_type(), expected: 3),
-)
+@test_tuple_type tests @tuple_type () -> void = {
+    assert_eq(actual: tuple_type(), expected: 3)
+}
 
 // =============================================================================
 // Unit Type
@@ -75,28 +75,28 @@ use std.testing { assert, assert_eq }
 
 // Note: Unit type () has a type checker false positive (E2001).
 // Verifying parser accepts unit syntax through indirect test.
-@unit_type () -> bool = run(
+@unit_type () -> bool = {
     // Parser accepts: let _u: () = ()
     // but type checker has issues with it
-    true,
-)
+    true
+}
 
-@test_unit_type tests @unit_type () -> void = run(
-    assert(cond: unit_type()),
-)
+@test_unit_type tests @unit_type () -> void = {
+    assert(cond: unit_type())
+}
 
 // =============================================================================
 // Function Types
 // =============================================================================
 
-@fn_type () -> int = run(
-    let f: (int) -> int = x -> x * 2,
-    f(5),
-)
+@fn_type () -> int = {
+    let f: (int) -> int = x -> x * 2;
+    f(5)
+}
 
-@test_fn_type tests @fn_type () -> void = run(
-    assert_eq(actual: fn_type(), expected: 10),
-)
+@test_fn_type tests @fn_type () -> void = {
+    assert_eq(actual: fn_type(), expected: 10)
+}
 
 // =============================================================================
 // Generic Type Arguments
@@ -104,46 +104,46 @@ use std.testing { assert, assert_eq }
 
 type Container<T> = { value: T }
 
-@generic_args () -> int = run(
-    let c = Container { value: 42 },
-    c.value,
-)
+@generic_args () -> int = {
+    let c = Container { value: 42 };
+    c.value
+}
 
-@test_generic_args tests @generic_args () -> void = run(
-    assert_eq(actual: generic_args(), expected: 42),
-)
+@test_generic_args tests @generic_args () -> void = {
+    assert_eq(actual: generic_args(), expected: 42)
+}
 
 // =============================================================================
 // Option Type
 // =============================================================================
 
-@option_type () -> int = run(
-    let opt: Option<int> = Some(42),
-    match(opt,
+@option_type () -> int = {
+    let opt: Option<int> = Some(42);
+    match opt {
         Some(v) -> v,
-        None -> 0,
-    ),
-)
+        None -> 0
+    }
+}
 
-@test_option_type tests @option_type () -> void = run(
-    assert_eq(actual: option_type(), expected: 42),
-)
+@test_option_type tests @option_type () -> void = {
+    assert_eq(actual: option_type(), expected: 42)
+}
 
 // =============================================================================
 // Result Type
 // =============================================================================
 
-@result_type () -> int = run(
-    let res: Result<int, str> = Ok(100),
-    match(res,
+@result_type () -> int = {
+    let res: Result<int, str> = Ok(100);
+    match res {
         Ok(v) -> v,
-        Err(_) -> 0,
-    ),
-)
+        Err(_) -> 0
+    }
+}
 
-@test_result_type tests @result_type () -> void = run(
-    assert_eq(actual: result_type(), expected: 100),
-)
+@test_result_type tests @result_type () -> void = {
+    assert_eq(actual: result_type(), expected: 100)
+}
 
 // =============================================================================
 // Bounded Trait Object Types (Printable + Hashable)
@@ -152,17 +152,17 @@ type Container<T> = { value: T }
 // Two bounds as parameter type
 @bounded_two<T: Printable + Hashable> (item: T) -> str = item.to_str()
 
-@test_bounded_two tests @bounded_two_call () -> void = run(
-    assert_eq(actual: bounded_two_call(), expected: "42"),
-)
+@test_bounded_two tests @bounded_two_call () -> void = {
+    assert_eq(actual: bounded_two_call(), expected: "42")
+}
 
 @bounded_two_call () -> str = bounded_two(item: 42)
 
 // Three bounds as parameter type
 @bounded_three<T: Printable + Hashable + Clone> (item: T) -> str = item.to_str()
 
-@test_bounded_three tests @bounded_three_call () -> void = run(
-    assert_eq(actual: bounded_three_call(), expected: "hello"),
-)
+@test_bounded_three tests @bounded_three_call () -> void = {
+    assert_eq(actual: bounded_three_call(), expected: "hello")
+}
 
 @bounded_three_call () -> str = bounded_three(item: "hello")

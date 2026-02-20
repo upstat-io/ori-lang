@@ -11,7 +11,7 @@ use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     BindingPattern, DurationUnit, Expr, ExprId, ExprKind, ExprRange, FieldBinding, FunctionExpKind,
-    Name, Param, ParamRange, ParsedTypeId, SizeUnit, TemplatePart, TokenKind,
+    Name, Param, ParamRange, ParsedTypeId, SizeUnit, Stmt, StmtKind, TemplatePart, TokenKind,
 };
 use tracing::{debug, trace};
 
@@ -100,9 +100,17 @@ impl Parser<'_> {
         // `is_with_capability_syntax()`, or `match_function_exp_kind()` before
         // deciding, and they advance before calling the sub-parser.
         if self.cursor.check(&TokenKind::Run) {
-            trace!("parse_primary -> Run");
+            let span = self.cursor.current_span();
             self.cursor.advance();
-            return self.parse_run();
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "`run()` syntax has been removed",
+                    span,
+                )
+                .with_help("Use block expressions instead: `{ stmt; stmt; result }`"),
+                span,
+            );
         }
         if self.cursor.check(&TokenKind::Try) {
             trace!("parse_primary -> Try");
@@ -170,7 +178,7 @@ impl Parser<'_> {
             | TokenKind::TAG_EXTERN => return self.parse_ident_primary(),
             TokenKind::TAG_LPAREN => return self.parse_parenthesized(),
             TokenKind::TAG_LBRACKET => return self.parse_list_literal(),
-            TokenKind::TAG_LBRACE => return self.parse_map_literal(),
+            TokenKind::TAG_LBRACE => return self.parse_block_or_map(),
             TokenKind::TAG_IF => return self.parse_if_expr(),
             TokenKind::TAG_LET => return self.parse_let_expr(),
             TokenKind::TAG_LOOP => return self.parse_loop_expr(),
@@ -217,7 +225,7 @@ impl Parser<'_> {
             self.parse_misc_primary(),
             self.parse_parenthesized(),
             self.parse_list_literal(),
-            self.parse_map_literal(),
+            self.parse_block_or_map(),
             self.parse_if_expr(),
             self.parse_let_expr(),
             self.parse_loop_expr(),
@@ -505,6 +513,7 @@ impl Parser<'_> {
                     && !self.cursor.check(&TokenKind::RBrace)
                     && !self.cursor.check(&TokenKind::RBracket)
                     && !self.cursor.check(&TokenKind::Newline)
+                    && !self.cursor.check(&TokenKind::Semicolon)
                     && !self.cursor.check(&TokenKind::Else)
                     && !self.cursor.check(&TokenKind::Then)
                     && !self.cursor.check(&TokenKind::Do)
@@ -544,6 +553,7 @@ impl Parser<'_> {
                     && !self.cursor.check(&TokenKind::RBrace)
                     && !self.cursor.check(&TokenKind::RBracket)
                     && !self.cursor.check(&TokenKind::Newline)
+                    && !self.cursor.check(&TokenKind::Semicolon)
                     && !self.cursor.check(&TokenKind::Else)
                     && !self.cursor.check(&TokenKind::Then)
                     && !self.cursor.check(&TokenKind::Do)
@@ -819,20 +829,258 @@ impl Parser<'_> {
         }
     }
 
-    /// Parse map literal: `{ key: value, ... }`, `{ ...base, key: value }`, or `{}`.
+    /// Disambiguate `{` — block expression vs map literal.
+    ///
+    /// Uses lookahead after `{` (skipping newlines) to decide:
+    /// - `{ }` → empty map literal
+    /// - `{ ident :` → map literal (key-value)
+    /// - `{ "string" :` → map literal (string key)
+    /// - `{ [ ...` → map literal (computed key)
+    /// - `{ ... ident` → map literal (spread)
+    /// - Everything else → block expression
     ///
     /// Guard: returns `EmptyErr` if not at `{`.
-    fn parse_map_literal(&mut self) -> ParseOutcome<ExprId> {
+    fn parse_block_or_map(&mut self) -> ParseOutcome<ExprId> {
         if !self.cursor.check(&TokenKind::LBrace) {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::LBrace,
                 self.cursor.current_span().start as usize,
             );
         }
-        self.in_error_context(
-            crate::ErrorContext::MapLiteral,
-            Self::parse_map_literal_body,
-        )
+
+        if self.is_map_literal_start() {
+            self.in_error_context(
+                crate::ErrorContext::MapLiteral,
+                Self::parse_map_literal_body,
+            )
+        } else {
+            self.in_error_context(crate::ErrorContext::Expression, Self::parse_block_expr_body)
+        }
+    }
+
+    /// Determine whether `{ ... }` is a map literal or a block expression.
+    ///
+    /// Peeks past `{` and any newlines to examine the first meaningful token(s).
+    /// Returns `true` if this looks like a map literal.
+    fn is_map_literal_start(&self) -> bool {
+        // Skip `{` and any newlines to find the first meaningful token
+        let mut offset = 1;
+        while matches!(self.cursor.peek_kind_at(offset), TokenKind::Newline) {
+            offset += 1;
+        }
+
+        let first = self.cursor.peek_kind_at(offset);
+
+        match first {
+            // `{ }` → empty map, `{ ... expr` → map spread
+            TokenKind::RBrace | TokenKind::DotDotDot => true,
+
+            // Tokens that could be map keys if followed by `:`.
+            // `{ ident :` → map with identifier key
+            // `{ "string" :` → map with string key
+            // `{ 42 :` → map with integer key
+            // `{ 'a' :` → map with char key
+            // `{ true :` → map with bool key
+            TokenKind::Ident(_)
+            | TokenKind::String(_)
+            | TokenKind::Int(_)
+            | TokenKind::Char(_)
+            | TokenKind::True
+            | TokenKind::False => self.peek_colon_after(offset),
+
+            // `{ [expr] :` → map where the key is a bracket expression.
+            // Scan for matching `]` then check if `:` follows.
+            TokenKind::LBracket => {
+                let mut depth = 1u32;
+                let mut scan = offset + 1;
+                loop {
+                    match self.cursor.peek_kind_at(scan) {
+                        TokenKind::LBracket => {
+                            depth += 1;
+                            scan += 1;
+                        }
+                        TokenKind::RBracket => {
+                            depth -= 1;
+                            if depth == 0 {
+                                scan += 1;
+                                break;
+                            }
+                            scan += 1;
+                        }
+                        TokenKind::Eof => return false,
+                        _ => scan += 1,
+                    }
+                }
+                // Skip newlines after `]`, then check for `:`
+                while matches!(self.cursor.peek_kind_at(scan), TokenKind::Newline) {
+                    scan += 1;
+                }
+                matches!(self.cursor.peek_kind_at(scan), TokenKind::Colon)
+            }
+
+            // Everything else → block expression
+            _ => false,
+        }
+    }
+
+    /// Check if a colon follows the token at `offset` (skipping newlines).
+    ///
+    /// Used by `is_map_literal_start()` to detect `key:` patterns.
+    fn peek_colon_after(&self, token_offset: usize) -> bool {
+        let mut next = token_offset + 1;
+        while matches!(self.cursor.peek_kind_at(next), TokenKind::Newline) {
+            next += 1;
+        }
+        matches!(self.cursor.peek_kind_at(next), TokenKind::Colon)
+    }
+
+    /// Parse block expression body: `{ stmt; stmt; result }`.
+    ///
+    /// Produces `ExprKind::Block { stmts, result }`. The last expression without
+    /// a trailing `;` becomes the result (block value). If all expressions have `;`,
+    /// the result is `ExprId::INVALID` (unit block).
+    fn parse_block_expr_body(&mut self) -> ParseOutcome<ExprId> {
+        let span = self.cursor.current_span();
+        self.cursor.advance(); // consume `{`
+        self.cursor.skip_newlines();
+
+        // Collect statements into a local Vec to avoid interleaving with
+        // nested blocks that share the same arena stmt list. The arena's
+        // start_stmts/push_stmt/finish_stmts uses a single flat Vec, so
+        // recursive block parsing would corrupt our range.
+        let mut pending_stmts: Vec<Stmt> = Vec::new();
+        let mut last_expr: Option<ExprId> = None;
+
+        while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
+            self.cursor.skip_newlines();
+            if self.cursor.check(&TokenKind::RBrace) {
+                break;
+            }
+
+            let item_span = self.cursor.current_span();
+
+            if self.cursor.check(&TokenKind::Let) {
+                // Flush any pending expression as a statement
+                if let Some(prev) = last_expr.take() {
+                    let prev_span = self.arena.get_expr(prev).span;
+                    pending_stmts.push(Stmt::new(StmtKind::Expr(prev), prev_span));
+                }
+
+                match self.parse_block_let_binding() {
+                    Ok(stmt) => pending_stmts.push(stmt),
+                    Err(err) => return ParseOutcome::consumed_err(err, item_span),
+                }
+            } else {
+                // Expression
+                let expr = require!(self, self.parse_expr(), "expression in block");
+
+                // Flush any pending expression as a statement
+                if let Some(prev) = last_expr.take() {
+                    let prev_span = self.arena.get_expr(prev).span;
+                    pending_stmts.push(Stmt::new(StmtKind::Expr(prev), prev_span));
+                }
+
+                self.cursor.skip_newlines();
+
+                if self.cursor.check(&TokenKind::Semicolon) {
+                    self.cursor.advance();
+                    let expr_span = self.arena.get_expr(expr).span;
+                    pending_stmts.push(Stmt::new(StmtKind::Expr(expr), expr_span));
+                } else if self.cursor.check(&TokenKind::RBrace) || self.cursor.is_at_end() {
+                    // Expression at end without `;` → this is the result
+                    last_expr = Some(expr);
+                } else {
+                    return ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "expected `;` or `}` after expression in block",
+                            self.cursor.current_span(),
+                        )
+                        .with_help("Add `;` to make this a statement, or `}` to end the block"),
+                        item_span,
+                    );
+                }
+            }
+
+            self.cursor.skip_newlines();
+        }
+
+        let end_span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::RBrace));
+
+        let result = last_expr.unwrap_or(ExprId::INVALID);
+
+        // Batch-push all statements after nested parsing is complete.
+        let stmt_start = self.arena.start_stmts();
+        for stmt in pending_stmts {
+            self.arena.push_stmt(stmt);
+        }
+        let stmts = self.arena.finish_stmts(stmt_start);
+
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::Block { stmts, result },
+            span.merge(end_span),
+        )))
+    }
+
+    /// Parse a let binding inside a block expression, returning the Stmt.
+    ///
+    /// Returns the Stmt directly instead of pushing to the arena, so the
+    /// caller can batch-push after all nested parsing completes.
+    fn parse_block_let_binding(&mut self) -> Result<Stmt, ParseError> {
+        let let_span = self.cursor.current_span();
+        self.cursor.advance(); // consume `let`
+
+        // Don't consume `$` here — let parse_binding_pattern() handle it
+        // so that BindingPattern::Name.mutable is set correctly for both
+        // simple bindings (`let $x = 5`) and destructuring (`let ($a, b) = ...`).
+        let pattern = self.parse_binding_pattern()?;
+
+        // Derive statement-level mutability from the pattern.
+        // For simple Name patterns, this comes from the `$` prefix.
+        // For compound patterns (tuple, struct, list), default to mutable
+        // since per-binding mutability is tracked on sub-patterns.
+        let mutable = match &pattern {
+            BindingPattern::Name { mutable, .. } => *mutable,
+            _ => true,
+        };
+        let pattern_id = self.arena.alloc_binding_pattern(pattern);
+
+        let ty = if self.cursor.check(&TokenKind::Colon) {
+            self.cursor.advance();
+            self.parse_type()
+                .map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
+        } else {
+            ParsedTypeId::INVALID
+        };
+
+        self.cursor.expect(&TokenKind::Eq)?;
+        let init = self.parse_expr().into_result()?;
+        let end_span = self.arena.get_expr(init).span;
+
+        self.cursor.skip_newlines();
+
+        // Let bindings always become statements in blocks
+        if self.cursor.check(&TokenKind::Semicolon) {
+            self.cursor.advance();
+        } else if !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "expected `;` or `}` after let binding in block",
+                self.cursor.current_span(),
+            )
+            .with_help("Add `;` after the let binding: `let x = value;`"));
+        }
+
+        Ok(Stmt::new(
+            StmtKind::Let {
+                pattern: pattern_id,
+                ty,
+                init,
+                mutable,
+            },
+            let_span.merge(end_span),
+        ))
     }
 
     fn parse_map_literal_body(&mut self) -> ParseOutcome<ExprId> {
@@ -1373,8 +1621,9 @@ impl Parser<'_> {
         )))
     }
 
-    /// Parse loop expression: `loop(body)` or `loop:label(body)`
+    /// Parse loop expression: `loop(body)` or `loop { body }`.
     ///
+    /// Supports optional label: `loop:label(body)` / `loop:label { body }`.
     /// The body is evaluated repeatedly until a `break` is encountered.
     ///
     /// Guard: returns `EmptyErr` if not at `loop`.
@@ -1391,22 +1640,29 @@ impl Parser<'_> {
         let span = self.cursor.current_span();
         committed!(self.cursor.expect(&TokenKind::Loop));
 
-        // Parse optional label: loop:label
         let label = self.parse_optional_label();
 
-        committed!(self.cursor.expect(&TokenKind::LParen));
-        self.cursor.skip_newlines();
+        if self.cursor.check(&TokenKind::LParen) {
+            let paren_span = self.cursor.current_span();
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "`loop()` syntax has been removed",
+                    paren_span,
+                )
+                .with_help("Use block syntax instead: `loop { break value }`"),
+                span,
+            );
+        }
 
-        // Parse body expression with IN_LOOP context (enables break/continue)
+        // loop { body }
         let body = require!(
             self,
             self.with_context(ParseContext::IN_LOOP, Self::parse_expr),
             "loop body"
         );
 
-        self.cursor.skip_newlines();
-        let end_span = self.cursor.current_span();
-        committed!(self.cursor.expect(&TokenKind::RParen));
+        let end_span = self.arena.get_expr(body).span;
 
         ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::Loop { label, body },

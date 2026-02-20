@@ -35,19 +35,19 @@ impl Container for StrBox {
 // Tests
 // =============================================================================
 
-@test_int_box_first tests @first () -> void = run(
-    let box = IntBox { value: 42 },
-    let result = box.first(),
-    assert(cond: result.is_some()),
-    assert_eq(actual: result.unwrap(), expected: 42),
-)
+@test_int_box_first tests @first () -> void = {
+    let box = IntBox { value: 42 };
+    let result = box.first();
+    assert(cond: result.is_some());
+    assert_eq(actual: result.unwrap(), expected: 42)
+}
 
-@test_str_box_first tests @first () -> void = run(
-    let box = StrBox { text: "hello" },
-    let result = box.first(),
-    assert(cond: result.is_some()),
-    assert_eq(actual: result.unwrap(), expected: "hello"),
-)
+@test_str_box_first tests @first () -> void = {
+    let box = StrBox { text: "hello" };
+    let result = box.first();
+    assert(cond: result.is_some());
+    assert_eq(actual: result.unwrap(), expected: "hello")
+}
 
 // =============================================================================
 // Associated Type Constraints (where T.Item: Trait)
@@ -56,11 +56,11 @@ impl Container for StrBox {
 // A function that requires the container's Item type to be Eq
 @needs_eq_item<C: Container> (c: C) -> bool where C.Item: Eq = true
 
-@test_needs_eq_item () -> void = run(
+@test_needs_eq_item () -> void = {
     // IntBox.Item = int, and int: Eq, so this should work
-    let box = IntBox { value: 42 },
-    assert(cond: needs_eq_item(c: box)),
-)
+    let box = IntBox { value: 42 };
+    assert(cond: needs_eq_item(c: box))
+}
 
 // Type with a non-Eq associated type (lambdas don't implement Eq)
 type FnBox = { func: () -> int }
@@ -72,8 +72,8 @@ impl Container for FnBox {
 
 // This should fail: FnBox.Item = () -> int, and functions don't implement Eq
 #[compile_fail("does not satisfy trait bound `Eq`")]
-@test_fnbox_fails_eq_constraint () -> void = run(
-    let box = FnBox { func: () -> 42 },
-    needs_eq_item(c: box),
-)
+@test_fnbox_fails_eq_constraint () -> void = {
+    let box = FnBox { func: () -> 42 };
+    needs_eq_item(c: box)
+}
 

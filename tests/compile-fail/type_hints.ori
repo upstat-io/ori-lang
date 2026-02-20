@@ -14,17 +14,17 @@
 
 // When float is passed where int is expected, suggest int(x)
 #compile_fail("int(x)")
-@test_float_to_int_hint tests @takes_int () -> void = run(
-    let result = takes_int(x: 3.14),
+@test_float_to_int_hint tests @takes_int () -> void = {
+    let result = takes_int(x: 3.14);
     ()
-)
+}
 
 // When int is passed where float is expected, suggest float(x)
 #compile_fail("float(x)")
-@test_int_to_float_hint tests @takes_float () -> void = run(
-    let result = takes_float(x: 42),
+@test_int_to_float_hint tests @takes_float () -> void = {
+    let result = takes_float(x: 42);
     ()
-)
+}
 
 // =============================================================================
 // str <-> int/byte hints
@@ -35,17 +35,17 @@
 
 // When int is passed where str is expected, suggest str(x)
 #compile_fail("str(x)")
-@test_int_to_str_hint tests @takes_str () -> void = run(
-    let result = takes_str(s: 42),
+@test_int_to_str_hint tests @takes_str () -> void = {
+    let result = takes_str(s: 42);
     ()
-)
+}
 
 // When str is passed where byte is expected (only makes sense for single chars)
 #compile_fail("byte(x)")
-@test_str_to_byte_hint tests @takes_byte () -> void = run(
-    let result = takes_byte(b: "a"),
+@test_str_to_byte_hint tests @takes_byte () -> void = {
+    let result = takes_byte(b: "a");
     ()
-)
+}
 
 // =============================================================================
 // List wrapping hints
@@ -55,10 +55,10 @@
 
 // When a plain value is passed where list is expected, suggest [x]
 #compile_fail("[x]")
-@test_wrap_in_list_hint tests @takes_list () -> void = run(
-    let result = takes_list(items: 42),
+@test_wrap_in_list_hint tests @takes_list () -> void = {
+    let result = takes_list(items: 42);
     ()
-)
+}
 
 // =============================================================================
 // Option/Result wrapping hints
@@ -67,13 +67,13 @@
 // =============================================================================
 
 // Helper that returns an Option to trigger type inference
-@make_option (x: int) -> int = run(
+@make_option (x: int) -> int = {
     // Some returns Option<int>
-    match(Some(x),
+    match Some(x) {
         Some(n) -> n,
-        None -> 0,
-    ),
-)
+        None -> 0
+    }
+}
 
 // The conversion hints for Option (Some(x)) and Result (Ok(x)/Err(x))
 // are implemented in the type checker. They will be tested when

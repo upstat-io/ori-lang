@@ -20,7 +20,7 @@
 // // parallel uses list-only form and returns [Result<T, E>]
 // // All tasks run to completion; errors captured as Err values.
 //
-// @test_parallel_list_success tests @parallel_list_success () -> void = run(
+// @test_parallel_list_success tests @parallel_list_success () -> void = {
 //     let results = parallel(
 //         tasks: [1 + 1, 2 + 2, 3 + 3],
 //     ),
@@ -29,15 +29,15 @@
 //         actual: len(collection: results),
 //         expected: 3,
 //     ),
-// )
+// }
 //
-// @parallel_list_success () = run(
+// @parallel_list_success () = {
 //     parallel(
 //         tasks: [1 + 1, 2 + 2, 3 + 3],
 //     ),
-// )
+// }
 //
-// @test_parallel_empty_tasks tests @parallel_empty_tasks () -> void = run(
+// @test_parallel_empty_tasks tests @parallel_empty_tasks () -> void = {
 //     let results = parallel(
 //         tasks: [],
 //     ),
@@ -45,15 +45,15 @@
 //         actual: len(collection: results),
 //         expected: 0,
 //     ),
-// )
+// }
 //
-// @parallel_empty_tasks () = run(
+// @parallel_empty_tasks () = {
 //     parallel(
 //         tasks: [],
 //     ),
-// )
+// }
 //
-// @test_parallel_single_task tests @parallel_single_task () -> void = run(
+// @test_parallel_single_task tests @parallel_single_task () -> void = {
 //     let results = parallel(
 //         tasks: [42],
 //     ),
@@ -61,16 +61,16 @@
 //         actual: len(collection: results),
 //         expected: 1,
 //     ),
-// )
+// }
 //
-// @parallel_single_task () = run(
+// @parallel_single_task () = {
 //     parallel(
 //         tasks: [42],
 //     ),
-// )
+// }
 //
 // // parallel with mixed Ok/Err values - all settle, none fail pattern itself
-// @test_parallel_mixed_results tests @parallel_mixed_results () -> void = run(
+// @test_parallel_mixed_results tests @parallel_mixed_results () -> void = {
 //     let results = parallel(
 //         tasks: [Ok(1), Err("failed"), Ok(3)],
 //     ),
@@ -79,19 +79,19 @@
 //         actual: len(collection: results),
 //         expected: 3,
 //     ),
-// )
+// }
 //
-// @parallel_mixed_results () = run(
+// @parallel_mixed_results () = {
 //     parallel(
 //         tasks: [Ok(1), Err("failed"), Ok(3)],
 //     ),
-// )
+// }
 //
 // // =============================================================================
 // // parallel with .timeout (per-task timeout)
 // // =============================================================================
 //
-// @test_parallel_with_timeout tests @parallel_with_timeout () -> void = run(
+// @test_parallel_with_timeout tests @parallel_with_timeout () -> void = {
 //     let results = parallel(
 //         tasks: [1, 2, 3],
 //         timeout: 5s,
@@ -100,20 +100,20 @@
 //         actual: len(collection: results),
 //         expected: 3,
 //     ),
-// )
+// }
 //
-// @parallel_with_timeout () = run(
+// @parallel_with_timeout () = {
 //     parallel(
 //         tasks: [1, 2, 3],
 //         timeout: 5s,
 //     ),
-// )
+// }
 //
 // // =============================================================================
 // // parallel with .max_concurrent
 // // =============================================================================
 //
-// @test_parallel_max_concurrent tests @parallel_max_concurrent () -> void = run(
+// @test_parallel_max_concurrent tests @parallel_max_concurrent () -> void = {
 //     let results = parallel(
 //         tasks: [1, 2, 3, 4, 5],
 //         max_concurrent: 2,
@@ -122,14 +122,14 @@
 //         actual: len(collection: results),
 //         expected: 5,
 //     ),
-// )
+// }
 //
-// @parallel_max_concurrent () = run(
+// @parallel_max_concurrent () = {
 //     parallel(
 //         tasks: [1, 2, 3, 4, 5],
 //         max_concurrent: 2,
 //     ),
-// )
+// }
 //
 // // =============================================================================
 // // spawn Pattern (Fire and Forget)
@@ -138,44 +138,44 @@
 // // spawn executes tasks but returns void immediately
 // // NOTE: In test environment, tasks may execute synchronously
 //
-// @test_spawn_basic tests @spawn_basic () -> void = run(
+// @test_spawn_basic tests @spawn_basic () -> void = {
 //     spawn(
 //         tasks: [1, 2, 3],
 //     ),
 //     // spawn returns void, so this just verifies it doesn't error
-// )
+// }
 //
-// @spawn_basic () -> void = run(
+// @spawn_basic () -> void = {
 //     spawn(
 //         tasks: [1, 2, 3],
 //     ),
-// )
+// }
 //
-// @test_spawn_empty tests @spawn_empty () -> void = run(
+// @test_spawn_empty tests @spawn_empty () -> void = {
 //     spawn(
 //         tasks: [],
 //     ),
-// )
+// }
 //
-// @spawn_empty () -> void = run(
+// @spawn_empty () -> void = {
 //     spawn(
 //         tasks: [],
 //     ),
-// )
+// }
 //
-// @test_spawn_max_concurrent tests @spawn_max_concurrent () -> void = run(
+// @test_spawn_max_concurrent tests @spawn_max_concurrent () -> void = {
 //     spawn(
 //         tasks: [1, 2, 3, 4],
 //         max_concurrent: 2,
 //     ),
-// )
+// }
 //
-// @spawn_max_concurrent () -> void = run(
+// @spawn_max_concurrent () -> void = {
 //     spawn(
 //         tasks: [1, 2, 3, 4],
 //         max_concurrent: 2,
 //     ),
-// )
+// }
 //
 // // =============================================================================
 // // timeout Pattern (Time-Bounded Execution)
@@ -184,7 +184,7 @@
 // // NOTE: In the interpreter, timeout is not actually enforced.
 // // The stub wraps result in Ok(), returning Result<T, TimeoutError>.
 //
-// @test_timeout_success tests @timeout_success () -> void = run(
+// @test_timeout_success tests @timeout_success () -> void = {
 //     let result = timeout(
 //         operation: 42,
 //         after: 5s,
@@ -193,16 +193,16 @@
 //     assert(
 //         cond: is_ok(r: result),
 //     ),
-// )
+// }
 //
-// @timeout_success () = run(
+// @timeout_success () = {
 //     timeout(
 //         operation: 42,
 //         after: 5s,
 //     ),
-// )
+// }
 //
-// @test_timeout_with_expression tests @timeout_with_expression () -> void = run(
+// @test_timeout_with_expression tests @timeout_with_expression () -> void = {
 //     let result = timeout(
 //         operation: 10 + 20 + 30,
 //         after: 1000ms,
@@ -211,16 +211,16 @@
 //     assert(
 //         cond: is_ok(r: result),
 //     ),
-// )
+// }
 //
-// @timeout_with_expression () = run(
+// @timeout_with_expression () = {
 //     timeout(
 //         operation: 10 + 20 + 30,
 //         after: 1000ms,
 //     ),
-// )
+// }
 //
-// @test_timeout_with_minutes tests @timeout_with_minutes () -> void = run(
+// @test_timeout_with_minutes tests @timeout_with_minutes () -> void = {
 //     let result = timeout(
 //         operation: "hello",
 //         after: 2m,
@@ -228,16 +228,16 @@
 //     assert(
 //         cond: is_ok(r: result),
 //     ),
-// )
+// }
 //
-// @timeout_with_minutes () = run(
+// @timeout_with_minutes () = {
 //     timeout(
 //         operation: "hello",
 //         after: 2m,
 //     ),
-// )
+// }
 //
-// @test_timeout_with_hours tests @timeout_with_hours () -> void = run(
+// @test_timeout_with_hours tests @timeout_with_hours () -> void = {
 //     let result = timeout(
 //         operation: true,
 //         after: 1h,
@@ -245,14 +245,14 @@
 //     assert(
 //         cond: is_ok(r: result),
 //     ),
-// )
+// }
 //
-// @timeout_with_hours () = run(
+// @timeout_with_hours () = {
 //     timeout(
 //         operation: true,
 //         after: 1h,
 //     ),
-// )
+// }
 //
 // // =============================================================================
 // // retry Pattern (Retry with Backoff)
@@ -261,7 +261,7 @@
 // // NOTE: retry is not implemented - awaiting stdlib
 //
 // #[skip("retry not implemented - awaiting stdlib")]
-// @test_retry_immediate_success tests @retry_immediate_success () -> void = run(
+// @test_retry_immediate_success tests @retry_immediate_success () -> void = {
 //     let result = retry(
 //         operation: Ok(100),
 //         attempts: 3,
@@ -269,7 +269,7 @@
 //     assert(
 //         cond: is_ok(r: result),
 //     ),
-// )
+// }
 //
 // @retry_immediate_success () = Ok(100)
 //
@@ -279,7 +279,7 @@
 //
 // // NOTE: cache stub executes .compute without actual caching
 //
-// @test_cache_compute tests @cache_compute () -> void = run(
+// @test_cache_compute tests @cache_compute () -> void = {
 //     let result = cache(
 //         operation: 42,
 //     ),
@@ -287,15 +287,15 @@
 //         actual: result,
 //         expected: 42,
 //     ),
-// )
+// }
 //
-// @cache_compute () -> int = run(
+// @cache_compute () -> int = {
 //     cache(
 //         operation: 42,
 //     ),
-// )
+// }
 //
-// @test_cache_with_key tests @cache_with_key () -> void = run(
+// @test_cache_with_key tests @cache_with_key () -> void = {
 //     let result = cache(
 //         key: "test_key",
 //         operation: 100,
@@ -304,11 +304,11 @@
 //         actual: result,
 //         expected: 100,
 //     ),
-// )
+// }
 //
-// @cache_with_key () -> int = run(
+// @cache_with_key () -> int = {
 //     cache(
 //         key: "test_key",
 //         operation: 100,
 //     ),
-// )
+// }

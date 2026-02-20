@@ -100,8 +100,8 @@ pub(super) fn loop_width<I: StringLookup>(
     } else {
         1 + calc.interner.lookup(label).len()
     };
-    // "loop" + label + "(" + body + ")"
-    4 + lw + 1 + body_w + 1
+    // "loop" + label + " " + body
+    4 + lw + 1 + body_w
 }
 
 /// Calculate width of `expr as type` or `expr as? type`.

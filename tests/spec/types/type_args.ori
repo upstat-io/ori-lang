@@ -10,24 +10,24 @@ use std.prelude { is_some, is_ok }
 
 type Container<T> = { value: T }
 
-@test_single_type_arg tests @single_type_arg () -> void = run(
-    let c: Container<int> = Container { value: 42 },
-    assert_eq(actual: c.value, expected: 42),
-)
+@test_single_type_arg tests @single_type_arg () -> void = {
+    let c: Container<int> = Container { value: 42 };
+    assert_eq(actual: c.value, expected: 42)
+}
 
 @single_type_arg () -> Container<int> = Container { value: 42 }
 
-@test_type_arg_str tests @type_arg_str () -> void = run(
-    let c: Container<str> = Container { value: "hello" },
-    assert_eq(actual: c.value, expected: "hello"),
-)
+@test_type_arg_str tests @type_arg_str () -> void = {
+    let c: Container<str> = Container { value: "hello" };
+    assert_eq(actual: c.value, expected: "hello")
+}
 
 @type_arg_str () -> Container<str> = Container { value: "hello" }
 
-@test_type_arg_bool tests @type_arg_bool () -> void = run(
-    let c: Container<bool> = Container { value: true },
-    assert(cond: c.value),
-)
+@test_type_arg_bool tests @type_arg_bool () -> void = {
+    let c: Container<bool> = Container { value: true };
+    assert(cond: c.value)
+}
 
 @type_arg_bool () -> Container<bool> = Container { value: true }
 
@@ -37,22 +37,22 @@ type Container<T> = { value: T }
 
 type Pair<A, B> = { first: A, second: B }
 
-@test_two_type_args tests @two_type_args () -> void = run(
-    let p: Pair<int, str> = Pair { first: 42, second: "answer" },
-    assert_eq(actual: p.first, expected: 42),
-    assert_eq(actual: p.second, expected: "answer"),
-)
+@test_two_type_args tests @two_type_args () -> void = {
+    let p: Pair<int, str> = Pair { first: 42, second: "answer" };
+    assert_eq(actual: p.first, expected: 42);
+    assert_eq(actual: p.second, expected: "answer")
+}
 
 @two_type_args () -> Pair<int, str> = Pair { first: 42, second: "answer" }
 
 type Triple<A, B, C> = { a: A, b: B, c: C }
 
-@test_three_type_args tests @three_type_args () -> void = run(
-    let t: Triple<int, str, bool> = Triple { a: 1, b: "two", c: true },
-    assert_eq(actual: t.a, expected: 1),
-    assert_eq(actual: t.b, expected: "two"),
-    assert(cond: t.c),
-)
+@test_three_type_args tests @three_type_args () -> void = {
+    let t: Triple<int, str, bool> = Triple { a: 1, b: "two", c: true };
+    assert_eq(actual: t.a, expected: 1);
+    assert_eq(actual: t.b, expected: "two");
+    assert(cond: t.c)
+}
 
 @three_type_args () -> Triple<int, str, bool> = Triple { a: 1, b: "two", c: true }
 
@@ -60,24 +60,24 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 // Nested Type Arguments
 // =============================================================================
 
-@test_nested_generics tests @nested_generics () -> void = run(
-    let c: Container<Container<int>> = Container { value: Container { value: 99 } },
-    assert_eq(actual: c.value.value, expected: 99),
-)
+@test_nested_generics tests @nested_generics () -> void = {
+    let c: Container<Container<int>> = Container { value: Container { value: 99 } };
+    assert_eq(actual: c.value.value, expected: 99)
+}
 
 @nested_generics () -> Container<Container<int>> = Container { value: Container { value: 99 } }
 
-@test_option_of_option tests @option_of_option () -> void = run(
-    let opt: Option<Option<int>> = Some(Some(42)),
-    assert(cond: is_some(opt: opt)),
-)
+@test_option_of_option tests @option_of_option () -> void = {
+    let opt: Option<Option<int>> = Some(Some(42));
+    assert(cond: is_some(opt: opt))
+}
 
 @option_of_option () -> Option<Option<int>> = Some(Some(42))
 
-@test_result_of_result tests @result_of_result () -> void = run(
-    let res: Result<Result<int, str>, str> = Ok(Ok(100)),
-    assert(cond: is_ok(r: res)),
-)
+@test_result_of_result tests @result_of_result () -> void = {
+    let res: Result<Result<int, str>, str> = Ok(Ok(100));
+    assert(cond: is_ok(r: res))
+}
 
 @result_of_result () -> Result<Result<int, str>, str> = Ok(Ok(100))
 
@@ -87,29 +87,29 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 
 @identity<T> (x: T) -> T = x
 
-@test_generic_fn_int tests @generic_fn_int () -> void = run(
-    let result = identity(x: 42),
-    assert_eq(actual: result, expected: 42),
-)
+@test_generic_fn_int tests @generic_fn_int () -> void = {
+    let result = identity(x: 42);
+    assert_eq(actual: result, expected: 42)
+}
 
 @generic_fn_int () -> int = identity(x: 42)
 
-@test_generic_fn_str tests @generic_fn_str () -> void = run(
-    let result = identity(x: "hello"),
-    assert_eq(actual: result, expected: "hello"),
-)
+@test_generic_fn_str tests @generic_fn_str () -> void = {
+    let result = identity(x: "hello");
+    assert_eq(actual: result, expected: "hello")
+}
 
 @generic_fn_str () -> str = identity(x: "hello")
 
-@first<A, B> (pair: (A, B)) -> A = run(
-    let (a, _b) = pair,
-    a,
-)
+@first<A, B> (pair: (A, B)) -> A = {
+    let (a, _b) = pair;
+    a
+}
 
-@test_generic_fn_two_params tests @generic_fn_two_params () -> void = run(
-    let result = first(pair: (10, "ten")),
-    assert_eq(actual: result, expected: 10),
-)
+@test_generic_fn_two_params tests @generic_fn_two_params () -> void = {
+    let result = first(pair: (10, "ten"));
+    assert_eq(actual: result, expected: 10)
+}
 
 @generic_fn_two_params () -> int = first(pair: (10, "ten"))
 
@@ -117,24 +117,24 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 // Type Arguments with Collections
 // =============================================================================
 
-@test_list_of_options tests @list_of_options () -> void = run(
-    let items: [Option<int>] = [Some(1), None, Some(3)],
-    assert_eq(actual: items.len(), expected: 3),
-)
+@test_list_of_options tests @list_of_options () -> void = {
+    let items: [Option<int>] = [Some(1), None, Some(3)];
+    assert_eq(actual: items.len(), expected: 3)
+}
 
 @list_of_options () -> [Option<int>] = [Some(1), None, Some(3)]
 
-@test_option_of_list tests @option_of_list () -> void = run(
-    let opt: Option<[int]> = Some([1, 2, 3]),
-    assert(cond: is_some(opt: opt)),
-)
+@test_option_of_list tests @option_of_list () -> void = {
+    let opt: Option<[int]> = Some([1, 2, 3]);
+    assert(cond: is_some(opt: opt))
+}
 
 @option_of_list () -> Option<[int]> = Some([1, 2, 3])
 
-@test_map_with_generic_value tests @map_with_generic_value () -> void = run(
-    let m: {str: Option<int>} = {"a": Some(1), "b": None},
-    assert_eq(actual: m.len(), expected: 2),
-)
+@test_map_with_generic_value tests @map_with_generic_value () -> void = {
+    let m: {str: Option<int>} = {"a": Some(1), "b": None};
+    assert_eq(actual: m.len(), expected: 2)
+}
 
 @map_with_generic_value () -> {str: Option<int>} = {"a": Some(1), "b": None}
 
@@ -142,27 +142,27 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 // Inferred vs Explicit Type Arguments
 // =============================================================================
 
-@test_inferred_type_arg tests @inferred_type_arg () -> void = run(
+@test_inferred_type_arg tests @inferred_type_arg () -> void = {
     // Type argument inferred from context
-    let c = Container { value: 42 },
-    assert_eq(actual: c.value, expected: 42),
-)
+    let c = Container { value: 42 };
+    assert_eq(actual: c.value, expected: 42)
+}
 
-@inferred_type_arg () -> int = run(
-    let c = Container { value: 42 },
-    c.value,
-)
+@inferred_type_arg () -> int = {
+    let c = Container { value: 42 };
+    c.value
+}
 
-@test_explicit_type_arg tests @explicit_type_arg () -> void = run(
+@test_explicit_type_arg tests @explicit_type_arg () -> void = {
     // Explicit type annotation
-    let c: Container<int> = Container { value: 42 },
-    assert_eq(actual: c.value, expected: 42),
-)
+    let c: Container<int> = Container { value: 42 };
+    assert_eq(actual: c.value, expected: 42)
+}
 
-@explicit_type_arg () -> int = run(
-    let c: Container<int> = Container { value: 42 },
-    c.value,
-)
+@explicit_type_arg () -> int = {
+    let c: Container<int> = Container { value: 42 };
+    c.value
+}
 
 // =============================================================================
 // Type Arguments in Return Position
@@ -170,19 +170,19 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 
 @make_some<T> (x: T) -> Option<T> = Some(x)
 
-@test_return_generic tests @return_generic () -> void = run(
-    let opt = make_some(x: 42),
-    assert(cond: is_some(opt: opt)),
-)
+@test_return_generic tests @return_generic () -> void = {
+    let opt = make_some(x: 42);
+    assert(cond: is_some(opt: opt))
+}
 
 @return_generic () -> Option<int> = make_some(x: 42)
 
 @make_ok<T> (x: T) -> Result<T, str> = Ok(x)
 
-@test_return_result_generic tests @return_result_generic () -> void = run(
-    let res = make_ok(x: "hello"),
-    assert(cond: is_ok(r: res)),
-)
+@test_return_result_generic tests @return_result_generic () -> void = {
+    let res = make_ok(x: "hello");
+    assert(cond: is_ok(r: res))
+}
 
 @return_result_generic () -> Result<str, str> = make_ok(x: "hello")
 
@@ -190,21 +190,21 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 // Complex Nested Type Arguments
 // =============================================================================
 
-@test_deeply_nested tests @deeply_nested () -> void = run(
-    let deep: Option<Result<Container<int>, str>> = Some(Ok(Container { value: 42 })),
-    assert(cond: is_some(opt: deep)),
-)
+@test_deeply_nested tests @deeply_nested () -> void = {
+    let deep: Option<Result<Container<int>, str>> = Some(Ok(Container { value: 42 }));
+    assert(cond: is_some(opt: deep))
+}
 
 @deeply_nested () -> Option<Result<Container<int>, str>> = Some(Ok(Container { value: 42 }))
 
-@test_pair_of_containers tests @pair_of_containers () -> void = run(
+@test_pair_of_containers tests @pair_of_containers () -> void = {
     let p: Pair<Container<int>, Container<str>> = Pair {
         first: Container { value: 1 },
         second: Container { value: "one" },
-    },
-    assert_eq(actual: p.first.value, expected: 1),
-    assert_eq(actual: p.second.value, expected: "one"),
-)
+    };
+    assert_eq(actual: p.first.value, expected: 1);
+    assert_eq(actual: p.second.value, expected: "one")
+}
 
 @pair_of_containers () -> Pair<Container<int>, Container<str>> = Pair {
     first: Container { value: 1 },

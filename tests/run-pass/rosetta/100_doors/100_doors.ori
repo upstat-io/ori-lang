@@ -9,13 +9,13 @@ use std.testing { assert, assert_eq, assert_ne }
 // Returns doors that remain open after 100 passes (perfect squares)
 @open_doors () -> [int] = (1..11).map(transform: n -> n * n)
 
-@test_perfect_squares tests @open_doors () -> void = run(
+@test_perfect_squares tests @open_doors () -> void = {
     assert_eq(
         actual: open_doors(),
         expected: [1, 4, 9, 16, 25, 36, 49, 64, 81, 100],
-    ),
-)
+    )
+}
 
-@test_count tests @open_doors () -> void = run(
-    assert_eq(actual: len(collection: open_doors()), expected: 10),
-)
+@test_count tests @open_doors () -> void = {
+    assert_eq(actual: len(collection: open_doors()), expected: 10)
+}

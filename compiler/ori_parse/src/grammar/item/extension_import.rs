@@ -58,6 +58,8 @@ impl Parser<'_> {
 
         let end_span = self.cursor.previous_span();
 
+        self.eat_optional_semicolon();
+
         ParseOutcome::consumed_ok(ExtensionImport {
             path,
             items,

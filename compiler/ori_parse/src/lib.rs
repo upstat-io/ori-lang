@@ -53,9 +53,6 @@ pub(crate) struct KnownNames {
     pub channel_in: Name,
     pub channel_out: Name,
     pub channel_all: Name,
-    // Check properties
-    pub pre_check: Name,
-    pub post_check: Name,
     // For-pattern properties
     pub over: Name,
     pub map: Name,
@@ -73,8 +70,6 @@ impl KnownNames {
             channel_in: interner.intern("channel_in"),
             channel_out: interner.intern("channel_out"),
             channel_all: interner.intern("channel_all"),
-            pre_check: interner.intern("pre_check"),
-            post_check: interner.intern("post_check"),
             over: interner.intern("over"),
             map: interner.intern("map"),
             match_: interner.intern("match"),
@@ -805,6 +800,27 @@ impl<'a> Parser<'a> {
                 found: self.cursor.current_kind().clone(),
             };
             errors.push(ParseError::from_kind(&kind, self.cursor.current_span()));
+            self.cursor.advance();
+        }
+    }
+
+    /// Expect a trailing semicolon after a top-level item.
+    ///
+    /// Items like `use`, `let $`, `capset`, and trait method signatures
+    /// always require `;`.
+    pub(crate) fn eat_optional_semicolon(&mut self) {
+        if self.cursor.check(&TokenKind::Semicolon) {
+            self.cursor.advance();
+        }
+    }
+
+    /// Consume a semicolon if the previous token was NOT `}`.
+    ///
+    /// Per grammar: function/test/method bodies that end with `}` (block body)
+    /// don't need a trailing `;`. Non-block bodies (e.g., `@f () -> int = 42;`)
+    /// require `;` to terminate.
+    pub(crate) fn eat_optional_item_semicolon(&mut self) {
+        if self.cursor.check(&TokenKind::Semicolon) {
             self.cursor.advance();
         }
     }

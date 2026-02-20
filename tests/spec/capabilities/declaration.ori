@@ -30,28 +30,28 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // Test pure function works
-@test_pure_function tests @add () -> void = run(
+@test_pure_function tests @add () -> void = {
     assert_eq(
         actual: add(a: 1, b: 2),
         expected: 3,
-    ),
-)
+    )
+}
 
 // Test function with capability can be called (when capability is provided)
-@test_with_capability tests @fetch_data () -> void = run(
+@test_with_capability tests @fetch_data () -> void = {
     // Provide a mock capability
-    let result = with Http = "mock" in fetch_data(url: "test"),
+    let result = with Http = "mock" in fetch_data(url: "test");
     assert_eq(
         actual: result,
         expected: "test",
-    ),
-)
+    )
+}
 
 // Test generic function with capability
-@test_generic_with_capability tests @process () -> void = run(
-    let result = with Logger = "mock" in process(data: 42),
+@test_generic_with_capability tests @process () -> void = {
+    let result = with Logger = "mock" in process(data: 42);
     assert_eq(
         actual: result,
         expected: 42,
-    ),
-)
+    )
+}

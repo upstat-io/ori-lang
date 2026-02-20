@@ -32,10 +32,10 @@ fn test_runner_passing_test() {
         r#"
 @add (a: int, b: int) -> int = a + b
 
-@test_add tests @add () -> void = run(
-let result = add(a: 1, b: 2),
+@test_add tests @add () -> void = {
+let result = add(a: 1, b: 2);
 print(msg: "done")
-)
+}
 "#,
     )
     .unwrap();
@@ -57,11 +57,11 @@ fn test_runner_failing_test() {
         r"
 @add (a: int, b: int) -> int = a + b
 
-@test_add tests @add () -> void = run(
-let _ = add(a: 1, b: 2),
-let _ = 1 / 0,
+@test_add tests @add () -> void = {
+let _ = add(a: 1, b: 2);
+let _ = 1 / 0;
 ()
-)
+}
 ",
     )
     .unwrap();

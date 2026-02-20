@@ -13,18 +13,18 @@ impl Index<int, Option<str>> for Sparse {
     @index (self, key: int) -> Option<str> = self.data[key]
 }
 
-@sparse_found () -> Option<str> = run(
-    let s = Sparse { data: { 0: "zero", 5: "five" } },
+@sparse_found () -> Option<str> = {
+    let s = Sparse { data: { 0: "zero", 5: "five" } };
     s[5]
-)
+}
 
 @test_sparse_found tests @sparse_found () -> void =
     assert_eq(actual: sparse_found(), expected: Some("five"))
 
-@sparse_missing () -> Option<str> = run(
-    let s = Sparse { data: { 0: "zero", 5: "five" } },
+@sparse_missing () -> Option<str> = {
+    let s = Sparse { data: { 0: "zero", 5: "five" } };
     s[99]
-)
+}
 
 @test_sparse_missing tests @sparse_missing () -> void =
     assert_eq(actual: sparse_missing(), expected: None)
@@ -33,10 +33,10 @@ impl Index<int, Option<str>> for Sparse {
 // Using ?? with Index result
 // =============================================================================
 
-@sparse_with_default () -> str = run(
-    let s = Sparse { data: { 0: "zero" } },
+@sparse_with_default () -> str = {
+    let s = Sparse { data: { 0: "zero" } };
     s[99] ?? "default"
-)
+}
 
 @test_sparse_with_default tests @sparse_with_default () -> void =
     assert_eq(actual: sparse_with_default(), expected: "default")

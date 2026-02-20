@@ -10,16 +10,16 @@ use std.testing { assert, assert_eq }
 // Basic line comment - verifies comments don't affect parsing
 @basic_comment () -> int = 42
 
-@test_basic_comment tests @basic_comment () -> void = run(
-    assert_eq(actual: basic_comment(), expected: 42),
-)
+@test_basic_comment tests @basic_comment () -> void = {
+    assert_eq(actual: basic_comment(), expected: 42)
+}
 
 // Comment with no content after //
 @empty_comment () -> int = 100
 
-@test_empty_comment tests @empty_comment () -> void = run(
-    assert_eq(actual: empty_comment(), expected: 100),
-)
+@test_empty_comment tests @empty_comment () -> void = {
+    assert_eq(actual: empty_comment(), expected: 100)
+}
 
 // =============================================================================
 // Doc Comments - Description
@@ -30,9 +30,9 @@ use std.testing { assert, assert_eq }
 // And explains what the function does
 @doc_description (x: int) -> int = x * 2
 
-@test_doc_description tests @doc_description () -> void = run(
-    assert_eq(actual: doc_description(x: 5), expected: 10),
-)
+@test_doc_description tests @doc_description () -> void = {
+    assert_eq(actual: doc_description(x: 5), expected: 10)
+}
 
 // =============================================================================
 // Doc Comments - Parameter Marker (*)
@@ -43,9 +43,9 @@ use std.testing { assert, assert_eq }
 // * b: The second operand
 @doc_params (a: int, b: int) -> int = a + b
 
-@test_doc_params tests @doc_params () -> void = run(
-    assert_eq(actual: doc_params(a: 3, b: 4), expected: 7),
-)
+@test_doc_params tests @doc_params () -> void = {
+    assert_eq(actual: doc_params(a: 3, b: 4), expected: 7)
+}
 
 // =============================================================================
 // Doc Comments - Warning Marker (!)
@@ -55,9 +55,9 @@ use std.testing { assert, assert_eq }
 // ! Panics if b is zero
 @doc_warning (a: int, b: int) -> int = a / b
 
-@test_doc_warning tests @doc_warning () -> void = run(
-    assert_eq(actual: doc_warning(a: 10, b: 2), expected: 5),
-)
+@test_doc_warning tests @doc_warning () -> void = {
+    assert_eq(actual: doc_warning(a: 10, b: 2), expected: 5)
+}
 
 // =============================================================================
 // Doc Comments - Example Marker (>)
@@ -68,10 +68,10 @@ use std.testing { assert, assert_eq }
 // > square(x: -2) -> 4
 @doc_example (x: int) -> int = x * x
 
-@test_doc_example tests @doc_example () -> void = run(
-    assert_eq(actual: doc_example(x: 3), expected: 9),
-    assert_eq(actual: doc_example(x: -2), expected: 4),
-)
+@test_doc_example tests @doc_example () -> void = {
+    assert_eq(actual: doc_example(x: 3), expected: 9);
+    assert_eq(actual: doc_example(x: -2), expected: 4)
+}
 
 // =============================================================================
 // Doc Comments - All Markers Combined
@@ -84,10 +84,10 @@ use std.testing { assert, assert_eq }
 // > factorial_doc(n: 5) -> 120
 @factorial_doc (n: int) -> int = if n <= 1 then 1 else n * factorial_doc(n: n - 1)
 
-@test_factorial_doc tests @factorial_doc () -> void = run(
-    assert_eq(actual: factorial_doc(n: 0), expected: 1),
-    assert_eq(actual: factorial_doc(n: 5), expected: 120),
-)
+@test_factorial_doc tests @factorial_doc () -> void = {
+    assert_eq(actual: factorial_doc(n: 0), expected: 1);
+    assert_eq(actual: factorial_doc(n: 5), expected: 120)
+}
 
 // =============================================================================
 // Multiple Consecutive Comments
@@ -100,33 +100,33 @@ use std.testing { assert, assert_eq }
 // Line 5 of comment block
 @multi_line_comments () -> int = 100
 
-@test_multi_line_comments tests @multi_line_comments () -> void = run(
-    assert_eq(actual: multi_line_comments(), expected: 100),
-)
+@test_multi_line_comments tests @multi_line_comments () -> void = {
+    assert_eq(actual: multi_line_comments(), expected: 100)
+}
 
 // =============================================================================
 // Inline Comments (End of Line)
 // =============================================================================
 
-@inline_comment_basic () -> int = run(
-    let x = 10, // inline comment after binding
-    x,
-)
+@inline_comment_basic () -> int = {
+    let x = 10; // inline comment after binding
+    x
+}
 
-@test_inline_comment_basic tests @inline_comment_basic () -> void = run(
-    assert_eq(actual: inline_comment_basic(), expected: 10),
-)
+@test_inline_comment_basic tests @inline_comment_basic () -> void = {
+    assert_eq(actual: inline_comment_basic(), expected: 10)
+}
 
-@inline_comment_multi () -> int = run(
-    let a = 1, // first
-    let b = 2, // second
-    let c = 3, // third
-    a + b + c, // result
-)
+@inline_comment_multi () -> int = {
+    let a = 1; // first
+    let b = 2; // second
+    let c = 3; // third
+    a + b + c // result
+}
 
-@test_inline_comment_multi tests @inline_comment_multi () -> void = run(
-    assert_eq(actual: inline_comment_multi(), expected: 6),
-)
+@test_inline_comment_multi tests @inline_comment_multi () -> void = {
+    assert_eq(actual: inline_comment_multi(), expected: 6)
+}
 
 // =============================================================================
 // Comments Between Declarations
@@ -140,10 +140,10 @@ use std.testing { assert, assert_eq }
 // Second function
 @comment_between_2 () -> int = 2
 
-@test_comment_between tests @comment_between_1 tests @comment_between_2 () -> void = run(
-    assert_eq(actual: comment_between_1(), expected: 1),
-    assert_eq(actual: comment_between_2(), expected: 2),
-)
+@test_comment_between tests @comment_between_1 tests @comment_between_2 () -> void = {
+    assert_eq(actual: comment_between_1(), expected: 1);
+    assert_eq(actual: comment_between_2(), expected: 2)
+}
 
 // =============================================================================
 // Comments with Special Characters
@@ -152,16 +152,16 @@ use std.testing { assert, assert_eq }
 // Comment with symbols: !@#$%^&*()_+-={}[]|\:;"'<>,.?/~`
 @comment_special_chars () -> int = 42
 
-@test_comment_special_chars tests @comment_special_chars () -> void = run(
-    assert_eq(actual: comment_special_chars(), expected: 42),
-)
+@test_comment_special_chars tests @comment_special_chars () -> void = {
+    assert_eq(actual: comment_special_chars(), expected: 42)
+}
 
 // Comment with unicode: café, 日本語, emoji test
 @comment_unicode () -> int = 42
 
-@test_comment_unicode tests @comment_unicode () -> void = run(
-    assert_eq(actual: comment_unicode(), expected: 42),
-)
+@test_comment_unicode tests @comment_unicode () -> void = {
+    assert_eq(actual: comment_unicode(), expected: 42)
+}
 
 // =============================================================================
 // Non-Doc Comments (Separated by Blank Line)
@@ -173,40 +173,40 @@ use std.testing { assert, assert_eq }
 // This is the actual doc comment
 @non_doc_separated () -> int = 42
 
-@test_non_doc_separated tests @non_doc_separated () -> void = run(
-    assert_eq(actual: non_doc_separated(), expected: 42),
-)
+@test_non_doc_separated tests @non_doc_separated () -> void = {
+    assert_eq(actual: non_doc_separated(), expected: 42)
+}
 
 // =============================================================================
 // Comments in Various Contexts
 // =============================================================================
 
-@comment_in_list () -> int = run(
+@comment_in_list () -> int = {
     let list = [
         1, // first element
         2, // second element
         3, // third element
-    ],
-    list.len(),
-)
+    ];
+    list.len()
+}
 
-@test_comment_in_list tests @comment_in_list () -> void = run(
-    assert_eq(actual: comment_in_list(), expected: 3),
-)
+@test_comment_in_list tests @comment_in_list () -> void = {
+    assert_eq(actual: comment_in_list(), expected: 3)
+}
 
 type CommentStructPoint = { x: int, y: int }
 
-@comment_in_struct () -> int = run(
+@comment_in_struct () -> int = {
     let p = CommentStructPoint {
         x: 10, // x coordinate
         y: 20, // y coordinate
-    },
-    p.x + p.y,
-)
+    };
+    p.x + p.y
+}
 
-@test_comment_in_struct tests @comment_in_struct () -> void = run(
-    assert_eq(actual: comment_in_struct(), expected: 30),
-)
+@test_comment_in_struct tests @comment_in_struct () -> void = {
+    assert_eq(actual: comment_in_struct(), expected: 30)
+}
 
 // =============================================================================
 // Comments with Code-Like Content
@@ -216,9 +216,9 @@ type CommentStructPoint = { x: int, y: int }
 // @func () -> int = 1 - also just a comment
 @comment_code_like () -> int = 99
 
-@test_comment_code_like tests @comment_code_like () -> void = run(
-    assert_eq(actual: comment_code_like(), expected: 99),
-)
+@test_comment_code_like tests @comment_code_like () -> void = {
+    assert_eq(actual: comment_code_like(), expected: 99)
+}
 
 // =============================================================================
 // Long Comments
@@ -227,9 +227,9 @@ type CommentStructPoint = { x: int, y: int }
 // This is a very long comment line that tests the lexer's ability to handle comments that extend for a significant length without any issues because comments can be arbitrarily long
 @long_comment () -> int = 42
 
-@test_long_comment tests @long_comment () -> void = run(
-    assert_eq(actual: long_comment(), expected: 42),
-)
+@test_long_comment tests @long_comment () -> void = {
+    assert_eq(actual: long_comment(), expected: 42)
+}
 
 // =============================================================================
 // Empty Space After Comment Marker
@@ -241,31 +241,31 @@ type CommentStructPoint = { x: int, y: int }
 //   Multiple spaces after //
 @multi_space_comment () -> int = 2
 
-@test_comment_spacing tests @no_space_comment tests @multi_space_comment () -> void = run(
-    assert_eq(actual: no_space_comment(), expected: 1),
-    assert_eq(actual: multi_space_comment(), expected: 2),
-)
+@test_comment_spacing tests @no_space_comment tests @multi_space_comment () -> void = {
+    assert_eq(actual: no_space_comment(), expected: 1);
+    assert_eq(actual: multi_space_comment(), expected: 2)
+}
 
 // =============================================================================
 // Comments at Different Indentation Levels
 // =============================================================================
 
-@comment_indentation () -> int = run(
+@comment_indentation () -> int = {
     // Comment at first level
-    let x = run(
+    let x = {
         // Comment at second level
-        let y = run(
+        let y = {
             // Comment at third level
-            42,
-        ),
-        y,
-    ),
-    x,
-)
+            42
+        };
+        y
+    };
+    x
+}
 
-@test_comment_indentation tests @comment_indentation () -> void = run(
-    assert_eq(actual: comment_indentation(), expected: 42),
-)
+@test_comment_indentation tests @comment_indentation () -> void = {
+    assert_eq(actual: comment_indentation(), expected: 42)
+}
 
 // =============================================================================
 // Comments Only (No Code After)
@@ -275,6 +275,6 @@ type CommentStructPoint = { x: int, y: int }
 
 @after_comment_only_section () -> int = 123
 
-@test_after_comment_only tests @after_comment_only_section () -> void = run(
-    assert_eq(actual: after_comment_only_section(), expected: 123),
-)
+@test_after_comment_only tests @after_comment_only_section () -> void = {
+    assert_eq(actual: after_comment_only_section(), expected: 123)
+}

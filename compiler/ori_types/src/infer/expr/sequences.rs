@@ -428,8 +428,8 @@ pub(crate) fn bind_pattern(
     use ori_ir::BindingPattern;
 
     match pattern {
-        BindingPattern::Name { name, .. } => {
-            engine.env_mut().bind(*name, ty);
+        BindingPattern::Name { name, mutable } => {
+            engine.env_mut().bind_with_mutability(*name, ty, *mutable);
         }
 
         BindingPattern::Tuple(patterns) => {
@@ -471,8 +471,10 @@ pub(crate) fn bind_pattern(
                 if let Some(sub_pat) = &field.pattern {
                     bind_pattern(engine, arena, sub_pat, field_ty);
                 } else {
-                    // Shorthand: { x } means { x: x }
-                    engine.env_mut().bind(field.name, field_ty);
+                    // Shorthand: { x } or { $x } — use field's own mutability
+                    engine
+                        .env_mut()
+                        .bind_with_mutability(field.name, field_ty, field.mutable);
                 }
             }
         }

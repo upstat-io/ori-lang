@@ -664,20 +664,20 @@ fn test_evaluated_no_main() {
 }
 
 #[test]
-fn test_evaluated_run_pattern() {
+fn test_evaluated_block_expression() {
     use crate::eval::EvalOutput;
 
     let db = CompilerDb::new();
 
-    // Multi-line version with proper formatting
+    // Block expression with let bindings
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        r"@main () -> int = run(
-            let x: int = 1,
-            let y: int = 2,
+        r"@main () -> int = {
+            let x: int = 1;
+            let y: int = 2;
             x + y
-        )"
+        }"
         .to_string(),
     );
 
@@ -865,7 +865,7 @@ fn test_typed_map_indexing_with_coalesce() {
 fn test_typed_struct_field_access() {
     let db = CompilerDb::new();
 
-    let source = "type Point = { x: int, y: int }\n@main () -> int = run(\n    let p = Point { x: 10, y: 20 },\n    p.x,\n)";
+    let source = "type Point = { x: int, y: int }\n@main () -> int = {\n    let p = Point { x: 10, y: 20 };\n    p.x\n}";
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -885,7 +885,7 @@ fn test_typed_struct_field_access() {
 fn test_typed_nested_field_access() {
     let db = CompilerDb::new();
 
-    let source = "type Inner = { value: int }\ntype Outer = { inner: Inner }\n@main () -> int = run(\n    let o = Outer { inner: Inner { value: 42 } },\n    o.inner.value,\n)";
+    let source = "type Inner = { value: int }\ntype Outer = { inner: Inner }\n@main () -> int = {\n    let o = Outer { inner: Inner { value: 42 } };\n    o.inner.value\n}";
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -904,7 +904,7 @@ fn test_typed_nested_field_access() {
 fn test_typed_field_in_arithmetic() {
     let db = CompilerDb::new();
 
-    let source = "type Point = { x: int, y: int }\n@main () -> int = run(\n    let p = Point { x: 5, y: 10 },\n    p.x + p.y,\n)";
+    let source = "type Point = { x: int, y: int }\n@main () -> int = {\n    let p = Point { x: 5, y: 10 };\n    p.x + p.y\n}";
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);

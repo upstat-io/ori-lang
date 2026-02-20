@@ -13,8 +13,8 @@ impl Adder for MyAdder {
     @add_value (self, x: int) -> int = self.base + x
 }
 
-@test_method_with_param tests @add_value () -> void = run(
-    let a = MyAdder { base: 10 },
-    let result = a.add_value(x: 5),
-    assert_eq(actual: result, expected: 15),
-)
+@test_method_with_param tests @add_value () -> void = {
+    let a = MyAdder { base: 10 };
+    let result = a.add_value(x: 5);
+    assert_eq(actual: result, expected: 15)
+}

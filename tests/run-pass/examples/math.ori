@@ -6,8 +6,8 @@
 
 @square (n: int) -> int = n * n
 
-@main () -> void = run(
-    print(msg: "2 + 3 = " + str(add(a: 2, b: 3))),
-    print(msg: "4 * 5 = " + str(multiply(a: 4, b: 5))),
-    print(msg: "6^2 = " + str(square(6))),
-)
+@main () -> void = {
+    print(msg: "2 + 3 = " + str(add(a: 2, b: 3)));
+    print(msg: "4 * 5 = " + str(multiply(a: 4, b: 5)));
+    print(msg: "6^2 = " + str(square(6)))
+}

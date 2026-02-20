@@ -323,6 +323,9 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.dedent();
             }
 
+            // Block - delegate to stacked formatting when broken
+            ExprKind::Block { .. } => self.emit_stacked(expr_id),
+
             // Fallback to inline for things that don't have special broken format
             _ => self.emit_inline(expr_id),
         }

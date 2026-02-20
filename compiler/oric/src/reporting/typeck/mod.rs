@@ -265,6 +265,12 @@ impl<'a> TypeErrorRenderer<'a> {
             TypeErrorKind::MissingPrintable { ty } => {
                 format!("`{}` does not implement `Printable`", self.format_type(*ty))
             }
+            TypeErrorKind::AssignToImmutable { name } => {
+                format!(
+                    "cannot assign to `{}` — binding is immutable",
+                    self.format_name(*name)
+                )
+            }
         }
     }
 

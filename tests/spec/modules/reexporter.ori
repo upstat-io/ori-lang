@@ -13,6 +13,6 @@ pub use "./math_lib" { add, multiply }
 pub @quad (x: int) -> int = multiply(a: x, b: 4)
 
 // Test for local function
-@test_quad tests @quad () -> void = run(
+@test_quad tests @quad () -> void = {
     assert_eq(actual: quad(x: 10), expected: 40)
-)
+}

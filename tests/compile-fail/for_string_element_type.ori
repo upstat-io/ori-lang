@@ -5,7 +5,7 @@
 // Arithmetic on `char` (e.g. char + int) must be a type error.
 
 #[compile_fail("type mismatch")]
-@test_str_iter_arithmetic () -> void = run(
-    let xs: [int] = for c in "hello" yield c + 1,
+@test_str_iter_arithmetic () -> void = {
+    let xs: [int] = for c in "hello" yield c + 1;
     ()
-)
+}

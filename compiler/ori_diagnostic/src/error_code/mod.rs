@@ -143,6 +143,7 @@ define_error_codes! {
     E2036, "Type does not implement Into<T>";
     E2037, "Multiple Into implementations apply";
     E2038, "Type does not implement Printable";
+    E2039, "Cannot assign to immutable binding";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";

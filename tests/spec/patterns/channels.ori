@@ -11,95 +11,95 @@ use std.testing { assert, assert_eq }
 // These tests are designed to expose missing features.
 
 // Basic channel creation
-// @test_channel_create tests @channel_create () -> void = run(
+// @test_channel_create tests @channel_create () -> void = {
 //     let (producer, consumer) = channel<int>(buffer: 10),
 //     // Channel should be created successfully
 //     assert(cond: !producer.is_closed()),
 //     assert(cond: !consumer.is_closed()),
-// )
+// }
 
-// @channel_create () -> void = run(
+// @channel_create () -> void = {
 //     let (_p, _c) = channel<int>(buffer: 10),
 //     (),
-// )
+// }
 
 // =============================================================================
 // channel<T>() - One-to-One
 // =============================================================================
 
-// @test_channel_send_receive tests @channel_send_receive () -> void uses Suspend = run(
+// @test_channel_send_receive tests @channel_send_receive () -> void uses Suspend = {
 //     let (producer, consumer) = channel<int>(buffer: 1),
 //     producer.send(value: 42),
 //     let received = consumer.receive(),
 //     assert_eq(actual: received, expected: Some(42)),
-// )
+// }
 
-// @channel_send_receive () -> Option<int> uses Suspend = run(
+// @channel_send_receive () -> Option<int> uses Suspend = {
 //     let (producer, consumer) = channel<int>(buffer: 1),
 //     producer.send(value: 42),
 //     consumer.receive(),
-// )
+// }
 
 // =============================================================================
 // channel_in<T>() - Fan-in (Many-to-One)
 // =============================================================================
 
-// @test_channel_in_create tests @channel_in_create () -> void = run(
+// @test_channel_in_create tests @channel_in_create () -> void = {
 //     let (producer, consumer) = channel_in<int>(buffer: 10),
 //     // CloneableProducer should support clone
 //     let producer2 = producer.clone(),
 //     assert(cond: !producer.is_closed()),
 //     assert(cond: !producer2.is_closed()),
-// )
+// }
 
-// @channel_in_create () -> void = run(
+// @channel_in_create () -> void = {
 //     let (p, _c) = channel_in<int>(buffer: 10),
 //     let _p2 = p.clone(),
 //     (),
-// )
+// }
 
 // =============================================================================
 // channel_out<T>() - Fan-out (One-to-Many)
 // =============================================================================
 
-// @test_channel_out_create tests @channel_out_create () -> void = run(
+// @test_channel_out_create tests @channel_out_create () -> void = {
 //     let (producer, consumer) = channel_out<int>(buffer: 10),
 //     // CloneableConsumer should support clone
 //     let consumer2 = consumer.clone(),
 //     assert(cond: !consumer.is_closed()),
 //     assert(cond: !consumer2.is_closed()),
-// )
+// }
 
-// @channel_out_create () -> void = run(
+// @channel_out_create () -> void = {
 //     let (_p, c) = channel_out<int>(buffer: 10),
 //     let _c2 = c.clone(),
 //     (),
-// )
+// }
 
 // =============================================================================
 // channel_all<T>() - Many-to-Many
 // =============================================================================
 
-// @test_channel_all_create tests @channel_all_create () -> void = run(
+// @test_channel_all_create tests @channel_all_create () -> void = {
 //     let (producer, consumer) = channel_all<int>(buffer: 10),
 //     let producer2 = producer.clone(),
 //     let consumer2 = consumer.clone(),
 //     assert(cond: !producer.is_closed()),
 //     assert(cond: !consumer2.is_closed()),
-// )
+// }
 
-// @channel_all_create () -> void = run(
+// @channel_all_create () -> void = {
 //     let (p, c) = channel_all<int>(buffer: 10),
 //     let _p2 = p.clone(),
 //     let _c2 = c.clone(),
 //     (),
-// )
+// }
 
 // =============================================================================
 // Channel Close Semantics
 // =============================================================================
 
-// @test_channel_close tests @channel_close () -> void uses Suspend = run(
+// @test_channel_close tests @channel_close () -> void uses Suspend = {
 //     let (producer, consumer) = channel<int>(buffer: 10),
 //     producer.send(value: 1),
 //     producer.send(value: 2),
@@ -110,27 +110,27 @@ use std.testing { assert, assert_eq }
 //     assert_eq(actual: consumer.receive(), expected: Some(2)),
 //     // After drain, receive returns None
 //     assert_eq(actual: consumer.receive(), expected: None),
-// )
+// }
 
-// @channel_close () -> void uses Suspend = run(
+// @channel_close () -> void uses Suspend = {
 //     let (producer, _consumer) = channel<int>(buffer: 10),
 //     producer.close(),
-// )
+// }
 
-// @test_channel_is_closed tests @channel_is_closed () -> void = run(
+// @test_channel_is_closed tests @channel_is_closed () -> void = {
 //     let (producer, consumer) = channel<int>(buffer: 10),
 //     assert(cond: !producer.is_closed()),
 //     assert(cond: !consumer.is_closed()),
 //     producer.close(),
 //     assert(cond: producer.is_closed()),
-// )
+// }
 
 // =============================================================================
 // Channel Iteration
 // =============================================================================
 
 // Consumer implements Iterable
-// @test_channel_iteration tests @channel_iteration () -> void uses Suspend = run(
+// @test_channel_iteration tests @channel_iteration () -> void uses Suspend = {
 //     let (producer, consumer) = channel<int>(buffer: 10),
 //     producer.send(value: 1),
 //     producer.send(value: 2),
@@ -140,7 +140,7 @@ use std.testing { assert, assert_eq }
 //     let sum = 0,
 //     for item in consumer do sum = sum + item,
 //     assert_eq(actual: sum, expected: 6),
-// )
+// }
 
 // =============================================================================
 // Sendable Constraint
@@ -148,38 +148,38 @@ use std.testing { assert, assert_eq }
 
 // Channel elements must be Sendable
 // Primitives are Sendable
-// @test_channel_int tests @channel_int () -> void = run(
+// @test_channel_int tests @channel_int () -> void = {
 //     let (_p, _c) = channel<int>(buffer: 1),
 //     assert(cond: true),
-// )
+// }
 
-// @test_channel_str tests @channel_str () -> void = run(
+// @test_channel_str tests @channel_str () -> void = {
 //     let (_p, _c) = channel<str>(buffer: 1),
 //     assert(cond: true),
-// )
+// }
 
 // This should fail - FileHandle is not Sendable
 // #compile_fail("not Sendable")
-// @test_channel_non_sendable () -> void = run(
+// @test_channel_non_sendable () -> void = {
 //     let (_p, _c) = channel<FileHandle>(buffer: 1),
 //     (),
-// )
+// }
 
 // =============================================================================
 // nursery Pattern
 // =============================================================================
 
-// @test_nursery_basic tests @nursery_basic () -> void uses Suspend = run(
+// @test_nursery_basic tests @nursery_basic () -> void uses Suspend = {
 //     let results = nursery(
-//         body: n -> run(
+//         body: n -> {
 //             n.spawn(task: () -> 1),
 //             n.spawn(task: () -> 2),
 //             n.spawn(task: () -> 3),
-//         ),
+//         },
 //         on_error: CollectAll,
 //     ),
 //     assert_eq(actual: results.len(), expected: 3),
-// )
+// }
 
 // @nursery_basic () -> [Result<int, CancellationError>] uses Suspend = nursery(
 //     body: n -> n.spawn(task: () -> 42),
@@ -190,69 +190,69 @@ use std.testing { assert, assert_eq }
 // nursery Error Modes
 // =============================================================================
 
-// @test_nursery_cancel_remaining tests @nursery_cancel_remaining () -> void uses Suspend = run(
+// @test_nursery_cancel_remaining tests @nursery_cancel_remaining () -> void uses Suspend = {
 //     let results = nursery(
-//         body: n -> run(
+//         body: n -> {
 //             n.spawn(task: () -> 1),
 //             n.spawn(task: () -> panic(msg: "fail")),
 //             n.spawn(task: () -> 3),
-//         ),
+//         },
 //         on_error: CancelRemaining,
 //     ),
 //     // First error cancels pending tasks but running continue
 //     assert(cond: results.len() > 0),
-// )
+// }
 
-// @test_nursery_fail_fast tests @nursery_fail_fast () -> void uses Suspend = run(
+// @test_nursery_fail_fast tests @nursery_fail_fast () -> void uses Suspend = {
 //     let results = nursery(
-//         body: n -> run(
+//         body: n -> {
 //             n.spawn(task: () -> 1),
 //             n.spawn(task: () -> panic(msg: "fail")),
 //             n.spawn(task: () -> 3),
-//         ),
+//         },
 //         on_error: FailFast,
 //     ),
 //     // First error cancels all tasks
 //     assert(cond: results.len() > 0),
-// )
+// }
 
-// @test_nursery_collect_all tests @nursery_collect_all () -> void uses Suspend = run(
+// @test_nursery_collect_all tests @nursery_collect_all () -> void uses Suspend = {
 //     let results = nursery(
-//         body: n -> run(
+//         body: n -> {
 //             n.spawn(task: () -> 1),
 //             n.spawn(task: () -> panic(msg: "fail")),
 //             n.spawn(task: () -> 3),
-//         ),
+//         },
 //         on_error: CollectAll,
 //     ),
 //     // All tasks complete regardless of errors
 //     assert_eq(actual: results.len(), expected: 3),
-// )
+// }
 
 // =============================================================================
 // nursery with timeout
 // =============================================================================
 
-// @test_nursery_timeout tests @nursery_timeout () -> void uses Suspend = run(
+// @test_nursery_timeout tests @nursery_timeout () -> void uses Suspend = {
 //     let results = nursery(
-//         body: n -> run(
+//         body: n -> {
 //             n.spawn(task: () -> sleep(duration: 10s)),
-//         ),
+//         },
 //         on_error: CollectAll,
 //         timeout: 1ms,
 //     ),
 //     // Should timeout
 //     assert(cond: is_err(r: results[0])),
-// )
+// }
 
 // =============================================================================
 // Cancellation
 // =============================================================================
 
-// @test_is_cancelled tests @is_cancelled () -> void uses Suspend = run(
+// @test_is_cancelled tests @is_cancelled () -> void uses Suspend = {
 //     // Outside of cancellation context, should be false
 //     assert(cond: !is_cancelled()),
-// )
+// }
 
 // =============================================================================
 // Fallback: Synchronous Queue Simulation
@@ -266,42 +266,42 @@ type Queue<T> = { items: [T] }
 
 @enqueue<T> (q: Queue<T>, item: T) -> Queue<T> = Queue { items: [...q.items, item] }
 
-@dequeue<T> (q: Queue<T>) -> (Option<T>, Queue<T>) = match(q.items,
+@dequeue<T> (q: Queue<T>) -> (Option<T>, Queue<T>) = match q.items {
     [] -> (None, q),
-    [head, ..tail] -> (Some(head), Queue { items: tail }),
-)
+    [head, ..tail] -> (Some(head), Queue { items: tail })
+}
 
-@test_queue_basic tests @queue_basic () -> void = run(
-    let q = empty_queue(),
-    let q = enqueue(q: q, item: 1),
-    let q = enqueue(q: q, item: 2),
-    let q = enqueue(q: q, item: 3),
+@test_queue_basic tests @queue_basic () -> void = {
+    let q = empty_queue();
+    let q = enqueue(q: q, item: 1);
+    let q = enqueue(q: q, item: 2);
+    let q = enqueue(q: q, item: 3);
 
-    let (v1, q) = dequeue(q: q),
-    let (v2, q) = dequeue(q: q),
-    let (v3, _q) = dequeue(q: q),
+    let (v1, q) = dequeue(q: q);
+    let (v2, q) = dequeue(q: q);
+    let (v3, _q) = dequeue(q: q);
 
-    assert_eq(actual: v1, expected: Some(1)),
-    assert_eq(actual: v2, expected: Some(2)),
-    assert_eq(actual: v3, expected: Some(3)),
-)
+    assert_eq(actual: v1, expected: Some(1));
+    assert_eq(actual: v2, expected: Some(2));
+    assert_eq(actual: v3, expected: Some(3))
+}
 
-@queue_basic () -> Queue<int> = run(
-    let q = empty_queue(),
-    enqueue(q: q, item: 42),
-)
+@queue_basic () -> Queue<int> = {
+    let q = empty_queue();
+    enqueue(q: q, item: 42)
+}
 
-@test_queue_empty_dequeue tests @queue_empty_dequeue () -> void = run(
-    let q: Queue<int> = empty_queue(),
-    let (v, _) = dequeue(q: q),
-    assert_eq(actual: v, expected: None),
-)
+@test_queue_empty_dequeue tests @queue_empty_dequeue () -> void = {
+    let q: Queue<int> = empty_queue();
+    let (v, _) = dequeue(q: q);
+    assert_eq(actual: v, expected: None)
+}
 
-@queue_empty_dequeue () -> Option<int> = run(
-    let q: Queue<int> = empty_queue(),
-    let (v, _) = dequeue(q: q),
-    v,
-)
+@queue_empty_dequeue () -> Option<int> = {
+    let q: Queue<int> = empty_queue();
+    let (v, _) = dequeue(q: q);
+    v
+}
 
 // =============================================================================
 // Producer-Consumer Pattern Simulation
@@ -309,22 +309,22 @@ type Queue<T> = { items: [T] }
 
 @produce (items: [int]) -> [int] = items
 
-@consume (items: [int]) -> int = run(
-    let sum = 0,
-    for item in items do sum = sum + item,
-    sum,
-)
+@consume (items: [int]) -> int = {
+    let sum = 0;
+    for item in items do sum = sum + item;
+    sum
+}
 
-@test_producer_consumer tests @producer_consumer () -> void = run(
-    let produced = produce(items: [1, 2, 3, 4, 5]),
-    let consumed = consume(items: produced),
-    assert_eq(actual: consumed, expected: 15),
-)
+@test_producer_consumer tests @producer_consumer () -> void = {
+    let produced = produce(items: [1, 2, 3, 4, 5]);
+    let consumed = consume(items: produced);
+    assert_eq(actual: consumed, expected: 15)
+}
 
-@producer_consumer () -> int = run(
-    let produced = produce(items: [1, 2, 3, 4, 5]),
-    consume(items: produced),
-)
+@producer_consumer () -> int = {
+    let produced = produce(items: [1, 2, 3, 4, 5]);
+    consume(items: produced)
+}
 
 // =============================================================================
 // Buffer Semantics
@@ -338,33 +338,33 @@ type BoundedBuffer<T> = { items: [T], capacity: int }
     capacity: capacity,
 }
 
-@buffer_push<T> (buf: BoundedBuffer<T>, item: T) -> (bool, BoundedBuffer<T>) = run(
+@buffer_push<T> (buf: BoundedBuffer<T>, item: T) -> (bool, BoundedBuffer<T>) = {
     if buf.items.len() >= buf.capacity then
         (false, buf)
     else
-        (true, BoundedBuffer { items: [...buf.items, item], capacity: buf.capacity }),
-)
+        (true, BoundedBuffer { items: [...buf.items, item], capacity: buf.capacity })
+}
 
-@buffer_pop<T> (buf: BoundedBuffer<T>) -> (Option<T>, BoundedBuffer<T>) = match(buf.items,
+@buffer_pop<T> (buf: BoundedBuffer<T>) -> (Option<T>, BoundedBuffer<T>) = match buf.items {
     [] -> (None, buf),
-    [head, ..tail] -> (Some(head), BoundedBuffer { items: tail, capacity: buf.capacity }),
-)
+    [head, ..tail] -> (Some(head), BoundedBuffer { items: tail, capacity: buf.capacity })
+}
 
-@test_bounded_buffer tests @bounded_buffer () -> void = run(
-    let buf = make_buffer(capacity: 2),
-    let (ok1, buf) = buffer_push(buf: buf, item: 1),
-    let (ok2, buf) = buffer_push(buf: buf, item: 2),
-    let (ok3, buf) = buffer_push(buf: buf, item: 3),  // Should fail
+@test_bounded_buffer tests @bounded_buffer () -> void = {
+    let buf = make_buffer(capacity: 2);
+    let (ok1, buf) = buffer_push(buf: buf, item: 1);
+    let (ok2, buf) = buffer_push(buf: buf, item: 2);
+    let (ok3, buf) = buffer_push(buf: buf, item: 3);  // Should fail
 
-    assert(cond: ok1),
-    assert(cond: ok2),
-    assert(cond: !ok3),
+    assert(cond: ok1);
+    assert(cond: ok2);
+    assert(cond: !ok3);
 
-    let (v1, buf) = buffer_pop(buf: buf),
-    let (v2, _) = buffer_pop(buf: buf),
+    let (v1, buf) = buffer_pop(buf: buf);
+    let (v2, _) = buffer_pop(buf: buf);
 
-    assert_eq(actual: v1, expected: Some(1)),
-    assert_eq(actual: v2, expected: Some(2)),
-)
+    assert_eq(actual: v1, expected: Some(1));
+    assert_eq(actual: v2, expected: Some(2))
+}
 
 @bounded_buffer () -> BoundedBuffer<int> = make_buffer(capacity: 10)

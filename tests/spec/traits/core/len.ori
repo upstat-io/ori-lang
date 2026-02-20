@@ -8,31 +8,31 @@ use std.testing { assert, assert_eq }
 // List Length
 // =============================================================================
 
-@test_list_len tests @list_len () -> void = run(
+@test_list_len tests @list_len () -> void = {
     assert_eq(
         actual: [1, 2, 3].len(),
         expected: 3,
-    ),
-)
+    )
+}
 
 @list_len () -> int = [1, 2, 3].len()
 
-@test_empty_list_len tests @empty_list_len () -> void = run(
+@test_empty_list_len tests @empty_list_len () -> void = {
     assert_eq(
         actual: [].len(),
         expected: 0,
-    ),
-)
+    )
+}
 
 @empty_list_len () -> int = [].len()
 
-@test_nested_list_len tests @nested_list_len () -> void = run(
-    let nested = [[1, 2], [3, 4, 5], [6]],
+@test_nested_list_len tests @nested_list_len () -> void = {
+    let nested = [[1, 2], [3, 4, 5], [6]];
     assert_eq(
         actual: nested.len(),
         expected: 3,
-    ),
-)
+    )
+}
 
 @nested_list_len () -> int = [[1, 2], [3]].len()
 
@@ -40,29 +40,29 @@ use std.testing { assert, assert_eq }
 // String Length
 // =============================================================================
 
-@test_str_len tests @str_method_len () -> void = run(
+@test_str_len tests @str_method_len () -> void = {
     assert_eq(
         actual: "hello".len(),
         expected: 5,
-    ),
-)
+    )
+}
 
 @str_method_len () -> int = "hello".len()
 
-@test_empty_str_len tests @empty_str_len () -> void = run(
+@test_empty_str_len tests @empty_str_len () -> void = {
     assert_eq(
         actual: "".len(),
         expected: 0,
-    ),
-)
+    )
+}
 
 @empty_str_len () -> int = "".len()
 
-@test_unicode_str_len tests @unicode_str_len () -> void = run(
+@test_unicode_str_len tests @unicode_str_len () -> void = {
     // Note: len() returns byte count, not codepoint count
-    let s = "café",
-    assert(cond: s.len() > 0),
-)
+    let s = "café";
+    assert(cond: s.len() > 0)
+}
 
 @unicode_str_len () -> int = "café".len()
 
@@ -70,50 +70,50 @@ use std.testing { assert, assert_eq }
 // Map Length
 // =============================================================================
 
-@test_map_len tests @map_len () -> void = run(
-    let m = {"a": 1, "b": 2},
+@test_map_len tests @map_len () -> void = {
+    let m = {"a": 1, "b": 2};
     assert_eq(
         actual: m.len(),
         expected: 2,
-    ),
-)
+    )
+}
 
 @map_len () -> int = {"x": 1}.len()
 
-@test_empty_map_len tests @empty_map_len () -> void = run(
-    let m: {str: int} = {},
+@test_empty_map_len tests @empty_map_len () -> void = {
+    let m: {str: int} = {};
     assert_eq(
         actual: m.len(),
         expected: 0,
-    ),
-)
+    )
+}
 
-@empty_map_len () -> int = run(
-    let m: {str: int} = {},
-    m.len(),
-)
+@empty_map_len () -> int = {
+    let m: {str: int} = {};
+    m.len()
+}
 
 // =============================================================================
 // Range Length
 // =============================================================================
 
-@test_range_len tests @range_len () -> void = run(
-    let r = 0..10,
+@test_range_len tests @range_len () -> void = {
+    let r = 0..10;
     assert_eq(
         actual: r.len(),
         expected: 10,
-    ),
-)
+    )
+}
 
 @range_len () -> int = (0..5).len()
 
-@test_inclusive_range_len tests @inclusive_range_len () -> void = run(
-    let r = 0..=10,
+@test_inclusive_range_len tests @inclusive_range_len () -> void = {
+    let r = 0..=10;
     assert_eq(
         actual: r.len(),
         expected: 11,
-    ),
-)
+    )
+}
 
 @inclusive_range_len () -> int = (0..=5).len()
 
@@ -121,30 +121,30 @@ use std.testing { assert, assert_eq }
 // Tuple Length
 // =============================================================================
 
-@test_tuple_len tests @tuple_len () -> void = run(
+@test_tuple_len tests @tuple_len () -> void = {
     assert_eq(
         actual: (1, "hello", true).len(),
         expected: 3,
-    ),
-)
+    )
+}
 
 @tuple_len () -> int = (1, "hello").len()
 
-@test_pair_len tests @pair_len () -> void = run(
+@test_pair_len tests @pair_len () -> void = {
     assert_eq(
         actual: (42, 99).len(),
         expected: 2,
-    ),
-)
+    )
+}
 
 @pair_len () -> int = (42, 99).len()
 
-@test_single_tuple_len tests @single_tuple_len () -> void = run(
+@test_single_tuple_len tests @single_tuple_len () -> void = {
     assert_eq(
         actual: (1,).len(),
         expected: 1,
-    ),
-)
+    )
+}
 
 @single_tuple_len () -> int = (1,).len()
 
@@ -152,12 +152,12 @@ use std.testing { assert, assert_eq }
 // Len Built-in Function
 // =============================================================================
 
-@test_len_builtin_list tests @len_builtin_list () -> void = run(
+@test_len_builtin_list tests @len_builtin_list () -> void = {
     assert_eq(
         actual: len(collection: [1, 2, 3, 4, 5]),
         expected: 5,
-    ),
-)
+    )
+}
 
 @len_builtin_list () -> int = len(collection: [1, 2, 3])
 
@@ -165,12 +165,12 @@ use std.testing { assert, assert_eq }
 // Len Built-in Function with Strings
 // =============================================================================
 
-@test_len_builtin_str tests @len_builtin_str () -> void = run(
+@test_len_builtin_str tests @len_builtin_str () -> void = {
     assert_eq(
         actual: len(collection: "world"),
         expected: 5,
-    ),
-)
+    )
+}
 
 @len_builtin_str () -> int = len(collection: "hello")
 
@@ -180,23 +180,23 @@ use std.testing { assert, assert_eq }
 
 @get_length<T: Len> (x: T) -> int = x.len()
 
-@test_len_bound_list tests @get_length () -> void = run(
+@test_len_bound_list tests @get_length () -> void = {
     assert_eq(
         actual: get_length(x: [1, 2, 3]),
         expected: 3,
-    ),
-)
+    )
+}
 
-@test_len_bound_str tests @get_length () -> void = run(
+@test_len_bound_str tests @get_length () -> void = {
     assert_eq(
         actual: get_length(x: "hello"),
         expected: 5,
-    ),
-)
+    )
+}
 
-@test_len_bound_tuple tests @get_length () -> void = run(
+@test_len_bound_tuple tests @get_length () -> void = {
     assert_eq(
         actual: get_length(x: (1, "two", true)),
         expected: 3,
-    ),
-)
+    )
+}

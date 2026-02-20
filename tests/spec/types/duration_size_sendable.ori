@@ -14,39 +14,39 @@ use std.testing { assert, assert_eq }
 // Helper that accepts any Sendable type and returns it
 @identity_sendable<T: Sendable> (value: T) -> T = value
 
-@test_duration_sendable_bound tests @duration_sendable () -> void = run(
+@test_duration_sendable_bound tests @duration_sendable () -> void = {
     // Duration satisfies Sendable bound
-    let d = 100ms,
-    let result = identity_sendable(value: d),
-    assert_eq(actual: result, expected: 100ms),
-)
+    let d = 100ms;
+    let result = identity_sendable(value: d);
+    assert_eq(actual: result, expected: 100ms)
+}
 
 @duration_sendable () -> Duration = identity_sendable(value: 100ms)
 
-@test_duration_sendable_zero tests @duration_sendable_zero () -> void = run(
+@test_duration_sendable_zero tests @duration_sendable_zero () -> void = {
     // Zero duration satisfies Sendable bound
-    let d = 0ns,
-    let result = identity_sendable(value: d),
-    assert_eq(actual: result, expected: 0ns),
-)
+    let d = 0ns;
+    let result = identity_sendable(value: d);
+    assert_eq(actual: result, expected: 0ns)
+}
 
 @duration_sendable_zero () -> Duration = identity_sendable(value: 0ns)
 
-@test_duration_sendable_negative tests @duration_sendable_neg () -> void = run(
+@test_duration_sendable_negative tests @duration_sendable_neg () -> void = {
     // Negative duration satisfies Sendable bound
-    let d = -100ms,
-    let result = identity_sendable(value: d),
-    assert_eq(actual: result, expected: -100ms),
-)
+    let d = -100ms;
+    let result = identity_sendable(value: d);
+    assert_eq(actual: result, expected: -100ms)
+}
 
 @duration_sendable_neg () -> Duration = identity_sendable(value: -100ms)
 
-@test_duration_sendable_large tests @duration_sendable_large () -> void = run(
+@test_duration_sendable_large tests @duration_sendable_large () -> void = {
     // Large duration satisfies Sendable bound
-    let d = 24h,
-    let result = identity_sendable(value: d),
-    assert_eq(actual: result, expected: 24h),
-)
+    let d = 24h;
+    let result = identity_sendable(value: d);
+    assert_eq(actual: result, expected: 24h)
+}
 
 @duration_sendable_large () -> Duration = identity_sendable(value: 24h)
 
@@ -54,30 +54,30 @@ use std.testing { assert, assert_eq }
 // Size — Sendable Trait
 // =============================================================================
 
-@test_size_sendable_bound tests @size_sendable () -> void = run(
+@test_size_sendable_bound tests @size_sendable () -> void = {
     // Size satisfies Sendable bound
-    let s = 1kb,
-    let result = identity_sendable(value: s),
-    assert_eq(actual: result, expected: 1kb),
-)
+    let s = 1kb;
+    let result = identity_sendable(value: s);
+    assert_eq(actual: result, expected: 1kb)
+}
 
 @size_sendable () -> Size = identity_sendable(value: 1kb)
 
-@test_size_sendable_zero tests @size_sendable_zero () -> void = run(
+@test_size_sendable_zero tests @size_sendable_zero () -> void = {
     // Zero size satisfies Sendable bound
-    let s = 0b,
-    let result = identity_sendable(value: s),
-    assert_eq(actual: result, expected: 0b),
-)
+    let s = 0b;
+    let result = identity_sendable(value: s);
+    assert_eq(actual: result, expected: 0b)
+}
 
 @size_sendable_zero () -> Size = identity_sendable(value: 0b)
 
-@test_size_sendable_large tests @size_sendable_large () -> void = run(
+@test_size_sendable_large tests @size_sendable_large () -> void = {
     // Large size satisfies Sendable bound
-    let s = 1tb,
-    let result = identity_sendable(value: s),
-    assert_eq(actual: result, expected: 1tb),
-)
+    let s = 1tb;
+    let result = identity_sendable(value: s);
+    assert_eq(actual: result, expected: 1tb)
+}
 
 @size_sendable_large () -> Size = identity_sendable(value: 1tb)
 
@@ -88,10 +88,10 @@ use std.testing { assert, assert_eq }
 // Helper that accepts two Sendable values
 @pair_sendable<T: Sendable, U: Sendable> (first: T, second: U) -> (T, U) = (first, second)
 
-@test_duration_size_sendable_together tests @both_sendable () -> void = run(
+@test_duration_size_sendable_together tests @both_sendable () -> void = {
     // Both Duration and Size satisfy Sendable in same generic context
-    let result = pair_sendable(first: 100ms, second: 1kb),
-    assert_eq(actual: result, expected: (100ms, 1kb)),
-)
+    let result = pair_sendable(first: 100ms, second: 1kb);
+    assert_eq(actual: result, expected: (100ms, 1kb))
+}
 
 @both_sendable () -> (Duration, Size) = pair_sendable(first: 100ms, second: 1kb)

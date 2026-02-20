@@ -32,17 +32,17 @@ impl C for Item {
 }
 
 // Test that default method from A is available
-@test_inherited_default tests @greet () -> void = run(
-    let item = Item { name: "test" },
-    assert_eq(actual: item.greet(), expected: "hello from A"),
-)
+@test_inherited_default tests @greet () -> void = {
+    let item = Item { name: "test" };
+    assert_eq(actual: item.greet(), expected: "hello from A")
+}
 
-@test_direct_method tests @info () -> void = run(
-    let item = Item { name: "test" },
-    assert_eq(actual: item.info(), expected: "info:test"),
-)
+@test_direct_method tests @info () -> void = {
+    let item = Item { name: "test" };
+    assert_eq(actual: item.info(), expected: "info:test")
+}
 
-@test_leaf_method tests @label () -> void = run(
-    let item = Item { name: "test" },
-    assert_eq(actual: item.label(), expected: "label:test"),
-)
+@test_leaf_method tests @label () -> void = {
+    let item = Item { name: "test" };
+    assert_eq(actual: item.label(), expected: "label:test")
+}

@@ -1,9 +1,9 @@
 // Match with range patterns
 // Spec: 10-patterns.md § match
 
-@classify_range (n: int) -> str = match(n,
+@classify_range (n: int) -> str = match n {
     0 -> "zero",
     1..10 -> "small",
     10..100 -> "medium",
-    _ -> "large",
-)
+    _ -> "large"
+}

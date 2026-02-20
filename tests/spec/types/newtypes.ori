@@ -17,82 +17,82 @@ type Email = str
 type Age = int
 
 // Test newtype construction
-@test_newtype_construction tests @get_user_id () -> void = run(
-    let id = UserId("user-123"),
-    assert(cond: true),
-)
+@test_newtype_construction tests @get_user_id () -> void = {
+    let id = UserId("user-123");
+    assert(cond: true)
+}
 
 // Test newtype unwrap
 @get_user_id (id: UserId) -> str = id.unwrap()
 
-@test_newtype_unwrap tests @get_user_id () -> void = run(
-    let id = UserId("user-123"),
-    let raw = id.unwrap(),
-    assert_eq(actual: raw, expected: "user-123"),
-)
+@test_newtype_unwrap tests @get_user_id () -> void = {
+    let id = UserId("user-123");
+    let raw = id.unwrap();
+    assert_eq(actual: raw, expected: "user-123")
+}
 
 // Test that different newtypes are distinct types
 // (this tests nominal typing - UserId and Email should NOT be interchangeable)
 @validate_user (id: UserId) -> bool = true
 @validate_email (email: Email) -> bool = true
 
-@test_different_newtypes tests @validate_user () -> void = run(
-    let id = UserId("abc"),
-    let result = validate_user(id: id),
-    assert(cond: result),
-)
+@test_different_newtypes tests @validate_user () -> void = {
+    let id = UserId("abc");
+    let result = validate_user(id: id);
+    assert(cond: result)
+}
 
 // -----------------------------------------------------------------------------
 // Newtype with Integer Underlying Type
 // -----------------------------------------------------------------------------
 
-@test_int_newtype_construction tests @get_age () -> void = run(
-    let age = Age(25),
-    assert(cond: true),
-)
+@test_int_newtype_construction tests @get_age () -> void = {
+    let age = Age(25);
+    assert(cond: true)
+}
 
 @get_age (a: Age) -> int = a.unwrap()
 
-@test_int_newtype_unwrap tests @get_age () -> void = run(
-    let age = Age(25),
-    let raw = age.unwrap(),
-    assert_eq(actual: raw, expected: 25),
-)
+@test_int_newtype_unwrap tests @get_age () -> void = {
+    let age = Age(25);
+    let raw = age.unwrap();
+    assert_eq(actual: raw, expected: 25)
+}
 
 // -----------------------------------------------------------------------------
 // Newtype Equality (via underlying value)
 // -----------------------------------------------------------------------------
 
-@test_same_newtype_values_equal tests @compare_ids () -> void = run(
-    let id1 = UserId("abc"),
-    let id2 = UserId("abc"),
+@test_same_newtype_values_equal tests @compare_ids () -> void = {
+    let id1 = UserId("abc");
+    let id2 = UserId("abc");
     // Newtypes should compare by their underlying value
-    assert_eq(actual: id1.unwrap(), expected: id2.unwrap()),
-)
+    assert_eq(actual: id1.unwrap(), expected: id2.unwrap())
+}
 
 @compare_ids (a: UserId, b: UserId) -> bool = a.unwrap() == b.unwrap()
 
-@test_different_newtype_values tests @compare_ids () -> void = run(
-    let id1 = UserId("abc"),
-    let id2 = UserId("xyz"),
-    let same = compare_ids(a: id1, b: id2),
-    assert(cond: !same),
-)
+@test_different_newtype_values tests @compare_ids () -> void = {
+    let id1 = UserId("abc");
+    let id2 = UserId("xyz");
+    let same = compare_ids(a: id1, b: id2);
+    assert(cond: !same)
+}
 
 // -----------------------------------------------------------------------------
 // Newtype in Function Parameters
 // -----------------------------------------------------------------------------
 
-@format_user_id (id: UserId) -> str = run(
-    let raw = id.unwrap(),
-    "User: " + raw,
-)
+@format_user_id (id: UserId) -> str = {
+    let raw = id.unwrap();
+    "User: " + raw
+}
 
-@test_newtype_parameter tests @format_user_id () -> void = run(
-    let id = UserId("123"),
-    let formatted = format_user_id(id: id),
-    assert_eq(actual: formatted, expected: "User: 123"),
-)
+@test_newtype_parameter tests @format_user_id () -> void = {
+    let id = UserId("123");
+    let formatted = format_user_id(id: id);
+    assert_eq(actual: formatted, expected: "User: 123")
+}
 
 // -----------------------------------------------------------------------------
 // Newtype with Computations
@@ -102,9 +102,9 @@ type Score = int
 
 @add_scores (a: Score, b: Score) -> Score = Score(a.unwrap() + b.unwrap())
 
-@test_newtype_computation tests @add_scores () -> void = run(
-    let s1 = Score(10),
-    let s2 = Score(20),
-    let total = add_scores(a: s1, b: s2),
-    assert_eq(actual: total.unwrap(), expected: 30),
-)
+@test_newtype_computation tests @add_scores () -> void = {
+    let s1 = Score(10);
+    let s2 = Score(20);
+    let total = add_scores(a: s1, b: s2);
+    assert_eq(actual: total.unwrap(), expected: 30)
+}

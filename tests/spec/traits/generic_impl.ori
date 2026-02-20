@@ -43,28 +43,28 @@ impl<T> Container for Box<T> {
 // Tests for Inherent Methods
 // =============================================================================
 
-@test_box_unwrap () -> void = run(
-    let b = Box { value: 42 },
-    assert_eq(actual: b.unwrap(), expected: 42),
-)
+@test_box_unwrap () -> void = {
+    let b = Box { value: 42 };
+    assert_eq(actual: b.unwrap(), expected: 42)
+}
 
-@test_box_unwrap_str () -> void = run(
-    let b = Box { value: "hello" },
-    assert_eq(actual: b.unwrap(), expected: "hello"),
-)
+@test_box_unwrap_str () -> void = {
+    let b = Box { value: "hello" };
+    assert_eq(actual: b.unwrap(), expected: "hello")
+}
 
-@test_pair_swap () -> void = run(
-    let p = Pair { first: 1, second: "one" },
-    let swapped = p.swap(),
-    assert_eq(actual: swapped.first, expected: "one"),
-    assert_eq(actual: swapped.second, expected: 1),
-)
+@test_pair_swap () -> void = {
+    let p = Pair { first: 1, second: "one" };
+    let swapped = p.swap();
+    assert_eq(actual: swapped.first, expected: "one");
+    assert_eq(actual: swapped.second, expected: 1)
+}
 
 // =============================================================================
 // Tests for Trait Methods
 // =============================================================================
 
-@test_box_container () -> void = run(
-    let b = Box { value: [1, 2, 3] },
-    assert_eq(actual: b.get_size(), expected: 1),
-)
+@test_box_container () -> void = {
+    let b = Box { value: [1, 2, 3] };
+    assert_eq(actual: b.get_size(), expected: 1)
+}

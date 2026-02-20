@@ -16,18 +16,18 @@ impl Add for Point {
 }
 
 // Helper function to test addition
-@point_add () -> Point = run(
-    let a = Point { x: 1, y: 2 },
-    let b = Point { x: 3, y: 4 },
+@point_add () -> Point = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 3, y: 4 };
     a + b
-)
+}
 
 // Test that + operator works on Point
-@test_point_add tests @point_add () -> void = run(
-    let result = point_add(),
-    assert_eq(actual: result.x, expected: 4),
-    assert_eq(actual: result.y, expected: 6),
-)
+@test_point_add tests @point_add () -> void = {
+    let result = point_add();
+    assert_eq(actual: result.x, expected: 4);
+    assert_eq(actual: result.y, expected: 6)
+}
 
 // Implement Sub trait for Point
 impl Sub for Point {
@@ -38,17 +38,17 @@ impl Sub for Point {
     }
 }
 
-@point_sub () -> Point = run(
-    let a = Point { x: 5, y: 8 },
-    let b = Point { x: 2, y: 3 },
+@point_sub () -> Point = {
+    let a = Point { x: 5, y: 8 };
+    let b = Point { x: 2, y: 3 };
     a - b
-)
+}
 
-@test_point_sub tests @point_sub () -> void = run(
-    let result = point_sub(),
-    assert_eq(actual: result.x, expected: 3),
-    assert_eq(actual: result.y, expected: 5),
-)
+@test_point_sub tests @point_sub () -> void = {
+    let result = point_sub();
+    assert_eq(actual: result.x, expected: 3);
+    assert_eq(actual: result.y, expected: 5)
+}
 
 // Implement Neg trait for Point (unary negation)
 impl Neg for Point {
@@ -59,16 +59,16 @@ impl Neg for Point {
     }
 }
 
-@point_neg () -> Point = run(
-    let p = Point { x: 3, y: -4 },
+@point_neg () -> Point = {
+    let p = Point { x: 3, y: -4 };
     -p
-)
+}
 
-@test_point_neg tests @point_neg () -> void = run(
-    let result = point_neg(),
-    assert_eq(actual: result.x, expected: -3),
-    assert_eq(actual: result.y, expected: 4),
-)
+@test_point_neg tests @point_neg () -> void = {
+    let result = point_neg();
+    assert_eq(actual: result.x, expected: -3);
+    assert_eq(actual: result.y, expected: 4)
+}
 
 // Implement Mul with scalar (int)
 impl Mul<int> for Point {
@@ -79,16 +79,16 @@ impl Mul<int> for Point {
     }
 }
 
-@point_mul_scalar () -> Point = run(
-    let p = Point { x: 2, y: 3 },
+@point_mul_scalar () -> Point = {
+    let p = Point { x: 2, y: 3 };
     p * 4
-)
+}
 
-@test_point_mul_scalar tests @point_mul_scalar () -> void = run(
-    let result = point_mul_scalar(),
-    assert_eq(actual: result.x, expected: 8),
-    assert_eq(actual: result.y, expected: 12),
-)
+@test_point_mul_scalar tests @point_mul_scalar () -> void = {
+    let result = point_mul_scalar();
+    assert_eq(actual: result.x, expected: 8);
+    assert_eq(actual: result.y, expected: 12)
+}
 
 // Implement Div for Point (component-wise division)
 impl Div for Point {
@@ -99,17 +99,17 @@ impl Div for Point {
     }
 }
 
-@point_div () -> Point = run(
-    let a = Point { x: 10, y: 20 },
-    let b = Point { x: 2, y: 5 },
+@point_div () -> Point = {
+    let a = Point { x: 10, y: 20 };
+    let b = Point { x: 2, y: 5 };
     a / b
-)
+}
 
-@test_point_div tests @point_div () -> void = run(
-    let result = point_div(),
-    assert_eq(actual: result.x, expected: 5),
-    assert_eq(actual: result.y, expected: 4),
-)
+@test_point_div tests @point_div () -> void = {
+    let result = point_div();
+    assert_eq(actual: result.x, expected: 5);
+    assert_eq(actual: result.y, expected: 4)
+}
 
 // Implement Rem for Point (component-wise remainder)
 impl Rem for Point {
@@ -120,17 +120,17 @@ impl Rem for Point {
     }
 }
 
-@point_rem () -> Point = run(
-    let a = Point { x: 7, y: 11 },
-    let b = Point { x: 3, y: 4 },
+@point_rem () -> Point = {
+    let a = Point { x: 7, y: 11 };
+    let b = Point { x: 3, y: 4 };
     a % b
-)
+}
 
-@test_point_rem tests @point_rem () -> void = run(
-    let result = point_rem(),
-    assert_eq(actual: result.x, expected: 1),
-    assert_eq(actual: result.y, expected: 3),
-)
+@test_point_rem tests @point_rem () -> void = {
+    let result = point_rem();
+    assert_eq(actual: result.x, expected: 1);
+    assert_eq(actual: result.y, expected: 3)
+}
 
 // --- Bitwise operator traits on a Mask wrapper type ---
 
@@ -143,16 +143,16 @@ impl BitAnd for Mask {
     }
 }
 
-@mask_and () -> Mask = run(
-    let a = Mask { bits: 0b1100 },
-    let b = Mask { bits: 0b1010 },
+@mask_and () -> Mask = {
+    let a = Mask { bits: 0b1100 };
+    let b = Mask { bits: 0b1010 };
     a & b
-)
+}
 
-@test_mask_and tests @mask_and () -> void = run(
-    let result = mask_and(),
-    assert_eq(actual: result.bits, expected: 0b1000),
-)
+@test_mask_and tests @mask_and () -> void = {
+    let result = mask_and();
+    assert_eq(actual: result.bits, expected: 0b1000)
+}
 
 impl BitOr for Mask {
     type Output = Mask
@@ -161,16 +161,16 @@ impl BitOr for Mask {
     }
 }
 
-@mask_or () -> Mask = run(
-    let a = Mask { bits: 0b1100 },
-    let b = Mask { bits: 0b1010 },
+@mask_or () -> Mask = {
+    let a = Mask { bits: 0b1100 };
+    let b = Mask { bits: 0b1010 };
     a | b
-)
+}
 
-@test_mask_or tests @mask_or () -> void = run(
-    let result = mask_or(),
-    assert_eq(actual: result.bits, expected: 0b1110),
-)
+@test_mask_or tests @mask_or () -> void = {
+    let result = mask_or();
+    assert_eq(actual: result.bits, expected: 0b1110)
+}
 
 impl BitXor for Mask {
     type Output = Mask
@@ -179,16 +179,16 @@ impl BitXor for Mask {
     }
 }
 
-@mask_xor () -> Mask = run(
-    let a = Mask { bits: 0b1100 },
-    let b = Mask { bits: 0b1010 },
+@mask_xor () -> Mask = {
+    let a = Mask { bits: 0b1100 };
+    let b = Mask { bits: 0b1010 };
     a ^ b
-)
+}
 
-@test_mask_xor tests @mask_xor () -> void = run(
-    let result = mask_xor(),
-    assert_eq(actual: result.bits, expected: 0b0110),
-)
+@test_mask_xor tests @mask_xor () -> void = {
+    let result = mask_xor();
+    assert_eq(actual: result.bits, expected: 0b0110)
+}
 
 impl Shl for Mask {
     type Output = Mask
@@ -197,15 +197,15 @@ impl Shl for Mask {
     }
 }
 
-@mask_shl () -> Mask = run(
-    let m = Mask { bits: 0b0011 },
+@mask_shl () -> Mask = {
+    let m = Mask { bits: 0b0011 };
     m << 2
-)
+}
 
-@test_mask_shl tests @mask_shl () -> void = run(
-    let result = mask_shl(),
-    assert_eq(actual: result.bits, expected: 0b1100),
-)
+@test_mask_shl tests @mask_shl () -> void = {
+    let result = mask_shl();
+    assert_eq(actual: result.bits, expected: 0b1100)
+}
 
 impl Shr for Mask {
     type Output = Mask
@@ -214,15 +214,15 @@ impl Shr for Mask {
     }
 }
 
-@mask_shr () -> Mask = run(
-    let m = Mask { bits: 0b1100 },
+@mask_shr () -> Mask = {
+    let m = Mask { bits: 0b1100 };
     m >> 2
-)
+}
 
-@test_mask_shr tests @mask_shr () -> void = run(
-    let result = mask_shr(),
-    assert_eq(actual: result.bits, expected: 0b0011),
-)
+@test_mask_shr tests @mask_shr () -> void = {
+    let result = mask_shr();
+    assert_eq(actual: result.bits, expected: 0b0011)
+}
 
 impl BitNot for Mask {
     type Output = Mask
@@ -231,17 +231,17 @@ impl BitNot for Mask {
     }
 }
 
-@mask_bit_not () -> int = run(
-    let m = Mask { bits: 0 },
-    let result = ~m,
+@mask_bit_not () -> int = {
+    let m = Mask { bits: 0 };
+    let result = ~m;
     result.bits
-)
+}
 
-@test_mask_bit_not tests @mask_bit_not () -> void = run(
-    let result = mask_bit_not(),
+@test_mask_bit_not tests @mask_bit_not () -> void = {
+    let result = mask_bit_not();
     // ~0 is -1 in two's complement
-    assert_eq(actual: result, expected: -1),
-)
+    assert_eq(actual: result, expected: -1)
+}
 
 // --- Unary Not on custom type ---
 
@@ -254,15 +254,15 @@ impl Not for Toggle {
     }
 }
 
-@toggle_not () -> Toggle = run(
-    let t = Toggle { on: true },
+@toggle_not () -> Toggle = {
+    let t = Toggle { on: true };
     !t
-)
+}
 
-@test_toggle_not tests @toggle_not () -> void = run(
-    let result = toggle_not(),
-    assert_eq(actual: result.on, expected: false),
-)
+@test_toggle_not tests @toggle_not () -> void = {
+    let result = toggle_not();
+    assert_eq(actual: result.on, expected: false)
+}
 
 // --- FloorDiv on custom type ---
 
@@ -274,43 +274,43 @@ impl FloorDiv for Point {
     }
 }
 
-@point_floor_div () -> Point = run(
-    let a = Point { x: 7, y: 11 },
-    let b = Point { x: 2, y: 3 },
+@point_floor_div () -> Point = {
+    let a = Point { x: 7, y: 11 };
+    let b = Point { x: 2, y: 3 };
     a div b
-)
+}
 
-@test_point_floor_div tests @point_floor_div () -> void = run(
-    let result = point_floor_div(),
-    assert_eq(actual: result.x, expected: 3),
-    assert_eq(actual: result.y, expected: 3),
-)
+@test_point_floor_div tests @point_floor_div () -> void = {
+    let result = point_floor_div();
+    assert_eq(actual: result.x, expected: 3);
+    assert_eq(actual: result.y, expected: 3)
+}
 
 // --- Chained operations ---
 
-@point_chain () -> Point = run(
-    let a = Point { x: 1, y: 2 },
-    let b = Point { x: 3, y: 4 },
-    let c = Point { x: 10, y: 10 },
+@point_chain () -> Point = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 3, y: 4 };
+    let c = Point { x: 10, y: 10 };
     // c - a + b  =>  (c - a) + b
     c - a + b
-)
+}
 
-@test_point_chain tests @point_chain () -> void = run(
-    let result = point_chain(),
-    assert_eq(actual: result.x, expected: 12),
-    assert_eq(actual: result.y, expected: 12),
-)
+@test_point_chain tests @point_chain () -> void = {
+    let result = point_chain();
+    assert_eq(actual: result.x, expected: 12);
+    assert_eq(actual: result.y, expected: 12)
+}
 
 // --- Double negation ---
 
-@point_double_neg () -> Point = run(
-    let p = Point { x: 3, y: -4 },
+@point_double_neg () -> Point = {
+    let p = Point { x: 3, y: -4 };
     -(-p)
-)
+}
 
-@test_point_double_neg tests @point_double_neg () -> void = run(
-    let result = point_double_neg(),
-    assert_eq(actual: result.x, expected: 3),
-    assert_eq(actual: result.y, expected: -4),
-)
+@test_point_double_neg tests @point_double_neg () -> void = {
+    let result = point_double_neg();
+    assert_eq(actual: result.x, expected: 3);
+    assert_eq(actual: result.y, expected: -4)
+}

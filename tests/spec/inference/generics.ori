@@ -7,77 +7,77 @@ use std.testing { assert, assert_eq, assert_ne }
 // Generic Type Argument Inference
 // =============================================================================
 
-@test_infer_option_type tests @infer_option_type () -> void = run(
+@test_infer_option_type tests @infer_option_type () -> void = {
     // Option type inferred from argument
-    let opt = Some(42),
-    assert(cond: is_some(opt: opt)),
-)
+    let opt = Some(42);
+    assert(cond: is_some(opt: opt))
+}
 
-@infer_option_type () -> bool = run(
-    let opt = Some(42),
-    is_some(opt: opt),
-)
+@infer_option_type () -> bool = {
+    let opt = Some(42);
+    is_some(opt: opt)
+}
 
-@test_infer_result_type tests @infer_result_type () -> void = run(
+@test_infer_result_type tests @infer_result_type () -> void = {
     // Result type inferred from argument
-    let res = Ok(42),
-    assert(cond: is_ok(r: res)),
-)
+    let res = Ok(42);
+    assert(cond: is_ok(r: res))
+}
 
-@infer_result_type () -> bool = run(
-    let res = Ok(42),
-    is_ok(r: res),
-)
+@infer_result_type () -> bool = {
+    let res = Ok(42);
+    is_ok(r: res)
+}
 
-@test_infer_list_type tests @infer_list_type () -> void = run(
+@test_infer_list_type tests @infer_list_type () -> void = {
     // List element type inferred from elements
-    let nums = [1, 2, 3],
-    let first = nums[0],
+    let nums = [1, 2, 3];
+    let first = nums[0];
     assert_eq(
         actual: first,
         expected: 1,
-    ),
-)
+    )
+}
 
-@infer_list_type () -> int = run(
-    let nums = [1, 2, 3],
-    nums[0],
-)
+@infer_list_type () -> int = {
+    let nums = [1, 2, 3];
+    nums[0]
+}
 
-@test_infer_nested_generic tests @infer_nested_generic () -> void = run(
+@test_infer_nested_generic tests @infer_nested_generic () -> void = {
     // Nested generics inferred
-    let nested = Some([1, 2, 3]),
-    assert(cond: is_some(opt: nested)),
-)
+    let nested = Some([1, 2, 3]);
+    assert(cond: is_some(opt: nested))
+}
 
-@infer_nested_generic () -> bool = run(
-    let nested = Some([1, 2, 3]),
-    is_some(opt: nested),
-)
+@infer_nested_generic () -> bool = {
+    let nested = Some([1, 2, 3]);
+    is_some(opt: nested)
+}
 
 // =============================================================================
 // Inference from Context
 // =============================================================================
 
-@test_infer_from_return_type tests @infer_from_return_type () -> void = run(
+@test_infer_from_return_type tests @infer_from_return_type () -> void = {
     // Return type annotation guides inference
-    let result = infer_from_return_type(),
+    let result = infer_from_return_type();
     assert_eq(
         actual: result,
         expected: 42,
-    ),
-)
+    )
+}
 
 @infer_from_return_type () -> int = 42
 
-@test_infer_from_param_type tests @infer_from_param_type () -> void = run(
+@test_infer_from_param_type tests @infer_from_param_type () -> void = {
     // Parameter type guides inference
-    let result = process_int(x: 42),
+    let result = process_int(x: 42);
     assert_eq(
         actual: result,
         expected: 84,
-    ),
-)
+    )
+}
 
 @process_int (x: int) -> int = x * 2
 
@@ -85,196 +85,196 @@ use std.testing { assert, assert_eq, assert_ne }
 // Inference with Lambda Context
 // =============================================================================
 
-@test_lambda_param_from_use tests @lambda_param_from_use () -> void = run(
+@test_lambda_param_from_use tests @lambda_param_from_use () -> void = {
     // Lambda parameter type inferred from how it's used
-    let f = x -> x + 1,
-    let result = f(x: 5),
+    let f = x -> x + 1;
+    let result = f(x: 5);
     assert_eq(
         actual: result,
         expected: 6,
-    ),
-)
+    )
+}
 
-@lambda_param_from_use () -> int = run(
-    let f = x -> x + 1,
-    f(x: 5),
-)
+@lambda_param_from_use () -> int = {
+    let f = x -> x + 1;
+    f(x: 5)
+}
 
-@test_lambda_return_inference tests @lambda_return_inference () -> void = run(
+@test_lambda_return_inference tests @lambda_return_inference () -> void = {
     // Lambda return type inferred from body
-    let f = (x: int) -> x + 1,
-    let result = f(x: 5),
+    let f = (x: int) -> x + 1;
+    let result = f(x: 5);
     assert_eq(
         actual: result,
         expected: 6,
-    ),
-)
+    )
+}
 
-@lambda_return_inference () -> int = run(
-    let f = (x: int) -> x + 1,
-    f(x: 5),
-)
+@lambda_return_inference () -> int = {
+    let f = (x: int) -> x + 1;
+    f(x: 5)
+}
 
-@test_lambda_chain tests @lambda_chain () -> void = run(
+@test_lambda_chain tests @lambda_chain () -> void = {
     // Inference through lambda chains
-    let inc = x -> x + 1,
-    let double = x -> x * 2,
-    let result = double(x: inc(x: 5)),
+    let inc = x -> x + 1;
+    let double = x -> x * 2;
+    let result = double(x: inc(x: 5));
     assert_eq(
         actual: result,
         expected: 12,
-    ),
-)
+    )
+}
 
-@lambda_chain () -> int = run(
-    let inc = x -> x + 1,
-    let double = x -> x * 2,
-    double(x: inc(x: 5)),
-)
+@lambda_chain () -> int = {
+    let inc = x -> x + 1;
+    let double = x -> x * 2;
+    double(x: inc(x: 5))
+}
 
 // =============================================================================
 // Extended Generic Type Inference Tests
 // =============================================================================
 
 // TODO: IMPLEMENTATION BUG: Option.map not implemented yet
-// @test_infer_option_map tests @infer_option_map () -> void = run(
+// @test_infer_option_map tests @infer_option_map () -> void = {
 //     // Option.map infers inner type transformation
 //     let opt = Some(5),
 //     let doubled = opt.map(transform: x -> x * 2),
 //     assert(cond: is_some(opt: doubled)),
-// )
+// }
 
 @infer_option_map () -> bool = true
 
 // TODO: IMPLEMENTATION BUG: Option.and_then not implemented yet
-// @test_infer_option_and_then tests @infer_option_and_then () -> void = run(
+// @test_infer_option_and_then tests @infer_option_and_then () -> void = {
 //     // Option.and_then infers through chained transformations
 //     let opt = Some(10),
 //     let result = opt.and_then(transform: x -> if x > 5 then Some(x * 2) else None),
 //     assert(cond: is_some(opt: result)),
-// )
+// }
 
 @infer_option_and_then () -> bool = true
 
 // TODO: IMPLEMENTATION BUG: Result.map not implemented yet
-// @test_infer_result_map tests @infer_result_map () -> void = run(
+// @test_infer_result_map tests @infer_result_map () -> void = {
 //     // Result.map infers success type transformation
 //     let res: Result<int, str> = Ok(5),
 //     let doubled = res.map(transform: x -> x * 2),
 //     assert(cond: is_ok(r: doubled)),
-// )
+// }
 
 @infer_result_map () -> bool = true
 
 // TODO: IMPLEMENTATION BUG: Result.map_err not implemented yet
-// @test_infer_result_map_err tests @infer_result_map_err () -> void = run(
+// @test_infer_result_map_err tests @infer_result_map_err () -> void = {
 //     // Result.map_err infers error type transformation
 //     let res: Result<int, str> = Err("error"),
 //     let mapped = res.map_err(transform: e -> e + "!"),
 //     assert(cond: is_err(r: mapped)),
-// )
+// }
 
 @infer_result_map_err () -> bool = true
 
-@test_infer_option_unwrap_or tests @infer_option_unwrap_or () -> void = run(
+@test_infer_option_unwrap_or tests @infer_option_unwrap_or () -> void = {
     // Option.unwrap_or infers from default value
-    let opt: Option<int> = None,
-    let value = opt.unwrap_or(default: 42),
-    assert_eq(actual: value, expected: 42),
-)
+    let opt: Option<int> = None;
+    let value = opt.unwrap_or(default: 42);
+    assert_eq(actual: value, expected: 42)
+}
 
-@infer_option_unwrap_or () -> int = run(
-    let opt: Option<int> = None,
-    opt.unwrap_or(default: 42),
-)
+@infer_option_unwrap_or () -> int = {
+    let opt: Option<int> = None;
+    opt.unwrap_or(default: 42)
+}
 
 // TODO: IMPLEMENTATION BUG: Result.unwrap_or not implemented yet
-// @test_infer_result_unwrap_or tests @infer_result_unwrap_or () -> void = run(
+// @test_infer_result_unwrap_or tests @infer_result_unwrap_or () -> void = {
 //     // Result.unwrap_or infers from default value
 //     let res: Result<int, str> = Err("fail"),
 //     let value = res.unwrap_or(default: 0),
 //     assert_eq(actual: value, expected: 0),
-// )
+// }
 
 @infer_result_unwrap_or () -> int = 0
 
-@test_infer_list_in_option tests @infer_list_in_option () -> void = run(
+@test_infer_list_in_option tests @infer_list_in_option () -> void = {
     // Nested generic: Option<[int]>
-    let opt = Some([1, 2, 3]),
-    assert(cond: is_some(opt: opt)),
-)
+    let opt = Some([1, 2, 3]);
+    assert(cond: is_some(opt: opt))
+}
 
-@infer_list_in_option () -> bool = run(
-    let opt = Some([1, 2, 3]),
-    is_some(opt: opt),
-)
+@infer_list_in_option () -> bool = {
+    let opt = Some([1, 2, 3]);
+    is_some(opt: opt)
+}
 
-@test_infer_option_in_list tests @infer_option_in_list () -> void = run(
+@test_infer_option_in_list tests @infer_option_in_list () -> void = {
     // Nested generic: [Option<int>]
-    let opts = [Some(1), Some(2), None],
-    assert_eq(actual: len(collection: opts), expected: 3),
-)
+    let opts = [Some(1), Some(2), None];
+    assert_eq(actual: len(collection: opts), expected: 3)
+}
 
-@infer_option_in_list () -> int = run(
-    let opts = [Some(1), Some(2), None],
-    len(collection: opts),
-)
+@infer_option_in_list () -> int = {
+    let opts = [Some(1), Some(2), None];
+    len(collection: opts)
+}
 
-@test_infer_tuple_in_option tests @infer_tuple_in_option () -> void = run(
+@test_infer_tuple_in_option tests @infer_tuple_in_option () -> void = {
     // Nested: Option<(int, str)>
-    let opt = Some((42, "hello")),
-    assert(cond: is_some(opt: opt)),
-)
+    let opt = Some((42, "hello"));
+    assert(cond: is_some(opt: opt))
+}
 
-@infer_tuple_in_option () -> bool = run(
-    let opt = Some((42, "hello")),
-    is_some(opt: opt),
-)
+@infer_tuple_in_option () -> bool = {
+    let opt = Some((42, "hello"));
+    is_some(opt: opt)
+}
 
-@test_infer_result_in_option tests @infer_result_in_option () -> void = run(
+@test_infer_result_in_option tests @infer_result_in_option () -> void = {
     // Nested: Option<Result<int, str>>
-    let opt = Some(Ok(42)),
-    assert(cond: is_some(opt: opt)),
-)
+    let opt = Some(Ok(42));
+    assert(cond: is_some(opt: opt))
+}
 
-@infer_result_in_option () -> bool = run(
-    let opt = Some(Ok(42)),
-    is_some(opt: opt),
-)
+@infer_result_in_option () -> bool = {
+    let opt = Some(Ok(42));
+    is_some(opt: opt)
+}
 
-@test_infer_option_in_result tests @infer_option_in_result () -> void = run(
+@test_infer_option_in_result tests @infer_option_in_result () -> void = {
     // Nested: Result<Option<int>, str>
-    let res: Result<Option<int>, str> = Ok(Some(42)),
-    assert(cond: is_ok(r: res)),
-)
+    let res: Result<Option<int>, str> = Ok(Some(42));
+    assert(cond: is_ok(r: res))
+}
 
-@infer_option_in_result () -> bool = run(
-    let res: Result<Option<int>, str> = Ok(Some(42)),
-    is_ok(r: res),
-)
+@infer_option_in_result () -> bool = {
+    let res: Result<Option<int>, str> = Ok(Some(42));
+    is_ok(r: res)
+}
 
-@test_infer_through_lambda tests @infer_through_lambda () -> void = run(
+@test_infer_through_lambda tests @infer_through_lambda () -> void = {
     // Type flows through lambda parameter and return
-    let transform = (x: int) -> Some(x * 2),
-    let result = transform(5),
-    assert(cond: is_some(opt: result)),
-)
+    let transform = (x: int) -> Some(x * 2);
+    let result = transform(5);
+    assert(cond: is_some(opt: result))
+}
 
-@infer_through_lambda () -> bool = run(
-    let transform = (x: int) -> Some(x * 2),
-    is_some(opt: transform(5)),
-)
+@infer_through_lambda () -> bool = {
+    let transform = (x: int) -> Some(x * 2);
+    is_some(opt: transform(5))
+}
 
-@test_infer_through_closure tests @infer_through_closure () -> void = run(
+@test_infer_through_closure tests @infer_through_closure () -> void = {
     // Inference through closure with captured variable
-    let multiplier = 3,
-    let transform = (x: int) -> x * multiplier,
-    let result = transform(5),
-    assert_eq(actual: result, expected: 15),
-)
+    let multiplier = 3;
+    let transform = (x: int) -> x * multiplier;
+    let result = transform(5);
+    assert_eq(actual: result, expected: 15)
+}
 
-@infer_through_closure () -> int = run(
-    let multiplier = 3,
-    let transform = (x: int) -> x * multiplier,
-    transform(5),
-)
+@infer_through_closure () -> int = {
+    let multiplier = 3;
+    let transform = (x: int) -> x * multiplier;
+    transform(5)
+}

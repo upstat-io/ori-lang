@@ -7,27 +7,27 @@ use std.testing { assert_eq, assert }
 // Integer Addition
 // =============================================================================
 
-@test_int_add_basic tests @int_add_basic () -> void = run(
-    assert_eq(actual: int_add_basic(), expected: 7),
-)
+@test_int_add_basic tests @int_add_basic () -> void = {
+    assert_eq(actual: int_add_basic(), expected: 7)
+}
 
 @int_add_basic () -> int = 3 + 4
 
-@test_int_add_zero tests @int_add_zero () -> void = run(
-    assert_eq(actual: int_add_zero(), expected: 42),
-)
+@test_int_add_zero tests @int_add_zero () -> void = {
+    assert_eq(actual: int_add_zero(), expected: 42)
+}
 
 @int_add_zero () -> int = 42 + 0
 
-@test_int_add_negative tests @int_add_negative () -> void = run(
-    assert_eq(actual: int_add_negative(), expected: 2),
-)
+@test_int_add_negative tests @int_add_negative () -> void = {
+    assert_eq(actual: int_add_negative(), expected: 2)
+}
 
 @int_add_negative () -> int = 5 + -3
 
-@test_int_add_chain tests @int_add_chain () -> void = run(
-    assert_eq(actual: int_add_chain(), expected: 15),
-)
+@test_int_add_chain tests @int_add_chain () -> void = {
+    assert_eq(actual: int_add_chain(), expected: 15)
+}
 
 @int_add_chain () -> int = 1 + 2 + 3 + 4 + 5
 
@@ -35,64 +35,64 @@ use std.testing { assert_eq, assert }
 // Integer Subtraction
 // =============================================================================
 
-@test_int_sub_basic tests @int_sub_basic () -> void = run(
-    assert_eq(actual: int_sub_basic(), expected: 5),
-)
+@test_int_sub_basic tests @int_sub_basic () -> void = {
+    assert_eq(actual: int_sub_basic(), expected: 5)
+}
 
 @int_sub_basic () -> int = 10 - 5
 
-@test_int_sub_negative_result tests @int_sub_negative_result () -> void = run(
-    assert_eq(actual: int_sub_negative_result(), expected: -3),
-)
+@test_int_sub_negative_result tests @int_sub_negative_result () -> void = {
+    assert_eq(actual: int_sub_negative_result(), expected: -3)
+}
 
 @int_sub_negative_result () -> int = 2 - 5
 
-@test_int_sub_zero tests @int_sub_zero () -> void = run(
-    assert_eq(actual: int_sub_zero(), expected: 42),
-)
+@test_int_sub_zero tests @int_sub_zero () -> void = {
+    assert_eq(actual: int_sub_zero(), expected: 42)
+}
 
 @int_sub_zero () -> int = 42 - 0
 
-@test_int_sub_self tests @int_sub_self () -> void = run(
-    assert_eq(actual: int_sub_self(), expected: 0),
-)
+@test_int_sub_self tests @int_sub_self () -> void = {
+    assert_eq(actual: int_sub_self(), expected: 0)
+}
 
-@int_sub_self () -> int = run(
-    let x = 100,
-    x - x,
-)
+@int_sub_self () -> int = {
+    let x = 100;
+    x - x
+}
 
 // =============================================================================
 // Integer Multiplication
 // =============================================================================
 
-@test_int_mul_basic tests @int_mul_basic () -> void = run(
-    assert_eq(actual: int_mul_basic(), expected: 24),
-)
+@test_int_mul_basic tests @int_mul_basic () -> void = {
+    assert_eq(actual: int_mul_basic(), expected: 24)
+}
 
 @int_mul_basic () -> int = 4 * 6
 
-@test_int_mul_zero tests @int_mul_zero () -> void = run(
-    assert_eq(actual: int_mul_zero(), expected: 0),
-)
+@test_int_mul_zero tests @int_mul_zero () -> void = {
+    assert_eq(actual: int_mul_zero(), expected: 0)
+}
 
 @int_mul_zero () -> int = 999 * 0
 
-@test_int_mul_one tests @int_mul_one () -> void = run(
-    assert_eq(actual: int_mul_one(), expected: 42),
-)
+@test_int_mul_one tests @int_mul_one () -> void = {
+    assert_eq(actual: int_mul_one(), expected: 42)
+}
 
 @int_mul_one () -> int = 42 * 1
 
-@test_int_mul_negative tests @int_mul_negative () -> void = run(
-    assert_eq(actual: int_mul_negative(), expected: -15),
-)
+@test_int_mul_negative tests @int_mul_negative () -> void = {
+    assert_eq(actual: int_mul_negative(), expected: -15)
+}
 
 @int_mul_negative () -> int = 5 * -3
 
-@test_int_mul_both_negative tests @int_mul_both_negative () -> void = run(
-    assert_eq(actual: int_mul_both_negative(), expected: 15),
-)
+@test_int_mul_both_negative tests @int_mul_both_negative () -> void = {
+    assert_eq(actual: int_mul_both_negative(), expected: 15)
+}
 
 @int_mul_both_negative () -> int = -5 * -3
 
@@ -100,33 +100,33 @@ use std.testing { assert_eq, assert }
 // Integer Division
 // =============================================================================
 
-@test_int_div_exact tests @int_div_exact () -> void = run(
-    assert_eq(actual: int_div_exact(), expected: 5),
-)
+@test_int_div_exact tests @int_div_exact () -> void = {
+    assert_eq(actual: int_div_exact(), expected: 5)
+}
 
 @int_div_exact () -> int = 15 / 3
 
-@test_int_div_truncate tests @int_div_truncate () -> void = run(
-    assert_eq(actual: int_div_truncate(), expected: 3),
-)
+@test_int_div_truncate tests @int_div_truncate () -> void = {
+    assert_eq(actual: int_div_truncate(), expected: 3)
+}
 
 @int_div_truncate () -> int = 10 / 3
 
-@test_int_div_negative tests @int_div_negative () -> void = run(
-    assert_eq(actual: int_div_negative(), expected: -3),
-)
+@test_int_div_negative tests @int_div_negative () -> void = {
+    assert_eq(actual: int_div_negative(), expected: -3)
+}
 
 @int_div_negative () -> int = -10 / 3
 
-@test_int_div_both_negative tests @int_div_both_negative () -> void = run(
-    assert_eq(actual: int_div_both_negative(), expected: 3),
-)
+@test_int_div_both_negative tests @int_div_both_negative () -> void = {
+    assert_eq(actual: int_div_both_negative(), expected: 3)
+}
 
 @int_div_both_negative () -> int = -10 / -3
 
-@test_int_div_by_one tests @int_div_by_one () -> void = run(
-    assert_eq(actual: int_div_by_one(), expected: 42),
-)
+@test_int_div_by_one tests @int_div_by_one () -> void = {
+    assert_eq(actual: int_div_by_one(), expected: 42)
+}
 
 @int_div_by_one () -> int = 42 / 1
 
@@ -134,29 +134,29 @@ use std.testing { assert_eq, assert }
 // Integer Modulo (%)
 // =============================================================================
 
-@test_int_mod_basic tests @int_mod_basic () -> void = run(
-    assert_eq(actual: int_mod_basic(), expected: 1),
-)
+@test_int_mod_basic tests @int_mod_basic () -> void = {
+    assert_eq(actual: int_mod_basic(), expected: 1)
+}
 
 @int_mod_basic () -> int = 10 % 3
 
-@test_int_mod_exact tests @int_mod_exact () -> void = run(
-    assert_eq(actual: int_mod_exact(), expected: 0),
-)
+@test_int_mod_exact tests @int_mod_exact () -> void = {
+    assert_eq(actual: int_mod_exact(), expected: 0)
+}
 
 @int_mod_exact () -> int = 12 % 4
 
-@test_int_mod_negative tests @int_mod_negative () -> void = run(
-    let result = int_mod_negative(),
-    assert_eq(actual: result, expected: -1),
-)
+@test_int_mod_negative tests @int_mod_negative () -> void = {
+    let result = int_mod_negative();
+    assert_eq(actual: result, expected: -1)
+}
 
 @int_mod_negative () -> int = -10 % 3
 
-@test_int_mod_negative_divisor tests @int_mod_negative_divisor () -> void = run(
-    let result = int_mod_negative_divisor(),
-    assert_eq(actual: result, expected: 1),
-)
+@test_int_mod_negative_divisor tests @int_mod_negative_divisor () -> void = {
+    let result = int_mod_negative_divisor();
+    assert_eq(actual: result, expected: 1)
+}
 
 @int_mod_negative_divisor () -> int = 10 % -3
 
@@ -164,21 +164,21 @@ use std.testing { assert_eq, assert }
 // Floor Division (div)
 // =============================================================================
 
-@test_int_floor_div_positive tests @int_floor_div_positive () -> void = run(
-    assert_eq(actual: int_floor_div_positive(), expected: 3),
-)
+@test_int_floor_div_positive tests @int_floor_div_positive () -> void = {
+    assert_eq(actual: int_floor_div_positive(), expected: 3)
+}
 
 @int_floor_div_positive () -> int = 10 div 3
 
-@test_int_floor_div_negative tests @int_floor_div_negative () -> void = run(
-    assert_eq(actual: int_floor_div_negative(), expected: -4),
-)
+@test_int_floor_div_negative tests @int_floor_div_negative () -> void = {
+    assert_eq(actual: int_floor_div_negative(), expected: -4)
+}
 
 @int_floor_div_negative () -> int = -10 div 3
 
-@test_int_floor_div_exact tests @int_floor_div_exact () -> void = run(
-    assert_eq(actual: int_floor_div_exact(), expected: 5),
-)
+@test_int_floor_div_exact tests @int_floor_div_exact () -> void = {
+    assert_eq(actual: int_floor_div_exact(), expected: 5)
+}
 
 @int_floor_div_exact () -> int = 15 div 3
 
@@ -186,58 +186,58 @@ use std.testing { assert_eq, assert }
 // Float Arithmetic
 // =============================================================================
 
-@test_float_add tests @float_add () -> void = run(
-    let result = float_add(),
-    assert(cond: result > 5.49),
-    assert(cond: result < 5.51),
-)
+@test_float_add tests @float_add () -> void = {
+    let result = float_add();
+    assert(cond: result > 5.49);
+    assert(cond: result < 5.51)
+}
 
 @float_add () -> float = 2.5 + 3.0
 
-@test_float_sub tests @float_sub () -> void = run(
-    let result = float_sub(),
-    assert(cond: result > 1.99),
-    assert(cond: result < 2.01),
-)
+@test_float_sub tests @float_sub () -> void = {
+    let result = float_sub();
+    assert(cond: result > 1.99);
+    assert(cond: result < 2.01)
+}
 
 @float_sub () -> float = 5.5 - 3.5
 
-@test_float_mul tests @float_mul () -> void = run(
-    let result = float_mul(),
-    assert(cond: result > 7.49),
-    assert(cond: result < 7.51),
-)
+@test_float_mul tests @float_mul () -> void = {
+    let result = float_mul();
+    assert(cond: result > 7.49);
+    assert(cond: result < 7.51)
+}
 
 @float_mul () -> float = 2.5 * 3.0
 
-@test_float_div tests @float_div () -> void = run(
-    let result = float_div(),
-    assert(cond: result > 2.49),
-    assert(cond: result < 2.51),
-)
+@test_float_div tests @float_div () -> void = {
+    let result = float_div();
+    assert(cond: result > 2.49);
+    assert(cond: result < 2.51)
+}
 
 @float_div () -> float = 7.5 / 3.0
 
-@test_float_div_by_zero_inf tests @float_div_by_zero_inf () -> void = run(
-    let result = float_div_by_zero_inf(),
+@test_float_div_by_zero_inf tests @float_div_by_zero_inf () -> void = {
+    let result = float_div_by_zero_inf();
     // Result should be positive infinity
-    assert(cond: result > 1000000000000000000000000000000.0),
-)
+    assert(cond: result > 1000000000000000000000000000000.0)
+}
 
 @float_div_by_zero_inf () -> float = 1.0 / 0.0
 
-@test_float_div_neg_by_zero tests @float_div_neg_by_zero () -> void = run(
-    let result = float_div_neg_by_zero(),
+@test_float_div_neg_by_zero tests @float_div_neg_by_zero () -> void = {
+    let result = float_div_neg_by_zero();
     // Result should be negative infinity
-    assert(cond: result < -1000000000000000000000000000000.0),
-)
+    assert(cond: result < -1000000000000000000000000000000.0)
+}
 
 @float_div_neg_by_zero () -> float = -1.0 / 0.0
 
-@test_float_zero_div_zero_nan tests @float_zero_div_zero_nan () -> void = run(
-    let result = float_zero_div_zero_nan(),
-    assert(cond: result != result),
-)
+@test_float_zero_div_zero_nan tests @float_zero_div_zero_nan () -> void = {
+    let result = float_zero_div_zero_nan();
+    assert(cond: result != result)
+}
 
 @float_zero_div_zero_nan () -> float = 0.0 / 0.0
 
@@ -245,21 +245,21 @@ use std.testing { assert_eq, assert }
 // String Concatenation
 // =============================================================================
 
-@test_str_concat tests @str_concat () -> void = run(
-    assert_eq(actual: str_concat(), expected: "hello world"),
-)
+@test_str_concat tests @str_concat () -> void = {
+    assert_eq(actual: str_concat(), expected: "hello world")
+}
 
 @str_concat () -> str = "hello " + "world"
 
-@test_str_concat_empty tests @str_concat_empty () -> void = run(
-    assert_eq(actual: str_concat_empty(), expected: "hello"),
-)
+@test_str_concat_empty tests @str_concat_empty () -> void = {
+    assert_eq(actual: str_concat_empty(), expected: "hello")
+}
 
 @str_concat_empty () -> str = "hello" + ""
 
-@test_str_concat_chain tests @str_concat_chain () -> void = run(
-    assert_eq(actual: str_concat_chain(), expected: "abc"),
-)
+@test_str_concat_chain tests @str_concat_chain () -> void = {
+    assert_eq(actual: str_concat_chain(), expected: "abc")
+}
 
 @str_concat_chain () -> str = "a" + "b" + "c"
 
@@ -267,29 +267,29 @@ use std.testing { assert_eq, assert }
 // Unary Negation
 // =============================================================================
 
-@test_unary_neg_int tests @unary_neg_int () -> void = run(
-    assert_eq(actual: unary_neg_int(), expected: -42),
-)
+@test_unary_neg_int tests @unary_neg_int () -> void = {
+    assert_eq(actual: unary_neg_int(), expected: -42)
+}
 
 @unary_neg_int () -> int = -42
 
-@test_unary_neg_double tests @unary_neg_double () -> void = run(
-    assert_eq(actual: unary_neg_double(), expected: 42),
-)
+@test_unary_neg_double tests @unary_neg_double () -> void = {
+    assert_eq(actual: unary_neg_double(), expected: 42)
+}
 
 @unary_neg_double () -> int = -(-42)
 
-@test_unary_neg_float tests @unary_neg_float () -> void = run(
-    let result = unary_neg_float(),
-    assert(cond: result < -3.13),
-    assert(cond: result > -3.15),
-)
+@test_unary_neg_float tests @unary_neg_float () -> void = {
+    let result = unary_neg_float();
+    assert(cond: result < -3.13);
+    assert(cond: result > -3.15)
+}
 
 @unary_neg_float () -> float = -3.14
 
-@test_unary_neg_zero tests @unary_neg_zero () -> void = run(
-    assert_eq(actual: unary_neg_zero(), expected: 0),
-)
+@test_unary_neg_zero tests @unary_neg_zero () -> void = {
+    assert_eq(actual: unary_neg_zero(), expected: 0)
+}
 
 @unary_neg_zero () -> int = -0
 
@@ -297,33 +297,33 @@ use std.testing { assert_eq, assert }
 // Precedence (Arithmetic)
 // =============================================================================
 
-@test_mul_before_add tests @mul_before_add () -> void = run(
-    assert_eq(actual: mul_before_add(), expected: 14),
-)
+@test_mul_before_add tests @mul_before_add () -> void = {
+    assert_eq(actual: mul_before_add(), expected: 14)
+}
 
 @mul_before_add () -> int = 2 + 3 * 4
 
-@test_div_before_sub tests @div_before_sub () -> void = run(
-    assert_eq(actual: div_before_sub(), expected: 7),
-)
+@test_div_before_sub tests @div_before_sub () -> void = {
+    assert_eq(actual: div_before_sub(), expected: 7)
+}
 
 @div_before_sub () -> int = 10 - 12 / 4
 
-@test_parens_override tests @parens_override () -> void = run(
-    assert_eq(actual: parens_override(), expected: 20),
-)
+@test_parens_override tests @parens_override () -> void = {
+    assert_eq(actual: parens_override(), expected: 20)
+}
 
 @parens_override () -> int = (2 + 3) * 4
 
-@test_left_associative_sub tests @left_associative_sub () -> void = run(
-    assert_eq(actual: left_associative_sub(), expected: 3),
-)
+@test_left_associative_sub tests @left_associative_sub () -> void = {
+    assert_eq(actual: left_associative_sub(), expected: 3)
+}
 
 @left_associative_sub () -> int = 10 - 5 - 2
 
-@test_left_associative_div tests @left_associative_div () -> void = run(
-    assert_eq(actual: left_associative_div(), expected: 5),
-)
+@test_left_associative_div tests @left_associative_div () -> void = {
+    assert_eq(actual: left_associative_div(), expected: 5)
+}
 
 @left_associative_div () -> int = 100 / 10 / 2
 
@@ -331,22 +331,22 @@ use std.testing { assert_eq, assert }
 // Mixed Operations
 // =============================================================================
 
-@test_complex_expr tests @complex_expr () -> void = run(
-    assert_eq(actual: complex_expr(), expected: 9),
-)
+@test_complex_expr tests @complex_expr () -> void = {
+    assert_eq(actual: complex_expr(), expected: 9)
+}
 
 @complex_expr () -> int = 2 + 3 * 4 - 10 / 2
 
-@test_mod_in_expr tests @mod_in_expr () -> void = run(
-    assert_eq(actual: mod_in_expr(), expected: 11),
-)
+@test_mod_in_expr tests @mod_in_expr () -> void = {
+    assert_eq(actual: mod_in_expr(), expected: 11)
+}
 
 @mod_in_expr () -> int = 10 + 7 % 3
 
-@test_div_and_floor_div tests @div_and_floor_div () -> void = run(
-    assert_eq(actual: -7 / 2, expected: -3),
-    assert_eq(actual: -7 div 2, expected: -4),
-)
+@test_div_and_floor_div tests @div_and_floor_div () -> void = {
+    assert_eq(actual: -7 / 2, expected: -3);
+    assert_eq(actual: -7 div 2, expected: -4)
+}
 
 @div_and_floor_div () -> int = -7 / 2
 
@@ -354,13 +354,13 @@ use std.testing { assert_eq, assert }
 // Evaluation Order
 // =============================================================================
 
-@test_left_to_right_eval tests @left_to_right_eval () -> void = run(
-    let counter = 0,
-    let result = run(counter = 1, counter) + run(counter = counter * 10, counter),
-    assert_eq(actual: result, expected: 11),
-)
+@test_left_to_right_eval tests @left_to_right_eval () -> void = {
+    let counter = 0;
+    let result = {counter = 1; counter} + {counter = counter * 10; counter};
+    assert_eq(actual: result, expected: 11)
+}
 
-@left_to_right_eval () -> int = run(
-    let counter = 0,
-    run(counter = 1, counter) + run(counter = counter * 10, counter),
-)
+@left_to_right_eval () -> int = {
+    let counter = 0;
+    {counter = 1; counter} + {counter = counter * 10; counter}
+}

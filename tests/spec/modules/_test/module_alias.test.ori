@@ -16,47 +16,47 @@ use "../math_lib" as math
 @qualified_access_helper () -> int = 42
 
 // Test that regular imports from the same module work
-@test_regular_import_add tests @add () -> void = run(
+@test_regular_import_add tests @add () -> void = {
     assert_eq(actual: add(a: 2, b: 3), expected: 5)
-)
+}
 
-@test_regular_import_multiply tests @multiply () -> void = run(
+@test_regular_import_multiply tests @multiply () -> void = {
     assert_eq(actual: multiply(a: 4, b: 5), expected: 20)
-)
+}
 
-@test_regular_import_double tests @double () -> void = run(
+@test_regular_import_double tests @double () -> void = {
     assert_eq(actual: double(x: 7), expected: 14)
-)
+}
 
 // Tests for qualified access through module alias
-@test_qualified_add tests @qualified_access_helper () -> void = run(
+@test_qualified_add tests @qualified_access_helper () -> void = {
     assert_eq(actual: math.add(a: 10, b: 20), expected: 30)
-)
+}
 
-@test_qualified_subtract tests @qualified_access_helper () -> void = run(
+@test_qualified_subtract tests @qualified_access_helper () -> void = {
     assert_eq(actual: math.subtract(a: 50, b: 8), expected: 42)
-)
+}
 
-@test_qualified_multiply tests @qualified_access_helper () -> void = run(
+@test_qualified_multiply tests @qualified_access_helper () -> void = {
     assert_eq(actual: math.multiply(a: 6, b: 7), expected: 42)
-)
+}
 
-@test_qualified_square tests @qualified_access_helper () -> void = run(
+@test_qualified_square tests @qualified_access_helper () -> void = {
     assert_eq(actual: math.square(x: 5), expected: 25)
-)
+}
 
-@test_qualified_double tests @qualified_access_helper () -> void = run(
+@test_qualified_double tests @qualified_access_helper () -> void = {
     assert_eq(actual: math.double(x: 21), expected: 42)
-)
+}
 
 // Test qualified access to function that returns a closure
-@test_qualified_make_adder tests @qualified_access_helper () -> void = run(
-    let add10 = math.make_adder(n: 10),
+@test_qualified_make_adder tests @qualified_access_helper () -> void = {
+    let add10 = math.make_adder(n: 10);
     assert_eq(actual: add10(5), expected: 15)
-)
+}
 
 // Test that we can use qualified access with public functions
 // that internally use private helpers
-@test_qualified_use_internal tests @qualified_access_helper () -> void = run(
+@test_qualified_use_internal tests @qualified_access_helper () -> void = {
     assert_eq(actual: math.use_internal(x: 1), expected: 101)
-)
+}

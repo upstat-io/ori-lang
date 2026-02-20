@@ -75,6 +75,8 @@ impl Parser<'_> {
 
         let end_span = self.cursor.previous_span();
 
+        self.eat_optional_item_semicolon();
+
         ParseOutcome::consumed_ok(TypeDecl {
             name,
             generics,

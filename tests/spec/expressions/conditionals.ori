@@ -8,35 +8,35 @@ use std.testing { assert_eq, assert }
 
 // When else is omitted, the expression has type void.
 
-@test_if_then_true_executes tests @if_then_true_executes () -> void = run(
-    let x = 0,
-    if_then_true_executes(x: x),
-)
+@test_if_then_true_executes tests @if_then_true_executes () -> void = {
+    let x = 0;
+    if_then_true_executes(x: x)
+}
 
 @if_then_true_executes (x: int) -> void =
     if true then assert_eq(actual: x, expected: 0)
 
-@test_if_then_false_skips tests @if_then_false_skips () -> void = run(
-    if_then_false_skips(),
-    assert(cond: true),
-)
+@test_if_then_false_skips tests @if_then_false_skips () -> void = {
+    if_then_false_skips();
+    assert(cond: true)
+}
 
 @if_then_false_skips () -> void =
     if false then panic(msg: "should not execute")
 
-@test_if_then_guard_pattern tests @if_then_guard_pattern () -> void = run(
-    if_then_guard_pattern(x: 5),
-    assert(cond: true),
-)
+@test_if_then_guard_pattern tests @if_then_guard_pattern () -> void = {
+    if_then_guard_pattern(x: 5);
+    assert(cond: true)
+}
 
 // Never then-branch (panic) is valid without else
 @if_then_guard_pattern (x: int) -> void =
     if x <= 0 then panic(msg: "x must be positive")
 
-@test_if_then_explicit_unit tests @if_then_explicit_unit () -> void = run(
-    if_then_explicit_unit(cond: true),
-    if_then_explicit_unit(cond: false),
-)
+@test_if_then_explicit_unit tests @if_then_explicit_unit () -> void = {
+    if_then_explicit_unit(cond: true);
+    if_then_explicit_unit(cond: false)
+}
 
 @if_then_explicit_unit (cond: bool) -> void =
     if cond then ()
@@ -45,20 +45,20 @@ use std.testing { assert_eq, assert }
 // If-Then-Else (standard form)
 // =============================================================================
 
-@test_if_then_else tests @if_then_else () -> void = run(
-    assert_eq(actual: if_then_else(x: 5), expected: "positive"),
-    assert_eq(actual: if_then_else(x: 0), expected: "non-positive"),
-    assert_eq(actual: if_then_else(x: -3), expected: "non-positive"),
-)
+@test_if_then_else tests @if_then_else () -> void = {
+    assert_eq(actual: if_then_else(x: 5), expected: "positive");
+    assert_eq(actual: if_then_else(x: 0), expected: "non-positive");
+    assert_eq(actual: if_then_else(x: -3), expected: "non-positive")
+}
 
 @if_then_else (x: int) -> str =
     if x > 0 then "positive" else "non-positive"
 
-@test_if_else_if tests @if_else_if () -> void = run(
-    assert_eq(actual: if_else_if(x: 5), expected: "positive"),
-    assert_eq(actual: if_else_if(x: 0), expected: "zero"),
-    assert_eq(actual: if_else_if(x: -3), expected: "negative"),
-)
+@test_if_else_if tests @if_else_if () -> void = {
+    assert_eq(actual: if_else_if(x: 5), expected: "positive");
+    assert_eq(actual: if_else_if(x: 0), expected: "zero");
+    assert_eq(actual: if_else_if(x: -3), expected: "negative")
+}
 
 @if_else_if (x: int) -> str =
     if x > 0 then "positive"
@@ -70,62 +70,62 @@ use std.testing { assert_eq, assert }
 // =============================================================================
 
 // Nested if-else
-@test_nested_if_else tests @nested_if_else () -> void = run(
-    assert_eq(actual: nested_if_else(a: true, b: true), expected: "both"),
-    assert_eq(actual: nested_if_else(a: true, b: false), expected: "a only"),
-    assert_eq(actual: nested_if_else(a: false, b: true), expected: "b only"),
-    assert_eq(actual: nested_if_else(a: false, b: false), expected: "neither"),
-)
+@test_nested_if_else tests @nested_if_else () -> void = {
+    assert_eq(actual: nested_if_else(a: true, b: true), expected: "both");
+    assert_eq(actual: nested_if_else(a: true, b: false), expected: "a only");
+    assert_eq(actual: nested_if_else(a: false, b: true), expected: "b only");
+    assert_eq(actual: nested_if_else(a: false, b: false), expected: "neither")
+}
 
 @nested_if_else (a: bool, b: bool) -> str =
     if a then (if b then "both" else "a only")
     else (if b then "b only" else "neither")
 
 // if-else with complex expressions
-@test_if_complex_condition tests @if_complex_condition () -> void = run(
-    assert_eq(actual: if_complex_condition(x: 10, y: 5), expected: "pass"),
-    assert_eq(actual: if_complex_condition(x: 2, y: 10), expected: "fail"),
-)
+@test_if_complex_condition tests @if_complex_condition () -> void = {
+    assert_eq(actual: if_complex_condition(x: 10, y: 5), expected: "pass");
+    assert_eq(actual: if_complex_condition(x: 2, y: 10), expected: "fail")
+}
 
 @if_complex_condition (x: int, y: int) -> str =
     if x > y && x > 0 && y > 0 then "pass" else "fail"
 
 // if-else with short-circuit
-@test_if_short_circuit tests @if_short_circuit () -> void = run(
+@test_if_short_circuit tests @if_short_circuit () -> void = {
     // false && anything should not evaluate anything
-    let result = if false && panic(msg: "not evaluated") then "yes" else "no",
-    assert_eq(actual: result, expected: "no"),
-)
+    let result = if false && panic(msg: "not evaluated") then "yes" else "no";
+    assert_eq(actual: result, expected: "no")
+}
 
 @if_short_circuit () -> str = if false && true then "yes" else "no"
 
 // if-else returning different types that coerce
-@test_if_coercion tests @if_coercion () -> void = run(
+@test_if_coercion tests @if_coercion () -> void = {
     // Never coerces to any type
-    let x: int = if true then 42 else panic(msg: "unreachable"),
-    assert_eq(actual: x, expected: 42),
-)
+    let x: int = if true then 42 else panic(msg: "unreachable");
+    assert_eq(actual: x, expected: 42)
+}
 
 @if_coercion () -> int = if true then 42 else panic(msg: "unreachable")
 
 // if-else with function call condition
-@test_if_function_condition tests @if_function_condition () -> void = run(
-    let positive = is_positive(n: 5),
-    let result = if positive then "yes" else "no",
-    assert_eq(actual: result, expected: "yes"),
-)
+@test_if_function_condition tests @if_function_condition () -> void = {
+    let positive = is_positive(n: 5);
+    let result = if positive then "yes" else "no";
+    assert_eq(actual: result, expected: "yes")
+}
 
 @is_positive (n: int) -> bool = n > 0
 @if_function_condition () -> str = if is_positive(n: 5) then "yes" else "no"
 
 // Multiple else-if chains
-@test_long_else_if tests @long_else_if () -> void = run(
-    assert_eq(actual: long_else_if(x: 5), expected: "A"),
-    assert_eq(actual: long_else_if(x: 4), expected: "B"),
-    assert_eq(actual: long_else_if(x: 3), expected: "C"),
-    assert_eq(actual: long_else_if(x: 2), expected: "D"),
-    assert_eq(actual: long_else_if(x: 1), expected: "E"),
-)
+@test_long_else_if tests @long_else_if () -> void = {
+    assert_eq(actual: long_else_if(x: 5), expected: "A");
+    assert_eq(actual: long_else_if(x: 4), expected: "B");
+    assert_eq(actual: long_else_if(x: 3), expected: "C");
+    assert_eq(actual: long_else_if(x: 2), expected: "D");
+    assert_eq(actual: long_else_if(x: 1), expected: "E")
+}
 
 @long_else_if (x: int) -> str =
     if x >= 5 then "A"
@@ -135,44 +135,44 @@ use std.testing { assert_eq, assert }
     else "E"
 
 // if-else with computation in branches
-@test_if_computation tests @if_computation () -> void = run(
-    let result = if_computation(n: 10),
-    assert_eq(actual: result, expected: 45),
-)
+@test_if_computation tests @if_computation () -> void = {
+    let result = if_computation(n: 10);
+    assert_eq(actual: result, expected: 45)
+}
 
 @if_computation (n: int) -> int =
     if n > 0 then (n - 1) + if_computation(n: n - 1)
     else 0
 
 // if-else with let bindings in branches
-@test_if_with_let tests @if_with_let () -> void = run(
-    let result = if_with_let(x: 10),
-    assert_eq(actual: result, expected: 20),
-)
+@test_if_with_let tests @if_with_let () -> void = {
+    let result = if_with_let(x: 10);
+    assert_eq(actual: result, expected: 20)
+}
 
 @if_with_let (x: int) -> int =
-    if x > 0 then run(
-        let doubled = x * 2,
-        doubled,
-    )
+    if x > 0 then {
+        let doubled = x * 2;
+        doubled
+    }
     else 0
 
 // if-else evaluates correct branch only
-@test_branch_selection tests @branch_selection () -> void = run(
+@test_branch_selection tests @branch_selection () -> void = {
     // Only the then-branch should be evaluated
-    let result = if true then 1 else panic(msg: "should not execute"),
-    assert_eq(actual: result, expected: 1),
-)
+    let result = if true then 1 else panic(msg: "should not execute");
+    assert_eq(actual: result, expected: 1)
+}
 
 @branch_selection () -> int = if true then 1 else panic(msg: "should not execute")
 
 // Boolean conditions
-@test_boolean_conditions tests @boolean_conditions () -> void = run(
-    assert_eq(actual: boolean_conditions(a: true, b: true), expected: 1),
-    assert_eq(actual: boolean_conditions(a: true, b: false), expected: 2),
-    assert_eq(actual: boolean_conditions(a: false, b: true), expected: 3),
-    assert_eq(actual: boolean_conditions(a: false, b: false), expected: 4),
-)
+@test_boolean_conditions tests @boolean_conditions () -> void = {
+    assert_eq(actual: boolean_conditions(a: true, b: true), expected: 1);
+    assert_eq(actual: boolean_conditions(a: true, b: false), expected: 2);
+    assert_eq(actual: boolean_conditions(a: false, b: true), expected: 3);
+    assert_eq(actual: boolean_conditions(a: false, b: false), expected: 4)
+}
 
 @boolean_conditions (a: bool, b: bool) -> int =
     if a && b then 1
@@ -180,11 +180,11 @@ use std.testing { assert_eq, assert }
     else 4
 
 // if with comparison operators
-@test_comparison_conditions tests @comparison_conditions () -> void = run(
-    assert_eq(actual: comparison_conditions(x: 0, y: 0), expected: "equal"),
-    assert_eq(actual: comparison_conditions(x: 5, y: 3), expected: "greater"),
-    assert_eq(actual: comparison_conditions(x: 3, y: 5), expected: "less"),
-)
+@test_comparison_conditions tests @comparison_conditions () -> void = {
+    assert_eq(actual: comparison_conditions(x: 0, y: 0), expected: "equal");
+    assert_eq(actual: comparison_conditions(x: 5, y: 3), expected: "greater");
+    assert_eq(actual: comparison_conditions(x: 3, y: 5), expected: "less")
+}
 
 @comparison_conditions (x: int, y: int) -> str =
     if x == y then "equal"
@@ -192,19 +192,19 @@ use std.testing { assert_eq, assert }
     else "less"
 
 // Negation in condition
-@test_negation_condition tests @negation_condition () -> void = run(
-    assert_eq(actual: negation_condition(b: true), expected: "was true"),
-    assert_eq(actual: negation_condition(b: false), expected: "was false"),
-)
+@test_negation_condition tests @negation_condition () -> void = {
+    assert_eq(actual: negation_condition(b: true), expected: "was true");
+    assert_eq(actual: negation_condition(b: false), expected: "was false")
+}
 
 @negation_condition (b: bool) -> str =
     if !b then "was false" else "was true"
 
 // if returning unit
-@test_if_returns_unit tests @if_returns_unit () -> void = run(
-    let result = if_returns_unit(cond: true),
-    assert(cond: true),
-)
+@test_if_returns_unit tests @if_returns_unit () -> void = {
+    let result = if_returns_unit(cond: true);
+    assert(cond: true)
+}
 
 @if_returns_unit (cond: bool) -> void =
     if cond then () else ()

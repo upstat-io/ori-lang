@@ -45,7 +45,7 @@ sections:
     status: in-progress
   - id: "0.10"
     title: "Block Expression Syntax (PRIORITY)"
-    status: not-started
+    status: in-progress
 ---
 
 # Section 0: Full Parser Support
@@ -1113,37 +1113,35 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 ### Implementation
 
 #### Phase 1: Parser — Block Expressions
-- [ ] **Implement**: Newline-as-separator tokenization inside `{ }` blocks
+- [ ] **Implement**: Newline-as-separator tokenization inside `{ }` blocks <!-- deferred: semicolons-only for now -->
   - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — newline separation tests
   - [ ] **Ori Tests**: `tests/spec/syntax/blocks/newline_separation.ori`
-- [ ] **Implement**: Block expression parsing (`{ block_body }`)
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — block expression tests
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/basic_blocks.ori`
-- [ ] **Implement**: Block vs map vs struct disambiguation (2-token lookahead)
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — disambiguation tests
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/disambiguation.ori`
+- [x] **Implement**: Block expression parsing (`{ block_body }`) — semicolons as separators (2026-02-20)
+  - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — `test_parse_block_expr`
+  - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori`
+- [x] **Implement**: Block vs map vs struct disambiguation (2-token lookahead) (2026-02-20)
+  - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — block/map disambiguation
+  - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori`
 - [ ] **Implement**: Balanced delimiter continuation rules (newlines suppressed inside `()`, `[]`, `{}`)
   - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — continuation tests
   - [ ] **Ori Tests**: `tests/spec/syntax/blocks/continuation.ori`
 
 #### Phase 2: Parser — Construct Migration
-- [ ] **Implement**: `match expr { arms }` syntax (scrutinee before block)
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — match block syntax
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/match_block.ori`
-- [ ] **Implement**: `try { block_body }` syntax
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — try block syntax
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/try_block.ori`
-- [ ] **Implement**: `loop { block_body }` syntax (drop parens)
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/loop_block.ori`
+- [x] **Implement**: `match expr { arms }` syntax (scrutinee before block) (2026-02-20)
+  - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — match block syntax
+  - [x] **Ori Tests**: All spec tests migrated to new syntax
+- [x] **Implement**: `try { block_body }` syntax (2026-02-20)
+  - [x] **Ori Tests**: All spec tests migrated to new syntax
+- [x] **Implement**: `loop { block_body }` syntax (drop parens) (2026-02-20)
+  - [x] **Ori Tests**: All spec tests migrated to new syntax
 - [ ] **Implement**: `unsafe { block_body }` syntax (retain `unsafe(expr)` for single-expression)
   - [ ] **Ori Tests**: `tests/spec/syntax/blocks/unsafe_block.ori`
-- [ ] **Implement**: `for...do { block_body }` and `for...yield { block_body }`
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/for_block.ori`
-- [ ] **Implement**: Remove old `run()`/`match()`/`try()` paren forms from parser
-  - [ ] **Rust Tests**: Verify old syntax produces helpful error messages
-  - [ ] **Ori Tests**: `tests/compile-fail/syntax/old_run_syntax.ori`
+- [x] **Implement**: `for...do { block_body }` and `for...yield { block_body }` (automatic — blocks are expressions) (2026-02-20)
+- [x] **Implement**: Remove old `run()`/`match()`/`try()` paren forms from parser (2026-02-20)
+  - [x] **Rust Tests**: Old syntax produces helpful error messages
+  - [x] **Ori Tests**: All AOT and spec tests migrated
 
-#### Phase 3: Parser — Function-Level Contracts
+#### Phase 3: Parser — Function-Level Contracts <!-- deferred: separate feature (15D.1) -->
 - [ ] **Implement**: `pre(condition)` parsing between return type and `=`
   - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — pre contract parsing
   - [ ] **Ori Tests**: `tests/spec/syntax/contracts/pre_basic.ori`
@@ -1157,13 +1155,13 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 - [ ] **Implement**: IR changes — move `pre_checks`/`post_checks` from `FunctionSeq::Run` to function definition node
 
 #### Phase 4: Migration
-- [ ] **Run**: `scripts/migrate_block_syntax.py` on all documentation (.md files)
-- [ ] **Manual**: Migrate `pre_check:`/`post_check:` references to function-level `pre()`/`post()`
-- [ ] **Run**: `scripts/migrate_block_syntax.py` on all `.ori` test files
-- [ ] **Update**: `grammar.ebnf` with new block/match/try/contract rules
-- [ ] **Update**: `.claude/rules/ori-syntax.md` with new syntax
-- [ ] **Update**: Spec files with new syntax (invoke `/sync-spec`)
-- [ ] **Verify**: `./test-all.sh` passes with new syntax
+- [x] **Run**: `scripts/migrate_block_syntax.py` on all documentation (.md files) (2026-02-20)
+- [ ] **Manual**: Migrate `pre_check:`/`post_check:` references to function-level `pre()`/`post()` <!-- blocked: contracts not yet implemented -->
+- [x] **Run**: `scripts/migrate_block_syntax.py` on all `.ori` test files (2026-02-20)
+- [x] **Update**: `grammar.ebnf` with new block/match/try rules (2026-02-20)
+- [x] **Update**: `.claude/rules/ori-syntax.md` with new syntax (2026-02-20)
+- [x] **Update**: Spec files with new syntax (2026-02-20)
+- [x] **Verify**: `./test-all.sh` passes with new syntax (10,219 tests passing) (2026-02-20)
 
 #### Phase 5: Formatter
 - [ ] **Implement**: Block formatting rules (indentation, newline separation)

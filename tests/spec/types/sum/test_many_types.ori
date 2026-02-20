@@ -7,37 +7,37 @@ type Result2 = Success(value: int) | Failure(msg: str)
 type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
 type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
 
-@status_name (s: Status) -> str = match(s,
+@status_name (s: Status) -> str = match s {
     Pending -> "pending",
     Running -> "running",
-    Completed -> "completed",
-)
+    Completed -> "completed"
+}
 
-@get_message (m: Message) -> str = match(m,
+@get_message (m: Message) -> str = match m {
     Text(content) -> content,
-    Empty -> "empty",
-)
+    Empty -> "empty"
+}
 
-@is_success (r: Result2) -> bool = match(r,
+@is_success (r: Result2) -> bool = match r {
     Success(_) -> true,
-    _ -> false,
-)
+    _ -> false
+}
 
-@describe_event (e: Event) -> str = match(e,
+@describe_event (e: Event) -> str = match e {
     Click(x, y) -> "click at " + str(x) + "," + str(y),
     Keypress(key, _) -> "key: " + key,
-    Quit -> "quit",
-)
+    Quit -> "quit"
+}
 
-@area (s: Shape) -> int = match(s,
+@area (s: Shape) -> int = match s {
     Circle(r) -> r * r * 3,
-    Rectangle(w, h) -> w * h,
-)
+    Rectangle(w, h) -> w * h
+}
 
-@test_many_types tests @status_name () -> void = run(
-    assert_eq(actual: status_name(s: Pending), expected: "pending"),
-    assert_eq(actual: get_message(m: Text("hello")), expected: "hello"),
-    assert(cond: is_success(r: Success(42))),
-    assert_eq(actual: describe_event(e: Quit), expected: "quit"),
-    assert_eq(actual: area(s: Circle(radius: 2)), expected: 12),
-)
+@test_many_types tests @status_name () -> void = {
+    assert_eq(actual: status_name(s: Pending), expected: "pending");
+    assert_eq(actual: get_message(m: Text("hello")), expected: "hello");
+    assert(cond: is_success(r: Success(42)));
+    assert_eq(actual: describe_event(e: Quit), expected: "quit");
+    assert_eq(actual: area(s: Circle(radius: 2)), expected: 12)
+}

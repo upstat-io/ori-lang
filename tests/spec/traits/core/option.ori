@@ -8,27 +8,27 @@ use std.testing { assert, assert_eq }
 // is_some Method
 // =============================================================================
 
-@test_some_is_some tests @some_is_some () -> void = run(
-    let x = Some(42),
-    assert(cond: x.is_some()),
-)
+@test_some_is_some tests @some_is_some () -> void = {
+    let x = Some(42);
+    assert(cond: x.is_some())
+}
 
 @some_is_some () -> bool = Some(42).is_some()
 
-@test_none_is_some tests @none_is_some () -> void = run(
-    let x: Option<int> = None,
-    assert(cond: !x.is_some()),
-)
+@test_none_is_some tests @none_is_some () -> void = {
+    let x: Option<int> = None;
+    assert(cond: !x.is_some())
+}
 
-@none_is_some () -> bool = run(
-    let x: Option<int> = None,
-    x.is_some(),
-)
+@none_is_some () -> bool = {
+    let x: Option<int> = None;
+    x.is_some()
+}
 
-@test_nested_some_is_some tests @nested_some_is_some () -> void = run(
-    let x = Some(Some(1)),
-    assert(cond: x.is_some()),
-)
+@test_nested_some_is_some tests @nested_some_is_some () -> void = {
+    let x = Some(Some(1));
+    assert(cond: x.is_some())
+}
 
 @nested_some_is_some () -> bool = Some(Some(1)).is_some()
 
@@ -36,20 +36,20 @@ use std.testing { assert, assert_eq }
 // is_none Method
 // =============================================================================
 
-@test_none_is_none tests @none_is_none () -> void = run(
-    let x: Option<str> = None,
-    assert(cond: x.is_none()),
-)
+@test_none_is_none tests @none_is_none () -> void = {
+    let x: Option<str> = None;
+    assert(cond: x.is_none())
+}
 
-@none_is_none () -> bool = run(
-    let x: Option<str> = None,
-    x.is_none(),
-)
+@none_is_none () -> bool = {
+    let x: Option<str> = None;
+    x.is_none()
+}
 
-@test_some_is_none tests @some_is_none () -> void = run(
-    let x = Some("hello"),
-    assert(cond: !x.is_none()),
-)
+@test_some_is_none tests @some_is_none () -> void = {
+    let x = Some("hello");
+    assert(cond: !x.is_none())
+}
 
 @some_is_none () -> bool = Some("hello").is_none()
 
@@ -57,44 +57,44 @@ use std.testing { assert, assert_eq }
 // is_some and is_none Built-in Functions
 // =============================================================================
 
-@test_is_some_builtin tests @is_some_builtin () -> void = run(
-    assert(cond: is_some(opt: Some(1))),
-    assert(cond: !is_some(opt: None)),
-)
+@test_is_some_builtin tests @is_some_builtin () -> void = {
+    assert(cond: is_some(opt: Some(1)));
+    assert(cond: !is_some(opt: None))
+}
 
 @is_some_builtin () -> bool = is_some(opt: Some(1))
 
-@test_is_none_builtin tests @is_none_builtin () -> void = run(
-    assert(cond: is_none(opt: None)),
-    assert(cond: !is_none(opt: Some(1))),
-)
+@test_is_none_builtin tests @is_none_builtin () -> void = {
+    assert(cond: is_none(opt: None));
+    assert(cond: !is_none(opt: Some(1)))
+}
 
-@is_none_builtin () -> bool = run(
-    let x: Option<int> = None,
-    is_none(opt: x),
-)
+@is_none_builtin () -> bool = {
+    let x: Option<int> = None;
+    is_none(opt: x)
+}
 
 // =============================================================================
 // unwrap Method
 // =============================================================================
 
-@test_unwrap_some tests @unwrap_some () -> void = run(
-    let x = Some(42),
+@test_unwrap_some tests @unwrap_some () -> void = {
+    let x = Some(42);
     assert_eq(
         actual: x.unwrap(),
         expected: 42,
-    ),
-)
+    )
+}
 
 @unwrap_some () -> int = Some(42).unwrap()
 
-@test_unwrap_string tests @unwrap_string () -> void = run(
-    let x = Some("hello"),
+@test_unwrap_string tests @unwrap_string () -> void = {
+    let x = Some("hello");
     assert_eq(
         actual: x.unwrap(),
         expected: "hello",
-    ),
-)
+    )
+}
 
 @unwrap_string () -> str = Some("hello").unwrap()
 
@@ -102,63 +102,63 @@ use std.testing { assert, assert_eq }
 // unwrap_or Method
 // =============================================================================
 
-@test_unwrap_or_some tests @unwrap_or_some () -> void = run(
-    let x = Some(42),
+@test_unwrap_or_some tests @unwrap_or_some () -> void = {
+    let x = Some(42);
     assert_eq(
         actual: x.unwrap_or(default: 0),
         expected: 42,
-    ),
-)
+    )
+}
 
 @unwrap_or_some () -> int = Some(42).unwrap_or(default: 0)
 
-@test_unwrap_or_none tests @unwrap_or_none () -> void = run(
-    let x: Option<int> = None,
+@test_unwrap_or_none tests @unwrap_or_none () -> void = {
+    let x: Option<int> = None;
     assert_eq(
         actual: x.unwrap_or(default: 100),
         expected: 100,
-    ),
-)
+    )
+}
 
-@unwrap_or_none () -> int = run(
-    let x: Option<int> = None,
-    x.unwrap_or(default: 0),
-)
+@unwrap_or_none () -> int = {
+    let x: Option<int> = None;
+    x.unwrap_or(default: 0)
+}
 
-@test_unwrap_or_string tests @unwrap_or_string () -> void = run(
-    let x: Option<str> = None,
+@test_unwrap_or_string tests @unwrap_or_string () -> void = {
+    let x: Option<str> = None;
     assert_eq(
         actual: x.unwrap_or(default: "default"),
         expected: "default",
-    ),
-)
+    )
+}
 
-@unwrap_or_string () -> str = run(
-    let x: Option<str> = None,
-    x.unwrap_or(default: "fallback"),
-)
+@unwrap_or_string () -> str = {
+    let x: Option<str> = None;
+    x.unwrap_or(default: "fallback")
+}
 
 // =============================================================================
 // Option with Various Types
 // =============================================================================
 
-@test_option_list tests @option_list () -> void = run(
-    let x = Some([1, 2, 3]),
-    assert(cond: x.is_some()),
+@test_option_list tests @option_list () -> void = {
+    let x = Some([1, 2, 3]);
+    assert(cond: x.is_some());
     assert_eq(
         actual: x.unwrap().len(),
         expected: 3,
-    ),
-)
+    )
+}
 
 @option_list () -> int = Some([1, 2]).unwrap().len()
 
-@test_option_bool tests @option_bool () -> void = run(
-    let t = Some(true),
-    let f = Some(false),
-    assert(cond: t.unwrap()),
-    assert(cond: !f.unwrap()),
-)
+@test_option_bool tests @option_bool () -> void = {
+    let t = Some(true);
+    let f = Some(false);
+    assert(cond: t.unwrap());
+    assert(cond: !f.unwrap())
+}
 
 @option_bool () -> bool = Some(true).unwrap()
 
@@ -166,30 +166,30 @@ use std.testing { assert, assert_eq }
 // Chained Option Operations
 // =============================================================================
 
-@test_option_chain tests @option_chain () -> void = run(
-    let x = Some(42),
-    let result = if x.is_some() then x.unwrap() * 2 else 0,
+@test_option_chain tests @option_chain () -> void = {
+    let x = Some(42);
+    let result = if x.is_some() then x.unwrap() * 2 else 0;
     assert_eq(
         actual: result,
         expected: 84,
-    ),
-)
+    )
+}
 
-@option_chain () -> int = run(
-    let x = Some(10),
-    if x.is_some() then x.unwrap() else 0,
-)
+@option_chain () -> int = {
+    let x = Some(10);
+    if x.is_some() then x.unwrap() else 0
+}
 
-@test_conditional_unwrap tests @conditional_unwrap () -> void = run(
-    let x: Option<int> = None,
-    let result = if x.is_none() then -1 else x.unwrap(),
+@test_conditional_unwrap tests @conditional_unwrap () -> void = {
+    let x: Option<int> = None;
+    let result = if x.is_none() then -1 else x.unwrap();
     assert_eq(
         actual: result,
         expected: -1,
-    ),
-)
+    )
+}
 
-@conditional_unwrap () -> int = run(
-    let x: Option<int> = None,
-    if x.is_none() then 0 else x.unwrap(),
-)
+@conditional_unwrap () -> int = {
+    let x: Option<int> = None;
+    if x.is_none() then 0 else x.unwrap()
+}

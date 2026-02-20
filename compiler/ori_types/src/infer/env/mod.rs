@@ -21,6 +21,11 @@ struct TypeEnvInner {
     /// Schemes are just `Idx` (could be a Scheme tag or a monomorphic type).
     bindings: FxHashMap<Name, Idx>,
 
+    /// Name → mutability tracking for `$` binding enforcement.
+    /// `true` = mutable (`let x`), `false` = immutable (`let $x`).
+    /// Only populated for bindings from `let` statements with explicit mutability.
+    mutability: FxHashMap<Name, bool>,
+
     /// Parent scope for lookup chaining.
     parent: Option<TypeEnv>,
 }
@@ -57,6 +62,7 @@ impl TypeEnv {
     pub fn new() -> Self {
         TypeEnv(Rc::new(TypeEnvInner {
             bindings: FxHashMap::default(),
+            mutability: FxHashMap::default(),
             parent: None,
         }))
     }
@@ -68,6 +74,7 @@ impl TypeEnv {
     pub fn child(&self) -> Self {
         TypeEnv(Rc::new(TypeEnvInner {
             bindings: FxHashMap::default(),
+            mutability: FxHashMap::default(),
             parent: Some(self.clone()),
         }))
     }
@@ -83,6 +90,29 @@ impl TypeEnv {
     /// For polymorphic types, pass a Scheme `Idx`.
     pub fn bind(&mut self, name: Name, ty: Idx) {
         Rc::make_mut(&mut self.0).bindings.insert(name, ty);
+    }
+
+    /// Bind a name to a type and record its mutability.
+    ///
+    /// `mutable: true` = `let x` (can be reassigned).
+    /// `mutable: false` = `let $x` (immutable binding).
+    pub fn bind_with_mutability(&mut self, name: Name, ty: Idx, mutable: bool) {
+        let inner = Rc::make_mut(&mut self.0);
+        inner.bindings.insert(name, ty);
+        inner.mutability.insert(name, mutable);
+    }
+
+    /// Check if a binding is mutable, searching parent scopes.
+    ///
+    /// Returns `Some(true)` for mutable, `Some(false)` for immutable,
+    /// `None` if the name has no recorded mutability (e.g., function params,
+    /// prelude bindings).
+    pub fn is_mutable(&self, name: Name) -> Option<bool> {
+        self.0
+            .mutability
+            .get(&name)
+            .copied()
+            .or_else(|| self.0.parent.as_ref().and_then(|p| p.is_mutable(name)))
     }
 
     /// Bind a name to a type scheme (alias for `bind`).

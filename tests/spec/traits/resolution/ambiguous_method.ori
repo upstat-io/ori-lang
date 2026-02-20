@@ -21,8 +21,8 @@ impl Painter for Canvas {
 
 // Calling draw() is ambiguous — Renderer.draw or Painter.draw?
 #[compile_fail("ambiguous method")]
-@test_ambiguous_method () -> void = run(
-    let c = Canvas { name: "test" },
-    let _ = c.draw(),
+@test_ambiguous_method () -> void = {
+    let c = Canvas { name: "test" };
+    let _ = c.draw();
     ()
-)
+}

@@ -134,6 +134,8 @@ impl Parser<'_> {
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);
 
+            self.eat_optional_item_semicolon();
+
             ParseOutcome::consumed_ok(FunctionOrTest::Function(Function {
                 name,
                 generics,
@@ -179,6 +181,8 @@ impl Parser<'_> {
 
         let end_span = self.arena.get_expr(body).span;
         let span = start_span.merge(end_span);
+
+        self.eat_optional_item_semicolon();
 
         ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
             name,

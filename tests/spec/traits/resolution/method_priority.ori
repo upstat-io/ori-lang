@@ -20,10 +20,10 @@ impl Formatter for Item {
 }
 
 // Inherent method should win over trait method
-@test_inherent_over_trait tests @format () -> void = run(
-    let item = Item { name: "test" },
-    assert_eq(actual: item.format(), expected: "inherent:test"),
-)
+@test_inherent_over_trait tests @format () -> void = {
+    let item = Item { name: "test" };
+    assert_eq(actual: item.format(), expected: "inherent:test")
+}
 
 // Single trait method resolves unambiguously
 trait Displayable {
@@ -36,7 +36,7 @@ impl Displayable for Widget {
     @display (self) -> str = "widget:" + self.label
 }
 
-@test_single_trait_unambiguous tests @display () -> void = run(
-    let w = Widget { label: "btn" },
-    assert_eq(actual: w.display(), expected: "widget:btn"),
-)
+@test_single_trait_unambiguous tests @display () -> void = {
+    let w = Widget { label: "btn" };
+    assert_eq(actual: w.display(), expected: "widget:btn")
+}

@@ -13,18 +13,18 @@ use std.testing { assert, assert_eq }
 
 @add (a: int, b: int) -> int = a + b
 
-@test_all_named tests @add () -> void = run(
-    assert_eq(actual: add(a: 1, b: 2), expected: 3),
-    assert_eq(actual: add(a: 0, b: 0), expected: 0),
-    assert_eq(actual: add(a: -5, b: 10), expected: 5),
-)
+@test_all_named tests @add () -> void = {
+    assert_eq(actual: add(a: 1, b: 2), expected: 3);
+    assert_eq(actual: add(a: 0, b: 0), expected: 0);
+    assert_eq(actual: add(a: -5, b: 10), expected: 5)
+}
 
 @combine (a: int, b: int, c: int) -> int = a * b + c
 
-@test_three_named tests @combine () -> void = run(
-    assert_eq(actual: combine(a: 2, b: 3, c: 4), expected: 10),
-    assert_eq(actual: combine(a: 0, b: 100, c: 50), expected: 50),
-)
+@test_three_named tests @combine () -> void = {
+    assert_eq(actual: combine(a: 2, b: 3, c: 4), expected: 10);
+    assert_eq(actual: combine(a: 0, b: 100, c: 50), expected: 50)
+}
 
 // =============================================================================
 // Reordered Named Arguments
@@ -33,29 +33,29 @@ use std.testing { assert, assert_eq }
 
 @subtract (a: int, b: int) -> int = a - b
 
-@test_reordered_two tests @subtract () -> void = run(
+@test_reordered_two tests @subtract () -> void = {
     // b: before a: — should still evaluate as a - b
-    assert_eq(actual: subtract(b: 3, a: 10), expected: 7),
-    assert_eq(actual: subtract(b: 100, a: 50), expected: -50),
-)
+    assert_eq(actual: subtract(b: 3, a: 10), expected: 7);
+    assert_eq(actual: subtract(b: 100, a: 50), expected: -50)
+}
 
 @three_arg (x: int, y: int, z: int) -> int = x * 100 + y * 10 + z
 
-@test_reordered_three tests @three_arg () -> void = run(
+@test_reordered_three tests @three_arg () -> void = {
     // All permutations produce the same result
-    assert_eq(actual: three_arg(x: 1, y: 2, z: 3), expected: 123),
-    assert_eq(actual: three_arg(z: 3, y: 2, x: 1), expected: 123),
-    assert_eq(actual: three_arg(y: 2, x: 1, z: 3), expected: 123),
-    assert_eq(actual: three_arg(z: 3, x: 1, y: 2), expected: 123),
-)
+    assert_eq(actual: three_arg(x: 1, y: 2, z: 3), expected: 123);
+    assert_eq(actual: three_arg(z: 3, y: 2, x: 1), expected: 123);
+    assert_eq(actual: three_arg(y: 2, x: 1, z: 3), expected: 123);
+    assert_eq(actual: three_arg(z: 3, x: 1, y: 2), expected: 123)
+}
 
 // Non-commutative operations are the real test — wrong order gives wrong result
 @format_pair (first: str, second: str) -> str = first + " and " + second
 
-@test_reordered_str tests @format_pair () -> void = run(
-    assert_eq(actual: format_pair(first: "A", second: "B"), expected: "A and B"),
-    assert_eq(actual: format_pair(second: "B", first: "A"), expected: "A and B"),
-)
+@test_reordered_str tests @format_pair () -> void = {
+    assert_eq(actual: format_pair(first: "A", second: "B"), expected: "A and B");
+    assert_eq(actual: format_pair(second: "B", first: "A"), expected: "A and B")
+}
 
 // =============================================================================
 // Named Arguments with Default Parameters
@@ -63,31 +63,31 @@ use std.testing { assert, assert_eq }
 
 @greet (name: str = "World") -> str = "Hello, " + name
 
-@test_default_used tests @greet () -> void = run(
-    assert_eq(actual: greet(), expected: "Hello, World"),
-)
+@test_default_used tests @greet () -> void = {
+    assert_eq(actual: greet(), expected: "Hello, World")
+}
 
-@test_default_overridden tests @greet () -> void = run(
-    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice"),
-)
+@test_default_overridden tests @greet () -> void = {
+    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice")
+}
 
 @with_two_defaults (a: int = 1, b: int = 2) -> int = a + b
 
-@test_both_defaults tests @with_two_defaults () -> void = run(
-    assert_eq(actual: with_two_defaults(), expected: 3),
-)
+@test_both_defaults tests @with_two_defaults () -> void = {
+    assert_eq(actual: with_two_defaults(), expected: 3)
+}
 
-@test_override_first tests @with_two_defaults () -> void = run(
-    assert_eq(actual: with_two_defaults(a: 10), expected: 12),
-)
+@test_override_first tests @with_two_defaults () -> void = {
+    assert_eq(actual: with_two_defaults(a: 10), expected: 12)
+}
 
-@test_override_second tests @with_two_defaults () -> void = run(
-    assert_eq(actual: with_two_defaults(b: 20), expected: 21),
-)
+@test_override_second tests @with_two_defaults () -> void = {
+    assert_eq(actual: with_two_defaults(b: 20), expected: 21)
+}
 
-@test_override_both tests @with_two_defaults () -> void = run(
-    assert_eq(actual: with_two_defaults(a: 10, b: 20), expected: 30),
-)
+@test_override_both tests @with_two_defaults () -> void = {
+    assert_eq(actual: with_two_defaults(a: 10, b: 20), expected: 30)
+}
 
 // =============================================================================
 // Mixed Required and Optional Parameters
@@ -95,13 +95,13 @@ use std.testing { assert, assert_eq }
 
 @mixed (required: int, optional: int = 100) -> int = required + optional
 
-@test_mixed_all tests @mixed () -> void = run(
-    assert_eq(actual: mixed(required: 5, optional: 10), expected: 15),
-)
+@test_mixed_all tests @mixed () -> void = {
+    assert_eq(actual: mixed(required: 5, optional: 10), expected: 15)
+}
 
-@test_mixed_omit_optional tests @mixed () -> void = run(
-    assert_eq(actual: mixed(required: 5), expected: 105),
-)
+@test_mixed_omit_optional tests @mixed () -> void = {
+    assert_eq(actual: mixed(required: 5), expected: 105)
+}
 
 // =============================================================================
 // Default Expressions (not just literals)
@@ -109,16 +109,16 @@ use std.testing { assert, assert_eq }
 
 @expr_default (x: int = 2 + 3) -> int = x
 
-@test_expr_default_used tests @expr_default () -> void = run(
-    assert_eq(actual: expr_default(), expected: 5),
-)
+@test_expr_default_used tests @expr_default () -> void = {
+    assert_eq(actual: expr_default(), expected: 5)
+}
 
-@test_expr_default_overridden tests @expr_default () -> void = run(
-    assert_eq(actual: expr_default(x: 10), expected: 10),
-)
+@test_expr_default_overridden tests @expr_default () -> void = {
+    assert_eq(actual: expr_default(x: 10), expected: 10)
+}
 
 @complex_default (n: int = 10 * 5 - 7) -> int = n
 
-@test_complex_default tests @complex_default () -> void = run(
-    assert_eq(actual: complex_default(), expected: 43),
-)
+@test_complex_default tests @complex_default () -> void = {
+    assert_eq(actual: complex_default(), expected: 43)
+}
