@@ -137,10 +137,7 @@ impl<'src> TokenCooker<'src> {
             RawTag::RightBrace => TokenKind::RBrace,
             RawTag::Comma => TokenKind::Comma,
             RawTag::Colon => TokenKind::Colon,
-            RawTag::Semicolon => {
-                self.errors.push(LexError::semicolon(span(offset, len)));
-                TokenKind::Semicolon
-            }
+            RawTag::Semicolon => TokenKind::Semicolon,
             RawTag::At => TokenKind::At,
             RawTag::Hash => TokenKind::Hash,
             RawTag::Underscore => TokenKind::Underscore,

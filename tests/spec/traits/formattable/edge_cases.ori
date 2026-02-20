@@ -7,12 +7,12 @@ use std.testing { assert_eq }
 // Empty Spec (colon but no options)
 // =============================================================================
 
-@test_empty_spec tests @empty_spec () -> void = run(
-    let n = 42,
-    assert_eq(actual: `{n}`, expected: "42"),
-    assert_eq(actual: `{"hello"}`, expected: "hello"),
-    assert_eq(actual: `{true}`, expected: "true"),
-)
+@test_empty_spec tests @empty_spec () -> void = {
+    let n = 42;
+    assert_eq(actual: `{n}`, expected: "42");
+    assert_eq(actual: `{"hello"}`, expected: "hello");
+    assert_eq(actual: `{true}`, expected: "true")
+}
 
 @empty_spec () -> str = `{42}`
 
@@ -20,11 +20,11 @@ use std.testing { assert_eq }
 // Bool Formatting
 // =============================================================================
 
-@test_bool_format tests @bool_format () -> void = run(
-    assert_eq(actual: `{true:>10}`, expected: "      true"),
-    assert_eq(actual: `{false:<10}`, expected: "false     "),
-    assert_eq(actual: `{true:*^10}`, expected: "***true***"),
-)
+@test_bool_format tests @bool_format () -> void = {
+    assert_eq(actual: `{true:>10}`, expected: "      true");
+    assert_eq(actual: `{false:<10}`, expected: "false     ");
+    assert_eq(actual: `{true:*^10}`, expected: "***true***")
+}
 
 @bool_format () -> str = `{true:>10}`
 
@@ -32,11 +32,11 @@ use std.testing { assert_eq }
 // Char Formatting
 // =============================================================================
 
-@test_char_format tests @char_format () -> void = run(
-    assert_eq(actual: `{'A':>5}`, expected: "    A"),
-    assert_eq(actual: `{'Z':*<5}`, expected: "Z****"),
-    assert_eq(actual: `{'X':^5}`, expected: "  X  "),
-)
+@test_char_format tests @char_format () -> void = {
+    assert_eq(actual: `{'A':>5}`, expected: "    A");
+    assert_eq(actual: `{'Z':*<5}`, expected: "Z****");
+    assert_eq(actual: `{'X':^5}`, expected: "  X  ")
+}
 
 @char_format () -> str = `{'A':>5}`
 
@@ -44,10 +44,10 @@ use std.testing { assert_eq }
 // Zero Precision
 // =============================================================================
 
-@test_zero_precision tests @zero_precision () -> void = run(
-    assert_eq(actual: `{3.14:.0f}`, expected: "3"),
-    assert_eq(actual: `{3.14:.0}`, expected: "3"),
-)
+@test_zero_precision tests @zero_precision () -> void = {
+    assert_eq(actual: `{3.14:.0f}`, expected: "3");
+    assert_eq(actual: `{3.14:.0}`, expected: "3")
+}
 
 @zero_precision () -> str = `{3.14:.0f}`
 
@@ -55,11 +55,11 @@ use std.testing { assert_eq }
 // Negative Hex
 // =============================================================================
 
-@test_negative_hex tests @negative_hex () -> void = run(
-    assert_eq(actual: `{-1:x}`, expected: "-1"),
-    assert_eq(actual: `{-255:x}`, expected: "-ff"),
-    assert_eq(actual: `{-42:#x}`, expected: "-0x2a"),
-)
+@test_negative_hex tests @negative_hex () -> void = {
+    assert_eq(actual: `{-1:x}`, expected: "-1");
+    assert_eq(actual: `{-255:x}`, expected: "-ff");
+    assert_eq(actual: `{-42:#x}`, expected: "-0x2a")
+}
 
 @negative_hex () -> str = `{-1:x}`
 

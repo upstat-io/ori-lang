@@ -17,10 +17,10 @@ impl Describable for Item {
     @describe (self) -> str = self.name
 }
 
-@test_basic_trait tests @_use_item () -> void = run(
-    let item = Item { name: "widget" },
-    assert_eq(actual: item.describe(), expected: "widget"),
-)
+@test_basic_trait tests @_use_item () -> void = {
+    let item = Item { name: "widget" };
+    assert_eq(actual: item.describe(), expected: "widget")
+}
 
 @_use_item (i: Item) -> str = i.name
 
@@ -40,11 +40,11 @@ impl Geometric for Square {
     @perimeter (self) -> int = 4 * self.side
 }
 
-@test_multiple_methods tests @_use_square () -> void = run(
-    let s = Square { side: 5 },
-    assert_eq(actual: s.area(), expected: 25),
-    assert_eq(actual: s.perimeter(), expected: 20),
-)
+@test_multiple_methods tests @_use_square () -> void = {
+    let s = Square { side: 5 };
+    assert_eq(actual: s.area(), expected: 25);
+    assert_eq(actual: s.perimeter(), expected: 20)
+}
 
 @_use_square (s: Square) -> int = s.side
 
@@ -62,10 +62,10 @@ impl Greetable for Person {
     // Uses default implementation
 }
 
-@test_default_method tests @_use_person () -> void = run(
-    let p = Person { name: "Alice" },
-    assert_eq(actual: p.greet(), expected: "Hello"),
-)
+@test_default_method tests @_use_person () -> void = {
+    let p = Person { name: "Alice" };
+    assert_eq(actual: p.greet(), expected: "Hello")
+}
 
 @_use_person (p: Person) -> str = p.name
 
@@ -76,10 +76,10 @@ impl Greetable for VIP {
     @greet (self) -> str = "Welcome, esteemed " + self.name
 }
 
-@test_override_default tests @_use_vip () -> void = run(
-    let v = VIP { name: "Guest" },
-    assert_eq(actual: v.greet(), expected: "Welcome, esteemed Guest"),
-)
+@test_override_default tests @_use_vip () -> void = {
+    let v = VIP { name: "Guest" };
+    assert_eq(actual: v.greet(), expected: "Welcome, esteemed Guest")
+}
 
 @_use_vip (v: VIP) -> str = v.name
 
@@ -105,11 +105,11 @@ impl Derived for Widget {
     @derived_method (self) -> int = self.id * 2
 }
 
-@test_trait_inheritance tests @_use_widget () -> void = run(
-    let w = Widget { id: 5 },
-    assert_eq(actual: w.base_method(), expected: 5),
-    assert_eq(actual: w.derived_method(), expected: 10),
-)
+@test_trait_inheritance tests @_use_widget () -> void = {
+    let w = Widget { id: 5 };
+    assert_eq(actual: w.base_method(), expected: 5);
+    assert_eq(actual: w.derived_method(), expected: 10)
+}
 
 @_use_widget (w: Widget) -> int = w.id
 
@@ -140,12 +140,12 @@ impl C for Triple {
     @method_c (self) -> int = self.value * 3
 }
 
-@test_multiple_inheritance tests @_use_triple () -> void = run(
-    let t = Triple { value: 10 },
-    assert_eq(actual: t.method_a(), expected: 10),
-    assert_eq(actual: t.method_b(), expected: 20),
-    assert_eq(actual: t.method_c(), expected: 30),
-)
+@test_multiple_inheritance tests @_use_triple () -> void = {
+    let t = Triple { value: 10 };
+    assert_eq(actual: t.method_a(), expected: 10);
+    assert_eq(actual: t.method_b(), expected: 20);
+    assert_eq(actual: t.method_c(), expected: 30)
+}
 
 @_use_triple (t: Triple) -> int = t.value
 
@@ -165,10 +165,10 @@ impl Container for IntBox {
     @get (self) -> int = self.value
 }
 
-@test_associated_type tests @_use_intbox () -> void = run(
-    let box = IntBox { value: 42 },
-    assert_eq(actual: box.get(), expected: 42),
-)
+@test_associated_type tests @_use_intbox () -> void = {
+    let box = IntBox { value: 42 };
+    assert_eq(actual: box.get(), expected: 42)
+}
 
 @_use_intbox (b: IntBox) -> int = b.value
 
@@ -179,10 +179,10 @@ impl Container for StrBox {
     @get (self) -> str = self.value
 }
 
-@test_associated_type_str tests @_use_strbox () -> void = run(
-    let box = StrBox { value: "hello" },
-    assert_eq(actual: box.get(), expected: "hello"),
-)
+@test_associated_type_str tests @_use_strbox () -> void = {
+    let box = StrBox { value: "hello" };
+    assert_eq(actual: box.get(), expected: "hello")
+}
 
 @_use_strbox (b: StrBox) -> str = b.value
 
@@ -202,10 +202,10 @@ impl Processor for Counter {
     @process (self) -> int = self.count * 2
 }
 
-@test_default_assoc_type tests @_use_counter () -> void = run(
-    let c = Counter { count: 5 },
-    assert_eq(actual: c.process(), expected: 10),
-)
+@test_default_assoc_type tests @_use_counter () -> void = {
+    let c = Counter { count: 5 };
+    assert_eq(actual: c.process(), expected: 10)
+}
 
 @_use_counter (c: Counter) -> int = c.count
 
@@ -216,10 +216,10 @@ impl Processor for StrProcessor {
     @process (self) -> str = self.prefix + "!"
 }
 
-@test_override_assoc_type tests @_use_str_proc () -> void = run(
-    let p = StrProcessor { prefix: "hello" },
-    assert_eq(actual: p.process(), expected: "hello!"),
-)
+@test_override_assoc_type tests @_use_str_proc () -> void = {
+    let p = StrProcessor { prefix: "hello" };
+    assert_eq(actual: p.process(), expected: "hello!")
+}
 
 @_use_str_proc (p: StrProcessor) -> str = p.prefix
 
@@ -237,13 +237,13 @@ impl Addable for Point {
     @add (self, rhs: Point) -> Self = Point { x: self.x + rhs.x, y: self.y + rhs.y }
 }
 
-@test_default_type_param tests @_use_point () -> void = run(
-    let p1 = Point { x: 1, y: 2 },
-    let p2 = Point { x: 3, y: 4 },
-    let sum = p1.add(rhs: p2),
-    assert_eq(actual: sum.x, expected: 4),
-    assert_eq(actual: sum.y, expected: 6),
-)
+@test_default_type_param tests @_use_point () -> void = {
+    let p1 = Point { x: 1, y: 2 };
+    let p2 = Point { x: 3, y: 4 };
+    let sum = p1.add(rhs: p2);
+    assert_eq(actual: sum.x, expected: 4);
+    assert_eq(actual: sum.y, expected: 6)
+}
 
 @_use_point (p: Point) -> int = p.x
 
@@ -268,10 +268,10 @@ impl Wrapper<int> for MyBox {
     @unwrap (self) -> int = self.inner
 }
 
-@test_generic_trait tests @_use_mybox () -> void = run(
-    let b = MyBox.wrap(value: 42),
-    assert_eq(actual: b.unwrap(), expected: 42),
-)
+@test_generic_trait tests @_use_mybox () -> void = {
+    let b = MyBox.wrap(value: 42);
+    assert_eq(actual: b.unwrap(), expected: 42)
+}
 
 @_use_mybox (b: MyBox) -> int = b.inner
 
@@ -289,11 +289,11 @@ impl Clonable for Copyable {
     @clone_self (self) -> Self = Copyable { value: self.value }
 }
 
-@test_self_return tests @_use_copyable () -> void = run(
-    let orig = Copyable { value: 42 },
-    let copy = orig.clone_self(),
-    assert_eq(actual: copy.value, expected: 42),
-)
+@test_self_return tests @_use_copyable () -> void = {
+    let orig = Copyable { value: 42 };
+    let copy = orig.clone_self();
+    assert_eq(actual: copy.value, expected: 42)
+}
 
 @_use_copyable (c: Copyable) -> int = c.value
 
@@ -312,10 +312,10 @@ impl Factory for Product {
     @create () -> Self = Product { id: 1 }
 }
 
-@test_trait_assoc_fn tests @_use_product () -> void = run(
-    let p = Product.create(),
-    assert_eq(actual: p.id, expected: 1),
-)
+@test_trait_assoc_fn tests @_use_product () -> void = {
+    let p = Product.create();
+    assert_eq(actual: p.id, expected: 1)
+}
 
 @_use_product (p: Product) -> int = p.id
 
@@ -331,11 +331,11 @@ impl Calculator {
     @get (self) -> int = self.value
 }
 
-@test_inherent_impl tests @_use_calculator () -> void = run(
-    let c = Calculator.new(value: 10),
-    let c2 = c.add(n: 5),
-    assert_eq(actual: c2.get(), expected: 15),
-)
+@test_inherent_impl tests @_use_calculator () -> void = {
+    let c = Calculator.new(value: 10);
+    let c2 = c.add(n: 5);
+    assert_eq(actual: c2.get(), expected: 15)
+}
 
 @_use_calculator (c: Calculator) -> int = c.value
 
@@ -353,10 +353,10 @@ impl<T: Printable> Stringify for GenericBox<T> {
     @to_string (self) -> str = self.value.to_str()
 }
 
-@test_generic_impl tests @_use_gen_box () -> void = run(
-    let b: GenericBox<int> = GenericBox { value: 42 },
-    assert_eq(actual: b.to_string(), expected: "42"),
-)
+@test_generic_impl tests @_use_gen_box () -> void = {
+    let b: GenericBox<int> = GenericBox { value: 42 };
+    assert_eq(actual: b.to_string(), expected: "42")
+}
 
 @_use_gen_box (b: GenericBox<int>) -> int = b.value
 
@@ -382,11 +382,11 @@ impl Aged for Entity {
     @age (self) -> int = self.age
 }
 
-@test_multiple_traits tests @_use_entity () -> void = run(
-    let e = Entity { name: "Alice", age: 30 },
-    assert_eq(actual: e.name(), expected: "Alice"),
-    assert_eq(actual: e.age(), expected: 30),
-)
+@test_multiple_traits tests @_use_entity () -> void = {
+    let e = Entity { name: "Alice", age: 30 };
+    assert_eq(actual: e.name(), expected: "Alice");
+    assert_eq(actual: e.age(), expected: 30)
+}
 
 @_use_entity (e: Entity) -> str = e.name
 
@@ -399,17 +399,17 @@ impl Aged for Entity {
 
 @stringify<T: Printable> (val: T) -> str = val.to_str()
 
-@test_trait_bound tests @stringify () -> void = run(
-    assert_eq(actual: stringify(val: 42), expected: "42"),
-    assert_eq(actual: stringify(val: "hello"), expected: "hello"),
-)
+@test_trait_bound tests @stringify () -> void = {
+    assert_eq(actual: stringify(val: 42), expected: "42");
+    assert_eq(actual: stringify(val: "hello"), expected: "hello")
+}
 
 @compare_eq<T: Eq> (a: T, b: T) -> bool = a == b
 
-@test_eq_bound tests @compare_eq () -> void = run(
-    assert(cond: compare_eq(a: 42, b: 42)),
-    assert(cond: !compare_eq(a: 42, b: 43)),
-)
+@test_eq_bound tests @compare_eq () -> void = {
+    assert(cond: compare_eq(a: 42, b: 42));
+    assert(cond: !compare_eq(a: 42, b: 43))
+}
 
 // =============================================================================
 // Multiple Trait Bounds
@@ -420,9 +420,9 @@ impl Aged for Entity {
 
 @clone_and_stringify<T: Clone + Printable> (val: T) -> str = val.clone().to_str()
 
-@test_multi_bound tests @clone_and_stringify () -> void = run(
-    assert_eq(actual: clone_and_stringify(val: 42), expected: "42"),
-)
+@test_multi_bound tests @clone_and_stringify () -> void = {
+    assert_eq(actual: clone_and_stringify(val: 42), expected: "42")
+}
 
 // =============================================================================
 // Where Clause with Traits
@@ -434,9 +434,9 @@ impl Aged for Entity {
 @hash_equal<T> (a: T, b: T) -> bool where T: Eq, T: Hashable =
     a == b && a.hash() == b.hash()
 
-@test_where_trait tests @hash_equal () -> void = run(
-    assert(cond: hash_equal(a: 42, b: 42)),
-)
+@test_where_trait tests @hash_equal () -> void = {
+    assert(cond: hash_equal(a: 42, b: 42))
+}
 
 // =============================================================================
 // Trait Method with Parameters
@@ -452,12 +452,12 @@ impl Scalable for Vector {
     @scale (self, factor: int) -> Self = Vector { x: self.x * factor, y: self.y * factor }
 }
 
-@test_method_with_params tests @_use_vector () -> void = run(
-    let v = Vector { x: 2, y: 3 },
-    let scaled = v.scale(factor: 3),
-    assert_eq(actual: scaled.x, expected: 6),
-    assert_eq(actual: scaled.y, expected: 9),
-)
+@test_method_with_params tests @_use_vector () -> void = {
+    let v = Vector { x: 2, y: 3 };
+    let scaled = v.scale(factor: 3);
+    assert_eq(actual: scaled.x, expected: 6);
+    assert_eq(actual: scaled.y, expected: 9)
+}
 
 @_use_vector (v: Vector) -> int = v.x
 
@@ -475,10 +475,10 @@ impl PublicTrait for PublicImpl {
     @public_method (self) -> int = self.value
 }
 
-@test_public_trait tests @_use_public () -> void = run(
-    let p = PublicImpl { value: 42 },
-    assert_eq(actual: p.public_method(), expected: 42),
-)
+@test_public_trait tests @_use_public () -> void = {
+    let p = PublicImpl { value: 42 };
+    assert_eq(actual: p.public_method(), expected: 42)
+}
 
 @_use_public (p: PublicImpl) -> int = p.value
 
@@ -496,12 +496,12 @@ impl Optional for MaybeValue {
     @try_get (self) -> Option<int> = self.value
 }
 
-@test_optional_trait tests @_use_maybe () -> void = run(
-    let some = MaybeValue { value: Some(42) },
-    let none = MaybeValue { value: None },
-    assert(cond: is_some(opt: some.try_get())),
-    assert(cond: is_none(opt: none.try_get())),
-)
+@test_optional_trait tests @_use_maybe () -> void = {
+    let some = MaybeValue { value: Some(42) };
+    let none = MaybeValue { value: None };
+    assert(cond: is_some(opt: some.try_get()));
+    assert(cond: is_none(opt: none.try_get()))
+}
 
 @_use_maybe (m: MaybeValue) -> bool = is_some(opt: m.value)
 
@@ -521,11 +521,11 @@ impl Chainable for Number {
     @triple (self) -> Self = Number { n: self.n * 3 }
 }
 
-@test_chained_calls tests @_use_number () -> void = run(
-    let n = Number { n: 1 },
-    let result = n.double().triple().double(),
-    assert_eq(actual: result.n, expected: 12),  // 1*2*3*2 = 12
-)
+@test_chained_calls tests @_use_number () -> void = {
+    let n = Number { n: 1 };
+    let result = n.double().triple().double();
+    assert_eq(actual: result.n, expected: 12)  // 1*2*3*2 = 12
+}
 
 @_use_number (n: Number) -> int = n.n
 
@@ -543,12 +543,12 @@ impl Checkable for Validated {
     @is_valid (self) -> bool = self.valid
 }
 
-@test_bool_method tests @_use_validated () -> void = run(
-    let valid = Validated { valid: true },
-    let invalid = Validated { valid: false },
-    assert(cond: valid.is_valid()),
-    assert(cond: !invalid.is_valid()),
-)
+@test_bool_method tests @_use_validated () -> void = {
+    let valid = Validated { valid: true };
+    let invalid = Validated { valid: false };
+    assert(cond: valid.is_valid());
+    assert(cond: !invalid.is_valid())
+}
 
 @_use_validated (v: Validated) -> bool = v.valid
 
@@ -556,37 +556,37 @@ impl Checkable for Validated {
 // Built-in Traits
 // =============================================================================
 
-@test_builtin_eq tests @_eq_test () -> void = run(
-    assert(cond: 42 == 42),
-    assert(cond: 42 != 43),
-    assert(cond: "hello" == "hello"),
-)
+@test_builtin_eq tests @_eq_test () -> void = {
+    assert(cond: 42 == 42);
+    assert(cond: 42 != 43);
+    assert(cond: "hello" == "hello")
+}
 
 @_eq_test () -> bool = 42 == 42
 
-@test_builtin_comparable tests @_cmp_test () -> void = run(
-    assert(cond: 10 < 20),
-    assert(cond: 20 > 10),
-    assert(cond: 10 <= 10),
-    assert(cond: 10 >= 10),
-)
+@test_builtin_comparable tests @_cmp_test () -> void = {
+    assert(cond: 10 < 20);
+    assert(cond: 20 > 10);
+    assert(cond: 10 <= 10);
+    assert(cond: 10 >= 10)
+}
 
 @_cmp_test () -> bool = 10 < 20
 
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - no method 'clone' on type str
-@test_builtin_clone tests @_clone_test () -> void = run(
-    let s = "hello",
-    let cloned = s.clone(),
-    assert_eq(actual: cloned, expected: "hello"),
-)
+@test_builtin_clone tests @_clone_test () -> void = {
+    let s = "hello";
+    let cloned = s.clone();
+    assert_eq(actual: cloned, expected: "hello")
+}
 
 @_clone_test () -> str = "hello".clone()
 
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - no method 'hash' on type int
-@test_builtin_hash tests @_hash_test () -> void = run(
-    let h1 = 42.hash(),
-    let h2 = 42.hash(),
-    assert_eq(actual: h1, expected: h2),
-)
+@test_builtin_hash tests @_hash_test () -> void = {
+    let h1 = 42.hash();
+    let h2 = 42.hash();
+    assert_eq(actual: h1, expected: h2)
+}
 
 @_hash_test () -> int = 42.hash()

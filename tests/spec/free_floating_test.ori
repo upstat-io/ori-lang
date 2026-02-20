@@ -5,20 +5,20 @@
 use std.testing { assert, assert_eq }
 
 // Free-floating test using explicit `tests _` syntax
-@test_arithmetic tests _ () -> void = run(
-    let a = 2 + 3,
-    let b = 10 - 5,
+@test_arithmetic tests _ () -> void = {
+    let a = 2 + 3;
+    let b = 10 - 5;
     assert_eq(actual: a, expected: b)
-)
+}
 
 // Another free-floating test using `tests _`
-@test_boolean_logic tests _ () -> void = run(
-    assert_eq(actual: true && true, expected: true),
-    assert_eq(actual: true && false, expected: false),
+@test_boolean_logic tests _ () -> void = {
+    assert_eq(actual: true && true, expected: true);
+    assert_eq(actual: true && false, expected: false);
     assert_eq(actual: false || true, expected: true)
-)
+}
 
 // Free-floating test using name-prefix convention (legacy, no `tests _`)
-@test_string_ops () -> void = run(
+@test_string_ops () -> void = {
     assert_eq(actual: "hello" + " " + "world", expected: "hello world")
-)
+}

@@ -51,11 +51,11 @@ fn generate_let_chain(n: usize) -> String {
     let lets: Vec<String> = (0..n).map(|i| format!("let x{i}: int = {i}")).collect();
     let final_expr = format!("x{}", n - 1);
     format!(
-        "@chain () -> int = run({})",
+        "@chain () -> int = {{ {} }}",
         lets.into_iter()
             .chain(std::iter::once(final_expr))
             .collect::<Vec<_>>()
-            .join(", ")
+            .join("; ")
     )
 }
 

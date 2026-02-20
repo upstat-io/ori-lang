@@ -11,81 +11,81 @@ type WorkItem = { id: int, payload: str, priority: int }
 type BatchResult = { completed: int, failed: int, total: int }
 
 // TODO: LLVM backend doesn't support struct field access
-// @process_item (item: WorkItem) -> Result<int, str> = run(
+// @process_item (item: WorkItem) -> Result<int, str> = {
 //     if item.priority > 0 then Ok(item.id * 10) else Err("invalid priority"),
-// )
+// }
 @process_item (item: WorkItem) -> Result<int, str> = Ok(0)
 
 // TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @process_batch (items: [WorkItem]) -> [Result<int, str>] = run(
+// @process_batch (items: [WorkItem]) -> [Result<int, str>] = {
 //     let results = parallel(
 //         tasks: [1, 2, 3],
 //     ),
 //     for item in items yield process_item(item: item),
-// )
+// }
 @process_batch (items: [WorkItem]) -> [Result<int, str>] = []
 
 // TODO: LLVM backend doesn't support struct field access
-// @process_with_timeout (item: WorkItem) -> Result<int, str> = run(
+// @process_with_timeout (item: WorkItem) -> Result<int, str> = {
 //     let result = timeout(operation: process_item(item: item), after: 5s),
-//     match(result,
+//     match result {
 //         Ok(inner) -> inner,
 //         Err(_) -> Err("timeout"),
-//     ),
-// )
+//     },
+// }
 @process_with_timeout (item: WorkItem) -> Result<int, str> = Ok(0)
 
-@fire_and_forget (items: [WorkItem]) -> void = run(
+@fire_and_forget (items: [WorkItem]) -> void = {
     spawn(
         tasks: [1, 2, 3],
-    ),
-)
+    )
+}
 
 // TODO: LLVM backend doesn't support struct field access in for-loop iteration
-// @parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = run(
+// @parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = {
 //     let results = parallel(
 //         tasks: [1, 2, 3, 4, 5],
 //         max_concurrent: 3,
 //     ),
 //     for item in items yield process_item(item: item),
-// )
+// }
 @parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = []
 
-@orchestrate (items: [WorkItem]) -> BatchResult = run(
-    let results = process_batch(items: items),
-    let completed = 0,
-    let failed = 0,
-    BatchResult { completed: completed, failed: failed, total: completed + failed },
-)
+@orchestrate (items: [WorkItem]) -> BatchResult = {
+    let results = process_batch(items: items);
+    let completed = 0;
+    let failed = 0;
+    BatchResult { completed: completed, failed: failed, total: completed + failed }
+}
 
 // TODO: LLVM backend doesn't support struct field access
-// @cached_process (item: WorkItem) -> int = run(
+// @cached_process (item: WorkItem) -> int = {
 //     let result = cache(key: "item", operation: item.id * 2),
 //     result,
-// )
+// }
 @cached_process (item: WorkItem) -> int = 0
 
 // TODO: LLVM backend doesn't support struct parameters - skip tests
 #skip("LLVM backend: struct parameters not supported")
-@test_process_item tests @process_item () -> void = run(
-    let item = WorkItem { id: 1, payload: "test", priority: 5 },
-    let result = process_item(item: item),
-    assert(cond: is_ok(r: result)),
-)
+@test_process_item tests @process_item () -> void = {
+    let item = WorkItem { id: 1, payload: "test", priority: 5 };
+    let result = process_item(item: item);
+    assert(cond: is_ok(r: result))
+}
 
 #skip("LLVM backend: struct parameters not supported")
-@test_invalid_priority tests @process_item () -> void = run(
-    let item = WorkItem { id: 1, payload: "test", priority: 0 },
-    let result = process_item(item: item),
-    assert(cond: is_err(r: result)),
-)
+@test_invalid_priority tests @process_item () -> void = {
+    let item = WorkItem { id: 1, payload: "test", priority: 0 };
+    let result = process_item(item: item);
+    assert(cond: is_err(r: result))
+}
 
 #skip("LLVM backend: struct parameters not supported")
-@test_orchestrate tests @orchestrate () -> void = run(
+@test_orchestrate tests @orchestrate () -> void = {
     let items = [
         WorkItem { id: 1, payload: "a", priority: 1 },
         WorkItem { id: 2, payload: "b", priority: 2 },
-    ],
-    let result = orchestrate(items: items),
-    assert_eq(actual: result.total, expected: result.completed + result.failed),
-)
+    ];
+    let result = orchestrate(items: items);
+    assert_eq(actual: result.total, expected: result.completed + result.failed)
+}

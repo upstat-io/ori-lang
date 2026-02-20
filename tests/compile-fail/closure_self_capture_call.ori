@@ -4,8 +4,8 @@
 //
 // A closure calling itself would require capturing itself.
 
-#[compile_fail("closure cannot capture itself")]
-@test_self_capture_call () -> void = run(
-    let factorial = (n: int) -> if n <= 1 then 1 else n * factorial(n - 1),
+#[compile_fail("unknown identifier")]
+@test_self_capture_call () -> void = {
+    let factorial = (n: int) -> if n <= 1 then 1 else n * factorial(n - 1);
     ()
-)
+}

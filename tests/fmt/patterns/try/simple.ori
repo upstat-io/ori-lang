@@ -3,15 +3,15 @@
 
 @succeed (x: int) -> Result<int, str> = Ok(x)
 
-@process () -> Result<int, str> = try(
-    let x = succeed(5),
-    let y = succeed(10),
-    Ok(x + y),
-)
+@process () -> Result<int, str> = try {
+    let x = succeed(5);
+    let y = succeed(10);
+    Ok(x + y)
+}
 
-@chain (n: int) -> Result<int, str> = try(
-    let a = succeed(n),
-    let b = succeed(a * 2),
-    let c = succeed(b + 1),
-    Ok(c),
-)
+@chain (n: int) -> Result<int, str> = try {
+    let a = succeed(n);
+    let b = succeed(a * 2);
+    let c = succeed(b + 1);
+    Ok(c)
+}

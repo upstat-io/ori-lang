@@ -14,27 +14,27 @@ use "../use_imports" {
 // Test: Import with aliases
 // =============================================================================
 
-@test_import_alias_simple tests @plus () -> void = run(
+@test_import_alias_simple tests @plus () -> void = {
     // 'add' imported as 'plus'
     assert_eq(actual: plus(a: 3, b: 4), expected: 7)
-)
+}
 
 // Dummy function to satisfy test target requirement
 @plus (a: int, b: int) -> int = a + b
 
-@test_import_alias_closure tests @create_multiplier () -> void = run(
+@test_import_alias_closure tests @create_multiplier () -> void = {
     // 'make_multiplier' imported as 'create_multiplier'
-    let times5 = create_multiplier(5),
+    let times5 = create_multiplier(5);
     assert_eq(actual: times5(3), expected: 15)
-)
+}
 
 // Dummy function to satisfy test target requirement
 @create_multiplier (n: int) -> (int) -> int = x -> x * n
 
-@test_import_alias_all tests @twice () -> void = run(
+@test_import_alias_all tests @twice () -> void = {
     // 'double' imported as 'twice'
     assert_eq(actual: twice(8), expected: 16)
-)
+}
 
 // Dummy function to satisfy test target requirement
 @twice (x: int) -> int = x * 2

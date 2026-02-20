@@ -39,10 +39,10 @@
     step: self(a: b, b: a % b)
 )
 
-@main () -> void = run(
-    print(msg: "Countdown from 5: " + str(countdown(5))),
-    print(msg: "Next power of 2 after 10: " + str(next_power_of_2(10))),
-    print(msg: "Collatz sequence for 6: " + str(collatz(6))),
-    print(msg: "Sum digits of 12345: " + str(sum_digits(12345))),
+@main () -> void = {
+    print(msg: "Countdown from 5: " + str(countdown(5)));
+    print(msg: "Next power of 2 after 10: " + str(next_power_of_2(10)));
+    print(msg: "Collatz sequence for 6: " + str(collatz(6)));
+    print(msg: "Sum digits of 12345: " + str(sum_digits(12345)));
     print(msg: "GCD(48, 18): " + str(gcd(a: 48, b: 18)))
-)
+}

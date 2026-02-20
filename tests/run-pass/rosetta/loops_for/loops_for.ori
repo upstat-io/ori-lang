@@ -26,10 +26,10 @@
     transform: i -> "Index " + str(i) + ": " + str(arr[i]),
 )
 
-@main () -> void = run(
-    print(msg: "Count 1-5: " + str(count_to_five())),
-    print(msg: "Sum 1-10: " + str(sum_to_n(n: 10))),
-    print(msg: "Squares 1-5: " + str(squares(n: 5))),
-    print(msg: "Repeat 3 five times: " + str(repeat_n(n: 5, value: 3))),
-    print(msg: "Double [1,2,3]: " + str(double_all(arr: [1, 2, 3]))),
-)
+@main () -> void = {
+    print(msg: "Count 1-5: " + str(count_to_five()));
+    print(msg: "Sum 1-10: " + str(sum_to_n(n: 10)));
+    print(msg: "Squares 1-5: " + str(squares(n: 5)));
+    print(msg: "Repeat 3 five times: " + str(repeat_n(n: 5, value: 3)));
+    print(msg: "Double [1,2,3]: " + str(double_all(arr: [1, 2, 3])))
+}

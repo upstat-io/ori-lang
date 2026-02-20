@@ -6,7 +6,7 @@ use std.testing { assert_eq }
 
 use "../precedence" { source }
 
-@test_file_takes_precedence tests @source () -> void = run(
+@test_file_takes_precedence tests @source () -> void = {
     // Should get "file_module" from precedence.ori, not "directory_module" from precedence/mod.ori
     assert_eq(actual: source(), expected: "file_module")
-)
+}

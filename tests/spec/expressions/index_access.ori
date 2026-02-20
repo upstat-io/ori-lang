@@ -7,31 +7,31 @@ use std.testing { assert_eq, assert }
 // List Indexing - Basic
 // =============================================================================
 
-@test_list_index_first tests @list_index_first () -> void = run(
-    let list = [10, 20, 30],
-    assert_eq(actual: list[0], expected: 10),
-)
+@test_list_index_first tests @list_index_first () -> void = {
+    let list = [10, 20, 30];
+    assert_eq(actual: list[0], expected: 10)
+}
 
 @list_index_first () -> int = [10, 20, 30][0]
 
-@test_list_index_middle tests @list_index_middle () -> void = run(
-    let list = [10, 20, 30],
-    assert_eq(actual: list[1], expected: 20),
-)
+@test_list_index_middle tests @list_index_middle () -> void = {
+    let list = [10, 20, 30];
+    assert_eq(actual: list[1], expected: 20)
+}
 
 @list_index_middle () -> int = [10, 20, 30][1]
 
-@test_list_index_last tests @list_index_last () -> void = run(
-    let list = [10, 20, 30],
-    assert_eq(actual: list[2], expected: 30),
-)
+@test_list_index_last tests @list_index_last () -> void = {
+    let list = [10, 20, 30];
+    assert_eq(actual: list[2], expected: 30)
+}
 
 @list_index_last () -> int = [10, 20, 30][2]
 
-@test_list_single_element tests @list_single_element () -> void = run(
-    let list = [42],
-    assert_eq(actual: list[0], expected: 42),
-)
+@test_list_single_element tests @list_single_element () -> void = {
+    let list = [42];
+    assert_eq(actual: list[0], expected: 42)
+}
 
 @list_single_element () -> int = [42][0]
 
@@ -39,81 +39,81 @@ use std.testing { assert_eq, assert }
 // List Indexing - With Variables
 // =============================================================================
 
-@test_list_index_var tests @list_index_var () -> void = run(
-    let list = [1, 2, 3, 4, 5],
-    let i = 2,
-    assert_eq(actual: list[i], expected: 3),
-)
+@test_list_index_var tests @list_index_var () -> void = {
+    let list = [1, 2, 3, 4, 5];
+    let i = 2;
+    assert_eq(actual: list[i], expected: 3)
+}
 
-@list_index_var () -> int = run(
-    let list = [1, 2, 3, 4, 5],
-    let i = 2,
-    list[i],
-)
+@list_index_var () -> int = {
+    let list = [1, 2, 3, 4, 5];
+    let i = 2;
+    list[i]
+}
 
-@test_list_index_expression tests @list_index_expression () -> void = run(
-    let list = [10, 20, 30, 40],
-    assert_eq(actual: list[1 + 1], expected: 30),
-)
+@test_list_index_expression tests @list_index_expression () -> void = {
+    let list = [10, 20, 30, 40];
+    assert_eq(actual: list[1 + 1], expected: 30)
+}
 
-@list_index_expression () -> int = run(
-    let list = [10, 20, 30, 40],
-    list[1 + 1],
-)
+@list_index_expression () -> int = {
+    let list = [10, 20, 30, 40];
+    list[1 + 1]
+}
 
 // =============================================================================
 // List Indexing - # Length Placeholder
 // =============================================================================
 
-@test_hash_last tests @hash_last () -> void = run(
-    let list = [10, 20, 30],
-    assert_eq(actual: list[# - 1], expected: 30),
-)
+@test_hash_last tests @hash_last () -> void = {
+    let list = [10, 20, 30];
+    assert_eq(actual: list[# - 1], expected: 30)
+}
 
-@hash_last () -> int = run(
-    let list = [10, 20, 30],
-    list[# - 1],
-)
+@hash_last () -> int = {
+    let list = [10, 20, 30];
+    list[# - 1]
+}
 
-@test_hash_second_last tests @hash_second_last () -> void = run(
-    let list = [10, 20, 30, 40],
-    assert_eq(actual: list[# - 2], expected: 30),
-)
+@test_hash_second_last tests @hash_second_last () -> void = {
+    let list = [10, 20, 30, 40];
+    assert_eq(actual: list[# - 2], expected: 30)
+}
 
-@hash_second_last () -> int = run(
-    let list = [10, 20, 30, 40],
-    list[# - 2],
-)
+@hash_second_last () -> int = {
+    let list = [10, 20, 30, 40];
+    list[# - 2]
+}
 
-@test_hash_first tests @hash_first () -> void = run(
-    let list = [10, 20, 30],
-    assert_eq(actual: list[# - #], expected: 10),
-)
+@test_hash_first tests @hash_first () -> void = {
+    let list = [10, 20, 30];
+    assert_eq(actual: list[# - #], expected: 10)
+}
 
-@hash_first () -> int = run(
-    let list = [10, 20, 30],
-    list[# - #],
-)
+@hash_first () -> int = {
+    let list = [10, 20, 30];
+    list[# - #]
+}
 
-@test_hash_middle tests @hash_middle () -> void = run(
-    let list = [10, 20, 30, 40, 50],
-    assert_eq(actual: list[# / 2], expected: 30),
-)
+@test_hash_middle tests @hash_middle () -> void = {
+    let list = [10, 20, 30, 40, 50];
+    assert_eq(actual: list[# / 2], expected: 30)
+}
 
-@hash_middle () -> int = run(
-    let list = [10, 20, 30, 40, 50],
-    list[# / 2],
-)
+@hash_middle () -> int = {
+    let list = [10, 20, 30, 40, 50];
+    list[# / 2]
+}
 
-@test_hash_arithmetic tests @hash_arithmetic () -> void = run(
-    let list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-    assert_eq(actual: list[# - 5], expected: 5),
-)
+@test_hash_arithmetic tests @hash_arithmetic () -> void = {
+    let list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    assert_eq(actual: list[# - 5], expected: 5)
+}
 
-@hash_arithmetic () -> int = run(
-    let list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-    list[# - 5],
-)
+@hash_arithmetic () -> int = {
+    let list = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    list[# - 5]
+}
 
 // =============================================================================
 // Map Indexing - Basic
@@ -123,76 +123,76 @@ use std.testing { assert_eq, assert }
 // Per spec, map["key"] should return Option<V>, but evaluator returns V and panics on missing.
 // Also needs ?? operator (see coalesce.ori).
 
-@test_map_index_found tests @map_index_found () -> void = run(
-    let map = {"a": 1, "b": 2, "c": 3},
-    assert_eq(actual: map["a"] ?? 0, expected: 1),
-    assert_eq(actual: map["b"] ?? 0, expected: 2),
-    assert_eq(actual: map["c"] ?? 0, expected: 3),
-)
+@test_map_index_found tests @map_index_found () -> void = {
+    let map = {"a": 1, "b": 2, "c": 3};
+    assert_eq(actual: map["a"] ?? 0, expected: 1);
+    assert_eq(actual: map["b"] ?? 0, expected: 2);
+    assert_eq(actual: map["c"] ?? 0, expected: 3)
+}
 
 @map_index_found () -> int = {"a": 1, "b": 2, "c": 3}["a"] ?? 0
 
-@test_map_index_not_found tests @map_index_not_found () -> void = run(
-    let map = {"a": 1, "b": 2},
-    assert(cond: is_none(opt: map["missing"])),
-)
+@test_map_index_not_found tests @map_index_not_found () -> void = {
+    let map = {"a": 1, "b": 2};
+    assert(cond: is_none(opt: map["missing"]))
+}
 
 @map_index_not_found () -> Option<int> = {"a": 1}["missing"]
 
-@test_map_empty tests @map_empty () -> void = run(
-    let map: {str: int} = {},
-    assert(cond: is_none(opt: map["any"])),
-)
+@test_map_empty tests @map_empty () -> void = {
+    let map: {str: int} = {};
+    assert(cond: is_none(opt: map["any"]))
+}
 
-@map_empty () -> Option<int> = run(
-    let map: {str: int} = {},
-    map["any"],
-)
+@map_empty () -> Option<int> = {
+    let map: {str: int} = {};
+    map["any"]
+}
 
 // =============================================================================
 // Map Indexing - With Variables
 // =============================================================================
 
-@test_map_index_var tests @map_index_var () -> void = run(
-    let map = {"key": 42},
-    let k = "key",
-    assert_eq(actual: map[k] ?? 0, expected: 42),
-)
+@test_map_index_var tests @map_index_var () -> void = {
+    let map = {"key": 42};
+    let k = "key";
+    assert_eq(actual: map[k] ?? 0, expected: 42)
+}
 
-@map_index_var () -> int = run(
-    let map = {"key": 42},
-    let k = "key",
-    map[k] ?? 0,
-)
+@map_index_var () -> int = {
+    let map = {"key": 42};
+    let k = "key";
+    map[k] ?? 0
+}
 
-@test_map_index_concatenated tests @map_index_concatenated () -> void = run(
-    let map = {"prefix_suffix": 99},
-    let result = map["prefix" + "_" + "suffix"],
-    assert_eq(actual: result ?? 0, expected: 99),
-)
+@test_map_index_concatenated tests @map_index_concatenated () -> void = {
+    let map = {"prefix_suffix": 99};
+    let result = map["prefix" + "_" + "suffix"];
+    assert_eq(actual: result ?? 0, expected: 99)
+}
 
-@map_index_concatenated () -> int = run(
-    let map = {"prefix_suffix": 99},
-    map["prefix" + "_" + "suffix"] ?? 0,
-)
+@map_index_concatenated () -> int = {
+    let map = {"prefix_suffix": 99};
+    map["prefix" + "_" + "suffix"] ?? 0
+}
 
 // =============================================================================
 // Map Indexing - With Coalesce
 // =============================================================================
 
-@test_map_coalesce_found tests @map_coalesce_found () -> void = run(
-    let map = {"key": 42},
-    let value = map["key"] ?? 0,
-    assert_eq(actual: value, expected: 42),
-)
+@test_map_coalesce_found tests @map_coalesce_found () -> void = {
+    let map = {"key": 42};
+    let value = map["key"] ?? 0;
+    assert_eq(actual: value, expected: 42)
+}
 
 @map_coalesce_found () -> int = {"key": 42}["key"] ?? 0
 
-@test_map_coalesce_missing tests @map_coalesce_missing () -> void = run(
-    let map = {"key": 42},
-    let value = map["missing"] ?? 99,
-    assert_eq(actual: value, expected: 99),
-)
+@test_map_coalesce_missing tests @map_coalesce_missing () -> void = {
+    let map = {"key": 42};
+    let value = map["missing"] ?? 99;
+    assert_eq(actual: value, expected: 99)
+}
 
 @map_coalesce_missing () -> int = {"key": 42}["missing"] ?? 99
 
@@ -203,27 +203,27 @@ use std.testing { assert_eq, assert }
 // STATUS: Lexer [OK], Parser [OK], Evaluator [BROKEN] - returns char, should return str
 // Per spec, str[i] should return single-codepoint str, but evaluator returns char.
 
-@test_str_index_first tests @str_index_first () -> void = run(
-    let s = "hello",
-    assert_eq(actual: s[0], expected: "h"),
-)
+@test_str_index_first tests @str_index_first () -> void = {
+    let s = "hello";
+    assert_eq(actual: s[0], expected: "h")
+}
 
 @str_index_first () -> str = "hello"[0]
 
-@test_str_index_last tests @str_index_last () -> void = run(
-    let s = "hello",
-    assert_eq(actual: s[# - 1], expected: "o"),
-)
+@test_str_index_last tests @str_index_last () -> void = {
+    let s = "hello";
+    assert_eq(actual: s[# - 1], expected: "o")
+}
 
-@str_index_last () -> str = run(
-    let s = "hello",
-    s[# - 1],
-)
+@str_index_last () -> str = {
+    let s = "hello";
+    s[# - 1]
+}
 
-@test_str_index_middle tests @str_index_middle () -> void = run(
-    let s = "hello",
-    assert_eq(actual: s[2], expected: "l"),
-)
+@test_str_index_middle tests @str_index_middle () -> void = {
+    let s = "hello";
+    assert_eq(actual: s[2], expected: "l")
+}
 
 @str_index_middle () -> str = "hello"[2]
 
@@ -231,25 +231,25 @@ use std.testing { assert_eq, assert }
 // Nested Indexing
 // =============================================================================
 
-@test_nested_list tests @nested_list () -> void = run(
-    let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
-    assert_eq(actual: matrix[0][0], expected: 1),
-    assert_eq(actual: matrix[1][1], expected: 5),
-    assert_eq(actual: matrix[2][2], expected: 9),
-)
+@test_nested_list tests @nested_list () -> void = {
+    let matrix = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    assert_eq(actual: matrix[0][0], expected: 1);
+    assert_eq(actual: matrix[1][1], expected: 5);
+    assert_eq(actual: matrix[2][2], expected: 9)
+}
 
 @nested_list () -> int = [[1, 2, 3], [4, 5, 6], [7, 8, 9]][1][1]
 
-@test_list_of_maps tests @list_of_maps () -> void = run(
-    let records = [{"name": "Alice"}, {"name": "Bob"}],
-    assert_eq(actual: records[0]["name"] ?? "", expected: "Alice"),
-    assert_eq(actual: records[1]["name"] ?? "", expected: "Bob"),
-)
+@test_list_of_maps tests @list_of_maps () -> void = {
+    let records = [{"name": "Alice"}, {"name": "Bob"}];
+    assert_eq(actual: records[0]["name"] ?? "", expected: "Alice");
+    assert_eq(actual: records[1]["name"] ?? "", expected: "Bob")
+}
 
-@list_of_maps () -> str = run(
-    let records = [{"name": "Alice"}, {"name": "Bob"}],
-    records[0]["name"] ?? "",
-)
+@list_of_maps () -> str = {
+    let records = [{"name": "Alice"}, {"name": "Bob"}];
+    records[0]["name"] ?? ""
+}
 
 // =============================================================================
 // Index with Struct Fields
@@ -257,52 +257,52 @@ use std.testing { assert_eq, assert }
 
 type Container = { items: [int] }
 
-@test_field_then_index tests @field_then_index () -> void = run(
-    let c = Container { items: [10, 20, 30] },
-    assert_eq(actual: c.items[0], expected: 10),
-)
+@test_field_then_index tests @field_then_index () -> void = {
+    let c = Container { items: [10, 20, 30] };
+    assert_eq(actual: c.items[0], expected: 10)
+}
 
-@field_then_index () -> int = run(
-    let c = Container { items: [10, 20, 30] },
-    c.items[1],
-)
+@field_then_index () -> int = {
+    let c = Container { items: [10, 20, 30] };
+    c.items[1]
+}
 
 // =============================================================================
 // Index Result Used in Expressions
 // =============================================================================
 
-@test_index_in_arithmetic tests @index_in_arithmetic () -> void = run(
-    let list = [10, 20, 30],
-    let sum = list[0] + list[1] + list[2],
-    assert_eq(actual: sum, expected: 60),
-)
+@test_index_in_arithmetic tests @index_in_arithmetic () -> void = {
+    let list = [10, 20, 30];
+    let sum = list[0] + list[1] + list[2];
+    assert_eq(actual: sum, expected: 60)
+}
 
-@index_in_arithmetic () -> int = run(
-    let list = [10, 20, 30],
-    list[0] + list[1] + list[2],
-)
+@index_in_arithmetic () -> int = {
+    let list = [10, 20, 30];
+    list[0] + list[1] + list[2]
+}
 
-@test_index_in_comparison tests @index_in_comparison () -> void = run(
-    let list = [5, 10, 15],
-    assert(cond: list[0] < list[1]),
-    assert(cond: list[1] < list[2]),
-)
+@test_index_in_comparison tests @index_in_comparison () -> void = {
+    let list = [5, 10, 15];
+    assert(cond: list[0] < list[1]);
+    assert(cond: list[1] < list[2])
+}
 
-@index_in_comparison () -> bool = run(
-    let list = [5, 10, 15],
-    list[0] < list[1],
-)
+@index_in_comparison () -> bool = {
+    let list = [5, 10, 15];
+    list[0] < list[1]
+}
 
-@test_index_in_condition tests @index_in_condition () -> void = run(
-    let list = [1, 2, 3],
-    let result = if list[0] > 0 then "positive" else "non-positive",
-    assert_eq(actual: result, expected: "positive"),
-)
+@test_index_in_condition tests @index_in_condition () -> void = {
+    let list = [1, 2, 3];
+    let result = if list[0] > 0 then "positive" else "non-positive";
+    assert_eq(actual: result, expected: "positive")
+}
 
-@index_in_condition () -> str = run(
-    let list = [1, 2, 3],
-    if list[0] > 0 then "positive" else "non-positive",
-)
+@index_in_condition () -> str = {
+    let list = [1, 2, 3];
+    if list[0] > 0 then "positive" else "non-positive"
+}
 
 // =============================================================================
 // Index with Function Results
@@ -310,43 +310,43 @@ type Container = { items: [int] }
 
 @get_list () -> [int] = [100, 200, 300]
 
-@test_func_result_index tests @func_result_index () -> void = run(
-    let value = get_list()[1],
-    assert_eq(actual: value, expected: 200),
-)
+@test_func_result_index tests @func_result_index () -> void = {
+    let value = get_list()[1];
+    assert_eq(actual: value, expected: 200)
+}
 
 @func_result_index () -> int = get_list()[1]
 
 @get_index () -> int = 2
 
-@test_func_index tests @func_index () -> void = run(
-    let list = [10, 20, 30, 40],
-    let value = list[get_index()],
-    assert_eq(actual: value, expected: 30),
-)
+@test_func_index tests @func_index () -> void = {
+    let list = [10, 20, 30, 40];
+    let value = list[get_index()];
+    assert_eq(actual: value, expected: 30)
+}
 
-@func_index () -> int = run(
-    let list = [10, 20, 30, 40],
-    list[get_index()],
-)
+@func_index () -> int = {
+    let list = [10, 20, 30, 40];
+    list[get_index()]
+}
 
 // =============================================================================
 // Chained Indexing
 // =============================================================================
 
-@test_chain_list_index tests @chain_list_index () -> void = run(
-    let list = [[1, 2], [3, 4], [5, 6]],
-    let value = list[1][0],
-    assert_eq(actual: value, expected: 3),
-)
+@test_chain_list_index tests @chain_list_index () -> void = {
+    let list = [[1, 2], [3, 4], [5, 6]];
+    let value = list[1][0];
+    assert_eq(actual: value, expected: 3)
+}
 
 @chain_list_index () -> int = [[1, 2], [3, 4], [5, 6]][1][0]
 
-@test_triple_nested tests @triple_nested () -> void = run(
-    let data = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]],
-    assert_eq(actual: data[0][0][0], expected: 1),
-    assert_eq(actual: data[1][1][1], expected: 8),
-)
+@test_triple_nested tests @triple_nested () -> void = {
+    let data = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+    assert_eq(actual: data[0][0][0], expected: 1);
+    assert_eq(actual: data[1][1][1], expected: 8)
+}
 
 @triple_nested () -> int = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]][1][1][1]
 
@@ -357,50 +357,50 @@ type Container = { items: [int] }
 // for copy-on-write index assignment (see errata on index-trait-proposal.md).
 
 #skip("index assignment not supported - pending design proposal")
-@test_list_assign tests @list_assign () -> void = run(
-    let list = [1, 2, 3],
-    list[1] = 99,
-    assert_eq(actual: list[1], expected: 99),
-)
+@test_list_assign tests @list_assign () -> void = {
+    let list = [1, 2, 3];
+    list[1] = 99;
+    assert_eq(actual: list[1], expected: 99)
+}
 
-@list_assign () -> int = run(
-    let list = [1, 2, 3],
-    list[1] = 99,
-    list[1],
-)
+@list_assign () -> int = {
+    let list = [1, 2, 3];
+    list[1] = 99;
+    list[1]
+}
 
 // =============================================================================
 // Edge Cases
 // =============================================================================
 
-@test_single_element_hash tests @single_element_hash () -> void = run(
-    let list = [42],
-    assert_eq(actual: list[# - 1], expected: 42),
-)
+@test_single_element_hash tests @single_element_hash () -> void = {
+    let list = [42];
+    assert_eq(actual: list[# - 1], expected: 42)
+}
 
-@single_element_hash () -> int = run(
-    let list = [42],
-    list[# - 1],
-)
+@single_element_hash () -> int = {
+    let list = [42];
+    list[# - 1]
+}
 
-@test_computed_index tests @computed_index () -> void = run(
-    let list = [0, 1, 2, 3, 4],
-    let offset = 2,
-    let multiplier = 2,
-    let index = offset * multiplier,
-    assert_eq(actual: list[index], expected: 4),
-)
+@test_computed_index tests @computed_index () -> void = {
+    let list = [0, 1, 2, 3, 4];
+    let offset = 2;
+    let multiplier = 2;
+    let index = offset * multiplier;
+    assert_eq(actual: list[index], expected: 4)
+}
 
-@computed_index () -> int = run(
-    let list = [0, 1, 2, 3, 4],
-    list[2 * 2],
-)
+@computed_index () -> int = {
+    let list = [0, 1, 2, 3, 4];
+    list[2 * 2]
+}
 
-@test_map_int_key tests @map_int_key () -> void = run(
-    let map = {1: "one", 2: "two", 3: "three"},
-    assert_eq(actual: map[1] ?? "", expected: "one"),
-    assert_eq(actual: map[2] ?? "", expected: "two"),
-    assert(cond: is_none(opt: map[99])),
-)
+@test_map_int_key tests @map_int_key () -> void = {
+    let map = {1: "one", 2: "two", 3: "three"};
+    assert_eq(actual: map[1] ?? "", expected: "one");
+    assert_eq(actual: map[2] ?? "", expected: "two");
+    assert(cond: is_none(opt: map[99]))
+}
 
 @map_int_key () -> str = {1: "one", 2: "two"}[1] ?? ""

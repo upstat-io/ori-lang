@@ -280,15 +280,14 @@ fn test_declaration() {
 
 #[test]
 fn test_with_function_call() {
-    // Test body that uses the target function via run()
-    // run() requires a trailing result expression after statements
+    // Test body that uses the target function via block expression
     let source = "\
 @double (x: int) -> int = x + x
 
-@test_double tests @double () -> void = run(
-    let _ = double(x: 5),
-    (),
-)
+@test_double tests @double () -> void = {
+    let _ = double(x: 5);
+    ()
+}
 ";
     let result = check_source(source);
     // `run` may produce errors since it's a compiler construct that needs
@@ -407,16 +406,17 @@ fn call_with_named_arg() {
 #[test]
 fn simple_let_binding() {
     let source = "\
-@foo () -> int = run(
-    let x = 42,
-    x,
-)
+@foo () -> int = {
+    let x = 42;
+    x
+}
 ";
-    // `run` is a built-in construct that sequences expressions
-    // If run isn't available as a call target, this may fail with unknown ident
-    // but the let binding itself should be handled
     let result = check_source(source);
-    let _ = result.has_errors(); // Don't assert - `run` may not be resolved
+    assert!(
+        !result.has_errors(),
+        "Simple let binding in block should not error: {:?}",
+        result.error_kinds()
+    );
 }
 
 #[test]
@@ -992,10 +992,10 @@ type Point = { x: int, y: int }
 
 @sum (self: Point) -> garbage = self.x + self.y
 
-@main () -> void = run(
-  let p = Point { x: 3, y: 4 },
-  println(p.sum().to_str()),
-)
+@main () -> void = {
+  let p = Point { x: 3, y: 4 };
+  println(p.sum().to_str())
+}
 ";
     let result = check_source(source);
     assert!(
@@ -1018,10 +1018,10 @@ impl Point {
     @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
 }
 
-@main () -> void = run(
-    let p = Point { x: 3, y: 4 },
-    print(msg: str(p.sum())),
-)
+@main () -> void = {
+    let p = Point { x: 3, y: 4 };
+    print(msg: str(p.sum()))
+}
 ";
     let result = check_source(source);
     assert!(
@@ -1054,10 +1054,10 @@ type Point = { x: int, y: int }
 
 @sum (self: Point) -> garbage = self.x + self.y
 
-@main () -> void = run(
-  let p = Point { x: 3, y: 4 },
-  println(p.sum().to_str()),
-)
+@main () -> void = {
+  let p = Point { x: 3, y: 4 };
+  println(p.sum().to_str())
+}
 ";
     let interner = StringInterner::new();
     let tokens = ori_lexer::lex(source, &interner);
@@ -1251,7 +1251,7 @@ fn impl_self_method_on_enum() {
 type Color = Red | Green | Blue
 
 impl Color {
-    @is_red (self) -> bool = match(self, Red -> true, _ -> false)
+    @is_red (self) -> bool = match self { Red -> true, _ -> false }
 }
 ";
     let result = check_source(source);
@@ -1347,7 +1347,7 @@ type Bad = { value: int, impossible: Never }
 fn never_in_sum_variant_allowed() {
     let source = r"
 type MaybeNever = Value(v: int) | Impossible(n: Never)
-@use_it (m: MaybeNever) -> int = match(m, Value(v) -> v)
+@use_it (m: MaybeNever) -> int = match m { Value(v) -> v }
 @test_use_it tests @use_it () -> void = ()
 ";
     let result = check_source(source);
@@ -1400,10 +1400,10 @@ fn collect_to_list_by_default() {
 fn collect_to_set_via_let_binding() {
     // Let binding with Set<int> annotation should guide collect()
     let source = r"
-@via_let () -> bool = run(
-    let s: Set<int> = [1, 2, 3].iter().collect(),
-    s == s,
-)
+@via_let () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s == s
+}
 @test_via_let tests @via_let () -> void = ()
 ";
     let result = check_source(source);

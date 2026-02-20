@@ -4,81 +4,81 @@
 use std.testing { assert_eq }
 
 // Plain strings pass through unchanged
-@test_escape_plain tests @escape_plain () -> void = run(
-    assert_eq(actual: "hello".escape(), expected: "hello"),
-    assert_eq(actual: "".escape(), expected: ""),
-    assert_eq(actual: "abc 123".escape(), expected: "abc 123"),
-)
+@test_escape_plain tests @escape_plain () -> void = {
+    assert_eq(actual: "hello".escape(), expected: "hello");
+    assert_eq(actual: "".escape(), expected: "");
+    assert_eq(actual: "abc 123".escape(), expected: "abc 123")
+}
 
-@escape_plain () -> str = run("hello".escape())
+@escape_plain () -> str = {"hello".escape()}
 
 // Newline escaping
-@test_escape_newline tests @escape_newline () -> void = run(
-    assert_eq(actual: "\n".escape(), expected: "\\n"),
-    assert_eq(actual: "line1\nline2".escape(), expected: "line1\\nline2"),
-)
+@test_escape_newline tests @escape_newline () -> void = {
+    assert_eq(actual: "\n".escape(), expected: "\\n");
+    assert_eq(actual: "line1\nline2".escape(), expected: "line1\\nline2")
+}
 
-@escape_newline () -> str = run("\n".escape())
+@escape_newline () -> str = {"\n".escape()}
 
 // Tab escaping
-@test_escape_tab tests @escape_tab () -> void = run(
-    assert_eq(actual: "\t".escape(), expected: "\\t"),
-    assert_eq(actual: "col1\tcol2".escape(), expected: "col1\\tcol2"),
-)
+@test_escape_tab tests @escape_tab () -> void = {
+    assert_eq(actual: "\t".escape(), expected: "\\t");
+    assert_eq(actual: "col1\tcol2".escape(), expected: "col1\\tcol2")
+}
 
-@escape_tab () -> str = run("\t".escape())
+@escape_tab () -> str = {"\t".escape()}
 
 // Carriage return escaping
-@test_escape_cr tests @escape_cr () -> void = run(
-    assert_eq(actual: "\r".escape(), expected: "\\r"),
-    assert_eq(actual: "line\r\n".escape(), expected: "line\\r\\n"),
-)
+@test_escape_cr tests @escape_cr () -> void = {
+    assert_eq(actual: "\r".escape(), expected: "\\r");
+    assert_eq(actual: "line\r\n".escape(), expected: "line\\r\\n")
+}
 
-@escape_cr () -> str = run("\r".escape())
+@escape_cr () -> str = {"\r".escape()}
 
 // Backslash escaping
-@test_escape_backslash tests @escape_backslash () -> void = run(
-    assert_eq(actual: "\\".escape(), expected: "\\\\"),
-    assert_eq(actual: "path\\to\\file".escape(), expected: "path\\\\to\\\\file"),
-)
+@test_escape_backslash tests @escape_backslash () -> void = {
+    assert_eq(actual: "\\".escape(), expected: "\\\\");
+    assert_eq(actual: "path\\to\\file".escape(), expected: "path\\\\to\\\\file")
+}
 
-@escape_backslash () -> str = run("\\".escape())
+@escape_backslash () -> str = {"\\".escape()}
 
 // Quote escaping
-@test_escape_quote tests @escape_quote () -> void = run(
-    assert_eq(actual: "\"".escape(), expected: "\\\""),
-    assert_eq(actual: "say \"hi\"".escape(), expected: "say \\\"hi\\\""),
-)
+@test_escape_quote tests @escape_quote () -> void = {
+    assert_eq(actual: "\"".escape(), expected: "\\\"");
+    assert_eq(actual: "say \"hi\"".escape(), expected: "say \\\"hi\\\"")
+}
 
-@escape_quote () -> str = run("\"".escape())
+@escape_quote () -> str = {"\"".escape()}
 
 // Null byte escaping
-@test_escape_null tests @escape_null () -> void = run(
-    assert_eq(actual: "\0".escape(), expected: "\\0"),
-)
+@test_escape_null tests @escape_null () -> void = {
+    assert_eq(actual: "\0".escape(), expected: "\\0")
+}
 
-@escape_null () -> str = run("\0".escape())
+@escape_null () -> str = {"\0".escape()}
 
 // Multiple escape characters in one string
-@test_escape_mixed tests @escape_mixed () -> void = run(
+@test_escape_mixed tests @escape_mixed () -> void = {
     assert_eq(
         actual: "line1\nline2\ttab\\end".escape(),
         expected: "line1\\nline2\\ttab\\\\end",
-    ),
-)
+    )
+}
 
-@escape_mixed () -> str = run("line1\nline2\ttab\\end".escape())
+@escape_mixed () -> str = {"line1\nline2\ttab\\end".escape()}
 
 // Escape is used internally by debug for strings
-@test_escape_debug_consistency tests @escape_debug_consistency () -> void = run(
+@test_escape_debug_consistency tests @escape_debug_consistency () -> void = {
     // debug wraps in quotes and escapes; escape just escapes
-    let s = "hello\nworld",
-    let escaped = s.escape(),
-    let debugged = s.debug(),
-    assert_eq(actual: debugged, expected: "\"" + escaped + "\""),
-)
+    let s = "hello\nworld";
+    let escaped = s.escape();
+    let debugged = s.debug();
+    assert_eq(actual: debugged, expected: "\"" + escaped + "\"")
+}
 
-@escape_debug_consistency () -> bool = run(
-    let s = "test\t123",
-    s.debug() == "\"" + s.escape() + "\"",
-)
+@escape_debug_consistency () -> bool = {
+    let s = "test\t123";
+    s.debug() == "\"" + s.escape() + "\""
+}

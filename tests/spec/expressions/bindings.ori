@@ -7,129 +7,129 @@ use std.testing { assert, assert_eq, assert_ne }
 // Basic Let Bindings (Inferred Types)
 // =============================================================================
 
-@test_let_inferred tests @let_inferred () -> void = run(
-    let x = 42,
+@test_let_inferred tests @let_inferred () -> void = {
+    let x = 42;
     assert_eq(
         actual: x,
         expected: 42,
-    ),
-)
+    )
+}
 
-@let_inferred () -> int = run(
-    let x = 42,
-    x,
-)
+@let_inferred () -> int = {
+    let x = 42;
+    x
+}
 
-@test_let_string tests @let_string () -> void = run(
-    let s = "hello",
+@test_let_string tests @let_string () -> void = {
+    let s = "hello";
     assert_eq(
         actual: s,
         expected: "hello",
-    ),
-)
+    )
+}
 
-@let_string () -> str = run(
-    let s = "hello",
-    s,
-)
+@let_string () -> str = {
+    let s = "hello";
+    s
+}
 
 // =============================================================================
 // Type Annotated Let Bindings
 // =============================================================================
 
-@test_let_annotated_int tests @let_annotated_int () -> void = run(
-    let x: int = 42,
+@test_let_annotated_int tests @let_annotated_int () -> void = {
+    let x: int = 42;
     assert_eq(
         actual: x,
         expected: 42,
-    ),
-)
+    )
+}
 
-@let_annotated_int () -> int = run(
-    let x: int = 42,
-    x,
-)
+@let_annotated_int () -> int = {
+    let x: int = 42;
+    x
+}
 
-@test_let_annotated_str tests @let_annotated_str () -> void = run(
-    let s: str = "world",
+@test_let_annotated_str tests @let_annotated_str () -> void = {
+    let s: str = "world";
     assert_eq(
         actual: s,
         expected: "world",
-    ),
-)
+    )
+}
 
-@let_annotated_str () -> str = run(
-    let s: str = "world",
-    s,
-)
+@let_annotated_str () -> str = {
+    let s: str = "world";
+    s
+}
 
-@test_let_annotated_bool tests @let_annotated_bool () -> void = run(
-    let b: bool = true,
-    assert(cond: b),
-)
+@test_let_annotated_bool tests @let_annotated_bool () -> void = {
+    let b: bool = true;
+    assert(cond: b)
+}
 
-@let_annotated_bool () -> bool = run(
-    let b: bool = true,
-    b,
-)
+@let_annotated_bool () -> bool = {
+    let b: bool = true;
+    b
+}
 
-@test_let_annotated_float tests @let_annotated_float () -> void = run(
-    let f: float = 3.14,
-    assert(cond: f > 3.0),
-    assert(cond: f < 4.0),
-)
+@test_let_annotated_float tests @let_annotated_float () -> void = {
+    let f: float = 3.14;
+    assert(cond: f > 3.0);
+    assert(cond: f < 4.0)
+}
 
-@let_annotated_float () -> float = run(
-    let f: float = 3.14,
-    f,
-)
+@let_annotated_float () -> float = {
+    let f: float = 3.14;
+    f
+}
 
-@test_let_annotated_char tests @let_annotated_char () -> void = run(
-    let c: char = 'x',
+@test_let_annotated_char tests @let_annotated_char () -> void = {
+    let c: char = 'x';
     assert_eq(
         actual: c,
         expected: 'x',
-    ),
-)
+    )
+}
 
-@let_annotated_char () -> char = run(
-    let c: char = 'x',
-    c,
-)
+@let_annotated_char () -> char = {
+    let c: char = 'x';
+    c
+}
 
 // =============================================================================
 // Shadowing (immutable rebinding)
 // =============================================================================
 
-@test_let_shadow tests @let_shadow () -> void = run(
-    let x = 1,
-    let x = x + 1,
+@test_let_shadow tests @let_shadow () -> void = {
+    let x = 1;
+    let x = x + 1;
     assert_eq(
         actual: x,
         expected: 2,
-    ),
-)
+    )
+}
 
-@let_shadow () -> int = run(
-    let x = 1,
-    let x = x + 1,
-    x,
-)
+@let_shadow () -> int = {
+    let x = 1;
+    let x = x + 1;
+    x
+}
 
-@test_let_shadow_different_type tests @let_shadow_different_type () -> void = run(
-    let x = 42,
-    let x = str(x),
+@test_let_shadow_different_type tests @let_shadow_different_type () -> void = {
+    let x = 42;
+    let x = str(x);
     assert_eq(
         actual: x,
         expected: "42",
-    ),
-)
+    )
+}
 
-@let_shadow_different_type () -> str = run(
-    let x = 42,
-    let x = str(x),
-    x,
-)
+@let_shadow_different_type () -> str = {
+    let x = 42;
+    let x = str(x);
+    x
+}
 
 // =============================================================================
 // Struct Destructuring
@@ -137,123 +137,123 @@ use std.testing { assert, assert_eq, assert_ne }
 
 type Point = { x: int, y: int }
 
-@test_struct_destructure_shorthand tests @struct_destructure_shorthand () -> void = run(
-    let p = Point { x: 10, y: 20 },
-    let { x, y } = p,
-    assert_eq(actual: x, expected: 10),
-    assert_eq(actual: y, expected: 20),
-)
+@test_struct_destructure_shorthand tests @struct_destructure_shorthand () -> void = {
+    let p = Point { x: 10, y: 20 };
+    let { x, y } = p;
+    assert_eq(actual: x, expected: 10);
+    assert_eq(actual: y, expected: 20)
+}
 
-@struct_destructure_shorthand () -> int = run(
-    let p = Point { x: 10, y: 20 },
-    let { x, y } = p,
-    x + y,
-)
+@struct_destructure_shorthand () -> int = {
+    let p = Point { x: 10, y: 20 };
+    let { x, y } = p;
+    x + y
+}
 
-@test_struct_destructure_rename tests @struct_destructure_rename () -> void = run(
-    let p = Point { x: 5, y: 15 },
-    let { x: px, y: py } = p,
-    assert_eq(actual: px, expected: 5),
-    assert_eq(actual: py, expected: 15),
-)
+@test_struct_destructure_rename tests @struct_destructure_rename () -> void = {
+    let p = Point { x: 5, y: 15 };
+    let { x: px, y: py } = p;
+    assert_eq(actual: px, expected: 5);
+    assert_eq(actual: py, expected: 15)
+}
 
-@struct_destructure_rename () -> int = run(
-    let p = Point { x: 5, y: 15 },
-    let { x: px, y: py } = p,
-    px * py,
-)
+@struct_destructure_rename () -> int = {
+    let p = Point { x: 5, y: 15 };
+    let { x: px, y: py } = p;
+    px * py
+}
 
-@test_struct_destructure_partial tests @struct_destructure_partial () -> void = run(
-    let p = Point { x: 100, y: 200 },
-    let { x } = p,
-    assert_eq(actual: x, expected: 100),
-)
+@test_struct_destructure_partial tests @struct_destructure_partial () -> void = {
+    let p = Point { x: 100, y: 200 };
+    let { x } = p;
+    assert_eq(actual: x, expected: 100)
+}
 
-@struct_destructure_partial () -> int = run(
-    let p = Point { x: 100, y: 200 },
-    let { x } = p,
-    x,
-)
+@struct_destructure_partial () -> int = {
+    let p = Point { x: 100, y: 200 };
+    let { x } = p;
+    x
+}
 
 type Rectangle = { top_left: Point, bottom_right: Point }
 
-@test_struct_destructure_nested tests @struct_destructure_nested () -> void = run(
+@test_struct_destructure_nested tests @struct_destructure_nested () -> void = {
     let rect = Rectangle {
         top_left: Point { x: 0, y: 0 },
         bottom_right: Point { x: 100, y: 50 },
-    },
-    let { top_left: { x: x1, y: y1 }, bottom_right: { x: x2, y: y2 } } = rect,
-    assert_eq(actual: x1, expected: 0),
-    assert_eq(actual: y1, expected: 0),
-    assert_eq(actual: x2, expected: 100),
-    assert_eq(actual: y2, expected: 50),
-)
+    };
+    let { top_left: { x: x1, y: y1 }, bottom_right: { x: x2, y: y2 } } = rect;
+    assert_eq(actual: x1, expected: 0);
+    assert_eq(actual: y1, expected: 0);
+    assert_eq(actual: x2, expected: 100);
+    assert_eq(actual: y2, expected: 50)
+}
 
-@struct_destructure_nested () -> int = run(
+@struct_destructure_nested () -> int = {
     let rect = Rectangle {
         top_left: Point { x: 0, y: 0 },
         bottom_right: Point { x: 100, y: 50 },
-    },
-    let { top_left: { x: x1, y: y1 }, bottom_right: { x: x2, y: y2 } } = rect,
-    (x2 - x1) * (y2 - y1),
-)
+    };
+    let { top_left: { x: x1, y: y1 }, bottom_right: { x: x2, y: y2 } } = rect;
+    (x2 - x1) * (y2 - y1)
+}
 
 // =============================================================================
 // List Destructuring
 // =============================================================================
 
-@test_list_destructure_basic tests @list_destructure_basic () -> void = run(
-    let items = [1, 2, 3],
-    let [a, b, c] = items,
-    assert_eq(actual: a, expected: 1),
-    assert_eq(actual: b, expected: 2),
-    assert_eq(actual: c, expected: 3),
-)
+@test_list_destructure_basic tests @list_destructure_basic () -> void = {
+    let items = [1, 2, 3];
+    let [a, b, c] = items;
+    assert_eq(actual: a, expected: 1);
+    assert_eq(actual: b, expected: 2);
+    assert_eq(actual: c, expected: 3)
+}
 
-@list_destructure_basic () -> int = run(
-    let items = [1, 2, 3],
-    let [a, b, c] = items,
-    a + b + c,
-)
+@list_destructure_basic () -> int = {
+    let items = [1, 2, 3];
+    let [a, b, c] = items;
+    a + b + c
+}
 
-@test_list_destructure_head tests @list_destructure_head () -> void = run(
-    let items = [10, 20, 30],
-    let [head, ..] = items,
-    assert_eq(actual: head, expected: 10),
-)
+@test_list_destructure_head tests @list_destructure_head () -> void = {
+    let items = [10, 20, 30];
+    let [head, ..] = items;
+    assert_eq(actual: head, expected: 10)
+}
 
-@list_destructure_head () -> int = run(
-    let items = [10, 20, 30],
-    let [head, ..] = items,
-    head,
-)
+@list_destructure_head () -> int = {
+    let items = [10, 20, 30];
+    let [head, ..] = items;
+    head
+}
 
-@test_list_destructure_with_rest tests @list_destructure_with_rest () -> void = run(
-    let items = [1, 2, 3, 4, 5],
-    let [first, ..rest] = items,
-    assert_eq(actual: first, expected: 1),
-    assert_eq(actual: len(collection: rest), expected: 4),
-)
+@test_list_destructure_with_rest tests @list_destructure_with_rest () -> void = {
+    let items = [1, 2, 3, 4, 5];
+    let [first, ..rest] = items;
+    assert_eq(actual: first, expected: 1);
+    assert_eq(actual: len(collection: rest), expected: 4)
+}
 
-@list_destructure_with_rest () -> int = run(
-    let items = [1, 2, 3, 4, 5],
-    let [first, ..rest] = items,
-    first + len(collection: rest),
-)
+@list_destructure_with_rest () -> int = {
+    let items = [1, 2, 3, 4, 5];
+    let [first, ..rest] = items;
+    first + len(collection: rest)
+}
 
 // =============================================================================
 // Tuple Destructuring
 // =============================================================================
 
-@test_tuple_destructure tests @tuple_destructure () -> void = run(
-    let pair = (42, "hello"),
-    let (n, s) = pair,
-    assert_eq(actual: n, expected: 42),
-    assert_eq(actual: s, expected: "hello"),
-)
+@test_tuple_destructure tests @tuple_destructure () -> void = {
+    let pair = (42, "hello");
+    let (n, s) = pair;
+    assert_eq(actual: n, expected: 42);
+    assert_eq(actual: s, expected: "hello")
+}
 
-@tuple_destructure () -> int = run(
-    let pair = (42, "hello"),
-    let (n, _) = pair,
-    n,
-)
+@tuple_destructure () -> int = {
+    let pair = (42, "hello");
+    let (n, _) = pair;
+    n
+}

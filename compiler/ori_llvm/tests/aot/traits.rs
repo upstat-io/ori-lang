@@ -23,11 +23,11 @@ use crate::util::assert_aot_success;
 fn test_aot_list_len_basic() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let xs = [10, 20, 30],
-    let n = xs.len(),
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let n = xs.len();
     if n == 3 then 0 else 1
-)
+}
 "#,
         "list_len_basic",
     );
@@ -37,11 +37,11 @@ fn test_aot_list_len_basic() {
 fn test_aot_list_len_empty() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let xs: [int] = [],
-    let n = xs.len(),
+@main () -> int = {
+    let xs: [int] = [];
+    let n = xs.len();
     if n == 0 then 0 else 1
-)
+}
 "#,
         "list_len_empty",
     );
@@ -51,10 +51,10 @@ fn test_aot_list_len_empty() {
 fn test_aot_list_len_single() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let xs = [42],
+@main () -> int = {
+    let xs = [42];
     if xs.len() == 1 then 0 else 1
-)
+}
 "#,
         "list_len_single",
     );
@@ -64,10 +64,10 @@ fn test_aot_list_len_single() {
 fn test_aot_string_len() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let s = "hello",
+@main () -> int = {
+    let s = "hello";
     if s.len() == 5 then 0 else 1
-)
+}
 "#,
         "string_len",
     );
@@ -77,10 +77,10 @@ fn test_aot_string_len() {
 fn test_aot_string_len_empty() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let s = "",
+@main () -> int = {
+    let s = "";
     if s.len() == 0 then 0 else 1
-)
+}
 "#,
         "string_len_empty",
     );
@@ -92,10 +92,10 @@ fn test_aot_string_len_empty() {
 fn test_aot_list_is_empty_true() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let xs: [int] = [],
+@main () -> int = {
+    let xs: [int] = [];
     if xs.is_empty() then 0 else 1
-)
+}
 "#,
         "list_is_empty_true",
     );
@@ -105,10 +105,10 @@ fn test_aot_list_is_empty_true() {
 fn test_aot_list_is_empty_false() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let xs = [1, 2],
+@main () -> int = {
+    let xs = [1, 2];
     if xs.is_empty() then 1 else 0
-)
+}
 "#,
         "list_is_empty_false",
     );
@@ -118,10 +118,10 @@ fn test_aot_list_is_empty_false() {
 fn test_aot_string_is_empty_true() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let s = "",
+@main () -> int = {
+    let s = "";
     if s.is_empty() then 0 else 1
-)
+}
 "#,
         "string_is_empty_true",
     );
@@ -131,10 +131,10 @@ fn test_aot_string_is_empty_true() {
 fn test_aot_string_is_empty_false() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let s = "hi",
+@main () -> int = {
+    let s = "hi";
     if s.is_empty() then 1 else 0
-)
+}
 "#,
         "string_is_empty_false",
     );
@@ -148,10 +148,10 @@ fn test_aot_option_is_some_true() {
         r#"
 @get () -> Option<int> = Some(42)
 
-@main () -> int = run(
-    let o = get(),
+@main () -> int = {
+    let o = get();
     if o.is_some() then 0 else 1
-)
+}
 "#,
         "option_is_some_true",
     );
@@ -163,10 +163,10 @@ fn test_aot_option_is_some_false() {
         r#"
 @get () -> Option<int> = None
 
-@main () -> int = run(
-    let o = get(),
+@main () -> int = {
+    let o = get();
     if o.is_some() then 1 else 0
-)
+}
 "#,
         "option_is_some_false",
     );
@@ -178,10 +178,10 @@ fn test_aot_option_is_none_true() {
         r#"
 @get () -> Option<int> = None
 
-@main () -> int = run(
-    let o = get(),
+@main () -> int = {
+    let o = get();
     if o.is_none() then 0 else 1
-)
+}
 "#,
         "option_is_none_true",
     );
@@ -193,10 +193,10 @@ fn test_aot_option_is_none_false() {
         r#"
 @get () -> Option<int> = Some(7)
 
-@main () -> int = run(
-    let o = get(),
+@main () -> int = {
+    let o = get();
     if o.is_none() then 1 else 0
-)
+}
 "#,
         "option_is_none_false",
     );
@@ -208,11 +208,11 @@ fn test_aot_option_unwrap_some() {
         r#"
 @get () -> Option<int> = Some(42)
 
-@main () -> int = run(
-    let o = get(),
-    let v = o.unwrap(),
+@main () -> int = {
+    let o = get();
+    let v = o.unwrap();
     if v == 42 then 0 else 1
-)
+}
 "#,
         "option_unwrap_some",
     );
@@ -224,11 +224,11 @@ fn test_aot_option_unwrap_or_some() {
         r#"
 @get () -> Option<int> = Some(42)
 
-@main () -> int = run(
-    let o = get(),
-    let v = o.unwrap_or(default: 0),
+@main () -> int = {
+    let o = get();
+    let v = o.unwrap_or(default: 0);
     if v == 42 then 0 else 1
-)
+}
 "#,
         "option_unwrap_or_some",
     );
@@ -240,11 +240,11 @@ fn test_aot_option_unwrap_or_none() {
         r#"
 @get () -> Option<int> = None
 
-@main () -> int = run(
-    let o = get(),
-    let v = o.unwrap_or(default: 99),
+@main () -> int = {
+    let o = get();
+    let v = o.unwrap_or(default: 99);
     if v == 99 then 0 else 1
-)
+}
 "#,
         "option_unwrap_or_none",
     );
@@ -258,10 +258,10 @@ fn test_aot_result_is_ok_true() {
         r#"
 @get () -> Result<int, str> = Ok(42)
 
-@main () -> int = run(
-    let r = get(),
+@main () -> int = {
+    let r = get();
     if r.is_ok() then 0 else 1
-)
+}
 "#,
         "result_is_ok_true",
     );
@@ -273,10 +273,10 @@ fn test_aot_result_is_ok_false() {
         r#"
 @get () -> Result<int, str> = Err("bad")
 
-@main () -> int = run(
-    let r = get(),
+@main () -> int = {
+    let r = get();
     if r.is_ok() then 1 else 0
-)
+}
 "#,
         "result_is_ok_false",
     );
@@ -288,10 +288,10 @@ fn test_aot_result_is_err_true() {
         r#"
 @get () -> Result<int, str> = Err("bad")
 
-@main () -> int = run(
-    let r = get(),
+@main () -> int = {
+    let r = get();
     if r.is_err() then 0 else 1
-)
+}
 "#,
         "result_is_err_true",
     );
@@ -303,10 +303,10 @@ fn test_aot_result_is_err_false() {
         r#"
 @get () -> Result<int, str> = Ok(42)
 
-@main () -> int = run(
-    let r = get(),
+@main () -> int = {
+    let r = get();
     if r.is_err() then 1 else 0
-)
+}
 "#,
         "result_is_err_false",
     );
@@ -318,11 +318,11 @@ fn test_aot_result_unwrap_ok() {
         r#"
 @get () -> Result<int, str> = Ok(42)
 
-@main () -> int = run(
-    let r = get(),
-    let v = r.unwrap(),
+@main () -> int = {
+    let r = get();
+    let v = r.unwrap();
     if v == 42 then 0 else 1
-)
+}
 "#,
         "result_unwrap_ok",
     );
@@ -334,10 +334,10 @@ fn test_aot_result_unwrap_ok() {
 fn test_aot_int_compare_less() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let ord = 1.compare(other: 5),
+@main () -> int = {
+    let ord = 1.compare(other: 5);
     if ord.is_less() then 0 else 1
-)
+}
 "#,
         "int_compare_less",
     );
@@ -347,10 +347,10 @@ fn test_aot_int_compare_less() {
 fn test_aot_int_compare_equal() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let ord = 7.compare(other: 7),
+@main () -> int = {
+    let ord = 7.compare(other: 7);
     if ord.is_equal() then 0 else 1
-)
+}
 "#,
         "int_compare_equal",
     );
@@ -360,10 +360,10 @@ fn test_aot_int_compare_equal() {
 fn test_aot_int_compare_greater() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let ord = 10.compare(other: 3),
+@main () -> int = {
+    let ord = 10.compare(other: 3);
     if ord.is_greater() then 0 else 1
-)
+}
 "#,
         "int_compare_greater",
     );
@@ -373,11 +373,11 @@ fn test_aot_int_compare_greater() {
 fn test_aot_ordering_reverse() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let ord = 1.compare(other: 5),
-    let rev = ord.reverse(),
+@main () -> int = {
+    let ord = 1.compare(other: 5);
+    let rev = ord.reverse();
     if rev.is_greater() then 0 else 1
-)
+}
 "#,
         "ordering_reverse",
     );
@@ -387,15 +387,15 @@ fn test_aot_ordering_reverse() {
 fn test_aot_ordering_predicates() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let less = 1.compare(other: 2),
-    let equal = 3.compare(other: 3),
-    let greater = 5.compare(other: 1),
-    let ok1 = less.is_less() && !less.is_equal() && !less.is_greater(),
-    let ok2 = !equal.is_less() && equal.is_equal() && !equal.is_greater(),
-    let ok3 = !greater.is_less() && !greater.is_equal() && greater.is_greater(),
+@main () -> int = {
+    let less = 1.compare(other: 2);
+    let equal = 3.compare(other: 3);
+    let greater = 5.compare(other: 1);
+    let ok1 = less.is_less() && !less.is_equal() && !less.is_greater();
+    let ok2 = !equal.is_less() && equal.is_equal() && !equal.is_greater();
+    let ok3 = !greater.is_less() && !greater.is_equal() && greater.is_greater();
     if ok1 && ok2 && ok3 then 0 else 1
-)
+}
 "#,
         "ordering_predicates",
     );
@@ -405,15 +405,15 @@ fn test_aot_ordering_predicates() {
 fn test_aot_ordering_is_less_or_equal() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let less = 1.compare(other: 2),
-    let equal = 3.compare(other: 3),
-    let greater = 5.compare(other: 1),
-    let ok1 = less.is_less_or_equal(),
-    let ok2 = equal.is_less_or_equal(),
-    let ok3 = !greater.is_less_or_equal(),
+@main () -> int = {
+    let less = 1.compare(other: 2);
+    let equal = 3.compare(other: 3);
+    let greater = 5.compare(other: 1);
+    let ok1 = less.is_less_or_equal();
+    let ok2 = equal.is_less_or_equal();
+    let ok3 = !greater.is_less_or_equal();
     if ok1 && ok2 && ok3 then 0 else 1
-)
+}
 "#,
         "ordering_is_less_or_equal",
     );
@@ -423,15 +423,15 @@ fn test_aot_ordering_is_less_or_equal() {
 fn test_aot_ordering_is_greater_or_equal() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let less = 1.compare(other: 2),
-    let equal = 3.compare(other: 3),
-    let greater = 5.compare(other: 1),
-    let ok1 = !less.is_greater_or_equal(),
-    let ok2 = equal.is_greater_or_equal(),
-    let ok3 = greater.is_greater_or_equal(),
+@main () -> int = {
+    let less = 1.compare(other: 2);
+    let equal = 3.compare(other: 3);
+    let greater = 5.compare(other: 1);
+    let ok1 = !less.is_greater_or_equal();
+    let ok2 = equal.is_greater_or_equal();
+    let ok3 = greater.is_greater_or_equal();
     if ok1 && ok2 && ok3 then 0 else 1
-)
+}
 "#,
         "ordering_is_greater_or_equal",
     );
@@ -443,14 +443,14 @@ fn test_aot_ordering_is_greater_or_equal() {
 fn test_aot_eq_int() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = 42,
-    let b = 42,
-    let c = 99,
-    let eq = a == b,
-    let ne = a != c,
+@main () -> int = {
+    let a = 42;
+    let b = 42;
+    let c = 99;
+    let eq = a == b;
+    let ne = a != c;
     if eq && ne then 0 else 1
-)
+}
 "#,
         "eq_int",
     );
@@ -460,14 +460,14 @@ fn test_aot_eq_int() {
 fn test_aot_eq_bool() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = true,
-    let b = true,
-    let c = false,
-    let eq = a == b,
-    let ne = a != c,
+@main () -> int = {
+    let a = true;
+    let b = true;
+    let c = false;
+    let eq = a == b;
+    let ne = a != c;
     if eq && ne then 0 else 1
-)
+}
 "#,
         "eq_bool",
     );
@@ -477,14 +477,14 @@ fn test_aot_eq_bool() {
 fn test_aot_eq_string() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = "hello",
-    let b = "hello",
-    let c = "world",
-    let eq = a == b,
-    let ne = a != c,
+@main () -> int = {
+    let a = "hello";
+    let b = "hello";
+    let c = "world";
+    let eq = a == b;
+    let ne = a != c;
     if eq && ne then 0 else 1
-)
+}
 "#,
         "eq_string",
     );
@@ -504,13 +504,13 @@ impl Point {
     @sum (self) -> int = self.x + self.y
 }
 
-@main () -> int = run(
-    let p = Point { x: 10, y: 20 },
-    let ok1 = p.get_x() == 10,
-    let ok2 = p.get_y() == 20,
-    let ok3 = p.sum() == 30,
+@main () -> int = {
+    let p = Point { x: 10, y: 20 };
+    let ok1 = p.get_x() == 10;
+    let ok2 = p.get_y() == 20;
+    let ok3 = p.sum() == 30;
     if ok1 && ok2 && ok3 then 0 else 1
-)
+}
 "#,
         "inherent_impl_method",
     );
@@ -527,13 +527,13 @@ impl Counter {
     @is_above (self, threshold: int) -> bool = self.value > threshold
 }
 
-@main () -> int = run(
-    let c = Counter { value: 10 },
-    let ok1 = c.add(n: 5) == 15,
-    let ok2 = c.is_above(threshold: 5),
-    let ok3 = !c.is_above(threshold: 15),
+@main () -> int = {
+    let c = Counter { value: 10 };
+    let ok1 = c.add(n: 5) == 15;
+    let ok2 = c.is_above(threshold: 5);
+    let ok3 = !c.is_above(threshold: 15);
     if ok1 && ok2 && ok3 then 0 else 1
-)
+}
 "#,
         "inherent_impl_with_params",
     );
@@ -555,11 +555,11 @@ impl Describable for Widget {
     @describe (self) -> str = self.name
 }
 
-@main () -> int = run(
-    let w = Widget { name: "button" },
-    let d = w.describe(),
+@main () -> int = {
+    let w = Widget { name: "button" };
+    let d = w.describe();
     if d == "button" then 0 else 1
-)
+}
 "#,
         "trait_impl_method",
     );
@@ -581,12 +581,12 @@ impl Calculator for Num {
     @double (self) -> int = self.value * 2
 }
 
-@main () -> int = run(
-    let n = Num { value: 5 },
-    let ok1 = n.add(n: 3) == 8,
-    let ok2 = n.double() == 10,
+@main () -> int = {
+    let n = Num { value: 5 };
+    let ok1 = n.add(n: 3) == 8;
+    let ok2 = n.double() == 10;
     if ok1 && ok2 then 0 else 1
-)
+}
 "#,
         "trait_impl_multiple_methods",
     );
@@ -609,11 +609,11 @@ impl Summarizable for Item {
     @name (self) -> str = self.label
 }
 
-@main () -> int = run(
-    let item = Item { label: "widget" },
-    let s = item.summary(),
+@main () -> int = {
+    let item = Item { label: "widget" };
+    let s = item.summary();
     if s == "Item: widget" then 0 else 1
-)
+}
 "#,
         "trait_default_method",
     );
@@ -639,11 +639,11 @@ impl Greetable for Person {
     @greet (self) -> str = "Hello from " + self.name
 }
 
-@main () -> int = run(
-    let p = Person { name: "Alice" },
-    let g = p.greet(),
+@main () -> int = {
+    let p = Person { name: "Alice" };
+    let g = p.greet();
     if g == "Hi, I'm Alice" then 0 else 1
-)
+}
 "#,
         "method_resolution_inherent_over_trait",
     );
@@ -663,15 +663,15 @@ impl Rect {
     @is_square (self) -> bool = self.width == self.height
 }
 
-@main () -> int = run(
-    let r = Rect { width: 3, height: 4 },
-    let ok1 = r.area() == 12,
-    let ok2 = r.perimeter() == 14,
-    let ok3 = !r.is_square(),
-    let sq = Rect { width: 5, height: 5 },
-    let ok4 = sq.is_square(),
+@main () -> int = {
+    let r = Rect { width: 3, height: 4 };
+    let ok1 = r.area() == 12;
+    let ok2 = r.perimeter() == 14;
+    let ok3 = !r.is_square();
+    let sq = Rect { width: 5, height: 5 };
+    let ok4 = sq.is_square();
     if ok1 && ok2 && ok3 && ok4 then 0 else 1
-)
+}
 "#,
         "impl_method_field_access",
     );
@@ -697,12 +697,12 @@ impl Printable for Color {
     @to_str (self) -> str = "color"
 }
 
-@main () -> int = run(
-    let c = Color { r: 100, g: 150, b: 200 },
-    let ok1 = c.brightness() == 150,
-    let ok2 = c.to_str() == "color",
+@main () -> int = {
+    let c = Color { r: 100, g: 150, b: 200 };
+    let ok1 = c.brightness() == 150;
+    let ok2 = c.to_str() == "color";
     if ok1 && ok2 then 0 else 1
-)
+}
 "#,
         "multiple_impl_blocks",
     );
@@ -726,12 +726,12 @@ impl Add for Point {
     }
 }
 
-@main () -> int = run(
-    let a = Point { x: 1, y: 2 },
-    let b = Point { x: 3, y: 4 },
-    let c = a + b,
+@main () -> int = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 3, y: 4 };
+    let c = a + b;
     if c.x == 4 && c.y == 6 then 0 else 1
-)
+}
 "#,
         "operator_trait_add",
     );
@@ -751,12 +751,12 @@ impl Sub for Point {
     }
 }
 
-@main () -> int = run(
-    let a = Point { x: 5, y: 8 },
-    let b = Point { x: 2, y: 3 },
-    let c = a - b,
+@main () -> int = {
+    let a = Point { x: 5, y: 8 };
+    let b = Point { x: 2, y: 3 };
+    let c = a - b;
     if c.x == 3 && c.y == 5 then 0 else 1
-)
+}
 "#,
         "operator_trait_sub",
     );
@@ -776,11 +776,11 @@ impl Neg for Point {
     }
 }
 
-@main () -> int = run(
-    let a = Point { x: 3, y: -7 },
-    let b = -a,
+@main () -> int = {
+    let a = Point { x: 3, y: -7 };
+    let b = -a;
     if b.x == -3 && b.y == 7 then 0 else 1
-)
+}
 "#,
         "operator_trait_neg",
     );
@@ -800,11 +800,11 @@ impl Mul<int> for Vec2 {
     }
 }
 
-@main () -> int = run(
-    let v = Vec2 { x: 2, y: 3 },
-    let scaled = v * 5,
+@main () -> int = {
+    let v = Vec2 { x: 2, y: 3 };
+    let scaled = v * 5;
     if scaled.x == 10 && scaled.y == 15 then 0 else 1
-)
+}
 "#,
         "operator_trait_mul_mixed",
     );
@@ -832,13 +832,13 @@ impl Sub for Point {
     }
 }
 
-@main () -> int = run(
-    let a = Point { x: 1, y: 2 },
-    let b = Point { x: 3, y: 4 },
-    let c = Point { x: 10, y: 10 },
-    let result = c - (a + b),
+@main () -> int = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 3, y: 4 };
+    let c = Point { x: 10, y: 10 };
+    let result = c - (a + b);
     if result.x == 6 && result.y == 4 then 0 else 1
-)
+}
 "#,
         "operator_trait_chained",
     );
@@ -860,13 +860,13 @@ impl BitOr for Mask {
     @bit_or (self, rhs: Mask) -> Mask = Mask { bits: self.bits | rhs.bits }
 }
 
-@main () -> int = run(
-    let a = Mask { bits: 0b1100 },
-    let b = Mask { bits: 0b1010 },
-    let and_result = a & b,
-    let or_result = a | b,
+@main () -> int = {
+    let a = Mask { bits: 0b1100 };
+    let b = Mask { bits: 0b1010 };
+    let and_result = a & b;
+    let or_result = a | b;
     if and_result.bits == 0b1000 && or_result.bits == 0b1110 then 0 else 1
-)
+}
 "#,
         "operator_trait_bitwise",
     );
@@ -883,11 +883,11 @@ impl Not for Toggle {
     @not (self) -> Toggle = Toggle { on: !self.on }
 }
 
-@main () -> int = run(
-    let t = Toggle { on: true },
-    let f = !t,
+@main () -> int = {
+    let t = Toggle { on: true };
+    let f = !t;
     if f.on == false then 0 else 1
-)
+}
 "#,
         "operator_trait_not",
     );
@@ -903,15 +903,15 @@ impl Not for Toggle {
 fn test_aot_str_compare() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = "apple",
-    let b = "banana",
-    let c = "apple",
-    let r1 = a.compare(b).is_less(),
-    let r2 = a.compare(c).is_equal(),
-    let r3 = b.compare(a).is_greater(),
+@main () -> int = {
+    let a = "apple";
+    let b = "banana";
+    let c = "apple";
+    let r1 = a.compare(b).is_less();
+    let r2 = a.compare(c).is_equal();
+    let r3 = b.compare(a).is_greater();
     if r1 && r2 && r3 then 0 else 1
-)
+}
 "#,
         "str_compare",
     );
@@ -921,14 +921,14 @@ fn test_aot_str_compare() {
 fn test_aot_str_equals() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = "hello",
-    let b = "hello",
-    let c = "world",
-    let r1 = a.equals(b),
-    let r2 = !a.equals(c),
+@main () -> int = {
+    let a = "hello";
+    let b = "hello";
+    let c = "world";
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "str_equals",
     );
@@ -938,16 +938,16 @@ fn test_aot_str_equals() {
 fn test_aot_str_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = "hello",
-    let b = "hello",
-    let c = "world",
-    let h1 = a.hash(),
-    let h2 = b.hash(),
-    let h3 = c.hash(),
+@main () -> int = {
+    let a = "hello";
+    let b = "hello";
+    let c = "world";
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
     // Same strings produce same hash
     if h1 == h2 && h1 != h3 then 0 else 1
-)
+}
 "#,
         "str_hash",
     );
@@ -959,14 +959,14 @@ fn test_aot_str_hash() {
 fn test_aot_bool_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let t = true,
-    let f = false,
-    let ht = t.hash(),
-    let hf = f.hash(),
+@main () -> int = {
+    let t = true;
+    let f = false;
+    let ht = t.hash();
+    let hf = f.hash();
     // true.hash() = 1, false.hash() = 0
     if ht == 1 && hf == 0 then 0 else 1
-)
+}
 "#,
         "bool_hash",
     );
@@ -978,16 +978,16 @@ fn test_aot_bool_hash() {
 fn test_aot_ordering_compare() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = 1.compare(2),
-    let b = 1.compare(2),
-    let c = 3.compare(2),
+@main () -> int = {
+    let a = 1.compare(2);
+    let b = 1.compare(2);
+    let c = 3.compare(2);
     // Less.compare(Less) = Equal
-    let r1 = a.compare(b).is_equal(),
+    let r1 = a.compare(b).is_equal();
     // Less.compare(Greater) = Less (0 < 2)
-    let r2 = a.compare(c).is_less(),
+    let r2 = a.compare(c).is_less();
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "ordering_compare",
     );
@@ -999,15 +999,15 @@ fn test_aot_ordering_compare() {
 fn test_aot_float_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = 3.14,
-    let b = 3.14,
-    let c = 2.71,
-    let h1 = a.hash(),
-    let h2 = b.hash(),
-    let h3 = c.hash(),
+@main () -> int = {
+    let a = 3.14;
+    let b = 3.14;
+    let c = 2.71;
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
     if h1 == h2 && h1 != h3 then 0 else 1
-)
+}
 "#,
         "float_hash",
     );
@@ -1019,13 +1019,13 @@ fn test_aot_float_hash() {
 fn test_aot_hash_combine() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let h1 = hash_combine(0, 42),
-    let h2 = hash_combine(0, 42),
-    let h3 = hash_combine(0, 99),
+@main () -> int = {
+    let h1 = hash_combine(0, 42);
+    let h2 = hash_combine(0, 42);
+    let h3 = hash_combine(0, 99);
     // Deterministic
     if h1 == h2 && h1 != h3 then 0 else 1
-)
+}
 "#,
         "hash_combine",
     );
@@ -1037,21 +1037,21 @@ fn test_aot_hash_combine() {
 fn test_aot_option_compare() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let none: Option<int> = None,
-    let some1 = Some(10),
-    let some2 = Some(20),
-    let some3 = Some(10),
+@main () -> int = {
+    let none: Option<int> = None;
+    let some1 = Some(10);
+    let some2 = Some(20);
+    let some3 = Some(10);
     // None < Some
-    let r1 = none.compare(some1).is_less(),
+    let r1 = none.compare(some1).is_less();
     // Some(10) < Some(20)
-    let r2 = some1.compare(some2).is_less(),
+    let r2 = some1.compare(some2).is_less();
     // Some(10) == Some(10)
-    let r3 = some1.compare(some3).is_equal(),
+    let r3 = some1.compare(some3).is_equal();
     // Some > None
-    let r4 = some1.compare(none).is_greater(),
+    let r4 = some1.compare(none).is_greater();
     if r1 && r2 && r3 && r4 then 0 else 1
-)
+}
 "#,
         "option_compare",
     );
@@ -1063,18 +1063,18 @@ fn test_aot_option_compare() {
 fn test_aot_option_equals() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let none1: Option<int> = None,
-    let none2: Option<int> = None,
-    let some1 = Some(42),
-    let some2 = Some(42),
-    let some3 = Some(99),
-    let r1 = none1.equals(none2),
-    let r2 = some1.equals(some2),
-    let r3 = !some1.equals(some3),
-    let r4 = !none1.equals(some1),
+@main () -> int = {
+    let none1: Option<int> = None;
+    let none2: Option<int> = None;
+    let some1 = Some(42);
+    let some2 = Some(42);
+    let some3 = Some(99);
+    let r1 = none1.equals(none2);
+    let r2 = some1.equals(some2);
+    let r3 = !some1.equals(some3);
+    let r4 = !none1.equals(some1);
     if r1 && r2 && r3 && r4 then 0 else 1
-)
+}
 "#,
         "option_equals",
     );
@@ -1086,23 +1086,23 @@ fn test_aot_option_equals() {
 fn test_aot_option_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let none: Option<int> = None,
-    let some1 = Some(42),
-    let some2 = Some(42),
-    let some3 = Some(99),
-    let h_none = none.hash(),
-    let h1 = some1.hash(),
-    let h2 = some2.hash(),
-    let h3 = some3.hash(),
+@main () -> int = {
+    let none: Option<int> = None;
+    let some1 = Some(42);
+    let some2 = Some(42);
+    let some3 = Some(99);
+    let h_none = none.hash();
+    let h1 = some1.hash();
+    let h2 = some2.hash();
+    let h3 = some3.hash();
     // None.hash() == 0
-    let r1 = h_none == 0,
+    let r1 = h_none == 0;
     // Same value → same hash
-    let r2 = h1 == h2,
+    let r2 = h1 == h2;
     // Different value → different hash (with overwhelming probability)
-    let r3 = h1 != h3,
+    let r3 = h1 != h3;
     if r1 && r2 && r3 then 0 else 1
-)
+}
 "#,
         "option_hash",
     );
@@ -1114,21 +1114,21 @@ fn test_aot_option_hash() {
 fn test_aot_result_compare() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let ok1: Result<int, int> = Ok(10),
-    let ok2: Result<int, int> = Ok(20),
-    let err1: Result<int, int> = Err(5),
-    let err2: Result<int, int> = Err(15),
+@main () -> int = {
+    let ok1: Result<int, int> = Ok(10);
+    let ok2: Result<int, int> = Ok(20);
+    let err1: Result<int, int> = Err(5);
+    let err2: Result<int, int> = Err(15);
     // Ok < Err
-    let r1 = ok1.compare(err1).is_less(),
+    let r1 = ok1.compare(err1).is_less();
     // Ok(10) < Ok(20)
-    let r2 = ok1.compare(ok2).is_less(),
+    let r2 = ok1.compare(ok2).is_less();
     // Err(5) < Err(15)
-    let r3 = err1.compare(err2).is_less(),
+    let r3 = err1.compare(err2).is_less();
     // Err > Ok
-    let r4 = err1.compare(ok1).is_greater(),
+    let r4 = err1.compare(ok1).is_greater();
     if r1 && r2 && r3 && r4 then 0 else 1
-)
+}
 "#,
         "result_compare",
     );
@@ -1140,18 +1140,18 @@ fn test_aot_result_compare() {
 fn test_aot_result_equals() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let ok1: Result<int, int> = Ok(42),
-    let ok2: Result<int, int> = Ok(42),
-    let ok3: Result<int, int> = Ok(99),
-    let err1: Result<int, int> = Err(1),
-    let err2: Result<int, int> = Err(1),
-    let r1 = ok1.equals(ok2),
-    let r2 = !ok1.equals(ok3),
-    let r3 = err1.equals(err2),
-    let r4 = !ok1.equals(err1),
+@main () -> int = {
+    let ok1: Result<int, int> = Ok(42);
+    let ok2: Result<int, int> = Ok(42);
+    let ok3: Result<int, int> = Ok(99);
+    let err1: Result<int, int> = Err(1);
+    let err2: Result<int, int> = Err(1);
+    let r1 = ok1.equals(ok2);
+    let r2 = !ok1.equals(ok3);
+    let r3 = err1.equals(err2);
+    let r4 = !ok1.equals(err1);
     if r1 && r2 && r3 && r4 then 0 else 1
-)
+}
 "#,
         "result_equals",
     );
@@ -1163,19 +1163,19 @@ fn test_aot_result_equals() {
 fn test_aot_result_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let ok1: Result<int, int> = Ok(42),
-    let ok2: Result<int, int> = Ok(42),
-    let err1: Result<int, int> = Err(42),
-    let h1 = ok1.hash(),
-    let h2 = ok2.hash(),
-    let h3 = err1.hash(),
+@main () -> int = {
+    let ok1: Result<int, int> = Ok(42);
+    let ok2: Result<int, int> = Ok(42);
+    let err1: Result<int, int> = Err(42);
+    let h1 = ok1.hash();
+    let h2 = ok2.hash();
+    let h3 = err1.hash();
     // Same variant+value → same hash
-    let r1 = h1 == h2,
+    let r1 = h1 == h2;
     // Ok(42) vs Err(42) → different hash (different seed)
-    let r2 = h1 != h3,
+    let r2 = h1 != h3;
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "result_hash",
     );
@@ -1187,19 +1187,19 @@ fn test_aot_result_hash() {
 fn test_aot_tuple_compare() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = (1, 2),
-    let b = (1, 3),
-    let c = (1, 2),
-    let d = (2, 0),
+@main () -> int = {
+    let a = (1, 2);
+    let b = (1, 3);
+    let c = (1, 2);
+    let d = (2, 0);
     // (1,2) < (1,3) — lexicographic on second field
-    let r1 = a.compare(b).is_less(),
+    let r1 = a.compare(b).is_less();
     // (1,2) == (1,2)
-    let r2 = a.compare(c).is_equal(),
+    let r2 = a.compare(c).is_equal();
     // (2,0) > (1,3) — first field decides
-    let r3 = d.compare(b).is_greater(),
+    let r3 = d.compare(b).is_greater();
     if r1 && r2 && r3 then 0 else 1
-)
+}
 "#,
         "tuple_compare",
     );
@@ -1211,14 +1211,14 @@ fn test_aot_tuple_compare() {
 fn test_aot_tuple_equals() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = (1, true),
-    let b = (1, true),
-    let c = (1, false),
-    let r1 = a.equals(b),
-    let r2 = !a.equals(c),
+@main () -> int = {
+    let a = (1, true);
+    let b = (1, true);
+    let c = (1, false);
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "tuple_equals",
     );
@@ -1230,19 +1230,19 @@ fn test_aot_tuple_equals() {
 fn test_aot_tuple_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = (1, 2, 3),
-    let b = (1, 2, 3),
-    let c = (3, 2, 1),
-    let h1 = a.hash(),
-    let h2 = b.hash(),
-    let h3 = c.hash(),
+@main () -> int = {
+    let a = (1, 2, 3);
+    let b = (1, 2, 3);
+    let c = (3, 2, 1);
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
     // Same tuple → same hash
-    let r1 = h1 == h2,
+    let r1 = h1 == h2;
     // Different tuple → different hash
-    let r2 = h1 != h3,
+    let r2 = h1 != h3;
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "tuple_hash",
     );
@@ -1254,14 +1254,14 @@ fn test_aot_tuple_hash() {
 fn test_aot_int_equals() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = 42,
-    let b = 42,
-    let c = 99,
-    let r1 = a.equals(b),
-    let r2 = !a.equals(c),
+@main () -> int = {
+    let a = 42;
+    let b = 42;
+    let c = 99;
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "int_equals",
     );
@@ -1271,14 +1271,14 @@ fn test_aot_int_equals() {
 fn test_aot_byte_compare() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = byte(10),
-    let b = byte(20),
-    let c = byte(10),
-    let r1 = a.compare(b).is_less(),
-    let r2 = a.compare(c).is_equal(),
+@main () -> int = {
+    let a = byte(10);
+    let b = byte(20);
+    let c = byte(10);
+    let r1 = a.compare(b).is_less();
+    let r2 = a.compare(c).is_equal();
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "byte_compare",
     );
@@ -1288,15 +1288,15 @@ fn test_aot_byte_compare() {
 fn test_aot_char_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = 'A',
-    let b = 'A',
-    let c = 'Z',
-    let h1 = a.hash(),
-    let h2 = b.hash(),
-    let h3 = c.hash(),
+@main () -> int = {
+    let a = 'A';
+    let b = 'A';
+    let c = 'Z';
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
     if h1 == h2 && h1 != h3 then 0 else 1
-)
+}
 "#,
         "char_hash",
     );
@@ -1312,16 +1312,16 @@ fn test_aot_char_hash() {
 fn test_aot_float_hash_neg_zero() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let pos = 0.0,
-    let neg = -0.0,
+@main () -> int = {
+    let pos = 0.0;
+    let neg = -0.0;
     // -0.0 == 0.0 must be true
-    let eq = pos == neg,
+    let eq = pos == neg;
     // Their hashes must also match
-    let h1 = pos.hash(),
-    let h2 = neg.hash(),
+    let h1 = pos.hash();
+    let h2 = neg.hash();
     if eq && h1 == h2 then 0 else 1
-)
+}
 "#,
         "float_hash_neg_zero",
     );
@@ -1333,12 +1333,12 @@ fn test_aot_float_hash_neg_zero() {
 fn test_aot_byte_hash_high_value() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let b = byte(200),
-    let h = b.hash(),
+@main () -> int = {
+    let b = byte(200);
+    let h = b.hash();
     // byte(200) should hash to 200 (unsigned), not -56 (signed)
     if h == 200 then 0 else 1
-)
+}
 "#,
         "byte_hash_high_value",
     );
@@ -1350,14 +1350,14 @@ fn test_aot_byte_hash_high_value() {
 fn test_aot_str_hash_same_length_different_content() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = "abc",
-    let b = "xyz",
-    let h1 = a.hash(),
-    let h2 = b.hash(),
+@main () -> int = {
+    let a = "abc";
+    let b = "xyz";
+    let h1 = a.hash();
+    let h2 = b.hash();
     // Same-length but different content must produce different hashes
     if h1 != h2 then 0 else 1
-)
+}
 "#,
         "str_hash_same_length_different",
     );
@@ -1372,24 +1372,24 @@ fn test_aot_nested_option_equals() {
 @wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
 @wrap_none () -> Option<Option<int>> = None
 
-@main () -> int = run(
-    let a = wrap(x: Some(42)),
-    let b = wrap(x: Some(42)),
-    let c = wrap(x: Some(99)),
-    let d = wrap(x: None),
-    let e = wrap_none(),
+@main () -> int = {
+    let a = wrap(x: Some(42));
+    let b = wrap(x: Some(42));
+    let c = wrap(x: Some(99));
+    let d = wrap(x: None);
+    let e = wrap_none();
     // Same value → equals
-    let r1 = a.equals(b),
+    let r1 = a.equals(b);
     // Different inner value → not equals
-    let r2 = !a.equals(c),
+    let r2 = !a.equals(c);
     // Some(Some(42)) != Some(None)
-    let r3 = !a.equals(d),
+    let r3 = !a.equals(d);
     // Some(None) != None
-    let r4 = !d.equals(e),
+    let r4 = !d.equals(e);
     // None == None
-    let r5 = e.equals(wrap_none()),
+    let r5 = e.equals(wrap_none());
     if r1 && r2 && r3 && r4 && r5 then 0 else 1
-)
+}
 "#,
         "nested_option_equals",
     );
@@ -1402,18 +1402,18 @@ fn test_aot_nested_option_compare() {
 @wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
 @wrap_none () -> Option<Option<int>> = None
 
-@main () -> int = run(
-    let a = wrap(x: Some(10)),
-    let b = wrap(x: Some(20)),
-    let c = wrap_none(),
+@main () -> int = {
+    let a = wrap(x: Some(10));
+    let b = wrap(x: Some(20));
+    let c = wrap_none();
     // Some(Some(10)) < Some(Some(20))
-    let r1 = a.compare(b).is_less(),
+    let r1 = a.compare(b).is_less();
     // None < Some(anything)
-    let r2 = c.compare(a).is_less(),
+    let r2 = c.compare(a).is_less();
     // Some(anything) > None
-    let r3 = a.compare(c).is_greater(),
+    let r3 = a.compare(c).is_greater();
     if r1 && r2 && r3 then 0 else 1
-)
+}
 "#,
         "nested_option_compare",
     );
@@ -1425,19 +1425,19 @@ fn test_aot_nested_option_hash() {
         r#"
 @wrap (x: Option<int>) -> Option<Option<int>> = Some(x)
 
-@main () -> int = run(
-    let a = wrap(x: Some(42)),
-    let b = wrap(x: Some(42)),
-    let c = wrap(x: Some(99)),
-    let h1 = a.hash(),
-    let h2 = b.hash(),
-    let h3 = c.hash(),
+@main () -> int = {
+    let a = wrap(x: Some(42));
+    let b = wrap(x: Some(42));
+    let c = wrap(x: Some(99));
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
     // Same value → same hash
-    let r1 = h1 == h2,
+    let r1 = h1 == h2;
     // Different value → different hash
-    let r2 = h1 != h3,
+    let r2 = h1 != h3;
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "nested_option_hash",
     );
@@ -1451,14 +1451,14 @@ fn test_aot_option_tuple_equals() {
         r#"
 @wrap (t: (int, int)) -> Option<(int, int)> = Some(t)
 
-@main () -> int = run(
-    let a = wrap(t: (1, 2)),
-    let b = wrap(t: (1, 2)),
-    let c = wrap(t: (3, 4)),
-    let r1 = a.equals(b),
-    let r2 = !a.equals(c),
+@main () -> int = {
+    let a = wrap(t: (1, 2));
+    let b = wrap(t: (1, 2));
+    let c = wrap(t: (3, 4));
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "option_tuple_equals",
     );
@@ -1470,23 +1470,23 @@ fn test_aot_option_tuple_equals() {
 fn test_aot_list_compare() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = [1, 2, 3],
-    let b = [1, 2, 4],
-    let c = [1, 2, 3],
-    let d = [1, 2],
+@main () -> int = {
+    let a = [1, 2, 3];
+    let b = [1, 2, 4];
+    let c = [1, 2, 3];
+    let d = [1, 2];
     // [1,2,3] < [1,2,4] — third element decides
-    let r1 = a.compare(b).is_less(),
+    let r1 = a.compare(b).is_less();
     // [1,2,3] == [1,2,3]
-    let r2 = a.compare(c).is_equal(),
+    let r2 = a.compare(c).is_equal();
     // [1,2,4] > [1,2,3] — third element decides
-    let r3 = b.compare(a).is_greater(),
+    let r3 = b.compare(a).is_greater();
     // [1,2] < [1,2,3] — shorter list is Less
-    let r4 = d.compare(a).is_less(),
+    let r4 = d.compare(a).is_less();
     // [1,2,3] > [1,2] — longer list is Greater
-    let r5 = a.compare(d).is_greater(),
+    let r5 = a.compare(d).is_greater();
     if r1 && r2 && r3 && r4 && r5 then 0 else 1
-)
+}
 "#,
         "list_compare",
     );
@@ -1496,17 +1496,17 @@ fn test_aot_list_compare() {
 fn test_aot_list_compare_empty() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let empty: [int] = [],
-    let one = [1],
+@main () -> int = {
+    let empty: [int] = [];
+    let one = [1];
     // [] == []
-    let r1 = empty.compare(empty).is_equal(),
+    let r1 = empty.compare(empty).is_equal();
     // [] < [1]
-    let r2 = empty.compare(one).is_less(),
+    let r2 = empty.compare(one).is_less();
     // [1] > []
-    let r3 = one.compare(empty).is_greater(),
+    let r3 = one.compare(empty).is_greater();
     if r1 && r2 && r3 then 0 else 1
-)
+}
 "#,
         "list_compare_empty",
     );
@@ -1518,16 +1518,16 @@ fn test_aot_list_compare_empty() {
 fn test_aot_list_equals() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = [1, 2, 3],
-    let b = [1, 2, 3],
-    let c = [1, 2, 4],
-    let d = [1, 2],
-    let r1 = a.equals(b),
-    let r2 = !a.equals(c),
-    let r3 = !a.equals(d),
+@main () -> int = {
+    let a = [1, 2, 3];
+    let b = [1, 2, 3];
+    let c = [1, 2, 4];
+    let d = [1, 2];
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
+    let r3 = !a.equals(d);
     if r1 && r2 && r3 then 0 else 1
-)
+}
 "#,
         "list_equals",
     );
@@ -1537,14 +1537,14 @@ fn test_aot_list_equals() {
 fn test_aot_list_equals_empty() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a: [int] = [],
-    let b: [int] = [],
-    let c = [1],
-    let r1 = a.equals(b),
-    let r2 = !a.equals(c),
+@main () -> int = {
+    let a: [int] = [];
+    let b: [int] = [];
+    let c = [1];
+    let r1 = a.equals(b);
+    let r2 = !a.equals(c);
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "list_equals_empty",
     );
@@ -1556,19 +1556,19 @@ fn test_aot_list_equals_empty() {
 fn test_aot_list_hash() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a = [1, 2, 3],
-    let b = [1, 2, 3],
-    let c = [3, 2, 1],
-    let h1 = a.hash(),
-    let h2 = b.hash(),
-    let h3 = c.hash(),
+@main () -> int = {
+    let a = [1, 2, 3];
+    let b = [1, 2, 3];
+    let c = [3, 2, 1];
+    let h1 = a.hash();
+    let h2 = b.hash();
+    let h3 = c.hash();
     // Same list → same hash
-    let r1 = h1 == h2,
+    let r1 = h1 == h2;
     // Different order → different hash
-    let r2 = h1 != h3,
+    let r2 = h1 != h3;
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "list_hash",
     );
@@ -1578,17 +1578,17 @@ fn test_aot_list_hash() {
 fn test_aot_list_hash_empty() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let a: [int] = [],
-    let b: [int] = [],
-    let h1 = a.hash(),
-    let h2 = b.hash(),
+@main () -> int = {
+    let a: [int] = [];
+    let b: [int] = [];
+    let h1 = a.hash();
+    let h2 = b.hash();
     // Empty lists have same hash
-    let r1 = h1 == h2,
+    let r1 = h1 == h2;
     // Empty list hash is 0 (initial seed)
-    let r2 = h1 == 0,
+    let r2 = h1 == 0;
     if r1 && r2 then 0 else 1
-)
+}
 "#,
         "list_hash_empty",
     );
@@ -1600,11 +1600,11 @@ fn test_aot_list_hash_empty() {
 fn test_aot_int_into_float() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let n = 42,
-    let f: float = n.into(),
+@main () -> int = {
+    let n = 42;
+    let f: float = n.into();
     if f == 42.0 then 0 else 1
-)
+}
 "#,
         "int_into_float",
     );
@@ -1614,11 +1614,11 @@ fn test_aot_int_into_float() {
 fn test_aot_int_into_float_negative() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let n = -100,
-    let f: float = n.into(),
+@main () -> int = {
+    let n = -100;
+    let f: float = n.into();
     if f == -100.0 then 0 else 1
-)
+}
 "#,
         "int_into_float_neg",
     );
@@ -1628,11 +1628,11 @@ fn test_aot_int_into_float_negative() {
 fn test_aot_int_into_float_zero() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let n = 0,
-    let f: float = n.into(),
+@main () -> int = {
+    let n = 0;
+    let f: float = n.into();
     if f == 0.0 then 0 else 1
-)
+}
 "#,
         "int_into_float_zero",
     );

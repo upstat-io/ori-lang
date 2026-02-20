@@ -7,27 +7,27 @@ use std.testing { assert_eq }
 // Simple immutable binding (should already work)
 // =============================================================================
 
-@test_simple_immutable tests @simple_immutable () -> void = run(
-    assert_eq(actual: simple_immutable(), expected: 42),
-)
+@test_simple_immutable tests @simple_immutable () -> void = {
+    assert_eq(actual: simple_immutable(), expected: 42)
+}
 
-@simple_immutable () -> int = run(
-    let $x = 42,
-    x,
-)
+@simple_immutable () -> int = {
+    let $x = 42;
+    x
+}
 
 // =============================================================================
 // Tuple destructuring with $ prefix
 // =============================================================================
 
-@test_tuple_immutable tests @tuple_immutable () -> void = run(
-    assert_eq(actual: tuple_immutable(), expected: 3),
-)
+@test_tuple_immutable tests @tuple_immutable () -> void = {
+    assert_eq(actual: tuple_immutable(), expected: 3)
+}
 
-@tuple_immutable () -> int = run(
-    let ($a, $b) = (1, 2),
-    a + b,
-)
+@tuple_immutable () -> int = {
+    let ($a, $b) = (1, 2);
+    a + b
+}
 
 // =============================================================================
 // Struct destructuring with $ prefix
@@ -35,54 +35,54 @@ use std.testing { assert_eq }
 
 type Point = { x: int, y: int }
 
-@test_struct_immutable tests @struct_immutable () -> void = run(
-    assert_eq(actual: struct_immutable(), expected: 30),
-)
+@test_struct_immutable tests @struct_immutable () -> void = {
+    assert_eq(actual: struct_immutable(), expected: 30)
+}
 
-@struct_immutable () -> int = run(
-    let p = Point { x: 10, y: 20 },
-    let { $x, $y } = p,
-    x + y,
-)
+@struct_immutable () -> int = {
+    let p = Point { x: 10, y: 20 };
+    let { $x, $y } = p;
+    x + y
+}
 
 // =============================================================================
 // Struct destructuring with mixed mutability
 // =============================================================================
 
-@test_struct_mixed tests @struct_mixed () -> void = run(
-    assert_eq(actual: struct_mixed(), expected: 30),
-)
+@test_struct_mixed tests @struct_mixed () -> void = {
+    assert_eq(actual: struct_mixed(), expected: 30)
+}
 
-@struct_mixed () -> int = run(
-    let p = Point { x: 10, y: 20 },
-    let { $x, y } = p,
-    x + y,
-)
+@struct_mixed () -> int = {
+    let p = Point { x: 10, y: 20 };
+    let { $x, y } = p;
+    x + y
+}
 
 // =============================================================================
 // List destructuring with $ prefix
 // =============================================================================
 
-@test_list_immutable tests @list_immutable () -> void = run(
-    assert_eq(actual: list_immutable(), expected: 3),
-)
+@test_list_immutable tests @list_immutable () -> void = {
+    assert_eq(actual: list_immutable(), expected: 3)
+}
 
-@list_immutable () -> int = run(
-    let items = [1, 2, 3],
-    let [$first, $second, ..rest] = items,
-    first + second,
-)
+@list_immutable () -> int = {
+    let items = [1, 2, 3];
+    let [$first, $second, ..rest] = items;
+    first + second
+}
 
 // =============================================================================
 // Struct destructuring with rename and $ prefix
 // =============================================================================
 
-@test_struct_rename_immutable tests @struct_rename_immutable () -> void = run(
-    assert_eq(actual: struct_rename_immutable(), expected: 30),
-)
+@test_struct_rename_immutable tests @struct_rename_immutable () -> void = {
+    assert_eq(actual: struct_rename_immutable(), expected: 30)
+}
 
-@struct_rename_immutable () -> int = run(
-    let p = Point { x: 10, y: 20 },
-    let { x: $px, y: $py } = p,
-    px + py,
-)
+@struct_rename_immutable () -> int = {
+    let p = Point { x: 10, y: 20 };
+    let { x: $px, y: $py } = p;
+    px + py
+}

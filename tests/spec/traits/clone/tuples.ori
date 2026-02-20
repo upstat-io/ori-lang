@@ -4,30 +4,30 @@
 use std.testing { assert, assert_eq }
 
 // (T, U).clone() — pair
-@test_clone_pair tests @clone_pair () -> void = run(
-    let t = (42, "hello"),
-    let t2 = t.clone(),
-    let (a, b) = t2,
-    assert_eq(actual: a, expected: 42),
-    assert_eq(actual: b, expected: "hello"),
-)
+@test_clone_pair tests @clone_pair () -> void = {
+    let t = (42, "hello");
+    let t2 = t.clone();
+    let (a, b) = t2;
+    assert_eq(actual: a, expected: 42);
+    assert_eq(actual: b, expected: "hello")
+}
 
 @clone_pair () -> (int, str) = (42, "hello").clone()
 
 // (T, U, V).clone() — triple
-@test_clone_triple tests @clone_triple () -> void = run(
-    let t = (1, true, "abc"),
-    let t2 = t.clone(),
-    let (a, b, c) = t2,
-    assert_eq(actual: a, expected: 1),
-    assert_eq(actual: b, expected: true),
-    assert_eq(actual: c, expected: "abc"),
-)
+@test_clone_triple tests @clone_triple () -> void = {
+    let t = (1, true, "abc");
+    let t2 = t.clone();
+    let (a, b, c) = t2;
+    assert_eq(actual: a, expected: 1);
+    assert_eq(actual: b, expected: true);
+    assert_eq(actual: c, expected: "abc")
+}
 
-@clone_triple () -> (int, bool, str) = run(
-    (1, true, "abc").clone(),
-)
+@clone_triple () -> (int, bool, str) = {
+    (1, true, "abc").clone()
+}
 
-@main () -> void = run(
-    print(msg: "Clone tuples tests passed"),
-)
+@main () -> void = {
+    print(msg: "Clone tuples tests passed")
+}

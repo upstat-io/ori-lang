@@ -10,16 +10,16 @@ use std.testing { assert_eq, assert }
 #[derive(Default, Eq)]
 type Point = { x: int, y: int }
 
-@test_basic_struct_default tests @basic_struct () -> void = run(
-    let p = Point.default(),
-    assert_eq(actual: p.x, expected: 0),
-    assert_eq(actual: p.y, expected: 0),
-)
+@test_basic_struct_default tests @basic_struct () -> void = {
+    let p = Point.default();
+    assert_eq(actual: p.x, expected: 0);
+    assert_eq(actual: p.y, expected: 0)
+}
 
-@basic_struct () -> bool = run(
-    let p = Point.default(),
-    p.x == 0 && p.y == 0,
-)
+@basic_struct () -> bool = {
+    let p = Point.default();
+    p.x == 0 && p.y == 0
+}
 
 // =============================================================================
 // Single Field Struct
@@ -28,10 +28,10 @@ type Point = { x: int, y: int }
 #[derive(Default, Eq)]
 type Wrapper = { value: int }
 
-@test_single_field tests @single_field () -> void = run(
-    let w = Wrapper.default(),
-    assert_eq(actual: w.value, expected: 0),
-)
+@test_single_field tests @single_field () -> void = {
+    let w = Wrapper.default();
+    assert_eq(actual: w.value, expected: 0)
+}
 
 @single_field () -> int = Wrapper.default().value
 
@@ -42,18 +42,18 @@ type Wrapper = { value: int }
 #[derive(Default, Eq)]
 type Config = { host: str, port: int, debug: bool, ratio: float }
 
-@test_mixed_fields tests @mixed_fields () -> void = run(
-    let c = Config.default(),
-    assert_eq(actual: c.host, expected: ""),
-    assert_eq(actual: c.port, expected: 0),
-    assert_eq(actual: c.debug, expected: false),
-    assert_eq(actual: c.ratio, expected: 0.0),
-)
+@test_mixed_fields tests @mixed_fields () -> void = {
+    let c = Config.default();
+    assert_eq(actual: c.host, expected: "");
+    assert_eq(actual: c.port, expected: 0);
+    assert_eq(actual: c.debug, expected: false);
+    assert_eq(actual: c.ratio, expected: 0.0)
+}
 
-@mixed_fields () -> bool = run(
-    let c = Config.default(),
-    c.host == "" && c.port == 0 && c.debug == false && c.ratio == 0.0,
-)
+@mixed_fields () -> bool = {
+    let c = Config.default();
+    c.host == "" && c.port == 0 && c.debug == false && c.ratio == 0.0
+}
 
 // =============================================================================
 // Nested Struct — Inner Must Also Derive Default
@@ -65,27 +65,27 @@ type Position = { x: int, y: int }
 #[derive(Default, Eq)]
 type Entity = { pos: Position, name: str }
 
-@test_nested_derive tests @nested_derive () -> void = run(
-    let e = Entity.default(),
-    assert_eq(actual: e.pos.x, expected: 0),
-    assert_eq(actual: e.pos.y, expected: 0),
-    assert_eq(actual: e.name, expected: ""),
-)
+@test_nested_derive tests @nested_derive () -> void = {
+    let e = Entity.default();
+    assert_eq(actual: e.pos.x, expected: 0);
+    assert_eq(actual: e.pos.y, expected: 0);
+    assert_eq(actual: e.name, expected: "")
+}
 
-@nested_derive () -> bool = run(
-    let e = Entity.default(),
-    e.pos.x == 0 && e.pos.y == 0 && e.name == "",
-)
+@nested_derive () -> bool = {
+    let e = Entity.default();
+    e.pos.x == 0 && e.pos.y == 0 && e.name == ""
+}
 
 // =============================================================================
 // Default + Eq: Two Defaults Are Equal
 // =============================================================================
 
-@test_two_defaults_equal tests @two_defaults_equal () -> void = run(
-    let a = Config.default(),
-    let b = Config.default(),
-    assert(cond: a.eq(other: b)),
-)
+@test_two_defaults_equal tests @two_defaults_equal () -> void = {
+    let a = Config.default();
+    let b = Config.default();
+    assert(cond: a.eq(other: b))
+}
 
 @two_defaults_equal () -> bool = Config.default().eq(other: Config.default())
 
@@ -96,16 +96,16 @@ type Entity = { pos: Position, name: str }
 #[derive(Default, Eq)]
 type Settings = { volume: int, muted: bool }
 
-@test_default_then_modify tests @default_modify () -> void = run(
-    let s = Settings.default(),
+@test_default_then_modify tests @default_modify () -> void = {
+    let s = Settings.default();
     // Verify defaults
-    assert_eq(actual: s.volume, expected: 0),
-    assert_eq(actual: s.muted, expected: false),
+    assert_eq(actual: s.volume, expected: 0);
+    assert_eq(actual: s.muted, expected: false);
     // Create modified version
-    let s2 = Settings { volume: 80, muted: s.muted },
-    assert_eq(actual: s2.volume, expected: 80),
-    assert_eq(actual: s2.muted, expected: false),
-)
+    let s2 = Settings { volume: 80, muted: s.muted };
+    assert_eq(actual: s2.volume, expected: 80);
+    assert_eq(actual: s2.muted, expected: false)
+}
 
 @default_modify () -> int = Settings.default().volume
 
@@ -116,16 +116,16 @@ type Settings = { volume: int, muted: bool }
 #[derive(Default, Eq, Clone, Printable)]
 type MultiDerive = { x: int, name: str }
 
-@test_multi_derive tests @multi_derive () -> void = run(
-    let m = MultiDerive.default(),
-    assert_eq(actual: m.x, expected: 0),
-    assert_eq(actual: m.name, expected: ""),
+@test_multi_derive tests @multi_derive () -> void = {
+    let m = MultiDerive.default();
+    assert_eq(actual: m.x, expected: 0);
+    assert_eq(actual: m.name, expected: "");
     // Clone should preserve defaults
-    let m2 = m.clone(),
-    assert(cond: m.eq(other: m2)),
+    let m2 = m.clone();
+    assert(cond: m.eq(other: m2));
     // Printable should work on default
-    assert_eq(actual: m.to_str(), expected: "MultiDerive(0, )"),
-)
+    assert_eq(actual: m.to_str(), expected: "MultiDerive(0, )")
+}
 
 @multi_derive () -> str = MultiDerive.default().to_str()
 

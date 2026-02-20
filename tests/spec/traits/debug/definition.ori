@@ -9,10 +9,10 @@ use std.testing { assert_eq }
 
 // Debug is a prelude trait — calling .debug() on any primitive should work
 
-@test_debug_returns_str tests @debug_returns_str () -> void = run(
-    let s: str = 42.debug(),
-    assert_eq(actual: s, expected: "42"),
-)
+@test_debug_returns_str tests @debug_returns_str () -> void = {
+    let s: str = 42.debug();
+    assert_eq(actual: s, expected: "42")
+}
 
 @debug_returns_str () -> str = 42.debug()
 
@@ -21,30 +21,30 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // For strings, debug shows quotes; to_str does not
-@test_debug_vs_printable_str tests @debug_vs_printable_str () -> void = run(
-    let d = "hello".debug(),
-    let p = "hello".to_str(),
+@test_debug_vs_printable_str tests @debug_vs_printable_str () -> void = {
+    let d = "hello".debug();
+    let p = "hello".to_str();
     // debug wraps in quotes
-    assert_eq(actual: d, expected: "\"hello\""),
+    assert_eq(actual: d, expected: "\"hello\"");
     // to_str returns the string itself
-    assert_eq(actual: p, expected: "hello"),
-)
+    assert_eq(actual: p, expected: "hello")
+}
 
 @debug_vs_printable_str () -> str = "hello".debug()
 
 // For chars, debug shows single quotes; to_str gives plain char
-@test_debug_vs_printable_char tests @debug_vs_printable_char () -> void = run(
-    let d = 'a'.debug(),
-    let p = 'a'.to_str(),
-    assert_eq(actual: d, expected: "'a'"),
-    assert_eq(actual: p, expected: "a"),
-)
+@test_debug_vs_printable_char tests @debug_vs_printable_char () -> void = {
+    let d = 'a'.debug();
+    let p = 'a'.to_str();
+    assert_eq(actual: d, expected: "'a'");
+    assert_eq(actual: p, expected: "a")
+}
 
 @debug_vs_printable_char () -> str = 'a'.debug()
 
 // For ints, debug and to_str produce same output
-@test_debug_same_as_printable_int tests @debug_same_as_printable_int () -> void = run(
-    assert_eq(actual: 42.debug(), expected: 42.to_str()),
-)
+@test_debug_same_as_printable_int tests @debug_same_as_printable_int () -> void = {
+    assert_eq(actual: 42.debug(), expected: 42.to_str())
+}
 
 @debug_same_as_printable_int () -> str = 42.to_str()

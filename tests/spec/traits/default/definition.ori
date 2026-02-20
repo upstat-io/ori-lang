@@ -14,10 +14,10 @@ use std.testing { assert_eq, assert }
 #[derive(Default, Eq)]
 type IntBox = { value: int }
 
-@test_int_default tests @int_default () -> void = run(
-    let b = IntBox.default(),
-    assert_eq(actual: b.value, expected: 0),
-)
+@test_int_default tests @int_default () -> void = {
+    let b = IntBox.default();
+    assert_eq(actual: b.value, expected: 0)
+}
 
 @int_default () -> int = IntBox.default().value
 
@@ -25,10 +25,10 @@ type IntBox = { value: int }
 #[derive(Default, Eq)]
 type FloatBox = { value: float }
 
-@test_float_default tests @float_default () -> void = run(
-    let b = FloatBox.default(),
-    assert_eq(actual: b.value, expected: 0.0),
-)
+@test_float_default tests @float_default () -> void = {
+    let b = FloatBox.default();
+    assert_eq(actual: b.value, expected: 0.0)
+}
 
 @float_default () -> float = FloatBox.default().value
 
@@ -36,10 +36,10 @@ type FloatBox = { value: float }
 #[derive(Default, Eq)]
 type BoolBox = { value: bool }
 
-@test_bool_default tests @bool_default () -> void = run(
-    let b = BoolBox.default(),
-    assert_eq(actual: b.value, expected: false),
-)
+@test_bool_default tests @bool_default () -> void = {
+    let b = BoolBox.default();
+    assert_eq(actual: b.value, expected: false)
+}
 
 @bool_default () -> bool = BoolBox.default().value
 
@@ -47,10 +47,10 @@ type BoolBox = { value: bool }
 #[derive(Default, Eq)]
 type StrBox = { value: str }
 
-@test_str_default tests @str_default () -> void = run(
-    let b = StrBox.default(),
-    assert_eq(actual: b.value, expected: ""),
-)
+@test_str_default tests @str_default () -> void = {
+    let b = StrBox.default();
+    assert_eq(actual: b.value, expected: "")
+}
 
 @str_default () -> str = StrBox.default().value
 
@@ -66,34 +66,34 @@ type AllPrimitives = {
     s: str,
 }
 
-@test_all_primitives_default tests @all_primitives_default () -> void = run(
-    let a = AllPrimitives.default(),
-    assert_eq(actual: a.i, expected: 0),
-    assert_eq(actual: a.f, expected: 0.0),
-    assert_eq(actual: a.b, expected: false),
-    assert_eq(actual: a.s, expected: ""),
-)
+@test_all_primitives_default tests @all_primitives_default () -> void = {
+    let a = AllPrimitives.default();
+    assert_eq(actual: a.i, expected: 0);
+    assert_eq(actual: a.f, expected: 0.0);
+    assert_eq(actual: a.b, expected: false);
+    assert_eq(actual: a.s, expected: "")
+}
 
-@all_primitives_default () -> bool = run(
-    let a = AllPrimitives.default(),
-    a.i == 0 && a.f == 0.0 && a.b == false && a.s == "",
-)
+@all_primitives_default () -> bool = {
+    let a = AllPrimitives.default();
+    a.i == 0 && a.f == 0.0 && a.b == false && a.s == ""
+}
 
 // =============================================================================
 // Duration and Size Defaults (built-in associated functions)
 // =============================================================================
 
-@test_duration_default tests @duration_default () -> void = run(
-    let d = Duration.default(),
-    assert_eq(actual: d, expected: 0ns),
-)
+@test_duration_default tests @duration_default () -> void = {
+    let d = Duration.default();
+    assert_eq(actual: d, expected: 0ns)
+}
 
 @duration_default () -> Duration = Duration.default()
 
-@test_size_default tests @size_default () -> void = run(
-    let s = Size.default(),
-    assert_eq(actual: s, expected: 0b),
-)
+@test_size_default tests @size_default () -> void = {
+    let s = Size.default();
+    assert_eq(actual: s, expected: 0b)
+}
 
 @size_default () -> Size = Size.default()
 
@@ -101,11 +101,11 @@ type AllPrimitives = {
 // Default Produces Equal Values (idempotency)
 // =============================================================================
 
-@test_default_idempotent tests @default_idempotent () -> void = run(
-    let p1 = IntBox.default(),
-    let p2 = IntBox.default(),
-    assert(cond: p1.eq(other: p2)),
-)
+@test_default_idempotent tests @default_idempotent () -> void = {
+    let p1 = IntBox.default();
+    let p2 = IntBox.default();
+    assert(cond: p1.eq(other: p2))
+}
 
 @default_idempotent () -> bool = IntBox.default().eq(other: IntBox.default())
 
@@ -119,17 +119,17 @@ type Inner = { x: int, y: int }
 #[derive(Default, Eq)]
 type Outer = { inner: Inner, label: str }
 
-@test_nested_struct_default tests @nested_struct_default () -> void = run(
-    let o = Outer.default(),
-    assert_eq(actual: o.inner.x, expected: 0),
-    assert_eq(actual: o.inner.y, expected: 0),
-    assert_eq(actual: o.label, expected: ""),
-)
+@test_nested_struct_default tests @nested_struct_default () -> void = {
+    let o = Outer.default();
+    assert_eq(actual: o.inner.x, expected: 0);
+    assert_eq(actual: o.inner.y, expected: 0);
+    assert_eq(actual: o.label, expected: "")
+}
 
-@nested_struct_default () -> bool = run(
-    let o = Outer.default(),
-    o.inner.x == 0 && o.inner.y == 0 && o.label == "",
-)
+@nested_struct_default () -> bool = {
+    let o = Outer.default();
+    o.inner.x == 0 && o.inner.y == 0 && o.label == ""
+}
 
 // =============================================================================
 // Deeply Nested Defaults
@@ -144,10 +144,10 @@ type Level2 = { child: Level1 }
 #[derive(Default, Eq)]
 type Level3 = { child: Level2 }
 
-@test_deep_nesting_default tests @deep_nesting_default () -> void = run(
-    let l = Level3.default(),
-    assert_eq(actual: l.child.child.value, expected: 0),
-)
+@test_deep_nesting_default tests @deep_nesting_default () -> void = {
+    let l = Level3.default();
+    assert_eq(actual: l.child.child.value, expected: 0)
+}
 
 @deep_nesting_default () -> int = Level3.default().child.child.value
 

@@ -10,7 +10,7 @@
 )]
 
 use crate::{parse, ParseContext, ParseOutput, Parser};
-use ori_ir::{BinaryOp, BindingPattern, ExprKind, FunctionExpKind, FunctionSeq, StringInterner};
+use ori_ir::{BinaryOp, BindingPattern, ExprKind, FunctionExpKind, StmtKind, StringInterner};
 
 fn parse_source(source: &str) -> ParseOutput {
     let interner = StringInterner::new();
@@ -94,8 +94,8 @@ fn test_parse_if_expr() {
 }
 
 #[test]
-fn test_parse_function_seq_run() {
-    let result = parse_source("@test () -> int = run(let x = 1, let y = 2, x + y)");
+fn test_parse_block_expr() {
+    let result = parse_source("@test () -> int = { let x = 1; let y = 2; x + y }");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -105,16 +105,20 @@ fn test_parse_function_seq_run() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::FunctionSeq(seq_id) = &body.kind {
-        let seq = result.arena.get_function_seq(*seq_id);
-        if let FunctionSeq::Run { bindings, .. } = seq {
-            let seq_bindings = result.arena.get_seq_bindings(*bindings);
-            assert_eq!(seq_bindings.len(), 2);
-        } else {
-            panic!("Expected FunctionSeq::Run, got {seq:?}");
-        }
+    if let ExprKind::Block { stmts, result: res } = &body.kind {
+        let stmt_list = result.arena.get_stmt_range(*stmts);
+        assert_eq!(stmt_list.len(), 2, "Expected 2 let statements");
+        assert!(
+            matches!(stmt_list[0].kind, StmtKind::Let { .. }),
+            "First stmt should be Let"
+        );
+        assert!(
+            matches!(stmt_list[1].kind, StmtKind::Let { .. }),
+            "Second stmt should be Let"
+        );
+        assert!(res.is_valid(), "Block should have a result expression");
     } else {
-        panic!("Expected run function_seq, got {:?}", body.kind);
+        panic!("Expected Block expression, got {:?}", body.kind);
     }
 }
 
@@ -167,8 +171,8 @@ fn test_parse_let_with_type() {
 }
 
 #[test]
-fn test_parse_run_with_let() {
-    let result = parse_source("@test () -> int = run(let x = 1, x)");
+fn test_parse_block_with_let() {
+    let result = parse_source("@test () -> int = { let x = 1; x }");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -178,16 +182,16 @@ fn test_parse_run_with_let() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::FunctionSeq(seq_id) = &body.kind {
-        let seq = result.arena.get_function_seq(*seq_id);
-        if let FunctionSeq::Run { bindings, .. } = seq {
-            let seq_bindings = result.arena.get_seq_bindings(*bindings);
-            assert_eq!(seq_bindings.len(), 1);
-        } else {
-            panic!("Expected FunctionSeq::Run, got {seq:?}");
-        }
+    if let ExprKind::Block { stmts, result: res } = &body.kind {
+        let stmt_list = result.arena.get_stmt_range(*stmts);
+        assert_eq!(stmt_list.len(), 1, "Expected 1 let statement");
+        assert!(
+            matches!(stmt_list[0].kind, StmtKind::Let { .. }),
+            "Stmt should be Let"
+        );
+        assert!(res.is_valid(), "Block should have a result expression");
     } else {
-        panic!("Expected run function_seq, got {:?}", body.kind);
+        panic!("Expected Block expression, got {:?}", body.kind);
     }
 }
 
@@ -282,17 +286,16 @@ fn test_parse_timeout_pattern() {
 }
 
 #[test]
-fn test_parse_runner_syntax() {
-    // Test the exact syntax used in the runner tests
-    // Functions are called without @ prefix
+fn test_parse_block_in_test() {
+    // Test block expression syntax in a test function with target
     let result = parse_source(
         r#"
 @add (a: int, b: int) -> int = a + b
 
-@test_add tests @add () -> void = run(
-    let result = add(a: 1, b: 2),
+@test_add tests @add () -> void = {
+    let result = add(a: 1, b: 2);
     print(msg: "done")
-)
+}
 "#,
     );
 
@@ -316,9 +319,9 @@ fn test_at_in_expression_is_error() {
         r"
 @add (a: int, b: int) -> int = a + b
 
-@test_add tests @add () -> void = run(
+@test_add tests @add () -> void = {
     @add(a: 1, b: 2)
-)
+}
 ",
     );
 
@@ -479,10 +482,10 @@ fn test_async_keyword_reserved() {
     // The async keyword is reserved and cannot be used as an identifier
     let result = parse_source(
         r"
-@test () -> int = run(
-    let async = 42,
-    async,
-)
+@test () -> int = {
+    let async = 42;
+    async
+}
 ",
     );
 
@@ -650,10 +653,10 @@ fn test_nested_generic_and_shift() {
     // Test that nested generics work in a type annotation and >> works in expression
     let result = parse_source(
         r"
-@test () -> Result<Result<int, str>, str> = run(
-    let x = 8 >> 2,
+@test () -> Result<Result<int, str>, str> = {
+    let x = 8 >> 2;
     Ok(Ok(x))
-)",
+}",
     );
 
     assert!(
@@ -1271,15 +1274,13 @@ fn test_mixed_valid_and_invalid_at_module_level() {
     );
 }
 
-/// Semicolons at top level produce errors (not silently eaten).
+/// Semicolons after top-level items are accepted (optional during dual-mode).
 #[test]
-fn test_semicolons_at_module_level_produce_errors() {
-    // Semicolons are TokenKind::Semicolon (not Error), so they hit the catch-all.
-    // The lex error pipeline also reports them, but the parser should reject too.
+fn test_semicolons_after_top_level_items_accepted() {
     let result = parse_source("@foo () -> int = 42;");
     assert!(
-        result.has_errors(),
-        "Semicolons at module level should produce errors"
+        !result.has_errors(),
+        "Semicolons after function definitions should be accepted: {result:?}"
     );
 }
 
@@ -1296,7 +1297,7 @@ fn parse_source_with_interner(source: &str) -> (ParseOutput, StringInterner) {
 #[test]
 fn test_labeled_break() {
     let (result, interner) =
-        parse_source_with_interner("@f () -> int = loop:outer(break:outer 42)");
+        parse_source_with_interner("@f () -> int = loop:outer { break:outer 42 }");
     assert!(
         !result.has_errors(),
         "labeled break should parse: {result:?}"
@@ -1310,7 +1311,16 @@ fn test_labeled_break() {
             "outer",
             "loop label should be 'outer'"
         );
-        let break_expr = result.arena.get_expr(*body);
+        // loop body is a block { break:outer 42 }
+        let loop_body = result.arena.get_expr(*body);
+        let break_id = if let ExprKind::Block { result: res, .. } = &loop_body.kind {
+            *res
+        } else if let ExprKind::Break { .. } = &loop_body.kind {
+            *body
+        } else {
+            panic!("expected Block or Break, got {loop_body:?}");
+        };
+        let break_expr = result.arena.get_expr(break_id);
         if let ExprKind::Break { label, value } = &break_expr.kind {
             assert_eq!(
                 interner.lookup(*label),
@@ -1360,14 +1370,23 @@ fn test_labeled_continue() {
 
 #[test]
 fn test_unlabeled_break_still_works() {
-    let result = parse_source("@f () -> int = loop(break 42)");
+    let result = parse_source("@f () -> int = loop { break 42 }");
     assert!(!result.has_errors(), "unlabeled break should still parse");
 
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
     if let ExprKind::Loop { label, body } = &body.kind {
         assert_eq!(*label, ori_ir::Name::EMPTY, "loop should have no label");
-        let break_expr = result.arena.get_expr(*body);
+        // loop body is a block { break 42 }
+        let loop_body = result.arena.get_expr(*body);
+        let break_id = if let ExprKind::Block { result: res, .. } = &loop_body.kind {
+            *res
+        } else if let ExprKind::Break { .. } = &loop_body.kind {
+            *body
+        } else {
+            panic!("expected Block or Break, got {loop_body:?}");
+        };
+        let break_expr = result.arena.get_expr(break_id);
         if let ExprKind::Break { label, value } = &break_expr.kind {
             assert_eq!(*label, ori_ir::Name::EMPTY, "break should have no label");
             assert!(value.is_present(), "break should have a value");
@@ -1409,7 +1428,7 @@ fn test_labeled_for_loop() {
 
 #[test]
 fn test_labeled_loop() {
-    let (result, interner) = parse_source_with_interner("@f () -> int = loop:main(break 0)");
+    let (result, interner) = parse_source_with_interner("@f () -> int = loop:main { break 0 }");
     assert!(
         !result.has_errors(),
         "labeled loop should parse: {result:?}"
@@ -1431,8 +1450,8 @@ fn test_labeled_loop() {
 #[test]
 fn test_labeled_continue_with_value() {
     let result = parse_source(
-        "@f () -> [int] = for:lp x in [1, 2, 3] yield run(\
-            if x == 2 then continue:lp 0, x)",
+        "@f () -> [int] = for:lp x in [1, 2, 3] yield {\
+            if x == 2 then continue:lp 0; x }",
     );
     assert!(
         !result.has_errors(),
@@ -1443,9 +1462,9 @@ fn test_labeled_continue_with_value() {
 #[test]
 fn test_nested_labels() {
     let result = parse_source(
-        "@f () -> void = for:outer x in [1] do for:inner y in [2] do run(\
-            if y == 2 then continue:outer,\
-            if x == 1 then break:inner)",
+        "@f () -> void = for:outer x in [1] do for:inner y in [2] do {\
+            if y == 2 then continue:outer;\
+            if x == 1 then break:inner }",
     );
     assert!(
         !result.has_errors(),

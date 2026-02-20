@@ -42,15 +42,15 @@
 // Function taking a function as parameter (via lambda)
 @apply_twice (f: (int) -> int, x: int) -> int = f(f(x))
 
-@main () -> void = run(
-    print(msg: greeting()),
-    print(msg: "square(5) = " + str(square(5))),
-    print(msg: "add(3, 4) = " + str(add(a: 3, b: 4))),
-    print(msg: "repeat_string(\"ab\", 3) = " + repeat_string(s: "ab", n: 3)),
-    print(msg: "range_list(1, 5) = " + str(range_list(start: 1, end: 5))),
-    print(msg: "is_even(4) = " + str(is_even(4))),
-    print(msg: "sum_of_squares(3, 4) = " + str(sum_of_squares(a: 3, b: 4))),
-    print(msg: "factorial(5) = " + str(factorial(5))),
-    print(msg: "fizzbuzz(15) = " + fizzbuzz(15)),
-    print(msg: "apply_twice(square, 2) = " + str(apply_twice(f: x -> x * x, x: 2))),
-)
+@main () -> void = {
+    print(msg: greeting());
+    print(msg: "square(5) = " + str(square(5)));
+    print(msg: "add(3, 4) = " + str(add(a: 3, b: 4)));
+    print(msg: "repeat_string(\"ab\", 3) = " + repeat_string(s: "ab", n: 3));
+    print(msg: "range_list(1, 5) = " + str(range_list(start: 1, end: 5)));
+    print(msg: "is_even(4) = " + str(is_even(4)));
+    print(msg: "sum_of_squares(3, 4) = " + str(sum_of_squares(a: 3, b: 4)));
+    print(msg: "factorial(5) = " + str(factorial(5)));
+    print(msg: "fizzbuzz(15) = " + fizzbuzz(15));
+    print(msg: "apply_twice(square, 2) = " + str(apply_twice(f: x -> x * x, x: 2)))
+}

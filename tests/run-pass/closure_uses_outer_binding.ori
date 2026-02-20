@@ -5,8 +5,8 @@
 // A closure using a variable from outer scope is NOT self-capture.
 // This should compile and run without error.
 
-@main () -> int = run(
-    let x = 42,
-    let get_x = () -> x,
+@main () -> int = {
+    let x = 42;
+    let get_x = () -> x;
     get_x()
-)
+}

@@ -2,39 +2,39 @@ use std.testing { assert_eq }
 
 type Color = Red | Green | Blue
 
-@_use_color (c: Color) -> bool = match(c, Red -> true, _ -> false)
+@_use_color (c: Color) -> bool = match c { Red -> true, _ -> false}
 
 // Direct match in test body
-@test_direct_match tests @_use_color () -> void = run(
-    let c = Green,
-    let result = match(c, Red -> 1, _ -> 0),
-    assert_eq(actual: result, expected: 0),
-)
+@test_direct_match tests @_use_color () -> void = {
+    let c = Green;
+    let result = match c { Red -> 1, _ -> 0};
+    assert_eq(actual: result, expected: 0)
+}
 
 // Match inside lambda
-@test_lambda_match tests @_use_color () -> void = run(
-    let f = (c: Color) -> match(c, Red -> 1, _ -> 0),
-    assert_eq(actual: f(c: Red), expected: 1),
-    assert_eq(actual: f(c: Green), expected: 0),
-)
+@test_lambda_match tests @_use_color () -> void = {
+    let f = (c: Color) -> match c { Red -> 1, _ -> 0};
+    assert_eq(actual: f(c: Red), expected: 1);
+    assert_eq(actual: f(c: Green), expected: 0)
+}
 
 // Map with match in lambda (typed)
-@test_map_match_typed tests @_use_color () -> void = run(
-    let colors = [Red, Green, Blue, Red],
-    let mapped = colors.map(f: (c: Color) -> match(c, Red -> 1, _ -> 0)),
-    assert_eq(actual: mapped, expected: [1, 0, 0, 1]),
-)
+@test_map_match_typed tests @_use_color () -> void = {
+    let colors = [Red, Green, Blue, Red];
+    let mapped = colors.map(f: (c: Color) -> match c { Red -> 1, _ -> 0});
+    assert_eq(actual: mapped, expected: [1, 0, 0, 1])
+}
 
 // Map with match in lambda (untyped)
-@test_map_match tests @_use_color () -> void = run(
-    let colors = [Red, Green, Blue, Red],
-    let mapped = colors.map(f: (c) -> match(c, Red -> 1, _ -> 0)),
-    assert_eq(actual: mapped, expected: [1, 0, 0, 1]),
-)
+@test_map_match tests @_use_color () -> void = {
+    let colors = [Red, Green, Blue, Red];
+    let mapped = colors.map(f: (c) -> match c { Red -> 1, _ -> 0});
+    assert_eq(actual: mapped, expected: [1, 0, 0, 1])
+}
 
 // Fold with match in lambda - minimal
-@test_fold_match tests @_use_color () -> void = run(
-    let colors = [Red, Green, Blue, Red],
-    let count = colors.fold(initial: 0, op: (acc, c) -> acc + match(c, Red -> 1, _ -> 0)),
-    assert_eq(actual: count, expected: 2),
-)
+@test_fold_match tests @_use_color () -> void = {
+    let colors = [Red, Green, Blue, Red];
+    let count = colors.fold(initial: 0, op: (acc, c) -> acc + match c { Red -> 1, _ -> 0});
+    assert_eq(actual: count, expected: 2)
+}

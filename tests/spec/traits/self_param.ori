@@ -73,47 +73,47 @@ impl Comparable for Counter {
 // Tests
 // =============================================================================
 
-@test_self_field_access tests @get_x () -> void = run(
-    let p = Point { x: 10, y: 20 },
-    assert_eq(actual: p.get_x(), expected: 10),
-)
+@test_self_field_access tests @get_x () -> void = {
+    let p = Point { x: 10, y: 20 };
+    assert_eq(actual: p.get_x(), expected: 10)
+}
 
-@test_self_multiple_fields tests @sum () -> void = run(
-    let p = Point { x: 3, y: 4 },
-    assert_eq(actual: p.sum(), expected: 7),
-)
+@test_self_multiple_fields tests @sum () -> void = {
+    let p = Point { x: 3, y: 4 };
+    assert_eq(actual: p.sum(), expected: 7)
+}
 
-@test_self_computation tests @distance_from_origin () -> void = run(
-    let p = Point { x: 3, y: 4 },
-    assert_eq(actual: p.distance_from_origin(), expected: 25),
-)
+@test_self_computation tests @distance_from_origin () -> void = {
+    let p = Point { x: 3, y: 4 };
+    assert_eq(actual: p.distance_from_origin(), expected: 25)
+}
 
-@test_self_in_trait_impl tests @describe () -> void = run(
-    let rect = Rectangle { width: 5, height: 10 },
-    assert_eq(actual: rect.describe(), expected: "Rectangle(5x10)"),
-)
+@test_self_in_trait_impl tests @describe () -> void = {
+    let rect = Rectangle { width: 5, height: 10 };
+    assert_eq(actual: rect.describe(), expected: "Rectangle(5x10)")
+}
 
-@test_self_in_trait_impl_measure tests @measure () -> void = run(
-    let rect = Rectangle { width: 5, height: 10 },
-    assert_eq(actual: rect.measure(), expected: 50),
-)
+@test_self_in_trait_impl_measure tests @measure () -> void = {
+    let rect = Rectangle { width: 5, height: 10 };
+    assert_eq(actual: rect.measure(), expected: 50)
+}
 
-@test_self_inherent_impl tests @perimeter () -> void = run(
-    let rect = Rectangle { width: 5, height: 10 },
-    assert_eq(actual: rect.perimeter(), expected: 30),
-)
+@test_self_inherent_impl tests @perimeter () -> void = {
+    let rect = Rectangle { width: 5, height: 10 };
+    assert_eq(actual: rect.perimeter(), expected: 30)
+}
 
-@test_self_with_param tests @add () -> void = run(
-    let counter = Counter { value: 10 },
-    assert_eq(actual: counter.add(amount: 5), expected: 15),
-)
+@test_self_with_param tests @add () -> void = {
+    let counter = Counter { value: 10 };
+    assert_eq(actual: counter.add(amount: 5), expected: 15)
+}
 
-@test_self_with_multiple_params tests @add_scaled () -> void = run(
-    let counter = Counter { value: 10 },
-    assert_eq(actual: counter.add_scaled(amount: 5, scale: 3), expected: 25),
-)
+@test_self_with_multiple_params tests @add_scaled () -> void = {
+    let counter = Counter { value: 10 };
+    assert_eq(actual: counter.add_scaled(amount: 5, scale: 3), expected: 25)
+}
 
-@test_self_trait_with_param tests @compare_to () -> void = run(
-    let counter = Counter { value: 42 },
-    assert(cond: counter.compare_to(other: 42)),
-)
+@test_self_trait_with_param tests @compare_to () -> void = {
+    let counter = Counter { value: 42 };
+    assert(cond: counter.compare_to(other: 42))
+}

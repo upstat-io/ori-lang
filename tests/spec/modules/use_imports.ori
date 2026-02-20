@@ -35,26 +35,26 @@ pub @calculate (a: int, b: int, c: int) -> int = a + b * c
 // Tests for this module (self-tests)
 // =============================================================================
 
-@test_add tests @add () -> void = run(
+@test_add tests @add () -> void = {
     assert_eq(actual: add(a: 2, b: 3), expected: 5)
-)
+}
 
-@test_make_multiplier tests @make_multiplier () -> void = run(
-    let times3 = make_multiplier(3),
+@test_make_multiplier tests @make_multiplier () -> void = {
+    let times3 = make_multiplier(3);
     assert_eq(actual: times3(5), expected: 15)
-)
+}
 
-@test_internal_helper tests @internal_helper () -> void = run(
+@test_internal_helper tests @internal_helper () -> void = {
     assert_eq(actual: internal_helper(5), expected: 10)
-)
+}
 
-@test_double tests @double () -> void = run(
+@test_double tests @double () -> void = {
     assert_eq(actual: double(5), expected: 10)
-)
+}
 
-@test_calculate tests @calculate () -> void = run(
+@test_calculate tests @calculate () -> void = {
     assert_eq(actual: calculate(a: 1, b: 2, c: 3), expected: 7)
-)
+}
 
 // =============================================================================
 // Extended Module Tests
@@ -70,10 +70,10 @@ type InternalPoint = { a: int, b: int }
 pub @make_point (x: int, y: int) -> Point = Point { x, y }
 
 // Public function using private type internally
-pub @point_sum (x: int, y: int) -> int = run(
-    let internal = InternalPoint { a: x, b: y },
-    internal.a + internal.b,
-)
+pub @point_sum (x: int, y: int) -> int = {
+    let internal = InternalPoint { a: x, b: y };
+    internal.a + internal.b
+}
 
 // Function with optional-looking parameters (all required in Ori)
 pub @format_value (value: int, prefix: str, suffix: str) -> str =
@@ -87,26 +87,26 @@ pub @make_adder_chain (a: int, b: int) -> (int) -> int =
     x -> x + a + b
 
 // Tests for extended functions
-@test_make_point tests @make_point () -> void = run(
-    let p = make_point(x: 3, y: 4),
-    assert_eq(actual: p.x, expected: 3),
-    assert_eq(actual: p.y, expected: 4),
-)
+@test_make_point tests @make_point () -> void = {
+    let p = make_point(x: 3, y: 4);
+    assert_eq(actual: p.x, expected: 3);
+    assert_eq(actual: p.y, expected: 4)
+}
 
-@test_point_sum tests @point_sum () -> void = run(
-    assert_eq(actual: point_sum(x: 10, y: 20), expected: 30),
-)
+@test_point_sum tests @point_sum () -> void = {
+    assert_eq(actual: point_sum(x: 10, y: 20), expected: 30)
+}
 
-@test_format_value tests @format_value () -> void = run(
-    assert_eq(actual: format_value(value: 42, prefix: "[", suffix: "]"), expected: "[42]"),
-)
+@test_format_value tests @format_value () -> void = {
+    assert_eq(actual: format_value(value: 42, prefix: "[", suffix: "]"), expected: "[42]")
+}
 
-@test_apply_twice tests @apply_twice () -> void = run(
-    let inc = (x: int) -> x + 1,
-    assert_eq(actual: apply_twice(f: inc, x: 5), expected: 7),
-)
+@test_apply_twice tests @apply_twice () -> void = {
+    let inc = (x: int) -> x + 1;
+    assert_eq(actual: apply_twice(f: inc, x: 5), expected: 7)
+}
 
-@test_make_adder_chain tests @make_adder_chain () -> void = run(
-    let add_15 = make_adder_chain(a: 5, b: 10),
-    assert_eq(actual: add_15(0), expected: 15),
-)
+@test_make_adder_chain tests @make_adder_chain () -> void = {
+    let add_15 = make_adder_chain(a: 5, b: 10);
+    assert_eq(actual: add_15(0), expected: 15)
+}

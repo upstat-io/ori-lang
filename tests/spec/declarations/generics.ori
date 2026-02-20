@@ -19,17 +19,17 @@
 //
 // @identity<T> (x: T) -> T = x
 //
-// @test_identity_int tests @identity () -> void = run(
+// @test_identity_int tests @identity () -> void = {
 //     assert_eq(actual: identity(x: 42), expected: 42),
-// )
+// }
 //
-// @test_identity_str tests @identity () -> void = run(
+// @test_identity_str tests @identity () -> void = {
 //     assert_eq(actual: identity(x: "hello"), expected: "hello"),
-// )
+// }
 //
-// @test_identity_bool tests @identity () -> void = run(
+// @test_identity_bool tests @identity () -> void = {
 //     assert(cond: identity(x: true)),
-// )
+// }
 //
 // // =============================================================================
 // // Generic with Multiple Type Params
@@ -37,22 +37,22 @@
 //
 // @pair<A, B> (a: A, b: B) -> (A, B) = (a, b)
 //
-// @test_pair tests @pair () -> void = run(
+// @test_pair tests @pair () -> void = {
 //     let p = pair(a: 1, b: "hello"),
 //     let (x, y) = p,
 //     assert_eq(actual: x, expected: 1),
 //     assert_eq(actual: y, expected: "hello"),
-// )
+// }
 //
 // @triple<A, B, C> (a: A, b: B, c: C) -> (A, B, C) = (a, b, c)
 //
-// @test_triple tests @triple () -> void = run(
+// @test_triple tests @triple () -> void = {
 //     let t = triple(a: 1, b: "two", c: true),
 //     let (x, y, z) = t,
 //     assert_eq(actual: x, expected: 1),
 //     assert_eq(actual: y, expected: "two"),
 //     assert(cond: z),
-// )
+// }
 //
 // // =============================================================================
 // // Generic Type Definitions
@@ -62,25 +62,25 @@
 //
 // @make_box<T> (value: T) -> Box<T> = Box { value }
 //
-// @test_generic_struct tests @make_box () -> void = run(
+// @test_generic_struct tests @make_box () -> void = {
 //     let b = make_box(value: 100),
 //     assert_eq(actual: b.value, expected: 100),
-// )
+// }
 //
-// @test_generic_struct_str tests @make_box () -> void = run(
+// @test_generic_struct_str tests @make_box () -> void = {
 //     let b = make_box(value: "test"),
 //     assert_eq(actual: b.value, expected: "test"),
-// )
+// }
 //
 // type Pair<A, B> = { first: A, second: B }
 //
 // @make_pair<A, B> (first: A, second: B) -> Pair<A, B> = Pair { first, second }
 //
-// @test_generic_pair_struct tests @make_pair () -> void = run(
+// @test_generic_pair_struct tests @make_pair () -> void = {
 //     let p = make_pair(first: 10, second: "hello"),
 //     assert_eq(actual: p.first, expected: 10),
 //     assert_eq(actual: p.second, expected: "hello"),
-// )
+// }
 //
 // // =============================================================================
 // // Bounded Generic - Single Bound
@@ -88,19 +88,19 @@
 //
 // @compare_eq<T: Eq> (a: T, b: T) -> bool = a == b
 //
-// @test_bounded_single tests @compare_eq () -> void = run(
+// @test_bounded_single tests @compare_eq () -> void = {
 //     assert(cond: compare_eq(a: 42, b: 42)),
 //     assert(cond: !compare_eq(a: 42, b: 43)),
-// )
+// }
 //
 // @max_val<T: Comparable> (a: T, b: T) -> T =
 //     if a.compare(other: b) == Greater then a else b
 //
 // #skip("Ordering type does not implement Eq for == comparison")
-// @test_bounded_comparable tests @max_val () -> void = run(
+// @test_bounded_comparable tests @max_val () -> void = {
 //     assert_eq(actual: max_val(a: 10, b: 20), expected: 20),
 //     assert_eq(actual: max_val(a: 50, b: 30), expected: 50),
-// )
+// }
 //
 // // =============================================================================
 // // Multiple Bounds
@@ -108,20 +108,20 @@
 //
 // @hash_and_compare<T: Eq + Hashable> (a: T, b: T) -> bool = a == b
 //
-// @test_multi_bound tests @hash_and_compare () -> void = run(
+// @test_multi_bound tests @hash_and_compare () -> void = {
 //     assert(cond: hash_and_compare(a: 10, b: 10)),
 //     assert(cond: !hash_and_compare(a: 10, b: 20)),
-// )
+// }
 //
-// @clone_and_eq<T: Clone + Eq> (x: T) -> bool = run(
+// @clone_and_eq<T: Clone + Eq> (x: T) -> bool = {
 //     let cloned = x.clone(),
 //     x == cloned,
-// )
+// }
 //
-// @test_clone_and_eq tests @clone_and_eq () -> void = run(
+// @test_clone_and_eq tests @clone_and_eq () -> void = {
 //     assert(cond: clone_and_eq(x: 42)),
 //     assert(cond: clone_and_eq(x: "hello")),
-// )
+// }
 //
 // // ... (remaining generic tests)
 //
@@ -134,35 +134,35 @@
 // @make_ok<T, E> (value: T) -> MyResult<T, E> = MyOk(value)
 // @make_err<T, E> (error: E) -> MyResult<T, E> = MyErr(error)
 //
-// @test_generic_sum_type tests @make_ok tests @make_err () -> void = run(
+// @test_generic_sum_type tests @make_ok tests @make_err () -> void = {
 //     let ok: MyResult<int, str> = make_ok(value: 42),
 //     let err: MyResult<int, str> = make_err(error: "failed"),
 //
-//     let ok_val = match(ok,
+//     let ok_val = match ok {
 //         MyOk(value) -> value,
 //         MyErr(_) -> 0,
-//     ),
+//     },
 //     assert_eq(actual: ok_val, expected: 42),
 //
-//     let err_msg = match(err,
+//     let err_msg = match err {
 //         MyOk(_) -> "",
 //         MyErr(error) -> error,
-//     ),
+//     },
 //     assert_eq(actual: err_msg, expected: "failed"),
-// )
+// }
 //
 // type MyOption<T> = MySome(value: T) | MyNone
 //
-// @test_generic_option tests @_make_some () -> void = run(
+// @test_generic_option tests @_make_some () -> void = {
 //     let some: MyOption<int> = MySome(value: 42),
 //     let none: MyOption<int> = MyNone,
 //
-//     let val = match(some,
+//     let val = match some {
 //         MySome(value) -> value,
 //         MyNone -> 0,
-//     ),
+//     },
 //     assert_eq(actual: val, expected: 42),
-// )
+// }
 //
 // @_make_some<T> (value: T) -> MyOption<T> = MySome(value)
 //

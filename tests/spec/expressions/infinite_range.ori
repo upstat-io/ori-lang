@@ -8,71 +8,71 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // Infinite range from 0 with take + collect
-@basic_infinite () -> [int] = run(
-    (0..).iter().take(count: 5).collect(),
-)
+@basic_infinite () -> [int] = {
+    (0..).iter().take(count: 5).collect()
+}
 
-@test_basic_infinite tests @basic_infinite () -> void = run(
-    assert_eq(actual: basic_infinite(), expected: [0, 1, 2, 3, 4]),
-)
+@test_basic_infinite tests @basic_infinite () -> void = {
+    assert_eq(actual: basic_infinite(), expected: [0, 1, 2, 3, 4])
+}
 
 // Infinite range starting from non-zero
-@from_nonzero () -> [int] = run(
-    (10..).iter().take(count: 5).collect(),
-)
+@from_nonzero () -> [int] = {
+    (10..).iter().take(count: 5).collect()
+}
 
-@test_from_nonzero tests @from_nonzero () -> void = run(
-    assert_eq(actual: from_nonzero(), expected: [10, 11, 12, 13, 14]),
-)
+@test_from_nonzero tests @from_nonzero () -> void = {
+    assert_eq(actual: from_nonzero(), expected: [10, 11, 12, 13, 14])
+}
 
 // Infinite range from negative start
-@from_negative () -> [int] = run(
-    (-3..).iter().take(count: 6).collect(),
-)
+@from_negative () -> [int] = {
+    (-3..).iter().take(count: 6).collect()
+}
 
-@test_from_negative tests @from_negative () -> void = run(
-    assert_eq(actual: from_negative(), expected: [-3, -2, -1, 0, 1, 2]),
-)
+@test_from_negative tests @from_negative () -> void = {
+    assert_eq(actual: from_negative(), expected: [-3, -2, -1, 0, 1, 2])
+}
 
 // =============================================================================
 // Infinite Range with Step (by)
 // =============================================================================
 
 // Infinite range with step 2
-@step_two () -> [int] = run(
-    (0.. by 2).iter().take(count: 5).collect(),
-)
+@step_two () -> [int] = {
+    (0.. by 2).iter().take(count: 5).collect()
+}
 
-@test_step_two tests @step_two () -> void = run(
-    assert_eq(actual: step_two(), expected: [0, 2, 4, 6, 8]),
-)
+@test_step_two tests @step_two () -> void = {
+    assert_eq(actual: step_two(), expected: [0, 2, 4, 6, 8])
+}
 
 // Infinite range with step 3
-@step_three () -> [int] = run(
-    (0.. by 3).iter().take(count: 4).collect(),
-)
+@step_three () -> [int] = {
+    (0.. by 3).iter().take(count: 4).collect()
+}
 
-@test_step_three tests @step_three () -> void = run(
-    assert_eq(actual: step_three(), expected: [0, 3, 6, 9]),
-)
+@test_step_three tests @step_three () -> void = {
+    assert_eq(actual: step_three(), expected: [0, 3, 6, 9])
+}
 
 // Infinite range with negative step (descending)
-@negative_step () -> [int] = run(
-    (0.. by -1).iter().take(count: 5).collect(),
-)
+@negative_step () -> [int] = {
+    (0.. by -1).iter().take(count: 5).collect()
+}
 
-@test_negative_step tests @negative_step () -> void = run(
-    assert_eq(actual: negative_step(), expected: [0, -1, -2, -3, -4]),
-)
+@test_negative_step tests @negative_step () -> void = {
+    assert_eq(actual: negative_step(), expected: [0, -1, -2, -3, -4])
+}
 
 // Infinite range from nonzero with step
-@nonzero_step () -> [int] = run(
-    (100.. by 10).iter().take(count: 4).collect(),
-)
+@nonzero_step () -> [int] = {
+    (100.. by 10).iter().take(count: 4).collect()
+}
 
-@test_nonzero_step tests @nonzero_step () -> void = run(
-    assert_eq(actual: nonzero_step(), expected: [100, 110, 120, 130]),
-)
+@test_nonzero_step tests @nonzero_step () -> void = {
+    assert_eq(actual: nonzero_step(), expected: [100, 110, 120, 130])
+}
 
 // =============================================================================
 // Contains on Infinite Range
@@ -80,55 +80,55 @@ use std.testing { assert, assert_eq }
 
 @contains_basic () -> bool = (0..).contains(value: 42)
 
-@test_contains_basic tests @contains_basic () -> void = run(
-    assert(cond: contains_basic()),
-)
+@test_contains_basic tests @contains_basic () -> void = {
+    assert(cond: contains_basic())
+}
 
 @not_contains_before_start () -> bool = (5..).contains(value: 3)
 
-@test_not_contains_before_start tests @not_contains_before_start () -> void = run(
-    assert(cond: not_contains_before_start() == false),
-)
+@test_not_contains_before_start tests @not_contains_before_start () -> void = {
+    assert(cond: not_contains_before_start() == false)
+}
 
 @contains_with_step () -> bool = (0.. by 3).contains(value: 9)
 
-@test_contains_with_step tests @contains_with_step () -> void = run(
-    assert(cond: contains_with_step()),
-)
+@test_contains_with_step tests @contains_with_step () -> void = {
+    assert(cond: contains_with_step())
+}
 
 @not_contains_misaligned () -> bool = (0.. by 3).contains(value: 7)
 
-@test_not_contains_misaligned tests @not_contains_misaligned () -> void = run(
-    assert(cond: not_contains_misaligned() == false),
-)
+@test_not_contains_misaligned tests @not_contains_misaligned () -> void = {
+    assert(cond: not_contains_misaligned() == false)
+}
 
 // =============================================================================
 // For Loop with Break on Infinite Range
 // =============================================================================
 
-@for_break () -> [int] = run(
-    let result: [int] = [],
-    for i in 0.. do run(
-        if i >= 5 then break,
-        result = result + [i],
-    ),
-    result,
-)
+@for_break () -> [int] = {
+    let result: [int] = [];
+    for i in 0.. do {
+        if i >= 5 then break;
+        result = result + [i]
+    };
+    result
+}
 
-@test_for_break tests @for_break () -> void = run(
-    assert_eq(actual: for_break(), expected: [0, 1, 2, 3, 4]),
-)
+@test_for_break tests @for_break () -> void = {
+    assert_eq(actual: for_break(), expected: [0, 1, 2, 3, 4])
+}
 
 // For loop with step and break
-@for_step_break () -> [int] = run(
-    let result: [int] = [],
-    for i in 0.. by 2 do run(
-        if i >= 10 then break,
-        result = result + [i],
-    ),
-    result,
-)
+@for_step_break () -> [int] = {
+    let result: [int] = [];
+    for i in 0.. by 2 do {
+        if i >= 10 then break;
+        result = result + [i]
+    };
+    result
+}
 
-@test_for_step_break tests @for_step_break () -> void = run(
-    assert_eq(actual: for_step_break(), expected: [0, 2, 4, 6, 8]),
-)
+@test_for_step_break tests @for_step_break () -> void = {
+    assert_eq(actual: for_step_break(), expected: [0, 2, 4, 6, 8])
+}

@@ -1,10 +1,10 @@
 ---
 section: "15D"
 title: Bindings & Types
-status: not-started
+status: in-progress
 tier: 1
 goal: Implement binding syntax changes and type system simplifications
-priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Spec/grammar already removed mut but compiler still accepts it. 163 let mut occurrences across 28 test files — migration cost grows with every commit."
+priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Block syntax + semicolons + $ enforcement complete (2026-02-20). Remaining: mut keyword removal, module-level immutability, scope conflicts."
 sections:
   - id: "15D.1"
     title: Function-Level Contracts (pre/post)
@@ -14,7 +14,7 @@ sections:
     status: not-started
   - id: "15D.3"
     title: Simplified Bindings with $ for Immutability
-    status: not-started
+    status: in-progress
   - id: "15D.4"
     title: Remove dyn Keyword for Trait Objects
     status: not-started
@@ -224,9 +224,9 @@ let $timeout = 30s // module-level constant (let and $ required)
 
 ### Parser
 
-- [ ] **Implement**: Update `let_expr` to accept `$` prefix in binding pattern
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — immutable binding parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori`
+- [x] **Implement**: Update `let_expr` to accept `$` prefix in binding pattern (2026-02-20)
+  - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — block let binding with `$` prefix
+  - [x] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori`
   - [ ] **LLVM Support**: LLVM codegen for immutable binding parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable binding parsing codegen
 
@@ -248,19 +248,19 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **LLVM Support**: LLVM codegen for const function removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — const function removal codegen
 
-- [ ] **Implement**: Support `$` prefix in destructuring patterns
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — destructure immutable parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/destructure_immutable.ori`
+- [x] **Implement**: Support `$` prefix in destructuring patterns (2026-02-20)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern` handles `$` for Name, Tuple, Struct, List
+  - [x] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori` — tuple, struct, list destructuring with `$`
   - [ ] **LLVM Support**: LLVM codegen for destructure immutable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — destructure immutable codegen
 
 ### Semantic Analysis
 
-- [ ] **Implement**: Track `$` modifier separately from identifier name
-  - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — binding modifier tracking
-  - [ ] **Ori Tests**: `tests/spec/expressions/binding_modifiers.ori`
-  - [ ] **LLVM Support**: LLVM codegen for binding modifier tracking
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — binding modifier tracking codegen
+- [x] **Implement**: Track `$` modifier separately from identifier name (2026-02-20)
+  - [x] **Rust Tests**: `ori_types/src/infer/env/mod.rs` — `TypeEnvInner::mutability` FxHashMap tracks per-binding mutability
+  - [x] **Ori Tests**: `tests/spec/expressions/mutable_vs_immutable.ori` — verifies `$` bindings preserve immutability
+  - [x] **LLVM Support**: N/A — mutability is a type-checker concern, not codegen
+  - [x] **LLVM Rust Tests**: N/A — mutability is a type-checker concern, not codegen
 
 - [ ] **Implement**: Prevent `$x` and `x` coexisting in same scope
   - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — same-name conflict detection
@@ -274,11 +274,11 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **LLVM Support**: LLVM codegen for module binding immutability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — module binding immutability codegen
 
-- [ ] **Implement**: Enforce `$`-prefixed bindings cannot be reassigned
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/assignment.rs` — immutable assignment error
-  - [ ] **Ori Tests**: `tests/compile-fail/assign_to_immutable.ori`
-  - [ ] **LLVM Support**: LLVM codegen for immutable assignment error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable assignment error codegen
+- [x] **Implement**: Enforce `$`-prefixed bindings cannot be reassigned (2026-02-20)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/operators.rs` — immutability check in `infer_assign`
+  - [x] **Ori Tests**: `tests/compile-fail/assign_to_immutable.ori`, `assign_to_immutable_in_loop.ori`, `assign_to_immutable_destructured.ori`
+  - [x] **LLVM Support**: N/A — compile-time type error (E2039) prevents codegen
+  - [x] **LLVM Rust Tests**: N/A — compile-time type error prevents codegen
 
 ### Imports
 
@@ -304,11 +304,11 @@ let $timeout = 30s // module-level constant (let and $ required)
 
 ### Error Messages
 
-- [ ] **Implement**: Clear error for reassignment to immutable binding
-  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — immutable reassign error
-  - [ ] **Ori Tests**: `tests/compile-fail/immutable_reassign_message.ori`
-  - [ ] **LLVM Support**: LLVM codegen for immutable reassign error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable reassign error codegen
+- [x] **Implement**: Clear error for reassignment to immutable binding (2026-02-20)
+  - [x] **Rust Tests**: `ori_types/src/type_error/check_error/mod.rs` — `AssignToImmutable` variant + formatting
+  - [x] **Ori Tests**: `tests/compile-fail/assign_to_immutable.ori` (verifies "cannot assign to immutable binding" message)
+  - [x] **LLVM Support**: N/A — compile-time type error prevents codegen
+  - [x] **LLVM Rust Tests**: N/A — compile-time type error prevents codegen
 
 - [ ] **Implement**: Clear error for module-level mutable binding
   - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — module mutable error

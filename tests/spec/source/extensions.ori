@@ -18,34 +18,34 @@ extend ExtPoint {
 }
 
 // Since extended methods aren't callable yet, test the type directly
-@ext_basic () -> int = run(
-    let p = ExtPoint { x: 3, y: 4 },
-    p.x + p.y,
-)
+@ext_basic () -> int = {
+    let p = ExtPoint { x: 3, y: 4 };
+    p.x + p.y
+}
 
-@test_ext_basic tests @ext_basic () -> void = run(
-    assert_eq(actual: ext_basic(), expected: 7),
-)
+@test_ext_basic tests @ext_basic () -> void = {
+    assert_eq(actual: ext_basic(), expected: 7)
+}
 
 // =============================================================================
 // Extension with Multiple Methods (Parser Test)
 // =============================================================================
 
 extend ExtPoint {
-    @manhattan (self) -> int = run(
-        let abs_x = if self.x < 0 then -self.x else self.x,
-        let abs_y = if self.y < 0 then -self.y else self.y,
-        abs_x + abs_y,
-    )
+    @manhattan (self) -> int = {
+        let abs_x = if self.x < 0 then -self.x else self.x;
+        let abs_y = if self.y < 0 then -self.y else self.y;
+        abs_x + abs_y
+    }
 
     @is_origin (self) -> bool = self.x == 0 && self.y == 0
 }
 
-@ext_multi () -> bool = run(
-    let p = ExtPoint { x: 0, y: 0 },
-    p.x == 0 && p.y == 0,
-)
+@ext_multi () -> bool = {
+    let p = ExtPoint { x: 0, y: 0 };
+    p.x == 0 && p.y == 0
+}
 
-@test_ext_multi tests @ext_multi () -> void = run(
-    assert(cond: ext_multi()),
-)
+@test_ext_multi tests @ext_multi () -> void = {
+    assert(cond: ext_multi())
+}

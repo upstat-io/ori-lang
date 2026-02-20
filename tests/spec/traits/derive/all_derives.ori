@@ -9,97 +9,97 @@ type Point = { x: int, y: int }
 type Empty = { }
 
 // Test derive Eq
-@test_eq tests @eq_basic () -> void = run(
-    let p1 = Point { x: 10, y: 20 },
-    let p2 = Point { x: 10, y: 20 },
-    let p3 = Point { x: 10, y: 30 },
+@test_eq tests @eq_basic () -> void = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 20 };
+    let p3 = Point { x: 10, y: 30 };
 
     // Equal points
     if p1.eq(other: p2) then print(msg: "Pass: equal points are equal")
-    else print(msg: "Fail: equal points should be equal"),
+    else print(msg: "Fail: equal points should be equal");
 
     // Unequal points
     if !p1.eq(other: p3) then print(msg: "Pass: different points are not equal")
     else print(msg: "Fail: different points should not be equal")
-)
+}
 
-@eq_basic () -> bool = run(
-    let p1 = Point { x: 10, y: 20 },
-    let p2 = Point { x: 10, y: 20 },
+@eq_basic () -> bool = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 20 };
     p1.eq(other: p2)
-)
+}
 
 // Test derive Clone
-@test_clone tests @clone_basic () -> void = run(
-    let p = Point { x: 42, y: 99 },
-    let cloned = p.clone(),
+@test_clone tests @clone_basic () -> void = {
+    let p = Point { x: 42, y: 99 };
+    let cloned = p.clone();
 
     // Cloned should be equal to original
     if cloned.eq(other: p) then print(msg: "Pass: clone is equal to original")
     else print(msg: "Fail: clone should be equal to original")
-)
+}
 
-@clone_basic () -> Point = run(
-    let p = Point { x: 42, y: 99 },
+@clone_basic () -> Point = {
+    let p = Point { x: 42, y: 99 };
     p.clone()
-)
+}
 
 // Test derive Hash
-@test_hash tests @hash_basic () -> void = run(
-    let p1 = Point { x: 10, y: 20 },
-    let p2 = Point { x: 10, y: 20 },
-    let p3 = Point { x: 10, y: 30 },
+@test_hash tests @hash_basic () -> void = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 20 };
+    let p3 = Point { x: 10, y: 30 };
 
-    let h1 = p1.hash(),
-    let h2 = p2.hash(),
-    let h3 = p3.hash(),
+    let h1 = p1.hash();
+    let h2 = p2.hash();
+    let h3 = p3.hash();
 
     // Equal values should have equal hashes
     if h1 == h2 then print(msg: "Pass: equal values have equal hashes")
-    else print(msg: "Fail: equal values should have equal hashes"),
+    else print(msg: "Fail: equal values should have equal hashes");
 
     // Different values may have different hashes (not guaranteed, but likely)
     if h1 != h3 then print(msg: "Pass: different values have different hashes")
     else print(msg: "Note: hash collision (unlikely but possible)")
-)
+}
 
-@hash_basic () -> int = run(
-    let p = Point { x: 10, y: 20 },
+@hash_basic () -> int = {
+    let p = Point { x: 10, y: 20 };
     p.hash()
-)
+}
 
 // Test derive Printable (to_str)
-@test_to_str tests @to_str_basic () -> void = run(
-    let p = Point { x: 10, y: 20 },
-    let s = p.to_str(),
+@test_to_str tests @to_str_basic () -> void = {
+    let p = Point { x: 10, y: 20 };
+    let s = p.to_str();
 
     // Check the string contains expected parts
     print(msg: s)
-)
+}
 
-@to_str_basic () -> str = run(
-    let p = Point { x: 10, y: 20 },
+@to_str_basic () -> str = {
+    let p = Point { x: 10, y: 20 };
     p.to_str()
-)
+}
 
 // Test empty struct
-@test_empty_eq tests @empty_eq () -> void = run(
-    let e1 = Empty { },
-    let e2 = Empty { },
+@test_empty_eq tests @empty_eq () -> void = {
+    let e1 = Empty { };
+    let e2 = Empty { };
 
     if e1.eq(other: e2) then print(msg: "Pass: empty structs are equal")
     else print(msg: "Fail: empty structs should be equal")
-)
+}
 
-@empty_eq () -> bool = run(
-    let e1 = Empty { },
-    let e2 = Empty { },
+@empty_eq () -> bool = {
+    let e1 = Empty { };
+    let e2 = Empty { };
     e1.eq(other: e2)
-)
+}
 
-@main () -> void = run(
+@main () -> void = {
     print(msg: "All derive trait tests passed")
-)
+}
 
 // =============================================================================
 // Extended Derive Tests
@@ -109,86 +109,86 @@ type Empty = { }
 #[derive(Eq, Clone)]
 type Person = { name: str, age: int, active: bool }
 
-@test_person_eq tests @person_eq () -> void = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = Person { name: "Alice", age: 30, active: true },
-    let p3 = Person { name: "Bob", age: 30, active: true },
-    let p4 = Person { name: "Alice", age: 25, active: true },
-    let p5 = Person { name: "Alice", age: 30, active: false },
+@test_person_eq tests @person_eq () -> void = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = Person { name: "Alice", age: 30, active: true };
+    let p3 = Person { name: "Bob", age: 30, active: true };
+    let p4 = Person { name: "Alice", age: 25, active: true };
+    let p5 = Person { name: "Alice", age: 30, active: false };
 
     // All fields must match for equality
-    assert(cond: p1.eq(other: p2)),
-    assert(cond: !p1.eq(other: p3)),
-    assert(cond: !p1.eq(other: p4)),
-    assert(cond: !p1.eq(other: p5)),
-)
+    assert(cond: p1.eq(other: p2));
+    assert(cond: !p1.eq(other: p3));
+    assert(cond: !p1.eq(other: p4));
+    assert(cond: !p1.eq(other: p5))
+}
 
-@person_eq () -> bool = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = Person { name: "Alice", age: 30, active: true },
-    p1.eq(other: p2),
-)
+@person_eq () -> bool = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = Person { name: "Alice", age: 30, active: true };
+    p1.eq(other: p2)
+}
 
-@test_person_clone tests @person_clone () -> void = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = p1.clone(),
-    assert(cond: p1.eq(other: p2)),
-)
+@test_person_clone tests @person_clone () -> void = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = p1.clone();
+    assert(cond: p1.eq(other: p2))
+}
 
-@person_clone () -> bool = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = p1.clone(),
-    p1.eq(other: p2),
-)
+@person_clone () -> bool = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = p1.clone();
+    p1.eq(other: p2)
+}
 
 // Struct with nested struct
 #[derive(Eq, Clone)]
 type Line = { start: Point, end: Point }
 
-@test_nested_eq tests @nested_eq () -> void = run(
-    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
-    let l2 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
-    let l3 = Line { start: Point { x: 1, y: 0 }, end: Point { x: 10, y: 10 } },
+@test_nested_eq tests @nested_eq () -> void = {
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };
+    let l2 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };
+    let l3 = Line { start: Point { x: 1, y: 0 }, end: Point { x: 10, y: 10 } };
 
-    assert(cond: l1.eq(other: l2)),
-    assert(cond: !l1.eq(other: l3)),
-)
+    assert(cond: l1.eq(other: l2));
+    assert(cond: !l1.eq(other: l3))
+}
 
-@nested_eq () -> bool = run(
-    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
-    let l2 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
-    l1.eq(other: l2),
-)
+@nested_eq () -> bool = {
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };
+    let l2 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };
+    l1.eq(other: l2)
+}
 
-@test_nested_clone tests @nested_clone () -> void = run(
-    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
-    let l2 = l1.clone(),
-    assert(cond: l1.eq(other: l2)),
-)
+@test_nested_clone tests @nested_clone () -> void = {
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };
+    let l2 = l1.clone();
+    assert(cond: l1.eq(other: l2))
+}
 
-@nested_clone () -> bool = run(
-    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } },
-    let l2 = l1.clone(),
-    l1.eq(other: l2),
-)
+@nested_clone () -> bool = {
+    let l1 = Line { start: Point { x: 0, y: 0 }, end: Point { x: 10, y: 10 } };
+    let l2 = l1.clone();
+    l1.eq(other: l2)
+}
 
 // Single field struct
 #[derive(Eq, Clone)]
 type Wrapper = { value: int }
 
-@test_single_field_eq tests @single_field_eq () -> void = run(
-    let w1 = Wrapper { value: 42 },
-    let w2 = Wrapper { value: 42 },
-    let w3 = Wrapper { value: 100 },
-    assert(cond: w1.eq(other: w2)),
-    assert(cond: !w1.eq(other: w3)),
-)
+@test_single_field_eq tests @single_field_eq () -> void = {
+    let w1 = Wrapper { value: 42 };
+    let w2 = Wrapper { value: 42 };
+    let w3 = Wrapper { value: 100 };
+    assert(cond: w1.eq(other: w2));
+    assert(cond: !w1.eq(other: w3))
+}
 
-@single_field_eq () -> bool = run(
-    let w1 = Wrapper { value: 42 },
-    let w2 = Wrapper { value: 42 },
-    w1.eq(other: w2),
-)
+@single_field_eq () -> bool = {
+    let w1 = Wrapper { value: 42 };
+    let w2 = Wrapper { value: 42 };
+    w1.eq(other: w2)
+}
 
 // Many fields struct
 #[derive(Eq)]
@@ -200,29 +200,29 @@ type Config = {
     max_wait: int
 }
 
-@test_many_fields_eq tests @many_fields_eq () -> void = run(
-    let c1 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
-    let c2 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
-    let c3 = Config { name: "app", port: 8080, debug: false, host: "localhost", max_wait: 30 },
-    assert(cond: c1.eq(other: c2)),
-    assert(cond: !c1.eq(other: c3)),
-)
+@test_many_fields_eq tests @many_fields_eq () -> void = {
+    let c1 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 };
+    let c2 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 };
+    let c3 = Config { name: "app", port: 8080, debug: false, host: "localhost", max_wait: 30 };
+    assert(cond: c1.eq(other: c2));
+    assert(cond: !c1.eq(other: c3))
+}
 
-@many_fields_eq () -> bool = run(
-    let c1 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
-    let c2 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 },
-    c1.eq(other: c2),
-)
+@many_fields_eq () -> bool = {
+    let c1 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 };
+    let c2 = Config { name: "app", port: 8080, debug: true, host: "localhost", max_wait: 30 };
+    c1.eq(other: c2)
+}
 
 // Hash consistency - same value should always hash to same value
-@test_hash_consistency tests @hash_consistency () -> void = run(
-    let p = Point { x: 42, y: 99 },
-    let h1 = p.hash(),
-    let h2 = p.hash(),
-    assert_eq(actual: h1, expected: h2),
-)
+@test_hash_consistency tests @hash_consistency () -> void = {
+    let p = Point { x: 42, y: 99 };
+    let h1 = p.hash();
+    let h2 = p.hash();
+    assert_eq(actual: h1, expected: h2)
+}
 
-@hash_consistency () -> bool = run(
-    let p = Point { x: 42, y: 99 },
-    p.hash() == p.hash(),
-)
+@hash_consistency () -> bool = {
+    let p = Point { x: 42, y: 99 };
+    p.hash() == p.hash()
+}

@@ -1410,51 +1410,49 @@ fn test_nested_for() {
 
 #[test]
 fn test_run_multiple_bindings() {
-    let source = "@f () -> int = run(let a = 1, let b = 2, a + b)";
-    test_idempotence(source).expect("run multiple bindings should be idempotent");
+    let source = "@f () -> int = { let a = 1; let b = 2; a + b }";
+    test_idempotence(source).expect("block multiple bindings should be idempotent");
 }
 
 #[test]
 fn test_try_expression() {
-    // try uses ? at the end of expressions, not inside
-    let source = "@f (x: Result<int, str>) -> Result<int, str> = try(let v = x, Ok(v + 1))";
+    let source = "@f (x: Result<int, str>) -> Result<int, str> = try { let v = x; Ok(v + 1) }";
     test_idempotence(source).expect("try expression should be idempotent");
 }
 
 #[test]
 fn test_match_option() {
-    let source = "@f (opt: Option<int>) -> int = match(opt, Some(x) -> x, None -> 0)";
+    let source = "@f (opt: Option<int>) -> int = match opt { Some(x) -> x, None -> 0 }";
     test_idempotence(source).expect("match option should be idempotent");
 }
 
 #[test]
 fn test_match_result() {
-    let source = "@f (res: Result<int, str>) -> int = match(res, Ok(x) -> x, Err(_) -> 0)";
+    let source = "@f (res: Result<int, str>) -> int = match res { Ok(x) -> x, Err(_) -> 0 }";
     test_idempotence(source).expect("match result should be idempotent");
 }
 
 #[test]
 fn test_match_simple_patterns() {
-    // Simple pattern matching without guards
-    let source = "@f (x: int) -> str = match(x, 0 -> \"zero\", 1 -> \"one\", _ -> \"other\")";
+    let source = "@f (x: int) -> str = match x { 0 -> \"zero\", 1 -> \"one\", _ -> \"other\" }";
     test_idempotence(source).expect("match simple patterns should be idempotent");
 }
 
 #[test]
 fn test_match_nested() {
-    let source = "@f (x: Option<Option<int>>) -> int = match(x, Some(inner) -> match(inner, Some(v) -> v, None -> 0), None -> -1)";
+    let source = "@f (x: Option<Option<int>>) -> int = match x { Some(inner) -> match inner { Some(v) -> v, None -> 0 }, None -> -1 }";
     test_idempotence(source).expect("nested match should be idempotent");
 }
 
 #[test]
 fn test_match_tuple_pattern() {
-    let source = "@f (pair: (int, str)) -> int = match(pair, (x, _) -> x)";
+    let source = "@f (pair: (int, str)) -> int = match pair { (x, _) -> x }";
     test_idempotence(source).expect("match tuple pattern should be idempotent");
 }
 
 #[test]
 fn test_match_list_pattern() {
-    let source = "@f (list: [int]) -> int = match(list, [first, ..rest] -> first, [] -> 0)";
+    let source = "@f (list: [int]) -> int = match list { [first, ..rest] -> first, [] -> 0 }";
     test_idempotence(source).expect("match list pattern should be idempotent");
 }
 
@@ -1909,7 +1907,7 @@ fn test_complex_expression_composition() {
 
 #[test]
 fn test_deeply_nested_everything() {
-    let source = "@f () -> int = if true then match([1, 2, 3], [x, ..rest] -> run(let sum = x + for r in rest yield r, sum), [] -> 0) else 0";
+    let source = "@f () -> int = if true then match [1, 2, 3] { [x, ..rest] -> { let sum = x + for r in rest yield r; sum }, [] -> 0 } else 0";
     test_idempotence(source).expect("deeply nested everything should be idempotent");
 }
 

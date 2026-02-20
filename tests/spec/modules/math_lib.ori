@@ -28,35 +28,35 @@ pub @make_adder (n: int) -> (int) -> int = x -> x + n
 pub @use_internal (x: int) -> int = internal_helper(x: x)
 
 // Tests for this module
-@test_add tests @add () -> void = run(
+@test_add tests @add () -> void = {
     assert_eq(actual: add(a: 2, b: 3), expected: 5)
-)
+}
 
-@test_subtract tests @subtract () -> void = run(
+@test_subtract tests @subtract () -> void = {
     assert_eq(actual: subtract(a: 10, b: 3), expected: 7)
-)
+}
 
-@test_multiply tests @multiply () -> void = run(
+@test_multiply tests @multiply () -> void = {
     assert_eq(actual: multiply(a: 4, b: 5), expected: 20)
-)
+}
 
-@test_square tests @square () -> void = run(
+@test_square tests @square () -> void = {
     assert_eq(actual: square(x: 7), expected: 49)
-)
+}
 
-@test_double tests @double () -> void = run(
+@test_double tests @double () -> void = {
     assert_eq(actual: double(x: 21), expected: 42)
-)
+}
 
-@test_make_adder tests @make_adder () -> void = run(
-    let add5 = make_adder(n: 5),
+@test_make_adder tests @make_adder () -> void = {
+    let add5 = make_adder(n: 5);
     assert_eq(actual: add5(10), expected: 15)
-)
+}
 
-@test_internal_helper tests @internal_helper () -> void = run(
+@test_internal_helper tests @internal_helper () -> void = {
     assert_eq(actual: internal_helper(x: 1), expected: 101)
-)
+}
 
-@test_use_internal tests @use_internal () -> void = run(
+@test_use_internal tests @use_internal () -> void = {
     assert_eq(actual: use_internal(x: 1), expected: 101)
-)
+}

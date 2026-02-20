@@ -16,7 +16,7 @@
 //
 // // NOTE: Release is always called even on error (RAII pattern)
 //
-// @test_with_simple tests @with_simple () -> void = run(
+// @test_with_simple tests @with_simple () -> void = {
 //     let result = with(
 //         acquire: 10,
 //         action: r -> r * 2,
@@ -25,16 +25,16 @@
 //         actual: result,
 //         expected: 20,
 //     ),
-// )
+// }
 //
-// @with_simple () -> int = run(
+// @with_simple () -> int = {
 //     with(
 //         acquire: 10,
 //         action: r -> r * 2,
 //     ),
-// )
+// }
 //
-// @test_with_transform tests @with_transform () -> void = run(
+// @test_with_transform tests @with_transform () -> void = {
 //     let result = with(
 //         acquire: "hello",
 //         action: s -> s.len(),
@@ -43,16 +43,16 @@
 //         actual: result,
 //         expected: 5,
 //     ),
-// )
+// }
 //
-// @with_transform () -> int = run(
+// @with_transform () -> int = {
 //     with(
 //         acquire: "hello",
 //         action: s -> s.len(),
 //     ),
-// )
+// }
 //
-// @test_with_release tests @with_release () -> void = run(
+// @test_with_release tests @with_release () -> void = {
 //     // Test that release is called (can't easily verify in tests)
 //     let result = with(
 //         acquire: 100,
@@ -63,17 +63,17 @@
 //         actual: result,
 //         expected: 101,
 //     ),
-// )
+// }
 //
-// @with_release () -> int = run(
+// @with_release () -> int = {
 //     with(
 //         acquire: 100,
 //         action: r -> r + 1,
 //         release: r -> r,
 //     ),
-// )
+// }
 //
-// @test_with_nested tests @with_nested () -> void = run(
+// @test_with_nested tests @with_nested () -> void = {
 //     let result = with(
 //         acquire: 5,
 //         action: outer -> with(
@@ -85,9 +85,9 @@
 //         actual: result,
 //         expected: 8,
 //     ),
-// )
+// }
 //
-// @with_nested () -> int = run(
+// @with_nested () -> int = {
 //     with(
 //         acquire: 5,
 //         action: outer -> with(
@@ -95,4 +95,4 @@
 //             action: inner -> outer + inner,
 //         ),
 //     ),
-// )
+// }

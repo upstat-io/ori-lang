@@ -1,8 +1,8 @@
 // Match with list patterns
 // Spec: 10-patterns.md § match
 
-@classify_list (lst: [int]) -> str = match(lst,
+@classify_list (lst: [int]) -> str = match lst {
     [] -> "empty",
     [x] -> "single",
-    [head, ..tail] -> "multiple",
-)
+    [head, ..tail] -> "multiple"
+}

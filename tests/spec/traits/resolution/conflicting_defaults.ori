@@ -28,10 +28,10 @@ impl Pipeline for Stream {
 }
 
 // Verify that the impl compiles (no E2022) and non-conflicting methods work
-@test_override_resolves_conflict tests @run () -> void = run(
-    let s = Stream { id: 42 },
-    assert_eq(actual: s.run(), expected: "running:42"),
-)
+@test_override_resolves_conflict tests @run () -> void = {
+    let s = Stream { id: 42 };
+    assert_eq(actual: s.run(), expected: "running:42")
+}
 
 // Non-conflicting defaults: only one super-trait has the default method
 trait Alpha {
@@ -57,7 +57,7 @@ impl Gamma for Widget {
     @label (self) -> str = "widget:" + self.name
 }
 
-@test_non_conflicting_default tests @info () -> void = run(
-    let w = Widget { name: "btn" },
-    assert_eq(actual: w.info(), expected: "alpha info"),
-)
+@test_non_conflicting_default tests @info () -> void = {
+    let w = Widget { name: "btn" };
+    assert_eq(actual: w.info(), expected: "alpha info")
+}

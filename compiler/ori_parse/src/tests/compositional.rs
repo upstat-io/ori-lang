@@ -72,7 +72,7 @@ mod type_matrix {
     #[test]
     fn test_all_types_in_variable_annotation() {
         for ty in TYPES {
-            let source = format!("@test () -> void = run(let x: {} = default(), ())", ty);
+            let source = format!("@test () -> void = {{ let x: {} = default(); () }}", ty);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -167,7 +167,7 @@ mod type_matrix {
             ("@test () -> int = 1 << 4", "left shift"),
             ("@test () -> bool = 3 <= 5", "less-equal"),
             (
-                "@test () -> int = run(let x: Result<Result<int, str>, str> = Ok(Ok(1)), 8 >> 2)",
+                "@test () -> int = { let x: Result<Result<int, str>, str> = Ok(Ok(1)); 8 >> 2 }",
                 "nested generic + shift",
             ),
         ];
@@ -237,7 +237,7 @@ mod pattern_matrix {
     #[test]
     fn test_all_patterns_in_match() {
         for pat in PATTERNS {
-            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
+            let source = format!(r"@test () -> int = match value {{ {} -> 1, _ -> 0 }}", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -257,7 +257,7 @@ mod pattern_matrix {
         ];
 
         for pat in patterns_with_guards {
-            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
+            let source = format!(r"@test () -> int = match value {{ {} -> 1, _ -> 0 }}", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -280,7 +280,7 @@ mod pattern_matrix {
         ];
 
         for pat in nested {
-            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
+            let source = format!(r"@test () -> int = match value {{ {} -> 1, _ -> 0 }}", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -301,7 +301,7 @@ mod pattern_matrix {
         ];
 
         for pat in or_patterns {
-            let source = format!(r"@test () -> int = match(value, {} -> 1, _ -> 0)", pat);
+            let source = format!(r"@test () -> int = match value {{ {} -> 1, _ -> 0 }}", pat);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -342,7 +342,7 @@ mod expression_context {
         let lambdas = &[
             "@test () -> int = (x -> x + 1)(5)",
             "@test () -> int = ((x, y) -> x + y)(1, 2)",
-            "@test () -> int = run(let f = x -> x * 2, f(5))",
+            "@test () -> int = { let f = x -> x * 2; f(5) }",
             "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).fold(initial: 0, op: (a, b) -> a + b)",
         ];
 
@@ -358,11 +358,11 @@ mod expression_context {
     }
 
     #[test]
-    fn test_for_loop_in_run() {
+    fn test_for_loop_in_block() {
         let sources = &[
-            "@test () -> int = run(for x in [1, 2, 3] do print(msg: str(x)), 0)",
-            "@test () -> [int] = run(let result = for x in [1, 2, 3] yield x * 2, result)",
-            "@test () -> [int] = run(for x in [1, 2, 3] if x > 1 yield x * 2)",
+            "@test () -> int = { for x in [1, 2, 3] do print(msg: str(x)); 0 }",
+            "@test () -> [int] = { let result = for x in [1, 2, 3] yield x * 2; result }",
+            "@test () -> [int] = { for x in [1, 2, 3] if x > 1 yield x * 2 }",
         ];
 
         for source in sources {
@@ -399,9 +399,9 @@ mod expression_context {
     fn test_binary_operators_with_types() {
         // Test that operators work alongside generic types
         let sources = &[
-            "@test () -> Result<Result<int, str>, str> = run(let x = 8 >> 2, Ok(Ok(x)))",
-            "@test () -> Option<Option<bool>> = run(let x = 5 >= 3, Some(Some(x)))",
-            "@test () -> [Result<int, str>] = run(let x = 1 << 4, [Ok(x)])",
+            "@test () -> Result<Result<int, str>, str> = { let x = 8 >> 2; Ok(Ok(x)) }",
+            "@test () -> Option<Option<bool>> = { let x = 5 >= 3; Some(Some(x)) }",
+            "@test () -> [Result<int, str>] = { let x = 1 << 4; [Ok(x)] }",
         ];
 
         for source in sources {
@@ -697,7 +697,7 @@ mod mixed_declarations {
             // Chained test targets
             "@test_both tests @foo tests @bar () -> void = ()",
             // Test with complex body
-            "@test_complex tests @target () -> void = run(let x = 1, let y = 2, assert(cond: x + y == 3))",
+            "@test_complex tests @target () -> void = { let x = 1; let y = 2; assert(cond: x + y == 3) }",
         ];
 
         for source in sources {
@@ -723,18 +723,18 @@ mod mixed_expressions {
     #[test]
     fn test_nested_control_flow() {
         let sources = &[
-            // if inside run
-            "@test () -> int = run(let x = 1, if x > 0 then x else -x)",
-            // match inside run
-            "@test () -> int = run(let opt = Some(5), match(opt, Some(x) -> x, None -> 0))",
-            // for inside run
-            "@test () -> [int] = run(let items = [1, 2, 3], for x in items yield x * 2)",
+            // if inside block
+            "@test () -> int = { let x = 1; if x > 0 then x else -x }",
+            // match inside block
+            "@test () -> int = { let opt = Some(5); match opt { Some(x) -> x, None -> 0 } }",
+            // for inside block
+            "@test () -> [int] = { let items = [1, 2, 3]; for x in items yield x * 2 }",
             // if inside for
             "@test () -> [int] = for x in [1, 2, 3] yield if x > 1 then x * 2 else x",
             // match inside for
-            "@test () -> [int] = for opt in [Some(1), None, Some(2)] yield match(opt, Some(x) -> x, None -> 0)",
-            // Triple nesting: for inside match inside run
-            "@test () -> [int] = run(let opt = Some([1, 2, 3]), match(opt, Some(items) -> for x in items yield x * 2, None -> []))",
+            "@test () -> [int] = for opt in [Some(1), None, Some(2)] yield match opt { Some(x) -> x, None -> 0 }",
+            // Triple nesting: for inside match inside block
+            "@test () -> [int] = { let opt = Some([1, 2, 3]); match opt { Some(items) -> for x in items yield x * 2, None -> [] } }",
         ];
 
         for source in sources {
@@ -752,15 +752,15 @@ mod mixed_expressions {
     fn test_try_expressions_complex() {
         let sources = &[
             // Basic try
-            "@test () -> Result<int, str> = try(let x = Ok(1)?, Ok(x))",
+            "@test () -> Result<int, str> = try { let x = Ok(1)?; Ok(x) }",
             // Multiple bindings in try
-            "@test () -> Result<int, str> = try(let a = Ok(1)?, let b = Ok(2)?, Ok(a + b))",
+            "@test () -> Result<int, str> = try { let a = Ok(1)?; let b = Ok(2)?; Ok(a + b) }",
             // Try with method call
-            "@test () -> Result<int, str> = try(let x = get_value()?, let y = x.transform()?, Ok(y))",
+            "@test () -> Result<int, str> = try { let x = get_value()?; let y = x.transform()?; Ok(y) }",
             // Nested try
-            "@test () -> Result<int, str> = try(let outer = try(let inner = Ok(1)?, Ok(inner))?, Ok(outer))",
+            "@test () -> Result<int, str> = try { let outer = try { let inner = Ok(1)?; Ok(inner) }?; Ok(outer) }",
             // Try with match inside
-            "@test () -> Result<int, str> = try(let x = Ok(Some(5))?, match(x, Some(v) -> Ok(v), None -> Err(\"none\")))",
+            "@test () -> Result<int, str> = try { let x = Ok(Some(5))?; match x { Some(v) -> Ok(v), None -> Err(\"none\") } }",
         ];
 
         for source in sources {
@@ -778,21 +778,21 @@ mod mixed_expressions {
     fn test_match_expressions_complex() {
         let sources = &[
             // Match with complex guards
-            "@test () -> int = match(value, x.match(x > 0 && x < 100) -> x, _ -> 0)",
+            "@test () -> int = match value { x.match(x > 0 && x < 100) -> x, _ -> 0 }",
             // Match with nested patterns and guards
-            "@test () -> int = match(pair, (a, b).match(a > b) -> a, (a, b) -> b)",
+            "@test () -> int = match pair { (a, b).match(a > b) -> a, (a, b) -> b }",
             // Match on nested Option
-            "@test () -> int = match(opt, Some(Some(x)) -> x, Some(None) -> -1, None -> 0)",
+            "@test () -> int = match opt { Some(Some(x)) -> x, Some(None) -> -1, None -> 0 }",
             // Match on Result of Option
-            "@test () -> int = match(res, Ok(Some(x)) -> x, Ok(None) -> -1, Err(_) -> -2)",
+            "@test () -> int = match res { Ok(Some(x)) -> x, Ok(None) -> -1, Err(_) -> -2 }",
             // Match with or-patterns and guards
-            "@test () -> int = match(n, (1 | 2 | 3).match(n > 1) -> n * 2, _ -> 0)",
+            "@test () -> int = match n { (1 | 2 | 3).match(n > 1) -> n * 2, _ -> 0 }",
             // Match with at-pattern
-            "@test () -> int = match(list, all @ [first, ..rest].match(len(collection: all) > 2) -> first, _ -> 0)",
+            "@test () -> int = match list { all @ [first, ..rest].match(len(collection: all) > 2) -> first, _ -> 0 }",
             // Match with struct pattern
-            "@test () -> int = match(point, { x, y }.match(x > 0 && y > 0) -> x + y, _ -> 0)",
+            "@test () -> int = match point { { x, y }.match(x > 0 && y > 0) -> x + y, _ -> 0 }",
             // Match producing lambda
-            "@test () -> (int) -> int = match(flag, true -> (x -> x * 2), false -> (x -> x + 1))",
+            "@test () -> (int) -> int = match flag { true -> (x -> x * 2), false -> (x -> x + 1) }",
         ];
 
         for source in sources {
@@ -841,10 +841,10 @@ mod mixed_expressions {
             "@test () -> int = with Http = MockHttp in fetch(url: \"/data\")",
             // Nested with (one at a time)
             "@test () -> int = with Http = MockHttp in with Cache = MockCache in fetch(url: \"/data\")",
-            // With in run
-            "@test () -> int = run(let mock = MockHttp, with Http = mock in fetch(url: \"/data\"))",
+            // With in block
+            "@test () -> int = { let mock = MockHttp; with Http = mock in fetch(url: \"/data\") }",
             // With containing match
-            "@test () -> int = with Http = MockHttp in match(fetch(url: \"/\"), Ok(x) -> x, Err(_) -> 0)",
+            "@test () -> int = with Http = MockHttp in match fetch(url: \"/\") { Ok(x) -> x, Err(_) -> 0 }",
             // With containing for
             "@test () -> [int] = with Http = MockHttp in for url in urls yield fetch(url: url)",
         ];
@@ -872,13 +872,13 @@ mod mixed_expressions {
             // Lambda with complex body
             "@test () -> int = (x -> if x > 0 then x * 2 else -x)(5)",
             // Lambda with match body
-            "@test () -> int = (opt -> match(opt, Some(x) -> x, None -> 0))(Some(5))",
+            "@test () -> int = (opt -> match opt { Some(x) -> x, None -> 0 })(Some(5))",
             // Lambda in method chain
             "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).filter(predicate: x -> x > 2).fold(initial: 0, op: (a, b) -> a + b)",
             // Nested lambdas
             "@test () -> int = (f -> f(5))(x -> x * 2)",
             // Lambda capturing complex expression
-            "@test () -> int = run(let multiplier = 10, (x -> x * multiplier)(5))",
+            "@test () -> int = { let multiplier = 10; (x -> x * multiplier)(5) }",
         ];
 
         for source in sources {
@@ -896,13 +896,13 @@ mod mixed_expressions {
     fn test_loop_expressions() {
         let sources = &[
             // Basic loop with break
-            "@test () -> int = loop(run(let x = get_next(), if done() then break x else continue))",
+            "@test () -> int = loop { let x = get_next(); if done() then break x else continue }",
             // Loop with break value
-            "@test () -> int = loop(if condition() then break 100 else next())",
-            // Loop inside run
-            "@test () -> int = run(let count = 0, loop(if count > 10 then break count else continue))",
+            "@test () -> int = loop if condition() then break 100 else next()",
+            // Loop inside block
+            "@test () -> int = { let count = 0; loop if count > 10 then break count else continue }",
             // Loop with match inside
-            "@test () -> int = loop(match(get_result(), Ok(x) -> break x, Err(_) -> continue))",
+            "@test () -> int = loop match get_result() { Ok(x) -> break x, Err(_) -> continue }",
         ];
 
         for source in sources {
@@ -1161,13 +1161,13 @@ mod mixed_expressions {
     fn test_error_propagation() {
         let sources = &[
             // Basic ?
-            "@test () -> Result<int, str> = try(let x = fallible()?, Ok(x))",
+            "@test () -> Result<int, str> = try { let x = fallible()?; Ok(x) }",
             // Chained ?
-            "@test () -> Result<int, str> = try(let a = first()?, let b = second(a: a)?, Ok(b))",
+            "@test () -> Result<int, str> = try { let a = first()?; let b = second(a: a)?; Ok(b) }",
             // ? on method chain
-            "@test () -> Result<int, str> = try(let x = get_opt().ok_or(error: \"none\")?, Ok(x))",
+            "@test () -> Result<int, str> = try { let x = get_opt().ok_or(error: \"none\")?; Ok(x) }",
             // ? in expression
-            "@test () -> Result<int, str> = try(Ok(compute()? + 1))",
+            "@test () -> Result<int, str> = try { Ok(compute()? + 1) }",
         ];
 
         for source in sources {
@@ -1186,8 +1186,8 @@ mod mixed_expressions {
         let sources = &[
             // Basic unsafe
             "@test () -> int = unsafe(ptr_read(ptr: p))",
-            // Unsafe in run
-            "@test () -> int = run(let ptr = get_ptr(), unsafe(ptr_read(ptr: ptr)))",
+            // Unsafe in block
+            "@test () -> int = { let ptr = get_ptr(); unsafe(ptr_read(ptr: ptr)) }",
             // Unsafe with method call
             "@test () -> void = unsafe(ptr.write(value: 42))",
         ];
@@ -1330,7 +1330,7 @@ mod mixed_literals {
             // Basic struct
             "type P = { x: int, y: int }\n@test () -> P = P { x: 1, y: 2 }",
             // Struct with field shorthand
-            "type P = { x: int, y: int }\n@test () -> P = run(let x = 1, let y = 2, P { x, y })",
+            "type P = { x: int, y: int }\n@test () -> P = { let x = 1; let y = 2; P { x, y } }",
             // Nested struct
             "type Inner = { v: int }\ntype Outer = { inner: Inner }\n@test () -> Outer = Outer { inner: Inner { v: 42 } }",
             // Generic struct literal
@@ -1456,7 +1456,7 @@ mod mixed_types {
             // Function taking function returning function
             "@test (f: (int) -> (int) -> int) -> int = f(1)(2)",
             // Function with tuple param
-            "@test (p: (int, int)) -> int = match(p, (a, b) -> a + b)",
+            "@test (p: (int, int)) -> int = match p { (a, b) -> a + b }",
             // Function returning tuple
             "@test () -> (int, str) = (1, \"hello\")",
             // Higher-order with generics
@@ -1647,11 +1647,11 @@ mod mixed_patterns {
     fn test_deeply_nested_patterns() {
         let sources = &[
             // Triple nested Option
-            "@test () -> int = match(x, Some(Some(Some(v))) -> v, _ -> 0)",
+            "@test () -> int = match x { Some(Some(Some(v))) -> v, _ -> 0 }",
             // Result containing Option containing tuple
-            "@test () -> int = match(x, Ok(Some((a, b))) -> a + b, _ -> 0)",
+            "@test () -> int = match x { Ok(Some((a, b))) -> a + b, _ -> 0 }",
             // Tuple of Options
-            "@test () -> int = match(x, (Some(a), Some(b), Some(c)) -> a + b + c, _ -> 0)",
+            "@test () -> int = match x { (Some(a), Some(b), Some(c)) -> a + b + c, _ -> 0 }",
         ];
 
         for source in sources {
@@ -1669,15 +1669,15 @@ mod mixed_patterns {
     fn test_or_patterns_complex() {
         let sources = &[
             // Or with nested patterns
-            "@test () -> int = match(x, Some(1) | Some(2) | Some(3) -> 1, _ -> 0)",
+            "@test () -> int = match x { Some(1) | Some(2) | Some(3) -> 1, _ -> 0 }",
             // Or with tuples
-            "@test () -> int = match(x, (1, _) | (_, 1) -> 1, _ -> 0)",
+            "@test () -> int = match x { (1, _) | (_, 1) -> 1, _ -> 0 }",
             // Or with ranges
-            "@test () -> int = match(x, 0..10 | 90..=100 -> 1, _ -> 0)",
+            "@test () -> int = match x { 0..10 | 90..=100 -> 1, _ -> 0 }",
             // Or with lists
-            "@test () -> int = match(x, [] | [_] -> 1, _ -> 0)",
+            "@test () -> int = match x { [] | [_] -> 1, _ -> 0 }",
             // Nested or patterns
-            "@test () -> int = match(x, Some(1 | 2) | Some(3 | 4) -> 1, _ -> 0)",
+            "@test () -> int = match x { Some(1 | 2) | Some(3 | 4) -> 1, _ -> 0 }",
         ];
 
         for source in sources {
@@ -1695,13 +1695,13 @@ mod mixed_patterns {
     fn test_at_patterns_complex() {
         let sources = &[
             // At with list rest
-            "@test () -> int = match(x, all @ [first, ..rest] -> len(collection: all), _ -> 0)",
+            "@test () -> int = match x { all @ [first, ..rest] -> len(collection: all), _ -> 0 }",
             // At with struct
-            "@test () -> int = match(x, p @ { x, y } -> p.x + p.y, _ -> 0)",
+            "@test () -> int = match x { p @ { x, y } -> p.x + p.y, _ -> 0 }",
             // At with variant
-            "@test () -> int = match(x, opt @ Some(v) -> v, None -> 0)",
+            "@test () -> int = match x { opt @ Some(v) -> v, None -> 0 }",
             // At with or pattern
-            "@test () -> int = match(x, n @ (1 | 2 | 3) -> n * 2, _ -> 0)",
+            "@test () -> int = match x { n @ (1 | 2 | 3) -> n * 2, _ -> 0 }",
         ];
 
         for source in sources {
@@ -1719,13 +1719,13 @@ mod mixed_patterns {
     fn test_struct_patterns_complex() {
         let sources = &[
             // Struct with nested pattern
-            "@test () -> int = match(x, { inner: Some(v) } -> v, _ -> 0)",
+            "@test () -> int = match x { { inner: Some(v) } -> v, _ -> 0 }",
             // Struct with multiple fields and patterns
-            "@test () -> int = match(x, { a: Some(x), b: Ok(y), c } -> x + y + c, _ -> 0)",
+            "@test () -> int = match x { { a: Some(x), b: Ok(y), c } -> x + y + c, _ -> 0 }",
             // Named type struct pattern
-            "@test () -> int = match(x, Point { x, y } -> x + y, _ -> 0)",
+            "@test () -> int = match x { Point { x, y } -> x + y, _ -> 0 }",
             // Struct with renamed binding
-            "@test () -> int = match(x, { x: px, y: py } -> px + py, _ -> 0)",
+            "@test () -> int = match x { { x: px, y: py } -> px + py, _ -> 0 }",
         ];
 
         for source in sources {
@@ -1743,15 +1743,15 @@ mod mixed_patterns {
     fn test_list_patterns_complex() {
         let sources = &[
             // Empty and single
-            "@test () -> int = match(x, [] -> 0, [single] -> single, _ -> -1)",
+            "@test () -> int = match x { [] -> 0, [single] -> single, _ -> -1 }",
             // Head and rest
-            "@test () -> int = match(x, [first, second, ..rest] -> first + second, _ -> 0)",
+            "@test () -> int = match x { [first, second, ..rest] -> first + second, _ -> 0 }",
             // Fixed length
-            "@test () -> int = match(x, [a, b, c, d] -> a + b + c + d, _ -> 0)",
+            "@test () -> int = match x { [a, b, c, d] -> a + b + c + d, _ -> 0 }",
             // Nested list patterns
-            "@test () -> int = match(x, [[a, b], [c, d]] -> a + b + c + d, _ -> 0)",
+            "@test () -> int = match x { [[a, b], [c, d]] -> a + b + c + d, _ -> 0 }",
             // List of Options
-            "@test () -> int = match(x, [Some(a), Some(b)] -> a + b, _ -> 0)",
+            "@test () -> int = match x { [Some(a), Some(b)] -> a + b, _ -> 0 }",
         ];
 
         for source in sources {
@@ -1769,15 +1769,15 @@ mod mixed_patterns {
     fn test_patterns_with_complex_guards() {
         let sources = &[
             // Guard with method call
-            "@test () -> int = match(x, list.match(!list.is_empty()) -> list[0], _ -> 0)",
+            "@test () -> int = match x { list.match(!list.is_empty()) -> list[0], _ -> 0 }",
             // Guard with multiple conditions
-            "@test () -> int = match(x, n.match(n > 0 && n < 100 && n % 2 == 0) -> n, _ -> 0)",
+            "@test () -> int = match x { n.match(n > 0 && n < 100 && n % 2 == 0) -> n, _ -> 0 }",
             // Guard with function call
-            "@test () -> int = match(x, s.match(is_valid(s: s)) -> 1, _ -> 0)",
+            "@test () -> int = match x { s.match(is_valid(s: s)) -> 1, _ -> 0 }",
             // Guard accessing pattern bindings
-            "@test () -> int = match(x, (a, b).match(a < b) -> b - a, (a, b) -> a - b)",
+            "@test () -> int = match x { (a, b).match(a < b) -> b - a, (a, b) -> a - b }",
             // Guard with nested pattern access
-            "@test () -> int = match(x, Some({ value }).match(value > 0) -> value, _ -> 0)",
+            "@test () -> int = match x { Some({ value }).match(value > 0) -> value, _ -> 0 }",
         ];
 
         for source in sources {
@@ -1795,17 +1795,17 @@ mod mixed_patterns {
     fn test_binding_patterns_in_let() {
         let sources = &[
             // Tuple destructuring
-            "@test () -> int = run(let (a, b) = pair, a + b)",
+            "@test () -> int = { let (a, b) = pair; a + b }",
             // Nested tuple destructuring
-            "@test () -> int = run(let ((a, b), c) = nested, a + b + c)",
+            "@test () -> int = { let ((a, b), c) = nested; a + b + c }",
             // Struct destructuring
-            "@test () -> int = run(let { x, y } = point, x + y)",
+            "@test () -> int = { let { x, y } = point; x + y }",
             // List destructuring
-            "@test () -> int = run(let [first, second, ..rest] = items, first + second)",
+            "@test () -> int = { let [first, second, ..rest] = items; first + second }",
             // Immutable binding with $
-            "@test () -> int = run(let $x = 42, x)",
+            "@test () -> int = { let $x = 42; x }",
             // Renamed struct field
-            "@test () -> int = run(let { x: px, y: py } = point, px + py)",
+            "@test () -> int = { let { x: px, y: py } = point; px + py }",
         ];
 
         for source in sources {
@@ -1918,13 +1918,13 @@ mod edge_cases {
         // These test the >> vs > > ambiguity resolution
         let sources = &[
             // Nested generic followed by shift
-            "@test () -> int = run(let x: Result<Result<int, str>, str> = Ok(Ok(1)), 8 >> 2)",
+            "@test () -> int = { let x: Result<Result<int, str>, str> = Ok(Ok(1)); 8 >> 2 }",
             // Triple nested with comparison
-            "@test () -> bool = run(let x: Option<Option<Option<int>>> = Some(Some(Some(1))), 5 >= 3)",
+            "@test () -> bool = { let x: Option<Option<Option<int>>> = Some(Some(Some(1))); 5 >= 3 }",
             // Nested generic in expression context
             "@test () -> Option<Option<int>> = if true then Some(Some(1)) else None",
             // Nested generics in list type with shift
-            "@test () -> int = run(let x: [Result<Result<int, str>, str>] = [], 4 >> 1)",
+            "@test () -> int = { let x: [Result<Result<int, str>, str>] = []; 4 >> 1 }",
         ];
 
         for source in sources {
@@ -1972,7 +1972,7 @@ mod edge_cases {
             // Range vs method chain
             "@test () -> [int] = for i in 0..10 yield i",
             // Range in comparison
-            "@test () -> bool = run(let r = 0..10, true)",
+            "@test () -> bool = { let r = 0..10; true }",
             // Range with by
             "@test () -> [int] = for i in 0..100 by 10 yield i",
             // Inclusive range followed by method
@@ -2023,16 +2023,16 @@ mod edge_cases {
     #[test]
     fn test_deeply_nested_expressions() {
         let sources = &[
-            // Deep nesting of run
-            "@test () -> int = run(let a = run(let b = run(let c = 1, c), b), a)",
+            // Deep nesting of blocks
+            "@test () -> int = { let a = { let b = { let c = 1; c }; b }; a }",
             // Deep nesting of if
             "@test () -> int = if a then if b then if c then 1 else 2 else 3 else 4",
             // Deep nesting of match
-            "@test () -> int = match(x, Some(y) -> match(y, Some(z) -> z, None -> 0), None -> -1)",
+            "@test () -> int = match x { Some(y) -> match y { Some(z) -> z, None -> 0 }, None -> -1 }",
             // Deep method chain
             "@test () -> int = a.b().c().d().e().f().g()",
             // Mixed deep nesting
-            "@test () -> int = run(let x = if cond then match(opt, Some(v) -> v, None -> 0) else -1, x * 2)",
+            "@test () -> int = { let x = if cond then match opt { Some(v) -> v, None -> 0 } else -1; x * 2 }",
         ];
 
         for source in sources {
@@ -2049,19 +2049,18 @@ mod edge_cases {
     #[test]
     fn test_multiline_expressions() {
         let sources = &[
-            // Multiline run
-            r"@test () -> int = run(
-                let a = 1,
-                let b = 2,
-                let c = 3,
+            // Multiline block
+            r"@test () -> int = {
+                let a = 1;
+                let b = 2;
+                let c = 3;
                 a + b + c
-            )",
+            }",
             // Multiline match
-            r"@test () -> int = match(
-                value,
+            r"@test () -> int = match value {
                 Some(x) -> x,
                 None -> 0
-            )",
+            }",
             // Multiline if
             r"@test () -> int = if condition
                 then positive_branch
@@ -2112,10 +2111,10 @@ impl<T> Stack<T> {
 
 @use_stack<T> (item: T) -> Stack<T> = Stack.new().push(item: item)
 
-@test_stack tests @use_stack () -> void = run(
-    let stack = use_stack(item: 1),
+@test_stack tests @use_stack () -> void = {
+    let stack = use_stack(item: 1);
     assert(cond: !stack.is_empty())
-)
+}
 ",
             // Trait with impl and usage
             r"
@@ -2132,11 +2131,10 @@ trait Stringable {
 @fetch_data<T: Clone, K: Hashable> (key: K, fallback: T) -> Result<T, str> uses Http where T: Clone, K: Hashable = Ok(fallback)
 
 @test_fetch tests @fetch_data () -> void =
-    with Http = MockHttp in
-        run(
-            let result = fetch_data(key: "test", fallback: 42),
-            assert(cond: is_ok(result: result))
-        )
+    with Http = MockHttp in {
+        let result = fetch_data(key: "test", fallback: 42);
+        assert(cond: is_ok(result: result))
+    }
 "#,
         ];
 

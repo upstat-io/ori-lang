@@ -10,7 +10,7 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **PRIORITY ESCALATION — Section 15D.3** (after `catch(expr)`): Remove `mut` keyword, implement `$` immutability bindings. The spec and grammar already removed `mut`, but the compiler still accepts it. There are 163 `let mut` occurrences across 28 test files — this count grows with every new feature. Syntax migrations become exponentially harder to land as more code accumulates. Promoted from Tier 5 → Tier 1 to minimize migration debt.
+> **~~PRIORITY ESCALATION~~ RESOLVED (2026-02-20)**: Section 15D.3 `$` immutability enforcement — block expression syntax (`{ }` with `;`), old `run()`/`match()`/`try()`/`loop()` syntax removed, compile-time immutability enforcement (E2039), all 229+ test files migrated. Remaining 15D.3 items: `mut` keyword removal, `$x`/`x` scope conflicts, module-level immutability.
 
 ---
 

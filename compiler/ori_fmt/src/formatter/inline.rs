@@ -431,9 +431,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(":");
                     self.ctx.emit(self.interner.lookup(*label));
                 }
-                self.ctx.emit("(");
+                self.ctx.emit(" ");
                 self.emit_inline(*body);
-                self.ctx.emit(")");
             }
 
             // Block
@@ -441,9 +440,11 @@ impl<I: StringLookup> Formatter<'_, I> {
                 let stmts_list = self.arena.get_stmt_range(*stmts);
                 if stmts_list.is_empty() {
                     if result.is_present() {
+                        self.ctx.emit("{ ");
                         self.emit_inline(*result);
+                        self.ctx.emit(" }");
                     } else {
-                        self.ctx.emit("()");
+                        self.ctx.emit("{}");
                     }
                 } else {
                     // Blocks with statements always break

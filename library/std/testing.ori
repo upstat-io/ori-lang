@@ -17,34 +17,34 @@ pub @assert_ne<T: Eq> (actual: T, unexpected: T) -> void =
 
 // Assert that an Option is Some
 pub @assert_some<T> (opt: Option<T>) -> void =
-    match(opt, Some(_) -> (), None -> panic(msg: "assertion failed: expected Some, got None"))
+    match opt { Some(_) -> (), None -> panic(msg: "assertion failed: expected Some, got None")}
 
 // Assert that an Option is None
 pub @assert_none<T> (opt: Option<T>) -> void =
-    match(opt, Some(_) -> panic(msg: "assertion failed: expected None, got Some"), None -> ())
+    match opt { Some(_) -> panic(msg: "assertion failed: expected None, got Some"), None -> ()}
 
 // Assert that a Result is Ok
 pub @assert_ok<T, E> (result: Result<T, E>) -> void =
-    match(result, Ok(_) -> (), Err(_) -> panic(msg: "assertion failed: expected Ok, got Err"))
+    match result { Ok(_) -> (), Err(_) -> panic(msg: "assertion failed: expected Ok, got Err")}
 
 // Assert that a Result is Err
 pub @assert_err<T, E> (result: Result<T, E>) -> void =
-    match(result, Ok(_) -> panic(msg: "assertion failed: expected Err, got Ok"), Err(_) -> ())
+    match result { Ok(_) -> panic(msg: "assertion failed: expected Err, got Ok"), Err(_) -> ()}
 
 // Assert that an expression panics
-pub @assert_panics<T> (f: () -> T) -> void = run(
-    let res = catch(expr: f()),
-    match(res, Ok(_) -> panic(msg: "assertion failed: expected panic but succeeded"), Err(_) -> ()),
-)
+pub @assert_panics<T> (f: () -> T) -> void = {
+    let res = catch(expr: f());
+    match res { Ok(_) -> panic(msg: "assertion failed: expected panic but succeeded"), Err(_) -> ()}
+}
 
 // Assert that an expression panics with a specific message
-pub @assert_panics_with<T> (f: () -> T, msg: str) -> void = run(
+pub @assert_panics_with<T> (f: () -> T, msg: str) -> void = {
     let result = catch(
         expr: f(),
-    ),
-    match(result,
+    );
+    match result {
         Err(actual_msg) -> if actual_msg != msg then
             panic(msg: "assertion failed: expected panic with: " + msg + " but got: " + actual_msg),
-        Ok(_) -> panic(msg: "assertion failed: expected panic with: " + msg + " but succeeded"),
-    ),
-)
+        Ok(_) -> panic(msg: "assertion failed: expected panic with: " + msg + " but succeeded")
+    }
+}

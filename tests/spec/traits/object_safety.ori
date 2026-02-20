@@ -28,8 +28,8 @@ impl Hashable for Point {
 }
 
 // Verify: calling trait methods directly on concrete types still works
-@test_trait_method_call () -> void = run(
-    let p = Point { x: 3, y: 4 },
-    assert_eq(actual: p.describe(), expected: "Point(3, 4)"),
+@test_trait_method_call () -> void = {
+    let p = Point { x: 3, y: 4 };
+    assert_eq(actual: p.describe(), expected: "Point(3, 4)");
     assert_eq(actual: p.hash(), expected: 97)
-)
+}

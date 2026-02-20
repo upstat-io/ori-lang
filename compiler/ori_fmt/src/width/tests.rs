@@ -640,8 +640,8 @@ fn test_width_loop() {
     );
     let mut calc = WidthCalculator::new(&arena, &interner);
 
-    // "loop(42)" = 5 + 2 + 1 = 8
-    assert_eq!(calc.width(loop_expr), 8);
+    // "loop 42" = 4 + 1 + 2 = 7
+    assert_eq!(calc.width(loop_expr), 7);
 }
 
 #[test]
@@ -1033,8 +1033,8 @@ fn test_width_loop_labeled() {
     let loop_expr = make_expr(&mut arena, ExprKind::Loop { label, body });
     let mut calc = WidthCalculator::new(&arena, &interner);
 
-    // "loop:main(42)" = 4 + 1 + 4 + 1 + 2 + 1 = 13
-    assert_eq!(calc.width(loop_expr), 13);
+    // "loop:main 42" = 4 + 1 + 4 + 1 + 2 = 12
+    assert_eq!(calc.width(loop_expr), 12);
 }
 
 #[test]

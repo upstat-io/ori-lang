@@ -1,6 +1,6 @@
-//! Pattern Parsing (`function_seq` and `function_exp`)
+//! Pattern Parsing (try, match, `function_exp`)
 //!
-//! Parses run, try, match, for patterns, and `function_exp` constructs.
+//! Parses try blocks, match expressions, for patterns, and `function_exp` constructs.
 //!
 //! Match pattern parsing uses `one_of!` for automatic backtracking across
 //! pattern alternatives (wildcard, literal, ident, struct, list, variant, tuple).
@@ -11,15 +11,8 @@ use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
     MatchPatternId, MatchPatternRange, Name, NamedExpr, ParsedTypeId, ParsedTypeRange, SeqBinding,
-    TokenKind,
+    Span, TokenKind,
 };
-
-/// Kind of `function_seq` expression.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FunctionSeqKind {
-    Run,
-    Try,
-}
 
 // === Token sets for match pattern EmptyErr reporting ===
 
@@ -40,187 +33,172 @@ const PATTERN_VARIANT_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::Err);
 
 impl Parser<'_> {
-    /// Parse `run(...)` expression.
-    ///
-    /// Called after `run` keyword has been consumed by `parse_primary`.
-    pub(crate) fn parse_run(&mut self) -> ParseOutcome<ExprId> {
-        self.parse_function_seq_internal(FunctionSeqKind::Run)
-    }
-
-    /// Parse `try(...)` expression.
+    /// Parse try expression: `try { block }`.
     ///
     /// Called after `try` keyword has been consumed by `parse_primary`.
     pub(crate) fn parse_try(&mut self) -> ParseOutcome<ExprId> {
-        self.parse_function_seq_internal(FunctionSeqKind::Try)
-    }
-
-    /// Internal implementation for parsing run/try expressions.
-    ///
-    /// For `run()`, supports `pre_check:` and `post_check:` named properties:
-    /// ```text
-    /// run(
-    ///     pre_check: condition | "message",
-    ///     let x = value,
-    ///     result,
-    ///     post_check: r -> r > 0 | "message",
-    /// )
-    /// ```
-    #[expect(
-        clippy::too_many_lines,
-        reason = "multi-phase function sequence parser with pre/post checks and binding collection"
-    )]
-    fn parse_function_seq_internal(&mut self, kind: FunctionSeqKind) -> ParseOutcome<ExprId> {
-        let is_try = matches!(kind, FunctionSeqKind::Try);
-        let is_run = !is_try;
-        let start_span = self.cursor.previous_span();
-        committed!(self.cursor.expect(&TokenKind::LParen));
-        self.cursor.skip_newlines();
-
-        let pre_check_start = self.arena.start_checks();
-        let mut bindings = Vec::new();
-        let mut result_expr = None;
-
-        // Phase 1: Parse pre_checks (only for run, not try)
-        if is_run {
-            while self.is_check_start(self.known.pre_check) {
-                let check = committed!(self.parse_named_check("pre_check"));
-                self.arena.push_check(check);
-                self.cursor.skip_newlines();
-                if !self.cursor.check(&TokenKind::RParen) {
-                    committed!(self.cursor.expect(&TokenKind::Comma));
-                    self.cursor.skip_newlines();
-                }
-            }
-        }
-        let pre_check_range = self.arena.finish_checks(pre_check_start);
-
-        // Phase 2: Parse bindings and result expression
-        while !self.cursor.check(&TokenKind::RParen) && !self.cursor.is_at_end() {
-            self.cursor.skip_newlines();
-
-            // Check for post_check (only for run) — switches to phase 3
-            if is_run && self.is_check_start(self.known.post_check) {
-                break;
-            }
-
-            if self.cursor.check(&TokenKind::Let) {
-                let binding_span = self.cursor.current_span();
-                self.cursor.advance();
-
-                // Per spec: mutable by default, $ prefix for immutable
-                let mutable = if self.cursor.check(&TokenKind::Dollar) {
-                    self.cursor.advance();
-                    false
-                } else {
-                    true
-                };
-
-                let pattern = committed!(self.parse_binding_pattern());
-                let pattern_id = self.arena.alloc_binding_pattern(pattern);
-
-                let ty = if self.cursor.check(&TokenKind::Colon) {
-                    self.cursor.advance();
-                    self.parse_type()
-                        .map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
-                } else {
-                    ParsedTypeId::INVALID
-                };
-
-                committed!(self.cursor.expect(&TokenKind::Eq));
-                let value = require!(self, self.parse_expr(), "expression after `=`");
-                let end_span = self.arena.get_expr(value).span;
-
-                bindings.push(SeqBinding::Let {
-                    pattern: pattern_id,
-                    ty,
-                    value,
-                    mutable,
-                    span: binding_span.merge(end_span),
-                });
-            } else {
-                let expr_span = self.cursor.current_span();
-                let expr = require!(self, self.parse_expr(), "expression");
-                let end_span = self.arena.get_expr(expr).span;
-
-                self.cursor.skip_newlines();
-
-                if self.cursor.check(&TokenKind::Comma) {
-                    self.cursor.advance();
-                    self.cursor.skip_newlines();
-
-                    if self.cursor.check(&TokenKind::RParen) {
-                        result_expr = Some(expr);
-                    } else if is_run && self.is_check_start(self.known.post_check) {
-                        // Result followed by post_check
-                        result_expr = Some(expr);
-                    } else {
-                        bindings.push(SeqBinding::Stmt {
-                            expr,
-                            span: expr_span.merge(end_span),
-                        });
-                    }
-                    continue;
-                }
-                result_expr = Some(expr);
-            }
-
-            self.cursor.skip_newlines();
-
-            if !self.cursor.check(&TokenKind::RParen) {
-                committed!(self.cursor.expect(&TokenKind::Comma));
-                self.cursor.skip_newlines();
-            }
-        }
-
-        // Phase 3: Parse post_checks (only for run, not try)
-        let post_check_start = self.arena.start_checks();
-        if is_run {
-            while self.is_check_start(self.known.post_check) {
-                let check = committed!(self.parse_named_check("post_check"));
-                self.arena.push_check(check);
-                self.cursor.skip_newlines();
-                if !self.cursor.check(&TokenKind::RParen) {
-                    committed!(self.cursor.expect(&TokenKind::Comma));
-                    self.cursor.skip_newlines();
-                }
-            }
-        }
-        let post_check_range = self.arena.finish_checks(post_check_start);
-
-        self.cursor.skip_newlines();
-        committed!(self.cursor.expect(&TokenKind::RParen));
-        let end_span = self.cursor.previous_span();
-
-        let Some(result) = result_expr else {
+        if self.cursor.check(&TokenKind::LParen) {
+            let span = self.cursor.current_span();
             return ParseOutcome::consumed_err(
                 ParseError::new(
                     ori_diagnostic::ErrorCode::E1002,
-                    format!(
-                        "{} requires a result expression",
-                        if is_try { "try" } else { "run" }
-                    ),
-                    end_span,
-                ),
-                start_span,
+                    "`try()` syntax has been removed",
+                    span,
+                )
+                .with_help("Use block syntax instead: `try { let x = expr?; Ok(x) }`"),
+                span,
             );
+        }
+        self.parse_try_block()
+    }
+
+    /// Parse a `let` binding inside a `try { }` block.
+    /// Assumes the `let` token has already been consumed.
+    fn parse_try_let_binding(&mut self, item_span: Span) -> ParseOutcome<SeqBinding> {
+        let mutable = if self.cursor.check(&TokenKind::Dollar) {
+            self.cursor.advance();
+            false
+        } else {
+            true
         };
 
-        let bindings_range = self.arena.alloc_seq_bindings(bindings);
-        let span = start_span.merge(end_span);
-        let func_seq = if is_try {
-            FunctionSeq::Try {
-                bindings: bindings_range,
-                result,
-                span,
-            }
+        let pattern = committed!(self.parse_binding_pattern());
+        let pattern_id = self.arena.alloc_binding_pattern(pattern);
+
+        let ty = if self.cursor.check(&TokenKind::Colon) {
+            self.cursor.advance();
+            self.parse_type()
+                .map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
         } else {
-            FunctionSeq::Run {
-                pre_checks: pre_check_range,
-                bindings: bindings_range,
-                result,
-                post_checks: post_check_range,
-                span,
+            ParsedTypeId::INVALID
+        };
+
+        committed!(self.cursor.expect(&TokenKind::Eq));
+        let value = require!(self, self.parse_expr(), "expression after `=`");
+        let end_span = self.arena.get_expr(value).span;
+
+        let binding = SeqBinding::Let {
+            pattern: pattern_id,
+            ty,
+            value,
+            mutable,
+            span: item_span.merge(end_span),
+        };
+
+        self.cursor.skip_newlines();
+        if self.cursor.check(&TokenKind::Semicolon) {
+            self.cursor.advance();
+        } else if !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "expected `;` or `}` after let binding in try block",
+                    self.cursor.current_span(),
+                )
+                .with_help("Add `;` after the let binding: `let x = value;`"),
+                item_span,
+            );
+        }
+
+        ParseOutcome::consumed_ok(binding)
+    }
+
+    /// Parse `try { stmts; result }` — parses block contents as `FunctionSeq::Try`
+    /// bindings so that let bindings get auto-unwrap semantics.
+    fn parse_try_block(&mut self) -> ParseOutcome<ExprId> {
+        let start_span = self.cursor.previous_span();
+        committed!(self.cursor.expect(&TokenKind::LBrace));
+        self.cursor.skip_newlines();
+
+        let mut bindings: Vec<SeqBinding> = Vec::new();
+        let mut result_expr: Option<ExprId> = None;
+
+        while !self.cursor.check(&TokenKind::RBrace) && !self.cursor.is_at_end() {
+            self.cursor.skip_newlines();
+            if self.cursor.check(&TokenKind::RBrace) {
+                break;
             }
+
+            let item_span = self.cursor.current_span();
+
+            if self.cursor.check(&TokenKind::Let) {
+                // Flush any pending expression as a binding statement
+                if let Some(prev) = result_expr.take() {
+                    let prev_span = self.arena.get_expr(prev).span;
+                    bindings.push(SeqBinding::Stmt {
+                        expr: prev,
+                        span: prev_span,
+                    });
+                }
+
+                self.cursor.advance(); // consume `let`
+                match self.parse_try_let_binding(item_span) {
+                    ParseOutcome::ConsumedOk { value } => bindings.push(value),
+                    ParseOutcome::ConsumedErr {
+                        error,
+                        consumed_span,
+                    } => {
+                        return ParseOutcome::ConsumedErr {
+                            error,
+                            consumed_span,
+                        }
+                    }
+                    ParseOutcome::EmptyErr { expected, position } => {
+                        return ParseOutcome::EmptyErr { expected, position };
+                    }
+                    ParseOutcome::EmptyOk { .. } => {}
+                }
+            } else {
+                // Expression
+                let expr = require!(self, self.parse_expr(), "expression in try block");
+
+                // Flush any pending expression as a binding statement
+                if let Some(prev) = result_expr.take() {
+                    let prev_span = self.arena.get_expr(prev).span;
+                    bindings.push(SeqBinding::Stmt {
+                        expr: prev,
+                        span: prev_span,
+                    });
+                }
+
+                self.cursor.skip_newlines();
+
+                if self.cursor.check(&TokenKind::Semicolon) {
+                    self.cursor.advance();
+                    let expr_span = self.arena.get_expr(expr).span;
+                    bindings.push(SeqBinding::Stmt {
+                        expr,
+                        span: expr_span,
+                    });
+                } else if self.cursor.check(&TokenKind::RBrace) || self.cursor.is_at_end() {
+                    result_expr = Some(expr);
+                } else {
+                    return ParseOutcome::consumed_err(
+                        ParseError::new(
+                            ori_diagnostic::ErrorCode::E1002,
+                            "expected `;` or `}` after expression in try block",
+                            self.cursor.current_span(),
+                        )
+                        .with_help("Add `;` to make this a statement, or `}` to end the try block"),
+                        item_span,
+                    );
+                }
+            }
+
+            self.cursor.skip_newlines();
+        }
+
+        let end_span = self.cursor.current_span();
+        committed!(self.cursor.expect(&TokenKind::RBrace));
+
+        let result = result_expr.unwrap_or(ExprId::INVALID);
+        let span = start_span.merge(end_span);
+
+        let binding_range = self.arena.alloc_seq_bindings(bindings);
+        let func_seq = FunctionSeq::Try {
+            bindings: binding_range,
+            result,
+            span,
         };
 
         let func_seq_id = self.arena.alloc_function_seq(func_seq);
@@ -230,51 +208,7 @@ impl Parser<'_> {
         )
     }
 
-    /// Check if the current position starts a check property (`pre_check:` or `post_check:`).
-    fn is_check_start(&self, expected: Name) -> bool {
-        if let TokenKind::Ident(n) = self.cursor.current_kind() {
-            *n == expected && self.cursor.next_is_colon()
-        } else {
-            false
-        }
-    }
-
-    /// Parse a named check (`pre_check: expr | "msg"` or `post_check: expr | "msg"`).
-    ///
-    /// Assumes the cursor is at the check name identifier. Consumes the name, colon,
-    /// expression, and optional `| "message"`.
-    fn parse_named_check(&mut self, _check_name: &str) -> Result<ori_ir::CheckExpr, ParseError> {
-        let check_span = self.cursor.current_span();
-        self.cursor.advance(); // consume check name
-        self.cursor.expect(&TokenKind::Colon)?;
-
-        // Parse condition with `|` as separator (not bitwise OR).
-        // In check context, `x > 0 | "msg"` means condition `x > 0` with message `"msg"`.
-        let expr = self
-            .with_context(ParseContext::PIPE_IS_SEPARATOR, Self::parse_expr)
-            .into_result()?;
-
-        // Optional custom message: `| "message"`
-        let message = if self.cursor.check(&TokenKind::Pipe) {
-            self.cursor.advance();
-            Some(self.parse_expr().into_result()?)
-        } else {
-            None
-        };
-
-        let end = message.map_or_else(
-            || self.arena.get_expr(expr).span,
-            |m| self.arena.get_expr(m).span,
-        );
-
-        Ok(ori_ir::CheckExpr {
-            expr,
-            message,
-            span: check_span.merge(end),
-        })
-    }
-
-    /// Parse match as `function_seq`: match(scrutinee, Pattern -> expr, ...)
+    /// Parse match expression: `match expr { pattern -> body, ... }`
     ///
     /// Called after `match` keyword has been consumed by `parse_primary`.
     pub(crate) fn parse_match_expr(&mut self) -> ParseOutcome<ExprId> {
@@ -286,16 +220,90 @@ impl Parser<'_> {
 
     fn parse_match_expr_body(&mut self) -> ParseOutcome<ExprId> {
         let start_span = self.cursor.previous_span();
-        committed!(self.cursor.expect(&TokenKind::LParen));
+
+        if self.cursor.check(&TokenKind::LParen) {
+            let span = self.cursor.current_span();
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "`match()` syntax has been removed",
+                    span,
+                )
+                .with_help("Use brace syntax instead: `match expr { pattern -> body, ... }`"),
+                span,
+            );
+        }
+
+        // match expr { arm, arm, ... }
+        // Disable struct literals so `match x { ... }` doesn't parse `x { ... }` as a struct
+        self.cursor.skip_newlines();
+        let scrutinee = require!(
+            self,
+            self.with_context(ParseContext::NO_STRUCT_LIT, Self::parse_expr),
+            "match scrutinee"
+        );
+
         self.cursor.skip_newlines();
 
-        let scrutinee = require!(self, self.parse_expr(), "match scrutinee");
-
-        self.cursor.skip_newlines();
-        committed!(self.cursor.expect(&TokenKind::Comma));
-
-        let result = committed!(self.parse_match_arms_with_scrutinee(scrutinee, start_span));
+        let result = committed!(self.parse_match_arms_brace(scrutinee, start_span));
         ParseOutcome::consumed_ok(result)
+    }
+
+    /// Parse match arms enclosed in braces: `{ pattern -> body, ... }`.
+    ///
+    /// Arms are comma-separated (per match-arm-comma-separator-proposal).
+    fn parse_match_arms_brace(
+        &mut self,
+        scrutinee: ExprId,
+        start_span: ori_ir::Span,
+    ) -> Result<ExprId, ParseError> {
+        self.cursor.expect(&TokenKind::LBrace)?;
+        self.cursor.skip_newlines();
+
+        let mut arms: Vec<MatchArm> = Vec::new();
+        self.brace_series_direct(|p| {
+            if p.cursor.check(&TokenKind::RBrace) {
+                return Ok(false);
+            }
+
+            let arm_span = p.cursor.current_span();
+            let pattern = p.parse_match_pattern()?;
+            let guard = p.parse_pattern_guard()?;
+
+            p.cursor.expect(&TokenKind::Arrow)?;
+            let body = p.parse_expr().into_result()?;
+            let end_span = p.arena.get_expr(body).span;
+
+            arms.push(MatchArm {
+                pattern,
+                guard,
+                body,
+                span: arm_span.merge(end_span),
+            });
+            Ok(true)
+        })?;
+        let end_span = self.cursor.previous_span();
+
+        if arms.is_empty() {
+            return Err(ParseError::new(
+                ori_diagnostic::ErrorCode::E1002,
+                "match requires at least one arm",
+                end_span,
+            ));
+        }
+
+        let arms_range = self.arena.alloc_arms(arms);
+        let span = start_span.merge(end_span);
+        let func_seq = FunctionSeq::Match {
+            scrutinee,
+            arms: arms_range,
+            span,
+        };
+
+        let func_seq_id = self.arena.alloc_function_seq(func_seq);
+        Ok(self
+            .arena
+            .alloc_expr(Expr::new(ExprKind::FunctionSeq(func_seq_id), span)))
     }
 
     /// Parse match arms with a known scrutinee and construct a Match expression.

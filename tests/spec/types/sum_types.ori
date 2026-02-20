@@ -15,100 +15,100 @@ use std.testing { assert_eq, assert }
 type Status = Pending | Running | Completed
 
 // Test unit variant construction
-@test_unit_variant_construction tests @unit_variant () -> void = run(
-    let status = Pending,
-    assert(cond: true),
-)
+@test_unit_variant_construction tests @unit_variant () -> void = {
+    let status = Pending;
+    assert(cond: true)
+}
 
 // Simple test: just check if pattern matches Pending
-@unit_variant (s: Status) -> bool = match(s,
+@unit_variant (s: Status) -> bool = match s {
     Pending -> true,
-    _ -> false,
-)
+    _ -> false
+}
 
-@test_unit_variant_matching tests @unit_variant () -> void = run(
-    let s = Pending,
-    let result = unit_variant(s: s),
-    assert(cond: result),
-)
+@test_unit_variant_matching tests @unit_variant () -> void = {
+    let s = Pending;
+    let result = unit_variant(s: s);
+    assert(cond: result)
+}
 
 // Test multiple unit variant patterns
-@status_name (s: Status) -> str = match(s,
+@status_name (s: Status) -> str = match s {
     Pending -> "pending",
     Running -> "running",
-    Completed -> "completed",
-)
+    Completed -> "completed"
+}
 
-@test_all_unit_variants tests @status_name () -> void = run(
+@test_all_unit_variants tests @status_name () -> void = {
     assert_eq(
         actual: status_name(s: Pending),
         expected: "pending",
-    ),
+    );
     assert_eq(
         actual: status_name(s: Running),
         expected: "running",
-    ),
+    );
     assert_eq(
         actual: status_name(s: Completed),
         expected: "completed",
-    ),
-)
+    )
+}
 
 // Sum type with single field
 type Message = Text(content: str) | Empty
 
 // Test single-field variant construction
-@test_single_field_construction tests @get_message () -> void = run(
-    let msg = Text("hello"),
-    assert(cond: true),
-)
+@test_single_field_construction tests @get_message () -> void = {
+    let msg = Text("hello");
+    assert(cond: true)
+}
 
 // Test single-field variant pattern matching
-@get_message (m: Message) -> str = match(m,
+@get_message (m: Message) -> str = match m {
     Text(content) -> content,
-    Empty -> "empty",
-)
+    Empty -> "empty"
+}
 
-@test_single_field_matching tests @get_message () -> void = run(
+@test_single_field_matching tests @get_message () -> void = {
     assert_eq(
         actual: get_message(m: Text("hello")),
         expected: "hello",
-    ),
+    );
     assert_eq(
         actual: get_message(m: Empty),
         expected: "empty",
-    ),
-)
+    )
+}
 
 // Test wildcard pattern with variant
 type Result2 = Success(value: int) | Failure(msg: str)
 
-@is_success (r: Result2) -> bool = match(r,
+@is_success (r: Result2) -> bool = match r {
     Success(_) -> true,
-    _ -> false,
-)
+    _ -> false
+}
 
-@test_wildcard_variant tests @is_success () -> void = run(
-    assert(cond: is_success(r: Success(42))),
-    assert(cond: !is_success(r: Failure("error"))),
-)
+@test_wildcard_variant tests @is_success () -> void = {
+    assert(cond: is_success(r: Success(42)));
+    assert(cond: !is_success(r: Failure("error")))
+}
 
 // Test extracting value from variant
-@get_value (r: Result2) -> int = match(r,
+@get_value (r: Result2) -> int = match r {
     Success(v) -> v,
-    Failure(_) -> -1,
-)
+    Failure(_) -> -1
+}
 
-@test_extract_value tests @get_value () -> void = run(
+@test_extract_value tests @get_value () -> void = {
     assert_eq(
         actual: get_value(r: Success(42)),
         expected: 42,
-    ),
+    );
     assert_eq(
         actual: get_value(r: Failure("error")),
         expected: -1,
-    ),
-)
+    )
+}
 
 // -----------------------------------------------------------------------------
 // Multiple Field Variant Tests
@@ -117,97 +117,97 @@ type Result2 = Success(value: int) | Failure(msg: str)
 // Sum type with multiple fields per variant
 type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
 
-@describe_event (e: Event) -> str = match(e,
+@describe_event (e: Event) -> str = match e {
     Click(x, y) -> "click at " + str(x) + "," + str(y),
     Keypress(key, _) -> "key: " + key,
-    Quit -> "quit",
-)
+    Quit -> "quit"
+}
 
-@test_multiple_fields tests @describe_event () -> void = run(
+@test_multiple_fields tests @describe_event () -> void = {
     assert_eq(
         actual: describe_event(e: Click(x: 10, y: 20)),
         expected: "click at 10,20",
-    ),
+    );
     assert_eq(
         actual: describe_event(e: Keypress(key: "a", shift: false)),
         expected: "key: a",
-    ),
+    );
     assert_eq(
         actual: describe_event(e: Quit),
         expected: "quit",
-    ),
-)
+    )
+}
 
 // -----------------------------------------------------------------------------
 // Binding Pattern Tests (lowercase names bind the value)
 // -----------------------------------------------------------------------------
 
-@bind_variant (s: Status) -> str = match(s,
-    status -> "bound to variable",
-)
+@bind_variant (s: Status) -> str = match s {
+    status -> "bound to variable"
+}
 
-@test_binding_pattern tests @bind_variant () -> void = run(
+@test_binding_pattern tests @bind_variant () -> void = {
     // Lowercase pattern name binds the whole value
     assert_eq(
         actual: bind_variant(s: Pending),
         expected: "bound to variable",
-    ),
+    );
     assert_eq(
         actual: bind_variant(s: Running),
         expected: "bound to variable",
-    ),
-)
+    )
+}
 
 // -----------------------------------------------------------------------------
 // Mixed Pattern Tests
 // -----------------------------------------------------------------------------
 
 // Match specific variant, then catch-all
-@check_pending (s: Status) -> str = match(s,
+@check_pending (s: Status) -> str = match s {
     Pending -> "is pending",
-    other -> "not pending",
-)
+    other -> "not pending"
+}
 
-@test_mixed_patterns tests @check_pending () -> void = run(
+@test_mixed_patterns tests @check_pending () -> void = {
     assert_eq(
         actual: check_pending(s: Pending),
         expected: "is pending",
-    ),
+    );
     assert_eq(
         actual: check_pending(s: Running),
         expected: "not pending",
-    ),
+    );
     assert_eq(
         actual: check_pending(s: Completed),
         expected: "not pending",
-    ),
-)
+    )
+}
 
 // -----------------------------------------------------------------------------
 // Variant Equality Tests
 // -----------------------------------------------------------------------------
 
-@variants_equal (a: Status, b: Status) -> bool = match(a,
-    Pending -> match(b,
+@variants_equal (a: Status, b: Status) -> bool = match a {
+    Pending -> match b {
         Pending -> true,
-        _ -> false,
-    ),
-    Running -> match(b,
+        _ -> false
+    },
+    Running -> match b {
         Running -> true,
-        _ -> false,
-    ),
-    Completed -> match(b,
+        _ -> false
+    },
+    Completed -> match b {
         Completed -> true,
-        _ -> false,
-    ),
-)
+        _ -> false
+    }
+}
 
-@test_variant_equality tests @variants_equal () -> void = run(
-    assert(cond: variants_equal(a: Pending, b: Pending)),
-    assert(cond: variants_equal(a: Running, b: Running)),
-    assert(cond: !variants_equal(a: Pending, b: Running)),
-    assert(cond: !variants_equal(a: Running, b: Completed)),
-)
+@test_variant_equality tests @variants_equal () -> void = {
+    assert(cond: variants_equal(a: Pending, b: Pending));
+    assert(cond: variants_equal(a: Running, b: Running));
+    assert(cond: !variants_equal(a: Pending, b: Running));
+    assert(cond: !variants_equal(a: Running, b: Completed))
+}
 
 // =============================================================================
 // Extended Sum Type Tests
@@ -216,121 +216,121 @@ type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
 // Complex sum type with various field types
 type Shape = Circle(radius: int) | Rectangle(width: int, height: int) | Triangle(base: int, height: int)
 
-@area (s: Shape) -> int = match(s,
+@area (s: Shape) -> int = match s {
     Circle(r) -> r * r * 3,
     Rectangle(w, h) -> w * h,
-    Triangle(b, h) -> b * h / 2,
-)
+    Triangle(b, h) -> b * h / 2
+}
 
-@test_shape_area tests @area () -> void = run(
-    assert_eq(actual: area(s: Circle(radius: 2)), expected: 12),
-    assert_eq(actual: area(s: Rectangle(width: 3, height: 4)), expected: 12),
-    assert_eq(actual: area(s: Triangle(base: 6, height: 4)), expected: 12),
-)
+@test_shape_area tests @area () -> void = {
+    assert_eq(actual: area(s: Circle(radius: 2)), expected: 12);
+    assert_eq(actual: area(s: Rectangle(width: 3, height: 4)), expected: 12);
+    assert_eq(actual: area(s: Triangle(base: 6, height: 4)), expected: 12)
+}
 
 // Sum type with nested sum type
 type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
 
-@tree_sum (t: Tree) -> int = match(t,
+@tree_sum (t: Tree) -> int = match t {
     Leaf(v) -> v,
-    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r),
-)
+    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r)
+}
 
-@test_tree_sum tests @tree_sum () -> void = run(
-    let leaf1 = Leaf(value: 5),
-    let leaf2 = Leaf(value: 10),
-    let tree = Node(left: leaf1, right: leaf2),
-    assert_eq(actual: tree_sum(t: tree), expected: 15),
-)
+@test_tree_sum tests @tree_sum () -> void = {
+    let leaf1 = Leaf(value: 5);
+    let leaf2 = Leaf(value: 10);
+    let tree = Node(left: leaf1, right: leaf2);
+    assert_eq(actual: tree_sum(t: tree), expected: 15)
+}
 
 // Sum type with Option-like semantics
 type MaybeInt = JustInt(value: int) | NothingInt
 
-@maybe_double (m: MaybeInt) -> MaybeInt = match(m,
+@maybe_double (m: MaybeInt) -> MaybeInt = match m {
     JustInt(v) -> JustInt(value: v * 2),
-    NothingInt -> NothingInt,
-)
+    NothingInt -> NothingInt
+}
 
-@test_maybe_double tests @maybe_double () -> void = run(
-    let some = JustInt(value: 21),
-    let none = NothingInt,
-    let doubled = maybe_double(m: some),
-    let still_none = maybe_double(m: none),
-    match(doubled,
+@test_maybe_double tests @maybe_double () -> void = {
+    let some = JustInt(value: 21);
+    let none = NothingInt;
+    let doubled = maybe_double(m: some);
+    let still_none = maybe_double(m: none);
+    match doubled {
         JustInt(v) -> assert_eq(actual: v, expected: 42),
-        NothingInt -> assert(cond: false),
-    ),
-    match(still_none,
+        NothingInt -> assert(cond: false)
+    };
+    match still_none {
         JustInt(_) -> assert(cond: false),
-        NothingInt -> assert(cond: true),
-    ),
-)
+        NothingInt -> assert(cond: true)
+    }
+}
 
 // Sum type used in a list
 type Item = Product(name: str, price: int) | Service(name: str, hours: int)
 
-@item_cost (i: Item) -> int = match(i,
+@item_cost (i: Item) -> int = match i {
     Product(_, price) -> price,
-    Service(_, hours) -> hours * 50,
-)
+    Service(_, hours) -> hours * 50
+}
 
-@total_cost (items: [Item]) -> int = run(
-    let item1 = items[0],
-    let item2 = items[1],
-    item_cost(i: item1) + item_cost(i: item2),
-)
+@total_cost (items: [Item]) -> int = {
+    let item1 = items[0];
+    let item2 = items[1];
+    item_cost(i: item1) + item_cost(i: item2)
+}
 
-@test_items_cost tests @total_cost () -> void = run(
-    let item1 = Product(name: "Widget", price: 100),
-    let item2 = Service(name: "Consulting", hours: 2),
-    let items = [item1, item2],
-    assert_eq(actual: total_cost(items: items), expected: 200),
-)
+@test_items_cost tests @total_cost () -> void = {
+    let item1 = Product(name: "Widget", price: 100);
+    let item2 = Service(name: "Consulting", hours: 2);
+    let items = [item1, item2];
+    assert_eq(actual: total_cost(items: items), expected: 200)
+}
 
 // Sum type with string data
 type LogLevel = Debug(msg: str) | Info(msg: str) | Warn(msg: str) | Error(msg: str)
 
-@log_prefix (l: LogLevel) -> str = match(l,
+@log_prefix (l: LogLevel) -> str = match l {
     Debug(m) -> "[DEBUG] " + m,
     Info(m) -> "[INFO] " + m,
     Warn(m) -> "[WARN] " + m,
-    Error(m) -> "[ERROR] " + m,
-)
+    Error(m) -> "[ERROR] " + m
+}
 
-@test_log_prefix tests @log_prefix () -> void = run(
-    assert_eq(actual: log_prefix(l: Debug(msg: "test")), expected: "[DEBUG] test"),
-    assert_eq(actual: log_prefix(l: Info(msg: "test")), expected: "[INFO] test"),
-    assert_eq(actual: log_prefix(l: Warn(msg: "test")), expected: "[WARN] test"),
-    assert_eq(actual: log_prefix(l: Error(msg: "test")), expected: "[ERROR] test"),
-)
+@test_log_prefix tests @log_prefix () -> void = {
+    assert_eq(actual: log_prefix(l: Debug(msg: "test")), expected: "[DEBUG] test");
+    assert_eq(actual: log_prefix(l: Info(msg: "test")), expected: "[INFO] test");
+    assert_eq(actual: log_prefix(l: Warn(msg: "test")), expected: "[WARN] test");
+    assert_eq(actual: log_prefix(l: Error(msg: "test")), expected: "[ERROR] test")
+}
 
 // Sum type with bool field
 type FilterResult = Pass(value: int) | Fail(reason: str, recoverable: bool)
 
-@describe_filter (f: FilterResult) -> str = match(f,
+@describe_filter (f: FilterResult) -> str = match f {
     Pass(v) -> "Passed with " + str(v),
     Fail(r, true) -> "Failed (recoverable): " + r,
-    Fail(r, false) -> "Failed (fatal): " + r,
-)
+    Fail(r, false) -> "Failed (fatal): " + r
+}
 
-@test_filter_result tests @describe_filter () -> void = run(
-    assert_eq(actual: describe_filter(f: Pass(value: 42)), expected: "Passed with 42"),
-    assert_eq(actual: describe_filter(f: Fail(reason: "timeout", recoverable: true)), expected: "Failed (recoverable): timeout"),
-    assert_eq(actual: describe_filter(f: Fail(reason: "crash", recoverable: false)), expected: "Failed (fatal): crash"),
-)
+@test_filter_result tests @describe_filter () -> void = {
+    assert_eq(actual: describe_filter(f: Pass(value: 42)), expected: "Passed with 42");
+    assert_eq(actual: describe_filter(f: Fail(reason: "timeout", recoverable: true)), expected: "Failed (recoverable): timeout");
+    assert_eq(actual: describe_filter(f: Fail(reason: "crash", recoverable: false)), expected: "Failed (fatal): crash")
+}
 
 // Three-variant with extraction
 type Either = Left(value: int) | Middle(text: str) | Right(flag: bool)
 
-@either_to_int (e: Either) -> int = match(e,
+@either_to_int (e: Either) -> int = match e {
     Left(v) -> v,
     Middle(t) -> t.len(),
-    Right(f) -> if f then 1 else 0,
-)
+    Right(f) -> if f then 1 else 0
+}
 
-@test_either_to_int tests @either_to_int () -> void = run(
-    assert_eq(actual: either_to_int(e: Left(value: 42)), expected: 42),
-    assert_eq(actual: either_to_int(e: Middle(text: "hello")), expected: 5),
-    assert_eq(actual: either_to_int(e: Right(flag: true)), expected: 1),
-    assert_eq(actual: either_to_int(e: Right(flag: false)), expected: 0),
-)
+@test_either_to_int tests @either_to_int () -> void = {
+    assert_eq(actual: either_to_int(e: Left(value: 42)), expected: 42);
+    assert_eq(actual: either_to_int(e: Middle(text: "hello")), expected: 5);
+    assert_eq(actual: either_to_int(e: Right(flag: true)), expected: 1);
+    assert_eq(actual: either_to_int(e: Right(flag: false)), expected: 0)
+}

@@ -1,44 +1,44 @@
 use std.testing { assert_eq }
 
-@some_value () -> int = run(
-    let opt = Some(42),
-    opt ?? 0,
-)
+@some_value () -> int = {
+    let opt = Some(42);
+    opt ?? 0
+}
 
-@test_basic_coalesce tests @some_value () -> void = run(
-    assert_eq(actual: some_value(), expected: 42),
-)
+@test_basic_coalesce tests @some_value () -> void = {
+    assert_eq(actual: some_value(), expected: 42)
+}
 
-@string_coalesce () -> str = run(
-    let opt: Option<str> = None,
-    opt ?? "default",
-)
+@string_coalesce () -> str = {
+    let opt: Option<str> = None;
+    opt ?? "default"
+}
 
-@test_string_coalesce tests @string_coalesce () -> void = run(
-    assert_eq(actual: string_coalesce(), expected: "default"),
-)
+@test_string_coalesce tests @string_coalesce () -> void = {
+    assert_eq(actual: string_coalesce(), expected: "default")
+}
 
-@list_coalesce () -> [int] = run(
-    let opt: Option<[int]> = None,
-    opt ?? [1, 2, 3],
-)
+@list_coalesce () -> [int] = {
+    let opt: Option<[int]> = None;
+    opt ?? [1, 2, 3]
+}
 
-@test_list_coalesce tests @list_coalesce () -> void = run(
-    assert_eq(actual: list_coalesce(), expected: [1, 2, 3]),
-)
+@test_list_coalesce tests @list_coalesce () -> void = {
+    assert_eq(actual: list_coalesce(), expected: [1, 2, 3])
+}
 
 // Map lookup - this might use Option
-@map_lookup_default () -> int = run(
-    let map = {"key": 42},
-    map["missing"] ?? 0,
-)
+@map_lookup_default () -> int = {
+    let map = {"key": 42};
+    map["missing"] ?? 0
+}
 
-@nested_option_outer_none () -> Option<int> = run(
-    let outer: Option<Option<int>> = None,
-    let inner_default: Option<int> = Some(42),
-    outer ?? inner_default,
-)
+@nested_option_outer_none () -> Option<int> = {
+    let outer: Option<Option<int>> = None;
+    let inner_default: Option<int> = Some(42);
+    outer ?? inner_default
+}
 
-@test_nested_option tests @nested_option_outer_none () -> void = run(
-    assert_eq(actual: nested_option_outer_none(), expected: Some(42)),
-)
+@test_nested_option tests @nested_option_outer_none () -> void = {
+    assert_eq(actual: nested_option_outer_none(), expected: Some(42))
+}

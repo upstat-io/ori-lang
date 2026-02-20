@@ -8,151 +8,151 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // .iter() on infinite range returns Iterator
-@iter_take_collect () -> [int] = run(
-    (0..).iter().take(count: 5).collect(),
-)
+@iter_take_collect () -> [int] = {
+    (0..).iter().take(count: 5).collect()
+}
 
-@test_iter_take_collect tests @iter_take_collect () -> void = run(
-    assert_eq(actual: iter_take_collect(), expected: [0, 1, 2, 3, 4]),
-)
+@test_iter_take_collect tests @iter_take_collect () -> void = {
+    assert_eq(actual: iter_take_collect(), expected: [0, 1, 2, 3, 4])
+}
 
 // =============================================================================
 // Adapter Chaining
 // =============================================================================
 
 // map + take + collect
-@map_take () -> [int] = run(
-    (0..).iter().map(transform: x -> x * 2).take(count: 5).collect(),
-)
+@map_take () -> [int] = {
+    (0..).iter().map(transform: x -> x * 2).take(count: 5).collect()
+}
 
-@test_map_take tests @map_take () -> void = run(
-    assert_eq(actual: map_take(), expected: [0, 2, 4, 6, 8]),
-)
+@test_map_take tests @map_take () -> void = {
+    assert_eq(actual: map_take(), expected: [0, 2, 4, 6, 8])
+}
 
 // filter + take + collect
-@filter_take () -> [int] = run(
-    (0..).iter().filter(predicate: x -> x % 2 == 0).take(count: 5).collect(),
-)
+@filter_take () -> [int] = {
+    (0..).iter().filter(predicate: x -> x % 2 == 0).take(count: 5).collect()
+}
 
-@test_filter_take tests @filter_take () -> void = run(
-    assert_eq(actual: filter_take(), expected: [0, 2, 4, 6, 8]),
-)
+@test_filter_take tests @filter_take () -> void = {
+    assert_eq(actual: filter_take(), expected: [0, 2, 4, 6, 8])
+}
 
 // enumerate + take + collect
-@enumerate_take () -> [(int, int)] = run(
-    (10..).iter().enumerate().take(count: 3).collect(),
-)
+@enumerate_take () -> [(int, int)] = {
+    (10..).iter().enumerate().take(count: 3).collect()
+}
 
-@test_enumerate_take tests @enumerate_take () -> void = run(
-    assert_eq(actual: enumerate_take(), expected: [(0, 10), (1, 11), (2, 12)]),
-)
+@test_enumerate_take tests @enumerate_take () -> void = {
+    assert_eq(actual: enumerate_take(), expected: [(0, 10), (1, 11), (2, 12)])
+}
 
 // skip + take + collect
-@skip_take () -> [int] = run(
-    (0..).iter().skip(count: 100).take(count: 3).collect(),
-)
+@skip_take () -> [int] = {
+    (0..).iter().skip(count: 100).take(count: 3).collect()
+}
 
-@test_skip_take tests @skip_take () -> void = run(
-    assert_eq(actual: skip_take(), expected: [100, 101, 102]),
-)
+@test_skip_take tests @skip_take () -> void = {
+    assert_eq(actual: skip_take(), expected: [100, 101, 102])
+}
 
 // map + filter + take + collect (complex chain)
-@map_filter_take () -> [int] = run(
+@map_filter_take () -> [int] = {
     (0..).iter()
         .map(transform: x -> x * x)
         .filter(predicate: x -> x % 2 == 0)
         .take(count: 4)
-        .collect(),
-)
+        .collect()
+}
 
-@test_map_filter_take tests @map_filter_take () -> void = run(
-    assert_eq(actual: map_filter_take(), expected: [0, 4, 16, 36]),
-)
+@test_map_filter_take tests @map_filter_take () -> void = {
+    assert_eq(actual: map_filter_take(), expected: [0, 4, 16, 36])
+}
 
 // =============================================================================
 // Zip with Finite Iterator
 // =============================================================================
 
 // Zip infinite with finite terminates at the finite side
-@zip_finite () -> [(int, str)] = run(
-    (0..).iter().zip(other: ["a", "b", "c"].iter()).collect(),
-)
+@zip_finite () -> [(int, str)] = {
+    (0..).iter().zip(other: ["a", "b", "c"].iter()).collect()
+}
 
-@test_zip_finite tests @zip_finite () -> void = run(
-    assert_eq(actual: zip_finite(), expected: [(0, "a"), (1, "b"), (2, "c")]),
-)
+@test_zip_finite tests @zip_finite () -> void = {
+    assert_eq(actual: zip_finite(), expected: [(0, "a"), (1, "b"), (2, "c")])
+}
 
 // =============================================================================
 // Short-Circuit Consumers
 // =============================================================================
 
 // find on infinite range
-@find_in_infinite () -> Option<int> = run(
-    (0..).iter().find(predicate: x -> x > 10),
-)
+@find_in_infinite () -> Option<int> = {
+    (0..).iter().find(predicate: x -> x > 10)
+}
 
-@test_find_in_infinite tests @find_in_infinite () -> void = run(
-    assert_eq(actual: find_in_infinite(), expected: Some(11)),
-)
+@test_find_in_infinite tests @find_in_infinite () -> void = {
+    assert_eq(actual: find_in_infinite(), expected: Some(11))
+}
 
 // any on infinite range (short-circuits)
-@any_in_infinite () -> bool = run(
-    (0..).iter().any(predicate: x -> x == 42),
-)
+@any_in_infinite () -> bool = {
+    (0..).iter().any(predicate: x -> x == 42)
+}
 
-@test_any_in_infinite tests @any_in_infinite () -> void = run(
-    assert(cond: any_in_infinite()),
-)
+@test_any_in_infinite tests @any_in_infinite () -> void = {
+    assert(cond: any_in_infinite())
+}
 
 // all on infinite range with failing predicate (short-circuits)
-@all_fails_infinite () -> bool = run(
-    (0..).iter().all(predicate: x -> x < 10),
-)
+@all_fails_infinite () -> bool = {
+    (0..).iter().all(predicate: x -> x < 10)
+}
 
-@test_all_fails_infinite tests @all_fails_infinite () -> void = run(
-    assert(cond: all_fails_infinite() == false),
-)
+@test_all_fails_infinite tests @all_fails_infinite () -> void = {
+    assert(cond: all_fails_infinite() == false)
+}
 
 // =============================================================================
 // Consumers with take
 // =============================================================================
 
 // count after take
-@count_after_take () -> int = run(
-    (0..).iter().take(count: 100).count(),
-)
+@count_after_take () -> int = {
+    (0..).iter().take(count: 100).count()
+}
 
-@test_count_after_take tests @count_after_take () -> void = run(
-    assert_eq(actual: count_after_take(), expected: 100),
-)
+@test_count_after_take tests @count_after_take () -> void = {
+    assert_eq(actual: count_after_take(), expected: 100)
+}
 
 // fold after take
-@fold_after_take () -> int = run(
-    (1..).iter().take(count: 5).fold(initial: 0, op: (acc, x) -> acc + x),
-)
+@fold_after_take () -> int = {
+    (1..).iter().take(count: 5).fold(initial: 0, op: (acc, x) -> acc + x)
+}
 
-@test_fold_after_take tests @fold_after_take () -> void = run(
-    assert_eq(actual: fold_after_take(), expected: 15),
-)
+@test_fold_after_take tests @fold_after_take () -> void = {
+    assert_eq(actual: fold_after_take(), expected: 15)
+}
 
 // =============================================================================
 // Infinite Range with Step — Iterator
 // =============================================================================
 
 // Step 2 with take
-@step_iter () -> [int] = run(
-    (0.. by 2).iter().take(count: 5).collect(),
-)
+@step_iter () -> [int] = {
+    (0.. by 2).iter().take(count: 5).collect()
+}
 
-@test_step_iter tests @step_iter () -> void = run(
-    assert_eq(actual: step_iter(), expected: [0, 2, 4, 6, 8]),
-)
+@test_step_iter tests @step_iter () -> void = {
+    assert_eq(actual: step_iter(), expected: [0, 2, 4, 6, 8])
+}
 
 // Negative step with take
-@neg_step_iter () -> [int] = run(
-    (0.. by -1).iter().take(count: 5).collect(),
-)
+@neg_step_iter () -> [int] = {
+    (0.. by -1).iter().take(count: 5).collect()
+}
 
-@test_neg_step_iter tests @neg_step_iter () -> void = run(
-    assert_eq(actual: neg_step_iter(), expected: [0, -1, -2, -3, -4]),
-)
+@test_neg_step_iter tests @neg_step_iter () -> void = {
+    assert_eq(actual: neg_step_iter(), expected: [0, -1, -2, -3, -4])
+}

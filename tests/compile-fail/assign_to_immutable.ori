@@ -1,0 +1,12 @@
+// Test that assigning to an immutable ($) binding is a compile error (E2039)
+// Spec: 05-variables.md § Immutable Bindings
+//
+// Bindings declared with `$` prefix cannot be reassigned.
+// The type checker rejects assignment to immutable bindings at compile time.
+// Note: `$` is a binding modifier — the variable is referenced as `x`, not `$x`.
+
+#[compile_fail("cannot assign to immutable binding")]
+@test_assign_to_immutable () -> void = {
+    let $x = 5;
+    x = 10
+}

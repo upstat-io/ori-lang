@@ -16,11 +16,11 @@ impl Producer for IntProducer {
 }
 
 // This should work if Self.Item resolves to int
-@test_produce_int tests @produce () -> void = run(
-    let p = IntProducer { value: 42 },
-    let result: int = p.produce(),
-    assert_eq(actual: result, expected: 42),
-)
+@test_produce_int tests @produce () -> void = {
+    let p = IntProducer { value: 42 };
+    let result: int = p.produce();
+    assert_eq(actual: result, expected: 42)
+}
 
 // Test 2: Does it work with different types?
 type StrProducer = { text: str }
@@ -30,9 +30,9 @@ impl Producer for StrProducer {
     @produce (self) -> Self.Item = self.text
 }
 
-@test_produce_str tests @produce () -> void = run(
-    let p = StrProducer { text: "hello" },
-    let result: str = p.produce(),
-    assert_eq(actual: result, expected: "hello"),
-)
+@test_produce_str tests @produce () -> void = {
+    let p = StrProducer { text: "hello" };
+    let result: str = p.produce();
+    assert_eq(actual: result, expected: "hello")
+}
 

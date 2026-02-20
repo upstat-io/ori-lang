@@ -48,13 +48,20 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             ExprKind::Block { stmts, result } => {
                 let stmts_list = self.arena.get_stmt_range(*stmts);
+                self.ctx.emit("{");
+                self.ctx.indent();
                 for stmt in stmts_list {
-                    self.emit_stmt(stmt);
                     self.ctx.emit_newline_indent();
+                    self.emit_stmt(stmt);
+                    self.ctx.emit(";");
                 }
                 if result.is_present() {
+                    self.ctx.emit_newline_indent();
                     self.format(*result);
                 }
+                self.ctx.dedent();
+                self.ctx.emit_newline_indent();
+                self.ctx.emit("}");
             }
 
             // For other always-stacked constructs, use broken format
@@ -80,7 +87,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 result,
                 span: _,
             } => {
-                self.emit_seq_with_bindings("try", *bindings, *result);
+                self.emit_try_block(*bindings, *result);
             }
 
             ori_ir::FunctionSeq::Match {
@@ -146,14 +153,14 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// )
     /// ```
     fn emit_match_construct(&mut self, scrutinee: ExprId, arms: ArmRange) {
-        self.ctx.emit("match(");
+        self.ctx.emit("match ");
         self.format(scrutinee);
-        self.ctx.emit(",");
+        self.ctx.emit(" {");
         let arms_list = self.arena.get_arms(arms);
-        self.ctx.emit_newline();
+        let arm_count = arms_list.len();
         self.ctx.indent();
-        for arm in arms_list {
-            self.ctx.emit_indent();
+        for (i, arm) in arms_list.iter().enumerate() {
+            self.ctx.emit_newline_indent();
             self.emit_match_pattern(&arm.pattern);
             if let Some(guard) = arm.guard {
                 self.ctx.emit(".match(");
@@ -162,12 +169,13 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
             self.ctx.emit(" -> ");
             self.format(arm.body);
-            self.ctx.emit(",");
-            self.ctx.emit_newline();
+            if i + 1 < arm_count {
+                self.ctx.emit(",");
+            }
         }
         self.ctx.dedent();
-        self.ctx.emit_indent();
-        self.ctx.emit(")");
+        self.ctx.emit_newline_indent();
+        self.ctx.emit("}");
     }
 
     /// Emit a run pattern with optional pre/post checks.
@@ -234,36 +242,26 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit(")");
     }
 
-    /// Emit a sequential pattern with bindings (shared by run/try).
-    ///
-    /// Format:
-    /// ```text
-    /// keyword(
-    ///     binding1,
-    ///     binding2,
-    ///     result,
-    /// )
-    /// ```
-    fn emit_seq_with_bindings(&mut self, keyword: &str, bindings: SeqBindingRange, result: ExprId) {
-        self.ctx.emit(keyword);
-        self.ctx.emit("(");
-        self.ctx.emit_newline();
+    /// Emit `try { bindings; result }` using block syntax.
+    fn emit_try_block(&mut self, bindings: SeqBindingRange, result: ExprId) {
+        self.ctx.emit("try {");
         self.ctx.indent();
 
         let bindings_list = self.arena.get_seq_bindings(bindings);
         for binding in bindings_list {
-            self.ctx.emit_indent();
+            self.ctx.emit_newline_indent();
             self.emit_seq_binding(binding);
-            self.ctx.emit(",");
-            self.ctx.emit_newline();
+            self.ctx.emit(";");
         }
 
-        self.ctx.emit_indent();
-        self.format(result);
-        self.ctx.emit(",");
+        if result.is_present() {
+            self.ctx.emit_newline_indent();
+            self.format(result);
+        }
+
         self.ctx.dedent();
         self.ctx.emit_newline_indent();
-        self.ctx.emit(")");
+        self.ctx.emit("}");
     }
 
     /// Emit a sequence binding.

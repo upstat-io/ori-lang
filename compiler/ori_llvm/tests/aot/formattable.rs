@@ -74,12 +74,12 @@ fn test_aot_format_int_zero_pad() {
 fn test_aot_format_int_width_align() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let right = `{42:>8}`,
-    let left = `{42:<8}`,
-    let center = `{42:^8}`,
+@main () -> int = {
+    let right = `{42:>8}`;
+    let left = `{42:<8}`;
+    let center = `{42:^8}`;
     if right == "      42" && left == "42      " && center == "   42   " then 0 else 1
-)
+}
 "#,
         "format_int_width_align",
     );
@@ -141,11 +141,11 @@ fn test_aot_format_float_sign() {
 fn test_aot_format_str_width() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let right = `{"hi":>10}`,
-    let left = `{"hi":<10}`,
+@main () -> int = {
+    let right = `{"hi":>10}`;
+    let left = `{"hi":<10}`;
     if right == "        hi" && left == "hi        " then 0 else 1
-)
+}
 "#,
         "format_str_width",
     );

@@ -11,9 +11,9 @@ use std.testing { assert, assert_eq }
 
 @imports_module () -> bool = true
 
-@test_imports_module tests @imports_module () -> void = run(
-    assert(cond: imports_module()),
-)
+@test_imports_module tests @imports_module () -> void = {
+    assert(cond: imports_module())
+}
 
 // =============================================================================
 // Standard Library Imports
@@ -22,12 +22,12 @@ use std.testing { assert, assert_eq }
 // Note: More complex import tests would need additional test modules
 // This file verifies the basic import syntax works
 
-@imports_std () -> int = run(
+@imports_std () -> int = {
     // Testing assert_eq which was imported from std.testing
-    let result = 42,
-    result,
-)
+    let result = 42;
+    result
+}
 
-@test_imports_std tests @imports_std () -> void = run(
-    assert_eq(actual: imports_std(), expected: 42),
-)
+@test_imports_std tests @imports_std () -> void = {
+    assert_eq(actual: imports_std(), expected: 42)
+}

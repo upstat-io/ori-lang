@@ -8,7 +8,7 @@ impl Point {
     @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
 }
 
-@main () -> void = run(
-    let p = Point { x: 3, y: 4 },
-    print(msg: p.sum()),
-)
+@main () -> void = {
+    let p = Point { x: 3, y: 4 };
+    print(msg: p.sum())
+}

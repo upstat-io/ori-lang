@@ -18,192 +18,192 @@
 // // Basic for Pattern
 // // =============================================================================
 //
-// @test_for_basic tests @find_first_some () -> void = run(
+// @test_for_basic tests @find_first_some () -> void = {
 //     let result = find_first_some(),
 //     assert_eq(actual: result, expected: 42),
-// )
+// }
 //
-// @find_first_some () -> int = run(
+// @find_first_some () -> int = {
 //     let items = [None, None, Some(42), Some(99)],
 //     for(over: items, match: Some(x) -> x, default: 0),
-// )
+// }
 //
-// @test_for_no_match tests @find_first_some_empty () -> void = run(
+// @test_for_no_match tests @find_first_some_empty () -> void = {
 //     let result = find_first_some_empty(),
 //     assert_eq(actual: result, expected: -1),
-// )
+// }
 //
-// @find_first_some_empty () -> int = run(
+// @find_first_some_empty () -> int = {
 //     let items = [None, None, None],
 //     for(over: items, match: Some(x) -> x, default: -1),
-// )
+// }
 //
-// @test_for_first_element tests @find_first () -> void = run(
+// @test_for_first_element tests @find_first () -> void = {
 //     let result = find_first(),
 //     assert_eq(actual: result, expected: 1),
-// )
+// }
 //
-// @find_first () -> int = run(
+// @find_first () -> int = {
 //     let items = [Some(1), Some(2), Some(3)],
 //     for(over: items, match: Some(x) -> x, default: 0),
-// )
+// }
 //
 // // =============================================================================
 // // for Pattern with Result
 // // =============================================================================
 //
-// @test_for_result tests @find_first_ok () -> void = run(
+// @test_for_result tests @find_first_ok () -> void = {
 //     let result = find_first_ok(),
 //     assert_eq(actual: result, expected: "success"),
-// )
+// }
 //
-// @find_first_ok () -> str = run(
+// @find_first_ok () -> str = {
 //     let items = [Err("e1"), Err("e2"), Ok("success"), Ok("another")],
 //     for(over: items, match: Ok(v) -> v, default: "none"),
-// )
+// }
 //
-// @test_for_result_no_ok tests @find_first_ok_empty () -> void = run(
+// @test_for_result_no_ok tests @find_first_ok_empty () -> void = {
 //     let result = find_first_ok_empty(),
 //     assert_eq(actual: result, expected: "fallback"),
-// )
+// }
 //
-// @find_first_ok_empty () -> str = run(
+// @find_first_ok_empty () -> str = {
 //     let items = [Err("e1"), Err("e2")],
 //     for(over: items, match: Ok(v) -> v, default: "fallback"),
-// )
+// }
 //
 // // =============================================================================
 // // for Pattern with map
 // // =============================================================================
 //
-// @test_for_with_map tests @find_parsed () -> void = run(
+// @test_for_with_map tests @find_parsed () -> void = {
 //     let result = find_parsed(),
 //     assert_eq(actual: result, expected: 42),
-// )
+// }
 //
-// @parse (s: str) -> Option<int> = match(s,
+// @parse (s: str) -> Option<int> = match s {
 //     "42" -> Some(42),
 //     "99" -> Some(99),
 //     _ -> None,
-// )
+// }
 //
-// @find_parsed () -> int = run(
+// @find_parsed () -> int = {
 //     let items = ["invalid", "also_invalid", "42", "99"],
 //     for(over: items, map: s -> parse(s), match: Some(x) -> x, default: 0),
-// )
+// }
 //
-// @test_for_with_map_no_match tests @find_parsed_none () -> void = run(
+// @test_for_with_map_no_match tests @find_parsed_none () -> void = {
 //     let result = find_parsed_none(),
 //     assert_eq(actual: result, expected: -1),
-// )
+// }
 //
-// @find_parsed_none () -> int = run(
+// @find_parsed_none () -> int = {
 //     let items = ["a", "b", "c"],
 //     for(over: items, map: s -> parse(s), match: Some(x) -> x, default: -1),
-// )
+// }
 //
 // // =============================================================================
 // // for Pattern with empty list
 // // =============================================================================
 //
-// @test_for_empty_list tests @find_in_empty () -> void = run(
+// @test_for_empty_list tests @find_in_empty () -> void = {
 //     let result = find_in_empty(),
 //     assert_eq(actual: result, expected: 999),
-// )
+// }
 //
-// @find_in_empty () -> int = run(
+// @find_in_empty () -> int = {
 //     let items = [],
 //     for(over: items, match: Some(x) -> x, default: 999),
-// )
+// }
 //
 // // =============================================================================
 // // for/do Loop (Imperative)
 // // =============================================================================
 //
-// @test_for_do_basic tests @for_do_basic () -> void = run(
+// @test_for_do_basic tests @for_do_basic () -> void = {
 //     let result = for_do_basic(),
 //     assert_eq(actual: result, expected: 15),
-// )
+// }
 //
-// @for_do_basic () -> int = run(
+// @for_do_basic () -> int = {
 //     let sum = 0,
 //     for x in [1, 2, 3, 4, 5] do sum = sum + x,
 //     sum,
-// )
+// }
 //
-// @test_for_do_empty tests @for_do_empty () -> void = run(
+// @test_for_do_empty tests @for_do_empty () -> void = {
 //     let result = for_do_empty(),
 //     assert_eq(actual: result, expected: 0),
-// )
+// }
 //
-// @for_do_empty () -> int = run(
+// @for_do_empty () -> int = {
 //     let sum = 0,
 //     for x in [] do sum = sum + x,
 //     sum,
-// )
+// }
 //
-// @test_for_do_single tests @for_do_single () -> void = run(
+// @test_for_do_single tests @for_do_single () -> void = {
 //     let result = for_do_single(),
 //     assert_eq(actual: result, expected: 42),
-// )
+// }
 //
-// @for_do_single () -> int = run(
+// @for_do_single () -> int = {
 //     let result = 0,
 //     for x in [42] do result = x,
 //     result,
-// )
+// }
 //
-// @test_for_do_string tests @for_do_string () -> void = run(
+// @test_for_do_string tests @for_do_string () -> void = {
 //     let result = for_do_string(),
 //     assert_eq(actual: result, expected: 3),
-// )
+// }
 //
-// @for_do_string () -> int = run(
+// @for_do_string () -> int = {
 //     let count = 0,
 //     for _ in ["a", "b", "c"] do count = count + 1,
 //     count,
-// )
+// }
 //
-// @test_for_do_range tests @for_do_range () -> void = run(
+// @test_for_do_range tests @for_do_range () -> void = {
 //     let result = for_do_range(),
 //     assert_eq(actual: result, expected: 45),
-// )
+// }
 //
-// @for_do_range () -> int = run(
+// @for_do_range () -> int = {
 //     let sum = 0,
 //     for i in 0..10 do sum = sum + i,
 //     sum,
-// )
+// }
 //
 // // =============================================================================
 // // for/yield Comprehension (List Building)
 // // =============================================================================
 //
-// @test_for_yield_basic tests @for_yield_basic () -> void = run(
+// @test_for_yield_basic tests @for_yield_basic () -> void = {
 //     let result = for_yield_basic(),
 //     assert_eq(actual: result, expected: [2, 4, 6, 8, 10]),
-// )
+// }
 //
 // @for_yield_basic () -> [int] = for x in [1, 2, 3, 4, 5] yield x * 2
 //
-// @test_for_yield_empty tests @for_yield_empty () -> void = run(
+// @test_for_yield_empty tests @for_yield_empty () -> void = {
 //     let result = for_yield_empty(),
 //     assert_eq(actual: result, expected: []),
-// )
+// }
 //
 // @for_yield_empty () -> [int] = for x in [] yield x * 2
 //
-// @test_for_yield_strings tests @for_yield_strings () -> void = run(
+// @test_for_yield_strings tests @for_yield_strings () -> void = {
 //     let result = for_yield_strings(),
 //     assert_eq(actual: result.len(), expected: 3),
-// )
+// }
 //
 // @for_yield_strings () -> [str] = for s in ["hello", "world", "ori"] yield s + "!"
 //
-// @test_for_yield_transform tests @for_yield_transform () -> void = run(
+// @test_for_yield_transform tests @for_yield_transform () -> void = {
 //     let result = for_yield_transform(),
 //     assert_eq(actual: result, expected: [1, 4, 9, 16, 25]),
-// )
+// }
 //
 // @for_yield_transform () -> [int] = for x in [1, 2, 3, 4, 5] yield x * x
 //
@@ -211,32 +211,32 @@
 // // for/if/yield Comprehension with Filter
 // // =============================================================================
 //
-// @test_for_if_yield tests @for_if_yield () -> void = run(
+// @test_for_if_yield tests @for_if_yield () -> void = {
 //     let result = for_if_yield(),
 //     assert_eq(actual: result, expected: [2, 4, 6, 8, 10]),
-// )
+// }
 //
 // @for_if_yield () -> [int] = for x in 1..=10 if x % 2 == 0 yield x
 //
-// @test_for_if_yield_none tests @for_if_yield_none () -> void = run(
+// @test_for_if_yield_none tests @for_if_yield_none () -> void = {
 //     let result = for_if_yield_none(),
 //     assert_eq(actual: result, expected: []),
-// )
+// }
 //
 // @for_if_yield_none () -> [int] = for x in [1, 2, 3] if x > 10 yield x
 //
-// @test_for_if_yield_all tests @for_if_yield_all () -> void = run(
+// @test_for_if_yield_all tests @for_if_yield_all () -> void = {
 //     let result = for_if_yield_all(),
 //     assert_eq(actual: result, expected: [1, 2, 3]),
-// )
+// }
 //
 // @for_if_yield_all () -> [int] = for x in [1, 2, 3] if x > 0 yield x
 //
 // #skip("for loop range/condition evaluation off-by-one")
-// @test_for_multiple_conditions tests @for_multiple_conditions () -> void = run(
+// @test_for_multiple_conditions tests @for_multiple_conditions () -> void = {
 //     let result = for_multiple_conditions(),
 //     assert_eq(actual: result, expected: [6, 8]),
-// )
+// }
 //
 // @for_multiple_conditions () -> [int] = for x in 1..10 if x > 5 && x < 9 yield x
 //
@@ -244,17 +244,17 @@
 // // Nested for Loops
 // // =============================================================================
 //
-// @test_nested_for_do tests @nested_for_do () -> void = run(
+// @test_nested_for_do tests @nested_for_do () -> void = {
 //     let result = nested_for_do(),
 //     assert_eq(actual: result, expected: 9),
-// )
+// }
 //
-// @nested_for_do () -> int = run(
+// @nested_for_do () -> int = {
 //     let count = 0,
 //     for i in [1, 2, 3] do
 //         for j in [1, 2, 3] do count = count + 1,
 //     count,
-// )
+// }
 //
 // // SKIP: Nested for loop comprehension syntax `for x in ... for y in ... yield` not supported
 // // Parser expects `do` or `yield` after first iterator before second `for`.
@@ -264,101 +264,101 @@
 // @nested_for_yield () -> [(int, int)] = (for x in [1, 2, 3] yield (for y in [1, 2, 3] yield (x, y))).flatten()
 //
 // #skip("nested for comprehension syntax not supported - needs explicit nesting")
-// @test_nested_for_yield tests @nested_for_yield () -> void = run(
+// @test_nested_for_yield tests @nested_for_yield () -> void = {
 //     let result = nested_for_yield(),
 //     assert_eq(actual: result.len(), expected: 9),
-// )
+// }
 //
 // // @nested_for_filtered () -> [(int, int)] = for x in 1..5 for y in 1..5 if x < y yield (x, y)
 // @nested_for_filtered () -> [(int, int)] = (for x in 1..5 yield (for y in 1..5 if x < y yield (x, y))).flatten()
 //
 // #skip("nested for comprehension syntax not supported - needs explicit nesting")
-// @test_nested_for_filtered tests @nested_for_filtered () -> void = run(
+// @test_nested_for_filtered tests @nested_for_filtered () -> void = {
 //     let result = nested_for_filtered(),
 //     // Only pairs where x < y
 //     assert(cond: result.len() > 0),
-// )
+// }
 //
 // // =============================================================================
 // // Break and Continue in for Loops
 // // =============================================================================
 //
-// @test_for_break tests @for_break () -> void = run(
+// @test_for_break tests @for_break () -> void = {
 //     let result = for_break(),
 //     assert_eq(actual: result, expected: 6),
-// )
+// }
 //
-// @for_break () -> int = run(
+// @for_break () -> int = {
 //     let sum = 0,
-//     for x in [1, 2, 3, 4, 5] do run(
+//     for x in [1, 2, 3, 4, 5] do {
 //         if x > 3 then break,
 //         sum = sum + x,
-//     ),
+//     },
 //     sum,
-// )
+// }
 //
 // #skip("continue in for do loop not working correctly")
-// @test_for_continue tests @for_continue () -> void = run(
+// @test_for_continue tests @for_continue () -> void = {
 //     let result = for_continue(),
 //     assert_eq(actual: result, expected: 9),
-// )
+// }
 //
-// @for_continue () -> int = run(
+// @for_continue () -> int = {
 //     let sum = 0,
-//     for x in [1, 2, 3, 4, 5] do run(
+//     for x in [1, 2, 3, 4, 5] do {
 //         if x == 3 then continue,
 //         sum = sum + x,
-//     ),
+//     },
 //     sum,
-// )
+// }
 //
 // // =============================================================================
 // // Break/Continue with Values in yield
 // // =============================================================================
 //
-// @test_yield_with_continue tests @yield_with_continue () -> void = run(
+// @test_yield_with_continue tests @yield_with_continue () -> void = {
 //     let result = yield_with_continue(),
 //     // continue skips the element
 //     assert_eq(actual: result.len(), expected: 4),
-// )
+// }
 //
-// @yield_with_continue () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
+// @yield_with_continue () -> [int] = for x in [1, 2, 3, 4, 5] yield {
 //     if x == 3 then continue,
 //     x,
-// )
+// }
 //
-// @test_yield_with_break tests @yield_with_break () -> void = run(
+// @test_yield_with_break tests @yield_with_break () -> void = {
 //     let result = yield_with_break(),
 //     // break stops early
 //     assert_eq(actual: result, expected: [1, 2]),
-// )
+// }
 //
-// @yield_with_break () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
+// @yield_with_break () -> [int] = for x in [1, 2, 3, 4, 5] yield {
 //     if x == 3 then break,
 //     x,
-// )
+// }
 //
-// @test_yield_break_with_value tests @yield_break_with_value () -> void = run(
+// @test_yield_break_with_value tests @yield_break_with_value () -> void = {
 //     let result = yield_break_with_value(),
 //     // break with value adds final element
 //     assert_eq(actual: result, expected: [1, 2, 100]),
-// )
+// }
 //
-// @yield_break_with_value () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
+// @yield_break_with_value () -> [int] = for x in [1, 2, 3, 4, 5] yield {
 //     if x == 3 then break 100,
 //     x,
-// )
+// }
 //
-// @test_yield_continue_with_value tests @yield_continue_with_value () -> void = run(
+// @test_yield_continue_with_value tests @yield_continue_with_value () -> void = {
 //     let result = yield_continue_with_value(),
 //     // continue with value substitutes
 //     assert_eq(actual: result, expected: [1, 2, 0, 4, 5]),
-// )
+// }
 //
-// @yield_continue_with_value () -> [int] = for x in [1, 2, 3, 4, 5] yield run(
+// @yield_continue_with_value () -> [int] = for x in [1, 2, 3, 4, 5] yield {
 //     if x == 3 then continue 0,
 //     x,
-// )
+// }
 //
 // // =============================================================================
 // // Labels for Nested Loops
@@ -367,48 +367,48 @@
 // // NOTE: Labels may not be fully implemented yet.
 // // These tests are designed to expose missing features.
 //
-// // @test_labeled_break tests @labeled_break () -> void = run(
+// // @test_labeled_break tests @labeled_break () -> void = {
 // //     let result = labeled_break(),
 // //     // Should break outer loop when inner condition met
 // //     assert(cond: result < 25),
-// // )
+// // }
 //
-// // @labeled_break () -> int = run(
+// // @labeled_break () -> int = {
 // //     let count = 0,
 // //     for:outer i in 1..5 do
-// //         for j in 1..5 do run(
+// //         for j in 1..5 do {
 // //             if j > 2 then break:outer,
 // //             count = count + 1,
-// //         ),
+// //         },
 // //     count,
-// // )
+// // }
 //
-// // @test_labeled_continue tests @labeled_continue () -> void = run(
+// // @test_labeled_continue tests @labeled_continue () -> void = {
 // //     let result = labeled_continue(),
 // //     assert(cond: result < 25),
-// // )
+// // }
 //
-// // @labeled_continue () -> int = run(
+// // @labeled_continue () -> int = {
 // //     let count = 0,
 // //     for:outer i in 1..5 do
-// //         for j in 1..5 do run(
+// //         for j in 1..5 do {
 // //             if j > 2 then continue:outer,
 // //             count = count + 1,
-// //         ),
+// //         },
 // //     count,
-// // )
+// // }
 //
 // // =============================================================================
 // // for Collecting into Maps
 // // =============================================================================
 //
 // #skip("for yield into map type inference issue")
-// @test_for_yield_map tests @for_yield_map () -> void = run(
+// @test_for_yield_map tests @for_yield_map () -> void = {
 //     let result = for_yield_map(),
 //     // Map indexing returns Option<V>
 //     assert_eq(actual: result["a"], expected: Some(1)),
 //     assert_eq(actual: result["b"], expected: Some(2)),
-// )
+// }
 //
 // @for_yield_map () -> {str: int} = for x in [("a", 1), ("b", 2), ("c", 3)] yield x
 //
@@ -417,45 +417,45 @@
 // // =============================================================================
 //
 // #skip("Option type not iterable")
-// @test_for_option tests @for_option () -> void = run(
+// @test_for_option tests @for_option () -> void = {
 //     let result = for_option(),
 //     assert_eq(actual: result, expected: 42),
-// )
+// }
 //
-// @for_option () -> int = run(
+// @for_option () -> int = {
 //     let opt = Some(42),
 //     let result = 0,
 //     for x in opt do result = x,
 //     result,
-// )
+// }
 //
 // #skip("Option type not iterable")
-// @test_for_none tests @for_none () -> void = run(
+// @test_for_none tests @for_none () -> void = {
 //     let result = for_none(),
 //     assert_eq(actual: result, expected: 0),
-// )
+// }
 //
-// @for_none () -> int = run(
+// @for_none () -> int = {
 //     let opt: Option<int> = None,
 //     let result = 0,
 //     for x in opt do result = x,
 //     result,
-// )
+// }
 //
 // // =============================================================================
 // // for with Range by Step
 // // =============================================================================
 //
-// @test_for_range_by tests @for_range_by () -> void = run(
+// @test_for_range_by tests @for_range_by () -> void = {
 //     let result = for_range_by(),
 //     assert_eq(actual: result, expected: [0, 2, 4, 6, 8]),
-// )
+// }
 //
 // @for_range_by () -> [int] = for x in 0..10 by 2 yield x
 //
-// @test_for_range_descending tests @for_range_descending () -> void = run(
+// @test_for_range_descending tests @for_range_descending () -> void = {
 //     let result = for_range_descending(),
 //     assert_eq(actual: result, expected: [5, 4, 3, 2, 1]),
-// )
+// }
 //
 // @for_range_descending () -> [int] = for x in 5..0 by -1 yield x

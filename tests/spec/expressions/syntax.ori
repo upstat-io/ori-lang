@@ -9,15 +9,15 @@ use std.testing { assert, assert_eq }
 
 @expr_int () -> int = 42
 
-@test_expr_int tests @expr_int () -> void = run(
-    assert_eq(actual: expr_int(), expected: 42),
-)
+@test_expr_int tests @expr_int () -> void = {
+    assert_eq(actual: expr_int(), expected: 42)
+}
 
 @expr_bool () -> bool = true
 
-@test_expr_bool tests @expr_bool () -> void = run(
-    assert(cond: expr_bool()),
-)
+@test_expr_bool tests @expr_bool () -> void = {
+    assert(cond: expr_bool())
+}
 
 // =============================================================================
 // Grouped Expressions
@@ -25,15 +25,15 @@ use std.testing { assert, assert_eq }
 
 @expr_grouped () -> int = (1 + 2) * 3
 
-@test_expr_grouped tests @expr_grouped () -> void = run(
-    assert_eq(actual: expr_grouped(), expected: 9),
-)
+@test_expr_grouped tests @expr_grouped () -> void = {
+    assert_eq(actual: expr_grouped(), expected: 9)
+}
 
 @expr_nested_group () -> int = ((1 + 2) * (3 + 4))
 
-@test_expr_nested_group tests @expr_nested_group () -> void = run(
-    assert_eq(actual: expr_nested_group(), expected: 21),
-)
+@test_expr_nested_group tests @expr_nested_group () -> void = {
+    assert_eq(actual: expr_nested_group(), expected: 21)
+}
 
 // =============================================================================
 // Binary Expressions
@@ -41,9 +41,9 @@ use std.testing { assert, assert_eq }
 
 @expr_binary () -> int = 10 + 5 * 2
 
-@test_expr_binary tests @expr_binary () -> void = run(
-    assert_eq(actual: expr_binary(), expected: 20), // precedence: 10 + (5 * 2)
-)
+@test_expr_binary tests @expr_binary () -> void = {
+    assert_eq(actual: expr_binary(), expected: 20) // precedence: 10 + (5 * 2)
+}
 
 // =============================================================================
 // Unary Expressions
@@ -51,15 +51,15 @@ use std.testing { assert, assert_eq }
 
 @expr_neg () -> int = -42
 
-@test_expr_neg tests @expr_neg () -> void = run(
-    assert_eq(actual: expr_neg(), expected: -42),
-)
+@test_expr_neg tests @expr_neg () -> void = {
+    assert_eq(actual: expr_neg(), expected: -42)
+}
 
 @expr_not () -> bool = !false
 
-@test_expr_not tests @expr_not () -> void = run(
-    assert(cond: expr_not()),
-)
+@test_expr_not tests @expr_not () -> void = {
+    assert(cond: expr_not())
+}
 
 // =============================================================================
 // If Expressions
@@ -67,91 +67,91 @@ use std.testing { assert, assert_eq }
 
 @expr_if () -> int = if true then 1 else 2
 
-@test_expr_if tests @expr_if () -> void = run(
-    assert_eq(actual: expr_if(), expected: 1),
-)
+@test_expr_if tests @expr_if () -> void = {
+    assert_eq(actual: expr_if(), expected: 1)
+}
 
 @expr_if_chain () -> int = if false then 1 else if false then 2 else 3
 
-@test_expr_if_chain tests @expr_if_chain () -> void = run(
-    assert_eq(actual: expr_if_chain(), expected: 3),
-)
+@test_expr_if_chain tests @expr_if_chain () -> void = {
+    assert_eq(actual: expr_if_chain(), expected: 3)
+}
 
 // =============================================================================
 // Let Expressions
 // =============================================================================
 
-@expr_let () -> int = run(
-    let x = 10,
-    let y = 20,
-    x + y,
-)
+@expr_let () -> int = {
+    let x = 10;
+    let y = 20;
+    x + y
+}
 
-@test_expr_let tests @expr_let () -> void = run(
-    assert_eq(actual: expr_let(), expected: 30),
-)
+@test_expr_let tests @expr_let () -> void = {
+    assert_eq(actual: expr_let(), expected: 30)
+}
 
 // =============================================================================
 // For Expressions (Do)
 // =============================================================================
 
-@expr_for_do () -> int = run(
-    let sum = 0,
-    for x in [1, 2, 3] do sum = sum + x,
-    sum,
-)
+@expr_for_do () -> int = {
+    let sum = 0;
+    for x in [1, 2, 3] do sum = sum + x;
+    sum
+}
 
-@test_expr_for_do tests @expr_for_do () -> void = run(
-    assert_eq(actual: expr_for_do(), expected: 6),
-)
+@test_expr_for_do tests @expr_for_do () -> void = {
+    assert_eq(actual: expr_for_do(), expected: 6)
+}
 
 // =============================================================================
 // For Expressions (Yield)
 // =============================================================================
 
-@expr_for_yield () -> int = run(
-    let doubled = for x in [1, 2, 3] yield x * 2,
-    doubled.len(),
-)
+@expr_for_yield () -> int = {
+    let doubled = for x in [1, 2, 3] yield x * 2;
+    doubled.len()
+}
 
-@test_expr_for_yield tests @expr_for_yield () -> void = run(
-    assert_eq(actual: expr_for_yield(), expected: 3),
-)
+@test_expr_for_yield tests @expr_for_yield () -> void = {
+    assert_eq(actual: expr_for_yield(), expected: 3)
+}
 
 // =============================================================================
 // For with Filter
 // =============================================================================
 
-@expr_for_filter () -> int = run(
-    let evens = for x in [1, 2, 3, 4] if x % 2 == 0 yield x,
-    evens.len(),
-)
+@expr_for_filter () -> int = {
+    let evens = for x in [1, 2, 3, 4] if x % 2 == 0 yield x;
+    evens.len()
+}
 
-@test_expr_for_filter tests @expr_for_filter () -> void = run(
-    assert_eq(actual: expr_for_filter(), expected: 2),
-)
+@test_expr_for_filter tests @expr_for_filter () -> void = {
+    assert_eq(actual: expr_for_filter(), expected: 2)
+}
 
 // =============================================================================
 // Lambda Expressions
 // =============================================================================
 
-@expr_lambda () -> int = run(
-    let f = x -> x * 2,
-    f(5),
-)
+@expr_lambda () -> int = {
+    let f = x -> x * 2;
+    f(5)
+}
 
-@test_expr_lambda tests @expr_lambda () -> void = run(
-    assert_eq(actual: expr_lambda(), expected: 10),
-)
+@test_expr_lambda tests @expr_lambda () -> void = {
+    assert_eq(actual: expr_lambda(), expected: 10)
+}
 
-@expr_lambda_multi () -> int = run(
-    let add = (a, b) -> a + b,
-    add(3, 4),
-)
+@expr_lambda_multi () -> int = {
+    let add = (a, b) -> a + b;
+    add(3, 4)
+}
 
-@test_expr_lambda_multi tests @expr_lambda_multi () -> void = run(
-    assert_eq(actual: expr_lambda_multi(), expected: 7),
-)
+@test_expr_lambda_multi tests @expr_lambda_multi () -> void = {
+    assert_eq(actual: expr_lambda_multi(), expected: 7)
+}
 
 // =============================================================================
 // Field Access
@@ -159,27 +159,27 @@ use std.testing { assert, assert_eq }
 
 type Point = { x: int, y: int }
 
-@expr_field () -> int = run(
-    let p = Point { x: 10, y: 20 },
-    p.x + p.y,
-)
+@expr_field () -> int = {
+    let p = Point { x: 10, y: 20 };
+    p.x + p.y
+}
 
-@test_expr_field tests @expr_field () -> void = run(
-    assert_eq(actual: expr_field(), expected: 30),
-)
+@test_expr_field tests @expr_field () -> void = {
+    assert_eq(actual: expr_field(), expected: 30)
+}
 
 // =============================================================================
 // Index Access
 // =============================================================================
 
-@expr_index () -> int = run(
-    let list = [10, 20, 30],
-    list[0] + list[1] + list[2],
-)
+@expr_index () -> int = {
+    let list = [10, 20, 30];
+    list[0] + list[1] + list[2]
+}
 
-@test_expr_index tests @expr_index () -> void = run(
-    assert_eq(actual: expr_index(), expected: 60),
-)
+@test_expr_index tests @expr_index () -> void = {
+    assert_eq(actual: expr_index(), expected: 60)
+}
 
 // =============================================================================
 // Method Calls
@@ -187,44 +187,44 @@ type Point = { x: int, y: int }
 
 @expr_method () -> int = [1, 2, 3].len()
 
-@test_expr_method tests @expr_method () -> void = run(
-    assert_eq(actual: expr_method(), expected: 3),
-)
+@test_expr_method tests @expr_method () -> void = {
+    assert_eq(actual: expr_method(), expected: 3)
+}
 
 // =============================================================================
 // Range Expressions
 // =============================================================================
 
-@expr_range () -> int = run(
-    let r = for x in 0..5 yield x,
-    r.len(),
-)
+@expr_range () -> int = {
+    let r = for x in 0..5 yield x;
+    r.len()
+}
 
-@test_expr_range tests @expr_range () -> void = run(
-    assert_eq(actual: expr_range(), expected: 5),
-)
+@test_expr_range tests @expr_range () -> void = {
+    assert_eq(actual: expr_range(), expected: 5)
+}
 
-@expr_range_incl () -> int = run(
-    let r = for x in 0..=4 yield x,
-    r.len(),
-)
+@expr_range_incl () -> int = {
+    let r = for x in 0..=4 yield x;
+    r.len()
+}
 
-@test_expr_range_incl tests @expr_range_incl () -> void = run(
-    assert_eq(actual: expr_range_incl(), expected: 5),
-)
+@test_expr_range_incl tests @expr_range_incl () -> void = {
+    assert_eq(actual: expr_range_incl(), expected: 5)
+}
 
 // =============================================================================
 // Match Expression
 // =============================================================================
 
-@expr_match () -> int = run(
-    let opt = Some(42),
-    match(opt,
+@expr_match () -> int = {
+    let opt = Some(42);
+    match opt {
         Some(v) -> v,
-        None -> 0,
-    ),
-)
+        None -> 0
+    }
+}
 
-@test_expr_match tests @expr_match () -> void = run(
-    assert_eq(actual: expr_match(), expected: 42),
-)
+@test_expr_match tests @expr_match () -> void = {
+    assert_eq(actual: expr_match(), expected: 42)
+}
