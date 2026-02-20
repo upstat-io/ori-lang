@@ -715,7 +715,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] `match expr { Some(x) -> x, None -> default }` — parses correctly (verified via `ori parse`)
 
 - [x] **Audit**: Guard syntax — grammar.ebnf § guard [done] (2026-02-14)
-  - [x] `.match(...)` syntax — verified: `x.match(x > 0) -> "positive"` parses and evaluates correctly
+  - [x] `.match(...)` syntax — verified (now superseded: guards use `if` syntax per match-arm-comma-separator-proposal)
 
 - [x] **Audit**: For pattern — grammar.ebnf § for_pattern [done] (2026-02-10)
   - [x] Basic form: `for(over: items, match: x -> x, default: 0)` — parses correctly (verified via `ori parse`)
@@ -1035,7 +1035,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 21. ~~Function-level contracts (`pre()`/`post()`)~~ — FIXED [done] (2026-02-14)
 22. Length placeholder (`#`) — attribute marker conflict
 23. ~~Immutable binding in function body (`let $x = 42`)~~ — FIXED [done] (2026-02-14)
-24. `.match()` guard method syntax — keyword conflict
+24. ~~`.match()` guard method syntax~~ — RESOLVED: guards now use `if` syntax (match-arm-comma-separator-proposal)
 
 **Known Limitations (Parser works, but semantics incomplete — tracked in Section 23):**
 - `??` operator: Parses but evaluator support incomplete

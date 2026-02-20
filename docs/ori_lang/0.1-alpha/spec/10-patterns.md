@@ -95,10 +95,26 @@ try {
 
 ```ori
 match status {
-    Pending -> "waiting"
-    Running(p) -> str(p) + "%"
-    x.match(x > 0) -> "positive"
-    _ -> "other"
+    Pending -> "waiting",
+    Running(p) -> str(p) + "%",
+    x if x > 0 -> "positive",
+    _ -> "other",
+}
+```
+
+Arms are comma-separated. Trailing commas are optional. Multi-expression arm bodies use blocks:
+
+```ori
+match request {
+    Get(url) -> {
+        let response = fetch(url: url);
+        Ok(response)
+    },
+    Post(url, body) -> {
+        let result = send(url: url, body: body);
+        Ok(result)
+    },
+    _ -> Err("unsupported"),
 }
 ```
 
@@ -120,8 +136,8 @@ The identifier before `@` binds the whole scrutinee value. The pattern after `@`
 
 ```ori
 match opt {
-    whole @ Some(inner) -> use_both(whole: whole, inner: inner)
-    None -> default_value()
+    whole @ Some(inner) -> use_both(whole: whole, inner: inner),
+    None -> default_value(),
 };
 ```
 
@@ -132,19 +148,19 @@ At-patterns compose with all other match patterns:
 ```ori
 // With variant patterns
 match status {
-    s @ Failed(_) -> log_and_report(status: s)
-    _ -> "ok"
+    s @ Failed(_) -> log_and_report(status: s),
+    _ -> "ok",
 };
 
 // With struct patterns
 match point {
-    p @ { x, y } -> transform(point: p, dx: x, dy: y)
+    p @ { x, y } -> transform(point: p, dx: x, dy: y),
 };
 
 // With nested at-patterns
 match tree {
-    node @ Branch(left @ Leaf(_), _) -> prune(tree: node, leaf: left)
-    other -> other
+    node @ Branch(left @ Leaf(_), _) -> prune(tree: node, leaf: left),
+    other -> other,
 };
 ```
 
@@ -170,7 +186,7 @@ For each type, the compiler knows its constructors:
 type MaybeNever = Value(int) | Impossible(Never);
 
 match maybe {
-    Value(v) -> v
+    Value(v) -> v,
     // Impossible case can be omitted — it can never occur
 }
 ```
@@ -200,7 +216,7 @@ Refutable patterns:
 - Variants (`Some(x)`, `None`)
 - Ranges (`0..10`)
 - Lists with length (`[a, b]`)
-- Guards (`x.match(x > 0)`)
+- Guards (`x if x > 0`)
 
 | Context | Requirement |
 |---------|-------------|
@@ -216,16 +232,16 @@ Guards are not considered for exhaustiveness checking. The compiler cannot stati
 ```ori
 // ERROR: guards require catch-all
 match n {
-    x.match(x > 0) -> "positive"
-    x.match(x < 0) -> "negative"
+    x if x > 0 -> "positive",
+    x if x < 0 -> "negative",
     // Error: patterns not exhaustive due to guards
 }
 
 // OK: catch-all ensures exhaustiveness
 match n {
-    x.match(x > 0) -> "positive"
-    x.match(x < 0) -> "negative"
-    _ -> "zero"
+    x if x > 0 -> "positive",
+    x if x < 0 -> "negative",
+    _ -> "zero",
 }
 ```
 
@@ -238,8 +254,8 @@ type Light = Red | Yellow | Green;
 
 // Exhaustive via or-pattern
 match light {
-    Red | Yellow -> "stop"
-    Green -> "go"
+    Red | Yellow -> "stop",
+    Green -> "go",
 }
 ```
 
@@ -251,8 +267,8 @@ At-patterns contribute the same coverage as their inner pattern:
 
 ```ori
 match opt {
-    whole @ Some(x) -> use_both(whole: whole, inner: x)
-    None -> default_value()
+    whole @ Some(x) -> use_both(whole: whole, inner: x),
+    None -> default_value(),
 }
 ```
 
@@ -498,8 +514,8 @@ Errors in spawned tasks are silently discarded. To log errors, handle them withi
 ```ori
 spawn(tasks: [
     () -> match risky_operation() {
-        Ok(_) -> log(msg: "success")
-        Err(e) -> log(msg: `failed: {e}`)
+        Ok(_) -> log(msg: "success"),
+        Err(e) -> log(msg: `failed: {e}`),
     },
 ])
 ```
@@ -752,7 +768,7 @@ If `op` returns `Err` or panics, the result is NOT cached. To cache error result
 ```ori
 cache(
     key: url,
-    op: match fetch(url) { r -> r},  // Cache the Result itself
+    op: match fetch(url) { r -> r },  // Cache the Result itself
     ttl: 5m,
 )
 ```
@@ -950,8 +966,8 @@ for x in items do
                 process(x: x);
                 iter = next_iter;
                 continue
-            }
-            (None, _) -> break
+            },
+            (None, _) -> break,
         }
     }
 }

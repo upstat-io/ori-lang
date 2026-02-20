@@ -274,8 +274,8 @@ In `match`, only the matching arm evaluates:
 
 ```ori
 match value {
-    Some(x) -> process(x)   // only if Some
-    None -> default()        // only if None
+    Some(x) -> process(x),   // only if Some
+    None -> default(),        // only if None
 }
 ```
 

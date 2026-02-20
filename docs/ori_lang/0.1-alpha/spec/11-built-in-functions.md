@@ -191,10 +191,10 @@ Marks unfinished code. Panics with "not yet implemented" and file location.
 // Panics: "not yet implemented at src/parser.ori:15"
 
 @handle_event (event: Event) -> void = match event {
-    Click(pos) -> handle_click(pos: pos)
-    Scroll(delta) -> todo(reason: "scroll handling")
+    Click(pos) -> handle_click(pos: pos),
+    Scroll(delta) -> todo(reason: "scroll handling"),
     // Panics: "not yet implemented: scroll handling at src/ui.ori:42"
-    KeyPress(key) -> handle_key(key: key)
+    KeyPress(key) -> handle_key(key: key),
 }
 ```
 
@@ -209,9 +209,9 @@ Marks code that should never execute. Panics with "unreachable code reached" and
 
 ```ori
 @day_type (day: int) -> str = match day {
-    1 | 2 | 3 | 4 | 5 -> "weekday"
-    6 | 7 -> "weekend"
-    _ -> unreachable(reason: "day must be 1-7")
+    1 | 2 | 3 | 4 | 5 -> "weekday",
+    6 | 7 -> "weekend",
+    _ -> unreachable(reason: "day must be 1-7"),
 }
 ```
 

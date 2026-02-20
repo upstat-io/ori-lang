@@ -136,8 +136,8 @@ let result = catch(expr: dangerous_operation());
 // result: Result<T, str>
 
 match result {
-    Ok(value) -> use(value)
-    Err(msg) -> handle_error(msg)
+    Ok(value) -> use(value),
+    Err(msg) -> handle_error(msg),
 }
 ```
 

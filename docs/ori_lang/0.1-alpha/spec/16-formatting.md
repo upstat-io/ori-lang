@@ -626,9 +626,9 @@ Scrutinee on first line, arms always stacked:
 
 ```ori
 let label = match status {
-    Pending -> "waiting"
-    Running -> "in progress"
-    Complete -> "done"
+    Pending -> "waiting",
+    Running -> "in progress",
+    Complete -> "done",
 };
 ```
 
@@ -637,11 +637,11 @@ Arms with long calls break the call arguments (not after `->`):
 ```ori
 let result = match event {
     Click(x, y) -> handle_click_with_long_name(
-        x: x
-        y: y
-        options: defaults
-    )
-    KeyPress(key) -> handle_key(key)
+        x: x,
+        y: y,
+        options: defaults,
+    ),
+    KeyPress(key) -> handle_key(key),
 };
 ```
 
@@ -649,12 +649,11 @@ Arms with always-stacked bodies break after `->`:
 
 ```ori
 let result = match data {
-    Valid(content) ->
-        {
-            let processed = process(content);
-            Ok(processed)
-        }
-    Invalid(error) -> Err(error)
+    Valid(content) -> {
+        let processed = process(content);
+        Ok(processed)
+    },
+    Invalid(error) -> Err(error),
 };
 ```
 
@@ -791,8 +790,8 @@ for item in items do
 // Body contains match → break after yield
 let labels = for status in statuses yield
     match status {
-        Pending -> "waiting"
-        Complete -> "done"
+        Pending -> "waiting",
+        Complete -> "done",
     };
 
 // Body contains nested for → break after yield

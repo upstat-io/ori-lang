@@ -79,14 +79,18 @@ let result = try {
 
 ### Scrutinee Before Block, Arms Below
 
-`match` always has arms stacked, never inline:
+Multi-line `match` has arms stacked with trailing commas. Short matches (all simple expressions, no guards, fits in line width) may be single-line:
 
 ```ori
+// Single-line (short, simple)
+let label = match b { true -> "yes", false -> "no" };
+
+// Multi-line
 let label = match status {
-    Pending -> "waiting"
-    Running -> "in progress"
-    Complete -> "done"
-    Failed -> "error"
+    Pending -> "waiting",
+    Running -> "in progress",
+    Complete -> "done",
+    Failed -> "error",
 }
 ```
 
@@ -94,9 +98,9 @@ let label = match status {
 
 ```ori
 let message = match event {
-    Click(x, y) -> format(template: "Clicked at ({}, {})", x, y)
-    KeyPress(key, mods) -> format(template: "Key: {} with {:?}", key, mods)
-    _ -> "unknown event"
+    Click(x, y) -> format(template: "Clicked at ({}, {})", x, y),
+    KeyPress(key, mods) -> format(template: "Key: {} with {:?}", key, mods),
+    _ -> "unknown event",
 }
 ```
 
@@ -110,8 +114,8 @@ let result = match event {
         x: x,
         y: y,
         options: defaults,
-    )
-    KeyPress(key) -> handle_key(key)
+    ),
+    KeyPress(key) -> handle_key(key),
 }
 ```
 
@@ -122,10 +126,10 @@ Break after `->` only when the body is an always-stacked pattern (block, `try`, 
 ```ori
 let result = match input {
     Some(data) -> {
-        let validated = validate(data)
+        let validated = validate(data);
         transform(validated)
-    }
-    None -> default_value
+    },
+    None -> default_value,
 }
 ```
 
@@ -133,10 +137,10 @@ let result = match input {
 
 ```ori
 let category = match n {
-    x if x < 0 -> "negative"
-    0 -> "zero"
-    x if x < 10 -> "small"
-    _ -> "large"
+    x if x < 0 -> "negative",
+    0 -> "zero",
+    x if x < 10 -> "small",
+    _ -> "large",
 }
 ```
 
