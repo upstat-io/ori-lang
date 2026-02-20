@@ -506,9 +506,8 @@ function_val = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 
 // match: Pattern matching with scrutinee before block
 match_expr = "match" expression "{" match_arms "}" .
-match_arms = { match_arm NEWLINE } [ match_arm ] .
-match_arm  = match_pattern [ guard ] "->" expression .
-guard      = ".match" "(" expression ")" .
+match_arms = [ match_arm { "," match_arm } [ "," ] ] .
+match_arm  = match_pattern [ "if" expression ] "->" expression .
 
 // try: Error-propagating block (returns early on Err)
 try_expr = "try" block_expr .

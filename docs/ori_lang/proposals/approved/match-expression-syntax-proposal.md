@@ -481,3 +481,11 @@ Match expressions in Ori provide pattern matching with:
 - **Exhaustiveness**: Compile-time verification that all cases are handled
 - **First-match-wins**: Top-to-bottom evaluation with short-circuit
 - **Type unification**: All arm bodies must have compatible types
+
+---
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [block-expression-syntax](block-expression-syntax.md)**: Match syntax changed from function-call `match(scrutinee, arms...)` to block `match expr { arms }`.
+>
+> **Superseded by [match-arm-comma-separator-proposal](match-arm-comma-separator-proposal.md)**: Guard syntax changed from `.match(condition)` to `if condition`. Arms are comma-separated (not newline-separated). `.match()` now exclusively refers to method-style pattern matching.

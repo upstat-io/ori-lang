@@ -634,3 +634,11 @@ See errata added to `checks-proposal.md`.
 Discovered during spec experiments (2026-02-19) writing an expression evaluator, Game of Life, Snake game, and dice game in Ori. The `run()` ceremony was the most consistent friction point across all four programs. Discussion progressed from "add `{ }` blocks" to "all `function_seq` constructs become blocks, `run` is the unnamed default, contracts move to function declarations."
 
 Data from experiments: 43 immutable bindings (`let $`), 3 mutable bindings (`let`), confirming the `$` = static convention works well with block syntax. The mutable-by-default design with `$` opt-in immutability provides the lightest ceremony of any mutable-by-default language (1 character vs TypeScript's `const` at 5, Java's `final` at 5, C#'s `readonly` at 8).
+
+---
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [match-arm-comma-separator-proposal](match-arm-comma-separator-proposal.md)**: This proposal specified match arms as newline-separated. The match-arm-comma-separator proposal changes arms to comma-separated (with optional trailing commas), aligning match syntax with Rust and making it consistent with the explicit-punctuation style introduced by this proposal's semicolons. Additionally, the guard syntax `.match(condition)` is replaced by `if condition` — `.match()` now exclusively refers to method-style pattern matching.
+>
+> Affected sections: "Match arms — separated by newlines" (Design § Semicolons), "`match` Syntax" (Design), grammar `match_arms` production, parser changes item 4.

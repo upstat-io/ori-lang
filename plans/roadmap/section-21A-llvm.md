@@ -339,7 +339,6 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Or-patterns: `A | B | C`
   - [ ] At-patterns: `x @ Some(_)`
   - [ ] Guard patterns: `x if x > 0`
-  - [ ] Guard with `.match(condition)` method
   - [ ] Struct destructuring with field renaming: `{ x: px, y: py }`
   - [ ] List patterns with rest: `[first, ..rest]`, `[..init, last]`
   - [ ] Nested patterns
