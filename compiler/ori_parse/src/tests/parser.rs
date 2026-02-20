@@ -10,7 +10,10 @@
 )]
 
 use crate::{parse, ParseContext, ParseOutput, Parser};
-use ori_ir::{BinaryOp, BindingPattern, ExprKind, FunctionExpKind, StmtKind, StringInterner};
+use ori_ir::{
+    BinaryOp, BindingPattern, ExprKind, FunctionExpKind, FunctionSeq, Mutability, StmtKind,
+    StringInterner,
+};
 
 fn parse_source(source: &str) -> ParseOutput {
     let interner = StringInterner::new();
@@ -1547,5 +1550,182 @@ fn test_bare_chained_tuple_field_is_error() {
     assert!(
         result.has_errors(),
         "bare t.0.1 should fail (lexer sees 0.1 as float)"
+    );
+}
+
+// =============================================================================
+// $ immutability in let parsing paths (LEAK-1)
+// =============================================================================
+//
+// Three paths parse let bindings:
+// 1. parse_block_let_binding (blocks)     — correct: lets parse_binding_pattern handle $
+// 2. parse_let_expr_body (expression-form) — buggy: consumes $ before parse_binding_pattern
+// 3. parse_try_let_binding (try blocks)    — buggy: consumes $ before parse_binding_pattern
+//
+// The evaluator reads mutability from BindingPattern::Name.mutable, not from
+// ExprKind::Let.mutable or StmtKind::Let.mutable. When $ is consumed before
+// parse_binding_pattern sees it, the pattern records Mutable (wrong).
+
+#[test]
+fn test_let_expr_dollar_immutable_on_pattern() {
+    // Expression-form let: `let $x = 42` should produce Immutable on the pattern.
+    let result = parse_source("@test () -> void = let $x = 42;");
+    assert!(!result.has_errors(), "Expected no parse errors");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &body.kind
+    else {
+        panic!("Expected ExprKind::Let, got {:?}", body.kind);
+    };
+
+    // Statement-level mutability is correct (set before parse_binding_pattern)
+    assert_eq!(
+        *mutable,
+        Mutability::Immutable,
+        "ExprKind::Let.mutable should be Immutable for `let $x`"
+    );
+
+    // Pattern-level mutability MUST also be Immutable — this is what the evaluator reads
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Immutable,
+        "BindingPattern::Name.mutable should be Immutable for `let $x` (evaluator authority)"
+    );
+}
+
+#[test]
+fn test_block_let_dollar_immutable_on_pattern() {
+    // Regression guard: block-form let correctly passes $ to parse_binding_pattern.
+    let result = parse_source("@test () -> int = { let $x = 42; x }");
+    assert!(!result.has_errors(), "Expected no parse errors");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::Block { stmts, .. } = &body.kind else {
+        panic!("Expected Block, got {:?}", body.kind);
+    };
+
+    let stmt_list = result.arena.get_stmt_range(*stmts);
+    assert_eq!(stmt_list.len(), 1);
+
+    let StmtKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &stmt_list[0].kind
+    else {
+        panic!("Expected StmtKind::Let");
+    };
+
+    assert_eq!(*mutable, Mutability::Immutable);
+
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Immutable,
+        "block-form let $x: BindingPattern.mutable should be Immutable"
+    );
+}
+
+#[test]
+fn test_try_let_dollar_immutable_on_pattern() {
+    // Try-block let: `try { let $x = Ok(5); Ok(x) }` should produce Immutable on the pattern.
+    let result = parse_source("@test () -> void = try { let $x = Ok(5); Ok(x) }");
+
+    if result.has_errors() {
+        eprintln!("Parse errors: {:?}", result.errors);
+    }
+    assert!(!result.has_errors(), "Expected no parse errors");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::FunctionSeq(seq_id) = &body.kind else {
+        panic!("Expected FunctionSeq, got {:?}", body.kind);
+    };
+
+    let FunctionSeq::Try { stmts, .. } = result.arena.get_function_seq(*seq_id) else {
+        panic!("Expected FunctionSeq::Try");
+    };
+
+    let stmt_list = result.arena.get_stmt_range(*stmts);
+    assert!(!stmt_list.is_empty(), "Expected at least one try binding");
+
+    let StmtKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &stmt_list[0].kind
+    else {
+        panic!("Expected StmtKind::Let in try, got {:?}", stmt_list[0].kind);
+    };
+
+    assert_eq!(
+        *mutable,
+        Mutability::Immutable,
+        "StmtKind::Let.mutable should be Immutable for `let $x` in try"
+    );
+
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Immutable,
+        "try-block let $x: BindingPattern.mutable should be Immutable (evaluator authority)"
+    );
+}
+
+#[test]
+fn test_let_expr_default_mutable_on_pattern() {
+    // Verify that `let x = 42` (no $) produces Mutable on both levels.
+    let result = parse_source("@test () -> void = let x = 42;");
+    assert!(!result.has_errors());
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &body.kind
+    else {
+        panic!("Expected ExprKind::Let");
+    };
+
+    assert_eq!(*mutable, Mutability::Mutable);
+
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Mutable,
+        "let x (no $): BindingPattern.mutable should be Mutable"
     );
 }

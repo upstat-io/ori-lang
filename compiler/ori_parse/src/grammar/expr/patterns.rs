@@ -9,9 +9,9 @@ use crate::context::ParseContext;
 use crate::recovery::TokenSet;
 use crate::{committed, one_of, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
-    Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, MatchPattern,
-    MatchPatternId, MatchPatternRange, Mutability, Name, NamedExpr, ParsedTypeId, ParsedTypeRange,
-    Span, Stmt, StmtKind, TokenKind,
+    BindingPattern, Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm,
+    MatchPattern, MatchPatternId, MatchPatternRange, Mutability, Name, NamedExpr, ParsedTypeId,
+    ParsedTypeRange, Span, Stmt, StmtKind, TokenKind,
 };
 
 // === Token sets for match pattern EmptyErr reporting ===
@@ -55,14 +55,16 @@ impl Parser<'_> {
     /// Parse a `let` binding inside a `try { }` block.
     /// Assumes the `let` token has already been consumed.
     fn parse_try_let_binding(&mut self, item_span: Span) -> ParseOutcome<Stmt> {
-        let mutable = if self.cursor.check(&TokenKind::Dollar) {
-            self.cursor.advance();
-            Mutability::Immutable
-        } else {
-            Mutability::Mutable
-        };
-
+        // Don't consume `$` here — let parse_binding_pattern() handle it
+        // so that BindingPattern::Name.mutable is set correctly for both
+        // simple bindings (`let $x = 5`) and destructuring (`let ($a, b) = ...`).
         let pattern = committed!(self.parse_binding_pattern());
+
+        // Derive statement-level mutability from the pattern.
+        let mutable = match &pattern {
+            BindingPattern::Name { mutable, .. } => *mutable,
+            _ => Mutability::Mutable,
+        };
         let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
         let ty = if self.cursor.check(&TokenKind::Colon) {

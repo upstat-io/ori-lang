@@ -4,8 +4,8 @@ use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
 use super::super::InferEngine;
 use super::{
-    check_expr, check_match_pattern, infer_expr, infer_match, lookup_struct_field_types,
-    pattern_first_name, resolve_and_check_parsed_type,
+    check_match_pattern, infer_expr, infer_match, lookup_struct_field_types, pattern_first_name,
+    resolve_and_check_parsed_type,
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag};
 
@@ -78,8 +78,7 @@ pub(crate) fn infer_try_seq(
                 error_ty = Some(engine.pool().result_err(resolved));
             }
         }
-        // Process statement with try-unwrapping enabled
-        infer_try_stmt(engine, arena, stmt, true);
+        infer_try_stmt(engine, arena, stmt);
     }
 
     // Infer the result expression
@@ -190,13 +189,8 @@ pub(crate) fn infer_for_pattern(
 
 /// Process a try-block statement (let or expression).
 ///
-/// If `try_unwrap` is true, auto-unwrap Result/Option in let bindings.
-pub(crate) fn infer_try_stmt(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    stmt: &ori_ir::Stmt,
-    try_unwrap: bool,
-) {
+/// Auto-unwraps `Result`/`Option` types in let bindings.
+pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, stmt: &ori_ir::Stmt) {
     match &stmt.kind {
         ori_ir::StmtKind::Let {
             pattern, ty, init, ..
@@ -212,39 +206,24 @@ pub(crate) fn infer_try_stmt(
 
             // Handle type annotation if present, or generalize for let-polymorphism
             let final_ty = if ty.is_valid() {
-                // With type annotation
+                // With type annotation: infer, unwrap, then check against annotation
+                // e.g., `let x: int = succeed(42)` where succeed returns Result<int>
                 let parsed_ty = arena.get_parsed_type(*ty);
                 let expected_ty =
                     resolve_and_check_parsed_type(engine, arena, parsed_ty, stmt.span);
 
-                if try_unwrap {
-                    // For try blocks: infer, unwrap, then check against annotation
-                    // e.g., `let x: int = succeed(42)` where succeed returns Result<int>
-                    let init_ty = infer_expr(engine, arena, *init);
-                    let unwrapped = unwrap_result_or_option(engine, init_ty);
+                let init_ty = infer_expr(engine, arena, *init);
+                let unwrapped = unwrap_result_or_option(engine, init_ty);
 
-                    let expected = Expected {
-                        ty: expected_ty,
-                        origin: ExpectedOrigin::Annotation {
-                            name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
-                            span: stmt.span,
-                        },
-                    };
-                    let _ = engine.check_type(unwrapped, &expected, stmt.span);
-                    expected_ty
-                } else {
-                    // For run blocks: use bidirectional checking (allows literal coercion)
-                    // e.g., `let x: byte = 65` coerces int literal to byte
-                    let expected = Expected {
-                        ty: expected_ty,
-                        origin: ExpectedOrigin::Annotation {
-                            name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
-                            span: stmt.span,
-                        },
-                    };
-                    let _init_ty = check_expr(engine, arena, *init, &expected, stmt.span);
-                    expected_ty
-                }
+                let expected = Expected {
+                    ty: expected_ty,
+                    origin: ExpectedOrigin::Annotation {
+                        name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
+                        span: stmt.span,
+                    },
+                };
+                let _ = engine.check_type(unwrapped, &expected, stmt.span);
+                expected_ty
             } else {
                 // No annotation: infer the initializer type
                 let init_ty = infer_expr(engine, arena, *init);
@@ -258,12 +237,8 @@ pub(crate) fn infer_try_stmt(
                     }
                 }
 
-                // For try blocks, unwrap Result/Option
-                let bound_ty = if try_unwrap {
-                    unwrap_result_or_option(engine, init_ty)
-                } else {
-                    init_ty
-                };
+                // Unwrap Result/Option for try semantics
+                let bound_ty = unwrap_result_or_option(engine, init_ty);
 
                 // Generalize free type variables for let-polymorphism
                 // This enables: `let id = x -> x, id(42), id("hello")`
