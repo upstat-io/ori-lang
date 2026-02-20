@@ -437,7 +437,6 @@ type Condition = True(reason: str) | False(reason: str)
 #[derive(Eq)]
 type EqColor = EqRed | EqGreen | EqBlue
 
-#skip("derive(Eq) for sum types does not generate == operator")
 @test_sum_eq tests @_use_eq_color () -> void = run(
     let c1 = EqRed,
     let c2 = EqRed,
@@ -451,7 +450,6 @@ type EqColor = EqRed | EqGreen | EqBlue
 #[derive(Eq)]
 type EqOption = EqSome(value: int) | EqNone
 
-#skip("derive(Eq) for sum types does not generate == operator")
 @test_payload_eq tests @_use_eq_option () -> void = run(
     let a = EqSome(value: 42),
     let b = EqSome(value: 42),
