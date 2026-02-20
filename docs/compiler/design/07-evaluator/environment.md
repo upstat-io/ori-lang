@@ -178,14 +178,14 @@ impl Environment {
 Variables are looked up in the lexical scope:
 
 ```ori
-let x = 1
+let x = 1;
 
-@foo () -> int = x + 1  // x refers to outer x
+@foo () -> int = x + 1;  // x refers to outer x
 
-let result = run(
-    let x = 10,         // Shadows outer x
-    x + 1,              // Uses inner x = 10
-)
+let result = {
+    let x = 10;         // Shadows outer x
+    x + 1               // Uses inner x = 10
+};
 // result = 11, outer x unchanged
 ```
 
@@ -248,12 +248,12 @@ impl Environment {
 Mutable variables use `let mut`:
 
 ```ori
-let mut x = 0
-run(
-    x = x + 1,  // Mutate x
-    x = x + 1,
-    x,
-)
+let x = 0;
+{
+    x = x + 1;  // Mutate x
+    x = x + 1;
+    x
+}
 // x = 2
 ```
 

@@ -177,8 +177,9 @@ process_fixed(items: dynamic)  // ERROR: cannot guarantee capacity
 Functions can be generic over capacity using const-generic parameters:
 
 ```ori
-@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N] = {
-    pre_check: len(collection: items) >= 2
+@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N]
+    pre(len(collection: items) >= 2)
+= {
     let first = items[0]
     let last = items[# - 1]
     let result = items.clone()
@@ -244,8 +245,9 @@ type UdpPacket = {
     payload: [byte, max 65507]  // UDP max payload
 }
 
-@parse_udp (raw: [byte]) -> Result<UdpPacket, ParseError> = {
-    pre_check: len(collection: raw) >= 8
+@parse_udp (raw: [byte]) -> Result<UdpPacket, ParseError>
+    pre(len(collection: raw) >= 8)
+= {
     let source_port = int(raw[0]) << 8 | int(raw[1])
     let dest_port = int(raw[2]) << 8 | int(raw[3])
     let payload_len = int(raw[4]) << 8 | int(raw[5])

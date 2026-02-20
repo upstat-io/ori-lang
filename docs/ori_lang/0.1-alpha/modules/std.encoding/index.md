@@ -188,10 +188,11 @@ use std.encoding.base64 { encode }
 use std.encoding.hex { encode }
 use std.fs { read_bytes }
 
-@hex_dump (path: str) uses FileSystem -> Result<str, Error> = run(
-    let bytes = read_bytes(path)?,
-    Ok(encode(bytes)),
-)
+@hex_dump (path: str) uses FileSystem -> Result<str, Error> = {
+    let bytes = read_bytes(path)?
+
+    Ok(encode(bytes))
+}
 ```
 
 ### URL query string

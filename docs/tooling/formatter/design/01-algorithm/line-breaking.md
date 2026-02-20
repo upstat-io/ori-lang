@@ -319,7 +319,7 @@ let result = first_value + second_value
 
 ### Lambdas
 
-**Trigger**: Lambda has always-stacked body (`run`, `try`, `match`).
+**Trigger**: Lambda has always-stacked body (block, `try`, `match`).
 
 **Breaking point**: After the arrow `->`, but only for always-stacked patterns.
 
@@ -333,20 +333,18 @@ items.map(
 )
 
 // Always-stacked body - break after arrow
-let process = x ->
-    run(
-        let doubled = x * 2,
-        let validated = validate(doubled),
-        validated,
-    )
+let process = x -> {
+    let doubled = x * 2;
+    let validated = validate(doubled);
+    validated
+}
 
 // In call context with always-stacked body
 items.map(
-    x ->
-        run(
-            let y = x * 2,
-            validate(y),
-        ),
+    x -> {
+        let y = x * 2;
+        validate(y)
+    },
 )
 ```
 

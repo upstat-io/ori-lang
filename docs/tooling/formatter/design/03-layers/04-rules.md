@@ -29,7 +29,7 @@ MethodChainRule  ShortBodyRule  BooleanBreakRule  ...
 | `ChainedElseIfRule` | If-else chains | Kotlin style (first `if` with assignment) |
 | `NestedForRule` | Nested for expressions | Rust-style indentation |
 | `ParenthesesRule` | Parentheses | Preserve user parens, add when needed |
-| `RunRule` | run() expressions | Top-level stacked, nested width-based |
+| `BlockRule` | Block expressions (`{ }`) | Top-level stacked, nested width-based |
 | `LoopRule` | loop() expressions | Complex body breaks |
 
 ---
@@ -280,7 +280,7 @@ pub fn needs_parens(arena: &ExprArena, expr_id: ExprId, position: ParenPosition)
             ExprKind::Binary { .. }
                 | ExprKind::Lambda { .. }
                 | ExprKind::For { .. }
-                | ExprKind::FunctionSeq(_)
+                | ExprKind::Block { .. }
                 | ...
         ),
         // ... other positions
@@ -294,40 +294,40 @@ The AST does not track whether parentheses were explicitly written by the user. 
 
 ---
 
-## RunRule
+## BlockRule
 
-**Principle**: Top-level `run` always stacks. Nested `run` uses width-based decisions.
+**Principle**: Top-level blocks always stack. Nested blocks use width-based decisions.
 
 ```ori
-// Top-level run (always stacked):
-@main () = run(
-    let x = compute(),
-    let y = process(x),
-    x + y,
-)
+// Top-level block (always stacked):
+@main () -> void = {
+    let x = compute();
+    let y = process(x);
+    x + y
+}
 
-// Nested run (can inline if fits):
+// Nested block (can inline if fits):
 let result = if condition
-    then run(a, b)
-    else run(c, d)
+    then { a; b }
+    else { c; d }
 ```
 
 ### Implementation
 
 ```rust
-pub struct RunRule;
+pub struct BlockRule;
 
-pub enum RunContext {
+pub enum BlockContext {
     TopLevel,  // Function body level
     Nested,    // Inside another expression
 }
 
-pub fn is_run(arena: &ExprArena, expr_id: ExprId) -> bool {
-    matches!(&arena.get_expr(expr_id).kind, ExprKind::FunctionSeq(_))
+pub fn is_block(arena: &ExprArena, expr_id: ExprId) -> bool {
+    matches!(&arena.get_expr(expr_id).kind, ExprKind::Block { .. })
 }
 
 pub fn is_try(arena: &ExprArena, expr_id: ExprId) -> bool {
-    // Check for try(...) pattern
+    // Check for try { ... } pattern
 }
 ```
 
@@ -335,17 +335,17 @@ pub fn is_try(arena: &ExprArena, expr_id: ExprId) -> bool {
 
 ## LoopRule
 
-**Principle**: Complex loop body (run/try/match/for) breaks to new line.
+**Principle**: Complex loop body (block/try/match/for) breaks to new line.
 
 ```ori
 // Simple body inline:
-loop(process())
+loop { process() }
 
 // Complex body breaks:
-loop(run(
-    step1,
-    step2,
-))
+loop {
+    step1;
+    step2;
+}
 ```
 
 ### Implementation

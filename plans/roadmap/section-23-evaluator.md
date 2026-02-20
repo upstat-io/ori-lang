@@ -335,26 +335,26 @@ These features have working **parser support** (Section 0.9.1 complete), but nee
   - [ ] **Semantics**: All remaining args collected into `[T]`
   - [ ] **Semantics**: Zero args → empty list `[]`
 
-### 23.8.5 Run Pre/Post Check Enforcement  <!-- unblocks:0.6.1 -->
+### 23.8.5 Function-Level Contract Enforcement (`pre()`/`post()`)  <!-- unblocks:0.6.1 -->
 
-> **Parser Status**: Parses correctly (`pre_check: cond | "msg"`, `post_check: r -> cond | "msg"`) [done] (2026-02-14)
-> **IR**: `CheckExpr` struct, `CheckRange`, stored in `FunctionSeq::Run`
+> **Parser Status**: Parses correctly (`pre(cond | "msg")`, `post(r -> cond | "msg")`) [done] (2026-02-14)
+> **IR**: `CheckExpr` struct, `CheckRange`, stored on function definition node
 > **Test File**: `tests/spec/patterns/run.ori` (commented-out tests at lines 140-288)
 
-- [ ] **Type Checker**: Verify pre_check condition is `bool`-typed
-  - [ ] **Location**: `ori_types/src/infer/expr.rs` — `FunctionSeq::Run` handling
-  - [ ] **Semantics**: `pre_check: expr` — expr must be `bool`
-  - [ ] **Semantics**: `pre_check: expr | "msg"` — msg must be `str`
-- [ ] **Type Checker**: Verify post_check lambda returns `bool`
-  - [ ] **Semantics**: `post_check: r -> expr` — lambda `(T) -> bool` where T is result type
-  - [ ] **Semantics**: `post_check: (a, b) -> expr` — tuple destructuring in lambda
-- [ ] **Evaluator**: Execute pre_checks before bindings
-  - [ ] **Location**: `ori_eval/src/interpreter/` — run pattern evaluation
+- [ ] **Type Checker**: Verify `pre()` condition is `bool`-typed
+  - [ ] **Location**: `ori_types/src/infer/expr.rs` — function contract handling
+  - [ ] **Semantics**: `pre(expr)` — expr must be `bool`
+  - [ ] **Semantics**: `pre(expr | "msg")` — msg must be `str`
+- [ ] **Type Checker**: Verify `post()` lambda returns `bool`
+  - [ ] **Semantics**: `post(r -> expr)` — lambda `(T) -> bool` where T is result type
+  - [ ] **Semantics**: `post((a, b) -> expr)` — tuple destructuring in lambda
+- [ ] **Evaluator**: Execute `pre()` contracts before function body
+  - [ ] **Location**: `ori_eval/src/interpreter/` — function call evaluation
   - [ ] **Semantics**: Evaluate condition; if false, panic with message (or default)
-  - [ ] **Semantics**: Multiple pre_checks evaluated in order; first failure panics
-- [ ] **Evaluator**: Execute post_checks after result
+  - [ ] **Semantics**: Multiple `pre()` contracts evaluated in order; first failure panics
+- [ ] **Evaluator**: Execute `post()` contracts after function body
   - [ ] **Semantics**: Evaluate lambda with result value; if returns false, panic
-  - [ ] **Semantics**: Multiple post_checks evaluated in order; first failure panics
+  - [ ] **Semantics**: Multiple `post()` contracts evaluated in order; first failure panics
 
 ### 23.8.6 Spread in Function Calls
 

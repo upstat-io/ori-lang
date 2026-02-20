@@ -17,7 +17,7 @@ Panic for situations that indicate bugs or violated assumptions:
 
 ```ori
 @get_required (key: str, map: {str: int}) -> int = {
-    let value = map[key]
+    let value = map[key];
     match value {
         Some(v) -> v
         None -> panic(msg: `Required key '{key}' missing`)
@@ -29,7 +29,7 @@ Panic for situations that indicate bugs or violated assumptions:
 
 ```ori
 @process_positive (n: int) -> int = {
-    if n <= 0 then panic(msg: `Expected positive number, got {n}`)
+    if n <= 0 then panic(msg: `Expected positive number, got {n}`);
     n * 2
 }
 ```
@@ -37,18 +37,18 @@ Panic for situations that indicate bugs or violated assumptions:
 ### Impossible States
 
 ```ori
-type Status = Active | Inactive
+type Status = Active | Inactive;
 
 @activate (s: Status) -> Status = match s {
     Inactive -> Active
     Active -> panic(msg: "Cannot activate already active")
-}
+};
 ```
 
 ## The `panic` Function
 
 ```ori
-@panic (msg: str) -> Never
+@panic (msg: str) -> Never;
 ```
 
 - Takes a message describing what went wrong
@@ -61,13 +61,13 @@ Write clear, actionable messages:
 
 ```ori
 // Good: explains what went wrong
-panic(msg: `User ID {id} not found in database`)
-panic(msg: `Index {i} out of bounds for list of length {len}`)
-panic(msg: "Division by zero")
+panic(msg: `User ID {id} not found in database`);
+panic(msg: `Index {i} out of bounds for list of length {len}`);
+panic(msg: "Division by zero");
 
 // Less helpful
-panic(msg: "error")
-panic(msg: "something went wrong")
+panic(msg: "error");
+panic(msg: "something went wrong");
 ```
 
 ## The `Never` Type
@@ -75,7 +75,7 @@ panic(msg: "something went wrong")
 Functions that panic return `Never`:
 
 ```ori
-@fail_with_code (code: int) -> Never = panic(msg: `Error code: {code}`)
+@fail_with_code (code: int) -> Never = panic(msg: `Error code: {code}`);
 ```
 
 `Never` is useful in type system:
@@ -86,7 +86,7 @@ Functions that panic return `Never`:
 let value = if condition then
     compute_value()
 else
-    panic(msg: "should not happen")
+    panic(msg: "should not happen");
 ```
 
 ## Panic vs Result
@@ -108,15 +108,14 @@ else
 
 Contracts express assumptions about function inputs and outputs.
 
-### Pre-conditions with `pre_check`
+### Pre-conditions with `pre()`
 
-Verify assumptions before the function body:
+Verify assumptions before the function body. Contracts go on the function declaration, between the return type and the `=`:
 
 ```ori
-@sqrt (x: float) -> float = {
-    pre_check: x >= 0.0
-    compute_sqrt(x: x)
-}
+@sqrt (x: float) -> float
+    pre(x >= 0.0)
+= compute_sqrt(x: x);
 ```
 
 If the condition fails, the function panics with a default message.
@@ -126,57 +125,51 @@ If the condition fails, the function panics with a default message.
 Add a message with `|`:
 
 ```ori
-@sqrt (x: float) -> float = {
-    pre_check: x >= 0.0 | "x must be non-negative"
-    compute_sqrt(x: x)
-}
+@sqrt (x: float) -> float
+    pre(x >= 0.0 | "x must be non-negative")
+= compute_sqrt(x: x);
 
-@divide (a: int, b: int) -> int = {
-    pre_check: b != 0 | "division by zero"
-    a / b
-}
+@divide (a: int, b: int) -> int
+    pre(b != 0 | "division by zero")
+= a / b;
 ```
 
-### Post-conditions with `post_check`
+### Post-conditions with `post()`
 
 Verify the result after computation:
 
 ```ori
-@abs (n: int) -> int = {
-    pre_check: true,                        // No pre-condition
-    if n < 0 then -n else n
-    post_check: result -> result >= 0,      // Result must be non-negative
-}
+@abs (n: int) -> int
+    post(result -> result >= 0)
+= if n < 0 then -n else n;
 ```
 
 The post-check receives the result value:
 
 ```ori
-@clamp (value: int, min: int, max: int) -> int = {
-    pre_check: min <= max | "min must not exceed max"
-    if value < min then min else if value > max then max else value
-    post_check: result -> result >= min && result <= max
-}
+@clamp (value: int, min: int, max: int) -> int
+    pre(min <= max | "min must not exceed max")
+    post(result -> result >= min && result <= max)
+= if value < min then min else if value > max then max else value;
 ```
 
 ### Combining Pre and Post Checks
 
 ```ori
-@factorial (n: int) -> int = {
-    pre_check: n >= 0 | "factorial undefined for negative numbers"
-    if n <= 1 then 1 else n * factorial(n: n - 1)
-    post_check: result -> result > 0 | "factorial must be positive"
-}
+@factorial (n: int) -> int
+    pre(n >= 0 | "factorial undefined for negative numbers")
+    post(result -> result > 0 | "factorial must be positive")
+= if n <= 1 then 1 else n * factorial(n: n - 1);
 ```
 
 ### When to Use Contracts
 
-**Use pre_check for:**
+**Use `pre()` for:**
 - Validating function arguments
 - Documenting assumptions
 - Catching caller mistakes early
 
-**Use post_check for:**
+**Use `post()` for:**
 - Verifying function correctness
 - Documenting guarantees
 - Catching implementation bugs
@@ -186,13 +179,13 @@ The post-check receives the result value:
 Use `catch` to capture panics (at boundaries):
 
 ```ori
-let result = catch(expr: might_panic())
+let result = catch(expr: might_panic());
 // Result<T, str> where str is the panic message
 
 match result {
     Ok(v) -> print(msg: `Success: {v}`)
     Err(msg) -> print(msg: `Panic caught: {msg}`)
-}
+};
 ```
 
 ### When to Catch Panics
@@ -202,7 +195,7 @@ Don't use `catch` for normal error handling — it's for exceptional situations:
 **Test frameworks:**
 ```ori
 @test_panics tests @divide () -> void = {
-    let result = catch(expr: divide(a: 1, b: 0))
+    let result = catch(expr: divide(a: 1, b: 0));
     assert_err(result: result)
 }
 ```
@@ -210,13 +203,13 @@ Don't use `catch` for normal error handling — it's for exceptional situations:
 **Plugin systems:**
 ```ori
 @run_plugin (plugin: Plugin) -> Result<void, str> =
-    catch(expr: plugin.execute())
+    catch(expr: plugin.execute());
 ```
 
 **REPL environments:**
 ```ori
 @eval_safely (code: str) -> Result<Value, str> =
-    catch(expr: evaluate(code: code))
+    catch(expr: evaluate(code: code));
 ```
 
 ### Catch vs Result
@@ -265,54 +258,53 @@ type PanicInfo = {
 type Stack<T> = { items: [T], max_size: int }
 
 impl<T> Stack<T> {
-    @new (max_size: int) -> Stack<T> = {
-        pre_check: max_size > 0 | "max_size must be positive"
-        Stack { items: [], max_size }
-    }
+    @new (max_size: int) -> Stack<T>
+        pre(max_size > 0 | "max_size must be positive")
+    = Stack { items: [], max_size };
 
-    @push (self, item: T) -> Stack<T> = {
-        pre_check: self.len() < self.max_size | "stack overflow"
-        Stack { ...self, items: [...self.items, item] }
-        post_check: result -> result.len() == self.len() + 1
-    }
+    @push (self, item: T) -> Stack<T>
+        pre(self.len() < self.max_size | "stack overflow")
+        post(result -> result.len() == self.len() + 1)
+    = Stack { ...self, items: [...self.items, item] };
 
-    @pop (self) -> (T, Stack<T>) = {
-        pre_check: self.len() > 0 | "stack underflow"
-        let last_index = self.len() - 1
-        let item = self.items[last_index]
-        let new_items = self.items.take(count: last_index).collect()
+    @pop (self) -> (T, Stack<T>)
+        pre(self.len() > 0 | "stack underflow")
+        post((_, result) -> result.len() == self.len() - 1)
+    = {
+        let last_index = self.len() - 1;
+        let item = self.items[last_index];
+        let new_items = self.items.take(count: last_index).collect();
+
         (item, Stack { ...self, items: new_items })
-        post_check: (_, result) -> result.len() == self.len() - 1
     }
 
-    @peek (self) -> T = {
-        pre_check: self.len() > 0 | "cannot peek empty stack"
-        self.items[self.len() - 1]
-    }
+    @peek (self) -> T
+        pre(self.len() > 0 | "cannot peek empty stack")
+    = self.items[self.len() - 1];
 
-    @len (self) -> int = len(collection: self.items)
+    @len (self) -> int = len(collection: self.items);
 
-    @is_empty (self) -> bool = self.len() == 0
+    @is_empty (self) -> bool = self.len() == 0;
 
-    @is_full (self) -> bool = self.len() == self.max_size
+    @is_full (self) -> bool = self.len() == self.max_size;
 }
 
 @test_stack_new tests @Stack.new () -> void = {
-    let s = Stack<int>.new(max_size: 5)
-    assert(condition: s.is_empty())
+    let s = Stack<int>.new(max_size: 5);
+    assert(condition: s.is_empty());
     assert(condition: !s.is_full())
 }
 
 @test_stack_push tests @Stack.push () -> void = {
-    let s = Stack<int>.new(max_size: 2)
-    let s = s.push(item: 1)
-    let s = s.push(item: 2)
+    let s = Stack<int>.new(max_size: 2);
+    let s = s.push(item: 1);
+    let s = s.push(item: 2);
     assert(condition: s.is_full())
 }
 
 @test_stack_overflow tests @Stack.push () -> void = {
-    let s = Stack<int>.new(max_size: 1)
-    let s = s.push(item: 1)
+    let s = Stack<int>.new(max_size: 1);
+    let s = s.push(item: 1);
     assert_panics_with(
         f: () -> s.push(item: 2)
         msg: "stack overflow"
@@ -320,15 +312,15 @@ impl<T> Stack<T> {
 }
 
 @test_stack_pop tests @Stack.pop () -> void = {
-    let s = Stack<int>.new(max_size: 5)
-    let s = s.push(item: 10)
-    let (item, s) = s.pop()
-    assert_eq(actual: item, expected: 10)
+    let s = Stack<int>.new(max_size: 5);
+    let s = s.push(item: 10);
+    let (item, s) = s.pop();
+    assert_eq(actual: item, expected: 10);
     assert(condition: s.is_empty())
 }
 
 @test_stack_underflow tests @Stack.pop () -> void = {
-    let s = Stack<int>.new(max_size: 5)
+    let s = Stack<int>.new(max_size: 5);
     assert_panics_with(
         f: () -> s.pop()
         msg: "stack underflow"
@@ -336,27 +328,25 @@ impl<T> Stack<T> {
 }
 
 // Calculator with validation
-@safe_divide (a: float, b: float) -> float = {
-    pre_check: b != 0.0 | "division by zero"
-    a / b
-}
+@safe_divide (a: float, b: float) -> float
+    pre(b != 0.0 | "division by zero")
+= a / b;
 
-@safe_sqrt (x: float) -> float = {
-    pre_check: x >= 0.0 | `sqrt undefined for negative: {x}`
-    compute_sqrt(x: x)
-    post_check: result -> result >= 0.0
-}
+@safe_sqrt (x: float) -> float
+    pre(x >= 0.0 | `sqrt undefined for negative: {x}`)
+    post(result -> result >= 0.0)
+= compute_sqrt(x: x);
 
 // Placeholder for actual sqrt implementation
-@compute_sqrt (x: float) -> float = x  // Simplified
+@compute_sqrt (x: float) -> float = x;  // Simplified
 
 @test_safe_divide tests @safe_divide () -> void = {
-    assert_eq(actual: safe_divide(a: 10.0, b: 2.0), expected: 5.0)
+    assert_eq(actual: safe_divide(a: 10.0, b: 2.0), expected: 5.0);
     assert_panics(f: () -> safe_divide(a: 10.0, b: 0.0))
 }
 
 @test_safe_sqrt tests @safe_sqrt () -> void = {
-    assert_eq(actual: safe_sqrt(x: 0.0), expected: 0.0)
+    assert_eq(actual: safe_sqrt(x: 0.0), expected: 0.0);
     assert_panics(f: () -> safe_sqrt(x: -1.0))
 }
 ```
@@ -366,30 +356,29 @@ impl<T> Stack<T> {
 ### Panic
 
 ```ori
-panic(msg: "error message") -> Never
+panic(msg: "error message") -> Never;
 ```
 
 ### Contracts
 
 ```ori
-{
-    pre_check: condition | "error message"
-    body_expression
-    post_check: result -> condition | "error message"
-}
+@name (params) -> ReturnType
+    pre(condition | "error message")
+    post(result -> condition | "error message")
+= body_expression;
 ```
 
 ### Catching Panics
 
 ```ori
-catch(expr: might_panic()) -> Result<T, str>
+catch(expr: might_panic()) -> Result<T, str>;
 ```
 
 ### Testing Panics
 
 ```ori
-assert_panics(f: () -> might_panic())
-assert_panics_with(f: () -> might_panic(), msg: "expected message")
+assert_panics(f: () -> might_panic());
+assert_panics_with(f: () -> might_panic(), msg: "expected message");
 ```
 
 ## What's Next

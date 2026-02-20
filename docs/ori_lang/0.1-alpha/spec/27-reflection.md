@@ -25,11 +25,11 @@ Reflection is opt-in. Types must explicitly derive `Reflect` to enable runtime i
 
 ```ori
 trait Reflect {
-    @type_info (self) -> TypeInfo
-    @field_count (self) -> int
-    @field_by_index (self, index: int) -> Option<Unknown>
-    @field_by_name (self, name: str) -> Option<Unknown>
-    @current_variant (self) -> Option<VariantInfo>
+    @type_info (self) -> TypeInfo;
+    @field_count (self) -> int;
+    @field_by_index (self, index: int) -> Option<Unknown>;
+    @field_by_name (self, name: str) -> Option<Unknown>;
+    @current_variant (self) -> Option<VariantInfo>;
 }
 ```
 
@@ -70,7 +70,7 @@ type TypeKind =
     | Map
     | Tuple
     | Function
-    | Trait
+    | Trait;
 
 type FieldInfo = {
     name: str,
@@ -91,11 +91,11 @@ TypeInfo is generated at compile time and stored in static tables. Each reflecti
 ### Accessing Type Information
 
 ```ori
-let person = Person { name: "Alice", age: 30, email: None }
-let info = person.type_info()
+let person = Person { name: "Alice", age: 30, email: None };
+let info = person.type_info();
 
-assert_eq(actual: info.name, expected: "Person")
-assert_eq(actual: info.kind, expected: Struct)
+assert_eq(actual: info.name, expected: "Person");
+assert_eq(actual: info.kind, expected: Struct);
 assert_eq(actual: len(collection: info.fields), expected: 3)
 ```
 
@@ -105,23 +105,23 @@ assert_eq(actual: len(collection: info.fields), expected: 3)
 
 ```ori
 impl Unknown {
-    @new<T: Reflect> (value: T) -> Unknown
-    @type_name (self) -> str
-    @type_info (self) -> TypeInfo
-    @is<T: Reflect> (self) -> bool
-    @downcast<T: Reflect> (self) -> Option<T>
-    @unwrap<T: Reflect> (self) -> T
-    @unwrap_or<T: Reflect> (self, default: T) -> T
+    @new<T: Reflect> (value: T) -> Unknown;
+    @type_name (self) -> str;
+    @type_info (self) -> TypeInfo;
+    @is<T: Reflect> (self) -> bool;
+    @downcast<T: Reflect> (self) -> Option<T>;
+    @unwrap<T: Reflect> (self) -> T;
+    @unwrap_or<T: Reflect> (self, default: T) -> T;
 }
 ```
 
 ### Usage
 
 ```ori
-let value: Unknown = Unknown.new(value: 42)
+let value: Unknown = Unknown.new(value: 42);
 
-assert(condition: value.is<int>())
-assert_eq(actual: value.type_name(), expected: "int")
+assert(condition: value.is<int>());
+assert_eq(actual: value.type_name(), expected: "int");
 
 match value.downcast<int>() {
     Some(n) -> print(msg: `Got integer: {n}`),
@@ -165,9 +165,9 @@ The compiler generates:
 
 ```ori
 impl Reflect for Point {
-    @type_info (self) -> TypeInfo = $POINT_TYPE_INFO
+    @type_info (self) -> TypeInfo = $POINT_TYPE_INFO;
 
-    @field_count (self) -> int = 2
+    @field_count (self) -> int = 2;
 
     @field_by_index (self, index: int) -> Option<Unknown> = match index {
         0 -> Some(Unknown.new(value: self.x)),
@@ -181,7 +181,7 @@ impl Reflect for Point {
         _ -> None,
     }
 
-    @current_variant (self) -> Option<VariantInfo> = None
+    @current_variant (self) -> Option<VariantInfo> = None;
 }
 ```
 
@@ -194,14 +194,14 @@ For sum types, `current_variant` returns the active variant:
 type Shape =
     | Circle(radius: float)
     | Rectangle(width: float, height: float)
-    | Point
+    | Point;
 
 impl Reflect for Shape {
     @current_variant (self) -> Option<VariantInfo> = Some(match self {
         Circle(_) -> VariantInfo { name: "Circle", index: 0, fields: [...] },
         Rectangle(_, _) -> VariantInfo { name: "Rectangle", index: 1, fields: [...] },
         Point -> VariantInfo { name: "Point", index: 2, fields: [] },
-    })
+    });
     // ...
 }
 ```
@@ -228,17 +228,17 @@ impl<T: Reflect> Reflect for Container<T> {
 
 ```ori
 extend<T: Reflect> T {
-    @fields (self) -> impl Iterator where Item == (str, Unknown)
+    @fields (self) -> impl Iterator where Item == (str, Unknown);
 }
 ```
 
 Usage:
 
 ```ori
-let person = Person { name: "Alice", age: 30, email: None }
+let person = Person { name: "Alice", age: 30, email: None };
 
 for (name, value) in person.fields() do
-    print(msg: `{name}: {value.type_name()}`)
+    print(msg: `{name}: {value.type_name()}`);
 ```
 
 ## Constraints

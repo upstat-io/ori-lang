@@ -15,67 +15,66 @@ Compiler-level control flow and concurrency constructs.
 
 | Category | Patterns | Purpose |
 |----------|----------|---------|
-| `function_seq` | `run`, `try`, `match` | Sequential expressions |
+| Block expressions | `{ }` blocks, `try { }`, `match expr { }` | Sequential expressions, error propagation, pattern matching |
 | `function_exp` | `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for`, `catch` | Concurrency, recursion, resources, error recovery |
 | `function_val` | `int`, `float`, `str`, `byte` | Type conversion |
 
 > **Note:** Data transformation (`map`, `filter`, `fold`, `find`, `collect`) and resilience (`retry`, `validate`) are stdlib methods, not compiler patterns. See [Built-in Functions](11-built-in-functions.md).
 
-## Sequential (function_seq)
+## Block Expressions
 
-### run
+### Blocks
 
-Sequential expressions with optional pre/post checks.
+A block `{ }` is a sequence of `;`-terminated statements. The last expression without `;` is the block's value. A block where every expression has `;` is a void block.
 
 ```ori
 {
-    let x = compute()
-    let y = transform(x)
+    let x = compute();
+    let y = transform(x);
+
     x + y
 }
 ```
 
-#### Pre/Post Checks
+#### Function-Level Contracts: `pre()` / `post()`
 
-The `run` pattern supports `pre_check:` and `post_check:` properties for contract-style defensive programming:
+Contracts are declared on the function, between the return type and `=`:
 
 ```ori
-@divide (a: int, b: int) -> int = {
-    pre_check: b != 0
-    a div b
-    post_check: r -> r * b <= a
-}
+@divide (a: int, b: int) -> int
+    pre(b != 0)
+    post(r -> r * b <= a)
+= a div b;
 
-// Multiple conditions via multiple properties
-@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = {
-    pre_check: amount > 0 | "amount must be positive"
-    pre_check: from.balance >= amount | "insufficient funds"
-    let new_from = Account { balance: from.balance - amount, ..from }
-    let new_to = Account { balance: to.balance + amount, ..to }
+
+// Multiple conditions
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account)
+    pre(amount > 0 | "amount must be positive")
+    pre(from.balance >= amount | "insufficient funds")
+    post((f, t) -> f.balance + t.balance == from.balance + to.balance)
+= {
+    let new_from = Account { balance: from.balance - amount, ..from };
+    let new_to = Account { balance: to.balance + amount, ..to };
+
     (new_from, new_to)
-    post_check: (f, t) -> f.balance + t.balance == from.balance + to.balance
 }
 ```
 
-**Positional constraints** (parser-enforced):
-- `pre_check:` must appear before any body bindings or expressions
-- `post_check:` must appear after the final body expression
-
 **Semantics**:
-1. Evaluate all `pre_check:` conditions in order; panic on failure
-2. Execute body statements and final expression
-3. Bind result to each `post_check:` lambda parameter
-4. Evaluate all `post_check:` conditions in order; panic on failure
+1. Evaluate all `pre()` conditions in order; panic on failure
+2. Execute function body
+3. Bind result to each `post()` lambda parameter
+4. Evaluate all `post()` conditions in order; panic on failure
 5. Return result
 
 **Scope constraints**:
-- `pre_check:` may only reference bindings visible in the enclosing scope
-- `post_check:` may reference the result, enclosing scope bindings, and body bindings
+- `pre()` may only reference function parameters and module-level bindings
+- `post()` may reference the result (via lambda parameter) plus everything visible to `pre()`
 
 **Type constraints**:
-- `pre_check:` condition must have type `bool`
-- `post_check:` must be a lambda from result type to `bool`
-- It is a compile-time error to use `post_check:` when the body evaluates to `void`
+- `pre()` condition must have type `bool`
+- `post()` must be a lambda from result type to `bool`
+- It is a compile-time error to use `post()` on a function returning `void`
 
 **Custom messages**: Use `condition | "message"` to provide a custom panic message. Without a message, the compiler embeds the condition's source text.
 
@@ -85,8 +84,9 @@ Error-propagating sequence. Returns early on `Err`.
 
 ```ori
 try {
-    let content = read_file(path)
-    let parsed = parse(content)
+    let content = read_file(path);
+    let parsed = parse(content);
+
     Ok(transform(parsed))
 }
 ```
@@ -106,6 +106,52 @@ Match patterns include: literals, identifiers, wildcards (`_`), variant patterns
 
 Match must be exhaustive.
 
+#### At-Patterns
+
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § at_pattern
+
+An _at-pattern_ binds the entire matched value to a name while simultaneously matching against an inner pattern.
+
+```ebnf
+at_pattern = identifier "@" match_pattern .
+```
+
+The identifier before `@` binds the whole scrutinee value. The pattern after `@` must match for the arm to be selected. Both the identifier and any bindings in the inner pattern are in scope in the arm's body.
+
+```ori
+match opt {
+    whole @ Some(inner) -> use_both(whole: whole, inner: inner)
+    None -> default_value()
+};
+```
+
+Here `whole` has type `Option<T>` (the full value) and `inner` has type `T` (the unwrapped payload). The arm matches only when the scrutinee is `Some(_)`.
+
+At-patterns compose with all other match patterns:
+
+```ori
+// With variant patterns
+match status {
+    s @ Failed(_) -> log_and_report(status: s)
+    _ -> "ok"
+};
+
+// With struct patterns
+match point {
+    p @ { x, y } -> transform(point: p, dx: x, dy: y)
+};
+
+// With nested at-patterns
+match tree {
+    node @ Branch(left @ Leaf(_), _) -> prune(tree: node, leaf: left)
+    other -> other
+};
+```
+
+The type of the at-pattern binding is the type of the scrutinee at that nesting level, not the type of the inner pattern's bindings.
+
+At-patterns are refutable if their inner pattern is refutable, and irrefutable if their inner pattern is irrefutable.
+
 #### Exhaustiveness Checking
 
 A match expression is _exhaustive_ if every possible value of the scrutinee type matches at least one pattern arm. The compiler uses pattern matrix decomposition to verify exhaustiveness.
@@ -121,7 +167,7 @@ For each type, the compiler knows its constructors:
 **Never variants:** Variants containing `Never` are uninhabited and need not be matched:
 
 ```ori
-type MaybeNever = Value(int) | Impossible(Never)
+type MaybeNever = Value(int) | Impossible(Never);
 
 match maybe {
     Value(v) -> v
@@ -188,7 +234,7 @@ match n {
 Or-patterns contribute their combined coverage:
 
 ```ori
-type Light = Red | Yellow | Green
+type Light = Red | Yellow | Green;
 
 // Exhaustive via or-pattern
 match light {
@@ -205,8 +251,8 @@ At-patterns contribute the same coverage as their inner pattern:
 
 ```ori
 match opt {
-    whole @ Some(x) -> use_both(whole, x)
-    None -> default,  // Required for exhaustiveness
+    whole @ Some(x) -> use_both(whole: whole, inner: x)
+    None -> default_value()
 }
 ```
 
@@ -259,7 +305,8 @@ recurse(
     condition: n <= 1,
     base: 1,
     step: n * self(n - 1),
-)
+);
+
 ```
 
 #### Self Keyword
@@ -271,7 +318,7 @@ recurse(
     condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),
-)
+);
 ```
 
 Arguments to `self(...)` must match the enclosing function's parameter arity.
@@ -290,7 +337,7 @@ impl Tree for TreeOps {
         condition: self.is_leaf(),  // Receiver
         base: 1,
         step: 1 + max(left: self(self.left()), right: self(self.right())),  // Recursive calls
-    )
+    );
 }
 ```
 
@@ -306,7 +353,7 @@ With `memo: true`, results are cached for the duration of the top-level call:
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true,  // O(n) instead of O(2^n)
-)
+);
 ```
 
 Memo requirements:
@@ -325,7 +372,7 @@ With `parallel: true`, independent `self(...)` calls execute concurrently:
     base: n,
     step: self(n - 1) + self(n - 2),
     parallel: true,
-)
+);
 ```
 
 Parallel requirements:
@@ -344,7 +391,7 @@ When `self(...)` is in tail position, the compiler optimizes to a loop with O(1)
     condition: n == 0,
     base: acc,
     step: self(n - 1, acc + n),  // Tail position: compiled to loop
-)
+);
 ```
 
 #### Stack Limits
@@ -378,7 +425,7 @@ Returns `[Result<T, E>]`. Never fails; errors captured in results.
 | Result order | Same as task list order |
 
 ```ori
-let results = parallel(tasks: [slow, fast, medium])
+let results = parallel(tasks: [slow, fast, medium]);
 // results[0] = result of slow  (first task)
 // results[1] = result of fast  (second task)
 // results[2] = result of medium (third task)
@@ -441,7 +488,7 @@ Returns `void` immediately. Task results and errors are discarded.
 Tasks start and the pattern returns without waiting:
 
 ```ori
-spawn(tasks: [send_email(u) for u in users])
+spawn(tasks: [send_email(u) for u in users]);
 // Returns void immediately
 // Emails sent in background
 ```
@@ -468,7 +515,7 @@ Spawned tasks:
 
 ```ori
 @setup () -> void uses Suspend = {
-    spawn(tasks: [background_monitor()])
+    spawn(tasks: [background_monitor()]);
     // Function returns, but monitor continues
 }
 ```
@@ -502,7 +549,7 @@ timeout(
 3. If `after` elapses first: cancel `op`, return `Err(CancellationError { reason: Timeout, task_id: 0 })`
 
 ```ori
-let result = timeout(op: fetch(url), after: 5s)
+let result = timeout(op: fetch(url), after: 5s);
 // result: Result<Response, CancellationError>
 ```
 
@@ -529,8 +576,8 @@ Inner timeouts can be shorter than outer:
 ```ori
 timeout(
     op: {
-        let a = timeout(op: step1(), after: 2s)?
-        let b = timeout(op: step2(), after: 2s)?
+        let a = timeout(op: step1(), after: 2s)?;
+        let b = timeout(op: step2(), after: 2s)?;
         (a, b)
     },
     after: 5s,  // Overall timeout
@@ -561,14 +608,14 @@ The `Nursery` type provides a single method:
 
 ```ori
 type Nursery = {
-    @spawn<T> (self, task: () -> T uses Suspend) -> void
+    @spawn<T> (self, task: () -> T uses Suspend) -> void;
 }
 ```
 
 Error modes:
 
 ```ori
-type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
+type NurseryErrorMode = CancelRemaining | CollectAll | FailFast;
 ```
 
 | Mode | Behavior |
@@ -608,7 +655,7 @@ type CancellationReason =
     | SiblingFailed
     | NurseryExited
     | ExplicitCancel
-    | ResourceExhausted
+    | ResourceExhausted;
 ```
 
 #### Cancellation API
@@ -618,9 +665,9 @@ The `is_cancelled()` built-in function returns `bool`, available in async contex
 ```ori
 @long_task () -> Result<Data, Error> uses Async = {
     for item in items do {
-        if is_cancelled() then break Err(CancellationError { ... })
+        if is_cancelled() then break Err(CancellationError { ... });
         process(item)
-    }
+    };
     Ok(result)
 }
 ```
@@ -661,7 +708,7 @@ cache(
         key: `user-{id}`,
         op: db.query(id: id),
         ttl: 5m,
-    )
+    );
 ```
 
 The `cache` pattern returns the same type as `op`.
@@ -671,9 +718,9 @@ The `cache` pattern returns the same type as `op`.
 Keys must implement `Hashable` and `Eq`:
 
 ```ori
-cache(key: "string-key", op: ..., ttl: 1m)  // OK: str is Hashable + Eq
-cache(key: 42, op: ..., ttl: 1m)            // OK: int is Hashable + Eq
-cache(key: (user_id, "profile"), op: ..., ttl: 1m)  // OK: tuple of hashables
+cache(key: "string-key", op: ..., ttl: 1m);  // OK: str is Hashable + Eq
+cache(key: 42, op: ..., ttl: 1m);            // OK: int is Hashable + Eq
+cache(key: (user_id, "profile"), op: ..., ttl: 1m);  // OK: tuple of hashables
 ```
 
 #### Value Requirements
@@ -716,10 +763,10 @@ Time-based expiration is automatic. Manual invalidation uses `Cache` capability 
 
 ```ori
 @invalidate_user (id: int) -> void uses Cache =
-    Cache.invalidate(key: `user-{id}`)
+    Cache.invalidate(key: `user-{id}`);
 
 @clear_all_cache () -> void uses Cache =
-    Cache.clear()
+    Cache.clear();
 ```
 
 #### Cache vs Memoization
@@ -781,8 +828,8 @@ If `acquire:` succeeds, `release:` runs under all exit conditions:
 with(
     acquire: open_file(path),
     action: f -> {
-        if bad_condition then panic("abort")
-        if err_condition then Err("failed")?
+        if bad_condition then panic("abort");
+        if err_condition then Err("failed")?;
         read_all(f)
     },
     release: f -> close(f),  // Always called
@@ -806,7 +853,7 @@ with(acquire: lock(), action: l -> work(), release: l -> l.count())
 When `acquire:` returns `Result<R, E>`:
 
 ```ori
-@open_file (path: str) -> Result<File, IoError>
+@open_file (path: str) -> Result<File, IoError>;
 
 // Using `?` for fallible acquire:
 @read_config (path: str) -> Result<Config, IoError> =
@@ -814,7 +861,7 @@ When `acquire:` returns `Result<R, E>`:
         acquire: open_file(path)?,  // Propagates Err, no cleanup needed
         action: f -> parse(f.read_all()),
         release: f -> f.close(),
-    )
+    );
 ```
 
 When `action:` may fail:
@@ -824,11 +871,11 @@ When `action:` may fail:
     with(
         acquire: open_file(path)?,
         action: f -> {
-            let content = f.read_all()?,  // May propagate Err
-            parse(content)?,              // May propagate Err
+            let content = f.read_all()?;  // May propagate Err
+            parse(content)?               // May propagate Err
         },
         release: f -> f.close(),  // Still runs on any Err
-    )
+    );
 ```
 
 #### Double Fault Abort
@@ -851,7 +898,7 @@ In a suspending context (`uses Suspend`), both `action:` and `release:` may susp
         acquire: connect(url),
         action: conn -> fetch_data(conn),  // May suspend
         release: conn -> conn.close(),     // May suspend
-    )
+    );
 ```
 
 #### Error Codes
@@ -868,7 +915,8 @@ In a suspending context (`uses Suspend`), both `action:` and `release:` may susp
 Captures panics and converts them to `Result<T, str>`.
 
 ```ori
-catch(expr: may_panic())
+catch(expr: may_panic());
+
 ```
 
 If the expression evaluates successfully, returns `Ok(value)`. If the expression panics, returns `Err(message)` where `message` is the panic message string.
@@ -878,8 +926,8 @@ See [Errors and Panics § Catching Panics](20-errors-and-panics.md#catching-pani
 ## for Pattern
 
 ```ori
-for(over: items, match: Some(x) -> x, default: 0)
-for(over: items, map: parse, match: Ok(v) -> v, default: fallback)
+for(over: items, match: Some(x) -> x, default: 0);
+for(over: items, map: parse, match: Ok(v) -> v, default: fallback);
 ```
 
 Returns first match or default.
@@ -891,16 +939,16 @@ The `for` loop desugars to use the `Iterable` and `Iterator` traits:
 ```ori
 // This:
 for x in items do
-    process(x: x)
+    process(x: x);
 
 // Desugars to:
 {
-    let iter = items.iter()
+    let iter = items.iter();
     loop {
         match iter.next() {
             (Some(x), next_iter) -> {
-                process(x: x)
-                iter = next_iter
+                process(x: x);
+                iter = next_iter;
                 continue
             }
             (None, _) -> break
@@ -916,13 +964,15 @@ The `for...yield` expression builds collections from iteration.
 ### Basic Syntax
 
 ```ori
-for x in items yield expression
+for x in items yield expression;
+
 ```
 
 Desugars to:
 
 ```ori
-items.iter().map(transform: x -> x * 2).collect()
+items.iter().map(transform: x -> x * 2).collect();
+
 ```
 
 ### Type Inference
@@ -930,14 +980,14 @@ items.iter().map(transform: x -> x * 2).collect()
 The result type is inferred from context:
 
 ```ori
-let numbers: [int] = for x in items yield x.id  // [int]
-let set: Set<str> = for x in items yield x.name  // Set<str>
+let numbers: [int] = for x in items yield x.id;  // [int]
+let set: Set<str> = for x in items yield x.name;  // Set<str>
 ```
 
 Without context, defaults to list:
 
 ```ori
-let result = for x in 0..5 yield x * 2  // [int]
+let result = for x in 0..5 yield x * 2;  // [int]
 ```
 
 ### Filtering
@@ -945,14 +995,15 @@ let result = for x in 0..5 yield x * 2  // [int]
 A single `if` clause filters elements. Use `&&` for multiple conditions:
 
 ```ori
-for x in items if x > 0 yield x
-for x in items if x > 0 && x < 100 yield x
+for x in items if x > 0 yield x;
+for x in items if x > 0 && x < 100 yield x;
 ```
 
 Desugars to:
 
 ```ori
-items.iter().filter(predicate: x -> x > 0).map(transform: x -> x).collect()
+items.iter().filter(predicate: x -> x > 0).map(transform: x -> x).collect();
+
 ```
 
 ### Nested Comprehensions
@@ -960,19 +1011,22 @@ items.iter().filter(predicate: x -> x > 0).map(transform: x -> x).collect()
 Multiple `for` clauses produce a flat result:
 
 ```ori
-for x in xs for y in ys yield (x, y)
+for x in xs for y in ys yield (x, y);
+
 ```
 
 Desugars to:
 
 ```ori
-xs.iter().flat_map(transform: x -> ys.iter().map(transform: y -> (x, y))).collect()
+xs.iter().flat_map(transform: x -> ys.iter().map(transform: y -> (x, y))).collect();
+
 ```
 
 Each clause can have its own filter:
 
 ```ori
-for x in xs if x > 0 for y in ys if y > 0 yield x * y
+for x in xs if x > 0 for y in ys if y > 0 yield x * y;
+
 ```
 
 ### Break and Continue
@@ -998,7 +1052,8 @@ for x in items yield
 Maps implement `Collect<(K, V)>`. Yielding 2-tuples collects into a map:
 
 ```ori
-let by_id: {int: User} = for user in users yield (user.id, user)
+let by_id: {int: User} = for user in users yield (user.id, user);
+
 ```
 
 If duplicate keys are yielded, later values overwrite earlier ones.
@@ -1008,8 +1063,8 @@ If duplicate keys are yielded, later values overwrite earlier ones.
 Empty source or all elements filtered produces an empty collection:
 
 ```ori
-for x in [] yield x * 2  // []
-for x in [1, 2, 3] if x > 10 yield x  // []
+for x in [] yield x * 2;  // []
+for x in [1, 2, 3] if x > 10 yield x;  // []
 ```
 
 See [Types § Iterator Traits](06-types.md#iterator-traits) for trait definitions.

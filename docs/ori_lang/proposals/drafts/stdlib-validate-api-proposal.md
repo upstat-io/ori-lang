@@ -256,29 +256,28 @@ type Person = { name: str, address: Address }
         value: a,
     )
 
-@validate_person (p: Person) -> Result<Person, [ValidationError]> =
-    run(
-        let address_result = validate_address(p.address)
-            .map_err(transform: errs ->
-                for e in errs yield ValidationError {
-                    field: `address.{e.field}`,
-                    message: e.message
-                }
-            ),
+@validate_person (p: Person) -> Result<Person, [ValidationError]> = {
+    let address_result = validate_address(p.address)
+        .map_err(transform: errs ->
+            for e in errs yield ValidationError {
+                field: `address.{e.field}`,
+                message: e.message
+            }
+        );
 
-        let person_result = validate_with(
-            rules: [(p.name.is_empty(), "name", "is required")],
-            value: p,
-        ),
+    let person_result = validate_with(
+        rules: [(p.name.is_empty(), "name", "is required")],
+        value: p,
+    );
 
-        // Combine errors from both
-        match((person_result, address_result),
-            (Ok(_), Ok(_)) -> Ok(p),
-            (Err(e1), Ok(_)) -> Err(e1),
-            (Ok(_), Err(e2)) -> Err(e2),
-            (Err(e1), Err(e2)) -> Err([...e1, ...e2]),
-        ),
-    )
+    // Combine errors from both
+    match (person_result, address_result) {
+        (Ok(_), Ok(_)) -> Ok(p)
+        (Err(e1), Ok(_)) -> Err(e1)
+        (Ok(_), Err(e2)) -> Err(e2)
+        (Err(e1), Err(e2)) -> Err([...e1, ...e2])
+    }
+}
 ```
 
 ### Conditional Validation
@@ -290,10 +289,10 @@ Validate only when relevant:
     value: Option<T>,
     validate_fn: (T) -> Result<T, [str]>,
 ) -> Result<Option<T>, [str]> =
-    match(value,
-        None -> Ok(None),
-        Some(v) -> validate_fn(v).map(transform: v -> Some(v)),
-    )
+    match value {
+        None -> Ok(None)
+        Some(v) -> validate_fn(v).map(transform: v -> Some(v))
+    }
 ```
 
 ### Cross-Field Validation
@@ -317,11 +316,11 @@ Validate relationships between fields:
 ### Simple List
 
 ```ori
-let result = validate_user(input)
-match(result,
-    Ok(user) -> process(user),
-    Err(errors) -> print(msg: errors.join(separator: "\n")),
-)
+let result = validate_user(input);
+match result {
+    Ok(user) -> process(user)
+    Err(errors) -> print(msg: errors.join(separator: "\n"))
+}
 ```
 
 Output:
@@ -334,15 +333,15 @@ email is required
 ### Structured Errors
 
 ```ori
-let result = validate_user(input)
-match(result,
-    Ok(user) -> process(user),
-    Err(errors) -> run(
-        print(msg: "Validation failed:"),
+let result = validate_user(input);
+match result {
+    Ok(user) -> process(user)
+    Err(errors) -> {
+        print(msg: "Validation failed:");
         for e in errors do
-            print(msg: `  - {e.field}: {e.message}`),
-    ),
-)
+            print(msg: `  - {e.field}: {e.message}`)
+    }
+}
 ```
 
 Output:
@@ -475,18 +474,17 @@ type ServerConfig = {
 
 ### vs. Contract Checks
 
-| Aspect | `validate` | `pre_check:` |
-|--------|------------|--------------|
+| Aspect | `validate` | `pre()` |
+|--------|------------|---------|
 | Return type | `Result<T, [str]>` | Panics on failure |
 | Error handling | Caller decides | Unrecoverable |
 | Use case | User input | Programming errors |
 
 ```ori
-// pre_check: for invariants (programmer errors)
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0,
-    a / b,
-)
+// pre() for invariants (programmer errors)
+@divide (a: int, b: int) -> int
+    pre(b != 0)
+    = a / b
 
 // validate: for user input (expected failures)
 @parse_age (input: str) -> Result<int, [str]> =
@@ -538,37 +536,34 @@ error[E1201]: validate rule must be (bool, str) tuple
 @validate<T> (
     rules: [(bool, str)],
     value: T,
-) -> Result<T, [str]> =
-    run(
-        let errors = for (failed, message) in rules if failed yield message,
-        if errors.is_empty() then Ok(value)
-        else Err(errors),
-    )
+) -> Result<T, [str]> = {
+    let errors = for (failed, message) in rules if failed yield message;
+    if errors.is_empty() then Ok(value)
+    else Err(errors)
+}
 
 @validate_with<T> (
     rules: [(bool, str, str)],
     value: T,
-) -> Result<T, [ValidationError]> =
-    run(
-        let errors = for (failed, field, message) in rules if failed yield
-            ValidationError { field: field, message: message },
-        if errors.is_empty() then Ok(value)
-        else Err(errors),
-    )
+) -> Result<T, [ValidationError]> = {
+    let errors = for (failed, field, message) in rules if failed yield
+        ValidationError { field: field, message: message };
+    if errors.is_empty() then Ok(value)
+    else Err(errors)
+}
 
 @validate_all<T> (
     validations: [Result<T, [str]]>,
-) -> Result<[T], [str]> =
-    run(
-        let values: [T] = [],
-        let errors: [str] = [],
-        for v in validations do match(v,
-            Ok(value) -> values = [...values, value],
-            Err(errs) -> errors = [...errors, ...errs],
-        ),
-        if errors.is_empty() then Ok(values)
-        else Err(errors),
-    )
+) -> Result<[T], [str]> = {
+    let values: [T] = [];
+    let errors: [str] = [];
+    for v in validations do match v {
+        Ok(value) -> values = [...values, value]
+        Err(errs) -> errors = [...errors, ...errs]
+    };
+    if errors.is_empty() then Ok(values)
+    else Err(errors)
+}
 ```
 
 ### No Capabilities Required

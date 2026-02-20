@@ -660,8 +660,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 ### 0.5.13 Loop Expression
 
 - [x] **Audit**: Loop expressions — grammar.ebnf § loop_expr [done] (2026-02-14)
-  - [x] Basic: `loop(body)` — parses correctly (verified via `ori parse`)
-  - [x] Labeled: `loop:name(body)` — parses correctly [done] (2026-02-14)
+  - [x] Basic: `loop { body }` — parses correctly (verified via `ori parse`)
+  - [x] Labeled: `loop:name { body }` — parses correctly [done] (2026-02-14)
 
 ### 0.5.14 Labels
 
@@ -699,20 +699,20 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 ### 0.6.1 Sequential Patterns
 
-- [x] **Audit**: Run pattern — grammar.ebnf § run_expr [done] (2026-02-14)
-  - [x] Basic: `run(let x = a, result)` — parses correctly (verified via `ori parse`)
-  - [x] Pre-check: `run(pre_check: cond, body)` — parses correctly [done] (2026-02-14)
-  - [x] Post-check: `run(body, post_check: r -> cond)` — parses correctly [done] (2026-02-14)
-  - [x] Pre-check with message: `run(pre_check: cond | "msg", body)` — parses correctly [done] (2026-02-14)
-  - [x] Post-check with message: `run(body, post_check: r -> cond | "msg")` — parses correctly [done] (2026-02-14)
-  - [x] Multiple pre-checks: `run(pre_check: a, pre_check: b, body)` — parses correctly [done] (2026-02-14)
-  - [ ] **Enforcement**: pre/post checks not yet enforced at runtime  <!-- blocked-by:23 -->
+- [x] **Audit**: Block expressions and function contracts — grammar.ebnf § block_expr [done] (2026-02-14)
+  - [x] Basic: `{ let x = a \n result }` — parses correctly (verified via `ori parse`)
+  - [x] Pre-contract: `pre(cond)` on function declaration — parses correctly [done] (2026-02-14)
+  - [x] Post-contract: `post(r -> cond)` on function declaration — parses correctly [done] (2026-02-14)
+  - [x] Pre-contract with message: `pre(cond | "msg")` — parses correctly [done] (2026-02-14)
+  - [x] Post-contract with message: `post(r -> cond | "msg")` — parses correctly [done] (2026-02-14)
+  - [x] Multiple pre-contracts: `pre(a) pre(b)` — parses correctly [done] (2026-02-14)
+  - [ ] **Enforcement**: pre/post contracts not yet enforced at runtime  <!-- blocked-by:23 -->
 
 - [x] **Audit**: Try pattern — grammar.ebnf § try_expr [done] (2026-02-13)
-  - [x] `try(let x = f()?, Ok(x))` — parses correctly (verified via `ori parse`)
+  - [x] `try { let x = f()? \n Ok(x) }` — parses correctly (verified via `ori parse`)
 
 - [x] **Audit**: Match pattern — grammar.ebnf § match_expr [done] (2026-02-10)
-  - [x] `match(expr, Some(x) -> x, None -> default)` — parses correctly (verified via `ori parse`)
+  - [x] `match expr { Some(x) -> x, None -> default }` — parses correctly (verified via `ori parse`)
 
 - [x] **Audit**: Guard syntax — grammar.ebnf § guard [done] (2026-02-14)
   - [x] `.match(...)` syntax — verified: `x.match(x > 0) -> "positive"` parses and evaluates correctly
@@ -776,7 +776,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
   - [x] String: `"hello"` — parses correctly in match arms
   - [x] Bool: `true`, `false` — parses correctly in match arms
   - [x] Char: `'a'` — parses and evaluates correctly [done] (2026-02-14)
-  - [x] **Verified**: `match(42, 42 -> 1, _ -> 0)` parses correctly (via `ori parse`)
+  - [x] **Verified**: `match 42 { 42 -> 1, _ -> 0 }` parses correctly (via `ori parse`)
 
 - [x] **Audit**: Identifier pattern — grammar.ebnf § identifier_pattern [done] (2026-02-10)
   - [x] `x` (binds value) — parses correctly (verified via `ori parse`)
@@ -866,7 +866,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - [x] All declaration items audited and tested (0.3) [done] (2026-02-14) — 92/92 checkboxes complete; typed constants, const generics, floating tests, clause params, guard clauses, variadic params all work
 - [ ] All type items audited and tested (0.4) — 30/34 complete; only impl Trait remains (0.4.2, 4 items)  <!-- blocked-by:19 -->
 - [x] All expression items audited and tested (0.5) [done] (2026-02-14) — length placeholder `#` now works; labeled break/continue/for/loop NOW WORK [done] (2026-02-14)
-- [ ] All pattern items audited and tested (0.6) — 93/94 complete; only runtime pre/post check enforcement remains (0.6.1, 1 item)  <!-- blocked-by:23 -->
+- [ ] All pattern items audited and tested (0.6) — 93/94 complete; only runtime contract enforcement remains (0.6.1, 1 item)  <!-- blocked-by:23 -->
 - [x] All constant expression items audited and tested (0.7) [done] (2026-02-14) — computed constants now work (arithmetic, comparison, logical, grouped)
 - [x] Run `cargo t -p ori_parse` — all parser tests pass [done] (2026-02-14)
 - [x] Run `cargo t -p ori_lexer` — all lexer tests pass [done] (2026-02-14)
@@ -883,15 +883,15 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 - ~~Typed constants (`let $X: int`)~~ — FIXED [done] (2026-02-14)
 - ~~Channel generic syntax (`channel<int>`)~~ — FIXED [done] (2026-02-14)
 - ~~Struct rest pattern (`{ x, .. }`)~~ — FIXED [done] (2026-02-14)
-- ~~`.match()` method syntax~~ — FIXED [done] (2026-02-14) — desugars `expr.match(arms)` to `match(expr, arms)` at parser level
+- ~~`.match()` method syntax~~ — FIXED [done] (2026-02-14) — desugars `expr.match { arms }` to `match expr { arms }` at parser level
 - ~~`with()` RAII pattern (`acquire:/action:/release:`)~~ — FIXED [done] (2026-02-14) — was doc error: spec uses `action:` not `use:` (`use` is reserved keyword)
-- ~~Run pre/post checks~~ — FIXED [done] (2026-02-14)
+- ~~Function-level contracts (`pre()`/`post()`)~~ — FIXED [done] (2026-02-14)
 - ~~Immutable binding in function body (`let $x = 42`)~~ — FIXED [done] (2026-02-14)
 - ~~Labeled continue (`continue:outer`)~~ — FIXED [done] (2026-02-14)
 - ~~Char patterns in match (`'a'`, `'a'..='z'`)~~ — FIXED [done] (2026-02-14)
 
 **Fixed since 2026-02-10** (23 items):
-File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside try(), const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), run pre/post checks (`pre_check:`/`post_check:`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`), `with()` RAII pattern (`acquire:/action:/release:` — was doc error, spec uses `action:` not `use:`), `.match()` method syntax (`expr.match(arms)` desugars to `match(expr, arms)`)
+File attributes, extern `as` alias, C variadics, pattern params, guard clauses, default params, variadic params, `#repr`/`#target`/`#cfg` attributes, fixed-capacity lists, length placeholder, try `?` inside `try { }`, const generic type args (`Array<int, $N>`), const expressions in types, const bounds in where clauses (`where N > 0`), labeled continue (`continue:outer`), function-level contracts (`pre()`/`post()`), computed constants (`let $D = $A + 1`), struct rest pattern (`{ x, .. }`), immutable bindings in function bodies (`let $x`, `let ($a, $b)`, `let { $x }`, `let [$h, ..]`), `with()` RAII pattern (`acquire:/action:/release:` — was doc error, spec uses `action:` not `use:`), `.match()` method syntax (`expr.match { arms }` desugars to `match expr { arms }`)
 
 ---
 
@@ -932,7 +932,7 @@ These features fail at the parse phase — the parser does not recognize the syn
   - [x] **Syntax**: `{ x, .. }` — parses and evaluates correctly [done] (2026-02-14)
 
 - [x] **Implement**: `.match()` method syntax [done] (2026-02-14)
-  - [x] **Syntax**: `42.match(...)` — method-style match desugars to `match(42, ...)` at parse level [done] (2026-02-14)
+  - [x] **Syntax**: `42.match { ... }` — method-style match desugars to `match 42 { ... }` at parse level [done] (2026-02-14)
 
 - [x] **Implement**: Immutable bindings in function bodies [done] (2026-02-14)
   - [x] **Syntax**: `let $x = 42` inside function — parses and evaluates correctly [done] (2026-02-14)
@@ -946,11 +946,11 @@ These features fail at the parse phase — the parser does not recognize the syn
 - [x] **Implement**: Typed constants [done] (2026-02-14)
   - [x] **Syntax**: `let $MAX_SIZE: int = 1000` — parses correctly [done] (2026-02-14)
 
-- [x] **Implement**: Run pre/post checks [done] (2026-02-14)
-  - [x] **Syntax**: `run(pre_check: cond, body)` — parses correctly [done] (2026-02-14)
-  - [x] **Syntax**: `run(body, post_check: r -> cond)` — parses correctly [done] (2026-02-14)
-  - [x] **Syntax**: `run(pre_check: c | "msg", body, post_check: r -> c | "msg")` — parses correctly [done] (2026-02-14)
-  - [ ] **Enforcement**: Runtime check execution tracked in Section 23  <!-- blocked-by:23 -->
+- [x] **Implement**: Function-level contracts (`pre()`/`post()`) [done] (2026-02-14)
+  - [x] **Syntax**: `pre(cond)` on function declaration — parses correctly [done] (2026-02-14)
+  - [x] **Syntax**: `post(r -> cond)` on function declaration — parses correctly [done] (2026-02-14)
+  - [x] **Syntax**: `pre(c | "msg") post(r -> c | "msg")` — parses correctly [done] (2026-02-14)
+  - [ ] **Enforcement**: Runtime contract execution tracked in Section 23  <!-- blocked-by:23 -->
 
 - [x] **Implement**: `with(acquire:, action:, release:)` RAII pattern [done] (2026-02-14)
   - [x] **Syntax**: `with(acquire: expr, action: f -> ..., release: f -> ...)` — parses correctly. Spec uses `action:` not `use:` (`use` is reserved keyword)
@@ -977,7 +977,7 @@ These features were previously reported as broken but now parse correctly.
 - [x] **Fixed**: File-level attributes — `#!target(os: "linux")` [done] (2026-02-13)
 - [x] **Fixed**: Extern `as` alias — `@_sin (x: float) -> float as "sin"` [done] (2026-02-13)
 - [x] **Fixed**: C variadics — `@printf (fmt: CPtr, ...) -> c_int` [done] (2026-02-13)
-- [x] **Fixed**: Try `?` inside try — `try(let x = f()?, Ok(x))` [done] (2026-02-13)
+- [x] **Fixed**: Try `?` inside try — `try { let x = f()? \n Ok(x) }` [done] (2026-02-13)
 - [x] **Fixed**: Length placeholder — `list[# - 1]` [done] (2026-02-13)
 - [x] **Fixed**: Spread in function calls — `sum(...list)` [done] (2026-02-10)
 - [x] **Fixed**: `timeout` as identifier — `let timeout = 5` [done] (2026-02-10)
@@ -1032,7 +1032,7 @@ Systematic `ori parse` verification of every grammar production against actual p
 18. ~~Floating tests (`tests _`)~~ — FIXED [done] (2026-02-14)
 19. ~~Typed constants (`let $X: int = 1000`)~~ — FIXED [done] (2026-02-14)
 20. Try `?` inside `try()` — rejected
-21. ~~Run pre/post checks (`pre_check:`)~~ — FIXED [done] (2026-02-14)
+21. ~~Function-level contracts (`pre()`/`post()`)~~ — FIXED [done] (2026-02-14)
 22. Length placeholder (`#`) — attribute marker conflict
 23. ~~Immutable binding in function body (`let $x = 42`)~~ — FIXED [done] (2026-02-14)
 24. `.match()` guard method syntax — keyword conflict

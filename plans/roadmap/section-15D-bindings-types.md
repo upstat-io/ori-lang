@@ -7,7 +7,7 @@ goal: Implement binding syntax changes and type system simplifications
 priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Spec/grammar already removed mut but compiler still accepts it. 163 let mut occurrences across 28 test files — migration cost grows with every commit."
 sections:
   - id: "15D.1"
-    title: Pre/Post Checks for run Pattern
+    title: Function-Level Contracts (pre/post)
     status: not-started
   - id: "15D.2"
     title: as Conversion Syntax
@@ -34,86 +34,81 @@ sections:
 
 ---
 
-## 15D.1 Pre/Post Checks for `run` Pattern
+## 15D.1 Function-Level Contracts: `pre()` / `post()`
 
-**Proposal**: `proposals/approved/checks-proposal.md`
+**Proposal**: `proposals/approved/checks-proposal.md` (semantics), `proposals/approved/block-expression-syntax.md` (syntax)
 
-Extend `run` pattern with `pre_check:` and `post_check:` properties for contract-style defensive programming.
+Function-level `pre()` and `post()` contract declarations for defensive programming. Contracts go between the return type and `=`:
 
 ```ori
-@divide (a: int, b: int) -> int = {
-    pre_check: b != 0
-    a div b
-    post_check: r -> r * b <= a
-}
+@divide (a: int, b: int) -> int
+    pre(b != 0)
+    post(r -> r * b <= a)
+= a div b
 
-// Multiple conditions via multiple properties
-@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = {
-    pre_check: amount > 0 | "amount must be positive"
-    pre_check: from.balance >= amount | "insufficient funds"
+// Multiple conditions
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account)
+    pre(amount > 0 | "amount must be positive")
+    pre(from.balance >= amount | "insufficient funds")
+    post((f, t) -> f.balance == from.balance - amount)
+    post((f, t) -> t.balance == to.balance + amount)
+= {
     // ... body ...
-    post_check: (f, t) -> f.balance == from.balance - amount
-    post_check: (f, t) -> t.balance == to.balance + amount
 }
 ```
 
 ### Key Design Decisions
 
-- **Multiple properties, not list syntax**: Use multiple `pre_check:` / `post_check:` properties instead of `[cond1, cond2]` lists
-- **`|` for messages**: Custom messages use `condition | "message"` syntax (parser disambiguates by context)
-- **Scope constraints**: `pre_check:` can only access outer scope; `post_check:` can access body bindings
-- **Void body**: Compile error if `post_check:` used with void body
+- **Function-level placement**: Contracts go on the declaration between return type and `=`
+- **Multiple declarations**: Use multiple `pre()` / `post()` declarations (not list syntax)
+- **`|` for messages**: Custom messages use `condition | "message"` syntax
+- **Scope constraints**: `pre()` can only access function parameters and module-level bindings; `post()` can access the result via lambda parameter
+- **Void return**: Compile error if `post()` used on a function returning `void`
 - **Check modes deferred**: `check_mode:` (enforce/observe/ignore) deferred to future proposal
 
 ### Implementation
 
-- [ ] **Implement**: Parser: Add `pre_check:` and `post_check:` to run pattern
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — check property parsing
+- [ ] **Implement**: Parser: Parse `pre()` and `post()` on function declarations
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — contract parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/checks.ori`
-  - [ ] **LLVM Support**: LLVM codegen for pre_check and post_check parsing
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check/post_check parsing codegen
-
-- [ ] **Implement**: Parser: Enforce position (pre_check first, post_check last)
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — position enforcement
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/mispositioned_checks.ori`
-  - [ ] **LLVM Support**: LLVM codegen for check position enforcement
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — check position enforcement codegen
+  - [ ] **LLVM Support**: LLVM codegen for contract parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract parsing codegen
 
 - [ ] **Implement**: Parser: Support `| "message"` custom message syntax
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — message parsing
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — message parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/check_messages.ori`
-  - [ ] **LLVM Support**: LLVM codegen for custom check messages
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom check messages codegen
+  - [ ] **LLVM Support**: LLVM codegen for custom contract messages
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom contract messages codegen
 
-- [ ] **Implement**: Type checker: Validate pre_check is `bool`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — pre_check type validation
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_check_not_bool.ori`
-  - [ ] **LLVM Support**: LLVM codegen for pre_check type validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check type validation codegen
+- [ ] **Implement**: Type checker: Validate `pre()` condition is `bool`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — pre type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_not_bool.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pre type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre type validation codegen
 
-- [ ] **Implement**: Type checker: Validate post_check is `T -> bool` lambda
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — post_check type validation
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_check_not_lambda.ori`
-  - [ ] **LLVM Support**: LLVM codegen for post_check type validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post_check type validation codegen
+- [ ] **Implement**: Type checker: Validate `post()` is `T -> bool` lambda
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — post type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_not_lambda.ori`
+  - [ ] **LLVM Support**: LLVM codegen for post type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post type validation codegen
 
-- [ ] **Implement**: Type checker: Error when post_check used with void body
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — void body error
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_check_void_body.ori`
-  - [ ] **LLVM Support**: LLVM codegen for void body error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — void body error codegen
+- [ ] **Implement**: Type checker: Error when `post()` used on void-returning function
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — void return error
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_void_return.ori`
+  - [ ] **LLVM Support**: LLVM codegen for void return error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — void return error codegen
 
-- [ ] **Implement**: Scope checker: pre_check can only access outer scope
-  - [ ] **Rust Tests**: `oric/src/resolve/scope.rs` — pre_check scope validation
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_check_scope.ori`
-  - [ ] **LLVM Support**: LLVM codegen for pre_check scope validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check scope validation codegen
+- [ ] **Implement**: Scope checker: `pre()` can only access parameters and module-level bindings
+  - [ ] **Rust Tests**: `oric/src/resolve/scope.rs` — pre scope validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_scope.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pre scope validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre scope validation codegen
 
-- [ ] **Implement**: Codegen: Desugar to conditional checks and panics
-  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — check desugaring
+- [ ] **Implement**: Codegen: Desugar to conditional checks and panics at function entry/exit
+  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — contract desugaring
   - [ ] **Ori Tests**: `tests/spec/patterns/checks_desugaring.ori`
-  - [ ] **LLVM Support**: LLVM codegen for check desugaring
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — check desugaring codegen
+  - [ ] **LLVM Support**: LLVM codegen for contract desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract desugaring codegen
 
 - [ ] **Implement**: Codegen: Embed source text for default error messages
   - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — source text embedding

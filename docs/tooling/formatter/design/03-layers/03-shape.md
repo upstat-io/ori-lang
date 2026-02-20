@@ -164,11 +164,11 @@ pub fn for_nested(&self, config: &FormatConfig) -> Shape {
 
 Example:
 ```ori
-// Even though outer run is broken, inner fits inline:
-let result = run(
-    process(items.map(x -> x * 2)),  // This call fits, stays inline
-    validate(result),                 // So does this
-)
+// Even though outer block is broken, inner fits inline:
+let result = {
+    process(items.map(x -> x * 2));  // This call fits, stays inline
+    validate(result)                  // So does this
+}
 ```
 
 Without independent breaking, the inner calls would also break, creating unnecessary vertical sprawl.

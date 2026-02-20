@@ -57,19 +57,19 @@ parallel(
 
 ```ori
 @fetch_users_summary (ids: [int]) -> UsersSummary uses Http, Async, Logger = {
-    Logger.info(msg: `Fetching {len(collection: ids)} users`)
+    Logger.info(msg: `Fetching {len(collection: ids)} users`);
 
     let results = parallel(
         tasks: for id in ids yield () -> fetch_user(id: id)
         max_concurrent: 20
         timeout: 60s
-    )
+    );
 
     // Count successes and failures
-    let successes = results.iter().filter(predicate: r -> is_ok(result: r)).count()
-    let failures = len(collection: results) - successes
+    let successes = results.iter().filter(predicate: r -> is_ok(result: r)).count();
+    let failures = len(collection: results) - successes;
 
-    Logger.info(msg: `Fetched {successes} users, {failures} failed`)
+    Logger.info(msg: `Fetched {successes} users, {failures} failed`);
 
     // Extract successful users
     let users = for result in results
@@ -77,7 +77,7 @@ parallel(
         yield match result {
             Ok(u) -> u
             Err(_) -> continue
-        }
+        };
 
     UsersSummary {
         users
@@ -105,12 +105,12 @@ type DataBundle = { user: User, orders: [Order], preferences: Preferences }
         ]
         max_concurrent: 3
         timeout: 10s
-    )
+    );
 
     // Extract results
-    let user = match results[0] { Ok(UserData(u)) -> u, _ -> return Err(Error { message: "Failed to fetch user" })}
-    let orders = match results[1] { Ok(OrderData(o)) -> o, _ -> return Err(Error { message: "Failed to fetch orders" })}
-    let prefs = match results[2] { Ok(PrefData(p)) -> p, _ -> return Err(Error { message: "Failed to fetch preferences" })}
+    let user = match results[0] { Ok(UserData(u)) -> u, _ -> Err(Error { message: "Failed to fetch user" })? };
+    let orders = match results[1] { Ok(OrderData(o)) -> o, _ -> Err(Error { message: "Failed to fetch orders" })? };
+    let prefs = match results[2] { Ok(PrefData(p)) -> p, _ -> Err(Error { message: "Failed to fetch preferences" })? };
 
     Ok(DataBundle { user, orders, preferences: prefs })
 }
@@ -124,7 +124,7 @@ For fire-and-forget operations:
 @send_notifications (events: [Event]) -> void uses Http, Async, Logger =
     spawn(
         tasks: for event in events yield () -> {
-            let result = send_notification(event: event)
+            let result = send_notification(event: event);
             match result {
                 Ok(_) -> ()
                 Err(e) -> Logger.warn(msg: `Failed to send notification: {e}`)
@@ -158,7 +158,7 @@ Limit how long an operation can take:
     let result = timeout(
         op: Http.get(url: url)
         after: 5s
-    )
+    );
 
     match result {
         Ok(response) -> response.body
@@ -173,7 +173,7 @@ If the operation takes longer than the specified duration, it's cancelled and re
 
 ```ori
 @fetch_with_retries (url: str) -> Result<str, Error> uses Http, Async = {
-    let attempts = [1, 2, 3]
+    let attempts = [1, 2, 3];
 
     for attempt in attempts do {
         let result = timeout(
@@ -204,7 +204,7 @@ For more control over concurrent tasks, use `nursery`:
         }
         on_error: CollectAll
         timeout: 60s
-    )
+    );
 
     BatchResult {
         processed: results.iter().filter(predicate: r -> is_ok(result: r)).count()
@@ -307,17 +307,17 @@ Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
 
 ```ori
 @crawl_pages (start_url: str, max_depth: int) -> [Page] uses Http, Async = {
-    let visited: Set<str> = Set.new()
-    let pages: [Page] = []
+    let visited: Set<str> = Set.new();
+    let pages: [Page] = [];
 
     nursery(
         body: n -> {
             @crawl (url: str, depth: int) -> void = {
                 if depth > max_depth || visited.contains(value: url) then return ()
 
-                visited = visited.insert(value: url)
-                let page = fetch_page(url: url)?
-                pages = [...pages, page]
+                visited = visited.insert(value: url);
+                let page = fetch_page(url: url)?;
+                pages = [...pages, page];
 
                 // Spawn child tasks for links
                 for link in page.links do
@@ -328,7 +328,7 @@ Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
         }
         on_error: CollectAll
         timeout: 300s
-    )
+    );
 
     pages
 }
@@ -379,9 +379,9 @@ Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
             "/api/users/2": `{"id": 2, "name": "Bob"}`,
         },
     } in {
-        let results = fetch_all_users(ids: [1, 2])
-        assert_eq(actual: len(collection: results), expected: 2)
-        assert_ok(result: results[0])
+        let results = fetch_all_users(ids: [1, 2]);
+        assert_eq(actual: len(collection: results), expected: 2);
+        assert_ok(result: results[0]);
         assert_ok(result: results[1])
     }
 ```
@@ -394,7 +394,7 @@ Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
         responses: {},
         delay: 10s,  // Simulate slow response
     } in {
-        let result = fetch_with_timeout(url: "/slow", timeout_duration: 1s)
+        let result = fetch_with_timeout(url: "/slow", timeout_duration: 1s);
         assert_err(result: result)
     }
 ```
@@ -410,7 +410,7 @@ Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
             3: Ok("success"),
         },
     } in {
-        let result = process_batch_fail_fast(ids: [1, 2, 3])
+        let result = process_batch_fail_fast(ids: [1, 2, 3]);
         // With FailFast, we might not process all items
         assert(condition: len(collection: result.results) <= 3)
     }
@@ -486,10 +486,10 @@ When using `CollectAll`, expect some failures:
         tasks: for id in ids yield () -> fetch_data(id: id)
         max_concurrent: 10
         timeout: 30s
-    )
+    );
 
-    let successes = for r in results if is_ok(result: r) yield match r { Ok(v) -> v, _ -> continue}
-    let failures = for r in results if is_err(result: r) yield match r { Err(e) -> e, _ -> continue}
+    let successes = for r in results if is_ok(result: r) yield match r { Ok(v) -> v, _ -> continue};
+    let failures = for r in results if is_err(result: r) yield match r { Err(e) -> e, _ -> continue};
 
     FetchSummary {
         data: successes
@@ -518,14 +518,14 @@ type HealthCheck = {
 }
 
 @check_page (url: str) -> PageResult uses Http, Clock, Async = {
-    let start = Clock.now()
+    let start = Clock.now();
 
     let result = timeout(
         op: Http.get(url: url)
         after: 10s
-    )
+    );
 
-    let load_time = Clock.elapsed_since(start: start)
+    let load_time = Clock.elapsed_since(start: start);
 
     match result {
         Ok(response) -> PageResult {
@@ -555,19 +555,19 @@ type HealthCheck = {
     Clock = handler(state: Instant.parse(s: "2024-01-15T10:00:00")) {
         now: (s) -> (s, s),
     } in {
-        let result = check_page(url: "https://example.com")
-        assert_eq(actual: result.status, expected: 200)
+        let result = check_page(url: "https://example.com");
+        assert_eq(actual: result.status, expected: 200);
         assert_none(option: result.error)
     }
 
 @health_check (urls: [str]) -> HealthCheck uses Http, Clock, Async, Logger = {
-    Logger.info(msg: `Starting health check for {len(collection: urls)} URLs`)
+    Logger.info(msg: `Starting health check for {len(collection: urls)} URLs`);
 
     let results = parallel(
         tasks: for url in urls yield () -> check_page(url: url)
         max_concurrent: 10
         timeout: 60s
-    )
+    );
 
     // Extract PageResults from Results
     let page_results = for r in results yield match r {
@@ -578,19 +578,19 @@ type HealthCheck = {
             load_time: 0ms
             error: Some(e.to_str())
         }
-    }
+    };
 
     let healthy = page_results.iter()
         .filter(predicate: pr -> is_none(option: pr.error))
-        .count()
-    let unhealthy = len(collection: page_results) - healthy
+        .count();
+    let unhealthy = len(collection: page_results) - healthy;
 
     let total_time = page_results.iter()
         .map(transform: pr -> pr.load_time)
-        .fold(initial: 0ms, op: (a, b) -> a + b)
-    let avg_time = total_time / len(collection: page_results)
+        .fold(initial: 0ms, op: (a, b) -> a + b);
+    let avg_time = total_time / len(collection: page_results);
 
-    Logger.info(msg: `Health check complete: {healthy} healthy, {unhealthy} unhealthy`)
+    Logger.info(msg: `Health check complete: {healthy} healthy, {unhealthy} unhealthy`);
 
     HealthCheck {
         timestamp: Clock.now() as str
@@ -610,8 +610,8 @@ type HealthCheck = {
     },
     Clock = MockClock { time: "2024-01-15T10:00:00" },
     Logger = MockLogger {} in {
-        let result = health_check(urls: ["https://good.com", "https://bad.com"])
-        assert_eq(actual: result.healthy_count, expected: 1)
+        let result = health_check(urls: ["https://good.com", "https://bad.com"]);
+        assert_eq(actual: result.healthy_count, expected: 1);
         assert_eq(actual: result.unhealthy_count, expected: 1)
     }
 
@@ -621,8 +621,8 @@ type HealthCheck = {
     nursery(
         body: n -> {
             loop {
-                let check = health_check(urls: urls)
-                Logger.info(msg: `Check at {check.timestamp}: {check.healthy_count}/{len(collection: urls)} healthy`)
+                let check = health_check(urls: urls);
+                Logger.info(msg: `Check at {check.timestamp}: {check.healthy_count}/{len(collection: urls)} healthy`);
 
                 if check.unhealthy_count > 0 then
                     for result in check.results do
@@ -638,7 +638,7 @@ type HealthCheck = {
 }
 
 // Placeholder
-@sleep (duration: Duration) -> void uses Async = ()
+@sleep (duration: Duration) -> void uses Async = ();
 ```
 
 ## Quick Reference

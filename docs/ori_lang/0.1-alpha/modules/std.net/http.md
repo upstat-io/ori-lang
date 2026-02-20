@@ -58,10 +58,10 @@ type MockHttp = {
 
 impl Http for MockHttp {
     @get (url: str) -> Result<Response, HttpError> =
-        match(self.responses.get(url),
-            Some(resp) -> Ok(resp),
-            None -> Err(HttpError.ConnectionFailed("No mock for: " + url)),
-        )
+        match self.responses.get(url) {
+            Some(resp) -> Ok(resp)
+            None -> Err(HttpError.ConnectionFailed("No mock for: " + url))
+        }
 
     @post (url: str, body: str) -> Result<Response, HttpError> = self.get(url)
     @put (url: str, body: str) -> Result<Response, HttpError> = self.get(url)
@@ -74,11 +74,10 @@ impl Http for MockHttp {
 @test_fetch tests @fetch_data () -> void =
     with Http = MockHttp {
         responses: {"https://api.example.com/data": Response { status: 200, headers: {}, body: "{}" }}
-    } in
-    run(
-        let result = fetch_data("https://api.example.com/data"),
-        assert(is_ok(result)),
-    )
+    } in {
+        let result = fetch_data("https://api.example.com/data")
+        assert(is_ok(result))
+    }
 ```
 
 ---
@@ -201,16 +200,16 @@ HTTP server that handles requests.
 ```ori
 use std.net.http { Server, Request, Response }
 
-@main () -> Result<void, Error> uses Http, Async = run(
-    let server = Server.bind("0.0.0.0:8080")?,
-    print("Server running on :8080"),
-    server.serve(handle_request),
-)
+@main () -> Result<void, Error> uses Http, Async = {
+    let server = Server.bind("0.0.0.0:8080")?
+    print("Server running on :8080")
+    server.serve(handle_request)
+}
 
-@handle_request (req: Request) -> Response = match(req.method,
-    GET -> Response { status: 200, headers: {}, body: "Hello!" },
-    _ -> Response { status: 405, headers: {}, body: "Method not allowed" },
-)
+@handle_request (req: Request) -> Response = match req.method {
+    GET -> Response { status: 200, headers: {}, body: "Hello!" }
+    _ -> Response { status: 405, headers: {}, body: "Method not allowed" }
+}
 ```
 
 **Methods:**
@@ -243,13 +242,13 @@ use std.json { parse }
 
 type User = { id: int, name: str, email: str }
 
-@fetch_user (id: int) -> Result<User, Error> uses Http, Async = run(
-    let resp = get("https://api.example.com/users/" + str(id))?,
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async = {
+    let resp = get("https://api.example.com/users/" + str(id))?
     if resp.status != 200 then
         Err(Error { message: "User not found", source: None })
     else
-        parse<User>(resp.body),
-)
+        parse<User>(resp.body)
+}
 ```
 
 ### REST API server
@@ -258,17 +257,17 @@ type User = { id: int, name: str, email: str }
 use std.net.http { Server, Request, Response }
 use std.json { stringify }
 
-@main () -> Result<void, Error> uses Http, Async = run(
-    let server = Server.bind(":8080")?,
-    server.serve(router),
-)
+@main () -> Result<void, Error> uses Http, Async = {
+    let server = Server.bind(":8080")?
+    server.serve(router)
+}
 
-@router (req: Request) -> Response = match((req.method, req.url),
-    (GET, "/health") -> ok("healthy"),
-    (GET, "/users") -> ok(stringify(get_users())),
-    (POST, "/users") -> create_user(req.body),
-    _ -> not_found(),
-)
+@router (req: Request) -> Response = match (req.method, req.url) {
+    (GET, "/health") -> ok("healthy")
+    (GET, "/users") -> ok(stringify(get_users()))
+    (POST, "/users") -> create_user(req.body)
+    _ -> not_found()
+}
 
 @ok (body: str) -> Response = Response {
     status: 200,

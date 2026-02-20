@@ -51,9 +51,10 @@ Each binding in a sequence:
 
 ```ori
 @process (input: Data) -> Result<Output, Error> = try {
-    let validated = validate(data: input)?,   // A: sees input
-    let enriched = enrich(data: validated)?,  // B: sees input, validated
-    let saved = save(data: enriched)?,        // C: sees input, validated, enriched
+    let validated = validate(data: input)?;   // A: sees input
+    let enriched = enrich(data: validated)?;  // B: sees input, validated
+    let saved = save(data: enriched)?;        // C: sees input, validated, enriched
+
     Ok(saved)
 }
 ```
@@ -64,9 +65,9 @@ There is no mechanism for `saved` to reference the function `process`, or for `e
 
 | Pattern | Data Flow | Cycle Prevention |
 |---------|-----------|------------------|
-| `run(a, b, c)` | Linear sequence | Each step sees only prior bindings |
-| `try(a?, b?, c?)` | Linear with early exit | Same as `run` |
-| `match(x, ...)` | Branching | Each branch is independent |
+| `{ a \n b \n c }` | Linear sequence | Each step sees only prior bindings |
+| `try { a? \n b? \n c? }` | Linear with early exit | Same as blocks |
+| `match x { ... }` | Branching | Each branch is independent |
 | `recurse(...)` | Iteration | State passed explicitly, no self-reference |
 | `parallel(...)` | Fan-out/fan-in | Results collected, no cross-task references |
 
@@ -81,8 +82,8 @@ Object ──▶ callback field ──▶ closure ──▶ captured self ──
 Ori closures capture by value. The closure receives a copy of captured data, not a reference back to the containing scope:
 
 ```ori
-let x = 5
-let f = () -> x + 1  // f contains a copy of 5, not a reference to x
+let x = 5;
+let f = () -> x + 1;  // f contains a copy of 5, not a reference to x
 ```
 
 This eliminates the most common source of cycles in functional-style code.
@@ -92,9 +93,9 @@ This eliminates the most common source of cycles in functional-style code.
 A closure is represented as a struct containing captured values:
 
 ```ori
-let x = 10
-let y = "hello"
-let f = () -> `{y}: {x}`
+let x = 10;
+let y = "hello";
+let f = () -> `{y}: {x}`;
 
 // f is approximately:
 // type _Closure_f = { captured_x: int, captured_y: str }
@@ -172,7 +173,7 @@ The `Drop` trait enables custom destruction logic:
 
 ```ori
 trait Drop {
-    @drop (self) -> void
+    @drop (self) -> void;
 }
 ```
 
@@ -199,9 +200,9 @@ Reverse creation order within a scope:
 
 ```ori
 {
-    let a = create_a(),  // Destroyed 3rd
-    let b = create_b(),  // Destroyed 2nd
-    let c = create_c(),  // Destroyed 1st
+    let a = create_a();  // Destroyed 3rd
+    let b = create_b();  // Destroyed 2nd
+    let c = create_c();  // Destroyed 1st
     // destroyed: c, b, a
 }
 ```
@@ -219,14 +220,14 @@ type Container = {
 List elements are destroyed back-to-front:
 
 ```ori
-let items = [a, b, c]
+let items = [a, b, c];
 // When dropped: c, then b, then a
 ```
 
 Tuple elements are destroyed right-to-left:
 
 ```ori
-let tuple = (first, second, third)
+let tuple = (first, second, third);
 // When dropped: third, then second, then first
 ```
 
@@ -250,7 +251,7 @@ Destructors cannot be async:
 
 ```ori
 impl Drop for Resource {
-    @drop (self) -> void uses Async = ...  // ERROR: drop cannot be async
+    @drop (self) -> void uses Async = ...;  // ERROR: drop cannot be async
 }
 ```
 
@@ -258,11 +259,11 @@ For async cleanup, use explicit methods:
 
 ```ori
 impl AsyncResource {
-    @close (self) -> void uses Async = ...  // Explicit async cleanup
+    @close (self) -> void uses Async = ...;  // Explicit async cleanup
 }
 
 impl Drop for AsyncResource {
-    @drop (self) -> void = ()  // Synchronous no-op
+    @drop (self) -> void = ();  // Synchronous no-op
 }
 ```
 
@@ -385,8 +386,8 @@ Ori uses ARC without cycle detection. The following invariants must be maintaine
 Closures must capture variables by value. Reference captures are prohibited.
 
 ```ori
-let x = 5
-let f = () -> x + 1  // captures copy of x, not reference to x
+let x = 5;
+let f = () -> x + 1;  // captures copy of x, not reference to x
 ```
 
 This prevents cycles through closure environments.

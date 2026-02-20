@@ -205,12 +205,11 @@ let transform: (int) -> int = x -> x * 2
 
 // Lambda with complex body in chain
 items.map(
-    x ->
-        run(
-            let doubled = x * 2,
-            let validated = validate(doubled),
-            validated,
-        ),
+    x -> {
+        let doubled = x * 2
+        let validated = validate(doubled)
+        validated
+    },
 )
 
 // Multiple lambdas in call
@@ -225,38 +224,37 @@ combine(
 
 ```ori
 // Simple arms
-let result = match(value,
-    Some(x) -> x,
-    None -> 0,
-)
+let result = match value {
+    Some(x) -> x
+    None -> 0
+}
 
 // Arms with guards
-let result = match(n,
-    x if x < 0 -> "negative",
-    0 -> "zero",
-    x if x < 10 -> "small",
-    _ -> "large",
-)
+let result = match n {
+    x if x < 0 -> "negative"
+    0 -> "zero"
+    x if x < 10 -> "small"
+    _ -> "large"
+}
 
 // Arms with complex patterns
-let result = match(event,
-    Event.Click { x, y, button: Button.Left } -> handle_left_click(x, y),
-    Event.Click { x, y, button: Button.Right } -> handle_right_click(x, y),
+let result = match event {
+    Event.Click { x, y, button: Button.Left } -> handle_left_click(x, y)
+    Event.Click { x, y, button: Button.Right } -> handle_right_click(x, y)
     Event.KeyPress { key, modifiers: Modifiers { ctrl: true, .. } } ->
-        handle_ctrl_key(key),
-    _ -> ignore(),
-)
+        handle_ctrl_key(key)
+    _ -> ignore()
+}
 
 // Arms with complex bodies
-let result = match(data,
-    Valid(content) ->
-        run(
-            let processed = process(content),
-            let validated = validate(processed),
-            Ok(validated),
-        ),
-    Invalid(error) -> Err(error),
-)
+let result = match data {
+    Valid(content) -> {
+        let processed = process(content)
+        let validated = validate(processed)
+        Ok(validated)
+    }
+    Invalid(error) -> Err(error)
+}
 ```
 
 ## Conditionals at Boundaries
@@ -366,53 +364,42 @@ type Expr =
 
 ```ori
 // Single target
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 1, b: 2), expected: 3),
-)
+@test_add tests @add () -> void =
+    assert_eq(actual: add(a: 1, b: 2), expected: 3)
 
 // Multiple targets - stays on one line if fits
-@test_math tests @add tests @subtract () -> void = run(
-    assert_eq(actual: add(a: 1, b: 2), expected: 3),
-    assert_eq(actual: subtract(a: 5, b: 3), expected: 2),
-)
+@test_math tests @add tests @subtract () -> void = {
+    assert_eq(actual: add(a: 1, b: 2), expected: 3)
+    assert_eq(actual: subtract(a: 5, b: 3), expected: 2)
+}
 
 // Many targets - may need to break (rare)
-@test_all_operations tests @add tests @subtract tests @multiply tests @divide () -> void = run(
+@test_all_operations tests @add tests @subtract tests @multiply tests @divide () -> void = {
     // assertions
-)
+}
 ```
 
 ## Contract Edge Cases
 
 ```ori
-// Simple pre_check
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0,
-    a / b,
-)
+// Simple pre
+@divide (a: int, b: int) -> int
+    pre(b != 0) = a / b
 
-// Pre_check with message
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0 | "divisor cannot be zero",
-    a / b,
-)
+// Pre with message
+@divide (a: int, b: int) -> int
+    pre(b != 0 | "divisor cannot be zero") = a / b
 
-// Complex pre_check condition
-@process (data: Data) -> Result<Output, Error> = run(
-    pre_check: data.is_valid()
+// Complex pre condition
+@process (data: Data) -> Result<Output, Error>
+    pre(data.is_valid()
         && data.size() > 0
         && data.size() < MAX_SIZE
-        | "data must be valid and within size limits",
-    do_process(data),
-)
+        | "data must be valid and within size limits") = do_process(data)
 
 // Both pre and post
-@abs (n: int) -> int = run(
-    pre_check: true,  // No precondition
-    let result = if n >= 0 then n else -n,
-    post_check: r -> r >= 0,
-    result,
-)
+@abs (n: int) -> int
+    post(r -> r >= 0) = if n >= 0 then n else -n
 ```
 
 ## Trait and Impl Edge Cases
@@ -432,10 +419,10 @@ trait Default {
 
 // Generic impl
 impl<T: Clone> Clone for Option<T> {
-    @clone (self) -> Self = match(self,
-        Some(value) -> Some(value.clone()),
-        None -> None,
-    )
+    @clone (self) -> Self = match self {
+        Some(value) -> Some(value.clone())
+        None -> None
+    }
 }
 
 // Impl with where clause
@@ -450,10 +437,10 @@ impl<T, U> From<T> for Container<U>
 ```ori
 // Simple nursery
 let results = nursery(
-    body: n -> run(
-        n.spawn(task: fetch(url: "/a")),
-        n.spawn(task: fetch(url: "/b")),
-    ),
+    body: n -> {
+        n.spawn(task: fetch(url: "/a"))
+        n.spawn(task: fetch(url: "/b"))
+    },
     on_error: CancelRemaining,
 )
 
@@ -485,17 +472,17 @@ let results = parallel(
 // This function adds two numbers.
 @add (a: int, b: int) -> int = a + b
 
-// Comments in run block
-@process (data: Data) -> Result<Output, Error> = run(
+// Comments in block
+@process (data: Data) -> Result<Output, Error> = {
     // First, validate the input
-    let validated = validate(data),
+    let validated = validate(data)
 
     // Then transform it
-    let transformed = transform(validated),
+    let transformed = transform(validated)
 
     // Finally, produce the result
-    Ok(transformed),
-)
+    Ok(transformed)
+}
 
 // Doc comments in correct order
 // #Computes the factorial.

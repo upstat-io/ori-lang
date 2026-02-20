@@ -110,30 +110,29 @@ type LRUCache<K, V> = {
 // Get value, updating access time
 // Returns updated cache (access time changed) and optional value
 @get<K: Eq + Hashable, V> (self, key: K) -> (LRUCache<K, V>, Option<V>) =
-    match(
-        self.entries[key],
-        None -> (self, None),
-        Some((value, _)) -> run(
-            let new_counter = self.access_counter + 1,
+    match self.entries[key] {
+        None -> (self, None)
+        Some((value, _)) -> {
+            let new_counter = self.access_counter + 1;
             let updated = LRUCache {
                 entries: self.entries.insert(key: key, value: (value, new_counter)),
                 access_counter: new_counter,
                 capacity: self.capacity,
-            },
-            (updated, Some(value)),
-        ),
-    )
+            };
+            (updated, Some(value))
+        }
+    }
 
 // Put value, evicting if necessary
-@put<K: Eq + Hashable, V> (self, key: K, value: V) -> LRUCache<K, V> = run(
-    let new_counter = self.access_counter + 1,
+@put<K: Eq + Hashable, V> (self, key: K, value: V) -> LRUCache<K, V> = {
+    let new_counter = self.access_counter + 1;
     let updated = LRUCache {
         entries: self.entries.insert(key: key, value: (value, new_counter)),
         access_counter: new_counter,
         capacity: self.capacity,
-    },
-    maybe_evict(cache: updated),
-)
+    };
+    maybe_evict(cache: updated)
+}
 
 // Remove entry
 @remove<K: Eq + Hashable, V> (self, key: K) -> LRUCache<K, V> =
@@ -159,38 +158,36 @@ type LRUCache<K, V> = {
 @maybe_evict<K: Eq + Hashable, V> (cache: LRUCache<K, V>) -> LRUCache<K, V> =
     if len(collection: cache.entries) <= cache.capacity
     then cache
-    else run(
+    else {
         let oldest = cache.entries
             .to_list()
             .fold(
                 initial: None,
-                op: (acc, (k, (_, time))) -> match(
-                    acc,
-                    None -> Some((k, time)),
+                op: (acc, (k, (_, time))) -> match acc {
+                    None -> Some((k, time))
                     Some((_, min_time)) -> if time < min_time
                         then Some((k, time))
-                        else acc,
-                ),
-            ),
-        match(
-            oldest,
-            None -> cache,
+                        else acc
+                },
+            );
+        match oldest {
+            None -> cache
             Some((evict_key, _)) -> LRUCache {
                 entries: cache.entries.remove(key: evict_key),
                 access_counter: cache.access_counter,
                 capacity: cache.capacity,
-            },
-        ),
-    )
+            }
+        }
+    }
 
 // Batch eviction for better amortization
-@evict_batch<K: Eq + Hashable, V> (cache: LRUCache<K, V>, count: int) -> LRUCache<K, V> = run(
+@evict_batch<K: Eq + Hashable, V> (cache: LRUCache<K, V>, count: int) -> LRUCache<K, V> = {
     let sorted = cache.entries
         .to_list()
-        .sort_by(key: (_, (_, time)) -> time),
+        .sort_by(key: (_, (_, time)) -> time);
     let to_remove = sorted
         .take(n: count)
-        .map(transform: (k, _) -> k),
+        .map(transform: (k, _) -> k);
     LRUCache {
         entries: to_remove.fold(
             initial: cache.entries,
@@ -198,8 +195,8 @@ type LRUCache<K, V> = {
         ),
         access_counter: cache.access_counter,
         capacity: cache.capacity,
-    },
-)
+    }
+}
 
 // Evict entries older than threshold
 @evict_older_than<K: Eq + Hashable, V> (cache: LRUCache<K, V>, threshold: int) -> LRUCache<K, V> =
@@ -245,18 +242,17 @@ type LRUCache<K, V> = {
     key: K,
     compute: () -> V,
 ) -> (LRUCache<K, V>, V) =
-    match(
-        self.entries[key],
-        Some((value, _)) -> run(
-            let (updated, _) = self.get(key: key),  // Update access time
-            (updated, value),
-        ),
-        None -> run(
-            let value = compute(),
-            let updated = self.put(key: key, value: value),
-            (updated, value),
-        ),
-    )
+    match self.entries[key] {
+        Some((value, _)) -> {
+            let (updated, _) = self.get(key: key);  // Update access time
+            (updated, value)
+        }
+        None -> {
+            let value = compute();
+            let updated = self.put(key: key, value: value);
+            (updated, value)
+        }
+    }
 
 // Async version
 @get_or_insert_async<K: Eq + Hashable, V> (
@@ -264,18 +260,17 @@ type LRUCache<K, V> = {
     key: K,
     compute: () -> V uses Async,
 ) -> (LRUCache<K, V>, V) uses Async =
-    match(
-        self.entries[key],
-        Some((value, _)) -> run(
-            let (updated, _) = self.get(key: key),
-            (updated, value),
-        ),
-        None -> run(
-            let value = compute(),
-            let updated = self.put(key: key, value: value),
-            (updated, value),
-        ),
-    )
+    match self.entries[key] {
+        Some((value, _)) -> {
+            let (updated, _) = self.get(key: key);
+            (updated, value)
+        }
+        None -> {
+            let value = compute();
+            let updated = self.put(key: key, value: value);
+            (updated, value)
+        }
+    }
 ```
 
 ---
@@ -287,25 +282,25 @@ type LRUCache<K, V> = {
 ```ori
 use std.collections { LRUCache }
 
-@example_basic () -> void = run(
-    let cache = LRUCache.new(capacity: 3),
+@example_basic () -> void = {
+    let cache = LRUCache.new(capacity: 3);
 
     // Add entries
-    let cache = cache.put(key: "a", value: 1),
-    let cache = cache.put(key: "b", value: 2),
-    let cache = cache.put(key: "c", value: 3),
+    let cache = cache.put(key: "a", value: 1);
+    let cache = cache.put(key: "b", value: 2);
+    let cache = cache.put(key: "c", value: 3);
 
     // Access "a" to make it recent
-    let (cache, _) = cache.get(key: "a"),
+    let (cache, _) = cache.get(key: "a");
 
     // Add "d" - evicts "b" (least recently used)
-    let cache = cache.put(key: "d", value: 4),
+    let cache = cache.put(key: "d", value: 4);
 
-    assert(condition: cache.contains(key: "a")),  // Still there (accessed)
-    assert(condition: !cache.contains(key: "b")), // Evicted
-    assert(condition: cache.contains(key: "c")),
-    assert(condition: cache.contains(key: "d")),
-)
+    assert(condition: cache.contains(key: "a"));  // Still there (accessed)
+    assert(condition: !cache.contains(key: "b")); // Evicted
+    assert(condition: cache.contains(key: "c"));
+    assert(condition: cache.contains(key: "d"))
+}
 ```
 
 ### Memoization Cache
@@ -320,11 +315,11 @@ type MemoCache = LRUCache<int, int>
     then (cache, n)
     else cache.get_or_insert(
         key: n,
-        compute: () -> run(
-            let (cache, a) = fibonacci_cached(n: n - 1, cache: cache),
-            let (cache, b) = fibonacci_cached(n: n - 2, cache: cache),
-            a + b,
-        ),
+        compute: () -> {
+            let (cache, a) = fibonacci_cached(n: n - 1, cache: cache);
+            let (cache, b) = fibonacci_cached(n: n - 2, cache: cache);
+            a + b
+        },
     )
 ```
 
@@ -346,33 +341,31 @@ type ResponseCache = LRUCache<str, CachedResponse>
     cache: ResponseCache,
     url: str,
     max_age: Duration,
-) -> (ResponseCache, Result<str, Error>) uses Http = run(
+) -> (ResponseCache, Result<str, Error>) uses Http = {
     // Check cache
-    let (cache, cached) = cache.get(key: url),
+    let (cache, cached) = cache.get(key: url);
 
-    match(
-        cached,
+    match cached {
         Some(resp) if now() - resp.cached_at < max_age ->
-            (cache, Ok(resp.body)),
-        _ -> run(
+            (cache, Ok(resp.body))
+        _ -> {
             // Fetch fresh
-            let result = Http.get(url: url),
-            match(
-                result,
-                Ok(response) -> run(
+            let result = Http.get(url: url);
+            match result {
+                Ok(response) -> {
                     let cached_resp = CachedResponse {
                         body: response.body,
                         status: response.status,
                         cached_at: now(),
-                    },
-                    let cache = cache.put(key: url, value: cached_resp),
-                    (cache, Ok(response.body)),
-                ),
-                Err(e) -> (cache, Err(e)),
-            ),
-        ),
-    ),
-)
+                    };
+                    let cache = cache.put(key: url, value: cached_resp);
+                    (cache, Ok(response.body))
+                }
+                Err(e) -> (cache, Err(e))
+            }
+        }
+    }
+}
 ```
 
 ### Database Query Cache
@@ -416,14 +409,13 @@ type TTLCache<K, V> = {
 }
 
 @get_ttl<K: Eq + Hashable, V> (self, key: K) -> (TTLCache<K, V>, Option<V>) uses Clock =
-    match(
-        self.entries[key],
-        None -> (self, None),
+    match self.entries[key] {
+        None -> (self, None)
         Some((value, _, expires_at)) ->
             if Clock.now() > expires_at
             then (self.remove(key: key), None)  // Expired
-            else run(
-                let new_counter = self.access_counter + 1,
+            else {
+                let new_counter = self.access_counter + 1;
                 let updated = TTLCache {
                     entries: self.entries.insert(
                         key: key,
@@ -432,22 +424,22 @@ type TTLCache<K, V> = {
                     access_counter: new_counter,
                     capacity: self.capacity,
                     default_ttl: self.default_ttl,
-                },
-                (updated, Some(value)),
-            ),
-    )
+                };
+                (updated, Some(value))
+            }
+    }
 
-@put_ttl<K: Eq + Hashable, V> (self, key: K, value: V, ttl: Duration) -> TTLCache<K, V> uses Clock = run(
-    let new_counter = self.access_counter + 1,
-    let expires_at = Clock.now() + ttl,
+@put_ttl<K: Eq + Hashable, V> (self, key: K, value: V, ttl: Duration) -> TTLCache<K, V> uses Clock = {
+    let new_counter = self.access_counter + 1;
+    let expires_at = Clock.now() + ttl;
     let updated = TTLCache {
         entries: self.entries.insert(key: key, value: (value, new_counter, expires_at)),
         access_counter: new_counter,
         capacity: self.capacity,
         default_ttl: self.default_ttl,
-    },
-    maybe_evict_ttl(cache: updated),
-)
+    };
+    maybe_evict_ttl(cache: updated)
+}
 ```
 
 ---

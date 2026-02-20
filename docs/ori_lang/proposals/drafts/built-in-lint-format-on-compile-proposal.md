@@ -183,11 +183,11 @@ use std.math { sqrt }
 A `let` binding is never referenced after its definition. Variables prefixed with `_` are exempt (the `_` prefix signals intentional disuse).
 
 ```ori
-@process (input: str) -> int = run(
-    let temp = parse(input: input),  // E7002: unused variable `temp`
-    let result = compute(),
-    result,
-)
+@process (input: str) -> int = {
+    let temp = parse(input: input);  // E7002: unused variable `temp`
+    let result = compute();
+    result
+}
 ```
 
 **Fix:** Use the variable, remove it, or prefix with `_` if the binding is needed for a side effect.
@@ -244,10 +244,10 @@ if x == x then "yes" else "no"  // E7006: comparison of `x` to itself is always 
 Code after an expression of type `Never` (after `panic`, `todo`, `unreachable`, `break`) can never execute.
 
 ```ori
-@fail () -> int = run(
-    panic(msg: "abort"),
-    42,  // E7007: unreachable code — previous expression has type `Never`
-)
+@fail () -> int = {
+    panic(msg: "abort");
+    42  // E7007: unreachable code — previous expression has type `Never`
+}
 ```
 
 **Fix:** Remove the unreachable code.
@@ -257,10 +257,10 @@ Code after an expression of type `Never` (after `panic`, `todo`, `unreachable`, 
 A function returning a non-`void` value is called in a position where its result is unused. This catches accidentally ignoring error returns, computation results, or other meaningful values.
 
 ```ori
-@process () -> void = run(
-    compute_important_value(),  // E7008: result of type `int` is discarded
-    print(msg: "done"),
-)
+@process () -> void = {
+    compute_important_value();  // E7008: result of type `int` is discarded
+    print(msg: "done")
+}
 ```
 
 **Fix:** Bind the result with `let`, or use `let _ = expr` if intentionally discarding.
@@ -290,11 +290,11 @@ let m = {
 A match arm has a pattern identical to a previous arm, making it unreachable.
 
 ```ori
-match(x,
-    1 -> "one",
-    2 -> "two",
-    1 -> "uno",  // E7010: duplicate match pattern `1` — arm is unreachable
-)
+match x {
+    1 -> "one"
+    2 -> "two"
+    1 -> "uno"  // E7010: duplicate match pattern `1` — arm is unreachable
+}
 ```
 
 **Fix:** Remove the duplicate arm or change the pattern.
@@ -493,20 +493,20 @@ A function's cognitive complexity score exceeds **15**. This metric (based on So
 **Example — score 18 (E7201):**
 
 ```ori
-@process (items: [Item]) -> [Result] = run(
+@process (items: [Item]) -> [Result] = {
     for item in items do                   // +1 (for)
         if item.active then                // +2 (if, +1 nesting from for)
-            match(item.kind,               // +3 (match, +2 nesting from for+if)
+            match item.kind {              // +3 (match, +2 nesting from for+if)
                 Kind.A ->
                     if item.priority > 5   // +4 (if, +3 nesting)
                     then handle_a(item)
-                    else skip(),
+                    else skip()
                 Kind.B ->
                     for sub in item.parts do  // +4 (for, +3 nesting)
                         if sub.valid then     // +5 (if, +4 nesting)
-                            process_sub(sub),
-            ),
-)
+                            process_sub(sub)
+            }
+}
 // E7201: function `process` has cognitive complexity 19 (max 15)
 ```
 
@@ -517,24 +517,24 @@ A function's cognitive complexity score exceeds **15**. This metric (based on So
 
 **What does NOT count:**
 - Linear sequences of `let` bindings (no branching = no complexity)
-- `pre_check` / `post_check` (conditions, but structurally flat)
+- `pre()` / `post()` (conditions, but structurally flat)
 - Trait method dispatch (the compiler handles this, not the programmer)
 
 **Fix:** Extract nested logic into helper functions. Each extraction removes nesting levels, dramatically reducing the score.
 
 ```ori
 // Before: score 19
-@process (items: [Item]) -> [Result] = run(
+@process (items: [Item]) -> [Result] = {
     for item in items do
-        if item.active then process_item(item: item),
-)
+        if item.active then process_item(item: item)
+}
 
 // After: extracted helpers, each with low individual score
 @process_item (item: Item) -> Result =
-    match(item.kind,
-        Kind.A -> handle_a(item: item),
-        Kind.B -> process_parts(parts: item.parts),
-    )
+    match item.kind {
+        Kind.A -> handle_a(item: item)
+        Kind.B -> process_parts(parts: item.parts)
+    }
 
 @process_parts (parts: [SubItem]) -> Result =
     for sub in parts do
@@ -571,11 +571,11 @@ type EmailConfig = { to: str, from: str, subject: str, body: str, cc: [str], pri
 A `match` expression has more than **15** arms.
 
 ```ori
-match(code,        // E7203: match has 20 arms (max 15) — consider lookup table or decomposition
-    1 -> "one",
-    2 -> "two",
+match code {       // E7203: match has 20 arms (max 15) — consider lookup table or decomposition
+    1 -> "one"
+    2 -> "two"
     ... // 18 more
-)
+}
 ```
 
 **Exemptions:**
@@ -594,10 +594,10 @@ These rules catch code that works correctly but is unnecessarily hard to underst
 A `let` binding in an inner scope has the same name as a binding in an outer scope, creating confusion about which binding is referenced.
 
 ```ori
-@process (x: int) -> int = run(
-    let x = x + 1,  // E7301: `x` shadows parameter `x` from outer scope
-    x * 2,
-)
+@process (x: int) -> int = {
+    let x = x + 1;  // E7301: `x` shadows parameter `x` from outer scope
+    x * 2
+}
 ```
 
 **Exemptions:**
@@ -699,13 +699,13 @@ let result = if a then x
 **Fix:** Convert to `match` or extract conditions into named predicates.
 
 ```ori
-let result = match(true,
-    _ if a && b && c && d -> x,
-    _ if a && b && c -> y,
-    _ if a && b -> z,
-    _ if a -> w,
-    _ -> v,
-)
+let result = match true {
+    _ if a && b && c && d -> x
+    _ if a && b && c -> y
+    _ if a && b -> z
+    _ if a -> w
+    _ -> v
+}
 ```
 
 ---
@@ -982,7 +982,7 @@ error[E7303]: magic number `86400`
 error[E7201]: function `process_all` has cognitive complexity 22 (maximum 15)
   --> src/pipeline.ori:10:1
    |
-10 | @process_all (data: [Record]) -> [Result] = run(
+10 | @process_all (data: [Record]) -> [Result] = {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
    = help: extract nested logic into helper functions to reduce complexity

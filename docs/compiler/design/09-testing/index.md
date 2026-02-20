@@ -41,9 +41,8 @@ Test a specific function:
 ```ori
 @add (a: int, b: int) -> int = a + b
 
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(2, 3), expected: 5),
-)
+@test_add tests @add () -> void =
+    assert_eq(actual: add(2, 3), expected: 5)
 ```
 
 ### Free-Floating Tests
@@ -51,10 +50,10 @@ Test a specific function:
 Test multiple things or integration:
 
 ```ori
-@test_integration () -> void = run(
-    let result = process_data(input),
-    assert(cond: result.is_valid),
-)
+@test_integration () -> void = {
+    let result = process_data(input);
+    assert(cond: result.is_valid);
+}
 ```
 
 ### Multi-Target Tests
@@ -62,10 +61,10 @@ Test multiple things or integration:
 Test multiple functions:
 
 ```ori
-@test_math tests @add tests @subtract () -> void = run(
-    assert_eq(actual: add(1, 2), expected: 3),
-    assert_eq(actual: subtract(5, 3), expected: 2),
-)
+@test_math tests @add tests @subtract () -> void = {
+    assert_eq(actual: add(1, 2), expected: 3);
+    assert_eq(actual: subtract(5, 3), expected: 2);
+}
 ```
 
 ## Test Attributes
@@ -85,9 +84,9 @@ Expect compilation to fail:
 
 ```ori
 #[compile_fail("type mismatch")]
-@test_type_error () -> void = run(
-    let x: int = "not an int",
-)
+@test_type_error () -> void = {
+    let x: int = "not an int";
+}
 ```
 
 ### Extended compile_fail Syntax
@@ -147,9 +146,8 @@ Expect test to fail at runtime:
 
 ```ori
 #[fail("assertion failed")]
-@test_expected_failure () -> void = run(
-    assert(cond: false),
-)
+@test_expected_failure () -> void =
+    assert(cond: false)
 ```
 
 ## Test Output

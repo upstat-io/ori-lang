@@ -315,7 +315,7 @@ Operations that bypass Ori's safety guarantees require `unsafe`:
 
 ```ori
 @raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
-    unsafe(ptr_read_byte(ptr: ptr, offset: offset))
+    unsafe(ptr_read_byte(ptr: ptr, offset: offset));
 ```
 
 ### Operations Requiring Unsafe
@@ -336,12 +336,12 @@ All FFI calls require the `FFI` capability:
 
 ```ori
 @call_c_function () -> int uses FFI =
-    some_c_function()
+    some_c_function();
 
 @manipulate_dom () -> void uses FFI =
     {
-        let elem = document_query(selector: "#app")
-        element_set_text(elem: elem, text: "Hello")
+        let elem = document_query(selector: "#app");
+        element_set_text(elem: elem, text: "Hello");
         drop_js_value(handle: elem)
     }
 ```
@@ -354,10 +354,10 @@ The `compile_error` built-in triggers a compile-time error:
 
 ```ori
 #target(arch: "wasm32")
-compile_error("std.fs is not available for WASM")
+compile_error("std.fs is not available for WASM");
 
 #target(not_arch: "wasm32")
-pub use "./read" { read, read_bytes }
+pub use "./read" { read, read_bytes };
 ```
 
 **Semantics:**
@@ -379,7 +379,7 @@ extern "c" from "libc" {
 
 pub @open_file (path: str) -> Result<int, FileError> uses FFI =
     {
-        let fd = _open(path: path, flags: 0, mode: 0)
+        let fd = _open(path: path, flags: 0, mode: 0);
         if fd < 0 then
             Err(errno_to_error())
         else
@@ -413,8 +413,8 @@ Standard C memory management. Ori's ARC handles Ori objects; C objects follow C 
 ```ori
 @use_js_object () -> void uses FFI =
     {
-        let elem = document_query(selector: "#app")
-        element_set_text(elem: elem, text: "Hello")
+        let elem = document_query(selector: "#app");
+        element_set_text(elem: elem, text: "Hello");
         drop_js_value(handle: elem)
     }
 ```
@@ -435,7 +435,7 @@ extern "js" {
 }
 
 // Public API works on both platforms
-pub @sin (angle: float) -> float = _sin(x: angle)
+pub @sin (angle: float) -> float = _sin(x: angle);
 ```
 
 See [Conditional Compilation](25-conditional-compilation.md) for attribute syntax.

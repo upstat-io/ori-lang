@@ -199,24 +199,24 @@ These are always stacked regardless of width:
 
 | Construct | Example |
 |-----------|---------|
-| `run` / `try` | Sequential execution |
+| `{ }` / `try { }` | Sequential execution |
 | `match` | Pattern matching arms |
 | `recurse` | Recursive definition |
 | `parallel` / `spawn` | Concurrency |
 | `nursery` | Structured concurrency |
 
 ```ori
-let result = run(
-    let x = compute(),
-    let y = transform(x),
-    x + y,
-)
+let result = {
+    let x = compute()
+    let y = transform(x)
+    x + y
+}
 
-let label = match(status,
-    Pending -> "waiting",
-    Running -> "in progress",
-    Complete -> "done",
-)
+let label = match status {
+    Pending -> "waiting"
+    Running -> "in progress"
+    Complete -> "done"
+}
 ```
 
 ## Type Definitions

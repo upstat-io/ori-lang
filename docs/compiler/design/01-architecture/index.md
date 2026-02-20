@@ -101,7 +101,7 @@ compiler/
 │           ├── builder.rs    # InterpreterBuilder
 │           ├── scope_guard.rs # RAII scope management
 │           ├── function_call.rs # User function calls
-│           ├── function_seq.rs  # run/try/match evaluation
+│           ├── function_seq.rs  # Block expression evaluation (blocks, try, match)
 │           ├── method_dispatch.rs # Method resolution
 │           ├── derived_methods.rs # Derived trait methods
 │           └── resolvers/    # Method resolution chain

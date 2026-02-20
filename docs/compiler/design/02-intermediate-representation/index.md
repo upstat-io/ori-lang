@@ -34,7 +34,7 @@ compiler/ori_ir/src/
 │   │   ├── types.rs            # TypeDecl, TypeDeclKind
 │   │   └── traits.rs          # TraitDef, ImplDef, ExtendDef
 │   └── patterns/           # Pattern constructs
-│       ├── seq.rs              # FunctionSeq (run, try, match)
+│       ├── seq.rs              # FunctionSeq (block expressions: blocks, try, match)
 │       ├── exp.rs              # FunctionExp (recurse, parallel, etc.)
 │       └── binding.rs          # Match patterns and arms
 ├── canon/              # Canonical IR (sugar-free, type-annotated)
