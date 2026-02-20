@@ -105,8 +105,6 @@ type SingleFieldDerived = { value: int }
 #[derive(Eq)]
 type DerivedColor = DRed | DGreen | DBlue
 
-// SKIP: #derive(Eq) for sum types (variants) not yet implemented in evaluator
-#skip("derive(Eq) for sum types not implemented")
 @test_derive_sum_eq tests @_use_derived_color () -> void = run(
     let c1 = DRed,
     let c2 = DRed,
@@ -120,8 +118,6 @@ type DerivedColor = DRed | DGreen | DBlue
 #[derive(Eq)]
 type DerivedOption = DSome(value: int) | DNone
 
-// SKIP: #derive(Eq) for sum types with payloads not yet implemented in evaluator
-#skip("derive(Eq) for sum types not implemented")
 @test_derive_sum_payload_eq tests @_use_derived_option () -> void = run(
     let s1 = DSome(value: 42),
     let s2 = DSome(value: 42),
@@ -335,8 +331,6 @@ type Outer = { inner: Inner }
 #[derive(Debug)]
 type DebugPoint = { x: int, y: int }
 
-// SKIP: #derive(Debug) method generation not yet implemented
-#skip("derive(Debug) not fully implemented")
 @test_derive_debug tests @_use_debug () -> void = run(
     let p = DebugPoint { x: 10, y: 20 },
     let debug_str = p.debug(),
@@ -353,8 +347,6 @@ type DebugPoint = { x: int, y: int }
 #[derive(Printable)]
 type PrintablePoint = { x: int, y: int }
 
-// SKIP: #derive(Printable) method generation not yet implemented
-#skip("derive(Printable) not fully implemented")
 @test_derive_printable tests @_use_printable () -> void = run(
     let p = PrintablePoint { x: 10, y: 20 },
     let str_repr = p.to_str(),
