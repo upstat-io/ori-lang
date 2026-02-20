@@ -227,10 +227,10 @@ Ori's memory model prefers immutable updates. Index assignment would require mut
 type Matrix = { rows: [[float]] }
 
 impl Index<(int, int), float> for Matrix {
-    @index (self, key: (int, int)) -> float = run(
-        let (row, col) = key,
-        self.rows[row][col],
-    )
+    @index (self, key: (int, int)) -> float = {
+        let (row, col) = key
+        self.rows[row][col]
+    }
 }
 
 let m = Matrix { rows: [[1.0, 2.0], [3.0, 4.0]] }
@@ -243,10 +243,10 @@ m[(0, 1)]  // 2.0
 type SparseArray<T> = { data: {int: T}, default: T }
 
 impl<T: Clone> Index<int, T> for SparseArray<T> {
-    @index (self, key: int) -> T = match(self.data[key],
-        Some(v) -> v,
-        None -> self.default.clone(),
-    )
+    @index (self, key: int) -> T = match self.data[key] {
+        Some(v) -> v
+        None -> self.default.clone()
+    }
 }
 ```
 
@@ -256,16 +256,16 @@ impl<T: Clone> Index<int, T> for SparseArray<T> {
 type Config = { data: {str: JsonValue} }
 
 impl Index<str, Option<JsonValue>> for Config {
-    @index (self, key: str) -> Option<JsonValue> = run(
-        let parts = key.split(sep: "."),
+    @index (self, key: str) -> Option<JsonValue> = {
+        let parts = key.split(sep: ".")
         parts.fold(
-            initial: Some(JsonValue.Object(self.data)),
-            combine: (acc, part) -> match(acc,
-                Some(JsonValue.Object(obj)) -> obj[part],
-                _ -> None,
-            ),
-        ),
-    )
+            initial: Some(JsonValue.Object(self.data))
+            combine: (acc, part) -> match acc {
+                Some(JsonValue.Object(obj)) -> obj[part]
+                _ -> None
+            }
+        )
+    }
 }
 
 let config = load_config()

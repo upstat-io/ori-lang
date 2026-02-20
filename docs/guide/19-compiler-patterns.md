@@ -29,23 +29,23 @@ Patterns fall into two categories:
 Sequential expressions where each step can use previous results:
 
 ```ori
-run(
-    let a = compute_a(),
-    let b = compute_b(input: a),
-    let c = compute_c(x: a, y: b),
+{
+    let a = compute_a()
+    let b = compute_b(input: a)
+    let c = compute_c(x: a, y: b)
     c,  // Return value
-)
+}
 ```
 
 ### Basic Usage
 
 ```ori
-@process_user (id: int) -> UserProfile = run(
-    let user = fetch_user(id: id),
-    let orders = fetch_orders(user_id: user.id),
-    let stats = calculate_stats(orders: orders),
-    UserProfile { user, orders, stats },
-)
+@process_user (id: int) -> UserProfile = {
+    let user = fetch_user(id: id)
+    let orders = fetch_orders(user_id: user.id)
+    let stats = calculate_stats(orders: orders)
+    UserProfile { user, orders, stats }
+}
 ```
 
 ### Scope and Bindings
@@ -53,13 +53,13 @@ run(
 Each binding is available to subsequent expressions:
 
 ```ori
-run(
-    let x = 10,
+{
+    let x = 10
     let y = x * 2,      // Can use x
     let z = x + y,      // Can use x and y
-    print(msg: `{x} {y} {z}`),
+    print(msg: `{x} {y} {z}`)
     z,                  // Final value is z
-)
+}
 ```
 
 ### Side Effects
@@ -67,11 +67,11 @@ run(
 `run` is for sequential operations with side effects:
 
 ```ori
-@save_and_notify (user: User) -> void = run(
-    save_to_database(user: user),
-    send_email(to: user.email, subject: "Welcome!"),
-    log_event(type: "user_created", data: user.id),
-)
+@save_and_notify (user: User) -> void = {
+    save_to_database(user: user)
+    send_email(to: user.email, subject: "Welcome!")
+    log_event(type: "user_created", data: user.id)
+}
 ```
 
 ### Contracts with run
@@ -79,11 +79,11 @@ run(
 Add preconditions and postconditions:
 
 ```ori
-@sqrt (x: float) -> float = run(
-    pre_check: x >= 0.0 | "x must be non-negative",
-    compute_sqrt(x: x),
-    post_check: result -> result >= 0.0,
-)
+@sqrt (x: float) -> float = {
+    pre_check: x >= 0.0 | "x must be non-negative"
+    compute_sqrt(x: x)
+    post_check: result -> result >= 0.0
+}
 ```
 
 - `pre_check:` — verified before the body runs
@@ -93,22 +93,22 @@ Add preconditions and postconditions:
 ### Contract Examples
 
 ```ori
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0 | "division by zero",
-    a / b,
-)
+@divide (a: int, b: int) -> int = {
+    pre_check: b != 0 | "division by zero"
+    a / b
+}
 
-@clamp (value: int, min: int, max: int) -> int = run(
-    pre_check: min <= max | "min must not exceed max",
-    if value < min then min else if value > max then max else value,
-    post_check: result -> result >= min && result <= max,
-)
+@clamp (value: int, min: int, max: int) -> int = {
+    pre_check: min <= max | "min must not exceed max"
+    if value < min then min else if value > max then max else value
+    post_check: result -> result >= min && result <= max
+}
 
-@factorial (n: int) -> int = run(
-    pre_check: n >= 0 | "factorial undefined for negative numbers",
-    if n <= 1 then 1 else n * factorial(n: n - 1),
-    post_check: result -> result > 0 | "factorial must be positive",
-)
+@factorial (n: int) -> int = {
+    pre_check: n >= 0 | "factorial undefined for negative numbers"
+    if n <= 1 then 1 else n * factorial(n: n - 1)
+    post_check: result -> result > 0 | "factorial must be positive"
+}
 ```
 
 ## The try Pattern
@@ -116,12 +116,12 @@ Add preconditions and postconditions:
 Like `run`, but designed for error propagation:
 
 ```ori
-try(
-    let a = fallible_a()?,
-    let b = fallible_b(input: a)?,
-    let c = fallible_c(x: a, y: b)?,
-    Ok(c),
-)
+try {
+    let a = fallible_a()?
+    let b = fallible_b(input: a)?
+    let c = fallible_c(x: a, y: b)?
+    Ok(c)
+}
 ```
 
 The `?` operator:
@@ -133,11 +133,11 @@ The `?` operator:
 `try` automatically collects error traces:
 
 ```ori
-@load_config () -> Result<Config, Error> = try(
+@load_config () -> Result<Config, Error> = try {
     let data = read_file(path: "config.json")?,  // Trace point
     let config = parse_json(data: data)?,         // Trace point
-    Ok(config),
-)
+    Ok(config)
+}
 ```
 
 If parsing fails, the trace shows:
@@ -152,18 +152,18 @@ Trace:
 Use `try` for fallible code, `run` for infallible:
 
 ```ori
-@process_batch (items: [int]) -> Result<Summary, Error> = try(
-    let results = for item in items yield process_item(id: item)?,
+@process_batch (items: [int]) -> Result<Summary, Error> = try {
+    let results = for item in items yield process_item(id: item)?
 
     // Switch to run for non-fallible computation
-    let summary = run(
-        let total = len(collection: results),
-        let sum = results.iter().fold(initial: 0, op: (a, b) -> a + b),
-        Summary { total, average: sum / total },
-    ),
+    let summary = {
+        let total = len(collection: results)
+        let sum = results.iter().fold(initial: 0, op: (a, b) -> a + b)
+        Summary { total, average: sum / total }
+    }
 
-    Ok(summary),
-)
+    Ok(summary)
+}
 ```
 
 ## The match Pattern
@@ -171,12 +171,11 @@ Use `try` for fallible code, `run` for infallible:
 Pattern matching with exhaustiveness checking:
 
 ```ori
-match(
-    value,
-    Pattern1 -> result1,
-    Pattern2 -> result2,
-    _ -> default,
-)
+match value {
+    Pattern1 -> result1
+    Pattern2 -> result2
+    _ -> default
+}
 ```
 
 ### Match Must Return Values
@@ -184,12 +183,11 @@ match(
 Match is an expression — all arms must return the same type:
 
 ```ori
-let description = match(
-    status,
-    Active -> "Currently active",
-    Inactive -> "Not active",
-    Pending -> "Waiting for approval",
-)
+let description = match status {
+    Active -> "Currently active"
+    Inactive -> "Not active"
+    Pending -> "Waiting for approval"
+}
 ```
 
 ### Exhaustiveness
@@ -200,20 +198,18 @@ The compiler ensures all cases are covered:
 type Color = Red | Green | Blue
 
 // ERROR: non-exhaustive match
-let name = match(
-    color,
-    Red -> "red",
-    Green -> "green",
+let name = match color {
+    Red -> "red"
+    Green -> "green"
     // Missing Blue!
-)
+}
 
 // OK: all cases covered
-let name = match(
-    color,
-    Red -> "red",
-    Green -> "green",
-    Blue -> "blue",
-)
+let name = match color {
+    Red -> "red"
+    Green -> "green"
+    Blue -> "blue"
+}
 ```
 
 ## The recurse Pattern
@@ -331,12 +327,12 @@ Cache expensive computations:
 // Test with mock cache
 @test_cache tests @get_user_cached () -> void =
     with Http = MockHttp { responses: { "/users/1": `{"id": 1}` } },
-         Cache = MockCache {} in run(
+         Cache = MockCache {} in {
         let first = get_user_cached(id: 1),   // Fetches from Http
         let second = get_user_cached(id: 1),  // Returns from cache
-        assert_ok(result: first),
-        assert_ok(result: second),
-    )
+        assert_ok(result: first)
+        assert_ok(result: second)
+    }
 ```
 
 ## The with Pattern
@@ -368,11 +364,11 @@ Resource management with guaranteed cleanup:
 @safe_transaction (db: Database) -> Result<void, Error> uses Database =
     with(
         acquire: db.begin_transaction(),
-        use: tx -> run(
-            tx.insert(table: "users", data: user_data),
-            tx.update(table: "stats", data: stats_data),
-            Ok(()),
-        ),
+        use: tx -> {
+            tx.insert(table: "users", data: user_data)
+            tx.update(table: "stats", data: stats_data)
+            Ok(())
+        },
         release: tx -> tx.rollback_if_uncommitted(),
     )
 ```
@@ -398,11 +394,10 @@ Capture panics as Results:
 let result = catch(expr: might_panic())
 // Result<T, str>
 
-match(
-    result,
-    Ok(value) -> print(msg: `Got: {value}`),
-    Err(msg) -> print(msg: `Panic caught: {msg}`),
-)
+match result {
+    Ok(value) -> print(msg: `Got: {value}`)
+    Err(msg) -> print(msg: `Panic caught: {msg}`)
+}
 ```
 
 ### When to Use catch
@@ -411,10 +406,10 @@ Use sparingly — panics indicate bugs, not expected errors:
 
 ```ori
 // Good: Test frameworks
-@test_panics tests @divide () -> void = run(
-    let result = catch(expr: divide(a: 1, b: 0)),
-    assert_err(result: result),
-)
+@test_panics tests @divide () -> void = {
+    let result = catch(expr: divide(a: 1, b: 0))
+    assert_err(result: result)
+}
 
 // Good: Plugin systems
 @run_plugin (plugin: Plugin) -> Result<void, str> =
@@ -470,40 +465,40 @@ for(
 ### run with recurse
 
 ```ori
-@tree_sum<T: Addable> (node: TreeNode<T>) -> T = run(
-    pre_check: !is_null(node: node),
+@tree_sum<T: Addable> (node: TreeNode<T>) -> T = {
+    pre_check: !is_null(node: node)
     recurse(
-        condition: is_leaf(node: node),
-        base: node.value,
-        step: node.value + self(node: node.left) + self(node: node.right),
-    ),
-)
+        condition: is_leaf(node: node)
+        base: node.value
+        step: node.value + self(node: node.left) + self(node: node.right)
+    )
+}
 ```
 
 ### try with cache
 
 ```ori
-@fetch_cached (url: str) -> Result<str, Error> uses Http, Cache = try(
+@fetch_cached (url: str) -> Result<str, Error> uses Http, Cache = try {
     let data = cache(
-        key: `fetch:{url}`,
-        op: Http.get(url: url)?,
-        ttl: 10m,
-    ),
-    Ok(data),
-)
+        key: `fetch:{url}`
+        op: Http.get(url: url)?
+        ttl: 10m
+    )
+    Ok(data)
+}
 ```
 
 ### with and try
 
 ```ori
-@safe_file_op (path: str) -> Result<Data, Error> uses FileSystem = try(
+@safe_file_op (path: str) -> Result<Data, Error> uses FileSystem = try {
     let result = with(
-        acquire: FileSystem.open(path: path)?,
-        use: file -> parse_data(content: FileSystem.read(file: file)?),
-        release: file -> FileSystem.close(file: file),
-    ),
-    Ok(result),
-)
+        acquire: FileSystem.open(path: path)?
+        use: file -> parse_data(content: FileSystem.read(file: file)?)
+        release: file -> FileSystem.close(file: file)
+    )
+    Ok(result)
+}
 ```
 
 ## Complete Example
@@ -518,27 +513,27 @@ type Config = {
 type User = { id: int, name: str, email: str }
 
 // Load config with validation
-@load_config (path: str) -> Result<Config, Error> uses FileSystem = try(
-    let content = FileSystem.read(path: path)?,
-    let config = parse_config(data: content)?,
+@load_config (path: str) -> Result<Config, Error> uses FileSystem = try {
+    let content = FileSystem.read(path: path)?
+    let config = parse_config(data: content)?
 
     // Validate with contracts
-    run(
-        pre_check: config.max_retries > 0 | "max_retries must be positive",
-        pre_check: config.cache_ttl > 0s | "cache_ttl must be positive",
-        Ok(config),
-    ),
-)
+    {
+        pre_check: config.max_retries > 0 | "max_retries must be positive"
+        pre_check: config.cache_ttl > 0s | "cache_ttl must be positive"
+        Ok(config)
+    }
+}
 
 @test_load_config tests @load_config () -> void =
     with FileSystem = MockFileSystem {
         files: {
             "config.json": `{"database_url": "...", "cache_ttl": "5m", "max_retries": 3}`,
         },
-    } in run(
-        let result = load_config(path: "config.json"),
-        assert_ok(result: result),
-    )
+    } in {
+        let result = load_config(path: "config.json")
+        assert_ok(result: result)
+    }
 
 // Fetch user with caching
 @get_user (id: int) -> Result<User, Error> uses Http, Cache =
@@ -568,27 +563,26 @@ type User = { id: int, name: str, email: str }
 
 // Combining multiple patterns
 @process_users (ids: [int]) -> Result<[User], Error>
-    uses Http, Cache, Logger, Async = try(
+    uses Http, Cache, Logger, Async = try {
     let users = parallel(
-        tasks: for id in ids yield () -> run(
-            Logger.debug(msg: `Fetching user {id}`),
-            get_user(id: id),
-        ),
-        max_concurrent: 10,
-        timeout: 30s,
-    ),
+        tasks: for id in ids yield () -> {
+            Logger.debug(msg: `Fetching user {id}`)
+            get_user(id: id)
+        }
+        max_concurrent: 10
+        timeout: 30s
+    )
 
     // Extract successful results
     let valid_users = for result in users
         if is_ok(result: result)
-        yield match(
-            result,
-            Ok(user) -> user,
-            Err(_) -> continue,
-        ),
+        yield match result {
+            Ok(user) -> user
+            Err(_) -> continue
+        }
 
-    Ok(valid_users),
-)
+    Ok(valid_users)
+}
 
 @test_process_users tests @process_users () -> void =
     with Http = MockHttp {
@@ -598,15 +592,14 @@ type User = { id: int, name: str, email: str }
         },
     },
     Cache = MockCache {},
-    Logger = MockLogger {} in run(
-        let result = process_users(ids: [1, 2]),
-        assert_ok(result: result),
-        match(
-            result,
-            Ok(users) -> assert_eq(actual: len(collection: users), expected: 2),
-            Err(_) -> panic(msg: "Expected Ok"),
-        ),
-    )
+    Logger = MockLogger {} in {
+        let result = process_users(ids: [1, 2])
+        assert_ok(result: result)
+        match result {
+            Ok(users) -> assert_eq(actual: len(collection: users), expected: 2)
+            Err(_) -> panic(msg: "Expected Ok")
+        }
+    }
 ```
 
 ## Quick Reference
@@ -614,38 +607,37 @@ type User = { id: int, name: str, email: str }
 ### run
 
 ```ori
-run(
-    let a = ...,
-    let b = ...,
-    result,
-)
+{
+    let a = ...
+    let b = ...
+    result
+}
 
-run(
-    pre_check: condition | "error message",
-    body,
-    post_check: result -> condition,
-)
+{
+    pre_check: condition | "error message"
+    body
+    post_check: result -> condition
+}
 ```
 
 ### try
 
 ```ori
-try(
-    let a = fallible()?,
-    let b = fallible()?,
-    Ok(result),
-)
+try {
+    let a = fallible()?
+    let b = fallible()?
+    Ok(result)
+}
 ```
 
 ### match
 
 ```ori
-match(
-    value,
-    Pattern1 -> result1,
-    Pattern2 -> result2,
-    _ -> default,
-)
+match value {
+    Pattern1 -> result1
+    Pattern2 -> result2
+    _ -> default
+}
 ```
 
 ### recurse

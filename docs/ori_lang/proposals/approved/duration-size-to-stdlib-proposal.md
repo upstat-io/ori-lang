@@ -129,15 +129,15 @@ impl Duration {
 }
 
 impl Printable for Duration {
-    @to_str (self) -> str = run(
-        let ns = self.nanoseconds,
+    @to_str (self) -> str = {
+        let ns = self.nanoseconds
         if ns % 3_600_000_000_000 == 0 then `{ns / 3_600_000_000_000}h`
         else if ns % 60_000_000_000 == 0 then `{ns / 60_000_000_000}m`
         else if ns % 1_000_000_000 == 0 then `{ns / 1_000_000_000}s`
         else if ns % 1_000_000 == 0 then `{ns / 1_000_000}ms`
         else if ns % 1_000 == 0 then `{ns / 1_000}us`
-        else `{ns}ns`,
-    )
+        else `{ns}ns`
+    }
 }
 ```
 
@@ -158,21 +158,21 @@ impl Add for Size {
 
 // Size - Size -> Size (panics if negative)
 impl Sub for Size {
-    @subtract (self, other: Size) -> Size = run(
-        let result = self.bytes - other.bytes,
-        if result < 0 then panic(msg: "Size cannot be negative"),
-        Size { bytes: result },
-    )
+    @subtract (self, other: Size) -> Size = {
+        let result = self.bytes - other.bytes
+        if result < 0 then panic(msg: "Size cannot be negative")
+        Size { bytes: result }
+    }
 }
 
 // Size * int -> Size (panics if negative)
 impl Mul<int> for Size {
     type Output = Size
-    @multiply (self, n: int) -> Size = run(
-        let result = self.bytes * n,
-        if result < 0 then panic(msg: "Size cannot be negative"),
-        Size { bytes: result },
-    )
+    @multiply (self, n: int) -> Size = {
+        let result = self.bytes * n
+        if result < 0 then panic(msg: "Size cannot be negative")
+        Size { bytes: result }
+    }
 }
 
 // int * Size -> Size (commutative)
@@ -203,10 +203,10 @@ impl Rem for Size {
 
 impl Size {
     // Factory methods (associated functions) - SI units (1000-based)
-    pub @from_bytes (b: int) -> Self = run(
-        if b < 0 then panic(msg: "Size cannot be negative"),
-        Size { bytes: b },
-    )
+    pub @from_bytes (b: int) -> Self = {
+        if b < 0 then panic(msg: "Size cannot be negative")
+        Size { bytes: b }
+    }
     pub @from_kilobytes (kb: int) -> Self = Self.from_bytes(b: kb * 1000)
     pub @from_megabytes (mb: int) -> Self = Self.from_bytes(b: mb * 1_000_000)
     pub @from_gigabytes (gb: int) -> Self = Self.from_bytes(b: gb * 1_000_000_000)
@@ -222,14 +222,14 @@ impl Size {
 
 impl Printable for Size {
     // SI units (1000-based)
-    @to_str (self) -> str = run(
-        let b = self.bytes,
+    @to_str (self) -> str = {
+        let b = self.bytes
         if b % 1_000_000_000_000 == 0 then `{b / 1_000_000_000_000}tb`
         else if b % 1_000_000_000 == 0 then `{b / 1_000_000_000}gb`
         else if b % 1_000_000 == 0 then `{b / 1_000_000}mb`
         else if b % 1000 == 0 then `{b / 1000}kb`
-        else `{b}b`,
-    )
+        else `{b}b`
+    }
 }
 ```
 

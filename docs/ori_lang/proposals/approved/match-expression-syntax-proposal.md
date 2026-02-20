@@ -33,7 +33,7 @@ The match expression syntax has been implemented but lacks formal specification.
 ### Basic Form
 
 ```ori
-match(scrutinee, pattern -> expression, ...)
+match scrutinee { pattern -> expression, ...}
 ```
 
 A match expression consists of:
@@ -48,24 +48,24 @@ A match expression consists of:
 
 ```ori
 // Simple match on Option
-match(opt,
-    Some(x) -> x * 2,
-    None -> 0,
-)
+match opt {
+    Some(x) -> x * 2
+    None -> 0
+}
 
 // Match on literals
-match(n,
-    0 -> "zero",
-    1 -> "one",
-    _ -> "many",
-)
+match n {
+    0 -> "zero"
+    1 -> "one"
+    _ -> "many"
+}
 
 // Match with computation in arms
-match(status,
-    Pending -> calculate_pending(),
-    Running(progress) -> progress * 100,
-    Done(result) -> result.value,
-)
+match status {
+    Pending -> calculate_pending()
+    Running(progress) -> progress * 100
+    Done(result) -> result.value
+}
 ```
 
 ---
@@ -91,11 +91,11 @@ Bindings introduced in the pattern are in scope for:
 2. The body expression
 
 ```ori
-match(point,
-    Point { x, y }.match(x == y) -> "diagonal: " + str(x),
+match point {
+    Point { x, y }.match(x == y) -> "diagonal: " + str(x)
     //       ^ x,y bound here        ^ used in guard    ^ used in body
-    Point { x, y } -> str(x) + "," + str(y),
-)
+    Point { x, y } -> str(x) + "," + str(y)
+}
 ```
 
 ---
@@ -125,24 +125,24 @@ Guards use the `.match(condition)` suffix on a pattern:
 
 ```ori
 // Basic guard usage
-match(n,
-    x.match(x > 0) -> "positive",
-    x.match(x < 0) -> "negative",
+match n {
+    x.match(x > 0) -> "positive"
+    x.match(x < 0) -> "negative"
     _ -> "zero",  // Required: guards don't ensure exhaustiveness
-)
+}
 
 // Guard with struct destructuring
-match(rect,
-    Rectangle { width, height }.match(width == height) -> "square",
-    Rectangle { width, height } -> "rectangle",
-)
+match rect {
+    Rectangle { width, height }.match(width == height) -> "square"
+    Rectangle { width, height } -> "rectangle"
+}
 
 // Multiple conditions in guard
-match(point,
-    Point { x, y }.match(x > 0 && y > 0) -> "quadrant I",
-    Point { x, y }.match(x < 0 && y > 0) -> "quadrant II",
-    _ -> "other",
-)
+match point {
+    Point { x, y }.match(x > 0 && y > 0) -> "quadrant I"
+    Point { x, y }.match(x < 0 && y > 0) -> "quadrant II"
+    _ -> "other"
+}
 ```
 
 ---
@@ -158,10 +158,10 @@ _
 Matches any value without binding it.
 
 ```ori
-match(opt,
-    Some(_) -> "has value",
-    None -> "empty",
-)
+match opt {
+    Some(_) -> "has value"
+    None -> "empty"
+}
 ```
 
 ### Binding Pattern
@@ -173,10 +173,10 @@ identifier
 Matches any value and binds it to the identifier.
 
 ```ori
-match(opt,
+match opt {
     Some(x) -> x * 2,  // x bound to inner value
-    None -> 0,
-)
+    None -> 0
+}
 ```
 
 ### Literal Pattern
@@ -193,12 +193,12 @@ false
 Matches exact literal values. Numeric literals must be integers; float literals are not supported in patterns. Negative integer literals are supported.
 
 ```ori
-match(n,
-    0 -> "zero",
-    1 -> "one",
-    -1 -> "negative one",
-    _ -> "other",
-)
+match n {
+    0 -> "zero"
+    1 -> "one"
+    -1 -> "negative one"
+    _ -> "other"
+}
 ```
 
 ### Variant Pattern
@@ -213,18 +213,18 @@ Matches enum/sum type variants, optionally destructuring payloads.
 
 ```ori
 // Built-in variants
-match(opt, Some(x) -> x, None -> 0)
-match(res, Ok(v) -> v, Err(e) -> handle(e))
+match opt { Some(x) -> x, None -> 0}
+match res { Ok(v) -> v, Err(e) -> handle(e)}
 
 // User-defined variants
 type Color = Red | Green | Blue | Rgb(int, int, int)
 
-match(color,
-    Red -> "#FF0000",
-    Green -> "#00FF00",
-    Blue -> "#0000FF",
-    Rgb(r, g, b) -> format_rgb(r, g, b),
-)
+match color {
+    Red -> "#FF0000"
+    Green -> "#00FF00"
+    Blue -> "#0000FF"
+    Rgb(r, g, b) -> format_rgb(r, g, b)
+}
 ```
 
 ### Struct Pattern
@@ -240,16 +240,16 @@ Matches struct values, with optional type name and field patterns.
 
 ```ori
 // Field shorthand (binds to field name)
-match(point, Point { x, y } -> x + y)
+match point { Point { x, y } -> x + y}
 
 // Field with pattern
-match(point, Point { x: 0, y } -> "on y-axis")
+match point { Point { x: 0, y } -> "on y-axis"}
 
 // Partial match with rest
-match(point, Point { x, .. } -> x)
+match point { Point { x, .. } -> x}
 
 // Anonymous struct pattern
-match(data, { name, age } -> name + str(age))
+match data { { name, age } -> name + str(age)}
 ```
 
 ### Tuple Pattern
@@ -262,12 +262,12 @@ match(data, { name, age } -> name + str(age))
 Matches tuple values.
 
 ```ori
-match(pair,
-    (0, 0) -> "origin",
-    (x, 0) -> "on x-axis",
-    (0, y) -> "on y-axis",
-    (x, y) -> "point",
-)
+match pair {
+    (0, 0) -> "origin"
+    (x, 0) -> "on x-axis"
+    (0, y) -> "on y-axis"
+    (x, y) -> "point"
+}
 ```
 
 ### List Pattern
@@ -284,12 +284,12 @@ match(pair,
 Matches lists by length and element patterns.
 
 ```ori
-match(list,
-    [] -> "empty",
-    [x] -> "singleton: " + str(x),
-    [x, y] -> "pair: " + str(x) + ", " + str(y),
-    [head, ..tail] -> "head: " + str(head) + ", rest length: " + str(len(tail)),
-)
+match list {
+    [] -> "empty"
+    [x] -> "singleton: " + str(x)
+    [x, y] -> "pair: " + str(x) + ", " + str(y)
+    [head, ..tail] -> "head: " + str(head) + ", rest length: " + str(len(tail))
+}
 ```
 
 ### Range Pattern
@@ -302,14 +302,14 @@ start..=end     // Inclusive end
 Matches values within a range. Only integer literals are supported.
 
 ```ori
-match(score,
-    0..60 -> "F",
-    60..70 -> "D",
-    70..80 -> "C",
-    80..90 -> "B",
-    90..=100 -> "A",
-    _ -> "invalid",
-)
+match score {
+    0..60 -> "F"
+    60..70 -> "D"
+    70..80 -> "C"
+    80..90 -> "B"
+    90..=100 -> "A"
+    _ -> "invalid"
+}
 ```
 
 ### Or-Pattern
@@ -321,15 +321,15 @@ pattern1 | pattern2
 Matches if any alternative matches. Bindings must be consistent across alternatives.
 
 ```ori
-match(light,
-    Red | Yellow -> "stop",
-    Green -> "go",
-)
+match light {
+    Red | Yellow -> "stop"
+    Green -> "go"
+}
 
 // With bindings (must appear in all alternatives with same type)
-match(result,
+match result {
     Ok(x) | Err(x) -> process(x),  // x bound in both
-)
+}
 ```
 
 ### At-Pattern
@@ -341,10 +341,10 @@ name @ pattern
 Binds the whole matched value while also destructuring.
 
 ```ori
-match(opt,
-    whole @ Some(inner) -> use_both(whole, inner),
-    None -> default,
-)
+match opt {
+    whole @ Some(inner) -> use_both(whole, inner)
+    None -> default
+}
 ```
 
 ---
@@ -365,11 +365,11 @@ match(opt,
 ### First-Match-Wins
 
 ```ori
-match(n,
+match n {
     x.match(x > 0) -> "positive",  // Checked first
     1 -> "one",                     // Never reached for positive numbers
-    _ -> "other",
-)
+    _ -> "other"
+}
 ```
 
 ### Exhaustiveness
@@ -390,16 +390,16 @@ All arm bodies must have compatible types. The match expression's type is the un
 
 ```ori
 // All arms return int
-let x: int = match(opt,
-    Some(n) -> n,
-    None -> 0,
-)
+let x: int = match opt {
+    Some(n) -> n
+    None -> 0
+}
 
 // Mixed types unify to common type
-let s: str = match(opt,
-    Some(n) -> str(n),
-    None -> "none",
-)
+let s: str = match opt {
+    Some(n) -> str(n)
+    None -> "none"
+}
 ```
 
 ### Pattern Type Checking

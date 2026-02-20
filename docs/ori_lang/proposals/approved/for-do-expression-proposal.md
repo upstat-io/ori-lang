@@ -315,21 +315,21 @@ Unlike `for...yield`, nested `for...do` does not flatten. Each is an independent
 ### In Run Pattern
 
 ```ori
-run(
-    let items = load_items(),
-    for item in items do validate(item),
-    save_all(items),
-)
+{
+    let items = load_items()
+    for item in items do validate(item)
+    save_all(items)
+}
 ```
 
 ### With Error Propagation
 
 ```ori
-@process_all (items: [Item]) -> Result<void, Error> = run(
+@process_all (items: [Item]) -> Result<void, Error> = {
     for item in items do
         validate(item)?,  // Propagates error, exits loop and function
-    Ok(()),
-)
+    Ok(())
+}
 ```
 
 ### In Conditional
@@ -460,10 +460,10 @@ error[E0883]: refutable pattern in `for` binding
 ```ori
 @find_and_process (items: [Item]) -> void =
     for item in items do
-        if is_target(item) then run(
-            process(item),
-            break,
-        ),
+        if is_target(item) then {
+            process(item)
+            break
+        },
 ```
 
 ### Labeled Continue

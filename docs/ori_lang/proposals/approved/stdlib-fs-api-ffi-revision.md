@@ -223,49 +223,49 @@ use "./ffi_helpers" { CStat.zeroed }
 use "./error" { errno_to_file_error }
 
 pub @read (path: str) -> Result<str, FileError> uses FileSystem =
-    run(
-        let fd = _open(path: path, flags: $O_RDONLY, mode: 0),
+    {
+        let fd = _open(path: path, flags: $O_RDONLY, mode: 0)
         if fd < 0 then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
-            run(
-                let stat_buf = CStat.zeroed(),
-                _fstat(fd: fd, buf: stat_buf),
-                let size = stat_buf.st_size,
+            {
+                let stat_buf = CStat.zeroed()
+                _fstat(fd: fd, buf: stat_buf)
+                let size = stat_buf.st_size
                 let buf: [byte, max 1048576] = [],  // 1MB max inline read
-                let bytes_read = _read(fd: fd, buf: buf, count: size),
-                _close(fd: fd),
+                let bytes_read = _read(fd: fd, buf: buf, count: size)
+                _close(fd: fd)
                 if bytes_read < 0 then
                     Err(errno_to_file_error(path: Path.from_str(s: path)))
                 else
                     str.from_utf8(bytes: buf[0..bytes_read])
                         .map_err(transform: e -> FileError {
-                            kind: IoError,
-                            path: Path.from_str(s: path),
+                            kind: IoError
+                            path: Path.from_str(s: path)
                             message: "Invalid UTF-8"
                         })
-            )
-    )
+            }
+    }
 
 pub @read_bytes (path: str) -> Result<[byte], FileError> uses FileSystem =
-    run(
-        let fd = _open(path: path, flags: $O_RDONLY, mode: 0),
+    {
+        let fd = _open(path: path, flags: $O_RDONLY, mode: 0)
         if fd < 0 then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
-            run(
-                let stat_buf = CStat.zeroed(),
-                _fstat(fd: fd, buf: stat_buf),
-                let size = stat_buf.st_size,
-                let buf: [byte, max 1048576] = [],
-                let bytes_read = _read(fd: fd, buf: buf, count: size),
-                _close(fd: fd),
+            {
+                let stat_buf = CStat.zeroed()
+                _fstat(fd: fd, buf: stat_buf)
+                let size = stat_buf.st_size
+                let buf: [byte, max 1048576] = []
+                let bytes_read = _read(fd: fd, buf: buf, count: size)
+                _close(fd: fd)
                 if bytes_read < 0 then
                     Err(errno_to_file_error(path: Path.from_str(s: path)))
                 else
                     Ok(buf[0..bytes_read].to_dynamic())
-            )
-    )
+            }
+    }
 ```
 
 ### Writing Files
@@ -280,22 +280,22 @@ pub @write (path: str, content: str) -> Result<void, FileError> uses FileSystem 
     write_bytes(path: path, content: content.as_bytes())
 
 pub @write_bytes (path: str, content: [byte]) -> Result<void, FileError> uses FileSystem =
-    run(
-        let flags = $O_WRONLY | $O_CREAT | $O_TRUNC,
+    {
+        let flags = $O_WRONLY | $O_CREAT | $O_TRUNC
         let mode = $S_IRUSR | $S_IWUSR | $S_IRGRP | $S_IROTH,  // 0644
-        let fd = _open(path: path, flags: flags, mode: mode),
+        let fd = _open(path: path, flags: flags, mode: mode)
         if fd < 0 then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
-            run(
-                let written = _write(fd: fd, buf: content, count: len(collection: content)),
-                _close(fd: fd),
+            {
+                let written = _write(fd: fd, buf: content, count: len(collection: content))
+                _close(fd: fd)
                 if written < 0 then
                     Err(errno_to_file_error(path: Path.from_str(s: path)))
                 else
                     Ok(())
-            )
-    )
+            }
+    }
 
 pub @write_with (
     path: str,
@@ -303,36 +303,36 @@ pub @write_with (
     mode: WriteMode = Truncate,
     create_dirs: bool = false
 ) -> Result<void, FileError> uses FileSystem =
-    run(
+    {
         if create_dirs then
-            run(
-                let parent = Path.from_str(s: path).parent(),
-                match(parent,
-                    Some(p) -> create_dir_all(path: p.to_str())?,
+            {
+                let parent = Path.from_str(s: path).parent()
+                match parent {
+                    Some(p) -> create_dir_all(path: p.to_str())?
                     None -> ()
-                )
-            ),
+                }
+            }
 
-        let flags = match(mode,
-            Create -> $O_WRONLY | $O_CREAT | $O_EXCL,
-            Append -> $O_WRONLY | $O_CREAT | $O_APPEND,
+        let flags = match mode {
+            Create -> $O_WRONLY | $O_CREAT | $O_EXCL
+            Append -> $O_WRONLY | $O_CREAT | $O_APPEND
             Truncate -> $O_WRONLY | $O_CREAT | $O_TRUNC
-        ),
-        let file_mode = $S_IRUSR | $S_IWUSR | $S_IRGRP | $S_IROTH,
-        let fd = _open(path: path, flags: flags, mode: file_mode),
+        }
+        let file_mode = $S_IRUSR | $S_IWUSR | $S_IRGRP | $S_IROTH
+        let fd = _open(path: path, flags: flags, mode: file_mode)
         if fd < 0 then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
-            run(
-                let bytes = content.as_bytes(),
-                let written = _write(fd: fd, buf: bytes, count: len(collection: bytes)),
-                _close(fd: fd),
+            {
+                let bytes = content.as_bytes()
+                let written = _write(fd: fd, buf: bytes, count: len(collection: bytes))
+                _close(fd: fd)
                 if written < 0 then
                     Err(errno_to_file_error(path: Path.from_str(s: path)))
                 else
                     Ok(())
-            )
-    )
+            }
+    }
 ```
 
 ### Directory Operations
@@ -345,48 +345,48 @@ use "./ffi_helpers" { dirent_name }
 use "./error" { errno_to_file_error }
 
 pub @list_dir (path: str) -> Result<[str], FileError> uses FileSystem =
-    run(
-        let dir = _opendir(path: path),
+    {
+        let dir = _opendir(path: path)
         if dir.is_null() then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
-            run(
-                let entries: [str, max 4096] = [],
-                loop(
-                    let entry = _readdir(dir: dir),
-                    if entry.is_null() then break,
-                    let name = dirent_name(entry: entry),
+            {
+                let entries: [str, max 4096] = []
+                loop {
+                    let entry = _readdir(dir: dir)
+                    if entry.is_null() then break
+                    let name = dirent_name(entry: entry)
                     if name != "." && name != ".." then
-                        entries.push(name),
+                        entries.push(name)
                     continue
-                ),
-                _closedir(dir: dir),
+                }
+                _closedir(dir: dir)
                 Ok(entries.to_dynamic())
-            )
-    )
+            }
+    }
 
 pub @create_dir (path: str) -> Result<void, FileError> uses FileSystem =
-    run(
+    {
         let mode = $S_IRWXU | $S_IRGRP | $S_IXGRP | $S_IROTH | $S_IXOTH,  // 0755
-        let result = _mkdir(path: path, mode: mode),
+        let result = _mkdir(path: path, mode: mode)
         if result < 0 then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
             Ok(())
-    )
+    }
 
 pub @create_dir_all (path: str) -> Result<void, FileError> uses FileSystem =
-    run(
-        let parts = Path.from_str(s: path).segments,
-        let current = if Path.from_str(s: path).is_absolute() then "/" else "",
+    {
+        let parts = Path.from_str(s: path).segments
+        let current = if Path.from_str(s: path).is_absolute() then "/" else ""
         for part in parts do
-            run(
-                current = current + "/" + part,
+            {
+                current = current + "/" + part
                 if !exists(path: current) then
                     create_dir(path: current)?
-            ),
+            }
         Ok(())
-    )
+    }
 
 pub @walk_dir (path: str) -> Result<[FileInfo], FileError> uses FileSystem =
     walk_dir_with(path: path, max_depth: -1, follow_symlinks: false)
@@ -404,26 +404,26 @@ pub @walk_dir_with (
     max_depth: int,
     follow_symlinks: bool
 ) -> Result<[FileInfo], FileError> uses FileSystem =
-    run(
-        let entries = list_dir_info(path: path)?,
-        let results: [FileInfo, max 10000] = [],
+    {
+        let entries = list_dir_info(path: path)?
+        let results: [FileInfo, max 10000] = []
         for entry in entries do
-            run(
-                results.push(entry),
+            {
+                results.push(entry)
                 if entry.is_dir && (max_depth < 0 || depth < max_depth) then
                     if !entry.is_symlink || follow_symlinks then
-                        run(
+                        {
                             let sub = walk_recursive(
-                                path: entry.path.to_str(),
-                                depth: depth + 1,
-                                max_depth: max_depth,
+                                path: entry.path.to_str()
+                                depth: depth + 1
+                                max_depth: max_depth
                                 follow_symlinks: follow_symlinks
-                            )?,
+                            )?
                             for s in sub do results.push(s)
-                        )
-            ),
+                        }
+            }
         Ok(results.to_dynamic())
-    )
+    }
 ```
 
 ### File Info
@@ -437,14 +437,14 @@ use "./error" { errno_to_file_error }
 use std.time { Instant }
 
 pub @info (path: str) -> Result<FileInfo, FileError> uses FileSystem =
-    run(
-        let stat_buf = CStat.zeroed(),
-        let result = _lstat(path: path, buf: stat_buf),
+    {
+        let stat_buf = CStat.zeroed()
+        let result = _lstat(path: path, buf: stat_buf)
         if result < 0 then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
             Ok(stat_to_file_info(path: path, stat: stat_buf))
-    )
+    }
 
 @stat_to_file_info (path: str, stat: CStat) -> FileInfo =
     FileInfo {
@@ -462,18 +462,18 @@ pub @exists (path: str) -> bool uses FileSystem =
     _access(path: path, mode: $F_OK) == 0
 
 pub @is_file (path: str) -> bool uses FileSystem =
-    run(
-        let stat_buf = CStat.zeroed(),
-        let result = _stat(path: path, buf: stat_buf),
+    {
+        let stat_buf = CStat.zeroed()
+        let result = _stat(path: path, buf: stat_buf)
         result == 0 && (stat_buf.st_mode & $S_IFMT) == $S_IFREG
-    )
+    }
 
 pub @is_dir (path: str) -> bool uses FileSystem =
-    run(
-        let stat_buf = CStat.zeroed(),
-        let result = _stat(path: path, buf: stat_buf),
+    {
+        let stat_buf = CStat.zeroed()
+        let result = _stat(path: path, buf: stat_buf)
         result == 0 && (stat_buf.st_mode & $S_IFMT) == $S_IFDIR
-    )
+    }
 ```
 
 ### Error Mapping
@@ -492,23 +492,23 @@ let $EISDIR: int = 21
 let $ENOTEMPTY: int = 39
 
 @errno_to_file_error (path: Path) -> FileError =
-    run(
-        let err = get_errno(),
-        let kind = match(err,
-            $ENOENT -> NotFound,
-            $EACCES -> PermissionDenied,
-            $EEXIST -> AlreadyExists,
-            $ENOTDIR -> NotADirectory,
-            $EISDIR -> NotAFile,
-            $ENOTEMPTY -> DirectoryNotEmpty,
+    {
+        let err = get_errno()
+        let kind = match err {
+            $ENOENT -> NotFound
+            $EACCES -> PermissionDenied
+            $EEXIST -> AlreadyExists
+            $ENOTDIR -> NotADirectory
+            $EISDIR -> NotAFile
+            $ENOTEMPTY -> DirectoryNotEmpty
             _ -> IoError
-        ),
+        }
         FileError {
-            kind: kind,
-            path: path,
+            kind: kind
+            path: path
             message: _strerror(errnum: err)
         }
-    )
+    }
 ```
 
 ### Glob Pattern Matching
@@ -540,29 +540,29 @@ impl CGlob {
 
 // Read path from glob result at index
 @read_glob_path (pglob: CGlob, index: int) -> str uses FFI =
-    unsafe(run(
-        let path_ptr = ptr_array_index(ptr: pglob.gl_pathv, index: index),
-        ptr_read_cstr(ptr: path_ptr, offset: 0),
-    ))
+    unsafe {
+        let path_ptr = ptr_array_index(ptr: pglob.gl_pathv, index: index)
+        ptr_read_cstr(ptr: path_ptr, offset: 0)
+    }
 
 pub @glob (pattern: str) -> Result<[str], FileError> uses FileSystem =
-    run(
-        let pglob = CGlob.zeroed(),
-        let result = _glob(pattern: pattern, flags: 0, errfunc: CPtr.null(), pglob: pglob),
+    {
+        let pglob = CGlob.zeroed()
+        let result = _glob(pattern: pattern, flags: 0, errfunc: CPtr.null(), pglob: pglob)
         if result != 0 then
-            run(
-                _globfree(pglob: pglob),
+            {
+                _globfree(pglob: pglob)
                 Err(FileError { kind: IoError, path: Path.from_str(s: pattern), message: "glob failed" })
-            )
+            }
         else
-            run(
-                let paths: [str, max 10000] = [],
+            {
+                let paths: [str, max 10000] = []
                 for i in 0..pglob.gl_pathc do
-                    paths.push(read_glob_path(pglob: pglob, index: i)),
-                _globfree(pglob: pglob),
+                    paths.push(read_glob_path(pglob: pglob, index: i))
+                _globfree(pglob: pglob)
                 Ok(paths.to_dynamic())
-            )
-    )
+            }
+    }
 ```
 
 ---
@@ -586,12 +586,12 @@ These don't need FFI:
 // std/fs/path.ori - Pure Ori
 impl Path {
     pub @from_str (s: str) -> Path =
-        run(
-            let normalized = normalize_separators(s: s),
-            let absolute = normalized.starts_with(prefix: "/"),
-            let segments = normalized.split(sep: "/").filter(predicate: s -> !is_empty(collection: s)).collect(),
+        {
+            let normalized = normalize_separators(s: s)
+            let absolute = normalized.starts_with(prefix: "/")
+            let segments = normalized.split(sep: "/").filter(predicate: s -> !is_empty(collection: s)).collect()
             Path { segments: segments, absolute: absolute }
-        )
+        }
 
     pub @join (self, other: Path) -> Path =
         if other.absolute then
@@ -606,20 +606,20 @@ impl Path {
             Some(Path { segments: self.segments[0..# - 1], absolute: self.absolute })
 
     pub @extension (self) -> Option<str> =
-        run(
-            let name = self.file_name()?,
-            let dot_idx = name.rfind(s: "."),
-            match(dot_idx,
-                Some(i) if i > 0 -> Some(name[(i + 1)..]),
+        {
+            let name = self.file_name()?
+            let dot_idx = name.rfind(s: ".")
+            match dot_idx {
+                Some(i) if i > 0 -> Some(name[(i + 1)..])
                 _ -> None
-            )
-        )
+            }
+        }
 
     pub @to_str (self) -> str =
-        run(
-            let prefix = if self.absolute then "/" else "",
+        {
+            let prefix = if self.absolute then "/" else ""
             prefix + self.segments.join(sep: "/")
-        )
+        }
 }
 ```
 
@@ -636,25 +636,25 @@ use "./error" { errno_to_file_error }
 type FileReader = { fd: int, path: Path }
 
 pub @open_read (path: str) -> Result<FileReader, FileError> uses FileSystem =
-    run(
-        let fd = _open(path: path, flags: $O_RDONLY, mode: 0),
+    {
+        let fd = _open(path: path, flags: $O_RDONLY, mode: 0)
         if fd < 0 then
             Err(errno_to_file_error(path: Path.from_str(s: path)))
         else
             Ok(FileReader { fd: fd, path: Path.from_str(s: path) })
-    )
+    }
 
 impl FileReader {
     pub @read_chunk (self, size: int) -> Result<([byte], FileReader), FileError> uses FileSystem =
-        run(
+        {
             let buf: [byte, max 65536] = [],  // 64KB chunks
-            let read_size = min(left: size, right: 65536),
-            let bytes_read = _read(fd: self.fd, buf: buf, count: read_size),
+            let read_size = min(left: size, right: 65536)
+            let bytes_read = _read(fd: self.fd, buf: buf, count: read_size)
             if bytes_read < 0 then
                 Err(errno_to_file_error(path: self.path))
             else
                 Ok((buf[0..bytes_read].to_dynamic(), self))
-        )
+        }
 
     pub @close (self) -> void uses FileSystem =
         _close(fd: self.fd)
@@ -667,42 +667,42 @@ impl Iterator for FileLineIterator {
     type Item = str
 
     @next (self) -> (Option<str>, FileLineIterator) =
-        run(
+        {
             if self.eof && is_empty(collection: self.buffer) then
                 (None, self)
             else
-                run(
+                {
                     // Check for newline in buffer
-                    let newline_idx = self.buffer.find(s: "\n"),
-                    match(newline_idx,
+                    let newline_idx = self.buffer.find(s: "\n")
+                    match newline_idx {
                         Some(idx) ->
-                            run(
-                                let line = self.buffer[0..idx],
-                                let rest = self.buffer[(idx + 1)..],
+                            {
+                                let line = self.buffer[0..idx]
+                                let rest = self.buffer[(idx + 1)..]
                                 (Some(line), FileLineIterator { reader: self.reader, buffer: rest, eof: self.eof })
-                            ),
+                            }
                         None ->
                             if self.eof then
                                 // Return remaining buffer as final line
                                 (Some(self.buffer), FileLineIterator { reader: self.reader, buffer: "", eof: true })
                             else
                                 // Need to read more
-                                run(
-                                    let result = self.reader.read_chunk(size: 8192),
-                                    match(result,
+                                {
+                                    let result = self.reader.read_chunk(size: 8192)
+                                    match result {
                                         Ok((chunk, reader)) ->
-                                            run(
-                                                let new_buffer = self.buffer + str.from_utf8(bytes: chunk).unwrap_or(default: ""),
-                                                let new_eof = is_empty(collection: chunk),
+                                            {
+                                                let new_buffer = self.buffer + str.from_utf8(bytes: chunk).unwrap_or(default: "")
+                                                let new_eof = is_empty(collection: chunk)
                                                 FileLineIterator { reader: reader, buffer: new_buffer, eof: new_eof }.next()
-                                            ),
+                                            }
                                         Err(_) ->
                                             (None, FileLineIterator { reader: self.reader, buffer: "", eof: true })
-                                    )
-                                )
-                    )
-                )
-        )
+                                    }
+                                }
+                    }
+                }
+        }
 }
 ```
 

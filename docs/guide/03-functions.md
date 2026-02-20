@@ -47,12 +47,12 @@ let sum = add(b: 3, a: 5)  // Same as add(a: 5, b: 3)
 Use `run(...)` when you need multiple steps:
 
 ```ori
-@calculate_total (items: [Item]) -> float = run(
-    let subtotal = sum_prices(items: items),
-    let tax = subtotal * 0.08,
-    let discount = calculate_discount(subtotal: subtotal),
-    subtotal + tax - discount,
-)
+@calculate_total (items: [Item]) -> float = {
+    let subtotal = sum_prices(items: items)
+    let tax = subtotal * 0.08
+    let discount = calculate_discount(subtotal: subtotal)
+    subtotal + tax - discount
+}
 ```
 
 Each expression is separated by commas. The last expression is the return value.
@@ -148,12 +148,12 @@ Default expressions cannot reference other parameters.
 The `run` pattern is essential for multi-step functions:
 
 ```ori
-@process_order (order: Order) -> Receipt = run(
-    let validated = validate(order: order),
-    let priced = calculate_price(order: validated),
-    let receipt = generate_receipt(order: priced),
-    receipt,
-)
+@process_order (order: Order) -> Receipt = {
+    let validated = validate(order: order)
+    let priced = calculate_price(order: validated)
+    let receipt = generate_receipt(order: priced)
+    receipt
+}
 ```
 
 ### Scope in `run`
@@ -161,12 +161,12 @@ The `run` pattern is essential for multi-step functions:
 Each binding is visible to subsequent expressions:
 
 ```ori
-run(
+{
     let a = 10,              // a is defined
     let b = a + 5,           // a is visible here
     let c = a + b,           // both a and b visible
     c,                       // a, b, c all visible
-)
+}
 ```
 
 ### Return Value
@@ -174,11 +174,11 @@ run(
 The last expression becomes the return value:
 
 ```ori
-@example () -> int = run(
-    let x = 10,
-    let y = 20,
+@example () -> int = {
+    let x = 10
+    let y = 20
     x + y,      // This is returned (30)
-)
+}
 ```
 
 ## Generic Functions
@@ -229,10 +229,10 @@ Constrain type parameters with trait bounds:
 Use `+` for multiple bounds:
 
 ```ori
-@sort_and_print<T: Comparable + Printable> (items: [T]) -> void = run(
-    let sorted = items.sort(),
-    for item in sorted do print(msg: item.to_str()),
-)
+@sort_and_print<T: Comparable + Printable> (items: [T]) -> void = {
+    let sorted = items.sort()
+    for item in sorted do print(msg: item.to_str())
+}
 ```
 
 ### Where Clauses
@@ -242,10 +242,10 @@ For complex bounds, use `where`:
 ```ori
 @process<T, U> (input: T, transform: (T) -> U) -> [U]
     where T: Clone,
-          U: Printable + Default = run(
-    let items = [input.clone(), input.clone()],
-    for item in items yield transform(item),
-)
+          U: Printable + Default = {
+    let items = [input.clone(), input.clone()]
+    for item in items yield transform(item)
+}
 ```
 
 ## Function Clauses
@@ -323,11 +323,11 @@ x -> x + 1
 (x: int, y: int) -> int = x + y
 
 // Multi-line body (requires run)
-x -> run(
-    let doubled = x * 2,
-    let formatted = `value: {doubled}`,
-    formatted,
-)
+x -> {
+    let doubled = x * 2
+    let formatted = `value: {doubled}`
+    formatted
+}
 ```
 
 ### Using Lambdas
@@ -455,11 +455,11 @@ Every function needs at least one test:
 ```ori
 @add (a: int, b: int) -> int = a + b
 
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-    assert_eq(actual: add(a: -1, b: 1), expected: 0),
-    assert_eq(actual: add(a: 0, b: 0), expected: 0),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+    assert_eq(actual: add(a: -1, b: 1), expected: 0)
+    assert_eq(actual: add(a: 0, b: 0), expected: 0)
+}
 ```
 
 ### Testing Multiple Clauses
@@ -470,11 +470,11 @@ When using function clauses, test each pattern:
 @factorial (0: int) -> int = 1
 @factorial (n) -> int = n * factorial(n: n - 1)
 
-@test_factorial tests @factorial () -> void = run(
-    assert_eq(actual: factorial(n: 0), expected: 1),
-    assert_eq(actual: factorial(n: 1), expected: 1),
-    assert_eq(actual: factorial(n: 5), expected: 120),
-)
+@test_factorial tests @factorial () -> void = {
+    assert_eq(actual: factorial(n: 0), expected: 1)
+    assert_eq(actual: factorial(n: 1), expected: 1)
+    assert_eq(actual: factorial(n: 5), expected: 120)
+}
 ```
 
 ## Complete Example
@@ -492,43 +492,43 @@ Here's a practical example combining multiple concepts:
             op: (max, x) -> if x > max then x else max,
         ))
 
-@test_find_max tests @find_max () -> void = run(
-    assert_eq(actual: find_max(items: [3, 1, 4, 1, 5]), expected: Some(5)),
-    assert_eq(actual: find_max(items: [1]), expected: Some(1)),
-    assert_eq(actual: find_max(items: [] as [int]), expected: None),
-)
+@test_find_max tests @find_max () -> void = {
+    assert_eq(actual: find_max(items: [3, 1, 4, 1, 5]), expected: Some(5))
+    assert_eq(actual: find_max(items: [1]), expected: Some(1))
+    assert_eq(actual: find_max(items: [] as [int]), expected: None)
+}
 
 // Function with multiple clauses
 @fibonacci (0: int) -> int = 0
 @fibonacci (1: int) -> int = 1
 @fibonacci (n) -> int = fibonacci(n: n - 1) + fibonacci(n: n - 2)
 
-@test_fibonacci tests @fibonacci () -> void = run(
-    assert_eq(actual: fibonacci(n: 0), expected: 0),
-    assert_eq(actual: fibonacci(n: 1), expected: 1),
-    assert_eq(actual: fibonacci(n: 10), expected: 55),
-)
+@test_fibonacci tests @fibonacci () -> void = {
+    assert_eq(actual: fibonacci(n: 0), expected: 0)
+    assert_eq(actual: fibonacci(n: 1), expected: 1)
+    assert_eq(actual: fibonacci(n: 10), expected: 55)
+}
 
 // Higher-order function with closure
 @create_multiplier (factor: int) -> (int) -> int =
     x -> x * factor
 
-@test_multiplier tests @create_multiplier () -> void = run(
-    let double = create_multiplier(factor: 2),
-    let triple = create_multiplier(factor: 3),
-    assert_eq(actual: double(5), expected: 10),
-    assert_eq(actual: triple(5), expected: 15),
-)
+@test_multiplier tests @create_multiplier () -> void = {
+    let double = create_multiplier(factor: 2)
+    let triple = create_multiplier(factor: 3)
+    assert_eq(actual: double(5), expected: 10)
+    assert_eq(actual: triple(5), expected: 15)
+}
 
 // Function with default parameters
 @repeat (text: str, times: int = 1, separator: str = "") -> str =
     (for _ in 0..times yield text).join(sep: separator)
 
-@test_repeat tests @repeat () -> void = run(
-    assert_eq(actual: repeat(text: "hi"), expected: "hi"),
-    assert_eq(actual: repeat(text: "hi", times: 3), expected: "hihihi"),
-    assert_eq(actual: repeat(text: "hi", times: 3, separator: "-"), expected: "hi-hi-hi"),
-)
+@test_repeat tests @repeat () -> void = {
+    assert_eq(actual: repeat(text: "hi"), expected: "hi")
+    assert_eq(actual: repeat(text: "hi", times: 3), expected: "hihihi")
+    assert_eq(actual: repeat(text: "hi", times: 3, separator: "-"), expected: "hi-hi-hi")
+}
 ```
 
 ## Quick Reference
@@ -565,9 +565,9 @@ x -> x + 1
 ### Testing
 
 ```ori
-@test_name tests @target () -> void = run(
-    assert_eq(actual: target(x: 1), expected: 2),
-)
+@test_name tests @target () -> void = {
+    assert_eq(actual: target(x: 1), expected: 2)
+}
 ```
 
 ## What's Next

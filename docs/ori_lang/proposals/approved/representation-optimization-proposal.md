@@ -793,15 +793,15 @@ let flags: [bool] = [true, false, true, false]
 ### Example 5: Future Integer Narrowing (Tier 3)
 
 ```ori
-@count_matches (items: [str], target: str) -> int = run(
-    let count = 0,
-    // If compiler proves count stays within [0, len(items)] and len(items) < 2³¹,
+@count_matches (items: [str], target: str) -> int = {
+    let count = 0
+    // If compiler proves count stays within [0, len(items)] and len(items) < 2³¹
     // it MAY narrow count to i32 for the loop body.
     // Overflow checking still fires at int.max, not i32.max.
     for item in items do
-        if item == target then count + 1 else count,
-    count,
-)
+        if item == target then count + 1 else count
+    count
+}
 ```
 
 ---

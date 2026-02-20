@@ -92,10 +92,10 @@ sum()               // 0 (empty variadic is valid)
 Inside the function, the variadic parameter is received as a list:
 
 ```ori
-@debug_all (values: ...Debug) -> void = run(
+@debug_all (values: ...Debug) -> void = {
     for value in values do    // values: [Debug]
         print(msg: value.debug())
-)
+}
 ```
 
 ### Grammar
@@ -204,10 +204,10 @@ max()          // Error: missing required argument 'first'
 Variadic parameters work with generics:
 
 ```ori
-@print_all<T: Printable> (items: ...T) -> void = run(
+@print_all<T: Printable> (items: ...T) -> void = {
     for item in items do
         print(msg: item.to_str())
-)
+}
 
 print_all(1, 2, 3)        // OK: T = int
 print_all("a", "b")       // OK: T = str
@@ -219,10 +219,10 @@ print_all(1, "a")         // Error: cannot unify int and str
 For heterogeneous arguments, use a trait name directly as the variadic type:
 
 ```ori
-@print_any (items: ...Printable) -> void = run(
+@print_any (items: ...Printable) -> void = {
     for item in items do
         print(msg: item.to_str())
-)
+}
 
 print_any(1, "hello", true)  // OK: all implement Printable
 ```
@@ -327,27 +327,27 @@ extern "c" {
 ### Format Function
 
 ```ori
-@format (template: str, args: ...Printable) -> str = run(
+@format (template: str, args: ...Printable) -> str = {
     let mut result = ""
     let mut arg_index = 0
     let mut i = 0
 
-    loop(run(
+    loop {
         if i >= template.len() then break result
 
-        if template[i] == "{" && i + 1 < template.len() && template[i + 1] == "}" then run(
+        if template[i] == "{" && i + 1 < template.len() && template[i + 1] == "}" then {
             if arg_index >= args.len() then
                 panic(msg: "Not enough arguments for format string")
             result = result + args[arg_index].to_str()
             arg_index = arg_index + 1
             i = i + 2
-        )
-        else run(
+        }
+        else {
             result = result + template[i]
             i = i + 1
-        )
-    ))
-)
+        }
+    }
+}
 
 let msg = format("{} + {} = {}", 1, 2, 3)  // "1 + 2 = 3"
 ```
@@ -356,11 +356,11 @@ let msg = format("{} + {} = {}", 1, 2, 3)  // "1 + 2 = 3"
 
 ```ori
 @join_path (segments: ...str) -> str =
-    segments.fold(initial: "", op: (acc, seg) -> run(
+    segments.fold(initial: "", op: (acc, seg) -> {
         if acc.is_empty() then seg
         else if acc.ends_with(suffix: "/") then acc + seg
         else acc + "/" + seg
-    ))
+    })
 
 join_path("home", "user", "documents")  // "home/user/documents"
 join_path()                              // ""
@@ -382,10 +382,10 @@ let q = Query { table: "users", conditions: [] }
 ### Assertion Helpers
 
 ```ori
-@assert_all (conditions: ...bool) -> void = run(
+@assert_all (conditions: ...bool) -> void = {
     for (i, cond) in conditions.enumerate() do
         if !cond then panic(msg: format("Assertion {} failed", i))
-)
+}
 
 assert_all(x > 0, y > 0, x + y < 100)
 ```
@@ -393,11 +393,11 @@ assert_all(x > 0, y > 0, x + y < 100)
 ### Logging with Context
 
 ```ori
-@log (level: str, message: str, context: ...str) -> void uses Print = run(
+@log (level: str, message: str, context: ...str) -> void uses Print = {
     let ctx = if context.is_empty() then ""
               else " [" + context.join(separator: ", ") + "]"
     print(msg: format("[{}] {}{}", level, message, ctx))
-)
+}
 
 log("INFO", "User logged in", "user_id=123", "ip=192.168.1.1")
 // [INFO] User logged in [user_id=123, ip=192.168.1.1]

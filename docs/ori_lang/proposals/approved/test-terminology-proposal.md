@@ -40,9 +40,9 @@ This inconsistency causes confusion. The terms should be:
 An _attached test_ declares one or more functions it tests using `tests @target`:
 
 ```ori
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+}
 ```
 
 The test is "attached" to `@add`. When `@add` or its callers change, the attached test runs.
@@ -57,10 +57,10 @@ The test is "attached" to `@add`. When `@add` or its callers change, the attache
 A _floating test_ uses `_` as its target, indicating no attachment:
 
 ```ori
-@test_integration tests _ () -> void = run(
-    let result = full_pipeline(input: "program"),
-    assert_ok(result: result),
-)
+@test_integration tests _ () -> void = {
+    let result = full_pipeline(input: "program")
+    assert_ok(result: result)
+}
 ```
 
 The test "floats" — it has no anchor to any specific function.

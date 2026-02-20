@@ -31,7 +31,7 @@ The spec documents `loop(...)` syntax but leaves unclear:
 ### Basic Form
 
 ```ori
-loop(body)
+loop {body}
 ```
 
 ### With Label
@@ -49,11 +49,11 @@ loop:name(body)
 The `loop(...)` expression repeatedly evaluates its body until a `break` is encountered:
 
 ```ori
-loop(run(
-    let item = queue.pop(),
-    if is_none(item) then break,
-    process(item.unwrap()),
-))
+loop {
+    let item = queue.pop()
+    if is_none(item) then break
+    process(item.unwrap())
+}
 ```
 
 ### Body
@@ -62,14 +62,14 @@ The body is a single expression. For multiple expressions, use `run(...)`:
 
 ```ori
 // Single expression
-loop(process_next())
+loop {process_next()}
 
 // Multiple expressions — use run
-loop(run(
-    let x = compute(),
-    if done(x) then break x,
-    update(x),
-))
+loop {
+    let x = compute()
+    if done(x) then break x
+    update(x)
+}
 ```
 
 ### Loop Type
@@ -77,10 +77,10 @@ loop(run(
 The type of a `loop` expression is determined by its break values:
 
 ```ori
-let result: int = loop(run(
-    let x = compute(),
-    if x > 100 then break x,
-))
+let result: int = loop {
+    let x = compute()
+    if x > 100 then break x
+}
 // result has type int
 ```
 
@@ -89,10 +89,10 @@ let result: int = loop(run(
 A loop with no break (or only `break` without value) has type `Never`:
 
 ```ori
-@server_loop () -> Never = loop(run(
-    let request = accept(),
-    handle(request),
-))
+@server_loop () -> Never = loop {
+    let request = accept()
+    handle(request)
+}
 ```
 
 This is useful for server main loops, event loops, and other intentionally infinite processes.
@@ -102,11 +102,11 @@ This is useful for server main loops, event loops, and other intentionally infin
 `break` without a value exits the loop. The loop expression has type `void`:
 
 ```ori
-loop(run(
-    let msg = receive(),
-    if is_shutdown(msg) then break,
-    process(msg),
-))
+loop {
+    let msg = receive()
+    if is_shutdown(msg) then break
+    process(msg)
+}
 // Expression has type void
 ```
 
@@ -115,12 +115,12 @@ loop(run(
 `break value` exits the loop and makes the loop evaluate to `value`:
 
 ```ori
-let found = loop(run(
-    let candidate = next(),
-    if is_none(candidate) then break None,
-    let item = candidate.unwrap(),
-    if matches(item) then break Some(item),
-))
+let found = loop {
+    let candidate = next()
+    if is_none(candidate) then break None
+    let item = candidate.unwrap()
+    if matches(item) then break Some(item)
+}
 // found has type Option<T>
 ```
 
@@ -129,11 +129,11 @@ let found = loop(run(
 All break paths must produce compatible types:
 
 ```ori
-let result = loop(run(
+let result = loop {
     if condition_a then break 1,      // int
     if condition_b then break 2,      // int
     if condition_c then break "three",  // ERROR: expected int
-))
+}
 ```
 
 If breaks have different types, it is a compile-time error.
@@ -143,12 +143,12 @@ If breaks have different types, it is a compile-time error.
 `continue` skips the rest of the current iteration and starts the next:
 
 ```ori
-loop(run(
-    let item = next(),
-    if is_none(item) then break,
+loop {
+    let item = next()
+    if is_none(item) then break
     if skip(item.unwrap()) then continue,  // Start next iteration
-    process(item.unwrap()),
-))
+    process(item.unwrap())
+}
 ```
 
 ### Continue With Value
@@ -156,9 +156,9 @@ loop(run(
 `continue value` in a loop is an error. Unlike `for...yield`, loops do not accumulate values:
 
 ```ori
-loop(run(
+loop {
     if condition then continue 42,  // ERROR: loop doesn't collect
-))
+}
 ```
 
 ---
@@ -176,33 +176,33 @@ No space around the colon.
 ### Break to Label
 
 ```ori
-loop:outer(run(
-    loop:inner(run(
+loop:outer({
+    loop:inner({
         if done then break:outer,  // Exit outer loop
         if next then break:inner,  // Exit inner loop
-        process(),
-    )),
-))
+        process()
+    })
+})
 ```
 
 ### Break With Value to Label
 
 ```ori
-let result = loop:search(run(
+let result = loop:search({
     for item in items do
-        if matches(item) then break:search item,
-    break:search None,
-))
+        if matches(item) then break:search item
+    break:search None
+})
 ```
 
 ### Continue to Label
 
 ```ori
-loop:outer(run(
+loop:outer({
     for x in xs do
         if skip_all(x) then continue:outer,  // Restart outer loop
-        process(x),
-))
+        process(x)
+})
 ```
 
 ---
@@ -213,11 +213,11 @@ A common pattern combines `loop` with inner `for...do`:
 
 ```ori
 @find<T> (items: [T], predicate: (T) -> bool) -> Option<T> =
-    loop(run(
+    loop {
         for item in items do
-            if predicate(item) then break Some(item),
-        break None,
-    ))
+            if predicate(item) then break Some(item)
+        break None
+    }
 ```
 
 The `for...do` executes, and if no break occurs during iteration, the explicit `break None` exits the loop.
@@ -229,39 +229,39 @@ The `for...do` executes, and if no break occurs during iteration, the explicit `
 ### Void Loop
 
 ```ori
-loop(run(
-    process(),
-    if done() then break,
-))
+loop {
+    process()
+    if done() then break
+}
 // Type: void
 ```
 
 ### Value-Producing Loop
 
 ```ori
-loop(run(
-    let x = compute(),
-    if x > threshold then break x,
-))
+loop {
+    let x = compute()
+    if x > threshold then break x
+}
 // Type: int (assuming compute returns int)
 ```
 
 ### Never (Infinite)
 
 ```ori
-loop(handle_event(wait_for_event()))
+loop {handle_event(wait_for_event())}
 // Type: Never (no break)
 ```
 
 ### Optional Result
 
 ```ori
-loop(run(
-    let maybe = try_next(),
-    if is_none(maybe) then break None,
-    let item = maybe.unwrap(),
-    if matches(item) then break Some(item),
-))
+loop {
+    let maybe = try_next()
+    if is_none(maybe) then break None
+    let item = maybe.unwrap()
+    if matches(item) then break Some(item)
+}
 // Type: Option<T>
 ```
 
@@ -273,11 +273,11 @@ The `?` operator can be used within loops:
 
 ```ori
 @process_until_error (items: [Item]) -> Result<void, Error> =
-    loop(run(
+    loop {
         for item in items do
             validate(item)?,  // Propagates Err, exits function
-        break Ok(()),
-    ))
+        break Ok(())
+    }
 ```
 
 When `?` propagates an error, it exits the enclosing function, not just the loop.
@@ -289,16 +289,16 @@ When `?` propagates an error, it exits the enclosing function, not just the loop
 Loops can be arbitrarily nested:
 
 ```ori
-loop:outer(run(
-    loop:middle(run(
-        loop:inner(run(
-            if done_all then break:outer,
-            if done_middle then break:middle,
-            if done_inner then break:inner,
-            process(),
-        )),
-    )),
-))
+loop:outer({
+    loop:middle({
+        loop:inner({
+            if done_all then break:outer
+            if done_middle then break:middle
+            if done_inner then break:inner
+            process()
+        })
+    })
+})
 ```
 
 Labels distinguish which loop to exit.
@@ -370,70 +370,70 @@ error[E0863]: `break` with value in void context
 
 ```ori
 @event_loop (handler: (Event) -> void) -> Never =
-    loop(run(
-        let event = wait_for_event(),
-        handler(event),
-    ))
+    loop {
+        let event = wait_for_event()
+        handler(event)
+    }
 ```
 
 ### Search with Limit
 
 ```ori
 @find_with_limit<T> (source: impl Iterator<Item = T>, pred: (T) -> bool, limit: int) -> Option<T> =
-    run(
-        let count = 0,
-        loop(run(
-            if count >= limit then break None,
-            let item = source.next(),
-            if is_none(item) then break None,
-            if pred(item.unwrap()) then break Some(item.unwrap()),
-            count = count + 1,
-        )),
-    )
+    {
+        let count = 0
+        loop {
+            if count >= limit then break None
+            let item = source.next()
+            if is_none(item) then break None
+            if pred(item.unwrap()) then break Some(item.unwrap())
+            count = count + 1
+        }
+    }
 ```
 
 ### State Machine
 
 ```ori
 @run_state_machine (initial: State) -> FinalState =
-    run(
-        let state = initial,
-        loop(run(
-            let result = state.step(),
-            match(result,
-                Continue(next) -> state = next,
-                Done(final) -> break final,
-            ),
-        )),
-    )
+    {
+        let state = initial
+        loop {
+            let result = state.step()
+            match result {
+                Continue(next) -> state = next
+                Done(final) -> break final
+            }
+        }
+    }
 ```
 
 ### Retry Loop
 
 ```ori
 @retry<T> (max_attempts: int, operation: () -> Result<T, Error>) -> Result<T, Error> =
-    run(
-        let attempts = 0,
-        loop(run(
-            attempts = attempts + 1,
-            match(operation(),
-                Ok(value) -> break Ok(value),
-                Err(e) -> if attempts >= max_attempts then break Err(e),
-            ),
-        )),
-    )
+    {
+        let attempts = 0
+        loop {
+            attempts = attempts + 1
+            match operation() {
+                Ok(value) -> break Ok(value)
+                Err(e) -> if attempts >= max_attempts then break Err(e)
+            }
+        }
+    }
 ```
 
 ### Nested Search
 
 ```ori
 @find_in_matrix (matrix: [[int]], target: int) -> Option<(int, int)> =
-    loop:search(run(
+    loop:search({
         for (i, row) in matrix.iter().enumerate() do
             for (j, value) in row.iter().enumerate() do
-                if value == target then break:search Some((i, j)),
-        break:search None,
-    ))
+                if value == target then break:search Some((i, j))
+        break:search None
+    })
 ```
 
 ---

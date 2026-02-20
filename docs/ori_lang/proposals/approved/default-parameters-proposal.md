@@ -45,11 +45,11 @@ Common workarounds are verbose:
 
 **Option parameters:**
 ```ori
-@fetch (url: str, timeout: Option<Duration>, retries: Option<int>) -> Result<Response, Error> = run(
-    let t = timeout.unwrap_or(default: 30s),
-    let r = retries.unwrap_or(default: 3),
+@fetch (url: str, timeout: Option<Duration>, retries: Option<int>) -> Result<Response, Error> = {
+    let t = timeout.unwrap_or(default: 30s)
+    let r = retries.unwrap_or(default: 3)
     // ...
-)
+}
 ```
 
 Both add boilerplate and obscure the API.
@@ -302,15 +302,15 @@ list_items(sort_by: "name", sort_order: "asc")
 ) -> User
 
 // Tests can override just what they care about
-@test_inactive_user () -> void = run(
-    let user = create_test_user(active: false),
-    assert(!user.active),
-)
+@test_inactive_user () -> void = {
+    let user = create_test_user(active: false)
+    assert(!user.active)
+}
 
-@test_specific_id () -> void = run(
-    let user = create_test_user(id: 42),
-    assert_eq(actual: user.id, expected: 42),
-)
+@test_specific_id () -> void = {
+    let user = create_test_user(id: 42)
+    assert_eq(actual: user.id, expected: 42)
+}
 ```
 
 ---
@@ -392,10 +392,10 @@ Not allowed — defaults are evaluated before binding:
 @f (a: int, b: int = a * 2) -> int  // Error: cannot reference 'a' in default
 
 // Use explicit logic instead:
-@f (a: int, b: Option<int> = None) -> int = run(
-    let actual_b = b.unwrap_or(default: a * 2),
-    a + actual_b,
-)
+@f (a: int, b: Option<int> = None) -> int = {
+    let actual_b = b.unwrap_or(default: a * 2)
+    a + actual_b
+}
 ```
 
 ### Mutable Default Values

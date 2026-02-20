@@ -338,10 +338,10 @@ Usage:
 @debug (msg: str) -> void = ()  // no-op in release
 
 // Usage - always compiles, no-op in release
-@process (data: Data) -> Result<Output, Error> = run(
-    debug(msg: `Processing data: {data}`),
+@process (data: Data) -> Result<Output, Error> = {
+    debug(msg: `Processing data: {data}`)
     // ... actual processing
-)
+}
 ```
 
 ### Feature Flags

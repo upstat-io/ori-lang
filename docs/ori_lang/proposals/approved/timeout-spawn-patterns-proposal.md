@@ -102,7 +102,7 @@ CPU-bound operations without checkpoints cannot be cancelled until they reach on
 
 ```ori
 timeout(
-    op: tight_cpu_loop(),  // No checkpoints inside
+    op: tight_cpu_loop {},  // No checkpoints inside
     after: 1s,
 )
 // May take longer than 1s if no checkpoints
@@ -124,11 +124,11 @@ Inner timeouts can be shorter than outer:
 
 ```ori
 timeout(
-    op: run(
-        let a = timeout(op: step1(), after: 2s)?,
-        let b = timeout(op: step2(), after: 2s)?,
-        (a, b),
-    ),
+    op: {
+        let a = timeout(op: step1(), after: 2s)?
+        let b = timeout(op: step2(), after: 2s)?
+        (a, b)
+    },
     after: 5s,  // Overall timeout
 )
 ```
@@ -172,10 +172,10 @@ Errors in spawned tasks are silently discarded:
 
 ```ori
 spawn(tasks: [
-    () -> run(
+    () -> {
         let result = risky_operation(),  // Might fail
-        log(msg: "done"),
-    ),
+        log(msg: "done")
+    },
 ])
 // If risky_operation() fails, error is silently dropped
 ```
@@ -186,10 +186,10 @@ To handle errors, log explicitly within the task:
 
 ```ori
 spawn(tasks: [
-    () -> match(risky_operation(),
-        Ok(_) -> log(msg: "success"),
-        Err(e) -> log(msg: `failed: {e}`),
-    ),
+    () -> match risky_operation() {
+        Ok(_) -> log(msg: "success")
+        Err(e) -> log(msg: `failed: {e}`)
+    },
 ])
 ```
 
@@ -244,10 +244,10 @@ Spawned tasks:
 > **Note:** `spawn` is the ONLY concurrency pattern that allows tasks to escape their spawning scope. Unlike `parallel` and `nursery`, which guarantee all tasks complete before the pattern returns, `spawn` tasks are managed by the runtime and may continue after the spawning function returns. For structured concurrency with guaranteed completion, use `nursery`.
 
 ```ori
-@setup () -> void uses Suspend = run(
-    spawn(tasks: [background_monitor()]),
+@setup () -> void uses Suspend = {
+    spawn(tasks: [background_monitor()])
     // Function returns, but monitor continues
-)
+}
 ```
 
 ---
@@ -269,23 +269,23 @@ Spawned tasks:
 
 ```ori
 @fetch_with_fallback (url: str, fallback: Data) -> Data uses Suspend =
-    match(timeout(op: fetch(url), after: 5s),
-        Ok(data) -> data,
-        Err(_) -> fallback,
-    )
+    match timeout(op: fetch(url), after: 5s) {
+        Ok(data) -> data
+        Err(_) -> fallback
+    }
 ```
 
 ### Spawn Background Tasks
 
 ```ori
-@on_user_signup (user: User) -> void uses Suspend = run(
+@on_user_signup (user: User) -> void uses Suspend = {
     save_user(user),  // Synchronous, must complete
     spawn(tasks: [
-        () -> send_welcome_email(user),
-        () -> notify_admin(user),
-        () -> update_analytics(user),
+        () -> send_welcome_email(user)
+        () -> notify_admin(user)
+        () -> update_analytics(user)
     ]),  // Fire and forget
-)
+}
 ```
 
 ### Timeout in Loop
@@ -293,10 +293,10 @@ Spawned tasks:
 ```ori
 @fetch_all (urls: [str]) -> [Option<Data>] uses Suspend =
     for url in urls yield
-        match(timeout(op: fetch(url), after: 5s),
-            Ok(data) -> Some(data),
-            Err(_) -> None,
-        )
+        match timeout(op: fetch(url), after: 5s) {
+            Ok(data) -> Some(data)
+            Err(_) -> None
+        }
 ```
 
 ### Spawn with Rate Limiting

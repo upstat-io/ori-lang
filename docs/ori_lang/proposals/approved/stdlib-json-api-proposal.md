@@ -252,10 +252,10 @@ impl Json for User {
     @to_json (self) -> JsonValue = JsonValue.Object({
         "name": JsonValue.String(self.name),
         "age": JsonValue.Number(float(self.age)),
-        "email": match(self.email,
-            Some(e) -> JsonValue.String(e),
-            None -> JsonValue.Null,
-        ),
+        "email": match self.email {
+            Some(e) -> JsonValue.String(e)
+            None -> JsonValue.Null
+        },
     })
 
     @from_json (json: JsonValue) -> Result<User, JsonError> = ...
@@ -421,12 +421,12 @@ use std.json { JsonParser }
 
 let parser = JsonParser.new(source: large_json)
 for event in parser do
-    match(event,
-        StartObject -> ...,
-        Key(k) -> ...,
-        Value(v) -> ...,
-        _ -> (),
-    )
+    match event {
+        StartObject -> ...
+        Key(k) -> ...
+        Value(v) -> ...
+        _ -> ()
+    }
 ```
 
 ---
@@ -438,15 +438,15 @@ for event in parser do
 ```ori
 use std.json { parse }
 
-@get_user_names (json_str: str) -> Result<[str], JsonError> = run(
-    let json = parse(source: json_str)?,
+@get_user_names (json_str: str) -> Result<[str], JsonError> = {
+    let json = parse(source: json_str)?
     let users = json.get(key: "users")
         .and_then(u -> u.as_array())
-        .ok_or(JsonError { kind: TypeError, message: "expected users array", path: "", position: 0 })?,
+        .ok_or(JsonError { kind: TypeError, message: "expected users array", path: "", position: 0 })?
     Ok(users
         .map(u -> u.get(key: "name").and_then(n -> n.as_string()).unwrap_or(""))
-        .collect()),
-)
+        .collect())
+}
 ```
 
 ### Typed Deserialization
@@ -462,10 +462,10 @@ type Config = {
     debug: bool,
 }
 
-@load_config (path: str) -> Result<Config, Error> uses FileSystem = run(
-    let content = FileSystem.read(path)?,
-    parse_as<Config>(source: content).map_err(e -> Error::from(e)),
-)
+@load_config (path: str) -> Result<Config, Error> uses FileSystem = {
+    let content = FileSystem.read(path)?
+    parse_as<Config>(source: content).map_err(e -> Error::from(e))
+}
 ```
 
 ### Building JSON
@@ -473,15 +473,15 @@ type Config = {
 ```ori
 use std.json { JsonValue, stringify }
 
-@build_response (user: User, items: [Item]) -> str = run(
+@build_response (user: User, items: [Item]) -> str = {
     let json = JsonValue.Object({
-        "success": JsonValue.Bool(true),
-        "user": user.to_json(),
-        "items": JsonValue.Array(items.map(i -> i.to_json()).collect()),
-        "count": JsonValue.Number(float(items.len())),
-    }),
-    stringify(value: json),
-)
+        "success": JsonValue.Bool(true)
+        "user": user.to_json()
+        "items": JsonValue.Array(items.map(i -> i.to_json()).collect())
+        "count": JsonValue.Number(float(items.len()))
+    })
+    stringify(value: json)
+}
 ```
 
 ---

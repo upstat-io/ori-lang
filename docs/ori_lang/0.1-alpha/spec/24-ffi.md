@@ -211,11 +211,11 @@ extern "js" {
 
 ```ori
 @fetch_text (url: str) -> str uses Suspend, FFI =
-    run(
+    {
         let response = _fetch(url: url),   // JsPromise<JsValue> resolved
         let text = _response_text(resp: response),  // JsPromise<str> resolved
         text
-    )
+    }
 ```
 
 **Semantics:**
@@ -339,11 +339,11 @@ All FFI calls require the `FFI` capability:
     some_c_function()
 
 @manipulate_dom () -> void uses FFI =
-    run(
-        let elem = document_query(selector: "#app"),
-        element_set_text(elem: elem, text: "Hello"),
+    {
+        let elem = document_query(selector: "#app")
+        element_set_text(elem: elem, text: "Hello")
         drop_js_value(handle: elem)
-    )
+    }
 ```
 
 Standard library functions internally use FFI but expose clean Ori APIs without requiring the `FFI` capability from callers.
@@ -378,13 +378,13 @@ extern "c" from "libc" {
 }
 
 pub @open_file (path: str) -> Result<int, FileError> uses FFI =
-    run(
-        let fd = _open(path: path, flags: 0, mode: 0),
+    {
+        let fd = _open(path: path, flags: 0, mode: 0)
         if fd < 0 then
             Err(errno_to_error())
         else
             Ok(fd)
-    )
+    }
 ```
 
 ### WASM FFI Errors
@@ -412,11 +412,11 @@ Standard C memory management. Ori's ARC handles Ori objects; C objects follow C 
 
 ```ori
 @use_js_object () -> void uses FFI =
-    run(
-        let elem = document_query(selector: "#app"),
-        element_set_text(elem: elem, text: "Hello"),
+    {
+        let elem = document_query(selector: "#app")
+        element_set_text(elem: elem, text: "Hello")
         drop_js_value(handle: elem)
-    )
+    }
 ```
 
 ## Platform-Specific Declarations

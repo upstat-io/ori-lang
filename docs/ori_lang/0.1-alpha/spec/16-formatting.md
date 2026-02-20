@@ -373,11 +373,11 @@ impl Printable for Point {
 impl Point {
     @new (x: int, y: int) -> Point = Point { x, y }
 
-    @distance (self, other: Point) -> float = run(
-        let dx = self.x - other.x,
-        let dy = self.y - other.y,
-        sqrt(float(dx * dx + dy * dy)),
-    )
+    @distance (self, other: Point) -> float = {
+        let dx = self.x - other.x
+        let dy = self.y - other.y
+        sqrt(float(dx * dx + dy * dy))
+    }
 }
 ```
 
@@ -402,11 +402,11 @@ Break after `->` only for always-stacked patterns (`run`, `try`, `match`):
 
 ```ori
 let process = x ->
-    run(
-        let doubled = x * 2,
-        let validated = validate(doubled),
-        validated,
-    )
+    {
+        let doubled = x * 2
+        let validated = validate(doubled)
+        validated
+    }
 ```
 
 ## Conditionals
@@ -515,11 +515,11 @@ In `for...yield` bodies, the same rule applies—receiver stays with `yield`, al
 When `run()` appears as a function body (top-level position), it is always stacked:
 
 ```ori
-@process () -> int = run(
-    let x = get_value(),
-    let y = transform(x),
-    x + y,
-)
+@process () -> int = {
+    let x = get_value()
+    let y = transform(x)
+    x + y
+}
 ```
 
 #### Nested run
@@ -527,37 +527,37 @@ When `run()` appears as a function body (top-level position), it is always stack
 When `run()` appears nested inside another construct (for body, if body, lambda body, etc.), it follows width-based breaking. Inline if ≤100 characters:
 
 ```ori
-let result = run(let x = 1, let y = 2, x + y)
-let doubled = run(let v = compute(), v * 2)
+let result = {let x = 1, let y = 2, x + y}
+let doubled = {let v = compute(), v * 2}
 
 @with_cap () -> [int] uses Print =
     for x in [1, 2, 3] do
-        run(print(msg: x.to_str()), x)
+        {print(msg: x.to_str()), x}
 ```
 
 Stacked when contents exceed line width:
 
 ```ori
-let result = run(
-    let x = compute(),
-    let y = transform(x),
-    x + y,
-)
+let result = {
+    let x = compute()
+    let y = transform(x)
+    x + y
+}
 ```
 
 With contracts (typically stacked due to length):
 
 ```ori
-let result = run(
-    pre_check: b != 0 | "divisor cannot be zero",
-    a / b,
-)
+let result = {
+    pre_check: b != 0 | "divisor cannot be zero"
+    a / b
+}
 
-let result = run(
-    let value = compute(),
-    post_check: r -> r >= 0,
-    value,
-)
+let result = {
+    let value = compute()
+    post_check: r -> r >= 0
+    value
+}
 ```
 
 ### try
@@ -565,11 +565,11 @@ let result = run(
 `try()` is always stacked (never inline):
 
 ```ori
-let result = try(
-    let data = fetch(url: endpoint)?,
-    let parsed = parse(input: data)?,
-    Ok(parsed),
-)
+let result = try {
+    let data = fetch(url: endpoint)?
+    let parsed = parse(input: data)?
+    Ok(parsed)
+}
 ```
 
 ## loop
@@ -579,8 +579,8 @@ let result = try(
 When `loop()` contains a simple expression body, it stays inline if it fits:
 
 ```ori
-loop(body())
-loop(process_next())
+loop {body()}
+loop {process_next()}
 ```
 
 ### Complex Body
@@ -588,29 +588,27 @@ loop(process_next())
 When `loop()` contains a complex body (`run`, `try`, `match`, or `for`), break after `loop(` with body indented:
 
 ```ori
-loop(
-    run(
-        let input = read_input(),
+loop {
+        let input = read_input()
         if input == "quit" then break
-        else process(input: input),
-    )
-)
+        else process(input: input)
+    }
 
-loop(
-    match(get_command(),
-        Quit -> break,
-        Process(data) -> handle(data: data),
-        _ -> continue,
-    )
-)
+loop {
+    match get_command() {
+        Quit -> break
+        Process(data) -> handle(data: data)
+        _ -> continue
+    }
+}
 
-loop(
-    try(
-        let data = fetch_next()?,
+loop {
+    try {
+        let data = fetch_next()?
         if data.is_empty() then break Ok(results)
-        else results.push(data),
-    )
-)
+        else results.push(data)
+    }
+}
 ```
 
 ## match
@@ -620,37 +618,37 @@ The `match` construct is always stacked regardless of length. This matches Rust 
 Scrutinee on first line, arms always stacked:
 
 ```ori
-let label = match(status,
-    Pending -> "waiting",
-    Running -> "in progress",
-    Complete -> "done",
-)
+let label = match status {
+    Pending -> "waiting"
+    Running -> "in progress"
+    Complete -> "done"
+}
 ```
 
 Arms with long calls break the call arguments (not after `->`):
 
 ```ori
-let result = match(event,
+let result = match event {
     Click(x, y) -> handle_click_with_long_name(
-        x: x,
-        y: y,
-        options: defaults,
-    ),
-    KeyPress(key) -> handle_key(key),
-)
+        x: x
+        y: y
+        options: defaults
+    )
+    KeyPress(key) -> handle_key(key)
+}
 ```
 
 Arms with always-stacked bodies break after `->`:
 
 ```ori
-let result = match(data,
+let result = match data {
     Valid(content) ->
-        run(
-            let processed = process(content),
-            Ok(processed),
-        ),
-    Invalid(error) -> Err(error),
-)
+        {
+            let processed = process(content)
+            Ok(processed)
+        }
+    Invalid(error) -> Err(error)
+}
 ```
 
 ## recurse
@@ -785,10 +783,10 @@ for item in items do
 
 // Body contains match → break after yield
 let labels = for status in statuses yield
-    match(status,
-        Pending -> "waiting",
-        Complete -> "done",
-    )
+    match status {
+        Pending -> "waiting"
+        Complete -> "done"
+    }
 
 // Body contains nested for → break after yield
 let pairs = for x in xs yield
@@ -833,10 +831,10 @@ Always stacked:
 ```ori
 let results = nursery(
     body: n ->
-        run(
-            n.spawn(task: fetch(url: "/a")),
-            n.spawn(task: fetch(url: "/b")),
-        ),
+        {
+            n.spawn(task: fetch(url: "/a"))
+            n.spawn(task: fetch(url: "/b"))
+        },
     on_error: CancelRemaining,
     timeout: 30s,
 )
@@ -984,8 +982,8 @@ Iterator expressions as method receivers:
 Loop expressions as method receivers:
 
 ```ori
-(loop(break 42)).unwrap()
-(loop(break Some(value))).map(f)
+(loop {break 42}).unwrap()
+(loop {break Some(value)}).map(f)
 ```
 
 ### Call Target

@@ -119,12 +119,12 @@ def impl Http { ... }
 def impl Cache { ... }
 def impl Logger { ... }
 
-@test_with_mock_http () -> void = run(
-    let mock = MockHttp { ... },
+@test_with_mock_http () -> void = {
+    let mock = MockHttp { ... }
 
     with Http = mock in
         complex_operation(),  // MockHttp + default Cache + default Logger
-)
+}
 ```
 
 Only `Http` is overridden; `Cache` and `Logger` use their `def impl`.
@@ -134,14 +134,14 @@ Only `Http` is overridden; `Cache` and `Logger` use their `def impl`.
 Inner bindings shadow outer bindings within their scope:
 
 ```ori
-with Http = OuterHttp in run(
+with Http = OuterHttp in {
     use_http(),  // OuterHttp
 
     with Http = InnerHttp in
         use_http(),  // InnerHttp (shadows Outer)
 
     use_http(),  // OuterHttp again
-)
+}
 ```
 
 `with` creates a lexical scope — bindings are visible only within:
@@ -168,11 +168,11 @@ A _stateful handler_ is a `with...in` binding that threads local mutable state t
 with Counter = handler(state: 0) {
     increment: (s) -> (s + 1, s + 1),
     get: (s) -> (s, s),
-} in run(
+} in {
     let a = Counter.increment(),  // state: 0 -> 1, returns 1
     let b = Counter.increment(),  // state: 1 -> 2, returns 2
     a + b,                        // 3
-)
+}
 ```
 
 ### Semantics
@@ -216,10 +216,10 @@ with Logger = handler(state: []) {
     log: (s, msg: str) -> ([...s, msg], ()),
 } in
     with Counter = handler(state: 0) {
-        increment: (s) -> run(
+        increment: (s) -> {
             Logger.log(msg: "increment"),  // invokes outer handler
-            (s + 1, s + 1),
-        ),
+            (s + 1, s + 1)
+        },
     } in ...
 ```
 
@@ -236,10 +236,10 @@ A context with more capabilities may call functions requiring fewer:
 @needs_http () -> void uses Http = ...
 @needs_both () -> void uses Http, Cache = ...
 
-@caller () -> void uses Http, Cache = run(
+@caller () -> void uses Http, Cache = {
     needs_http(),  // OK: caller has Http
     needs_both(),  // OK: caller has both
-)
+}
 ```
 
 A function requiring more capabilities cannot be called from one with fewer:
@@ -247,9 +247,9 @@ A function requiring more capabilities cannot be called from one with fewer:
 ```ori
 @needs_both () -> void uses Http, Cache = ...
 
-@caller () -> void uses Http = run(
+@caller () -> void uses Http = {
     needs_both(),  // ERROR: caller lacks Cache
-)
+}
 ```
 
 ## Propagation
@@ -329,17 +329,17 @@ trait Clock {
 Mock clocks enable deterministic testing via _stateful handlers_:
 
 ```ori
-@test_expiry tests @is_expired () -> void = run(
-    let start = Instant.from_unix_secs(secs: 1700000000),
+@test_expiry tests @is_expired () -> void = {
+    let start = Instant.from_unix_secs(secs: 1700000000)
     with Clock = handler(state: start) {
-        now: (s) -> (s, s),
-        advance: (s, by: Duration) -> (s + by, ()),
-    } in run(
-        assert(!is_expired(token: token)),
-        Clock.advance(by: 1h),
-        assert(is_expired(token: token)),
-    ),
-)
+        now: (s) -> (s, s)
+        advance: (s, by: Duration) -> (s + by, ())
+    } in {
+        assert(!is_expired(token: token))
+        Clock.advance(by: 1h)
+        assert(is_expired(token: token))
+    }
+}
 ```
 
 The `handler(state: expr) { ... }` construct creates a stateful handler frame with local mutable state threaded through operations. State is frame-local and does not violate value semantics. See [Stateful Handlers](#stateful-handlers) for the full specification.
@@ -454,9 +454,9 @@ Suspending context is provided by:
 ```ori
 @test_fetch tests @fetch () -> void =
     with Http = MockHttp { responses: {"/users/1": "{...}"} } in
-    run(
-        assert_ok(result: fetch(url: "/users/1")),
-    )
+    {
+        assert_ok(result: fetch(url: "/users/1"))
+    }
 ```
 
 Mock implementations are synchronous; test does not need `Suspend`.
@@ -533,9 +533,9 @@ capset Runtime = Clock, Random, Env
 
 @needs_clock () -> void uses Clock = ...
 
-@caller () -> void uses Runtime = run(
+@caller () -> void uses Runtime = {
     needs_clock(),  // Valid — Runtime includes Clock
-)
+}
 ```
 
 ## Purity

@@ -196,10 +196,10 @@ let $CREATE_TABLES: str = embed("sql/create_tables.sql")
 let $SEED_DATA: str = embed("sql/seed.sql")
 
 @initialize_db (db: Database) -> Result<void, Error> uses Database =
-    run(
-        db.execute(query: $CREATE_TABLES)?,
-        db.execute(query: $SEED_DATA)?,
-    )
+    {
+        db.execute(query: $CREATE_TABLES)?
+        db.execute(query: $SEED_DATA)?
+    }
 ```
 
 ### CLI Help Text
@@ -261,16 +261,16 @@ let $WELCOME: str = embed($locale_path(lang: "en", file: "welcome.txt"))
 @parse_config (source: str) -> Result<Config, Error>
 
 @test_parse tests @parse_config () -> void =
-    run(
-        let result = parse_config(source: embed("fixtures/valid_config.json")),
-        assert(condition: result.is_ok()),
-    )
+    {
+        let result = parse_config(source: embed("fixtures/valid_config.json"))
+        assert(condition: result.is_ok())
+    }
 
 @test_parse_invalid tests @parse_config () -> void =
-    run(
-        let result = parse_config(source: embed("fixtures/invalid_config.json")),
-        assert(condition: result.is_err()),
-    )
+    {
+        let result = parse_config(source: embed("fixtures/invalid_config.json"))
+        assert(condition: result.is_err())
+    }
 ```
 
 ### Embedded Version String

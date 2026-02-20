@@ -34,16 +34,16 @@ A pattern match is **exhaustive** if every possible value of the scrutinee type 
 
 ```ori
 // Exhaustive: covers all Option<T> values
-match(opt,
-    Some(x) -> use(x),
-    None -> default,
-)
+match opt {
+    Some(x) -> use(x)
+    None -> default
+}
 
 // Non-exhaustive: missing None case
-match(opt,
-    Some(x) -> use(x),
+match opt {
+    Some(x) -> use(x)
     // Missing: None
-)
+}
 ```
 
 ### Algorithm
@@ -125,10 +125,10 @@ let [a, b] = get_list()    // Error: list may have wrong length
 ### Syntax
 
 ```ori
-match(color,
-    Red | Green | Blue -> "primary",
-    _ -> "other",
-)
+match color {
+    Red | Green | Blue -> "primary"
+    _ -> "other"
+}
 ```
 
 ### Exhaustiveness with Or-Patterns
@@ -139,10 +139,10 @@ Or-patterns contribute their combined coverage:
 type Light = Red | Yellow | Green
 
 // Exhaustive via or-pattern
-match(light,
-    Red | Yellow -> "stop",
-    Green -> "go",
-)
+match light {
+    Red | Yellow -> "stop"
+    Green -> "go"
+}
 ```
 
 ### Binding Rules
@@ -153,14 +153,14 @@ Bindings in or-patterns must:
 
 ```ori
 // OK: x bound in both alternatives
-match(result,
+match result {
     Ok(x) | Err(x) -> print(x),  // x: same type in both
-)
+}
 
 // ERROR: x not bound in all alternatives
-match(opt,
+match opt {
     Some(x) | None -> x,  // Error: x not bound in None
-)
+}
 ```
 
 ---
@@ -172,11 +172,11 @@ match(opt,
 Guards use the `.match(condition)` syntax on bindings:
 
 ```ori
-match(n,
-    x.match(x > 0) -> "positive",
-    x.match(x < 0) -> "negative",
-    0 -> "zero",
-)
+match n {
+    x.match(x > 0) -> "positive"
+    x.match(x < 0) -> "negative"
+    0 -> "zero"
+}
 ```
 
 ### Exhaustiveness with Guards
@@ -185,19 +185,19 @@ match(n,
 
 ```ori
 // ERROR: guards require catch-all
-match(n,
-    x.match(x > 0) -> "positive",
-    x.match(x < 0) -> "negative",
+match n {
+    x.match(x > 0) -> "positive"
+    x.match(x < 0) -> "negative"
     // Error: patterns not exhaustive due to guards
     // Add a wildcard pattern to ensure all cases are covered
-)
+}
 
 // OK: catch-all ensures exhaustiveness
-match(n,
-    x.match(x > 0) -> "positive",
-    x.match(x < 0) -> "negative",
-    _ -> "zero",
-)
+match n {
+    x.match(x > 0) -> "positive"
+    x.match(x < 0) -> "negative"
+    _ -> "zero"
+}
 ```
 
 ### Guard Evaluation
@@ -205,21 +205,21 @@ match(n,
 Guards are evaluated only if the structural pattern matches:
 
 ```ori
-match((x, y),
-    (0, _) -> "x is zero",
+match (x, y) {
+    (0, _) -> "x is zero"
     (_, y).match(y > 10) -> "y is large",  // Guard only checked if first pattern fails
-    _ -> "other",
-)
+    _ -> "other"
+}
 ```
 
 Guards have access to bindings from the pattern:
 
 ```ori
-match(point,
-    Point { x, y }.match(x == y) -> "diagonal",
-    Point { x, y }.match(x > y) -> "above",
-    _ -> "below or on",
-)
+match point {
+    Point { x, y }.match(x == y) -> "diagonal"
+    Point { x, y }.match(x > y) -> "above"
+    _ -> "below or on"
+}
 ```
 
 ---
@@ -229,10 +229,10 @@ match(point,
 ### Syntax
 
 ```ori
-match(opt,
-    whole @ Some(x) -> use_both(whole, x),
-    None -> default,
-)
+match opt {
+    whole @ Some(x) -> use_both(whole, x)
+    None -> default
+}
 ```
 
 ### Semantics
@@ -248,10 +248,10 @@ At-patterns contribute same exhaustiveness as their inner pattern:
 
 ```ori
 // whole @ Some(x) covers same cases as Some(x)
-match(opt,
-    whole @ Some(x) -> ...,
+match opt {
+    whole @ Some(x) -> ...
     None -> ...,  // Still need this for exhaustiveness
-)
+}
 ```
 
 ---
@@ -261,12 +261,12 @@ match(opt,
 ### Syntax
 
 ```ori
-match(list,
-    [] -> "empty",
-    [x] -> "singleton",
-    [x, y] -> "pair",
-    [x, ..rest] -> "at least one",
-)
+match list {
+    [] -> "empty"
+    [x] -> "singleton"
+    [x, y] -> "pair"
+    [x, ..rest] -> "at least one"
+}
 ```
 
 ### Exhaustiveness
@@ -285,22 +285,22 @@ To be exhaustive, must cover all lengths:
 
 ```ori
 // Exhaustive
-match(list,
-    [] -> "empty",
-    [x, ..rest] -> "non-empty",
-)
+match list {
+    [] -> "empty"
+    [x, ..rest] -> "non-empty"
+}
 
 // Also exhaustive
-match(list,
-    [..rest] -> "any",
-)
+match list {
+    [..rest] -> "any"
+}
 
 // Non-exhaustive
-match(list,
-    [x] -> "one",
-    [x, y] -> "two",
+match list {
+    [x] -> "one"
+    [x, y] -> "two"
     // Error: doesn't cover empty or 3+ elements
-)
+}
 ```
 
 ---
@@ -310,11 +310,11 @@ match(list,
 ### Syntax
 
 ```ori
-match(n,
-    0..10 -> "small",
-    10..100 -> "medium",
-    _ -> "large",
-)
+match n {
+    0..10 -> "small"
+    10..100 -> "medium"
+    _ -> "large"
+}
 ```
 
 ### Exhaustiveness
@@ -323,18 +323,18 @@ Integer ranges cannot be exhaustive without a wildcard (infinite domain):
 
 ```ori
 // Non-exhaustive (even with many ranges)
-match(n,
-    0..100 -> "small",
-    100..1000 -> "medium",
+match n {
+    0..100 -> "small"
+    100..1000 -> "medium"
     // Error: doesn't cover negative or >= 1000
-)
+}
 
 // Exhaustive with wildcard
-match(n,
-    0..100 -> "small",
-    100..1000 -> "medium",
-    _ -> "other",
-)
+match n {
+    0..100 -> "small"
+    100..1000 -> "medium"
+    _ -> "other"
+}
 ```
 
 ### Range Overlap
@@ -342,11 +342,11 @@ match(n,
 The compiler warns about overlapping ranges:
 
 ```ori
-match(n,
-    0..10 -> "a",
+match n {
+    0..10 -> "a"
     5..15 -> "b",  // Warning: overlaps with previous pattern (5..10 unreachable)
-    _ -> "c",
-)
+    _ -> "c"
+}
 ```
 
 ---
@@ -356,17 +356,17 @@ match(n,
 The compiler warns about patterns that can never match:
 
 ```ori
-match(opt,
-    Some(x) -> use(x),
-    None -> default,
+match opt {
+    Some(x) -> use(x)
+    None -> default
     Some(y) -> other,  // Warning: unreachable pattern (already covered)
-)
+}
 
-match(color,
-    Red -> "red",
-    _ -> "other",
+match color {
+    Red -> "red"
+    _ -> "other"
     Blue -> "blue",  // Warning: unreachable pattern (covered by _)
-)
+}
 ```
 
 ### Diagnostic Levels
@@ -391,24 +391,24 @@ Struct patterns are exhaustive if they match all fields:
 type Point = { x: int, y: int }
 
 // Exhaustive (only one constructor)
-match(point,
-    Point { x, y } -> use(x, y),
-)
+match point {
+    Point { x, y } -> use(x, y)
+}
 
 // Also exhaustive (wildcard for fields)
-match(point,
-    Point { .. } -> "a point",
-)
+match point {
+    Point { .. } -> "a point"
+}
 ```
 
 ### Partial Field Matching
 
 ```ori
-match(point,
-    Point { x: 0, .. } -> "on y-axis",
-    Point { y: 0, .. } -> "on x-axis",
-    Point { .. } -> "elsewhere",
-)
+match point {
+    Point { x: 0, .. } -> "on y-axis"
+    Point { y: 0, .. } -> "on x-axis"
+    Point { .. } -> "elsewhere"
+}
 ```
 
 ---

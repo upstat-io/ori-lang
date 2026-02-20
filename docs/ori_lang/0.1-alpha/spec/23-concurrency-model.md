@@ -44,15 +44,15 @@ See [Patterns](10-patterns.md) for pattern definitions.
 Each task has private mutable bindings. Bindings captured across task boundaries must be `Sendable` and become inaccessible in the spawning scope:
 
 ```ori
-@example () -> void uses Suspend = run(
-    let x = 0,
+@example () -> void uses Suspend = {
+    let x = 0
     parallel(
         tasks: [
-            () -> run(x = 1),  // error: cannot capture mutable binding across task boundary
-            () -> run(x = 2),
-        ],
-    ),
-)
+            () -> {x = 1},  // error: cannot capture mutable binding across task boundary
+            () -> {x = 2}
+        ]
+    )
+}
 ```
 
 See [Memory Model § Task Isolation](15-memory-model.md#task-isolation) for isolation guarantees.
@@ -76,14 +76,14 @@ Programs using concurrency patterns must have `@main` declare `uses Suspend`:
 
 ```ori
 // Valid: main declares Suspend
-@main () -> void uses Suspend = run(
-    parallel(tasks: [task_a(), task_b()]),
-)
+@main () -> void uses Suspend = {
+    parallel(tasks: [task_a(), task_b()])
+}
 
 // Invalid: main uses concurrency without Suspend
-@main () -> void = run(
+@main () -> void = {
     parallel(tasks: [task_a(), task_b()]),  // error: requires Suspend capability
-)
+}
 ```
 
 The runtime establishes the suspending context when `@main uses Suspend` is declared.
@@ -134,14 +134,14 @@ A non-suspending function called from a suspending context executes synchronousl
 @expensive_sync () -> int =
     heavy_math()  // Long computation, no suspension points
 
-@main () -> void uses Suspend = run(
+@main () -> void uses Suspend = {
     parallel(
         tasks: [
             () -> expensive_sync(),  // This task blocks during computation
             () -> other_work(),       // This task can run concurrently
-        ],
-    ),
-)
+        ]
+    )
+}
 ```
 
 ## Capture and Ownership
@@ -149,15 +149,15 @@ A non-suspending function called from a suspending context executes synchronousl
 Task closures follow capture-by-value semantics. When a value is captured by a task closure, the original binding becomes inaccessible:
 
 ```ori
-@capture_example () -> void uses Suspend = run(
-    let data = create_data(),
+@capture_example () -> void uses Suspend = {
+    let data = create_data()
     nursery(
-        body: n -> run(
+        body: n -> {
             n.spawn(task: () -> process(data)),  // data captured by value
             print(msg: data.field),  // error: data is no longer accessible
-        ),
-    ),
-)
+        }
+    )
+}
 ```
 
 Bindings captured across task boundaries become inaccessible in the spawning scope to prevent data races. This uses existing capture-by-value behavior with an additional constraint.
@@ -167,12 +167,12 @@ Bindings captured across task boundaries become inaccessible in the spawning sco
 Captured values must implement `Sendable`:
 
 ```ori
-@spawn_example () -> void uses Suspend = run(
+@spawn_example () -> void uses Suspend = {
     let data = create_data(),  // Data: Sendable
     nursery(
         body: n -> n.spawn(task: () -> process(data)),  // OK
-    ),
-)
+    )
+}
 ```
 
 See [Properties of Types § Sendable](07-properties-of-types.md#sendable) for `Sendable` definition.
@@ -261,12 +261,12 @@ Tasks can explicitly check cancellation status:
 This built-in function returns `true` if the current task has been marked for cancellation.
 
 ```ori
-@long_running_task () -> Result<Data, Error> uses Suspend = run(
-    for item in large_dataset do run(
-        if is_cancelled() then break Err(CancellationError { ... }),
-        process(item),
-    ),
-)
+@long_running_task () -> Result<Data, Error> uses Suspend = {
+    for item in large_dataset do {
+        if is_cancelled() then break Err(CancellationError { ... })
+        process(item)
+    }
+}
 ```
 
 ### Nested Nurseries

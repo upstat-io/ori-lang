@@ -147,10 +147,10 @@ let escaped = "Line 1\nLine 2"
 Let's make our program more interesting. Update `hello.ori`:
 
 ```ori
-@main () -> void = run(
-    let name = "World",
-    print(msg: `Hello, {name}!`),
-)
+@main () -> void = {
+    let name = "World"
+    print(msg: `Hello, {name}!`)
+}
 ```
 
 ### The `run` Pattern
@@ -158,11 +158,11 @@ Let's make our program more interesting. Update `hello.ori`:
 When a function needs multiple steps, wrap them in `run(...)`:
 
 ```ori
-@main () -> void = run(
-    let first = "Hello",
-    let second = "World",
-    print(msg: `{first}, {second}!`),
-)
+@main () -> void = {
+    let first = "Hello"
+    let second = "World"
+    print(msg: `{first}, {second}!`)
+}
 ```
 
 Each expression is separated by commas. The last expression's value becomes the function's return value.
@@ -211,10 +211,10 @@ Let's write a function that does something useful:
 ```ori
 @greet (name: str) -> str = `Hello, {name}!`
 
-@main () -> void = run(
-    let message = greet(name: "Alice"),
-    print(msg: message),
-)
+@main () -> void = {
+    let message = greet(name: "Alice")
+    print(msg: message)
+}
 ```
 
 Run this:
@@ -242,21 +242,21 @@ use std.testing { assert_eq }
 
 @greet (name: str) -> str = `Hello, {name}!`
 
-@test_greet tests @greet () -> void = run(
-    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!"),
-    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!"),
-)
+@test_greet tests @greet () -> void = {
+    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!")
+    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!")
+}
 
-@main () -> void = run(
-    let message = greet(name: "Alice"),
-    print(msg: message),
-)
+@main () -> void = {
+    let message = greet(name: "Alice")
+    print(msg: message)
+}
 ```
 
 Let's understand the test:
 
 ```ori
-@test_greet tests @greet () -> void = run(...)
+@test_greet tests @greet () -> void = {...}
 |           |           |     |
 |           |           |     └─ Returns nothing
 |           |           └─────── Takes no parameters
@@ -342,14 +342,14 @@ The `@main` function is where execution starts. There are four valid signatures:
 > **Coming Soon:** The `args` parameter for `@main` is planned but not yet implemented. The examples below show the intended syntax.
 
 ```ori
-@main (args: [str]) -> void = run(
+@main (args: [str]) -> void = {
     if is_empty(collection: args) then
         print(msg: "No arguments provided")
-    else run(
-        print(msg: `Got {len(collection: args)} arguments:`),
-        for arg in args do print(msg: `  - {arg}`),
-    ),
-)
+    else {
+        print(msg: `Got {len(collection: args)} arguments:`)
+        for arg in args do print(msg: `  - {arg}`)
+    }
+}
 ```
 
 Run with:
@@ -365,15 +365,15 @@ Note: `args` contains only the arguments, not the program name.
 > **Coming Soon:** Exit code support via `@main () -> int` is planned but not yet implemented. The examples below show the intended syntax.
 
 ```ori
-@main (args: [str]) -> int = run(
-    if is_empty(collection: args) then run(
-        print(msg: "Error: no arguments provided"),
+@main (args: [str]) -> int = {
+    if is_empty(collection: args) then {
+        print(msg: "Error: no arguments provided")
         1,  // Non-zero = failure
-    ) else run(
-        print(msg: `Processing {len(collection: args)} items`),
+    } else {
+        print(msg: `Processing {len(collection: args)} items`)
         0,  // Zero = success
-    ),
-)
+    }
+}
 ```
 
 ## The Complete Example
@@ -387,30 +387,30 @@ use std.testing { assert_eq }
 @greet (name: str) -> str = `Hello, {name}!`
 
 // Test for greet - required for compilation
-@test_greet tests @greet () -> void = run(
-    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!"),
-    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!"),
-    assert_eq(actual: greet(name: ""), expected: "Hello, !"),
-)
+@test_greet tests @greet () -> void = {
+    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!")
+    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!")
+    assert_eq(actual: greet(name: ""), expected: "Hello, !")
+}
 
 // A function that creates a formal greeting
 @formal_greet (title: str, name: str) -> str =
     `Good day, {title} {name}.`
 
-@test_formal tests @formal_greet () -> void = run(
+@test_formal tests @formal_greet () -> void = {
     assert_eq(
-        actual: formal_greet(title: "Dr.", name: "Smith"),
-        expected: "Good day, Dr. Smith.",
-    ),
-)
+        actual: formal_greet(title: "Dr.", name: "Smith")
+        expected: "Good day, Dr. Smith."
+    )
+}
 
 // Program entry point
-@main () -> void = run(
-    let $names = ["Alice", "Bob", "Charlie"],
-    for name in names do run(
-        print(msg: greet(name: name)),
-    ),
-)
+@main () -> void = {
+    let $names = ["Alice", "Bob", "Charlie"]
+    for name in names do {
+        print(msg: greet(name: name))
+    }
+}
 ```
 
 Save this as `greetings.ori` and run:
@@ -444,11 +444,11 @@ There are no statements. Everything returns a value:
 let status = if age >= 18 then "adult" else "minor"
 
 // run returns its last expression
-let result = run(
-    let x = compute(),
-    let y = transform(input: x),
+let result = {
+    let x = compute()
+    let y = transform(input: x)
     x + y,  // This is the return value
-)
+}
 ```
 
 ### No Null, No Exceptions

@@ -88,19 +88,17 @@ impl<T: Clone> Clone for Set<T> {
 }
 
 impl<T: Clone> Clone for Option<T> {
-    @clone (self) -> Option<T> = match(
-        self,
-        Some(v) -> Some(v.clone()),
-        None -> None,
-    )
+    @clone (self) -> Option<T> = match self {
+        Some(v) -> Some(v.clone())
+        None -> None
+    }
 }
 
 impl<T: Clone, E: Clone> Clone for Result<T, E> {
-    @clone (self) -> Result<T, E> = match(
-        self,
-        Ok(v) -> Ok(v.clone()),
-        Err(e) -> Err(e.clone()),
-    )
+    @clone (self) -> Result<T, E> = match self {
+        Ok(v) -> Ok(v.clone())
+        Err(e) -> Err(e.clone())
+    }
 }
 
 impl<A: Clone, B: Clone> Clone for (A, B) {
@@ -226,30 +224,30 @@ After cloning:
 ### Defensive Copy
 
 ```ori
-@process (data: Data) -> Result<Output, Error> = run(
+@process (data: Data) -> Result<Output, Error> = {
     let working_copy = data.clone(),  // Don't modify original
-    mutate_in_place(data: working_copy),
-    Ok(transform(data: working_copy)),
-)
+    mutate_in_place(data: working_copy)
+    Ok(transform(data: working_copy))
+}
 ```
 
 ### Cloning in Parallel Work
 
 ```ori
-@parallel_process (config: Config, items: [Item]) -> [Result] uses Suspend = run(
+@parallel_process (config: Config, items: [Item]) -> [Result] uses Suspend = {
     let { producer, consumer } = channel<Result>(
-        .buffer: 100,
-        .share: Producers,
-    ),
+        .buffer: 100
+        .share: Producers
+    )
 
     parallel(
         .workers: (0..4).map(transform: i -> worker(
             config: config.clone(),  // Each worker gets own copy
-            producer: producer.clone(),
-        )),
-        .collector: collect(consumer: consumer),
-    ),
-)
+            producer: producer.clone()
+        ))
+        .collector: collect(consumer: consumer)
+    )
+}
 ```
 
 ### Clone Constraint in Generics
@@ -262,14 +260,13 @@ After cloning:
     cache: {K: V},
     key: K,
     compute: () -> V,
-) -> (V, {K: V}) = match(
-    cache[key],
+) -> (V, {K: V}) = match cache[key] {
     Some(v) -> (v.clone(), cache),  // Return clone, keep original in cache
-    None -> run(
-        let v = compute(),
-        (v.clone(), cache.insert(key: key, value: v)),
-    ),
-)
+    None -> {
+        let v = compute()
+        (v.clone(), cache.insert(key: key, value: v))
+    }
+}
 ```
 
 ---

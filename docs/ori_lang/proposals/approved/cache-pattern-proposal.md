@@ -217,7 +217,7 @@ To cache error results, wrap in a non-error type:
 ```ori
 cache(
     key: url,
-    op: match(fetch(url), r -> r),  // Cache the Result itself
+    op: match fetch(url) { r -> r},  // Cache the Result itself
     ttl: 5m,
 )
 ```

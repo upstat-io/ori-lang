@@ -152,14 +152,14 @@ Private by default encourages encapsulation:
     `postgres://{host}:{port}/{db}`
 
 // Public interface — stable contract
-pub @connect (config: DbConfig) -> Result<Connection, Error> uses Database = run(
+pub @connect (config: DbConfig) -> Result<Connection, Error> uses Database = {
     let conn_str = build_connection_string(
-        host: config.host,
-        port: config.port,
-        db: config.database,
-    ),
-    Database.connect(connection_string: conn_str),
-)
+        host: config.host
+        port: config.port
+        db: config.database
+    )
+    Database.connect(connection_string: conn_str)
+}
 ```
 
 Other modules use `connect` without depending on `build_connection_string`. You can refactor the internal function freely.
@@ -172,10 +172,10 @@ Sometimes you need to access private items, especially for testing. Use the `::`
 // In test file
 use "./database" { ::build_connection_string }
 
-@test_connection_string tests _ () -> void = run(
-    let result = build_connection_string(host: "localhost", port: 5432, db: "test"),
-    assert_eq(actual: result, expected: "postgres://localhost:5432/test"),
-)
+@test_connection_string tests _ () -> void = {
+    let result = build_connection_string(host: "localhost", port: 5432, db: "test")
+    assert_eq(actual: result, expected: "postgres://localhost:5432/test")
+}
 ```
 
 Use `::` sparingly — it's a signal that you're breaking encapsulation.
@@ -350,10 +350,10 @@ calculator/
 // Basic arithmetic functions
 pub @add (a: int, b: int) -> int = a + b
 
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-    assert_eq(actual: add(a: -1, b: 1), expected: 0),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+    assert_eq(actual: add(a: -1, b: 1), expected: 0)
+}
 
 pub @subtract (a: int, b: int) -> int = a - b
 
@@ -365,15 +365,15 @@ pub @multiply (a: int, b: int) -> int = a * b
 @test_multiply tests @multiply () -> void =
     assert_eq(actual: multiply(a: 4, b: 5), expected: 20)
 
-pub @divide (a: int, b: int) -> int = run(
-    pre_check: b != 0 | "division by zero",
-    a div b,
-)
+pub @divide (a: int, b: int) -> int = {
+    pre_check: b != 0 | "division by zero"
+    a div b
+}
 
-@test_divide tests @divide () -> void = run(
-    assert_eq(actual: divide(a: 10, b: 2), expected: 5),
-    assert_panics(f: () -> divide(a: 1, b: 0)),
-)
+@test_divide tests @divide () -> void = {
+    assert_eq(actual: divide(a: 10, b: 2), expected: 5)
+    assert_panics(f: () -> divide(a: 1, b: 0))
+}
 ```
 
 **format.ori:**
@@ -395,15 +395,15 @@ pub @format_result (operation: str, a: int, b: int, result: int) -> str =
 use "./math" { add, subtract, multiply, divide }
 use "./format" { format_result }
 
-@main () -> void = run(
-    let a = 10,
-    let b = 3,
+@main () -> void = {
+    let a = 10
+    let b = 3
 
-    print(msg: format_result(operation: "+", a: a, b: b, result: add(a: a, b: b))),
-    print(msg: format_result(operation: "-", a: a, b: b, result: subtract(a: a, b: b))),
-    print(msg: format_result(operation: "*", a: a, b: b, result: multiply(a: a, b: b))),
-    print(msg: format_result(operation: "/", a: a, b: b, result: divide(a: a, b: b))),
-)
+    print(msg: format_result(operation: "+", a: a, b: b, result: add(a: a, b: b)))
+    print(msg: format_result(operation: "-", a: a, b: b, result: subtract(a: a, b: b)))
+    print(msg: format_result(operation: "*", a: a, b: b, result: multiply(a: a, b: b)))
+    print(msg: format_result(operation: "/", a: a, b: b, result: divide(a: a, b: b)))
+}
 ```
 
 ## Quick Reference

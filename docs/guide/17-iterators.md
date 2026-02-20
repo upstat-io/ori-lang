@@ -260,14 +260,14 @@ type Transaction = { amount: float, category: str }
         .map(transform: t -> t.amount)
         .fold(initial: 0.0, op: (sum, amount) -> sum + amount)
 
-@test_total_by_category tests @total_by_category () -> void = run(
+@test_total_by_category tests @total_by_category () -> void = {
     let transactions = [
-        Transaction { amount: 100.0, category: "food" },
-        Transaction { amount: 50.0, category: "transport" },
-        Transaction { amount: 75.0, category: "food" },
-    ],
-    assert_eq(actual: total_by_category(transactions: transactions, category: "food"), expected: 175.0),
-)
+        Transaction { amount: 100.0, category: "food" }
+        Transaction { amount: 50.0, category: "transport" }
+        Transaction { amount: 75.0, category: "food" }
+    ]
+    assert_eq(actual: total_by_category(transactions: transactions, category: "food"), expected: 175.0)
+}
 
 @top_transactions (transactions: [Transaction], n: int) -> [Transaction] =
     transactions.iter()
@@ -288,10 +288,10 @@ let numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 // This does almost no work — just sets up the pipeline
 let pipeline = numbers.iter()
-    .map(transform: x -> run(
-        print(msg: `Processing {x}`),
-        x * 2,
-    ))
+    .map(transform: x -> {
+        print(msg: `Processing {x}`)
+        x * 2
+    })
     .filter(predicate: x -> x > 10)
 
 // Work happens here when we consume the iterator
@@ -351,12 +351,12 @@ type Counter = { current: int, max: int }
 impl Iterator for Counter {
     type Item = int
 
-    @next (self) -> (Option<int>, Counter) = run(
+    @next (self) -> (Option<int>, Counter) = {
         if self.current >= self.max then
             (None, self)
         else
-            (Some(self.current), Counter { current: self.current + 1, max: self.max }),
-    )
+            (Some(self.current), Counter { current: self.current + 1, max: self.max })
+    }
 }
 
 @count_from (start: int, end: int) -> Counter =
@@ -365,11 +365,11 @@ impl Iterator for Counter {
 // Use like any iterator
 let numbers = count_from(start: 1, end: 5).collect()  // [1, 2, 3, 4]
 
-@test_counter tests @count_from () -> void = run(
-    let counter = count_from(start: 0, end: 3),
-    let result = counter.collect(),
-    assert_eq(actual: result, expected: [0, 1, 2]),
-)
+@test_counter tests @count_from () -> void = {
+    let counter = count_from(start: 0, end: 3)
+    let result = counter.collect()
+    assert_eq(actual: result, expected: [0, 1, 2])
+}
 ```
 
 ## Fused Guarantee
@@ -397,14 +397,13 @@ for x in items do
 
 // Desugars to
 let iter = items.iter()
-loop(
-    let (maybe_x, iter) = iter.next(),
-    match(
-        maybe_x,
-        Some(x) -> process(x: x),
-        None -> break,
-    ),
-)
+loop {
+    let (maybe_x, iter) = iter.next()
+    match maybe_x {
+        Some(x) -> process(x: x)
+        None -> break
+    }
+}
 ```
 
 And `for...yield`:
@@ -428,57 +427,57 @@ let result = items.iter().map(transform: x -> x * 2).collect()
         .take(count: page_size)
         .collect()
 
-@test_paginate tests @paginate () -> void = run(
-    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-    assert_eq(actual: paginate(items: items, page: 0, page_size: 3), expected: [1, 2, 3]),
-    assert_eq(actual: paginate(items: items, page: 1, page_size: 3), expected: [4, 5, 6]),
-    assert_eq(actual: paginate(items: items, page: 2, page_size: 3), expected: [7, 8, 9]),
-)
+@test_paginate tests @paginate () -> void = {
+    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert_eq(actual: paginate(items: items, page: 0, page_size: 3), expected: [1, 2, 3])
+    assert_eq(actual: paginate(items: items, page: 1, page_size: 3), expected: [4, 5, 6])
+    assert_eq(actual: paginate(items: items, page: 2, page_size: 3), expected: [7, 8, 9])
+}
 ```
 
 ### Grouping
 
 ```ori
-@group_by<T, K: Eq + Hashable> (items: [T], key: (T) -> K) -> {K: [T]} = run(
-    let groups: {K: [T]} = {},
-    for item in items do run(
-        let k = key(item),
-        let current = groups[k] ?? [],
-        groups = { ...groups, k: [...current, item] },
-    ),
-    groups,
-)
+@group_by<T, K: Eq + Hashable> (items: [T], key: (T) -> K) -> {K: [T]} = {
+    let groups: {K: [T]} = {}
+    for item in items do {
+        let k = key(item)
+        let current = groups[k] ?? []
+        groups = { ...groups, k: [...current, item] }
+    }
+    groups
+}
 ```
 
 ### Windowing
 
 ```ori
-@windows<T: Clone> (items: [T], size: int) -> [[T]] = run(
-    if size <= 0 || size > len(collection: items) then return [],
+@windows<T: Clone> (items: [T], size: int) -> [[T]] = {
+    if size <= 0 || size > len(collection: items) then return []
 
     for i in 0..(len(collection: items) - size + 1) yield
         items.iter()
             .skip(count: i)
             .take(count: size)
-            .collect(),
-)
+            .collect()
+}
 
-@test_windows tests @windows () -> void = run(
-    let items = [1, 2, 3, 4, 5],
-    assert_eq(actual: windows(items: items, size: 3), expected: [[1, 2, 3], [2, 3, 4], [3, 4, 5]]),
-)
+@test_windows tests @windows () -> void = {
+    let items = [1, 2, 3, 4, 5]
+    assert_eq(actual: windows(items: items, size: 3), expected: [[1, 2, 3], [2, 3, 4], [3, 4, 5]])
+}
 ```
 
 ### Deduplication
 
 ```ori
-@dedupe<T: Eq> (items: [T]) -> [T] = run(
-    let seen: [T] = [],
+@dedupe<T: Eq> (items: [T]) -> [T] = {
+    let seen: [T] = []
     for item in items do
         if !seen.iter().any(predicate: x -> x == item) then
-            seen = [...seen, item],
-    seen,
-)
+            seen = [...seen, item]
+    seen
+}
 ```
 
 ## Complete Example
@@ -507,95 +506,94 @@ type OrderSummary = {
         .map(transform: item -> item.quantity as float * item.price)
         .fold(initial: 0.0, op: (a, b) -> a + b)
 
-@test_order_total tests @order_total () -> void = run(
+@test_order_total tests @order_total () -> void = {
     let order = Order {
-        id: 1,
-        customer: "Alice",
+        id: 1
+        customer: "Alice"
         items: [
-            OrderItem { product: "Widget", quantity: 2, price: 10.0 },
-            OrderItem { product: "Gadget", quantity: 1, price: 25.0 },
-        ],
-        status: Pending,
-    },
-    assert_eq(actual: order_total(order: order), expected: 45.0),
-)
+            OrderItem { product: "Widget", quantity: 2, price: 10.0 }
+            OrderItem { product: "Gadget", quantity: 1, price: 25.0 }
+        ]
+        status: Pending
+    }
+    assert_eq(actual: order_total(order: order), expected: 45.0)
+}
 
-@status_to_str (status: OrderStatus) -> str = match(
-    status,
-    Pending -> "pending",
-    Shipped -> "shipped",
-    Delivered -> "delivered",
-    Cancelled -> "cancelled",
-)
+@status_to_str (status: OrderStatus) -> str = match status {
+    Pending -> "pending"
+    Shipped -> "shipped"
+    Delivered -> "delivered"
+    Cancelled -> "cancelled"
+}
 
-@summarize_orders (orders: [Order]) -> OrderSummary = run(
+@summarize_orders (orders: [Order]) -> OrderSummary = {
     // Filter out cancelled orders for revenue
     let active_orders = orders.iter()
-        .filter(predicate: o -> match(o.status, Cancelled -> false, _ -> true))
-        .collect(),
+        .filter(predicate: o -> match o.status { Cancelled -> false, _ -> true})
+        .collect()
 
     // Calculate total revenue
     let total_revenue = active_orders.iter()
         .map(transform: o -> order_total(order: o))
-        .fold(initial: 0.0, op: (a, b) -> a + b),
+        .fold(initial: 0.0, op: (a, b) -> a + b)
 
     // Count by status
-    let status_counts: {str: int} = {},
-    for order in orders do run(
-        let key = status_to_str(status: order.status),
-        let current = status_counts[key] ?? 0,
-        status_counts = { ...status_counts, key: current + 1 },
-    ),
+    let status_counts: {str: int} = {}
+    for order in orders do {
+        let key = status_to_str(status: order.status)
+        let current = status_counts[key] ?? 0
+        status_counts = { ...status_counts, key: current + 1 }
+    }
 
     // Top customers by spending
-    let customer_spending: {str: float} = {},
-    for order in active_orders do run(
-        let total = order_total(order: order),
-        let current = customer_spending[order.customer] ?? 0.0,
-        customer_spending = { ...customer_spending, order.customer: current + total },
-    ),
+    let customer_spending: {str: float} = {}
+    for order in active_orders do {
+        let total = order_total(order: order)
+        let current = customer_spending[order.customer] ?? 0.0
+        customer_spending = { ...customer_spending, order.customer: current + total }
+    }
 
     let top_customers = customer_spending.iter()
         .collect()
         .sort_by(key: (_, spending) -> -spending)
         .iter()
         .take(count: 5)
-        .collect(),
+        .collect()
 
     OrderSummary {
-        total_orders: len(collection: orders),
-        total_revenue,
-        orders_by_status: status_counts,
-        top_customers,
-    },
-)
+        total_orders: len(collection: orders)
+        total_revenue
+        orders_by_status: status_counts
+        top_customers
+    }
+}
 
-@test_summarize_orders tests @summarize_orders () -> void = run(
+@test_summarize_orders tests @summarize_orders () -> void = {
     let orders = [
         Order {
-            id: 1,
-            customer: "Alice",
-            items: [OrderItem { product: "A", quantity: 1, price: 100.0 }],
-            status: Delivered,
-        },
+            id: 1
+            customer: "Alice"
+            items: [OrderItem { product: "A", quantity: 1, price: 100.0 }]
+            status: Delivered
+        }
         Order {
-            id: 2,
-            customer: "Bob",
-            items: [OrderItem { product: "B", quantity: 2, price: 50.0 }],
-            status: Shipped,
-        },
+            id: 2
+            customer: "Bob"
+            items: [OrderItem { product: "B", quantity: 2, price: 50.0 }]
+            status: Shipped
+        }
         Order {
-            id: 3,
-            customer: "Alice",
-            items: [OrderItem { product: "C", quantity: 1, price: 75.0 }],
-            status: Cancelled,
-        },
-    ],
+            id: 3
+            customer: "Alice"
+            items: [OrderItem { product: "C", quantity: 1, price: 75.0 }]
+            status: Cancelled
+        }
+    ]
 
-    let summary = summarize_orders(orders: orders),
-    assert_eq(actual: summary.total_orders, expected: 3),
+    let summary = summarize_orders(orders: orders)
+    assert_eq(actual: summary.total_orders, expected: 3)
     assert_eq(actual: summary.total_revenue, expected: 200.0),  // Excluding cancelled
-)
+}
 ```
 
 ## Quick Reference

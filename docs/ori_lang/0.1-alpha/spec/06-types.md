@@ -1004,10 +1004,10 @@ trait Drop {
 Drop is called when the ARC reference count reaches zero:
 
 ```ori
-run(
+{
     let resource = acquire_resource(),  // refcount: 1
     use_resource(resource),             // refcount may increase
-)                                       // refcount: 0, drop called
+}                                       // refcount: 0, drop called
 ```
 
 For values not shared, drop occurs at scope exit. Drop is also called on early exit (via `?`, `break`, or panic).
@@ -1017,11 +1017,11 @@ For values not shared, drop occurs at scope exit. Drop is also called on early e
 Values are dropped in reverse declaration order (LIFO):
 
 ```ori
-run(
-    let a = Resource { name: "a" },
-    let b = Resource { name: "b" },
-    let c = Resource { name: "c" },
-)
+{
+    let a = Resource { name: "a" }
+    let b = Resource { name: "b" }
+    let c = Resource { name: "c" }
+}
 // Drop order: c, b, a
 ```
 
@@ -1054,12 +1054,12 @@ The `drop_early` function forces drop before scope exit:
 ```ori
 @drop_early<T> (value: T) -> void
 
-run(
-    let file = open_file(path),
-    let content = read_all(file),
+{
+    let file = open_file(path)
+    let content = read_all(file)
     drop_early(value: file),  // Close immediately
     // ... continue processing content
-)
+}
 ```
 
 ### Standard Implementations
@@ -1087,10 +1087,10 @@ Drop should handle its own errors. Drop cannot return errors; propagating would 
 
 ```ori
 impl Drop for Connection {
-    @drop (self) -> void = match(self.close(),
-        Ok(_) -> (),
+    @drop (self) -> void = match self.close() {
+        Ok(_) -> ()
         Err(e) -> log(msg: `close failed: {e}`),  // Log, don't propagate
-    )
+    }
 }
 ```
 

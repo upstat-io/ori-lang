@@ -713,9 +713,9 @@ File-level attributes must appear before any declarations.
 ## Tests
 
 ```ori
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+}
 ```
 
 See [Testing](13-testing.md).

@@ -155,14 +155,14 @@ trait Visitor {
 }
 
 @walk (root: Node, visitor: Visitor) -> void =
-    match(root,
-        File(f) -> visitor.visit_file(f),
-        Directory(d) -> run(
-            visitor.visit_dir(d),
+    match root {
+        File(f) -> visitor.visit_file(f)
+        Directory(d) -> {
+            visitor.visit_dir(d)
             for child in d.children do
-                walk(child, visitor),
-        ),
-    )
+                walk(child, visitor)
+        }
+    }
 ```
 
 No `dyn` needed — `visitor: Visitor` is clear.
@@ -175,11 +175,11 @@ trait Plugin {
     @execute (self, ctx: Context) -> Result<void, Error>
 }
 
-@run_plugins (plugins: [Plugin], ctx: Context) -> Result<void, Error> = try(
+@run_plugins (plugins: [Plugin], ctx: Context) -> Result<void, Error> = try {
     for plugin in plugins do
-        plugin.execute(ctx)?,
-    Ok(()),
-)
+        plugin.execute(ctx)?
+    Ok(())
+}
 ```
 
 ### Event Handlers

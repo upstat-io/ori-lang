@@ -28,11 +28,11 @@ Compiler-level control flow and concurrency constructs.
 Sequential expressions with optional pre/post checks.
 
 ```ori
-run(
-    let x = compute(),
-    let y = transform(x),
-    x + y,
-)
+{
+    let x = compute()
+    let y = transform(x)
+    x + y
+}
 ```
 
 #### Pre/Post Checks
@@ -40,21 +40,21 @@ run(
 The `run` pattern supports `pre_check:` and `post_check:` properties for contract-style defensive programming:
 
 ```ori
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0,
-    a div b,
+@divide (a: int, b: int) -> int = {
+    pre_check: b != 0
+    a div b
     post_check: r -> r * b <= a
-)
+}
 
 // Multiple conditions via multiple properties
-@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
-    pre_check: amount > 0 | "amount must be positive",
-    pre_check: from.balance >= amount | "insufficient funds",
-    let new_from = Account { balance: from.balance - amount, ..from },
-    let new_to = Account { balance: to.balance + amount, ..to },
-    (new_from, new_to),
-    post_check: (f, t) -> f.balance + t.balance == from.balance + to.balance,
-)
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = {
+    pre_check: amount > 0 | "amount must be positive"
+    pre_check: from.balance >= amount | "insufficient funds"
+    let new_from = Account { balance: from.balance - amount, ..from }
+    let new_to = Account { balance: to.balance + amount, ..to }
+    (new_from, new_to)
+    post_check: (f, t) -> f.balance + t.balance == from.balance + to.balance
+}
 ```
 
 **Positional constraints** (parser-enforced):
@@ -84,22 +84,22 @@ The `run` pattern supports `pre_check:` and `post_check:` properties for contrac
 Error-propagating sequence. Returns early on `Err`.
 
 ```ori
-try(
-    let content = read_file(path),
-    let parsed = parse(content),
-    Ok(transform(parsed)),
-)
+try {
+    let content = read_file(path)
+    let parsed = parse(content)
+    Ok(transform(parsed))
+}
 ```
 
 ### match
 
 ```ori
-match(status,
-    Pending -> "waiting",
-    Running(p) -> str(p) + "%",
-    x.match(x > 0) -> "positive",
-    _ -> "other",
-)
+match status {
+    Pending -> "waiting"
+    Running(p) -> str(p) + "%"
+    x.match(x > 0) -> "positive"
+    _ -> "other"
+}
 ```
 
 Match patterns include: literals, identifiers, wildcards (`_`), variant patterns, struct patterns, list patterns with rest (`..`), or-patterns (`|`), at-patterns (`@`), and range patterns.
@@ -123,10 +123,10 @@ For each type, the compiler knows its constructors:
 ```ori
 type MaybeNever = Value(int) | Impossible(Never)
 
-match(maybe,
-    Value(v) -> v,
+match maybe {
+    Value(v) -> v
     // Impossible case can be omitted — it can never occur
-)
+}
 ```
 
 Matching `Never` explicitly is permitted but the arm is unreachable.
@@ -169,18 +169,18 @@ Guards are not considered for exhaustiveness checking. The compiler cannot stati
 
 ```ori
 // ERROR: guards require catch-all
-match(n,
-    x.match(x > 0) -> "positive",
-    x.match(x < 0) -> "negative",
+match n {
+    x.match(x > 0) -> "positive"
+    x.match(x < 0) -> "negative"
     // Error: patterns not exhaustive due to guards
-)
+}
 
 // OK: catch-all ensures exhaustiveness
-match(n,
-    x.match(x > 0) -> "positive",
-    x.match(x < 0) -> "negative",
-    _ -> "zero",
-)
+match n {
+    x.match(x > 0) -> "positive"
+    x.match(x < 0) -> "negative"
+    _ -> "zero"
+}
 ```
 
 #### Or-Pattern Exhaustiveness
@@ -191,10 +191,10 @@ Or-patterns contribute their combined coverage:
 type Light = Red | Yellow | Green
 
 // Exhaustive via or-pattern
-match(light,
-    Red | Yellow -> "stop",
-    Green -> "go",
-)
+match light {
+    Red | Yellow -> "stop"
+    Green -> "go"
+}
 ```
 
 Bindings in or-patterns must appear in all alternatives with the same type.
@@ -204,10 +204,10 @@ Bindings in or-patterns must appear in all alternatives with the same type.
 At-patterns contribute the same coverage as their inner pattern:
 
 ```ori
-match(opt,
-    whole @ Some(x) -> use_both(whole, x),
+match opt {
+    whole @ Some(x) -> use_both(whole, x)
     None -> default,  // Required for exhaustiveness
-)
+}
 ```
 
 #### List Pattern Exhaustiveness
@@ -450,10 +450,10 @@ Errors in spawned tasks are silently discarded. To log errors, handle them withi
 
 ```ori
 spawn(tasks: [
-    () -> match(risky_operation(),
-        Ok(_) -> log(msg: "success"),
-        Err(e) -> log(msg: `failed: {e}`),
-    ),
+    () -> match risky_operation() {
+        Ok(_) -> log(msg: "success")
+        Err(e) -> log(msg: `failed: {e}`)
+    },
 ])
 ```
 
@@ -467,10 +467,10 @@ Spawned tasks:
 > **Note:** `spawn` is the ONLY concurrency pattern that allows tasks to escape their spawning scope. Unlike `parallel` and `nursery`, which guarantee all tasks complete before the pattern returns, `spawn` tasks are managed by the runtime. For structured concurrency with guaranteed completion, use `nursery`.
 
 ```ori
-@setup () -> void uses Suspend = run(
-    spawn(tasks: [background_monitor()]),
+@setup () -> void uses Suspend = {
+    spawn(tasks: [background_monitor()])
     // Function returns, but monitor continues
-)
+}
 ```
 
 #### Concurrency Control
@@ -528,11 +528,11 @@ Inner timeouts can be shorter than outer:
 
 ```ori
 timeout(
-    op: run(
-        let a = timeout(op: step1(), after: 2s)?,
-        let b = timeout(op: step2(), after: 2s)?,
-        (a, b),
-    ),
+    op: {
+        let a = timeout(op: step1(), after: 2s)?
+        let b = timeout(op: step2(), after: 2s)?
+        (a, b)
+    },
     after: 5s,  // Overall timeout
 )
 ```
@@ -616,13 +616,13 @@ type CancellationReason =
 The `is_cancelled()` built-in function returns `bool`, available in async contexts:
 
 ```ori
-@long_task () -> Result<Data, Error> uses Async = run(
-    for item in items do run(
-        if is_cancelled() then break Err(CancellationError { ... }),
-        process(item),
-    ),
-    Ok(result),
-)
+@long_task () -> Result<Data, Error> uses Async = {
+    for item in items do {
+        if is_cancelled() then break Err(CancellationError { ... })
+        process(item)
+    }
+    Ok(result)
+}
 ```
 
 The `for` loop automatically checks cancellation at each iteration when inside an async context.
@@ -705,7 +705,7 @@ If `op` returns `Err` or panics, the result is NOT cached. To cache error result
 ```ori
 cache(
     key: url,
-    op: match(fetch(url), r -> r),  // Cache the Result itself
+    op: match fetch(url) { r -> r},  // Cache the Result itself
     ttl: 5m,
 )
 ```
@@ -780,11 +780,11 @@ If `acquire:` succeeds, `release:` runs under all exit conditions:
 ```ori
 with(
     acquire: open_file(path),
-    action: f -> run(
-        if bad_condition then panic("abort"),
-        if err_condition then Err("failed")?,
-        read_all(f),
-    ),
+    action: f -> {
+        if bad_condition then panic("abort")
+        if err_condition then Err("failed")?
+        read_all(f)
+    },
     release: f -> close(f),  // Always called
 )
 ```
@@ -823,10 +823,10 @@ When `action:` may fail:
 @process_file (path: str) -> Result<Data, Error> uses FileSystem =
     with(
         acquire: open_file(path)?,
-        action: f -> run(
+        action: f -> {
             let content = f.read_all()?,  // May propagate Err
             parse(content)?,              // May propagate Err
-        ),
+        },
         release: f -> f.close(),  // Still runs on any Err
     )
 ```
@@ -894,20 +894,19 @@ for x in items do
     process(x: x)
 
 // Desugars to:
-run(
-    let iter = items.iter(),
-    loop(
-        match(
-            iter.next(),
-            (Some(x), next_iter) -> run(
-                process(x: x),
-                iter = next_iter,
-                continue,
-            ),
-            (None, _) -> break,
-        ),
-    ),
-)
+{
+    let iter = items.iter()
+    loop {
+        match iter.next() {
+            (Some(x), next_iter) -> {
+                process(x: x)
+                iter = next_iter
+                continue
+            }
+            (None, _) -> break
+        }
+    }
+}
 ```
 
 ## For-Yield Comprehensions

@@ -205,7 +205,7 @@ array_literal  = "[" [ string_literal { "," string_literal } ] "]" .
 // --- Functions ---
 // See: 08-declarations.md § Functions
 
-function      = "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] "=" expression .
+function      = "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] { contract } "=" expression .
 clause_params = "(" [ clause_param { "," clause_param } ] ")" .
 clause_param  = match_pattern [ ":" type ] [ "=" expression ] .  /* pattern with optional type and default */
 guard_clause  = "if" expression .
@@ -323,7 +323,7 @@ const_expr    = integer_literal | "$" identifier | const_expr binary_op const_ex
 // See: 09-expressions.md
 // ============================================================================
 
-expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | unsafe_expr | binary_expr .
+expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | unsafe_expr | block_expr | match_expr | try_expr | binary_expr .
 
 // --- Primary Expressions ---
 
@@ -331,14 +331,27 @@ primary       = literal | identifier | "self" | "Self"
               | "(" expression ")"
               | "#"                                   /* length in index context */
               | list_literal | map_literal | struct_literal
-              | pattern_expr                          /* run, try, match, parallel, etc. */
+              | block_expr                            /* { expr \n expr \n result } */
+              | match_expr                            /* match expr { arms } */
+              | try_expr                              /* try { block_body } */
+              | pattern_expr                          /* parallel, spawn, etc. */
               | unsafe_expr
               | embed_expr | has_embed_expr .
+
+// --- Block Expression ---
+// See: proposals/approved/block-expression-syntax.md
+// Newlines separate expressions inside blocks. Commas allowed for one-liners.
+// Balanced delimiters ((), [], {}) suppress newlines inside them.
+
+block_expr  = "{" block_body "}" .
+block_body  = { block_item sep } result_expr [ sep ] .
+block_item  = let_expr | expression .
+sep         = NEWLINE | "," .
 
 // --- Unsafe Expression ---
 // See: spec/24-ffi.md § Unsafe Blocks
 
-unsafe_expr = "unsafe" "(" expression ")" .
+unsafe_expr = "unsafe" block_expr | "unsafe" "(" expression ")" .
 
 // --- Embed Expressions ---
 // See: 11-built-in-functions.md § embed, § has_embed
@@ -447,7 +460,7 @@ for_expr = "for" [ label ] binding_pattern "in" expression [ "if" expression ] (
 // --- Loop Expression ---
 // See: 09-expressions.md § Loop Expression, 19-control-flow.md § Labeled Loops
 
-loop_expr = "loop" [ label ] "(" expression ")" .
+loop_expr = "loop" [ label ] block_expr .
 
 // --- Labels ---
 // See: 19-control-flow.md § Labeled Loops
@@ -476,8 +489,7 @@ continue_expr = "continue" [ label ] [ expression ] .
 
 // --- Pattern Categories ---
 
-pattern_expr = function_seq | function_exp | function_val | channel_expr .
-function_seq = run_expr | try_expr | match_expr | for_pattern | catch_expr | nursery_expr .
+pattern_expr = function_exp | function_val | channel_expr | for_pattern | catch_expr | nursery_expr .
 function_exp = pattern_name "(" pattern_arg { "," pattern_arg } ")" .
 pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .  /* nursery has explicit nursery_expr */
 pattern_arg  = identifier ":" expression .
@@ -485,23 +497,27 @@ pattern_arg  = identifier ":" expression .
 // Type conversion patterns (call position only)
 function_val = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 
-// --- Sequential Patterns ---
+// --- Block-Based Expressions ---
+// See: proposals/approved/block-expression-syntax.md
 
-// run: Sequential expressions with optional pre/post checks
-// See: 10-patterns.md § run
-run_expr        = "run" "(" [ run_prechecks ] { binding "," } expression [ run_postchecks ] ")" .
-run_prechecks   = { "pre_check" ":" check_expr "," } .
-run_postchecks  = { "," "post_check" ":" postcheck_expr } .
-check_expr      = expression [ "|" string_literal ] .
-postcheck_expr  = lambda_params "->" check_expr .
-
-// try: Error-propagating sequence (returns early on Err)
-try_expr = "try" "(" { binding "," } expression ")" .
-
-// match: Pattern matching
-match_expr = "match" "(" expression "," match_arm { "," match_arm } ")" .
+// match: Pattern matching with scrutinee before block
+match_expr = "match" expression "{" match_arms "}" .
+match_arms = { match_arm sep } [ match_arm ] .
 match_arm  = match_pattern [ guard ] "->" expression .
 guard      = ".match" "(" expression ")" .
+
+// try: Error-propagating block (returns early on Err)
+try_expr = "try" block_expr .
+
+// --- Function-Level Contracts ---
+// See: proposals/approved/block-expression-syntax.md § Function-Level Contracts
+// Contracts sit between the return type and the "=" in function declarations.
+
+contract       = pre_contract | post_contract .
+pre_contract   = "pre" "(" check_expr ")" .
+post_contract  = "post" "(" postcheck_expr ")" .
+check_expr     = expression [ "|" string_literal ] .
+postcheck_expr = lambda_params "->" check_expr .
 
 // for pattern: First-match iteration
 // See: 10-patterns.md § for Pattern

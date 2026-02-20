@@ -212,12 +212,12 @@ type Point = { x: int, y: int }
 
 // Generated: combine field hashes
 impl Hashable for Point {
-    @hash (self) -> int = run(
-        let h = 0,
-        h = hash_combine(seed: h, value: self.x.hash()),
-        h = hash_combine(seed: h, value: self.y.hash()),
-        h,
-    )
+    @hash (self) -> int = {
+        let h = 0
+        h = hash_combine(seed: h, value: self.x.hash())
+        h = hash_combine(seed: h, value: self.y.hash())
+        h
+    }
 }
 ```
 

@@ -58,11 +58,11 @@ The compiler evaluates constant expressions at compile time when possible. Expre
 The `$` prefix may be used in local scope to create immutable local bindings:
 
 ```ori
-@process (input: int) -> int = run(
-    let $base = expensive_calculation(input),
+@process (input: int) -> int = {
+    let $base = expensive_calculation(input)
     // ... $base cannot be reassigned ...
-    $base * 2,
-)
+    $base * 2
+}
 ```
 
 ## Identifier Rules

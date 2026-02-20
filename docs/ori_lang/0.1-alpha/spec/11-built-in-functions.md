@@ -120,10 +120,10 @@ panic(msg: str) -> Never
 An optional top-level function that executes before program termination when a panic occurs.
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `Fatal error: {info.message}`),
-    print(msg: `Location: {info.location.file}:{info.location.line}`),
-)
+@panic (info: PanicInfo) -> void = {
+    print(msg: `Fatal error: {info.message}`)
+    print(msg: `Location: {info.location.file}:{info.location.line}`)
+}
 ```
 
 ### Rules
@@ -163,12 +163,12 @@ When multiple tasks panic simultaneously:
 If no `@panic` handler is defined:
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `panic: {info.message}`),
-    print(msg: `  at {info.location.file}:{info.location.line}`),
+@panic (info: PanicInfo) -> void = {
+    print(msg: `panic: {info.message}`)
+    print(msg: `  at {info.location.file}:{info.location.line}`)
     for frame in info.stack_trace do
-        print(msg: `    {frame.function}`),
-)
+        print(msg: `    {frame.function}`)
+}
 ```
 
 ### Capabilities
@@ -190,13 +190,12 @@ Marks unfinished code. Panics with "not yet implemented" and file location.
 @parse_json (input: str) -> Result<Json, Error> = todo()
 // Panics: "not yet implemented at src/parser.ori:15"
 
-@handle_event (event: Event) -> void = match(
-    event,
-    Click(pos) -> handle_click(pos: pos),
-    Scroll(delta) -> todo(reason: "scroll handling"),
+@handle_event (event: Event) -> void = match event {
+    Click(pos) -> handle_click(pos: pos)
+    Scroll(delta) -> todo(reason: "scroll handling")
     // Panics: "not yet implemented: scroll handling at src/ui.ori:42"
-    KeyPress(key) -> handle_key(key: key),
-)
+    KeyPress(key) -> handle_key(key: key)
+}
 ```
 
 ### unreachable
@@ -209,12 +208,11 @@ unreachable(reason: str) -> Never
 Marks code that should never execute. Panics with "unreachable code reached" and file location.
 
 ```ori
-@day_type (day: int) -> str = match(
-    day,
-    1 | 2 | 3 | 4 | 5 -> "weekday",
-    6 | 7 -> "weekend",
-    _ -> unreachable(reason: "day must be 1-7"),
-)
+@day_type (day: int) -> str = match day {
+    1 | 2 | 3 | 4 | 5 -> "weekday"
+    6 | 7 -> "weekend"
+    _ -> unreachable(reason: "day must be 1-7")
+}
 ```
 
 ### dbg
@@ -257,12 +255,12 @@ drop_early<T>(value: T) -> void
 Forces a value to be dropped before the end of its scope. Takes ownership of the value, causing its destructor to run immediately (if the type implements `Drop`) and its memory to be reclaimed.
 
 ```ori
-run(
-    let file = open_file(path: "data.txt"),
-    let content = read_all(file),
+{
+    let file = open_file(path: "data.txt")
+    let content = read_all(file)
     drop_early(value: file),  // Close immediately, don't wait for scope end
     process(content),         // Continue with content, file already closed
-)
+}
 ```
 
 Works for any type, not just types implementing `Drop`:

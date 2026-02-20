@@ -78,11 +78,11 @@ On first error (task failure or panic):
 ```ori
 // Example: FailFast behavior
 let results = nursery(
-    body: n -> run(
+    body: n -> {
         n.spawn(task: () -> slow_success()),     // Will be cancelled
         n.spawn(task: () -> immediate_fail()),   // Fails first
         n.spawn(task: () -> medium_success()),   // Will be cancelled
-    ),
+    },
     on_error: FailFast,
 )
 // results: [Err(CancellationError), Err(original_error), Err(CancellationError)]
@@ -104,11 +104,11 @@ On first error:
 ```ori
 // Example: CancelRemaining behavior
 let results = nursery(
-    body: n -> run(
+    body: n -> {
         n.spawn(task: () -> slow_success()),     // Continues running
         n.spawn(task: () -> immediate_fail()),   // Fails
         n.spawn(task: () -> queued_task()),      // Cancelled (was pending)
-    ),
+    },
     on_error: CancelRemaining,
     max_concurrent: 2,  // Only 2 run at a time
 )
@@ -129,12 +129,12 @@ Errors do not trigger cancellation:
 ```ori
 // Example: CollectAll behavior
 let results = nursery(
-    body: n -> run(
-        n.spawn(task: () -> success_1()),
-        n.spawn(task: () -> fail_1()),
-        n.spawn(task: () -> success_2()),
-        n.spawn(task: () -> fail_2()),
-    ),
+    body: n -> {
+        n.spawn(task: () -> success_1())
+        n.spawn(task: () -> fail_1())
+        n.spawn(task: () -> success_2())
+        n.spawn(task: () -> fail_2())
+    },
     on_error: CollectAll,
 )
 // results: [Ok(r1), Err(e1), Ok(r2), Err(e2)]
@@ -192,11 +192,11 @@ When a task is cancelled:
 3. Cleanup is **guaranteed** to complete before the task terminates
 
 ```ori
-@task_with_cleanup () -> void uses Suspend = run(
+@task_with_cleanup () -> void uses Suspend = {
     let resource = acquire_resource(),  // Has destructor
     do_work(),                           // <- Cancellation observed here
     // resource's destructor runs even if cancelled
-)
+}
 ```
 
 ### No Partial Cleanup
@@ -212,14 +212,14 @@ A task cannot be forcibly terminated during destructor execution. If a destructo
 Tasks can check if they've been cancelled:
 
 ```ori
-@long_running_task () -> Result<Data, Error> uses Suspend = run(
-    let result = [],
-    for item in large_dataset do run(
-        if is_cancelled() then break Err(CancellationError { ... }),
-        result = result + [process(item)],
-    ),
-    Ok(result),
-)
+@long_running_task () -> Result<Data, Error> uses Suspend = {
+    let result = []
+    for item in large_dataset do {
+        if is_cancelled() then break Err(CancellationError { ... })
+        result = result + [process(item)]
+    }
+    Ok(result)
+}
 ```
 
 `is_cancelled()` is a built-in function available in async contexts that returns `bool`.
@@ -254,10 +254,10 @@ When an outer nursery cancels a task containing an inner nursery:
 )
 
 @inner () -> void uses Suspend = nursery(
-    body: n -> run(
+    body: n -> {
         n.spawn(task: () -> task_a()),  // ...these are also cancelled
-        n.spawn(task: () -> task_b()),
-    ),
+        n.spawn(task: () -> task_b())
+    },
 )
 ```
 
@@ -286,29 +286,29 @@ If a destructor panics during cancellation unwinding:
 ### First Success Pattern
 
 ```ori
-@first_success<T> (tasks: [() -> T uses Suspend]) -> Result<T, Error> uses Suspend = run(
+@first_success<T> (tasks: [() -> T uses Suspend]) -> Result<T, Error> uses Suspend = {
     let results = nursery(
-        body: n -> for task in tasks do n.spawn(task: task),
-        on_error: CancelRemaining,
-    ),
-    results.find(r -> r.is_ok()).unwrap_or(Err(AllFailed)),
-)
+        body: n -> for task in tasks do n.spawn(task: task)
+        on_error: CancelRemaining
+    )
+    results.find(r -> r.is_ok()).unwrap_or(Err(AllFailed))
+}
 ```
 
 ### Explicit Cancellation Check
 
 ```ori
 @batch_process (items: [Item]) -> [Result<Output, Error>] uses Suspend = nursery(
-    body: n -> for item in items do n.spawn(task: () -> run(
+    body: n -> for item in items do n.spawn(task: () -> {
         // Heavy computation
-        let partial = phase1(item),
+        let partial = phase1(item)
 
         // Check if we should continue
-        if is_cancelled() then Err(CancellationError { ... })?,
+        if is_cancelled() then Err(CancellationError { ... })?
 
         // More heavy computation
-        phase2(partial),
-    )),
+        phase2(partial)
+    }),
 )
 ```
 

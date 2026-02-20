@@ -14,28 +14,25 @@ Real programs often have chains of operations that can fail. The `?` operator an
 Without special syntax, error handling gets deeply nested:
 
 ```ori
-@load_user_config (user_id: int) -> Result<Config, Error> = run(
-    let user_result = find_user(id: user_id),
-    match(
-        user_result,
-        Err(e) -> Err(e),
-        Ok(user) -> run(
-            let file_result = read_file(path: user.config_path),
-            match(
-                file_result,
-                Err(e) -> Err(e),
-                Ok(content) -> run(
-                    let config_result = parse_config(data: content),
-                    match(
-                        config_result,
-                        Err(e) -> Err(e),
-                        Ok(config) -> Ok(config),
-                    ),
-                ),
-            ),
-        ),
-    ),
-)
+@load_user_config (user_id: int) -> Result<Config, Error> = {
+    let user_result = find_user(id: user_id)
+    match user_result {
+        Err(e) -> Err(e)
+        Ok(user) -> {
+            let file_result = read_file(path: user.config_path)
+            match file_result {
+                Err(e) -> Err(e)
+                Ok(content) -> {
+                    let config_result = parse_config(data: content)
+                    match config_result {
+                        Err(e) -> Err(e)
+                        Ok(config) -> Ok(config)
+                    }
+                }
+            }
+        }
+    }
+}
 ```
 
 This is hard to read and write.
@@ -47,12 +44,12 @@ The `?` operator does two things:
 2. If the value is `Err(e)`, return early with that error
 
 ```ori
-@load_user_config (user_id: int) -> Result<Config, Error> = run(
-    let user = find_user(id: user_id)?,
-    let content = read_file(path: user.config_path)?,
-    let config = parse_config(data: content)?,
-    Ok(config),
-)
+@load_user_config (user_id: int) -> Result<Config, Error> = {
+    let user = find_user(id: user_id)?
+    let content = read_file(path: user.config_path)?
+    let config = parse_config(data: content)?
+    Ok(config)
+}
 ```
 
 Much cleaner! Each `?` either continues with the success value or returns early with the error.
@@ -68,11 +65,10 @@ let value = fallible_operation()?
 It expands to:
 
 ```ori
-let value = match(
-    fallible_operation(),
-    Ok(v) -> v,
-    Err(e) -> return Err(e),
-)
+let value = match fallible_operation() {
+    Ok(v) -> v
+    Err(e) -> return Err(e)
+}
 ```
 
 The key insight is that `?` causes an early return on error.
@@ -82,12 +78,12 @@ The key insight is that `?` causes an early return on error.
 The `?` operator also works with `Option`:
 
 ```ori
-@get_user_city (id: int) -> Option<str> = run(
+@get_user_city (id: int) -> Option<str> = {
     let user = find_user(id: id)?,          // Returns None if not found
     let address = user.address?,             // Returns None if no address
     let city = address.city?,                // Returns None if no city
-    Some(city),
-)
+    Some(city)
+}
 ```
 
 If any `?` encounters `None`, the function returns `None` immediately.
@@ -97,12 +93,12 @@ If any `?` encounters `None`, the function returns `None` immediately.
 For a sequence of fallible operations, `try` is cleaner than `run`:
 
 ```ori
-@load_user_config (user_id: int) -> Result<Config, Error> = try(
-    let user = find_user(id: user_id)?,
-    let content = read_file(path: user.config_path)?,
-    let config = parse_config(data: content)?,
-    Ok(config),
-)
+@load_user_config (user_id: int) -> Result<Config, Error> = try {
+    let user = find_user(id: user_id)?
+    let content = read_file(path: user.config_path)?
+    let config = parse_config(data: content)?
+    Ok(config)
+}
 ```
 
 `try` is designed for error-propagating code and provides better error traces.
@@ -112,18 +108,18 @@ For a sequence of fallible operations, `try` is cleaner than `run`:
 Use `try` when you're mainly propagating errors. Use `run` when you're not:
 
 ```ori
-@process_batch (items: [int]) -> Result<Summary, Error> = try(
-    let results = for item in items yield process_item(id: item)?,
+@process_batch (items: [int]) -> Result<Summary, Error> = try {
+    let results = for item in items yield process_item(id: item)?
 
     // Switch to run for non-fallible computation
-    let summary = run(
-        let total = len(collection: results),
-        let sum = results.fold(initial: 0, op: (a, b) -> a + b),
-        Summary { total, average: sum / total },
-    ),
+    let summary = {
+        let total = len(collection: results)
+        let sum = results.fold(initial: 0, op: (a, b) -> a + b)
+        Summary { total, average: sum / total }
+    }
 
-    Ok(summary),
-)
+    Ok(summary)
+}
 ```
 
 ## Error Traces
@@ -144,15 +140,14 @@ type TraceEntry = {
 ### Accessing Traces
 
 ```ori
-match(
-    result,
-    Ok(v) -> print(msg: `Success: {v}`),
-    Err(e) -> run(
-        print(msg: `Error: {e.message}`),
+match result {
+    Ok(v) -> print(msg: `Success: {v}`)
+    Err(e) -> {
+        print(msg: `Error: {e.message}`)
         if e.has_trace() then
-            print(msg: `Trace:\n{e.trace()}`),
-    ),
-)
+            print(msg: `Trace:\n{e.trace()}`)
+    }
+}
 ```
 
 ### Trace Example
@@ -163,15 +158,15 @@ When an error propagates through multiple functions:
 @inner () -> Result<int, Error> =
     Err(Error { message: "something went wrong" })
 
-@middle () -> Result<int, Error> = try(
+@middle () -> Result<int, Error> = try {
     let x = inner()?,    // Trace point 1
-    Ok(x),
-)
+    Ok(x)
+}
 
-@outer () -> Result<int, Error> = try(
+@outer () -> Result<int, Error> = try {
     let x = middle()?,   // Trace point 2
-    Ok(x),
-)
+    Ok(x)
+}
 ```
 
 The error trace shows the propagation path:
@@ -188,13 +183,13 @@ Trace:
 When propagating errors, add context to help with debugging:
 
 ```ori
-@load_settings () -> Result<Settings, Error> = try(
+@load_settings () -> Result<Settings, Error> = try {
     let data = read_file(path: "settings.json")
-        .context(msg: "Failed to read settings file")?,
+        .context(msg: "Failed to read settings file")?
     let settings = parse_settings(data: data)
-        .context(msg: "Invalid settings format")?,
-    Ok(settings),
-)
+        .context(msg: "Invalid settings format")?
+    Ok(settings)
+}
 ```
 
 ### How `.context()` Works
@@ -239,13 +234,12 @@ type ApiError =
     | NotFound(resource: str)
 
 impl Printable for ApiError {
-    @to_str (self) -> str = match(
-        self,
-        NetworkError(msg) -> `Network error: {msg}`,
-        ParseError(msg, line) -> `Parse error at line {line}: {msg}`,
-        ValidationError(errors) -> `Validation errors: {errors.join(sep: ", ")}`,
-        NotFound(resource) -> `Not found: {resource}`,
-    )
+    @to_str (self) -> str = match self {
+        NetworkError(msg) -> `Network error: {msg}`
+        ParseError(msg, line) -> `Parse error at line {line}: {msg}`
+        ValidationError(errors) -> `Validation errors: {errors.join(sep: ", ")}`
+        NotFound(resource) -> `Not found: {resource}`
+    }
 }
 ```
 
@@ -282,17 +276,17 @@ For non-Traceable error types, traces attach to the `Result` wrapper during prop
 When functions return different error types:
 
 ```ori
-@read_config () -> Result<Config, ConfigError> = try(
+@read_config () -> Result<Config, ConfigError> = try {
     // read_file returns IoError, but we need ConfigError
     let data = read_file(path: "config.json")
-        .map_err(transform: e -> ConfigError.IoError(msg: e.message))?,
+        .map_err(transform: e -> ConfigError.IoError(msg: e.message))?
 
     // parse returns ParseError
     let config = parse(data: data)
-        .map_err(transform: e -> ConfigError.ParseError(msg: e.message))?,
+        .map_err(transform: e -> ConfigError.ParseError(msg: e.message))?
 
-    Ok(config),
-)
+    Ok(config)
+}
 ```
 
 ### The Into Trait
@@ -301,11 +295,11 @@ Types implementing `Into<Error>` convert automatically:
 
 ```ori
 // str implements Into<Error>
-@example () -> Result<int, Error> = try(
+@example () -> Result<int, Error> = try {
     let value = parse_int(s: "abc")
         .ok_or(error: "invalid number")?,  // str -> Error
-    Ok(value),
-)
+    Ok(value)
+}
 ```
 
 ## Combining Results
@@ -315,19 +309,18 @@ Types implementing `Into<Error>` convert automatically:
 When you have a list of Results:
 
 ```ori
-@process_all (ids: [int]) -> Result<[User], Error> = run(
-    let results = for id in ids yield fetch_user(id: id),
+@process_all (ids: [int]) -> Result<[User], Error> = {
+    let results = for id in ids yield fetch_user(id: id)
 
     // Check if any failed
     let first_error = results.iter()
-        .find(predicate: r -> is_err(result: r)),
+        .find(predicate: r -> is_err(result: r))
 
-    match(
-        first_error,
-        Some(Err(e)) -> Err(e),
-        _ -> Ok(for r in results yield match(r, Ok(u) -> u, Err(_) -> continue)),
-    ),
-)
+    match first_error {
+        Some(Err(e)) -> Err(e)
+        _ -> Ok(for r in results yield match r { Ok(u) -> u, Err(_) -> continue})
+    }
+}
 ```
 
 ### Fail Fast
@@ -335,10 +328,10 @@ When you have a list of Results:
 Stop on first error:
 
 ```ori
-@process_all_fast (ids: [int]) -> Result<[User], Error> = try(
-    let users = for id in ids yield fetch_user(id: id)?,
-    Ok(users),
-)
+@process_all_fast (ids: [int]) -> Result<[User], Error> = try {
+    let users = for id in ids yield fetch_user(id: id)?
+    Ok(users)
+}
 ```
 
 ### Collect All Errors
@@ -346,20 +339,19 @@ Stop on first error:
 Gather all errors:
 
 ```ori
-@process_all_errors (ids: [int]) -> Result<[User], [Error]> = run(
-    let results = for id in ids yield fetch_user(id: id),
+@process_all_errors (ids: [int]) -> Result<[User], [Error]> = {
+    let results = for id in ids yield fetch_user(id: id)
 
-    let errors = for r in results if is_err(result: r) yield match(
-        r,
-        Err(e) -> e,
-        Ok(_) -> continue,
-    ),
+    let errors = for r in results if is_err(result: r) yield match r {
+        Err(e) -> e
+        Ok(_) -> continue
+    }
 
     if is_empty(collection: errors) then
-        Ok(for r in results yield match(r, Ok(u) -> u, Err(_) -> continue))
+        Ok(for r in results yield match r { Ok(u) -> u, Err(_) -> continue})
     else
-        Err(errors),
-)
+        Err(errors)
+}
 ```
 
 ## Complete Example
@@ -373,12 +365,11 @@ type AppError =
     | ParseError(message: str)
 
 impl Printable for AppError {
-    @to_str (self) -> str = match(
-        self,
-        UserNotFound(id) -> `User {id} not found`,
-        FileError(path, msg) -> `File error ({path}): {msg}`,
-        ParseError(msg) -> `Parse error: {msg}`,
-    )
+    @to_str (self) -> str = match self {
+        UserNotFound(id) -> `User {id} not found`
+        FileError(path, msg) -> `File error ({path}): {msg}`
+        ParseError(msg) -> `Parse error: {msg}`
+    }
 }
 
 // Simulated operations
@@ -388,10 +379,10 @@ impl Printable for AppError {
     else
         Err(UserNotFound(id: id))
 
-@test_find_user tests @find_user () -> void = run(
-    assert_ok(result: find_user(id: 1)),
-    assert_err(result: find_user(id: -1)),
-)
+@test_find_user tests @find_user () -> void = {
+    assert_ok(result: find_user(id: 1))
+    assert_err(result: find_user(id: -1))
+}
 
 @read_config_file (path: str) -> Result<str, AppError> =
     if path == "/config.json" then
@@ -399,10 +390,10 @@ impl Printable for AppError {
     else
         Err(FileError(path: path, message: "not found"))
 
-@test_read_config tests @read_config_file () -> void = run(
-    assert_ok(result: read_config_file(path: "/config.json")),
-    assert_err(result: read_config_file(path: "/missing.json")),
-)
+@test_read_config tests @read_config_file () -> void = {
+    assert_ok(result: read_config_file(path: "/config.json"))
+    assert_err(result: read_config_file(path: "/missing.json"))
+}
 
 @parse_config (data: str) -> Result<Config, AppError> =
     if data.contains(substring: "theme") then
@@ -410,44 +401,44 @@ impl Printable for AppError {
     else
         Err(ParseError(message: "missing theme"))
 
-@test_parse tests @parse_config () -> void = run(
-    assert_ok(result: parse_config(data: `{"theme": "dark"}`)),
-    assert_err(result: parse_config(data: `{}`)),
-)
+@test_parse tests @parse_config () -> void = {
+    assert_ok(result: parse_config(data: `{"theme": "dark"}`))
+    assert_err(result: parse_config(data: `{}`))
+}
 
 // The main function using error propagation
-@load_user_config (user_id: int) -> Result<Config, AppError> = try(
-    let user = find_user(id: user_id)?,
-    let data = read_config_file(path: user.config_path)?,
-    let config = parse_config(data: data)?,
-    Ok(config),
-)
+@load_user_config (user_id: int) -> Result<Config, AppError> = try {
+    let user = find_user(id: user_id)?
+    let data = read_config_file(path: user.config_path)?
+    let config = parse_config(data: data)?
+    Ok(config)
+}
 
-@test_load_user_config tests @load_user_config () -> void = run(
-    assert_ok(result: load_user_config(user_id: 1)),
-    assert_err(result: load_user_config(user_id: -1)),
-)
+@test_load_user_config tests @load_user_config () -> void = {
+    assert_ok(result: load_user_config(user_id: 1))
+    assert_err(result: load_user_config(user_id: -1))
+}
 
 // With context
-@load_user_config_verbose (user_id: int) -> Result<Config, Error> = try(
+@load_user_config_verbose (user_id: int) -> Result<Config, Error> = try {
     let user = find_user(id: user_id)
         .map_err(transform: e -> Error { message: e.to_str() })
-        .context(msg: `Failed to find user {user_id}`)?,
+        .context(msg: `Failed to find user {user_id}`)?
 
     let data = read_config_file(path: user.config_path)
         .map_err(transform: e -> Error { message: e.to_str() })
-        .context(msg: `Failed to read config for {user.name}`)?,
+        .context(msg: `Failed to read config for {user.name}`)?
 
     let config = parse_config(data: data)
         .map_err(transform: e -> Error { message: e.to_str() })
-        .context(msg: "Failed to parse config")?,
+        .context(msg: "Failed to parse config")?
 
-    Ok(config),
-)
+    Ok(config)
+}
 
-@test_verbose tests @load_user_config_verbose () -> void = run(
-    assert_ok(result: load_user_config_verbose(user_id: 1)),
-)
+@test_verbose tests @load_user_config_verbose () -> void = {
+    assert_ok(result: load_user_config_verbose(user_id: 1))
+}
 ```
 
 ## Quick Reference
@@ -465,11 +456,11 @@ let value = optional()? // Returns early on None
 ### The `try` Pattern
 
 ```ori
-try(
-    let a = step1()?,
-    let b = step2(input: a)?,
-    Ok(result),
-)
+try {
+    let a = step1()?
+    let b = step2(input: a)?
+    Ok(result)
+}
 ```
 
 ### Context and Transformation

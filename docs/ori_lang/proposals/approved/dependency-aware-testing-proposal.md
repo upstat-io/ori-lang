@@ -55,16 +55,16 @@ This enables **dependency-aware test execution**: run exactly the tests that cou
 @parse (input: str) -> Result<Ast, Error> = ...
 @test_parse tests @parse () -> void = ...
 
-@compile (input: str) -> Result<Binary, Error> = run(
-    let ast = parse(input: input)?,
-    generate_code(ast: ast),
-)
+@compile (input: str) -> Result<Binary, Error> = {
+    let ast = parse(input: input)?
+    generate_code(ast: ast)
+}
 @test_compile tests @compile () -> void = ...
 
-@run_program (input: str) -> Result<Output, Error> = run(
-    let binary = compile(input: input)?,
-    execute(binary: binary),
-)
+@run_program (input: str) -> Result<Output, Error> = {
+    let binary = compile(input: input)?
+    execute(binary: binary)
+}
 @test_run tests @run_program () -> void = ...
 ```
 
@@ -209,7 +209,7 @@ Tests with `tests @target` are unit tests:
 ```ori
 @test_fetch_user tests @fetch_user () -> void =
     with Http = MockHttp(responses: {...}) in
-    run(...)
+    {...}
 ```
 
 ### Floating Tests (Integration Tests)
@@ -223,11 +223,11 @@ Tests without `tests @target` are integration tests:
 ```ori
 @test_end_to_end () -> void =
     with Http = RealHttp() in
-    run(
-        let user = create_user(name: "Test"),
-        let fetched = fetch_user(id: user.id),
-        assert_eq(fetched.name, "Test"),
-    )
+    {
+        let user = create_user(name: "Test")
+        let fetched = fetch_user(id: user.id)
+        assert_eq(fetched.name, "Test")
+    }
 ```
 
 ### Execution Rules

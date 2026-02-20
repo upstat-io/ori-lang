@@ -295,12 +295,12 @@ use std.http { get }
 type Config = { api_url: str, timeout: Duration }
 
 @main () -> void uses FileSystem, Http =
-    run(
-        let config = read(path: "config.json")?,
-        let config = parse_as<Config>(source: config)?,
-        let response = get(url: config.api_url)?,
+    {
+        let config = read(path: "config.json")?
+        let config = parse_as<Config>(source: config)?
+        let response = get(url: config.api_url)?
         print(msg: response.body)
-    )
+    }
 ```
 
 No third-party packages needed for basic operations.

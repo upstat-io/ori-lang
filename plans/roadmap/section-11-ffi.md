@@ -322,16 +322,16 @@ Inside `unsafe`:
 @call_c_function () -> int uses FFI = some_c_function()
 
 // Callers must have capability
-@main () -> void uses FFI = run(
-    let result = call_c_function(),
-    print(msg: `Result: {result}`),
-)
+@main () -> void uses FFI = {
+    let result = call_c_function()
+    print(msg: `Result: {result}`)
+}
 
 // Or provide it explicitly in tests
-@test_c_call tests @call_c_function () -> void = run(
+@test_c_call tests @call_c_function () -> void = {
     with FFI = AllowFFI in
-        assert_eq(actual: call_c_function(), expected: 42),
-)
+        assert_eq(actual: call_c_function(), expected: 42)
+}
 ```
 
 ### Implementation
@@ -533,10 +533,10 @@ extern "js" {
 
 // JsPromise auto-resolved at binding sites
 @fetch_text (url: str) -> str uses Async, FFI =
-    run(
+    {
         let response = _fetch(url: url),  // auto-resolved
         text
-    )
+    }
 ```
 
 ### Implementation
@@ -597,14 +597,14 @@ type SqliteDb = { handle: CPtr }
 
 impl SqliteDb {
     pub @open (path: str) -> Result<SqliteDb, str> uses FFI =
-        run(
-            let handle = CPtr.null(),
-            let result = _sqlite3_open(filename: path, ppDb: handle),
+        {
+            let handle = CPtr.null()
+            let result = _sqlite3_open(filename: path, ppDb: handle)
             if result == 0 then
                 Ok(SqliteDb { handle: handle })
             else
                 Err("Failed to open database")
-        )
+        }
 
     pub @close (self) -> void uses FFI =
         _sqlite3_close(db: self.handle)

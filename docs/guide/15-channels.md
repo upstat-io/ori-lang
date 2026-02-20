@@ -59,37 +59,37 @@ let (producer, consumer) = channel_in<int>(buffer: 10)
 - Use when: Aggregating results from multiple workers
 
 ```ori
-@aggregate_results (worker_count: int) -> [Result<int, Error>] uses Async = run(
-    let (producer, consumer) = channel_in<Result<int, Error>>(buffer: 100),
+@aggregate_results (worker_count: int) -> [Result<int, Error>] uses Async = {
+    let (producer, consumer) = channel_in<Result<int, Error>>(buffer: 100)
 
     nursery(
-        body: n -> run(
+        body: n -> {
             // Spawn multiple workers, each with a cloned producer
-            for i in 0..worker_count do run(
-                let p = producer.clone(),
-                n.spawn(task: () -> run(
-                    let result = compute_work(worker_id: i),
-                    p.send(value: result),
-                )),
-            ),
-            producer.close(),
-        ),
-        on_error: CollectAll,
-        timeout: 60s,
-    ),
+            for i in 0..worker_count do {
+                let p = producer.clone()
+                n.spawn(task: () -> {
+                    let result = compute_work(worker_id: i)
+                    p.send(value: result)
+                })
+            }
+            producer.close()
+        }
+        on_error: CollectAll
+        timeout: 60s
+    )
 
     // Collect all results
-    let results: [Result<int, Error>] = [],
-    loop(
+    let results: [Result<int, Error>] = []
+    loop {
         match(consumer.receive()) {
-            Some(r) -> run(
-                results = [...results, r],
-                continue,
-            ),
-            None -> break results,
-        },
-    ),
-)
+            Some(r) -> {
+                results = [...results, r]
+                continue
+            }
+            None -> break results
+        }
+    }
+}
 ```
 
 ### channel_out — Fan-Out (One-to-Many)
@@ -105,38 +105,38 @@ let (producer, consumer) = channel_out<int>(buffer: 10)
 - Use when: Distributing work to multiple workers
 
 ```ori
-@distribute_work (items: [Item], worker_count: int) -> void uses Async = run(
-    let (producer, consumer) = channel_out<Item>(buffer: 100),
+@distribute_work (items: [Item], worker_count: int) -> void uses Async = {
+    let (producer, consumer) = channel_out<Item>(buffer: 100)
 
     nursery(
-        body: n -> run(
+        body: n -> {
             // Spawn workers with cloned consumers
-            for _ in 0..worker_count do run(
-                let c = consumer.clone(),
-                n.spawn(task: () -> worker(input: c)),
-            ),
+            for _ in 0..worker_count do {
+                let c = consumer.clone()
+                n.spawn(task: () -> worker(input: c))
+            }
 
             // Send work to the channel
             for item in items do
-                producer.send(value: item),
-            producer.close(),
-        ),
-        on_error: CollectAll,
-        timeout: 300s,
-    ),
-)
+                producer.send(value: item)
+            producer.close()
+        }
+        on_error: CollectAll
+        timeout: 300s
+    )
+}
 
-@worker (input: CloneableConsumer<Item>) -> void uses Async = run(
-    loop(
+@worker (input: CloneableConsumer<Item>) -> void uses Async = {
+    loop {
         match(input.receive()) {
-            Some(item) -> run(
-                process_item(item: item),
-                continue,
-            ),
-            None -> break,
-        },
-    ),
-)
+            Some(item) -> {
+                process_item(item: item)
+                continue
+            }
+            None -> break
+        }
+    }
+}
 ```
 
 ### channel_all — Many-to-Many
@@ -188,12 +188,12 @@ for value in consumer do
 This is equivalent to:
 
 ```ori
-loop(
+loop {
     match(consumer.receive()) {
-        Some(value) -> process(value: value),
-        None -> break,
-    },
-)
+        Some(value) -> process(value: value)
+        None -> break
+    }
+}
 ```
 
 ## The Buffer
@@ -264,50 +264,50 @@ type WorkResult = { id: int, output: str }
 @process_with_pool (
     items: [WorkItem],
     worker_count: int,
-) -> [WorkResult] uses Async = run(
-    let (work_producer, work_consumer) = channel_out<WorkItem>(buffer: 100),
-    let (result_producer, result_consumer) = channel_in<WorkResult>(buffer: 100),
+) -> [WorkResult] uses Async = {
+    let (work_producer, work_consumer) = channel_out<WorkItem>(buffer: 100)
+    let (result_producer, result_consumer) = channel_in<WorkResult>(buffer: 100)
 
     nursery(
-        body: n -> run(
+        body: n -> {
             // Spawn workers
-            for _ in 0..worker_count do run(
-                let wc = work_consumer.clone(),
-                let rp = result_producer.clone(),
-                n.spawn(task: () -> pool_worker(work: wc, results: rp)),
-            ),
+            for _ in 0..worker_count do {
+                let wc = work_consumer.clone()
+                let rp = result_producer.clone()
+                n.spawn(task: () -> pool_worker(work: wc, results: rp))
+            }
 
             // Send work
             for item in items do
-                work_producer.send(value: item),
-            work_producer.close(),
-        ),
-        on_error: CollectAll,
-        timeout: 300s,
-    ),
+                work_producer.send(value: item)
+            work_producer.close()
+        }
+        on_error: CollectAll
+        timeout: 300s
+    )
 
     // Collect results
-    let results: [WorkResult] = [],
-    loop(
+    let results: [WorkResult] = []
+    loop {
         match(result_consumer.receive()) {
-            Some(r) -> run(
-                results = [...results, r],
-                continue,
-            ),
-            None -> break results,
-        },
-    ),
-)
+            Some(r) -> {
+                results = [...results, r]
+                continue
+            }
+            None -> break results
+        }
+    }
+}
 
 @pool_worker (
     work: CloneableConsumer<WorkItem>,
     results: CloneableProducer<WorkResult>,
-) -> void uses Async = run(
-    for item in work do run(
-        let output = process_work(item: item),
-        results.send(value: WorkResult { id: item.id, output }),
-    ),
-)
+) -> void uses Async = {
+    for item in work do {
+        let output = process_work(item: item)
+        results.send(value: WorkResult { id: item.id, output })
+    }
+}
 
 @process_work (item: WorkItem) -> str = `Processed: {item.data}`
 ```
@@ -321,52 +321,52 @@ type Stage1Output = { data: str }
 type Stage2Output = { data: str, processed: bool }
 type FinalOutput = { data: str, processed: bool, validated: bool }
 
-@pipeline (input: [str]) -> [FinalOutput] uses Async = run(
+@pipeline (input: [str]) -> [FinalOutput] uses Async = {
     // Create channels between stages
-    let (stage1_out, stage2_in) = channel<Stage1Output>(buffer: 50),
-    let (stage2_out, stage3_in) = channel<Stage2Output>(buffer: 50),
-    let (stage3_out, collector) = channel<FinalOutput>(buffer: 50),
+    let (stage1_out, stage2_in) = channel<Stage1Output>(buffer: 50)
+    let (stage2_out, stage3_in) = channel<Stage2Output>(buffer: 50)
+    let (stage3_out, collector) = channel<FinalOutput>(buffer: 50)
 
     nursery(
-        body: n -> run(
+        body: n -> {
             // Stage 1: Transform
-            n.spawn(task: () -> run(
+            n.spawn(task: () -> {
                 for item in input do
-                    stage1_out.send(value: Stage1Output { data: item }),
-                stage1_out.close(),
-            )),
+                    stage1_out.send(value: Stage1Output { data: item })
+                stage1_out.close()
+            })
 
             // Stage 2: Process
-            n.spawn(task: () -> run(
+            n.spawn(task: () -> {
                 for item in stage2_in do
                     stage2_out.send(value: Stage2Output {
-                        data: item.data,
-                        processed: true,
-                    }),
-                stage2_out.close(),
-            )),
+                        data: item.data
+                        processed: true
+                    })
+                stage2_out.close()
+            })
 
             // Stage 3: Validate
-            n.spawn(task: () -> run(
+            n.spawn(task: () -> {
                 for item in stage3_in do
                     stage3_out.send(value: FinalOutput {
-                        data: item.data,
-                        processed: item.processed,
-                        validated: true,
-                    }),
-                stage3_out.close(),
-            )),
-        ),
-        on_error: FailFast,
-        timeout: 60s,
-    ),
+                        data: item.data
+                        processed: item.processed
+                        validated: true
+                    })
+                stage3_out.close()
+            })
+        }
+        on_error: FailFast
+        timeout: 60s
+    )
 
     // Collect final results
-    let results: [FinalOutput] = [],
+    let results: [FinalOutput] = []
     for result in collector do
-        results = [...results, result],
-    results,
-)
+        results = [...results, result]
+    results
+}
 ```
 
 ### Fan-Out/Fan-In
@@ -374,40 +374,40 @@ type FinalOutput = { data: str, processed: bool, validated: bool }
 Distribute work, then aggregate:
 
 ```ori
-@fan_out_fan_in (items: [int], worker_count: int) -> int uses Async = run(
+@fan_out_fan_in (items: [int], worker_count: int) -> int uses Async = {
     // Fan-out channel
-    let (distribute, workers) = channel_out<int>(buffer: 100),
+    let (distribute, workers) = channel_out<int>(buffer: 100)
 
     // Fan-in channel
-    let (results, aggregator) = channel_in<int>(buffer: 100),
+    let (results, aggregator) = channel_in<int>(buffer: 100)
 
     nursery(
-        body: n -> run(
+        body: n -> {
             // Workers (fan-out -> process -> fan-in)
-            for _ in 0..worker_count do run(
-                let w = workers.clone(),
-                let r = results.clone(),
-                n.spawn(task: () -> run(
+            for _ in 0..worker_count do {
+                let w = workers.clone()
+                let r = results.clone()
+                n.spawn(task: () -> {
                     for item in w do
                         r.send(value: item * 2),  // Process: double the value
-                )),
-            ),
+                })
+            }
 
             // Distribute items
             for item in items do
-                distribute.send(value: item),
-            distribute.close(),
-        ),
-        on_error: CollectAll,
-        timeout: 60s,
-    ),
+                distribute.send(value: item)
+            distribute.close()
+        }
+        on_error: CollectAll
+        timeout: 60s
+    )
 
     // Aggregate results
-    let sum = 0,
+    let sum = 0
     for value in aggregator do
-        sum = sum + value,
-    sum,
-)
+        sum = sum + value
+    sum
+}
 ```
 
 ### Rate Limiter
@@ -421,24 +421,24 @@ type Token = {}
     work: CloneableConsumer<WorkItem>,
     tokens: Consumer<Token>,
     results: CloneableProducer<WorkResult>,
-) -> void uses Async = run(
-    for item in work do run(
+) -> void uses Async = {
+    for item in work do {
         // Wait for a token before processing
-        let _ = tokens.receive(),
-        let output = process_work(item: item),
-        results.send(value: WorkResult { id: item.id, output }),
-    ),
-)
+        let _ = tokens.receive()
+        let output = process_work(item: item)
+        results.send(value: WorkResult { id: item.id, output })
+    }
+}
 
 @token_generator (
     tokens: Producer<Token>,
     rate: int,  // tokens per second
-) -> void uses Async, Clock = run(
-    loop(
-        tokens.send(value: Token {}),
-        sleep(duration: 1s / rate),
-    ),
-)
+) -> void uses Async, Clock = {
+    loop {
+        tokens.send(value: Token {})
+        sleep(duration: 1s / rate)
+    }
+}
 ```
 
 ## Testing Channels
@@ -446,44 +446,44 @@ type Token = {}
 ### Basic Channel Tests
 
 ```ori
-@test_basic_channel tests _ () -> void = run(
-    let (producer, consumer) = channel<int>(buffer: 3),
+@test_basic_channel tests _ () -> void = {
+    let (producer, consumer) = channel<int>(buffer: 3)
 
-    producer.send(value: 1),
-    producer.send(value: 2),
-    producer.send(value: 3),
-    producer.close(),
+    producer.send(value: 1)
+    producer.send(value: 2)
+    producer.send(value: 3)
+    producer.close()
 
-    assert_eq(actual: consumer.receive(), expected: Some(1)),
-    assert_eq(actual: consumer.receive(), expected: Some(2)),
-    assert_eq(actual: consumer.receive(), expected: Some(3)),
-    assert_eq(actual: consumer.receive(), expected: None),
-)
+    assert_eq(actual: consumer.receive(), expected: Some(1))
+    assert_eq(actual: consumer.receive(), expected: Some(2))
+    assert_eq(actual: consumer.receive(), expected: Some(3))
+    assert_eq(actual: consumer.receive(), expected: None)
+}
 ```
 
 ### Testing Channel Patterns
 
 ```ori
-@test_worker_pool tests @process_with_pool () -> void = run(
+@test_worker_pool tests @process_with_pool () -> void = {
     let items = [
-        WorkItem { id: 1, data: "a" },
-        WorkItem { id: 2, data: "b" },
-        WorkItem { id: 3, data: "c" },
-    ],
+        WorkItem { id: 1, data: "a" }
+        WorkItem { id: 2, data: "b" }
+        WorkItem { id: 3, data: "c" }
+    ]
 
-    let results = process_with_pool(items: items, worker_count: 2),
+    let results = process_with_pool(items: items, worker_count: 2)
 
-    assert_eq(actual: len(collection: results), expected: 3),
+    assert_eq(actual: len(collection: results), expected: 3)
     // Note: order may vary due to concurrency
-)
+}
 
-@test_fan_out_fan_in tests @fan_out_fan_in () -> void = run(
-    let items = [1, 2, 3, 4, 5],
-    let result = fan_out_fan_in(items: items, worker_count: 3),
+@test_fan_out_fan_in tests @fan_out_fan_in () -> void = {
+    let items = [1, 2, 3, 4, 5]
+    let result = fan_out_fan_in(items: items, worker_count: 3)
 
     // Sum of doubled values: 2+4+6+8+10 = 30
-    assert_eq(actual: result, expected: 30),
-)
+    assert_eq(actual: result, expected: 30)
+}
 ```
 
 ## Error Handling
@@ -495,21 +495,20 @@ If a producer encounters an error, close the channel and signal:
 ```ori
 @producer_with_errors (
     output: Producer<Result<int, Error>>,
-) -> void uses Async = run(
-    for i in 0..10 do run(
-        let result = might_fail(value: i),
-        match(
-            result,
-            Ok(v) -> output.send(value: Ok(v)),
-            Err(e) -> run(
-                output.send(value: Err(e)),
-                output.close(),
-                return (),
-            ),
-        ),
-    ),
-    output.close(),
-)
+) -> void uses Async = {
+    for i in 0..10 do {
+        let result = might_fail(value: i)
+        match result {
+            Ok(v) -> output.send(value: Ok(v))
+            Err(e) -> {
+                output.send(value: Err(e))
+                output.close()
+                return ()
+            }
+        }
+    }
+    output.close()
+}
 ```
 
 ### Consumer Error Aggregation
@@ -517,19 +516,18 @@ If a producer encounters an error, close the channel and signal:
 ```ori
 @consume_with_errors (
     input: Consumer<Result<int, Error>>,
-) -> (int, [Error]) uses Async = run(
-    let sum = 0,
-    let errors: [Error] = [],
+) -> (int, [Error]) uses Async = {
+    let sum = 0
+    let errors: [Error] = []
 
     for result in input do
-        match(
-            result,
-            Ok(v) -> sum = sum + v,
-            Err(e) -> errors = [...errors, e],
-        ),
+        match result {
+            Ok(v) -> sum = sum + v
+            Err(e) -> errors = [...errors, e]
+        }
 
-    (sum, errors),
-)
+    (sum, errors)
+}
 ```
 
 ## Best Practices
@@ -555,12 +553,12 @@ producer.close()
 Check for None when receiving:
 
 ```ori
-loop(
+loop {
     match(consumer.receive()) {
-        Some(value) -> process(value: value),
+        Some(value) -> process(value: value)
         None -> break,  // Channel closed
-    },
-)
+    }
+}
 ```
 
 ### Match Buffer Size to Usage

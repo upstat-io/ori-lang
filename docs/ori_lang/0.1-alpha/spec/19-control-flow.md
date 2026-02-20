@@ -14,11 +14,11 @@ Control flow determines the order of expression evaluation and how execution tra
 Expressions in `run(...)` evaluate left to right. Each expression completes before the next begins.
 
 ```ori
-run(
-    let x = 1,
-    let y = 2,
-    x + y,
-)
+{
+    let x = 1
+    let y = 2
+    x + y
+}
 ```
 
 If any expression terminates early (via `break`, `continue`, `?`, or panic), subsequent expressions are not evaluated.
@@ -30,19 +30,19 @@ If any expression terminates early (via `break`, `continue`, `?`, or panic), sub
 `break` exits the innermost enclosing loop.
 
 ```ori
-loop(run(
-    if done then break,
-    process(),
-))
+loop {
+    if done then break
+    process()
+}
 ```
 
 `break` may include a value. The loop expression evaluates to this value:
 
 ```ori
-let result = loop(run(
-    let x = compute(),
-    if x > 100 then break x,
-))
+let result = loop {
+    let x = compute()
+    if x > 100 then break x
+}
 // result = first x greater than 100
 ```
 
@@ -79,11 +79,11 @@ for x in items yield
 In `loop(...)`, `continue` skips to the next iteration. `continue value` is an error (E0861) — loops do not accumulate values:
 
 ```ori
-loop(run(
+loop {
     if skip then continue,  // OK: start next iteration
     if bad then continue 42,  // error E0861: loop doesn't collect
-    process(),
-))
+    process()
+}
 
 ## Labeled Loops
 
@@ -212,11 +212,11 @@ The `?` operator propagates errors and absent values.
 If the value is `Err(e)`, the enclosing function returns `Err(e)`:
 
 ```ori
-@load (path: str) -> Result<Data, Error> = run(
+@load (path: str) -> Result<Data, Error> = {
     let content = read_file(path)?,  // Err propagates
-    let data = parse(content)?,
-    Ok(data),
-)
+    let data = parse(content)?
+    Ok(data)
+}
 ```
 
 ### On Option
@@ -224,10 +224,10 @@ If the value is `Err(e)`, the enclosing function returns `Err(e)`:
 If the value is `None`, the enclosing function returns `None`:
 
 ```ori
-@find (id: int) -> Option<User> = run(
+@find (id: int) -> Option<User> = {
     let record = db.lookup(id)?,  // None propagates
-    Some(User { ...record }),
-)
+    Some(User { ...record })
+}
 ```
 
 The function's return type must be compatible with the propagated type.
@@ -263,10 +263,10 @@ else
 In `match`, only the matching arm evaluates:
 
 ```ori
-match(value,
+match value {
     Some(x) -> process(x),  // only if Some
     None -> default(),      // only if None
-)
+}
 ```
 
 ## Short-Circuit Operators

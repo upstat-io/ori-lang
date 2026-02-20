@@ -140,10 +140,10 @@ let $BUFFER_SIZE = 1024
 static COUNTER: int = 0
 
 @increment () -> int uses Intrinsics =
-    unsafe(run(
-        COUNTER = COUNTER + 1,
-        COUNTER,
-    ))
+    unsafe {
+        COUNTER = COUNTER + 1
+        COUNTER
+    }
 ```
 
 Note: The exact syntax for static declarations (standalone `static` vs `let static`) will be determined in the implementation proposal.

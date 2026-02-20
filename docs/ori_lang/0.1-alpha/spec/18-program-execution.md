@@ -28,10 +28,10 @@ The `args` parameter, if present, contains command-line arguments passed to the 
 
 ```ori
 // invoked as: ori run program.ori hello world
-@main (args: [str]) -> void = run(
+@main (args: [str]) -> void = {
     // args = ["hello", "world"]
     print(args[0]),  // prints "hello"
-)
+}
 ```
 
 ## Initialization
@@ -70,10 +70,10 @@ A program terminates normally when `@main` returns.
 | `int` | Returned value |
 
 ```ori
-@main () -> int = run(
-    let success = do_work(),
-    if success then 0 else 1,
-)
+@main () -> int = {
+    let success = do_work()
+    if success then 0 else 1
+}
 ```
 
 ### Panic Termination
@@ -86,10 +86,10 @@ On panic:
 3. Program exits with code 1
 
 ```ori
-@main () -> void = run(
-    let list = [1, 2, 3],
+@main () -> void = {
+    let list = [1, 2, 3]
     list[10],  // panic: index out of bounds
-)
+}
 ```
 
 See [Errors and Panics](20-errors-and-panics.md) for panic semantics.

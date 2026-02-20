@@ -89,19 +89,19 @@ type Matrix<T> = {
 }
 
 impl<T> Index<(int, int), T> for Matrix<T> {
-    @index (self, key: (int, int)) -> T = run(
-        let (row, col) = key,
-        assert(condition: row >= 0 && row < self.rows, msg: "row out of bounds"),
-        assert(condition: col >= 0 && col < self.cols, msg: "col out of bounds"),
-        self.data[row * self.cols + col],
-    )
+    @index (self, key: (int, int)) -> T = {
+        let (row, col) = key
+        assert(condition: row >= 0 && row < self.rows, msg: "row out of bounds")
+        assert(condition: col >= 0 && col < self.cols, msg: "col out of bounds")
+        self.data[row * self.cols + col]
+    }
 }
 
 // Usage
-@example () -> void = run(
-    let m = Matrix.identity(size: 3),
+@example () -> void = {
+    let m = Matrix.identity(size: 3)
     print(msg: m[(1, 1)] as str),  // prints: 1
-)
+}
 ```
 
 ### Fallible Indexing: Option and Result
@@ -129,17 +129,17 @@ type Row = {
 
 impl Index<str, Result<Value, ColumnError>> for Row {
     @index (self, key: str) -> Result<Value, ColumnError> =
-        match(self.columns[key],
-            Some(v) -> Ok(v),
-            None -> Err(ColumnError.NotFound(key)),
-        )
+        match self.columns[key] {
+            Some(v) -> Ok(v)
+            None -> Err(ColumnError.NotFound(key))
+        }
 }
 
 // Usage with ? operator
-@query_example (row: Row) -> Result<int, ColumnError> = run(
-    let age = row["age"]?,
-    Ok(age.as_int()),
-)
+@query_example (row: Row) -> Result<int, ColumnError> = {
+    let age = row["age"]?
+    Ok(age.as_int())
+}
 ```
 
 ### Multiple Index Types
@@ -158,26 +158,26 @@ type JsonValue =
 // Index by string (object access)
 impl Index<str, Option<JsonValue>> for JsonValue {
     @index (self, key: str) -> Option<JsonValue> =
-        match(self,
-            Object(map) -> map[key],
-            _ -> None,
-        )
+        match self {
+            Object(map) -> map[key]
+            _ -> None
+        }
 }
 
 // Index by int (array access)
 impl Index<int, Option<JsonValue>> for JsonValue {
     @index (self, key: int) -> Option<JsonValue> =
-        match(self,
-            Array(arr) -> if key >= 0 && key < len(collection: arr) then Some(arr[key]) else None,
-            _ -> None,
-        )
+        match self {
+            Array(arr) -> if key >= 0 && key < len(collection: arr) then Some(arr[key]) else None
+            _ -> None
+        }
 }
 
 // Usage
-@json_example (json: JsonValue) -> void = run(
+@json_example (json: JsonValue) -> void = {
     let name = json["user"]["name"],      // Object path
     let first_item = json["items"][0],    // Mixed access
-)
+}
 ```
 
 ---
@@ -295,11 +295,11 @@ type RingBuffer<T> = {
 }
 
 impl<T> Index<int, T> for RingBuffer<T> {
-    @index (self, key: int) -> T = run(
-        assert(condition: key >= 0 && key < self.len, msg: "index out of bounds"),
-        let actual_idx = (self.head + key) % len(collection: self.data),
-        self.data[actual_idx],
-    )
+    @index (self, key: int) -> T = {
+        assert(condition: key >= 0 && key < self.len, msg: "index out of bounds")
+        let actual_idx = (self.head + key) % len(collection: self.data)
+        self.data[actual_idx]
+    }
 }
 ```
 
@@ -312,19 +312,19 @@ type BitSet = {
 }
 
 impl Index<int, bool> for BitSet {
-    @index (self, key: int) -> bool = run(
-        assert(condition: key >= 0 && key < self.size, msg: "index out of bounds"),
-        let byte_idx = key / 8,
-        let bit_idx = key % 8,
-        (self.bits[byte_idx] >> bit_idx) & 1 == 1,
-    )
+    @index (self, key: int) -> bool = {
+        assert(condition: key >= 0 && key < self.size, msg: "index out of bounds")
+        let byte_idx = key / 8
+        let bit_idx = key % 8
+        (self.bits[byte_idx] >> bit_idx) & 1 == 1
+    }
 }
 
 // Usage
-@bitset_example (bs: BitSet) -> void = run(
+@bitset_example (bs: BitSet) -> void = {
     print(msg: bs[0] as str),   // read bit at index 0
     print(msg: bs[1] as str),   // read bit at index 1
-)
+}
 ```
 
 ### 2D Game Grid
@@ -337,12 +337,12 @@ type Grid<T> = {
 }
 
 impl<T> Index<(int, int), Option<T>> for Grid<T> {
-    @index (self, key: (int, int)) -> Option<T> = run(
-        let (x, y) = key,
+    @index (self, key: (int, int)) -> Option<T> = {
+        let (x, y) = key
         if x < 0 || x >= self.width || y < 0 || y >= self.height
         then None
-        else Some(self.cells[y * self.width + x]),
-    )
+        else Some(self.cells[y * self.width + x])
+    }
 }
 
 // Game usage - safe neighbor checking

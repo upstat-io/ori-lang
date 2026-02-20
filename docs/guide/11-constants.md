@@ -197,19 +197,17 @@ let $C = $A + $B    // Compiler computes: 30
 // config.ori
 pub let $ENV = "production"
 
-pub let $DATABASE_URL = match(
-    $ENV,
-    "production" -> "postgres://prod.db:5432/app",
-    "staging" -> "postgres://staging.db:5432/app",
-    _ -> "postgres://localhost:5432/app_dev",
-)
+pub let $DATABASE_URL = match $ENV {
+    "production" -> "postgres://prod.db:5432/app"
+    "staging" -> "postgres://staging.db:5432/app"
+    _ -> "postgres://localhost:5432/app_dev"
+}
 
-pub let $LOG_LEVEL = match(
-    $ENV,
-    "production" -> "warn",
-    "staging" -> "info",
-    _ -> "debug",
-)
+pub let $LOG_LEVEL = match $ENV {
+    "production" -> "warn"
+    "staging" -> "info"
+    _ -> "debug"
+}
 ```
 
 ### Feature Flags
@@ -224,11 +222,11 @@ pub let $FEATURES = {
 @is_enabled (feature: str) -> bool =
     $FEATURES[feature] ?? false
 
-@test_features tests @is_enabled () -> void = run(
-    assert(condition: is_enabled(feature: "new_ui")),
-    assert(condition: !is_enabled(feature: "beta_api")),
-    assert(condition: !is_enabled(feature: "unknown")),
-)
+@test_features tests @is_enabled () -> void = {
+    assert(condition: is_enabled(feature: "new_ui"))
+    assert(condition: !is_enabled(feature: "beta_api"))
+    assert(condition: !is_enabled(feature: "unknown"))
+}
 ```
 
 ### Size and Time Constants
@@ -299,56 +297,56 @@ use "./constants" {
     $ENABLE_CACHING,
 }
 
-@fetch_data (endpoint: str) -> Result<str, Error> uses Http, Cache = run(
-    let url = `{$API_BASE_URL}/{endpoint}`,
+@fetch_data (endpoint: str) -> Result<str, Error> uses Http, Cache = {
+    let url = `{$API_BASE_URL}/{endpoint}`
 
     // Check cache if enabled
-    if $ENABLE_CACHING then run(
-        let cached = Cache.get(key: url),
-        if is_some(option: cached) then return Ok(cached.unwrap_or(default: "")),
-    ),
+    if $ENABLE_CACHING then {
+        let cached = Cache.get(key: url)
+        if is_some(option: cached) then return Ok(cached.unwrap_or(default: ""))
+    }
 
     // Fetch with retries
     let result = fetch_with_retry(
-        url: url,
-        timeout: $REQUEST_TIMEOUT,
-        max_retries: $MAX_RETRIES,
-        backoffs: $RETRY_BACKOFFS,
-    ),
+        url: url
+        timeout: $REQUEST_TIMEOUT
+        max_retries: $MAX_RETRIES
+        backoffs: $RETRY_BACKOFFS
+    )
 
     // Cache successful result
     if is_ok(result: result) && $ENABLE_CACHING then
-        match(result, Ok(data) -> Cache.set(key: url, value: data, ttl: 5m), Err(_) -> ()),
+        match result { Ok(data) -> Cache.set(key: url, value: data, ttl: 5m), Err(_) -> ()}
 
-    result,
-)
+    result
+}
 
 @fetch_with_retry (
     url: str,
     timeout: Duration,
     max_retries: int,
     backoffs: [Duration],
-) -> Result<str, Error> uses Http = run(
-    let attempt = 0,
-    loop(
-        let result = Http.get(url: url, timeout: timeout),
-        if is_ok(result: result) then break result,
-        if attempt >= max_retries then break result,
-        let delay = backoffs[attempt] ?? 1s,
-        sleep(duration: delay),
-        attempt = attempt + 1,
-    ),
-)
+) -> Result<str, Error> uses Http = {
+    let attempt = 0
+    loop {
+        let result = Http.get(url: url, timeout: timeout)
+        if is_ok(result: result) then break result
+        if attempt >= max_retries then break result
+        let delay = backoffs[attempt] ?? 1s
+        sleep(duration: delay)
+        attempt = attempt + 1
+    }
+}
 
 // Placeholder
 @sleep (duration: Duration) -> void = ()
 
 @test_fetch tests @fetch_data () -> void =
     with Http = MockHttp { responses: {} },
-    Cache = MockCache {} in run(
+    Cache = MockCache {} in {
         // Test would go here
-        (),
-    )
+        ()
+    }
 ```
 
 ## Quick Reference
@@ -380,7 +378,7 @@ use "./module" { $CONSTANT as $ALIAS }
 let $DERIVED = $BASE * 2
 
 // Conditional based on environment
-let $VALUE = match($ENV, "prod" -> x, _ -> y)
+let $VALUE = match $ENV { "prod" -> x, _ -> y}
 
 // Collection constants
 let $ITEMS = [a, b, c]

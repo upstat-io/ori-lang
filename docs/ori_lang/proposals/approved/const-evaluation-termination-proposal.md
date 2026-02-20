@@ -172,17 +172,17 @@ Const functions may use mutable bindings for local computation. Local mutation i
 
 ```ori
 // OK: local mutation that doesn't escape
-$sum_to (n: int) -> int = run(
-    let total = 0,
-    for i in 1..=n do total = total + i,
-    total,
-)
+$sum_to (n: int) -> int = {
+    let total = 0
+    for i in 1..=n do total = total + i
+    total
+}
 
-$sum_squares (n: int) -> int = run(
-    let result = 0,
-    for i in 1..=n do result = result + i * i,
-    result,
-)
+$sum_squares (n: int) -> int = {
+    let result = 0
+    for i in 1..=n do result = result + i * i
+    result
+}
 ```
 
 ### Prohibited Operations
@@ -294,11 +294,11 @@ $squares (max: int) -> [int] =
 let $SQUARE_TABLE = $squares(max: 100)
 
 // Iterative with local mutation
-$sum_range (n: int) -> int = run(
-    let total = 0,
-    for i in 1..=n do total = total + i,
-    total,
-)
+$sum_range (n: int) -> int = {
+    let total = 0
+    for i in 1..=n do total = total + i
+    total
+}
 let $sum_100 = $sum_range(n: 100)  // 5050
 ```
 

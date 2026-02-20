@@ -220,10 +220,10 @@ for item in items do
     print(msg: item)
 
 // Multiple statements with run
-for item in items do run(
-    let processed = transform(data: item),
-    save(data: processed),
-)
+for item in items do {
+    let processed = transform(data: item)
+    save(data: processed)
+}
 ```
 
 **Collection form** — `for...yield`:
@@ -595,11 +595,11 @@ let products = [
         .collect()
         .sort_by(key: p -> p.price)
 
-@test_available tests @available_electronics () -> void = run(
-    let result = available_electronics(products: products),
-    assert_eq(actual: len(collection: result), expected: 3),
-    assert_eq(actual: result[0].name, expected: "Monitor"),
-)
+@test_available tests @available_electronics () -> void = {
+    let result = available_electronics(products: products)
+    assert_eq(actual: len(collection: result), expected: 3)
+    assert_eq(actual: result[0].name, expected: "Monitor")
+}
 
 // Calculate total value of inventory
 @inventory_value (products: [Product]) -> float =
@@ -608,27 +608,27 @@ let products = [
         .map(p -> p.price)
         .fold(initial: 0.0, op: (sum, price) -> sum + price)
 
-@test_inventory tests @inventory_value () -> void = run(
-    let value = inventory_value(products: products),
-    assert_eq(actual: value, expected: 2299.96),
-)
+@test_inventory tests @inventory_value () -> void = {
+    let value = inventory_value(products: products)
+    assert_eq(actual: value, expected: 2299.96)
+}
 
 // Group by category
 @by_category (products: [Product]) -> {str: [Product]} =
     products.fold(
         initial: {},
-        op: (groups, product) -> run(
-            let category = product.category,
-            let existing = groups[category] ?? [],
-            groups.insert(key: category, value: [...existing, product]),
-        ),
+        op: (groups, product) -> {
+            let category = product.category
+            let existing = groups[category] ?? []
+            groups.insert(key: category, value: [...existing, product])
+        },
     )
 
-@test_by_category tests @by_category () -> void = run(
-    let grouped = by_category(products: products),
-    assert_eq(actual: len(collection: grouped["Electronics"] ?? []), expected: 3),
-    assert_eq(actual: len(collection: grouped["Furniture"] ?? []), expected: 2),
-)
+@test_by_category tests @by_category () -> void = {
+    let grouped = by_category(products: products)
+    assert_eq(actual: len(collection: grouped["Electronics"] ?? []), expected: 3)
+    assert_eq(actual: len(collection: grouped["Furniture"] ?? []), expected: 2)
+}
 ```
 
 ## Quick Reference

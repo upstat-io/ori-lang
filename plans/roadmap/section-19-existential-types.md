@@ -78,9 +78,9 @@ sections:
 
 ```ori
 // Return opaque type
-@make_iterator (items: [int]) -> impl Iterator where Item == int = run(
+@make_iterator (items: [int]) -> impl Iterator where Item == int = {
     items.iter()
-)
+}
 
 // Caller sees: impl Iterator where Item == int
 // Cannot access concrete type
@@ -138,26 +138,26 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
 
 ```ori
 // Concrete type inferred from function body
-@numbers () -> impl Iterator where Item == int = run(
+@numbers () -> impl Iterator where Item == int = {
     [1, 2, 3].iter()  // Concrete: ListIterator<int>
-)
+}
 
 // All return paths must have same concrete type
-@maybe_numbers (flag: bool) -> impl Iterator where Item == int = run(
+@maybe_numbers (flag: bool) -> impl Iterator where Item == int = {
     if flag then
         [1, 2, 3].iter()
     else
         [4, 5, 6].iter()  // OK: same concrete type
-)
+}
 
 // Error: different concrete types
-@bad_numbers (flag: bool) -> impl Iterator where Item == int = run(
+@bad_numbers (flag: bool) -> impl Iterator where Item == int = {
     if flag then
         [1, 2, 3].iter()       // ListIterator<int>
     else
         (1..10).iter()         // RangeIterator<int>
     // Error: impl Trait returns different types
-)
+}
 ```
 
 ### Implementation
@@ -319,12 +319,12 @@ error: `impl Trait` is only allowed in return position
 @fast_iterator () -> impl Iterator where Item == int = [1, 2, 3].iter()
 
 // Use trait object: multiple types possible, flexibility needed
-@any_iterator (flag: bool) -> Iterator where Item == int = run(
+@any_iterator (flag: bool) -> Iterator where Item == int = {
     if flag then
         [1, 2, 3].iter()
     else
         (1..10).iter()
-)
+}
 ```
 
 ### Implementation
@@ -376,31 +376,31 @@ error: `impl Trait` is only allowed in return position
 @map<I: Iterator, U> (
     iter: I,
     f: (I.Item) -> U,
-) -> impl Iterator where Item == U = run(
+) -> impl Iterator where Item == U = {
     MapIterator { inner: iter, transform: f }
-)
+}
 
 @filter<I: Iterator> (
     iter: I,
     predicate: (I.Item) -> bool,
-) -> impl Iterator where Item == I.Item = run(
+) -> impl Iterator where Item == I.Item = {
     FilterIterator { inner: iter, predicate: predicate }
-)
+}
 
 @take<I: Iterator> (
     iter: I,
     n: int,
-) -> impl Iterator where Item == I.Item = run(
+) -> impl Iterator where Item == I.Item = {
     TakeIterator { inner: iter, remaining: n }
-)
+}
 
 // Usage - clean, composable
-@first_10_even_squares () -> impl Iterator where Item == int = run(
+@first_10_even_squares () -> impl Iterator where Item == int = {
     (1..100)
         .filter(predicate: n -> n % 2 == 0)
         .map(transform: n -> n * n)
         .take(count: 10)
-)
+}
 
 // Caller doesn't know concrete type (MapIterator<FilterIterator<...>>)
 // but can use it as Iterator
