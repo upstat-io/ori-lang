@@ -1,7 +1,7 @@
 use std.testing { assert_eq }
 
 // Recursive sum type
-type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 
 @tree_sum (t: Tree) -> int = match t {
     Leaf(v) -> v,

@@ -1,6 +1,6 @@
 use std.testing { assert_eq }
 
-@bar () -> void = ()
+@bar () -> void = ();
 
 @test_bar tests @bar () -> void = {
     let result: Result<int, str> = Ok(42);

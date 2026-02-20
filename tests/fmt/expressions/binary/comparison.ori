@@ -1,10 +1,10 @@
 // Comparison operators
 // Spec: 06-expressions.md § Binary Operators
 
-@is_positive (x: int) -> bool = x > 0
+@is_positive (x: int) -> bool = x > 0;
 
-@is_equal (a: int, b: int) -> bool = a == b
+@is_equal (a: int, b: int) -> bool = a == b;
 
-@is_less (a: int, b: int) -> bool = a < b
+@is_less (a: int, b: int) -> bool = a < b;
 
-@is_in_range (x: int) -> bool = x >= 0 && x <= 100
+@is_in_range (x: int) -> bool = x >= 0 && x <= 100;

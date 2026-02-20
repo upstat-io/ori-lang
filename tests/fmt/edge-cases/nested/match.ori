@@ -10,7 +10,7 @@
         0 -> "x nonzero, y zero",
         m -> match m + n {
             0 -> "sum zero",
-            sum.match(sum > 100) -> "large sum",
+            sum if sum > 100 -> "large sum",
             _ -> "small sum"
         }
     }

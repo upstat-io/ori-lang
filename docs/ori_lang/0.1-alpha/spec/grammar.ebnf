@@ -578,7 +578,7 @@ binding_pattern = [ "$" ] identifier
                 | "_"
                 | "{" [ field_binding { "," field_binding } ] "}"
                 | "(" [ binding_pattern { "," binding_pattern } ] ")"
-                | "[" [ binding_pattern { "," binding_pattern } [ ".." identifier ] ] "]" .
+                | "[" [ binding_pattern { "," binding_pattern } [ ".." [ "$" ] identifier ] ] "]" .
 field_binding   = [ "$" ] identifier [ ":" binding_pattern ] .
 
 

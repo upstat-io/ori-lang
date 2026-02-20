@@ -132,7 +132,7 @@ impl<I: StringLookup> Formatter<'_, I> {
     pub(super) fn emit_binding_pattern(&mut self, pattern: &BindingPattern) {
         match pattern {
             BindingPattern::Name { name, mutable } => {
-                if !mutable {
+                if mutable.is_immutable() {
                     self.ctx.emit("$");
                 }
                 self.ctx.emit(self.interner.lookup(*name));
@@ -158,7 +158,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                         self.ctx.emit(", ");
                     }
                     // Shorthand with $ prefix: { $x }
-                    if !field.mutable && field.pattern.is_none() {
+                    if field.mutable.is_immutable() && field.pattern.is_none() {
                         self.ctx.emit("$");
                     }
                     self.ctx.emit(self.interner.lookup(field.name));
@@ -177,11 +177,14 @@ impl<I: StringLookup> Formatter<'_, I> {
                     }
                     self.emit_binding_pattern(item);
                 }
-                if let Some(rest_name) = rest {
+                if let Some((rest_name, rest_mut)) = rest {
                     if !elements.is_empty() {
                         self.ctx.emit(", ");
                     }
                     self.ctx.emit("..");
+                    if rest_mut.is_immutable() {
+                        self.ctx.emit("$");
+                    }
                     self.ctx.emit(self.interner.lookup(*rest_name));
                 }
                 self.ctx.emit("]");

@@ -56,7 +56,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s, expected: "42")
 }
 
-@printable_value () -> str = 42.to_str()
+@printable_value () -> str = 42.to_str();
 
 @test_clone_trait tests @clone_trait () -> void = {
     let original = 42;
@@ -85,21 +85,21 @@ use std.testing { assert, assert_eq }
 // Static Dispatch with Generics (alternative to impl Trait)
 // =============================================================================
 
-@format_generic<T: Printable> (item: T) -> str = item.to_str()
+@format_generic<T: Printable> (item: T) -> str = item.to_str();
 
 @test_generic_printable tests @generic_printable () -> void = {
     let result = format_generic(item: 123);
     assert_eq(actual: result, expected: "123")
 }
 
-@generic_printable () -> str = format_generic(item: 123)
+@generic_printable () -> str = format_generic(item: 123);
 
 @test_generic_printable_str tests @generic_printable_str () -> void = {
     let result = format_generic(item: "hello");
     assert_eq(actual: result, expected: "hello")
 }
 
-@generic_printable_str () -> str = format_generic(item: "hello")
+@generic_printable_str () -> str = format_generic(item: "hello");
 
 // =============================================================================
 // Multiple Trait Bounds on Generic
@@ -117,7 +117,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: formatted, expected: "42")
 }
 
-@multi_bound_generic () -> (int, str) = clone_and_format(item: 42)
+@multi_bound_generic () -> (int, str) = clone_and_format(item: 42);
 
 // =============================================================================
 // Returning Iterator via Generic (not impl Trait)
@@ -131,7 +131,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: doubled, expected: [2, 4, 6])
 }
 
-@iter_from_list () -> [int] = [1, 2, 3].map(transform: x -> x * 2)
+@iter_from_list () -> [int] = [1, 2, 3].map(transform: x -> x * 2);
 
 @test_iter_chain tests @iter_chain () -> void = {
     let result = [1, 2, 3]
@@ -142,7 +142,7 @@ use std.testing { assert, assert_eq }
 
 @iter_chain () -> [int] = [1, 2, 3]
     .map(transform: x -> x * 2)
-    .filter(predicate: x -> x > 2)
+    .filter(predicate: x -> x > 2);
 
 // =============================================================================
 // Opaque Type Semantics Test

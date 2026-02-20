@@ -1,5 +1,5 @@
-@greeting () -> str = "Hello, 世界!"
+@greeting () -> str = "Hello, 世界!";
 
-@message () -> str = "Café"
+@message () -> str = "Café";
 
-@path () -> str = "/home/user/文档"
+@path () -> str = "/home/user/文档";

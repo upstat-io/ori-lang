@@ -5,7 +5,7 @@ use std.testing { assert_eq, assert }
 
 // Helper that always fails
 @fail () -> Result<int, Error> =
-    Err(Error("fail"))
+    Err(Error("fail"));
 
 // Single ? adds one trace entry
 @one_hop () -> Result<int, Error> = {
@@ -81,7 +81,7 @@ use std.testing { assert_eq, assert }
 }
 
 // Ok values pass through ? untouched
-@ok () -> Result<int, Error> = Ok(42)
+@ok () -> Result<int, Error> = Ok(42);
 
 @ok_hop () -> Result<int, Error> = {
     let x = ok()?;

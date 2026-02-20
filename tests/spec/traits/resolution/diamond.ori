@@ -31,19 +31,19 @@ type Widget = { name: str }
 
 // Single impl of Base satisfies both Left and Right paths
 impl Base for Widget {
-    @id (self) -> str = "widget:" + self.name
+    @id (self) -> str = "widget:" + self.name;
 }
 
 impl Left for Widget {
-    @left_info (self) -> str = "L:" + self.id()
+    @left_info (self) -> str = "L:" + self.id();
 }
 
 impl Right for Widget {
-    @right_info (self) -> str = "R:" + self.id()
+    @right_info (self) -> str = "R:" + self.id();
 }
 
 impl Bottom for Widget {
-    @combined (self) -> str = self.left_info() + "|" + self.right_info()
+    @combined (self) -> str = self.left_info() + "|" + self.right_info();
 }
 
 // Simple diamond: inheriting from two traits with a common ancestor

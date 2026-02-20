@@ -32,7 +32,6 @@ An expression has a different type than expected in the given context.
 | E0004 | Unterminated Char | Character literal not closed | ✓ |
 | E0005 | Invalid Escape | Unknown escape sequence | ✓ |
 | E0006 | Unterminated Template | Template literal not closed | ✓ |
-| E0007 | Semicolon | Cross-language habit: semicolons | ✓ |
 | E0008 | Triple-Equals | Cross-language habit: `===` | ✓ |
 | E0009 | Single-Quote String | Cross-language habit: single-quote strings | ✓ |
 | E0010 | Increment/Decrement | Cross-language habit: `++`/`--` | ✓ |
@@ -58,6 +57,7 @@ An expression has a different type than expected in the given context.
 | E1013 | Named Properties Required | Control flow expression needs named properties | ✓ |
 | E1014 | Reserved Name | Reserved built-in function name | ✓ |
 | E1015 | Unsupported Keyword | Unsupported keyword (e.g., `return` is not valid in Ori) | ✓ |
+| E1016 | Expected Semicolon | Expected `;` after item declaration | |
 | **Type Checker (E2xxx)** |
 | E2001 | Type Mismatch | Types don't match | ✓ |
 | E2002 | Unknown Type | Type not defined | ✓ |
@@ -77,6 +77,27 @@ An expression has a different type than expected in the given context.
 | E2016 | Missing Type Arg | Missing type argument (no default) | |
 | E2017 | Too Many Type Args | Too many type arguments provided | |
 | E2018 | Missing Assoc Type | Impl missing required associated type | ✓ |
+| E2019 | Never Type Field | Never type used as struct field | |
+| E2020 | Unsupported Operator | Unsupported operator for type | |
+| E2021 | Overlapping Impls | Overlapping implementations with equal specificity | |
+| E2022 | Conflicting Defaults | Conflicting default methods from multiple super-traits | |
+| E2023 | Ambiguous Method | Ambiguous method call | |
+| E2024 | Not Object-Safe | Trait is not object-safe | |
+| E2025 | Missing Index Impl | Type does not implement Index | |
+| E2026 | Wrong Index Key | Wrong key type for Index impl | |
+| E2027 | Ambiguous Index Key | Ambiguous index key type | |
+| E2028 | Default Sum Type | Cannot derive Default for sum type | |
+| E2029 | Hashable Needs Eq | Cannot derive Hashable without Eq | |
+| E2030 | Hash Invariant | Hashable implementation may violate hash invariant | |
+| E2031 | Non-Hashable Key | Type cannot be used as map key | |
+| E2032 | Derive Field Missing | Field type does not implement trait required by derive | |
+| E2033 | Non-Derivable Trait | Trait cannot be derived | |
+| E2034 | Invalid Format Spec | Invalid format specification in template string | |
+| E2035 | Format Type Unsupported | Format type not supported for expression type | |
+| E2036 | Missing Into | Type does not implement Into<T> | |
+| E2037 | Ambiguous Into | Multiple Into implementations apply | |
+| E2038 | Missing Printable | Type does not implement Printable | |
+| E2039 | Immutable Assignment | Cannot assign to immutable binding | |
 | **Patterns (E3xxx)** |
 | E3001 | Unknown Pattern | Pattern name not recognized | ✓ |
 | E3002 | Invalid Pattern Args | Pattern arguments invalid | ✓ |
@@ -99,6 +120,9 @@ An expression has a different type than expected in the given context.
 | E6001 | Division By Zero | Division by zero | |
 | E6002 | Modulo By Zero | Modulo by zero | |
 | E6003 | Integer Overflow | Integer overflow | |
+| E6004 | Size Subtraction | Size subtraction would be negative | |
+| E6005 | Size Multiply | Size multiply by negative | |
+| E6006 | Size Divide | Size divide by negative | |
 | E6010 | Runtime Type Mismatch | Type mismatch at runtime | |
 | E6011 | Invalid Binary Op | Invalid binary operator for type | |
 | E6012 | Binary Type Mismatch | Binary operand type mismatch | |
@@ -125,6 +149,9 @@ An expression has a different type than expected in the given context.
 | E9002 | Too Many Errors | Error limit reached | ✓ |
 | **Warnings (W1xxx)** |
 | W1001 | Detached Doc Comment | Parser warning: detached doc comment | |
+| W1002 | Unknown Calling Conv | Unknown calling convention in extern block | |
+| **Warnings (W2xxx)** |
+| W2001 | Infinite Iterator | Infinite iterator consumed without bound | |
 
 **✓** = Detailed documentation available via `ori --explain`
 

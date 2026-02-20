@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_eval_source() {
-    let result = eval_source("@main () -> int = 42");
+    let result = eval_source("@main () -> int = 42;");
     assert_eq!(result.unwrap(), Value::int(42));
 }
 
@@ -29,13 +29,13 @@ fn test_assert_eval_str() {
 
 #[test]
 fn test_parse_source() {
-    let (parsed, _interner) = parse_source("@main () -> int = 42");
+    let (parsed, _interner) = parse_source("@main () -> int = 42;");
     assert!(!parsed.has_errors());
     assert_eq!(parsed.module.functions.len(), 1);
 }
 
 #[test]
 fn test_type_check_source() {
-    let (_, result, _interner) = type_check_source("@main () -> int = 42");
+    let (_, result, _interner) = type_check_source("@main () -> int = 42;");
     assert!(!result.has_errors());
 }

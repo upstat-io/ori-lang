@@ -6,7 +6,8 @@ use literals::{bool_width, char_width, float_width, int_width, string_width};
 use operators::{binary_op_width, unary_op_width};
 use ori_ir::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
-    BinaryOp, DurationUnit, ExprArena, Name, SizeUnit, Span, StmtRange, StringInterner, UnaryOp,
+    BinaryOp, DurationUnit, ExprArena, Mutability, Name, SizeUnit, Span, StmtRange, StringInterner,
+    UnaryOp,
 };
 use patterns::binding_pattern_width;
 
@@ -905,7 +906,7 @@ fn test_binding_pattern_name() {
     let name = interner.intern("foo");
     let pattern = ori_ir::BindingPattern::Name {
         name,
-        mutable: true,
+        mutable: Mutability::Mutable,
     };
 
     assert_eq!(binding_pattern_width(&pattern, &interner), 3); // "foo"
@@ -927,11 +928,11 @@ fn test_binding_pattern_tuple() {
     let pattern = ori_ir::BindingPattern::Tuple(vec![
         ori_ir::BindingPattern::Name {
             name: a,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
         ori_ir::BindingPattern::Name {
             name: b,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
     ]);
 

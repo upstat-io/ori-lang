@@ -4,8 +4,8 @@
 
 // Reverse a string recursively
 // Note: Currently blocked - requires string slice operation
-@reverse (s: str) -> str = s
+@reverse (s: str) -> str = s;
 
 // Check if a string is a palindrome
 // Note: Currently blocked - requires working reverse
-@is_palindrome (s: str) -> bool = true
+@is_palindrome (s: str) -> bool = true;

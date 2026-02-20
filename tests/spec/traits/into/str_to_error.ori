@@ -14,7 +14,7 @@ use std.testing { assert_eq }
 }
 
 @test_str_to_error_message tests @str_to_error_message () -> void =
-    assert_eq(actual: str_to_error_message(), expected: "something went wrong")
+    assert_eq(actual: str_to_error_message(), expected: "something went wrong");
 
 @str_to_error_empty () -> str = {
     let msg = "";
@@ -23,4 +23,4 @@ use std.testing { assert_eq }
 }
 
 @test_str_to_error_empty tests @str_to_error_empty () -> void =
-    assert_eq(actual: str_to_error_empty(), expected: "")
+    assert_eq(actual: str_to_error_empty(), expected: "");

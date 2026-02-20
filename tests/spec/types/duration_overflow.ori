@@ -19,7 +19,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_add () -> bool = true
+@_dur_add () -> bool = true;
 
 // Near boundary: (MAX - 1ns) + 1ns does NOT panic
 @test_duration_add_near_boundary tests @_dur_add_ok () -> void = {
@@ -30,7 +30,7 @@ use std.testing { assert_eq }
     )
 }
 
-@_dur_add_ok () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775806) + 1ns
+@_dur_add_ok () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775806) + 1ns;
 
 // =============================================================================
 // Subtraction Overflow
@@ -44,7 +44,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_sub () -> bool = true
+@_dur_sub () -> bool = true;
 
 // Near boundary: (MIN + 1ns) - 1ns does NOT panic
 @test_duration_sub_near_boundary tests @_dur_sub_ok () -> void = {
@@ -55,7 +55,7 @@ use std.testing { assert_eq }
     )
 }
 
-@_dur_sub_ok () -> Duration = Duration.from_nanoseconds(ns: -9223372036854775807) - 1ns
+@_dur_sub_ok () -> Duration = Duration.from_nanoseconds(ns: -9223372036854775807) - 1ns;
 
 // =============================================================================
 // Multiplication Overflow
@@ -69,7 +69,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_mul () -> bool = true
+@_dur_mul () -> bool = true;
 
 // int * MAX_DURATION also panics
 #fail("integer overflow in duration multiplication")
@@ -79,7 +79,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_int_mul () -> bool = true
+@_dur_int_mul () -> bool = true;
 
 // =============================================================================
 // Division Overflow
@@ -93,7 +93,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_div () -> bool = true
+@_dur_div () -> bool = true;
 
 // Division by zero panics
 #fail("division by zero")
@@ -102,7 +102,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_divz () -> bool = true
+@_dur_divz () -> bool = true;
 
 // =============================================================================
 // Modulo Panics
@@ -115,7 +115,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_modz () -> bool = true
+@_dur_modz () -> bool = true;
 
 // =============================================================================
 // Negation Overflow
@@ -129,7 +129,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_neg () -> bool = true
+@_dur_neg () -> bool = true;
 
 // Negating MAX is fine (-(MAX) = -MAX = MIN + 1)
 @test_duration_neg_max_ok tests @_dur_neg_ok () -> void = {
@@ -140,7 +140,7 @@ use std.testing { assert_eq }
     )
 }
 
-@_dur_neg_ok () -> Duration = -(Duration.from_nanoseconds(ns: 9223372036854775807))
+@_dur_neg_ok () -> Duration = -(Duration.from_nanoseconds(ns: 9223372036854775807));
 
 // =============================================================================
 // Factory Method Overflow
@@ -153,7 +153,7 @@ use std.testing { assert_eq }
     ()
 }
 
-@_dur_factory () -> bool = true
+@_dur_factory () -> bool = true;
 
 // =============================================================================
 // Valid Boundary Operations (must NOT panic)
@@ -165,7 +165,7 @@ use std.testing { assert_eq }
     assert_eq(actual: max_dur + 0ns, expected: max_dur)
 }
 
-@_dur_max_zero () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807)
+@_dur_max_zero () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807);
 
 // MAX * 1 = MAX
 @test_duration_max_mul_one tests @_dur_max_one () -> void = {
@@ -173,7 +173,7 @@ use std.testing { assert_eq }
     assert_eq(actual: max_dur * 1, expected: max_dur)
 }
 
-@_dur_max_one () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807)
+@_dur_max_one () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807);
 
 // MAX / 1 = MAX
 @test_duration_max_div_one tests @_dur_max_div1 () -> void = {
@@ -181,4 +181,4 @@ use std.testing { assert_eq }
     assert_eq(actual: max_dur / 1, expected: max_dur)
 }
 
-@_dur_max_div1 () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807)
+@_dur_max_div1 () -> Duration = Duration.from_nanoseconds(ns: 9223372036854775807);

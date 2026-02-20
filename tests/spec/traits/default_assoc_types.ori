@@ -9,7 +9,7 @@ use std.testing { assert, assert_eq }
 
 // Trait with default associated type (Output defaults to Self)
 trait Addable<Rhs = Self> {
-    type Output = Self
+    type Output = Self;
     @add (self, rhs: Rhs) -> Self.Output
 }
 
@@ -39,12 +39,12 @@ type Number = { value: int }
 @make_number (value: int) -> Number = Number { value }
 
 // Helper function to add numbers and return raw int
-@add_numbers (a: Number, b: Number) -> int = a.add(rhs: b)
+@add_numbers (a: Number, b: Number) -> int = a.add(rhs: b);
 
 // Impl that overrides the default Output type
 impl Addable for Number {
-    type Output = int
-    @add (self, rhs: Number) -> int = self.value + rhs.value
+    type Output = int;
+    @add (self, rhs: Number) -> int = self.value + rhs.value;
 }
 
 // =============================================================================

@@ -14,7 +14,7 @@ use std.testing { assert_eq }
     assert_eq(actual: `{true}`, expected: "true")
 }
 
-@empty_spec () -> str = `{42}`
+@empty_spec () -> str = `{42}`;
 
 // =============================================================================
 // Bool Formatting
@@ -26,7 +26,7 @@ use std.testing { assert_eq }
     assert_eq(actual: `{true:*^10}`, expected: "***true***")
 }
 
-@bool_format () -> str = `{true:>10}`
+@bool_format () -> str = `{true:>10}`;
 
 // =============================================================================
 // Char Formatting
@@ -38,7 +38,7 @@ use std.testing { assert_eq }
     assert_eq(actual: `{'X':^5}`, expected: "  X  ")
 }
 
-@char_format () -> str = `{'A':>5}`
+@char_format () -> str = `{'A':>5}`;
 
 // =============================================================================
 // Zero Precision
@@ -49,7 +49,7 @@ use std.testing { assert_eq }
     assert_eq(actual: `{3.14:.0}`, expected: "3")
 }
 
-@zero_precision () -> str = `{3.14:.0f}`
+@zero_precision () -> str = `{3.14:.0f}`;
 
 // =============================================================================
 // Negative Hex
@@ -61,6 +61,6 @@ use std.testing { assert_eq }
     assert_eq(actual: `{-42:#x}`, expected: "-0x2a")
 }
 
-@negative_hex () -> str = `{-1:x}`
+@negative_hex () -> str = `{-1:x}`;
 
-@main () -> void = print(msg: "Formattable edge case tests")
+@main () -> void = print(msg: "Formattable edge case tests");

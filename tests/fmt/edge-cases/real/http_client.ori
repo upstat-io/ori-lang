@@ -4,13 +4,13 @@
 
 use std.testing { assert_eq }
 
-type Method = Get | Post | Put
+type Method = Get | Post | Put;
 
 type Request = { method: Method, url: str, body: str }
 
 type Response = { status: int, body: str }
 
-type ApiError = Network(msg: str) | Timeout | NotFound
+type ApiError = Network(msg: str) | Timeout | NotFound;
 
 @build_request (method: Method, url: str, body: str) -> Request = Request {
     method: method,
@@ -38,14 +38,14 @@ type ApiError = Network(msg: str) | Timeout | NotFound
 //     let response = get(url: "/api/users"),
 //     if response.status == 200 then Ok(response.body) else Err(NotFound),
 // }
-@fetch_user (id: int) -> Result<str, ApiError> uses Http, Logger = Ok("placeholder")
+@fetch_user (id: int) -> Result<str, ApiError> uses Http, Logger = Ok("placeholder");
 
 // TODO: LLVM backend doesn't support struct field access on function return values
 // @create_user (name: str) -> Result<int, ApiError> uses Http, Logger = try {
 //     let response = post(url: "/api/users", body: name),
 //     if response.status == 201 then Ok(1) else Err(NotFound),
 // }
-@create_user (name: str) -> Result<int, ApiError> uses Http, Logger = Ok(1)
+@create_user (name: str) -> Result<int, ApiError> uses Http, Logger = Ok(1);
 
 // TODO: LLVM backend doesn't support struct field access
 #skip("LLVM backend: struct field access not supported")

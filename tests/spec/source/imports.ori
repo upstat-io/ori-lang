@@ -9,7 +9,7 @@ use std.testing { assert, assert_eq }
 
 // The above import demonstrates: use std.testing { assert, assert_eq }
 
-@imports_module () -> bool = true
+@imports_module () -> bool = true;
 
 @test_imports_module tests @imports_module () -> void = {
     assert(cond: imports_module())

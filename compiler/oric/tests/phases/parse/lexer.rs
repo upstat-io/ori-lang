@@ -88,7 +88,7 @@ fn test_lex_pattern_keywords() {
 #[test]
 fn test_lex_function_def() {
     let interner = test_interner();
-    let tokens = lex("@main () -> int = 42", &interner);
+    let tokens = lex("@main () -> int = 42;", &interner);
 
     assert!(matches!(tokens[0].kind, TokenKind::At));
     assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
@@ -544,7 +544,7 @@ fn test_lex_with_comments_mixed_doc_types() {
 // * b: Second operand
 // !Panics on overflow
 // >add(a: 1, b: 2) -> 3
-@add (a: int, b: int) -> int = a + b";
+@add (a: int, b: int) -> int = a + b;";
 
     let output = lex_with_comments(source, &interner);
 

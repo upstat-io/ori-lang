@@ -1,11 +1,11 @@
 use std.testing { assert_eq, assert }
 
 // Multiple sum types in one file
-type Status = Pending | Running | Completed
-type Message = Text(content: str) | Empty
-type Result2 = Success(value: int) | Failure(msg: str)
-type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit
-type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
+type Status = Pending | Running | Completed;
+type Message = Text(content: str) | Empty;
+type Result2 = Success(value: int) | Failure(msg: str);
+type Event = Click(x: int, y: int) | Keypress(key: str, shift: bool) | Quit;
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int);
 
 @status_name (s: Status) -> str = match s {
     Pending -> "pending",

@@ -4,7 +4,7 @@
 
 use std.testing { assert, assert_eq }
 
-type TaskResult = Success(value: int) | Failure(reason: str) | Timeout
+type TaskResult = Success(value: int) | Failure(reason: str) | Timeout;
 
 type WorkItem = { id: int, payload: str, priority: int }
 
@@ -14,7 +14,7 @@ type BatchResult = { completed: int, failed: int, total: int }
 // @process_item (item: WorkItem) -> Result<int, str> = {
 //     if item.priority > 0 then Ok(item.id * 10) else Err("invalid priority"),
 // }
-@process_item (item: WorkItem) -> Result<int, str> = Ok(0)
+@process_item (item: WorkItem) -> Result<int, str> = Ok(0);
 
 // TODO: LLVM backend doesn't support struct field access in for-loop iteration
 // @process_batch (items: [WorkItem]) -> [Result<int, str>] = {
@@ -23,7 +23,7 @@ type BatchResult = { completed: int, failed: int, total: int }
 //     ),
 //     for item in items yield process_item(item: item),
 // }
-@process_batch (items: [WorkItem]) -> [Result<int, str>] = []
+@process_batch (items: [WorkItem]) -> [Result<int, str>] = [];
 
 // TODO: LLVM backend doesn't support struct field access
 // @process_with_timeout (item: WorkItem) -> Result<int, str> = {
@@ -33,7 +33,7 @@ type BatchResult = { completed: int, failed: int, total: int }
 //         Err(_) -> Err("timeout"),
 //     },
 // }
-@process_with_timeout (item: WorkItem) -> Result<int, str> = Ok(0)
+@process_with_timeout (item: WorkItem) -> Result<int, str> = Ok(0);
 
 @fire_and_forget (items: [WorkItem]) -> void = {
     spawn(
@@ -49,7 +49,7 @@ type BatchResult = { completed: int, failed: int, total: int }
 //     ),
 //     for item in items yield process_item(item: item),
 // }
-@parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = []
+@parallel_with_limit (items: [WorkItem]) -> [Result<int, str>] = [];
 
 @orchestrate (items: [WorkItem]) -> BatchResult = {
     let results = process_batch(items: items);
@@ -63,7 +63,7 @@ type BatchResult = { completed: int, failed: int, total: int }
 //     let result = cache(key: "item", operation: item.id * 2),
 //     result,
 // }
-@cached_process (item: WorkItem) -> int = 0
+@cached_process (item: WorkItem) -> int = 0;
 
 // TODO: LLVM backend doesn't support struct parameters - skip tests
 #skip("LLVM backend: struct parameters not supported")

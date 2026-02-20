@@ -8,18 +8,18 @@ use std.testing { assert, assert_eq }
 // -----------------------------------------------------------------------------
 
 extend str {
-    @shout (self) -> str = self + "!"
-    @whisper (self) -> str = "(" + self + ")"
+    @shout (self) -> str = self + "!";
+    @whisper (self) -> str = "(" + self + ")";
 }
 
-@make_loud (s: str) -> str = s.shout()
+@make_loud (s: str) -> str = s.shout();
 
 @test_shout tests @make_loud () -> void = {
     let result = make_loud(s: "hello");
     assert_eq(actual: result, expected: "hello!")
 }
 
-@chain_extensions (s: str) -> str = s.shout().whisper()
+@chain_extensions (s: str) -> str = s.shout().whisper();
 
 @test_chain tests @chain_extensions () -> void = {
     let result = chain_extensions(s: "hi");
@@ -31,11 +31,11 @@ extend str {
 // -----------------------------------------------------------------------------
 
 extend [T] {
-    @count (self) -> int = self.len()
-    @empty (self) -> bool = self.len() == 0
+    @count (self) -> int = self.len();
+    @empty (self) -> bool = self.len() == 0;
 }
 
-@get_count (items: [int]) -> int = items.count()
+@get_count (items: [int]) -> int = items.count();
 
 @test_count tests @get_count () -> void = {
     assert_eq(actual: get_count(items: []), expected: 0);
@@ -43,7 +43,7 @@ extend [T] {
     assert_eq(actual: get_count(items: [1, 2, 3]), expected: 3)
 }
 
-@is_empty (items: [int]) -> bool = items.empty()
+@is_empty (items: [int]) -> bool = items.empty();
 
 @test_empty tests @is_empty () -> void = {
     assert(cond: is_empty(items: []));

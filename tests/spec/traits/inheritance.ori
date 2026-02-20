@@ -21,11 +21,11 @@ type Person = { first_name: str, last_name: str }
 
 // Implementing the child trait requires implementing the parent trait too
 impl Named for Person {
-    @name (self) -> str = self.first_name + " " + self.last_name
+    @name (self) -> str = self.first_name + " " + self.last_name;
 }
 
 impl Describable for Person {
-    @describe (self) -> str = "Person: " + self.name()
+    @describe (self) -> str = "Person: " + self.name();
 }
 
 // =============================================================================
@@ -50,15 +50,15 @@ trait Auditable: Trackable {
 type Record = { record_id: int, data: str }
 
 impl Identifiable for Record {
-    @id (self) -> int = self.record_id
+    @id (self) -> int = self.record_id;
 }
 
 impl Trackable for Record {
-    @track (self) -> str = "Tracking record #" + str(self.id())
+    @track (self) -> str = "Tracking record #" + str(self.id());
 }
 
 impl Auditable for Record {
-    @audit (self) -> str = "Audit: " + self.track() + " [" + self.data + "]"
+    @audit (self) -> str = "Audit: " + self.track() + " [" + self.data + "]";
 }
 
 // =============================================================================
@@ -70,13 +70,13 @@ trait Printable {
 }
 
 trait Formatted: Printable {
-    @format (self) -> str = "[Formatted: " + self.to_string() + "]"
+    @format (self) -> str = "[Formatted: " + self.to_string() + "]";
 }
 
 type Value = { amount: int }
 
 impl Printable for Value {
-    @to_string (self) -> str = str(self.amount)
+    @to_string (self) -> str = str(self.amount);
 }
 
 impl Formatted for Value {
@@ -90,12 +90,12 @@ impl Formatted for Value {
 type Currency = { amount: int, symbol: str }
 
 impl Printable for Currency {
-    @to_string (self) -> str = self.symbol + str(self.amount)
+    @to_string (self) -> str = self.symbol + str(self.amount);
 }
 
 impl Formatted for Currency {
     // Override the default format method
-    @format (self) -> str = "Currency: " + self.to_string()
+    @format (self) -> str = "Currency: " + self.to_string();
 }
 
 // =============================================================================

@@ -145,4 +145,4 @@ use std.testing { assert_eq }
     match spec.precision { Some(n) -> n, None -> 0}
 }
 
-@main () -> void = print(msg: "FormatSpec type tests")
+@main () -> void = print(msg: "FormatSpec type tests");

@@ -1,7 +1,7 @@
 use std.testing { assert_eq, assert }
 
 // All-unit variant sum type (no payload)
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 @color_name (c: Color) -> str = match c {
     Red -> "red",

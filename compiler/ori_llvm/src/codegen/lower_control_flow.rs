@@ -200,7 +200,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             } => {
                 // Per-binding mutability: use the flag from the pattern itself
                 // to support `let ($x, y) = ...` with mixed mutability.
-                if *pat_mutable {
+                if pat_mutable.is_mutable() {
                     let init_type = self.expr_type(init_id);
                     let llvm_ty = self.resolve_type(init_type);
                     let name_str = self.resolve_name(*name).to_owned();
@@ -262,7 +262,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                         self.bind_pattern(sub_pattern, elem_val, mutable, init_id);
                     }
                 }
-                if let Some(_rest_name) = rest {
+                if let Some((_rest_name, _rest_mutable)) = rest {
                     tracing::warn!(
                         "list rest pattern (`...name`) not yet implemented in V2 codegen"
                     );

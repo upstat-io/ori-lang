@@ -12,9 +12,9 @@ use std.testing { assert_eq, assert }
 // -----------------------------------------------------------------------------
 
 // Basic newtype wrapping a primitive type
-type UserId = str
-type Email = str
-type Age = int
+type UserId = str;
+type Email = str;
+type Age = int;
 
 // Test newtype construction
 @test_newtype_construction tests @get_user_id () -> void = {
@@ -23,7 +23,7 @@ type Age = int
 }
 
 // Test newtype unwrap
-@get_user_id (id: UserId) -> str = id.unwrap()
+@get_user_id (id: UserId) -> str = id.unwrap();
 
 @test_newtype_unwrap tests @get_user_id () -> void = {
     let id = UserId("user-123");
@@ -33,8 +33,8 @@ type Age = int
 
 // Test that different newtypes are distinct types
 // (this tests nominal typing - UserId and Email should NOT be interchangeable)
-@validate_user (id: UserId) -> bool = true
-@validate_email (email: Email) -> bool = true
+@validate_user (id: UserId) -> bool = true;
+@validate_email (email: Email) -> bool = true;
 
 @test_different_newtypes tests @validate_user () -> void = {
     let id = UserId("abc");
@@ -51,7 +51,7 @@ type Age = int
     assert(cond: true)
 }
 
-@get_age (a: Age) -> int = a.unwrap()
+@get_age (a: Age) -> int = a.unwrap();
 
 @test_int_newtype_unwrap tests @get_age () -> void = {
     let age = Age(25);
@@ -70,7 +70,7 @@ type Age = int
     assert_eq(actual: id1.unwrap(), expected: id2.unwrap())
 }
 
-@compare_ids (a: UserId, b: UserId) -> bool = a.unwrap() == b.unwrap()
+@compare_ids (a: UserId, b: UserId) -> bool = a.unwrap() == b.unwrap();
 
 @test_different_newtype_values tests @compare_ids () -> void = {
     let id1 = UserId("abc");
@@ -98,9 +98,9 @@ type Age = int
 // Newtype with Computations
 // -----------------------------------------------------------------------------
 
-type Score = int
+type Score = int;
 
-@add_scores (a: Score, b: Score) -> Score = Score(a.unwrap() + b.unwrap())
+@add_scores (a: Score, b: Score) -> Score = Score(a.unwrap() + b.unwrap());
 
 @test_newtype_computation tests @add_scores () -> void = {
     let s1 = Score(10);

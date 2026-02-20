@@ -13,7 +13,7 @@ type EmptyBox = { }
 
 // This impl is missing `type Item`
 impl Container for EmptyBox {
-    @first (self) -> Option<Self.Item> = None
+    @first (self) -> Option<Self.Item> = None;
 }
 
 // A test to trigger compilation

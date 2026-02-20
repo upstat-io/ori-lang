@@ -40,10 +40,10 @@ fn test_first_line() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
-    assert_eq!(first_line(&db, file), "@main () -> int = 42");
+    assert_eq!(first_line(&db, file), "@main () -> int = 42;");
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn test_tokens_function_def() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     let toks = tokens(&db, file);
@@ -253,7 +253,7 @@ fn test_parsed_basic() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     let result = parsed(&db, file);
@@ -274,7 +274,7 @@ fn test_parsed_caching() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2".to_string(),
+        "@main () -> int = 1 + 2;".to_string(),
     );
 
     // First call - should execute both tokens and parsed queries
@@ -297,7 +297,7 @@ fn test_parsed_incremental() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 1".to_string(),
+        "@main () -> int = 1;".to_string(),
     );
 
     // Initial parse
@@ -311,7 +311,8 @@ fn test_parsed_incremental() {
     ));
 
     // Modify source
-    file.set_text(&mut db).to("@main () -> int = 2".to_string());
+    file.set_text(&mut db)
+        .to("@main () -> int = 2;".to_string());
 
     // Should re-parse with new value
     let result2 = parsed(&db, file);
@@ -333,7 +334,7 @@ fn test_parsed_early_cutoff() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     // First call
@@ -343,7 +344,7 @@ fn test_parsed_early_cutoff() {
     // Add whitespace (tokens should be identical after lexing)
     // Note: This depends on lexer behavior with whitespace
     file.set_text(&mut db)
-        .to("@main () -> int = 42  ".to_string());
+        .to("@main () -> int = 42;".to_string());
 
     // Get tokens to verify they're the same semantically
     // Even if tokens differ, parsed result should be equivalent
@@ -365,7 +366,7 @@ fn test_parsed_with_expressions() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@calc () -> int = 1 + 2 * 3".to_string(),
+        "@calc () -> int = 1 + 2 * 3;".to_string(),
     );
 
     let result = parsed(&db, file);
@@ -409,7 +410,7 @@ fn test_typed_basic() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     let result = typed(&db, file);
@@ -427,7 +428,7 @@ fn test_typed_caching() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2".to_string(),
+        "@main () -> int = 1 + 2;".to_string(),
     );
 
     // First call - should execute tokens, parsed, and typed queries
@@ -448,7 +449,7 @@ fn test_typed_incremental() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     // Initial type check
@@ -457,7 +458,7 @@ fn test_typed_incremental() {
 
     // Modify source to return bool
     file.set_text(&mut db)
-        .to("@main () -> bool = true".to_string());
+        .to("@main () -> bool = true;".to_string());
 
     // Should re-type-check with new return type
     let result2 = typed(&db, file);
@@ -471,7 +472,7 @@ fn test_typed_with_error() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = if 42 then 1 else 2".to_string(),
+        "@main () -> int = if 42 then 1 else 2;".to_string(),
     );
 
     let result = typed(&db, file);
@@ -489,7 +490,7 @@ fn test_evaluated_basic() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -507,7 +508,7 @@ fn test_evaluated_arithmetic() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 1 + 2 * 3".to_string(),
+        "@main () -> int = 1 + 2 * 3;".to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -525,7 +526,7 @@ fn test_evaluated_boolean() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> bool = true && false".to_string(),
+        "@main () -> bool = true && false;".to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -543,7 +544,7 @@ fn test_evaluated_if_expression() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = if true then 1 else 2".to_string(),
+        "@main () -> int = if true then 1 else 2;".to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -561,7 +562,7 @@ fn test_evaluated_list() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> [int] = [1, 2, 3]".to_string(),
+        "@main () -> [int] = [1, 2, 3];".to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -590,7 +591,7 @@ fn test_evaluated_caching() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     // First call - should execute
@@ -613,7 +614,7 @@ fn test_evaluated_incremental() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 1".to_string(),
+        "@main () -> int = 1;".to_string(),
     );
 
     // Initial evaluation
@@ -621,7 +622,8 @@ fn test_evaluated_incremental() {
     assert_eq!(result1.result, Some(EvalOutput::Int(1)));
 
     // Modify source
-    file.set_text(&mut db).to("@main () -> int = 2".to_string());
+    file.set_text(&mut db)
+        .to("@main () -> int = 2;".to_string());
 
     // Should re-evaluate with new value
     let result2 = evaluated(&db, file);
@@ -635,7 +637,7 @@ fn test_evaluated_parse_error() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int =".to_string(), // Missing expression
+        "@main () -> int =;".to_string(), // Missing expression
     );
 
     let result = evaluated(&db, file);
@@ -653,7 +655,7 @@ fn test_evaluated_no_main() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@foo () -> int = 100".to_string(),
+        "@foo () -> int = 100;".to_string(),
     );
 
     let result = evaluated(&db, file);
@@ -705,7 +707,7 @@ fn test_evaluated_recurse_pattern() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        r"@main () -> int = recurse(
+        r"@main () -> int = recurse(;
             condition: true,
             base: 42,
             step: self()
@@ -741,7 +743,7 @@ fn test_typed_function_signatures() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@add (a: int, b: int) -> int = a + b".to_string(),
+        "@add (a: int, b: int) -> int = a + b;".to_string(),
     );
 
     let result = typed(&db, file);
@@ -782,7 +784,7 @@ fn test_typed_multiple_functions() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@foo () -> int = 1\n@bar () -> bool = true".to_string(),
+        "@foo () -> int = 1;\n@bar () -> bool = true;".to_string(),
     );
 
     let result = typed(&db, file);
@@ -799,7 +801,7 @@ fn test_typed_multiple_functions() {
 fn test_typed_determinism() {
     let db = CompilerDb::new();
 
-    let source = "@add (x: int, y: int) -> int = x + y\n@mul (a: int, b: int) -> int = a * b";
+    let source = "@add (x: int, y: int) -> int = x + y;\n@mul (a: int, b: int) -> int = a * b;";
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     // Call twice — should produce identical results
@@ -825,7 +827,7 @@ fn test_typed_determinism() {
 fn test_typed_list_indexing() {
     let db = CompilerDb::new();
 
-    let source = "@main () -> int = [10, 20, 30][0]";
+    let source = "@main () -> int = [10, 20, 30][0];";
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -845,7 +847,7 @@ fn test_typed_list_indexing() {
 fn test_typed_map_indexing_with_coalesce() {
     let db = CompilerDb::new();
 
-    let source = r#"@main () -> int = {"a": 1}["a"] ?? 0"#;
+    let source = r#"@main () -> int = {"a": 1}["a"] ?? 0;"#;
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -924,9 +926,9 @@ fn test_typed_field_in_arithmetic() {
 fn test_typed_whitespace_invariance() {
     // Different horizontal whitespace should produce identical TypeCheckResult.
     // The type checker output depends on semantic content (tokens), not formatting.
-    let compact = "@add (x: int, y: int) -> int = x + y";
-    let spaced = "@add  ( x : int ,  y : int )  ->  int  =  x  +  y";
-    let tabbed = "@add\t(x:\tint,\ty:\tint)\t->\tint\t=\tx\t+\ty";
+    let compact = "@add (x: int, y: int) -> int = x + y;";
+    let spaced = "@add  ( x : int ,  y : int )  ->  int  =  x  +  y;";
+    let tabbed = "@add\t(x:\tint,\ty:\tint)\t->\tint\t=\tx\t+\ty;";
 
     let db1 = CompilerDb::new();
     let file1 = SourceFile::new(&db1, PathBuf::from("/test.ori"), compact.to_string());
@@ -981,7 +983,7 @@ fn test_typed_whitespace_invariance() {
 fn test_typed_result_coalesce() {
     let db = CompilerDb::new();
 
-    let source = "@main () -> int = Ok(42) ?? 0";
+    let source = "@main () -> int = Ok(42) ?? 0;";
     let file = SourceFile::new(&db, PathBuf::from("/test.ori"), source.to_string());
 
     let result = typed(&db, file);
@@ -1095,7 +1097,7 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     // First call — executes both tokens and parsed queries
@@ -1111,7 +1113,7 @@ fn test_tokens_early_cutoff_on_whitespace_edit() {
     // This changes Span positions but NOT TokenKind or TokenFlags, so
     // position-independent equality holds and parsed() is not re-executed.
     file.set_text(&mut db)
-        .to("@main  ()  ->  int  =  42".to_string());
+        .to("@main  ()  ->  int  =  42;".to_string());
 
     // Call parsed again — tokens query re-executes (text changed),
     // but position-independent Hash/Eq means tokens are "equal",
@@ -1268,7 +1270,7 @@ fn test_typed_early_cutoff_on_body_change() {
     let file = SourceFile::new(
         &db,
         PathBuf::from("/test.ori"),
-        "@main () -> int = 42".to_string(),
+        "@main () -> int = 42;".to_string(),
     );
 
     let result1 = typed(&db, file);
@@ -1276,7 +1278,7 @@ fn test_typed_early_cutoff_on_body_change() {
 
     // Change body only (same signature: () -> int)
     file.set_text(&mut db)
-        .to("@main () -> int = 100".to_string());
+        .to("@main () -> int = 100;".to_string());
 
     let result2 = typed(&db, file);
     let logs = db.take_logs();

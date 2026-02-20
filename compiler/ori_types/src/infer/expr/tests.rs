@@ -2,7 +2,7 @@ use super::*;
 use crate::{Idx, Pool};
 use ori_ir::{
     ast::{Expr, ExprKind, MapEntry, MatchArm, MatchPattern, Param, Stmt, StmtKind},
-    BindingPattern, ExprArena, ExprId, Name, Span, StringInterner,
+    BindingPattern, ExprArena, ExprId, Mutability, Name, Span, StringInterner,
 };
 
 // ========================================================================
@@ -1263,7 +1263,7 @@ fn test_infer_block_with_let() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let _stmt = arena.alloc_stmt(Stmt {
         kind: StmtKind::Let {
@@ -1301,7 +1301,7 @@ fn test_infer_block_let_with_type_annotation() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let int_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1353,7 +1353,7 @@ fn test_infer_block_let_annotation_list_type() {
 
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let list_ty = arena.alloc_parsed_type(list_annotation);
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1396,7 +1396,7 @@ fn test_infer_block_let_annotation_type_mismatch() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let str_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1680,7 +1680,7 @@ fn test_infer_function_seq_run() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let bindings = arena.alloc_seq_bindings([ori_ir::SeqBinding::Let {
         pattern,
@@ -1730,11 +1730,11 @@ fn test_infer_function_seq_run_multiple_bindings() {
 
     let pattern1 = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let pattern2 = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(2),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let bindings = arena.alloc_seq_bindings([
         ori_ir::SeqBinding::Let {

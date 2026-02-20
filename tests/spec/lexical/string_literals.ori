@@ -10,28 +10,28 @@ use std.testing { assert, assert_eq }
 // Basic String Literals
 // =============================================================================
 
-@string_empty () -> str = ""
+@string_empty () -> str = "";
 
 @test_string_empty tests @string_empty () -> void = {
     assert(cond: string_empty() == "");
     assert_eq(actual: string_empty().len(), expected: 0)
 }
 
-@string_single_char () -> str = "a"
+@string_single_char () -> str = "a";
 
 @test_string_single_char tests @string_single_char () -> void = {
     assert(cond: string_single_char() == "a");
     assert_eq(actual: string_single_char().len(), expected: 1)
 }
 
-@string_hello () -> str = "hello"
+@string_hello () -> str = "hello";
 
 @test_string_hello tests @string_hello () -> void = {
     assert(cond: string_hello() == "hello");
     assert_eq(actual: string_hello().len(), expected: 5)
 }
 
-@string_hello_world () -> str = "Hello, World!"
+@string_hello_world () -> str = "Hello, World!";
 
 @test_string_hello_world tests @string_hello_world () -> void = {
     assert(cond: string_hello_world() == "Hello, World!");
@@ -42,32 +42,32 @@ use std.testing { assert, assert_eq }
 // Strings with Spaces
 // =============================================================================
 
-@string_leading_space () -> str = " hello"
+@string_leading_space () -> str = " hello";
 
 @test_string_leading_space tests @string_leading_space () -> void = {
     assert(cond: string_leading_space() == " hello")
 }
 
-@string_trailing_space () -> str = "hello "
+@string_trailing_space () -> str = "hello ";
 
 @test_string_trailing_space tests @string_trailing_space () -> void = {
     assert(cond: string_trailing_space() == "hello ")
 }
 
-@string_multiple_spaces () -> str = "  spaces  "
+@string_multiple_spaces () -> str = "  spaces  ";
 
 @test_string_multiple_spaces tests @string_multiple_spaces () -> void = {
     assert(cond: string_multiple_spaces() == "  spaces  ")
 }
 
-@string_only_space () -> str = " "
+@string_only_space () -> str = " ";
 
 @test_string_only_space tests @string_only_space () -> void = {
     assert(cond: string_only_space() == " ");
     assert_eq(actual: string_only_space().len(), expected: 1)
 }
 
-@string_multiple_words () -> str = "hello world foo bar"
+@string_multiple_words () -> str = "hello world foo bar";
 
 @test_string_multiple_words tests @string_multiple_words () -> void = {
     assert(cond: string_multiple_words() == "hello world foo bar")
@@ -77,31 +77,31 @@ use std.testing { assert, assert_eq }
 // Strings with Various Characters
 // =============================================================================
 
-@string_digits () -> str = "12345"
+@string_digits () -> str = "12345";
 
 @test_string_digits tests @string_digits () -> void = {
     assert(cond: string_digits() == "12345")
 }
 
-@string_mixed () -> str = "abc123"
+@string_mixed () -> str = "abc123";
 
 @test_string_mixed tests @string_mixed () -> void = {
     assert(cond: string_mixed() == "abc123")
 }
 
-@string_punctuation () -> str = "foo@bar.com"
+@string_punctuation () -> str = "foo@bar.com";
 
 @test_string_punctuation tests @string_punctuation () -> void = {
     assert(cond: string_punctuation() == "foo@bar.com")
 }
 
-@string_math () -> str = "1+2=3"
+@string_math () -> str = "1+2=3";
 
 @test_string_math tests @string_math () -> void = {
     assert(cond: string_math() == "1+2=3")
 }
 
-@string_special_chars () -> str = "!@#$%^&*()"
+@string_special_chars () -> str = "!@#$%^&*()";
 
 @test_string_special_chars tests @string_special_chars () -> void = {
     assert(cond: string_special_chars() == "!@#$%^&*()")
@@ -111,43 +111,43 @@ use std.testing { assert, assert_eq }
 // Escape Sequences
 // =============================================================================
 
-@string_escape_backslash () -> str = "a\\b"
+@string_escape_backslash () -> str = "a\\b";
 
 @test_string_escape_backslash tests @string_escape_backslash () -> void = {
     assert(cond: string_escape_backslash() == "a\\b")
 }
 
-@string_escape_quote () -> str = "say \"hello\""
+@string_escape_quote () -> str = "say \"hello\"";
 
 @test_string_escape_quote tests @string_escape_quote () -> void = {
     assert(cond: string_escape_quote() == "say \"hello\"")
 }
 
-@string_escape_newline () -> str = "line1\nline2"
+@string_escape_newline () -> str = "line1\nline2";
 
 @test_string_escape_newline tests @string_escape_newline () -> void = {
     assert(cond: string_escape_newline() == "line1\nline2")
 }
 
-@string_escape_tab () -> str = "col1\tcol2"
+@string_escape_tab () -> str = "col1\tcol2";
 
 @test_string_escape_tab tests @string_escape_tab () -> void = {
     assert(cond: string_escape_tab() == "col1\tcol2")
 }
 
-@string_escape_carriage () -> str = "line\r"
+@string_escape_carriage () -> str = "line\r";
 
 @test_string_escape_carriage tests @string_escape_carriage () -> void = {
     assert(cond: string_escape_carriage() == "line\r")
 }
 
-@string_escape_crlf () -> str = "win\r\nline"
+@string_escape_crlf () -> str = "win\r\nline";
 
 @test_string_escape_crlf tests @string_escape_crlf () -> void = {
     assert(cond: string_escape_crlf() == "win\r\nline")
 }
 
-@string_escape_null () -> str = "null\0char"
+@string_escape_null () -> str = "null\0char";
 
 @test_string_escape_null tests @string_escape_null () -> void = {
     assert(cond: string_escape_null() == "null\0char")
@@ -157,25 +157,25 @@ use std.testing { assert, assert_eq }
 // Multiple Escapes in Single String
 // =============================================================================
 
-@string_multi_escape () -> str = "a\\b\\c"
+@string_multi_escape () -> str = "a\\b\\c";
 
 @test_string_multi_escape tests @string_multi_escape () -> void = {
     assert(cond: string_multi_escape() == "a\\b\\c")
 }
 
-@string_multi_newline () -> str = "line1\nline2\nline3"
+@string_multi_newline () -> str = "line1\nline2\nline3";
 
 @test_string_multi_newline tests @string_multi_newline () -> void = {
     assert(cond: string_multi_newline() == "line1\nline2\nline3")
 }
 
-@string_multi_quote () -> str = "\"one\" and \"two\""
+@string_multi_quote () -> str = "\"one\" and \"two\"";
 
 @test_string_multi_quote tests @string_multi_quote () -> void = {
     assert(cond: string_multi_quote() == "\"one\" and \"two\"")
 }
 
-@string_mixed_escapes () -> str = "path\\to\\file\nname\ttab"
+@string_mixed_escapes () -> str = "path\\to\\file\nname\ttab";
 
 @test_string_mixed_escapes tests @string_mixed_escapes () -> void = {
     assert(cond: string_mixed_escapes() == "path\\to\\file\nname\ttab")
@@ -185,25 +185,25 @@ use std.testing { assert, assert_eq }
 // Unicode Strings
 // =============================================================================
 
-@string_unicode_accented () -> str = "cafe"
+@string_unicode_accented () -> str = "cafe";
 
 @test_string_unicode_accented tests @string_unicode_accented () -> void = {
     assert(cond: string_unicode_accented() == "cafe")
 }
 
-@string_unicode_french () -> str = "francais"
+@string_unicode_french () -> str = "francais";
 
 @test_string_unicode_french tests @string_unicode_french () -> void = {
     assert(cond: string_unicode_french() == "francais")
 }
 
-@string_unicode_german () -> str = "Munchen"
+@string_unicode_german () -> str = "Munchen";
 
 @test_string_unicode_german tests @string_unicode_german () -> void = {
     assert(cond: string_unicode_german() == "Munchen")
 }
 
-@string_unicode_spanish () -> str = "espanol"
+@string_unicode_spanish () -> str = "espanol";
 
 @test_string_unicode_spanish tests @string_unicode_spanish () -> void = {
     assert(cond: string_unicode_spanish() == "espanol")
@@ -213,25 +213,25 @@ use std.testing { assert, assert_eq }
 // String Comparisons
 // =============================================================================
 
-@string_compare_eq () -> bool = "hello" == "hello"
+@string_compare_eq () -> bool = "hello" == "hello";
 
 @test_string_compare_eq tests @string_compare_eq () -> void = {
     assert(cond: string_compare_eq())
 }
 
-@string_compare_neq () -> bool = "hello" != "world"
+@string_compare_neq () -> bool = "hello" != "world";
 
 @test_string_compare_neq tests @string_compare_neq () -> void = {
     assert(cond: string_compare_neq())
 }
 
-@string_compare_empty () -> bool = "" == ""
+@string_compare_empty () -> bool = "" == "";
 
 @test_string_compare_empty tests @string_compare_empty () -> void = {
     assert(cond: string_compare_empty())
 }
 
-@string_compare_case () -> bool = "Hello" != "hello"
+@string_compare_case () -> bool = "Hello" != "hello";
 
 @test_string_compare_case tests @string_compare_case () -> void = {
     assert(cond: string_compare_case()) // Case sensitive
@@ -241,25 +241,25 @@ use std.testing { assert, assert_eq }
 // String Operations
 // =============================================================================
 
-@string_length () -> int = "hello".len()
+@string_length () -> int = "hello".len();
 
 @test_string_length tests @string_length () -> void = {
     assert_eq(actual: string_length(), expected: 5)
 }
 
-@string_empty_length () -> int = "".len()
+@string_empty_length () -> int = "".len();
 
 @test_string_empty_length tests @string_empty_length () -> void = {
     assert_eq(actual: string_empty_length(), expected: 0)
 }
 
-@string_is_empty () -> bool = "".len() == 0
+@string_is_empty () -> bool = "".len() == 0;
 
 @test_string_is_empty tests @string_is_empty () -> void = {
     assert(cond: string_is_empty())
 }
 
-@string_not_empty () -> bool = "hello".len() > 0
+@string_not_empty () -> bool = "hello".len() > 0;
 
 @test_string_not_empty tests @string_not_empty () -> void = {
     assert(cond: string_not_empty())
@@ -269,7 +269,7 @@ use std.testing { assert, assert_eq }
 // Strings in Collections
 // =============================================================================
 
-@string_in_list () -> int = ["a", "b", "c"].len()
+@string_in_list () -> int = ["a", "b", "c"].len();
 
 @test_string_in_list tests @string_in_list () -> void = {
     assert_eq(actual: string_in_list(), expected: 3)
@@ -299,7 +299,7 @@ type StringStruct = { name: str, value: str }
 // Long Strings
 // =============================================================================
 
-@string_long () -> int = "This is a fairly long string that tests the lexer's ability to handle longer string literals without any issues whatsoever.".len()
+@string_long () -> int = "This is a fairly long string that tests the lexer's ability to handle longer string literals without any issues whatsoever.".len();
 
 @test_string_long tests @string_long () -> void = {
     assert(cond: string_long() > 100)
@@ -309,7 +309,7 @@ type StringStruct = { name: str, value: str }
 // Strings with All Printable ASCII
 // =============================================================================
 
-@string_printable_ascii () -> str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+@string_printable_ascii () -> str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 @test_string_printable_ascii tests @string_printable_ascii () -> void = {
     assert_eq(actual: string_printable_ascii().len(), expected: 62)
@@ -319,25 +319,25 @@ type StringStruct = { name: str, value: str }
 // Edge Cases
 // =============================================================================
 
-@string_only_escape () -> str = "\n"
+@string_only_escape () -> str = "\n";
 
 @test_string_only_escape tests @string_only_escape () -> void = {
     assert(cond: string_only_escape() == "\n")
 }
 
-@string_only_backslash () -> str = "\\"
+@string_only_backslash () -> str = "\\";
 
 @test_string_only_backslash tests @string_only_backslash () -> void = {
     assert(cond: string_only_backslash() == "\\")
 }
 
-@string_only_quote () -> str = "\""
+@string_only_quote () -> str = "\"";
 
 @test_string_only_quote tests @string_only_quote () -> void = {
     assert(cond: string_only_quote() == "\"")
 }
 
-@string_consecutive_escapes () -> str = "\n\n\n"
+@string_consecutive_escapes () -> str = "\n\n\n";
 
 @test_string_consecutive_escapes tests @string_consecutive_escapes () -> void = {
     assert(cond: string_consecutive_escapes() == "\n\n\n")
@@ -347,13 +347,13 @@ type StringStruct = { name: str, value: str }
 // Strings in Conditionals
 // =============================================================================
 
-@string_conditional () -> str = if true then "yes" else "no"
+@string_conditional () -> str = if true then "yes" else "no";
 
 @test_string_conditional tests @string_conditional () -> void = {
     assert(cond: string_conditional() == "yes")
 }
 
-@string_conditional_compare () -> str = if "a" == "a" then "match" else "no match"
+@string_conditional_compare () -> str = if "a" == "a" then "match" else "no match";
 
 @test_string_conditional_compare tests @string_conditional_compare () -> void = {
     assert(cond: string_conditional_compare() == "match")
@@ -386,13 +386,13 @@ type StringStruct = { name: str, value: str }
 // String as Function Parameter
 // =============================================================================
 
-@string_param (s: str) -> str = s
+@string_param (s: str) -> str = s;
 
 @test_string_param tests @string_param () -> void = {
     assert(cond: string_param(s: "test") == "test")
 }
 
-@string_param_escape (s: str) -> str = s
+@string_param_escape (s: str) -> str = s;
 
 @test_string_param_escape tests @string_param_escape () -> void = {
     assert(cond: string_param_escape(s: "line1\nline2") == "line1\nline2")

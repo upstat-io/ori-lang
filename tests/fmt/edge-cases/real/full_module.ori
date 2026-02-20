@@ -9,7 +9,7 @@ use std.testing { assert_eq }
 // TODO: std.time not yet implemented
 // use std.time { Duration }
 
-type Status = Pending | Active | Done
+type Status = Pending | Active | Done;
 
 type Task = { id: int, name: str, status: Status, priority: int }
 
@@ -29,11 +29,11 @@ type TaskList = { tasks: [Task], owner: str }
 //     status: Done,
 //     priority: task.priority,
 // }
-@complete_task (task: Task) -> Task = task
+@complete_task (task: Task) -> Task = task;
 
 // TODO: LLVM backend doesn't support struct field access
 // @is_high_priority (task: Task) -> bool = task.priority > 5
-@is_high_priority (task: Task) -> bool = false
+@is_high_priority (task: Task) -> bool = false;
 
 // TODO: LLVM backend doesn't support struct field access in for-loop iteration
 // @count_done (tasks: [Task]) -> int = {

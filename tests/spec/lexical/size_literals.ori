@@ -12,19 +12,19 @@ use std.testing { assert, assert_eq }
 // Bytes (b)
 // =============================================================================
 
-@size_b_1 () -> int = 1b.bytes()
+@size_b_1 () -> int = 1b.bytes();
 
 @test_size_b_1 tests @size_b_1 () -> void = {
     assert_eq(actual: size_b_1(), expected: 1)
 }
 
-@size_b_100 () -> int = 100b.bytes()
+@size_b_100 () -> int = 100b.bytes();
 
 @test_size_b_100 tests @size_b_100 () -> void = {
     assert_eq(actual: size_b_100(), expected: 100)
 }
 
-@size_b_1000 () -> int = 1000b.kilobytes()
+@size_b_1000 () -> int = 1000b.kilobytes();
 
 @test_size_b_1000 tests @size_b_1000 () -> void = {
     assert_eq(actual: size_b_1000(), expected: 1) // SI: 1000b = 1kb
@@ -34,25 +34,25 @@ use std.testing { assert, assert_eq }
 // Kilobytes (kb) - SI: 1kb = 1000 bytes
 // =============================================================================
 
-@size_kb_1 () -> int = 1kb.kilobytes()
+@size_kb_1 () -> int = 1kb.kilobytes();
 
 @test_size_kb_1 tests @size_kb_1 () -> void = {
     assert_eq(actual: size_kb_1(), expected: 1)
 }
 
-@size_kb_4 () -> int = 4kb.kilobytes()
+@size_kb_4 () -> int = 4kb.kilobytes();
 
 @test_size_kb_4 tests @size_kb_4 () -> void = {
     assert_eq(actual: size_kb_4(), expected: 4)
 }
 
-@size_kb_to_b () -> int = 1kb.bytes()
+@size_kb_to_b () -> int = 1kb.bytes();
 
 @test_size_kb_to_b tests @size_kb_to_b () -> void = {
     assert_eq(actual: size_kb_to_b(), expected: 1000) // SI: 1kb = 1000b
 }
 
-@size_kb_to_b_4 () -> int = 4kb.bytes()
+@size_kb_to_b_4 () -> int = 4kb.bytes();
 
 @test_size_kb_to_b_4 tests @size_kb_to_b_4 () -> void = {
     assert_eq(actual: size_kb_to_b_4(), expected: 4000) // SI: 4kb = 4000b
@@ -62,25 +62,25 @@ use std.testing { assert, assert_eq }
 // Megabytes (mb) - SI: 1mb = 1,000,000 bytes
 // =============================================================================
 
-@size_mb_1 () -> int = 1mb.megabytes()
+@size_mb_1 () -> int = 1mb.megabytes();
 
 @test_size_mb_1 tests @size_mb_1 () -> void = {
     assert_eq(actual: size_mb_1(), expected: 1)
 }
 
-@size_mb_10 () -> int = 10mb.megabytes()
+@size_mb_10 () -> int = 10mb.megabytes();
 
 @test_size_mb_10 tests @size_mb_10 () -> void = {
     assert_eq(actual: size_mb_10(), expected: 10)
 }
 
-@size_mb_to_kb () -> int = 1mb.kilobytes()
+@size_mb_to_kb () -> int = 1mb.kilobytes();
 
 @test_size_mb_to_kb tests @size_mb_to_kb () -> void = {
     assert_eq(actual: size_mb_to_kb(), expected: 1000) // SI: 1mb = 1000kb
 }
 
-@size_mb_to_b () -> int = 1mb.bytes()
+@size_mb_to_b () -> int = 1mb.bytes();
 
 @test_size_mb_to_b tests @size_mb_to_b () -> void = {
     assert_eq(actual: size_mb_to_b(), expected: 1000000) // SI: 1mb = 1,000,000b
@@ -90,31 +90,31 @@ use std.testing { assert, assert_eq }
 // Gigabytes (gb) - SI: 1gb = 1,000,000,000 bytes
 // =============================================================================
 
-@size_gb_1 () -> int = 1gb.gigabytes()
+@size_gb_1 () -> int = 1gb.gigabytes();
 
 @test_size_gb_1 tests @size_gb_1 () -> void = {
     assert_eq(actual: size_gb_1(), expected: 1)
 }
 
-@size_gb_2 () -> int = 2gb.gigabytes()
+@size_gb_2 () -> int = 2gb.gigabytes();
 
 @test_size_gb_2 tests @size_gb_2 () -> void = {
     assert_eq(actual: size_gb_2(), expected: 2)
 }
 
-@size_gb_to_mb () -> int = 1gb.megabytes()
+@size_gb_to_mb () -> int = 1gb.megabytes();
 
 @test_size_gb_to_mb tests @size_gb_to_mb () -> void = {
     assert_eq(actual: size_gb_to_mb(), expected: 1000) // SI: 1gb = 1000mb
 }
 
-@size_gb_to_kb () -> int = 1gb.kilobytes()
+@size_gb_to_kb () -> int = 1gb.kilobytes();
 
 @test_size_gb_to_kb tests @size_gb_to_kb () -> void = {
     assert_eq(actual: size_gb_to_kb(), expected: 1000000) // SI: 1gb = 1,000,000kb
 }
 
-@size_gb_to_b () -> int = 1gb.bytes()
+@size_gb_to_b () -> int = 1gb.bytes();
 
 @test_size_gb_to_b tests @size_gb_to_b () -> void = {
     assert_eq(actual: size_gb_to_b(), expected: 1000000000) // SI: 1gb = 1,000,000,000b
@@ -124,19 +124,19 @@ use std.testing { assert, assert_eq }
 // Terabytes (tb) - SI: 1tb = 1,000,000,000,000 bytes
 // =============================================================================
 
-@size_tb_1 () -> int = 1tb.terabytes()
+@size_tb_1 () -> int = 1tb.terabytes();
 
 @test_size_tb_1 tests @size_tb_1 () -> void = {
     assert_eq(actual: size_tb_1(), expected: 1)
 }
 
-@size_tb_to_gb () -> int = 1tb.gigabytes()
+@size_tb_to_gb () -> int = 1tb.gigabytes();
 
 @test_size_tb_to_gb tests @size_tb_to_gb () -> void = {
     assert_eq(actual: size_tb_to_gb(), expected: 1000) // SI: 1tb = 1000gb
 }
 
-@size_tb_to_mb () -> int = 1tb.megabytes()
+@size_tb_to_mb () -> int = 1tb.megabytes();
 
 @test_size_tb_to_mb tests @size_tb_to_mb () -> void = {
     assert_eq(actual: size_tb_to_mb(), expected: 1000000) // SI: 1tb = 1,000,000mb
@@ -146,13 +146,13 @@ use std.testing { assert, assert_eq }
 // Zero Size
 // =============================================================================
 
-@size_zero_b () -> int = 0b.bytes()
+@size_zero_b () -> int = 0b.bytes();
 
 @test_size_zero_b tests @size_zero_b () -> void = {
     assert_eq(actual: size_zero_b(), expected: 0)
 }
 
-@size_zero_kb () -> int = 0kb.kilobytes()
+@size_zero_kb () -> int = 0kb.kilobytes();
 
 @test_size_zero_kb tests @size_zero_kb () -> void = {
     assert_eq(actual: size_zero_kb(), expected: 0)
@@ -162,19 +162,19 @@ use std.testing { assert, assert_eq }
 // Size Arithmetic - Addition
 // =============================================================================
 
-@size_add_same_unit () -> int = (1kb + 2kb).kilobytes()
+@size_add_same_unit () -> int = (1kb + 2kb).kilobytes();
 
 @test_size_add_same_unit tests @size_add_same_unit () -> void = {
     assert_eq(actual: size_add_same_unit(), expected: 3)
 }
 
-@size_add_diff_unit () -> int = (1kb + 500b).bytes()
+@size_add_diff_unit () -> int = (1kb + 500b).bytes();
 
 @test_size_add_diff_unit tests @size_add_diff_unit () -> void = {
     assert_eq(actual: size_add_diff_unit(), expected: 1500)
 }
 
-@size_add_mb_kb () -> int = (1mb + 500kb).kilobytes()
+@size_add_mb_kb () -> int = (1mb + 500kb).kilobytes();
 
 @test_size_add_mb_kb tests @size_add_mb_kb () -> void = {
     assert_eq(actual: size_add_mb_kb(), expected: 1500)
@@ -184,19 +184,19 @@ use std.testing { assert, assert_eq }
 // Size Arithmetic - Subtraction
 // =============================================================================
 
-@size_sub_same_unit () -> int = (5kb - 2kb).kilobytes()
+@size_sub_same_unit () -> int = (5kb - 2kb).kilobytes();
 
 @test_size_sub_same_unit tests @size_sub_same_unit () -> void = {
     assert_eq(actual: size_sub_same_unit(), expected: 3)
 }
 
-@size_sub_diff_unit () -> int = (2kb - 500b).bytes()
+@size_sub_diff_unit () -> int = (2kb - 500b).bytes();
 
 @test_size_sub_diff_unit tests @size_sub_diff_unit () -> void = {
     assert_eq(actual: size_sub_diff_unit(), expected: 1500)
 }
 
-@size_sub_to_zero () -> int = (1kb - 1kb).bytes()
+@size_sub_to_zero () -> int = (1kb - 1kb).bytes();
 
 @test_size_sub_to_zero tests @size_sub_to_zero () -> void = {
     assert_eq(actual: size_sub_to_zero(), expected: 0)
@@ -206,37 +206,37 @@ use std.testing { assert, assert_eq }
 // Size Comparisons
 // =============================================================================
 
-@size_cmp_lt () -> bool = 500b < 1kb
+@size_cmp_lt () -> bool = 500b < 1kb;
 
 @test_size_cmp_lt tests @size_cmp_lt () -> void = {
     assert(cond: size_cmp_lt())
 }
 
-@size_cmp_gt () -> bool = 1kb > 500b
+@size_cmp_gt () -> bool = 1kb > 500b;
 
 @test_size_cmp_gt tests @size_cmp_gt () -> void = {
     assert(cond: size_cmp_gt())
 }
 
-@size_cmp_lte () -> bool = 1kb <= 1000b
+@size_cmp_lte () -> bool = 1kb <= 1000b;
 
 @test_size_cmp_lte tests @size_cmp_lte () -> void = {
     assert(cond: size_cmp_lte())
 }
 
-@size_cmp_gte () -> bool = 1000b >= 1kb
+@size_cmp_gte () -> bool = 1000b >= 1kb;
 
 @test_size_cmp_gte tests @size_cmp_gte () -> void = {
     assert(cond: size_cmp_gte())
 }
 
-@size_cmp_eq () -> bool = 1000b == 1kb
+@size_cmp_eq () -> bool = 1000b == 1kb;
 
 @test_size_cmp_eq tests @size_cmp_eq () -> void = {
     assert(cond: size_cmp_eq())
 }
 
-@size_cmp_neq () -> bool = 999b != 1kb
+@size_cmp_neq () -> bool = 999b != 1kb;
 
 @test_size_cmp_neq tests @size_cmp_neq () -> void = {
     assert(cond: size_cmp_neq())
@@ -246,25 +246,25 @@ use std.testing { assert, assert_eq }
 // Size Equivalences (SI Units)
 // =============================================================================
 
-@size_eq_kb_b () -> bool = 1kb == 1000b
+@size_eq_kb_b () -> bool = 1kb == 1000b;
 
 @test_size_eq_kb_b tests @size_eq_kb_b () -> void = {
     assert(cond: size_eq_kb_b()) // SI: 1kb = 1000b
 }
 
-@size_eq_mb_kb () -> bool = 1mb == 1000kb
+@size_eq_mb_kb () -> bool = 1mb == 1000kb;
 
 @test_size_eq_mb_kb tests @size_eq_mb_kb () -> void = {
     assert(cond: size_eq_mb_kb()) // SI: 1mb = 1000kb
 }
 
-@size_eq_gb_mb () -> bool = 1gb == 1000mb
+@size_eq_gb_mb () -> bool = 1gb == 1000mb;
 
 @test_size_eq_gb_mb tests @size_eq_gb_mb () -> void = {
     assert(cond: size_eq_gb_mb()) // SI: 1gb = 1000mb
 }
 
-@size_eq_tb_gb () -> bool = 1tb == 1000gb
+@size_eq_tb_gb () -> bool = 1tb == 1000gb;
 
 @test_size_eq_tb_gb tests @size_eq_tb_gb () -> void = {
     assert(cond: size_eq_tb_gb()) // SI: 1tb = 1000gb
@@ -274,7 +274,7 @@ use std.testing { assert, assert_eq }
 // Size in Collections
 // =============================================================================
 
-@size_in_list () -> int = [1kb, 2kb, 3kb].len()
+@size_in_list () -> int = [1kb, 2kb, 3kb].len();
 
 @test_size_in_list tests @size_in_list () -> void = {
     assert_eq(actual: size_in_list(), expected: 3)
@@ -306,19 +306,19 @@ use std.testing { assert, assert_eq }
 // Large Size Values
 // =============================================================================
 
-@size_large_mb () -> int = 500mb.megabytes()
+@size_large_mb () -> int = 500mb.megabytes();
 
 @test_size_large_mb tests @size_large_mb () -> void = {
     assert_eq(actual: size_large_mb(), expected: 500)
 }
 
-@size_large_gb () -> int = 8gb.gigabytes()
+@size_large_gb () -> int = 8gb.gigabytes();
 
 @test_size_large_gb tests @size_large_gb () -> void = {
     assert_eq(actual: size_large_gb(), expected: 8)
 }
 
-@size_large_tb () -> int = 2tb.terabytes()
+@size_large_tb () -> int = 2tb.terabytes();
 
 @test_size_large_tb tests @size_large_tb () -> void = {
     assert_eq(actual: size_large_tb(), expected: 2)
@@ -329,56 +329,56 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // 1.5kb = 1,500 bytes (SI: 1kb = 1000b)
-@decimal_size_1_5kb () -> int = 1.5kb.bytes()
+@decimal_size_1_5kb () -> int = 1.5kb.bytes();
 
 @test_decimal_size_1_5kb tests @decimal_size_1_5kb () -> void = {
     assert_eq(actual: decimal_size_1_5kb(), expected: 1500)
 }
 
 // 0.5mb = 500,000 bytes
-@decimal_size_half_mb () -> int = 0.5mb.bytes()
+@decimal_size_half_mb () -> int = 0.5mb.bytes();
 
 @test_decimal_size_half_mb tests @decimal_size_half_mb () -> void = {
     assert_eq(actual: decimal_size_half_mb(), expected: 500000)
 }
 
 // 0.25mb = 250,000 bytes
-@decimal_size_quarter_mb () -> int = 0.25mb.bytes()
+@decimal_size_quarter_mb () -> int = 0.25mb.bytes();
 
 @test_decimal_size_quarter_mb tests @decimal_size_quarter_mb () -> void = {
     assert_eq(actual: decimal_size_quarter_mb(), expected: 250000)
 }
 
 // 2.5gb = 2,500,000,000 bytes
-@decimal_size_2_5gb () -> int = 2.5gb.bytes()
+@decimal_size_2_5gb () -> int = 2.5gb.bytes();
 
 @test_decimal_size_2_5gb tests @decimal_size_2_5gb () -> void = {
     assert_eq(actual: decimal_size_2_5gb(), expected: 2500000000)
 }
 
 // 0.5tb = 500,000,000,000 bytes
-@decimal_size_half_tb () -> int = 0.5tb.bytes()
+@decimal_size_half_tb () -> int = 0.5tb.bytes();
 
 @test_decimal_size_half_tb tests @decimal_size_half_tb () -> void = {
     assert_eq(actual: decimal_size_half_tb(), expected: 500000000000)
 }
 
 // Decimal size equivalence: 1.5kb == 1500b
-@decimal_size_equiv () -> bool = 1.5kb == 1500b
+@decimal_size_equiv () -> bool = 1.5kb == 1500b;
 
 @test_decimal_size_equiv tests @decimal_size_equiv () -> void = {
     assert(cond: decimal_size_equiv())
 }
 
 // Decimal + integer arithmetic: 1.5kb + 500b = 2kb
-@decimal_size_arith () -> int = (1.5kb + 500b).kilobytes()
+@decimal_size_arith () -> int = (1.5kb + 500b).kilobytes();
 
 @test_decimal_size_arith tests @decimal_size_arith () -> void = {
     assert_eq(actual: decimal_size_arith(), expected: 2)
 }
 
 // 1.5kb converted to kilobytes (integer division: 1500 / 1000 = 1)
-@decimal_size_1_5kb_to_kb () -> int = 1.5kb.kilobytes()
+@decimal_size_1_5kb_to_kb () -> int = 1.5kb.kilobytes();
 
 @test_decimal_size_1_5kb_to_kb tests @decimal_size_1_5kb_to_kb () -> void = {
     assert_eq(actual: decimal_size_1_5kb_to_kb(), expected: 1) // 1500b / 1000 = 1 (truncated)
@@ -446,7 +446,7 @@ use std.testing { assert, assert_eq }
 // Edge Cases
 // =============================================================================
 
-@size_one_byte () -> bool = 1b == 1b
+@size_one_byte () -> bool = 1b == 1b;
 
 @test_size_one_byte tests @size_one_byte () -> void = {
     assert(cond: size_one_byte())

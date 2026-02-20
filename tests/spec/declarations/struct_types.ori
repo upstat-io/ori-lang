@@ -20,7 +20,7 @@ type BasicStruct = { x: int, y: int }
     assert_eq(actual: s.x + s.y, expected: 30)
 }
 
-@_use_basic (s: BasicStruct) -> int = s.x + s.y
+@_use_basic (s: BasicStruct) -> int = s.x + s.y;
 
 // =============================================================================
 // Single Field Struct
@@ -33,7 +33,7 @@ type SingleField = { value: int }
     assert_eq(actual: s.value, expected: 42)
 }
 
-@_use_single (s: SingleField) -> int = s.value
+@_use_single (s: SingleField) -> int = s.value;
 
 // =============================================================================
 // Empty Struct
@@ -46,7 +46,7 @@ type EmptyStruct = { }
     assert(cond: true)  // Just verify it can be created
 }
 
-@_use_empty (s: EmptyStruct) -> bool = true
+@_use_empty (s: EmptyStruct) -> bool = true;
 
 // =============================================================================
 // Nested Struct
@@ -61,7 +61,7 @@ type Outer = { inner: Inner, name: str }
     assert_eq(actual: o.name, expected: "test")
 }
 
-@_use_outer (o: Outer) -> int = o.inner.value
+@_use_outer (o: Outer) -> int = o.inner.value;
 
 // Deep nesting
 type Level1 = { value: int }
@@ -73,7 +73,7 @@ type Level3 = { inner: Level2 }
     assert_eq(actual: l3.inner.inner.value, expected: 42)
 }
 
-@_use_level3 (l: Level3) -> int = l.inner.inner.value
+@_use_level3 (l: Level3) -> int = l.inner.inner.value;
 
 // =============================================================================
 // Struct with Many Fields
@@ -86,7 +86,7 @@ type ManyFields = { a: int, b: int, c: int, d: int, e: int }
     assert_eq(actual: s.a + s.b + s.c + s.d + s.e, expected: 15)
 }
 
-@_use_many (s: ManyFields) -> int = s.a
+@_use_many (s: ManyFields) -> int = s.a;
 
 // =============================================================================
 // Struct with Different Types
@@ -113,7 +113,7 @@ type MixedTypes = {
     assert_eq(actual: s.str_field, expected: "hello")
 }
 
-@_use_mixed (s: MixedTypes) -> int = s.int_field
+@_use_mixed (s: MixedTypes) -> int = s.int_field;
 
 // =============================================================================
 // Struct Shorthand Initialization
@@ -227,7 +227,7 @@ type Line = { start: Point, end: Point }
     assert_eq(actual: updated.end.x, expected: 20)
 }
 
-@_use_line (l: Line) -> int = l.start.x
+@_use_line (l: Line) -> int = l.start.x;
 
 // =============================================================================
 // Spread with Many Fields
@@ -257,7 +257,7 @@ type Config = {
     assert_eq(actual: updated.timeout, expected: 30)
 }
 
-@_use_config (c: Config) -> str = c.name
+@_use_config (c: Config) -> str = c.name;
 
 // =============================================================================
 // Generic Structs
@@ -275,8 +275,8 @@ type Box<T> = { value: T }
     assert_eq(actual: b.value, expected: "hello")
 }
 
-@_use_box_int (b: Box<int>) -> int = b.value
-@_use_box_str (b: Box<str>) -> str = b.value
+@_use_box_int (b: Box<int>) -> int = b.value;
+@_use_box_str (b: Box<str>) -> str = b.value;
 
 type GenericPair<A, B> = { first: A, second: B }
 
@@ -286,7 +286,7 @@ type GenericPair<A, B> = { first: A, second: B }
     assert_eq(actual: p.second, expected: "hello")
 }
 
-@_use_gpair (p: GenericPair<int, str>) -> int = p.first
+@_use_gpair (p: GenericPair<int, str>) -> int = p.first;
 
 // =============================================================================
 // Spread with Generic Structs
@@ -325,7 +325,7 @@ type OptionalFields = {
     assert(cond: is_none(opt: s.optional))
 }
 
-@_use_optional (s: OptionalFields) -> int = s.required
+@_use_optional (s: OptionalFields) -> int = s.required;
 
 // =============================================================================
 // Struct with List Fields
@@ -339,7 +339,7 @@ type WithList = { items: [int], name: str }
     assert_eq(actual: s.items[0], expected: 1)
 }
 
-@_use_with_list (s: WithList) -> str = s.name
+@_use_with_list (s: WithList) -> str = s.name;
 
 // =============================================================================
 // Struct with Tuple Fields
@@ -354,7 +354,7 @@ type WithTuple = { coords: (int, int), label: str }
     assert_eq(actual: y, expected: 20)
 }
 
-@_use_with_tuple (s: WithTuple) -> str = s.label
+@_use_with_tuple (s: WithTuple) -> str = s.label;
 
 // =============================================================================
 // Struct with Function Fields
@@ -373,7 +373,7 @@ type WithFunction = {
     assert_eq(actual: s.transform(21), expected: 42)
 }
 
-@_use_with_fn (s: WithFunction) -> str = s.name
+@_use_with_fn (s: WithFunction) -> str = s.name;
 
 // =============================================================================
 // Struct Field Access Chaining
@@ -391,7 +391,7 @@ type Company = { ceo: Person, name: str }
     assert_eq(actual: c.ceo.age, expected: 45)
 }
 
-@_use_company (c: Company) -> str = c.name
+@_use_company (c: Company) -> str = c.name;
 
 // =============================================================================
 // Struct in Expressions
@@ -452,7 +452,7 @@ type EqStruct = { a: int, b: int }
     assert(cond: s1 != s3)
 }
 
-@_use_eq_struct (s: EqStruct) -> int = s.a
+@_use_eq_struct (s: EqStruct) -> int = s.a;
 
 // =============================================================================
 // Public Struct Types
@@ -465,7 +465,7 @@ pub type PublicStruct = { value: int }
     assert_eq(actual: s.value, expected: 42)
 }
 
-@_use_public (s: PublicStruct) -> int = s.value
+@_use_public (s: PublicStruct) -> int = s.value;
 
 // =============================================================================
 // Struct with Reserved Word-like Field Names
@@ -484,4 +484,4 @@ type SpecialNames = {
     assert(cond: s.option)
 }
 
-@_use_special (s: SpecialNames) -> int = s.value
+@_use_special (s: SpecialNames) -> int = s.value;

@@ -13,21 +13,21 @@ use std.testing { assert_eq }
     assert_eq(actual: `{"hi":.>10}`, expected: "........hi")
 }
 
-@fill_right () -> str = `{"hi":*>10}`
+@fill_right () -> str = `{"hi":*>10}`;
 
 @test_fill_left tests @fill_left () -> void = {
     assert_eq(actual: `{"hi":*<10}`, expected: "hi********");
     assert_eq(actual: `{"hi":#<10}`, expected: "hi########")
 }
 
-@fill_left () -> str = `{"hi":*<10}`
+@fill_left () -> str = `{"hi":*<10}`;
 
 @test_fill_center tests @fill_center () -> void = {
     assert_eq(actual: `{"hi":*^10}`, expected: "****hi****");
     assert_eq(actual: `{"x":=^9}`, expected: "====x====")
 }
 
-@fill_center () -> str = `{"hi":*^10}`
+@fill_center () -> str = `{"hi":*^10}`;
 
 // =============================================================================
 // Fill with Integer Formatting
@@ -39,6 +39,6 @@ use std.testing { assert_eq }
     assert_eq(actual: `{42:*^8}`, expected: "***42***")
 }
 
-@fill_int () -> str = `{42:*>8}`
+@fill_int () -> str = `{42:*>8}`;
 
-@main () -> void = print(msg: "Formattable fill tests")
+@main () -> void = print(msg: "Formattable fill tests");

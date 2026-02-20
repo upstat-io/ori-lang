@@ -11,7 +11,7 @@ type Color = { r: int, g: int, b: int }
 
 impl Formattable for Color {
     @format (self, spec: FormatSpec) -> str =
-        "rgb(" + str(self.r) + "," + str(self.g) + "," + str(self.b) + ")"
+        "rgb(" + str(self.r) + "," + str(self.g) + "," + str(self.b) + ")";
 }
 
 @test_user_format_called tests @user_format_called () -> void = {
@@ -111,4 +111,4 @@ impl Formattable for FillTest {
     `{f:*>5}`
 }
 
-@main () -> void = print(msg: "User Formattable tests")
+@main () -> void = print(msg: "User Formattable tests");

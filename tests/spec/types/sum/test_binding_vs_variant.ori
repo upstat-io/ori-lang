@@ -1,7 +1,7 @@
 use std.testing { assert_eq }
 
 // Test disambiguation: Pending is variant, status is binding
-type Status = Pending | Running | Completed
+type Status = Pending | Running | Completed;
 
 @check_pending (s: Status) -> str = match s {
     Pending -> "is pending",

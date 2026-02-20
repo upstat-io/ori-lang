@@ -3,4 +3,4 @@
 // Regular comment
 // Another regular comment
 // Yet another regular comment
-@identity (x: int) -> int = x
+@identity (x: int) -> int = x;

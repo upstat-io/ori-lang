@@ -47,7 +47,7 @@ fn test_incremental_empty_module() {
 
 #[test]
 fn test_incremental_change_in_function() {
-    let source = "@foo () -> int = 42\n\n@bar () -> int = 123\n";
+    let source = "@foo () -> int = 42;\n\n@bar () -> int = 123;\n";
 
     // Change overlaps with first function (bytes 0-19)
     let result = parse_and_test_incremental(source, 0, 10);
@@ -65,7 +65,7 @@ fn test_incremental_change_in_function() {
 
 #[test]
 fn test_incremental_change_in_second_function() {
-    let source = "@foo () -> int = 42\n\n@bar () -> int = 123\n";
+    let source = "@foo () -> int = 42;\n\n@bar () -> int = 123;\n";
 
     // Change overlaps with second function (starts at byte 21)
     let result = parse_and_test_incremental(source, 22, 35);
@@ -83,7 +83,7 @@ fn test_incremental_change_in_second_function() {
 
 #[test]
 fn test_incremental_change_between_declarations() {
-    let source = "@foo () -> int = 42\n\n@bar () -> int = 123\n";
+    let source = "@foo () -> int = 42;\n\n@bar () -> int = 123;\n";
 
     // Change is in the blank line between functions (byte 20)
     let result = parse_and_test_incremental(source, 20, 21);
@@ -94,7 +94,7 @@ fn test_incremental_change_between_declarations() {
 
 #[test]
 fn test_incremental_change_in_import() {
-    let source = "use std.math { sqrt }\n\n@foo () -> int = 42\n";
+    let source = "use std.math { sqrt }\n\n@foo () -> int = 42;\n";
 
     // Change overlaps with import
     let result = parse_and_test_incremental(source, 0, 10);
@@ -105,7 +105,7 @@ fn test_incremental_change_in_import() {
 
 #[test]
 fn test_incremental_change_in_config() {
-    let source = "let $x = 42\n\n@foo () -> int = $x\n";
+    let source = "let $x = 42;\n\n@foo () -> int = $x;\n";
 
     // Change overlaps with config
     let result = parse_and_test_incremental(source, 0, 5);
@@ -132,7 +132,7 @@ fn test_incremental_change_in_type() {
 
 #[test]
 fn test_incremental_change_in_trait() {
-    let source = "trait Foo {\n    @bar (self) -> int\n}\n\n@baz () -> int = 42\n";
+    let source = "trait Foo {\n    @bar (self) -> int\n}\n\n@baz () -> int = 42;\n";
 
     // Change overlaps with trait definition
     let result = parse_and_test_incremental(source, 0, 20);
@@ -148,7 +148,7 @@ fn test_incremental_change_in_trait() {
 
 #[test]
 fn test_incremental_change_in_impl() {
-    let source = "type Foo = { x: int }\n\nimpl Foo {\n    @get (self) -> int = self.x\n}\n";
+    let source = "type Foo = { x: int }\n\nimpl Foo {\n    @get (self) -> int = self.x;\n}\n";
 
     // Change overlaps with impl block (starts around byte 23)
     let result = parse_and_test_incremental(source, 25, 40);
@@ -164,7 +164,7 @@ fn test_incremental_change_in_impl() {
 
 #[test]
 fn test_incremental_result_matches_full_format() {
-    let source = "@foo()->int=42\n\n@bar()->int=123\n";
+    let source = "@foo()->int=42;\n\n@bar()->int=123;\n";
 
     // Get incremental result for first function
     let result = parse_and_test_incremental(source, 0, 14);
@@ -174,13 +174,13 @@ fn test_incremental_result_matches_full_format() {
         let incremental_output = apply_regions(source, regions);
 
         // The formatted functions should match canonical format
-        assert!(incremental_output.contains("@foo () -> int = 42"));
+        assert!(incremental_output.contains("@foo () -> int = 42;"));
     }
 }
 
 #[test]
 fn test_incremental_preserves_unrelated_code() {
-    let source = "@foo () -> int = 42\n\n@bar () -> int = 123\n";
+    let source = "@foo () -> int = 42;\n\n@bar () -> int = 123;\n";
 
     // Get incremental result for first function
     let result = parse_and_test_incremental(source, 0, 19);
@@ -189,13 +189,13 @@ fn test_incremental_preserves_unrelated_code() {
         let output = apply_regions(source, regions);
 
         // Second function should be unchanged in the output
-        assert!(output.contains("@bar () -> int = 123"));
+        assert!(output.contains("@bar () -> int = 123;"));
     }
 }
 
 #[test]
 fn test_incremental_with_comments() {
-    let source = "// This is foo\n@foo () -> int = 42\n\n// This is bar\n@bar () -> int = 123\n";
+    let source = "// This is foo\n@foo () -> int = 42;\n\n// This is bar\n@bar () -> int = 123;\n";
 
     // Change overlaps with second function and its comment
     let result = parse_and_test_incremental(source, 36, 60);
@@ -213,7 +213,7 @@ fn test_incremental_with_comments() {
 
 #[test]
 fn test_incremental_multiple_overlapping() {
-    let source = "@a () -> int = 1\n@b () -> int = 2\n@c () -> int = 3\n";
+    let source = "@a () -> int = 1;\n@b () -> int = 2;\n@c () -> int = 3;\n";
 
     // Change spans all three functions
     let result = parse_and_test_incremental(source, 0, 50);

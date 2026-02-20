@@ -24,7 +24,7 @@ trait Counter {
 
 trait Describable {
     @describe (self) -> str
-    @summarize (self) -> str = "Summary: " + self.describe()
+    @summarize (self) -> str = "Summary: " + self.describe();
 }
 
 // =============================================================================
@@ -45,17 +45,17 @@ type Widget = { name: str, value: int }
 // Inherent impl
 impl Widget {
     @new (name: str, value: int) -> Widget = Widget { name, value }
-    @get_name (self) -> str = self.name
-    @get_value (self) -> int = self.value
+    @get_name (self) -> str = self.name;
+    @get_value (self) -> int = self.value;
 }
 
 // Trait impl
 impl Greeter for Widget {
-    @greet (self) -> str = "Hello from " + self.name
+    @greet (self) -> str = "Hello from " + self.name;
 }
 
 impl Describable for Widget {
-    @describe (self) -> str = "Widget(" + self.name + ", " + str(self.value) + ")"
+    @describe (self) -> str = "Widget(" + self.name + ", " + str(self.value) + ")";
 }
 
 // =============================================================================
@@ -167,7 +167,7 @@ trait Printable {
 }
 
 impl Printable for Number {
-    @to_string (self) -> str = "Number(" + str(self.value) + ")"
+    @to_string (self) -> str = "Number(" + str(self.value) + ")";
 }
 
 @test_multiple_traits tests @multiple_traits () -> void = {
@@ -190,7 +190,7 @@ type Point = { x: int, y: int }
 impl Point {
     @new (x: int, y: int) -> Point = Point { x, y }
     @origin () -> Point = Point { x: 0, y: 0 }
-    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y
+    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y;
 }
 
 @test_point_new tests @point_new () -> void = {
@@ -230,14 +230,14 @@ impl Point {
 trait Shape {
     @area (self) -> int
     @perimeter (self) -> int
-    @is_large (self) -> bool = self.area() > 100
+    @is_large (self) -> bool = self.area() > 100;
 }
 
 type Rectangle = { width: int, height: int }
 
 impl Shape for Rectangle {
-    @area (self) -> int = self.width * self.height
-    @perimeter (self) -> int = 2 * (self.width + self.height)
+    @area (self) -> int = self.width * self.height;
+    @perimeter (self) -> int = 2 * (self.width + self.height);
 }
 
 @test_rect_area tests @rect_area () -> void = {
@@ -245,25 +245,25 @@ impl Shape for Rectangle {
     assert_eq(actual: r.area(), expected: 50)
 }
 
-@rect_area () -> int = Rectangle { width: 10, height: 5 }.area()
+@rect_area () -> int = Rectangle { width: 10, height: 5 }.area();
 
 @test_rect_perimeter tests @rect_perimeter () -> void = {
     let r = Rectangle { width: 10, height: 5 };
     assert_eq(actual: r.perimeter(), expected: 30)
 }
 
-@rect_perimeter () -> int = Rectangle { width: 10, height: 5 }.perimeter()
+@rect_perimeter () -> int = Rectangle { width: 10, height: 5 }.perimeter();
 
 @test_rect_is_large_false tests @rect_is_large_false () -> void = {
     let small = Rectangle { width: 5, height: 5 };
     assert(cond: !small.is_large())
 }
 
-@rect_is_large_false () -> bool = Rectangle { width: 5, height: 5 }.is_large()
+@rect_is_large_false () -> bool = Rectangle { width: 5, height: 5 }.is_large();
 
 @test_rect_is_large_true tests @rect_is_large_true () -> void = {
     let large = Rectangle { width: 15, height: 10 };
     assert(cond: large.is_large())
 }
 
-@rect_is_large_true () -> bool = Rectangle { width: 15, height: 10 }.is_large()
+@rect_is_large_true () -> bool = Rectangle { width: 15, height: 10 }.is_large();

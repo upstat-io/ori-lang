@@ -146,7 +146,7 @@ pub fn type_check_source(source: &str) -> (ParseOutput, TypeCheckResult, SharedI
 
 /// Assert that evaluation produces the expected integer value.
 pub fn assert_eval_int(source: &str, expected: i64) {
-    let wrapped = format!("@main () -> int = {source}");
+    let wrapped = format!("@main () -> int = {source};");
     match eval_source(&wrapped) {
         Ok(Value::Int(n)) => assert_eq!(n.raw(), expected, "source: {source}"),
         Ok(other) => panic!("expected Int({expected}), got {other:?} for: {source}"),
@@ -156,7 +156,7 @@ pub fn assert_eval_int(source: &str, expected: i64) {
 
 /// Assert that evaluation produces the expected float value.
 pub fn assert_eval_float(source: &str, expected: f64) {
-    let wrapped = format!("@main () -> float = {source}");
+    let wrapped = format!("@main () -> float = {source};");
     match eval_source(&wrapped) {
         Ok(Value::Float(f)) => {
             assert!(
@@ -171,7 +171,7 @@ pub fn assert_eval_float(source: &str, expected: f64) {
 
 /// Assert that evaluation produces the expected boolean value.
 pub fn assert_eval_bool(source: &str, expected: bool) {
-    let wrapped = format!("@main () -> bool = {source}");
+    let wrapped = format!("@main () -> bool = {source};");
     match eval_source(&wrapped) {
         Ok(Value::Bool(b)) => assert_eq!(b, expected, "source: {source}"),
         Ok(other) => panic!("expected Bool({expected}), got {other:?} for: {source}"),
@@ -181,7 +181,7 @@ pub fn assert_eval_bool(source: &str, expected: bool) {
 
 /// Assert that evaluation produces the expected string value.
 pub fn assert_eval_str(source: &str, expected: &str) {
-    let wrapped = format!("@main () -> str = {source}");
+    let wrapped = format!("@main () -> str = {source};");
     match eval_source(&wrapped) {
         Ok(Value::Str(s)) => assert_eq!(&**s, expected, "source: {source}"),
         Ok(other) => panic!("expected Str({expected}), got {other:?} for: {source}"),
@@ -209,7 +209,7 @@ pub fn assert_type_error(source: &str) {
 
 /// Assert that evaluation produces an error.
 pub fn assert_eval_error(source: &str) {
-    let wrapped = format!("@main () -> _ = {source}");
+    let wrapped = format!("@main () -> _ = {source};");
     if let Ok(v) = eval_source(&wrapped) {
         panic!("expected error but got {v:?} for: {source}");
     }

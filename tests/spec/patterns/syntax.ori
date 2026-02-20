@@ -70,7 +70,7 @@ use std.testing { assert, assert_eq }
 // Match Pattern - Variant
 // =============================================================================
 
-type Status = Active | Inactive | Pending(count: int)
+type Status = Active | Inactive | Pending(count: int);
 
 @match_variant () -> int = {
     let s = Pending(count: 5);

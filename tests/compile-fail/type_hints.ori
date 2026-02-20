@@ -9,8 +9,8 @@
 // int <-> float conversion hints
 // =============================================================================
 
-@takes_int (x: int) -> int = x
-@takes_float (x: float) -> float = x
+@takes_int (x: int) -> int = x;
+@takes_float (x: float) -> float = x;
 
 // When float is passed where int is expected, suggest int(x)
 #compile_fail("int(x)")
@@ -30,8 +30,8 @@
 // str <-> int/byte hints
 // =============================================================================
 
-@takes_str (s: str) -> str = s
-@takes_byte (b: byte) -> byte = b
+@takes_str (s: str) -> str = s;
+@takes_byte (b: byte) -> byte = b;
 
 // When int is passed where str is expected, suggest str(x)
 #compile_fail("str(x)")
@@ -51,7 +51,7 @@
 // List wrapping hints
 // =============================================================================
 
-@takes_list (items: [int]) -> [int] = items
+@takes_list (items: [int]) -> [int] = items;
 
 // When a plain value is passed where list is expected, suggest [x]
 #compile_fail("[x]")

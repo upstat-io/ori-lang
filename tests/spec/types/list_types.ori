@@ -14,7 +14,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: items[4], expected: 5)
 }
 
-@list_int () -> [int] = [1, 2, 3, 4, 5]
+@list_int () -> [int] = [1, 2, 3, 4, 5];
 
 @test_list_str tests @list_str () -> void = {
     let items: [str] = ["hello", "world", "ori"];
@@ -22,7 +22,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: items[0], expected: "hello")
 }
 
-@list_str () -> [str] = ["hello", "world", "ori"]
+@list_str () -> [str] = ["hello", "world", "ori"];
 
 @test_list_bool tests @list_bool () -> void = {
     let flags: [bool] = [true, false, true, false];
@@ -30,7 +30,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !flags[1])
 }
 
-@list_bool () -> [bool] = [true, false, true, false]
+@list_bool () -> [bool] = [true, false, true, false];
 
 @test_list_float tests @list_float () -> void = {
     let floats: [float] = [1.0, 2.5, 3.14, 0.0];
@@ -38,7 +38,7 @@ use std.testing { assert, assert_eq }
     assert(cond: floats[2] > 3.0)
 }
 
-@list_float () -> [float] = [1.0, 2.5, 3.14, 0.0]
+@list_float () -> [float] = [1.0, 2.5, 3.14, 0.0];
 
 @test_list_char tests @list_char () -> void = {
     let chars: [char] = ['a', 'b', 'c', 'd'];
@@ -46,7 +46,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: chars.len(), expected: 4)
 }
 
-@list_char () -> [char] = ['a', 'b', 'c', 'd']
+@list_char () -> [char] = ['a', 'b', 'c', 'd'];
 
 // =============================================================================
 // Empty Lists
@@ -58,14 +58,14 @@ use std.testing { assert, assert_eq }
     assert(cond: is_empty(collection: items))
 }
 
-@empty_list () -> [int] = []
+@empty_list () -> [int] = [];
 
 @test_empty_list_str tests @empty_list_str () -> void = {
     let items: [str] = [];
     assert(cond: is_empty(collection: items))
 }
 
-@empty_list_str () -> [str] = []
+@empty_list_str () -> [str] = [];
 
 // =============================================================================
 // Single Element Lists
@@ -77,7 +77,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: items[0], expected: 42)
 }
 
-@single_element () -> [int] = [42]
+@single_element () -> [int] = [42];
 
 // =============================================================================
 // Nested Lists (2D)
@@ -92,7 +92,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: matrix[2][2], expected: 9)
 }
 
-@nested_2d () -> [[int]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+@nested_2d () -> [[int]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 
 @test_nested_2d_str tests @nested_2d_str () -> void = {
     let grid: [[str]] = [["a", "b"], ["c", "d"]];
@@ -100,7 +100,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: grid[1][1], expected: "d")
 }
 
-@nested_2d_str () -> [[str]] = [["a", "b"], ["c", "d"]]
+@nested_2d_str () -> [[str]] = [["a", "b"], ["c", "d"]];
 
 // =============================================================================
 // Nested Lists (3D)
@@ -112,7 +112,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: cube[1][1][1], expected: 8)
 }
 
-@nested_3d () -> [[[int]]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+@nested_3d () -> [[[int]]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
 
 // =============================================================================
 // Lists with Complex Element Types
@@ -126,7 +126,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: name, expected: "one")
 }
 
-@list_of_tuples () -> [(int, str)] = [(1, "one"), (2, "two"), (3, "three")]
+@list_of_tuples () -> [(int, str)] = [(1, "one"), (2, "two"), (3, "three")];
 
 @test_list_of_options tests @list_of_options () -> void = {
     let opts: [Option<int>] = [Some(1), None, Some(3), None, Some(5)];
@@ -135,7 +135,7 @@ use std.testing { assert, assert_eq }
     assert(cond: is_none(opt: opts[1]))
 }
 
-@list_of_options () -> [Option<int>] = [Some(1), None, Some(3), None, Some(5)]
+@list_of_options () -> [Option<int>] = [Some(1), None, Some(3), None, Some(5)];
 
 @test_list_of_results tests @list_of_results () -> void = {
     let results: [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)];
@@ -144,7 +144,7 @@ use std.testing { assert, assert_eq }
     assert(cond: is_err(r: results[1]))
 }
 
-@list_of_results () -> [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)]
+@list_of_results () -> [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)];
 
 // =============================================================================
 // List Indexing
@@ -155,7 +155,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: items[0], expected: 10)
 }
 
-@list_index_first () -> int = [10, 20, 30, 40, 50][0]
+@list_index_first () -> int = [10, 20, 30, 40, 50][0];
 
 @test_list_index_last tests @list_index_last () -> void = {
     let items = [10, 20, 30, 40, 50];
@@ -163,14 +163,14 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: items[# - 1], expected: 50)
 }
 
-@list_index_last () -> int = [10, 20, 30, 40, 50][# - 1]
+@list_index_last () -> int = [10, 20, 30, 40, 50][# - 1];
 
 @test_list_index_middle tests @list_index_middle () -> void = {
     let items = [10, 20, 30, 40, 50];
     assert_eq(actual: items[2], expected: 30)
 }
 
-@list_index_middle () -> int = [10, 20, 30, 40, 50][2]
+@list_index_middle () -> int = [10, 20, 30, 40, 50][2];
 
 // =============================================================================
 // List Operations
@@ -181,7 +181,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: len(collection: items), expected: 10)
 }
 
-@list_len () -> int = len(collection: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+@list_len () -> int = len(collection: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
 @test_list_is_empty tests @list_is_empty () -> void = {
     let empty: [int] = [];
@@ -190,7 +190,7 @@ use std.testing { assert, assert_eq }
     assert(cond: !is_empty(collection: nonempty))
 }
 
-@list_is_empty () -> bool = is_empty(collection: [])
+@list_is_empty () -> bool = is_empty(collection: []);
 
 // =============================================================================
 // Lists in Function Parameters
@@ -207,7 +207,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 15)
 }
 
-@list_param () -> int = sum_list(items: [1, 2, 3, 4, 5])
+@list_param () -> int = sum_list(items: [1, 2, 3, 4, 5]);
 
 @first_element (items: [int]) -> Option<int> = {
     if is_empty(collection: items) then None else Some(items[0])
@@ -218,7 +218,7 @@ use std.testing { assert, assert_eq }
     assert(cond: is_some(opt: result))
 }
 
-@list_first_element () -> Option<int> = first_element(items: [42, 1, 2])
+@list_first_element () -> Option<int> = first_element(items: [42, 1, 2]);
 
 // =============================================================================
 // Lists as Return Types
@@ -244,7 +244,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result[4], expected: 4)
 }
 
-@list_return () -> [int] = make_range(n: 5)
+@list_return () -> [int] = make_range(n: 5);
 
 // =============================================================================
 // List Type Inference

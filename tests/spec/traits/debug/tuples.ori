@@ -11,10 +11,10 @@ use std.testing { assert_eq }
     assert_eq(actual: (1, true).debug(), expected: "(1, true)")
 }
 
-@tuple_debug_pair () -> str = (1, true).debug()
+@tuple_debug_pair () -> str = (1, true).debug();
 
 @test_tuple_debug_triple tests @tuple_debug_triple () -> void = {
     assert_eq(actual: (1, "hi", false).debug(), expected: "(1, \"hi\", false)")
 }
 
-@tuple_debug_triple () -> str = (1, "hi", false).debug()
+@tuple_debug_triple () -> str = (1, "hi", false).debug();

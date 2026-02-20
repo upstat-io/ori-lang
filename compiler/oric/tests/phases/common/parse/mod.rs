@@ -14,7 +14,7 @@ use ori_parse::{parse, ParseError, ParseOutput};
 /// # Example
 ///
 /// ```ignore
-/// let output = parse_source("@add(a: int, b: int) -> int = a + b");
+/// let output = parse_source("@add(a: int, b: int) -> int = a + b;");
 /// assert!(!output.has_errors());
 /// ```
 pub fn parse_source(source: &str) -> ParseOutput {
@@ -30,7 +30,7 @@ pub fn parse_source(source: &str) -> ParseOutput {
 /// # Example
 ///
 /// ```ignore
-/// let output = parse_ok("@main () -> void = print(msg: \"hello\")");
+/// let output = parse_ok("@main () -> void = print(msg: \"hello\");");
 /// assert!(output.module.functions.len() == 1);
 /// ```
 pub fn parse_ok(source: &str) -> ParseOutput {
@@ -50,7 +50,7 @@ pub fn parse_ok(source: &str) -> ParseOutput {
 /// # Example
 ///
 /// ```ignore
-/// parse_err("@foo( = 1", "expected");
+/// parse_err("@foo( = 1;", "expected");
 /// ```
 pub fn parse_err(source: &str, expected_error: &str) {
     let output = parse_source(source);

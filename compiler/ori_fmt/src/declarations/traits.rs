@@ -80,6 +80,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 expr_formatter.format(method.body);
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);
+                // Trailing semicolon for non-block expression bodies
+                if !body_output.ends_with('}') {
+                    self.ctx.emit(";");
+                }
             }
             TraitItem::AssocType(assoc) => {
                 self.ctx.emit("type ");

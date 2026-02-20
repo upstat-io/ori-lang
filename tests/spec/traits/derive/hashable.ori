@@ -19,10 +19,10 @@ type Nested = { origin: Point, label: str }
 // --- Sum types ---
 
 #[derive(Eq, Hashable)]
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 #[derive(Eq, Hashable)]
-type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
+type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 
 // --- Struct hash consistency ---
 
@@ -30,7 +30,7 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
     let p = Point { x: 42, y: 99 };
     assert(cond: p.hash() == p.hash())
 }
-@struct_consistency () -> int = Point { x: 42, y: 99 }.hash()
+@struct_consistency () -> int = Point { x: 42, y: 99 }.hash();
 
 // --- Equal structs → equal hashes ---
 
@@ -89,7 +89,7 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
     let c2 = Circle(radius: 5);
     assert(cond: c1.hash() == c2.hash())
 }
-@variant_same () -> bool = Circle(radius: 5).hash() == Circle(radius: 5).hash()
+@variant_same () -> bool = Circle(radius: 5).hash() == Circle(radius: 5).hash();
 
 // --- Sum type: different variants → different hash ---
 
@@ -97,18 +97,18 @@ type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
     assert(cond: Red.hash() != Green.hash());
     assert(cond: Green.hash() != Blue.hash())
 }
-@variant_diff () -> bool = Red.hash() != Green.hash()
+@variant_diff () -> bool = Red.hash() != Green.hash();
 
 // --- Sum type: same variant different payload → different hash ---
 
 @test_variant_payload_diff tests @payload_diff () -> void = {
     assert(cond: Circle(radius: 5).hash() != Circle(radius: 10).hash())
 }
-@payload_diff () -> bool = Circle(radius: 5).hash() != Circle(radius: 10).hash()
+@payload_diff () -> bool = Circle(radius: 5).hash() != Circle(radius: 10).hash();
 
 // --- Sum type: payloadless consistency ---
 
 @test_payloadless_consistency tests @pl_consistency () -> void = {
     assert(cond: Red.hash() == Red.hash())
 }
-@pl_consistency () -> int = Red.hash()
+@pl_consistency () -> int = Red.hash();

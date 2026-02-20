@@ -10,7 +10,7 @@ trait Adder {
 type MyAdder = { base: int }
 
 impl Adder for MyAdder {
-    @add_value (self, x: int) -> int = self.base + x
+    @add_value (self, x: int) -> int = self.base + x;
 }
 
 @test_method_with_param tests @add_value () -> void = {

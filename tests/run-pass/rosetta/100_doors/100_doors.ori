@@ -7,7 +7,7 @@
 use std.testing { assert, assert_eq, assert_ne }
 
 // Returns doors that remain open after 100 passes (perfect squares)
-@open_doors () -> [int] = (1..11).map(transform: n -> n * n)
+@open_doors () -> [int] = (1..11).map(transform: n -> n * n);
 
 @test_perfect_squares tests @open_doors () -> void = {
     assert_eq(

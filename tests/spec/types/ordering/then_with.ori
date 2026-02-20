@@ -9,33 +9,33 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 @test_then_with_equal_calls_closure tests @then_with_equal_less () -> void =
-    assert(cond: Equal.then_with(f: () -> Less).is_less())
+    assert(cond: Equal.then_with(f: () -> Less).is_less());
 
-@then_with_equal_less () -> Ordering = Equal.then_with(f: () -> Less)
+@then_with_equal_less () -> Ordering = Equal.then_with(f: () -> Less);
 
 @test_then_with_equal_returns_greater tests @then_with_equal_greater () -> void =
-    assert(cond: Equal.then_with(f: () -> Greater).is_greater())
+    assert(cond: Equal.then_with(f: () -> Greater).is_greater());
 
-@then_with_equal_greater () -> Ordering = Equal.then_with(f: () -> Greater)
+@then_with_equal_greater () -> Ordering = Equal.then_with(f: () -> Greater);
 
 @test_then_with_equal_returns_equal tests @then_with_equal_equal () -> void =
-    assert(cond: Equal.then_with(f: () -> Equal).is_equal())
+    assert(cond: Equal.then_with(f: () -> Equal).is_equal());
 
-@then_with_equal_equal () -> Ordering = Equal.then_with(f: () -> Equal)
+@then_with_equal_equal () -> Ordering = Equal.then_with(f: () -> Equal);
 
 // =============================================================================
 // then_with: Non-equal returns self without calling closure
 // =============================================================================
 
 @test_then_with_less_returns_self tests @then_with_less () -> void =
-    assert(cond: Less.then_with(f: () -> Greater).is_less())
+    assert(cond: Less.then_with(f: () -> Greater).is_less());
 
-@then_with_less () -> Ordering = Less.then_with(f: () -> Greater)
+@then_with_less () -> Ordering = Less.then_with(f: () -> Greater);
 
 @test_then_with_greater_returns_self tests @then_with_greater () -> void =
-    assert(cond: Greater.then_with(f: () -> Less).is_greater())
+    assert(cond: Greater.then_with(f: () -> Less).is_greater());
 
-@then_with_greater () -> Ordering = Greater.then_with(f: () -> Less)
+@then_with_greater () -> Ordering = Greater.then_with(f: () -> Less);
 
 // =============================================================================
 // then_with: Laziness — closure not evaluated for non-Equal
@@ -43,16 +43,16 @@ use std.testing { assert, assert_eq }
 
 // A closure that would panic if called — proves laziness when self != Equal
 @test_then_with_less_lazy tests @then_with_less_lazy () -> void =
-    assert(cond: Less.then_with(f: () -> panic(msg: "should not be called")).is_less())
+    assert(cond: Less.then_with(f: () -> panic(msg: "should not be called")).is_less());
 
 @then_with_less_lazy () -> Ordering =
-    Less.then_with(f: () -> panic(msg: "should not be called"))
+    Less.then_with(f: () -> panic(msg: "should not be called"));
 
 @test_then_with_greater_lazy tests @then_with_greater_lazy () -> void =
-    assert(cond: Greater.then_with(f: () -> panic(msg: "should not be called")).is_greater())
+    assert(cond: Greater.then_with(f: () -> panic(msg: "should not be called")).is_greater());
 
 @then_with_greater_lazy () -> Ordering =
-    Greater.then_with(f: () -> panic(msg: "should not be called"))
+    Greater.then_with(f: () -> panic(msg: "should not be called"));
 
 // =============================================================================
 // then_with: Lexicographic comparison chaining
@@ -65,7 +65,7 @@ use std.testing { assert, assert_eq }
 }
 
 @then_with_chained_equal () -> Ordering =
-    1.compare(other: 1).then_with(f: () -> 2.compare(other: 3))
+    1.compare(other: 1).then_with(f: () -> 2.compare(other: 3));
 
 @test_then_with_chained_less_first tests @then_with_chained_less () -> void = {
     // Compare (1, 5) with (2, 3): first is less, so don't evaluate second
@@ -74,4 +74,4 @@ use std.testing { assert, assert_eq }
 }
 
 @then_with_chained_less () -> Ordering =
-    1.compare(other: 2).then_with(f: () -> 5.compare(other: 3))
+    1.compare(other: 2).then_with(f: () -> 5.compare(other: 3));

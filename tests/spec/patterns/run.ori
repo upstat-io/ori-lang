@@ -56,7 +56,7 @@ use std.testing { assert, assert_eq, assert_ne }
     )
 }
 
-@double (x: int) -> int = x * 2
+@double (x: int) -> int = x * 2;
 
 @run_with_function_call () -> int = {
     let doubled = double(5);

@@ -3,7 +3,7 @@ type Point = { x: int, y: int }
 
 impl Point {
     // Comment on sum method
-    @sum (self) -> int = self.x + self.y
+    @sum (self) -> int = self.x + self.y;
 
     @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
 }

@@ -139,7 +139,7 @@ fn empty_source() {
 
 #[test]
 fn literal_int() {
-    let result = check_source("@foo () -> int = 42");
+    let result = check_source("@foo () -> int = 42;");
     assert!(!result.has_errors());
     assert_eq!(result.function_count(), 1);
 
@@ -149,7 +149,7 @@ fn literal_int() {
 
 #[test]
 fn literal_float() {
-    let result = check_source("@foo () -> float = 3.14");
+    let result = check_source("@foo () -> float = 3.14;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -158,7 +158,7 @@ fn literal_float() {
 
 #[test]
 fn literal_bool() {
-    let result = check_source("@foo () -> bool = true");
+    let result = check_source("@foo () -> bool = true;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -167,7 +167,7 @@ fn literal_bool() {
 
 #[test]
 fn literal_string() {
-    let result = check_source(r#"@foo () -> str = "hello""#);
+    let result = check_source(r#"@foo () -> str = "hello";"#);
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -176,7 +176,7 @@ fn literal_string() {
 
 #[test]
 fn literal_unit() {
-    let result = check_source("@foo () -> void = ()");
+    let result = check_source("@foo () -> void = ();");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -189,7 +189,7 @@ fn literal_unit() {
 
 #[test]
 fn single_typed_param() {
-    let result = check_source("@identity (x: int) -> int = x");
+    let result = check_source("@identity (x: int) -> int = x;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -198,7 +198,7 @@ fn single_typed_param() {
 
 #[test]
 fn multiple_typed_params() {
-    let result = check_source("@add (a: int, b: int) -> int = a + b");
+    let result = check_source("@add (a: int, b: int) -> int = a + b;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -207,7 +207,7 @@ fn multiple_typed_params() {
 
 #[test]
 fn param_type_used_in_body() {
-    let result = check_source("@greet (name: str) -> str = name");
+    let result = check_source("@greet (name: str) -> str = name;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -221,9 +221,9 @@ fn param_type_used_in_body() {
 #[test]
 fn two_functions() {
     let source = "\
-@foo () -> int = 1
+@foo () -> int = 1;
 
-@bar () -> int = 2
+@bar () -> int = 2;
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -239,9 +239,9 @@ fn two_functions() {
 fn function_calling_another() {
     // Forward reference: bar calls foo, foo is defined first
     let source = "\
-@foo () -> int = 42
+@foo () -> int = 42;
 
-@bar () -> int = foo()
+@bar () -> int = foo();
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -252,9 +252,9 @@ fn function_calling_another() {
 fn forward_reference() {
     // bar defined before foo, but calls foo
     let source = "\
-@bar () -> int = foo()
+@bar () -> int = foo();
 
-@foo () -> int = 42
+@foo () -> int = 42;
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -268,9 +268,9 @@ fn forward_reference() {
 #[test]
 fn test_declaration() {
     let source = "\
-@foo () -> int = 42
+@foo () -> int = 42;
 
-@test_foo tests @foo () -> void = ()
+@test_foo tests @foo () -> void = ();
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -282,7 +282,7 @@ fn test_declaration() {
 fn test_with_function_call() {
     // Test body that uses the target function via block expression
     let source = "\
-@double (x: int) -> int = x + x
+@double (x: int) -> int = x + x;
 
 @test_double tests @double () -> void = {
     let _ = double(x: 5);
@@ -302,7 +302,7 @@ fn test_with_function_call() {
 #[test]
 fn return_type_mismatch() {
     // Body returns string but signature says int
-    let result = check_source(r#"@bad () -> int = "hello""#);
+    let result = check_source(r#"@bad () -> int = "hello";"#);
     assert!(result.has_errors());
     assert!(result.error_count() >= 1);
 
@@ -320,7 +320,7 @@ fn return_type_mismatch() {
 
 #[test]
 fn unknown_identifier_in_body() {
-    let result = check_source("@bad () -> int = undefined_var");
+    let result = check_source("@bad () -> int = undefined_var;");
     assert!(result.has_errors());
 
     let has_unknown = result
@@ -338,9 +338,9 @@ fn unknown_identifier_in_body() {
 fn unknown_identifier_suggests_similar_names() {
     // "ad" is a typo for "add" — should suggest "add"
     let source = "\
-@add (x: int, y: int) -> int = x + y
+@add (x: int, y: int) -> int = x + y;
 
-@caller () -> int = ad(1, 2)
+@caller () -> int = ad(1, 2);
 ";
     let result = check_source(source);
     assert!(result.has_errors());
@@ -364,9 +364,9 @@ fn unknown_identifier_suggests_similar_names() {
 fn unknown_identifier_no_suggestion_for_unrelated_names() {
     // "xyz" is not similar to any name in scope
     let source = "\
-@add (x: int, y: int) -> int = x + y
+@add (x: int, y: int) -> int = x + y;
 
-@caller () -> int = xyz(1, 2)
+@caller () -> int = xyz(1, 2);
 ";
     let result = check_source(source);
     assert!(result.has_errors());
@@ -390,9 +390,9 @@ fn unknown_identifier_no_suggestion_for_unrelated_names() {
 fn call_with_named_arg() {
     // Calling a function with named arguments
     let source = "\
-@takes_int (x: int) -> int = x
+@takes_int (x: int) -> int = x;
 
-@caller () -> int = takes_int(x: 42)
+@caller () -> int = takes_int(x: 42);
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -423,7 +423,7 @@ fn simple_let_binding() {
 fn let_in_block_body() {
     // Using a block expression (if/else) that includes let bindings
     let source = "\
-@foo () -> int = if true then 42 else 0
+@foo () -> int = if true then 42 else 0;
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -438,7 +438,7 @@ fn let_in_block_body() {
 
 #[test]
 fn if_then_else_int() {
-    let result = check_source("@foo () -> int = if true then 1 else 2");
+    let result = check_source("@foo () -> int = if true then 1 else 2;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -447,7 +447,7 @@ fn if_then_else_int() {
 
 #[test]
 fn if_then_else_string() {
-    let result = check_source(r#"@foo () -> str = if false then "a" else "b""#);
+    let result = check_source(r#"@foo () -> str = if false then "a" else "b";"#);
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -457,7 +457,7 @@ fn if_then_else_string() {
 #[test]
 fn if_condition_must_be_bool() {
     // Using an int as condition should produce an error
-    let result = check_source("@bad () -> int = if 42 then 1 else 2");
+    let result = check_source("@bad () -> int = if 42 then 1 else 2;");
     assert!(result.has_errors());
 
     let has_mismatch = result
@@ -477,7 +477,7 @@ fn if_condition_must_be_bool() {
 
 #[test]
 fn list_literal() {
-    let result = check_source("@foo () -> [int] = [1, 2, 3]");
+    let result = check_source("@foo () -> [int] = [1, 2, 3];");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -487,7 +487,7 @@ fn list_literal() {
 #[test]
 fn empty_list() {
     // Empty list with type annotation on function
-    let result = check_source("@foo () -> [int] = []");
+    let result = check_source("@foo () -> [int] = [];");
     // The empty list may or may not unify with [int] depending on inference
     // At minimum, it shouldn't panic
     let _ = result.has_errors();
@@ -499,7 +499,7 @@ fn empty_list() {
 
 #[test]
 fn arithmetic_operators() {
-    let result = check_source("@foo () -> int = 1 + 2 * 3");
+    let result = check_source("@foo () -> int = 1 + 2 * 3;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -508,7 +508,7 @@ fn arithmetic_operators() {
 
 #[test]
 fn comparison_operators() {
-    let result = check_source("@foo () -> bool = 1 < 2");
+    let result = check_source("@foo () -> bool = 1 < 2;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -517,7 +517,7 @@ fn comparison_operators() {
 
 #[test]
 fn boolean_operators() {
-    let result = check_source("@foo () -> bool = true && false");
+    let result = check_source("@foo () -> bool = true && false;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -526,7 +526,7 @@ fn boolean_operators() {
 
 #[test]
 fn equality_check() {
-    let result = check_source("@foo () -> bool = 1 == 2");
+    let result = check_source("@foo () -> bool = 1 == 2;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -535,7 +535,7 @@ fn equality_check() {
 
 #[test]
 fn string_concatenation() {
-    let result = check_source(r#"@foo () -> str = "hello" + " world""#);
+    let result = check_source(r#"@foo () -> str = "hello" + " world";"#);
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -544,7 +544,7 @@ fn string_concatenation() {
 
 #[test]
 fn negation() {
-    let result = check_source("@foo () -> int = -42");
+    let result = check_source("@foo () -> int = -42;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -553,7 +553,7 @@ fn negation() {
 
 #[test]
 fn boolean_not() {
-    let result = check_source("@foo () -> bool = !true");
+    let result = check_source("@foo () -> bool = !true;");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -566,7 +566,7 @@ fn boolean_not() {
 
 #[test]
 fn tuple_literal() {
-    let result = check_source("@foo () -> (int, str) = (42, \"hello\")");
+    let result = check_source("@foo () -> (int, str) = (42, \"hello\");");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -581,9 +581,9 @@ fn tuple_literal() {
 fn multiple_errors_accumulated() {
     // Two functions with errors - should accumulate both
     let source = r#"
-@bad1 () -> int = "not an int"
+@bad1 () -> int = "not an int";
 
-@bad2 () -> bool = 42
+@bad2 () -> bool = 42;
 "#;
     let result = check_source(source);
     assert!(result.has_errors());
@@ -665,8 +665,8 @@ fn import_simple_function() {
     let interner = StringInterner::new();
 
     let result = check_with_imports(
-        "@caller () -> int = add(1, 2)",
-        "@add (a: int, b: int) -> int = a + b",
+        "@caller () -> int = add(1, 2);",
+        "@add (a: int, b: int) -> int = a + b;",
         &interner,
     );
 
@@ -681,7 +681,7 @@ fn import_simple_function() {
 #[test]
 fn import_without_registration_fails() {
     // Module B calls `missing_fn()` which was never imported → UnknownIdent
-    let result = check_source("@caller () -> int = missing_fn()");
+    let result = check_source("@caller () -> int = missing_fn();");
 
     assert!(result.has_errors());
     let has_unknown = result
@@ -701,8 +701,8 @@ fn import_function_with_different_types() {
     let interner = StringInterner::new();
 
     let result = check_with_imports(
-        r#"@caller () -> int = len("hello")"#,
-        "@len (s: str) -> int = 5",
+        r#"@caller () -> int = len("hello");"#,
+        "@len (s: str) -> int = 5;",
         &interner,
     );
 
@@ -721,8 +721,8 @@ fn import_return_type_mismatch_detected() {
     let interner = StringInterner::new();
 
     let result = check_with_imports(
-        "@caller () -> int = returns_str()",
-        r#"@returns_str () -> str = "hello""#,
+        "@caller () -> int = returns_str();",
+        r#"@returns_str () -> str = "hello";"#,
         &interner,
     );
 
@@ -743,11 +743,11 @@ fn import_does_not_shadow_local() {
     // Local `foo() -> int` should shadow imported `foo() -> str`
     let interner = StringInterner::new();
 
-    let provider_source = r#"@foo () -> str = "imported""#;
+    let provider_source = r#"@foo () -> str = "imported";"#;
     let consumer_source = "\
-@foo () -> int = 42
+@foo () -> int = 42;
 
-@caller () -> int = foo()
+@caller () -> int = foo();
 ";
 
     let provider = parse_source(provider_source, &interner);
@@ -796,12 +796,12 @@ fn import_multiple_functions() {
     let interner = StringInterner::new();
 
     let provider_source = "\
-@double (x: int) -> int = x + x
+@double (x: int) -> int = x + x;
 
-@negate (x: int) -> int = 0 - x
+@negate (x: int) -> int = 0 - x;
 ";
     let consumer_source = "\
-@caller () -> int = negate(double(5))
+@caller () -> int = negate(double(5));
 ";
 
     let result = check_with_imports(consumer_source, provider_source, &interner);
@@ -818,12 +818,12 @@ fn import_module_alias_stores_signatures() {
     // Test that register_module_alias stores public function signatures
     let interner = StringInterner::new();
     let provider_source = "\
-pub @public_fn () -> int = 1
+pub @public_fn () -> int = 1;
 
-@private_fn () -> int = 2
+@private_fn () -> int = 2;
 ";
     let provider = parse_source(provider_source, &interner);
-    let consumer = parse_source("@caller () -> int = 42", &interner);
+    let consumer = parse_source("@caller () -> int = 42;", &interner);
 
     let (result, _pool) = crate::check::check_module_with_imports(
         &consumer.module,
@@ -862,7 +862,7 @@ fn only_comments() {
 
 #[test]
 fn function_returning_void() {
-    let result = check_source("@noop () -> void = ()");
+    let result = check_source("@noop () -> void = ();");
     assert!(!result.has_errors());
 
     let body_ty = result.first_function_body_type().unwrap();
@@ -872,15 +872,15 @@ fn function_returning_void() {
 #[test]
 fn many_functions() {
     let source = "\
-@a () -> int = 1
+@a () -> int = 1;
 
-@b () -> int = 2
+@b () -> int = 2;
 
-@c () -> int = 3
+@c () -> int = 3;
 
-@d () -> int = 4
+@d () -> int = 4;
 
-@e () -> int = 5
+@e () -> int = 5;
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -896,7 +896,7 @@ fn struct_type_exported() {
     let source = "\
 type Point = { x: int, y: int }
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -921,9 +921,9 @@ type Point = { x: int, y: int }
 #[test]
 fn enum_type_exported() {
     let source = "\
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
     let result = check_source(source);
     assert!(!result.has_errors());
@@ -973,9 +973,9 @@ fn builtin_ordering_always_exported() {
 fn bogus_return_type_is_rejected() {
     // `-> garbage` is not a valid type — should produce a type error
     let source = "\
-@sum (x: int, y: int) -> garbage = x + y
+@sum (x: int, y: int) -> garbage = x + y;
 
-@main () -> void = println(sum(1, 2).to_str())
+@main () -> void = println(sum(1, 2).to_str());
 ";
     let result = check_source(source);
     assert!(
@@ -990,7 +990,7 @@ fn bogus_return_type_on_method_is_rejected() {
     let source = "\
 type Point = { x: int, y: int }
 
-@sum (self: Point) -> garbage = self.x + self.y
+@sum (self: Point) -> garbage = self.x + self.y;
 
 @main () -> void = {
   let p = Point { x: 3, y: 4 };
@@ -1013,7 +1013,7 @@ fn bogus_return_type_in_impl_block_is_rejected() {
 type Point = { x: int, y: int }
 
 impl Point {
-    @sum (self) -> nt = self.x + self.y
+    @sum (self) -> nt = self.x + self.y;
 
     @scale (self, factor: int) -> Point = Point { x: self.x * factor, y: self.y * factor }
 }
@@ -1034,9 +1034,9 @@ impl Point {
 fn bogus_param_type_is_rejected() {
     // Also check parameter types — `garbage` as a param type should error
     let source = "\
-@foo (x: garbage) -> int = 42
+@foo (x: garbage) -> int = 42;
 
-@main () -> void = println(foo(1).to_str())
+@main () -> void = println(foo(1).to_str());
 ";
     let result = check_source(source);
     assert!(
@@ -1052,7 +1052,7 @@ fn bogus_return_type_via_imports_api() {
     let source = "\
 type Point = { x: int, y: int }
 
-@sum (self: Point) -> garbage = self.x + self.y
+@sum (self: Point) -> garbage = self.x + self.y;
 
 @main () -> void = {
   let p = Point { x: 3, y: 4 };
@@ -1081,7 +1081,7 @@ type Point = { x: int, y: int }
 fn valid_return_type_still_works() {
     // Regression guard: valid type annotations must still work
     let source = "\
-@sum (x: int, y: int) -> int = x + y
+@sum (x: int, y: int) -> int = x + y;
 ";
     let result = check_source(source);
     assert!(
@@ -1103,7 +1103,7 @@ fn impl_self_field_access_type_checks() {
 type Point = { x: int, y: int }
 
 impl Point {
-    @sum (self) -> int = self.x + self.y
+    @sum (self) -> int = self.x + self.y;
 }
 ";
     let result = check_source(source);
@@ -1121,8 +1121,8 @@ fn impl_self_with_additional_params() {
 type Counter = { value: int }
 
 impl Counter {
-    @add (self, amount: int) -> int = self.value + amount
-    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale
+    @add (self, amount: int) -> int = self.value + amount;
+    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale;
 }
 ";
     let result = check_source(source);
@@ -1141,7 +1141,7 @@ fn impl_self_return_type_mismatch_detected() {
 type Point = { x: int, y: int }
 
 impl Point {
-    @sum (self) -> str = self.x + self.y
+    @sum (self) -> str = self.x + self.y;
 }
 ";
     let result = check_source(source);
@@ -1194,9 +1194,9 @@ fn impl_multiple_methods_all_use_self() {
 type Rect = { w: int, h: int }
 
 impl Rect {
-    @area (self) -> int = self.w * self.h
-    @perimeter (self) -> int = 2 * (self.w + self.h)
-    @is_square (self) -> bool = self.w == self.h
+    @area (self) -> int = self.w * self.h;
+    @perimeter (self) -> int = 2 * (self.w + self.h);
+    @is_square (self) -> bool = self.w == self.h;
     @scale (self, factor: int) -> Self = Rect { w: self.w * factor, h: self.h * factor }
 }
 ";
@@ -1216,7 +1216,7 @@ fn impl_method_bogus_param_type_rejected() {
 type Point = { x: int, y: int }
 
 impl Point {
-    @scale (self, factor: garbage) -> int = self.x * factor
+    @scale (self, factor: garbage) -> int = self.x * factor;
 }
 ";
     let result = check_source(source);
@@ -1234,7 +1234,7 @@ fn impl_method_wrong_body_type_with_self_and_params() {
 type Counter = { value: int }
 
 impl Counter {
-    @add (self, amount: int) -> bool = self.value + amount
+    @add (self, amount: int) -> bool = self.value + amount;
 }
 ";
     let result = check_source(source);
@@ -1248,7 +1248,7 @@ impl Counter {
 fn impl_self_method_on_enum() {
     // self should also work correctly on enum types
     let source = "\
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 impl Color {
     @is_red (self) -> bool = match self { Red -> true, _ -> false }
@@ -1269,7 +1269,7 @@ fn impl_self_method_on_single_field_struct() {
 type Wrapper = { value: int }
 
 impl Wrapper {
-    @doubled (self) -> int = self.value * 2
+    @doubled (self) -> int = self.value * 2;
 }
 ";
     let result = check_source(source);
@@ -1287,10 +1287,10 @@ fn impl_self_passed_to_function_expecting_type() {
     let source = "\
 type Point = { x: int, y: int }
 
-@distance (p: Point) -> int = p.x * p.x + p.y * p.y
+@distance (p: Point) -> int = p.x * p.x + p.y * p.y;
 
 impl Point {
-    @dist (self) -> int = distance(p: self)
+    @dist (self) -> int = distance(p: self);
 }
 ";
     let result = check_source(source);
@@ -1307,10 +1307,10 @@ fn impl_self_passed_to_function_expecting_wrong_type() {
     let source = "\
 type Point = { x: int, y: int }
 
-@consume (s: str) -> int = 0
+@consume (s: str) -> int = 0;
 
 impl Point {
-    @bad (self) -> int = consume(s: self)
+    @bad (self) -> int = consume(s: self);
 }
 ";
     let result = check_source(source);
@@ -1328,8 +1328,8 @@ impl Point {
 fn never_struct_field_rejected() {
     let source = r"
 type Bad = { value: int, impossible: Never }
-@use_it () -> int = 0
-@test_use_it tests @use_it () -> void = ()
+@use_it () -> int = 0;
+@test_use_it tests @use_it () -> void = ();
 ";
     let result = check_source(source);
     assert!(result.has_errors(), "Never struct field should be an error");
@@ -1346,9 +1346,9 @@ type Bad = { value: int, impossible: Never }
 #[test]
 fn never_in_sum_variant_allowed() {
     let source = r"
-type MaybeNever = Value(v: int) | Impossible(n: Never)
+type MaybeNever = Value(v: int) | Impossible(n: Never);
 @use_it (m: MaybeNever) -> int = match m { Value(v) -> v }
-@test_use_it tests @use_it () -> void = ()
+@test_use_it tests @use_it () -> void = ();
 ";
     let result = check_source(source);
     assert!(
@@ -1366,8 +1366,8 @@ type MaybeNever = Value(v: int) | Impossible(n: Never)
 fn collect_to_set_via_return_type() {
     // Return type `Set<int>` should guide `collect()` to produce Set
     let source = r"
-@to_set () -> Set<int> = [1, 2, 3].iter().collect()
-@test_to_set tests @to_set () -> void = ()
+@to_set () -> Set<int> = [1, 2, 3].iter().collect();
+@test_to_set tests @to_set () -> void = ();
 ";
     let result = check_source(source);
     assert!(
@@ -1383,8 +1383,8 @@ fn collect_to_set_via_return_type() {
 fn collect_to_list_by_default() {
     // No Set annotation — collect() should default to list
     let source = r"
-@to_list () -> [int] = [1, 2, 3].iter().collect()
-@test_to_list tests @to_list () -> void = ()
+@to_list () -> [int] = [1, 2, 3].iter().collect();
+@test_to_list tests @to_list () -> void = ();
 ";
     let result = check_source(source);
     assert!(
@@ -1404,7 +1404,7 @@ fn collect_to_set_via_let_binding() {
     let s: Set<int> = [1, 2, 3].iter().collect();
     s == s
 }
-@test_via_let tests @via_let () -> void = ()
+@test_via_let tests @via_let () -> void = ();
 ";
     let result = check_source(source);
     assert!(
@@ -1418,8 +1418,8 @@ fn collect_to_set_via_let_binding() {
 fn collect_chained_adapters_to_set() {
     // Chained adapters (filter) before collect should preserve Set inference
     let source = r"
-@filtered () -> Set<int> = [1, 2, 3, 4].iter().filter(predicate: x -> x > 2).collect()
-@test_filtered tests @filtered () -> void = ()
+@filtered () -> Set<int> = [1, 2, 3, 4].iter().filter(predicate: x -> x > 2).collect();
+@test_filtered tests @filtered () -> void = ();
 ";
     let result = check_source(source);
     assert!(

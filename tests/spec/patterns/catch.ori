@@ -16,7 +16,7 @@ use std.testing { assert_eq, assert }
     }
 }
 
-@catch_success () -> int = 42
+@catch_success () -> int = 42;
 
 // catch returns Err when expression panics
 @test_catch_panic tests @catch_panic () -> void = {
@@ -27,7 +27,7 @@ use std.testing { assert_eq, assert }
     }
 }
 
-@catch_panic () -> int = 1
+@catch_panic () -> int = 1;
 
 // catch captures panic message
 @test_catch_message tests @catch_message () -> void = {
@@ -58,7 +58,7 @@ use std.testing { assert_eq, assert }
     }
 }
 
-@catch_div_zero () -> int = 1
+@catch_div_zero () -> int = 1;
 
 // catch wraps successful value in Ok
 @test_catch_ok_value tests @catch_ok_value () -> void = {
@@ -72,7 +72,7 @@ use std.testing { assert_eq, assert }
     }
 }
 
-@catch_ok_value () -> int = 10 + 20
+@catch_ok_value () -> int = 10 + 20;
 
 // catch works with string expressions
 @test_catch_string tests @catch_string () -> void = {
@@ -83,7 +83,7 @@ use std.testing { assert_eq, assert }
     }
 }
 
-@catch_string () -> str = "hello" + " world"
+@catch_string () -> str = "hello" + " world";
 
 // catch propagates non-panic errors (ControlAction) unchanged
 // Nested catch: inner catches inner panic, outer catches outer panic
@@ -103,4 +103,4 @@ use std.testing { assert_eq, assert }
     }
 }
 
-@catch_nested () -> int = 1
+@catch_nested () -> int = 1;

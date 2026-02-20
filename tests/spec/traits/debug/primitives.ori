@@ -13,7 +13,7 @@ use std.testing { assert_eq }
     assert_eq(actual: -1.debug(), expected: "-1")
 }
 
-@int_debug () -> str = 42.debug()
+@int_debug () -> str = 42.debug();
 
 // =============================================================================
 // Float Debug
@@ -24,7 +24,7 @@ use std.testing { assert_eq }
     assert_eq(actual: 0.0.debug(), expected: "0")
 }
 
-@float_debug () -> str = 3.14.debug()
+@float_debug () -> str = 3.14.debug();
 
 // =============================================================================
 // Bool Debug
@@ -35,7 +35,7 @@ use std.testing { assert_eq }
     assert_eq(actual: false.debug(), expected: "false")
 }
 
-@bool_debug () -> str = true.debug()
+@bool_debug () -> str = true.debug();
 
 // =============================================================================
 // String Debug (shows escaped quotes)
@@ -45,7 +45,7 @@ use std.testing { assert_eq }
     assert_eq(actual: "hello".debug(), expected: "\"hello\"")
 }
 
-@str_debug_simple () -> str = "hello".debug()
+@str_debug_simple () -> str = "hello".debug();
 
 @test_str_debug_escapes tests @str_debug_escapes () -> void = {
     // Newline is escaped in debug output
@@ -54,7 +54,7 @@ use std.testing { assert_eq }
     assert_eq(actual: "a\tb".debug(), expected: "\"a\\tb\"")
 }
 
-@str_debug_escapes () -> str = "a\nb".debug()
+@str_debug_escapes () -> str = "a\nb".debug();
 
 // =============================================================================
 // Char Debug (shows single-quoted)
@@ -64,14 +64,14 @@ use std.testing { assert_eq }
     assert_eq(actual: 'a'.debug(), expected: "'a'")
 }
 
-@char_debug () -> str = 'a'.debug()
+@char_debug () -> str = 'a'.debug();
 
 @test_char_debug_escape tests @char_debug_escape () -> void = {
     assert_eq(actual: '\n'.debug(), expected: "'\\n'");
     assert_eq(actual: '\t'.debug(), expected: "'\\t'")
 }
 
-@char_debug_escape () -> str = '\n'.debug()
+@char_debug_escape () -> str = '\n'.debug();
 
 // =============================================================================
 // Byte Debug
@@ -100,7 +100,7 @@ use std.testing { assert_eq }
     assert_eq(actual: Greater.debug(), expected: "Greater")
 }
 
-@ordering_debug () -> str = Less.debug()
+@ordering_debug () -> str = Less.debug();
 
 // =============================================================================
 // Duration Debug
@@ -111,7 +111,7 @@ use std.testing { assert_eq }
     assert_eq(actual: 1s.debug(), expected: "1s")
 }
 
-@duration_debug () -> str = 100ms.debug()
+@duration_debug () -> str = 100ms.debug();
 
 // =============================================================================
 // Size Debug
@@ -122,4 +122,4 @@ use std.testing { assert_eq }
     assert_eq(actual: 0b.debug(), expected: "0b")
 }
 
-@size_debug () -> str = 1kb.debug()
+@size_debug () -> str = 1kb.debug();

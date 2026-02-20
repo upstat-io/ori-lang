@@ -7,4 +7,4 @@ trait Clone {
 
 #[compile_fail("cannot be made into an object")]
 @process (item: Clone) -> void =
-    print(msg: "processing")
+    print(msg: "processing");

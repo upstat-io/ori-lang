@@ -12,8 +12,8 @@ use std.testing { assert, assert_eq }
 // Result<T,E> Propagation
 // =============================================================================
 
-@succeed (x: int) -> Result<int, str> = Ok(x)
-@fail_it (msg: str) -> Result<int, str> = Err(msg)
+@succeed (x: int) -> Result<int, str> = Ok(x);
+@fail_it (msg: str) -> Result<int, str> = Err(msg);
 
 // ? on Ok(v) unwraps to v
 @try_ok (n: int) -> Result<int, str> = {
@@ -56,21 +56,21 @@ use std.testing { assert, assert_eq }
     assert(cond: is_err(r: r))
 }
 
-@try_chain_first_err () -> Result<int, str> = try_chain(a: 0, b: 4)
+@try_chain_first_err () -> Result<int, str> = try_chain(a: 0, b: 4);
 
 @test_try_chain_second_err tests @try_chain_second_err () -> void = {
     let r = try_chain(a: 3, b: 0);
     assert(cond: is_err(r: r))
 }
 
-@try_chain_second_err () -> Result<int, str> = try_chain(a: 3, b: 0)
+@try_chain_second_err () -> Result<int, str> = try_chain(a: 3, b: 0);
 
 // =============================================================================
 // Option<T> Propagation
 // =============================================================================
 
 @find (key: str) -> Option<int> =
-    if key == "a" then Some(42) else None
+    if key == "a" then Some(42) else None;
 
 // ? on Some(v) unwraps to v
 @try_some (key: str) -> Option<int> = {
@@ -89,7 +89,7 @@ use std.testing { assert, assert_eq }
     assert(cond: is_none(opt: r))
 }
 
-@try_none () -> Option<int> = try_some(key: "missing")
+@try_none () -> Option<int> = try_some(key: "missing");
 
 // =============================================================================
 // ? in Conditional Branches (Never Coercion)
@@ -111,14 +111,14 @@ use std.testing { assert, assert_eq }
     assert(cond: is_err(r: r))
 }
 
-@try_in_else_err () -> Result<int, str> = try_in_else(r: Err("bad"))
+@try_in_else_err () -> Result<int, str> = try_in_else(r: Err("bad"));
 
 // =============================================================================
 // Nested Function Calls with ?
 // =============================================================================
 
 @inner (x: int) -> Result<int, str> =
-    if x > 0 then Ok(x) else Err("must be positive")
+    if x > 0 then Ok(x) else Err("must be positive");
 
 @outer (x: int) -> Result<int, str> = {
     let v = inner(x: x)?;
@@ -135,7 +135,7 @@ use std.testing { assert, assert_eq }
     assert(cond: is_err(r: r))
 }
 
-@nested_try_err () -> Result<int, str> = outer(x: -1)
+@nested_try_err () -> Result<int, str> = outer(x: -1);
 
 // =============================================================================
 // Multiple ? in Same Expression
@@ -155,11 +155,11 @@ use std.testing { assert, assert_eq }
     assert(cond: is_err(r: r))
 }
 
-@multi_try_first_err () -> Result<int, str> = add_results(a: Err("a"), b: Ok(4))
+@multi_try_first_err () -> Result<int, str> = add_results(a: Err("a"), b: Ok(4));
 
 @test_multi_try_second_err tests @multi_try_second_err () -> void = {
     let r = add_results(a: Ok(3), b: Err("b"));
     assert(cond: is_err(r: r))
 }
 
-@multi_try_second_err () -> Result<int, str> = add_results(a: Ok(3), b: Err("b"))
+@multi_try_second_err () -> Result<int, str> = add_results(a: Ok(3), b: Err("b"));

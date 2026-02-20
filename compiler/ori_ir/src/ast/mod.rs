@@ -41,7 +41,7 @@ pub use collections::{CallArg, FieldInit, ListElement, MapElement, MapEntry, Str
 // Re-export pattern types
 pub use patterns::{
     BindingPattern, CheckExpr, FieldBinding, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm,
-    MatchPattern, NamedExpr, SeqBinding,
+    MatchPattern, Mutability, NamedExpr, SeqBinding,
 };
 
 // Re-export item types

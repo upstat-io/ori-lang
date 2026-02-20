@@ -7,4 +7,4 @@ trait Eq {
 
 #[compile_fail("cannot be made into an object")]
 @compare (a: Eq, b: Eq) -> void =
-    print(msg: "comparing")
+    print(msg: "comparing");

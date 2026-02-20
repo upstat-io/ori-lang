@@ -14,7 +14,7 @@ use std.testing { assert, assert_eq }
 type ExtPoint = { x: int, y: int }
 
 extend ExtPoint {
-    @sum (self) -> int = self.x + self.y
+    @sum (self) -> int = self.x + self.y;
 }
 
 // Since extended methods aren't callable yet, test the type directly
@@ -38,7 +38,7 @@ extend ExtPoint {
         abs_x + abs_y
     }
 
-    @is_origin (self) -> bool = self.x == 0 && self.y == 0
+    @is_origin (self) -> bool = self.x == 0 && self.y == 0;
 }
 
 @ext_multi () -> bool = {

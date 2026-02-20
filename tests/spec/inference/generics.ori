@@ -68,7 +68,7 @@ use std.testing { assert, assert_eq, assert_ne }
     )
 }
 
-@infer_from_return_type () -> int = 42
+@infer_from_return_type () -> int = 42;
 
 @test_infer_from_param_type tests @infer_from_param_type () -> void = {
     // Parameter type guides inference
@@ -79,7 +79,7 @@ use std.testing { assert, assert_eq, assert_ne }
     )
 }
 
-@process_int (x: int) -> int = x * 2
+@process_int (x: int) -> int = x * 2;
 
 // =============================================================================
 // Inference with Lambda Context
@@ -144,7 +144,7 @@ use std.testing { assert, assert_eq, assert_ne }
 //     assert(cond: is_some(opt: doubled)),
 // }
 
-@infer_option_map () -> bool = true
+@infer_option_map () -> bool = true;
 
 // TODO: IMPLEMENTATION BUG: Option.and_then not implemented yet
 // @test_infer_option_and_then tests @infer_option_and_then () -> void = {
@@ -154,7 +154,7 @@ use std.testing { assert, assert_eq, assert_ne }
 //     assert(cond: is_some(opt: result)),
 // }
 
-@infer_option_and_then () -> bool = true
+@infer_option_and_then () -> bool = true;
 
 // TODO: IMPLEMENTATION BUG: Result.map not implemented yet
 // @test_infer_result_map tests @infer_result_map () -> void = {
@@ -164,7 +164,7 @@ use std.testing { assert, assert_eq, assert_ne }
 //     assert(cond: is_ok(r: doubled)),
 // }
 
-@infer_result_map () -> bool = true
+@infer_result_map () -> bool = true;
 
 // TODO: IMPLEMENTATION BUG: Result.map_err not implemented yet
 // @test_infer_result_map_err tests @infer_result_map_err () -> void = {
@@ -174,7 +174,7 @@ use std.testing { assert, assert_eq, assert_ne }
 //     assert(cond: is_err(r: mapped)),
 // }
 
-@infer_result_map_err () -> bool = true
+@infer_result_map_err () -> bool = true;
 
 @test_infer_option_unwrap_or tests @infer_option_unwrap_or () -> void = {
     // Option.unwrap_or infers from default value
@@ -196,7 +196,7 @@ use std.testing { assert, assert_eq, assert_ne }
 //     assert_eq(actual: value, expected: 0),
 // }
 
-@infer_result_unwrap_or () -> int = 0
+@infer_result_unwrap_or () -> int = 0;
 
 @test_infer_list_in_option tests @infer_list_in_option () -> void = {
     // Nested generic: Option<[int]>

@@ -90,7 +90,7 @@ mod type_matrix {
             if *ty == "void" {
                 continue;
             }
-            let source = format!("@test (x: {}) -> void = ()", ty);
+            let source = format!("@test (x: {}) -> void = ();", ty);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -104,7 +104,7 @@ mod type_matrix {
     #[test]
     fn test_all_types_in_return_type() {
         for ty in TYPES {
-            let source = format!("@test () -> {} = default()", ty);
+            let source = format!("@test () -> {} = default();", ty);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -123,7 +123,7 @@ mod type_matrix {
             if ty.starts_with('{') {
                 continue;
             }
-            let source = format!("type Alias = {}", ty);
+            let source = format!("type Alias = {};", ty);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -147,7 +147,7 @@ mod type_matrix {
         ];
 
         for ty in cases {
-            let source = format!("@test () -> {} = default()", ty);
+            let source = format!("@test () -> {} = default();", ty);
             let result = parse_source(&source);
             assert!(
                 !result.has_errors(),
@@ -162,10 +162,10 @@ mod type_matrix {
     fn test_shift_operators_still_work() {
         // Ensure >> and >= still work in expressions
         let cases = &[
-            ("@test () -> int = 8 >> 2", "right shift"),
-            ("@test () -> bool = 5 >= 3", "greater-equal"),
-            ("@test () -> int = 1 << 4", "left shift"),
-            ("@test () -> bool = 3 <= 5", "less-equal"),
+            ("@test () -> int = 8 >> 2;", "right shift"),
+            ("@test () -> bool = 5 >= 3;", "greater-equal"),
+            ("@test () -> int = 1 << 4;", "left shift"),
+            ("@test () -> bool = 3 <= 5;", "less-equal"),
             (
                 "@test () -> int = { let x: Result<Result<int, str>, str> = Ok(Ok(1)); 8 >> 2 }",
                 "nested generic + shift",
@@ -319,17 +319,18 @@ mod expression_context {
     #[test]
     fn test_struct_literal_contexts() {
         // Struct literal allowed in normal expression
-        let result = parse_source("type P = { x: int }\n@test () -> int = P { x: 1 }.x");
+        let result = parse_source("type P = { x: int }\n@test () -> int = P { x: 1 }.x;");
         assert!(!result.has_errors(), "Struct literal in expression failed");
 
         // Struct literal allowed in if body
-        let result =
-            parse_source("type P = { x: int }\n@test () -> int = if true then P { x: 1 }.x else 0");
+        let result = parse_source(
+            "type P = { x: int }\n@test () -> int = if true then P { x: 1 }.x else 0;",
+        );
         assert!(!result.has_errors(), "Struct literal in if body failed");
 
         // Struct literal NOT allowed in if condition (ambiguous with block)
         let result = parse_source(
-            "type P = { x: int }\n@test () -> int = if P { x: 1 }.x > 0 then 1 else 0",
+            "type P = { x: int }\n@test () -> int = if P { x: 1 }.x > 0 then 1 else 0;",
         );
         assert!(
             result.has_errors(),
@@ -340,10 +341,10 @@ mod expression_context {
     #[test]
     fn test_lambda_contexts() {
         let lambdas = &[
-            "@test () -> int = (x -> x + 1)(5)",
-            "@test () -> int = ((x, y) -> x + y)(1, 2)",
+            "@test () -> int = (x -> x + 1)(5);",
+            "@test () -> int = ((x, y) -> x + y)(1, 2);",
             "@test () -> int = { let f = x -> x * 2; f(5) }",
-            "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).fold(initial: 0, op: (a, b) -> a + b)",
+            "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).fold(initial: 0, op: (a, b) -> a + b);",
         ];
 
         for source in lambdas {
@@ -379,9 +380,9 @@ mod expression_context {
     #[test]
     fn test_method_chains() {
         let chains = &[
-            "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).fold(initial: 0, op: (a, b) -> a + b)",
-            "@test () -> Option<int> = Some(5).map(transform: x -> x * 2).filter(predicate: x -> x > 5)",
-            "@test () -> Result<int, str> = Ok(5).map(transform: x -> x * 2).map_err(transform: e -> e)",
+            "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).fold(initial: 0, op: (a, b) -> a + b);",
+            "@test () -> Option<int> = Some(5).map(transform: x -> x * 2).filter(predicate: x -> x > 5);",
+            "@test () -> Result<int, str> = Ok(5).map(transform: x -> x * 2).map_err(transform: e -> e);",
         ];
 
         for source in chains {
@@ -428,13 +429,13 @@ mod mixed_declarations {
     fn test_generics_with_where_clause() {
         let sources = &[
             // Single where constraint
-            "@process<T> (x: T) -> T where T: Clone = x",
+            "@process<T> (x: T) -> T where T: Clone = x;",
             // Multiple where constraints
-            "@process<T, U> (x: T, y: U) -> T where T: Clone, U: Eq = x",
+            "@process<T, U> (x: T, y: U) -> T where T: Clone, U: Eq = x;",
             // Where with multiple bounds per constraint
-            "@process<T> (x: T) -> T where T: Clone + Eq + Hashable = x",
+            "@process<T> (x: T) -> T where T: Clone + Eq + Hashable = x;",
             // Complex nested generics with where
-            "@transform<T, U> (x: Option<T>) -> Result<U, str> where T: Clone, U: Default = Err(\"not impl\")",
+            "@transform<T, U> (x: Option<T>) -> Result<U, str> where T: Clone, U: Default = Err(\"not impl\");",
         ];
 
         for source in sources {
@@ -452,13 +453,13 @@ mod mixed_declarations {
     fn test_generics_with_capabilities() {
         let sources = &[
             // Single capability
-            "@fetch<T> (url: str) -> T uses Http = panic(msg: \"not impl\")",
+            "@fetch<T> (url: str) -> T uses Http = panic(msg: \"not impl\");",
             // Multiple capabilities
-            "@save<T> (data: T) -> void uses FileSystem, Logger = ()",
+            "@save<T> (data: T) -> void uses FileSystem, Logger = ();",
             // Generics + capabilities + where clause (uses before where)
-            "@process<T> (x: T) -> T uses Logger where T: Clone = x",
+            "@process<T> (x: T) -> T uses Logger where T: Clone = x;",
             // Multiple type params + multiple capabilities + where
-            "@sync<T, U> (a: T, b: U) -> void uses Http, Cache where T: Clone, U: Eq = ()",
+            "@sync<T, U> (a: T, b: U) -> void uses Http, Cache where T: Clone, U: Eq = ();",
         ];
 
         for source in sources {
@@ -476,17 +477,17 @@ mod mixed_declarations {
     fn test_complex_function_signatures() {
         let sources = &[
             // Function returning function type
-            "@curry (x: int) -> (int) -> int = y -> x + y",
+            "@curry (x: int) -> (int) -> int = y -> x + y;",
             // Function taking function type with generics
-            "@apply<T, U> (f: (T) -> U, x: T) -> U = f(x)",
+            "@apply<T, U> (f: (T) -> U, x: T) -> U = f(x);",
             // Higher-order with multiple function params
-            "@compose<A, B, C> (f: (B) -> C, g: (A) -> B) -> (A) -> C = x -> f(g(x))",
+            "@compose<A, B, C> (f: (B) -> C, g: (A) -> B) -> (A) -> C = x -> f(g(x));",
             // Function returning tuple of generics
-            "@split<T> (x: T) -> (T, T) where T: Clone = (x.clone(), x)",
+            "@split<T> (x: T) -> (T, T) where T: Clone = (x.clone(), x);",
             // Variadic with generic
-            "@collect<T> (items: ...T) -> [T] = items",
+            "@collect<T> (items: ...T) -> [T] = items;",
             // Variadic with bounds
-            "@print_all<T: Printable> (items: ...T) -> void = ()",
+            "@print_all<T: Printable> (items: ...T) -> void = ();",
         ];
 
         for source in sources {
@@ -506,15 +507,15 @@ mod mixed_declarations {
             // Basic const generic type parameter
             "type FixedArray<T, $N: int> = { items: [T] }",
             // Const generic with type bounds
-            "@make<T: Clone, $N: int> (default: T) -> [T] = []",
+            "@make<T: Clone, $N: int> (default: T) -> [T] = [];",
             // Multiple const generics
             "type Matrix<T, $R: int, $C: int> = { data: [T] }",
             // Const generic with where clause
-            "@sized<T, $N: int> (x: T) -> [T] where T: Clone = []",
+            "@sized<T, $N: int> (x: T) -> [T] where T: Clone = [];",
             // Bool const generic
             "type Conditional<T, $Debug: bool> = { value: T }",
             // Fixed capacity with literal
-            "@test () -> [int, max 10] = []",
+            "@test () -> [int, max 10] = [];",
         ];
 
         for source in sources {
@@ -540,7 +541,7 @@ mod mixed_declarations {
             // Trait extending another
             "trait OrderedContainer: Container { @sorted (self) -> Self }",
             // Trait with default method
-            "trait Printable { @to_str (self) -> str = \"default\" }",
+            "trait Printable { @to_str (self) -> str = \"default\"; }",
             // Trait with multiple associated types
             "trait BiContainer { type Left\ntype Right\n@get_left (self) -> Self.Left\n@get_right (self) -> Self.Right }",
         ];
@@ -562,13 +563,13 @@ mod mixed_declarations {
             // Generic impl
             "impl<T> Box<T> { @new (value: T) -> Self = Box { value } }",
             // Impl with where clause
-            "impl<T> Box<T> where T: Clone { @clone_inner (self) -> T = self.value.clone() }",
+            "impl<T> Box<T> where T: Clone { @clone_inner (self) -> T = self.value.clone(); }",
             // Trait impl for generic type
             "impl<T: Clone> Clone for Box<T> { @clone (self) -> Self = Box { value: self.value.clone() } }",
             // Impl with multiple bounds
-            "impl<T: Eq + Hashable> Box<T> { @hash_value (self) -> int = self.value.hash() }",
+            "impl<T: Eq + Hashable> Box<T> { @hash_value (self) -> int = self.value.hash(); }",
             // Impl for nested generic
-            "impl<T> Option<Option<T>> { @flatten (self) -> Option<T> = None }",
+            "impl<T> Option<Option<T>> { @flatten (self) -> Option<T> = None; }",
         ];
 
         for source in sources {
@@ -586,13 +587,13 @@ mod mixed_declarations {
     fn test_type_definitions_complex() {
         let sources = &[
             // Sum type with generic payload
-            "type Tree<T> = Leaf(value: T) | Node(left: Tree<T>, right: Tree<T>)",
+            "type Tree<T> = Leaf(value: T) | Node(left: Tree<T>, right: Tree<T>);",
             // Sum type with multiple payloads
-            "type Event = Click(x: int, y: int) | Key(code: int, shift: bool) | Resize(w: int, h: int)",
+            "type Event = Click(x: int, y: int) | Key(code: int, shift: bool) | Resize(w: int, h: int);",
             // Struct with nested generics
             "type Cache<K, V> = { data: {K: Option<V>}, max_size: int }",
             // Newtype
-            "type UserId = int",
+            "type UserId = int;",
             // Generic newtype
             "type Wrapper<T> = { inner: T }",
             // Type with const generic
@@ -616,15 +617,15 @@ mod mixed_declarations {
     fn test_function_clauses() {
         let sources = &[
             // Pattern matching clause with literal
-            "@factorial (0: int) -> int = 1\n@factorial (n: int) -> int = n * factorial(n: n - 1)",
+            "@factorial (0: int) -> int = 1;\n@factorial (n: int) -> int = n * factorial(n: n - 1);",
             // Clause with guard
-            "@abs (n: int) -> int if n >= 0 = n\n@abs (n: int) -> int = -n",
+            "@abs (n: int) -> int if n >= 0 = n;\n@abs (n: int) -> int = -n;",
             // Multiple pattern clauses
-            "@fib (0: int) -> int = 0\n@fib (1: int) -> int = 1\n@fib (n: int) -> int = fib(n: n - 1) + fib(n: n - 2)",
+            "@fib (0: int) -> int = 0;\n@fib (1: int) -> int = 1;\n@fib (n: int) -> int = fib(n: n - 1) + fib(n: n - 2);",
             // Simple named parameters
-            "@add (a: int, b: int) -> int = a + b",
+            "@add (a: int, b: int) -> int = a + b;",
             // Default parameter values
-            "@greet (name: str = \"world\") -> str = name",
+            "@greet (name: str = \"world\") -> str = name;",
         ];
 
         for source in sources {
@@ -644,13 +645,13 @@ mod mixed_declarations {
             // Derive attribute
             "#derive(Eq, Clone)\ntype Point = { x: int, y: int }",
             // Skip attribute on test with target
-            "#skip(\"not implemented\")\n@test_something tests @target () -> void = ()",
+            "#skip(\"not implemented\")\n@test_something tests @target () -> void = ();",
             // Multiple attributes
             "#derive(Eq)\n#derive(Clone)\ntype Data = { value: int }",
             // Compile fail attribute
-            "#compile_fail(\"type error\")\n@bad () -> int = \"not an int\"",
+            "#compile_fail(\"type error\")\n@bad () -> int = \"not an int\";",
             // Fail attribute
-            "#fail(\"expected panic\")\n@test_panic tests @target () -> void = panic(msg: \"oops\")",
+            "#fail(\"expected panic\")\n@test_panic tests @target () -> void = panic(msg: \"oops\");",
         ];
 
         for source in sources {
@@ -673,9 +674,9 @@ mod mixed_declarations {
     fn test_def_impl_blocks() {
         let sources = &[
             // Basic def impl
-            "def impl Printable { @to_str (self) -> str = \"default\" }",
+            "def impl Printable { @to_str (self) -> str = \"default\"; }",
             // Def impl with multiple methods
-            "def impl Debug { @debug (self) -> str = \"<unknown>\"\n@short_debug (self) -> str = \"?\" }",
+            "def impl Debug { @debug (self) -> str = \"<unknown>\";\n@short_debug (self) -> str = \"?\"; }",
         ];
 
         for source in sources {
@@ -693,9 +694,9 @@ mod mixed_declarations {
     fn test_test_declarations() {
         let sources = &[
             // Basic test with target
-            "@test_add tests @add () -> void = ()",
+            "@test_add tests @add () -> void = ();",
             // Chained test targets
-            "@test_both tests @foo tests @bar () -> void = ()",
+            "@test_both tests @foo tests @bar () -> void = ();",
             // Test with complex body
             "@test_complex tests @target () -> void = { let x = 1; let y = 2; assert(cond: x + y == 3) }",
         ];
@@ -730,7 +731,7 @@ mod mixed_expressions {
             // for inside block
             "@test () -> [int] = { let items = [1, 2, 3]; for x in items yield x * 2 }",
             // if inside for
-            "@test () -> [int] = for x in [1, 2, 3] yield if x > 1 then x * 2 else x",
+            "@test () -> [int] = for x in [1, 2, 3] yield if x > 1 then x * 2 else x;",
             // match inside for
             "@test () -> [int] = for opt in [Some(1), None, Some(2)] yield match opt { Some(x) -> x, None -> 0 }",
             // Triple nesting: for inside match inside block
@@ -810,17 +811,17 @@ mod mixed_expressions {
     fn test_method_style_match() {
         let sources = &[
             // Basic method-style match
-            "@test () -> int = x.match(0 -> 1, _ -> 2)",
+            "@test () -> int = x.match(0 -> 1, _ -> 2);",
             // With guards
-            "@test () -> str = n.match(x.match(x > 0) -> \"pos\", _ -> \"neg\")",
+            "@test () -> str = n.match(x.match(x > 0) -> \"pos\", _ -> \"neg\");",
             // Nested method-style match
-            "@test () -> str = x.match(0 -> y.match(0 -> \"a\", _ -> \"b\"), _ -> \"c\")",
+            "@test () -> str = x.match(0 -> y.match(0 -> \"a\", _ -> \"b\"), _ -> \"c\");",
             // Expression as receiver
-            "@test () -> int = (a + b).match(0 -> 1, _ -> 2)",
+            "@test () -> int = (a + b).match(0 -> 1, _ -> 2);",
             // Chained with postfix ops
-            "@test () -> int = x.match(0 -> [1], _ -> [2]).len()",
+            "@test () -> int = x.match(0 -> [1], _ -> [2]).len();",
             // Method-style equivalent of match(x, ...)
-            "@test () -> int = val.match(Some(n) -> n, None -> 0)",
+            "@test () -> int = val.match(Some(n) -> n, None -> 0);",
         ];
 
         for source in sources {
@@ -838,15 +839,15 @@ mod mixed_expressions {
     fn test_with_capability_expressions() {
         let sources = &[
             // Basic with
-            "@test () -> int = with Http = MockHttp in fetch(url: \"/data\")",
+            "@test () -> int = with Http = MockHttp in fetch(url: \"/data\");",
             // Nested with (one at a time)
-            "@test () -> int = with Http = MockHttp in with Cache = MockCache in fetch(url: \"/data\")",
+            "@test () -> int = with Http = MockHttp in with Cache = MockCache in fetch(url: \"/data\");",
             // With in block
             "@test () -> int = { let mock = MockHttp; with Http = mock in fetch(url: \"/data\") }",
             // With containing match
             "@test () -> int = with Http = MockHttp in match fetch(url: \"/\") { Ok(x) -> x, Err(_) -> 0 }",
             // With containing for
-            "@test () -> [int] = with Http = MockHttp in for url in urls yield fetch(url: url)",
+            "@test () -> [int] = with Http = MockHttp in for url in urls yield fetch(url: url);",
         ];
 
         for source in sources {
@@ -864,19 +865,19 @@ mod mixed_expressions {
     fn test_lambda_expressions_complex() {
         let sources = &[
             // Lambda with type annotation
-            "@test () -> int = ((x: int) -> int = x * 2)(5)",
+            "@test () -> int = ((x: int) -> int = x * 2)(5);",
             // Multi-param typed lambda
-            "@test () -> int = ((a: int, b: int) -> int = a + b)(1, 2)",
+            "@test () -> int = ((a: int, b: int) -> int = a + b)(1, 2);",
             // Lambda returning lambda (currying)
-            "@test () -> (int) -> int = (x -> (y -> x + y))(10)",
+            "@test () -> (int) -> int = (x -> (y -> x + y))(10);",
             // Lambda with complex body
-            "@test () -> int = (x -> if x > 0 then x * 2 else -x)(5)",
+            "@test () -> int = (x -> if x > 0 then x * 2 else -x)(5);",
             // Lambda with match body
-            "@test () -> int = (opt -> match opt { Some(x) -> x, None -> 0 })(Some(5))",
+            "@test () -> int = (opt -> match opt { Some(x) -> x, None -> 0 })(Some(5));",
             // Lambda in method chain
-            "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).filter(predicate: x -> x > 2).fold(initial: 0, op: (a, b) -> a + b)",
+            "@test () -> int = [1, 2, 3].map(transform: x -> x * 2).filter(predicate: x -> x > 2).fold(initial: 0, op: (a, b) -> a + b);",
             // Nested lambdas
-            "@test () -> int = (f -> f(5))(x -> x * 2)",
+            "@test () -> int = (f -> f(5))(x -> x * 2);",
             // Lambda capturing complex expression
             "@test () -> int = { let multiplier = 10; (x -> x * multiplier)(5) }",
         ];
@@ -898,7 +899,7 @@ mod mixed_expressions {
             // Basic loop with break
             "@test () -> int = loop { let x = get_next(); if done() then break x else continue }",
             // Loop with break value
-            "@test () -> int = loop if condition() then break 100 else next()",
+            "@test () -> int = loop if condition() then break 100 else next();",
             // Loop inside block
             "@test () -> int = { let count = 0; loop if count > 10 then break count else continue }",
             // Loop with match inside
@@ -920,19 +921,19 @@ mod mixed_expressions {
     fn test_for_expressions_complex() {
         let sources = &[
             // For with filter
-            "@test () -> [int] = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 2",
+            "@test () -> [int] = for x in [1, 2, 3, 4, 5] if x > 2 yield x * 2;",
             // For with complex filter
-            "@test () -> [int] = for x in items if x > 0 && x < 100 yield x",
+            "@test () -> [int] = for x in items if x > 0 && x < 100 yield x;",
             // For with method call in body
-            "@test () -> [str] = for x in items yield x.to_str()",
+            "@test () -> [str] = for x in items yield x.to_str();",
             // For iterating over range
-            "@test () -> [int] = for i in 0..10 yield i * i",
+            "@test () -> [int] = for i in 0..10 yield i * i;",
             // For with inclusive range
-            "@test () -> [int] = for i in 0..=10 yield i",
+            "@test () -> [int] = for i in 0..=10 yield i;",
             // For with stepped range
-            "@test () -> [int] = for i in 0..100 by 10 yield i",
+            "@test () -> [int] = for i in 0..100 by 10 yield i;",
             // Nested for (inner as expression)
-            "@test () -> [[int]] = for x in [1, 2] yield for y in [10, 20] yield x + y",
+            "@test () -> [[int]] = for x in [1, 2] yield for y in [10, 20] yield x + y;",
         ];
 
         for source in sources {
@@ -950,17 +951,17 @@ mod mixed_expressions {
     fn test_if_expressions_complex() {
         let sources = &[
             // Chained else if
-            "@test () -> int = if x > 100 then 3 else if x > 10 then 2 else if x > 0 then 1 else 0",
+            "@test () -> int = if x > 100 then 3 else if x > 10 then 2 else if x > 0 then 1 else 0;",
             // If with complex condition
-            "@test () -> int = if x > 0 && x < 100 || y == 0 then 1 else 0",
+            "@test () -> int = if x > 0 && x < 100 || y == 0 then 1 else 0;",
             // If with method call condition
-            "@test () -> int = if list.is_empty() then 0 else list[0]",
+            "@test () -> int = if list.is_empty() then 0 else list[0];",
             // If producing different types (must be same)
-            "@test () -> Option<int> = if found then Some(value) else None",
+            "@test () -> Option<int> = if found then Some(value) else None;",
             // Nested if
-            "@test () -> int = if a then if b then 1 else 2 else if c then 3 else 4",
+            "@test () -> int = if a then if b then 1 else 2 else if c then 3 else 4;",
             // If with for in branches
-            "@test () -> [int] = if use_double then for x in items yield x * 2 else for x in items yield x",
+            "@test () -> [int] = if use_double then for x in items yield x * 2 else for x in items yield x;",
         ];
 
         for source in sources {
@@ -978,21 +979,21 @@ mod mixed_expressions {
     fn test_pattern_constructs() {
         let sources = &[
             // recurse pattern
-            "@test () -> int = recurse(condition: n <= 1, base: 1, step: n * recurse(n: n - 1))",
+            "@test () -> int = recurse(condition: n <= 1, base: 1, step: n * recurse(n: n - 1));",
             // parallel pattern
-            "@test () -> [Result<int, str>] = parallel(tasks: [task1, task2, task3], max_concurrent: 2)",
+            "@test () -> [Result<int, str>] = parallel(tasks: [task1, task2, task3], max_concurrent: 2);",
             // spawn pattern
-            "@test () -> void = spawn(tasks: [task1, task2])",
+            "@test () -> void = spawn(tasks: [task1, task2]);",
             // timeout pattern
-            "@test () -> Result<int, str> = timeout(operation: long_task(), after: 5s)",
+            "@test () -> Result<int, str> = timeout(operation: long_task(), after: 5s);",
             // cache pattern
-            "@test () -> int = cache(key: \"mykey\", op: expensive(), ttl: 1h)",
+            "@test () -> int = cache(key: \"mykey\", op: expensive(), ttl: 1h);",
             // catch pattern
-            "@test () -> Result<int, str> = catch(expr: might_panic())",
+            "@test () -> Result<int, str> = catch(expr: might_panic());",
             // Nested patterns
-            "@test () -> Result<int, str> = timeout(operation: cache(key: \"k\", op: fetch(), ttl: 5m), after: 10s)",
+            "@test () -> Result<int, str> = timeout(operation: cache(key: \"k\", op: fetch(), ttl: 5m), after: 10s);",
             // nursery pattern
-            "@test () -> void = nursery(body: n -> spawn_tasks(n: n), on_error: CancelRemaining)",
+            "@test () -> void = nursery(body: n -> spawn_tasks(n: n), on_error: CancelRemaining);",
         ];
 
         for source in sources {
@@ -1010,15 +1011,15 @@ mod mixed_expressions {
     fn test_method_chains_complex() {
         let sources = &[
             // Long chain with different transforms
-            "@test () -> int = items.iter().filter(predicate: x -> x > 0).map(transform: x -> x * 2).take(count: 10).fold(initial: 0, op: (a, b) -> a + b)",
+            "@test () -> int = items.iter().filter(predicate: x -> x > 0).map(transform: x -> x * 2).take(count: 10).fold(initial: 0, op: (a, b) -> a + b);",
             // Chain with Option methods
-            "@test () -> int = opt.map(transform: x -> x * 2).and_then(transform: x -> if x > 10 then Some(x) else None).unwrap_or(default: 0)",
+            "@test () -> int = opt.map(transform: x -> x * 2).and_then(transform: x -> if x > 10 then Some(x) else None).unwrap_or(default: 0);",
             // Chain with Result methods
-            "@test () -> int = res.map(transform: x -> x * 2).map_err(transform: e -> e).unwrap_or(default: 0)",
+            "@test () -> int = res.map(transform: x -> x * 2).map_err(transform: e -> e).unwrap_or(default: 0);",
             // Chain on nested generic
-            "@test () -> int = opt_opt.and_then(transform: inner -> inner).unwrap_or(default: 0)",
+            "@test () -> int = opt_opt.and_then(transform: inner -> inner).unwrap_or(default: 0);",
             // Chain with type conversions
-            "@test () -> str = value.to_str()",
+            "@test () -> str = value.to_str();",
         ];
 
         for source in sources {
@@ -1036,25 +1037,25 @@ mod mixed_expressions {
     fn test_binary_operators_complex() {
         let sources = &[
             // All arithmetic operators
-            "@test () -> int = 1 + 2 - 3 * 4 / 5 % 6",
+            "@test () -> int = 1 + 2 - 3 * 4 / 5 % 6;",
             // Floor division
-            "@test () -> int = 17 div 5",
+            "@test () -> int = 17 div 5;",
             // Bitwise operators
-            "@test () -> int = (a & b) | (c ^ d)",
+            "@test () -> int = (a & b) | (c ^ d);",
             // Shift operators
-            "@test () -> int = (x << 2) >> 1",
+            "@test () -> int = (x << 2) >> 1;",
             // Comparison chain (requires grouping)
-            "@test () -> bool = a < b && b < c",
+            "@test () -> bool = a < b && b < c;",
             // Logical operators
-            "@test () -> bool = a && b || c && !d",
+            "@test () -> bool = a && b || c && !d;",
             // Mixed precedence
-            "@test () -> bool = x + y * z > a - b / c && flag",
+            "@test () -> bool = x + y * z > a - b / c && flag;",
             // Coalesce operator
-            "@test () -> int = opt ?? default",
+            "@test () -> int = opt ?? default;",
             // Chained coalesce
-            "@test () -> int = first ?? second ?? third ?? 0",
+            "@test () -> int = first ?? second ?? third ?? 0;",
             // Coalesce with method chain
-            "@test () -> int = get_opt().map(transform: x -> x * 2) ?? 0",
+            "@test () -> int = get_opt().map(transform: x -> x * 2) ?? 0;",
         ];
 
         for source in sources {
@@ -1072,19 +1073,19 @@ mod mixed_expressions {
     fn test_range_expressions() {
         let sources = &[
             // Basic exclusive range
-            "@test () -> Range<int> = 0..10",
+            "@test () -> Range<int> = 0..10;",
             // Inclusive range
-            "@test () -> Range<int> = 0..=10",
+            "@test () -> Range<int> = 0..=10;",
             // Range with step
-            "@test () -> Range<int> = 0..100 by 5",
+            "@test () -> Range<int> = 0..100 by 5;",
             // Descending range
-            "@test () -> Range<int> = 10..0 by -1",
-            // Open-ended range
-            "@test () -> Range<int> = 0..",
+            "@test () -> Range<int> = 10..0 by -1;",
+            // Open-ended range (uses block to avoid ..;  ambiguity)
+            "@test () -> Range<int> = { 0.. }",
             // Range in for loop
-            "@test () -> [int] = for i in 1..=100 by 2 yield i",
+            "@test () -> [int] = for i in 1..=100 by 2 yield i;",
             // Range with expressions
-            "@test () -> Range<int> = start..end by step",
+            "@test () -> Range<int> = start..end by step;",
         ];
 
         for source in sources {
@@ -1102,19 +1103,19 @@ mod mixed_expressions {
     fn test_index_expressions() {
         let sources = &[
             // Basic index
-            "@test () -> int = list[0]",
+            "@test () -> int = list[0];",
             // Index with expression
-            "@test () -> int = list[i + 1]",
+            "@test () -> int = list[i + 1];",
             // Index with length reference
-            "@test () -> int = list[# - 1]",
+            "@test () -> int = list[# - 1];",
             // Chained index
-            "@test () -> int = matrix[0][1]",
+            "@test () -> int = matrix[0][1];",
             // Index on method result
-            "@test () -> int = get_list()[0]",
+            "@test () -> int = get_list()[0];",
             // Map index (returns Option)
-            "@test () -> Option<int> = map[\"key\"]",
+            "@test () -> Option<int> = map[\"key\"];",
             // Index with complex expression
-            "@test () -> int = list[if flag then 0 else # - 1]",
+            "@test () -> int = list[if flag then 0 else # - 1];",
         ];
 
         for source in sources {
@@ -1132,18 +1133,18 @@ mod mixed_expressions {
     fn test_type_conversions() {
         let sources = &[
             // Infallible as
-            "@test () -> float = 42 as float",
+            "@test () -> float = 42 as float;",
             // Fallible as?
-            "@test () -> Option<int> = \"42\" as? int",
+            "@test () -> Option<int> = \"42\" as? int;",
             // Chain with as
-            "@test () -> int = (value as float * 1.5) as int",
+            "@test () -> int = (value as float * 1.5) as int;",
             // as with generics
-            "@test () -> [float] = for x in ints yield x as float",
+            "@test () -> [float] = for x in ints yield x as float;",
             // Conversion function syntax
-            "@test () -> float = float(42)",
-            "@test () -> int = int(3.14)",
-            "@test () -> str = str(42)",
-            "@test () -> byte = byte(65)",
+            "@test () -> float = float(42);",
+            "@test () -> int = int(3.14);",
+            "@test () -> str = str(42);",
+            "@test () -> byte = byte(65);",
         ];
 
         for source in sources {
@@ -1185,11 +1186,11 @@ mod mixed_expressions {
     fn test_unsafe_expressions() {
         let sources = &[
             // Basic unsafe
-            "@test () -> int = unsafe(ptr_read(ptr: p))",
+            "@test () -> int = unsafe(ptr_read(ptr: p));",
             // Unsafe in block
             "@test () -> int = { let ptr = get_ptr(); unsafe(ptr_read(ptr: ptr)) }",
             // Unsafe with method call
-            "@test () -> void = unsafe(ptr.write(value: 42))",
+            "@test () -> void = unsafe(ptr.write(value: 42));",
         ];
 
         for source in sources {
@@ -1216,19 +1217,19 @@ mod mixed_literals {
     fn test_duration_literals_in_expressions() {
         let sources = &[
             // Basic duration
-            "@test () -> Duration = 5s",
+            "@test () -> Duration = 5s;",
             // Duration arithmetic
-            "@test () -> Duration = 1h + 30m + 45s",
+            "@test () -> Duration = 1h + 30m + 45s;",
             // Duration in timeout
-            "@test () -> Result<int, str> = timeout(operation: task(), after: 5s)",
+            "@test () -> Result<int, str> = timeout(operation: task(), after: 5s);",
             // Duration comparison
-            "@test () -> bool = elapsed > 1m",
+            "@test () -> bool = elapsed > 1m;",
             // All duration units
-            "@test () -> [Duration] = [1ns, 1us, 1ms, 1s, 1m, 1h]",
+            "@test () -> [Duration] = [1ns, 1us, 1ms, 1s, 1m, 1h];",
             // Duration in method call
-            "@test () -> void = sleep(duration: 100ms)",
+            "@test () -> void = sleep(duration: 100ms);",
             // Duration in if condition
-            "@test () -> int = if elapsed > 5s then 1 else 0",
+            "@test () -> int = if elapsed > 5s then 1 else 0;",
         ];
 
         for source in sources {
@@ -1246,15 +1247,15 @@ mod mixed_literals {
     fn test_size_literals_in_expressions() {
         let sources = &[
             // Basic size
-            "@test () -> Size = 1kb",
+            "@test () -> Size = 1kb;",
             // Size arithmetic
-            "@test () -> Size = 1gb + 512mb",
+            "@test () -> Size = 1gb + 512mb;",
             // All size units
-            "@test () -> [Size] = [1b, 1kb, 1mb, 1gb, 1tb]",
+            "@test () -> [Size] = [1b, 1kb, 1mb, 1gb, 1tb];",
             // Size comparison
-            "@test () -> bool = file_size > 10mb",
+            "@test () -> bool = file_size > 10mb;",
             // Size in method call
-            "@test () -> void = allocate(size: 4kb)",
+            "@test () -> void = allocate(size: 4kb);",
         ];
 
         for source in sources {
@@ -1272,17 +1273,17 @@ mod mixed_literals {
     fn test_list_literals_complex() {
         let sources = &[
             // Empty list with type context
-            "@test () -> [int] = []",
+            "@test () -> [int] = [];",
             // List with expressions
-            "@test () -> [int] = [1 + 2, 3 * 4, 5 - 6]",
+            "@test () -> [int] = [1 + 2, 3 * 4, 5 - 6];",
             // Nested lists
-            "@test () -> [[int]] = [[1, 2], [3, 4], [5, 6]]",
+            "@test () -> [[int]] = [[1, 2], [3, 4], [5, 6]];",
             // List with method calls
-            "@test () -> [int] = [get_first(), get_second(), get_third()]",
+            "@test () -> [int] = [get_first(), get_second(), get_third()];",
             // List with if expressions
-            "@test () -> [int] = [if a then 1 else 0, if b then 2 else 0]",
+            "@test () -> [int] = [if a then 1 else 0, if b then 2 else 0];",
             // List with lambdas
-            "@test () -> [(int) -> int] = [x -> x + 1, x -> x * 2, x -> x - 1]",
+            "@test () -> [(int) -> int] = [x -> x + 1, x -> x * 2, x -> x - 1];",
         ];
 
         for source in sources {
@@ -1354,17 +1355,17 @@ mod mixed_literals {
     fn test_tuple_literals() {
         let sources = &[
             // Basic tuple
-            "@test () -> (int, str) = (1, \"hello\")",
+            "@test () -> (int, str) = (1, \"hello\");",
             // Triple tuple
-            "@test () -> (int, str, bool) = (1, \"hello\", true)",
+            "@test () -> (int, str, bool) = (1, \"hello\", true);",
             // Nested tuple
-            "@test () -> ((int, int), str) = ((1, 2), \"pair\")",
+            "@test () -> ((int, int), str) = ((1, 2), \"pair\");",
             // Tuple with complex elements
-            "@test () -> (Option<int>, [str]) = (Some(1), [\"a\", \"b\"])",
+            "@test () -> (Option<int>, [str]) = (Some(1), [\"a\", \"b\"]);",
             // Unit tuple
-            "@test () -> () = ()",
+            "@test () -> () = ();",
             // Single element (not a tuple, just grouping)
-            "@test () -> int = (1 + 2)",
+            "@test () -> int = (1 + 2);",
         ];
 
         for source in sources {
@@ -1382,18 +1383,18 @@ mod mixed_literals {
     fn test_char_literals() {
         let sources = &[
             // Basic char
-            "@test () -> char = 'a'",
+            "@test () -> char = 'a';",
             // Escape sequences
-            "@test () -> char = '\\n'",
-            "@test () -> char = '\\t'",
-            "@test () -> char = '\\r'",
-            "@test () -> char = '\\0'",
-            "@test () -> char = '\\''",
-            "@test () -> char = '\\\\'",
+            "@test () -> char = '\\n';",
+            "@test () -> char = '\\t';",
+            "@test () -> char = '\\r';",
+            "@test () -> char = '\\0';",
+            "@test () -> char = '\\'';",
+            "@test () -> char = '\\\\';",
             // Char in list
-            "@test () -> [char] = ['a', 'b', 'c']",
+            "@test () -> [char] = ['a', 'b', 'c'];",
             // Char comparison
-            "@test () -> bool = c == 'x'",
+            "@test () -> bool = c == 'x';",
         ];
 
         for source in sources {
@@ -1411,21 +1412,21 @@ mod mixed_literals {
     fn test_numeric_literals() {
         let sources = &[
             // Basic int
-            "@test () -> int = 42",
+            "@test () -> int = 42;",
             // Negative int
-            "@test () -> int = -42",
+            "@test () -> int = -42;",
             // Int with underscores
-            "@test () -> int = 1_000_000",
+            "@test () -> int = 1_000_000;",
             // Hex int
-            "@test () -> int = 0xFF",
-            "@test () -> int = 0xDEAD_BEEF",
+            "@test () -> int = 0xFF;",
+            "@test () -> int = 0xDEAD_BEEF;",
             // Basic float
-            "@test () -> float = 3.14",
+            "@test () -> float = 3.14;",
             // Float with exponent
-            "@test () -> float = 2.5e10",
-            "@test () -> float = 1.0e-8",
+            "@test () -> float = 2.5e10;",
+            "@test () -> float = 1.0e-8;",
             // Negative float
-            "@test () -> float = -3.14",
+            "@test () -> float = -3.14;",
         ];
 
         for source in sources {
@@ -1452,19 +1453,19 @@ mod mixed_types {
     fn test_function_types_complex() {
         let sources = &[
             // Function returning function
-            "@test () -> (int) -> (int) -> int = x -> y -> x + y",
+            "@test () -> (int) -> (int) -> int = x -> y -> x + y;",
             // Function taking function returning function
-            "@test (f: (int) -> (int) -> int) -> int = f(1)(2)",
+            "@test (f: (int) -> (int) -> int) -> int = f(1)(2);",
             // Function with tuple param
             "@test (p: (int, int)) -> int = match p { (a, b) -> a + b }",
             // Function returning tuple
-            "@test () -> (int, str) = (1, \"hello\")",
+            "@test () -> (int, str) = (1, \"hello\");",
             // Higher-order with generics
-            "@apply<T, U> (f: (T) -> U, x: T) -> U = f(x)",
+            "@apply<T, U> (f: (T) -> U, x: T) -> U = f(x);",
             // Function type in generic position
-            "@test () -> Option<(int) -> int> = Some(x -> x * 2)",
+            "@test () -> Option<(int) -> int> = Some(x -> x * 2);",
             // Multiple function params
-            "@test (f: (int) -> int, g: (int) -> int) -> (int) -> int = x -> f(g(x))",
+            "@test (f: (int) -> int, g: (int) -> int) -> (int) -> int = x -> f(g(x));",
         ];
 
         for source in sources {
@@ -1482,13 +1483,13 @@ mod mixed_types {
     fn test_fixed_capacity_list_types() {
         let sources = &[
             // Basic fixed list with literal size
-            "@test () -> [int, max 10] = []",
+            "@test () -> [int, max 10] = [];",
             // Fixed list in struct
             "type Buffer = { data: [byte, max 1024] }",
             // Nested fixed list
-            "@test () -> [[int, max 3], max 3] = []",
+            "@test () -> [[int, max 3], max 3] = [];",
             // Fixed list of generic
-            "@test () -> [Option<int>, max 5] = []",
+            "@test () -> [Option<int>, max 5] = [];",
         ];
 
         for source in sources {
@@ -1506,13 +1507,13 @@ mod mixed_types {
     fn test_trait_object_types() {
         let sources = &[
             // Single trait object param
-            "@test (x: Printable) -> void = print(msg: x.to_str())",
+            "@test (x: Printable) -> void = print(msg: x.to_str());",
             // Trait object in collection
-            "@test () -> [Printable] = []",
+            "@test () -> [Printable] = [];",
             // Trait object in Option
-            "@test () -> Option<Printable> = None",
+            "@test () -> Option<Printable> = None;",
             // Trait object return
-            "@test () -> Printable = 42",
+            "@test () -> Printable = 42;",
         ];
 
         for source in sources {
@@ -1530,17 +1531,17 @@ mod mixed_types {
     fn test_deeply_nested_types() {
         let sources = &[
             // Four-level nesting
-            "@test () -> Option<Option<Option<Option<int>>>> = Some(Some(Some(Some(1))))",
+            "@test () -> Option<Option<Option<Option<int>>>> = Some(Some(Some(Some(1))));",
             // Mixed nesting
-            "@test () -> Result<Option<[Result<int, str>]>, str> = Ok(Some([Ok(1)]))",
+            "@test () -> Result<Option<[Result<int, str>]>, str> = Ok(Some([Ok(1)]));",
             // List of maps of options
-            "@test () -> [{str: Option<int>}] = []",
+            "@test () -> [{str: Option<int>}] = [];",
             // Map of lists of results
             "@test () -> {str: [Result<int, str>]} = {}",
             // Tuple containing nested generics
-            "@test () -> (Option<Option<int>>, Result<Result<str, int>, str>) = (None, Err(\"error\"))",
+            "@test () -> (Option<Option<int>>, Result<Result<str, int>, str>) = (None, Err(\"error\"));",
             // Function type with nested generics
-            "@test () -> (Option<int>) -> Result<Option<str>, int> = opt -> Ok(None)",
+            "@test () -> (Option<int>) -> Result<Option<str>, int> = opt -> Ok(None);",
         ];
 
         for source in sources {
@@ -1558,13 +1559,13 @@ mod mixed_types {
     fn test_channel_types() {
         let sources = &[
             // Basic channel types
-            "@test () -> (Producer<int>, Consumer<int>) = channel(buffer: 10)",
+            "@test () -> (Producer<int>, Consumer<int>) = channel(buffer: 10);",
             // Cloneable channels
-            "@test () -> (CloneableProducer<str>, CloneableConsumer<str>) = channel_all(buffer: 5)",
+            "@test () -> (CloneableProducer<str>, CloneableConsumer<str>) = channel_all(buffer: 5);",
             // Channel in struct
             "type WorkQueue<T> = { producer: Producer<T>, consumer: Consumer<T> }",
             // Channel with complex element type
-            "@test () -> (Producer<Result<int, str>>, Consumer<Result<int, str>>) = channel(buffer: 100)",
+            "@test () -> (Producer<Result<int, str>>, Consumer<Result<int, str>>) = channel(buffer: 100);",
         ];
 
         for source in sources {
@@ -1582,19 +1583,19 @@ mod mixed_types {
     fn test_channel_generic_syntax() {
         let sources = &[
             // Basic generic channel
-            "@test () -> void = channel<int>(buffer: 10)",
+            "@test () -> void = channel<int>(buffer: 10);",
             // Channel with string type arg
-            "@test () -> void = channel_in<str>(buffer: 5)",
+            "@test () -> void = channel_in<str>(buffer: 5);",
             // Channel out
-            "@test () -> void = channel_out<bool>(buffer: 1)",
+            "@test () -> void = channel_out<bool>(buffer: 1);",
             // Cloneable channel
-            "@test () -> void = channel_all<float>(buffer: 20)",
+            "@test () -> void = channel_all<float>(buffer: 20);",
             // Channel with nested generic type arg
-            "@test () -> void = channel<Result<int, str>>(buffer: 100)",
+            "@test () -> void = channel<Result<int, str>>(buffer: 100);",
             // Channel without generics still works
-            "@test () -> void = channel(buffer: 10)",
+            "@test () -> void = channel(buffer: 10);",
             // Channel in let binding
-            "@test () -> void = let pair = channel<int>(buffer: 5)",
+            "@test () -> void = let pair = channel<int>(buffer: 5);",
         ];
 
         for source in sources {
@@ -1612,15 +1613,15 @@ mod mixed_types {
     fn test_never_type() {
         let sources = &[
             // Never in Result (always Err)
-            "@test () -> Result<Never, str> = Err(\"always fails\")",
+            "@test () -> Result<Never, str> = Err(\"always fails\");",
             // Never in Result (always Ok)
-            "@test () -> Result<int, Never> = Ok(42)",
+            "@test () -> Result<int, Never> = Ok(42);",
             // Function returning Never
-            "@fail () -> Never = panic(msg: \"always panics\")",
+            "@fail () -> Never = panic(msg: \"always panics\");",
             // Never from todo
-            "@incomplete () -> Never = todo()",
+            "@incomplete () -> Never = todo();",
             // Never from unreachable
-            "@impossible () -> Never = unreachable()",
+            "@impossible () -> Never = unreachable();",
         ];
 
         for source in sources {
@@ -1922,7 +1923,7 @@ mod edge_cases {
             // Triple nested with comparison
             "@test () -> bool = { let x: Option<Option<Option<int>>> = Some(Some(Some(1))); 5 >= 3 }",
             // Nested generic in expression context
-            "@test () -> Option<Option<int>> = if true then Some(Some(1)) else None",
+            "@test () -> Option<Option<int>> = if true then Some(Some(1)) else None;",
             // Nested generics in list type with shift
             "@test () -> int = { let x: [Result<Result<int, str>, str>] = []; 4 >> 1 }",
         ];
@@ -1942,17 +1943,17 @@ mod edge_cases {
     fn test_lambda_arrow_ambiguity() {
         let sources = &[
             // Lambda vs function type in various positions
-            "@test () -> int = (x -> x + 1)(5)",
+            "@test () -> int = (x -> x + 1)(5);",
             // Lambda in list
-            "@test () -> [(int) -> int] = [x -> x, x -> x + 1]",
+            "@test () -> [(int) -> int] = [x -> x, x -> x + 1];",
             // Lambda as method argument
-            "@test () -> [int] = items.map(transform: x -> x * 2)",
+            "@test () -> [int] = items.map(transform: x -> x * 2);",
             // Nested lambda
-            "@test () -> int = (x -> (y -> x + y))(1)(2)",
+            "@test () -> int = (x -> (y -> x + y))(1)(2);",
             // Lambda with complex body
-            "@test () -> int = (x -> if x > 0 then x else -x)(-5)",
+            "@test () -> int = (x -> if x > 0 then x else -x)(-5);",
             // Lambda returning lambda
-            "@test () -> (int) -> int = (x -> (y -> x + y))(10)",
+            "@test () -> (int) -> int = (x -> (y -> x + y))(10);",
         ];
 
         for source in sources {
@@ -1970,15 +1971,15 @@ mod edge_cases {
     fn test_range_ambiguity() {
         let sources = &[
             // Range vs method chain
-            "@test () -> [int] = for i in 0..10 yield i",
+            "@test () -> [int] = for i in 0..10 yield i;",
             // Range in comparison
             "@test () -> bool = { let r = 0..10; true }",
             // Range with by
-            "@test () -> [int] = for i in 0..100 by 10 yield i",
+            "@test () -> [int] = for i in 0..100 by 10 yield i;",
             // Inclusive range followed by method
-            "@test () -> [int] = (0..=10).iter().collect()",
+            "@test () -> [int] = (0..=10).iter().collect();",
             // Range inside parentheses
-            "@test () -> Range<int> = (start..end)",
+            "@test () -> Range<int> = (start..end);",
         ];
 
         for source in sources {
@@ -1996,17 +1997,17 @@ mod edge_cases {
     fn test_complex_precedence() {
         let sources = &[
             // Arithmetic and comparison mixed
-            "@test () -> bool = a + b * c > d - e / f",
+            "@test () -> bool = a + b * c > d - e / f;",
             // Logical with bitwise
-            "@test () -> bool = (a & b) != 0 && (c | d) != 0",
+            "@test () -> bool = (a & b) != 0 && (c | d) != 0;",
             // Coalesce with comparison
-            "@test () -> bool = (x ?? 0) > (y ?? 0)",
+            "@test () -> bool = (x ?? 0) > (y ?? 0);",
             // Method chain with operators
-            "@test () -> int = a.get() + b.get() * c.get()",
+            "@test () -> int = a.get() + b.get() * c.get();",
             // Unary operators in chain
-            "@test () -> int = -a + !b * ~c",
+            "@test () -> int = -a + !b * ~c;",
             // Complex nested precedence
-            "@test () -> bool = a + b > c && d * e < f || g == h",
+            "@test () -> bool = a + b > c && d * e < f || g == h;",
         ];
 
         for source in sources {
@@ -2026,11 +2027,11 @@ mod edge_cases {
             // Deep nesting of blocks
             "@test () -> int = { let a = { let b = { let c = 1; c }; b }; a }",
             // Deep nesting of if
-            "@test () -> int = if a then if b then if c then 1 else 2 else 3 else 4",
+            "@test () -> int = if a then if b then if c then 1 else 2 else 3 else 4;",
             // Deep nesting of match
             "@test () -> int = match x { Some(y) -> match y { Some(z) -> z, None -> 0 }, None -> -1 }",
             // Deep method chain
-            "@test () -> int = a.b().c().d().e().f().g()",
+            "@test () -> int = a.b().c().d().e().f().g();",
             // Mixed deep nesting
             "@test () -> int = { let x = if cond then match opt { Some(v) -> v, None -> 0 } else -1; x * 2 }",
         ];
@@ -2064,13 +2065,13 @@ mod edge_cases {
             // Multiline if
             r"@test () -> int = if condition
                 then positive_branch
-                else negative_branch",
+                else negative_branch;",
             // Multiline method chain
             r"@test () -> int = items
                 .iter()
                 .filter(predicate: x -> x > 0)
                 .map(transform: x -> x * 2)
-                .fold(initial: 0, op: (a, b) -> a + b)",
+                .fold(initial: 0, op: (a, b) -> a + b);",
             // Multiline type definition
             r"type Complex = {
                 real: float,
@@ -2106,10 +2107,10 @@ type Stack<T> = { items: [T] }
 impl<T> Stack<T> {
     @new () -> Self = Stack { items: [] }
     @push (self, item: T) -> Self = Stack { items: [item] }
-    @is_empty (self) -> bool = is_empty(collection: self.items)
+    @is_empty (self) -> bool = is_empty(collection: self.items);
 }
 
-@use_stack<T> (item: T) -> Stack<T> = Stack.new().push(item: item)
+@use_stack<T> (item: T) -> Stack<T> = Stack.new().push(item: item);
 
 @test_stack tests @use_stack () -> void = {
     let stack = use_stack(item: 1);
@@ -2122,13 +2123,13 @@ trait Stringable {
     @to_string (self) -> str
 }
 
-@use_trait<T: Stringable> (x: T) -> str = x.to_string()
+@use_trait<T: Stringable> (x: T) -> str = x.to_string();
 
-@test_trait tests @use_trait () -> void = ()
+@test_trait tests @use_trait () -> void = ();
 ",
             // Complex function with generics, where, and capabilities
             r#"
-@fetch_data<T: Clone, K: Hashable> (key: K, fallback: T) -> Result<T, str> uses Http where T: Clone, K: Hashable = Ok(fallback)
+@fetch_data<T: Clone, K: Hashable> (key: K, fallback: T) -> Result<T, str> uses Http where T: Clone, K: Hashable = Ok(fallback);
 
 @test_fetch tests @fetch_data () -> void =
     with Http = MockHttp in {

@@ -51,4 +51,4 @@ use std.testing { assert_eq }
     `{list:>15}`
 }
 
-@main () -> void = print(msg: "Blanket formatting tests")
+@main () -> void = print(msg: "Blanket formatting tests");

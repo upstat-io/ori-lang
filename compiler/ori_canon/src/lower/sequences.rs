@@ -5,7 +5,7 @@
 //! panic expressions.
 
 use ori_ir::canon::{CanBindingPattern, CanExpr, CanId, CanNamedExpr, CanRange};
-use ori_ir::{FunctionExpKind, Name, Span, TypeId, UnaryOp};
+use ori_ir::{FunctionExpKind, Mutability, Name, Span, TypeId, UnaryOp};
 
 use super::Lowerer;
 
@@ -225,7 +225,7 @@ impl Lowerer<'_> {
             let result_name = self.name_check_result;
             let pattern = self.arena.push_binding_pattern(CanBindingPattern::Name {
                 name: result_name,
-                mutable: false,
+                mutable: Mutability::Immutable,
             });
             let let_result = self.push(
                 CanExpr::Let {

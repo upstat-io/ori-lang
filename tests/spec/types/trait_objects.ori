@@ -23,28 +23,28 @@ use std.testing { assert, assert_eq }
 // Trait Object Alternative: Generics with Bounds
 // =============================================================================
 
-@format_value<T: Printable> (item: T) -> str = item.to_str()
+@format_value<T: Printable> (item: T) -> str = item.to_str();
 
 @test_generic_printable_int tests @generic_printable_int () -> void = {
     let result = format_value(item: 123);
     assert_eq(actual: result, expected: "123")
 }
 
-@generic_printable_int () -> str = format_value(item: 123)
+@generic_printable_int () -> str = format_value(item: 123);
 
 @test_generic_printable_str tests @generic_printable_str () -> void = {
     let result = format_value(item: "hello");
     assert_eq(actual: result, expected: "hello")
 }
 
-@generic_printable_str () -> str = format_value(item: "hello")
+@generic_printable_str () -> str = format_value(item: "hello");
 
 @test_generic_printable_bool tests @generic_printable_bool () -> void = {
     let result = format_value(item: true);
     assert_eq(actual: result, expected: "true")
 }
 
-@generic_printable_bool () -> str = format_value(item: true)
+@generic_printable_bool () -> str = format_value(item: true);
 
 // =============================================================================
 // Multiple Trait Bounds (Printable + Hashable)
@@ -76,7 +76,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s, expected: "42")
 }
 
-@generic_multi_bound () -> (str, int) = format_and_hash(item: 42)
+@generic_multi_bound () -> (str, int) = format_and_hash(item: 42);
 
 // =============================================================================
 // Clone Trait (NOT Object-Safe)
@@ -85,7 +85,7 @@ use std.testing { assert, assert_eq }
 // Clone is not object-safe because it returns Self.
 // Testing with generics instead.
 
-@clone_value<T: Clone> (item: T) -> T = item.clone()
+@clone_value<T: Clone> (item: T) -> T = item.clone();
 
 @test_clone_int tests @clone_int () -> void = {
     let original = 42;
@@ -93,7 +93,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: cloned, expected: 42)
 }
 
-@clone_int () -> int = clone_value(item: 42)
+@clone_int () -> int = clone_value(item: 42);
 
 @test_clone_str tests @clone_str () -> void = {
     let original = "hello";
@@ -101,7 +101,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: cloned, expected: "hello")
 }
 
-@clone_str () -> str = clone_value(item: "hello")
+@clone_str () -> str = clone_value(item: "hello");
 
 @test_clone_list tests @clone_list () -> void = {
     let original = [1, 2, 3];
@@ -109,7 +109,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: cloned, expected: [1, 2, 3])
 }
 
-@clone_list () -> [int] = clone_value(item: [1, 2, 3])
+@clone_list () -> [int] = clone_value(item: [1, 2, 3]);
 
 // =============================================================================
 // Eq Trait (NOT Object-Safe)
@@ -118,21 +118,21 @@ use std.testing { assert, assert_eq }
 // Eq is not object-safe because equals takes Self.
 // Testing with generics instead.
 
-@are_equal<T: Eq> (a: T, b: T) -> bool = a == b
+@are_equal<T: Eq> (a: T, b: T) -> bool = a == b;
 
 @test_eq_int tests @eq_int () -> void = {
     assert(cond: are_equal(a: 42, b: 42));
     assert(cond: !are_equal(a: 42, b: 100))
 }
 
-@eq_int () -> bool = are_equal(a: 42, b: 42)
+@eq_int () -> bool = are_equal(a: 42, b: 42);
 
 @test_eq_str tests @eq_str () -> void = {
     assert(cond: are_equal(a: "hello", b: "hello"));
     assert(cond: !are_equal(a: "hello", b: "world"))
 }
 
-@eq_str () -> bool = are_equal(a: "hello", b: "hello")
+@eq_str () -> bool = are_equal(a: "hello", b: "hello");
 
 // =============================================================================
 // Comparable Trait (NOT Object-Safe)
@@ -141,20 +141,20 @@ use std.testing { assert, assert_eq }
 // Comparable extends Eq and has compare taking Self.
 // Testing with generics instead.
 
-@is_less<T: Comparable> (a: T, b: T) -> bool = a < b
+@is_less<T: Comparable> (a: T, b: T) -> bool = a < b;
 
 @test_comparable_int tests @comparable_int () -> void = {
     assert(cond: is_less(a: 1, b: 10));
     assert(cond: !is_less(a: 10, b: 1))
 }
 
-@comparable_int () -> bool = is_less(a: 1, b: 10)
+@comparable_int () -> bool = is_less(a: 1, b: 10);
 
 @test_comparable_str tests @comparable_str () -> void = {
     assert(cond: is_less(a: "apple", b: "banana"))
 }
 
-@comparable_str () -> bool = is_less(a: "apple", b: "banana")
+@comparable_str () -> bool = is_less(a: "apple", b: "banana");
 
 // =============================================================================
 // Debug Trait (Object-Safe)
@@ -212,7 +212,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: ["1", "2", "3"])
 }
 
-@generic_homogeneous () -> [str] = all_same_type(items: [1, 2, 3])
+@generic_homogeneous () -> [str] = all_same_type(items: [1, 2, 3]);
 
 // Trait object: Elements can be different concrete types
 // @test_trait_heterogeneous tests @trait_heterogeneous () -> void = {
@@ -237,7 +237,7 @@ use std.testing { assert, assert_eq }
 type Point = { x: int, y: int }
 
 impl Printable for Point {
-    @to_str (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")"
+    @to_str (self) -> str = "(" + str(self.x) + ", " + str(self.y) + ")";
 }
 
 @test_user_type_printable tests @user_type_printable () -> void = {

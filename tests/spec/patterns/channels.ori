@@ -307,7 +307,7 @@ type Queue<T> = { items: [T] }
 // Producer-Consumer Pattern Simulation
 // =============================================================================
 
-@produce (items: [int]) -> [int] = items
+@produce (items: [int]) -> [int] = items;
 
 @consume (items: [int]) -> int = {
     let sum = 0;
@@ -367,4 +367,4 @@ type BoundedBuffer<T> = { items: [T], capacity: int }
     assert_eq(actual: v2, expected: Some(2))
 }
 
-@bounded_buffer () -> BoundedBuffer<int> = make_buffer(capacity: 10)
+@bounded_buffer () -> BoundedBuffer<int> = make_buffer(capacity: 10);

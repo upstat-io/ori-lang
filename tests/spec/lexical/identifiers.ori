@@ -204,7 +204,7 @@ type IdentStruct = { field_name: int, anotherField: int }
     assert_eq(actual: ident_in_struct(), expected: 30)
 }
 
-@ident_as_param (my_param: int, anotherParam: int) -> int = my_param + anotherParam
+@ident_as_param (my_param: int, anotherParam: int) -> int = my_param + anotherParam;
 
 @test_ident_as_param tests @ident_as_param () -> void = {
     assert_eq(actual: ident_as_param(my_param: 5, anotherParam: 10), expected: 15)
@@ -351,11 +351,11 @@ type IdentStruct = { field_name: int, anotherField: int }
 // Function Name Identifiers
 // =============================================================================
 
-@my_function_name () -> int = 42
+@my_function_name () -> int = 42;
 
-@another_Function_123 () -> int = 100
+@another_Function_123 () -> int = 100;
 
-@_private_function () -> int = 7
+@_private_function () -> int = 7;
 
 @test_function_names tests @my_function_name tests @another_Function_123 tests @_private_function () -> void = {
     assert_eq(actual: my_function_name(), expected: 42);

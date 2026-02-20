@@ -13,7 +13,7 @@ use "../math_lib" { add, multiply, double }
 use "../math_lib" as math
 
 // Helper function for tests to target
-@qualified_access_helper () -> int = 42
+@qualified_access_helper () -> int = 42;
 
 // Test that regular imports from the same module work
 @test_regular_import_add tests @add () -> void = {

@@ -10,13 +10,13 @@ use std.testing { assert, assert_eq }
 // Basic Decimal Integers
 // =============================================================================
 
-@decimal_zero () -> int = 0
+@decimal_zero () -> int = 0;
 
 @test_decimal_zero tests @decimal_zero () -> void = {
     assert_eq(actual: decimal_zero(), expected: 0)
 }
 
-@decimal_one () -> int = 1
+@decimal_one () -> int = 1;
 
 @test_decimal_one tests @decimal_one () -> void = {
     assert_eq(actual: decimal_one(), expected: 1)
@@ -41,7 +41,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: decimal_single_digit(), expected: 45)
 }
 
-@decimal_multi_digit () -> int = 42
+@decimal_multi_digit () -> int = 42;
 
 @test_decimal_multi_digit tests @decimal_multi_digit () -> void = {
     assert_eq(actual: decimal_multi_digit(), expected: 42);
@@ -53,25 +53,25 @@ use std.testing { assert, assert_eq }
 // Decimal with Underscores (Readability Separators)
 // =============================================================================
 
-@decimal_underscore_thousands () -> int = 1_000
+@decimal_underscore_thousands () -> int = 1_000;
 
 @test_decimal_underscore_thousands tests @decimal_underscore_thousands () -> void = {
     assert_eq(actual: decimal_underscore_thousands(), expected: 1000)
 }
 
-@decimal_underscore_millions () -> int = 1_000_000
+@decimal_underscore_millions () -> int = 1_000_000;
 
 @test_decimal_underscore_millions tests @decimal_underscore_millions () -> void = {
     assert_eq(actual: decimal_underscore_millions(), expected: 1000000)
 }
 
-@decimal_underscore_irregular () -> int = 1_23_456_7
+@decimal_underscore_irregular () -> int = 1_23_456_7;
 
 @test_decimal_underscore_irregular tests @decimal_underscore_irregular () -> void = {
     assert_eq(actual: decimal_underscore_irregular(), expected: 1234567)
 }
 
-@decimal_multiple_underscores () -> int = 1__000
+@decimal_multiple_underscores () -> int = 1__000;
 
 @test_decimal_multiple_underscores tests @decimal_multiple_underscores () -> void = {
     assert_eq(actual: decimal_multiple_underscores(), expected: 1000)
@@ -81,7 +81,7 @@ use std.testing { assert, assert_eq }
 // Hexadecimal Literals (0x prefix)
 // =============================================================================
 
-@hex_zero () -> int = 0x0
+@hex_zero () -> int = 0x0;
 
 @test_hex_zero tests @hex_zero () -> void = {
     assert_eq(actual: hex_zero(), expected: 0)
@@ -112,25 +112,25 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: hex_single_digit(), expected: 120)
 }
 
-@hex_lowercase () -> int = 0xff
+@hex_lowercase () -> int = 0xff;
 
 @test_hex_lowercase tests @hex_lowercase () -> void = {
     assert_eq(actual: hex_lowercase(), expected: 255)
 }
 
-@hex_uppercase () -> int = 0xFF
+@hex_uppercase () -> int = 0xFF;
 
 @test_hex_uppercase tests @hex_uppercase () -> void = {
     assert_eq(actual: hex_uppercase(), expected: 255)
 }
 
-@hex_mixed_case () -> int = 0xAbCdEf
+@hex_mixed_case () -> int = 0xAbCdEf;
 
 @test_hex_mixed_case tests @hex_mixed_case () -> void = {
     assert_eq(actual: hex_mixed_case(), expected: 11259375)
 }
 
-@hex_multi_byte () -> int = 0x100
+@hex_multi_byte () -> int = 0x100;
 
 @test_hex_multi_byte tests @hex_multi_byte () -> void = {
     assert_eq(actual: hex_multi_byte(), expected: 256)
@@ -140,19 +140,19 @@ use std.testing { assert, assert_eq }
 // Hexadecimal with Underscores
 // =============================================================================
 
-@hex_underscore () -> int = 0xFF_FF
+@hex_underscore () -> int = 0xFF_FF;
 
 @test_hex_underscore tests @hex_underscore () -> void = {
     assert_eq(actual: hex_underscore(), expected: 65535)
 }
 
-@hex_underscore_bytes () -> int = 0x1A_2B_3C_4D
+@hex_underscore_bytes () -> int = 0x1A_2B_3C_4D;
 
 @test_hex_underscore_bytes tests @hex_underscore_bytes () -> void = {
     assert_eq(actual: hex_underscore_bytes(), expected: 439041101)
 }
 
-@hex_underscore_irregular () -> int = 0xA_BC_DEF
+@hex_underscore_irregular () -> int = 0xA_BC_DEF;
 
 @test_hex_underscore_irregular tests @hex_underscore_irregular () -> void = {
     assert_eq(actual: hex_underscore_irregular(), expected: 11259375)
@@ -162,31 +162,31 @@ use std.testing { assert, assert_eq }
 // Binary Literals (0b prefix)
 // =============================================================================
 
-@binary_zero () -> int = 0b0
+@binary_zero () -> int = 0b0;
 
 @test_binary_zero tests @binary_zero () -> void = {
     assert_eq(actual: binary_zero(), expected: 0)
 }
 
-@binary_one () -> int = 0b1
+@binary_one () -> int = 0b1;
 
 @test_binary_one tests @binary_one () -> void = {
     assert_eq(actual: binary_one(), expected: 1)
 }
 
-@binary_multi () -> int = 0b1010
+@binary_multi () -> int = 0b1010;
 
 @test_binary_multi tests @binary_multi () -> void = {
     assert_eq(actual: binary_multi(), expected: 10)
 }
 
-@binary_byte () -> int = 0b11111111
+@binary_byte () -> int = 0b11111111;
 
 @test_binary_byte tests @binary_byte () -> void = {
     assert_eq(actual: binary_byte(), expected: 255)
 }
 
-@binary_underscore () -> int = 0b1111_0000
+@binary_underscore () -> int = 0b1111_0000;
 
 @test_binary_underscore tests @binary_underscore () -> void = {
     assert_eq(actual: binary_underscore(), expected: 240)
@@ -196,14 +196,14 @@ use std.testing { assert, assert_eq }
 // Large Integers (within i64 range)
 // =============================================================================
 
-@large_int () -> int = 9223372036854775807
+@large_int () -> int = 9223372036854775807;
 
 @test_large_int tests @large_int () -> void = {
     // Maximum i64 value
     assert_eq(actual: large_int(), expected: 9223372036854775807)
 }
 
-@large_hex () -> int = 0x7FFFFFFFFFFFFFFF
+@large_hex () -> int = 0x7FFFFFFFFFFFFFFF;
 
 @test_large_hex tests @large_hex () -> void = {
     // Maximum i64 value in hex
@@ -214,32 +214,32 @@ use std.testing { assert, assert_eq }
 // Negative Integers (Unary Minus)
 // =============================================================================
 
-@neg_one () -> int = -1
+@neg_one () -> int = -1;
 
 @test_neg_one tests @neg_one () -> void = {
     assert_eq(actual: neg_one(), expected: -1)
 }
 
-@neg_multi () -> int = -42
+@neg_multi () -> int = -42;
 
 @test_neg_multi tests @neg_multi () -> void = {
     assert_eq(actual: neg_multi(), expected: -42)
 }
 
-@neg_large () -> int = -1000000
+@neg_large () -> int = -1000000;
 
 @test_neg_large tests @neg_large () -> void = {
     assert_eq(actual: neg_large(), expected: -1000000)
 }
 
-@neg_hex () -> int = -0xFF
+@neg_hex () -> int = -0xFF;
 
 @test_neg_hex tests @neg_hex () -> void = {
     assert_eq(actual: neg_hex(), expected: -255)
 }
 
 // Minimum i64 value
-@neg_min () -> int = -9223372036854775808
+@neg_min () -> int = -9223372036854775808;
 
 @test_neg_min tests @neg_min () -> void = {
     assert_eq(actual: neg_min(), expected: -9223372036854775808)
@@ -249,7 +249,7 @@ use std.testing { assert, assert_eq }
 // Edge Cases
 // =============================================================================
 
-@edge_leading_zeros () -> int = 00042
+@edge_leading_zeros () -> int = 00042;
 
 @test_edge_leading_zeros tests @edge_leading_zeros () -> void = {
     // Leading zeros in decimal are allowed (not octal)
@@ -298,7 +298,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: arith_powers_of_two(), expected: 255)
 }
 
-@arith_in_expressions () -> int = 10 + 20 * 3
+@arith_in_expressions () -> int = 10 + 20 * 3;
 
 @test_arith_in_expressions tests @arith_in_expressions () -> void = {
     assert_eq(actual: arith_in_expressions(), expected: 70)
@@ -334,7 +334,7 @@ use std.testing { assert, assert_eq }
 // Integers in Various Contexts
 // =============================================================================
 
-@int_in_list () -> int = [1, 2, 3, 0xFF, 0b1010].len()
+@int_in_list () -> int = [1, 2, 3, 0xFF, 0b1010].len();
 
 @test_int_in_list tests @int_in_list () -> void = {
     assert_eq(actual: int_in_list(), expected: 5)
@@ -351,7 +351,7 @@ type IntStruct = { value: int }
     assert_eq(actual: int_in_struct(), expected: 3735928559)
 }
 
-@int_in_conditional () -> int = if 42 > 0 then 1 else 0
+@int_in_conditional () -> int = if 42 > 0 then 1 else 0;
 
 @test_int_in_conditional tests @int_in_conditional () -> void = {
     assert_eq(actual: int_in_conditional(), expected: 1)
@@ -361,19 +361,19 @@ type IntStruct = { value: int }
 // Bitwise Operations with Literals
 // =============================================================================
 
-@bitwise_and_literals () -> int = 0xFF & 0x0F
+@bitwise_and_literals () -> int = 0xFF & 0x0F;
 
 @test_bitwise_and_literals tests @bitwise_and_literals () -> void = {
     assert_eq(actual: bitwise_and_literals(), expected: 0x0F)
 }
 
-@bitwise_or_literals () -> int = 0xF0 | 0x0F
+@bitwise_or_literals () -> int = 0xF0 | 0x0F;
 
 @test_bitwise_or_literals tests @bitwise_or_literals () -> void = {
     assert_eq(actual: bitwise_or_literals(), expected: 0xFF)
 }
 
-@bitwise_shift_literals () -> int = 1 << 8
+@bitwise_shift_literals () -> int = 1 << 8;
 
 @test_bitwise_shift_literals tests @bitwise_shift_literals () -> void = {
     assert_eq(actual: bitwise_shift_literals(), expected: 256)

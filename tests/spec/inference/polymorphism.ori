@@ -94,7 +94,7 @@ use std.testing { assert, assert_eq, assert_ne }
     )
 }
 
-@poly_list_length () -> int = len(collection: [1, 2, 3])
+@poly_list_length () -> int = len(collection: [1, 2, 3]);
 
 // =============================================================================
 // Polymorphism with Option/Result
@@ -145,7 +145,7 @@ use std.testing { assert, assert_eq, assert_ne }
     )
 }
 
-@inference_flow_down () -> str = if true then "yes" else "no"
+@inference_flow_down () -> str = if true then "yes" else "no";
 
 @test_inference_flow_up tests @inference_flow_up () -> void = {
     // Inferred types flow up

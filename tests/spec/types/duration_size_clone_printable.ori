@@ -14,7 +14,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: d2, expected: 100ms)
 }
 
-@duration_clone_basic () -> Duration = 100ms.clone()
+@duration_clone_basic () -> Duration = 100ms.clone();
 
 @test_duration_clone_preserves_value tests @duration_clone_value () -> void = {
     // Clone preserves exact value
@@ -23,7 +23,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: d2.seconds(), expected: d.seconds())
 }
 
-@duration_clone_value () -> Duration = (1h + 30m).clone()
+@duration_clone_value () -> Duration = (1h + 30m).clone();
 
 @test_duration_clone_negative tests @duration_clone_neg () -> void = {
     let d = -500ms;
@@ -31,7 +31,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: d2, expected: -500ms)
 }
 
-@duration_clone_neg () -> Duration = (-500ms).clone()
+@duration_clone_neg () -> Duration = (-500ms).clone();
 
 @test_duration_clone_zero tests @duration_clone_zero () -> void = {
     let d = 0ns;
@@ -39,7 +39,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: d2, expected: 0ns)
 }
 
-@duration_clone_zero () -> Duration = 0ns.clone()
+@duration_clone_zero () -> Duration = 0ns.clone();
 
 @test_duration_clone_independent tests @duration_clone_indep () -> void = {
     // Modifying original doesn't affect clone
@@ -66,7 +66,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.len() > 0)
 }
 
-@duration_to_str_basic () -> str = 100ms.to_str()
+@duration_to_str_basic () -> str = 100ms.to_str();
 
 @test_duration_to_str_hours tests @duration_to_str_h () -> void = {
     let s = 2h.to_str();
@@ -74,7 +74,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "h"))
 }
 
-@duration_to_str_h () -> str = 2h.to_str()
+@duration_to_str_h () -> str = 2h.to_str();
 
 @test_duration_to_str_minutes tests @duration_to_str_m () -> void = {
     let s = 30m.to_str();
@@ -82,7 +82,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "m"))
 }
 
-@duration_to_str_m () -> str = 30m.to_str()
+@duration_to_str_m () -> str = 30m.to_str();
 
 @test_duration_to_str_seconds tests @duration_to_str_s () -> void = {
     let s = 45s.to_str();
@@ -90,7 +90,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "s"))
 }
 
-@duration_to_str_s () -> str = 45s.to_str()
+@duration_to_str_s () -> str = 45s.to_str();
 
 @test_duration_to_str_milliseconds tests @duration_to_str_ms () -> void = {
     let s = 500ms.to_str();
@@ -98,7 +98,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "ms"))
 }
 
-@duration_to_str_ms () -> str = 500ms.to_str()
+@duration_to_str_ms () -> str = 500ms.to_str();
 
 @test_duration_to_str_microseconds tests @duration_to_str_us () -> void = {
     let s = 750us.to_str();
@@ -106,7 +106,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "us"))
 }
 
-@duration_to_str_us () -> str = 750us.to_str()
+@duration_to_str_us () -> str = 750us.to_str();
 
 @test_duration_to_str_nanoseconds tests @duration_to_str_ns () -> void = {
     let s = 999ns.to_str();
@@ -114,21 +114,21 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "ns"))
 }
 
-@duration_to_str_ns () -> str = 999ns.to_str()
+@duration_to_str_ns () -> str = 999ns.to_str();
 
 @test_duration_to_str_negative tests @duration_to_str_neg () -> void = {
     let s = (-100ms).to_str();
     assert(cond: s.contains(substring: "-"))
 }
 
-@duration_to_str_neg () -> str = (-100ms).to_str()
+@duration_to_str_neg () -> str = (-100ms).to_str();
 
 @test_duration_to_str_zero tests @duration_to_str_zero () -> void = {
     let s = 0ns.to_str();
     assert(cond: s.contains(substring: "0"))
 }
 
-@duration_to_str_zero () -> str = 0ns.to_str()
+@duration_to_str_zero () -> str = 0ns.to_str();
 
 // =============================================================================
 // Size — Clone Trait
@@ -140,7 +140,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s2, expected: 1kb)
 }
 
-@size_clone_basic () -> Size = 1kb.clone()
+@size_clone_basic () -> Size = 1kb.clone();
 
 @test_size_clone_preserves_value tests @size_clone_value () -> void = {
     // Clone preserves exact value
@@ -149,7 +149,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s2.bytes(), expected: s.bytes())
 }
 
-@size_clone_value () -> Size = (1gb + 512mb).clone()
+@size_clone_value () -> Size = (1gb + 512mb).clone();
 
 @test_size_clone_zero tests @size_clone_zero () -> void = {
     let s = 0b;
@@ -157,7 +157,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s2, expected: 0b)
 }
 
-@size_clone_zero () -> Size = 0b.clone()
+@size_clone_zero () -> Size = 0b.clone();
 
 @test_size_clone_large tests @size_clone_large () -> void = {
     let s = 1tb;
@@ -165,7 +165,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: s2, expected: 1tb)
 }
 
-@size_clone_large () -> Size = 1tb.clone()
+@size_clone_large () -> Size = 1tb.clone();
 
 @test_size_clone_independent tests @size_clone_indep () -> void = {
     // Modifying original doesn't affect clone
@@ -193,7 +193,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.len() > 0)
 }
 
-@size_to_str_basic () -> str = 1kb.to_str()
+@size_to_str_basic () -> str = 1kb.to_str();
 
 @test_size_to_str_terabytes tests @size_to_str_tb () -> void = {
     let s = 2tb.to_str();
@@ -201,7 +201,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "tb"))
 }
 
-@size_to_str_tb () -> str = 2tb.to_str()
+@size_to_str_tb () -> str = 2tb.to_str();
 
 @test_size_to_str_gigabytes tests @size_to_str_gb () -> void = {
     let s = 4gb.to_str();
@@ -209,7 +209,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "gb"))
 }
 
-@size_to_str_gb () -> str = 4gb.to_str()
+@size_to_str_gb () -> str = 4gb.to_str();
 
 @test_size_to_str_megabytes tests @size_to_str_mb () -> void = {
     let s = 512mb.to_str();
@@ -217,7 +217,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "mb"))
 }
 
-@size_to_str_mb () -> str = 512mb.to_str()
+@size_to_str_mb () -> str = 512mb.to_str();
 
 @test_size_to_str_kilobytes tests @size_to_str_kb () -> void = {
     let s = 64kb.to_str();
@@ -225,7 +225,7 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "kb"))
 }
 
-@size_to_str_kb () -> str = 64kb.to_str()
+@size_to_str_kb () -> str = 64kb.to_str();
 
 @test_size_to_str_bytes tests @size_to_str_b () -> void = {
     let s = 256b.to_str();
@@ -233,11 +233,11 @@ use std.testing { assert, assert_eq }
     assert(cond: s.contains(substring: "b"))
 }
 
-@size_to_str_b () -> str = 256b.to_str()
+@size_to_str_b () -> str = 256b.to_str();
 
 @test_size_to_str_zero tests @size_to_str_zero () -> void = {
     let s = 0b.to_str();
     assert(cond: s.contains(substring: "0"))
 }
 
-@size_to_str_zero () -> str = 0b.to_str()
+@size_to_str_zero () -> str = 0b.to_str();

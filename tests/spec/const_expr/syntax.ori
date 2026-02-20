@@ -7,13 +7,13 @@ use std.testing { assert, assert_eq }
 // Literal Const Expressions
 // =============================================================================
 
-@const_int () -> int = 42
+@const_int () -> int = 42;
 
 @test_const_int tests @const_int () -> void = {
     assert_eq(actual: const_int(), expected: 42)
 }
 
-@const_bool () -> bool = true
+@const_bool () -> bool = true;
 
 @test_const_bool tests @const_bool () -> void = {
     assert(cond: const_bool())
@@ -23,19 +23,19 @@ use std.testing { assert, assert_eq }
 // Arithmetic Const Expressions
 // =============================================================================
 
-@const_add () -> int = 10 + 5
+@const_add () -> int = 10 + 5;
 
 @test_const_add tests @const_add () -> void = {
     assert_eq(actual: const_add(), expected: 15)
 }
 
-@const_mul () -> int = 3 * 4
+@const_mul () -> int = 3 * 4;
 
 @test_const_mul tests @const_mul () -> void = {
     assert_eq(actual: const_mul(), expected: 12)
 }
 
-@const_complex () -> int = (2 + 3) * 4
+@const_complex () -> int = (2 + 3) * 4;
 
 @test_const_complex tests @const_complex () -> void = {
     assert_eq(actual: const_complex(), expected: 20)
@@ -45,13 +45,13 @@ use std.testing { assert, assert_eq }
 // Comparison Const Expressions
 // =============================================================================
 
-@const_lt () -> bool = 1 < 2
+@const_lt () -> bool = 1 < 2;
 
 @test_const_lt tests @const_lt () -> void = {
     assert(cond: const_lt())
 }
 
-@const_eq () -> bool = 10 == 10
+@const_eq () -> bool = 10 == 10;
 
 @test_const_eq tests @const_eq () -> void = {
     assert(cond: const_eq())
@@ -61,19 +61,19 @@ use std.testing { assert, assert_eq }
 // Logical Const Expressions
 // =============================================================================
 
-@const_and () -> bool = true && true
+@const_and () -> bool = true && true;
 
 @test_const_and tests @const_and () -> void = {
     assert(cond: const_and())
 }
 
-@const_or () -> bool = false || true
+@const_or () -> bool = false || true;
 
 @test_const_or tests @const_or () -> void = {
     assert(cond: const_or())
 }
 
-@const_not () -> bool = !false
+@const_not () -> bool = !false;
 
 @test_const_not tests @const_not () -> void = {
     assert(cond: const_not())
@@ -83,7 +83,7 @@ use std.testing { assert, assert_eq }
 // Grouped Const Expressions
 // =============================================================================
 
-@const_grouped () -> bool = (1 < 2) && (3 > 1)
+@const_grouped () -> bool = (1 < 2) && (3 > 1);
 
 @test_const_grouped tests @const_grouped () -> void = {
     assert(cond: const_grouped())

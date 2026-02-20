@@ -20,15 +20,15 @@ trait Container {
 type IntBox = { value: int }
 
 impl Container for IntBox {
-    type Item = int
-    @first (self) -> Option<Self.Item> = Some(self.value)
+    type Item = int;
+    @first (self) -> Option<Self.Item> = Some(self.value);
 }
 
 type StrBox = { text: str }
 
 impl Container for StrBox {
-    type Item = str
-    @first (self) -> Option<Self.Item> = Some(self.text)
+    type Item = str;
+    @first (self) -> Option<Self.Item> = Some(self.text);
 }
 
 // =============================================================================
@@ -54,7 +54,7 @@ impl Container for StrBox {
 // =============================================================================
 
 // A function that requires the container's Item type to be Eq
-@needs_eq_item<C: Container> (c: C) -> bool where C.Item: Eq = true
+@needs_eq_item<C: Container> (c: C) -> bool where C.Item: Eq = true;
 
 @test_needs_eq_item () -> void = {
     // IntBox.Item = int, and int: Eq, so this should work
@@ -66,8 +66,8 @@ impl Container for StrBox {
 type FnBox = { func: () -> int }
 
 impl Container for FnBox {
-    type Item = () -> int
-    @first (self) -> Option<Self.Item> = Some(self.func)
+    type Item = () -> int;
+    @first (self) -> Option<Self.Item> = Some(self.func);
 }
 
 // This should fail: FnBox.Item = () -> int, and functions don't implement Eq

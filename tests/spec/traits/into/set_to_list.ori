@@ -14,7 +14,7 @@ use std.testing { assert_eq }
 }
 
 @test_set_to_list_len tests @set_to_list_len () -> void =
-    assert_eq(actual: set_to_list_len(), expected: 3)
+    assert_eq(actual: set_to_list_len(), expected: 3);
 
 // =============================================================================
 // Empty set -> empty list
@@ -27,7 +27,7 @@ use std.testing { assert_eq }
 }
 
 @test_set_to_list_empty tests @set_to_list_empty () -> void =
-    assert_eq(actual: set_to_list_empty(), expected: 0)
+    assert_eq(actual: set_to_list_empty(), expected: 0);
 
 // =============================================================================
 // Set deduplicates, list preserves all elements from set
@@ -40,4 +40,4 @@ use std.testing { assert_eq }
 }
 
 @test_set_to_list_dedup tests @set_to_list_dedup () -> void =
-    assert_eq(actual: set_to_list_dedup(), expected: 3)
+    assert_eq(actual: set_to_list_dedup(), expected: 3);

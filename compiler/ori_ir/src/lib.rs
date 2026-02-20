@@ -115,6 +115,7 @@ pub use ast::{
     MatchArm,
     MatchPattern,
     Module,
+    Mutability,
     // function_exp types
     NamedExpr,
     NamedExprRange,

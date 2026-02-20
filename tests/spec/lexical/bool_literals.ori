@@ -8,13 +8,13 @@ use std.testing { assert, assert_eq }
 // Basic Boolean Literals
 // =============================================================================
 
-@bool_true () -> bool = true
+@bool_true () -> bool = true;
 
 @test_bool_true tests @bool_true () -> void = {
     assert(cond: bool_true())
 }
 
-@bool_false () -> bool = false
+@bool_false () -> bool = false;
 
 @test_bool_false tests @bool_false () -> void = {
     assert(cond: !bool_false())
@@ -56,37 +56,37 @@ use std.testing { assert, assert_eq }
 // Boolean Equality Comparisons
 // =============================================================================
 
-@bool_eq_true_true () -> bool = true == true
+@bool_eq_true_true () -> bool = true == true;
 
 @test_bool_eq_true_true tests @bool_eq_true_true () -> void = {
     assert(cond: bool_eq_true_true())
 }
 
-@bool_eq_false_false () -> bool = false == false
+@bool_eq_false_false () -> bool = false == false;
 
 @test_bool_eq_false_false tests @bool_eq_false_false () -> void = {
     assert(cond: bool_eq_false_false())
 }
 
-@bool_eq_true_false () -> bool = true == false
+@bool_eq_true_false () -> bool = true == false;
 
 @test_bool_eq_true_false tests @bool_eq_true_false () -> void = {
     assert(cond: !bool_eq_true_false())
 }
 
-@bool_neq_true_false () -> bool = true != false
+@bool_neq_true_false () -> bool = true != false;
 
 @test_bool_neq_true_false tests @bool_neq_true_false () -> void = {
     assert(cond: bool_neq_true_false())
 }
 
-@bool_neq_false_true () -> bool = false != true
+@bool_neq_false_true () -> bool = false != true;
 
 @test_bool_neq_false_true tests @bool_neq_false_true () -> void = {
     assert(cond: bool_neq_false_true())
 }
 
-@bool_neq_same () -> bool = true != true
+@bool_neq_same () -> bool = true != true;
 
 @test_bool_neq_same tests @bool_neq_same () -> void = {
     assert(cond: !bool_neq_same())
@@ -96,25 +96,25 @@ use std.testing { assert, assert_eq }
 // Boolean Logical AND
 // =============================================================================
 
-@bool_and_tt () -> bool = true && true
+@bool_and_tt () -> bool = true && true;
 
 @test_bool_and_tt tests @bool_and_tt () -> void = {
     assert(cond: bool_and_tt())
 }
 
-@bool_and_tf () -> bool = true && false
+@bool_and_tf () -> bool = true && false;
 
 @test_bool_and_tf tests @bool_and_tf () -> void = {
     assert(cond: !bool_and_tf())
 }
 
-@bool_and_ft () -> bool = false && true
+@bool_and_ft () -> bool = false && true;
 
 @test_bool_and_ft tests @bool_and_ft () -> void = {
     assert(cond: !bool_and_ft())
 }
 
-@bool_and_ff () -> bool = false && false
+@bool_and_ff () -> bool = false && false;
 
 @test_bool_and_ff tests @bool_and_ff () -> void = {
     assert(cond: !bool_and_ff())
@@ -124,25 +124,25 @@ use std.testing { assert, assert_eq }
 // Boolean Logical OR
 // =============================================================================
 
-@bool_or_tt () -> bool = true || true
+@bool_or_tt () -> bool = true || true;
 
 @test_bool_or_tt tests @bool_or_tt () -> void = {
     assert(cond: bool_or_tt())
 }
 
-@bool_or_tf () -> bool = true || false
+@bool_or_tf () -> bool = true || false;
 
 @test_bool_or_tf tests @bool_or_tf () -> void = {
     assert(cond: bool_or_tf())
 }
 
-@bool_or_ft () -> bool = false || true
+@bool_or_ft () -> bool = false || true;
 
 @test_bool_or_ft tests @bool_or_ft () -> void = {
     assert(cond: bool_or_ft())
 }
 
-@bool_or_ff () -> bool = false || false
+@bool_or_ff () -> bool = false || false;
 
 @test_bool_or_ff tests @bool_or_ff () -> void = {
     assert(cond: !bool_or_ff())
@@ -152,31 +152,31 @@ use std.testing { assert, assert_eq }
 // Boolean Logical NOT
 // =============================================================================
 
-@bool_not_true () -> bool = !true
+@bool_not_true () -> bool = !true;
 
 @test_bool_not_true tests @bool_not_true () -> void = {
     assert(cond: !bool_not_true())
 }
 
-@bool_not_false () -> bool = !false
+@bool_not_false () -> bool = !false;
 
 @test_bool_not_false tests @bool_not_false () -> void = {
     assert(cond: bool_not_false())
 }
 
-@bool_double_not_true () -> bool = !!true
+@bool_double_not_true () -> bool = !!true;
 
 @test_bool_double_not_true tests @bool_double_not_true () -> void = {
     assert(cond: bool_double_not_true())
 }
 
-@bool_double_not_false () -> bool = !!false
+@bool_double_not_false () -> bool = !!false;
 
 @test_bool_double_not_false tests @bool_double_not_false () -> void = {
     assert(cond: !bool_double_not_false())
 }
 
-@bool_triple_not () -> bool = !!!true
+@bool_triple_not () -> bool = !!!true;
 
 @test_bool_triple_not tests @bool_triple_not () -> void = {
     assert(cond: !bool_triple_not())
@@ -186,37 +186,37 @@ use std.testing { assert, assert_eq }
 // Boolean from Comparisons
 // =============================================================================
 
-@bool_from_lt () -> bool = 1 < 2
+@bool_from_lt () -> bool = 1 < 2;
 
 @test_bool_from_lt tests @bool_from_lt () -> void = {
     assert(cond: bool_from_lt())
 }
 
-@bool_from_gt () -> bool = 2 > 1
+@bool_from_gt () -> bool = 2 > 1;
 
 @test_bool_from_gt tests @bool_from_gt () -> void = {
     assert(cond: bool_from_gt())
 }
 
-@bool_from_eq () -> bool = 1 == 1
+@bool_from_eq () -> bool = 1 == 1;
 
 @test_bool_from_eq tests @bool_from_eq () -> void = {
     assert(cond: bool_from_eq())
 }
 
-@bool_from_neq () -> bool = 1 != 2
+@bool_from_neq () -> bool = 1 != 2;
 
 @test_bool_from_neq tests @bool_from_neq () -> void = {
     assert(cond: bool_from_neq())
 }
 
-@bool_from_lte () -> bool = 1 <= 2
+@bool_from_lte () -> bool = 1 <= 2;
 
 @test_bool_from_lte tests @bool_from_lte () -> void = {
     assert(cond: bool_from_lte())
 }
 
-@bool_from_gte () -> bool = 2 >= 1
+@bool_from_gte () -> bool = 2 >= 1;
 
 @test_bool_from_gte tests @bool_from_gte () -> void = {
     assert(cond: bool_from_gte())
@@ -226,25 +226,25 @@ use std.testing { assert, assert_eq }
 // Boolean in Conditionals
 // =============================================================================
 
-@bool_if_true () -> int = if true then 1 else 0
+@bool_if_true () -> int = if true then 1 else 0;
 
 @test_bool_if_true tests @bool_if_true () -> void = {
     assert_eq(actual: bool_if_true(), expected: 1)
 }
 
-@bool_if_false () -> int = if false then 1 else 0
+@bool_if_false () -> int = if false then 1 else 0;
 
 @test_bool_if_false tests @bool_if_false () -> void = {
     assert_eq(actual: bool_if_false(), expected: 0)
 }
 
-@bool_if_not_true () -> int = if !true then 1 else 0
+@bool_if_not_true () -> int = if !true then 1 else 0;
 
 @test_bool_if_not_true tests @bool_if_not_true () -> void = {
     assert_eq(actual: bool_if_not_true(), expected: 0)
 }
 
-@bool_if_not_false () -> int = if !false then 1 else 0
+@bool_if_not_false () -> int = if !false then 1 else 0;
 
 @test_bool_if_not_false tests @bool_if_not_false () -> void = {
     assert_eq(actual: bool_if_not_false(), expected: 1)
@@ -254,7 +254,7 @@ use std.testing { assert, assert_eq }
 // Boolean in Collections
 // =============================================================================
 
-@bool_in_list () -> int = [true, false, true, false].len()
+@bool_in_list () -> int = [true, false, true, false].len();
 
 @test_bool_in_list tests @bool_in_list () -> void = {
     assert_eq(actual: bool_in_list(), expected: 4)
@@ -275,14 +275,14 @@ type BoolStruct = { flag: bool, value: int }
 // Boolean as Function Parameter
 // =============================================================================
 
-@bool_param (b: bool) -> bool = b
+@bool_param (b: bool) -> bool = b;
 
 @test_bool_param tests @bool_param () -> void = {
     assert(cond: bool_param(b: true));
     assert(cond: !bool_param(b: false))
 }
 
-@bool_param_and (a: bool, b: bool) -> bool = a && b
+@bool_param_and (a: bool, b: bool) -> bool = a && b;
 
 @test_bool_param_and tests @bool_param_and () -> void = {
     assert(cond: bool_param_and(a: true, b: true));
@@ -293,31 +293,31 @@ type BoolStruct = { flag: bool, value: int }
 // Boolean Complex Expressions
 // =============================================================================
 
-@bool_complex_1 () -> bool = true && true || false
+@bool_complex_1 () -> bool = true && true || false;
 
 @test_bool_complex_1 tests @bool_complex_1 () -> void = {
     assert(cond: bool_complex_1()) // (true && true) || false = true
 }
 
-@bool_complex_2 () -> bool = false || true && true
+@bool_complex_2 () -> bool = false || true && true;
 
 @test_bool_complex_2 tests @bool_complex_2 () -> void = {
     assert(cond: bool_complex_2()) // false || (true && true) = true
 }
 
-@bool_complex_3 () -> bool = !false && !false
+@bool_complex_3 () -> bool = !false && !false;
 
 @test_bool_complex_3 tests @bool_complex_3 () -> void = {
     assert(cond: bool_complex_3()) // true && true = true
 }
 
-@bool_complex_4 () -> bool = !(true && false)
+@bool_complex_4 () -> bool = !(true && false);
 
 @test_bool_complex_4 tests @bool_complex_4 () -> void = {
     assert(cond: bool_complex_4()) // !false = true
 }
 
-@bool_complex_5 () -> bool = !(false || false)
+@bool_complex_5 () -> bool = !(false || false);
 
 @test_bool_complex_5 tests @bool_complex_5 () -> void = {
     assert(cond: bool_complex_5()) // !false = true

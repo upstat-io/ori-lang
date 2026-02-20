@@ -8,14 +8,14 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // Basic line comment - verifies comments don't affect parsing
-@basic_comment () -> int = 42
+@basic_comment () -> int = 42;
 
 @test_basic_comment tests @basic_comment () -> void = {
     assert_eq(actual: basic_comment(), expected: 42)
 }
 
 // Comment with no content after //
-@empty_comment () -> int = 100
+@empty_comment () -> int = 100;
 
 @test_empty_comment tests @empty_comment () -> void = {
     assert_eq(actual: empty_comment(), expected: 100)
@@ -28,7 +28,7 @@ use std.testing { assert, assert_eq }
 // This is a description doc comment
 // It can span multiple lines
 // And explains what the function does
-@doc_description (x: int) -> int = x * 2
+@doc_description (x: int) -> int = x * 2;
 
 @test_doc_description tests @doc_description () -> void = {
     assert_eq(actual: doc_description(x: 5), expected: 10)
@@ -41,7 +41,7 @@ use std.testing { assert, assert_eq }
 // Adds two numbers together
 // * a: The first operand
 // * b: The second operand
-@doc_params (a: int, b: int) -> int = a + b
+@doc_params (a: int, b: int) -> int = a + b;
 
 @test_doc_params tests @doc_params () -> void = {
     assert_eq(actual: doc_params(a: 3, b: 4), expected: 7)
@@ -53,7 +53,7 @@ use std.testing { assert, assert_eq }
 
 // Divides a by b
 // ! Panics if b is zero
-@doc_warning (a: int, b: int) -> int = a / b
+@doc_warning (a: int, b: int) -> int = a / b;
 
 @test_doc_warning tests @doc_warning () -> void = {
     assert_eq(actual: doc_warning(a: 10, b: 2), expected: 5)
@@ -66,7 +66,7 @@ use std.testing { assert, assert_eq }
 // Squares a number
 // > square(x: 3) -> 9
 // > square(x: -2) -> 4
-@doc_example (x: int) -> int = x * x
+@doc_example (x: int) -> int = x * x;
 
 @test_doc_example tests @doc_example () -> void = {
     assert_eq(actual: doc_example(x: 3), expected: 9);
@@ -82,7 +82,7 @@ use std.testing { assert, assert_eq }
 // ! Panics if n is negative
 // > factorial_doc(n: 0) -> 1
 // > factorial_doc(n: 5) -> 120
-@factorial_doc (n: int) -> int = if n <= 1 then 1 else n * factorial_doc(n: n - 1)
+@factorial_doc (n: int) -> int = if n <= 1 then 1 else n * factorial_doc(n: n - 1);
 
 @test_factorial_doc tests @factorial_doc () -> void = {
     assert_eq(actual: factorial_doc(n: 0), expected: 1);
@@ -98,7 +98,7 @@ use std.testing { assert, assert_eq }
 // Line 3 of comment block
 // Line 4 of comment block
 // Line 5 of comment block
-@multi_line_comments () -> int = 100
+@multi_line_comments () -> int = 100;
 
 @test_multi_line_comments tests @multi_line_comments () -> void = {
     assert_eq(actual: multi_line_comments(), expected: 100)
@@ -133,12 +133,12 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // First function
-@comment_between_1 () -> int = 1
+@comment_between_1 () -> int = 1;
 
 // Space for readability
 
 // Second function
-@comment_between_2 () -> int = 2
+@comment_between_2 () -> int = 2;
 
 @test_comment_between tests @comment_between_1 tests @comment_between_2 () -> void = {
     assert_eq(actual: comment_between_1(), expected: 1);
@@ -150,14 +150,14 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // Comment with symbols: !@#$%^&*()_+-={}[]|\:;"'<>,.?/~`
-@comment_special_chars () -> int = 42
+@comment_special_chars () -> int = 42;
 
 @test_comment_special_chars tests @comment_special_chars () -> void = {
     assert_eq(actual: comment_special_chars(), expected: 42)
 }
 
 // Comment with unicode: café, 日本語, emoji test
-@comment_unicode () -> int = 42
+@comment_unicode () -> int = 42;
 
 @test_comment_unicode tests @comment_unicode () -> void = {
     assert_eq(actual: comment_unicode(), expected: 42)
@@ -171,7 +171,7 @@ use std.testing { assert, assert_eq }
 // FIXME: Another non-doc line
 
 // This is the actual doc comment
-@non_doc_separated () -> int = 42
+@non_doc_separated () -> int = 42;
 
 @test_non_doc_separated tests @non_doc_separated () -> void = {
     assert_eq(actual: non_doc_separated(), expected: 42)
@@ -214,7 +214,7 @@ type CommentStructPoint = { x: int, y: int }
 
 // let x = 42 - this looks like code but is just a comment
 // @func () -> int = 1 - also just a comment
-@comment_code_like () -> int = 99
+@comment_code_like () -> int = 99;
 
 @test_comment_code_like tests @comment_code_like () -> void = {
     assert_eq(actual: comment_code_like(), expected: 99)
@@ -225,7 +225,7 @@ type CommentStructPoint = { x: int, y: int }
 // =============================================================================
 
 // This is a very long comment line that tests the lexer's ability to handle comments that extend for a significant length without any issues because comments can be arbitrarily long
-@long_comment () -> int = 42
+@long_comment () -> int = 42;
 
 @test_long_comment tests @long_comment () -> void = {
     assert_eq(actual: long_comment(), expected: 42)
@@ -236,10 +236,10 @@ type CommentStructPoint = { x: int, y: int }
 // =============================================================================
 
 //No space after //
-@no_space_comment () -> int = 1
+@no_space_comment () -> int = 1;
 
 //   Multiple spaces after //
-@multi_space_comment () -> int = 2
+@multi_space_comment () -> int = 2;
 
 @test_comment_spacing tests @no_space_comment tests @multi_space_comment () -> void = {
     assert_eq(actual: no_space_comment(), expected: 1);
@@ -273,7 +273,7 @@ type CommentStructPoint = { x: int, y: int }
 
 // This section has comments but the function below tests they don't interfere
 
-@after_comment_only_section () -> int = 123
+@after_comment_only_section () -> int = 123;
 
 @test_after_comment_only tests @after_comment_only_section () -> void = {
     assert_eq(actual: after_comment_only_section(), expected: 123)

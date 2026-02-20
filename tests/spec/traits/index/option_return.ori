@@ -10,7 +10,7 @@ use std.testing { assert_eq }
 type Sparse = { data: {int: str} }
 
 impl Index<int, Option<str>> for Sparse {
-    @index (self, key: int) -> Option<str> = self.data[key]
+    @index (self, key: int) -> Option<str> = self.data[key];
 }
 
 @sparse_found () -> Option<str> = {
@@ -19,7 +19,7 @@ impl Index<int, Option<str>> for Sparse {
 }
 
 @test_sparse_found tests @sparse_found () -> void =
-    assert_eq(actual: sparse_found(), expected: Some("five"))
+    assert_eq(actual: sparse_found(), expected: Some("five"));
 
 @sparse_missing () -> Option<str> = {
     let s = Sparse { data: { 0: "zero", 5: "five" } };
@@ -27,7 +27,7 @@ impl Index<int, Option<str>> for Sparse {
 }
 
 @test_sparse_missing tests @sparse_missing () -> void =
-    assert_eq(actual: sparse_missing(), expected: None)
+    assert_eq(actual: sparse_missing(), expected: None);
 
 // =============================================================================
 // Using ?? with Index result
@@ -39,4 +39,4 @@ impl Index<int, Option<str>> for Sparse {
 }
 
 @test_sparse_with_default tests @sparse_with_default () -> void =
-    assert_eq(actual: sparse_with_default(), expected: "default")
+    assert_eq(actual: sparse_with_default(), expected: "default");

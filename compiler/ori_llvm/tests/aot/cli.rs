@@ -47,7 +47,7 @@ const INVALID_PROGRAM: &str = r#"
 
 /// Ori program that just returns an exit code.
 const EXIT_CODE_PROGRAM: &str = r"
-@main () -> int = 42
+@main () -> int = 42;
 ";
 
 /// Test: `ori build` produces an executable.

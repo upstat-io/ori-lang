@@ -2,22 +2,22 @@
 // Task: Demonstrate passing functions as arguments
 
 // Apply a function to each element (using map method)
-@apply_to_all (arr: [int], f: (int) -> int) -> [int] = arr.map(transform: f)
+@apply_to_all (arr: [int], f: (int) -> int) -> [int] = arr.map(transform: f);
 
 // Double each element using map
-@double_all (arr: [int]) -> [int] = arr.map(transform: x -> x * 2)
+@double_all (arr: [int]) -> [int] = arr.map(transform: x -> x * 2);
 
 // Square each element using map
-@square_all (arr: [int]) -> [int] = arr.map(transform: x -> x * x)
+@square_all (arr: [int]) -> [int] = arr.map(transform: x -> x * x);
 
 // Filter elements using predicate
-@filter_positive (arr: [int]) -> [int] = arr.filter(predicate: x -> x > 0)
+@filter_positive (arr: [int]) -> [int] = arr.filter(predicate: x -> x > 0);
 
 // Filter even numbers
-@filter_even (arr: [int]) -> [int] = arr.filter(predicate: x -> x % 2 == 0)
+@filter_even (arr: [int]) -> [int] = arr.filter(predicate: x -> x % 2 == 0);
 
 // Reduce a list using fold
-@sum (arr: [int]) -> int = arr.fold(initial: 0, op: (acc, x) -> acc + x)
+@sum (arr: [int]) -> int = arr.fold(initial: 0, op: (acc, x) -> acc + x);
 
 // Product using fold
-@product (arr: [int]) -> int = arr.fold(initial: 1, op: (acc, x) -> acc * x)
+@product (arr: [int]) -> int = arr.fold(initial: 1, op: (acc, x) -> acc * x);

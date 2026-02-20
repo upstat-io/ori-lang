@@ -3,13 +3,13 @@
 // Ori uses if/then/else for conditionals
 
 // Simple if/then/else
-@abs (n: int) -> int = if n < 0 then -n else n
+@abs (n: int) -> int = if n < 0 then -n else n;
 
 // Chained if/else if/else
 @sign (n: int) -> str =
     if n > 0 then "positive"
     else if n < 0 then "negative"
-    else "zero"
+    else "zero";
 
 // Grade classification using if/else chain
 @grade (score: int) -> str =
@@ -17,7 +17,7 @@
     else if score >= 80 then "B"
     else if score >= 70 then "C"
     else if score >= 60 then "D"
-    else "F"
+    else "F";
 
 // Classify number using if/else chain
 @classify_number (n: int) -> str =
@@ -25,18 +25,18 @@
     else if n > 0 && n % 2 == 0 then "positive even"
     else if n > 0 then "positive odd"
     else if n % 2 == 0 then "negative even"
-    else "negative odd"
+    else "negative odd";
 
 // Nested conditionals
 @max3 (a: int, b: int, c: int) -> int =
     if a >= b then
         if a >= c then a else c
     else
-        if b >= c then b else c
+        if b >= c then b else c;
 
 // Boolean expressions as conditions
 @can_vote (age: int, is_citizen: bool) -> bool =
-    if age >= 18 && is_citizen then true else false
+    if age >= 18 && is_citizen then true else false;
 
 // Temperature classification
 @temperature_feel (temp: int) -> str =
@@ -44,7 +44,7 @@
     else if temp < 10 then "cold"
     else if temp < 20 then "cool"
     else if temp < 30 then "warm"
-    else "hot"
+    else "hot";
 
 @main () -> void = {
     print(msg: "abs(-5) = " + str(abs(n: -5)));

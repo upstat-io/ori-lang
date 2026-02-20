@@ -14,7 +14,7 @@
     ()
 }
 
-@_opt_none () -> bool = true
+@_opt_none () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: Option missing Some
@@ -29,7 +29,7 @@
     ()
 }
 
-@_opt_some () -> bool = true
+@_opt_some () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: Result missing Err
@@ -43,13 +43,13 @@
     ()
 }
 
-@_res_err () -> bool = true
+@_res_err () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: user enum missing variant
 // =============================================================================
 
-type Direction = North | South | East | West
+type Direction = North | South | East | West;
 
 #compile_fail("non-exhaustive")
 @test_enum_missing_variants tests @_enum_dir () -> void = {
@@ -61,7 +61,7 @@ type Direction = North | South | East | West
     ()
 }
 
-@_enum_dir () -> bool = true
+@_enum_dir () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: bool missing false
@@ -75,7 +75,7 @@ type Direction = North | South | East | West
     ()
 }
 
-@_bool_f () -> bool = true
+@_bool_f () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: int without wildcard
@@ -90,7 +90,7 @@ type Direction = North | South | East | West
     ()
 }
 
-@_int_wc () -> bool = true
+@_int_wc () -> bool = true;
 
 // =============================================================================
 // Redundant: bool with extra wildcard after full coverage
@@ -106,7 +106,7 @@ type Direction = North | South | East | West
     ()
 }
 
-@_bool_red () -> bool = true
+@_bool_red () -> bool = true;
 
 // =============================================================================
 // Redundant: wildcard before specific pattern
@@ -121,7 +121,7 @@ type Direction = North | South | East | West
     ()
 }
 
-@_wc_spec () -> bool = true
+@_wc_spec () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: list with exact patterns only (no rest pattern)
@@ -137,7 +137,7 @@ type Direction = North | South | East | West
     ()
 }
 
-@_list_exact () -> bool = true
+@_list_exact () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: list with rest pattern missing empty
@@ -152,4 +152,4 @@ type Direction = North | South | East | West
     ()
 }
 
-@_list_empty () -> bool = true
+@_list_empty () -> bool = true;

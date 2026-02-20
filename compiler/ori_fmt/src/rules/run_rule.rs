@@ -1,12 +1,8 @@
 //! `RunRule`: Top-level vs nested run formatting.
 //!
-//! # Decision
-//!
-//! Top-level run = always stacked; nested run = width-based.
-//!
-//! # Spec Reference
-//!
-//! Lines 514-564
+//! TODO(§0.10-cleanup): This module is dead — parser no longer produces `FunctionSeq::Run`.
+//! Remove when IR variant is removed (see roadmap section-00-parser.md § 0.10).
+//! Dead code: `RunRule`, `RunContext`, `is_run()`, and the `Run` arm in `is_function_seq()`.
 
 use ori_ir::{ExprArena, ExprId, ExprKind, FunctionSeq};
 

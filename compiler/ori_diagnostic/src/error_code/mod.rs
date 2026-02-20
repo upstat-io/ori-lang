@@ -76,7 +76,6 @@ define_error_codes! {
     E0004, "Unterminated character literal";
     E0005, "Invalid escape sequence";
     E0006, "Unterminated template literal";
-    E0007, "Semicolon (cross-language habit)";
     E0008, "Triple-equals (cross-language habit)";
     E0009, "Single-quote string (cross-language habit)";
     E0010, "Increment/decrement operator (cross-language habit)";
@@ -103,6 +102,7 @@ define_error_codes! {
     E1013, "`function_exp` requires named properties";
     E1014, "Reserved built-in function name";
     E1015, "Unsupported keyword";
+    E1016, "Expected semicolon";
 
     // Type Errors (E2xxx)
     E2001, "Type mismatch";

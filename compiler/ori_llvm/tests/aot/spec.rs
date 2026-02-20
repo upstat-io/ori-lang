@@ -224,7 +224,7 @@ fn test_aot_boolean_not() {
 fn test_aot_function_call() {
     assert_aot_success(
         r#"
-@double (n: int) -> int = n * 2
+@double (n: int) -> int = n * 2;
 
 @main () -> int = {
     let result = double(n: 21);
@@ -239,7 +239,7 @@ fn test_aot_function_call() {
 fn test_aot_function_multiple_params() {
     assert_aot_success(
         r#"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 @main () -> int = {
     let result = add(a: 35, b: 7);
@@ -254,7 +254,7 @@ fn test_aot_function_multiple_params() {
 fn test_aot_function_recursion() {
     assert_aot_success(
         r#"
-@factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1)
+@factorial (n: int) -> int = if n <= 1 then 1 else n * factorial(n: n - 1);
 
 @main () -> int = {
     let f5 = factorial(n: 5);
@@ -269,8 +269,8 @@ fn test_aot_function_recursion() {
 fn test_aot_function_nested_calls() {
     assert_aot_success(
         r#"
-@double (n: int) -> int = n * 2
-@add_one (n: int) -> int = n + 1
+@double (n: int) -> int = n * 2;
+@add_one (n: int) -> int = n + 1;
 
 @main () -> int = {
     let result = double(n: add_one(n: 20));
@@ -315,7 +315,7 @@ fn test_aot_comparison_ordering() {
 
 #[test]
 fn test_aot_print_string() {
-    let source = r#"@main () -> void = print(msg: "Hello AOT!")"#;
+    let source = r#"@main () -> void = print(msg: "Hello AOT!");"#;
     let (exit_code, stdout, stderr) = compile_and_run_capture(source);
     assert_eq!(exit_code, 0, "print_string failed: {stderr}");
     assert!(
@@ -328,9 +328,9 @@ fn test_aot_print_string() {
 fn test_aot_complex_expression() {
     assert_aot_success(
         r#"
-@max (a: int, b: int) -> int = if a > b then a else b
-@min (a: int, b: int) -> int = if a < b then a else b
-@clamp (value: int, lo: int, hi: int) -> int = max(a: lo, b: min(a: value, b: hi))
+@max (a: int, b: int) -> int = if a > b then a else b;
+@min (a: int, b: int) -> int = if a < b then a else b;
+@clamp (value: int, lo: int, hi: int) -> int = max(a: lo, b: min(a: value, b: hi));
 
 @main () -> int = {
     let c1 = clamp(value: 5, lo: 0, hi: 10);
@@ -347,7 +347,7 @@ fn test_aot_complex_expression() {
 fn test_aot_fibonacci() {
     assert_aot_success(
         r#"
-@fib (n: int) -> int = if n <= 1 then n else fib(n: n - 1) + fib(n: n - 2)
+@fib (n: int) -> int = if n <= 1 then n else fib(n: n - 1) + fib(n: n - 2);
 
 @main () -> int = {
     let f0 = fib(n: 0);
@@ -736,7 +736,7 @@ fn test_aot_loop_break_and_continue_combined() {
 fn test_aot_result_ok_unwrap() {
     assert_aot_success(
         r#"
-@make_ok () -> Result<int, str> = Ok(42)
+@make_ok () -> Result<int, str> = Ok(42);
 
 @main () -> int = {
     let r = make_ok();
@@ -754,7 +754,7 @@ fn test_aot_result_ok_unwrap() {
 fn test_aot_result_err_check() {
     assert_aot_success(
         r#"
-@make_err () -> Result<int, str> = Err("bad")
+@make_err () -> Result<int, str> = Err("bad");
 
 @main () -> int = {
     let r = make_err();
@@ -769,7 +769,7 @@ fn test_aot_result_err_check() {
 fn test_aot_option_some_unwrap() {
     assert_aot_success(
         r#"
-@make_some () -> Option<int> = Some(42)
+@make_some () -> Option<int> = Some(42);
 
 @main () -> int = {
     let o = make_some();
@@ -787,7 +787,7 @@ fn test_aot_option_some_unwrap() {
 fn test_aot_option_none_check() {
     assert_aot_success(
         r#"
-@make_none () -> Option<int> = None
+@make_none () -> Option<int> = None;
 
 @main () -> int = {
     let o = make_none();
@@ -802,7 +802,7 @@ fn test_aot_option_none_check() {
 fn test_aot_try_result_ok_unwraps() {
     assert_aot_success(
         r#"
-@get_value () -> Result<int, str> = Ok(21)
+@get_value () -> Result<int, str> = Ok(21);
 
 @double_value () -> Result<int, str> = {
     let x = get_value()?;
@@ -825,7 +825,7 @@ fn test_aot_try_result_ok_unwraps() {
 fn test_aot_try_result_err_propagates() {
     assert_aot_success(
         r#"
-@fail_early () -> Result<int, str> = Err("oops")
+@fail_early () -> Result<int, str> = Err("oops");
 
 @try_it () -> Result<int, str> = {
     let x = fail_early()?;
@@ -845,7 +845,7 @@ fn test_aot_try_result_err_propagates() {
 fn test_aot_try_option_some_unwraps() {
     assert_aot_success(
         r#"
-@find_value () -> Option<int> = Some(42)
+@find_value () -> Option<int> = Some(42);
 
 @try_find () -> Option<int> = {
     let x = find_value()?;
@@ -868,7 +868,7 @@ fn test_aot_try_option_some_unwraps() {
 fn test_aot_try_option_none_propagates() {
     assert_aot_success(
         r#"
-@find_nothing () -> Option<int> = None
+@find_nothing () -> Option<int> = None;
 
 @try_find () -> Option<int> = {
     let x = find_nothing()?;
@@ -888,11 +888,13 @@ fn test_aot_try_option_none_propagates() {
 fn test_aot_try_chained_result() {
     assert_aot_success(
         r#"
-@step1 (x: int) -> Result<int, str> =
+@step1 (x: int) -> Result<int, str> = {
     if x > 0 then Ok(x * 2) else Err("must be positive")
+}
 
-@step2 (x: int) -> Result<int, str> =
+@step2 (x: int) -> Result<int, str> = {
     if x < 100 then Ok(x + 1) else Err("too large")
+}
 
 @pipeline (x: int) -> Result<int, str> = {
     let a = step1(x: x)?;
@@ -916,11 +918,13 @@ fn test_aot_try_chained_result() {
 fn test_aot_try_chained_first_fails() {
     assert_aot_success(
         r#"
-@step1 (x: int) -> Result<int, str> =
+@step1 (x: int) -> Result<int, str> = {
     if x > 0 then Ok(x * 2) else Err("must be positive")
+}
 
-@step2 (x: int) -> Result<int, str> =
+@step2 (x: int) -> Result<int, str> = {
     if x < 100 then Ok(x + 1) else Err("too large")
+}
 
 @pipeline (x: int) -> Result<int, str> = {
     let a = step1(x: x)?;

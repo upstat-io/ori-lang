@@ -11,14 +11,14 @@ type Point = { x: int, y: int }
 
 impl Point {
     // self provides access to the instance
-    @get_x (self) -> int = self.x
-    @get_y (self) -> int = self.y
+    @get_x (self) -> int = self.x;
+    @get_y (self) -> int = self.y;
 
     // self can access multiple fields
-    @sum (self) -> int = self.x + self.y
+    @sum (self) -> int = self.x + self.y;
 
     // self access in computation
-    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y
+    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y;
 }
 
 // =============================================================================
@@ -36,15 +36,15 @@ trait Measurable {
 type Rectangle = { width: int, height: int }
 
 impl Describable for Rectangle {
-    @describe (self) -> str = "Rectangle(" + str(self.width) + "x" + str(self.height) + ")"
+    @describe (self) -> str = "Rectangle(" + str(self.width) + "x" + str(self.height) + ")";
 }
 
 impl Measurable for Rectangle {
-    @measure (self) -> int = self.width * self.height
+    @measure (self) -> int = self.width * self.height;
 }
 
 impl Rectangle {
-    @perimeter (self) -> int = 2 * (self.width + self.height)
+    @perimeter (self) -> int = 2 * (self.width + self.height);
 }
 
 // =============================================================================
@@ -55,10 +55,10 @@ type Counter = { value: int }
 
 impl Counter {
     // self with additional parameter
-    @add (self, amount: int) -> int = self.value + amount
+    @add (self, amount: int) -> int = self.value + amount;
 
     // self with multiple additional parameters
-    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale
+    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale;
 }
 
 trait Comparable {
@@ -66,7 +66,7 @@ trait Comparable {
 }
 
 impl Comparable for Counter {
-    @compare_to (self, other: int) -> bool = self.value == other
+    @compare_to (self, other: int) -> bool = self.value == other;
 }
 
 // =============================================================================

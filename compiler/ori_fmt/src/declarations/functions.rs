@@ -58,6 +58,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     }
 
     /// Format a function body, breaking to new line if it doesn't fit after `= `.
+    ///
+    /// Per grammar: expression bodies require trailing `;` but block bodies
+    /// ending with `}` do not.
     pub(super) fn format_function_body(&mut self, body: ExprId) {
         // Calculate body width to determine if it fits inline
         let body_width = self.width_calc.width(body);
@@ -67,6 +70,8 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         let fits_inline =
             body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
 
+        let ends_with_brace;
+
         if fits_inline {
             // Inline: " = body"
             self.ctx.emit(" = ");
@@ -75,6 +80,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
+            ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
         } else if self.should_break_body_to_newline(body, body_width) {
             // Break to newline when:
@@ -93,6 +99,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 .with_starting_column(self.ctx.column());
             expr_formatter.format_broken(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
+            ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
             self.ctx.dedent();
         } else {
@@ -103,7 +110,13 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
+            ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
+        }
+
+        // Trailing semicolon for non-block expression bodies
+        if !ends_with_brace {
+            self.ctx.emit(";");
         }
     }
 

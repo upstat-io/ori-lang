@@ -72,34 +72,34 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
     assert(cond: is_some(opt: opt))
 }
 
-@option_of_option () -> Option<Option<int>> = Some(Some(42))
+@option_of_option () -> Option<Option<int>> = Some(Some(42));
 
 @test_result_of_result tests @result_of_result () -> void = {
     let res: Result<Result<int, str>, str> = Ok(Ok(100));
     assert(cond: is_ok(r: res))
 }
 
-@result_of_result () -> Result<Result<int, str>, str> = Ok(Ok(100))
+@result_of_result () -> Result<Result<int, str>, str> = Ok(Ok(100));
 
 // =============================================================================
 // Generic Functions with Type Arguments
 // =============================================================================
 
-@identity<T> (x: T) -> T = x
+@identity<T> (x: T) -> T = x;
 
 @test_generic_fn_int tests @generic_fn_int () -> void = {
     let result = identity(x: 42);
     assert_eq(actual: result, expected: 42)
 }
 
-@generic_fn_int () -> int = identity(x: 42)
+@generic_fn_int () -> int = identity(x: 42);
 
 @test_generic_fn_str tests @generic_fn_str () -> void = {
     let result = identity(x: "hello");
     assert_eq(actual: result, expected: "hello")
 }
 
-@generic_fn_str () -> str = identity(x: "hello")
+@generic_fn_str () -> str = identity(x: "hello");
 
 @first<A, B> (pair: (A, B)) -> A = {
     let (a, _b) = pair;
@@ -111,7 +111,7 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
     assert_eq(actual: result, expected: 10)
 }
 
-@generic_fn_two_params () -> int = first(pair: (10, "ten"))
+@generic_fn_two_params () -> int = first(pair: (10, "ten"));
 
 // =============================================================================
 // Type Arguments with Collections
@@ -122,14 +122,14 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
     assert_eq(actual: items.len(), expected: 3)
 }
 
-@list_of_options () -> [Option<int>] = [Some(1), None, Some(3)]
+@list_of_options () -> [Option<int>] = [Some(1), None, Some(3)];
 
 @test_option_of_list tests @option_of_list () -> void = {
     let opt: Option<[int]> = Some([1, 2, 3]);
     assert(cond: is_some(opt: opt))
 }
 
-@option_of_list () -> Option<[int]> = Some([1, 2, 3])
+@option_of_list () -> Option<[int]> = Some([1, 2, 3]);
 
 @test_map_with_generic_value tests @map_with_generic_value () -> void = {
     let m: {str: Option<int>} = {"a": Some(1), "b": None};
@@ -168,23 +168,23 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
 // Type Arguments in Return Position
 // =============================================================================
 
-@make_some<T> (x: T) -> Option<T> = Some(x)
+@make_some<T> (x: T) -> Option<T> = Some(x);
 
 @test_return_generic tests @return_generic () -> void = {
     let opt = make_some(x: 42);
     assert(cond: is_some(opt: opt))
 }
 
-@return_generic () -> Option<int> = make_some(x: 42)
+@return_generic () -> Option<int> = make_some(x: 42);
 
-@make_ok<T> (x: T) -> Result<T, str> = Ok(x)
+@make_ok<T> (x: T) -> Result<T, str> = Ok(x);
 
 @test_return_result_generic tests @return_result_generic () -> void = {
     let res = make_ok(x: "hello");
     assert(cond: is_ok(r: res))
 }
 
-@return_result_generic () -> Result<str, str> = make_ok(x: "hello")
+@return_result_generic () -> Result<str, str> = make_ok(x: "hello");
 
 // =============================================================================
 // Complex Nested Type Arguments
@@ -195,7 +195,7 @@ type Triple<A, B, C> = { a: A, b: B, c: C }
     assert(cond: is_some(opt: deep))
 }
 
-@deeply_nested () -> Option<Result<Container<int>, str>> = Some(Ok(Container { value: 42 }))
+@deeply_nested () -> Option<Result<Container<int>, str>> = Some(Ok(Container { value: 42 }));
 
 @test_pair_of_containers tests @pair_of_containers () -> void = {
     let p: Pair<Container<int>, Container<str>> = Pair {

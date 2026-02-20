@@ -18,4 +18,4 @@ use std.testing { assert_eq }
     assert_eq(actual: 30, expected: 30)
 }
 
-@dummy () -> void = ()
+@dummy () -> void = ();

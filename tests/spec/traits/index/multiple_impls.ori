@@ -7,11 +7,11 @@ use std.testing { assert_eq }
 type JsonValue = { data: str }
 
 impl Index<int, str> for JsonValue {
-    @index (self, key: int) -> str = "int_" + self.data
+    @index (self, key: int) -> str = "int_" + self.data;
 }
 
 impl Index<str, str> for JsonValue {
-    @index (self, key: str) -> str = "str_" + self.data
+    @index (self, key: str) -> str = "str_" + self.data;
 }
 
 // Int key dispatches to Index<int, str>
@@ -21,7 +21,7 @@ impl Index<str, str> for JsonValue {
 }
 
 @test_json_int_index tests @json_int_index () -> void =
-    assert_eq(actual: json_int_index(), expected: "int_hello")
+    assert_eq(actual: json_int_index(), expected: "int_hello");
 
 // Str key dispatches to Index<str, str>
 @json_str_index () -> str = {
@@ -30,7 +30,7 @@ impl Index<str, str> for JsonValue {
 }
 
 @test_json_str_index tests @json_str_index () -> void =
-    assert_eq(actual: json_str_index(), expected: "str_hello")
+    assert_eq(actual: json_str_index(), expected: "str_hello");
 
 // Both key types on same value
 @json_both_keys () -> str = {
@@ -39,4 +39,4 @@ impl Index<str, str> for JsonValue {
 }
 
 @test_json_both_keys tests @json_both_keys () -> void =
-    assert_eq(actual: json_both_keys(), expected: "int_x str_x")
+    assert_eq(actual: json_both_keys(), expected: "int_x str_x");

@@ -35,14 +35,14 @@ use std.testing { assert, assert_eq }
     assert(cond: !f)
 }
 
-@bool_type () -> bool = true
+@bool_type () -> bool = true;
 
 @test_str_type tests @str_type () -> void = {
     let s: str = "hello";
     assert_eq(actual: s, expected: "hello")
 }
 
-@str_type () -> str = "hello"
+@str_type () -> str = "hello";
 
 // NOTE: byte type tests commented out - `as` operator not yet implemented in parser
 // The `as` cast expression (e.g., 255 as byte) is missing from the parser
@@ -59,7 +59,7 @@ use std.testing { assert, assert_eq }
     assert(cond: true)  // Placeholder
 }
 
-@char_type () -> char = 'a'
+@char_type () -> char = 'a';
 
 // =============================================================================
 // Void Type
@@ -70,7 +70,7 @@ use std.testing { assert, assert_eq }
     assert(cond: true)
 }
 
-@void_type () -> void = ()
+@void_type () -> void = ();
 
 // =============================================================================
 // Duration and Size Types
@@ -83,7 +83,7 @@ use std.testing { assert, assert_eq }
     assert(cond: true)  // Placeholder - Duration equality not working
 }
 
-@duration_type () -> Duration = 5s
+@duration_type () -> Duration = 5s;
 
 // NOTE: Size type can be declared but equality comparison has bugs
 // E2001: cannot apply `Eq` to `Size` and `Size`
@@ -92,7 +92,7 @@ use std.testing { assert, assert_eq }
     assert(cond: true)  // Placeholder - Size equality not working
 }
 
-@size_type () -> Size = 1kb
+@size_type () -> Size = 1kb;
 
 // =============================================================================
 // Multiple Type Annotations in Same Scope
@@ -123,7 +123,7 @@ use std.testing { assert, assert_eq }
     }
 }
 
-@option_int_type () -> Option<int> = Some(42)
+@option_int_type () -> Option<int> = Some(42);
 
 @test_result_int_str tests @result_int_str_type () -> void = {
     let res: Result<int, str> = Ok(100);
@@ -133,7 +133,7 @@ use std.testing { assert, assert_eq }
     }
 }
 
-@result_int_str_type () -> Result<int, str> = Ok(100)
+@result_int_str_type () -> Result<int, str> = Ok(100);
 
 // =============================================================================
 // Type Path in Function Return
@@ -144,14 +144,14 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: n, expected: 123)
 }
 
-@int_return () -> int = 123
+@int_return () -> int = 123;
 
 @test_str_return tests @str_return () -> void = {
     let s = str_return();
     assert_eq(actual: s, expected: "test")
 }
 
-@str_return () -> str = "test"
+@str_return () -> str = "test";
 
 // =============================================================================
 // Type Path in Function Parameters
@@ -162,14 +162,14 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 30)
 }
 
-@int_params (a: int, b: int) -> int = a + b
+@int_params (a: int, b: int) -> int = a + b;
 
 @test_mixed_params tests @mixed_params () -> void = {
     let result = mixed_params(name: "Alice", age: 30);
     assert_eq(actual: result, expected: "Alice is 30")
 }
 
-@mixed_params (name: str, age: int) -> str = name + " is " + str(age)
+@mixed_params (name: str, age: int) -> str = name + " is " + str(age);
 
 // =============================================================================
 // User-Defined Type Paths

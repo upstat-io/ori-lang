@@ -19,7 +19,7 @@ use std.testing { assert, assert_eq }
     // assert_eq(actual: buffer.capacity(), expected: 10),
 }
 
-@fixed_list_empty () -> [int, max 10] = []
+@fixed_list_empty () -> [int, max 10] = [];
 
 @test_fixed_list_partial tests @fixed_list_partial () -> void = {
     let buffer: [int, max 10] = [1, 2, 3];
@@ -28,7 +28,7 @@ use std.testing { assert, assert_eq }
     // assert(cond: !buffer.is_full()),
 }
 
-@fixed_list_partial () -> [int, max 10] = [1, 2, 3]
+@fixed_list_partial () -> [int, max 10] = [1, 2, 3];
 
 @test_fixed_list_full tests @fixed_list_full () -> void = {
     let buffer: [int, max 3] = [1, 2, 3];
@@ -36,7 +36,7 @@ use std.testing { assert, assert_eq }
     // assert(cond: buffer.is_full()),
 }
 
-@fixed_list_full () -> [int, max 3] = [1, 2, 3]
+@fixed_list_full () -> [int, max 3] = [1, 2, 3];
 
 // =============================================================================
 // Fixed-Capacity with Different Types
@@ -48,7 +48,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: names[0], expected: "alice")
 }
 
-@fixed_str () -> [str, max 5] = ["alice", "bob"]
+@fixed_str () -> [str, max 5] = ["alice", "bob"];
 
 @test_fixed_bool tests @fixed_bool () -> void = {
     let flags: [bool, max 4] = [true, false, true];
@@ -56,7 +56,7 @@ use std.testing { assert, assert_eq }
     assert(cond: flags[0])
 }
 
-@fixed_bool () -> [bool, max 4] = [true, false, true]
+@fixed_bool () -> [bool, max 4] = [true, false, true];
 
 // =============================================================================
 // Fixed-Capacity Methods
@@ -199,7 +199,7 @@ use std.testing { assert, assert_eq }
 // [T, max N] <: [T]
 // Fixed-capacity can be passed where dynamic is expected
 
-@accepts_dynamic (items: [int]) -> int = items.len()
+@accepts_dynamic (items: [int]) -> int = items.len();
 
 @test_fixed_as_dynamic tests @fixed_as_dynamic () -> void = {
     let fixed: [int, max 5] = [1, 2, 3];

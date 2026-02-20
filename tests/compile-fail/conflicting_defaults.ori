@@ -2,11 +2,11 @@
 // Spec: 08-declarations.md § Trait Resolution
 
 trait Source {
-    @greet (self) -> str = "Hello from Source"
+    @greet (self) -> str = "Hello from Source";
 }
 
 trait Sink {
-    @greet (self) -> str = "Hello from Sink"
+    @greet (self) -> str = "Hello from Sink";
 }
 
 // Pipeline inherits from both — conflicting defaults for `greet`
@@ -22,7 +22,7 @@ impl Sink for Stream {}
 // This impl doesn't override greet, so the conflicting defaults from
 // Source and Sink should trigger E2022
 impl Pipeline for Stream {
-    @process (self) -> str = "processing"
+    @process (self) -> str = "processing";
 }
 
 #[compile_fail("conflicting default")]

@@ -9,22 +9,22 @@
 // =============================================================================
 
 // Function with const generic parameter
-@const_param<$N: int> () -> int = N
+@const_param<$N: int> () -> int = N;
 
 // Function with const generic parameter and default value
-@const_param_default<$N: int = 10> () -> int = N
+@const_param_default<$N: int = 10> () -> int = N;
 
 // Multiple const params
-@multi_const<$A: int, $B: int> () -> int = A + B
+@multi_const<$A: int, $B: int> () -> int = A + B;
 
 // Mixed type and const params
-@mixed_params<T, $N: int> (x: T) -> T = x
+@mixed_params<T, $N: int> (x: T) -> T = x;
 
 // Bool const param
-@bool_param<$F: bool> () -> bool = F
+@bool_param<$F: bool> () -> bool = F;
 
 // Const param in arithmetic expression
-@add_one<$N: int> () -> int = N + 1
+@add_one<$N: int> () -> int = N + 1;
 
 // =============================================================================
 // Const Expressions in Type Arguments
@@ -32,11 +32,11 @@
 
 // Integer literal in type argument position
 #skip("const generics: Array type not yet implemented")
-@int_type_arg () -> Array<int, 10> = []
+@int_type_arg () -> Array<int, 10> = [];
 
 // Const param reference in type argument position
 #skip("const generics: Array type not yet implemented")
-@const_type_arg<$N: int> () -> Array<int, $N> = []
+@const_type_arg<$N: int> () -> Array<int, $N> = [];
 
 // =============================================================================
 // Fixed-Capacity Lists with Const Expressions
@@ -44,11 +44,11 @@
 
 // Fixed list with integer literal capacity (existing syntax)
 #skip("const generics: fixed-capacity lists not yet implemented (Section 18.2)")
-@fixed_list_literal () -> [int, max 10] = []
+@fixed_list_literal () -> [int, max 10] = [];
 
 // Fixed list with const param capacity (new syntax)
 #skip("const generics: fixed-capacity lists not yet implemented (Section 18.2)")
-@fixed_list_const<$N: int> () -> [int, max $N] = []
+@fixed_list_const<$N: int> () -> [int, max $N] = [];
 
 // =============================================================================
 // Where Clause Const Bounds
@@ -56,8 +56,8 @@
 
 // Const bound in where clause
 #skip("const generics: const bounds not yet implemented (Section 18.5)")
-@const_bound<$N: int> () -> int where N > 0 = N
+@const_bound<$N: int> () -> int where N > 0 = N;
 
 // Mixed type and const bounds
 #skip("const generics: const bounds not yet implemented (Section 18.5)")
-@mixed_bounds<T, $N: int> (x: T) -> T where T: Clone, N > 0 = x
+@mixed_bounds<T, $N: int> (x: T) -> T where T: Clone, N > 0 = x;

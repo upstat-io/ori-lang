@@ -72,6 +72,8 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// Emit a `function_seq` pattern (run, try, etc.).
     pub(super) fn emit_function_seq(&mut self, seq: &ori_ir::FunctionSeq) {
         match seq {
+            // TODO(§0.10-cleanup): FunctionSeq::Run is dead — parser no longer produces Run nodes.
+            // Remove when IR variant is removed (see roadmap section-00-parser.md § 0.10).
             ori_ir::FunctionSeq::Run {
                 pre_checks,
                 bindings,
@@ -147,10 +149,10 @@ impl<I: StringLookup> Formatter<'_, I> {
     ///
     /// Format:
     /// ```text
-    /// match(scrutinee,
+    /// match scrutinee {
     ///     pattern -> body,
-    ///     pattern.match(guard) -> body,
-    /// )
+    ///     pattern if guard -> body,
+    /// }
     /// ```
     fn emit_match_construct(&mut self, scrutinee: ExprId, arms: ArmRange) {
         self.ctx.emit("match ");
@@ -163,9 +165,8 @@ impl<I: StringLookup> Formatter<'_, I> {
             self.ctx.emit_newline_indent();
             self.emit_match_pattern(&arm.pattern);
             if let Some(guard) = arm.guard {
-                self.ctx.emit(".match(");
+                self.ctx.emit(" if ");
                 self.format(guard);
-                self.ctx.emit(")");
             }
             self.ctx.emit(" -> ");
             self.format(arm.body);
@@ -180,15 +181,8 @@ impl<I: StringLookup> Formatter<'_, I> {
 
     /// Emit a run pattern with optional pre/post checks.
     ///
-    /// Format:
-    /// ```text
-    /// run(
-    ///     pre_check: cond | "message",
-    ///     binding1,
-    ///     result,
-    ///     post_check: r -> cond | "message",
-    /// )
-    /// ```
+    /// TODO(§0.10-cleanup): Dead code — parser no longer produces `FunctionSeq::Run`.
+    /// Remove when IR variant is removed (see roadmap section-00-parser.md § 0.10).
     fn emit_run_with_checks(
         &mut self,
         pre_checks: ori_ir::CheckRange,

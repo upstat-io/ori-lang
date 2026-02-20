@@ -8,7 +8,7 @@ type Point = { x: int, y: int }
 
 // Implement Add trait for Point
 impl Add for Point {
-    type Output = Point
+    type Output = Point;
     @add (self, rhs: Point) -> Point = Point {
         x: self.x + rhs.x,
         y: self.y + rhs.y,
@@ -31,7 +31,7 @@ impl Add for Point {
 
 // Implement Sub trait for Point
 impl Sub for Point {
-    type Output = Point
+    type Output = Point;
     @subtract (self, rhs: Point) -> Point = Point {
         x: self.x - rhs.x,
         y: self.y - rhs.y,
@@ -52,7 +52,7 @@ impl Sub for Point {
 
 // Implement Neg trait for Point (unary negation)
 impl Neg for Point {
-    type Output = Point
+    type Output = Point;
     @negate (self) -> Point = Point {
         x: -self.x,
         y: -self.y,
@@ -72,7 +72,7 @@ impl Neg for Point {
 
 // Implement Mul with scalar (int)
 impl Mul<int> for Point {
-    type Output = Point
+    type Output = Point;
     @multiply (self, scalar: int) -> Point = Point {
         x: self.x * scalar,
         y: self.y * scalar,
@@ -92,7 +92,7 @@ impl Mul<int> for Point {
 
 // Implement Div for Point (component-wise division)
 impl Div for Point {
-    type Output = Point
+    type Output = Point;
     @divide (self, rhs: Point) -> Point = Point {
         x: self.x / rhs.x,
         y: self.y / rhs.y,
@@ -113,7 +113,7 @@ impl Div for Point {
 
 // Implement Rem for Point (component-wise remainder)
 impl Rem for Point {
-    type Output = Point
+    type Output = Point;
     @remainder (self, rhs: Point) -> Point = Point {
         x: self.x % rhs.x,
         y: self.y % rhs.y,
@@ -137,7 +137,7 @@ impl Rem for Point {
 type Mask = { bits: int }
 
 impl BitAnd for Mask {
-    type Output = Mask
+    type Output = Mask;
     @bit_and (self, rhs: Mask) -> Mask = Mask {
         bits: self.bits & rhs.bits,
     }
@@ -155,7 +155,7 @@ impl BitAnd for Mask {
 }
 
 impl BitOr for Mask {
-    type Output = Mask
+    type Output = Mask;
     @bit_or (self, rhs: Mask) -> Mask = Mask {
         bits: self.bits | rhs.bits,
     }
@@ -173,7 +173,7 @@ impl BitOr for Mask {
 }
 
 impl BitXor for Mask {
-    type Output = Mask
+    type Output = Mask;
     @bit_xor (self, rhs: Mask) -> Mask = Mask {
         bits: self.bits ^ rhs.bits,
     }
@@ -191,7 +191,7 @@ impl BitXor for Mask {
 }
 
 impl Shl for Mask {
-    type Output = Mask
+    type Output = Mask;
     @shift_left (self, rhs: int) -> Mask = Mask {
         bits: self.bits << rhs,
     }
@@ -208,7 +208,7 @@ impl Shl for Mask {
 }
 
 impl Shr for Mask {
-    type Output = Mask
+    type Output = Mask;
     @shift_right (self, rhs: int) -> Mask = Mask {
         bits: self.bits >> rhs,
     }
@@ -225,7 +225,7 @@ impl Shr for Mask {
 }
 
 impl BitNot for Mask {
-    type Output = Mask
+    type Output = Mask;
     @bit_not (self) -> Mask = Mask {
         bits: ~self.bits,
     }
@@ -248,7 +248,7 @@ impl BitNot for Mask {
 type Toggle = { on: bool }
 
 impl Not for Toggle {
-    type Output = Toggle
+    type Output = Toggle;
     @not (self) -> Toggle = Toggle {
         on: !self.on,
     }
@@ -267,7 +267,7 @@ impl Not for Toggle {
 // --- FloorDiv on custom type ---
 
 impl FloorDiv for Point {
-    type Output = Point
+    type Output = Point;
     @floor_divide (self, rhs: Point) -> Point = Point {
         x: self.x div rhs.x,
         y: self.y div rhs.y,

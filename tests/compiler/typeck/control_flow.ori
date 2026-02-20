@@ -175,7 +175,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Helper that returns Result
-@succeed (x: int) -> Result<int, str> = Ok(x)
+@succeed (x: int) -> Result<int, str> = Ok(x);
 
 // Valid: try returns Result with correct types
 @test_try_result_type () -> void = {
@@ -215,7 +215,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n <= 0,
     base: [],
     step: [n] + self(n - 1),
-)
+);
 
 @test_recurse_type tests @countdown () -> void = {
     let result = countdown(n: 3);
@@ -227,7 +227,7 @@ use std.testing { assert, assert_eq, assert_ne }
     condition: n <= 0,
     base: 0,
     step: n + self(n - 1),
-)
+);
 
 @test_recurse_int tests @sum_to_n () -> void = {
     assert_eq(actual: sum_to_n(n: 5), expected: 15)
