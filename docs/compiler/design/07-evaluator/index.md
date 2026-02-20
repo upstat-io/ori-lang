@@ -306,11 +306,11 @@ The `LocalScope<T>` wrapper is `Rc<RefCell<T>>` for single-threaded scope manage
 - `FxHashMap` provides faster hashing for `Name` keys
 
 ```rust
-let x = 1           // Outer scope: x = 1
-run(
-    let x = 2,      // Inner scope: x = 2
-    x + outer_x,    // Can't access outer x directly
-)
+let x = 1;          // Outer scope: x = 1
+{
+    let x = 2;      // Inner scope: x = 2
+    x + outer_x     // Can't access outer x directly
+}
 // x = 1 again
 ```
 
@@ -616,9 +616,9 @@ Consider a scenario where module A imports a function from module B:
 ```
 Module A (arena_a)          Module B (arena_b)
 ┌──────────────────┐        ┌──────────────────┐
-│ @main () = run(  │        │ @helper (x: int) │
-│   helper(42),    │ ──────►│   = x * 2        │
-│ )                │        │                  │
+│ @main () = {     │        │ @helper (x: int) │
+│   helper(42)     │ ──────►│   = x * 2        │
+│ }                │        │                  │
 └──────────────────┘        └──────────────────┘
 ```
 

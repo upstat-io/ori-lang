@@ -15,7 +15,7 @@ The pattern system follows the "Lean Core, Rich Libraries" principle:
 
 | In Compiler | In Stdlib |
 |-------------|-----------|
-| `run`, `try`, `match` (bindings, early return) | `map`, `filter`, `fold`, `find` (collection methods) |
+| `{ }` blocks, `try { }`, `match expr { }` (bindings, early return) | `map`, `filter`, `fold`, `find` (collection methods) |
 | `recurse` (self-referential `self()`) | `retry`, `validate` (library functions) |
 | `parallel`, `spawn`, `timeout` (concurrency) | |
 | `cache`, `with` (capability-aware resources) | |
@@ -58,19 +58,29 @@ compiler/ori_patterns/src/
 
 ## Compiler Pattern Categories
 
-### Control Flow (function_seq)
+### Control Flow (block expressions)
 
 ```ori
-run(expr1, expr2, result)              // Sequential execution
-try(expr?, Ok(value))                  // Error propagation
-match(value, pat -> expr, ...)         // Pattern matching
+{                                      // Sequential execution (block expression)
+    expr1
+    expr2
+    result
+}
+try {                                  // Error propagation
+    expr?
+    Ok(value)
+}
+match value {                          // Pattern matching
+    pat -> expr
+    ...
+}
 ```
 
 ### Recursion
 
 ```ori
 recurse(
-    cond: base_case,
+    condition: base_case,
     base: value,
     step: self(n - 1) * n,
 )
@@ -88,7 +98,7 @@ timeout(op: expr, after: 5s)               // Time limit
 
 ```ori
 cache(key: k, op: expensive(), ttl: 5m)    // Requires Cache capability
-with(acquire: resource, use: r -> use(r), release: r -> cleanup(r))
+with(acquire: resource, action: r -> use(r), release: r -> cleanup(r))
 ```
 
 The `with` pattern provides RAII-style resource management. The `release` function is always called, even if `use` panics.
@@ -312,7 +322,7 @@ pub fn try_match(
 
 ### Guard Expressions
 
-Guards (`.match(expr)`) are evaluated after pattern match succeeds but before the arm body. If the guard returns false, matching continues to the next arm.
+Guards (`if condition`) are evaluated after pattern match succeeds but before the arm body. If the guard returns false, matching continues to the next arm.
 
 **Exhaustiveness:** Guards are NOT considered for exhaustiveness checking—the compiler cannot statically verify guard conditions.
 

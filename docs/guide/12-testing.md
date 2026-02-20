@@ -25,10 +25,10 @@ This isn't about process or policy — it's about the compiler refusing to produ
 Tests are bound to functions with the `tests` keyword:
 
 ```ori
-@greet (name: str) -> str = `Hello, {name}!`
+@greet (name: str) -> str = `Hello, {name}!`;
 
 @test_greet tests @greet () -> void = {
-    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!")
+    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!");
     assert_eq(actual: greet(name: ""), expected: "Hello, !")
 }
 ```
@@ -40,13 +40,13 @@ The key part is `tests @greet` — it binds the test to a specific function.
 One test can verify several related functions:
 
 ```ori
-@encode (data: str) -> str = ...
-@decode (data: str) -> str = ...
+@encode (data: str) -> str = ...;
+@decode (data: str) -> str = ...;
 
 @test_encode_decode_roundtrip tests @encode tests @decode () -> void = {
-    let original = "Hello, World!"
-    let encoded = encode(data: original)
-    let decoded = decode(data: encoded)
+    let original = "Hello, World!";
+    let encoded = encode(data: original);
+    let decoded = decode(data: encoded);
     assert_eq(actual: decoded, expected: original)
 }
 ```
@@ -59,9 +59,9 @@ Some tests don't target specific functions — integration tests, system tests, 
 
 ```ori
 @test_full_workflow tests _ () -> void = {
-    let user = create_user(name: "Alice")
-    let order = create_order(user_id: user.id, items: ["widget"])
-    let receipt = process_payment(order_id: order.id)
+    let user = create_user(name: "Alice");
+    let order = create_order(user_id: user.id, items: ["widget"]);
+    let receipt = process_payment(order_id: order.id);
     assert_eq(actual: receipt.status, expected: "completed")
 }
 ```
@@ -79,43 +79,43 @@ Ori provides comprehensive assertions for different scenarios.
 
 ```ori
 // General condition
-assert(condition: result > 0)
+assert(condition: result > 0);
 
 // Equality
-assert_eq(actual: add(a: 2, b: 2), expected: 4)
+assert_eq(actual: add(a: 2, b: 2), expected: 4);
 
 // Inequality
-assert_ne(actual: generate_id(), unexpected: "")
+assert_ne(actual: generate_id(), unexpected: "");
 ```
 
 ### Option Assertions
 
 ```ori
 // Check for Some
-assert_some(option: find_user(id: 1))
+assert_some(option: find_user(id: 1));
 
 // Check for None
-assert_none(option: find_user(id: -1))
+assert_none(option: find_user(id: -1));
 ```
 
 ### Result Assertions
 
 ```ori
 // Check for Ok
-assert_ok(result: parse_int(text: "42"))
+assert_ok(result: parse_int(text: "42"));
 
 // Check for Err
-assert_err(result: parse_int(text: "not a number"))
+assert_err(result: parse_int(text: "not a number"));
 ```
 
 ### Panic Assertions
 
 ```ori
 // Assert that code panics
-assert_panics(f: () -> divide(a: 1, b: 0))
+assert_panics(f: () -> divide(a: 1, b: 0));
 
 // Assert panic with specific message
-assert_panics_with(f: () -> panic(msg: "oops"), msg: "oops")
+assert_panics_with(f: () -> panic(msg: "oops"), msg: "oops");
 ```
 
 Note that panic assertions take a thunk (zero-argument function) — the expression `() -> divide(a: 1, b: 0)` delays execution until the assertion evaluates it.
@@ -149,7 +149,7 @@ Verify that invalid code is rejected:
 ```ori
 #compile_fail("type mismatch")
 @test_type_safety tests _ () -> void = {
-    let x: int = "string"
+    let x: int = "string";
     ()
 }
 ```
@@ -164,7 +164,7 @@ One of Ori's biggest testing advantages is capability injection. Functions that 
 
 ```ori
 @fetch_user (id: int) -> Result<User, Error> uses Http =
-    Http.get(url: `/api/users/{id}`)
+    Http.get(url: `/api/users/{id}`);
 
 @test_fetch_user tests @fetch_user () -> void =
     with Http = MockHttp {
@@ -174,11 +174,11 @@ One of Ori's biggest testing advantages is capability injection. Functions that 
         },
     } in {
         // Test successful fetch
-        let result = fetch_user(id: 1)
-        assert_ok(result: result)
+        let result = fetch_user(id: 1);
+        assert_ok(result: result);
 
         // Test error case
-        let error_result = fetch_user(id: 999)
+        let error_result = fetch_user(id: 999);
         assert_err(result: error_result)
     }
 ```
@@ -195,7 +195,7 @@ Mock capabilities can simulate failures:
         responses: {},
         default_error: NetworkError { message: "Connection refused" },
     } in {
-        let result = fetch_user_profile(id: 1)
+        let result = fetch_user_profile(id: 1);
         assert_err(result: result)
     }
 ```
@@ -204,7 +204,7 @@ Mock capabilities can simulate failures:
 
 ```ori
 @is_business_hours () -> bool uses Clock = {
-    let now = Clock.now()
+    let now = Clock.now();
     now.hour >= 9 && now.hour < 17 && now.day_of_week != Saturday && now.day_of_week != Sunday
 }
 
@@ -212,12 +212,12 @@ Mock capabilities can simulate failures:
     // Test during business hours — stateful handler with fixed time
     with Clock = handler(state: Instant.parse(s: "2024-01-15T10:30:00")) {
         now: (s) -> (s, s)
-    } in assert(condition: is_business_hours())
+    } in assert(condition: is_business_hours());
 
     // Test after hours
     with Clock = handler(state: Instant.parse(s: "2024-01-15T20:00:00")) {
         now: (s) -> (s, s)
-    } in assert(condition: !is_business_hours())
+    } in assert(condition: !is_business_hours());
 
     // Test weekend
     with Clock = handler(state: Instant.parse(s: "2024-01-13T10:30:00")) {
@@ -230,13 +230,13 @@ Mock capabilities can simulate failures:
 
 ```ori
 @generate_code () -> str uses Random = {
-    let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     for _ in 0..6 yield chars[Random.rand_int(min: 0, max: len(collection: chars) - 1)]
 }
 
 @test_generate_code tests @generate_code () -> void =
     with Random = MockRandom { sequence: [0, 1, 2, 3, 4, 5] } in {
-        let code = generate_code()
+        let code = generate_code();
         assert_eq(actual: code, expected: "ABCDEF")
     }
 ```
@@ -247,11 +247,11 @@ Pure functions (no capabilities) are easiest to test:
 
 ```ori
 @calculate_tax (amount: float, rate: float) -> float =
-    amount * rate
+    amount * rate;
 
 @test_calculate_tax tests @calculate_tax () -> void = {
-    assert_eq(actual: calculate_tax(amount: 100.0, rate: 0.1), expected: 10.0)
-    assert_eq(actual: calculate_tax(amount: 0.0, rate: 0.1), expected: 0.0)
+    assert_eq(actual: calculate_tax(amount: 100.0, rate: 0.1), expected: 10.0);
+    assert_eq(actual: calculate_tax(amount: 0.0, rate: 0.1), expected: 0.0);
     assert_eq(actual: calculate_tax(amount: 100.0, rate: 0.0), expected: 0.0)
 }
 ```
@@ -265,13 +265,13 @@ No setup, no mocks, no cleanup. This is why pure functions are preferred when po
 For small modules, put tests right after the functions they test:
 
 ```ori
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 @test_add tests @add () -> void = {
     assert_eq(actual: add(a: 2, b: 3), expected: 5)
 }
 
-@subtract (a: int, b: int) -> int = a - b
+@subtract (a: int, b: int) -> int = a - b;
 
 @test_subtract tests @subtract () -> void = {
     assert_eq(actual: subtract(a: 5, b: 3), expected: 2)
@@ -301,16 +301,16 @@ src/
 **math.test.ori:**
 
 ```ori
-use "../math" { add, subtract, multiply, divide }
+use "../math" { add, subtract, multiply, divide };
 
 @test_add tests @add () -> void = {
-    assert_eq(actual: add(a: 2, b: 3), expected: 5)
-    assert_eq(actual: add(a: -1, b: 1), expected: 0)
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
+    assert_eq(actual: add(a: -1, b: 1), expected: 0);
     assert_eq(actual: add(a: 0, b: 0), expected: 0)
 }
 
 @test_subtract tests @subtract () -> void = {
-    assert_eq(actual: subtract(a: 5, b: 3), expected: 2)
+    assert_eq(actual: subtract(a: 5, b: 3), expected: 2);
     assert_eq(actual: subtract(a: 3, b: 5), expected: -2)
 }
 ```
@@ -326,7 +326,7 @@ Test files in `_test/` can access private functions using the `::` prefix:
 
 ```ori
 // In _test/math.test.ori
-use "../math" { ::internal_helper, pub_function }
+use "../math" { ::internal_helper, pub_function };
 
 @test_internal tests ::internal_helper () -> void = {
     // Test the private helper
@@ -344,16 +344,16 @@ One of Ori's most powerful features is dependency-aware testing. When you change
 
 ```ori
 // helpers.ori
-pub @double (x: int) -> int = x * 2
+pub @double (x: int) -> int = x * 2;
 
 @test_double tests @double () -> void = {
     assert_eq(actual: double(x: 5), expected: 10)
 }
 
 // math.ori
-use "./helpers" { double }
+use "./helpers" { double };
 
-pub @quadruple (x: int) -> int = double(x: double(x: x))
+pub @quadruple (x: int) -> int = double(x: double(x: x));
 
 @test_quadruple tests @quadruple () -> void = {
     assert_eq(actual: quadruple(x: 3), expected: 12)
@@ -447,7 +447,7 @@ Test typical inputs:
 
 ```ori
 @test_greet_normal tests @greet () -> void = {
-    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!")
+    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!");
     assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!")
 }
 ```
@@ -458,7 +458,7 @@ Test boundary conditions:
 
 ```ori
 @test_greet_edge_cases tests @greet () -> void = {
-    assert_eq(actual: greet(name: ""), expected: "Hello, !")
+    assert_eq(actual: greet(name: ""), expected: "Hello, !");
     assert_eq(actual: greet(name: " "), expected: "Hello,  !")
 }
 ```
@@ -469,7 +469,7 @@ Test invalid inputs and failure modes:
 
 ```ori
 @test_divide_errors tests @divide () -> void = {
-    assert_panics(f: () -> divide(a: 1, b: 0))
+    assert_panics(f: () -> divide(a: 1, b: 0));
     assert_eq(actual: divide(a: 0, b: 5), expected: 0)
 }
 ```
@@ -478,12 +478,12 @@ Test invalid inputs and failure modes:
 
 ```ori
 // Good: describes what's being tested
-@test_add_returns_sum_of_positive_numbers tests @add () -> void = ...
-@test_add_handles_negative_numbers tests @add () -> void = ...
-@test_divide_by_zero_panics tests @divide () -> void = ...
+@test_add_returns_sum_of_positive_numbers tests @add () -> void = ...;
+@test_add_handles_negative_numbers tests @add () -> void = ...;
+@test_divide_by_zero_panics tests @divide () -> void = ...;
 
 // Less helpful: generic names
-@test_add tests @add () -> void = ...
+@test_add tests @add () -> void = ...;
 ```
 
 When a test fails, the name should tell you what broke.
@@ -493,21 +493,21 @@ When a test fails, the name should tell you what broke.
 ```ori
 @test_parse_int tests @parse_int () -> void = {
     // Normal cases
-    assert_eq(actual: parse_int(text: "42"), expected: Ok(42))
-    assert_eq(actual: parse_int(text: "-17"), expected: Ok(-17))
+    assert_eq(actual: parse_int(text: "42"), expected: Ok(42));
+    assert_eq(actual: parse_int(text: "-17"), expected: Ok(-17));
 
     // Edge cases
-    assert_eq(actual: parse_int(text: "0"), expected: Ok(0))
-    assert_eq(actual: parse_int(text: "-0"), expected: Ok(0))
+    assert_eq(actual: parse_int(text: "0"), expected: Ok(0));
+    assert_eq(actual: parse_int(text: "-0"), expected: Ok(0));
 
     // Boundaries
-    assert_ok(result: parse_int(text: "9223372036854775807"))
-    assert_err(result: parse_int(text: "9223372036854775808"))
+    assert_ok(result: parse_int(text: "9223372036854775807"));
+    assert_err(result: parse_int(text: "9223372036854775808"));
 
     // Error cases
-    assert_err(result: parse_int(text: ""))
-    assert_err(result: parse_int(text: "abc"))
-    assert_err(result: parse_int(text: "12abc"))
+    assert_err(result: parse_int(text: ""));
+    assert_err(result: parse_int(text: "abc"));
+    assert_err(result: parse_int(text: "12abc"));
     assert_err(result: parse_int(text: "  42"))
 }
 ```
@@ -516,56 +516,56 @@ When a test fails, the name should tell you what broke.
 
 ```ori
 type User = { id: int, name: str, email: str }
-type UserError = InvalidEmail(email: str) | NotFound(id: int)
+type UserError = InvalidEmail(email: str) | NotFound(id: int);
 
 impl Printable for UserError {
     @to_str (self) -> str = match self {
         InvalidEmail(email) -> `Invalid email: {email}`
         NotFound(id) -> `User {id} not found`
-    }
+    };
 }
 
 // Validation function
 @validate_email (email: str) -> bool =
-    email.contains(substring: "@") && email.contains(substring: ".")
+    email.contains(substring: "@") && email.contains(substring: ".");
 
 @test_validate_email tests @validate_email () -> void = {
     // Valid emails
-    assert(condition: validate_email(email: "user@example.com"))
-    assert(condition: validate_email(email: "a@b.c"))
+    assert(condition: validate_email(email: "user@example.com"));
+    assert(condition: validate_email(email: "a@b.c"));
 
     // Invalid emails
-    assert(condition: !validate_email(email: "invalid"))
-    assert(condition: !validate_email(email: "@example.com"))
-    assert(condition: !validate_email(email: "user@"))
+    assert(condition: !validate_email(email: "invalid"));
+    assert(condition: !validate_email(email: "@example.com"));
+    assert(condition: !validate_email(email: "user@"));
     assert(condition: !validate_email(email: ""))
 }
 
 // User creation with validation
 @create_user (name: str, email: str) -> Result<User, UserError> = {
     if !validate_email(email: email) then
-        return Err(InvalidEmail(email: email))
+        return Err(InvalidEmail(email: email));
     Ok(User { id: generate_id(), name, email })
 }
 
 // Simulated ID generator
-@generate_id () -> int uses Random = Random.rand_int(min: 1, max: 1000000)
+@generate_id () -> int uses Random = Random.rand_int(min: 1, max: 1000000);
 
 @test_generate_id tests @generate_id () -> void =
     with Random = MockRandom { sequence: [42, 100, 999] } in {
-        assert_eq(actual: generate_id(), expected: 42)
-        assert_eq(actual: generate_id(), expected: 100)
+        assert_eq(actual: generate_id(), expected: 42);
+        assert_eq(actual: generate_id(), expected: 100);
         assert_eq(actual: generate_id(), expected: 999)
     }
 
 @test_create_user_success tests @create_user () -> void =
     with Random = MockRandom { sequence: [123] } in {
-        let result = create_user(name: "Alice", email: "alice@example.com")
-        assert_ok(result: result)
+        let result = create_user(name: "Alice", email: "alice@example.com");
+        assert_ok(result: result);
         match result {
             Ok(user) -> {
-                assert_eq(actual: user.id, expected: 123)
-                assert_eq(actual: user.name, expected: "Alice")
+                assert_eq(actual: user.id, expected: 123);
+                assert_eq(actual: user.name, expected: "Alice");
                 assert_eq(actual: user.email, expected: "alice@example.com")
             }
             Err(_) -> panic(msg: "Expected Ok")
@@ -574,8 +574,8 @@ impl Printable for UserError {
 
 @test_create_user_invalid_email tests @create_user () -> void =
     with Random = MockRandom { sequence: [] } in {
-        let result = create_user(name: "Bob", email: "invalid")
-        assert_err(result: result)
+        let result = create_user(name: "Bob", email: "invalid");
+        assert_err(result: result);
         match result {
             Err(InvalidEmail(email)) -> assert_eq(actual: email, expected: "invalid")
             _ -> panic(msg: "Expected InvalidEmail")
@@ -585,7 +585,7 @@ impl Printable for UserError {
 // User lookup with database
 @find_user (id: int) -> Result<User, UserError> uses Database =
     Database.get(table: "users", id: id)
-        .ok_or(error: NotFound(id: id))
+        .ok_or(error: NotFound(id: id));
 
 @test_find_user tests @find_user () -> void =
     with Database = MockDatabase {
@@ -596,11 +596,11 @@ impl Printable for UserError {
         },
     } in {
         // Found
-        let result = find_user(id: 1)
-        assert_ok(result: result)
+        let result = find_user(id: 1);
+        assert_ok(result: result);
 
         // Not found
-        let missing = find_user(id: 999)
+        let missing = find_user(id: 999);
         assert_err(result: missing)
     }
 
@@ -609,7 +609,7 @@ impl Printable for UserError {
     with Random = MockRandom { sequence: [456] },
     Database = MockDatabase { tables: {} } in {
         // Create a user
-        let result = create_user(name: "Charlie", email: "charlie@test.com")
+        let result = create_user(name: "Charlie", email: "charlie@test.com");
         assert_ok(result: result)
 
         // Note: This is a simplified example - real integration tests
@@ -639,28 +639,28 @@ impl Printable for UserError {
 ### Assertions
 
 ```ori
-assert(condition: bool)
-assert_eq(actual: T, expected: T)
-assert_ne(actual: T, unexpected: T)
-assert_some(option: Option<T>)
-assert_none(option: Option<T>)
-assert_ok(result: Result<T, E>)
-assert_err(result: Result<T, E>)
-assert_panics(f: () -> T)
-assert_panics_with(f: () -> T, msg: str)
+assert(condition: bool);
+assert_eq(actual: T, expected: T);
+assert_ne(actual: T, unexpected: T);
+assert_some(option: Option<T>);
+assert_none(option: Option<T>);
+assert_ok(result: Result<T, E>);
+assert_err(result: Result<T, E>);
+assert_panics(f: () -> T);
+assert_panics_with(f: () -> T, msg: str);
 ```
 
 ### Attributes
 
 ```ori
 #skip("reason")
-@test_name tests @fn () -> void = ...
+@test_name tests @fn () -> void = ...;
 
 #fail("expected error")
-@test_name tests @fn () -> void = ...
+@test_name tests @fn () -> void = ...;
 
 #compile_fail("error substring")
-@test_name tests _ () -> void = ...
+@test_name tests _ () -> void = ...;
 ```
 
 ### CLI Commands

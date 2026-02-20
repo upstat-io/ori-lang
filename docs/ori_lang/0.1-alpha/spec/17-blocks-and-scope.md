@@ -16,11 +16,11 @@ The following constructs create scopes:
 | Construct | Scope contains |
 |-----------|----------------|
 | Function body | Parameters and body expression |
-| `run(...)` | All bindings within the sequence |
+| `{ }` block | All bindings within the block |
 | `for` loop | Loop variable and body |
 | `match` arm | Pattern bindings and arm expression |
 | `if` branches | Each branch expression |
-| `loop(...)` | Body expression |
+| `loop { }` | Body expression |
 | `with...in` | Capability binding and `in` expression |
 | Lambda | Parameters and body expression |
 
@@ -30,9 +30,10 @@ Ori uses _lexical scoping_. A name refers to the binding in the innermost enclos
 
 ```ori
 {
-    let x = 10
+    let x = 10;
     {
-        let y = x + 5,  // x visible from outer scope
+        let y = x + 5;   // x visible from outer scope
+
         y
     }
     // y not visible here
@@ -49,20 +50,22 @@ A binding is visible from its declaration to the end of its enclosing scope.
 ```ori
 {
     // x not yet visible
-    let x = 10
-    let y = x + 5,  // x visible
+    let x = 10;
+    let y = x + 5;   // x visible
+
     y
 }
 // x, y not visible
 ```
 
-Bindings in `run(...)` are visible to all subsequent expressions in the sequence:
+Bindings in a block are visible to all subsequent expressions in the block:
 
 ```ori
 {
-    let a = 1
-    let b = a + 1,  // a visible
-    let c = b + 1,  // a and b visible
+    let a = 1;
+    let b = a + 1;   // a visible
+    let c = b + 1;   // a and b visible
+
     c
 }
 ```
@@ -73,8 +76,9 @@ Bindings are not hoisted. A name cannot be used before its declaration:
 
 ```ori
 {
-    let y = x + 1,  // error: x not declared
-    let x = 10
+    let y = x + 1;   // error: x not declared
+    let x = 10;
+
     y
 }
 ```
@@ -85,8 +89,9 @@ A binding may _shadow_ an earlier binding with the same name. The new binding hi
 
 ```ori
 {
-    let x = 10
-    let x = x + 5,  // shadows, x is now 15
+    let x = 10;
+    let x = x + 5;  // shadows, x is now 15
+
     x
 }
 ```
@@ -95,7 +100,8 @@ Shadowing applies to all bindings, including function parameters:
 
 ```ori
 @increment (x: int) -> int = {
-    let x = x + 1,  // shadows parameter
+    let x = x + 1;  // shadows parameter
+
     x
 }
 ```
@@ -108,9 +114,10 @@ Lambdas capture variables from enclosing scopes by value. A _captured variable_ 
 
 ```ori
 {
-    let base = 10
-    let add_base = (x) -> x + base,  // captures base = 10
-    add_base(5),  // returns 15
+    let base = 10;
+    let add_base = (x) -> x + base;  // captures base = 10
+
+    add_base(5)  // returns 15
 }
 ```
 
@@ -120,10 +127,11 @@ A lambda captures all free variables referenced in its body:
 
 ```ori
 {
-    let a = 1
-    let b = 2
-    let c = 3
-    let f = () -> a + b,  // captures a and b, not c
+    let a = 1;
+    let b = 2;
+    let c = 3;
+    let f = () -> a + b;  // captures a and b, not c
+
     f()
 }
 ```
@@ -136,13 +144,13 @@ Capture occurs at the moment of lambda creation, not at invocation:
 
 ```ori
 {
-    let closures = []
+    let closures = [];
     for i in 0..3 do
-        closures = closures + [() -> i],  // each captures current i
+        closures = closures + [() -> i];  // each captures current i
 
-    closures[0](),  // 0
-    closures[1](),  // 1
-    closures[2](),  // 2
+    closures[0]();  // 0
+    closures[1]();  // 1
+    closures[2]()   // 2
 }
 ```
 
@@ -152,10 +160,11 @@ Capture is a snapshot at lambda creation time. Reassigning the outer binding doe
 
 ```ori
 {
-    let x = 10
-    let f = () -> x * 2,  // captures x = 10
-    x = 20,               // reassigns x in outer scope
-    f(),                  // returns 20, not 40
+    let x = 10;
+    let f = () -> x * 2;  // captures x = 10
+    x = 20;               // reassigns x in outer scope
+
+    f()                   // returns 20, not 40
 }
 ```
 
@@ -165,8 +174,9 @@ Lambdas cannot mutate captured bindings:
 
 ```ori
 {
-    let x = 0
-    let inc = () -> x = x + 1,  // error: cannot mutate captured binding
+    let x = 0;
+    let inc = () -> x = x + 1;  // error: cannot mutate captured binding
+
     inc()
 }
 ```
@@ -177,12 +187,13 @@ A lambda may shadow a captured binding with a local one:
 
 ```ori
 {
-    let x = 10
+    let x = 10;
     let f = () -> {
-        let x = 20,  // shadows captured x
+        let x = 20;  // shadows captured x
+
         x
-    }
-    f(),  // returns 20
+    };
+    f()   // returns 20
 }
 ```
 
@@ -192,7 +203,7 @@ An _escaping closure_ outlives the scope in which it was created:
 
 ```ori
 @make_adder (n: int) -> (int) -> int =
-    x -> x + n  // escapes: returned from function
+    x -> x + n;  // escapes: returned from function
 ```
 
 Because closures capture by value, escaping is always safe. The closure owns its captured data; no dangling references are possible.
@@ -207,11 +218,12 @@ Scopes may be nested to arbitrary depth. Inner scopes can access bindings from a
 
 ```ori
 {
-    let a = 1
+    let a = 1;
     {
-        let b = 2
+        let b = 2;
         {
-            let c = a + b,  // both visible
+            let c = a + b;  // both visible
+
             c
         }
     }
@@ -222,7 +234,7 @@ Each scope is independent; bindings in one branch do not affect another:
 
 ```ori
 if condition then
-    {let x = 1, x}
+    { let x = 1; x }
 else
-    {let x = 2, x}  // different x, no conflict
+    { let x = 2; x }  // different x, no conflict
 ```

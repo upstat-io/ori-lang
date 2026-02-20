@@ -111,10 +111,10 @@ use std.async { timeout }
 
 let result = timeout(|| fetch_data(url), 30s)
 
-match(result,
-    Ok(data) -> process(data),
-    Err(TimeoutError) -> handle_timeout(),
-)
+match result {
+    Ok(data) -> process(data)
+    Err(TimeoutError) -> handle_timeout()
+}
 ```
 
 ---
@@ -195,12 +195,13 @@ use std.async { Semaphore }
 
 let sem = Semaphore.new(10)  // Max 10 concurrent
 
-@limited_fetch (url: str) -> Result<Data, Error> uses Async = run(
-    sem.acquire(),
-    let result = fetch(url),
-    sem.release(),
-    result,
-)
+@limited_fetch (url: str) -> Result<Data, Error> uses Async = {
+    sem.acquire()
+    let result = fetch(url)
+    sem.release()
+
+    result
+}
 ```
 
 **Methods:**
@@ -225,11 +226,11 @@ use std.async { Barrier, spawn }
 let barrier = Barrier.new(3)
 
 // All three tasks must reach barrier before any proceeds
-for i in 0..3 do spawn(|| run(
-    prepare(i),
-    barrier.wait(),  // All wait here
-    execute(i),
-))
+for i in 0..3 do spawn(|| {
+    prepare(i)
+    barrier.wait()  // All wait here
+    execute(i)
+})
 ```
 
 ---
@@ -270,17 +271,17 @@ use std.async { sleep }
     // Fold through attempts, keeping last error or first success
     (0..attempts).fold(
         initial: Err(Error.from("no attempts")),
-        f: (acc, i) -> match(acc,
-            Ok(v) -> Ok(v),  // Already succeeded, keep it
-            Err(_) -> match(f(),
-                Ok(v) -> Ok(v),
-                Err(e) if i < attempts - 1 -> run(
-                    sleep(100ms * pow(2, i)),
-                    Err(e),
-                ),
-                Err(e) -> Err(e),
-            ),
-        ),
+        f: (acc, i) -> match acc {
+            Ok(v) -> Ok(v)  // Already succeeded, keep it
+            Err(_) -> match f() {
+                Ok(v) -> Ok(v)
+                Err(e) if i < attempts - 1 -> {
+                    sleep(100ms * pow(2, i))
+                    Err(e)
+                }
+                Err(e) -> Err(e)
+            }
+        },
     )
 ```
 
@@ -293,16 +294,17 @@ use std.async { sleep }
 ```ori
 use std.async { Semaphore, spawn, join }
 
-@fetch_all (urls: [str], max_concurrent: int) -> [Result<Data, Error>] uses Async = run(
-    let sem = Semaphore.new(max_concurrent),
-    let tasks = urls | map(_, url -> spawn(|| run(
-        sem.acquire(),
-        let result = fetch(url),
-        sem.release(),
-        result,
-    ))),
-    join(tasks),
-)
+@fetch_all (urls: [str], max_concurrent: int) -> [Result<Data, Error>] uses Async = {
+    let sem = Semaphore.new(max_concurrent)
+    let tasks = urls | map(_, url -> spawn(|| {
+        sem.acquire()
+        let result = fetch(url)
+        sem.release()
+        result
+    }))
+
+    join(tasks)
+}
 ```
 
 ### Racing with timeout
@@ -310,13 +312,14 @@ use std.async { Semaphore, spawn, join }
 ```ori
 use std.async { select, timeout }
 
-@fetch_with_fallback (primary: str, backup: str) -> Result<Data, Error> uses Async = run(
+@fetch_with_fallback (primary: str, backup: str) -> Result<Data, Error> uses Async = {
     let (_, result) = select([
         || timeout(|| fetch(primary), 5s),
         || timeout(|| fetch(backup), 10s),
-    ]),
-    result,
-)
+    ])
+
+    result
+}
 ```
 
 ### Worker pool
@@ -328,13 +331,14 @@ use std.async { spawn, join }
     items: [T],
     workers: int,
     process: T -> R uses Async
-) -> [R] uses Async = run(
-    let chunks = items.chunks(items.len() / workers + 1),
+) -> [R] uses Async = {
+    let chunks = items.chunks(items.len() / workers + 1)
     let tasks = chunks | map(_, chunk ->
         spawn(|| map(chunk, process) | join(_))
-    ),
-    join(tasks) | flatten(_),
-)
+    )
+
+    join(tasks) | flatten(_)
+}
 ```
 
 ---

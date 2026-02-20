@@ -190,14 +190,15 @@ format_duration(3661s)    // "1h 1m 1s"
 ```ori
 use std.fmt { pad_right, pad_left }
 
-@format_table (rows: [(str, int)]) -> str = run(
-    let header = pad_right("Name", 20, ' ') + pad_left("Score", 10, ' '),
-    let separator = "-".repeat(30),
+@format_table (rows: [(str, int)]) -> str = {
+    let header = pad_right("Name", 20, ' ') + pad_left("Score", 10, ' ')
+    let separator = "-".repeat(30)
     let body = map(rows, (name, score) ->
         pad_right(name, 20, ' ') + pad_left(str(score), 10, ' ')
-    ),
-    [header, separator] + body | join("\n"),
-)
+    )
+
+    [header, separator] + body | join("\n")
+}
 ```
 
 ---

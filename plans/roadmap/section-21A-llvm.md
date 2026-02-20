@@ -369,11 +369,11 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Local variables
   - [ ] Return statements
 
-- [ ] **Implement**: Function sequences (`run`, `try`, `match`)
-  - [ ] `run(let x = a, result)` sequential binding
-  - [ ] `run(pre_check:, body, post_check:)` with panic semantics
-  - [ ] `try(let x = f()?, Ok(x))` error propagation
-  - [ ] `match(v, P -> e, _ -> d)` pattern matching
+- [ ] **Implement**: Block expressions and control flow (`{ }`, `try`, `match`)
+  - [ ] `{ let x = a \n result }` sequential binding via block expressions
+  - [ ] `pre(cond) post(r -> cond)` function-level contract declarations
+  - [ ] `try { let x = f()? \n Ok(x) }` error propagation
+  - [ ] `match v { P -> e, _ -> d }` pattern matching
 
 - [ ] **Implement**: Recurse pattern
   - [ ] `recurse(condition:, base:, step:)` basic recursion

@@ -69,13 +69,13 @@ impl Clock for MockClock {
     with Clock = MockClock {
         fixed_time: DateTime.parse("2024-01-15T10:00:00Z")?
     } in
-    run(
-        let token = Token { expires_at: DateTime.parse("2024-01-15T09:00:00Z")? },
-        assert(is_expired(token)),  // Token expired 1 hour ago
+    {
+        let token = Token { expires_at: DateTime.parse("2024-01-15T09:00:00Z")? }
+        assert(is_expired(token))  // Token expired 1 hour ago
 
-        let fresh = Token { expires_at: DateTime.parse("2024-01-15T11:00:00Z")? },
-        assert(not(is_expired(fresh))),  // Token valid for 1 more hour
-    )
+        let fresh = Token { expires_at: DateTime.parse("2024-01-15T11:00:00Z")? }
+        assert(not(is_expired(fresh)))  // Token valid for 1 more hour
+    }
 ```
 
 ---
@@ -295,14 +295,15 @@ diff.as_hours()               // 168
 ```ori
 use std.time { Date, now }
 
-@age (birthday: Date) uses Clock -> int = run(
-    let today = now().date,
-    let years = today.year - birthday.year,
+@age (birthday: Date) uses Clock -> int = {
+    let today = now().date
+    let years = today.year - birthday.year
+
     if (today.month, today.day) < (birthday.month, birthday.day) then
         years - 1
     else
-        years,
-)
+        years
+}
 ```
 
 ### Parsing and formatting
@@ -310,10 +311,11 @@ use std.time { Date, now }
 ```ori
 use std.time { parse_datetime, DateTime }
 
-@reformat (input: str) -> Result<str, TimeError> = run(
-    let dt = parse_datetime(input)?,
-    Ok(dt.format("%B %d, %Y at %H:%M")),
-)
+@reformat (input: str) -> Result<str, TimeError> = {
+    let dt = parse_datetime(input)?
+
+    Ok(dt.format("%B %d, %Y at %H:%M"))
+}
 
 reformat("2024-12-25T14:30:00Z")
 // "December 25, 2024 at 14:30"
@@ -324,15 +326,15 @@ reformat("2024-12-25T14:30:00Z")
 ```ori
 use std.time { DateTime, now }
 
-@show_times () uses Clock -> void = run(
-    let local = now(),
-    let utc = local.to_utc(),
-    let tokyo = local.to_offset(9 * 3600),  // UTC+9
+@show_times () uses Clock -> void = {
+    let local = now()
+    let utc = local.to_utc()
+    let tokyo = local.to_offset(9 * 3600)  // UTC+9
 
-    print("Local: " + local.format("%H:%M %Z")),
-    print("UTC:   " + utc.format("%H:%M %Z")),
-    print("Tokyo: " + tokyo.format("%H:%M")),
-)
+    print("Local: " + local.format("%H:%M %Z"))
+    print("UTC:   " + utc.format("%H:%M %Z"))
+    print("Tokyo: " + tokyo.format("%H:%M"))
+}
 ```
 
 ---

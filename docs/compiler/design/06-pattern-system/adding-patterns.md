@@ -209,14 +209,14 @@ impl PatternDefinition for MyPattern {
 }
 ```
 
-### function_seq Patterns
+### Block Expression Constructs
 
-Control flow constructs (`run`, `try`, `match`) are NOT in the pattern registry. They are:
+Control flow constructs (block expressions, `try`, `match`) are NOT in the pattern registry. They are:
 - Defined as AST nodes in `ori_ir/src/ast/patterns/seq.rs`
 - Type-checked directly in `ori_typeck`
 - Evaluated directly in `ori_eval`
 
-Do NOT add control flow patterns to the `PatternRegistry`.
+Do NOT add control flow constructs to the `PatternRegistry`.
 
 ## Optional Features
 

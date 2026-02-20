@@ -27,7 +27,7 @@ compiler/ori_parse/src/
     ├── expr/               # Expression parsing
     │   ├── mod.rs              # Entry point, Pratt parser for binary operators
     │   ├── operators.rs        # Binding power table, operator matching
-    │   ├── patterns.rs         # function_seq/function_exp parsing
+    │   ├── patterns.rs         # Block expressions and control flow parsing
     │   ├── postfix.rs          # Call, method call, field, index, await, try
     │   └── primary.rs          # Literals, identifiers, lambdas, let bindings
     ├── item/               # Top-level declarations

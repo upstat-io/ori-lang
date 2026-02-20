@@ -299,41 +299,41 @@ type WinSize = {
 // High-level API
 type TermiosError = NotATty | IoError(code: c_int)
 
-@get_termios (fd: c_int) -> Result<Termios, TermiosError> uses FFI = run(
+@get_termios (fd: c_int) -> Result<Termios, TermiosError> uses FFI = {
     if _isatty(fd: fd) == 0 then Err(NotATty)
-    else run(
-        let termios = Termios.default(),
-        let ptr = CPtr.from_struct(value: termios),
-        let result = _tcgetattr(fd: fd, termios: ptr),
+    else {
+        let termios = Termios.default();
+        let ptr = CPtr.from_struct(value: termios);
+        let result = _tcgetattr(fd: fd, termios: ptr);
         if result == 0 then Ok(termios)
-        else Err(IoError(code: result)),
-    ),
-)
+        else Err(IoError(code: result))
+    }
+}
 
-@set_termios (fd: c_int, termios: Termios) -> Result<void, TermiosError> uses FFI = run(
-    let ptr = CPtr.from_struct(value: termios),
-    let result = _tcsetattr(fd: fd, actions: $TCSAFLUSH, termios: ptr),
+@set_termios (fd: c_int, termios: Termios) -> Result<void, TermiosError> uses FFI = {
+    let ptr = CPtr.from_struct(value: termios);
+    let result = _tcsetattr(fd: fd, actions: $TCSAFLUSH, termios: ptr);
     if result == 0 then Ok(())
-    else Err(IoError(code: result)),
-)
+    else Err(IoError(code: result))
+}
 
-@get_winsize (fd: c_int) -> Result<(int, int), TermiosError> uses FFI = run(
-    let ws = WinSize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 },
-    let ptr = CPtr.from_struct(value: ws),
-    let result = _ioctl(fd: fd, request: $TIOCGWINSZ, arg: ptr),
+@get_winsize (fd: c_int) -> Result<(int, int), TermiosError> uses FFI = {
+    let ws = WinSize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
+    let ptr = CPtr.from_struct(value: ws);
+    let result = _ioctl(fd: fd, request: $TIOCGWINSZ, arg: ptr);
     if result == 0 then Ok((ws.ws_col as int, ws.ws_row as int))
-    else Err(IoError(code: result)),
-)
+    else Err(IoError(code: result))
+}
 
-@enable_raw_mode (fd: c_int) -> Result<Termios, TermiosError> uses FFI = run(
-    let original = get_termios(fd: fd)?,
+@enable_raw_mode (fd: c_int) -> Result<Termios, TermiosError> uses FFI = {
+    let original = get_termios(fd: fd)?;
     let raw = Termios {
         ...original,
         c_lflag: original.c_lflag & !($ECHO | $ICANON | $ISIG | $IEXTEN),
-    },
-    set_termios(fd: fd, termios: raw)?,
-    Ok(original),  // Return original for restoration
-)
+    };
+    set_termios(fd: fd, termios: raw)?;
+    Ok(original)  // Return original for restoration
+}
 
 @disable_raw_mode (fd: c_int, original: Termios) -> Result<void, TermiosError> uses FFI =
     set_termios(fd: fd, termios: original)
@@ -385,11 +385,11 @@ The following FFI features are **not needed** for console support and can be imp
 #target(family: "unix")
 
 @test_raw_mode tests _ () -> void uses FFI = {
-    with FFI = AllowFFI in run(
-        let original = enable_raw_mode(fd: 0)?,
+    with FFI = AllowFFI in {
+        let original = enable_raw_mode(fd: 0)?;
         // ... test raw mode ...
-        disable_raw_mode(fd: 0, original: original)?,
-    )
+        disable_raw_mode(fd: 0, original: original)?
+    }
 }
 ```
 

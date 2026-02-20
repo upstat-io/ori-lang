@@ -230,22 +230,22 @@ type LRUCache<K, V> = {
 }
 
 impl<K: Eq + Hashable, V> LRUCache<K, V> {
-    @get (self, key: K) -> Option<V> = run(
-        let entry = self.map[key]?,
-        self.order.move_to_front(entry.1),
-        Some(entry.0),
-    )
+    @get (self, key: K) -> Option<V> = {
+        let entry = self.map[key]?
+        self.order.move_to_front(entry.1)
+        Some(entry.0)
+    }
 
-    @put (self, key: K, value: V) -> void = run(
+    @put (self, key: K, value: V) -> void = {
         if self.map.has(key) then
             self.order.remove(self.map[key].1)
         else if self.map.len() >= self.capacity then
-            let oldest = self.order.pop_back()?,
-            self.map.remove(oldest),
+            let oldest = self.order.pop_back()?
+            self.map.remove(oldest)
 
-        let node = self.order.push_front(key),
-        self.map.insert(key, (value, node)),
-    )
+        let node = self.order.push_front(key)
+        self.map.insert(key, (value, node))
+    }
 }
 ```
 
@@ -254,14 +254,15 @@ impl<K: Eq + Hashable, V> LRUCache<K, V> {
 ```ori
 use std.collections { PriorityQueue }
 
-@top_k<T: Comparable> (items: [T], k: int) -> [T] = run(
-    let pq = PriorityQueue<T>.new_min(),  // min-heap
-    for item in items do run(
-        pq.push(item),
-        if pq.len() > k then pq.pop(),
-    ),
-    pq.to_list().reverse(),
-)
+@top_k<T: Comparable> (items: [T], k: int) -> [T] = {
+    let pq = PriorityQueue<T>.new_min()  // min-heap
+    for item in items do {
+        pq.push(item)
+        if pq.len() > k then pq.pop()
+    }
+
+    pq.to_list().reverse()
+}
 ```
 
 ---

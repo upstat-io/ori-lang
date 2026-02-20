@@ -190,7 +190,7 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
                 }
                 left_w + binary_op_width(*op) + right_w
             }
-            ExprKind::FunctionSeq(..) => ALWAYS_STACKED,
+            ExprKind::Block { .. } => ALWAYS_STACKED,
             // ... other cases
         }
     }

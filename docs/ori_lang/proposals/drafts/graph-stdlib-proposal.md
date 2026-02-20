@@ -237,41 +237,41 @@ type Friendship = { since: str, strength: int }
 
 type SocialGraph = Graph<User, Friendship>
 
-@create_network () -> SocialGraph = run(
-    let g = Graph.empty(),
-    let (g, alice) = g.add_node(data: User { name: "Alice", email: "alice@test.com" }),
-    let (g, bob) = g.add_node(data: User { name: "Bob", email: "bob@test.com" }),
-    let (g, carol) = g.add_node(data: User { name: "Carol", email: "carol@test.com" }),
+@create_network () -> SocialGraph = {
+    let g = Graph.empty();
+    let (g, alice) = g.add_node(data: User { name: "Alice", email: "alice@test.com" });
+    let (g, bob) = g.add_node(data: User { name: "Bob", email: "bob@test.com" });
+    let (g, carol) = g.add_node(data: User { name: "Carol", email: "carol@test.com" });
 
-    let g = g.add_edge_undirected(a: alice, b: bob, data: Friendship { since: "2020", strength: 5 }),
-    let g = g.add_edge_undirected(a: bob, b: carol, data: Friendship { since: "2021", strength: 3 }),
-    let g = g.add_edge_undirected(a: alice, b: carol, data: Friendship { since: "2022", strength: 4 }),
+    let g = g.add_edge_undirected(a: alice, b: bob, data: Friendship { since: "2020", strength: 5 });
+    let g = g.add_edge_undirected(a: bob, b: carol, data: Friendship { since: "2021", strength: 3 });
+    let g = g.add_edge_undirected(a: alice, b: carol, data: Friendship { since: "2022", strength: 4 });
 
-    g,
-)
+    g
+}
 
-@mutual_friends (g: SocialGraph, a: NodeId, b: NodeId) -> [NodeId] = run(
-    let a_friends = g.neighbors(id: a).to_set(),
-    let b_friends = g.neighbors(id: b).to_set(),
-    a_friends.intersect(other: b_friends).to_list(),
-)
+@mutual_friends (g: SocialGraph, a: NodeId, b: NodeId) -> [NodeId] = {
+    let a_friends = g.neighbors(id: a).to_set();
+    let b_friends = g.neighbors(id: b).to_set();
+    a_friends.intersect(other: b_friends).to_list()
+}
 
-@friends_of_friends (g: SocialGraph, user: NodeId) -> [NodeId] = run(
-    let direct = g.neighbors(id: user).to_set(),
+@friends_of_friends (g: SocialGraph, user: NodeId) -> [NodeId] = {
+    let direct = g.neighbors(id: user).to_set();
     let fof = direct
         .to_list()
         .flat_map(transform: f -> g.neighbors(id: f))
-        .to_set(),
-    fof.remove(item: user).difference(other: direct).to_list(),
-)
+        .to_set();
+    fof.remove(item: user).difference(other: direct).to_list()
+}
 
-@suggest_friends (g: SocialGraph, user: NodeId) -> [(NodeId, int)] = run(
+@suggest_friends (g: SocialGraph, user: NodeId) -> [(NodeId, int)] = {
     // Score by number of mutual friends
-    let candidates = friends_of_friends(g: g, user: user),
+    let candidates = friends_of_friends(g: g, user: user);
     candidates
         .map(transform: c -> (c, len(collection: mutual_friends(g: g, a: user, b: c))))
-        .sort_by(key: (_, score) -> -score),
-)
+        .sort_by(key: (_, score) -> -score)
+}
 ```
 
 ### Dependency Graph
@@ -288,14 +288,14 @@ type DepGraph = Graph<Package, Dependency>
     g.topological_sort()
         .ok_or(error: Error { message: "Circular dependency detected" })
 
-@all_dependencies (g: DepGraph, pkg: NodeId) -> Set<NodeId> = run(
-    let deps = Set.empty(),
+@all_dependencies (g: DepGraph, pkg: NodeId) -> Set<NodeId> = {
+    let deps = Set.empty();
     g.bfs(
         start: pkg,
         visit: (id, _) -> deps = deps.insert(item: id),
-    ),
-    deps.remove(item: pkg),
-)
+    );
+    deps.remove(item: pkg)
+}
 
 @dependents (g: DepGraph, pkg: NodeId) -> [NodeId] =
     // Who depends on this package?
@@ -317,11 +317,10 @@ type NavMesh = Graph<Waypoint, Path>
 
 @nearby_waypoints (mesh: NavMesh, pos: Waypoint, max_dist: float) -> [NodeId] =
     mesh.node_ids()
-        .filter(predicate: id -> match(
-            mesh.get_node(id: id),
-            Some(wp) -> distance(a: pos, b: wp) <= max_dist,
-            None -> false,
-        ))
+        .filter(predicate: id -> match mesh.get_node(id: id) {
+            Some(wp) -> distance(a: pos, b: wp) <= max_dist
+            None -> false
+        })
 ```
 
 ---

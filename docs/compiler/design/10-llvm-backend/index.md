@@ -256,7 +256,7 @@ The backend links against runtime functions for operations that require heap all
 | `lower_error_handling.rs` | Ok, Err, Some, None, Try (`?` operator) |
 | `lower_collections.rs` | List, map, tuple, struct, range, field, index |
 | `lower_calls.rs` | Call, MethodCall, Lambda (fat-pointer closures) |
-| `lower_constructs.rs` | FunctionSeq, FunctionExp, SelfRef, Await |
+| `lower_constructs.rs` | Block expressions (FunctionSeq IR), FunctionExp, SelfRef, Await |
 | `arc_emitter.rs` | ARC IR emission (retain/release/drop) |
 
 ### AOT

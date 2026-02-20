@@ -42,7 +42,7 @@ You'll use it constantly during development.
 Create a new file called `hello.ori` and add this:
 
 ```ori
-@main () -> void = print(msg: "Hello, World!")
+@main () -> void = print(msg: "Hello, World!");
 ```
 
 Run it:
@@ -61,11 +61,12 @@ Congratulations — you've written your first Ori program. Now let's understand 
 
 ## Understanding the Syntax
 
-Let's break down `@main () -> void = print(msg: "Hello, World!")`:
+Let's break down `@main () -> void = print(msg: "Hello, World!");`:
 
 ```ori
-@main () -> void = print(msg: "Hello, World!")
-|     |     |    | └─ Function body (what it does)
+@main () -> void = print(msg: "Hello, World!");
+|     |     |    | |                            |
+|     |     |    | └─ Function body              └─ ; ends top-level declaration
 |     |     |    └─── Body follows
 |     |     └──────── Returns nothing (void)
 |     └────────────── Takes no parameters
@@ -77,9 +78,9 @@ Let's break down `@main () -> void = print(msg: "Hello, World!")`:
 In Ori, **functions are declared with `@`**:
 
 ```ori
-@greet (name: str) -> str = `Hello, {name}!`
-@add (a: int, b: int) -> int = a + b
-@main () -> void = print(msg: "Starting...")
+@greet (name: str) -> str = `Hello, {name}!`;
+@add (a: int, b: int) -> int = a + b;
+@main () -> void = print(msg: "Starting...");
 ```
 
 This visual distinction makes functions immediately recognizable in your code. When you see `@`, you know it's a function declaration.
@@ -89,12 +90,12 @@ This visual distinction makes functions immediately recognizable in your code. W
 Notice we wrote `print(msg: "Hello, World!")` not `print("Hello, World!")`. In Ori, **all function arguments must be named**:
 
 ```ori
-print(msg: "Hello")              // Correct
-add(a: 2, b: 3)                  // Correct
-greet(name: "Alice")             // Correct
+print(msg: "Hello");              // Correct
+add(a: 2, b: 3);                  // Correct
+greet(name: "Alice");             // Correct
 
-print("Hello")                   // ERROR: missing argument name
-add(2, 3)                        // ERROR: missing argument names
+print("Hello");                   // ERROR: missing argument name
+add(2, 3);                        // ERROR: missing argument names
 ```
 
 This might feel verbose at first, but it has real benefits:
@@ -102,24 +103,24 @@ This might feel verbose at first, but it has real benefits:
 **Self-documenting code:**
 ```ori
 // What do these arguments mean?
-create_user("Alice", 30, true, false)
+create_user("Alice", 30, true, false);
 
 // vs. named arguments (actual Ori code):
-create_user(name: "Alice", age: 30, admin: true, verified: false)
+create_user(name: "Alice", age: 30, admin: true, verified: false);
 ```
 
 **Argument order doesn't matter:**
 ```ori
 // These are equivalent:
-create_user(name: "Alice", age: 30)
-create_user(age: 30, name: "Alice")
+create_user(name: "Alice", age: 30);
+create_user(age: 30, name: "Alice");
 ```
 
 **Catches mistakes at compile time:**
 ```ori
 // You can't accidentally swap similar-typed arguments
-send_email(from: alice, to: bob)   // Clear intent
-send_email(to: bob, from: alice)   // Same result, still clear
+send_email(from: alice, to: bob);   // Clear intent
+send_email(to: bob, from: alice);   // Same result, still clear
 ```
 
 ### Template Strings
@@ -127,19 +128,19 @@ send_email(to: bob, from: alice)   // Same result, still clear
 Backtick strings support interpolation with `{...}`:
 
 ```ori
-let name = "Alice"
-let greeting = `Hello, {name}!`    // "Hello, Alice!"
+let name = "Alice";
+let greeting = `Hello, {name}!`;    // "Hello, Alice!"
 
-let a = 10
-let b = 20
-let result = `{a} + {b} = {a + b}` // "10 + 20 = 30"
+let a = 10;
+let b = 20;
+let result = `{a} + {b} = {a + b}`; // "10 + 20 = 30"
 ```
 
 Regular strings use double quotes and don't support interpolation:
 
 ```ori
-let plain = "Hello, World!"
-let escaped = "Line 1\nLine 2"
+let plain = "Hello, World!";
+let escaped = "Line 1\nLine 2";
 ```
 
 ## Variables and Bindings
@@ -148,41 +149,41 @@ Let's make our program more interesting. Update `hello.ori`:
 
 ```ori
 @main () -> void = {
-    let name = "World"
-    print(msg: `Hello, {name}!`)
+    let name = "World";
+    print(msg: `Hello, {name}!`);
 }
 ```
 
-### The `run` Pattern
+### Block Expressions
 
-When a function needs multiple steps, wrap them in `run(...)`:
+When a function needs multiple steps, use a block `{ }`:
 
 ```ori
 @main () -> void = {
-    let first = "Hello"
-    let second = "World"
-    print(msg: `{first}, {second}!`)
+    let first = "Hello";
+    let second = "World";
+    print(msg: `{first}, {second}!`);
 }
 ```
 
-Each expression is separated by commas. The last expression's value becomes the function's return value.
+Statements are terminated with `;`. The last expression (without `;`) becomes the function's return value. In a void function, all expressions have `;`.
 
 ### Variables with `let`
 
 Create variables with `let`:
 
 ```ori
-let name = "Alice"
-let age = 30
-let score = 95.5
+let name = "Alice";
+let age = 30;
+let score = 95.5;
 ```
 
 Ori infers the type automatically. You can be explicit if you prefer:
 
 ```ori
-let name: str = "Alice"
-let age: int = 30
-let score: float = 95.5
+let name: str = "Alice";
+let age: int = 30;
+let score: float = 95.5;
 ```
 
 ### Immutable Bindings with `$`
@@ -190,11 +191,11 @@ let score: float = 95.5
 Sometimes you want to ensure a value never changes. Use `$`:
 
 ```ori
-let $max_retries = 3        // Cannot be reassigned
-let counter = 0             // Can be reassigned
+let $max_retries = 3;       // Cannot be reassigned
+let counter = 0;            // Can be reassigned
 
-counter = counter + 1       // OK
-max_retries = 5             // ERROR: cannot reassign immutable binding
+counter = counter + 1;      // OK
+max_retries = 5;            // ERROR: cannot reassign immutable binding
 ```
 
 **When to use `$`:**
@@ -209,11 +210,11 @@ max_retries = 5             // ERROR: cannot reassign immutable binding
 Let's write a function that does something useful:
 
 ```ori
-@greet (name: str) -> str = `Hello, {name}!`
+@greet (name: str) -> str = `Hello, {name}!`;
 
 @main () -> void = {
-    let message = greet(name: "Alice")
-    print(msg: message)
+    let message = greet(name: "Alice");
+    print(msg: message);
 }
 ```
 
@@ -229,7 +230,7 @@ Wait — you'll get an error:
 error: function 'greet' has no tests
   --> hello.ori:1:1
    |
- 1 | @greet (name: str) -> str = `Hello, {name}!`
+ 1 | @greet (name: str) -> str = `Hello, {name}!`;
    | ^^^^^ untested function
 ```
 
@@ -238,25 +239,25 @@ This is Ori's **mandatory testing** at work. Every function needs at least one t
 Add a test for `greet`:
 
 ```ori
-use std.testing { assert_eq }
+use std.testing { assert_eq };
 
-@greet (name: str) -> str = `Hello, {name}!`
+@greet (name: str) -> str = `Hello, {name}!`;
 
 @test_greet tests @greet () -> void = {
-    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!")
-    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!")
+    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!");
+    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!");
 }
 
 @main () -> void = {
-    let message = greet(name: "Alice")
-    print(msg: message)
+    let message = greet(name: "Alice");
+    print(msg: message);
 }
 ```
 
 Let's understand the test:
 
 ```ori
-@test_greet tests @greet () -> void = {...}
+@test_greet tests @greet () -> void = { ... }
 |           |           |     |
 |           |           |     └─ Returns nothing
 |           |           └─────── Takes no parameters
@@ -325,16 +326,16 @@ The `@main` function is where execution starts. There are four valid signatures:
 
 ```ori
 // Basic: no args, no return value
-@main () -> void = ...
+@main () -> void = ...;
 
 // Return an exit code (0 = success)
-@main () -> int = ...
+@main () -> int = ...;
 
 // Accept command-line arguments
-@main (args: [str]) -> void = ...
+@main (args: [str]) -> void = ...;
 
 // Both: args and exit code
-@main (args: [str]) -> int = ...
+@main (args: [str]) -> int = ...;
 ```
 
 ### Working with Command-Line Arguments
@@ -343,12 +344,12 @@ The `@main` function is where execution starts. There are four valid signatures:
 
 ```ori
 @main (args: [str]) -> void = {
-    if is_empty(collection: args) then
-        print(msg: "No arguments provided")
-    else {
-        print(msg: `Got {len(collection: args)} arguments:`)
-        for arg in args do print(msg: `  - {arg}`)
-    }
+    if is_empty(collection: args) then {
+        print(msg: "No arguments provided");
+    } else {
+        print(msg: `Got {len(collection: args)} arguments:`);
+        for arg in args do print(msg: `  - {arg}`);
+    };
 }
 ```
 
@@ -365,15 +366,14 @@ Note: `args` contains only the arguments, not the program name.
 > **Coming Soon:** Exit code support via `@main () -> int` is planned but not yet implemented. The examples below show the intended syntax.
 
 ```ori
-@main (args: [str]) -> int = {
+@main (args: [str]) -> int =
     if is_empty(collection: args) then {
-        print(msg: "Error: no arguments provided")
-        1,  // Non-zero = failure
+        print(msg: "Error: no arguments provided");
+        1  // no semicolon: this is the block's value (exit code)
     } else {
-        print(msg: `Processing {len(collection: args)} items`)
-        0,  // Zero = success
+        print(msg: `Processing {len(collection: args)} items`);
+        0  // no semicolon: this is the block's value (exit code)
     }
-}
 ```
 
 ## The Complete Example
@@ -381,35 +381,35 @@ Note: `args` contains only the arguments, not the program name.
 Here's everything we've covered in one program:
 
 ```ori
-use std.testing { assert_eq }
+use std.testing { assert_eq };
 
 // A function that creates a greeting
-@greet (name: str) -> str = `Hello, {name}!`
+@greet (name: str) -> str = `Hello, {name}!`;
 
 // Test for greet - required for compilation
 @test_greet tests @greet () -> void = {
-    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!")
-    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!")
-    assert_eq(actual: greet(name: ""), expected: "Hello, !")
+    assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice!");
+    assert_eq(actual: greet(name: "Bob"), expected: "Hello, Bob!");
+    assert_eq(actual: greet(name: ""), expected: "Hello, !");
 }
 
 // A function that creates a formal greeting
 @formal_greet (title: str, name: str) -> str =
-    `Good day, {title} {name}.`
+    `Good day, {title} {name}.`;
 
 @test_formal tests @formal_greet () -> void = {
     assert_eq(
-        actual: formal_greet(title: "Dr.", name: "Smith")
-        expected: "Good day, Dr. Smith."
-    )
+        actual: formal_greet(title: "Dr.", name: "Smith"),
+        expected: "Good day, Dr. Smith.",
+    );
 }
 
 // Program entry point
 @main () -> void = {
-    let $names = ["Alice", "Bob", "Charlie"]
+    let $names = ["Alice", "Bob", "Charlie"];
     for name in names do {
-        print(msg: greet(name: name))
-    }
+        print(msg: greet(name: name));
+    };
 }
 ```
 
@@ -441,14 +441,15 @@ There are no statements. Everything returns a value:
 
 ```ori
 // if/else returns a value
-let status = if age >= 18 then "adult" else "minor"
+let status = if age >= 18 then "adult" else "minor";
 
-// run returns its last expression
+// blocks return their last expression (no trailing ;)
 let result = {
-    let x = compute()
-    let y = transform(input: x)
-    x + y,  // This is the return value
-}
+    let x = compute();
+    let y = transform(input: x);
+
+    x + y  // no semicolon: this is the block's value
+};
 ```
 
 ### No Null, No Exceptions
@@ -465,8 +466,8 @@ You'll learn these in [Option and Result](/guide/07-option-result).
 Functions that do I/O must declare it:
 
 ```ori
-@fetch_data (url: str) -> Result<str, Error> uses Http = ...
-@save_file (path: str, data: str) -> Result<void, Error> uses FileSystem = ...
+@fetch_data (url: str) -> Result<str, Error> uses Http = ...;
+@save_file (path: str, data: str) -> Result<void, Error> uses FileSystem = ...;
 ```
 
 The `uses` clause makes side effects visible in the type signature. You'll learn more in [Capabilities](/guide/13-capabilities).

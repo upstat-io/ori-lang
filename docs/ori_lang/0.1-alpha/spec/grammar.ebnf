@@ -81,7 +81,7 @@ other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
 // --- Delimiters ---
 
 delimiter = "(" | ")" | "[" | "]" | "{" | "}"
-          | "," | ":" | "." | "@" | "$" .
+          | "," | ":" | "." | "@" | "$" | ";" .
 
 // --- Literals ---
 // See: 03-lexical-elements.md § Literals
@@ -161,14 +161,14 @@ file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")"
 // --- Imports ---
 // See: 12-modules.md § Imports
 
-import      = "use" import_path [ import_list | "as" identifier ] .
+import      = "use" import_path [ import_list | "as" identifier ] ";" .
 import_path = string_literal | identifier { "." identifier } .
 import_list = "{" import_item { "," import_item } "}" .
 import_item = [ "::" ] identifier [ "without" "def" ] [ "as" identifier ] | "$" identifier .
 
 // --- Re-exports ---
 
-reexport = "pub" "use" import_path import_list .
+reexport = "pub" "use" import_path import_list ";" .
 
 // --- Extensions ---
 // See: 12-modules.md § Extensions
@@ -205,7 +205,9 @@ array_literal  = "[" [ string_literal { "," string_literal } ] "]" .
 // --- Functions ---
 // See: 08-declarations.md § Functions
 
-function      = "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] { contract } "=" expression .
+function      = "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] { contract } "=" expression [ ";" ] .
+/* Semicolon rule: ";" is required when the body expression does not end with "}".
+   When the body is a block_expr (ending with "}"), ";" is omitted — same as Rust's fn. */
 clause_params = "(" [ clause_param { "," clause_param } ] ")" .
 clause_param  = match_pattern [ ":" type ] [ "=" expression ] .  /* pattern with optional type and default */
 guard_clause  = "if" expression .
@@ -238,12 +240,13 @@ comparison_op    = ">" | "<" | ">=" | "<=" | "==" | "!=" .
 // See: 14-capabilities.md
 
 uses_clause  = "uses" identifier { "," identifier } .
-capset_decl  = "capset" identifier "=" identifier { "," identifier } .
+capset_decl  = "capset" identifier "=" identifier { "," identifier } ";" .
 
 // --- Type Definitions ---
 // See: 08-declarations.md § Types, 06-types.md § User-Defined Types
 
-type_def    = "type" identifier [ generics ] [ where_clause ] "=" type_body .
+type_def    = "type" identifier [ generics ] [ where_clause ] "=" type_body [ ";" ] .
+/* Semicolon rule: ";" required for sum types and newtypes (no "}"); omitted for struct types (end with "}") */
 type_body   = struct_body | sum_body | type .
 struct_body = "{" [ field { "," field } ] "}" .
 sum_body    = variant { "|" variant } .
@@ -255,8 +258,9 @@ field       = identifier ":" type .
 
 trait_def      = "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
 trait_item     = method_sig | default_method | assoc_type .
-method_sig     = "@" identifier params "->" type .
-default_method = method_sig "=" expression .
+method_sig     = "@" identifier params "->" type ";" .
+default_method = "@" identifier params "->" type "=" expression [ ";" ] .
+/* Semicolon rule: same as function — ";" required unless body ends with "}" */
 assoc_type     = "type" identifier [ ":" bounds ] [ "=" type ] .
 params         = "(" [ param { "," param } ] ")" .
 param          = identifier ":" type | variadic_param .
@@ -269,20 +273,22 @@ impl_block    = inherent_impl | trait_impl | def_impl .
 inherent_impl = "impl" [ generics ] type_path [ where_clause ] "{" { method } "}" .
 trait_impl    = "impl" [ generics ] type_path "for" type [ where_clause ] "{" { method } "}" .
 def_impl      = "def" "impl" identifier "{" { def_impl_method } "}" .
-method        = "@" identifier params "->" type [ uses_clause ] "=" expression .
-def_impl_method = "@" identifier params "->" type "=" expression .  /* no self, no uses */
+method        = "@" identifier params "->" type [ uses_clause ] "=" expression [ ";" ] .
+def_impl_method = "@" identifier params "->" type "=" expression [ ";" ] .  /* no self, no uses */
+/* Semicolon rule: same as function — ";" required unless body ends with "}" */
 
 // --- Tests ---
 // See: 13-testing.md
 
-test         = "@" identifier "tests" test_targets "()" "->" "void" "=" expression .
+test         = "@" identifier "tests" test_targets "()" "->" "void" "=" expression [ ";" ] .
+/* Semicolon rule: same as function — ";" required unless body ends with "}" */
 test_targets = "_" | test_target { "tests" test_target } .
 test_target  = "@" identifier .
 
 // --- Constants (Immutable Bindings) ---
 // See: 04-constants.md
 
-constant_decl = "let" "$" identifier [ ":" type ] "=" expression .
+constant_decl = "let" "$" identifier [ ":" type ] "=" expression ";" .
 
 
 // ============================================================================
@@ -340,13 +346,11 @@ primary       = literal | identifier | "self" | "Self"
 
 // --- Block Expression ---
 // See: proposals/approved/block-expression-syntax.md
-// Newlines separate expressions inside blocks. Commas allowed for one-liners.
-// Balanced delimiters ((), [], {}) suppress newlines inside them.
+// Semicolons terminate statements inside blocks. The last expression without ";"
+// is the block's value. A block where every expression has ";" returns void.
 
-block_expr  = "{" block_body "}" .
-block_body  = { block_item sep } result_expr [ sep ] .
-block_item  = let_expr | expression .
-sep         = NEWLINE | "," .
+block_expr  = "{" { statement } [ expression ] "}" .
+statement   = ( let_expr | expression ) ";" .
 
 // --- Unsafe Expression ---
 // See: spec/24-ffi.md § Unsafe Blocks
@@ -502,7 +506,7 @@ function_val = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 
 // match: Pattern matching with scrutinee before block
 match_expr = "match" expression "{" match_arms "}" .
-match_arms = { match_arm sep } [ match_arm ] .
+match_arms = { match_arm NEWLINE } [ match_arm ] .
 match_arm  = match_pattern [ guard ] "->" expression .
 guard      = ".match" "(" expression ")" .
 

@@ -54,8 +54,8 @@ An expression has a different type than expected in the given context.
 | E1009 | Missing Pattern Arg | Required pattern argument missing | ✓ |
 | E1010 | Unknown Pattern Arg | Unrecognized pattern argument | ✓ |
 | E1011 | Named Args Required | Multi-arg call needs named args | ✓ |
-| E1012 | Invalid function_seq | function_seq syntax error | ✓ |
-| E1013 | function_exp Named | function_exp needs named properties | ✓ |
+| E1012 | Invalid Block Expression | Block expression syntax error | ✓ |
+| E1013 | Named Properties Required | Control flow expression needs named properties | ✓ |
 | E1014 | Reserved Name | Reserved built-in function name | ✓ |
 | E1015 | Unsupported Keyword | Unsupported keyword (e.g., `return` is not valid in Ori) | ✓ |
 | **Type Checker (E2xxx)** |

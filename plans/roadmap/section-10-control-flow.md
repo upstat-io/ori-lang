@@ -208,7 +208,7 @@ sections:
 
 **Proposal**: `proposals/approved/loop-expression-proposal.md`
 
-- [x] **Implement**: Parse `loop(body)` — spec/09-expressions.md § Loop Expressions [done] (2026-02-10)
+- [x] **Implement**: Parse `loop { body }` — spec/09-expressions.md § Loop Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — loop parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_with_break, loop_break_value, loop_int tests
   - [ ] **LLVM Support**: LLVM codegen for loop expression
@@ -220,9 +220,9 @@ sections:
   - [ ] **LLVM Support**: LLVM codegen for break handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break handling codegen
 
-- [x] **Implement**: Body is single expression; use `run(...)` for sequences — proposals/approved/loop-expression-proposal.md § Body [done] (2026-02-10)
+- [x] **Implement**: Body is a block expression `loop { ... }` — proposals/approved/loop-expression-proposal.md § Body [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — loop body parsing
-  - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — all loop tests use `loop(run(...))`
+  - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — all loop tests use `loop { ... }`
   - [ ] **LLVM Support**: LLVM codegen for loop body
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop body codegen
 
@@ -276,7 +276,7 @@ sections:
 
 **Labeled loops:**
 
-- [ ] **Implement**: Parse `loop:name(body)` — spec/19-control-flow.md § Labeled Loops
+- [ ] **Implement**: Parse `loop:name { body }` — spec/19-control-flow.md § Labeled Loops
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — labeled loop parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for labeled loop

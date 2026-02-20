@@ -96,10 +96,10 @@ use std.json { parse_value, Value }
 
 let v = parse_value("{\"name\": \"Alice\"}")?
 
-match(v,
-    Value.Object(map) -> map["name"],
-    _ -> None,
-)
+match v {
+    Value.Object(map) -> map["name"]
+    _ -> None
+}
 ```
 
 ---
@@ -194,13 +194,14 @@ type Config = {
 type DatabaseConfig = { url: str, pool_size: int }
 type ServerConfig = { host: str, port: int }
 
-@load_config (path: str) uses FileSystem -> Result<Config, Error> = run(
-    let content = read_file(path)?,
+@load_config (path: str) uses FileSystem -> Result<Config, Error> = {
+    let content = read_file(path)?
+
     parse<Config>(content).map_err(e -> Error {
         message: "Invalid config: " + e.message,
         source: None,
-    }),
-)
+    })
+}
 ```
 
 ### API response handling
@@ -217,15 +218,16 @@ type ApiResponse<T> = {
 
 type User = { id: int, name: str }
 
-@fetch_user (id: int) -> Result<User, Error> uses Http, Async = run(
-    let resp = get("https://api.example.com/users/" + str(id))?,
-    let api_resp = parse<ApiResponse<User>>(resp.body)?,
-    match(api_resp,
-        { success: true, data: Some(user), .. } -> Ok(user),
-        { error: Some(msg), .. } -> Err(Error { message: msg, source: None }),
-        _ -> Err(Error { message: "Unknown error", source: None }),
-    ),
-)
+@fetch_user (id: int) -> Result<User, Error> uses Http, Async = {
+    let resp = get("https://api.example.com/users/" + str(id))?
+    let api_resp = parse<ApiResponse<User>>(resp.body)?
+
+    match api_resp {
+        { success: true, data: Some(user), .. } -> Ok(user)
+        { error: Some(msg), .. } -> Err(Error { message: msg, source: None })
+        _ -> Err(Error { message: "Unknown error", source: None })
+    }
+}
 ```
 
 ### Dynamic JSON handling
@@ -233,12 +235,13 @@ type User = { id: int, name: str }
 ```ori
 use std.json { parse_value, Value }
 
-@extract_field (json: str, field: str) -> Option<str> = run(
-    let v = parse_value(json).ok()?,
-    let obj = v.as_object()?,
-    let val = obj[field]?,
-    val.as_str(),
-)
+@extract_field (json: str, field: str) -> Option<str> = {
+    let v = parse_value(json).ok()?
+    let obj = v.as_object()?
+    let val = obj[field]?
+
+    val.as_str()
+}
 ```
 
 ---

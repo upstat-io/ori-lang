@@ -22,7 +22,7 @@ compiler/ori_parse/src/
     │   ├── operators.rs        # Binding power table, operator matching
     │   ├── primary.rs          # Literals, identifiers, lambdas, let bindings
     │   ├── postfix.rs          # Call, method call, field, index, await, try, cast
-    │   └── patterns.rs         # run, try, match, for, function_exp
+    │   └── patterns.rs         # block, try, match, for, function_exp
     ├── item/               # Top-level items (split into submodules)
     │   ├── mod.rs              # Re-exports
     │   ├── use_def.rs          # Import/use statements
@@ -113,17 +113,17 @@ parse_cast()                 // expr as Type, expr as? Type
 
 ```rust
 // Sequential execution
-parse_run()                  // run(expr, expr, result)
-parse_try_expr()             // try(expr, expr, result)
+parse_block()                // { expr \n expr \n result }
+parse_try_expr()             // try { expr? \n Ok(value) }
 
 // Pattern matching
-parse_match()                // match(value, pattern -> body, ...)
+parse_match()                // match value { pattern -> body \n ... }
 parse_match_pattern()        // Literal, binding, struct, list, variant patterns
 parse_variant_inner_patterns() // Comma-separated patterns inside variants
 
 // Loops
 parse_for()                  // for x in items do body / yield transform
-parse_loop()                 // loop(init, cond, step, body)
+parse_loop()                 // loop { body }
 
 // Function expressions (compiler patterns)
 parse_function_exp()         // recurse(...), parallel(...), spawn(...), with(...)
@@ -331,4 +331,4 @@ The lexer produces individual `>` tokens. The parser synthesizes `>>` and `>=` f
 
 ## Soft Keywords
 
-Several Ori keywords are context-sensitive ("soft keywords"). The `Cursor::soft_keyword_to_name()` method maps tokens that are keywords in some contexts to identifiers in others. For example, `print` is a soft keyword — it is treated as a keyword when followed by `(`, but as an identifier otherwise. The `match_function_exp_kind()` method in `operators.rs` similarly gates keywords like `recurse`, `parallel`, `spawn`, and `with` on the presence of a following `(`.
+Several Ori keywords are context-sensitive ("soft keywords"). The `Cursor::soft_keyword_to_name()` method maps tokens that are keywords in some contexts to identifiers in others. For example, `print` is a soft keyword — it is treated as a keyword when followed by `(`, but as an identifier otherwise. The `match_function_exp_kind()` method in `operators.rs` similarly gates keywords like `recurse`, `parallel`, `spawn`, and `with` on the presence of a following `(`. Note that `match`, `try`, and `loop` use block syntax (`match expr { ... }`, `try { ... }`, `loop { ... }`) rather than parenthesized function-call syntax.

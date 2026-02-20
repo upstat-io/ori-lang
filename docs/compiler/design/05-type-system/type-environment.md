@@ -88,16 +88,16 @@ impl TypeEnv {
 Variables in inner scopes shadow outer ones. The parent chain lookup stops at the first match:
 
 ```ori
-let x = 1
-let result = run(
-    let x = "hello",   // x : str in inner scope (shadows outer)
-    len(collection: x), // uses inner x : str
-)
+let x = 1;
+let result = {
+    let x = "hello";   // x : str in inner scope (shadows outer)
+    len(collection: x)  // uses inner x : str
+};
 // x : int (outer still visible)
 ```
 
 ```rust
-// During type checking of the run block:
+// During type checking of the block expression:
 let child_env = engine.env.child();
 child_env.bind(x_name, Idx::STR);  // Shadows outer x : int
 // lookup(x_name) in child_env returns Idx::STR

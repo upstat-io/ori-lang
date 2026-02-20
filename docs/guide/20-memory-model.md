@@ -14,8 +14,8 @@ Ori uses Automatic Reference Counting (ARC) for memory management — no garbage
 Every value has a reference count. When you assign a value, the count increases. When a reference goes out of scope, the count decreases. When it hits zero, the memory is freed.
 
 ```ori
-let a = [1, 2, 3]      // ref count = 1
-let b = a              // ref count = 2 (a and b share the data)
+let a = [1, 2, 3];      // ref count = 1
+let b = a;              // ref count = 2 (a and b share the data)
 // b goes out of scope  // ref count = 1
 // a goes out of scope  // ref count = 0, memory freed
 ```
@@ -26,8 +26,8 @@ Unlike garbage collection, ARC frees memory immediately when the last reference 
 
 ```ori
 @process_file (path: str) -> void uses FileSystem = {
-    let data = FileSystem.read(path: path),  // Memory allocated
-    let result = process(data: data)
+    let data = FileSystem.read(path: path);  // Memory allocated
+    let result = process(data: data);
     print(msg: result)
 }  // data freed exactly here, not "sometime later"
 ```
@@ -59,9 +59,9 @@ Data flows forward through `run`/`try`:
 
 ```ori
 {
-    let a = create_a()
-    let b = create_b(input: a),   // b can reference a
-    let c = create_c(input: b),   // c can reference b
+    let a = create_a();
+    let b = create_b(input: a);   // b can reference a
+    let c = create_c(input: b);   // c can reference b
     // No way for a to reference c (c doesn't exist when a is created)
 }
 ```
@@ -71,11 +71,11 @@ Data flows forward through `run`/`try`:
 Closures capture variables by value, not reference:
 
 ```ori
-let x = 10
-let f = () -> x + 1  // f captures a COPY of x = 10
+let x = 10;
+let f = () -> x + 1;  // f captures a COPY of x = 10
 
 // Even if we could reassign x, f still has 10
-f()  // Always returns 11
+f();  // Always returns 11
 ```
 
 This means closures can't create cycles by capturing "self" references.
@@ -106,8 +106,8 @@ Ori distinguishes between value types (copied) and reference types (reference co
 Copied when assigned:
 
 ```ori
-let x = 42
-let y = x  // y is a copy, independent of x
+let x = 42;
+let y = x;  // y is a copy, independent of x
 
 // Modifying y doesn't affect x
 ```
@@ -123,8 +123,8 @@ Value types include:
 Shared with reference counting:
 
 ```ori
-let a = [1, 2, 3]
-let b = a  // b and a share the same data
+let a = [1, 2, 3];
+let b = a;  // b and a share the same data
 
 // Both refer to the same underlying list
 ```
@@ -149,8 +149,8 @@ When in doubt, the compiler optimizes appropriately.
 To get an independent copy of a reference type, use `.clone()`:
 
 ```ori
-let a = [1, 2, 3]
-let b = a.clone()  // b has its own copy of the data
+let a = [1, 2, 3];
+let b = a.clone();  // b has its own copy of the data
 
 // Modifying b doesn't affect a
 ```
@@ -161,10 +161,11 @@ Ori requires explicit cloning to avoid hidden performance costs:
 
 ```ori
 // This shares data (cheap)
-let shared = expensive_data
+let shared = expensive_data;
 
 // This copies data (potentially expensive)
-let copy = expensive_data.clone()
+let copy = expensive_data.clone();
+
 ```
 
 ### Clone Trait Definition
@@ -186,8 +187,8 @@ trait Clone {
 #derive(Clone)
 type Point = { x: int, y: int }
 
-let p1 = Point { x: 10, y: 20 }
-let p2 = p1.clone()  // Independent copy
+let p1 = Point { x: 10, y: 20 };
+let p2 = p1.clone();  // Independent copy
 ```
 
 ### Deep Clone
@@ -195,8 +196,8 @@ let p2 = p1.clone()  // Independent copy
 Cloning is recursive — cloning a container clones its elements:
 
 ```ori
-let lists = [[1, 2], [3, 4]]
-let copy = lists.clone()  // Both outer and inner lists are cloned
+let lists = [[1, 2], [3, 4]];
+let copy = lists.clone();  // Both outer and inner lists are cloned
 ```
 
 ## Closures and Capture
@@ -205,15 +206,15 @@ Closures capture variables by value at creation time:
 
 ```ori
 @make_adder (n: int) -> (int) -> int = {
-    let add_n = x -> x + n,  // Captures n by value
+    let add_n = x -> x + n;  // Captures n by value
     add_n
 }
 
-let add_5 = make_adder(n: 5)
-let add_10 = make_adder(n: 10)
+let add_5 = make_adder(n: 5);
+let add_10 = make_adder(n: 10);
 
-add_5(3)   // 8
-add_10(3)  // 13
+add_5(3);   // 8
+add_10(3);  // 13
 ```
 
 ### Snapshot Semantics
@@ -221,12 +222,12 @@ add_10(3)  // 13
 The closure sees a snapshot of values at creation:
 
 ```ori
-let x = 10
-let f = () -> x  // Captures x = 10
+let x = 10;
+let f = () -> x;  // Captures x = 10
 
 // Later changes don't affect f's captured value
-let x = 20  // Shadowing, creates new binding
-f()  // Still returns 10 (captured value)
+let x = 20;  // Shadowing, creates new binding
+f();  // Still returns 10 (captured value)
 ```
 
 ### No Outer Mutation
@@ -235,19 +236,19 @@ Closures cannot mutate outer scope:
 
 ```ori
 // This won't work as you might expect
-let counter = 0
+let counter = 0;
 let increment = () -> {
-    counter = counter + 1,  // ERROR: can't mutate outer scope
-}
+    counter = counter + 1;  // ERROR: can't mutate outer scope
+};
 ```
 
 Instead, return the new value or use explicit state:
 
 ```ori
 @make_counter () -> () -> int = {
-    let count = { value: 0 }
+    let count = { value: 0 };
     () -> {
-        count.value = count.value + 1
+        count.value = count.value + 1;
         count.value
     }
 }
@@ -261,7 +262,7 @@ Ori guarantees tail call optimization (TCO) for recursive functions:
 @countdown (n: int) -> void =
     if n <= 0 then () else countdown(n: n - 1)
 
-countdown(n: 1000000)  // No stack overflow
+countdown(n: 1000000);  // No stack overflow
 ```
 
 A call is in tail position if it's the last thing before the function returns.
@@ -307,9 +308,9 @@ The Ori language maintains these invariants to ensure ARC safety:
 Only one reference can mutate data at a time:
 
 ```ori
-let a = [1, 2, 3]
-let b = a        // Shares data
-a[0] = 10        // Creates new list for a, b still has [1, 2, 3]
+let a = [1, 2, 3];
+let b = a;        // Shares data
+a[0] = 10;        // Creates new list for a, b still has [1, 2, 3]
 ```
 
 ### 2. Closures Capture by Value
@@ -317,8 +318,8 @@ a[0] = 10        // Creates new list for a, b still has [1, 2, 3]
 No closure can hold a mutable reference to outer scope:
 
 ```ori
-let x = 10
-let f = () -> x  // Copies x, doesn't reference it
+let x = 10;
+let f = () -> x;  // Copies x, doesn't reference it
 ```
 
 ### 3. No Self-Referential Structures
@@ -339,7 +340,7 @@ type Graph = { nodes: [Node], edges: [(NodeIndex, NodeIndex)] }
 Module-level bindings must use `$`:
 
 ```ori
-pub let $CONFIG = { ... }  // Immutable, safe to share
+pub let $CONFIG = { ... };  // Immutable, safe to share
 ```
 
 ## Memory Patterns
@@ -360,13 +361,13 @@ for item in items do
 
 ```ori
 // If you don't need to modify, share
-let shared = large_data
-use_data(data: shared)
-use_data_again(data: shared)
+let shared = large_data;
+use_data(data: shared);
+use_data_again(data: shared);
 
 // Only clone when you need independence
-let modified = large_data.clone()
-modified[0] = new_value
+let modified = large_data.clone();
+modified[0] = new_value;
 ```
 
 ### Use Structural Sharing
@@ -374,8 +375,8 @@ modified[0] = new_value
 Ori collections use structural sharing internally:
 
 ```ori
-let a = [1, 2, 3, 4, 5]
-let b = [...a, 6]  // Shares structure with a where possible
+let a = [1, 2, 3, 4, 5];
+let b = [...a, 6];  // Shares structure with a where possible
 ```
 
 ## Complete Example
@@ -401,16 +402,16 @@ impl<T> Tree<T> {
         Tree { nodes: {}, root: None, next_id: 0 }
 
     @add_node (self, value: T, parent: Option<NodeId>) -> (Tree<T>, NodeId) = {
-        let id = self.next_id
-        let node = TreeNode { id, value, children: [] }
+        let id = self.next_id;
+        let node = TreeNode { id, value, children: [] };
 
         // Add node to nodes map
-        let nodes = { ...self.nodes, id: node }
+        let nodes = { ...self.nodes, id: node };
 
         // Update parent's children if parent exists
         let nodes = match parent {
             Some(parent_id) -> {
-                let parent_node = nodes[parent_id]
+                let parent_node = nodes[parent_id];
                 match parent_node {
                     Some(p) -> {
                         ...nodes
@@ -420,10 +421,10 @@ impl<T> Tree<T> {
                 }
             }
             None -> nodes
-        }
+        };
 
         // Set root if this is first node
-        let root = if is_none(option: self.root) then Some(id) else self.root
+        let root = if is_none(option: self.root) then Some(id) else self.root;
 
         (Tree { nodes, root, next_id: id + 1 }, id)
     }
@@ -432,7 +433,7 @@ impl<T> Tree<T> {
         self.nodes[id]
 
     @children (self, id: NodeId) -> [TreeNode<T>] = {
-        let node = self.nodes[id]
+        let node = self.nodes[id];
         match node {
             Some(n) -> for child_id in n.children yield match self.nodes[child_id] {
                 Some(c) -> c
@@ -444,13 +445,13 @@ impl<T> Tree<T> {
 }
 
 @test_tree tests _ () -> void = {
-    let tree = Tree<str>.new()
+    let tree = Tree<str>.new();
 
-    let (tree, root) = tree.add_node(value: "root", parent: None)
-    let (tree, child1) = tree.add_node(value: "child1", parent: Some(root))
-    let (tree, child2) = tree.add_node(value: "child2", parent: Some(root))
+    let (tree, root) = tree.add_node(value: "root", parent: None);
+    let (tree, child1) = tree.add_node(value: "child1", parent: Some(root));
+    let (tree, child2) = tree.add_node(value: "child2", parent: Some(root));
 
-    assert_some(option: tree.get_node(id: root))
+    assert_some(option: tree.get_node(id: root));
     assert_eq(actual: len(collection: tree.children(id: root)), expected: 2)
 }
 
@@ -459,9 +460,9 @@ impl<T> Tree<T> {
     // config is captured by value
     let process = item -> {
         if config.validate then
-            validate(item: item)?
+            validate(item: item)?;
         Ok(transform(item: item, config: config))
-    }
+    };
     process
 }
 
@@ -477,12 +478,12 @@ impl<T> Tree<T> {
         )
 
 @test_process_list tests @process_list () -> void = {
-    let items = [1, 2, 3, 4, 5]
+    let items = [1, 2, 3, 4, 5];
     let result = process_list(
         items: items
         processor: x -> x * 2
         acc: []
-    )
+    );
     assert_eq(actual: result, expected: [2, 4, 6, 8, 10])
 }
 ```
@@ -492,8 +493,8 @@ impl<T> Tree<T> {
 ### Reference Counting
 
 ```ori
-let a = value         // ref count = 1
-let b = a             // ref count = 2
+let a = value;         // ref count = 1
+let b = a;             // ref count = 2
 // b drops            // ref count = 1
 // a drops            // ref count = 0, freed
 ```
@@ -501,7 +502,7 @@ let b = a             // ref count = 2
 ### Clone
 
 ```ori
-let copy = original.clone()  // Independent copy
+let copy = original.clone();  // Independent copy
 ```
 
 ### Value vs Reference
@@ -515,8 +516,8 @@ let copy = original.clone()  // Independent copy
 ### Closure Capture
 
 ```ori
-let x = 10
-let f = () -> x  // Captures x by value (snapshot)
+let x = 10;
+let f = () -> x;  // Captures x by value (snapshot)
 ```
 
 ### Tail Call

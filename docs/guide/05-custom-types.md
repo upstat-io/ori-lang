@@ -35,31 +35,31 @@ type Config = {
 ### Creating Struct Instances
 
 ```ori
-let origin = Point { x: 0, y: 0 }
+let origin = Point { x: 0, y: 0 };
 
 let alice = User {
     id: 1,
     name: "Alice",
     email: "alice@example.com",
     active: true,
-}
+};
 ```
 
 **Field shorthand** — when variable names match field names:
 
 ```ori
-let x = 10
-let y = 20
-let point = Point { x, y }    // Same as Point { x: x, y: y }
+let x = 10;
+let y = 20;
+let point = Point { x, y };    // Same as Point { x: x, y: y }
 
-let name = "Bob"
-let email = "bob@example.com"
+let name = "Bob";
+let email = "bob@example.com";
 let bob = User {
     id: 2,
     name,           // Shorthand
     email,          // Shorthand
     active: true,
-}
+};
 ```
 
 ### Accessing Fields
@@ -67,9 +67,9 @@ let bob = User {
 Use dot notation:
 
 ```ori
-alice.name      // "Alice"
-alice.email     // "alice@example.com"
-origin.x        // 0
+alice.name;      // "Alice"
+alice.email;     // "alice@example.com"
+origin.x;        // 0
 ```
 
 ### Updating Structs
@@ -77,10 +77,10 @@ origin.x        // 0
 Structs are immutable. Create new ones with spread:
 
 ```ori
-let moved_point = Point { ...origin, x: 5 }
+let moved_point = Point { ...origin, x: 5 };
 // Point { x: 5, y: 0 }
 
-let deactivated = User { ...alice, active: false }
+let deactivated = User { ...alice, active: false };
 // Same user but inactive
 ```
 
@@ -90,7 +90,7 @@ Spread copies all fields, then specific fields override:
 let updated = Config {
     ...defaults,
     timeout: 60s,    // Override just timeout
-}
+};
 ```
 
 ### Nested Structs
@@ -110,10 +110,10 @@ let person = Person {
     name: "Alice",
     home: Address { street: "123 Main", city: "Boston", zip: "02101" },
     work: Address { street: "456 Office", city: "Cambridge", zip: "02142" },
-}
+};
 
-person.home.city    // "Boston"
-person.work.zip     // "02142"
+person.home.city;    // "Boston"
+person.work.zip;     // "02142"
 ```
 
 ## Sum Types
@@ -123,18 +123,18 @@ Sum types (also called enums or tagged unions) represent values that can be one 
 ### Simple Variants
 
 ```ori
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
-type Direction = North | South | East | West
+type Direction = North | South | East | West;
 
-type Ordering = Less | Equal | Greater
+type Ordering = Less | Equal | Greater;
 ```
 
 Creating values:
 
 ```ori
-let color = Red
-let direction = North
+let color = Red;
+let direction = North;
 ```
 
 ### Variants with Data
@@ -145,14 +145,14 @@ Variants can carry data:
 type Shape =
     | Circle(radius: float)
     | Rectangle(width: float, height: float)
-    | Triangle(a: float, b: float, c: float)
+    | Triangle(a: float, b: float, c: float);
 ```
 
 Creating values:
 
 ```ori
-let circle = Circle(radius: 5.0)
-let rect = Rectangle(width: 10.0, height: 20.0)
+let circle = Circle(radius: 5.0);
+let rect = Rectangle(width: 10.0, height: 20.0);
 ```
 
 ### Why Sum Types Matter
@@ -173,7 +173,7 @@ type Connection =
     | Disconnected
     | Connected
     | Authenticated(user: User)
-    | Error(message: str)
+    | Error(message: str);
 // Each state is distinct and meaningful
 ```
 
@@ -184,25 +184,25 @@ Ori provides important sum types in the prelude:
 **`Option<T>`** — value that might not exist:
 
 ```ori
-type Option<T> = Some(T) | None
+type Option<T> = Some(T) | None;
 
-let found = Some(42)
-let not_found: Option<int> = None
+let found = Some(42);
+let not_found: Option<int> = None;
 ```
 
 **`Result<T, E>`** — operation that might fail:
 
 ```ori
-type Result<T, E> = Ok(T) | Err(E)
+type Result<T, E> = Ok(T) | Err(E);
 
-let success = Ok(42)
-let failure = Err("something went wrong")
+let success = Ok(42);
+let failure = Err("something went wrong");
 ```
 
 **`Ordering`** — comparison result:
 
 ```ori
-type Ordering = Less | Equal | Greater
+type Ordering = Less | Equal | Greater;
 ```
 
 ### Working with Sum Types
@@ -210,14 +210,14 @@ type Ordering = Less | Equal | Greater
 You **must** use pattern matching to work with sum types:
 
 ```ori
-type Status = Pending | Running | Done | Failed(reason: str)
+type Status = Pending | Running | Done | Failed(reason: str);
 
 @describe (s: Status) -> str = match s {
     Pending -> "Waiting to start"
     Running -> "In progress"
     Done -> "Complete"
     Failed(reason) -> `Failed: {reason}`
-}
+};
 ```
 
 The compiler ensures you handle every case.
@@ -237,9 +237,9 @@ type Entry<K, V> = { key: K, value: V }
 Use with concrete types:
 
 ```ori
-let int_pair: Pair<int> = Pair { first: 1, second: 2 }
-let str_pair: Pair<str> = Pair { first: "a", second: "b" }
-let entry: Entry<str, int> = Entry { key: "count", value: 42 }
+let int_pair: Pair<int> = Pair { first: 1, second: 2 };
+let str_pair: Pair<str> = Pair { first: "a", second: "b" };
+let entry: Entry<str, int> = Entry { key: "count", value: 42 };
 ```
 
 ### Generic Sum Types
@@ -247,7 +247,7 @@ let entry: Entry<str, int> = Entry { key: "count", value: 42 }
 ```ori
 type Tree<T> =
     | Leaf(value: T)
-    | Node(left: Tree<T>, right: Tree<T>)
+    | Node(left: Tree<T>, right: Tree<T>);
 
 let tree = Node(
     left: Leaf(value: 1),
@@ -255,7 +255,7 @@ let tree = Node(
         left: Leaf(value: 2),
         right: Leaf(value: 3),
     ),
-)
+);
 ```
 
 ## Newtypes
@@ -263,22 +263,22 @@ let tree = Node(
 Create distinct types from existing ones:
 
 ```ori
-type UserId = int
-type Email = str
-type Meters = float
-type Seconds = float
+type UserId = int;
+type Email = str;
+type Meters = float;
+type Seconds = float;
 ```
 
 This provides type safety:
 
 ```ori
-@send_email (to: Email, from: Email) -> void = ...
+@send_email (to: Email, from: Email) -> void = ...;
 
-let user_id: UserId = 42
-let email: Email = "alice@example.com"
+let user_id: UserId = 42;
+let email: Email = "alice@example.com";
 
-send_email(to: email, from: email)      // OK
-send_email(to: user_id, from: email)    // ERROR: type mismatch
+send_email(to: email, from: email);      // OK
+send_email(to: user_id, from: email);    // ERROR: type mismatch
 ```
 
 ## Deriving Traits
@@ -301,12 +301,12 @@ type Point = { x: int, y: int }
 | `Default` | `Type.default()` constructor |
 
 ```ori
-let a = Point { x: 1, y: 2 }
-let b = Point { x: 1, y: 2 }
-let c = a.clone()
+let a = Point { x: 1, y: 2 };
+let b = Point { x: 1, y: 2 };
+let c = a.clone();
 
-a == b       // true (Eq)
-a.debug()    // "Point { x: 1, y: 2 }" (Debug)
+a == b;       // true (Eq)
+a.debug();    // "Point { x: 1, y: 2 }" (Debug)
 ```
 
 ## Adding Methods with `impl`
@@ -318,22 +318,22 @@ type Point = { x: int, y: int }
 
 impl Point {
     // Static method (no self) - constructor
-    @new (x: int, y: int) -> Point = Point { x, y }
+    @new (x: int, y: int) -> Point = Point { x, y };
 
-    @origin () -> Point = Point { x: 0, y: 0 }
+    @origin () -> Point = Point { x: 0, y: 0 };
 
     // Instance methods (take self)
     @magnitude (self) -> float =
-        sqrt(x: float(self.x * self.x + self.y * self.y))
+        sqrt(x: float(self.x * self.x + self.y * self.y));
 
     @distance_to (self, other: Point) -> float = {
-        let dx = self.x - other.x
-        let dy = self.y - other.y
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
         sqrt(x: float(dx * dx + dy * dy))
     }
 
     @translate (self, dx: int, dy: int) -> Point =
-        Point { x: self.x + dx, y: self.y + dy }
+        Point { x: self.x + dx, y: self.y + dy };
 }
 ```
 
@@ -341,13 +341,13 @@ impl Point {
 
 ```ori
 // Static methods called on type
-let a = Point.new(x: 0, y: 0)
-let b = Point.new(x: 3, y: 4)
+let a = Point.new(x: 0, y: 0);
+let b = Point.new(x: 3, y: 4);
 
 // Instance methods called on value
-b.magnitude()              // 5.0
-a.distance_to(other: b)    // 5.0
-b.translate(dx: 1, dy: 1)  // Point { x: 4, y: 5 }
+b.magnitude();              // 5.0
+a.distance_to(other: b);    // 5.0
+b.translate(dx: 1, dy: 1);  // Point { x: 4, y: 5 }
 ```
 
 ### The `self` and `Self` Keywords
@@ -357,7 +357,7 @@ b.translate(dx: 1, dy: 1)  // Point { x: 4, y: 5 }
 
 ```ori
 impl Point {
-    @clone (self) -> Self = Point { x: self.x, y: self.y }
+    @clone (self) -> Self = Point { x: self.x, y: self.y };
 }
 ```
 
@@ -366,23 +366,23 @@ impl Point {
 ```ori
 type Shape =
     | Circle(radius: float)
-    | Rectangle(width: float, height: float)
+    | Rectangle(width: float, height: float);
 
 impl Shape {
     @area (self) -> float = match self {
         Circle(radius) -> 3.14159 * radius * radius
         Rectangle(width, height) -> width * height
-    }
+    };
 
     @perimeter (self) -> float = match self {
         Circle(radius) -> 2.0 * 3.14159 * radius
         Rectangle(width, height) -> 2.0 * (width + height)
-    }
+    };
 }
 
-let circle = Circle(radius: 5.0)
-circle.area()        // 78.54
-circle.perimeter()   // 31.42
+let circle = Circle(radius: 5.0);
+circle.area();        // 78.54
+circle.perimeter();   // 31.42
 ```
 
 ## Destructuring
@@ -392,10 +392,10 @@ Extract fields with pattern matching.
 ### Struct Destructuring
 
 ```ori
-let Point { x, y } = origin
+let Point { x, y } = origin;
 // x = 0, y = 0
 
-let User { name, email, .. } = alice
+let User { name, email, .. } = alice;
 // name = "Alice", email = "alice@example.com"
 // .. ignores remaining fields
 ```
@@ -403,30 +403,30 @@ let User { name, email, .. } = alice
 **Rename during destructuring:**
 
 ```ori
-let Point { x: px, y: py } = origin
+let Point { x: px, y: py } = origin;
 // px = 0, py = 0
 ```
 
 **Nested destructuring:**
 
 ```ori
-let Person { name, home: Address { city, .. } } = person
+let Person { name, home: Address { city, .. } } = person;
 // name = "Alice", city = "Boston"
 ```
 
 ### Tuple Destructuring
 
 ```ori
-let (a, b) = (10, 20)
-let (first, _, third) = (1, 2, 3)  // Ignore second
+let (a, b) = (10, 20);
+let (first, _, third) = (1, 2, 3);  // Ignore second
 ```
 
 ### List Destructuring
 
 ```ori
-let [$head, ..tail] = items     // head immutable
-let [first, second, ..rest] = items
-let [only] = single_item_list    // Panics if not exactly one element
+let [$head, ..tail] = items;     // head immutable
+let [first, second, ..rest] = items;
+let [only] = single_item_list;    // Panics if not exactly one element
 ```
 
 ### Immutability in Destructuring
@@ -434,8 +434,8 @@ let [only] = single_item_list    // Panics if not exactly one element
 Control mutability per binding:
 
 ```ori
-let { $x, y } = point    // x immutable, y mutable
-let ($a, b) = tuple      // a immutable, b mutable
+let { $x, y } = point;    // x immutable, y mutable
+let ($a, b) = tuple;      // a immutable, b mutable
 ```
 
 ## Visibility
@@ -456,7 +456,7 @@ pub type User = {
 }
 
 impl User {
-    pub @name (self) -> str = self.name    // Public accessor
+    pub @name (self) -> str = self.name;    // Public accessor
 }
 ```
 
@@ -464,14 +464,14 @@ impl User {
 
 ```ori
 // Priority levels
-type Priority = Low | Medium | High | Urgent
+type Priority = Low | Medium | High | Urgent;
 
 // Task status with data
 type TaskStatus =
     | Todo
     | InProgress(started: Duration)
     | Done(completed: Duration)
-    | Blocked(reason: str)
+    | Blocked(reason: str);
 
 // A task
 #derive(Eq, Clone, Debug)
@@ -491,24 +491,24 @@ impl Task {
             priority,
             status: Todo,
             tags: [],
-        }
+        };
 
     @with_tags (self, tags: [str]) -> Task =
-        Task { ...self, tags }
+        Task { ...self, tags };
 
     @start (self, at: Duration) -> Task =
-        Task { ...self, status: InProgress(started: at) }
+        Task { ...self, status: InProgress(started: at) };
 
     @complete (self, at: Duration) -> Task =
-        Task { ...self, status: Done(completed: at) }
+        Task { ...self, status: Done(completed: at) };
 
     @block (self, reason: str) -> Task =
-        Task { ...self, status: Blocked(reason: reason) }
+        Task { ...self, status: Blocked(reason: reason) };
 
     @is_actionable (self) -> bool = match self.status {
         Todo | InProgress(_) -> true
         Done(_) | Blocked(_) -> false
-    }
+    };
 }
 
 // Convert priority to number for sorting
@@ -517,11 +517,11 @@ impl Task {
     Medium -> 2
     High -> 3
     Urgent -> 4
-}
+};
 
 @test_priority_score tests @priority_score () -> void = {
-    assert_eq(actual: priority_score(p: Low), expected: 1)
-    assert_eq(actual: priority_score(p: Urgent), expected: 4)
+    assert_eq(actual: priority_score(p: Low), expected: 1);
+    assert_eq(actual: priority_score(p: Urgent), expected: 4);
 }
 
 // Describe task status
@@ -530,23 +530,23 @@ impl Task {
     InProgress(started) -> `in progress since {started}`
     Done(completed) -> `completed at {completed}`
     Blocked(reason) -> `blocked: {reason}`
-}
+};
 
 @test_status tests @status_description () -> void = {
-    assert_eq(actual: status_description(s: Todo), expected: "not started")
-    assert_eq(actual: status_description(s: Blocked(reason: "waiting")), expected: "blocked: waiting")
+    assert_eq(actual: status_description(s: Todo), expected: "not started");
+    assert_eq(actual: status_description(s: Blocked(reason: "waiting")), expected: "blocked: waiting");
 }
 
 // Test task workflow
 @test_task_workflow tests @Task.new tests @Task.start tests @Task.is_actionable () -> void = {
-    let task = Task.new(id: 1, title: "Fix bug", priority: High)
-    assert(condition: task.is_actionable())
+    let task = Task.new(id: 1, title: "Fix bug", priority: High);
+    assert(condition: task.is_actionable());
 
-    let started = task.start(at: 0s)
-    assert(condition: started.is_actionable())
+    let started = task.start(at: 0s);
+    assert(condition: started.is_actionable());
 
-    let done = started.complete(at: 30m)
-    assert(condition: !done.is_actionable())
+    let done = started.complete(at: 30m);
+    assert(condition: !done.is_actionable());
 }
 ```
 
@@ -556,35 +556,35 @@ impl Task {
 
 ```ori
 type Name = { field: Type }
-let x = Name { field: value }
-let y = Name { field }           // Shorthand
-let z = Name { ...x, field: new_value }   // Spread
-x.field
-let { field } = x                // Destructure
+let x = Name { field: value };
+let y = Name { field };           // Shorthand
+let z = Name { ...x, field: new_value };   // Spread
+x.field;
+let { field } = x;                // Destructure
 ```
 
 ### Sum Types
 
 ```ori
-type Name = Variant1 | Variant2(data: Type)
-let x = Variant1
-let y = Variant2(data: value)
+type Name = Variant1 | Variant2(data: Type);
+let x = Variant1;
+let y = Variant2(data: value);
 ```
 
 ### Generics
 
 ```ori
 type Container<T> = { value: T }
-type Either<L, R> = Left(L) | Right(R)
+type Either<L, R> = Left(L) | Right(R);
 ```
 
 ### Methods
 
 ```ori
 impl Type {
-    @static_method () -> Return = ...
-    @instance_method (self) -> Return = ...
-    @method_returning_self (self) -> Self = ...
+    @static_method () -> Return = ...;
+    @instance_method (self) -> Return = ...;
+    @method_returning_self (self) -> Self = ...;
 }
 ```
 
@@ -592,7 +592,7 @@ impl Type {
 
 ```ori
 #derive(Eq, Clone, Debug, Printable, Comparable, Hashable, Default)
-type Name = ...
+type Name = ...;
 ```
 
 ## What's Next

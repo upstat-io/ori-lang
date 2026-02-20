@@ -216,16 +216,16 @@ use std.math { sqrt }
 Comments inside function bodies follow the same rules:
 
 ```ori
-@process (data: Data) -> Result<Output, Error> = run(
+@process (data: Data) -> Result<Output, Error> = {
     // Validate input first
-    let validated = validate(data),
+    let validated = validate(data);
 
     // Transform to intermediate format
-    let intermediate = transform(validated),
+    let intermediate = transform(validated);
 
     // Produce final output
-    finalize(intermediate),
-)
+    finalize(intermediate)
+}
 ```
 
 ## What the Formatter Does NOT Do
