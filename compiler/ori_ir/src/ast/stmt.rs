@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use crate::{BindingPatternId, ExprId, ParsedTypeId, Span, Spanned};
+use crate::{BindingPatternId, ExprId, Mutability, ParsedTypeId, Span, Spanned};
 
 /// Statement node.
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -46,6 +46,6 @@ pub enum StmtKind {
         /// Type annotation (`ParsedTypeId::INVALID` = no annotation).
         ty: ParsedTypeId,
         init: ExprId,
-        mutable: bool,
+        mutable: Mutability,
     },
 }

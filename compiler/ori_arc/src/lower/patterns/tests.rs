@@ -24,7 +24,7 @@ fn bind_name_pattern() {
         CanExpr::Let {
             pattern: pat,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         Span::new(0, 12),
         TypeId::from_raw(Idx::UNIT.raw()),

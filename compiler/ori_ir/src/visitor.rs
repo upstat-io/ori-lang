@@ -34,8 +34,7 @@
 use super::ast::{
     BindingPattern, CallArg, ConstDef, Expr, ExprKind, ExtensionImport, ExternBlock, FieldInit,
     FileAttr, Function, FunctionExp, FunctionSeq, ListElement, MapElement, MapEntry, MatchArm,
-    MatchPattern, Module, NamedExpr, Param, SeqBinding, Stmt, StmtKind, StructLitField, TestDef,
-    UseDef,
+    MatchPattern, Module, NamedExpr, Param, Stmt, StmtKind, StructLitField, TestDef, UseDef,
 };
 use super::{ExprArena, ExprId};
 
@@ -171,11 +170,6 @@ pub trait Visitor<'ast> {
             MapElement::Entry(entry) => self.visit_map_entry(entry, arena),
             MapElement::Spread { expr, .. } => self.visit_expr_id(*expr, arena),
         }
-    }
-
-    /// Visit a sequence binding (`function_seq`).
-    fn visit_seq_binding(&mut self, binding: &'ast SeqBinding, arena: &'ast ExprArena) {
-        walk_seq_binding(self, binding, arena);
     }
 
     /// Visit a named expression (`function_exp`).
@@ -586,24 +580,6 @@ pub fn walk_binding_pattern<'ast, V: Visitor<'ast> + ?Sized>(
     }
 }
 
-/// Walk a sequence binding's children.
-pub fn walk_seq_binding<'ast, V: Visitor<'ast> + ?Sized>(
-    visitor: &mut V,
-    binding: &'ast SeqBinding,
-    arena: &'ast ExprArena,
-) {
-    match binding {
-        SeqBinding::Let { pattern, value, .. } => {
-            let pat = arena.get_binding_pattern(*pattern);
-            visitor.visit_binding_pattern(pat);
-            visitor.visit_expr_id(*value, arena);
-        }
-        SeqBinding::Stmt { expr, .. } => {
-            visitor.visit_expr_id(*expr, arena);
-        }
-    }
-}
-
 /// Walk a `function_seq`'s children.
 pub fn walk_function_seq<'ast, V: Visitor<'ast> + ?Sized>(
     visitor: &mut V,
@@ -611,35 +587,9 @@ pub fn walk_function_seq<'ast, V: Visitor<'ast> + ?Sized>(
     arena: &'ast ExprArena,
 ) {
     match seq {
-        FunctionSeq::Run {
-            pre_checks,
-            bindings,
-            result,
-            post_checks,
-            ..
-        } => {
-            for check in arena.get_checks(*pre_checks) {
-                visitor.visit_expr_id(check.expr, arena);
-                if let Some(msg) = check.message {
-                    visitor.visit_expr_id(msg, arena);
-                }
-            }
-            for binding in arena.get_seq_bindings(*bindings) {
-                visitor.visit_seq_binding(binding, arena);
-            }
-            visitor.visit_expr_id(*result, arena);
-            for check in arena.get_checks(*post_checks) {
-                visitor.visit_expr_id(check.expr, arena);
-                if let Some(msg) = check.message {
-                    visitor.visit_expr_id(msg, arena);
-                }
-            }
-        }
-        FunctionSeq::Try {
-            bindings, result, ..
-        } => {
-            for binding in arena.get_seq_bindings(*bindings) {
-                visitor.visit_seq_binding(binding, arena);
+        FunctionSeq::Try { stmts, result, .. } => {
+            for stmt in arena.get_stmt_range(*stmts) {
+                visitor.visit_stmt(stmt, arena);
             }
             visitor.visit_expr_id(*result, arena);
         }

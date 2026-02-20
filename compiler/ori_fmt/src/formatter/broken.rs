@@ -229,7 +229,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 init,
                 mutable,
             } => {
-                if *mutable {
+                if mutable.is_mutable() {
                     self.ctx.emit("let ");
                 } else {
                     self.ctx.emit("let $");

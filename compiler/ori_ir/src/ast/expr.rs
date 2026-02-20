@@ -24,8 +24,8 @@ use super::ranges::{
 };
 use crate::token::{DurationUnit, SizeUnit};
 use crate::{
-    BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, Name, ParsedTypeId, Span,
-    Spanned, StmtRange,
+    BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, Mutability, Name,
+    ParsedTypeId, Span, Spanned, StmtRange,
 };
 
 /// Expression node.
@@ -212,7 +212,7 @@ pub enum ExprKind {
         /// Type annotation (`ParsedTypeId::INVALID` = no annotation).
         ty: ParsedTypeId,
         init: ExprId,
-        mutable: bool,
+        mutable: Mutability,
     },
 
     /// Lambda: params -> body
@@ -429,7 +429,7 @@ impl fmt::Debug for ExprKind {
                 init,
                 mutable,
             } => {
-                write!(f, "Let({pattern:?}, {ty:?}, {init:?}, mutable={mutable})")
+                write!(f, "Let({pattern:?}, {ty:?}, {init:?}, {mutable:?})")
             }
             ExprKind::Lambda {
                 params,

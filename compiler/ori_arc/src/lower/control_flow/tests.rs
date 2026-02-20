@@ -27,7 +27,7 @@ fn lower_block_with_let() {
         CanExpr::Let {
             pattern: pat,
             init: lit1,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         Span::new(2, 12),
         TypeId::from_raw(Idx::UNIT.raw()),

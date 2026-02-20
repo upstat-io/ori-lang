@@ -1,4 +1,4 @@
-//! Sequence pattern inference — `function_seq`, run, try, for-pattern, and bindings.
+//! Sequence pattern inference — `function_seq`, try, for-pattern, and bindings.
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 
@@ -9,10 +9,9 @@ use super::{
 };
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag};
 
-/// Infer type for a `function_seq` expression (run, try, match, for).
+/// Infer type for a `function_seq` expression (try, match, for).
 ///
 /// `FunctionSeq` represents sequential expressions where order matters:
-/// - **Run**: `run(let x = a, let y = b, result)` - sequential bindings
 /// - **Try**: `try(let x = fallible()?, result)` - auto-unwrap `Result`/`Option`
 /// - **Match**: `match(scrutinee, Pattern -> expr, ...)` - pattern matching
 /// - **`ForPattern`**: `for(over: items, match: Pattern -> expr, default: fallback)`
@@ -25,17 +24,9 @@ pub(crate) fn infer_function_seq(
     use ori_ir::FunctionSeq;
 
     match func_seq {
-        FunctionSeq::Run {
-            pre_checks,
-            bindings,
-            result,
-            post_checks,
-            ..
-        } => infer_run_seq(engine, arena, *pre_checks, *bindings, *result, *post_checks),
-
-        FunctionSeq::Try {
-            bindings, result, ..
-        } => infer_try_seq(engine, arena, *bindings, *result, span),
+        FunctionSeq::Try { stmts, result, .. } => {
+            infer_try_seq(engine, arena, *stmts, *result, span)
+        }
 
         FunctionSeq::Match {
             scrutinee,
@@ -56,110 +47,6 @@ pub(crate) fn infer_function_seq(
     }
 }
 
-/// Infer type for `run(pre_check: ..., let x = a, result, post_check: ...)`.
-///
-/// Creates a new scope, validates pre-checks, processes bindings sequentially,
-/// infers the result type, then validates post-checks against the result type.
-pub(crate) fn infer_run_seq(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    pre_checks: ori_ir::CheckRange,
-    bindings: ori_ir::SeqBindingRange,
-    result: ExprId,
-    post_checks: ori_ir::CheckRange,
-) -> Idx {
-    engine.enter_scope();
-
-    // Pre-checks: each condition must be bool, each message must be str.
-    // Pre-checks execute before any bindings, so they only see the enclosing scope.
-    infer_pre_checks(engine, arena, pre_checks);
-
-    // Process each binding in sequence
-    let seq_bindings = arena.get_seq_bindings(bindings);
-    for binding in seq_bindings {
-        infer_seq_binding(engine, arena, binding, false);
-    }
-
-    // Infer the result expression
-    let result_ty = infer_expr(engine, arena, result);
-
-    // Post-checks: each must be a lambda `(result_type) -> bool`, message must be str.
-    // Post-checks can see bindings from the run body.
-    infer_post_checks(engine, arena, post_checks, result_ty);
-
-    engine.exit_scope();
-
-    result_ty
-}
-
-/// Type-check pre-check expressions in a `run()` block.
-///
-/// Each `pre_check: condition` must have type `bool`.
-/// Each optional message (`| "msg"`) must have type `str`.
-pub(crate) fn infer_pre_checks(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    checks: ori_ir::CheckRange,
-) {
-    let checks = arena.get_checks(checks);
-    for check in checks {
-        // Condition must be bool
-        let cond_ty = infer_expr(engine, arena, check.expr);
-        engine.push_context(ContextKind::PreCheck);
-        let expected = Expected {
-            ty: Idx::BOOL,
-            origin: ExpectedOrigin::NoExpectation,
-        };
-        let _ = engine.check_type(cond_ty, &expected, arena.get_expr(check.expr).span);
-        engine.pop_context();
-
-        // Message must be str (if present)
-        if let Some(msg) = check.message {
-            let msg_ty = infer_expr(engine, arena, msg);
-            let expected = Expected {
-                ty: Idx::STR,
-                origin: ExpectedOrigin::NoExpectation,
-            };
-            let _ = engine.check_type(msg_ty, &expected, arena.get_expr(msg).span);
-        }
-    }
-}
-
-/// Type-check post-check expressions in a `run()` block.
-///
-/// Each `post_check: r -> condition` must be a lambda from `result_type` to `bool`.
-/// Each optional message (`| "msg"`) must have type `str`.
-pub(crate) fn infer_post_checks(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    checks: ori_ir::CheckRange,
-    result_ty: Idx,
-) {
-    let checks = arena.get_checks(checks);
-    for check in checks {
-        // Post-check expression must be fn(result_ty) -> bool
-        let check_ty = infer_expr(engine, arena, check.expr);
-        engine.push_context(ContextKind::PostCheck);
-        let expected_fn = engine.pool_mut().function1(result_ty, Idx::BOOL);
-        let expected = Expected {
-            ty: expected_fn,
-            origin: ExpectedOrigin::NoExpectation,
-        };
-        let _ = engine.check_type(check_ty, &expected, arena.get_expr(check.expr).span);
-        engine.pop_context();
-
-        // Message must be str (if present)
-        if let Some(msg) = check.message {
-            let msg_ty = infer_expr(engine, arena, msg);
-            let expected = Expected {
-                ty: Idx::STR,
-                origin: ExpectedOrigin::NoExpectation,
-            };
-            let _ = engine.check_type(msg_ty, &expected, arena.get_expr(msg).span);
-        }
-    }
-}
-
 /// Infer type for `try(let x = fallible()?, result)`.
 ///
 /// Like run, but auto-unwraps Result/Option types in let bindings.
@@ -167,7 +54,7 @@ pub(crate) fn infer_post_checks(
 pub(crate) fn infer_try_seq(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    bindings: ori_ir::SeqBindingRange,
+    stmts: ori_ir::StmtRange,
     result: ExprId,
     span: Span,
 ) -> Idx {
@@ -177,12 +64,12 @@ pub(crate) fn infer_try_seq(
     // Track the error type for Result propagation
     let mut error_ty: Option<Idx> = None;
 
-    // Process each binding in sequence (with unwrapping)
-    let seq_bindings = arena.get_seq_bindings(bindings);
-    for binding in seq_bindings {
-        if let ori_ir::SeqBinding::Let { value, .. } = binding {
+    // Process each statement in sequence (with unwrapping)
+    let stmts_list = arena.get_stmt_range(stmts);
+    for stmt in stmts_list {
+        if let ori_ir::StmtKind::Let { init, .. } = &stmt.kind {
             // Infer the value type first
-            let value_ty = infer_expr(engine, arena, *value);
+            let value_ty = infer_expr(engine, arena, *init);
             let resolved = engine.resolve(value_ty);
             let tag = engine.pool().tag(resolved);
 
@@ -191,8 +78,8 @@ pub(crate) fn infer_try_seq(
                 error_ty = Some(engine.pool().result_err(resolved));
             }
         }
-        // Process binding with try-unwrapping enabled
-        infer_seq_binding(engine, arena, binding, true);
+        // Process statement with try-unwrapping enabled
+        infer_try_stmt(engine, arena, stmt, true);
     }
 
     // Infer the result expression
@@ -301,24 +188,18 @@ pub(crate) fn infer_for_pattern(
     arm_ty
 }
 
-/// Process a sequential binding (let or statement).
+/// Process a try-block statement (let or expression).
 ///
 /// If `try_unwrap` is true, auto-unwrap Result/Option in let bindings.
-pub(crate) fn infer_seq_binding(
+pub(crate) fn infer_try_stmt(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    binding: &ori_ir::SeqBinding,
+    stmt: &ori_ir::Stmt,
     try_unwrap: bool,
 ) {
-    use ori_ir::SeqBinding;
-
-    match binding {
-        SeqBinding::Let {
-            pattern,
-            ty,
-            value,
-            span,
-            ..
+    match &stmt.kind {
+        ori_ir::StmtKind::Let {
+            pattern, ty, init, ..
         } => {
             let pat = arena.get_binding_pattern(*pattern);
 
@@ -333,22 +214,23 @@ pub(crate) fn infer_seq_binding(
             let final_ty = if ty.is_valid() {
                 // With type annotation
                 let parsed_ty = arena.get_parsed_type(*ty);
-                let expected_ty = resolve_and_check_parsed_type(engine, arena, parsed_ty, *span);
+                let expected_ty =
+                    resolve_and_check_parsed_type(engine, arena, parsed_ty, stmt.span);
 
                 if try_unwrap {
                     // For try blocks: infer, unwrap, then check against annotation
                     // e.g., `let x: int = succeed(42)` where succeed returns Result<int>
-                    let init_ty = infer_expr(engine, arena, *value);
+                    let init_ty = infer_expr(engine, arena, *init);
                     let unwrapped = unwrap_result_or_option(engine, init_ty);
 
                     let expected = Expected {
                         ty: expected_ty,
                         origin: ExpectedOrigin::Annotation {
                             name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
-                            span: *span,
+                            span: stmt.span,
                         },
                     };
-                    let _ = engine.check_type(unwrapped, &expected, *span);
+                    let _ = engine.check_type(unwrapped, &expected, stmt.span);
                     expected_ty
                 } else {
                     // For run blocks: use bidirectional checking (allows literal coercion)
@@ -357,21 +239,21 @@ pub(crate) fn infer_seq_binding(
                         ty: expected_ty,
                         origin: ExpectedOrigin::Annotation {
                             name: pattern_first_name(pat).unwrap_or(Name::EMPTY),
-                            span: *span,
+                            span: stmt.span,
                         },
                     };
-                    let _init_ty = check_expr(engine, arena, *value, &expected, *span);
+                    let _init_ty = check_expr(engine, arena, *init, &expected, stmt.span);
                     expected_ty
                 }
             } else {
                 // No annotation: infer the initializer type
-                let init_ty = infer_expr(engine, arena, *value);
+                let init_ty = infer_expr(engine, arena, *init);
 
                 // Detect closure self-capture: if the init is a lambda and any new
                 // errors are UnknownIdent matching the binding name, rewrite them.
                 // Example: `run(let f = () -> f, ...)` — f isn't yet in scope.
                 if let Some(name) = binding_name {
-                    if matches!(arena.get_expr(*value).kind, ExprKind::Lambda { .. }) {
+                    if matches!(arena.get_expr(*init).kind, ExprKind::Lambda { .. }) {
                         engine.rewrite_self_capture_errors(name, errors_before);
                     }
                 }
@@ -395,7 +277,7 @@ pub(crate) fn infer_seq_binding(
             bind_pattern(engine, arena, pat, final_ty);
         }
 
-        SeqBinding::Stmt { expr, .. } => {
+        ori_ir::StmtKind::Expr(expr) => {
             // Statement expression - evaluate for side effects
             infer_expr(engine, arena, *expr);
         }

@@ -91,7 +91,7 @@ pub(crate) fn infer_let(
     // Enforcement happens in the evaluator (`bind_can_pattern`) and codegen backends,
     // not here. Kept as a parameter for future "cannot assign to immutable binding"
     // diagnostics (like Rust's type checker emits).
-    _mutable: bool,
+    _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
     // Enter scope for let-polymorphism.

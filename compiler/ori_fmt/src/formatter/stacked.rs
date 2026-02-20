@@ -1,14 +1,14 @@
 //! Stacked Formatting
 //!
-//! Methods for emitting always-stacked constructs (run, try, match, etc.)
+//! Methods for emitting always-stacked constructs (try, match, etc.)
 //! that always render in multi-line format.
 
-use ori_ir::{ArmRange, ExprId, ExprKind, SeqBinding, SeqBindingRange, StringLookup};
+use ori_ir::{ArmRange, ExprId, ExprKind, StmtRange, StringLookup};
 
 use super::Formatter;
 
 impl<I: StringLookup> Formatter<'_, I> {
-    /// Emit an always-stacked construct (run, try, match, etc.).
+    /// Emit an always-stacked construct (try, match, etc.).
     pub(super) fn emit_stacked(&mut self, expr_id: ExprId) {
         let expr = self.arena.get_expr(expr_id);
 
@@ -69,27 +69,15 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    /// Emit a `function_seq` pattern (run, try, etc.).
+    /// Emit a `function_seq` pattern (try, match, etc.).
     pub(super) fn emit_function_seq(&mut self, seq: &ori_ir::FunctionSeq) {
         match seq {
-            // TODO(§0.10-cleanup): FunctionSeq::Run is dead — parser no longer produces Run nodes.
-            // Remove when IR variant is removed (see roadmap section-00-parser.md § 0.10).
-            ori_ir::FunctionSeq::Run {
-                pre_checks,
-                bindings,
-                result,
-                post_checks,
-                span: _,
-            } => {
-                self.emit_run_with_checks(*pre_checks, *bindings, *result, *post_checks);
-            }
-
             ori_ir::FunctionSeq::Try {
-                bindings,
+                stmts,
                 result,
                 span: _,
             } => {
-                self.emit_try_block(*bindings, *result);
+                self.emit_try_block(*stmts, *result);
             }
 
             ori_ir::FunctionSeq::Match {
@@ -179,72 +167,15 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit("}");
     }
 
-    /// Emit a run pattern with optional pre/post checks.
-    ///
-    /// TODO(§0.10-cleanup): Dead code — parser no longer produces `FunctionSeq::Run`.
-    /// Remove when IR variant is removed (see roadmap section-00-parser.md § 0.10).
-    fn emit_run_with_checks(
-        &mut self,
-        pre_checks: ori_ir::CheckRange,
-        bindings: SeqBindingRange,
-        result: ExprId,
-        post_checks: ori_ir::CheckRange,
-    ) {
-        self.ctx.emit("run");
-        self.ctx.emit("(");
-        self.ctx.emit_newline();
-        self.ctx.indent();
-
-        for check in self.arena.get_checks(pre_checks) {
-            self.ctx.emit_indent();
-            self.ctx.emit("pre_check: ");
-            self.format(check.expr);
-            if let Some(msg) = check.message {
-                self.ctx.emit(" | ");
-                self.format(msg);
-            }
-            self.ctx.emit(",");
-            self.ctx.emit_newline();
-        }
-
-        let bindings_list = self.arena.get_seq_bindings(bindings);
-        for binding in bindings_list {
-            self.ctx.emit_indent();
-            self.emit_seq_binding(binding);
-            self.ctx.emit(",");
-            self.ctx.emit_newline();
-        }
-
-        self.ctx.emit_indent();
-        self.format(result);
-        self.ctx.emit(",");
-
-        for check in self.arena.get_checks(post_checks) {
-            self.ctx.emit_newline();
-            self.ctx.emit_indent();
-            self.ctx.emit("post_check: ");
-            self.format(check.expr);
-            if let Some(msg) = check.message {
-                self.ctx.emit(" | ");
-                self.format(msg);
-            }
-            self.ctx.emit(",");
-        }
-
-        self.ctx.dedent();
-        self.ctx.emit_newline_indent();
-        self.ctx.emit(")");
-    }
-
-    /// Emit `try { bindings; result }` using block syntax.
-    fn emit_try_block(&mut self, bindings: SeqBindingRange, result: ExprId) {
+    /// Emit `try { stmts; result }` using block syntax.
+    fn emit_try_block(&mut self, stmts: StmtRange, result: ExprId) {
         self.ctx.emit("try {");
         self.ctx.indent();
 
-        let bindings_list = self.arena.get_seq_bindings(bindings);
-        for binding in bindings_list {
+        let stmts_list = self.arena.get_stmt_range(stmts);
+        for stmt in stmts_list {
             self.ctx.emit_newline_indent();
-            self.emit_seq_binding(binding);
+            self.emit_stmt(stmt);
             self.ctx.emit(";");
         }
 
@@ -258,33 +189,6 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.ctx.emit("}");
     }
 
-    /// Emit a sequence binding.
-    fn emit_seq_binding(&mut self, binding: &SeqBinding) {
-        match binding {
-            // Per spec: mutable is default, $ prefix for immutable
-            SeqBinding::Let {
-                pattern,
-                ty: _,
-                value,
-                mutable,
-                span: _,
-            } => {
-                if *mutable {
-                    self.ctx.emit("let ");
-                } else {
-                    self.ctx.emit("let $");
-                }
-                let pat = self.arena.get_binding_pattern(*pattern);
-                self.emit_binding_pattern(pat);
-                self.ctx.emit(" = ");
-                self.format(*value);
-            }
-            SeqBinding::Stmt { expr, span: _ } => {
-                self.format(*expr);
-            }
-        }
-    }
-
     /// Emit a statement.
     pub(super) fn emit_stmt(&mut self, stmt: &ori_ir::Stmt) {
         match &stmt.kind {
@@ -296,7 +200,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                 init,
                 mutable,
             } => {
-                if *mutable {
+                if mutable.is_mutable() {
                     self.ctx.emit("let ");
                 } else {
                     self.ctx.emit("let $");
