@@ -28,8 +28,8 @@ sections:
     title: Built-in Generic Types
     status: in-progress
   - id: "5.7"
-    title: Derive Attributes
-    status: in-progress
+    title: "with Clause on Type Declarations (Capability Unification)"
+    status: not-started
   - id: "5.8"
     title: Visibility
     status: in-progress
@@ -280,19 +280,35 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
 
 ---
 
-## 5.7 Derive Attributes
+## 5.7 `with` Clause on Type Declarations (Capability Unification)
 
-> **NOTE - Pending Syntax Change**: Approved proposal changes attribute syntax:
-> - Current: `#[derive(Eq, Clone)]`
-> - New: `#derive(Eq, Clone)`
-> See Section 15 (Approved Syntax Proposals) § 15.1. Implement with new syntax directly.
+**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 1
 
-- [x] **Implement**: Parse `#[derive(Trait1, Trait2)]` [done] (2026-02-10)
+Replace `#derive(Trait)` with `type T with Trait = ...`. Derivation moves from attribute syntax into the type declaration grammar.
+
+> **SUPERSEDES**: Previous syntax `#derive(Eq, Clone)` and `#[derive(Eq, Clone)]` are both replaced by `type T with Eq, Clone = { ... }`.
+
+### Syntax Migration
+
+- [ ] **Implement**: Parser — parse `with` clause in `parse_type_decl()` between generics and `where`/`=`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — `with` clause parsing
+  - [ ] **Ori Tests**: `tests/spec/declarations/with_clause.ori`
+- [ ] **Implement**: IR — add `with_traits: Vec<DerivedTrait>` to `TypeDef` node (replacing attribute-sourced data)
+- [ ] **Implement**: Remove `parse_derive_attr()` from parser; keep as migration error suggesting `with`
+  - [ ] **Ori Tests**: `tests/compile-fail/old_derive_syntax.ori`
+- [ ] **Migration**: Update all `#derive(...)` in spec tests to `with` clause (~193 files)
+- [ ] **Migration**: Migration script (`scripts/migrate_with_syntax.py`)
+- [ ] **Update Spec**: `grammar.ebnf` — `type_def` production
+- [ ] **Update**: `.claude/rules/ori-syntax.md` — derive syntax
+- [ ] **Verify**: `./test-all.sh` passes after migration
+
+### Existing Derive Functionality (carries forward)
+
+- [x] **Implement**: Parse `#[derive(Trait1, Trait2)]` [done] (2026-02-10) — to be replaced by `with` clause
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — derive attribute parsing
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` (15+ tests)
   - [ ] **LLVM Support**: LLVM codegen for derive attributes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
-  - Note: Currently using `#[derive(...)]` syntax, not yet migrated to `#derive(...)` (pending 15A)
 
 - [x] **Implement**: `#derive(Eq)` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derive/eq.rs` — derive Eq generation

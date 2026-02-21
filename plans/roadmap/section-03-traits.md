@@ -77,6 +77,9 @@ sections:
   - id: "3.21"
     title: Operator Traits
     status: in-progress
+  - id: "3.22"
+    title: "with Syntax for Bounds (Capability Unification)"
+    status: not-started
 ---
 
 # Section 3: Traits and Implementations
@@ -1545,3 +1548,34 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
 
 - [x] **Update Spec**: `09-expressions.md` — Operator Traits section [done] (verified 2026-02-15, already present at line 403 with full trait/method/desugaring tables)
 - [x] **Update**: `CLAUDE.md` — operator traits in prelude and operators section [done] (verified 2026-02-15, already in ori-syntax.md lines 93 and 191)
+
+---
+
+## 3.22 `with` Syntax for Bounds (Capability Unification)
+
+**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 2
+
+Replace `:` with `with` in all trait bound positions: generic parameters, where clauses, supertrait declarations, and impl block bounds. This gives Ori a consistent keyword vocabulary for structural capabilities.
+
+### Implementation
+
+- [ ] **Implement**: Parser — change `parse_generic_param()` bound delimiter from `:` to `with`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — generic param `with` bound tests
+  - [ ] **Ori Tests**: `tests/spec/traits/bounds/with_syntax.ori`
+- [ ] **Implement**: Parser — change `parse_where_clause()` from `T: Bounds` to `T with Bounds`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — where clause `with` bound tests
+  - [ ] **Ori Tests**: `tests/spec/traits/bounds/where_with.ori`
+- [ ] **Implement**: Parser — change `parse_trait_def()` supertrait syntax from `: Bounds` to `with Bounds`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — supertrait `with` tests
+  - [ ] **Ori Tests**: `tests/spec/traits/bounds/supertrait_with.ori`
+- [ ] **Implement**: Migration error for old `:` bound syntax (suggests `with`)
+  - [ ] **Ori Tests**: `tests/compile-fail/old_colon_bound_syntax.ori`
+- [ ] **Migration**: Update all spec tests from `T: Trait` to `T with Trait`
+- [ ] **Migration**: Update all spec tests from `where T: Trait` to `where T with Trait`
+- [ ] **Migration**: Update all spec tests from `trait Foo: Bar` to `trait Foo with Bar`
+- [ ] **Migration**: Update all spec tests from `impl<T: Trait>` to `impl<T with Trait>`
+- [ ] **Update Spec**: `grammar.ebnf` — `type_param`, `where_clause`, `trait_def` productions
+- [ ] **Update Spec**: All bound examples across spec files
+- [ ] **Update**: `.claude/rules/ori-syntax.md` — bound syntax
+- [ ] **LLVM Support**: Verify LLVM tests compile with new syntax
+- [ ] **Verify**: `./test-all.sh` passes after migration
