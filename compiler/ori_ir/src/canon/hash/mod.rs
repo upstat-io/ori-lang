@@ -184,7 +184,12 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             label.raw().hash(state);
             hash_node(arena, value, state);
         }
-        CanExpr::Try(child) | CanExpr::Await(child) | CanExpr::Unsafe(child) => {
+        CanExpr::Try(child)
+        | CanExpr::Await(child)
+        | CanExpr::Unsafe(child)
+        | CanExpr::Ok(child)
+        | CanExpr::Err(child)
+        | CanExpr::Some(child) => {
             hash_node(arena, child, state);
         }
 
@@ -230,11 +235,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, start, state);
             hash_node(arena, end, state);
             hash_node(arena, step, state);
-        }
-
-        // Algebraic
-        CanExpr::Ok(child) | CanExpr::Err(child) | CanExpr::Some(child) => {
-            hash_node(arena, child, state);
         }
 
         // Capabilities
