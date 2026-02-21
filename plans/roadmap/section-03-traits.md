@@ -557,8 +557,8 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 - [x] **Implement**: Iterator Phase 2 methods — consumers (fold, count, find, any, all, for_each, collect) and lazy adapters (map, filter, take, skip) (2026-02-15)
   - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 10 adapter variant unit tests (2026-02-15)
   - [x] **Ori Tests**: `tests/spec/traits/iterator/methods.ori` — 31 spec test assertions (2026-02-15)
-  - [ ] **LLVM Support**: LLVM codegen for all iterator methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+  - [x] **LLVM Support**: LLVM codegen for all iterator methods (2026-02-21) — Phase 1: map, filter, take, skip, enumerate, collect, count; Phase 2: fold, find, any, all, for_each, zip, chain
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/iterators.rs` — 25 AOT tests (2026-02-21)
   - [x] **Phase 2C/2D**: enumerate, zip, chain, flatten, flat_map, cycle (2026-02-15)
   - [x] **Remaining**: DoubleEndedIterator — next_back() implemented (2026-02-16)
 

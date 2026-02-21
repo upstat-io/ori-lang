@@ -198,12 +198,42 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_iter_take", &[ptr_ty, i64_ty], Some(ptr_ty));
     builder.declare_extern_function("ori_iter_skip", &[ptr_ty, i64_ty], Some(ptr_ty));
     builder.declare_extern_function("ori_iter_enumerate", &[ptr_ty], Some(ptr_ty));
+    // ori_iter_zip(left, right, left_elem_size) -> ptr
+    builder.declare_extern_function("ori_iter_zip", &[ptr_ty, ptr_ty, i64_ty], Some(ptr_ty));
+    // ori_iter_chain(first, second) -> ptr
+    builder.declare_extern_function("ori_iter_chain", &[ptr_ty, ptr_ty], Some(ptr_ty));
 
     // Consumers
     // ori_iter_collect(iter, elem_size, out_ptr) -> void (sret pattern)
     builder.declare_extern_function("ori_iter_collect", &[ptr_ty, i64_ty, ptr_ty], void);
     // ori_iter_count(iter, elem_size) -> i64
     builder.declare_extern_function("ori_iter_count", &[ptr_ty, i64_ty], Some(i64_ty));
+    // ori_iter_any(iter, pred_fn, pred_env, elem_size) -> i8
+    builder.declare_extern_function(
+        "ori_iter_any",
+        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        Some(i8_ty),
+    );
+    // ori_iter_all(iter, pred_fn, pred_env, elem_size) -> i8
+    builder.declare_extern_function(
+        "ori_iter_all",
+        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        Some(i8_ty),
+    );
+    // ori_iter_find(iter, pred_fn, pred_env, elem_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_iter_find",
+        &[ptr_ty, ptr_ty, ptr_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_iter_for_each(iter, fn, env, elem_size) -> void
+    builder.declare_extern_function("ori_iter_for_each", &[ptr_ty, ptr_ty, ptr_ty, i64_ty], void);
+    // ori_iter_fold(iter, init_ptr, fold_fn, fold_env, elem_size, acc_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_iter_fold",
+        &[ptr_ty, ptr_ty, ptr_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
 
     // Cleanup
     builder.declare_extern_function("ori_iter_drop", &[ptr_ty], void);

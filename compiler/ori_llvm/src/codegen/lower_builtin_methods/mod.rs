@@ -15,7 +15,8 @@
 //! - **List**: `len`, `is_empty`, `clone`, `compare`, `equals`, `hash`
 //! - **Map**: `clone`, `equals`, `hash`
 //! - **Set**: `clone`, `equals`, `hash`
-//! - **Iterator**: `map`, `filter`, `take`, `skip`, `enumerate`, `collect`, `count`
+//! - **Iterator**: `map`, `filter`, `take`, `skip`, `enumerate`, `zip`, `chain`,
+//!   `collect`, `count`, `any`, `all`, `find`, `for_each`, `fold`
 //! - **Range**: `iter`
 
 mod collections;

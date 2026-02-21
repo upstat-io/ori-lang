@@ -11,6 +11,18 @@
 //! - Adapters (map, filter) accept trampoline function pointers that bridge
 //!   typed closures to the runtime's generic `(env, in_ptr, out_ptr)` ABI
 //! - `ori_iter_drop` frees the handle and any captured environment pointers
+//!
+//! # Submodules
+//!
+//! - `consumers`: Terminal operations (collect, count, fold, find, any, all, `for_each`)
+
+mod consumers;
+
+// Re-export consumer functions at module level (they're `#[no_mangle] extern "C"`)
+pub use consumers::{
+    ori_iter_all, ori_iter_any, ori_iter_collect, ori_iter_count, ori_iter_find, ori_iter_fold,
+    ori_iter_for_each,
+};
 
 use std::ptr;
 
@@ -70,13 +82,33 @@ enum IterState {
 
     /// Wraps each element with its index: (index, element).
     Enumerated { source: Box<IterState>, index: i64 },
+
+    /// Zips two iterators, yielding `(left_elem, right_elem)` tuples.
+    Zipped {
+        left: Box<IterState>,
+        right: Box<IterState>,
+        left_elem_size: i64,
+    },
+
+    /// Chains two iterators — yields all of first, then all of second.
+    Chained {
+        first: Box<IterState>,
+        second: Box<IterState>,
+        first_done: bool,
+    },
 }
 
 /// Trampoline signature for map: `(env, in_ptr, out_ptr) -> void`
 type TransformFn = extern "C" fn(*mut u8, *const u8, *mut u8);
 
-/// Trampoline signature for filter: `(env, elem_ptr) -> bool`
+/// Trampoline signature for filter/any/all/find: `(env, elem_ptr) -> bool`
 type PredicateFn = extern "C" fn(*mut u8, *const u8) -> bool;
+
+/// Trampoline signature for `for_each`: `(env, elem_ptr) -> void`
+type ForEachFn = extern "C" fn(*mut u8, *const u8);
+
+/// Trampoline signature for fold: `(env, acc_ptr, elem_ptr, out_ptr) -> void`
+type FoldFn = extern "C" fn(*mut u8, *const u8, *const u8, *mut u8);
 
 // ── IterState::next() ───────────────────────────────────────────────────
 
@@ -123,6 +155,16 @@ impl IterState {
             Self::Enumerated { source, index } => {
                 Self::next_enumerated(source, index, elem_size, out_ptr)
             }
+            Self::Zipped {
+                left,
+                right,
+                left_elem_size,
+            } => Self::next_zipped(left, right, *left_elem_size, elem_size, out_ptr),
+            Self::Chained {
+                first,
+                second,
+                first_done,
+            } => Self::next_chained(first, second, first_done, elem_size, out_ptr),
         }
     }
 
@@ -261,9 +303,50 @@ impl IterState {
         *index += 1;
         true
     }
+
+    /// Zip: advance both iterators, copy left then right to output.
+    ///
+    /// Output layout: `[left_elem_bytes | right_elem_bytes]`.
+    /// Total output size is `elem_size` (= `left_elem_size` + `right_elem_size`).
+    unsafe fn next_zipped(
+        left: &mut IterState,
+        right: &mut IterState,
+        left_elem_size: i64,
+        elem_size: i64,
+        out_ptr: *mut u8,
+    ) -> bool {
+        let right_elem_size = elem_size - left_elem_size;
+        // Advance left into front of output buffer
+        if !left.next(out_ptr, left_elem_size) {
+            return false;
+        }
+        // Advance right into back of output buffer
+        let right_ptr = out_ptr.add(left_elem_size as usize);
+        if !right.next(right_ptr, right_elem_size) {
+            return false;
+        }
+        true
+    }
+
+    /// Chain: yield all of first iterator, then all of second.
+    unsafe fn next_chained(
+        first: &mut IterState,
+        second: &mut IterState,
+        first_done: &mut bool,
+        elem_size: i64,
+        out_ptr: *mut u8,
+    ) -> bool {
+        if !*first_done {
+            if first.next(out_ptr, elem_size) {
+                return true;
+            }
+            *first_done = true;
+        }
+        second.next(out_ptr, elem_size)
+    }
 }
 
-// ── Extern C API ────────────────────────────────────────────────────────
+// ── Extern C API — Constructors ─────────────────────────────────────────
 
 /// Create an iterator over a list's data buffer.
 ///
@@ -296,6 +379,8 @@ pub extern "C" fn ori_iter_from_range(start: i64, end: i64, step: i64, inclusive
     Box::into_raw(Box::new(state)).cast()
 }
 
+// ── Extern C API — Core ─────────────────────────────────────────────────
+
 /// Advance the iterator, writing the next element to `out_ptr`.
 ///
 /// Returns 1 if an element was produced, 0 if the iterator is exhausted.
@@ -309,6 +394,8 @@ pub extern "C" fn ori_iter_next(iter: *mut u8, out_ptr: *mut u8, elem_size: i64)
     let has_next = unsafe { state.next(out_ptr, elem_size) };
     i8::from(has_next)
 }
+
+// ── Extern C API — Adapters ─────────────────────────────────────────────
 
 /// Create a mapped iterator adapter.
 ///
@@ -400,81 +487,68 @@ pub extern "C" fn ori_iter_enumerate(iter: *mut u8) -> *mut u8 {
     Box::into_raw(Box::new(state)).cast()
 }
 
-/// Collect all remaining elements into a new list.
+/// Create a zip adapter — pairs elements from two iterators.
 ///
-/// Returns an `OriList { len: i64, cap: i64, data: *mut u8 }` by writing
-/// to the caller-provided `out_ptr` (sret pattern to avoid >16 byte return).
-///
-/// `elem_size` is the byte size of each element.
+/// Output element layout: `[left_elem | right_elem]` (concatenated bytes).
+/// Stops when either iterator is exhausted.
 #[no_mangle]
-pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut u8) {
-    if iter.is_null() || out_ptr.is_null() {
-        // Write empty list
-        if !out_ptr.is_null() {
-            unsafe {
-                out_ptr.cast::<i64>().write(0); // len
-                out_ptr.cast::<i64>().add(1).write(0); // cap
-                out_ptr.add(16).cast::<*mut u8>().write(ptr::null_mut()); // data
-            }
+pub extern "C" fn ori_iter_zip(left: *mut u8, right: *mut u8, left_elem_size: i64) -> *mut u8 {
+    if left.is_null() || right.is_null() {
+        if !left.is_null() {
+            ori_iter_drop(left);
         }
-        return;
-    }
-
-    let state = unsafe { &mut *iter.cast::<IterState>() };
-    let es = elem_size.max(1) as usize;
-
-    // Start with capacity 8, grow by doubling
-    let mut cap: usize = 8;
-    let mut len: usize = 0;
-    let mut data = crate::ori_alloc(cap * es, 8);
-
-    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
-    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
-        if len >= cap {
-            let new_cap = cap * 2;
-            let new_data = crate::ori_realloc(data, cap * es, new_cap * es, 8);
-            if new_data.is_null() {
-                break;
-            }
-            data = new_data;
-            cap = new_cap;
+        if !right.is_null() {
+            ori_iter_drop(right);
         }
-        unsafe {
-            ptr::copy_nonoverlapping(elem_buf.as_ptr(), data.add(len * es), es);
-        }
-        len += 1;
+        return ptr::null_mut();
     }
-
-    // Write OriList { len, cap, data } to out_ptr
-    unsafe {
-        out_ptr.cast::<i64>().write(len as i64);
-        out_ptr.cast::<i64>().add(1).write(cap as i64);
-        out_ptr.add(16).cast::<*mut u8>().write(data);
-    }
-
-    // Drop the iterator
-    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+    let left_state = unsafe { Box::from_raw(left.cast::<IterState>()) };
+    let right_state = unsafe { Box::from_raw(right.cast::<IterState>()) };
+    let state = IterState::Zipped {
+        left: left_state,
+        right: right_state,
+        left_elem_size,
+    };
+    Box::into_raw(Box::new(state)).cast()
 }
 
-/// Count the remaining elements in the iterator, consuming it.
+/// Create a chain adapter — yields all elements from first, then all from second.
 #[no_mangle]
-pub extern "C" fn ori_iter_count(iter: *mut u8, elem_size: i64) -> i64 {
-    if iter.is_null() {
-        return 0;
+pub extern "C" fn ori_iter_chain(first: *mut u8, second: *mut u8) -> *mut u8 {
+    if first.is_null() && second.is_null() {
+        return ptr::null_mut();
     }
-
-    let state = unsafe { &mut *iter.cast::<IterState>() };
-    let mut count: i64 = 0;
-    let mut discard = [0u8; MAX_ELEM_SIZE];
-
-    while unsafe { state.next(discard.as_mut_ptr(), elem_size) } {
-        count += 1;
-    }
-
-    // Drop the iterator
-    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
-    count
+    // If one is null, still chain — the null side yields nothing
+    let first_state = if first.is_null() {
+        // Empty range as placeholder
+        Box::new(IterState::Range {
+            current: 0,
+            end: 0,
+            step: 1,
+            inclusive: false,
+        })
+    } else {
+        unsafe { Box::from_raw(first.cast::<IterState>()) }
+    };
+    let second_state = if second.is_null() {
+        Box::new(IterState::Range {
+            current: 0,
+            end: 0,
+            step: 1,
+            inclusive: false,
+        })
+    } else {
+        unsafe { Box::from_raw(second.cast::<IterState>()) }
+    };
+    let state = IterState::Chained {
+        first: first_state,
+        second: second_state,
+        first_done: false,
+    };
+    Box::into_raw(Box::new(state)).cast()
 }
+
+// ── Extern C API — Cleanup ──────────────────────────────────────────────
 
 /// Drop (free) an iterator handle and all its internal state.
 ///
@@ -487,8 +561,6 @@ pub extern "C" fn ori_iter_drop(iter: *mut u8) {
     }
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
-
-// ── Tests ───────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests;
