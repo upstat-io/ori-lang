@@ -12,7 +12,9 @@ Ori's ARC system lives in the `ori_arc` crate (~2.6k lines of production code, p
 
 The implementation is genuinely well-engineered. Borrow inference (`infer_borrows`) uses Lean 4's monotonic fixed-point algorithm with tail-call preservation. Derived ownership (`infer_derived_ownership`) extends borrow tracking to all SSA variables via a single forward pass, classifying each as `Owned`, `BorrowedFrom(root)`, or `Fresh`. RC insertion (`insert_rc_ops_with_ownership`) performs a backward walk with liveness-driven placement, handling borrowed-derived variables at owned positions and closure capture analysis. Reset/reuse detection (`detect_reset_reuse_cfg`) operates both intra-block and cross-block using dominator trees and refined liveness (which distinguishes live-for-use from live-for-drop). RC elimination runs three phases: intra-block bidirectional dataflow, single-predecessor cross-block pairs, and multi-predecessor join-point elimination. The FBIP diagnostic pass (`analyze_fbip`) provides Koka-inspired reporting on achieved vs missed reuse opportunities. Drop descriptors (`DropInfo`/`DropKind`) declaratively specify per-type cleanup, keeping the analysis backend-independent.
 
-The gaps are concentrated in three areas. First, the LLVM codegen layer (`arc_emitter.rs`, ~1027 lines) is functional but has significant stubs: `IsShared` always emits `false` (assumes unique), `Reuse` falls back to fresh `Construct`, `PartialApply` produces null closure environments, and `RcDec` passes a null drop function. Second, the runtime's `ori_rc_inc`/`ori_rc_dec` use non-atomic pointer arithmetic (`*rc_ptr += 1` / `*rc_ptr -= 1`), which is correct for single-threaded execution but violates the approved memory-model proposal for task parallelism. Third, there is no inter-function RC elimination -- identical Inc/Dec pairs that span call boundaries are not optimized, and the optimizer cannot see through function calls to eliminate redundant RC traffic.
+The gaps are concentrated in two areas. First, the LLVM codegen layer (`arc_emitter.rs`, ~1027 lines) is functional but has significant stubs: `IsShared` always emits `false` (assumes unique), `Reuse` falls back to fresh `Construct`, `PartialApply` produces null closure environments, and `RcDec` passes a null drop function. Second, there is no inter-function RC elimination -- identical Inc/Dec pairs that span call boundaries are not optimized, and the optimizer cannot see through function calls to eliminate redundant RC traffic.
+
+**Completed (2026-02-21 hygiene review):** The runtime's `ori_rc_inc`/`ori_rc_dec` now use `AtomicI64::fetch_add(1, Relaxed)` / `fetch_sub(1, Release)` with `Acquire` fence before drop, matching Swift's `swift_retain`/`swift_release` and Rust's `Arc` ordering. A `--single-threaded` feature flag selects non-atomic operations for programs that don't use task parallelism. Additionally, `ori_rc_dec`'s `drop_fn` invocation is wrapped in `catch_unwind` + `abort` to enforce the `nounwind` contract declared in LLVM IR — if a drop function panics, the process aborts cleanly rather than producing UB by unwinding through a `nounwind` boundary. A `debug_assert!(prev > 0)` catches use-after-free bugs in debug builds.
 
 ## Prior Art
 
@@ -44,7 +46,7 @@ Rather than a ground-up redesign, this proposal enhances the existing pass pipel
 
 ### Key Design Choices
 
-1. **Atomic refcount operations in `ori_rt`** (Swift-inspired). Swift uses `swift_retain`/`swift_release` with atomic operations for thread safety. Ori's `ori_rc_inc`/`ori_rc_dec` currently use non-atomic `*rc_ptr += 1`. For the approved task-parallelism model, these must become `AtomicI64::fetch_add(1, Ordering::Relaxed)` for Inc and `fetch_sub(1, Ordering::Release)` with an `Acquire` fence before drop for Dec. This matches the memory ordering used by Rust's `Arc` and Swift's refcount implementation. A compile-time flag (`--single-threaded`) can select non-atomic operations for programs that don't use task parallelism.
+1. **Atomic refcount operations in `ori_rt`** (Swift-inspired) — **DONE.** `ori_rc_inc` uses `AtomicI64::fetch_add(1, Relaxed)`, `ori_rc_dec` uses `fetch_sub(1, Release)` + `Acquire` fence before drop. Feature flag `single-threaded` selects non-atomic fast path. Additionally: `drop_fn` calls are guarded by `catch_unwind` + `abort` (enforces the `nounwind` contract), and `debug_assert!(prev > 0)` catches use-after-free in debug builds.
 
 2. **RC identity normalization via `RcIdentity` map** (Swift-inspired). Swift's `RCIdentityFunctionInfo` traces projections to canonical roots. Ori's `DerivedOwnership::BorrowedFrom(root)` captures this for borrow tracking, but the elimination pass (`eliminate_rc_ops_dataflow`) only uses it for Phase 2 (ownership-redundant removal). A new `RcIdentityMap` should be computed once (from `DerivedOwnership`) and consulted in all elimination phases, enabling the optimizer to recognize that `RcInc(x.field)` is equivalent to `RcInc(x)` when `x.field` is `BorrowedFrom(x)`.
 
@@ -284,51 +286,18 @@ pub fn check_fbip_enforcement(
     }
 }
 
-// ── Atomic Refcount (runtime enhancement) ───────────────────────────
-
-// In ori_rt/src/lib.rs, replacing the current non-atomic operations:
-
-/// Increment the reference count atomically.
-///
-/// Uses `Relaxed` ordering: the increment itself does not need to
-/// synchronize with other threads -- it only needs to be visible
-/// before the next decrement. This matches Swift's `swift_retain`
-/// and Rust's `Arc::clone`.
-// #[no_mangle]
-// pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
-//     if data_ptr.is_null() { return; }
-//     unsafe {
-//         let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
-//         (*rc_ptr).fetch_add(1, Ordering::Relaxed);
-//     }
-// }
-
-/// Decrement the reference count atomically.
-///
-/// Uses `Release` ordering on the decrement (ensures all writes to
-/// the object are visible before another thread might deallocate)
-/// and `Acquire` fence before calling the drop function (ensures
-/// the deallocating thread sees all prior writes).
-///
-/// This is the standard ARC memory ordering pattern used by Rust's
-/// `Arc::drop` and Swift's `swift_release`.
-// #[no_mangle]
-// pub extern "C" fn ori_rc_dec(
-//     data_ptr: *mut u8,
-//     drop_fn: Option<extern "C" fn(*mut u8)>,
-// ) {
-//     if data_ptr.is_null() { return; }
-//     unsafe {
-//         let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
-//         let prev = (*rc_ptr).fetch_sub(1, Ordering::Release);
-//         if prev <= 1 {
-//             std::sync::atomic::fence(Ordering::Acquire);
-//             if let Some(f) = drop_fn {
-//                 f(data_ptr);
-//             }
-//         }
-//     }
-// }
+// ── Atomic Refcount (runtime enhancement) — IMPLEMENTED ─────────────
+//
+// Implemented in ori_rt/src/lib.rs (commit b94a753d + hygiene review).
+// See ori_rc_inc() and ori_rc_dec() for the live code.
+//
+// Key details beyond the original proposal:
+// - `ori_rc_dec` wraps `drop_fn` in `catch_unwind` + `abort` to enforce
+//   the `nounwind` contract declared in LLVM IR (runtime_decl/mod.rs:144).
+// - `debug_assert!(prev > 0)` catches use-after-free in debug builds.
+// - `ori_rc_alloc` initializes via `AtomicI64::new(1)` (multi-threaded)
+//   or plain `i64` write (single-threaded). No ordering needed on init
+//   since the allocation isn't yet visible to other threads.
 
 // ── Batched Inc Reduction (elimination enhancement) ─────────────────
 
@@ -388,8 +357,14 @@ fn reduce_inc_count(instr: &mut ArcInstr) -> bool {
 
 ### Phase 1: Foundation (codegen completeness)
 
-- [ ] **Atomic refcount in `ori_rt`**: Replace `*rc_ptr += 1` / `*rc_ptr -= 1` in `ori_rc_inc`/`ori_rc_dec` with `AtomicI64::fetch_add`/`fetch_sub` using `Relaxed`/`Release` ordering (Swift `swift_retain`/`swift_release` pattern). Add `--single-threaded` compile flag for non-atomic fast path.
-- [ ] **Drop function generation in `arc_emitter.rs`**: Wire `DropInfo`/`DropKind` from `ori_arc::drop` into `emit_instr` for `RcDec`. Generate per-type LLVM IR drop functions: `Trivial` -> `ori_rc_free`; `Fields` -> GEP+load+recursive Dec; `Enum` -> switch+per-variant Dec; `Collection` -> iteration loop; `Map` -> key/value iteration loop; `ClosureEnv` -> same as Fields. Cache generated functions by mangled type name (`_ori_drop$TypeName`).
+- [x] **Atomic refcount in `ori_rt`** *(done: b94a753d + hygiene review 2026-02-21)*: `ori_rc_inc`/`ori_rc_dec` use `AtomicI64` with `Relaxed`/`Release` ordering. Feature flag `single-threaded` for non-atomic fast path. Drop function calls guarded by `catch_unwind` + `abort` (nounwind enforcement). Debug assert for use-after-free.
+- [x] **Runtime hygiene fixes** *(done: hygiene review 2026-02-21)*:
+  - `static mut ORI_PANIC_TRAMPOLINE` → `AtomicPtr<()>` with `Relaxed` ordering (eliminates data-race UB)
+  - `ori_str_from_bool` now heap-allocates via `OriStr::from_owned()` (uniform ownership with `from_int`/`from_float`)
+  - `ori_assert*` functions now route through `ori_panic_cstr` on failure (JIT: longjmp, AOT: unwind)
+  - Panic/assertion functions use `extern "C-unwind"` (allows unwinding through FFI boundary)
+  - List allocation uses `Layout::from_size_align(total, 8)` (minimum 8-byte alignment matching `ori_alloc`)
+- [ ] **Drop function generation in `arc_emitter.rs`**: Wire `DropInfo`/`DropKind` from `ori_arc::drop` into `emit_instr` for `RcDec`. Generate per-type LLVM IR drop functions: `Trivial` -> `ori_rc_free`; `Fields` -> GEP+load+recursive Dec; `Enum` -> switch+per-variant Dec; `Collection` -> iteration loop; `Map` -> key/value iteration loop; `ClosureEnv` -> same as Fields. Cache generated functions by mangled type name (`_ori_drop$TypeName`). **Note:** Generated drop functions must be `nounwind` at the LLVM level — `ori_rc_dec`'s `call_drop_fn` enforces this with abort-on-panic.
 - [ ] **`IsShared` inline check in `arc_emitter.rs`**: Replace `const_bool(false)` with: `let rc_ptr = gep(data_ptr, -8); let rc_val = load(i64, rc_ptr); let is_shared = icmp_sgt(rc_val, 1)`. This is the gate for reset/reuse fast-path correctness.
 - [ ] **`Reuse` emission in `arc_emitter.rs`**: On the fast path (after `IsShared` returns false), emit `Set` instructions for field mutation and `SetTag` for variant changes. The slow path (shared) emits `RcDec` + `Construct` as it does today. This completes the reuse expansion codegen.
 - [ ] **`PartialApply` closure environment**: Generate proper environment struct allocation via `ori_rc_alloc`, pack captured variables via GEP+store, and emit wrapper function that unpacks env + forwards to the actual callee. Currently emits null pointers.
@@ -445,4 +420,4 @@ fn reduce_inc_count(instr: &mut ArcInstr) -> bool {
 - `compiler/ori_arc/src/graph/mod.rs` -- `DominatorTree` (CHK algorithm), predecessors, postorder
 - `compiler/ori_arc/src/lower/mod.rs` -- `lower_function_can`, `ArcIrBuilder`, AST -> ARC IR lowering
 - `compiler/ori_llvm/src/codegen/arc_emitter.rs` -- `ArcIrEmitter`, ARC IR -> LLVM IR translation
-- `compiler/ori_rt/src/lib.rs` -- `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_free`
+- `compiler/ori_rt/src/lib.rs` -- `ori_rc_alloc`, `ori_rc_inc` (atomic), `ori_rc_dec` (atomic + `call_drop_fn` nounwind guard), `ori_rc_free`; panic/assert functions use `extern "C-unwind"`; `ORI_PANIC_TRAMPOLINE` is `AtomicPtr<()>`

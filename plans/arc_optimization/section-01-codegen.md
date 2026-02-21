@@ -49,6 +49,12 @@ Replace non-atomic `*rc_ptr += 1` / `*rc_ptr -= 1` in `ori_rt` with atomic opera
   - Gate via `#[cfg]` or runtime flag
 - [x] Add tests: concurrent increment/decrement from multiple threads (use `std::thread`)
 - [x] Add tests: verify drop function is called exactly once when refcount reaches zero
+- [x] *(hygiene review 2026-02-21)* Wrap `drop_fn` call in `catch_unwind` + `abort` — enforces the `nounwind` LLVM attribute on `ori_rc_dec`
+- [x] *(hygiene review 2026-02-21)* Add `debug_assert!(prev > 0)` to catch use-after-free in debug builds
+- [x] *(hygiene review 2026-02-21)* Replace `static mut ORI_PANIC_TRAMPOLINE` with `AtomicPtr<()>` — eliminates data-race UB
+- [x] *(hygiene review 2026-02-21)* Fix `ori_str_from_bool` to heap-allocate (uniform ownership across `ori_str_from_*`)
+- [x] *(hygiene review 2026-02-21)* Route `ori_assert*` through `ori_panic_cstr` on failure; use `extern "C-unwind"` for unwind-capable FFI functions
+- [x] *(hygiene review 2026-02-21)* Fix list allocation alignment: `Layout::from_size_align(total, 8)` (was alignment 1)
 
 ---
 
@@ -64,6 +70,7 @@ Wire `DropInfo`/`DropKind` from `ori_arc::drop` into `arc_emitter.rs` for `RcDec
   - `DropKind::Map` -> key/value iteration loop + `ori_rc_free`
   - `DropKind::ClosureEnv` -> same as Fields (GEP per captured variable + recursive Dec)
 - [ ] Wire generated drop function pointer into `RcDec` emission in `emit_instr`
+- [ ] Mark generated drop functions as `nounwind` in LLVM IR — `ori_rc_dec`'s `call_drop_fn` aborts if a drop function unwinds
 - [ ] Add drop function cache to `ArcIrEmitter` (`FxHashMap<MangledTypeName, FunctionId>`)
 - [ ] Add tests: struct with ref-typed fields verifies recursive Dec
 - [ ] Add tests: enum with mixed scalar/ref variants verifies tag dispatch
