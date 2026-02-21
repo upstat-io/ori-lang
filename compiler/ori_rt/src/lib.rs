@@ -58,7 +58,8 @@ use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
 use std::panic;
 #[cfg(not(feature = "single-threaded"))]
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicPtr, Ordering};
 
 /// Ori panic payload for stack unwinding (AOT mode).
 ///
@@ -441,6 +442,11 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
             (*rc_ptr).fetch_sub(1, Ordering::Release)
         };
 
+        debug_assert!(
+            prev > 0,
+            "ori_rc_dec: refcount was already zero (use-after-free)"
+        );
+
         if prev <= 1 {
             // Acquire fence: synchronize with all Release decrements from other
             // threads. This ensures the drop function sees all writes that any
@@ -448,7 +454,7 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
             std::sync::atomic::fence(Ordering::Acquire);
 
             if let Some(f) = drop_fn {
-                f(data_ptr);
+                call_drop_fn(f, data_ptr);
             }
         }
     }
@@ -457,15 +463,35 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     {
         let should_drop = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            debug_assert!(
+                *rc_ptr > 0,
+                "ori_rc_dec: refcount was already zero (use-after-free)"
+            );
             *rc_ptr -= 1;
             *rc_ptr <= 0
         };
 
         if should_drop {
             if let Some(f) = drop_fn {
-                f(data_ptr);
+                call_drop_fn(f, data_ptr);
             }
         }
+    }
+}
+
+/// Call a drop function with abort-on-panic guard.
+///
+/// `ori_rc_dec` is declared `nounwind` in LLVM IR, meaning unwinding through
+/// it is UB. This wrapper ensures that if a drop function panics, we abort
+/// immediately rather than unwinding through the `nounwind` boundary.
+/// Matches Rust's `Drop` + `nounwind` contract.
+fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
+    let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        f(data_ptr);
+    }));
+    if result.is_err() {
+        eprintln!("ori: drop function panicked — aborting (drop must not unwind)");
+        std::process::abort();
     }
 }
 
@@ -555,7 +581,7 @@ pub extern "C" fn ori_print_bool(b: bool) {
 /// 3. If JIT mode: `longjmp` back to test runner
 /// 4. AOT default: print to stderr and `exit(1)`
 #[no_mangle]
-pub extern "C" fn ori_panic(s: *const OriStr) {
+pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
     let msg = if s.is_null() {
         "panic!".to_string()
     } else {
@@ -592,7 +618,7 @@ pub extern "C" fn ori_panic(s: *const OriStr) {
 ///
 /// Same dispatch order as `ori_panic`: user handler → JIT longjmp → unwind.
 #[no_mangle]
-pub extern "C" fn ori_panic_cstr(s: *const i8) {
+pub extern "C-unwind" fn ori_panic_cstr(s: *const i8) {
     let msg = if s.is_null() {
         "panic!".to_string()
     } else {
@@ -623,61 +649,57 @@ pub extern "C" fn ori_panic_cstr(s: *const i8) {
 
 /// Assert that a condition is true.
 ///
-/// Sets panic state but does NOT terminate - this allows JIT tests to check `did_panic()`.
-/// For AOT, the generated code should check the panic state after assertions.
+/// On failure, routes through `ori_panic_cstr` which handles both JIT
+/// (longjmp to test runner) and AOT (unwind via `panic_any`) paths.
 #[no_mangle]
-pub extern "C" fn ori_assert(condition: bool) {
+pub extern "C-unwind" fn ori_assert(condition: bool) {
     if !condition {
-        let msg = "assertion failed";
-        eprintln!("ori panic: {msg}");
-        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
-        PANIC_MESSAGE.with(|m| *m.borrow_mut() = Some(msg.to_string()));
+        ori_panic_cstr(c"assertion failed".as_ptr());
     }
 }
 
 /// Assert that two integers are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
 #[no_mangle]
-pub extern "C" fn ori_assert_eq_int(actual: i64, expected: i64) {
+pub extern "C-unwind" fn ori_assert_eq_int(actual: i64, expected: i64) {
     if actual != expected {
-        eprintln!("assertion failed: {actual} != {expected}");
-        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
-        PANIC_MESSAGE.with(|m| {
-            *m.borrow_mut() = Some(format!("assertion failed: {actual} != {expected}"));
-        });
+        let msg = format!("assertion failed: {actual} != {expected}\0");
+        ori_panic_cstr(msg.as_ptr().cast::<i8>());
     }
 }
 
 /// Assert that two booleans are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
 #[no_mangle]
-pub extern "C" fn ori_assert_eq_bool(actual: bool, expected: bool) {
+pub extern "C-unwind" fn ori_assert_eq_bool(actual: bool, expected: bool) {
     if actual != expected {
-        eprintln!("assertion failed: {actual} != {expected}");
-        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
-        PANIC_MESSAGE.with(|m| {
-            *m.borrow_mut() = Some(format!("assertion failed: {actual} != {expected}"));
-        });
+        let msg = format!("assertion failed: {actual} != {expected}\0");
+        ori_panic_cstr(msg.as_ptr().cast::<i8>());
     }
 }
 
 /// Assert that two floats are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
 #[no_mangle]
-pub extern "C" fn ori_assert_eq_float(actual: f64, expected: f64) {
+pub extern "C-unwind" fn ori_assert_eq_float(actual: f64, expected: f64) {
     #[allow(
         clippy::float_cmp,
         reason = "assertion intentionally uses exact equality"
     )]
     if actual != expected {
-        eprintln!("assertion failed: {actual} != {expected}");
-        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
-        PANIC_MESSAGE.with(|m| {
-            *m.borrow_mut() = Some(format!("assertion failed: {actual} != {expected}"));
-        });
+        let msg = format!("assertion failed: {actual} != {expected}\0");
+        ori_panic_cstr(msg.as_ptr().cast::<i8>());
     }
 }
 
 /// Assert two strings are equal.
+///
+/// On failure, formats a message and routes through `ori_panic_cstr`.
 #[no_mangle]
-pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriStr) {
+pub extern "C-unwind" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriStr) {
     let actual_str = if actual.is_null() {
         ""
     } else {
@@ -690,13 +712,8 @@ pub extern "C" fn ori_assert_eq_str(actual: *const OriStr, expected: *const OriS
     };
 
     if actual_str != expected_str {
-        eprintln!("assertion failed: \"{actual_str}\" != \"{expected_str}\"");
-        PANIC_OCCURRED.with(|p| *p.borrow_mut() = true);
-        PANIC_MESSAGE.with(|m| {
-            *m.borrow_mut() = Some(format!(
-                "assertion failed: \"{actual_str}\" != \"{expected_str}\""
-            ));
-        });
+        let msg = format!("assertion failed: \"{actual_str}\" != \"{expected_str}\"\0");
+        ori_panic_cstr(msg.as_ptr().cast::<i8>());
     }
 }
 
@@ -713,10 +730,13 @@ pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 
     let cap = capacity.max(0) as usize;
     let size = elem_size.max(1) as usize;
     if cap > 0 {
-        let Ok(layout) = std::alloc::Layout::array::<u8>(cap * size) else {
+        let total = cap * size;
+        // Minimum 8-byte alignment matches ori_alloc's discipline. Handles i64, f64,
+        // and pointer elements correctly. Layout::array::<u8> would give alignment 1.
+        let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) else {
             return std::ptr::null_mut();
         };
-        // SAFETY: Layout is non-zero size (cap > 0, size >= 1)
+        // SAFETY: Layout is non-zero size (cap > 0, size >= 1), alignment is valid
         unsafe { std::alloc::alloc(layout) }
     } else {
         std::ptr::null_mut()
@@ -735,10 +755,11 @@ pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
         len: 0,
         cap: cap as i64,
         data: if cap > 0 {
-            let Ok(layout) = std::alloc::Layout::array::<u8>(cap * size) else {
+            let total = cap * size;
+            let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) else {
                 return std::ptr::null_mut();
             };
-            // SAFETY: Layout is non-zero size (cap > 0, size >= 1)
+            // SAFETY: Layout is non-zero size (cap > 0, size >= 1), alignment is valid
             unsafe { std::alloc::alloc(layout) }
         } else {
             std::ptr::null_mut()
@@ -760,7 +781,8 @@ pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
         let list = Box::from_raw(list);
         if !list.data.is_null() && list.cap > 0 {
             let size = elem_size.max(1) as usize;
-            if let Ok(layout) = std::alloc::Layout::array::<u8>(list.cap as usize * size) {
+            let total = list.cap as usize * size;
+            if let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) {
                 std::alloc::dealloc(list.data, layout);
             }
         }
@@ -779,7 +801,8 @@ pub extern "C" fn ori_list_free_data(data: *mut u8, capacity: i64, elem_size: i6
     }
     let cap = capacity as usize;
     let size = elem_size.max(1) as usize;
-    if let Ok(layout) = std::alloc::Layout::array::<u8>(cap * size) {
+    let total = cap * size;
+    if let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) {
         // SAFETY: data was allocated by ori_list_alloc_data with same layout
         unsafe { std::alloc::dealloc(data, layout) };
     }
@@ -907,14 +930,14 @@ pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {
 }
 
 /// Convert a boolean to a string.
+///
+/// Returns a heap-allocated `OriStr`, matching the ownership semantics of
+/// `ori_str_from_int` and `ori_str_from_float`. All `ori_str_from_*` functions
+/// must return owned strings so LLVM-generated cleanup code can uniformly free them.
 #[no_mangle]
 pub extern "C" fn ori_str_from_bool(b: bool) -> OriStr {
     let result = if b { "true" } else { "false" };
-    // Use static string - no allocation needed
-    OriStr {
-        len: result.len() as i64,
-        data: result.as_ptr(),
-    }
+    OriStr::from_owned(result.to_string())
 }
 
 /// Convert a float to a string.
@@ -1040,12 +1063,11 @@ type PanicTrampoline = extern "C" fn(*const u8, i64, *const u8, i64, i64, i64);
 /// Set by `ori_register_panic_handler` during `main()` initialization.
 /// Called by `ori_panic`/`ori_panic_cstr` before default behavior.
 ///
-/// # Safety
-///
-/// Access is limited to single-threaded AOT initialization (`main()` before
-/// spawning threads). Thread-local `IN_PANIC_HANDLER` provides re-entrancy
-/// protection.
-static mut ORI_PANIC_TRAMPOLINE: Option<PanicTrampoline> = None;
+/// Uses `AtomicPtr` with `Relaxed` ordering (matches Swift's panic handler
+/// registration pattern). The write happens during single-threaded `main()`
+/// init, and reads happen during panic handling which is on a happens-after
+/// path. Thread-local `IN_PANIC_HANDLER` provides re-entrancy protection.
+static ORI_PANIC_TRAMPOLINE: AtomicPtr<()> = AtomicPtr::new(std::ptr::null_mut());
 
 thread_local! {
     /// Re-entrancy guard: prevents infinite recursion if the user's `@panic`
@@ -1062,11 +1084,13 @@ thread_local! {
 /// If the handler returns normally, we proceed with default behavior.
 /// If the handler itself panics (re-entrancy), we skip it to avoid loops.
 fn call_panic_trampoline(msg: &str) {
-    // SAFETY: Read of global set during single-threaded main() init
-    let trampoline = unsafe { ORI_PANIC_TRAMPOLINE };
-    let Some(trampoline) = trampoline else {
+    let ptr = ORI_PANIC_TRAMPOLINE.load(Ordering::Relaxed);
+    if ptr.is_null() {
         return;
-    };
+    }
+    // SAFETY: Non-null pointer was set by ori_register_panic_handler which
+    // transmuted a valid PanicTrampoline function pointer.
+    let trampoline: PanicTrampoline = unsafe { std::mem::transmute(ptr) };
 
     // Re-entrancy guard: if @panic handler panics, skip it
     let already_in_handler = IN_PANIC_HANDLER.with(std::cell::Cell::get);
@@ -1095,10 +1119,7 @@ pub extern "C" fn ori_register_panic_handler(handler: *const ()) {
     if handler.is_null() {
         return;
     }
-    // SAFETY: Called once during single-threaded main() initialization
-    unsafe {
-        ORI_PANIC_TRAMPOLINE = Some(std::mem::transmute::<*const (), PanicTrampoline>(handler));
-    }
+    ORI_PANIC_TRAMPOLINE.store(handler as *mut (), Ordering::Relaxed);
 }
 
 // ── String iteration ─────────────────────────────────────────────────────

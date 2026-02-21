@@ -164,7 +164,7 @@ impl CompiledTestModule<'_> {
 
         runtime::leave_jit_mode();
 
-        // Check if panic occurred via assertions (ori_assert sets state without longjmp)
+        // Check if panic occurred (safety net — assertions now longjmp in JIT mode)
         if runtime::did_panic() {
             let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
             Err(LLVMEvalError::new(msg))

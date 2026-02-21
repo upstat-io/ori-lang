@@ -141,7 +141,10 @@ fn test_ori_assert_eq_int_pass() {
 #[test]
 fn test_ori_assert_eq_int_fail() {
     reset_panic_state();
-    ori_assert_eq_int(42, 43);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ori_assert_eq_int(42, 43);
+    }));
+    assert!(result.is_err(), "ori_assert_eq_int(42, 43) should panic");
     assert!(did_panic());
 }
 
