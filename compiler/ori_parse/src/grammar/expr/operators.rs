@@ -134,6 +134,34 @@ define_operators! {
     TokenKind::TAG_DIV,            FloorDiv,  bp::MULTIPLICATIVE,  1;
 }
 
+/// Map a compound assignment token tag to its corresponding `BinaryOp`.
+///
+/// Extracted as a free function (rather than a `Parser` method) so it can be
+/// tested directly without constructing a parser. `compound_assign_op()`
+/// delegates to this.
+///
+/// Note: `>>=` is NOT handled here because it's synthesized from three adjacent
+/// `>` `>` `=` tokens — not a single lexer token. It's handled separately
+/// via `is_shift_right_assign()` in `parse_expr_inner`.
+#[inline]
+fn compound_op_for_tag(tag: u8) -> Option<BinaryOp> {
+    match tag {
+        TokenKind::TAG_PLUS_EQ => Some(BinaryOp::Add),
+        TokenKind::TAG_MINUS_EQ => Some(BinaryOp::Sub),
+        TokenKind::TAG_STAR_EQ => Some(BinaryOp::Mul),
+        TokenKind::TAG_SLASH_EQ => Some(BinaryOp::Div),
+        TokenKind::TAG_PERCENT_EQ => Some(BinaryOp::Mod),
+        TokenKind::TAG_AT_EQ => Some(BinaryOp::MatMul),
+        TokenKind::TAG_AMP_EQ => Some(BinaryOp::BitAnd),
+        TokenKind::TAG_PIPE_EQ => Some(BinaryOp::BitOr),
+        TokenKind::TAG_CARET_EQ => Some(BinaryOp::BitXor),
+        TokenKind::TAG_SHL_EQ => Some(BinaryOp::Shl),
+        TokenKind::TAG_AMPAMP_EQ => Some(BinaryOp::And),
+        TokenKind::TAG_PIPEPIPE_EQ => Some(BinaryOp::Or),
+        _ => None,
+    }
+}
+
 impl Parser<'_> {
     /// Get the infix binding power for the current token.
     ///
@@ -191,21 +219,7 @@ impl Parser<'_> {
     /// from three adjacent `>` `>` `=` tokens (not a single lexer token).
     #[inline]
     pub(crate) fn compound_assign_op(&self) -> Option<BinaryOp> {
-        match self.cursor.current_tag() {
-            TokenKind::TAG_PLUS_EQ => Some(BinaryOp::Add),
-            TokenKind::TAG_MINUS_EQ => Some(BinaryOp::Sub),
-            TokenKind::TAG_STAR_EQ => Some(BinaryOp::Mul),
-            TokenKind::TAG_SLASH_EQ => Some(BinaryOp::Div),
-            TokenKind::TAG_PERCENT_EQ => Some(BinaryOp::Mod),
-            TokenKind::TAG_AT_EQ => Some(BinaryOp::MatMul),
-            TokenKind::TAG_AMP_EQ => Some(BinaryOp::BitAnd),
-            TokenKind::TAG_PIPE_EQ => Some(BinaryOp::BitOr),
-            TokenKind::TAG_CARET_EQ => Some(BinaryOp::BitXor),
-            TokenKind::TAG_SHL_EQ => Some(BinaryOp::Shl),
-            TokenKind::TAG_AMPAMP_EQ => Some(BinaryOp::And),
-            TokenKind::TAG_PIPEPIPE_EQ => Some(BinaryOp::Or),
-            _ => None,
-        }
+        compound_op_for_tag(self.cursor.current_tag())
     }
 
     /// Match prefix unary operators (`-`, `!`, `~`).
@@ -337,6 +351,30 @@ mod tests {
                 // Verify that every op index in the table resolves to a valid BinaryOp
                 let _ = op_from_u8(info.op);
             }
+        }
+    }
+
+    /// Verify that every tag in the compound assignment range (128..=139)
+    /// maps to a `BinaryOp` via `compound_op_for_tag()`.
+    ///
+    /// If a new compound assignment operator is added to `TokenTag` (e.g.,
+    /// tag 140), the range size will exceed `EXPECTED_COUNT`, forcing the
+    /// developer to update both `compound_op_for_tag()` and this test.
+    #[test]
+    fn compound_assign_covers_all_tags() {
+        const EXPECTED_COUNT: u8 = 12;
+        let range_size = TokenKind::TAG_PIPEPIPE_EQ - TokenKind::TAG_PLUS_EQ + 1;
+        assert_eq!(
+            range_size, EXPECTED_COUNT,
+            "compound assignment tag range changed (was {EXPECTED_COUNT}, now {range_size}) \
+             — update compound_op_for_tag() and this constant",
+        );
+
+        for tag in TokenKind::TAG_PLUS_EQ..=TokenKind::TAG_PIPEPIPE_EQ {
+            assert!(
+                compound_op_for_tag(tag).is_some(),
+                "compound assignment tag {tag} has no BinaryOp mapping in compound_op_for_tag()",
+            );
         }
     }
 }

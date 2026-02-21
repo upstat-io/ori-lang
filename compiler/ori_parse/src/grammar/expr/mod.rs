@@ -139,6 +139,24 @@ impl Parser<'_> {
     /// `token_count` is how many tokens to consume for the operator:
     /// - 1 for single-token operators (`+=`, `-=`, etc.)
     /// - 3 for `>>=` (three adjacent `>` `>` `=` tokens)
+    ///
+    /// # Formatter roundtrip
+    ///
+    /// Because desugaring happens at parse time, the AST contains
+    /// `Assign { target, Binary { op, left_copy, right } }` — indistinguishable
+    /// from an explicit `x = x + y`. The formatter will emit the expanded form.
+    /// This is intentional: compound assignment is syntactic sugar, and the
+    /// canonical form is the expanded one.
+    ///
+    /// # Double evaluation of target
+    ///
+    /// The target expression is duplicated via `ExprKind` copy, creating two
+    /// independent AST nodes. For complex lvalue targets (e.g., `arr[f()] += 1`),
+    /// the desugared form evaluates the target expression twice — once for the
+    /// read and once for the write. This matches Python's augmented assignment
+    /// behavior. When mutable collections/indexing are added, this should be
+    /// revisited with a dedicated `CompoundAssign` AST node that evaluators
+    /// handle atomically.
     fn desugar_compound_assign(
         &mut self,
         target: ExprId,
