@@ -231,16 +231,16 @@ use std.testing { before_each, after_each }
 let db = before_each(() -> create_test_db())
 after_each(db -> db.drop())
 
-@test_user_creation tests @create_user () -> void = run(
+@test_user_creation tests @create_user () -> void = {
     let user = create_user(
         .db: db,
         .name: "Alice",
-    )?,
+    )?
     assert_eq(
         .actual: user.name,
         .expected: "Alice",
-    ),
-)
+    )
+}
 ```
 
 ---
@@ -315,31 +315,31 @@ use std.testing { property }
 ```ori
 use std.testing { assert_eq, assert_ne, expect_err, expect_ok }
 
-@test_user_validation tests @validate_user () -> void = run(
+@test_user_validation tests @validate_user () -> void = {
     // Valid user
-    let valid = User { name: "Alice", age: 30 },
-    let result = expect_ok(validate_user(valid)),
+    let valid = User { name: "Alice", age: 30 }
+    let result = expect_ok(validate_user(valid))
     assert_eq(
         .actual: result.name,
         .expected: "Alice",
-    ),
+    )
 
     // Invalid: empty name
-    let invalid = User { name: "", age: 30 },
-    let err = expect_err(validate_user(invalid)),
+    let invalid = User { name: "", age: 30 }
+    let err = expect_err(validate_user(invalid))
     assert_eq(
         .actual: err,
         .expected: ValidationError.EmptyName,
-    ),
+    )
 
     // Invalid: negative age
-    let invalid2 = User { name: "Bob", age: -1 },
-    let err2 = expect_err(validate_user(invalid2)),
+    let invalid2 = User { name: "Bob", age: -1 }
+    let err2 = expect_err(validate_user(invalid2))
     assert_eq(
         .actual: err2,
         .expected: ValidationError.InvalidAge(-1),
-    ),
-)
+    )
+}
 ```
 
 ### Testing with mocks
@@ -347,20 +347,20 @@ use std.testing { assert_eq, assert_ne, expect_err, expect_ok }
 ```ori
 use std.testing { Mock, assert_eq }
 
-@test_email_service tests @send_welcome () -> void = run(
-    let mailer = Mock<Mailer>.new(),
-    mailer.when(m -> true).returns(Ok(())),
+@test_email_service tests @send_welcome () -> void = {
+    let mailer = Mock<Mailer>.new()
+    mailer.when(m -> true).returns(Ok(()))
 
-    let service = UserService.new(mailer),
-    service.send_welcome("alice@example.com")?,
+    let service = UserService.new(mailer)
+    service.send_welcome("alice@example.com")?
 
-    assert(mailer.was_called()),
-    let call = mailer.calls()[0],
+    assert(mailer.was_called())
+    let call = mailer.calls()[0]
     assert_eq(
         .actual: call.args.to,
         .expected: "alice@example.com",
-    ),
-)
+    )
+}
 ```
 
 ---

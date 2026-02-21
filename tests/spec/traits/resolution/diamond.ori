@@ -31,38 +31,38 @@ type Widget = { name: str }
 
 // Single impl of Base satisfies both Left and Right paths
 impl Base for Widget {
-    @id (self) -> str = "widget:" + self.name
+    @id (self) -> str = "widget:" + self.name;
 }
 
 impl Left for Widget {
-    @left_info (self) -> str = "L:" + self.id()
+    @left_info (self) -> str = "L:" + self.id();
 }
 
 impl Right for Widget {
-    @right_info (self) -> str = "R:" + self.id()
+    @right_info (self) -> str = "R:" + self.id();
 }
 
 impl Bottom for Widget {
-    @combined (self) -> str = self.left_info() + "|" + self.right_info()
+    @combined (self) -> str = self.left_info() + "|" + self.right_info();
 }
 
 // Simple diamond: inheriting from two traits with a common ancestor
-@test_diamond_base tests @id () -> void = run(
-    let w = Widget { name: "btn" },
-    assert_eq(actual: w.id(), expected: "widget:btn"),
-)
+@test_diamond_base tests @id () -> void = {
+    let w = Widget { name: "btn" };
+    assert_eq(actual: w.id(), expected: "widget:btn")
+}
 
-@test_diamond_left tests @left_info () -> void = run(
-    let w = Widget { name: "btn" },
-    assert_eq(actual: w.left_info(), expected: "L:widget:btn"),
-)
+@test_diamond_left tests @left_info () -> void = {
+    let w = Widget { name: "btn" };
+    assert_eq(actual: w.left_info(), expected: "L:widget:btn")
+}
 
-@test_diamond_right tests @right_info () -> void = run(
-    let w = Widget { name: "btn" },
-    assert_eq(actual: w.right_info(), expected: "R:widget:btn"),
-)
+@test_diamond_right tests @right_info () -> void = {
+    let w = Widget { name: "btn" };
+    assert_eq(actual: w.right_info(), expected: "R:widget:btn")
+}
 
-@test_diamond_combined tests @combined () -> void = run(
-    let w = Widget { name: "btn" },
-    assert_eq(actual: w.combined(), expected: "L:widget:btn|R:widget:btn"),
-)
+@test_diamond_combined tests @combined () -> void = {
+    let w = Widget { name: "btn" };
+    assert_eq(actual: w.combined(), expected: "L:widget:btn|R:widget:btn")
+}

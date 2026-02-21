@@ -57,8 +57,6 @@ define_range!(
     MapElementRange,
     FieldInitRange,
     StructLitFieldRange,
-    SeqBindingRange,
-    CheckRange,
     NamedExprRange,
     CallArgRange,
     ListElementRange,

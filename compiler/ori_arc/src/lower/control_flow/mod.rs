@@ -56,11 +56,10 @@ impl ArcLowerer<'_> {
         &mut self,
         pattern: ori_ir::canon::CanBindingPatternId,
         init: CanId,
-        mutable: bool,
     ) -> ArcVarId {
         let init_val = self.lower_expr(init);
         let binding = self.arena.get_binding_pattern(pattern);
-        self.bind_pattern(binding, init_val, mutable, init);
+        self.bind_pattern(binding, init_val, init);
         self.emit_unit()
     }
 

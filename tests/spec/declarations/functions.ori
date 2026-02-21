@@ -16,15 +16,15 @@
 //
 // @simple () -> int = 42
 //
-// @test_simple tests @simple () -> void = run(
+// @test_simple tests @simple () -> void = {
 //     assert_eq(actual: simple(), expected: 42),
-// )
+// }
 //
 // @no_params () -> str = "hello"
 //
-// @test_no_params tests @no_params () -> void = run(
+// @test_no_params tests @no_params () -> void = {
 //     assert_eq(actual: no_params(), expected: "hello"),
-// )
+// }
 //
 // // =============================================================================
 // // Function Parameter Type Annotations
@@ -32,25 +32,25 @@
 //
 // @typed_param (x: int) -> int = x * 2
 //
-// @test_typed_param tests @typed_param () -> void = run(
+// @test_typed_param tests @typed_param () -> void = {
 //     assert_eq(actual: typed_param(x: 5), expected: 10),
 //     assert_eq(actual: typed_param(x: 0), expected: 0),
 //     assert_eq(actual: typed_param(x: -3), expected: -6),
-// )
+// }
 //
 // @multiple_typed_params (a: int, b: int) -> int = a + b
 //
-// @test_multiple_typed_params tests @multiple_typed_params () -> void = run(
+// @test_multiple_typed_params tests @multiple_typed_params () -> void = {
 //     assert_eq(actual: multiple_typed_params(a: 3, b: 4), expected: 7),
-// )
+// }
 //
 // @mixed_types (x: int, y: float) -> float = float(x) + y
 //
-// @test_mixed_types tests @mixed_types () -> void = run(
+// @test_mixed_types tests @mixed_types () -> void = {
 //     let result = mixed_types(x: 5, y: 2.5),
 //     assert(cond: result > 7.4),
 //     assert(cond: result < 7.6),
-// )
+// }
 //
 // // =============================================================================
 // // Function Return Type Annotations
@@ -58,36 +58,36 @@
 //
 // @explicit_return_int () -> int = 42
 //
-// @test_explicit_return_int tests @explicit_return_int () -> void = run(
+// @test_explicit_return_int tests @explicit_return_int () -> void = {
 //     assert_eq(actual: explicit_return_int(), expected: 42),
-// )
+// }
 //
 // @explicit_return_str () -> str = "hello"
 //
-// @test_explicit_return_str tests @explicit_return_str () -> void = run(
+// @test_explicit_return_str tests @explicit_return_str () -> void = {
 //     assert_eq(actual: explicit_return_str(), expected: "hello"),
-// )
+// }
 //
 // @explicit_return_bool () -> bool = true
 //
-// @test_explicit_return_bool tests @explicit_return_bool () -> void = run(
+// @test_explicit_return_bool tests @explicit_return_bool () -> void = {
 //     assert(cond: explicit_return_bool()),
-// )
+// }
 //
 // @explicit_return_void () -> void = ()
 //
-// @test_explicit_return_void tests @explicit_return_void () -> void = run(
+// @test_explicit_return_void tests @explicit_return_void () -> void = {
 //     explicit_return_void(),
 //     assert(cond: true),
-// )
+// }
 //
 // @explicit_return_float () -> float = 3.14
 //
-// @test_explicit_return_float tests @explicit_return_float () -> void = run(
+// @test_explicit_return_float tests @explicit_return_float () -> void = {
 //     let result = explicit_return_float(),
 //     assert(cond: result > 3.13),
 //     assert(cond: result < 3.15),
-// )
+// }
 //
 // // ... (remaining function tests would continue)
 //
@@ -103,18 +103,18 @@
 //     nums.fold(initial: 0, op: (acc, n) -> acc + n)
 //
 // #skip("variadic function calling not implemented in evaluator")
-// @test_variadic_empty tests @sum_ints () -> void = run(
+// @test_variadic_empty tests @sum_ints () -> void = {
 //     assert_eq(actual: sum_ints(), expected: 0),
-// )
+// }
 //
 // #skip("variadic function calling not implemented in evaluator")
-// @test_variadic_single tests @sum_ints () -> void = run(
+// @test_variadic_single tests @sum_ints () -> void = {
 //     assert_eq(actual: sum_ints(10), expected: 10),
-// )
+// }
 //
 // #skip("variadic function calling not implemented in evaluator")
-// @test_variadic_multiple tests @sum_ints () -> void = run(
+// @test_variadic_multiple tests @sum_ints () -> void = {
 //     assert_eq(actual: sum_ints(1, 2, 3, 4, 5), expected: 15),
-// )
+// }
 //
 // // ... (remaining tests)

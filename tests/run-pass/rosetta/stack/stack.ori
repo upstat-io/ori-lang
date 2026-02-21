@@ -2,20 +2,20 @@
 // Task: Implement a LIFO (Last In First Out) stack
 
 // Create an empty stack
-@empty_stack () -> [int] = []
+@empty_stack () -> [int] = [];
 
 // Check if stack is empty
-@stack_is_empty (stack: [int]) -> bool = len(collection: stack) == 0
+@stack_is_empty (stack: [int]) -> bool = len(collection: stack) == 0;
 
 // Push an element onto the stack (returns new stack)
-@push (stack: [int], value: int) -> [int] = stack.push(value)
+@push (stack: [int], value: int) -> [int] = stack.push(value);
 
 // Get the top element without removing it
 // TODO: Use stack[# - 1] when # syntax is implemented
-@peek (stack: [int]) -> int = stack[len(collection: stack) - 1]
+@peek (stack: [int]) -> int = stack[len(collection: stack) - 1];
 
 // Pop the top element (returns new stack without top)
-@pop (stack: [int]) -> [int] = stack.pop()
+@pop (stack: [int]) -> [int] = stack.pop();
 
 // Get stack size
-@size (stack: [int]) -> int = len(collection: stack)
+@size (stack: [int]) -> int = len(collection: stack);

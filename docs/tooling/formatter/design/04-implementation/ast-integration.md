@@ -67,9 +67,9 @@ pub enum Expr {
     Let { pattern: Pattern, value: ExprId },
     Lambda { params: Vec<Param>, body: ExprId },
 
-    // Patterns
-    Run { steps: Vec<ExprId>, pre_check: Option<ExprId>, post_check: Option<ExprId> },
-    Try { steps: Vec<ExprId> },
+    // Block expressions
+    Block { exprs: Vec<ExprId> },
+    Try { body: ExprId },
     Recurse { condition: ExprId, base: ExprId, step: ExprId, memo: bool, parallel: Option<ExprId> },
     Parallel { tasks: ExprId, max_concurrent: Option<ExprId>, timeout: Option<ExprId> },
     // ... other patterns
@@ -98,6 +98,8 @@ pub struct Function {
     pub return_type: Type,
     pub where_clause: Option<WhereClause>,
     pub capabilities: Vec<Capability>,
+    pub pre: Option<ExprId>,       // pre(condition) contract
+    pub post: Option<ExprId>,      // post(r -> condition) contract
     pub body: ExprId,
     pub tests: Vec<Name>,  // For test functions
 }

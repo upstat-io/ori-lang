@@ -15,11 +15,13 @@ Arena allocation (also called "region-based allocation") allocates objects in a 
 
 ```rust
 pub struct ExprArena {
-    exprs: Vec<Expr>,
+    expr_kinds: Vec<ExprKind>,  // 24 bytes each — the primary data
+    expr_spans: Vec<Span>,      // 8 bytes each — parallel to kinds
+    // ... 15+ side-table vectors for variable-length data
 }
 ```
 
-The `Vec<Expr>` is the arena. Expressions are allocated by pushing to the vector and returning an index.
+The arena uses a struct-of-arrays (SoA) layout. Expression kinds and spans are stored in separate parallel `Vec`s for cache efficiency — most operations only need the 24-byte kind, keeping spans out of the cache line. Additional side-table vectors store variable-length data (parameters, match arms, list elements, etc.) indexed by range types.
 
 ## Implementation
 
@@ -46,45 +48,37 @@ impl ExprId {
 ```rust
 #[derive(Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub struct ExprArena {
-    exprs: Vec<Expr>,
+    // Parallel arrays (indexed by ExprId)
+    expr_kinds: Vec<ExprKind>,   // Primary expression data (24 bytes each)
+    expr_spans: Vec<Span>,       // Source locations (8 bytes each)
+
+    // Side tables (indexed by range types like ExprRange, StmtRange, etc.)
+    expr_lists: Vec<ExprId>,     // Flattened expression lists
+    stmts: Vec<Stmt>,            // Statements
+    params: Vec<Param>,          // Function parameters
+    arms: Vec<Arm>,              // Match arms
+    map_entries: Vec<MapEntry>,  // Map literal entries
+    // ... and more for field_inits, struct_lit_fields, generic_params,
+    //     parsed_types, match_patterns, binding_patterns, function_seqs, etc.
 }
 
 impl ExprArena {
-    pub fn new() -> Self {
-        Self { exprs: Vec::new() }
-    }
+    /// Pre-allocate based on source length heuristic
+    pub fn with_capacity(source_len: usize) -> Self { ... }
 
-    /// Allocate an expression, returning its ID
-    pub fn alloc(&mut self, expr: Expr) -> ExprId {
-        let id = ExprId(self.exprs.len() as u32);
-        self.exprs.push(expr);
-        id
-    }
+    /// Allocate an expression (kind + span in parallel arrays)
+    pub fn alloc(&mut self, kind: ExprKind, span: Span) -> ExprId { ... }
 
-    /// Get expression by ID
-    pub fn get(&self, id: ExprId) -> &Expr {
-        &self.exprs[id.index()]
-    }
-
-    /// Get mutable expression by ID
-    pub fn get_mut(&mut self, id: ExprId) -> &mut Expr {
-        &mut self.exprs[id.index()]
-    }
-
-    /// Number of expressions
-    pub fn len(&self) -> usize {
-        self.exprs.len()
-    }
-
-    /// Iterate over all expressions
-    pub fn iter(&self) -> impl Iterator<Item = (ExprId, &Expr)> {
-        self.exprs
-            .iter()
-            .enumerate()
-            .map(|(i, e)| (ExprId(i as u32), e))
-    }
+    /// Direct-append API for zero-allocation list building
+    pub fn start_params(&mut self) -> u32 { ... }
+    pub fn push_param(&mut self, param: Param) { ... }
+    pub fn finish_params(&mut self, start: u32) -> ParamRange { ... }
 }
 ```
+
+The `with_capacity()` constructor uses `source_len / 20` as a heuristic for estimated expression count, reducing reallocations during parsing. The `reset()` method clears all vectors without deallocating, enabling arena reuse across compilation units. `SharedArena(Arc<ExprArena>)` wraps the arena for cross-module function references (e.g., when imported functions reference expressions in another module's arena).
+
+**Capacity limits:** The maximum number of expressions is `u32::MAX` (ExprId is a `u32` index). Expression lists use `ExprRange { start: u32, len: u16 }`, so the maximum range length is `u16::MAX` (65,535 elements per list).
 
 ### Usage During Parsing
 

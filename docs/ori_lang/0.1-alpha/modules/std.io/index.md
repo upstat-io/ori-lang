@@ -198,11 +198,12 @@ for line in reader.lines() do
 ```ori
 use std.io { stdin }
 
-@process_input () uses IO -> Result<void, IoError> = run(
+@process_input () uses IO -> Result<void, IoError> = {
     for line in stdin().lines() do
-        print("Got: " + line),
-    Ok(()),
-)
+        print("Got: " + line)
+
+    Ok(())
+}
 ```
 
 ### Writing to stdout with buffering
@@ -210,11 +211,12 @@ use std.io { stdin }
 ```ori
 use std.io { stdout, buffered }
 
-@write_output (items: [str]) uses IO -> Result<void, IoError> = run(
-    let out = buffered(stdout()),
-    for item in items do out.write_str(item + "\n")?,
-    out.flush(),
-)
+@write_output (items: [str]) uses IO -> Result<void, IoError> = {
+    let out = buffered(stdout())
+    for item in items do out.write_str(item + "\n")?
+
+    out.flush()
+}
 ```
 
 ---

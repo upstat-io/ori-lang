@@ -259,7 +259,7 @@ extern "C" {
 }
 
 // Call with any types (unsafe, no type checking)
-unsafe(printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()))
+unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
 ```
 
 ### Distinction from Ori Variadics

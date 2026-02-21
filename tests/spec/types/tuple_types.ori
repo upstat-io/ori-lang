@@ -8,360 +8,360 @@ use std.prelude { is_some, is_none, is_ok }
 // Unit Type ()
 // =============================================================================
 
-@test_unit_type tests @unit_type () -> void = run(
-    let u = (),
-    assert(cond: true),
-)
+@test_unit_type tests @unit_type () -> void = {
+    let u = ();
+    assert(cond: true)
+}
 
-@unit_type () -> void = ()
+@unit_type () -> void = ();
 
-@test_unit_return tests @unit_return () -> void = run(
-    let result = returns_unit(),
-    assert(cond: true),
-)
+@test_unit_return tests @unit_return () -> void = {
+    let result = returns_unit();
+    assert(cond: true)
+}
 
-@returns_unit () -> void = ()
+@returns_unit () -> void = ();
 
 // =============================================================================
 // Single Element Tuple (T,)
 // =============================================================================
 
-@test_single_tuple tests @single_tuple () -> void = run(
-    let single: (int,) = (42,),
-    let (x,) = single,
-    assert_eq(actual: x, expected: 42),
-)
+@test_single_tuple tests @single_tuple () -> void = {
+    let single: (int,) = (42,);
+    let (x,) = single;
+    assert_eq(actual: x, expected: 42)
+}
 
-@single_tuple () -> (int,) = (42,)
+@single_tuple () -> (int,) = (42,);
 
-@test_single_tuple_str tests @single_tuple_str () -> void = run(
-    let single: (str,) = ("hello",),
-    let (s,) = single,
-    assert_eq(actual: s, expected: "hello"),
-)
+@test_single_tuple_str tests @single_tuple_str () -> void = {
+    let single: (str,) = ("hello",);
+    let (s,) = single;
+    assert_eq(actual: s, expected: "hello")
+}
 
-@single_tuple_str () -> (str,) = ("hello",)
+@single_tuple_str () -> (str,) = ("hello",);
 
 // =============================================================================
 // Two Element Tuple (T, U)
 // =============================================================================
 
-@test_pair_same_type tests @pair_same_type () -> void = run(
-    let pair: (int, int) = (10, 20),
-    let (a, b) = pair,
-    assert_eq(actual: a, expected: 10),
-    assert_eq(actual: b, expected: 20),
-)
+@test_pair_same_type tests @pair_same_type () -> void = {
+    let pair: (int, int) = (10, 20);
+    let (a, b) = pair;
+    assert_eq(actual: a, expected: 10);
+    assert_eq(actual: b, expected: 20)
+}
 
-@pair_same_type () -> (int, int) = (10, 20)
+@pair_same_type () -> (int, int) = (10, 20);
 
-@test_pair_different_types tests @pair_different_types () -> void = run(
-    let pair: (int, str) = (42, "answer"),
-    let (n, s) = pair,
-    assert_eq(actual: n, expected: 42),
-    assert_eq(actual: s, expected: "answer"),
-)
+@test_pair_different_types tests @pair_different_types () -> void = {
+    let pair: (int, str) = (42, "answer");
+    let (n, s) = pair;
+    assert_eq(actual: n, expected: 42);
+    assert_eq(actual: s, expected: "answer")
+}
 
-@pair_different_types () -> (int, str) = (42, "answer")
+@pair_different_types () -> (int, str) = (42, "answer");
 
-@test_pair_bool_float tests @pair_bool_float () -> void = run(
-    let pair: (bool, float) = (true, 3.14),
-    let (b, f) = pair,
-    assert(cond: b),
-    assert(cond: f > 3.0),
-)
+@test_pair_bool_float tests @pair_bool_float () -> void = {
+    let pair: (bool, float) = (true, 3.14);
+    let (b, f) = pair;
+    assert(cond: b);
+    assert(cond: f > 3.0)
+}
 
-@pair_bool_float () -> (bool, float) = (true, 3.14)
+@pair_bool_float () -> (bool, float) = (true, 3.14);
 
 // =============================================================================
 // Three Element Tuple (T, U, V)
 // =============================================================================
 
-@test_triple tests @triple () -> void = run(
-    let triple: (int, str, bool) = (1, "one", true),
-    let (n, s, b) = triple,
-    assert_eq(actual: n, expected: 1),
-    assert_eq(actual: s, expected: "one"),
-    assert(cond: b),
-)
+@test_triple tests @triple () -> void = {
+    let triple: (int, str, bool) = (1, "one", true);
+    let (n, s, b) = triple;
+    assert_eq(actual: n, expected: 1);
+    assert_eq(actual: s, expected: "one");
+    assert(cond: b)
+}
 
-@triple () -> (int, str, bool) = (1, "one", true)
+@triple () -> (int, str, bool) = (1, "one", true);
 
 // =============================================================================
 // Four Element Tuple
 // =============================================================================
 
-@test_quad tests @quad () -> void = run(
-    let quad: (int, int, int, int) = (1, 2, 3, 4),
-    let (a, b, c, d) = quad,
-    assert_eq(actual: a + b + c + d, expected: 10),
-)
+@test_quad tests @quad () -> void = {
+    let quad: (int, int, int, int) = (1, 2, 3, 4);
+    let (a, b, c, d) = quad;
+    assert_eq(actual: a + b + c + d, expected: 10)
+}
 
-@quad () -> (int, int, int, int) = (1, 2, 3, 4)
+@quad () -> (int, int, int, int) = (1, 2, 3, 4);
 
 // =============================================================================
 // Mixed Type Tuples
 // =============================================================================
 
-@test_mixed_five tests @mixed_five () -> void = run(
-    let mixed: (int, str, bool, float, char) = (42, "hello", true, 1.5, 'x'),
-    let (n, s, b, f, c) = mixed,
-    assert_eq(actual: n, expected: 42),
-    assert_eq(actual: s, expected: "hello"),
-    assert(cond: b),
-    assert(cond: f > 1.0),
-    assert_eq(actual: c, expected: 'x'),
-)
+@test_mixed_five tests @mixed_five () -> void = {
+    let mixed: (int, str, bool, float, char) = (42, "hello", true, 1.5, 'x');
+    let (n, s, b, f, c) = mixed;
+    assert_eq(actual: n, expected: 42);
+    assert_eq(actual: s, expected: "hello");
+    assert(cond: b);
+    assert(cond: f > 1.0);
+    assert_eq(actual: c, expected: 'x')
+}
 
-@mixed_five () -> (int, str, bool, float, char) = (42, "hello", true, 1.5, 'x')
+@mixed_five () -> (int, str, bool, float, char) = (42, "hello", true, 1.5, 'x');
 
 // =============================================================================
 // Nested Tuples
 // =============================================================================
 
-@test_nested_pair tests @nested_pair () -> void = run(
-    let nested: ((int, int), (int, int)) = ((1, 2), (3, 4)),
-    let (left, right) = nested,
-    let (a, b) = left,
-    let (c, d) = right,
-    assert_eq(actual: a, expected: 1),
-    assert_eq(actual: d, expected: 4),
-)
+@test_nested_pair tests @nested_pair () -> void = {
+    let nested: ((int, int), (int, int)) = ((1, 2), (3, 4));
+    let (left, right) = nested;
+    let (a, b) = left;
+    let (c, d) = right;
+    assert_eq(actual: a, expected: 1);
+    assert_eq(actual: d, expected: 4)
+}
 
-@nested_pair () -> ((int, int), (int, int)) = ((1, 2), (3, 4))
+@nested_pair () -> ((int, int), (int, int)) = ((1, 2), (3, 4));
 
-@test_deeply_nested tests @deeply_nested () -> void = run(
-    let deep: (((int,),),) = (((42,),),),
-    let (outer,) = deep,
-    let (middle,) = outer,
-    let (inner,) = middle,
-    assert_eq(actual: inner, expected: 42),
-)
+@test_deeply_nested tests @deeply_nested () -> void = {
+    let deep: (((int,),),) = (((42,),),);
+    let (outer,) = deep;
+    let (middle,) = outer;
+    let (inner,) = middle;
+    assert_eq(actual: inner, expected: 42)
+}
 
-@deeply_nested () -> (((int,),),) = (((42,),),)
+@deeply_nested () -> (((int,),),) = (((42,),),);
 
-@test_mixed_nesting tests @mixed_nesting () -> void = run(
-    let mixed: ((int, str), (bool, float)) = ((1, "a"), (true, 2.0)),
-    let (pair1, pair2) = mixed,
-    let (n, s) = pair1,
-    let (b, f) = pair2,
-    assert_eq(actual: n, expected: 1),
-    assert(cond: b),
-)
+@test_mixed_nesting tests @mixed_nesting () -> void = {
+    let mixed: ((int, str), (bool, float)) = ((1, "a"), (true, 2.0));
+    let (pair1, pair2) = mixed;
+    let (n, s) = pair1;
+    let (b, f) = pair2;
+    assert_eq(actual: n, expected: 1);
+    assert(cond: b)
+}
 
-@mixed_nesting () -> ((int, str), (bool, float)) = ((1, "a"), (true, 2.0))
+@mixed_nesting () -> ((int, str), (bool, float)) = ((1, "a"), (true, 2.0));
 
 // =============================================================================
 // Tuples with Collections
 // =============================================================================
 
-@test_tuple_with_list tests @tuple_with_list () -> void = run(
-    let t: ([int], [str]) = ([1, 2, 3], ["a", "b"]),
-    let (nums, strs) = t,
-    assert_eq(actual: nums.len(), expected: 3),
-    assert_eq(actual: strs.len(), expected: 2),
-)
+@test_tuple_with_list tests @tuple_with_list () -> void = {
+    let t: ([int], [str]) = ([1, 2, 3], ["a", "b"]);
+    let (nums, strs) = t;
+    assert_eq(actual: nums.len(), expected: 3);
+    assert_eq(actual: strs.len(), expected: 2)
+}
 
-@tuple_with_list () -> ([int], [str]) = ([1, 2, 3], ["a", "b"])
+@tuple_with_list () -> ([int], [str]) = ([1, 2, 3], ["a", "b"]);
 
-@test_tuple_with_map tests @tuple_with_map () -> void = run(
-    let t: ({str: int}, str) = ({"key": 42}, "value"),
-    let (m, s) = t,
+@test_tuple_with_map tests @tuple_with_map () -> void = {
+    let t: ({str: int}, str) = ({"key": 42}, "value");
+    let (m, s) = t;
     // Map indexing returns Option<V>
-    assert_eq(actual: m["key"], expected: Some(42)),
-    assert_eq(actual: s, expected: "value"),
-)
+    assert_eq(actual: m["key"], expected: Some(42));
+    assert_eq(actual: s, expected: "value")
+}
 
-@tuple_with_map () -> ({str: int}, str) = ({"key": 42}, "value")
+@tuple_with_map () -> ({str: int}, str) = ({"key": 42}, "value");
 
 // =============================================================================
 // Tuples with Option/Result
 // =============================================================================
 
-@test_tuple_with_option tests @tuple_with_option () -> void = run(
-    let t: (Option<int>, Option<str>) = (Some(42), None),
-    let (a, b) = t,
-    assert(cond: is_some(opt: a)),
-    assert(cond: is_none(opt: b)),
-)
+@test_tuple_with_option tests @tuple_with_option () -> void = {
+    let t: (Option<int>, Option<str>) = (Some(42), None);
+    let (a, b) = t;
+    assert(cond: is_some(opt: a));
+    assert(cond: is_none(opt: b))
+}
 
-@tuple_with_option () -> (Option<int>, Option<str>) = (Some(42), None)
+@tuple_with_option () -> (Option<int>, Option<str>) = (Some(42), None);
 
-@test_tuple_with_result tests @tuple_with_result () -> void = run(
-    let t: (Result<int, str>, bool) = (Ok(100), true),
-    let (r, b) = t,
-    assert(cond: is_ok(r: r)),
-    assert(cond: b),
-)
+@test_tuple_with_result tests @tuple_with_result () -> void = {
+    let t: (Result<int, str>, bool) = (Ok(100), true);
+    let (r, b) = t;
+    assert(cond: is_ok(r: r));
+    assert(cond: b)
+}
 
-@tuple_with_result () -> (Result<int, str>, bool) = (Ok(100), true)
+@tuple_with_result () -> (Result<int, str>, bool) = (Ok(100), true);
 
 // =============================================================================
 // Tuple Destructuring
 // =============================================================================
 
-@test_destructure_in_let tests @destructure_in_let () -> void = run(
-    let (x, y) = (10, 20),
-    assert_eq(actual: x, expected: 10),
-    assert_eq(actual: y, expected: 20),
-)
+@test_destructure_in_let tests @destructure_in_let () -> void = {
+    let (x, y) = (10, 20);
+    assert_eq(actual: x, expected: 10);
+    assert_eq(actual: y, expected: 20)
+}
 
-@destructure_in_let () -> int = run(
-    let (x, y) = (10, 20),
-    x + y,
-)
+@destructure_in_let () -> int = {
+    let (x, y) = (10, 20);
+    x + y
+}
 
-@test_destructure_nested tests @destructure_nested () -> void = run(
-    let ((a, b), (c, d)) = ((1, 2), (3, 4)),
-    assert_eq(actual: a + b + c + d, expected: 10),
-)
+@test_destructure_nested tests @destructure_nested () -> void = {
+    let ((a, b), (c, d)) = ((1, 2), (3, 4));
+    assert_eq(actual: a + b + c + d, expected: 10)
+}
 
-@destructure_nested () -> int = run(
-    let ((a, b), (c, d)) = ((1, 2), (3, 4)),
-    a + b + c + d,
-)
+@destructure_nested () -> int = {
+    let ((a, b), (c, d)) = ((1, 2), (3, 4));
+    a + b + c + d
+}
 
-@test_partial_destructure tests @partial_destructure () -> void = run(
-    let (first, _) = (42, "ignored"),
-    assert_eq(actual: first, expected: 42),
-)
+@test_partial_destructure tests @partial_destructure () -> void = {
+    let (first, _) = (42, "ignored");
+    assert_eq(actual: first, expected: 42)
+}
 
-@partial_destructure () -> int = run(
-    let (first, _) = (42, "ignored"),
-    first,
-)
+@partial_destructure () -> int = {
+    let (first, _) = (42, "ignored");
+    first
+}
 
 // =============================================================================
 // Tuples in Function Parameters
 // =============================================================================
 
-@sum_pair (pair: (int, int)) -> int = run(
-    let (a, b) = pair,
-    a + b,
-)
+@sum_pair (pair: (int, int)) -> int = {
+    let (a, b) = pair;
+    a + b
+}
 
-@test_tuple_param tests @tuple_param () -> void = run(
-    let result = sum_pair(pair: (10, 20)),
-    assert_eq(actual: result, expected: 30),
-)
+@test_tuple_param tests @tuple_param () -> void = {
+    let result = sum_pair(pair: (10, 20));
+    assert_eq(actual: result, expected: 30)
+}
 
-@tuple_param () -> int = sum_pair(pair: (10, 20))
+@tuple_param () -> int = sum_pair(pair: (10, 20));
 
-@first_of_triple<A, B, C> (t: (A, B, C)) -> A = run(
-    let (a, _, _) = t,
-    a,
-)
+@first_of_triple<A, B, C> (t: (A, B, C)) -> A = {
+    let (a, _, _) = t;
+    a
+}
 
-@test_generic_tuple_param tests @generic_tuple_param () -> void = run(
-    let result = first_of_triple(t: (1, "two", true)),
-    assert_eq(actual: result, expected: 1),
-)
+@test_generic_tuple_param tests @generic_tuple_param () -> void = {
+    let result = first_of_triple(t: (1, "two", true));
+    assert_eq(actual: result, expected: 1)
+}
 
-@generic_tuple_param () -> int = first_of_triple(t: (1, "two", true))
+@generic_tuple_param () -> int = first_of_triple(t: (1, "two", true));
 
 // =============================================================================
 // Tuples as Return Types
 // =============================================================================
 
-@make_pair (a: int, b: str) -> (int, str) = (a, b)
+@make_pair (a: int, b: str) -> (int, str) = (a, b);
 
-@test_tuple_return tests @tuple_return () -> void = run(
-    let result = make_pair(a: 42, b: "hello"),
-    let (n, s) = result,
-    assert_eq(actual: n, expected: 42),
-    assert_eq(actual: s, expected: "hello"),
-)
+@test_tuple_return tests @tuple_return () -> void = {
+    let result = make_pair(a: 42, b: "hello");
+    let (n, s) = result;
+    assert_eq(actual: n, expected: 42);
+    assert_eq(actual: s, expected: "hello")
+}
 
-@tuple_return () -> (int, str) = make_pair(a: 42, b: "hello")
+@tuple_return () -> (int, str) = make_pair(a: 42, b: "hello");
 
-@div_mod (a: int, b: int) -> (int, int) = (a div b, a % b)
+@div_mod (a: int, b: int) -> (int, int) = (a div b, a % b);
 
-@test_multiple_return tests @multiple_return () -> void = run(
-    let (quotient, remainder) = div_mod(a: 17, b: 5),
-    assert_eq(actual: quotient, expected: 3),
-    assert_eq(actual: remainder, expected: 2),
-)
+@test_multiple_return tests @multiple_return () -> void = {
+    let (quotient, remainder) = div_mod(a: 17, b: 5);
+    assert_eq(actual: quotient, expected: 3);
+    assert_eq(actual: remainder, expected: 2)
+}
 
-@multiple_return () -> (int, int) = div_mod(a: 17, b: 5)
+@multiple_return () -> (int, int) = div_mod(a: 17, b: 5);
 
 // =============================================================================
 // Tuple Type Inference
 // =============================================================================
 
-@test_inferred_tuple tests @inferred_tuple () -> void = run(
-    let t = (1, "hello", true),
-    let (n, s, b) = t,
-    assert_eq(actual: n, expected: 1),
-)
+@test_inferred_tuple tests @inferred_tuple () -> void = {
+    let t = (1, "hello", true);
+    let (n, s, b) = t;
+    assert_eq(actual: n, expected: 1)
+}
 
-@inferred_tuple () -> int = run(
-    let t = (1, "hello", true),
-    let (n, _, _) = t,
-    n,
-)
+@inferred_tuple () -> int = {
+    let t = (1, "hello", true);
+    let (n, _, _) = t;
+    n
+}
 
 // =============================================================================
 // Tuple Equality
 // =============================================================================
 
-@test_tuple_eq tests @tuple_eq () -> void = run(
-    let a = (1, 2),
-    let b = (1, 2),
-    let c = (1, 3),
-    assert(cond: a == b),
-    assert(cond: a != c),
-)
+@test_tuple_eq tests @tuple_eq () -> void = {
+    let a = (1, 2);
+    let b = (1, 2);
+    let c = (1, 3);
+    assert(cond: a == b);
+    assert(cond: a != c)
+}
 
-@tuple_eq () -> bool = (1, 2) == (1, 2)
+@tuple_eq () -> bool = (1, 2) == (1, 2);
 
-@test_nested_tuple_eq tests @nested_tuple_eq () -> void = run(
-    let a = ((1, 2), (3, 4)),
-    let b = ((1, 2), (3, 4)),
-    assert(cond: a == b),
-)
+@test_nested_tuple_eq tests @nested_tuple_eq () -> void = {
+    let a = ((1, 2), (3, 4));
+    let b = ((1, 2), (3, 4));
+    assert(cond: a == b)
+}
 
-@nested_tuple_eq () -> bool = ((1, 2), (3, 4)) == ((1, 2), (3, 4))
+@nested_tuple_eq () -> bool = ((1, 2), (3, 4)) == ((1, 2), (3, 4));
 
 // =============================================================================
 // Tuple Field Access (.0, .1, ...)
 // =============================================================================
 
-@test_pair_field_access tests @pair_same_type () -> void = run(
-    let pair = (10, 20),
-    assert_eq(actual: pair.0, expected: 10),
-    assert_eq(actual: pair.1, expected: 20),
-)
+@test_pair_field_access tests @pair_same_type () -> void = {
+    let pair = (10, 20);
+    assert_eq(actual: pair.0, expected: 10);
+    assert_eq(actual: pair.1, expected: 20)
+}
 
-@test_pair_different_field_access tests @pair_different_types () -> void = run(
-    let pair = (42, "answer"),
-    assert_eq(actual: pair.0, expected: 42),
-    assert_eq(actual: pair.1, expected: "answer"),
-)
+@test_pair_different_field_access tests @pair_different_types () -> void = {
+    let pair = (42, "answer");
+    assert_eq(actual: pair.0, expected: 42);
+    assert_eq(actual: pair.1, expected: "answer")
+}
 
-@test_triple_field_access tests @triple () -> void = run(
-    let triple = (1, "one", true),
-    assert_eq(actual: triple.0, expected: 1),
-    assert_eq(actual: triple.1, expected: "one"),
-    assert(cond: triple.2),
-)
+@test_triple_field_access tests @triple () -> void = {
+    let triple = (1, "one", true);
+    assert_eq(actual: triple.0, expected: 1);
+    assert_eq(actual: triple.1, expected: "one");
+    assert(cond: triple.2)
+}
 
 // Chained tuple field access requires parentheses because the lexer
 // tokenizes `0.1` as a float literal. Use `(t.0).1` not `t.0.1`.
-@test_nested_tuple_field_access tests @nested_pair () -> void = run(
-    let nested = ((1, 2), (3, 4)),
-    assert_eq(actual: (nested.0).0, expected: 1),
-    assert_eq(actual: (nested.0).1, expected: 2),
-    assert_eq(actual: (nested.1).0, expected: 3),
-    assert_eq(actual: (nested.1).1, expected: 4),
-)
+@test_nested_tuple_field_access tests @nested_pair () -> void = {
+    let nested = ((1, 2), (3, 4));
+    assert_eq(actual: (nested.0).0, expected: 1);
+    assert_eq(actual: (nested.0).1, expected: 2);
+    assert_eq(actual: (nested.1).0, expected: 3);
+    assert_eq(actual: (nested.1).1, expected: 4)
+}
 
-@test_single_tuple_field tests @single_tuple () -> void = run(
-    let single = (42,),
-    assert_eq(actual: single.0, expected: 42),
-)
+@test_single_tuple_field tests @single_tuple () -> void = {
+    let single = (42,);
+    assert_eq(actual: single.0, expected: 42)
+}
 
-@test_field_access_on_return tests @make_pair () -> void = run(
-    let result = make_pair(a: 99, b: "test"),
-    assert_eq(actual: result.0, expected: 99),
-    assert_eq(actual: result.1, expected: "test"),
-)
+@test_field_access_on_return tests @make_pair () -> void = {
+    let result = make_pair(a: 99, b: "test");
+    assert_eq(actual: result.0, expected: 99);
+    assert_eq(actual: result.1, expected: "test")
+}

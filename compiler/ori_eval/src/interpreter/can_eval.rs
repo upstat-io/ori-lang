@@ -355,20 +355,11 @@ impl Interpreter<'_> {
 
             // Bindings
             CanExpr::Block { stmts, result } => self.eval_can_block(stmts, result),
-            CanExpr::Let {
-                pattern,
-                init,
-                mutable,
-            } => {
+            CanExpr::Let { pattern, init, .. } => {
                 let value = self.eval_can(init)?;
-                let mutability = if mutable {
-                    Mutability::Mutable
-                } else {
-                    Mutability::Immutable
-                };
                 // Copy the pattern out to avoid borrow conflict
                 let pat = *self.canon_ref().arena.get_binding_pattern(pattern);
-                self.bind_can_pattern(&pat, value, mutability)
+                self.bind_can_pattern(&pat, value)
             }
             CanExpr::Assign { target, value } => {
                 let val = self.eval_can(value)?;
@@ -418,6 +409,7 @@ impl Interpreter<'_> {
                 Value::None => Err(ControlAction::Propagate(Value::None)),
                 other => Ok(other),
             },
+            CanExpr::Unsafe(inner) => self.eval_can(inner),
             CanExpr::Await(_) => {
                 let span = self.can_span(can_id);
                 Err(Self::attach_span(await_not_supported().into(), span))
@@ -675,23 +667,13 @@ impl Interpreter<'_> {
     // Binding Pattern
 
     /// Bind a canonical binding pattern to a value.
-    fn bind_can_pattern(
-        &mut self,
-        pattern: &CanBindingPattern,
-        value: Value,
-        mutability: Mutability,
-    ) -> EvalResult {
+    fn bind_can_pattern(&mut self, pattern: &CanBindingPattern, value: Value) -> EvalResult {
         match pattern {
             CanBindingPattern::Name { name, mutable } => {
                 // Per-binding mutability: use the flag from the pattern itself,
                 // not the inherited top-level mutability. This enables `let ($x, y) = ...`
                 // where `x` is immutable and `y` is mutable.
-                let binding_mutability = if *mutable {
-                    Mutability::Mutable
-                } else {
-                    Mutability::Immutable
-                };
-                self.env.define(*name, value, binding_mutability);
+                self.env.define(*name, value, *mutable);
                 Ok(Value::Void)
             }
             CanBindingPattern::Wildcard => Ok(Value::Void),
@@ -709,13 +691,13 @@ impl Interpreter<'_> {
                         Ok(owned) => {
                             for (pat_id, val) in pat_ids.into_iter().zip(owned) {
                                 let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
-                                self.bind_can_pattern(&sub_pat, val, mutability)?;
+                                self.bind_can_pattern(&sub_pat, val)?;
                             }
                         }
                         Err(shared) => {
                             for (pat_id, val) in pat_ids.into_iter().zip(shared.iter()) {
                                 let sub_pat = *self.canon_ref().arena.get_binding_pattern(pat_id);
-                                self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
+                                self.bind_can_pattern(&sub_pat, val.clone())?;
                             }
                         }
                     }
@@ -732,7 +714,7 @@ impl Interpreter<'_> {
                         if let Some(val) = s.get_field(fb.name) {
                             // Copy the sub-pattern out to avoid borrow conflict
                             let sub_pat = *self.canon_ref().arena.get_binding_pattern(fb.pattern);
-                            self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
+                            self.bind_can_pattern(&sub_pat, val.clone())?;
                         } else {
                             return Err(crate::errors::missing_struct_field().into());
                         }
@@ -753,12 +735,12 @@ impl Interpreter<'_> {
                     for (pat_id, val) in pat_ids.iter().zip(values.iter()) {
                         // Copy the sub-pattern out to avoid borrow conflict
                         let sub_pat = *self.canon_ref().arena.get_binding_pattern(*pat_id);
-                        self.bind_can_pattern(&sub_pat, val.clone(), mutability)?;
+                        self.bind_can_pattern(&sub_pat, val.clone())?;
                     }
-                    if let Some(rest_name) = rest {
+                    if let Some((rest_name, rest_mut)) = rest {
                         let rest_values = values[pat_ids.len()..].to_vec();
                         self.env
-                            .define(*rest_name, Value::list(rest_values), mutability);
+                            .define(*rest_name, Value::list(rest_values), *rest_mut);
                     }
                     Ok(Value::Void)
                 } else {

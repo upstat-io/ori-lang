@@ -399,9 +399,9 @@ error[E____]: cannot assign to immutable binding
 error[E____]: cannot assign to parameter
   --> src/main.ori:2:5
    |
- 1 | @update (items: [int]) -> [int] = run(
+ 1 | @update (items: [int]) -> [int] = {
    |          ----- parameters are always immutable
- 2 |     items[0] = 99,
+ 2 |     items[0] = 99
    |     ^^^^^^^^^^^^^^ cannot assign to parameter
    |
    = help: bind to a local variable first: `let items = items`

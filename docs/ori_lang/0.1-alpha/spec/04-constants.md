@@ -16,20 +16,20 @@ Constants are immutable bindings declared with the `$` prefix.
 A binding prefixed with `$` is immutable — it cannot be reassigned after initialization.
 
 ```ori
-let $timeout = 30s
-let $api_base = "https://api.example.com"
-let $max_retries = 3
-pub let $default_limit = 100
+let $timeout = 30s;
+let $api_base = "https://api.example.com";
+let $max_retries = 3;
+pub let $default_limit = 100;
 ```
 
 The `$` prefix appears at definition, import, and usage sites:
 
 ```ori
 // Definition
-let $timeout = 30s
+let $timeout = 30s;
 
 // Usage
-retry(op: fetch(url), attempts: $max_retries, timeout: $timeout)
+retry(op: fetch(url), attempts: $max_retries, timeout: $timeout);
 ```
 
 ## Module-Level Constants
@@ -37,18 +37,18 @@ retry(op: fetch(url), attempts: $max_retries, timeout: $timeout)
 All module-level bindings must be immutable. Mutable state is not permitted at module scope.
 
 ```ori
-let $timeout = 30s      // OK: immutable
-pub let $api_base = "https://..."  // OK: public, immutable
+let $timeout = 30s;      // OK: immutable
+pub let $api_base = "https://...";  // OK: public, immutable
 
-let counter = 0         // error: module-level bindings must be immutable
+let counter = 0;         // error: module-level bindings must be immutable
 ```
 
 Module-level constants may be initialized with any expression:
 
 ```ori
-let $a = 5                    // literal
-let $b = $a * 2               // constant expression
-let $c = $square(x: 10)       // const function call
+let $a = 5;                    // literal
+let $b = $a * 2;               // constant expression
+let $c = $square(x: 10);       // const function call
 ```
 
 The compiler evaluates constant expressions at compile time when possible. Expressions that cannot be evaluated at compile time produce runtime immutable bindings.
@@ -59,7 +59,7 @@ The `$` prefix may be used in local scope to create immutable local bindings:
 
 ```ori
 @process (input: int) -> int = {
-    let $base = expensive_calculation(input)
+    let $base = expensive_calculation(input);
     // ... $base cannot be reassigned ...
     $base * 2
 }
@@ -70,14 +70,14 @@ The `$` prefix may be used in local scope to create immutable local bindings:
 The `$` prefix is a modifier on the identifier, not part of the name. A binding for `$x` and a binding for `x` refer to the same name — they cannot coexist in the same scope.
 
 ```ori
-let x = 5
-let $x = 10  // error: 'x' is already defined in this scope
+let x = 5;
+let $x = 10;  // error: 'x' is already defined in this scope
 ```
 
 The `$` must match between definition and usage:
 
 ```ori
-let $timeout = 30s
+let $timeout = 30s;
 $timeout       // OK
 timeout        // error: undefined variable 'timeout'
 ```
@@ -87,12 +87,12 @@ timeout        // error: undefined variable 'timeout'
 A const function is a pure function bound to an immutable name. Const functions may be evaluated at compile time when all arguments are constant.
 
 ```ori
-let $square = (x: int) -> int = x * x
+let $square = (x: int) -> int = x * x;
 let $factorial = (n: int) -> int =
-    if n <= 1 then 1 else n * $factorial(n: n - 1)
+    if n <= 1 then 1 else n * $factorial(n: n - 1);
 
 // Evaluated at compile time
-let $fact_10 = $factorial(n: 10)  // 3628800
+let $fact_10 = $factorial(n: 10);  // 3628800
 ```
 
 Const functions must be pure:
@@ -124,11 +124,11 @@ When importing immutable bindings, the `$` must be included:
 
 ```ori
 // config.ori
-pub let $timeout = 30s
+pub let $timeout = 30s;
 
 // client.ori
-use "./config" { $timeout }  // OK
-use "./config" { timeout }   // error: 'timeout' not found
+use "./config" { $timeout };  // OK
+use "./config" { timeout };   // error: 'timeout' not found
 ```
 
 ## Constraints

@@ -110,6 +110,7 @@ fn validate_expr(arena: &CanArena, result: &CanonResult, id: ori_ir::canon::CanI
         CanExpr::Unary { operand, .. } => validate_can_id(arena, id, *operand, "operand"),
         CanExpr::Try(child)
         | CanExpr::Await(child)
+        | CanExpr::Unsafe(child)
         | CanExpr::Some(child)
         | CanExpr::Ok(child)
         | CanExpr::Err(child)

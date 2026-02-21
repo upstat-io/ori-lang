@@ -7,49 +7,49 @@ use std.testing { assert_eq }
 // Option Debug
 // =============================================================================
 
-@test_some_debug tests @some_debug () -> void = run(
-    assert_eq(actual: Some(42).debug(), expected: "Some(42)"),
-)
+@test_some_debug tests @some_debug () -> void = {
+    assert_eq(actual: Some(42).debug(), expected: "Some(42)")
+}
 
-@some_debug () -> str = Some(42).debug()
+@some_debug () -> str = Some(42).debug();
 
-@test_none_debug tests @none_debug () -> void = run(
-    let n: Option<int> = None,
-    assert_eq(actual: n.debug(), expected: "None"),
-)
+@test_none_debug tests @none_debug () -> void = {
+    let n: Option<int> = None;
+    assert_eq(actual: n.debug(), expected: "None")
+}
 
-@none_debug () -> str = run(
-    let n: Option<int> = None,
-    n.debug(),
-)
+@none_debug () -> str = {
+    let n: Option<int> = None;
+    n.debug()
+}
 
-@test_some_string_debug tests @some_string_debug () -> void = run(
+@test_some_string_debug tests @some_string_debug () -> void = {
     // String inside Some should be quoted
-    assert_eq(actual: Some("hi").debug(), expected: "Some(\"hi\")"),
-)
+    assert_eq(actual: Some("hi").debug(), expected: "Some(\"hi\")")
+}
 
-@some_string_debug () -> str = Some("hi").debug()
+@some_string_debug () -> str = Some("hi").debug();
 
 // =============================================================================
 // Result Debug
 // =============================================================================
 
-@test_ok_debug tests @ok_debug () -> void = run(
-    let r: Result<int, str> = Ok(1),
-    assert_eq(actual: r.debug(), expected: "Ok(1)"),
-)
+@test_ok_debug tests @ok_debug () -> void = {
+    let r: Result<int, str> = Ok(1);
+    assert_eq(actual: r.debug(), expected: "Ok(1)")
+}
 
-@ok_debug () -> str = run(
-    let r: Result<int, str> = Ok(1),
-    r.debug(),
-)
+@ok_debug () -> str = {
+    let r: Result<int, str> = Ok(1);
+    r.debug()
+}
 
-@test_err_debug tests @err_debug () -> void = run(
-    let r: Result<int, str> = Err("oops"),
-    assert_eq(actual: r.debug(), expected: "Err(\"oops\")"),
-)
+@test_err_debug tests @err_debug () -> void = {
+    let r: Result<int, str> = Err("oops");
+    assert_eq(actual: r.debug(), expected: "Err(\"oops\")")
+}
 
-@err_debug () -> str = run(
-    let r: Result<int, str> = Err("oops"),
-    r.debug(),
-)
+@err_debug () -> str = {
+    let r: Result<int, str> = Err("oops");
+    r.debug()
+}

@@ -1,6 +1,6 @@
 // Short method chains (inline when fits)
 // Spec: 06-expressions.md § Method Calls
 
-@process (items: [int]) -> [int] = items.filter(x -> x > 0).map(x -> x * 2)
+@process (items: [int]) -> [int] = items.filter(x -> x > 0).map(x -> x * 2);
 
-@get_count (items: [int]) -> int = items.filter(x -> x > 0).count()
+@get_count (items: [int]) -> int = items.filter(x -> x > 0).count();

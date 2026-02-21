@@ -40,10 +40,10 @@
 // @fetch_data (url: str) -> str uses Http = Http.get(url: url)
 //
 // // Function that uses multiple capabilities
-// @fetch_and_log (url: str) -> str uses Http, Logger = run(
+// @fetch_and_log (url: str) -> str uses Http, Logger = {
 //     Logger.log(level: "info", msg: "fetching " + url),
 //     Http.get(url: url),
-// )
+// }
 //
 // // Function that uses FileSystem capability
 // @load_config (path: str) -> str uses FileSystem = FileSystem.read(path: path)
@@ -72,17 +72,17 @@
 // // =============================================================================
 //
 // // Test using a capability with a valid implementation
-// @test_http_capability tests @fetch_data () -> void = run(
+// @test_http_capability tests @fetch_data () -> void = {
 //     let result = with Http = MockHttp { base_url: "https://api.example.com" } in
 //         fetch_data(url: "/users"),
 //     assert_eq(
 //         actual: result,
 //         expected: "https://api.example.com/users",
 //     ),
-// )
+// }
 //
 // // Test using multiple capabilities
-// @test_multiple_capabilities tests @fetch_and_log () -> void = run(
+// @test_multiple_capabilities tests @fetch_and_log () -> void = {
 //     let result = with Http = MockHttp { base_url: "https://test.com" } in
 //         with Logger = ConsoleLogger { prefix: "[LOG]" } in
 //             fetch_and_log(url: "/data"),
@@ -90,20 +90,20 @@
 //         actual: result,
 //         expected: "https://test.com/data",
 //     ),
-// )
+// }
 //
 // // Test that capability is accessible in body via trait methods
-// @test_capability_methods () -> void = run(
+// @test_capability_methods () -> void = {
 //     let result = with Http = MockHttp { base_url: "http://localhost" } in
 //         Http.get(url: "/test"),
 //     assert_eq(
 //         actual: result,
 //         expected: "http://localhost/test",
 //     ),
-// )
+// }
 //
 // // Test nested with expressions
-// @test_nested_with () -> void = run(
+// @test_nested_with () -> void = {
 //     let result = with Http = MockHttp { base_url: "outer" } in
 //         with Http = MockHttp { base_url: "inner" } in
 //             Http.base_url,
@@ -111,15 +111,15 @@
 //         actual: result,
 //         expected: "inner",
 //     ),
-// )
+// }
 //
 // // Test pure function (no capabilities)
 // @pure_add (a: int, b: int) -> int = a + b
 //
-// @test_pure_function tests @pure_add () -> void = run(
+// @test_pure_function tests @pure_add () -> void = {
 //     // Pure functions don't need with...in
 //     assert_eq(
 //         actual: pure_add(a: 1, b: 2),
 //         expected: 3,
 //     ),
-// )
+// }

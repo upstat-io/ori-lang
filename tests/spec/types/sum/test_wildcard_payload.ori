@@ -1,24 +1,24 @@
 use std.testing { assert_eq, assert }
 
-type Result2 = Success(value: int) | Failure(msg: str)
+type Result2 = Success(value: int) | Failure(msg: str);
 
-@is_success (r: Result2) -> bool = match(r,
+@is_success (r: Result2) -> bool = match r {
     Success(_) -> true,
-    _ -> false,
-)
+    _ -> false
+}
 
-@test_wildcard_payload tests @is_success () -> void = run(
-    assert(cond: is_success(r: Success(42))),
-    assert(cond: !is_success(r: Failure("error"))),
-)
+@test_wildcard_payload tests @is_success () -> void = {
+    assert(cond: is_success(r: Success(42)));
+    assert(cond: !is_success(r: Failure("error")))
+}
 
 // Wildcard in variant position (not whole arm wildcard)
-@get_value (r: Result2) -> int = match(r,
+@get_value (r: Result2) -> int = match r {
     Success(v) -> v,
-    Failure(_) -> -1,
-)
+    Failure(_) -> -1
+}
 
-@test_variant_wildcard tests @get_value () -> void = run(
-    assert_eq(actual: get_value(r: Success(42)), expected: 42),
-    assert_eq(actual: get_value(r: Failure("error")), expected: -1),
-)
+@test_variant_wildcard tests @get_value () -> void = {
+    assert_eq(actual: get_value(r: Success(42)), expected: 42);
+    assert_eq(actual: get_value(r: Failure("error")), expected: -1)
+}

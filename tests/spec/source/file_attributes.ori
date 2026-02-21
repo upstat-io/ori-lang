@@ -13,8 +13,8 @@
 
 use std.testing { assert_eq }
 
-@identity (x: int) -> int = x
+@identity (x: int) -> int = x;
 
-@test_no_file_attr tests @identity () -> void = run(
-    assert_eq(actual: identity(x: 42), expected: 42),
-)
+@test_no_file_attr tests @identity () -> void = {
+    assert_eq(actual: identity(x: 42), expected: 42)
+}

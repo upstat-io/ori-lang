@@ -274,12 +274,6 @@ pub(crate) struct Lowerer<'a> {
     // Pre-interned names for collection specialization.
     pub(crate) name_collect: Name,
     pub(crate) name_collect_set: Name,
-
-    // Pre-interned names for check desugaring.
-    pub(super) name_msg: Name,
-    pub(super) name_check_result: Name,
-    pub(super) name_pre_check_failed: Name,
-    pub(super) name_post_check_failed: Name,
 }
 
 impl<'a> Lowerer<'a> {
@@ -316,10 +310,6 @@ impl<'a> Lowerer<'a> {
             name_collect: interner.intern("collect"),
             name_collect_set: interner
                 .intern(ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD),
-            name_msg: interner.intern("msg"),
-            name_check_result: interner.intern("__check_result"),
-            name_pre_check_failed: interner.intern("pre_check failed"),
-            name_post_check_failed: interner.intern("post_check failed"),
         }
     }
 

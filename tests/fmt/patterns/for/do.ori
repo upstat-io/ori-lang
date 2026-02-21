@@ -1,8 +1,9 @@
 // For-do loop (imperative)
 // Spec: 19-control-flow.md § For Loop
 
-@sum_items (items: [int]) -> int = run(
-    let total = 0,
-    for x in items do total = total + x,
-    total,
-)
+@sum_items (items: [int]) -> int = {
+    let total = 0;
+    for x in items do total = total + x;
+
+    total
+}

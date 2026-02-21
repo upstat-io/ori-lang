@@ -1,13 +1,13 @@
 // Match with tuple patterns
 // Spec: 10-patterns.md § match
 
-@classify_pair (t: (int, int)) -> str = match(t,
+@classify_pair (t: (int, int)) -> str = match t {
     (0, 0) -> "origin",
     (_, 0) -> "x-axis",
     (0, _) -> "y-axis",
     (a, b) -> "elsewhere",
-)
+}
 
-@nested_tuple (t: ((int, int), int)) -> int = match(t,
+@nested_tuple (t: ((int, int), int)) -> int = match t {
     ((a, b), c) -> a + b + c,
-)
+}

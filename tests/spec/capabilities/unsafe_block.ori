@@ -1,0 +1,67 @@
+// Spec: unsafe-semantics-proposal.md § The unsafe Block
+// Grammar: grammar.ebnf § unsafe_expr
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Basic unsafe block — single expression
+// =============================================================================
+
+@identity (x: int) -> int = unsafe { x };
+
+@test_unsafe_single_expr tests @identity () -> void = {
+    assert_eq(identity(42), 42)
+}
+
+// =============================================================================
+// Unsafe block — multi-statement body
+// =============================================================================
+
+@compute (a: int, b: int) -> int = unsafe {
+    let sum = a + b;
+    let doubled = sum * 2;
+    doubled
+};
+
+@test_unsafe_multi_stmt tests @compute () -> void = {
+    assert_eq(compute(3, 4), 14)
+}
+
+// =============================================================================
+// Nested unsafe blocks (redundant but legal)
+// =============================================================================
+
+@nested (x: int) -> int = unsafe { unsafe { x + 1 } };
+
+@test_unsafe_nested tests @nested () -> void = {
+    assert_eq(nested(10), 11)
+}
+
+// =============================================================================
+// Unsafe block as sub-expression
+// =============================================================================
+
+@combined (x: int) -> int = {
+    let base = unsafe { x * 2 };
+    base + 1
+};
+
+@test_unsafe_in_block tests @combined () -> void = {
+    assert_eq(combined(5), 11)
+}
+
+// =============================================================================
+// Unsafe block preserves expression type
+// =============================================================================
+
+@returns_str () -> str = unsafe { "hello" };
+
+@test_unsafe_type tests @returns_str () -> void = {
+    assert_eq(returns_str(), "hello")
+}
+
+@returns_bool () -> bool = unsafe { true };
+
+@test_unsafe_bool tests @returns_bool () -> void = {
+    assert_eq(returns_bool(), true)
+}

@@ -8,4 +8,4 @@
         input_value: value,
         fallback_value: 0,
         option_settings: "default_options_value",
-    )
+    );

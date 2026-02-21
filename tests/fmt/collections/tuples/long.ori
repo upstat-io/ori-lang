@@ -5,7 +5,7 @@
     "first_very_long_string_value_here",
     "second_very_long_string_value_here",
     "third_very_long_string_value_here",
-)
+);
 
 @many_fields () -> (int, int, int, int, int, int, int, int, int, int) = (
     100000000,
@@ -18,4 +18,4 @@
     800000000,
     900000000,
     1000000000,
-)
+);

@@ -45,7 +45,7 @@ Each task has private mutable bindings. Bindings captured across task boundaries
 
 ```ori
 @example () -> void uses Suspend = {
-    let x = 0
+    let x = 0;
     parallel(
         tasks: [
             () -> {x = 1},  // error: cannot capture mutable binding across task boundary
@@ -82,7 +82,7 @@ Programs using concurrency patterns must have `@main` declare `uses Suspend`:
 
 // Invalid: main uses concurrency without Suspend
 @main () -> void = {
-    parallel(tasks: [task_a(), task_b()]),  // error: requires Suspend capability
+    parallel(tasks: [task_a(), task_b()]);  // error: requires Suspend capability
 }
 ```
 
@@ -116,12 +116,12 @@ A function that calls suspending code must itself be suspending:
 
 ```ori
 @caller () -> int uses Suspend =
-    callee()  // OK: caller can suspend
+    callee();  // OK: caller can suspend
 
 @caller_sync () -> int =
-    callee()  // error: callee uses Suspend but caller does not
+    callee();  // error: callee uses Suspend but caller does not
 
-@callee () -> int uses Suspend = ...
+@callee () -> int uses Suspend = ...;
 ```
 
 The `Suspend` capability _propagates upward_ — callers of suspending functions must declare `uses Suspend`.
@@ -132,7 +132,7 @@ A non-suspending function called from a suspending context executes synchronousl
 
 ```ori
 @expensive_sync () -> int =
-    heavy_math()  // Long computation, no suspension points
+    heavy_math();  // Long computation, no suspension points
 
 @main () -> void uses Suspend = {
     parallel(
@@ -150,11 +150,11 @@ Task closures follow capture-by-value semantics. When a value is captured by a t
 
 ```ori
 @capture_example () -> void uses Suspend = {
-    let data = create_data()
+    let data = create_data();
     nursery(
         body: n -> {
-            n.spawn(task: () -> process(data)),  // data captured by value
-            print(msg: data.field),  // error: data is no longer accessible
+            n.spawn(task: () -> process(data));  // data captured by value
+            print(msg: data.field);  // error: data is no longer accessible
         }
     )
 }
@@ -168,9 +168,9 @@ Captured values must implement `Sendable`:
 
 ```ori
 @spawn_example () -> void uses Suspend = {
-    let data = create_data(),  // Data: Sendable
+    let data = create_data();  // Data: Sendable
     nursery(
-        body: n -> n.spawn(task: () -> process(data)),  // OK
+        body: n -> n.spawn(task: () -> process(data)),
     )
 }
 ```
@@ -218,7 +218,7 @@ type CancellationReason =
     | SiblingFailed
     | NurseryExited
     | ExplicitCancel
-    | ResourceExhausted
+    | ResourceExhausted;
 ```
 
 ### Error Mode Semantics
@@ -255,7 +255,8 @@ A task cannot be forcibly terminated during destructor execution.
 Tasks can explicitly check cancellation status:
 
 ```ori
-@is_cancelled () -> bool
+@is_cancelled () -> bool;
+
 ```
 
 This built-in function returns `true` if the current task has been marked for cancellation.
@@ -284,8 +285,8 @@ When an outer nursery cancels a task containing an inner nursery:
 error[E0700]: cannot capture mutable binding across task boundary
   --> example.ori:5:15
    |
- 5 |         () -> run(x = 1),
-   |               ^^^^^^^^^^
+ 5 |         () -> { x = 1 },
+   |               ^^^^^^^^^^^
    = note: mutable bindings cannot be shared between tasks
 
 error[E0701]: callee uses Suspend but caller does not

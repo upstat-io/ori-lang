@@ -9,7 +9,9 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::{BinaryOp, DurationUnit, FunctionExpKind, Name, SizeUnit, Span, TypeId, UnaryOp};
+use crate::{
+    BinaryOp, DurationUnit, FunctionExpKind, Mutability, Name, SizeUnit, Span, TypeId, UnaryOp,
+};
 
 use super::ids::{CanBindingPatternId, CanFieldRange, CanId, CanMapEntryRange, CanRange};
 use super::patterns::{CanNamedExprRange, CanParamRange};
@@ -161,7 +163,7 @@ pub enum CanExpr {
     Let {
         pattern: CanBindingPatternId,
         init: CanId,
-        mutable: bool,
+        mutable: Mutability,
     },
     /// Assignment: `target = value`
     Assign { target: CanId, value: CanId },
@@ -205,6 +207,11 @@ pub enum CanExpr {
     Try(CanId),
     /// Await async operation: `await expr`
     Await(CanId),
+
+    // Safety
+    /// Unsafe block: `unsafe { expr }` — discharges `Unsafe` capability.
+    /// Transparent at runtime — evaluates to inner expression.
+    Unsafe(CanId),
 
     // Capabilities
     /// Capability injection: `with Http = provider in body`
@@ -321,7 +328,7 @@ impl fmt::Debug for CanExpr {
                 init,
                 mutable,
             } => {
-                write!(f, "Let({pattern:?}, {init:?}, mut={mutable})")
+                write!(f, "Let({pattern:?}, {init:?}, {mutable:?})")
             }
             CanExpr::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
             CanExpr::Lambda { params, body } => {
@@ -348,6 +355,7 @@ impl fmt::Debug for CanExpr {
             CanExpr::None => write!(f, "None"),
             CanExpr::Try(v) => write!(f, "Try({v:?})"),
             CanExpr::Await(v) => write!(f, "Await({v:?})"),
+            CanExpr::Unsafe(v) => write!(f, "Unsafe({v:?})"),
             CanExpr::WithCapability {
                 capability,
                 provider,

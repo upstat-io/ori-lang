@@ -12,7 +12,7 @@ The test runner executes discovered tests and reports results.
 ## Location
 
 ```
-compiler/oric/src/test/runner.rs (~700 lines)
+compiler/oric/src/test/runner/mod.rs (1111 lines)
 ```
 
 ## Configuration
@@ -41,6 +41,8 @@ pub struct TestRunnerConfig {
     pub coverage: bool,
     /// Backend to use for execution.
     pub backend: Backend,
+    /// Enable incremental test execution (skip tests whose targets are unchanged).
+    pub incremental: bool,
 }
 
 impl Default for TestRunnerConfig {
@@ -51,6 +53,7 @@ impl Default for TestRunnerConfig {
             parallel: true,
             coverage: false,
             backend: Backend::Interpreter,
+            incremental: false,
         }
     }
 }
@@ -70,6 +73,8 @@ pub struct TestRunner {
     config: TestRunnerConfig,
     /// Shared interner - all files use the same interner for comparable Name values.
     interner: SharedInterner,
+    /// Cross-run cache for incremental test execution. Thread-safe for parallel runs.
+    cache: parking_lot::Mutex<TestRunCache>,
 }
 
 impl TestRunner {
@@ -195,8 +200,8 @@ fn run_file(&self, path: &Path) -> FileSummary {
 
 ```rust
 pub struct TestResult {
-    pub name: String,
-    pub targets: Vec<String>,
+    pub name: Name,
+    pub targets: Vec<Name>,
     pub outcome: TestOutcome,
     pub duration: Duration,
 }
@@ -205,11 +210,12 @@ pub enum TestOutcome {
     Passed,                   // Test passed (including matched compile_fail)
     Failed(String),           // Test failed (error message)
     Skipped(String),          // Test skipped (skip reason)
+    SkippedUnchanged,         // Test skipped because all targets are unchanged since last run
     LlvmCompileFail(String),  // LLVM compilation failed — tracked separately
 }
 ```
 
-**Note:** Compile-fail tests map to `Passed` when errors match or `Failed` when they don't. `LlvmCompileFail` is a separate outcome for tests that could not run because LLVM compilation of their file failed — these are tracked separately and do not count as real test failures.
+**Note:** Compile-fail tests map to `Passed` when errors match or `Failed` when they don't. `SkippedUnchanged` is used by incremental test execution — when `incremental: true` is set and all of a test's targets are unchanged since the last run (tracked via `TestRunCache`), the test is skipped without re-executing. `LlvmCompileFail` is a separate outcome for tests that could not run because LLVM compilation of their file failed — these are tracked separately and do not count as real test failures.
 
 ```rust
 // Compile-fail test handling (simplified)
@@ -287,11 +293,13 @@ fn run_test_llvm(&self, test: &TestDef, ...) -> TestResult {
 }
 ```
 
+The LLVM backend runs tests sequentially due to LLVM context creation contention. Parallel execution is only used for the interpreter backend.
+
 Enable with `ori test --backend=llvm`.
 
 ## Compile-Fail Tests
 
-Tests with `#compile_fail` attributes expect type errors:
+Tests with `#compile_fail` attributes expect type errors or pattern problems (exhaustiveness/redundancy). The error matching module (`error_matching.rs`) matches expectations against both `TypeCheckError` and `PatternProblem` diagnostics, trying type errors first then pattern problems for each expectation:
 
 ```rust
 fn run_compile_fail_test(
@@ -307,7 +315,7 @@ fn run_compile_fail_test(
     if !type_result.has_errors() {
         // Expected error but compiled successfully
         return TestResult {
-            outcome: TestOutcome::UnexpectedCompileSuccess,
+            outcome: TestOutcome::Failed("expected compile error but compiled successfully".into()),
             ...
         };
     }
@@ -318,15 +326,13 @@ fn run_compile_fail_test(
 
     if match_errors(&expectations, &errors) {
         TestResult {
-            outcome: TestOutcome::CompileFailMatched,
+            outcome: TestOutcome::Passed,
             ...
         }
     } else {
         TestResult {
-            outcome: TestOutcome::CompileFailMismatch {
-                expected: format_expected(&expectations),
-                actual: format_actual(&errors),
-            },
+            outcome: TestOutcome::Failed(format!("expected error '{}', got '{}'",
+                format_expected(&expectations), format_actual(&errors))),
             ...
         }
     }
@@ -400,7 +406,7 @@ if let Some(filter) = &self.config.filter {
 When `--coverage` is enabled:
 
 ```rust
-fn compute_coverage(&self, results: &[FileSummary]) -> CoverageReport {
+fn coverage_report(&self, path: &Path) -> CoverageReport {
     let mut report = CoverageReport::new();
 
     for file in results {

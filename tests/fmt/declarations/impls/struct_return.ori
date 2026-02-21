@@ -5,7 +5,7 @@
 type Rectangle = { width: int, height: int, area: int, perimeter: int }
 
 impl Rectangle {
-    @sum (self) -> int = self.width + self.height
+    @sum (self) -> int = self.width + self.height;
 
     @scale (self, factor: int) -> Rectangle = Rectangle {
         width: self.width * factor,

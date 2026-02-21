@@ -8,8 +8,8 @@
 
 use std.testing { assert_eq }
 
-@greet () -> str = "hello from linux"
+@greet () -> str = "hello from linux";
 
-@test_target_attr tests @greet () -> void = run(
-    assert_eq(actual: greet(), expected: "hello from linux"),
-)
+@test_target_attr tests @greet () -> void = {
+    assert_eq(actual: greet(), expected: "hello from linux")
+}

@@ -30,193 +30,193 @@ type WithFloat = { x: float, y: float }
 
 // --- Basic struct equality ---
 
-@test_eq_same tests @eq_same () -> void = run(
-    let p1 = Point { x: 10, y: 20 },
-    let p2 = Point { x: 10, y: 20 },
-    assert(cond: p1 == p2),
-)
+@test_eq_same tests @eq_same () -> void = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 20 };
+    assert(cond: p1 == p2)
+}
 @eq_same () -> bool = Point { x: 10, y: 20 } == Point { x: 10, y: 20 }
 
-@test_eq_different tests @eq_different () -> void = run(
-    let p1 = Point { x: 10, y: 20 },
-    let p2 = Point { x: 10, y: 30 },
-    assert(cond: p1 != p2),
-)
+@test_eq_different tests @eq_different () -> void = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 30 };
+    assert(cond: p1 != p2)
+}
 @eq_different () -> bool = Point { x: 10, y: 20 } != Point { x: 10, y: 30 }
 
-@test_eq_method_call tests @eq_method () -> void = run(
-    let p1 = Point { x: 5, y: 5 },
-    let p2 = Point { x: 5, y: 5 },
-    assert(cond: p1.eq(other: p2)),
-)
-@eq_method () -> bool = run(
-    let p1 = Point { x: 5, y: 5 },
-    let p2 = Point { x: 5, y: 5 },
-    p1.eq(other: p2),
-)
+@test_eq_method_call tests @eq_method () -> void = {
+    let p1 = Point { x: 5, y: 5 };
+    let p2 = Point { x: 5, y: 5 };
+    assert(cond: p1.eq(other: p2))
+}
+@eq_method () -> bool = {
+    let p1 = Point { x: 5, y: 5 };
+    let p2 = Point { x: 5, y: 5 };
+    p1.eq(other: p2)
+}
 
 // --- Short-circuit: differ on first field only ---
 
-@test_first_field_differs tests @first_field_diff () -> void = run(
-    assert(cond: Point { x: 1, y: 2 } != Point { x: 99, y: 2 }),
-)
+@test_first_field_differs tests @first_field_diff () -> void = {
+    assert(cond: Point { x: 1, y: 2 } != Point { x: 99, y: 2 })
+}
 @first_field_diff () -> bool = Point { x: 1, y: 2 } != Point { x: 99, y: 2 }
 
 // --- Short-circuit: differ on second field only ---
 
-@test_second_field_differs tests @second_field_diff () -> void = run(
-    assert(cond: Point { x: 1, y: 2 } != Point { x: 1, y: 99 }),
-)
+@test_second_field_differs tests @second_field_diff () -> void = {
+    assert(cond: Point { x: 1, y: 2 } != Point { x: 1, y: 99 })
+}
 @second_field_diff () -> bool = Point { x: 1, y: 2 } != Point { x: 1, y: 99 }
 
 // --- Empty struct ---
 
-@test_empty_struct tests @empty_eq () -> void = run(
-    assert(cond: Empty { } == Empty { }),
-)
+@test_empty_struct tests @empty_eq () -> void = {
+    assert(cond: Empty { } == Empty { })
+}
 @empty_eq () -> bool = Empty { } == Empty { }
 
 // --- Single field ---
 
-@test_single_eq tests @single_eq () -> void = run(
-    assert(cond: Single { value: 42 } == Single { value: 42 }),
-)
+@test_single_eq tests @single_eq () -> void = {
+    assert(cond: Single { value: 42 } == Single { value: 42 })
+}
 @single_eq () -> bool = Single { value: 42 } == Single { value: 42 }
 
-@test_single_neq tests @single_neq () -> void = run(
-    assert(cond: Single { value: 42 } != Single { value: 100 }),
-)
+@test_single_neq tests @single_neq () -> void = {
+    assert(cond: Single { value: 42 } != Single { value: 100 })
+}
 @single_neq () -> bool = Single { value: 42 } != Single { value: 100 }
 
 // --- Multiple field types (str, int, bool) ---
 
-@test_multi_type_eq tests @multi_type_eq () -> void = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = Person { name: "Alice", age: 30, active: true },
-    assert(cond: p1 == p2),
-)
-@multi_type_eq () -> bool = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = Person { name: "Alice", age: 30, active: true },
-    p1 == p2,
-)
+@test_multi_type_eq tests @multi_type_eq () -> void = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = Person { name: "Alice", age: 30, active: true };
+    assert(cond: p1 == p2)
+}
+@multi_type_eq () -> bool = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = Person { name: "Alice", age: 30, active: true };
+    p1 == p2
+}
 
-@test_neq_name tests @neq_name () -> void = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = Person { name: "Bob", age: 30, active: true },
-    assert(cond: p1 != p2),
-)
-@neq_name () -> bool = run(
+@test_neq_name tests @neq_name () -> void = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = Person { name: "Bob", age: 30, active: true };
+    assert(cond: p1 != p2)
+}
+@neq_name () -> bool = {
     Person { name: "Alice", age: 30, active: true }
-        != Person { name: "Bob", age: 30, active: true },
-)
+        != Person { name: "Bob", age: 30, active: true }
+}
 
-@test_neq_age tests @neq_age () -> void = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = Person { name: "Alice", age: 25, active: true },
-    assert(cond: p1 != p2),
-)
-@neq_age () -> bool = run(
+@test_neq_age tests @neq_age () -> void = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = Person { name: "Alice", age: 25, active: true };
+    assert(cond: p1 != p2)
+}
+@neq_age () -> bool = {
     Person { name: "Alice", age: 30, active: true }
-        != Person { name: "Alice", age: 25, active: true },
-)
+        != Person { name: "Alice", age: 25, active: true }
+}
 
-@test_neq_bool tests @neq_bool () -> void = run(
-    let p1 = Person { name: "Alice", age: 30, active: true },
-    let p2 = Person { name: "Alice", age: 30, active: false },
-    assert(cond: p1 != p2),
-)
-@neq_bool () -> bool = run(
+@test_neq_bool tests @neq_bool () -> void = {
+    let p1 = Person { name: "Alice", age: 30, active: true };
+    let p2 = Person { name: "Alice", age: 30, active: false };
+    assert(cond: p1 != p2)
+}
+@neq_bool () -> bool = {
     Person { name: "Alice", age: 30, active: true }
-        != Person { name: "Alice", age: 30, active: false },
-)
+        != Person { name: "Alice", age: 30, active: false }
+}
 
 // --- Many fields ---
 
-@test_many_fields_eq tests @many_eq () -> void = run(
-    let c1 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 },
-    let c2 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 },
-    assert(cond: c1 == c2),
-)
-@many_eq () -> bool = run(
+@test_many_fields_eq tests @many_eq () -> void = {
+    let c1 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 };
+    let c2 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 };
+    assert(cond: c1 == c2)
+}
+@many_eq () -> bool = {
     Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 }
-        == Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 },
-)
+        == Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 }
+}
 
-@test_many_last_field_neq tests @many_neq_last () -> void = run(
-    let c1 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 },
-    let c2 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 60 },
-    assert(cond: c1 != c2),
-)
-@many_neq_last () -> bool = run(
+@test_many_last_field_neq tests @many_neq_last () -> void = {
+    let c1 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 };
+    let c2 = Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 60 };
+    assert(cond: c1 != c2)
+}
+@many_neq_last () -> bool = {
     Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 30 }
-        != Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 60 },
-)
+        != Config { host: "localhost", port: 8080, debug: true, label: "dev", timeout: 60 }
+}
 
 // --- Nested structs ---
 
-@test_nested_eq tests @nested_eq () -> void = run(
-    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" },
-    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" },
-    assert(cond: n1 == n2),
-)
-@nested_eq () -> bool = run(
+@test_nested_eq tests @nested_eq () -> void = {
+    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" };
+    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" };
+    assert(cond: n1 == n2)
+}
+@nested_eq () -> bool = {
     Nested { origin: Point { x: 0, y: 0 }, label: "origin" }
-        == Nested { origin: Point { x: 0, y: 0 }, label: "origin" },
-)
+        == Nested { origin: Point { x: 0, y: 0 }, label: "origin" }
+}
 
-@test_nested_inner_diff tests @nested_neq () -> void = run(
-    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" },
-    let n2 = Nested { origin: Point { x: 1, y: 0 }, label: "origin" },
-    assert(cond: n1 != n2),
-)
-@nested_neq () -> bool = run(
+@test_nested_inner_diff tests @nested_neq () -> void = {
+    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" };
+    let n2 = Nested { origin: Point { x: 1, y: 0 }, label: "origin" };
+    assert(cond: n1 != n2)
+}
+@nested_neq () -> bool = {
     Nested { origin: Point { x: 0, y: 0 }, label: "origin" }
-        != Nested { origin: Point { x: 1, y: 0 }, label: "origin" },
-)
+        != Nested { origin: Point { x: 1, y: 0 }, label: "origin" }
+}
 
-@test_nested_outer_diff tests @nested_neq_outer () -> void = run(
-    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" },
-    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "other" },
-    assert(cond: n1 != n2),
-)
-@nested_neq_outer () -> bool = run(
+@test_nested_outer_diff tests @nested_neq_outer () -> void = {
+    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "origin" };
+    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "other" };
+    assert(cond: n1 != n2)
+}
+@nested_neq_outer () -> bool = {
     Nested { origin: Point { x: 0, y: 0 }, label: "origin" }
-        != Nested { origin: Point { x: 0, y: 0 }, label: "other" },
-)
+        != Nested { origin: Point { x: 0, y: 0 }, label: "other" }
+}
 
 // --- Float equality (structural) ---
 
-@test_float_eq tests @float_eq () -> void = run(
-    assert(cond: WithFloat { x: 1.5, y: 2.5 } == WithFloat { x: 1.5, y: 2.5 }),
-)
+@test_float_eq tests @float_eq () -> void = {
+    assert(cond: WithFloat { x: 1.5, y: 2.5 } == WithFloat { x: 1.5, y: 2.5 })
+}
 @float_eq () -> bool = WithFloat { x: 1.5, y: 2.5 } == WithFloat { x: 1.5, y: 2.5 }
 
-@test_float_neq tests @float_neq () -> void = run(
-    assert(cond: WithFloat { x: 1.5, y: 2.5 } != WithFloat { x: 1.5, y: 3.0 }),
-)
+@test_float_neq tests @float_neq () -> void = {
+    assert(cond: WithFloat { x: 1.5, y: 2.5 } != WithFloat { x: 1.5, y: 3.0 })
+}
 @float_neq () -> bool = WithFloat { x: 1.5, y: 2.5 } != WithFloat { x: 1.5, y: 3.0 }
 
 // --- Reflexivity: a == a ---
 
-@test_reflexive tests @reflexive () -> void = run(
-    let p = Point { x: 7, y: 13 },
-    assert(cond: p == p),
-)
-@reflexive () -> bool = run(
-    let p = Point { x: 7, y: 13 },
-    p == p,
-)
+@test_reflexive tests @reflexive () -> void = {
+    let p = Point { x: 7, y: 13 };
+    assert(cond: p == p)
+}
+@reflexive () -> bool = {
+    let p = Point { x: 7, y: 13 };
+    p == p
+}
 
 // --- Symmetry: a == b implies b == a ---
 
-@test_symmetric tests @symmetric () -> void = run(
-    let p1 = Point { x: 3, y: 4 },
-    let p2 = Point { x: 3, y: 4 },
-    assert(cond: (p1 == p2) == (p2 == p1)),
-)
-@symmetric () -> bool = run(
-    let p1 = Point { x: 3, y: 4 },
-    let p2 = Point { x: 3, y: 4 },
-    (p1 == p2) == (p2 == p1),
-)
+@test_symmetric tests @symmetric () -> void = {
+    let p1 = Point { x: 3, y: 4 };
+    let p2 = Point { x: 3, y: 4 };
+    assert(cond: (p1 == p2) == (p2 == p1))
+}
+@symmetric () -> bool = {
+    let p1 = Point { x: 3, y: 4 };
+    let p2 = Point { x: 3, y: 4 };
+    (p1 == p2) == (p2 == p1)
+}

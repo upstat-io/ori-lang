@@ -110,6 +110,26 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    /// Check if the most recent non-newline token was `}`.
+    ///
+    /// The lexer emits Newline tokens, and `skip_newlines()` may advance
+    /// past them after an expression body is parsed. This walks backward
+    /// past any Newline tokens to find the actual last meaningful token,
+    /// then checks if it's a closing brace.
+    ///
+    /// Used by `eat_optional_item_semicolon()` to detect block bodies that
+    /// don't need trailing `;`.
+    pub fn previous_non_newline_is_rbrace(&self) -> bool {
+        let mut i = self.pos;
+        while i > 0 {
+            i -= 1;
+            if self.tokens[i].kind != TokenKind::Newline {
+                return self.tokens[i].kind == TokenKind::RBrace;
+            }
+        }
+        false
+    }
+
     /// Get the discriminant tag of the current token.
     ///
     /// Reads from the dense `u8` tag array — a single byte load
@@ -156,9 +176,18 @@ impl<'a> Cursor<'a> {
     /// Returns `TokenKind::Eof` if at the end of the stream.
     #[inline]
     pub fn peek_next_kind(&self) -> &TokenKind {
+        self.peek_kind_at(1)
+    }
+
+    /// Peek at the token kind at offset `n` from current position.
+    ///
+    /// `peek_kind_at(0)` is the current token, `peek_kind_at(1)` is the next, etc.
+    /// Returns `TokenKind::Eof` if past the end of the stream.
+    #[inline]
+    pub fn peek_kind_at(&self, n: usize) -> &TokenKind {
         static EOF: TokenKind = TokenKind::Eof;
-        if self.pos + 1 < self.tokens.len() {
-            &self.tokens[self.pos + 1].kind
+        if self.pos + n < self.tokens.len() {
+            &self.tokens[self.pos + n].kind
         } else {
             &EOF
         }

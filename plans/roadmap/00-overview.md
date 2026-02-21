@@ -4,6 +4,8 @@
 
 > **ACTIVE REROUTE — Trait Architecture Refactor**: All roadmap work is suspended until `plans/trait_arch/` is complete. See `plans/trait_arch/00-overview.md` for the full plan. This reroute was added because 35% of recent work was reactive sync-drift fixes — the trait infrastructure must be restructured before adding more traits. Remove this block when all 7 trait_arch sections are complete.
 
+> **ACTIVE REROUTE — Block Unification Refactor**: All roadmap work is suspended until `plans/block_unify/` is complete. See `plans/block_unify/00-overview.md` for the full plan. This reroute was added because the block-syntax migration (commit `4e0c1611`) revealed a fundamental duality: `FunctionSeq::Run` + `SeqBinding` and `ExprKind::Block` + `StmtKind` are two parallel representations of sequential code, creating 27 dispatch sites across 7 crates. Adopting the Gleam pattern (one block type, one statement type) eliminates ~13 redundant dispatch sites and prevents future block-like constructs from doubling the maintenance burden. Remove this block when all 5 block_unify sections are complete.
+
 ## Source Plans
 
 This roadmap consolidates:

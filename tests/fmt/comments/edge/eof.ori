@@ -1,4 +1,4 @@
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 // This comment is at the end of the file.
 // It should still be preserved.

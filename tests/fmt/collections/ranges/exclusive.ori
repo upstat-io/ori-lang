@@ -1,14 +1,16 @@
 // Exclusive range formatting
 // Design: formatter/design/02-constructs/collections.md § Ranges
 
-@simple () -> int = run(
-    let sum = 0,
-    for i in 0..10 do let sum = sum + i,
-    sum,
-)
+@simple () -> int = {
+    let sum = 0;
+    for i in 0..10 do let sum = sum + i;
 
-@start_end () -> int = run(
-    let sum = 0,
-    for i in 5..15 do let sum = sum + i,
-    sum,
-)
+    sum
+}
+
+@start_end () -> int = {
+    let sum = 0;
+    for i in 5..15 do let sum = sum + i;
+
+    sum
+}

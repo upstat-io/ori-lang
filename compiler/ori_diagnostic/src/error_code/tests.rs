@@ -99,7 +99,7 @@ fn test_all_is_complete() {
     assert_eq!(ErrorCode::ALL.len(), ErrorCode::COUNT);
     assert_eq!(
         ErrorCode::COUNT,
-        116,
+        117,
         "COUNT changed — did you add a new ErrorCode variant? Update this number."
     );
 }

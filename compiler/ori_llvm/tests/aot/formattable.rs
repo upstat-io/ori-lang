@@ -19,8 +19,9 @@ use crate::util::assert_aot_success;
 fn test_aot_format_int_hex() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{255:x}` == "ff" && `{255:X}` == "FF" then 0 else 1
+}
 "#,
         "format_int_hex",
     );
@@ -30,8 +31,9 @@ fn test_aot_format_int_hex() {
 fn test_aot_format_int_binary() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{10:b}` == "1010" && `{10:#b}` == "0b1010" then 0 else 1
+}
 "#,
         "format_int_binary",
     );
@@ -41,8 +43,9 @@ fn test_aot_format_int_binary() {
 fn test_aot_format_int_octal() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{8:o}` == "10" && `{8:#o}` == "0o10" then 0 else 1
+}
 "#,
         "format_int_octal",
     );
@@ -52,8 +55,9 @@ fn test_aot_format_int_octal() {
 fn test_aot_format_int_sign() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{42:+}` == "+42" && `{-42:+}` == "-42" then 0 else 1
+}
 "#,
         "format_int_sign",
     );
@@ -63,8 +67,9 @@ fn test_aot_format_int_sign() {
 fn test_aot_format_int_zero_pad() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{42:08}` == "00000042" then 0 else 1
+}
 "#,
         "format_int_zero_pad",
     );
@@ -74,12 +79,12 @@ fn test_aot_format_int_zero_pad() {
 fn test_aot_format_int_width_align() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let right = `{42:>8}`,
-    let left = `{42:<8}`,
-    let center = `{42:^8}`,
+@main () -> int = {
+    let right = `{42:>8}`;
+    let left = `{42:<8}`;
+    let center = `{42:^8}`;
     if right == "      42" && left == "42      " && center == "   42   " then 0 else 1
-)
+}
 "#,
         "format_int_width_align",
     );
@@ -93,8 +98,9 @@ fn test_aot_format_int_width_align() {
 fn test_aot_format_float_fixed() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{3.14159:.2f}` == "3.14" then 0 else 1
+}
 "#,
         "format_float_fixed",
     );
@@ -104,8 +110,9 @@ fn test_aot_format_float_fixed() {
 fn test_aot_format_float_precision() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{3.14159:.4}` == "3.1416" then 0 else 1
+}
 "#,
         "format_float_precision",
     );
@@ -115,8 +122,9 @@ fn test_aot_format_float_precision() {
 fn test_aot_format_float_percent() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{0.75:.1%}` == "75.0%" then 0 else 1
+}
 "#,
         "format_float_percent",
     );
@@ -126,8 +134,9 @@ fn test_aot_format_float_percent() {
 fn test_aot_format_float_sign() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{3.14:+.2f}` == "+3.14" && `{-3.14:+.2f}` == "-3.14" then 0 else 1
+}
 "#,
         "format_float_sign",
     );
@@ -141,11 +150,11 @@ fn test_aot_format_float_sign() {
 fn test_aot_format_str_width() {
     assert_aot_success(
         r#"
-@main () -> int = run(
-    let right = `{"hi":>10}`,
-    let left = `{"hi":<10}`,
+@main () -> int = {
+    let right = `{"hi":>10}`;
+    let left = `{"hi":<10}`;
     if right == "        hi" && left == "hi        " then 0 else 1
-)
+}
 "#,
         "format_str_width",
     );
@@ -155,8 +164,9 @@ fn test_aot_format_str_width() {
 fn test_aot_format_str_fill() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{"hi":*>10}` == "********hi" then 0 else 1
+}
 "#,
         "format_str_fill",
     );
@@ -166,8 +176,9 @@ fn test_aot_format_str_fill() {
 fn test_aot_format_str_precision() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{"hello world":.5}` == "hello" then 0 else 1
+}
 "#,
         "format_str_precision",
     );
@@ -181,8 +192,9 @@ fn test_aot_format_str_precision() {
 fn test_aot_format_bool_width() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{true:>10}` == "      true" && `{false:<10}` == "false     " then 0 else 1
+}
 "#,
         "format_bool_width",
     );
@@ -192,8 +204,9 @@ fn test_aot_format_bool_width() {
 fn test_aot_format_char_width() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{'A':>5}` == "    A" then 0 else 1
+}
 "#,
         "format_char_width",
     );
@@ -207,8 +220,9 @@ fn test_aot_format_char_width() {
 fn test_aot_format_fill_center() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{"hi":*^10}` == "****hi****" then 0 else 1
+}
 "#,
         "format_fill_center",
     );
@@ -218,8 +232,9 @@ fn test_aot_format_fill_center() {
 fn test_aot_format_negative_hex() {
     assert_aot_success(
         r#"
-@main () -> int =
+@main () -> int = {
     if `{-255:x}` == "-ff" && `{-42:#x}` == "-0x2a" then 0 else 1
+}
 "#,
         "format_negative_hex",
     );

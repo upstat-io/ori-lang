@@ -16,7 +16,7 @@ The Ori compiler uses a carefully designed intermediate representation (IR) opti
 
 ## IR Components
 
-The IR lives in its own crate `ori_ir`, which has no dependencies and is used by all other compiler crates.
+The IR lives in its own crate `ori_ir`, which has no dependencies on other compiler crates (only on performance libraries `rustc-hash` and `parking_lot`) and is used by all other compiler crates.
 
 ```
 compiler/ori_ir/src/
@@ -34,7 +34,7 @@ compiler/ori_ir/src/
 │   │   ├── types.rs            # TypeDecl, TypeDeclKind
 │   │   └── traits.rs          # TraitDef, ImplDef, ExtendDef
 │   └── patterns/           # Pattern constructs
-│       ├── seq.rs              # FunctionSeq (run, try, match)
+│       ├── seq.rs              # FunctionSeq (block expressions: blocks, try, match)
 │       ├── exp.rs              # FunctionExp (recurse, parallel, etc.)
 │       └── binding.rs          # Match patterns and arms
 ├── canon/              # Canonical IR (sugar-free, type-annotated)
@@ -96,25 +96,32 @@ See [Flat AST](flat-ast.md) for details.
 
 ### 2. Arena Allocation
 
-All expressions live in a contiguous `Vec<Expr>`:
+Expressions live in a struct-of-arrays layout for cache efficiency. Expression kinds and spans are stored in separate parallel `Vec`s, with additional side-table vectors for variable-length data (parameters, match arms, etc.):
 
 ```rust
 struct ExprArena {
-    exprs: Vec<Expr>,
+    // Parallel arrays (indexed by ExprId)
+    expr_kinds: Vec<ExprKind>,   // 24 bytes each
+    expr_spans: Vec<Span>,       // 8 bytes each
+
+    // Side tables (indexed by range types)
+    expr_lists: Vec<ExprId>,     // Flattened call args, list elements, etc.
+    stmts: Vec<Stmt>,            // Statements
+    params: Vec<Param>,          // Function parameters
+    // ... 15+ more side-table vectors for arms, patterns, etc.
 }
 
 impl ExprArena {
-    fn alloc(&mut self, expr: Expr) -> ExprId {
-        let id = ExprId(self.exprs.len() as u32);
-        self.exprs.push(expr);
+    fn alloc(&mut self, kind: ExprKind, span: Span) -> ExprId {
+        let id = ExprId(self.expr_kinds.len() as u32);
+        self.expr_kinds.push(kind);
+        self.expr_spans.push(span);
         id
-    }
-
-    fn get(&self, id: ExprId) -> &Expr {
-        &self.exprs[id.0 as usize]
     }
 }
 ```
+
+Most operations only read `expr_kinds` (24 bytes per entry), keeping spans (8 bytes) out of the cache line. The arena also provides a direct-append API (`start_params()`/`push_param()`/`finish_params()`) for zero-allocation list building into side tables.
 
 See [Arena Allocation](arena-allocation.md) for details.
 
@@ -134,21 +141,33 @@ pub struct ExprRange {
 
 ### 4. String Interning
 
-All identifiers are interned to u32 indices:
+All identifiers are interned to u32 indices via a 16-shard concurrent interner:
 
 ```rust
-struct Name(u32);
+struct Name(u32);  // Bits 31-28: shard index (0-15), bits 27-0: local index
 
-struct Interner {
-    strings: Vec<String>,
-    lookup: HashMap<String, Name>,
+struct StringInterner {
+    shards: [RwLock<InternShard>; 16],
+    total_count: AtomicUsize,
 }
 
-impl Interner {
-    fn intern(&mut self, s: &str) -> Name { ... }
-    fn resolve(&self, name: Name) -> &str { ... }
+struct InternShard {
+    map: FxHashMap<&'static str, u32>,
+    strings: Vec<&'static str>,  // Leaked via Box::leak() for 'static lifetime
+}
+
+impl StringInterner {
+    fn intern(&self, s: &str) -> Name { ... }       // Thread-safe
+    fn try_intern(&self, s: &str) -> Result<Name, InternError> { ... }
+    fn try_intern_owned(&self, s: String) -> Result<Name, InternError> { ... }
+    fn intern_owned(&self, s: String) -> Name { ... } // Avoids re-allocation for owned strings
+    fn lookup(&self, name: Name) -> &str { ... }
 }
 ```
+
+The interner pre-interns ~40 keywords and common identifiers (`if`, `else`, `let`, `fn`, `Option`, `Result`, etc.) at construction time for predictable `Name` values. `InternError::ShardOverflow` is returned by the fallible variants when a shard exceeds its capacity.
+
+`SharedInterner(Arc<StringInterner>)` wraps the interner for cross-thread sharing (e.g., the test runner shares one interner across all parallel test threads). `SharedArena(Arc<ExprArena>)` provides the same pattern for cross-module arena references.
 
 See [String Interning](string-interning.md) for details.
 
@@ -294,11 +313,13 @@ The `derives.rs` module contains types used by both the type checker and evaluat
 ```rust
 /// A derived trait that can be auto-implemented.
 pub enum DerivedTrait {
-    Eq,        // Structural equality
-    Clone,     // Field-by-field cloning
-    Hashable,  // Hash computation
-    Printable, // String representation
-    Default,   // Default value construction
+    Eq,         // Structural equality
+    Clone,      // Field-by-field cloning
+    Hashable,   // Hash computation
+    Printable,  // String representation
+    Debug,      // Debug representation
+    Default,    // Default value construction
+    Comparable, // Total ordering
 }
 
 /// Information about a derived method.
@@ -329,8 +350,9 @@ mod size_asserts {
     ori_ir::static_assert_size!(Span, 8);
     ori_ir::static_assert_size!(Token, 24);
     ori_ir::static_assert_size!(TokenKind, 16);
-    ori_ir::static_assert_size!(Expr, 88);
-    ori_ir::static_assert_size!(ExprKind, 80);
+    ori_ir::static_assert_size!(Expr, 32);
+    ori_ir::static_assert_size!(ExprKind, 24);
+    ori_ir::static_assert_size!(CanExpr, 24);
 }
 
 // In ori_types
@@ -347,9 +369,10 @@ Current sizes (64-bit):
 | `Span` | 8 bytes | Two u32 offsets |
 | `Token` | 24 bytes | TokenKind + Span |
 | `TokenKind` | 16 bytes | Largest variant payload + discriminant |
-| `Expr` | 88 bytes | ExprKind + Span |
-| `ExprKind` | 80 bytes | Largest variants are FunctionSeq/FunctionExp |
-| `Type` | 40 bytes | Vec<Type> + Box<Type> for Function variant |
+| `Expr` | 32 bytes | ExprKind (24) + Span (8) |
+| `ExprKind` | 24 bytes | Compact enum via ExprId indirection and ranges |
+| `CanExpr` | 24 bytes | Canonical IR expression (sugar-free) |
+| `Type` | 32 bytes | In ori_types type pool |
 | `TypeVar` | 4 bytes | Just a u32 wrapper |
 
 If any of these sizes change, compilation fails with a clear error message, allowing intentional review of the change.

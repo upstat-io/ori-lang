@@ -57,8 +57,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         // Format the value expression
         // Pass current column so width decisions account for full line context
         let current_column = self.ctx.column();
-        let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-            .with_starting_column(current_column);
+        let mut expr_formatter =
+            Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                .with_starting_column(current_column);
         expr_formatter.format(const_def.value);
         // Get the output without trailing newline
         let expr_output = expr_formatter.ctx.as_str().trim_end();

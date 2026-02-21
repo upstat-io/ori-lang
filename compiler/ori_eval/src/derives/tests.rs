@@ -10,7 +10,7 @@ fn test_process_struct_derives() {
 #[derive(Eq)]
 type Point = { x: int, y: int }
 
-@main () -> void = print(msg: "test")
+@main () -> void = print(msg: "test");
 "#;
 
     let tokens = lex(source, &interner);
@@ -49,7 +49,7 @@ fn test_process_multiple_derives() {
 #[derive(Eq, Clone, Printable)]
 type Point = { x: int, y: int }
 
-@main () -> void = print(msg: "test")
+@main () -> void = print(msg: "test");
 "#;
 
     let tokens = lex(source, &interner);
@@ -84,7 +84,7 @@ fn test_ignore_unknown_derives() {
 #[derive(Unknown, Eq)]
 type Point = { x: int }
 
-@main () -> void = print(msg: "test")
+@main () -> void = print(msg: "test");
 "#;
 
     let tokens = lex(source, &interner);
@@ -151,7 +151,7 @@ fn all_non_default_derived_traits_register_methods() {
 #[derive(Eq, Clone, Hashable, Printable, Debug, Comparable)]
 type TestSync = { x: int }
 
-@main () -> void = print(msg: "test")
+@main () -> void = print(msg: "test");
 "#;
 
     let tokens = lex(source, &interner);

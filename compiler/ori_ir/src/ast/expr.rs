@@ -24,8 +24,8 @@ use super::ranges::{
 };
 use crate::token::{DurationUnit, SizeUnit};
 use crate::{
-    BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, Name, ParsedTypeId, Span,
-    Spanned, StmtRange,
+    BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, Mutability, Name,
+    ParsedTypeId, Span, Spanned, StmtRange,
 };
 
 /// Expression node.
@@ -212,7 +212,7 @@ pub enum ExprKind {
         /// Type annotation (`ParsedTypeId::INVALID` = no annotation).
         ty: ParsedTypeId,
         init: ExprId,
-        mutable: bool,
+        mutable: Mutability,
     },
 
     /// Lambda: params -> body
@@ -297,6 +297,13 @@ pub enum ExprKind {
 
     /// Propagate error: expr?
     Try(ExprId),
+
+    /// Unsafe block: `unsafe { expr }`
+    ///
+    /// Discharges the `Unsafe` capability within its scope.
+    /// The inner `ExprId` points to a `Block` expression.
+    /// At runtime, evaluates to the inner expression (transparent).
+    Unsafe(ExprId),
 
     /// Type cast: `expr as type` (infallible) or `expr as? type` (fallible)
     ///
@@ -429,7 +436,7 @@ impl fmt::Debug for ExprKind {
                 init,
                 mutable,
             } => {
-                write!(f, "Let({pattern:?}, {ty:?}, {init:?}, mutable={mutable})")
+                write!(f, "Let({pattern:?}, {ty:?}, {init:?}, {mutable:?})")
             }
             ExprKind::Lambda {
                 params,
@@ -468,6 +475,7 @@ impl fmt::Debug for ExprKind {
             }
             ExprKind::Await(inner) => write!(f, "Await({inner:?})"),
             ExprKind::Try(inner) => write!(f, "Try({inner:?})"),
+            ExprKind::Unsafe(inner) => write!(f, "Unsafe({inner:?})"),
             ExprKind::Cast { expr, ty, fallible } => {
                 let op = if *fallible { "as?" } else { "as" };
                 write!(f, "Cast({expr:?} {op} {ty:?})")

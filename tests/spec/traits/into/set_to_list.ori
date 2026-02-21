@@ -7,37 +7,37 @@ use std.testing { assert_eq }
 // Basic Set -> List conversion
 // =============================================================================
 
-@set_to_list_len () -> int = run(
-    let s: Set<int> = [1, 2, 3].iter().collect(),
-    let lst: [int] = s.into(),
+@set_to_list_len () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let lst: [int] = s.into();
     lst.len()
-)
+}
 
 @test_set_to_list_len tests @set_to_list_len () -> void =
-    assert_eq(actual: set_to_list_len(), expected: 3)
+    assert_eq(actual: set_to_list_len(), expected: 3);
 
 // =============================================================================
 // Empty set -> empty list
 // =============================================================================
 
-@set_to_list_empty () -> int = run(
-    let s: Set<int> = [].iter().collect(),
-    let lst: [int] = s.into(),
+@set_to_list_empty () -> int = {
+    let s: Set<int> = [].iter().collect();
+    let lst: [int] = s.into();
     lst.len()
-)
+}
 
 @test_set_to_list_empty tests @set_to_list_empty () -> void =
-    assert_eq(actual: set_to_list_empty(), expected: 0)
+    assert_eq(actual: set_to_list_empty(), expected: 0);
 
 // =============================================================================
 // Set deduplicates, list preserves all elements from set
 // =============================================================================
 
-@set_to_list_dedup () -> int = run(
-    let s: Set<int> = [1, 1, 2, 2, 3].iter().collect(),
-    let lst: [int] = s.into(),
+@set_to_list_dedup () -> int = {
+    let s: Set<int> = [1, 1, 2, 2, 3].iter().collect();
+    let lst: [int] = s.into();
     lst.len()
-)
+}
 
 @test_set_to_list_dedup tests @set_to_list_dedup () -> void =
-    assert_eq(actual: set_to_list_dedup(), expected: 3)
+    assert_eq(actual: set_to_list_dedup(), expected: 3);

@@ -11,9 +11,9 @@ use std.testing { assert, assert_eq }
 // fully implemented. These tests are designed to expose missing features.
 
 // Simple task that returns immediately
-@simple_task (n: int) -> int uses Suspend = n * 2
+@simple_task (n: int) -> int uses Suspend = n * 2;
 
-// @test_parallel_basic tests @parallel_basic () -> void = run(
+// @test_parallel_basic tests @parallel_basic () -> void = {
 //     let results = parallel(tasks: [
 //         () -> simple_task(n: 1),
 //         () -> simple_task(n: 2),
@@ -22,7 +22,7 @@ use std.testing { assert, assert_eq }
 //     assert_eq(actual: results.len(), expected: 3),
 //     // All should be Ok
 //     for r in results do assert(cond: is_ok(r: r)),
-// )
+// }
 
 // @parallel_basic () -> [Result<int, CancellationError>] = parallel(tasks: [
 //     () -> simple_task(n: 1),
@@ -34,10 +34,10 @@ use std.testing { assert, assert_eq }
 // parallel with Empty Task List
 // =============================================================================
 
-// @test_parallel_empty tests @parallel_empty () -> void = run(
+// @test_parallel_empty tests @parallel_empty () -> void = {
 //     let results = parallel(tasks: []),
 //     assert_eq(actual: results.len(), expected: 0),
-// )
+// }
 
 // @parallel_empty () -> [Result<void, CancellationError>] = parallel(tasks: [])
 
@@ -45,7 +45,7 @@ use std.testing { assert, assert_eq }
 // parallel with max_concurrent
 // =============================================================================
 
-// @test_parallel_max_concurrent tests @parallel_max_concurrent () -> void = run(
+// @test_parallel_max_concurrent tests @parallel_max_concurrent () -> void = {
 //     let results = parallel(
 //         tasks: [
 //             () -> simple_task(n: 1),
@@ -57,7 +57,7 @@ use std.testing { assert, assert_eq }
 //         max_concurrent: Some(2),
 //     ),
 //     assert_eq(actual: results.len(), expected: 5),
-// )
+// }
 
 // @parallel_max_concurrent () -> [Result<int, CancellationError>] = parallel(
 //     tasks: [
@@ -72,45 +72,45 @@ use std.testing { assert, assert_eq }
 // parallel with timeout
 // =============================================================================
 
-// @slow_task () -> int uses Suspend = run(
+// @slow_task () -> int uses Suspend = {
 //     // Simulate slow operation
 //     sleep(duration: 10s),
 //     42,
-// )
+// }
 
-// @test_parallel_timeout tests @parallel_timeout () -> void = run(
+// @test_parallel_timeout tests @parallel_timeout () -> void = {
 //     let results = parallel(
 //         tasks: [() -> slow_task()],
 //         timeout: Some(1ms),
 //     ),
 //     // Should timeout
 //     assert(cond: is_err(r: results[0])),
-// )
+// }
 
 // =============================================================================
 // parallel Preserves Result Order
 // =============================================================================
 
-// @test_parallel_order tests @parallel_order () -> void = run(
+// @test_parallel_order tests @parallel_order () -> void = {
 //     // Even if tasks complete out of order, results should be in task order
 //     let results = parallel(tasks: [
 //         () -> 1,
 //         () -> 2,
 //         () -> 3,
 //     ]),
-//     match(results[0],
+//     match results[0] {
 //         Ok(v) -> assert_eq(actual: v, expected: 1),
 //         Err(_) -> assert(cond: false),
-//     ),
-//     match(results[1],
+//     },
+//     match results[1] {
 //         Ok(v) -> assert_eq(actual: v, expected: 2),
 //         Err(_) -> assert(cond: false),
-//     ),
-//     match(results[2],
+//     },
+//     match results[2] {
 //         Ok(v) -> assert_eq(actual: v, expected: 3),
 //         Err(_) -> assert(cond: false),
-//     ),
-// )
+//     },
+// }
 
 // =============================================================================
 // parallel with Failures
@@ -118,7 +118,7 @@ use std.testing { assert, assert_eq }
 
 // @failing_task () -> int uses Suspend = panic(msg: "task failed")
 
-// @test_parallel_with_failure tests @parallel_with_failure () -> void = run(
+// @test_parallel_with_failure tests @parallel_with_failure () -> void = {
 //     // One failure should not stop other tasks
 //     let results = parallel(tasks: [
 //         () -> simple_task(n: 1),
@@ -129,7 +129,7 @@ use std.testing { assert, assert_eq }
 //     assert(cond: is_ok(r: results[0])),
 //     assert(cond: is_err(r: results[1])),
 //     assert(cond: is_ok(r: results[2])),
-// )
+// }
 
 // =============================================================================
 // Fallback: Sequential Execution Tests
@@ -137,61 +137,61 @@ use std.testing { assert, assert_eq }
 
 // These tests verify basic functionality without requiring async runtime
 
-@compute_square (n: int) -> int = n * n
+@compute_square (n: int) -> int = n * n;
 
-@test_compute_tasks tests @compute_tasks () -> void = run(
-    let tasks = [1, 2, 3, 4, 5],
-    let results = for t in tasks yield compute_square(n: t),
-    assert_eq(actual: results, expected: [1, 4, 9, 16, 25]),
-)
+@test_compute_tasks tests @compute_tasks () -> void = {
+    let tasks = [1, 2, 3, 4, 5];
+    let results = for t in tasks yield compute_square(n: t);
+    assert_eq(actual: results, expected: [1, 4, 9, 16, 25])
+}
 
-@compute_tasks () -> [int] = for t in [1, 2, 3, 4, 5] yield compute_square(n: t)
+@compute_tasks () -> [int] = for t in [1, 2, 3, 4, 5] yield compute_square(n: t);
 
-@test_task_list tests @task_list () -> void = run(
+@test_task_list tests @task_list () -> void = {
     // Build a list of functions and evaluate them
-    let fns: [() -> int] = [() -> 1, () -> 2, () -> 3],
-    let results = for f in fns yield f(),
-    assert_eq(actual: results, expected: [1, 2, 3]),
-)
+    let fns: [() -> int] = [() -> 1, () -> 2, () -> 3];
+    let results = for f in fns yield f();
+    assert_eq(actual: results, expected: [1, 2, 3])
+}
 
-@task_list () -> [int] = run(
-    let fns: [() -> int] = [() -> 1, () -> 2, () -> 3],
-    for f in fns yield f(),
-)
+@task_list () -> [int] = {
+    let fns: [() -> int] = [() -> 1, () -> 2, () -> 3];
+    for f in fns yield f()
+}
 
 // =============================================================================
 // Testing Task Result Collection
 // =============================================================================
 
-@process_item (n: int) -> Result<int, str> = run(
-    if n < 0 then Err("negative") else Ok(n * 2),
-)
+@process_item (n: int) -> Result<int, str> = {
+    if n < 0 then Err("negative") else Ok(n * 2)
+}
 
-@test_task_results tests @task_results () -> void = run(
-    let items = [1, -2, 3, -4, 5],
-    let results = for n in items yield process_item(n: n),
-    assert_eq(actual: results.len(), expected: 5),
-    assert(cond: is_ok(r: results[0])),
-    assert(cond: is_err(r: results[1])),
-    assert(cond: is_ok(r: results[2])),
-    assert(cond: is_err(r: results[3])),
-    assert(cond: is_ok(r: results[4])),
-)
+@test_task_results tests @task_results () -> void = {
+    let items = [1, -2, 3, -4, 5];
+    let results = for n in items yield process_item(n: n);
+    assert_eq(actual: results.len(), expected: 5);
+    assert(cond: is_ok(r: results[0]));
+    assert(cond: is_err(r: results[1]));
+    assert(cond: is_ok(r: results[2]));
+    assert(cond: is_err(r: results[3]));
+    assert(cond: is_ok(r: results[4]))
+}
 
-@task_results () -> [Result<int, str>] = for n in [1, -2, 3] yield process_item(n: n)
+@task_results () -> [Result<int, str>] = for n in [1, -2, 3] yield process_item(n: n);
 
 // =============================================================================
 // spawn Pattern (Fire-and-Forget)
 // =============================================================================
 
-// @test_spawn_basic tests @spawn_basic () -> void = run(
+// @test_spawn_basic tests @spawn_basic () -> void = {
 //     // spawn returns immediately, tasks run in background
 //     spawn(tasks: [
 //         () -> simple_task(n: 1),
 //         () -> simple_task(n: 2),
 //     ]),
 //     assert(cond: true),
-// )
+// }
 
 // @spawn_basic () -> void = spawn(tasks: [
 //     () -> simple_task(n: 1),
@@ -201,24 +201,24 @@ use std.testing { assert, assert_eq }
 // timeout Pattern
 // =============================================================================
 
-// @test_timeout_success tests @timeout_success () -> void = run(
+// @test_timeout_success tests @timeout_success () -> void = {
 //     let result = timeout(op: simple_task(n: 5), after: 1s),
 //     assert(cond: is_ok(r: result)),
-//     match(result,
+//     match result {
 //         Ok(v) -> assert_eq(actual: v, expected: 10),
 //         Err(_) -> assert(cond: false),
-//     ),
-// )
+//     },
+// }
 
 // @timeout_success () -> Result<int, CancellationError> = timeout(
 //     op: simple_task(n: 5),
 //     after: 1s,
 // )
 
-// @test_timeout_expires tests @timeout_expires () -> void = run(
+// @test_timeout_expires tests @timeout_expires () -> void = {
 //     let result = timeout(op: slow_task(), after: 1ms),
 //     assert(cond: is_err(r: result)),
-// )
+// }
 
 // =============================================================================
 // Simulated Concurrency Tests (Single-Threaded)
@@ -226,22 +226,22 @@ use std.testing { assert, assert_eq }
 
 // These tests verify the semantics without actual parallelism
 
-@accumulate_results (items: [int]) -> [int] = for item in items yield item * 2
+@accumulate_results (items: [int]) -> [int] = for item in items yield item * 2;
 
-@test_accumulate tests @accumulate () -> void = run(
-    let result = accumulate_results(items: [1, 2, 3, 4, 5]),
-    assert_eq(actual: result, expected: [2, 4, 6, 8, 10]),
-)
+@test_accumulate tests @accumulate () -> void = {
+    let result = accumulate_results(items: [1, 2, 3, 4, 5]);
+    assert_eq(actual: result, expected: [2, 4, 6, 8, 10])
+}
 
-@accumulate () -> [int] = accumulate_results(items: [1, 2, 3, 4, 5])
+@accumulate () -> [int] = accumulate_results(items: [1, 2, 3, 4, 5]);
 
 // Test that errors don't prevent other results
-@test_collect_all_semantics tests @collect_all_semantics () -> void = run(
-    let items = [1, 0, 3, 0, 5],
-    let results = for n in items yield if n == 0 then Err("zero") else Ok(n * 2),
-    let oks = for r in results if is_ok(r: r) yield match(r, Ok(v) -> v, Err(_) -> 0),
-    assert_eq(actual: oks, expected: [2, 6, 10]),
-)
+@test_collect_all_semantics tests @collect_all_semantics () -> void = {
+    let items = [1, 0, 3, 0, 5];
+    let results = for n in items yield if n == 0 then Err("zero") else Ok(n * 2);
+    let oks = for r in results if is_ok(r: r) yield match r { Ok(v) -> v, Err(_) -> 0};
+    assert_eq(actual: oks, expected: [2, 6, 10])
+}
 
 @collect_all_semantics () -> [Result<int, str>] = for n in [1, 0, 3] yield
-    if n == 0 then Err("zero") else Ok(n * 2)
+    if n == 0 then Err("zero") else Ok(n * 2);

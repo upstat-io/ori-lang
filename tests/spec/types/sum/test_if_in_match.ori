@@ -1,16 +1,16 @@
 use std.testing { assert_eq }
 
-type Either = Left(value: int) | Middle(text: str) | Right(flag: bool)
+type Either = Left(value: int) | Middle(text: str) | Right(flag: bool);
 
-@either_to_int (e: Either) -> int = match(e,
+@either_to_int (e: Either) -> int = match e {
     Left(v) -> v,
     Middle(t) -> 0,
-    Right(f) -> if f then 1 else 0,
-)
+    Right(f) -> if f then 1 else 0
+}
 
-@test_if_in_match tests @either_to_int () -> void = run(
-    assert_eq(actual: either_to_int(e: Left(value: 42)), expected: 42),
-    assert_eq(actual: either_to_int(e: Middle(text: "hello")), expected: 0),
-    assert_eq(actual: either_to_int(e: Right(flag: true)), expected: 1),
-    assert_eq(actual: either_to_int(e: Right(flag: false)), expected: 0),
-)
+@test_if_in_match tests @either_to_int () -> void = {
+    assert_eq(actual: either_to_int(e: Left(value: 42)), expected: 42);
+    assert_eq(actual: either_to_int(e: Middle(text: "hello")), expected: 0);
+    assert_eq(actual: either_to_int(e: Right(flag: true)), expected: 1);
+    assert_eq(actual: either_to_int(e: Right(flag: false)), expected: 0)
+}

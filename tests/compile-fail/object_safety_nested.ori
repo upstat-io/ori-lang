@@ -8,4 +8,4 @@ trait Clone {
 // Clone used inside a list type — still a trait object usage
 #[compile_fail("cannot be made into an object")]
 @process_all (items: [Clone]) -> void =
-    print(msg: "processing")
+    print(msg: "processing");

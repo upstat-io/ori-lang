@@ -38,10 +38,10 @@ In Ori, that same function declares its dependencies:
 ```ori
 @calculate_price (item_id: int) -> Result<float, Error>
     uses Database, Logger, Cache = {
-    let item = Database.get(table: "items", id: item_id)?
-    Logger.info(msg: `Calculating price for {item.name}`)
-    let price = item.base_price * 1.2
-    Cache.set(key: item_id as str, value: price)
+    let item = Database.get(table: "items", id: item_id)?;
+    Logger.info(msg: `Calculating price for {item.name}`);
+    let price = item.base_price * 1.2;
+    Cache.set(key: item_id as str, value: price);
     Ok(price)
 }
 ```
@@ -120,24 +120,24 @@ The standard capabilities like `Http`, `FileSystem`, and `Logger` are all just t
 
 ```ori
 trait Http {
-    @get (url: str) -> Result<Response, Error>
-    @post (url: str, body: str) -> Result<Response, Error>
-    @put (url: str, body: str) -> Result<Response, Error>
-    @delete (url: str) -> Result<Response, Error>
+    @get (url: str) -> Result<Response, Error>;
+    @post (url: str, body: str) -> Result<Response, Error>;
+    @put (url: str, body: str) -> Result<Response, Error>;
+    @delete (url: str) -> Result<Response, Error>;
 }
 
 trait FileSystem {
-    @read (path: str) -> Result<str, Error>
-    @write (path: str, content: str) -> Result<void, Error>
-    @exists (path: str) -> bool
-    @delete (path: str) -> Result<void, Error>
+    @read (path: str) -> Result<str, Error>;
+    @write (path: str, content: str) -> Result<void, Error>;
+    @exists (path: str) -> bool;
+    @delete (path: str) -> Result<void, Error>;
 }
 
 trait Logger {
-    @debug (msg: str) -> void
-    @info (msg: str) -> void
-    @warn (msg: str) -> void
-    @error (msg: str) -> void
+    @debug (msg: str) -> void;
+    @info (msg: str) -> void;
+    @warn (msg: str) -> void;
+    @error (msg: str) -> void;
 }
 ```
 
@@ -149,7 +149,7 @@ This means you can create your own capabilities by defining your own traits.
 
 ```ori
 @fetch_user (id: int) -> Result<User, Error> uses Http =
-    Http.get(url: `/api/users/{id}`)
+    Http.get(url: `/api/users/{id}`);
 ```
 
 Breaking this down:
@@ -164,10 +164,10 @@ Breaking this down:
 ```ori
 @process_order (order_id: int) -> Result<Receipt, Error>
     uses Database, Logger, Email = {
-    Logger.info(msg: `Processing order {order_id}`)
-    let order = Database.get(table: "orders", id: order_id)?
-    let receipt = calculate_receipt(order: order)
-    Email.send(to: order.customer_email, subject: "Receipt", body: receipt.to_str())
+    Logger.info(msg: `Processing order {order_id}`);
+    let order = Database.get(table: "orders", id: order_id)?;
+    let receipt = calculate_receipt(order: order);
+    Email.send(to: order.customer_email, subject: "Receipt", body: receipt.to_str());
     Ok(receipt)
 }
 ```
@@ -181,7 +181,7 @@ When calling a function that uses capabilities, provide them with `with...in`:
 ```ori
 @main () -> void = {
     let user = with Http = RealHttp { base_url: "https://api.example.com" } in
-        fetch_user(id: 42)
+        fetch_user(id: 42);
 
     match user {
         Ok(u) -> print(msg: `Found user: {u.name}`)
@@ -207,7 +207,7 @@ If your function calls another function that uses a capability, you have two cho
 
 ```ori
 @get_user_name (id: int) -> Result<str, Error> uses Http = {
-    let user = fetch_user(id: id)?
+    let user = fetch_user(id: id)?;
     Ok(user.name)
 }
 ```
@@ -219,7 +219,7 @@ Now `get_user_name` also requires `Http`. The caller must provide it.
 ```ori
 @get_user_name_hardcoded (id: int) -> Result<str, Error> = {
     let user = with Http = RealHttp { base_url: "https://api.example.com" } in
-        fetch_user(id: id)?
+        fetch_user(id: id)?;
     Ok(user.name)
 }
 ```
@@ -234,9 +234,9 @@ Since capabilities are just traits, you create custom capabilities by defining t
 
 ```ori
 trait PaymentProcessor {
-    @charge (customer_id: str, amount: float) -> Result<Receipt, PaymentError>
-    @refund (transaction_id: str) -> Result<void, PaymentError>
-    @get_balance (customer_id: str) -> Result<float, PaymentError>
+    @charge (customer_id: str, amount: float) -> Result<Receipt, PaymentError>;
+    @refund (transaction_id: str) -> Result<void, PaymentError>;
+    @get_balance (customer_id: str) -> Result<float, PaymentError>;
 }
 ```
 
@@ -245,8 +245,8 @@ trait PaymentProcessor {
 ```ori
 @process_purchase (customer_id: str, cart: Cart) -> Result<Receipt, PaymentError>
     uses PaymentProcessor, Logger = {
-    let total = calculate_total(cart: cart)
-    Logger.info(msg: `Charging {customer_id} for {total}`)
+    let total = calculate_total(cart: cart);
+    Logger.info(msg: `Charging {customer_id} for {total}`);
     PaymentProcessor.charge(customer_id: customer_id, amount: total)
 }
 ```
@@ -267,10 +267,10 @@ impl PaymentProcessor for StripeProcessor {
         let response = Http.post(
             url: `{self.base_url}/v1/charges`
             body: `{"customer": "{customer_id}", "amount": {amount}}`
-        ).map_err(transform: e -> PaymentError { message: e.to_str() })?
+        ).map_err(transform: e -> PaymentError { message: e.to_str() })?;
 
         // Parse the JSON response
-        let data = parse_stripe_response(json: response.body)?
+        let data = parse_stripe_response(json: response.body)?;
         Ok(Receipt {
             transaction_id: data.id
             amount: amount
@@ -282,14 +282,14 @@ impl PaymentProcessor for StripeProcessor {
         Http.post(
             url: `{self.base_url}/v1/refunds`
             body: `{"charge": "{transaction_id}"}`
-        ).map_err(transform: e -> PaymentError { message: e.to_str() })?
+        ).map_err(transform: e -> PaymentError { message: e.to_str() })?;
         Ok(())
     }
 
     @get_balance (customer_id: str) -> Result<float, PaymentError> uses Http = {
         let response = Http.get(
             url: `{self.base_url}/v1/customers/{customer_id}/balance`
-        ).map_err(transform: e -> PaymentError { message: e.to_str() })?
+        ).map_err(transform: e -> PaymentError { message: e.to_str() })?;
         parse_balance(json: response.body)
     }
 }
@@ -310,12 +310,12 @@ impl PaymentProcessor for MockPaymentProcessor {
             transaction_id: "mock-txn-123",
             amount: amount,
             timestamp: 0,
-        }))
+        }));
 
-    @refund (transaction_id: str) -> Result<void, PaymentError> = Ok(())
+    @refund (transaction_id: str) -> Result<void, PaymentError> = Ok(());
 
     @get_balance (customer_id: str) -> Result<float, PaymentError> =
-        Ok(self.balance)
+        Ok(self.balance);
 }
 ```
 
@@ -330,12 +330,12 @@ Production — note you must provide both `Http` (for the real I/O) and `Payment
     let processor = StripeProcessor {
         api_key: Env.get(name: "STRIPE_API_KEY").unwrap_or(default: "")
         base_url: "https://api.stripe.com"
-    }
+    };
 
     // Must provide Http because StripeProcessor uses it internally
     with Http = RealHttp {}
          PaymentProcessor = processor in {
-        let result = process_purchase(customer_id: "cust_123", cart: shopping_cart)
+        let result = process_purchase(customer_id: "cust_123", cart: shopping_cart);
         match result {
             Ok(receipt) -> print(msg: `Payment successful: {receipt.transaction_id}`)
             Err(e) -> print(msg: `Payment failed: {e.message}`)
@@ -353,8 +353,8 @@ Tests:
         balance: 100.0,
     },
     Logger = MockLogger {} in {
-        let cart = Cart { items: [Item { price: 29.99 }] }
-        let result = process_purchase(customer_id: "test-customer", cart: cart)
+        let cart = Cart { items: [Item { price: 29.99 }] };
+        let result = process_purchase(customer_id: "test-customer", cart: cart);
         assert_ok(result: result)
     }
 
@@ -366,8 +366,8 @@ Tests:
         balance: 0.0,
     },
     Logger = MockLogger {} in {
-        let cart = Cart { items: [Item { price: 29.99 }] }
-        let result = process_purchase(customer_id: "test-customer", cart: cart)
+        let cart = Cart { items: [Item { price: 29.99 }] };
+        let result = process_purchase(customer_id: "test-customer", cart: cart);
         assert_err(result: result)
     }
 ```
@@ -381,28 +381,28 @@ Create capabilities that match your domain:
 ```ori
 // E-commerce domain
 trait Inventory {
-    @check_stock (sku: str) -> Result<int, Error>
-    @reserve (sku: str, quantity: int) -> Result<Reservation, Error>
-    @release (reservation_id: str) -> Result<void, Error>
+    @check_stock (sku: str) -> Result<int, Error>;
+    @reserve (sku: str, quantity: int) -> Result<Reservation, Error>;
+    @release (reservation_id: str) -> Result<void, Error>;
 }
 
 trait Shipping {
-    @calculate_cost (destination: Address, weight: float) -> Result<float, Error>
-    @create_label (order: Order) -> Result<ShippingLabel, Error>
-    @track (tracking_number: str) -> Result<TrackingInfo, Error>
+    @calculate_cost (destination: Address, weight: float) -> Result<float, Error>;
+    @create_label (order: Order) -> Result<ShippingLabel, Error>;
+    @track (tracking_number: str) -> Result<TrackingInfo, Error>;
 }
 
 // Healthcare domain
 trait PatientRecords {
-    @get_patient (id: str) -> Result<Patient, Error>
-    @update_record (id: str, record: MedicalRecord) -> Result<void, Error>
-    @get_history (id: str) -> Result<[MedicalRecord], Error>
+    @get_patient (id: str) -> Result<Patient, Error>;
+    @update_record (id: str, record: MedicalRecord) -> Result<void, Error>;
+    @get_history (id: str) -> Result<[MedicalRecord], Error>;
 }
 
 trait Prescriptions {
-    @create (patient_id: str, medication: Medication) -> Result<Prescription, Error>
-    @verify (prescription_id: str) -> Result<bool, Error>
-    @fill (prescription_id: str) -> Result<void, Error>
+    @create (patient_id: str, medication: Medication) -> Result<Prescription, Error>;
+    @verify (prescription_id: str) -> Result<bool, Error>;
+    @fill (prescription_id: str) -> Result<void, Error>;
 }
 ```
 
@@ -413,15 +413,15 @@ Build higher-level capabilities from lower-level ones:
 ```ori
 // Low-level: raw HTTP
 trait Http {
-    @get (url: str) -> Result<Response, Error>
-    @post (url: str, body: str) -> Result<Response, Error>
+    @get (url: str) -> Result<Response, Error>;
+    @post (url: str, body: str) -> Result<Response, Error>;
 }
 
 // Mid-level: typed API client
 trait UserApi {
-    @get_user (id: int) -> Result<User, ApiError>
-    @create_user (user: CreateUserRequest) -> Result<User, ApiError>
-    @update_user (id: int, updates: UserUpdates) -> Result<User, ApiError>
+    @get_user (id: int) -> Result<User, ApiError>;
+    @create_user (user: CreateUserRequest) -> Result<User, ApiError>;
+    @update_user (id: int, updates: UserUpdates) -> Result<User, ApiError>;
 }
 
 // Implementation bridges the levels
@@ -429,7 +429,7 @@ type RealUserApi = { base_url: str }
 
 impl UserApi for RealUserApi {
     @get_user (id: int) -> Result<User, ApiError> uses Http = {
-        let response = Http.get(url: `{self.base_url}/users/{id}`)?
+        let response = Http.get(url: `{self.base_url}/users/{id}`)?;
         parse_user(json: response.body)
     }
     // ... other methods
@@ -444,43 +444,43 @@ Combine capabilities to build complex operations:
 @complete_order (order_id: int) -> Result<OrderConfirmation, Error>
     uses Database, Inventory, PaymentProcessor, Shipping, Email, Logger = {
 
-    Logger.info(msg: `Processing order {order_id}`)
+    Logger.info(msg: `Processing order {order_id}`);
 
     // Fetch order
-    let order = Database.get(table: "orders", id: order_id)?
+    let order = Database.get(table: "orders", id: order_id)?;
 
     // Check and reserve inventory
     for item in order.items do {
-        let stock = Inventory.check_stock(sku: item.sku)?
+        let stock = Inventory.check_stock(sku: item.sku)?;
         if stock < item.quantity then
-            Err(Error { message: `Insufficient stock for {item.sku}` })?
+            Err(Error { message: `Insufficient stock for {item.sku}` })?;
         Inventory.reserve(sku: item.sku, quantity: item.quantity)?
-    }
+    };
 
     // Process payment
     let receipt = PaymentProcessor.charge(
         customer_id: order.customer_id
         amount: order.total
-    )?
+    )?;
 
     // Create shipping label
-    let label = Shipping.create_label(order: order)?
+    let label = Shipping.create_label(order: order)?;
 
     // Update order status
     Database.update(
         table: "orders"
         id: order_id
         data: { status: "shipped", tracking: label.tracking_number }
-    )?
+    )?;
 
     // Send confirmation email
     Email.send(
         to: order.customer_email
         subject: "Order Shipped!"
         body: `Your order {order_id} is on its way. Track it: {label.tracking_number}`
-    )?
+    )?;
 
-    Logger.info(msg: `Order {order_id} completed successfully`)
+    Logger.info(msg: `Order {order_id} completed successfully`);
 
     Ok(OrderConfirmation {
         order_id: order_id
@@ -496,8 +496,8 @@ Combine capabilities to build complex operations:
 
 ```ori
 trait Random {
-    @rand_int (min: int, max: int) -> int
-    @rand_float () -> float
+    @rand_int (min: int, max: int) -> int;
+    @rand_float () -> float;
 }
 ```
 
@@ -505,26 +505,26 @@ trait Random {
 
 ```ori
 trait Counter {
-    @increment () -> int
-    @decrement () -> int
-    @get () -> int
-    @reset () -> void
+    @increment () -> int;
+    @decrement () -> int;
+    @get () -> int;
+    @reset () -> void;
 }
 
 type InMemoryCounter = { value: int }
 
 impl Counter for InMemoryCounter {
     @increment () -> int = {
-        self.value = self.value + 1
+        self.value = self.value + 1;
         self.value
     }
 
     @decrement () -> int = {
-        self.value = self.value - 1
+        self.value = self.value - 1;
         self.value
     }
 
-    @get () -> int = self.value
+    @get () -> int = self.value;
 
     @reset () -> void = {
         self.value = 0
@@ -540,18 +540,18 @@ Ori provides these built-in capabilities:
 
 ```ori
 trait Http {
-    @get (url: str) -> Result<Response, Error>
-    @post (url: str, body: str) -> Result<Response, Error>
-    @put (url: str, body: str) -> Result<Response, Error>
-    @delete (url: str) -> Result<Response, Error>
-    @patch (url: str, body: str) -> Result<Response, Error>
-    @head (url: str) -> Result<Response, Error>
+    @get (url: str) -> Result<Response, Error>;
+    @post (url: str, body: str) -> Result<Response, Error>;
+    @put (url: str, body: str) -> Result<Response, Error>;
+    @delete (url: str) -> Result<Response, Error>;
+    @patch (url: str, body: str) -> Result<Response, Error>;
+    @head (url: str) -> Result<Response, Error>;
 }
 ```
 
 ```ori
 @fetch_data (url: str) -> Result<str, Error> uses Http = {
-    let response = Http.get(url: url)?
+    let response = Http.get(url: url)?;
     Ok(response.body)
 }
 ```
@@ -560,18 +560,18 @@ trait Http {
 
 ```ori
 trait FileSystem {
-    @read (path: str) -> Result<str, Error>
-    @write (path: str, content: str) -> Result<void, Error>
-    @exists (path: str) -> bool
-    @delete (path: str) -> Result<void, Error>
-    @list_dir (path: str) -> Result<[str], Error>
-    @create_dir (path: str) -> Result<void, Error>
+    @read (path: str) -> Result<str, Error>;
+    @write (path: str, content: str) -> Result<void, Error>;
+    @exists (path: str) -> bool;
+    @delete (path: str) -> Result<void, Error>;
+    @list_dir (path: str) -> Result<[str], Error>;
+    @create_dir (path: str) -> Result<void, Error>;
 }
 ```
 
 ```ori
 @read_config () -> Result<Config, Error> uses FileSystem = {
-    let contents = FileSystem.read(path: "config.json")?
+    let contents = FileSystem.read(path: "config.json")?;
     parse_config(json: contents)
 }
 ```
@@ -580,15 +580,15 @@ trait FileSystem {
 
 ```ori
 trait Clock {
-    @now () -> DateTime
-    @today () -> Date
-    @elapsed_since (start: DateTime) -> Duration
+    @now () -> DateTime;
+    @today () -> Date;
+    @elapsed_since (start: DateTime) -> Duration;
 }
 ```
 
 ```ori
 @log_with_timestamp (msg: str) -> void uses Clock, Print = {
-    let now = Clock.now()
+    let now = Clock.now();
     Print.println(msg: `[{now}] {msg}`)
 }
 ```
@@ -597,25 +597,25 @@ trait Clock {
 
 ```ori
 trait Random {
-    @rand_int (min: int, max: int) -> int
-    @rand_float () -> float
-    @rand_bool () -> bool
+    @rand_int (min: int, max: int) -> int;
+    @rand_float () -> float;
+    @rand_bool () -> bool;
 }
 ```
 
 ```ori
 @roll_dice () -> int uses Random =
-    Random.rand_int(min: 1, max: 6)
+    Random.rand_int(min: 1, max: 6);
 ```
 
 ### Logger — Structured Logging
 
 ```ori
 trait Logger {
-    @debug (msg: str) -> void
-    @info (msg: str) -> void
-    @warn (msg: str) -> void
-    @error (msg: str) -> void
+    @debug (msg: str) -> void;
+    @info (msg: str) -> void;
+    @warn (msg: str) -> void;
+    @error (msg: str) -> void;
 }
 ```
 
@@ -623,10 +623,10 @@ trait Logger {
 
 ```ori
 trait Cache {
-    @get (key: str) -> Option<str>
-    @set (key: str, value: str, ttl: Duration) -> void
-    @delete (key: str) -> void
-    @exists (key: str) -> bool
+    @get (key: str) -> Option<str>;
+    @set (key: str, value: str, ttl: Duration) -> void;
+    @delete (key: str) -> void;
+    @exists (key: str) -> bool;
 }
 ```
 
@@ -634,7 +634,7 @@ trait Cache {
 
 ```ori
 trait Env {
-    @get (name: str) -> Option<str>
+    @get (name: str) -> Option<str>;
 }
 ```
 
@@ -642,10 +642,10 @@ trait Env {
 
 ```ori
 trait Print {
-    @print (msg: str) -> void
-    @println (msg: str) -> void
-    @output () -> str
-    @clear () -> void
+    @print (msg: str) -> void;
+    @println (msg: str) -> void;
+    @output () -> str;
+    @clear () -> void;
 }
 ```
 
@@ -653,7 +653,7 @@ trait Print {
 
 ```ori
 // This works without "uses Print"
-@main () -> void = print(msg: "Hello, World!")
+@main () -> void = print(msg: "Hello, World!");
 ```
 
 ## The Async Capability
@@ -681,12 +681,12 @@ Functions with `Async` can call functions without it, but not vice versa (unless
 Functions without `uses` are **pure** — they have no side effects:
 
 ```ori
-@double (x: int) -> int = x * 2
+@double (x: int) -> int = x * 2;
 
-@greet (name: str) -> str = `Hello, {name}!`
+@greet (name: str) -> str = `Hello, {name}!`;
 
 @sum (numbers: [int]) -> int =
-    numbers.iter().fold(initial: 0, op: (acc, n) -> acc + n)
+    numbers.iter().fold(initial: 0, op: (acc, n) -> acc + n);
 ```
 
 Pure functions are powerful:
@@ -703,8 +703,8 @@ One of the biggest benefits of capabilities is easy testing:
 
 ```ori
 @fetch_user_profile (id: int) -> Result<UserProfile, Error> uses Http = {
-    let user = Http.get(url: `/api/users/{id}`)?
-    let posts = Http.get(url: `/api/users/{id}/posts`)?
+    let user = Http.get(url: `/api/users/{id}`)?;
+    let posts = Http.get(url: `/api/users/{id}/posts`)?;
     Ok(UserProfile { user, posts })
 }
 
@@ -715,11 +715,11 @@ One of the biggest benefits of capabilities is easy testing:
             "/api/users/1/posts": `[{"title": "Hello"}]`,
         },
     } in {
-        let result = fetch_user_profile(id: 1)
-        assert_ok(result: result)
+        let result = fetch_user_profile(id: 1);
+        assert_ok(result: result);
         match result {
             Ok(profile) -> {
-                assert_eq(actual: profile.user.name, expected: "Alice")
+                assert_eq(actual: profile.user.name, expected: "Alice");
                 assert_eq(actual: len(collection: profile.posts), expected: 1)
             }
             Err(_) -> panic(msg: "Expected Ok")
@@ -755,7 +755,7 @@ impl Email for MockEmail {
         if self.should_fail then
             Err(Error { message: "Mock email failure" })
         else {
-            self.sent = [...self.sent, {to, subject, body}]
+            self.sent = [...self.sent, {to, subject, body}];
             Ok(())
         }
     }
@@ -763,14 +763,14 @@ impl Email for MockEmail {
 
 // Test verifies emails were "sent"
 @test_sends_confirmation tests @process_order () -> void = {
-    let mock_email = MockEmail { sent: [], should_fail: false }
+    let mock_email = MockEmail { sent: [], should_fail: false };
 
     with Email = mock_email
          Database = MockDatabase { ... }
          Logger = MockLogger {} in {
-        let result = process_order(order_id: 123)
-        assert_ok(result: result)
-        assert_eq(actual: len(collection: mock_email.sent), expected: 1)
+        let result = process_order(order_id: 123);
+        assert_ok(result: result);
+        assert_eq(actual: len(collection: mock_email.sent), expected: 1);
         assert(condition: mock_email.sent[0].subject.contains(substring: "Confirmation"))
     }
 }
@@ -785,32 +785,32 @@ Keep most of your code pure. Handle effects at the boundaries:
 ```ori
 // BAD: Effects scattered throughout
 @process_order (id: int) -> Result<void, Error> uses Database, Logger, Email = {
-    Logger.info(msg: "Starting"),           // Effect in middle
-    let order = Database.get(id: id)?,      // Effect
-    let total = calculate_total(order: order),  // Pure
-    Database.update(order: order)?,         // Effect
-    Email.send(to: order.customer)?,        // Effect
+    Logger.info(msg: "Starting");           // Effect in middle
+    let order = Database.get(id: id)?;      // Effect
+    let total = calculate_total(order: order);  // Pure
+    Database.update(order: order)?;         // Effect
+    Email.send(to: order.customer)?;        // Effect
     Ok(())
 }
 
 // GOOD: Effects at boundaries, pure core
-@calculate_total (order: Order) -> float = ...  // Pure
-@validate_order (order: Order) -> Result<Order, str> = ...  // Pure
+@calculate_total (order: Order) -> float = ...;  // Pure
+@validate_order (order: Order) -> Result<Order, str> = ...;  // Pure
 
 @process_order (id: int) -> Result<void, Error> uses Database, Logger, Email = {
-    Logger.info(msg: "Starting")
+    Logger.info(msg: "Starting");
 
     // Fetch data (effect boundary)
-    let order = Database.get(id: id)?
+    let order = Database.get(id: id)?;
 
     // Pure processing
     let validated = validate_order(order: order)
-        .map_err(transform: e -> Error { message: e })?
-    let total = calculate_total(order: validated)
+        .map_err(transform: e -> Error { message: e })?;
+    let total = calculate_total(order: validated);
 
     // Save data (effect boundary)
-    Database.update(order: validated)?
-    Email.send(to: order.customer)?
+    Database.update(order: validated)?;
+    Email.send(to: order.customer)?;
 
     Ok(())
 }
@@ -822,10 +822,10 @@ Declare only the capabilities you need:
 
 ```ori
 // BAD: Too broad
-@process () -> void uses Http, FileSystem, Database, Cache, Logger = ...
+@process () -> void uses Http, FileSystem, Database, Cache, Logger = ...;
 
 // GOOD: Specific to actual needs
-@process () -> void uses Database, Logger = ...
+@process () -> void uses Database, Logger = ...;
 ```
 
 ### Name Capabilities by Domain, Not Implementation
@@ -847,37 +847,37 @@ This makes it easy to swap implementations without changing your function signat
 ```ori
 // BAD: Too many methods, some rarely used
 trait Database {
-    @get (table: str, id: int) -> Result<Row, Error>
-    @query (sql: str) -> Result<[Row], Error>
-    @insert (table: str, data: Row) -> Result<int, Error>
-    @update (table: str, id: int, data: Row) -> Result<void, Error>
-    @delete (table: str, id: int) -> Result<void, Error>
-    @begin_transaction () -> Result<Transaction, Error>
-    @commit (tx: Transaction) -> Result<void, Error>
-    @rollback (tx: Transaction) -> Result<void, Error>
-    @vacuum () -> Result<void, Error>
-    @analyze () -> Result<void, Error>
+    @get (table: str, id: int) -> Result<Row, Error>;
+    @query (sql: str) -> Result<[Row], Error>;
+    @insert (table: str, data: Row) -> Result<int, Error>;
+    @update (table: str, id: int, data: Row) -> Result<void, Error>;
+    @delete (table: str, id: int) -> Result<void, Error>;
+    @begin_transaction () -> Result<Transaction, Error>;
+    @commit (tx: Transaction) -> Result<void, Error>;
+    @rollback (tx: Transaction) -> Result<void, Error>;
+    @vacuum () -> Result<void, Error>;
+    @analyze () -> Result<void, Error>;
     // ... 20 more methods
 }
 
 // GOOD: Split into focused capabilities
 trait Database {
-    @get (table: str, id: int) -> Result<Row, Error>
-    @query (sql: str) -> Result<[Row], Error>
-    @insert (table: str, data: Row) -> Result<int, Error>
-    @update (table: str, id: int, data: Row) -> Result<void, Error>
-    @delete (table: str, id: int) -> Result<void, Error>
+    @get (table: str, id: int) -> Result<Row, Error>;
+    @query (sql: str) -> Result<[Row], Error>;
+    @insert (table: str, data: Row) -> Result<int, Error>;
+    @update (table: str, id: int, data: Row) -> Result<void, Error>;
+    @delete (table: str, id: int) -> Result<void, Error>;
 }
 
 trait Transactional {
-    @begin () -> Result<Transaction, Error>
-    @commit (tx: Transaction) -> Result<void, Error>
-    @rollback (tx: Transaction) -> Result<void, Error>
+    @begin () -> Result<Transaction, Error>;
+    @commit (tx: Transaction) -> Result<void, Error>;
+    @rollback (tx: Transaction) -> Result<void, Error>;
 }
 
 trait DatabaseAdmin {
-    @vacuum () -> Result<void, Error>
-    @analyze () -> Result<void, Error>
+    @vacuum () -> Result<void, Error>;
+    @analyze () -> Result<void, Error>;
 }
 ```
 
@@ -888,9 +888,9 @@ trait DatabaseAdmin {
 type Notification = { user_id: int, message: str, channel: str }
 
 trait NotificationService {
-    @send (notification: Notification) -> Result<void, Error>
-    @send_bulk (notifications: [Notification]) -> Result<int, Error>
-    @get_preferences (user_id: int) -> Result<NotificationPrefs, Error>
+    @send (notification: Notification) -> Result<void, Error>;
+    @send_bulk (notifications: [Notification]) -> Result<int, Error>;
+    @get_preferences (user_id: int) -> Result<NotificationPrefs, Error>;
 }
 
 type NotificationPrefs = {
@@ -908,7 +908,7 @@ type MultiChannelNotifier = {
 
 impl NotificationService for MultiChannelNotifier {
     @send (notification: Notification) -> Result<void, Error> = {
-        let prefs = self.get_preferences(user_id: notification.user_id)?
+        let prefs = self.get_preferences(user_id: notification.user_id)?;
         match notification.channel {
             "email" -> if prefs.email_enabled then
                 self.email_service.send(user_id: notification.user_id, msg: notification.message)
@@ -927,12 +927,12 @@ impl NotificationService for MultiChannelNotifier {
     }
 
     @send_bulk (notifications: [Notification]) -> Result<int, Error> = {
-        let sent = 0
+        let sent = 0;
         for notification in notifications do {
-            let result = self.send(notification: notification)
+            let result = self.send(notification: notification);
             if is_ok(result: result) then
                 sent = sent + 1
-        }
+        };
         Ok(sent)
     }
 
@@ -954,43 +954,43 @@ impl NotificationService for MockNotificationService {
         if self.should_fail then
             Err(Error { message: "Mock failure" })
         else {
-            self.sent_notifications = [...self.sent_notifications, notification]
+            self.sent_notifications = [...self.sent_notifications, notification];
             Ok(())
         }
 
     @send_bulk (notifications: [Notification]) -> Result<int, Error> = {
-        let count = 0
+        let count = 0;
         for n in notifications do {
-            self.send(notification: n)?
+            self.send(notification: n)?;
             count = count + 1
-        }
+        };
         Ok(count)
     }
 
     @get_preferences (user_id: int) -> Result<NotificationPrefs, Error> =
         self.preferences[user_id]
-            .ok_or(error: Error { message: "User not found" })
+            .ok_or(error: Error { message: "User not found" });
 }
 
 // Business logic using the capability
 @notify_user (user_id: int, event: str) -> Result<void, Error>
     uses NotificationService, Logger = {
-    Logger.info(msg: `Notifying user {user_id} about {event}`)
+    Logger.info(msg: `Notifying user {user_id} about {event}`);
     let notification = Notification {
         user_id: user_id
         message: `Event occurred: {event}`
         channel: "email"
-    }
+    };
     NotificationService.send(notification: notification)
 }
 
 // Pure function — no capabilities needed
 @format_notification (event: str, details: str) -> str =
-    `Event: {event}\n\nDetails: {details}`
+    `Event: {event}\n\nDetails: {details}`;
 
 @test_format tests @format_notification () -> void = {
-    let result = format_notification(event: "Order Shipped", details: "Tracking: 123")
-    assert(condition: result.contains(substring: "Order Shipped"))
+    let result = format_notification(event: "Order Shipped", details: "Tracking: 123");
+    assert(condition: result.contains(substring: "Order Shipped"));
     assert(condition: result.contains(substring: "123"))
 }
 
@@ -1002,13 +1002,13 @@ impl NotificationService for MockNotificationService {
             42: NotificationPrefs { email_enabled: true, sms_enabled: false, push_enabled: true }
         }
         should_fail: false
-    }
+    };
 
     with NotificationService = mock
          Logger = MockLogger {} in {
-        let result = notify_user(user_id: 42, event: "Test Event")
-        assert_ok(result: result)
-        assert_eq(actual: len(collection: mock.sent_notifications), expected: 1)
+        let result = notify_user(user_id: 42, event: "Test Event");
+        assert_ok(result: result);
+        assert_eq(actual: len(collection: mock.sent_notifications), expected: 1);
         assert_eq(actual: mock.sent_notifications[0].user_id, expected: 42)
     }
 }
@@ -1018,11 +1018,11 @@ impl NotificationService for MockNotificationService {
         sent_notifications: []
         preferences: {}
         should_fail: true
-    }
+    };
 
     with NotificationService = mock
          Logger = MockLogger {} in {
-        let result = notify_user(user_id: 42, event: "Test Event")
+        let result = notify_user(user_id: 42, event: "Test Event");
         assert_err(result: result)
     }
 }
@@ -1034,8 +1034,8 @@ impl NotificationService for MockNotificationService {
 
 ```ori
 trait CapabilityName {
-    @method1 (param: Type) -> ReturnType
-    @method2 (param: Type) -> ReturnType
+    @method1 (param: Type) -> ReturnType;
+    @method2 (param: Type) -> ReturnType;
 }
 ```
 
@@ -1045,8 +1045,8 @@ trait CapabilityName {
 type RealImplementation = { config: Config }
 
 impl CapabilityName for RealImplementation {
-    @method1 (param: Type) -> ReturnType = ...
-    @method2 (param: Type) -> ReturnType = ...
+    @method1 (param: Type) -> ReturnType = ...;
+    @method2 (param: Type) -> ReturnType = ...;
 }
 ```
 
@@ -1054,13 +1054,13 @@ impl CapabilityName for RealImplementation {
 
 ```ori
 // Single capability
-@fn () -> T uses Cap = ...
+@fn () -> T uses Cap = ...;
 
 // Multiple capabilities
-@fn () -> T uses Cap1, Cap2 = ...
+@fn () -> T uses Cap1, Cap2 = ...;
 
 // Pure function (no capabilities)
-@fn () -> T = ...
+@fn () -> T = ...;
 ```
 
 ### Providing Capabilities

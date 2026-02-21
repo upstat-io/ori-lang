@@ -6,6 +6,6 @@ mod binding;
 mod exp;
 mod seq;
 
-pub use binding::{BindingPattern, FieldBinding, MatchArm, MatchPattern};
+pub use binding::{BindingPattern, FieldBinding, MatchArm, MatchPattern, Mutability};
 pub use exp::{FunctionExp, FunctionExpKind, NamedExpr};
-pub use seq::{CheckExpr, FunctionSeq, SeqBinding};
+pub use seq::FunctionSeq;

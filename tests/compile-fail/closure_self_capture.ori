@@ -6,7 +6,7 @@
 // that cannot be broken by ARC without a backup garbage collector.
 
 #[compile_fail("closure cannot capture itself")]
-@test_self_capture () -> void = run(
-    let f = () -> f,
+@test_self_capture () -> void = {
+    let f = () -> f;
     ()
-)
+}

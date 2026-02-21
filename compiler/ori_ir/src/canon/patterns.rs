@@ -6,6 +6,7 @@
 
 use std::fmt;
 
+use crate::Mutability;
 use crate::Name;
 
 use super::ids::{CanBindingPatternId, CanBindingPatternRange, CanFieldBindingRange, CanId};
@@ -21,15 +22,15 @@ use super::ids::{CanBindingPatternId, CanBindingPatternRange, CanFieldBindingRan
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum CanBindingPattern {
     /// Simple name binding: `let x = ...` (mutable) or `let $x = ...` (immutable).
-    Name { name: Name, mutable: bool },
+    Name { name: Name, mutable: Mutability },
     /// Tuple destructuring: `let (a, b) = ...`
     Tuple(CanBindingPatternRange),
     /// Struct destructuring: `let { x, y } = ...`
     Struct { fields: CanFieldBindingRange },
-    /// List destructuring: `let [head, ..tail] = ...`
+    /// List destructuring: `let [head, ..tail] = ...` or `let [head, ..$tail] = ...`
     List {
         elements: CanBindingPatternRange,
-        rest: Option<Name>,
+        rest: Option<(Name, Mutability)>,
     },
     /// Wildcard: `let _ = ...`
     Wildcard,

@@ -10,21 +10,21 @@ use std.testing { assert, assert_eq }
 
 type Box<T> = { value: T }
 
-@test_box_int () -> void = run(
-    let b = Box { value: 42 },
-    assert_eq(actual: b.value, expected: 42),
-)
+@test_box_int () -> void = {
+    let b = Box { value: 42 };
+    assert_eq(actual: b.value, expected: 42)
+}
 
-@test_box_str () -> void = run(
-    let b = Box { value: "hello" },
-    assert_eq(actual: b.value, expected: "hello"),
-)
+@test_box_str () -> void = {
+    let b = Box { value: "hello" };
+    assert_eq(actual: b.value, expected: "hello")
+}
 
-@test_box_list () -> void = run(
-    let b = Box { value: [1, 2, 3] },
-    assert_eq(actual: b.value.len(), expected: 3),
-    assert_eq(actual: b.value[0], expected: 1),
-)
+@test_box_list () -> void = {
+    let b = Box { value: [1, 2, 3] };
+    assert_eq(actual: b.value.len(), expected: 3);
+    assert_eq(actual: b.value[0], expected: 1)
+}
 
 // =============================================================================
 // Multiple Type Parameters
@@ -32,36 +32,36 @@ type Box<T> = { value: T }
 
 type Pair<A, B> = { first: A, second: B }
 
-@test_pair_int_str () -> void = run(
-    let p = Pair { first: 1, second: "one" },
-    assert_eq(actual: p.first, expected: 1),
-    assert_eq(actual: p.second, expected: "one"),
-)
+@test_pair_int_str () -> void = {
+    let p = Pair { first: 1, second: "one" };
+    assert_eq(actual: p.first, expected: 1);
+    assert_eq(actual: p.second, expected: "one")
+}
 
-@test_pair_str_bool () -> void = run(
-    let p = Pair { first: "active", second: true },
-    assert_eq(actual: p.first, expected: "active"),
-    assert(cond: p.second),
-)
+@test_pair_str_bool () -> void = {
+    let p = Pair { first: "active", second: true };
+    assert_eq(actual: p.first, expected: "active");
+    assert(cond: p.second)
+}
 
 // =============================================================================
 // Nested Generic Types
 // =============================================================================
 
-@test_box_of_pair () -> void = run(
-    let bp = Box { value: Pair { first: 10, second: 20 } },
-    assert_eq(actual: bp.value.first, expected: 10),
-    assert_eq(actual: bp.value.second, expected: 20),
-)
+@test_box_of_pair () -> void = {
+    let bp = Box { value: Pair { first: 10, second: 20 } };
+    assert_eq(actual: bp.value.first, expected: 10);
+    assert_eq(actual: bp.value.second, expected: 20)
+}
 
-@test_pair_of_boxes () -> void = run(
+@test_pair_of_boxes () -> void = {
     let pb = Pair {
         first: Box { value: "left" },
         second: Box { value: "right" },
-    },
-    assert_eq(actual: pb.first.value, expected: "left"),
-    assert_eq(actual: pb.second.value, expected: "right"),
-)
+    };
+    assert_eq(actual: pb.first.value, expected: "left");
+    assert_eq(actual: pb.second.value, expected: "right")
+}
 
 // =============================================================================
 // Generic Type with Collection Elements
@@ -69,18 +69,18 @@ type Pair<A, B> = { first: A, second: B }
 
 type Container<T> = { items: [T] }
 
-@test_container_ints () -> void = run(
-    let c = Container { items: [1, 2, 3, 4, 5] },
-    assert_eq(actual: c.items.len(), expected: 5),
-    assert_eq(actual: c.items[0], expected: 1),
-    assert_eq(actual: c.items[4], expected: 5),
-)
+@test_container_ints () -> void = {
+    let c = Container { items: [1, 2, 3, 4, 5] };
+    assert_eq(actual: c.items.len(), expected: 5);
+    assert_eq(actual: c.items[0], expected: 1);
+    assert_eq(actual: c.items[4], expected: 5)
+}
 
-@test_container_strings () -> void = run(
-    let c = Container { items: ["a", "b", "c"] },
-    assert_eq(actual: c.items.len(), expected: 3),
-    assert_eq(actual: c.items[0], expected: "a"),
-)
+@test_container_strings () -> void = {
+    let c = Container { items: ["a", "b", "c"] };
+    assert_eq(actual: c.items.len(), expected: 3);
+    assert_eq(actual: c.items[0], expected: "a")
+}
 
 // =============================================================================
 // Generic Type Field Access Chain
@@ -88,50 +88,50 @@ type Container<T> = { items: [T] }
 
 type Wrapper<T> = { inner: T }
 
-@test_chained_field_access () -> void = run(
-    let w = Wrapper { inner: Box { value: 42 } },
-    assert_eq(actual: w.inner.value, expected: 42),
-)
+@test_chained_field_access () -> void = {
+    let w = Wrapper { inner: Box { value: 42 } };
+    assert_eq(actual: w.inner.value, expected: 42)
+}
 
-@test_deep_nesting () -> void = run(
+@test_deep_nesting () -> void = {
     let deep = Wrapper {
         inner: Wrapper {
             inner: Box { value: "deep" },
         },
-    },
-    assert_eq(actual: deep.inner.inner.value, expected: "deep"),
-)
+    };
+    assert_eq(actual: deep.inner.inner.value, expected: "deep")
+}
 
 // =============================================================================
 // Generic Type with Method Calls on Fields
 // =============================================================================
 
-@test_method_on_generic_list_field () -> void = run(
-    let b = Box { value: [1, 2, 3] },
+@test_method_on_generic_list_field () -> void = {
+    let b = Box { value: [1, 2, 3] };
     // Direct method call on field
-    let len = b.value.len(),
-    assert_eq(actual: len, expected: 3),
+    let len = b.value.len();
+    assert_eq(actual: len, expected: 3);
     // Method chain
-    let mapped = b.value.map(transform: x -> x * 2),
-    assert_eq(actual: mapped, expected: [2, 4, 6]),
-)
+    let mapped = b.value.map(transform: x -> x * 2);
+    assert_eq(actual: mapped, expected: [2, 4, 6])
+}
 
-@test_method_on_generic_string_field () -> void = run(
-    let b = Box { value: "hello" },
-    let len = b.value.len(),
-    assert_eq(actual: len, expected: 5),
-)
+@test_method_on_generic_string_field () -> void = {
+    let b = Box { value: "hello" };
+    let len = b.value.len();
+    assert_eq(actual: len, expected: 5)
+}
 
 // =============================================================================
 // Multiple Instances of Same Generic Type
 // =============================================================================
 
-@test_multiple_box_instances () -> void = run(
-    let b1 = Box { value: 1 },
-    let b2 = Box { value: "two" },
-    let b3 = Box { value: [3] },
+@test_multiple_box_instances () -> void = {
+    let b1 = Box { value: 1 };
+    let b2 = Box { value: "two" };
+    let b3 = Box { value: [3] };
 
-    assert_eq(actual: b1.value, expected: 1),
-    assert_eq(actual: b2.value, expected: "two"),
-    assert_eq(actual: b3.value[0], expected: 3),
-)
+    assert_eq(actual: b1.value, expected: 1);
+    assert_eq(actual: b2.value, expected: "two");
+    assert_eq(actual: b3.value[0], expected: 3)
+}

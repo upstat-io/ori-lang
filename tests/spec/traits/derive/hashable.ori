@@ -19,96 +19,96 @@ type Nested = { origin: Point, label: str }
 // --- Sum types ---
 
 #[derive(Eq, Hashable)]
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 #[derive(Eq, Hashable)]
-type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
+type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 
 // --- Struct hash consistency ---
 
-@test_struct_consistency tests @struct_consistency () -> void = run(
-    let p = Point { x: 42, y: 99 },
-    assert(cond: p.hash() == p.hash()),
-)
-@struct_consistency () -> int = Point { x: 42, y: 99 }.hash()
+@test_struct_consistency tests @struct_consistency () -> void = {
+    let p = Point { x: 42, y: 99 };
+    assert(cond: p.hash() == p.hash())
+}
+@struct_consistency () -> int = Point { x: 42, y: 99 }.hash();
 
 // --- Equal structs → equal hashes ---
 
-@test_struct_equal_hash tests @struct_eq_hash () -> void = run(
-    let p1 = Point { x: 10, y: 20 },
-    let p2 = Point { x: 10, y: 20 },
-    assert(cond: p1.hash() == p2.hash()),
-)
-@struct_eq_hash () -> bool = run(
-    Point { x: 10, y: 20 }.hash() == Point { x: 10, y: 20 }.hash(),
-)
+@test_struct_equal_hash tests @struct_eq_hash () -> void = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 20 };
+    assert(cond: p1.hash() == p2.hash())
+}
+@struct_eq_hash () -> bool = {
+    Point { x: 10, y: 20 }.hash() == Point { x: 10, y: 20 }.hash()
+}
 
 // --- Different structs → different hashes (likely) ---
 
-@test_struct_diff_hash tests @struct_diff_hash () -> void = run(
-    let p1 = Point { x: 10, y: 20 },
-    let p2 = Point { x: 10, y: 30 },
-    assert(cond: p1.hash() != p2.hash()),
-)
-@struct_diff_hash () -> bool = run(
-    Point { x: 10, y: 20 }.hash() != Point { x: 10, y: 30 }.hash(),
-)
+@test_struct_diff_hash tests @struct_diff_hash () -> void = {
+    let p1 = Point { x: 10, y: 20 };
+    let p2 = Point { x: 10, y: 30 };
+    assert(cond: p1.hash() != p2.hash())
+}
+@struct_diff_hash () -> bool = {
+    Point { x: 10, y: 20 }.hash() != Point { x: 10, y: 30 }.hash()
+}
 
 // --- Single field hash ---
 
-@test_single_field tests @single_field () -> void = run(
-    let s1 = Single { value: 42 },
-    let s2 = Single { value: 42 },
-    let s3 = Single { value: 100 },
-    assert(cond: s1.hash() == s2.hash()),
-    assert(cond: s1.hash() != s3.hash()),
-)
-@single_field () -> bool = run(
-    Single { value: 42 }.hash() == Single { value: 42 }.hash(),
-)
+@test_single_field tests @single_field () -> void = {
+    let s1 = Single { value: 42 };
+    let s2 = Single { value: 42 };
+    let s3 = Single { value: 100 };
+    assert(cond: s1.hash() == s2.hash());
+    assert(cond: s1.hash() != s3.hash())
+}
+@single_field () -> bool = {
+    Single { value: 42 }.hash() == Single { value: 42 }.hash()
+}
 
 // --- Nested struct hash ---
 
-@test_nested_hash tests @nested_hash () -> void = run(
-    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "a" },
-    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "a" },
-    let n3 = Nested { origin: Point { x: 1, y: 0 }, label: "a" },
-    assert(cond: n1.hash() == n2.hash()),
-    assert(cond: n1.hash() != n3.hash()),
-)
-@nested_hash () -> bool = run(
-    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "a" },
-    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "a" },
-    n1.hash() == n2.hash(),
-)
+@test_nested_hash tests @nested_hash () -> void = {
+    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "a" };
+    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "a" };
+    let n3 = Nested { origin: Point { x: 1, y: 0 }, label: "a" };
+    assert(cond: n1.hash() == n2.hash());
+    assert(cond: n1.hash() != n3.hash())
+}
+@nested_hash () -> bool = {
+    let n1 = Nested { origin: Point { x: 0, y: 0 }, label: "a" };
+    let n2 = Nested { origin: Point { x: 0, y: 0 }, label: "a" };
+    n1.hash() == n2.hash()
+}
 
 // --- Sum type: same variant same payload → equal hash ---
 
-@test_variant_same_hash tests @variant_same () -> void = run(
-    let c1 = Circle(radius: 5),
-    let c2 = Circle(radius: 5),
-    assert(cond: c1.hash() == c2.hash()),
-)
-@variant_same () -> bool = Circle(radius: 5).hash() == Circle(radius: 5).hash()
+@test_variant_same_hash tests @variant_same () -> void = {
+    let c1 = Circle(radius: 5);
+    let c2 = Circle(radius: 5);
+    assert(cond: c1.hash() == c2.hash())
+}
+@variant_same () -> bool = Circle(radius: 5).hash() == Circle(radius: 5).hash();
 
 // --- Sum type: different variants → different hash ---
 
-@test_variant_diff_hash tests @variant_diff () -> void = run(
-    assert(cond: Red.hash() != Green.hash()),
-    assert(cond: Green.hash() != Blue.hash()),
-)
-@variant_diff () -> bool = Red.hash() != Green.hash()
+@test_variant_diff_hash tests @variant_diff () -> void = {
+    assert(cond: Red.hash() != Green.hash());
+    assert(cond: Green.hash() != Blue.hash())
+}
+@variant_diff () -> bool = Red.hash() != Green.hash();
 
 // --- Sum type: same variant different payload → different hash ---
 
-@test_variant_payload_diff tests @payload_diff () -> void = run(
-    assert(cond: Circle(radius: 5).hash() != Circle(radius: 10).hash()),
-)
-@payload_diff () -> bool = Circle(radius: 5).hash() != Circle(radius: 10).hash()
+@test_variant_payload_diff tests @payload_diff () -> void = {
+    assert(cond: Circle(radius: 5).hash() != Circle(radius: 10).hash())
+}
+@payload_diff () -> bool = Circle(radius: 5).hash() != Circle(radius: 10).hash();
 
 // --- Sum type: payloadless consistency ---
 
-@test_payloadless_consistency tests @pl_consistency () -> void = run(
-    assert(cond: Red.hash() == Red.hash()),
-)
-@pl_consistency () -> int = Red.hash()
+@test_payloadless_consistency tests @pl_consistency () -> void = {
+    assert(cond: Red.hash() == Red.hash())
+}
+@pl_consistency () -> int = Red.hash();

@@ -339,7 +339,6 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Or-patterns: `A | B | C`
   - [ ] At-patterns: `x @ Some(_)`
   - [ ] Guard patterns: `x if x > 0`
-  - [ ] Guard with `.match(condition)` method
   - [ ] Struct destructuring with field renaming: `{ x: px, y: py }`
   - [ ] List patterns with rest: `[first, ..rest]`, `[..init, last]`
   - [ ] Nested patterns
@@ -369,11 +368,11 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Local variables
   - [ ] Return statements
 
-- [ ] **Implement**: Function sequences (`run`, `try`, `match`)
-  - [ ] `run(let x = a, result)` sequential binding
-  - [ ] `run(pre_check:, body, post_check:)` with panic semantics
-  - [ ] `try(let x = f()?, Ok(x))` error propagation
-  - [ ] `match(v, P -> e, _ -> d)` pattern matching
+- [ ] **Implement**: Block expressions and control flow (`{ }`, `try`, `match`)
+  - [ ] `{ let x = a \n result }` sequential binding via block expressions
+  - [ ] `pre(cond) post(r -> cond)` function-level contract declarations
+  - [ ] `try { let x = f()? \n Ok(x) }` error propagation
+  - [ ] `match v { P -> e, _ -> d }` pattern matching
 
 - [ ] **Implement**: Recurse pattern
   - [ ] `recurse(condition:, base:, step:)` basic recursion
@@ -665,7 +664,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] **Rust Tests**: `ori_llvm/src/ffi/c_ffi_tests.rs`
 
 - [ ] **Implement**: Unsafe expressions
-  - [ ] `unsafe(...)` expression codegen (same as safe, marker only)
+  - [ ] `unsafe { ... }` block codegen (same as inner expr, marker only)
   - [ ] `uses FFI` capability requirement at call sites
   - [ ] Pointer operations: `ptr_read<T>(ptr:)`, `ptr_write<T>(ptr:, value:)`
   - [ ] Pointer arithmetic (future)

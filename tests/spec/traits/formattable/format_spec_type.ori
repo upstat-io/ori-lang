@@ -7,68 +7,68 @@ use std.testing { assert_eq }
 // Alignment Variant Access
 // =============================================================================
 
-@test_alignment_variants tests @alignment_variants () -> void = run(
-    let l = Left,
-    let c = Center,
-    let r = Right,
+@test_alignment_variants tests @alignment_variants () -> void = {
+    let l = Left;
+    let c = Center;
+    let r = Right;
     // Verify variant matching works
-    let l_str = match(l, Left -> "left", Center -> "center", Right -> "right"),
-    let c_str = match(c, Left -> "left", Center -> "center", Right -> "right"),
-    let r_str = match(r, Left -> "left", Center -> "center", Right -> "right"),
-    assert_eq(actual: l_str, expected: "left"),
-    assert_eq(actual: c_str, expected: "center"),
-    assert_eq(actual: r_str, expected: "right"),
-)
+    let l_str = match l { Left -> "left", Center -> "center", Right -> "right"};
+    let c_str = match c { Left -> "left", Center -> "center", Right -> "right"};
+    let r_str = match r { Left -> "left", Center -> "center", Right -> "right"};
+    assert_eq(actual: l_str, expected: "left");
+    assert_eq(actual: c_str, expected: "center");
+    assert_eq(actual: r_str, expected: "right")
+}
 
-@alignment_variants () -> str = match(Left, Left -> "left", Center -> "c", Right -> "r")
+@alignment_variants () -> str = match Left { Left -> "left", Center -> "c", Right -> "r"}
 
 // =============================================================================
 // Sign Variant Access
 // =============================================================================
 
-@test_sign_variants tests @sign_variants () -> void = run(
-    let p = Plus,
-    let m = Minus,
-    let s = Space,
-    let p_str = match(p, Plus -> "plus", Minus -> "minus", Space -> "space"),
-    let m_str = match(m, Plus -> "plus", Minus -> "minus", Space -> "space"),
-    let s_str = match(s, Plus -> "plus", Minus -> "minus", Space -> "space"),
-    assert_eq(actual: p_str, expected: "plus"),
-    assert_eq(actual: m_str, expected: "minus"),
-    assert_eq(actual: s_str, expected: "space"),
-)
+@test_sign_variants tests @sign_variants () -> void = {
+    let p = Plus;
+    let m = Minus;
+    let s = Space;
+    let p_str = match p { Plus -> "plus", Minus -> "minus", Space -> "space"};
+    let m_str = match m { Plus -> "plus", Minus -> "minus", Space -> "space"};
+    let s_str = match s { Plus -> "plus", Minus -> "minus", Space -> "space"};
+    assert_eq(actual: p_str, expected: "plus");
+    assert_eq(actual: m_str, expected: "minus");
+    assert_eq(actual: s_str, expected: "space")
+}
 
-@sign_variants () -> str = match(Plus, Plus -> "p", Minus -> "m", Space -> "s")
+@sign_variants () -> str = match Plus { Plus -> "p", Minus -> "m", Space -> "s"}
 
 // =============================================================================
 // FormatType Variant Access
 // =============================================================================
 
-@test_format_type_variants tests @format_type_variants () -> void = run(
-    let b = Binary,
-    let o = Octal,
-    let h = Hex,
-    let hu = HexUpper,
+@test_format_type_variants tests @format_type_variants () -> void = {
+    let b = Binary;
+    let o = Octal;
+    let h = Hex;
+    let hu = HexUpper;
     assert_eq(
-        actual: match(b, Binary -> "bin", Octal -> "oct", Hex -> "hex", HexUpper -> "HEX",
-            Exp -> "exp", ExpUpper -> "EXP", Fixed -> "fix", Percent -> "pct"),
+        actual: match b { Binary -> "bin", Octal -> "oct", Hex -> "hex", HexUpper -> "HEX",
+            Exp -> "exp", ExpUpper -> "EXP", Fixed -> "fix", Percent -> "pct"},
         expected: "bin",
-    ),
+    );
     assert_eq(
-        actual: match(h, Binary -> "bin", Octal -> "oct", Hex -> "hex", HexUpper -> "HEX",
-            Exp -> "exp", ExpUpper -> "EXP", Fixed -> "fix", Percent -> "pct"),
+        actual: match h { Binary -> "bin", Octal -> "oct", Hex -> "hex", HexUpper -> "HEX",
+            Exp -> "exp", ExpUpper -> "EXP", Fixed -> "fix", Percent -> "pct"},
         expected: "hex",
-    ),
-)
+    )
+}
 
-@format_type_variants () -> str = match(Hex, Binary -> "b", Octal -> "o", Hex -> "h",
-    HexUpper -> "H", Exp -> "e", ExpUpper -> "E", Fixed -> "f", Percent -> "%")
+@format_type_variants () -> str = match Hex { Binary -> "b", Octal -> "o", Hex -> "h",
+    HexUpper -> "H", Exp -> "e", ExpUpper -> "E", Fixed -> "f", Percent -> "%"}
 
 // =============================================================================
 // FormatSpec Construction and Field Access
 // =============================================================================
 
-@test_format_spec_construction tests @format_spec_construction () -> void = run(
+@test_format_spec_construction tests @format_spec_construction () -> void = {
     let spec = FormatSpec {
         fill: Some('*'),
         align: Some(Right),
@@ -76,22 +76,22 @@ use std.testing { assert_eq }
         width: Some(20),
         precision: None,
         format_type: None,
-    },
+    };
     // Access width field
-    let w = match(spec.width, Some(n) -> n, None -> 0),
-    assert_eq(actual: w, expected: 20),
+    let w = match spec.width { Some(n) -> n, None -> 0};
+    assert_eq(actual: w, expected: 20);
     // Access fill field
-    let f = match(spec.fill, Some(c) -> str(c), None -> "none"),
-    assert_eq(actual: f, expected: "*"),
+    let f = match spec.fill { Some(c) -> str(c), None -> "none"};
+    assert_eq(actual: f, expected: "*");
     // Access align field
-    let a = match(spec.align,
-        Some(align) -> match(align, Left -> "L", Center -> "C", Right -> "R"),
-        None -> "none",
-    ),
-    assert_eq(actual: a, expected: "R"),
-)
+    let a = match spec.align {
+        Some(align) -> match align { Left -> "L", Center -> "C", Right -> "R"},
+        None -> "none"
+    };
+    assert_eq(actual: a, expected: "R")
+}
 
-@format_spec_construction () -> int = run(
+@format_spec_construction () -> int = {
     let spec = FormatSpec {
         fill: None,
         align: None,
@@ -99,15 +99,15 @@ use std.testing { assert_eq }
         width: Some(42),
         precision: None,
         format_type: None,
-    },
-    match(spec.width, Some(n) -> n, None -> 0),
-)
+    };
+    match spec.width { Some(n) -> n, None -> 0}
+}
 
 // =============================================================================
 // FormatSpec with All Fields Set
 // =============================================================================
 
-@test_format_spec_all_fields tests @format_spec_all_fields () -> void = run(
+@test_format_spec_all_fields tests @format_spec_all_fields () -> void = {
     let spec = FormatSpec {
         fill: Some('.'),
         align: Some(Center),
@@ -115,25 +115,25 @@ use std.testing { assert_eq }
         width: Some(30),
         precision: Some(5),
         format_type: Some(Fixed),
-    },
-    let w = match(spec.width, Some(n) -> n, None -> 0),
-    assert_eq(actual: w, expected: 30),
-    let p = match(spec.precision, Some(n) -> n, None -> 0),
-    assert_eq(actual: p, expected: 5),
-    let s = match(spec.sign,
-        Some(sign) -> match(sign, Plus -> "+", Minus -> "-", Space -> " "),
-        None -> "none",
-    ),
-    assert_eq(actual: s, expected: "+"),
-    let ft = match(spec.format_type,
-        Some(ft) -> match(ft, Binary -> "b", Octal -> "o", Hex -> "x", HexUpper -> "X",
-            Exp -> "e", ExpUpper -> "E", Fixed -> "f", Percent -> "%"),
-        None -> "none",
-    ),
-    assert_eq(actual: ft, expected: "f"),
-)
+    };
+    let w = match spec.width { Some(n) -> n, None -> 0};
+    assert_eq(actual: w, expected: 30);
+    let p = match spec.precision { Some(n) -> n, None -> 0};
+    assert_eq(actual: p, expected: 5);
+    let s = match spec.sign {
+        Some(sign) -> match sign { Plus -> "+", Minus -> "-", Space -> " "},
+        None -> "none"
+    };
+    assert_eq(actual: s, expected: "+");
+    let ft = match spec.format_type {
+        Some(ft) -> match ft { Binary -> "b", Octal -> "o", Hex -> "x", HexUpper -> "X",
+            Exp -> "e", ExpUpper -> "E", Fixed -> "f", Percent -> "%"},
+        None -> "none"
+    };
+    assert_eq(actual: ft, expected: "f")
+}
 
-@format_spec_all_fields () -> int = run(
+@format_spec_all_fields () -> int = {
     let spec = FormatSpec {
         fill: None,
         align: None,
@@ -141,8 +141,8 @@ use std.testing { assert_eq }
         width: Some(10),
         precision: Some(3),
         format_type: None,
-    },
-    match(spec.precision, Some(n) -> n, None -> 0),
-)
+    };
+    match spec.precision { Some(n) -> n, None -> 0}
+}
 
-@main () -> void = print(msg: "FormatSpec type tests")
+@main () -> void = print(msg: "FormatSpec type tests");

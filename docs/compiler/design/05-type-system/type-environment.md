@@ -12,14 +12,21 @@ The type environment tracks variable-to-type bindings during type checking. It u
 ## Location
 
 ```
-compiler/ori_types/src/infer/env.rs
+compiler/ori_types/src/infer/env/mod.rs
 ```
 
 ## Structure
 
 ```rust
+/// A single binding entry in the type environment.
+#[derive(Copy, Clone, Debug)]
+struct Binding {
+    ty: Idx,                       // The type (or type scheme) for this name
+    mutable: Option<Mutability>,   // None for prelude/param bindings
+}
+
 struct TypeEnvInner {
-    bindings: FxHashMap<Name, Idx>,
+    bindings: FxHashMap<Name, Binding>,
     parent: Option<TypeEnv>,
 }
 
@@ -28,8 +35,9 @@ pub struct TypeEnv(Rc<TypeEnvInner>);
 
 **Design decisions:**
 - `Rc<TypeEnvInner>` enables O(1) child scope creation (cheap `Rc` clone, no recursive copying)
-- `FxHashMap<Name, Idx>` provides fast hashing for interned `Name` keys
-- Bindings map directly to `Idx` (pool handles), not boxed `Type` values
+- `FxHashMap<Name, Binding>` provides fast hashing for interned `Name` keys
+- `Binding` combines type and mutability in one struct, eliminating the need for parallel maps
+- Bindings store `Idx` (pool handles), not boxed `Type` values
 - Parent chain enables lexical scope lookup through linked environments
 
 ## Scope Management
@@ -62,22 +70,37 @@ The caller is responsible for using the child scope where appropriate and discar
 
 ```rust
 impl TypeEnv {
-    /// Bind a name to a type (as Idx).
-    pub fn bind(&mut self, name: Name, ty: Idx) {
-        Rc::make_mut(&mut self.0).bindings.insert(name, ty);
-    }
+    /// Get the parent scope, if any.
+    pub fn parent(&self) -> Option<Self>;
+
+    /// Bind a name to a type (as Idx). Mutability is not tracked.
+    pub fn bind(&mut self, name: Name, ty: Idx);
+
+    /// Bind a name to a type and record its mutability.
+    /// Mutability::Mutable = `let x` (can be reassigned).
+    /// Mutability::Immutable = `let $x` (immutable binding).
+    pub fn bind_with_mutability(&mut self, name: Name, ty: Idx, mutable: Mutability);
 
     /// Look up a name, searching parent scopes.
-    pub fn lookup(&self, name: Name) -> Option<Idx> {
-        self.0.bindings.get(&name).copied().or_else(|| {
-            self.0.parent.as_ref().and_then(|p| p.lookup(name))
-        })
-    }
+    pub fn lookup(&self, name: Name) -> Option<Idx>;
+
+    /// Check if a binding is mutable, searching parent scopes.
+    /// Returns Some(true) for mutable, Some(false) for immutable,
+    /// None if the name has no recorded mutability (e.g., function params,
+    /// prelude bindings).
+    pub fn is_mutable(&self, name: Name) -> Option<bool>;
+
+    /// Bind a name to a type scheme (alias for bind, for code clarity).
+    pub fn bind_scheme(&mut self, name: Name, scheme: Idx);
+
+    /// Look up a name and return its type scheme (alias for lookup).
+    pub fn lookup_scheme(&self, name: Name) -> Option<Idx>;
 
     /// Check if bound in current scope only (not parents).
-    pub fn is_bound_locally(&self, name: Name) -> bool {
-        self.0.bindings.contains_key(&name)
-    }
+    pub fn is_bound_locally(&self, name: Name) -> bool;
+
+    /// Count bindings in the current scope only (not parents).
+    pub fn local_count(&self) -> usize;
 }
 ```
 
@@ -88,16 +111,16 @@ impl TypeEnv {
 Variables in inner scopes shadow outer ones. The parent chain lookup stops at the first match:
 
 ```ori
-let x = 1
-let result = run(
-    let x = "hello",   // x : str in inner scope (shadows outer)
-    len(collection: x), // uses inner x : str
-)
+let x = 1;
+let result = {
+    let x = "hello";   // x : str in inner scope (shadows outer)
+    len(collection: x)  // uses inner x : str
+};
 // x : int (outer still visible)
 ```
 
 ```rust
-// During type checking of the run block:
+// During type checking of the block expression:
 let child_env = engine.env.child();
 child_env.bind(x_name, Idx::STR);  // Shadows outer x : int
 // lookup(x_name) in child_env returns Idx::STR
@@ -147,7 +170,7 @@ loop_env.bind(x_name, Idx::INT);
 
 ## Error Recovery
 
-The environment supports "did you mean?" suggestions by iterating over all bound names:
+The environment supports "did you mean?" suggestions by iterating over all bound names and finding similar ones via edit distance:
 
 ```rust
 impl TypeEnv {
@@ -155,7 +178,19 @@ impl TypeEnv {
     pub fn names(&self) -> impl Iterator<Item = Name> + '_ {
         // Walks the parent chain, yielding names from each scope
     }
+
+    /// Find names similar to the given name (for typo suggestions).
+    /// Uses Levenshtein edit distance with a dynamic threshold based
+    /// on name length (1-2 chars: distance <= 1, 3-5: <= 2, 6+: <= 3).
+    /// Returns up to `max_results` names, sorted by edit distance.
+    /// The `resolve` closure maps Name handles to their string representations.
+    pub fn find_similar<'r>(
+        &self,
+        target: Name,
+        max_results: usize,
+        resolve: impl Fn(Name) -> Option<&'r str>,
+    ) -> Vec<Name>;
 }
 ```
 
-This enables the error infrastructure to suggest similar names when an undefined variable is referenced.
+`find_similar()` deduplicates names across scopes and applies a quick length-difference reject before computing the full edit distance, keeping the cost low for large environments.

@@ -4,8 +4,8 @@
 
 use std.testing { assert }
 
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@subtract (a: int, b: int) -> int = a - b
+@subtract (a: int, b: int) -> int = a - b;
 
-@test_arithmetic tests @add tests @subtract () -> void = assert(cond: true)
+@test_arithmetic tests @add tests @subtract () -> void = assert(cond: true);

@@ -333,7 +333,7 @@ Allow functions to be defined with multiple clauses that pattern match on argume
   - [ ] **LLVM Support**: LLVM codegen for clause desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause desugaring codegen
 
-- [ ] **Implement**: Desugar `if` guards to `.match()` in patterns
+- [ ] **Implement**: Function clause `if` guards (compile to match arm guards)
   - [ ] **Rust Tests**: `oric/src/codegen/clauses.rs` — guard desugaring
   - [ ] **Ori Tests**: `tests/spec/declarations/guard_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard desugaring

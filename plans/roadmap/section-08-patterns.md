@@ -75,7 +75,7 @@ The spec formalizes two distinct pattern categories:
 
 ## 8.1 run (Sequential Execution) [function_seq]
 
-> **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds `.pre_check:` and `.post_check:` properties to `run`. See Section 15.5.
+> **Future Enhancement**: Approved proposal `proposals/approved/checks-proposal.md` adds function-level `pre()` and `post()` contract declarations. See Section 15.5.
 
 - [x] **Implement**: Grammar `run_expr = "run" "(" { binding "," } expression ")"` — spec/10-patterns.md § run [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator pattern execution — run pattern tests

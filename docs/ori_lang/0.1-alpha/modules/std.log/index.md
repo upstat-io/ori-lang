@@ -34,12 +34,11 @@ trait Logger {
 The `Logger` capability represents the ability to write log messages. Functions that perform logging must declare `uses Logger` in their signature.
 
 ```ori
-@process_order (order: Order) -> Result<void, Error> uses Logger =
-    run(
-        Logger.info("Processing order: " + order.id),
-        // ... processing logic
-        Logger.debug("Order validated"),
-    )
+@process_order (order: Order) -> Result<void, Error> uses Logger = {
+    Logger.info("Processing order: " + order.id)
+    // ... processing logic
+    Logger.debug("Order validated")
+}
 ```
 
 **Implementations:**
@@ -80,10 +79,10 @@ impl Logger for CapturingLogger {
 ```ori
 @test_order_logging tests @process_order () -> void =
     with Logger = CapturingLogger { messages: [] } in
-    run(
-        process_order(test_order)?,
-        assert(Logger.messages.any(e -> e.message.contains("Processing order"))),
-    )
+    {
+        process_order(test_order)?
+        assert(Logger.messages.any(e -> e.message.contains("Processing order")))
+    }
 ```
 
 ---
@@ -276,16 +275,16 @@ set_format(Format.Text)  // 2024-01-15 10:30:45 INFO: ...
 ```ori
 use std.log { info, error, set_level, Level }
 
-@main () uses IO -> void = run(
-    set_level(Level.Info),
+@main () uses IO -> void = {
+    set_level(Level.Info)
 
-    info("Application starting"),
+    info("Application starting")
 
-    match(initialize(),
-        Ok(_) -> info("Initialized successfully"),
-        Err(e) -> error("Initialization failed", {"error": e.message}),
-    ),
-)
+    match initialize() {
+        Ok(_) -> info("Initialized successfully")
+        Err(e) -> error("Initialization failed", {"error": e.message})
+    }
+}
 ```
 
 ### Request logging middleware
@@ -295,18 +294,19 @@ use std.log { info }
 use std.time { now }
 
 @log_request (handler: Request -> Response) -> Request -> Response =
-    req -> run(
-        let start = now(),
-        let resp = handler(req),
-        let duration = now().diff(start),
+    req -> {
+        let start = now()
+        let resp = handler(req)
+        let duration = now().diff(start)
         info("Request", {
             "method": str(req.method),
             "path": req.url,
             "status": str(resp.status),
             "duration_ms": str(duration.as_ms()),
-        }),
-        resp,
-    )
+        })
+
+        resp
+    }
 ```
 
 ### Custom logger
@@ -315,15 +315,16 @@ use std.time { now }
 use std.log { Logger, Level, Format }
 use std.fs { open_append }
 
-@setup_logger () uses FileSystem + IO -> Result<Logger, Error> = run(
-    let file = open_append("app.log")?,
+@setup_logger () uses FileSystem + IO -> Result<Logger, Error> = {
+    let file = open_append("app.log")?
+
     Ok(Logger.new()
         .level(Level.Info)
         .output(file)
         .format(Format.Json)
         .with_field("app", "myservice")
-        .with_field("version", "1.0.0")),
-)
+        .with_field("version", "1.0.0"))
+}
 ```
 
 ---

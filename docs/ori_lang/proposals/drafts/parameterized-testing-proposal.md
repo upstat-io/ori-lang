@@ -233,11 +233,11 @@ trait Arbitrary {
 ```ori
 impl Arbitrary for int {
     @arbitrary (rng: Rng) -> int = rng.int(min: int.MIN, max: int.MAX)
-    @shrink (self) -> [int] = match(self,
-        0 -> [],
-        n if n > 0 -> [0, n / 2, n - 1],
-        n -> [0, n / 2, n + 1],
-    )
+    @shrink (self) -> [int] = match self {
+        0 -> []
+        n if n > 0 -> [0, n / 2, n - 1]
+        n -> [0, n / 2, n + 1]
+    }
 }
 
 impl Arbitrary for bool {
@@ -247,15 +247,15 @@ impl Arbitrary for bool {
 
 impl Arbitrary for str {
     @arbitrary (rng: Rng) -> str = rng.str(max_len: 100)
-    @shrink (self) -> [str] = run(
-        let chars = self.chars(),
+    @shrink (self) -> [str] = {
+        let chars = self.chars();
         if is_empty(collection: chars) then []
         else [
             "",
             self.take(n: len(collection: self) / 2),
             self.drop(n: 1),
-        ],
-    )
+        ]
+    }
 }
 ```
 
@@ -373,22 +373,22 @@ The `params`, `property`, and `exhaustive` expressions must be evaluable at test
 Desugars to:
 
 ```ori
-@test_limit tests _ () -> void = run(
-    let params = [(0,), (50,), (100,)],
+@test_limit tests _ () -> void = {
+    let params = [(0,), (50,), (100,)];
     for (i, (limit,)) in params.enumerate() do
-        run(
+        {
             // Original test body
-            assert(condition: process(limit: limit).is_valid()),
-        ) |> catch_and_report(case: i, params: (limit,)),
-)
+            assert(condition: process(limit: limit).is_valid())
+        } |> catch_and_report(case: i, params: (limit,))
+}
 ```
 
 Or alternatively, generates separate test cases for better reporting:
 
 ```ori
-@test_limit_0 tests _ () -> void = run(let limit = 0, ...)
-@test_limit_1 tests _ () -> void = run(let limit = 50, ...)
-@test_limit_2 tests _ () -> void = run(let limit = 100, ...)
+@test_limit_0 tests _ () -> void = { let limit = 0; ... }
+@test_limit_1 tests _ () -> void = { let limit = 50; ... }
+@test_limit_2 tests _ () -> void = { let limit = 100; ... }
 ```
 
 ### Property Tests
@@ -402,16 +402,16 @@ Or alternatively, generates separate test cases for better reporting:
 Desugars to:
 
 ```ori
-@test_prop tests _ () -> void = run(
-    let gen = rng -> (x: rng.int(min: 0, max: 100)),
-    let base_seed = hash("test_prop"),
+@test_prop tests _ () -> void = {
+    let gen = rng -> (x: rng.int(min: 0, max: 100));
+    let base_seed = hash("test_prop");
     for i in 0..100 do
-        run(
-            let rng = Rng.seeded(seed: base_seed + i),
-            let (x,) = gen(rng),
-            assert(condition: x >= 0),
-        ) |> on_fail(shrink_and_report(gen:, seed: base_seed + i)),
-)
+        {
+            let rng = Rng.seeded(seed: base_seed + i);
+            let (x,) = gen(rng);
+            assert(condition: x >= 0)
+        } |> on_fail(shrink_and_report(gen:, seed: base_seed + i))
+}
 ```
 
 ---
@@ -509,11 +509,11 @@ ori test --no-shrink
 
 ```ori
 #test(property: rng -> (ast: Ast.arbitrary(rng: rng)), runs: 500)
-@test_format_roundtrip tests _ (ast: Ast) -> void = run(
-    let formatted = format(ast: ast),
-    let parsed = parse(input: formatted),
-    assert_eq(actual: parsed, expected: Ok(ast)),
-)
+@test_format_roundtrip tests _ (ast: Ast) -> void = {
+    let formatted = format(ast: ast);
+    let parsed = parse(input: formatted);
+    assert_eq(actual: parsed, expected: Ok(ast))
+}
 ```
 
 ### Property: Invariant
@@ -522,18 +522,18 @@ ori test --no-shrink
 #test(property: rng -> (
     items: rng.list(gen: int.arbitrary, max_len: 100),
 ))
-@test_sort_invariants tests _ (items: [int]) -> void = run(
-    let sorted = sort(items: items),
+@test_sort_invariants tests _ (items: [int]) -> void = {
+    let sorted = sort(items: items);
 
     // Length preserved
-    assert_eq(actual: len(collection: sorted), expected: len(collection: items)),
+    assert_eq(actual: len(collection: sorted), expected: len(collection: items));
 
     // Elements preserved
-    assert_eq(actual: sorted.to_set(), expected: items.to_set()),
+    assert_eq(actual: sorted.to_set(), expected: items.to_set());
 
     // Actually sorted
-    assert(condition: sorted.windows(size: 2).all(predicate: w -> w[0] <= w[1])),
-)
+    assert(condition: sorted.windows(size: 2).all(predicate: w -> w[0] <= w[1]))
+}
 ```
 
 ### Exhaustive: State Machine
@@ -542,10 +542,10 @@ ori test --no-shrink
 type State = Idle | Running | Paused | Stopped
 
 #test(exhaustive: (from: State, event: Event))
-@test_transitions tests _ (from: State, event: Event) -> void = run(
-    let to = transition(state: from, event: event),
-    assert(condition: is_valid_transition(from: from, to: to, event: event)),
-)
+@test_transitions tests _ (from: State, event: Event) -> void = {
+    let to = transition(state: from, event: event);
+    assert(condition: is_valid_transition(from: from, to: to, event: event))
+}
 ```
 
 ---

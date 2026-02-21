@@ -4,37 +4,37 @@
 use std.testing { assert_eq, assert }
 
 // Fresh error: has_trace() is false
-@test_no_trace tests @no_trace () -> void = run(
-    let r: Result<int, Error> = Err(Error("fail")),
-    assert_eq(actual: r.has_trace(), expected: false),
-)
+@test_no_trace tests @no_trace () -> void = {
+    let r: Result<int, Error> = Err(Error("fail"));
+    assert_eq(actual: r.has_trace(), expected: false)
+}
 
-@no_trace () -> bool = run(
-    let r: Result<int, Error> = Err(Error("fail")),
-    r.has_trace(),
-)
+@no_trace () -> bool = {
+    let r: Result<int, Error> = Err(Error("fail"));
+    r.has_trace()
+}
 
 // Fresh error: trace() is empty string
-@test_trace_empty tests @trace_empty () -> void = run(
-    let r: Result<int, Error> = Err(Error("fail")),
-    assert_eq(actual: r.trace(), expected: ""),
-)
+@test_trace_empty tests @trace_empty () -> void = {
+    let r: Result<int, Error> = Err(Error("fail"));
+    assert_eq(actual: r.trace(), expected: "")
+}
 
-@trace_empty () -> str = run(
-    let r: Result<int, Error> = Err(Error("fail")),
-    r.trace(),
-)
+@trace_empty () -> str = {
+    let r: Result<int, Error> = Err(Error("fail"));
+    r.trace()
+}
 
 // Fresh error: trace_entries() is empty
-@test_entries tests @entries () -> void = run(
-    let r: Result<int, Error> = Err(Error("fail")),
+@test_entries tests @entries () -> void = {
+    let r: Result<int, Error> = Err(Error("fail"));
     assert_eq(
         actual: r.trace_entries().len(),
         expected: 0,
-    ),
-)
+    )
+}
 
-@entries () -> int = run(
-    let r: Result<int, Error> = Err(Error("fail")),
-    r.trace_entries().len(),
-)
+@entries () -> int = {
+    let r: Result<int, Error> = Err(Error("fail"));
+    r.trace_entries().len()
+}

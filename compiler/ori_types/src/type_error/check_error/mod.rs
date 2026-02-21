@@ -604,6 +604,12 @@ impl TypeCheckError {
                     format_type(*ty)
                 )
             }
+            TypeErrorKind::AssignToImmutable { name } => {
+                format!(
+                    "cannot assign to immutable binding `{}`",
+                    format_name(*name)
+                )
+            }
         }
     }
 
@@ -828,6 +834,9 @@ impl TypeCheckError {
                     ty.display_name()
                 )
             }
+            TypeErrorKind::AssignToImmutable { .. } => {
+                "cannot assign to immutable binding".to_string()
+            }
         }
     }
 
@@ -934,6 +943,9 @@ impl TypeCheckError {
 
             // E2038: Missing Printable for string interpolation
             TypeErrorKind::MissingPrintable { .. } => ErrorCode::E2038,
+
+            // E2039: Cannot assign to immutable binding
+            TypeErrorKind::AssignToImmutable { .. } => ErrorCode::E2039,
         }
     }
 
@@ -1608,6 +1620,21 @@ impl TypeCheckError {
         }
     }
 
+    /// Create a "cannot assign to immutable binding" error (E2039).
+    ///
+    /// Emitted when assigning to a binding declared with `$` prefix (immutable).
+    pub fn assign_to_immutable(span: Span, name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AssignToImmutable { name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "remove the `$` prefix to make this binding mutable, or use a new `let` binding",
+                0,
+            )],
+        }
+    }
+
     /// Create a "format type mismatch" error (E2035).
     ///
     /// Emitted when a format type (e.g., `x`, `b`) is used with an
@@ -1934,6 +1961,12 @@ pub enum TypeErrorKind {
     MissingPrintable {
         /// The type that doesn't implement Printable.
         ty: Idx,
+    },
+
+    /// Cannot assign to immutable binding (E2039).
+    AssignToImmutable {
+        /// The name of the immutable binding.
+        name: Name,
     },
 }
 

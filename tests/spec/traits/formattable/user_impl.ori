@@ -11,19 +11,19 @@ type Color = { r: int, g: int, b: int }
 
 impl Formattable for Color {
     @format (self, spec: FormatSpec) -> str =
-        "rgb(" + str(self.r) + "," + str(self.g) + "," + str(self.b) + ")"
+        "rgb(" + str(self.r) + "," + str(self.g) + "," + str(self.b) + ")";
 }
 
-@test_user_format_called tests @user_format_called () -> void = run(
-    let c = Color { r: 255, g: 0, b: 128 },
+@test_user_format_called tests @user_format_called () -> void = {
+    let c = Color { r: 255, g: 0, b: 128 };
     // With a format spec, the user's format() is called (not display_value)
-    assert_eq(actual: `{c:>20}`, expected: "rgb(255,0,128)"),
-)
+    assert_eq(actual: `{c:>20}`, expected: "rgb(255,0,128)")
+}
 
-@user_format_called () -> str = run(
-    let c = Color { r: 1, g: 2, b: 3 },
-    `{c:>10}`,
-)
+@user_format_called () -> str = {
+    let c = Color { r: 1, g: 2, b: 3 };
+    `{c:>10}`
+}
 
 // =============================================================================
 // FormatSpec Field Inspection: user method receives correct spec
@@ -32,25 +32,25 @@ impl Formattable for Color {
 type Tag = { label: str }
 
 impl Formattable for Tag {
-    @format (self, spec: FormatSpec) -> str = run(
-        let w = match(spec.width,
+    @format (self, spec: FormatSpec) -> str = {
+        let w = match spec.width {
             Some(n) -> str(n),
-            None -> "none",
-        ),
-        self.label + ":w=" + w,
-    )
+            None -> "none"
+        };
+        self.label + ":w=" + w
+    }
 }
 
-@test_spec_width_passed tests @spec_width_passed () -> void = run(
-    let t = Tag { label: "hello" },
-    assert_eq(actual: `{t:>20}`, expected: "hello:w=20"),
-    assert_eq(actual: `{t:>5}`, expected: "hello:w=5"),
-)
+@test_spec_width_passed tests @spec_width_passed () -> void = {
+    let t = Tag { label: "hello" };
+    assert_eq(actual: `{t:>20}`, expected: "hello:w=20");
+    assert_eq(actual: `{t:>5}`, expected: "hello:w=5")
+}
 
-@spec_width_passed () -> str = run(
-    let t = Tag { label: "x" },
-    `{t:>10}`,
-)
+@spec_width_passed () -> str = {
+    let t = Tag { label: "x" };
+    `{t:>10}`
+}
 
 // =============================================================================
 // FormatSpec Alignment: user receives alignment info
@@ -59,30 +59,30 @@ impl Formattable for Tag {
 type AlignTest = { value: str }
 
 impl Formattable for AlignTest {
-    @format (self, spec: FormatSpec) -> str = run(
-        let align_str = match(spec.align,
-            Some(a) -> match(a,
+    @format (self, spec: FormatSpec) -> str = {
+        let align_str = match spec.align {
+            Some(a) -> match a {
                 Left -> "left",
                 Center -> "center",
-                Right -> "right",
-            ),
-            None -> "none",
-        ),
-        self.value + ":" + align_str,
-    )
+                Right -> "right"
+            },
+            None -> "none"
+        };
+        self.value + ":" + align_str
+    }
 }
 
-@test_spec_align_passed tests @spec_align_passed () -> void = run(
-    let a = AlignTest { value: "x" },
-    assert_eq(actual: `{a:>10}`, expected: "x:right"),
-    assert_eq(actual: `{a:<10}`, expected: "x:left"),
-    assert_eq(actual: `{a:^10}`, expected: "x:center"),
-)
+@test_spec_align_passed tests @spec_align_passed () -> void = {
+    let a = AlignTest { value: "x" };
+    assert_eq(actual: `{a:>10}`, expected: "x:right");
+    assert_eq(actual: `{a:<10}`, expected: "x:left");
+    assert_eq(actual: `{a:^10}`, expected: "x:center")
+}
 
-@spec_align_passed () -> str = run(
-    let a = AlignTest { value: "y" },
-    `{a:>5}`,
-)
+@spec_align_passed () -> str = {
+    let a = AlignTest { value: "y" };
+    `{a:>5}`
+}
 
 // =============================================================================
 // FormatSpec Fill Character: user receives fill info
@@ -91,24 +91,24 @@ impl Formattable for AlignTest {
 type FillTest = { value: str }
 
 impl Formattable for FillTest {
-    @format (self, spec: FormatSpec) -> str = run(
-        let fill_str = match(spec.fill,
+    @format (self, spec: FormatSpec) -> str = {
+        let fill_str = match spec.fill {
             Some(c) -> str(c),
-            None -> "default",
-        ),
-        self.value + ":fill=" + fill_str,
-    )
+            None -> "default"
+        };
+        self.value + ":fill=" + fill_str
+    }
 }
 
-@test_spec_fill_passed tests @spec_fill_passed () -> void = run(
-    let f = FillTest { value: "x" },
-    assert_eq(actual: `{f:*>10}`, expected: "x:fill=*"),
-    assert_eq(actual: `{f:->10}`, expected: "x:fill=-"),
-)
+@test_spec_fill_passed tests @spec_fill_passed () -> void = {
+    let f = FillTest { value: "x" };
+    assert_eq(actual: `{f:*>10}`, expected: "x:fill=*");
+    assert_eq(actual: `{f:->10}`, expected: "x:fill=-")
+}
 
-@spec_fill_passed () -> str = run(
-    let f = FillTest { value: "y" },
-    `{f:*>5}`,
-)
+@spec_fill_passed () -> str = {
+    let f = FillTest { value: "y" };
+    `{f:*>5}`
+}
 
-@main () -> void = print(msg: "User Formattable tests")
+@main () -> void = print(msg: "User Formattable tests");

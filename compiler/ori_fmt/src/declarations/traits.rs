@@ -74,12 +74,16 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 let current_column = self.ctx.column();
                 let current_indent = self.ctx.indent_level();
                 let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, self.config)
+                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                         .with_indent_level(current_indent)
                         .with_starting_column(current_column);
                 expr_formatter.format(method.body);
                 let body_output = expr_formatter.ctx.as_str().trim_end();
                 self.ctx.emit(body_output);
+                // Trailing semicolon for non-block expression bodies
+                if !body_output.ends_with('}') {
+                    self.ctx.emit(";");
+                }
             }
             TraitItem::AssocType(assoc) => {
                 self.ctx.emit("type ");

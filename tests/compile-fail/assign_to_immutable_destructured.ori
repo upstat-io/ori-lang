@@ -1,0 +1,8 @@
+// Test that assignment to immutable binding from destructuring is caught (E2039)
+// Individual bindings in tuple destructuring can be marked immutable.
+
+#[compile_fail("cannot assign to immutable binding")]
+@test_assign_immutable_destructured () -> void = {
+    let ($a, b) = (1, 2);
+    a = 10
+}

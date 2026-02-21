@@ -11,14 +11,12 @@ description = "WebAssembly bindings for the Ori language playground"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Ori crates for interpretation (no LLVM, no Salsa)
-ori_ir = { path = "../../compiler/ori_ir" }
-ori_lexer = { path = "../../compiler/ori_lexer" }
-ori_parse = { path = "../../compiler/ori_parse" }
-ori_types = { path = "../../compiler/ori_types" }
-ori_canon = { path = "../../compiler/ori_canon" }
+# Portable compiler driver (no Salsa, no IO)
+ori_compiler = { path = "../../compiler/ori_compiler" }
+
+# Direct deps still needed for types and utilities
 ori_eval = { path = "../../compiler/ori_eval" }
-ori_fmt = { path = "../../compiler/ori_fmt" }
+ori_diagnostic = { path = "../../compiler/ori_diagnostic" }
 
 # WASM bindings
 wasm-bindgen = "0.2"

@@ -19,90 +19,90 @@ type Nested = { origin: Point, label: str }
 // --- Sum types ---
 
 #[derive(Eq, Clone)]
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 #[derive(Eq, Clone)]
-type Shape = Circle(radius: int) | Rectangle(w: int, h: int)
+type Shape = Circle(radius: int) | Rectangle(w: int, h: int);
 
 // --- Basic struct clone ---
 
-@test_struct_clone tests @struct_clone () -> void = run(
-    let p = Point { x: 10, y: 20 },
-    let p2 = p.clone(),
-    assert(cond: p == p2),
-)
-@struct_clone () -> bool = run(
-    let p = Point { x: 10, y: 20 },
-    p == p.clone(),
-)
+@test_struct_clone tests @struct_clone () -> void = {
+    let p = Point { x: 10, y: 20 };
+    let p2 = p.clone();
+    assert(cond: p == p2)
+}
+@struct_clone () -> bool = {
+    let p = Point { x: 10, y: 20 };
+    p == p.clone()
+}
 
 // --- Multi-type struct ---
 
-@test_person_clone tests @person_clone () -> void = run(
-    let p = Person { name: "Alice", age: 30, active: true },
-    let p2 = p.clone(),
-    assert(cond: p == p2),
-)
-@person_clone () -> bool = run(
-    let p = Person { name: "Alice", age: 30, active: true },
-    p == p.clone(),
-)
+@test_person_clone tests @person_clone () -> void = {
+    let p = Person { name: "Alice", age: 30, active: true };
+    let p2 = p.clone();
+    assert(cond: p == p2)
+}
+@person_clone () -> bool = {
+    let p = Person { name: "Alice", age: 30, active: true };
+    p == p.clone()
+}
 
 // --- Nested struct ---
 
-@test_nested_clone tests @nested_clone () -> void = run(
-    let n = Nested { origin: Point { x: 1, y: 2 }, label: "test" },
-    let n2 = n.clone(),
-    assert(cond: n == n2),
-)
-@nested_clone () -> bool = run(
-    let n = Nested { origin: Point { x: 1, y: 2 }, label: "test" },
-    n == n.clone(),
-)
+@test_nested_clone tests @nested_clone () -> void = {
+    let n = Nested { origin: Point { x: 1, y: 2 }, label: "test" };
+    let n2 = n.clone();
+    assert(cond: n == n2)
+}
+@nested_clone () -> bool = {
+    let n = Nested { origin: Point { x: 1, y: 2 }, label: "test" };
+    n == n.clone()
+}
 
 // --- Payloadless variant clone ---
 
-@test_variant_clone tests @variant_clone () -> void = run(
-    let c = Red,
-    let c2 = c.clone(),
-    assert(cond: c == c2),
-)
-@variant_clone () -> bool = run(
-    let c = Red,
-    c == c.clone(),
-)
+@test_variant_clone tests @variant_clone () -> void = {
+    let c = Red;
+    let c2 = c.clone();
+    assert(cond: c == c2)
+}
+@variant_clone () -> bool = {
+    let c = Red;
+    c == c.clone()
+}
 
 // --- Variant with payload clone ---
 
-@test_variant_payload_clone tests @payload_clone () -> void = run(
-    let s = Circle(radius: 5),
-    let s2 = s.clone(),
-    assert(cond: s == s2),
-)
-@payload_clone () -> bool = run(
-    let s = Circle(radius: 5),
-    s == s.clone(),
-)
+@test_variant_payload_clone tests @payload_clone () -> void = {
+    let s = Circle(radius: 5);
+    let s2 = s.clone();
+    assert(cond: s == s2)
+}
+@payload_clone () -> bool = {
+    let s = Circle(radius: 5);
+    s == s.clone()
+}
 
 // --- Multi-payload variant clone ---
 
-@test_multi_payload_clone tests @multi_clone () -> void = run(
-    let r = Rectangle(w: 3, h: 4),
-    let r2 = r.clone(),
-    assert(cond: r == r2),
-)
-@multi_clone () -> bool = run(
-    let r = Rectangle(w: 3, h: 4),
-    r == r.clone(),
-)
+@test_multi_payload_clone tests @multi_clone () -> void = {
+    let r = Rectangle(w: 3, h: 4);
+    let r2 = r.clone();
+    assert(cond: r == r2)
+}
+@multi_clone () -> bool = {
+    let r = Rectangle(w: 3, h: 4);
+    r == r.clone()
+}
 
 // --- All variants clone correctly ---
 
-@test_all_variants tests @all_variants () -> void = run(
-    assert(cond: Red == Red.clone()),
-    assert(cond: Green == Green.clone()),
-    assert(cond: Blue == Blue.clone()),
-)
-@all_variants () -> bool = run(
-    (Red == Red.clone()) && (Green == Green.clone()) && (Blue == Blue.clone()),
-)
+@test_all_variants tests @all_variants () -> void = {
+    assert(cond: Red == Red.clone());
+    assert(cond: Green == Green.clone());
+    assert(cond: Blue == Blue.clone())
+}
+@all_variants () -> bool = {
+    (Red == Red.clone()) && (Green == Green.clone()) && (Blue == Blue.clone())
+}

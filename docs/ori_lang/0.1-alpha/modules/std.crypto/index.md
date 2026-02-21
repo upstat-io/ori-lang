@@ -202,10 +202,11 @@ Verifies password against hash.
 use std.crypto { sha256_hex }
 use std.fs { read_bytes }
 
-@checksum (path: str) uses FileSystem -> Result<str, Error> = run(
-    let data = read_bytes(path)?,
-    Ok(sha256_hex(str.from_bytes(data))),
-)
+@checksum (path: str) uses FileSystem -> Result<str, Error> = {
+    let data = read_bytes(path)?
+
+    Ok(sha256_hex(str.from_bytes(data)))
+}
 ```
 
 ### API signature
@@ -215,12 +216,13 @@ use std.crypto { hmac_sha256 }
 use std.encoding.base64 { encode }
 use std.time { now }
 
-@sign_request (method: str, path: str, secret: str) uses Clock -> str = run(
-    let timestamp = str(now().unix()),
-    let message = method + "\n" + path + "\n" + timestamp,
-    let signature = hmac_sha256(secret, message),
-    encode(signature),
-)
+@sign_request (method: str, path: str, secret: str) uses Clock -> str = {
+    let timestamp = str(now().unix())
+    let message = method + "\n" + path + "\n" + timestamp
+    let signature = hmac_sha256(secret, message)
+
+    encode(signature)
+}
 ```
 
 ---

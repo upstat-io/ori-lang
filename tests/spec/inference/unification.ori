@@ -7,353 +7,353 @@ use std.testing { assert, assert_eq, assert_ne }
 // Basic Unification
 // =============================================================================
 
-@test_unify_same_types tests @unify_same_types () -> void = run(
+@test_unify_same_types tests @unify_same_types () -> void = {
     // Same types should unify
-    let x: int = 42,
-    let y: int = x,
+    let x: int = 42;
+    let y: int = x;
     assert_eq(
         actual: y,
         expected: 42,
-    ),
-)
+    )
+}
 
-@unify_same_types () -> int = run(
-    let x: int = 42,
-    let y: int = x,
-    y,
-)
+@unify_same_types () -> int = {
+    let x: int = 42;
+    let y: int = x;
+    y
+}
 
-@test_unify_inferred tests @unify_inferred () -> void = run(
+@test_unify_inferred tests @unify_inferred () -> void = {
     // Inferred types should unify with concrete types
-    let x = 42,
-    let y: int = x,
+    let x = 42;
+    let y: int = x;
     assert_eq(
         actual: y,
         expected: 42,
-    ),
-)
+    )
+}
 
-@unify_inferred () -> int = run(
-    let x = 42,
-    let y: int = x,
-    y,
-)
+@unify_inferred () -> int = {
+    let x = 42;
+    let y: int = x;
+    y
+}
 
 // =============================================================================
 // List Type Unification
 // =============================================================================
 
-@test_unify_list_types tests @unify_list_types () -> void = run(
-    let xs = [1, 2, 3],
-    let first = xs[0],
+@test_unify_list_types tests @unify_list_types () -> void = {
+    let xs = [1, 2, 3];
+    let first = xs[0];
     assert_eq(
         actual: first,
         expected: 1,
-    ),
-)
+    )
+}
 
-@unify_list_types () -> int = run(
-    let xs = [1, 2, 3],
-    xs[0],
-)
+@unify_list_types () -> int = {
+    let xs = [1, 2, 3];
+    xs[0]
+}
 
-@test_unify_nested_list tests @unify_nested_list () -> void = run(
-    let nested = [[1, 2], [3, 4]],
-    let inner = nested[0],
-    let elem = inner[0],
+@test_unify_nested_list tests @unify_nested_list () -> void = {
+    let nested = [[1, 2], [3, 4]];
+    let inner = nested[0];
+    let elem = inner[0];
     assert_eq(
         actual: elem,
         expected: 1,
-    ),
-)
+    )
+}
 
-@unify_nested_list () -> int = run(
-    let nested = [[1, 2], [3, 4]],
-    nested[0][0],
-)
+@unify_nested_list () -> int = {
+    let nested = [[1, 2], [3, 4]];
+    nested[0][0]
+}
 
 // =============================================================================
 // Function Type Unification
 // =============================================================================
 
-@test_unify_function_types tests @unify_function_types () -> void = run(
-    let f = (x: int) -> x + 1,
-    let result = f(5),
+@test_unify_function_types tests @unify_function_types () -> void = {
+    let f = (x: int) -> x + 1;
+    let result = f(5);
     assert_eq(
         actual: result,
         expected: 6,
-    ),
-)
+    )
+}
 
-@unify_function_types () -> int = run(
-    let f = (x: int) -> x + 1,
-    f(5),
-)
+@unify_function_types () -> int = {
+    let f = (x: int) -> x + 1;
+    f(5)
+}
 
-@test_unify_higher_order tests @unify_higher_order () -> void = run(
-    let apply = (f: (int) -> int, x: int) -> f(x),
-    let inc = (n: int) -> n + 1,
+@test_unify_higher_order tests @unify_higher_order () -> void = {
+    let apply = (f: (int) -> int, x: int) -> f(x);
+    let inc = (n: int) -> n + 1;
     let result = apply(
         f: inc,
         x: 10,
-    ),
+    );
     assert_eq(
         actual: result,
         expected: 11,
-    ),
-)
+    )
+}
 
-@unify_higher_order () -> int = run(
-    let apply = (f: (int) -> int, x: int) -> f(x),
-    let inc = (n: int) -> n + 1,
+@unify_higher_order () -> int = {
+    let apply = (f: (int) -> int, x: int) -> f(x);
+    let inc = (n: int) -> n + 1;
     apply(
         f: inc,
         x: 10,
-    ),
-)
+    )
+}
 
 // =============================================================================
 // Tuple Type Unification
 // =============================================================================
 
-@test_unify_tuple_types tests @unify_tuple_types () -> void = run(
-    let pair = (1, "hello"),
-    let (a, b) = pair,
+@test_unify_tuple_types tests @unify_tuple_types () -> void = {
+    let pair = (1, "hello");
+    let (a, b) = pair;
     assert_eq(
         actual: a,
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: b,
         expected: "hello",
-    ),
-)
+    )
+}
 
-@unify_tuple_types () -> int = run(
-    let pair = (1, "hello"),
-    let (a, b) = pair,
-    a,
-)
+@unify_tuple_types () -> int = {
+    let pair = (1, "hello");
+    let (a, b) = pair;
+    a
+}
 
 // =============================================================================
 // Option Type Unification
 // =============================================================================
 
-@test_unify_option_some tests @unify_option_some () -> void = run(
-    let opt = Some(42),
-    assert(cond: is_some(opt: opt)),
-)
+@test_unify_option_some tests @unify_option_some () -> void = {
+    let opt = Some(42);
+    assert(cond: is_some(opt: opt))
+}
 
-@unify_option_some () -> bool = run(
-    let opt = Some(42),
-    is_some(opt: opt),
-)
+@unify_option_some () -> bool = {
+    let opt = Some(42);
+    is_some(opt: opt)
+}
 
-@test_unify_option_none tests @unify_option_none () -> void = run(
-    let opt = None,
-    assert(cond: is_none(opt: opt)),
-)
+@test_unify_option_none tests @unify_option_none () -> void = {
+    let opt = None;
+    assert(cond: is_none(opt: opt))
+}
 
-@unify_option_none () -> bool = run(
-    let opt = None,
-    is_none(opt: opt),
-)
+@unify_option_none () -> bool = {
+    let opt = None;
+    is_none(opt: opt)
+}
 
 // =============================================================================
 // Result Type Unification
 // =============================================================================
 
-@test_unify_result_ok tests @unify_result_ok () -> void = run(
-    let res = Ok(42),
-    assert(cond: is_ok(r: res)),
-)
+@test_unify_result_ok tests @unify_result_ok () -> void = {
+    let res = Ok(42);
+    assert(cond: is_ok(r: res))
+}
 
-@unify_result_ok () -> bool = run(
-    let res = Ok(42),
-    is_ok(r: res),
-)
+@unify_result_ok () -> bool = {
+    let res = Ok(42);
+    is_ok(r: res)
+}
 
-@test_unify_result_err tests @unify_result_err () -> void = run(
-    let res = Err("error"),
-    assert(cond: is_err(r: res)),
-)
+@test_unify_result_err tests @unify_result_err () -> void = {
+    let res = Err("error");
+    assert(cond: is_err(r: res))
+}
 
-@unify_result_err () -> bool = run(
-    let res = Err("error"),
-    is_err(r: res),
-)
+@unify_result_err () -> bool = {
+    let res = Err("error");
+    is_err(r: res)
+}
 
 // =============================================================================
 // Extended Unification Tests — Complex Scenarios
 // =============================================================================
 
-@test_unify_through_assignment tests @unify_through_assignment () -> void = run(
+@test_unify_through_assignment tests @unify_through_assignment () -> void = {
     // Types propagate through multiple assignments
-    let a = 42,
-    let b = a,
-    let c = b,
-    let d: int = c,
-    assert_eq(actual: d, expected: 42),
-)
+    let a = 42;
+    let b = a;
+    let c = b;
+    let d: int = c;
+    assert_eq(actual: d, expected: 42)
+}
 
-@unify_through_assignment () -> int = run(
-    let a = 42,
-    let b = a,
-    let c = b,
-    c,
-)
+@unify_through_assignment () -> int = {
+    let a = 42;
+    let b = a;
+    let c = b;
+    c
+}
 
-@test_unify_conditional_branches tests @unify_conditional_branches () -> void = run(
+@test_unify_conditional_branches tests @unify_conditional_branches () -> void = {
     // Both branches must unify to the same type
-    let x = if true then 1 else 2,
-    let y = if false then 10 else 20,
-    assert_eq(actual: x + y, expected: 21),
-)
+    let x = if true then 1 else 2;
+    let y = if false then 10 else 20;
+    assert_eq(actual: x + y, expected: 21)
+}
 
-@unify_conditional_branches () -> int = if true then 1 else 2
+@unify_conditional_branches () -> int = if true then 1 else 2;
 
-@test_unify_complex_conditional tests @unify_complex_conditional () -> void = run(
+@test_unify_complex_conditional tests @unify_complex_conditional () -> void = {
     // Nested conditionals require unification
-    let result = if true then (if false then 1 else 2) else 3,
-    assert_eq(actual: result, expected: 2),
-)
+    let result = if true then (if false then 1 else 2) else 3;
+    assert_eq(actual: result, expected: 2)
+}
 
-@unify_complex_conditional () -> int = if true then (if false then 1 else 2) else 3
+@unify_complex_conditional () -> int = if true then (if false then 1 else 2) else 3;
 
-@test_unify_option_branches tests @unify_option_branches () -> void = run(
+@test_unify_option_branches tests @unify_option_branches () -> void = {
     // Option in conditional branches
-    let opt = if true then Some(1) else None,
-    assert(cond: is_some(opt: opt)),
-)
+    let opt = if true then Some(1) else None;
+    assert(cond: is_some(opt: opt))
+}
 
-@unify_option_branches () -> bool = run(
-    let opt = if true then Some(1) else None,
-    is_some(opt: opt),
-)
+@unify_option_branches () -> bool = {
+    let opt = if true then Some(1) else None;
+    is_some(opt: opt)
+}
 
-@test_unify_result_branches tests @unify_result_branches () -> void = run(
+@test_unify_result_branches tests @unify_result_branches () -> void = {
     // Result in conditional branches
-    let res = if true then Ok(1) else Err("fail"),
-    assert(cond: is_ok(r: res)),
-)
+    let res = if true then Ok(1) else Err("fail");
+    assert(cond: is_ok(r: res))
+}
 
-@unify_result_branches () -> bool = run(
-    let res = if true then Ok(1) else Err("fail"),
-    is_ok(r: res),
-)
+@unify_result_branches () -> bool = {
+    let res = if true then Ok(1) else Err("fail");
+    is_ok(r: res)
+}
 
-@test_unify_list_element_assignment tests @unify_list_element_assignment () -> void = run(
+@test_unify_list_element_assignment tests @unify_list_element_assignment () -> void = {
     // List element type unified through assignment
-    let xs = [1, 2, 3],
-    let elem = xs[0],
-    let doubled: int = elem * 2,
-    assert_eq(actual: doubled, expected: 2),
-)
+    let xs = [1, 2, 3];
+    let elem = xs[0];
+    let doubled: int = elem * 2;
+    assert_eq(actual: doubled, expected: 2)
+}
 
-@unify_list_element_assignment () -> int = run(
-    let xs = [1, 2, 3],
-    xs[0] * 2,
-)
+@unify_list_element_assignment () -> int = {
+    let xs = [1, 2, 3];
+    xs[0] * 2
+}
 
-@test_unify_tuple_element_assignment tests @unify_tuple_element_assignment () -> void = run(
+@test_unify_tuple_element_assignment tests @unify_tuple_element_assignment () -> void = {
     // Tuple element types through destructuring
-    let pair = (42, "hello"),
-    let (num, text) = pair,
-    let result: int = num,
-    assert_eq(actual: result, expected: 42),
-)
+    let pair = (42, "hello");
+    let (num, text) = pair;
+    let result: int = num;
+    assert_eq(actual: result, expected: 42)
+}
 
-@unify_tuple_element_assignment () -> int = run(
-    let pair = (42, "hello"),
-    let (num, text) = pair,
-    num,
-)
+@unify_tuple_element_assignment () -> int = {
+    let pair = (42, "hello");
+    let (num, text) = pair;
+    num
+}
 
-@test_unify_function_call_chain tests @unify_function_call_chain () -> void = run(
+@test_unify_function_call_chain tests @unify_function_call_chain () -> void = {
     // Types unified through function call chain
-    let f = (x: int) -> x + 1,
-    let g = (x: int) -> x * 2,
-    let result = g(g(f(5))),
-    assert_eq(actual: result, expected: 24),
-)
+    let f = (x: int) -> x + 1;
+    let g = (x: int) -> x * 2;
+    let result = g(g(f(5)));
+    assert_eq(actual: result, expected: 24)
+}
 
-@unify_function_call_chain () -> int = run(
-    let f = (x: int) -> x + 1,
-    let g = (x: int) -> x * 2,
-    g(g(f(5))),
-)
+@unify_function_call_chain () -> int = {
+    let f = (x: int) -> x + 1;
+    let g = (x: int) -> x * 2;
+    g(g(f(5)))
+}
 
-@test_unify_closure_capture tests @unify_closure_capture () -> void = run(
+@test_unify_closure_capture tests @unify_closure_capture () -> void = {
     // Captured variable type unified with closure body
-    let x = 10,
-    let f = () -> x + 5,
-    let result = f(),
-    assert_eq(actual: result, expected: 15),
-)
+    let x = 10;
+    let f = () -> x + 5;
+    let result = f();
+    assert_eq(actual: result, expected: 15)
+}
 
-@unify_closure_capture () -> int = run(
-    let x = 10,
-    let f = () -> x + 5,
-    f(),
-)
+@unify_closure_capture () -> int = {
+    let x = 10;
+    let f = () -> x + 5;
+    f()
+}
 
-@test_unify_arithmetic_result tests @unify_arithmetic_result () -> void = run(
+@test_unify_arithmetic_result tests @unify_arithmetic_result () -> void = {
     // Arithmetic operations unify operands and result
-    let a = 10,
-    let b = 20,
-    let sum = a + b,
-    let product = a * b,
-    let diff = b - a,
-    assert_eq(actual: sum, expected: 30),
-    assert_eq(actual: product, expected: 200),
-    assert_eq(actual: diff, expected: 10),
-)
+    let a = 10;
+    let b = 20;
+    let sum = a + b;
+    let product = a * b;
+    let diff = b - a;
+    assert_eq(actual: sum, expected: 30);
+    assert_eq(actual: product, expected: 200);
+    assert_eq(actual: diff, expected: 10)
+}
 
-@unify_arithmetic_result () -> int = 10 + 20
+@unify_arithmetic_result () -> int = 10 + 20;
 
-@test_unify_comparison_result tests @unify_comparison_result () -> void = run(
+@test_unify_comparison_result tests @unify_comparison_result () -> void = {
     // Comparison operations produce bool
-    let a = 10,
-    let b = 20,
-    let less = a < b,
-    let equal = a == a,
-    assert(cond: less),
-    assert(cond: equal),
-)
+    let a = 10;
+    let b = 20;
+    let less = a < b;
+    let equal = a == a;
+    assert(cond: less);
+    assert(cond: equal)
+}
 
-@unify_comparison_result () -> bool = 10 < 20
+@unify_comparison_result () -> bool = 10 < 20;
 
-@test_unify_logical_result tests @unify_logical_result () -> void = run(
+@test_unify_logical_result tests @unify_logical_result () -> void = {
     // Logical operations on bools
-    let a = true,
-    let b = false,
-    let and_result = a && b,
-    let or_result = a || b,
-    assert(cond: !and_result),
-    assert(cond: or_result),
-)
+    let a = true;
+    let b = false;
+    let and_result = a && b;
+    let or_result = a || b;
+    assert(cond: !and_result);
+    assert(cond: or_result)
+}
 
-@unify_logical_result () -> bool = true && false
+@unify_logical_result () -> bool = true && false;
 
-@test_unify_string_concat tests @unify_string_concat () -> void = run(
+@test_unify_string_concat tests @unify_string_concat () -> void = {
     // String concatenation unifies to str
-    let a = "hello",
-    let b = " world",
-    let combined = a + b,
-    assert_eq(actual: combined, expected: "hello world"),
-)
+    let a = "hello";
+    let b = " world";
+    let combined = a + b;
+    assert_eq(actual: combined, expected: "hello world")
+}
 
-@unify_string_concat () -> str = "hello" + " world"
+@unify_string_concat () -> str = "hello" + " world";
 
-@test_unify_map_lookup tests @unify_map_lookup () -> void = run(
+@test_unify_map_lookup tests @unify_map_lookup () -> void = {
     // Map lookup type inference - returns Option<V>
-    let m = {"key": 42},
-    let value = m["key"],
-    let result: Option<int> = value,
-    assert_eq(actual: result, expected: Some(42)),
-)
+    let m = {"key": 42};
+    let value = m["key"];
+    let result: Option<int> = value;
+    assert_eq(actual: result, expected: Some(42))
+}
 
-@unify_map_lookup () -> Option<int> = run(
-    let m = {"key": 42},
-    m["key"],
-)
+@unify_map_lookup () -> Option<int> = {
+    let m = {"key": 42};
+    m["key"]
+}

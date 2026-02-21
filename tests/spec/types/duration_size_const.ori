@@ -7,155 +7,155 @@ use std.testing { assert, assert_eq }
 // Duration — Constant Folding
 // =============================================================================
 
-@test_duration_const_add tests @duration_const_add () -> void = run(
+@test_duration_const_add tests @duration_const_add () -> void = {
     // 1s + 500ms should be folded at compile time
-    let d = 1s + 500ms,
-    assert_eq(actual: d, expected: 1500ms),
-)
+    let d = 1s + 500ms;
+    assert_eq(actual: d, expected: 1500ms)
+}
 
-@duration_const_add () -> Duration = 1s + 500ms
+@duration_const_add () -> Duration = 1s + 500ms;
 
-@test_duration_const_sub tests @duration_const_sub () -> void = run(
+@test_duration_const_sub tests @duration_const_sub () -> void = {
     // 2s - 500ms should be folded at compile time
-    let d = 2s - 500ms,
-    assert_eq(actual: d, expected: 1500ms),
-)
+    let d = 2s - 500ms;
+    assert_eq(actual: d, expected: 1500ms)
+}
 
-@duration_const_sub () -> Duration = 2s - 500ms
+@duration_const_sub () -> Duration = 2s - 500ms;
 
-@test_duration_const_mul tests @duration_const_mul () -> void = run(
+@test_duration_const_mul tests @duration_const_mul () -> void = {
     // 500ms * 3 should be folded at compile time
-    let d = 500ms * 3,
-    assert_eq(actual: d, expected: 1500ms),
-)
+    let d = 500ms * 3;
+    assert_eq(actual: d, expected: 1500ms)
+}
 
-@duration_const_mul () -> Duration = 500ms * 3
+@duration_const_mul () -> Duration = 500ms * 3;
 
-@test_duration_const_neg tests @duration_const_neg () -> void = run(
+@test_duration_const_neg tests @duration_const_neg () -> void = {
     // -(1s) should be folded at compile time
-    let d = -(1s),
-    assert_eq(actual: d, expected: -(1000ms)),
-)
+    let d = -(1s);
+    assert_eq(actual: d, expected: -(1000ms))
+}
 
-@duration_const_neg () -> Duration = -(1s)
+@duration_const_neg () -> Duration = -(1s);
 
-@test_duration_const_cross_unit tests @duration_const_cross_unit () -> void = run(
+@test_duration_const_cross_unit tests @duration_const_cross_unit () -> void = {
     // Cross-unit addition normalizes to nanoseconds
-    assert_eq(actual: 1s + 1000ms, expected: 2s),
-    assert_eq(actual: 1m + 30s, expected: 90s),
-    assert_eq(actual: 1h + 30m, expected: 90m),
-)
+    assert_eq(actual: 1s + 1000ms, expected: 2s);
+    assert_eq(actual: 1m + 30s, expected: 90s);
+    assert_eq(actual: 1h + 30m, expected: 90m)
+}
 
-@duration_const_cross_unit () -> Duration = 1s + 1000ms
+@duration_const_cross_unit () -> Duration = 1s + 1000ms;
 
-@test_duration_const_comparison tests @duration_const_comparison () -> void = run(
+@test_duration_const_comparison tests @duration_const_comparison () -> void = {
     // Duration comparisons should be folded
-    assert(1s > 500ms),
-    assert(500ms < 1s),
-    assert(1000ms == 1s),
-    assert(1s != 2s),
-    assert(1s >= 1000ms),
-    assert(1s <= 1000ms),
-)
+    assert(1s > 500ms);
+    assert(500ms < 1s);
+    assert(1000ms == 1s);
+    assert(1s != 2s);
+    assert(1s >= 1000ms);
+    assert(1s <= 1000ms)
+}
 
-@duration_const_comparison () -> bool = 1s > 500ms
+@duration_const_comparison () -> bool = 1s > 500ms;
 
-@test_duration_const_div tests @duration_const_div () -> void = run(
+@test_duration_const_div tests @duration_const_div () -> void = {
     // Duration / int should be folded
-    let d = 1s / 4,
-    assert_eq(actual: d, expected: 250ms),
-)
+    let d = 1s / 4;
+    assert_eq(actual: d, expected: 250ms)
+}
 
-@duration_const_div () -> Duration = 1s / 4
+@duration_const_div () -> Duration = 1s / 4;
 
-@test_duration_const_mod tests @duration_const_mod () -> void = run(
+@test_duration_const_mod tests @duration_const_mod () -> void = {
     // Duration % Duration should be folded
-    let d = 7s % 3s,
-    assert_eq(actual: d, expected: 1s),
-)
+    let d = 7s % 3s;
+    assert_eq(actual: d, expected: 1s)
+}
 
-@duration_const_mod () -> Duration = 7s % 3s
+@duration_const_mod () -> Duration = 7s % 3s;
 
 // =============================================================================
 // Size — Constant Folding
 // =============================================================================
 
-@test_size_const_add tests @size_const_add () -> void = run(
+@test_size_const_add tests @size_const_add () -> void = {
     // 1kb + 500b should be folded at compile time
-    let s = 1kb + 500b,
-    assert_eq(actual: s, expected: 1500b),
-)
+    let s = 1kb + 500b;
+    assert_eq(actual: s, expected: 1500b)
+}
 
-@size_const_add () -> Size = 1kb + 500b
+@size_const_add () -> Size = 1kb + 500b;
 
-@test_size_const_sub tests @size_const_sub () -> void = run(
+@test_size_const_sub tests @size_const_sub () -> void = {
     // 1kb - 500b should be folded at compile time
-    let s = 1kb - 500b,
-    assert_eq(actual: s, expected: 500b),
-)
+    let s = 1kb - 500b;
+    assert_eq(actual: s, expected: 500b)
+}
 
-@size_const_sub () -> Size = 1kb - 500b
+@size_const_sub () -> Size = 1kb - 500b;
 
-@test_size_const_mul tests @size_const_mul () -> void = run(
+@test_size_const_mul tests @size_const_mul () -> void = {
     // 500b * 3 should be folded at compile time
-    let s = 500b * 3,
-    assert_eq(actual: s, expected: 1500b),
-)
+    let s = 500b * 3;
+    assert_eq(actual: s, expected: 1500b)
+}
 
-@size_const_mul () -> Size = 500b * 3
+@size_const_mul () -> Size = 500b * 3;
 
-@test_size_const_cross_unit tests @size_const_cross_unit () -> void = run(
+@test_size_const_cross_unit tests @size_const_cross_unit () -> void = {
     // Cross-unit addition normalizes to bytes
-    assert_eq(actual: 1kb + 500b, expected: 1500b),
-    assert_eq(actual: 1mb + 1kb, expected: 1001000b),
-)
+    assert_eq(actual: 1kb + 500b, expected: 1500b);
+    assert_eq(actual: 1mb + 1kb, expected: 1001000b)
+}
 
-@size_const_cross_unit () -> Size = 1kb + 500b
+@size_const_cross_unit () -> Size = 1kb + 500b;
 
-@test_size_const_comparison tests @size_const_comparison () -> void = run(
+@test_size_const_comparison tests @size_const_comparison () -> void = {
     // Size comparisons should be folded
-    assert(1mb > 1kb),
-    assert(1kb < 1mb),
-    assert(1000b == 1kb),
-    assert(1kb != 1mb),
-    assert(1kb >= 1000b),
-    assert(1kb <= 1000b),
-)
+    assert(1mb > 1kb);
+    assert(1kb < 1mb);
+    assert(1000b == 1kb);
+    assert(1kb != 1mb);
+    assert(1kb >= 1000b);
+    assert(1kb <= 1000b)
+}
 
-@size_const_comparison () -> bool = 1mb > 1kb
+@size_const_comparison () -> bool = 1mb > 1kb;
 
-@test_size_const_div tests @size_const_div () -> void = run(
+@test_size_const_div tests @size_const_div () -> void = {
     // Size / int should be folded
-    let s = 1kb / 4,
-    assert_eq(actual: s, expected: 250b),
-)
+    let s = 1kb / 4;
+    assert_eq(actual: s, expected: 250b)
+}
 
-@size_const_div () -> Size = 1kb / 4
+@size_const_div () -> Size = 1kb / 4;
 
-@test_size_const_mod tests @size_const_mod () -> void = run(
+@test_size_const_mod tests @size_const_mod () -> void = {
     // Size % Size should be folded
-    let s = 7kb % 3kb,
-    assert_eq(actual: s, expected: 1kb),
-)
+    let s = 7kb % 3kb;
+    assert_eq(actual: s, expected: 1kb)
+}
 
-@size_const_mod () -> Size = 7kb % 3kb
+@size_const_mod () -> Size = 7kb % 3kb;
 
 // =============================================================================
 // Mixed — Int * Duration, Int * Size
 // =============================================================================
 
-@test_int_mul_duration tests @int_mul_duration () -> void = run(
+@test_int_mul_duration tests @int_mul_duration () -> void = {
     // int * Duration should be folded
-    let d = 2 * 1s,
-    assert_eq(actual: d, expected: 2s),
-)
+    let d = 2 * 1s;
+    assert_eq(actual: d, expected: 2s)
+}
 
-@int_mul_duration () -> Duration = 2 * 1s
+@int_mul_duration () -> Duration = 2 * 1s;
 
-@test_int_mul_size tests @int_mul_size () -> void = run(
+@test_int_mul_size tests @int_mul_size () -> void = {
     // int * Size should be folded
-    let s = 3 * 500b,
-    assert_eq(actual: s, expected: 1500b),
-)
+    let s = 3 * 500b;
+    assert_eq(actual: s, expected: 1500b)
+}
 
-@int_mul_size () -> Size = 3 * 500b
+@int_mul_size () -> Size = 3 * 500b;

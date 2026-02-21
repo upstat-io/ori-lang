@@ -406,7 +406,7 @@ impl ParseErrorKind {
             Self::UnexpectedToken {
                 found: TokenKind::Semicolon,
                 ..
-            } => Some("Ori doesn't use semicolons. Remove the `;` \u{2014} expressions flow naturally to the next line."),
+            } => Some("Semicolons separate statements inside block expressions `{ ... }` and terminate top-level items."),
 
             // === Return keyword ===
             Self::UnexpectedToken {

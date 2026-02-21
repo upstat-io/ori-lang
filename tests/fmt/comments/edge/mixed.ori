@@ -3,4 +3,4 @@
 // Another regular comment
 // * x: The input value.
 // Yet another regular comment
-@identity (x: int) -> int = x
+@identity (x: int) -> int = x;

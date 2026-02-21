@@ -149,14 +149,14 @@ let addrs = resolve("example.com")?
 use std.net { TcpListener }
 use std.io { copy }
 
-@echo_server (addr: str) uses Network -> Result<Never, NetError> = run(
-    let listener = TcpListener.bind(addr)?,
-    print("Listening on " + addr),
-    for conn in listener.incoming() do run(
-        let stream = conn?,
-        copy(stream, stream)?,  // echo back
-    ),
-)
+@echo_server (addr: str) uses Network -> Result<Never, NetError> = {
+    let listener = TcpListener.bind(addr)?
+    print("Listening on " + addr)
+    for conn in listener.incoming() do {
+        let stream = conn?
+        copy(stream, stream)?  // echo back
+    }
+}
 ```
 
 ### TCP client
@@ -164,11 +164,12 @@ use std.io { copy }
 ```ori
 use std.net { TcpStream }
 
-@fetch (host: str, port: int) uses Network -> Result<str, NetError> = run(
-    let conn = TcpStream.connect(host + ":" + str(port))?,
-    conn.write_str("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n")?,
-    conn.read_to_string(),
-)
+@fetch (host: str, port: int) uses Network -> Result<str, NetError> = {
+    let conn = TcpStream.connect(host + ":" + str(port))?
+    conn.write_str("GET / HTTP/1.0\r\nHost: " + host + "\r\n\r\n")?
+
+    conn.read_to_string()
+}
 ```
 
 ---

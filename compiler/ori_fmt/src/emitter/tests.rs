@@ -23,10 +23,10 @@ fn string_emitter_indentation() {
     let mut emitter = StringEmitter::new();
     emitter.emit("fn main");
     emitter.emit_newline();
-    emitter.emit_indent(1);
+    emitter.emit_indent(4);
     emitter.emit("body");
     emitter.emit_newline();
-    emitter.emit_indent(2);
+    emitter.emit_indent(8);
     emitter.emit("nested");
     assert_eq!(emitter.output(), "fn main\n    body\n        nested");
 }

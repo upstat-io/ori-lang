@@ -7,10 +7,21 @@ use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
 use crate::width::ALWAYS_STACKED;
 
-use super::{binary_op_str, Formatter};
+use super::{binary_op_str, needs_binary_parens, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an expression in broken (multi-line) format.
+    ///
+    /// **Invariant:** This match is exhaustive with no wildcard `_ =>` arm.
+    /// Every `ExprKind` variant is listed explicitly so that adding a new variant
+    /// causes a compile error here, in `emit_inline()`, and in `calculate_width()`.
+    /// The `broken_dispatch_has_no_wildcard` test enforces this at the source level.
+    ///
+    /// Variant groups:
+    /// - **Custom broken**: Compound expressions with multi-line rendering logic
+    /// - **Always-stacked**: Block, Match, `FunctionSeq`, `FunctionExp` → `emit_stacked()`
+    /// - **Leaf/atom**: Irreducible expressions → `emit_inline()` (parent breaks around them)
+    /// - **Simple compound**: Subexpressions that don't benefit from breaking → `emit_inline()`
     #[expect(
         clippy::too_many_lines,
         clippy::cognitive_complexity,
@@ -132,6 +143,35 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit("}");
                 }
             }
+            ExprKind::ListWithSpread(elements) => {
+                let elements_list = self.arena.get_list_elements(*elements);
+                if elements_list.is_empty() {
+                    self.ctx.emit("[]");
+                } else {
+                    self.ctx.emit("[");
+                    self.ctx.emit_newline();
+                    self.ctx.indent();
+                    for (i, element) in elements_list.iter().enumerate() {
+                        self.ctx.emit_indent();
+                        match element {
+                            ori_ir::ListElement::Expr { expr, .. } => {
+                                self.format(*expr);
+                            }
+                            ori_ir::ListElement::Spread { expr, .. } => {
+                                self.ctx.emit("...");
+                                self.format(*expr);
+                            }
+                        }
+                        self.ctx.emit(",");
+                        if i < elements_list.len() - 1 {
+                            self.ctx.emit_newline();
+                        }
+                    }
+                    self.ctx.dedent();
+                    self.ctx.emit_newline_indent();
+                    self.ctx.emit("]");
+                }
+            }
             ExprKind::Struct { name, fields } => {
                 self.ctx.emit(self.interner.lookup(*name));
                 self.ctx.emit(" {");
@@ -147,6 +187,40 @@ impl<I: StringLookup> Formatter<'_, I> {
                         if let Some(value) = field.value {
                             self.ctx.emit(": ");
                             self.format(value);
+                        }
+                        self.ctx.emit(",");
+                        if i < fields_list.len() - 1 {
+                            self.ctx.emit_newline();
+                        }
+                    }
+                    self.ctx.dedent();
+                    self.ctx.emit_newline_indent();
+                    self.ctx.emit("}");
+                }
+            }
+            ExprKind::StructWithSpread { name, fields } => {
+                self.ctx.emit(self.interner.lookup(*name));
+                self.ctx.emit(" {");
+                let fields_list = self.arena.get_struct_lit_fields(*fields);
+                if fields_list.is_empty() {
+                    self.ctx.emit("}");
+                } else {
+                    self.ctx.emit_newline();
+                    self.ctx.indent();
+                    for (i, field) in fields_list.iter().enumerate() {
+                        self.ctx.emit_indent();
+                        match field {
+                            ori_ir::StructLitField::Field(init) => {
+                                self.ctx.emit(self.interner.lookup(init.name));
+                                if let Some(value) = init.value {
+                                    self.ctx.emit(": ");
+                                    self.format(value);
+                                }
+                            }
+                            ori_ir::StructLitField::Spread { expr, .. } => {
+                                self.ctx.emit("...");
+                                self.format(*expr);
+                            }
                         }
                         self.ctx.emit(",");
                         if i < fields_list.len() - 1 {
@@ -223,17 +297,14 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Let binding
             // Per spec: mutable is default, $ prefix for immutable
+            // The $ prefix is emitted by emit_binding_pattern(), not here
             ExprKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable,
+                mutable: _,
             } => {
-                if *mutable {
-                    self.ctx.emit("let ");
-                } else {
-                    self.ctx.emit("let $");
-                }
+                self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
                 self.ctx.emit(" =");
@@ -323,8 +394,50 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.dedent();
             }
 
-            // Fallback to inline for things that don't have special broken format
-            _ => self.emit_inline(expr_id),
+            // Always-stacked constructs: delegate to stacked rendering
+            ExprKind::Block { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::FunctionSeq(..)
+            | ExprKind::FunctionExp(..) => self.emit_stacked(expr_id),
+
+            // Inline-adequate expressions: either leaf/atoms with no substructure
+            // to break, or simple compounds where breaking wouldn't help readability.
+            // When these exceed the line width, the *parent* expression breaks.
+            //
+            // Leaf/atoms
+            ExprKind::Int(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::String(_)
+            | ExprKind::Char(_)
+            | ExprKind::Duration { .. }
+            | ExprKind::Size { .. }
+            | ExprKind::Unit
+            | ExprKind::Ident(_)
+            | ExprKind::Const(_)
+            | ExprKind::SelfRef
+            | ExprKind::FunctionRef(_)
+            | ExprKind::HashLength
+            | ExprKind::None
+            | ExprKind::TemplateFull(_)
+            | ExprKind::Error
+            // Simple compounds
+            | ExprKind::Unary { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Ok(_)
+            | ExprKind::Err(_)
+            | ExprKind::Some(_)
+            | ExprKind::Break { .. }
+            | ExprKind::Continue { .. }
+            | ExprKind::Unsafe(_)
+            | ExprKind::Await(_)
+            | ExprKind::Try(_)
+            | ExprKind::Cast { .. }
+            | ExprKind::Assign { .. }
+            | ExprKind::Loop { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::TemplateLiteral { .. } => self.emit_inline(expr_id),
         }
     }
 
@@ -386,40 +499,8 @@ impl<I: StringLookup> Formatter<'_, I> {
     }
 
     /// Emit a binary operand in broken format, wrapping in parentheses if needed.
-    ///
-    /// Parentheses are needed when the operand is a binary expression with lower
-    /// precedence than the parent operator, or when associativity requires it.
     fn emit_binary_operand_broken(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
-        let expr = self.arena.get_expr(operand);
-
-        let needs_parens = match &expr.kind {
-            ExprKind::Binary { op: child_op, .. } => {
-                let parent_prec = parent_op.precedence();
-                let child_prec = child_op.precedence();
-
-                match child_prec.cmp(&parent_prec) {
-                    std::cmp::Ordering::Greater => {
-                        // Child has lower precedence (higher number) - needs parens
-                        true
-                    }
-                    std::cmp::Ordering::Equal => {
-                        // Same precedence - check associativity
-                        // All ops are left-associative except ??
-                        let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
-                        if is_right_assoc {
-                            is_left
-                        } else {
-                            !is_left
-                        }
-                    }
-                    std::cmp::Ordering::Less => false,
-                }
-            }
-            ExprKind::Lambda { .. } | ExprKind::Let { .. } | ExprKind::If { .. } => true,
-            _ => false,
-        };
-
-        if needs_parens {
+        if needs_binary_parens(self.arena, operand, parent_op, is_left) {
             self.ctx.emit("(");
             self.format(operand);
             self.ctx.emit(")");

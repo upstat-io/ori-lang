@@ -10,7 +10,7 @@ use std::mem;
 use ori_ir::canon::{
     CanBindingPattern, CanBindingPatternId, CanExpr, CanId, CanRange, DecisionTreeId,
 };
-use ori_ir::{Name, Span};
+use ori_ir::{Mutability, Name, Span};
 use ori_types::Idx;
 
 use crate::aot::debug::DebugLevel;
@@ -120,7 +120,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         pattern: CanBindingPatternId,
         init: CanId,
-        mutable: bool,
+        mutable: Mutability,
     ) -> Option<ValueId> {
         let init_val = self.lower(init)?;
         let binding_pattern = self.canon.arena.get_binding_pattern(pattern);
@@ -190,7 +190,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         pattern: &CanBindingPattern,
         val: ValueId,
-        mutable: bool,
+        mutable: Mutability,
         init_id: CanId,
     ) {
         match pattern {
@@ -200,7 +200,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             } => {
                 // Per-binding mutability: use the flag from the pattern itself
                 // to support `let ($x, y) = ...` with mixed mutability.
-                if *pat_mutable {
+                if pat_mutable.is_mutable() {
                     let init_type = self.expr_type(init_id);
                     let llvm_ty = self.resolve_type(init_type);
                     let name_str = self.resolve_name(*name).to_owned();
@@ -262,7 +262,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                         self.bind_pattern(sub_pattern, elem_val, mutable, init_id);
                     }
                 }
-                if let Some(_rest_name) = rest {
+                if let Some((_rest_name, _rest_mutable)) = rest {
                     tracing::warn!(
                         "list rest pattern (`...name`) not yet implemented in V2 codegen"
                     );

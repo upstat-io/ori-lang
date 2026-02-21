@@ -3,68 +3,68 @@
 // Ori uses lambda expressions: x -> expr
 
 // Create an adder function that captures a value
-@make_adder (n: int) -> (int) -> int = x -> x + n
+@make_adder (n: int) -> (int) -> int = x -> x + n;
 
 // Create a multiplier that captures a value
-@make_multiplier (n: int) -> (int) -> int = x -> x * n
+@make_multiplier (n: int) -> (int) -> int = x -> x * n;
 
 // Demonstrate closure capturing - scale list by factor
 // Uses recurse pattern for self-contained recursion
 @scale_list (arr: [int], factor: int) -> [int] =
-    scale_at(arr: arr, factor: factor, idx: 0)
+    scale_at(arr: arr, factor: factor, idx: 0);
 
 @scale_at (arr: [int], factor: int, idx: int) -> [int] = recurse(
     condition: idx >= len(collection: arr),
     base: [],
     step: [arr[idx] * factor] + self(arr: arr, factor: factor, idx: idx + 1)
-)
+);
 
 // Create a list where each element is i squared
 @create_square_closures (n: int) -> [int] =
-    squares_at(n: n, idx: 0)
+    squares_at(n: n, idx: 0);
 
 @squares_at (n: int, idx: int) -> [int] = recurse(
     condition: idx >= n,
     base: [],
     step: [idx * idx] + self(n: n, idx: idx + 1)
-)
+);
 
 // Closure capturing multiple values
-@make_linear (m: int, b: int) -> (int) -> int = x -> m * x + b
+@make_linear (m: int, b: int) -> (int) -> int = x -> m * x + b;
 
 // Filter elements above threshold
 @filter_above (arr: [int], threshold: int) -> [int] =
-    filter_at(arr: arr, threshold: threshold, idx: 0)
+    filter_at(arr: arr, threshold: threshold, idx: 0);
 
 @filter_at (arr: [int], threshold: int, idx: int) -> [int] = recurse(
     condition: idx >= len(collection: arr),
     base: [],
     step: if arr[idx] > threshold then [arr[idx]] + self(arr: arr, threshold: threshold, idx: idx + 1) else self(arr: arr, threshold: threshold, idx: idx + 1)
-)
+);
 
 // Sum with offset
 @sum_with_offset (arr: [int], offset: int) -> int =
-    sum_at(arr: arr, acc: offset, idx: 0)
+    sum_at(arr: arr, acc: offset, idx: 0);
 
 @sum_at (arr: [int], acc: int, idx: int) -> int = recurse(
     condition: idx >= len(collection: arr),
     base: acc,
     step: self(arr: arr, acc: acc + arr[idx], idx: idx + 1)
-)
+);
 
-@main () -> void = run(
-    let add5 = make_adder(5),
-    print(msg: "add5(10) = " + str(add5(10))),
+@main () -> void = {
+    let add5 = make_adder(5);
+    print(msg: "add5(10) = " + str(add5(10)));
 
-    let times3 = make_multiplier(3),
-    print(msg: "times3(7) = " + str(times3(7))),
+    let times3 = make_multiplier(3);
+    print(msg: "times3(7) = " + str(times3(7)));
 
-    print(msg: "scale_list([1,2,3], 10) = " + str(scale_list(arr: [1, 2, 3], factor: 10))),
-    print(msg: "create_square_closures(5) = " + str(create_square_closures(5))),
+    print(msg: "scale_list([1,2,3], 10) = " + str(scale_list(arr: [1, 2, 3], factor: 10)));
+    print(msg: "create_square_closures(5) = " + str(create_square_closures(5)));
 
-    let line = make_linear(m: 2, b: 3),
-    print(msg: "line(5) = 2*5+3 = " + str(line(5))),
+    let line = make_linear(m: 2, b: 3);
+    print(msg: "line(5) = 2*5+3 = " + str(line(5)));
 
-    print(msg: "filter_above([1,5,3,8,2], 3) = " + str(filter_above(arr: [1, 5, 3, 8, 2], threshold: 3))),
-    print(msg: "sum_with_offset([1,2,3], 100) = " + str(sum_with_offset(arr: [1, 2, 3], offset: 100))),
-)
+    print(msg: "filter_above([1,5,3,8,2], 3) = " + str(filter_above(arr: [1, 5, 3, 8, 2], threshold: 3)));
+    print(msg: "sum_with_offset([1,2,3], 100) = " + str(sum_with_offset(arr: [1, 2, 3], offset: 100)))
+}

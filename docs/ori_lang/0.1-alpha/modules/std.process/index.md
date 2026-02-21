@@ -177,14 +177,15 @@ Returns current process ID.
 ```ori
 use std.process { Command }
 
-@shell (cmd: str) uses Process -> Result<str, ProcessError> = run(
+@shell (cmd: str) uses Process -> Result<str, ProcessError> = {
     let output = Command.new("sh")
         .arg("-c")
         .arg(cmd)
-        .output()?,
+        .output()?
+
     if output.status == 0 then Ok(output.stdout)
-    else Err(ProcessError.IoError("Command failed: " + output.stderr)),
-)
+    else Err(ProcessError.IoError("Command failed: " + output.stderr))
+}
 ```
 
 ### Pipeline
@@ -192,13 +193,14 @@ use std.process { Command }
 ```ori
 use std.process { Command, Stdio }
 
-@git_log_oneline () uses Process -> Result<str, ProcessError> = run(
+@git_log_oneline () uses Process -> Result<str, ProcessError> = {
     let git = Command.new("git")
         .args(["log", "--oneline", "-10"])
         .stdout(Stdio.Piped)
-        .output()?,
-    Ok(git.stdout),
-)
+        .output()?
+
+    Ok(git.stdout)
+}
 ```
 
 ### Background process
@@ -212,13 +214,14 @@ use std.process { Command }
         .arg("8080")
         .spawn()
 
-@main () uses Process -> Result<void, Error> = run(
-    let server = start_server()?,
-    print("Server started with PID: " + str(server.id())),
+@main () uses Process -> Result<void, Error> = {
+    let server = start_server()?
+    print("Server started with PID: " + str(server.id()))
     // ... do work ...
-    server.kill()?,
-    Ok(()),
-)
+    server.kill()?
+
+    Ok(())
+}
 ```
 
 ---

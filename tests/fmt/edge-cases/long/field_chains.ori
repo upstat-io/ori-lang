@@ -9,6 +9,6 @@ type Outer = { middle: Middle }
 
 type Container = { outer: Outer }
 
-@extract_value (container: Container) -> int = container.outer.middle.inner.value
+@extract_value (container: Container) -> int = container.outer.middle.inner.value;
 
-@add_values (a: Container, b: Container) -> int = a.outer.value + b.outer.value
+@add_values (a: Container, b: Container) -> int = a.outer.value + b.outer.value;

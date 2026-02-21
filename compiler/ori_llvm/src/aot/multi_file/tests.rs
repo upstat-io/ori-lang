@@ -96,7 +96,7 @@ fn test_extract_imports_basic() {
 use "./helper" { add }
 use "./utils" as util
 
-@main () -> void = print(msg: "hello")
+@main () -> void = print(msg: "hello");
 "#;
 
     // Mock resolver that just appends .ori

@@ -8,50 +8,50 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // Function with single capability
-@fetch_data (url: str) -> str uses Http = url
+@fetch_data (url: str) -> str uses Http = url;
 
 // Function with multiple capabilities
-@save_and_log (data: str) -> void uses FileSystem, Logger = ()
+@save_and_log (data: str) -> void uses FileSystem, Logger = ();
 
 // Function with capability and return type
-@read_file (path: str) -> Result<str, Error> uses FileSystem = Ok(path)
+@read_file (path: str) -> Result<str, Error> uses FileSystem = Ok(path);
 
 // Pure function - no uses clause
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 // =============================================================================
 // Capability with Generics
 // =============================================================================
 
-@process<T> (data: T) -> T uses Logger where T: Clone = data
+@process<T> (data: T) -> T uses Logger where T: Clone = data;
 
 // =============================================================================
 // Tests
 // =============================================================================
 
 // Test pure function works
-@test_pure_function tests @add () -> void = run(
+@test_pure_function tests @add () -> void = {
     assert_eq(
         actual: add(a: 1, b: 2),
         expected: 3,
-    ),
-)
+    )
+}
 
 // Test function with capability can be called (when capability is provided)
-@test_with_capability tests @fetch_data () -> void = run(
+@test_with_capability tests @fetch_data () -> void = {
     // Provide a mock capability
-    let result = with Http = "mock" in fetch_data(url: "test"),
+    let result = with Http = "mock" in fetch_data(url: "test");
     assert_eq(
         actual: result,
         expected: "test",
-    ),
-)
+    )
+}
 
 // Test generic function with capability
-@test_generic_with_capability tests @process () -> void = run(
-    let result = with Logger = "mock" in process(data: 42),
+@test_generic_with_capability tests @process () -> void = {
+    let result = with Logger = "mock" in process(data: 42);
     assert_eq(
         actual: result,
         expected: 42,
-    ),
-)
+    )
+}

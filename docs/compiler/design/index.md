@@ -14,7 +14,7 @@ The compiler implements only constructs that require **special syntax** or **sta
 
 | Location | What | Why |
 |----------|------|-----|
-| **Compiler** | `run`, `try`, `match`, `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with` | Require special syntax, bindings, `self()`, concurrency primitives, or capability checking |
+| **Compiler** | blocks (`{ }`), `try`, `match`, `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with` | Require special syntax, bindings, `self()`, concurrency primitives, or capability checking |
 | **Stdlib** | `map`, `filter`, `fold`, `find`, `retry`, `validate` | Standard method calls on collections; no special compiler support needed |
 
 This keeps the compiler small (~30K lines), focused, and maintainable. The stdlib can evolve without compiler changes. When considering new features, ask: *"Does this need special syntax or static analysis?"* If no, it's a library function.
@@ -28,7 +28,7 @@ Ori is an **expression-based language**. Every construct produces a value, and t
 | Function body | Last expression is the return value |
 | `if...then...else` | Each branch is an expression |
 | `match` arms | Each arm is an expression |
-| `run(...)` block | Last statement's value |
+| `{ ... }` block | Last expression (without `;`) is the value |
 | `for...yield` | Collected values form a list |
 
 **Early exit mechanisms:**

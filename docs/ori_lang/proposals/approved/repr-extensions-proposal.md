@@ -234,8 +234,9 @@ type BmpHeader = {
     data_offset: c_int         // 32-bit
 }
 
-@read_bmp_header (data: [byte]) -> Result<BmpHeader, Error> = {
-    pre_check: len(collection: data) >= 14
+@read_bmp_header (data: [byte]) -> Result<BmpHeader, Error>
+    pre(len(collection: data) >= 14)
+= {
     // ... parse bytes into header
 }
 ```

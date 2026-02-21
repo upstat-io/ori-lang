@@ -49,6 +49,8 @@ Cache, Catch, Parallel, Spawn, Recurse, Timeout
 
 **Note:** `Fn` and `While` are NOT keywords in Ori. Functions use `@name` syntax, and there is no while loop (use `loop` with `break`).
 
+**Note:** `Return` exists in `TokenKind` as a reserved keyword despite Ori having no `return` statement. It is recognized during lexing so the parser can produce a targeted error message when users coming from other languages type `return` — rather than a confusing generic parse error.
+
 ### Operators
 
 Binary and unary operators:
@@ -64,11 +66,14 @@ Percent, // %
 // Comparison
 Eq,      // =
 EqEq,    // ==
-BangEq,  // !=
+NotEq,   // != (RawTag: BangEqual, TokenKind: NotEq)
 Lt,      // <
 Gt,      // >
 LtEq,    // <=
 // Note: >= and >> are NOT lexed as single tokens (see § Greater-Than Design)
+// TokenKind::GtEq and TokenKind::Shr exist for AST representation only —
+// the parser synthesizes them from adjacent Gt tokens, they never appear
+// in the lexer's token stream.
 
 // Logical
 And,     // &&
@@ -89,6 +94,7 @@ Question,       // ?
 DoubleQuestion, // ??
 DotDot,         // ..
 DotDotEq,       // ..=
+DotDotDot,      // ...
 ```
 
 ### Delimiters
@@ -105,11 +111,12 @@ RBrace,      // }
 Comma,       // ,
 Colon,       // :
 DoubleColon, // ::
-Semicolon,   // ; (error token — triggers cross-language suggestion)
+Semicolon,   // ; (error-detection only — triggers "Ori uses newlines" suggestion)
 Dot,         // .
 At,          // @
 Hash,        // #
 HashBracket, // #[ (combined token for attributes)
+Underscore,  // _ (standalone wildcard, distinct from identifiers containing underscores)
 Dollar,      // $
 Newline,     // \n (significant for statement separation)
 ```

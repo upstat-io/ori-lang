@@ -6,7 +6,7 @@ use crate::Parser;
 fn parse_type_with_arena(source: &str) -> (Option<ParsedType>, ExprArena) {
     let interner = StringInterner::new();
     // Wrap in a function to get proper context for type parsing
-    let full_source = format!("@test () -> {source} = 0");
+    let full_source = format!("@test () -> {source} = 0;");
     let tokens = ori_lexer::lex(&full_source, &interner);
     let mut parser = Parser::new(&tokens, &interner);
 
@@ -354,7 +354,7 @@ fn test_parse_option_of_associated_type() {
 /// Parse a type from source, returning the type, arena, and any deferred errors.
 fn parse_type_with_errors(source: &str) -> (Option<ParsedType>, ExprArena, Vec<String>) {
     let interner = StringInterner::new();
-    let full_source = format!("@test () -> {source} = 0");
+    let full_source = format!("@test () -> {source} = 0;");
     let tokens = ori_lexer::lex(&full_source, &interner);
     let mut parser = Parser::new(&tokens, &interner);
 
@@ -426,7 +426,7 @@ fn test_parse_fixed_list_integer_literal() {
 fn test_parse_fixed_list_const_param() {
     // [int, max $N] — const generic capacity
     let interner = StringInterner::new();
-    let full_source = "@test () -> [int, max $N] = 0";
+    let full_source = "@test () -> [int, max $N] = 0;";
     let tokens = ori_lexer::lex(full_source, &interner);
     let mut parser = Parser::new(&tokens, &interner);
 
@@ -461,7 +461,7 @@ fn test_parse_fixed_list_const_param() {
 fn test_parse_generic_with_const_expr() {
     // Array<int, $N> — const expression in type argument
     let interner = StringInterner::new();
-    let full_source = "@test () -> Array<int, $N> = 0";
+    let full_source = "@test () -> Array<int, $N> = 0;";
     let tokens = ori_lexer::lex(full_source, &interner);
     let mut parser = Parser::new(&tokens, &interner);
 
@@ -499,7 +499,7 @@ fn test_parse_generic_with_const_expr() {
 fn test_parse_generic_with_integer_literal() {
     // Array<int, 10> — integer literal in type argument
     let interner = StringInterner::new();
-    let full_source = "@test () -> Array<int, 10> = 0";
+    let full_source = "@test () -> Array<int, 10> = 0;";
     let tokens = ori_lexer::lex(full_source, &interner);
     let mut parser = Parser::new(&tokens, &interner);
 
@@ -610,7 +610,7 @@ fn test_trait_bounds_in_list() {
 fn test_trait_bounds_preserves_names() {
     // Verify the actual trait names are correct
     let interner = StringInterner::new();
-    let full_source = "@test () -> Printable + Hashable = 0";
+    let full_source = "@test () -> Printable + Hashable = 0;";
     let tokens = ori_lexer::lex(full_source, &interner);
     let mut parser = Parser::new(&tokens, &interner);
 

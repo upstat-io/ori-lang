@@ -1,0 +1,37 @@
+// Spec: 05-variables.md § Mutable and Immutable Bindings
+// Tests for mixed mutability: mutable bindings can be reassigned,
+// immutable ($) bindings cannot.
+
+use std.testing { assert_eq }
+
+// Mutable binding can be reassigned
+@test_mutable_reassign tests @mutable_reassign () -> void = {
+    assert_eq(actual: mutable_reassign(), expected: 20)
+}
+
+@mutable_reassign () -> int = {
+    let x = 10;
+    x = 20;
+    x
+}
+
+// Immutable binding value is preserved
+@test_immutable_preserved tests @immutable_preserved () -> void = {
+    assert_eq(actual: immutable_preserved(), expected: 42)
+}
+
+@immutable_preserved () -> int = {
+    let $x = 42;
+    x
+}
+
+// Mixed mutability in tuple destructuring: mutable part can be reassigned
+@test_mixed_tuple tests @mixed_tuple () -> void = {
+    assert_eq(actual: mixed_tuple(), expected: 11)
+}
+
+@mixed_tuple () -> int = {
+    let ($a, b) = (1, 2);
+    b = 10;
+    a + b
+}

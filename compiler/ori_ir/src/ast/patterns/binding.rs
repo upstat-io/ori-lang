@@ -15,22 +15,47 @@
 
 use crate::{ExprId, MatchPatternId, MatchPatternRange, Name, Span, Spanned};
 
+/// Per-binding mutability marker.
+///
+/// Replaces raw `bool` to make polarity self-documenting across phase boundaries.
+/// Per spec (§05-variables.md): `$` prefix marks individual bindings as immutable.
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+pub enum Mutability {
+    /// Default binding: `let x = ...` — can be reassigned.
+    Mutable,
+    /// Dollar-prefixed binding: `let $x = ...` — cannot be reassigned.
+    Immutable,
+}
+
+impl Mutability {
+    /// Returns `true` if this binding is mutable.
+    #[inline]
+    pub const fn is_mutable(self) -> bool {
+        matches!(self, Self::Mutable)
+    }
+
+    /// Returns `true` if this binding is immutable (`$` prefix).
+    #[inline]
+    pub const fn is_immutable(self) -> bool {
+        matches!(self, Self::Immutable)
+    }
+}
+
 /// Binding pattern for let expressions.
 ///
 /// Per spec (§05-variables.md): `$` prefix marks individual bindings as immutable.
-/// `mutable` defaults to `true`; `$` sets it to `false`.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum BindingPattern {
     /// Simple name binding: `let x = ...` (mutable) or `let $x = ...` (immutable).
-    Name { name: Name, mutable: bool },
+    Name { name: Name, mutable: Mutability },
     /// Tuple destructuring: `let (a, b) = ...`
     Tuple(Vec<BindingPattern>),
     /// Struct destructuring: `let { x, y } = ...`
     Struct { fields: Vec<FieldBinding> },
-    /// List destructuring: `let [head, ..tail] = ...`
+    /// List destructuring: `let [head, ..tail] = ...` or `let [head, ..$tail] = ...`
     List {
         elements: Vec<BindingPattern>,
-        rest: Option<Name>,
+        rest: Option<(Name, Mutability)>,
     },
     /// Wildcard: `let _ = ...`
     Wildcard,
@@ -44,10 +69,10 @@ pub enum BindingPattern {
 pub struct FieldBinding {
     /// The struct field name being destructured.
     pub name: Name,
-    /// Whether the shorthand binding is mutable (`true` = no `$`, `false` = `$` prefix).
+    /// Whether the shorthand binding is mutable or immutable (`$` prefix).
     /// Only meaningful when `pattern` is `None` (shorthand form).
     /// When `pattern` is `Some(...)`, mutability is tracked on the sub-pattern.
-    pub mutable: bool,
+    pub mutable: Mutability,
     /// Optional explicit binding pattern. `None` means shorthand: `{ x }` binds field `x`
     /// to variable `x`.
     pub pattern: Option<BindingPattern>,

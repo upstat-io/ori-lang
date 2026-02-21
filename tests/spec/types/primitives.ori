@@ -9,113 +9,113 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Integer Type
 // Design: 03-type-system/01-primitive-types.md § int
 
-@test_int_literal tests @int_literal () -> void = run(
-    let x = 42,
+@test_int_literal tests @int_literal () -> void = {
+    let x = 42;
     assert_eq(
         actual: x,
         expected: 42,
-    ),
-)
+    )
+}
 
-@int_literal () -> int = 42
+@int_literal () -> int = 42;
 
-@test_int_negative tests @int_negative () -> void = run(
-    let x = -17,
+@test_int_negative tests @int_negative () -> void = {
+    let x = -17;
     assert_eq(
         actual: x,
         expected: -17,
-    ),
-)
+    )
+}
 
-@int_negative () -> int = -17
+@int_negative () -> int = -17;
 
-@test_int_zero tests @int_zero () -> void = run(
-    let x = 0,
+@test_int_zero tests @int_zero () -> void = {
+    let x = 0;
     assert_eq(
         actual: x,
         expected: 0,
-    ),
-)
+    )
+}
 
-@int_zero () -> int = 0
+@int_zero () -> int = 0;
 
-@test_int_underscore tests @int_underscore () -> void = run(
-    let x = 1_000_000,
+@test_int_underscore tests @int_underscore () -> void = {
+    let x = 1_000_000;
     assert_eq(
         actual: x,
         expected: 1000000,
-    ),
-)
+    )
+}
 
-@int_underscore () -> int = 1_000_000
+@int_underscore () -> int = 1_000_000;
 
-@test_int_hex tests @int_hex () -> void = run(
-    let x = 0xFF,
+@test_int_hex tests @int_hex () -> void = {
+    let x = 0xFF;
     assert_eq(
         actual: x,
         expected: 255,
-    ),
-)
+    )
+}
 
-@int_hex () -> int = 0xFF
+@int_hex () -> int = 0xFF;
 
-@test_int_annotated tests @int_annotated () -> void = run(
-    let x: int = 42,
+@test_int_annotated tests @int_annotated () -> void = {
+    let x: int = 42;
     assert_eq(
         actual: x,
         expected: 42,
-    ),
-)
+    )
+}
 
-@int_annotated () -> int = run(
-    let x: int = 42,
-    x,
-)
+@int_annotated () -> int = {
+    let x: int = 42;
+    x
+}
 
-@test_int_arithmetic tests @int_arithmetic () -> void = run(
+@test_int_arithmetic tests @int_arithmetic () -> void = {
     assert_eq(
         actual: 3 + 2,
         expected: 5,
-    ),
+    );
     assert_eq(
         actual: 3 - 2,
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: 3 * 2,
         expected: 6,
-    ),
+    );
     assert_eq(
         actual: 7 / 2,
         expected: 3,
-    ),
+    );
     assert_eq(
         actual: 7 % 2,
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: -7 / 3,
         expected: -2,
-    ),
+    );
     // TODO: div operator not yet implemented in oric-v3 parser
     // assert_eq(
     //     actual: -7 div 3,
     //     expected: -3,
     // ),
-)
+}
 
-@int_arithmetic () -> int = 3 + 2
+@int_arithmetic () -> int = 3 + 2;
 
-@test_int_comparison tests @int_comparison () -> void = run(
-    assert(cond: 1 < 2),
-    assert(cond: 2 > 1),
-    assert(cond: 2 <= 2),
-    assert(cond: 2 >= 2),
-    assert(cond: 2 == 2),
-    assert(cond: 1 != 2),
-)
+@test_int_comparison tests @int_comparison () -> void = {
+    assert(cond: 1 < 2);
+    assert(cond: 2 > 1);
+    assert(cond: 2 <= 2);
+    assert(cond: 2 >= 2);
+    assert(cond: 2 == 2);
+    assert(cond: 1 != 2)
+}
 
-@int_comparison () -> bool = 1 < 2
+@int_comparison () -> bool = 1 < 2;
 
 // =============================================================================
 // float — 64-bit Floating Point
@@ -123,57 +123,57 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Floating-Point Type
 // Design: 03-type-system/01-primitive-types.md § float
 
-@test_float_literal tests @float_literal () -> void = run(
-    let x = 3.14,
-    assert(cond: x > 3.0),
-    assert(cond: x < 4.0),
-)
+@test_float_literal tests @float_literal () -> void = {
+    let x = 3.14;
+    assert(cond: x > 3.0);
+    assert(cond: x < 4.0)
+}
 
-@float_literal () -> float = 3.14
+@float_literal () -> float = 3.14;
 
-@test_float_negative tests @float_negative () -> void = run(
-    let x = -0.5,
-    assert(cond: x < 0.0),
-)
+@test_float_negative tests @float_negative () -> void = {
+    let x = -0.5;
+    assert(cond: x < 0.0)
+}
 
-@float_negative () -> float = -0.5
+@float_negative () -> float = -0.5;
 
-@test_float_scientific tests @float_scientific () -> void = run(
-    let x = 1.5e10,
-    assert(cond: x > 1.0e10),
-)
+@test_float_scientific tests @float_scientific () -> void = {
+    let x = 1.5e10;
+    assert(cond: x > 1.0e10)
+}
 
-@float_scientific () -> float = 1.5e10
+@float_scientific () -> float = 1.5e10;
 
-@test_float_annotated tests @float_annotated () -> void = run(
-    let x: float = 2.5,
-    assert(cond: x > 2.0),
-)
+@test_float_annotated tests @float_annotated () -> void = {
+    let x: float = 2.5;
+    assert(cond: x > 2.0)
+}
 
-@float_annotated () -> float = run(
-    let x: float = 2.5,
-    x,
-)
+@float_annotated () -> float = {
+    let x: float = 2.5;
+    x
+}
 
-@test_float_arithmetic tests @float_arithmetic () -> void = run(
-    assert(cond: 3.0 + 2.0 == 5.0),
-    assert(cond: 3.0 - 2.0 == 1.0),
-    assert(cond: 3.0 * 2.0 == 6.0),
-    assert(cond: 6.0 / 2.0 == 3.0),
-)
+@test_float_arithmetic tests @float_arithmetic () -> void = {
+    assert(cond: 3.0 + 2.0 == 5.0);
+    assert(cond: 3.0 - 2.0 == 1.0);
+    assert(cond: 3.0 * 2.0 == 6.0);
+    assert(cond: 6.0 / 2.0 == 3.0)
+}
 
-@float_arithmetic () -> float = 3.0 + 2.0
+@float_arithmetic () -> float = 3.0 + 2.0;
 
-@test_float_comparison tests @float_comparison () -> void = run(
-    assert(cond: 1.0 < 2.0),
-    assert(cond: 2.0 > 1.0),
-    assert(cond: 2.0 <= 2.0),
-    assert(cond: 2.0 >= 2.0),
-    assert(cond: 2.0 == 2.0),
-    assert(cond: 1.0 != 2.0),
-)
+@test_float_comparison tests @float_comparison () -> void = {
+    assert(cond: 1.0 < 2.0);
+    assert(cond: 2.0 > 1.0);
+    assert(cond: 2.0 <= 2.0);
+    assert(cond: 2.0 >= 2.0);
+    assert(cond: 2.0 == 2.0);
+    assert(cond: 1.0 != 2.0)
+}
 
-@float_comparison () -> bool = 1.0 < 2.0
+@float_comparison () -> bool = 1.0 < 2.0;
 
 // =============================================================================
 // bool — Boolean
@@ -181,56 +181,56 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Boolean Type
 // Design: 03-type-system/01-primitive-types.md § bool
 
-@test_bool_true tests @bool_true () -> void = run(
-    let x = true,
-    assert(cond: x),
-)
+@test_bool_true tests @bool_true () -> void = {
+    let x = true;
+    assert(cond: x)
+}
 
-@bool_true () -> bool = true
+@bool_true () -> bool = true;
 
-@test_bool_false tests @bool_false () -> void = run(
-    let x = false,
-    assert(cond: !x),
-)
+@test_bool_false tests @bool_false () -> void = {
+    let x = false;
+    assert(cond: !x)
+}
 
-@bool_false () -> bool = false
+@bool_false () -> bool = false;
 
-@test_bool_annotated tests @bool_annotated () -> void = run(
-    let x: bool = true,
-    assert(cond: x),
-)
+@test_bool_annotated tests @bool_annotated () -> void = {
+    let x: bool = true;
+    assert(cond: x)
+}
 
-@bool_annotated () -> bool = run(
-    let x: bool = true,
-    x,
-)
+@bool_annotated () -> bool = {
+    let x: bool = true;
+    x
+}
 
-@test_bool_logical tests @bool_logical () -> void = run(
+@test_bool_logical tests @bool_logical () -> void = {
     // Logical AND
-    assert(cond: true && true),
-    assert(cond: !(true && false)),
-    assert(cond: !(false && true)),
-    assert(cond: !(false && false)),
+    assert(cond: true && true);
+    assert(cond: !(true && false));
+    assert(cond: !(false && true));
+    assert(cond: !(false && false));
     // Logical OR
-    assert(cond: true || true),
-    assert(cond: true || false),
-    assert(cond: false || true),
-    assert(cond: !(false || false)),
+    assert(cond: true || true);
+    assert(cond: true || false);
+    assert(cond: false || true);
+    assert(cond: !(false || false));
     // Logical NOT
-    assert(cond: !false),
-    assert(cond: !!true),
-)
+    assert(cond: !false);
+    assert(cond: !!true)
+}
 
-@bool_logical () -> bool = true && true
+@bool_logical () -> bool = true && true;
 
-@test_bool_equality tests @bool_equality () -> void = run(
-    assert(cond: true == true),
-    assert(cond: false == false),
-    assert(cond: true != false),
-    assert(cond: false != true),
-)
+@test_bool_equality tests @bool_equality () -> void = {
+    assert(cond: true == true);
+    assert(cond: false == false);
+    assert(cond: true != false);
+    assert(cond: false != true)
+}
 
-@bool_equality () -> bool = true == true
+@bool_equality () -> bool = true == true;
 
 // =============================================================================
 // str — UTF-8 String
@@ -238,77 +238,77 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § String Type
 // Design: 03-type-system/01-primitive-types.md § str
 
-@test_str_literal tests @str_literal () -> void = run(
-    let x = "hello",
+@test_str_literal tests @str_literal () -> void = {
+    let x = "hello";
     assert_eq(
         actual: x,
         expected: "hello",
-    ),
-)
+    )
+}
 
-@str_literal () -> str = "hello"
+@str_literal () -> str = "hello";
 
-@test_str_empty tests @str_empty () -> void = run(
-    let x = "",
+@test_str_empty tests @str_empty () -> void = {
+    let x = "";
     assert_eq(
         actual: x,
         expected: "",
-    ),
-)
+    )
+}
 
-@str_empty () -> str = ""
+@str_empty () -> str = "";
 
-@test_str_escape tests @str_escape () -> void = run(
-    let x = "line1\nline2",
-    assert(cond: x.len() > 6),
-)
+@test_str_escape tests @str_escape () -> void = {
+    let x = "line1\nline2";
+    assert(cond: x.len() > 6)
+}
 
-@str_escape () -> str = "line1\nline2"
+@str_escape () -> str = "line1\nline2";
 
-@test_str_annotated tests @str_annotated () -> void = run(
-    let x: str = "world",
+@test_str_annotated tests @str_annotated () -> void = {
+    let x: str = "world";
     assert_eq(
         actual: x,
         expected: "world",
-    ),
-)
+    )
+}
 
-@str_annotated () -> str = run(
-    let x: str = "world",
-    x,
-)
+@str_annotated () -> str = {
+    let x: str = "world";
+    x
+}
 
-@test_str_concat tests @str_concat () -> void = run(
-    let x = "hello" + " " + "world",
+@test_str_concat tests @str_concat () -> void = {
+    let x = "hello" + " " + "world";
     assert_eq(
         actual: x,
         expected: "hello world",
-    ),
-)
+    )
+}
 
-@str_concat () -> str = "hello" + " " + "world"
+@str_concat () -> str = "hello" + " " + "world";
 
-@test_str_comparison tests @str_comparison () -> void = run(
-    assert(cond: "a" < "b"),
-    assert(cond: "b" > "a"),
-    assert(cond: "abc" == "abc"),
-    assert(cond: "abc" != "def"),
-)
+@test_str_comparison tests @str_comparison () -> void = {
+    assert(cond: "a" < "b");
+    assert(cond: "b" > "a");
+    assert(cond: "abc" == "abc");
+    assert(cond: "abc" != "def")
+}
 
-@str_comparison () -> bool = "a" < "b"
+@str_comparison () -> bool = "a" < "b";
 
-@test_str_len tests @str_len () -> void = run(
+@test_str_len tests @str_len () -> void = {
     assert_eq(
         actual: "hello".len(),
         expected: 5,
-    ),
+    );
     assert_eq(
         actual: "".len(),
         expected: 0,
-    ),
-)
+    )
+}
 
-@str_len () -> int = "hello".len()
+@str_len () -> int = "hello".len();
 
 // =============================================================================
 // char — Unicode Character
@@ -316,57 +316,57 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Character Type
 // Design: 03-type-system/01-primitive-types.md § char
 
-@test_char_ascii tests @char_ascii () -> void = run(
-    let x = 'a',
+@test_char_ascii tests @char_ascii () -> void = {
+    let x = 'a';
     assert_eq(
         actual: x,
         expected: 'a',
-    ),
-)
+    )
+}
 
-@char_ascii () -> char = 'a'
+@char_ascii () -> char = 'a';
 
-@test_char_unicode tests @char_unicode () -> void = run(
-    let x = 'λ',
+@test_char_unicode tests @char_unicode () -> void = {
+    let x = 'λ';
     assert_eq(
         actual: x,
         expected: 'λ',
-    ),
-)
+    )
+}
 
-@char_unicode () -> char = 'λ'
+@char_unicode () -> char = 'λ';
 
-@test_char_escape tests @char_escape () -> void = run(
-    let newline = '\n',
-    let tab = '\t',
-    let backslash = '\\',
-    assert(cond: newline != tab),
-    assert(cond: tab != backslash),
-)
+@test_char_escape tests @char_escape () -> void = {
+    let newline = '\n';
+    let tab = '\t';
+    let backslash = '\\';
+    assert(cond: newline != tab);
+    assert(cond: tab != backslash)
+}
 
-@char_escape () -> char = '\n'
+@char_escape () -> char = '\n';
 
-@test_char_annotated tests @char_annotated () -> void = run(
-    let x: char = 'z',
+@test_char_annotated tests @char_annotated () -> void = {
+    let x: char = 'z';
     assert_eq(
         actual: x,
         expected: 'z',
-    ),
-)
+    )
+}
 
-@char_annotated () -> char = run(
-    let x: char = 'z',
-    x,
-)
+@char_annotated () -> char = {
+    let x: char = 'z';
+    x
+}
 
-@test_char_comparison tests @char_comparison () -> void = run(
-    assert(cond: 'a' < 'b'),
-    assert(cond: 'b' > 'a'),
-    assert(cond: 'x' == 'x'),
-    assert(cond: 'x' != 'y'),
-)
+@test_char_comparison tests @char_comparison () -> void = {
+    assert(cond: 'a' < 'b');
+    assert(cond: 'b' > 'a');
+    assert(cond: 'x' == 'x');
+    assert(cond: 'x' != 'y')
+}
 
-@char_comparison () -> bool = 'a' < 'b'
+@char_comparison () -> bool = 'a' < 'b';
 
 // =============================================================================
 // byte — 8-bit Unsigned Integer
@@ -374,45 +374,45 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Byte Type
 // Design: 03-type-system/01-primitive-types.md § byte
 
-@test_byte_literal tests @byte_literal () -> void = run(
-    let x: byte = 65,
+@test_byte_literal tests @byte_literal () -> void = {
+    let x: byte = 65;
     assert_eq(
         actual: int(x),
         expected: 65,
-    ),
-)
+    )
+}
 
-@byte_literal () -> byte = 65
+@byte_literal () -> byte = 65;
 
-@test_byte_hex tests @byte_hex () -> void = run(
-    let x: byte = 0x41,
+@test_byte_hex tests @byte_hex () -> void = {
+    let x: byte = 0x41;
     assert_eq(
         actual: int(x),
         expected: 65,
-    ),
-)
+    )
+}
 
-@byte_hex () -> byte = 0x41
+@byte_hex () -> byte = 0x41;
 
-@test_byte_max tests @byte_max () -> void = run(
-    let x: byte = 255,
+@test_byte_max tests @byte_max () -> void = {
+    let x: byte = 255;
     assert_eq(
         actual: int(x),
         expected: 255,
-    ),
-)
+    )
+}
 
-@byte_max () -> byte = 255
+@byte_max () -> byte = 255;
 
-@test_byte_zero tests @byte_zero () -> void = run(
-    let x: byte = 0,
+@test_byte_zero tests @byte_zero () -> void = {
+    let x: byte = 0;
     assert_eq(
         actual: int(x),
         expected: 0,
-    ),
-)
+    )
+}
 
-@byte_zero () -> byte = 0
+@byte_zero () -> byte = 0;
 
 // =============================================================================
 // void — No Meaningful Value
@@ -420,26 +420,26 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Void Type
 // Design: 03-type-system/01-primitive-types.md § void
 
-@test_void_return tests @void_return () -> void = run(
-    let result = side_effect(),
+@test_void_return tests @void_return () -> void = {
+    let result = side_effect();
     // void functions return ()
-    assert(cond: true),
-)
+    assert(cond: true)
+}
 
-@void_return () -> void = ()
+@void_return () -> void = ();
 
-@side_effect () -> void = run(
-    let x = 1,
-    (),
-)
+@side_effect () -> void = {
+    let x = 1;
+    ()
+}
 
-@test_void_unit tests @void_unit () -> void = run(
+@test_void_unit tests @void_unit () -> void = {
     // void is an alias for ()
-    let x: void = (),
-    assert(cond: true),
-)
+    let x: void = ();
+    assert(cond: true)
+}
 
-@void_unit () -> void = ()
+@void_unit () -> void = ();
 
 // =============================================================================
 // Never — Bottom Type
@@ -447,209 +447,209 @@ use std.testing { assert, assert_eq, assert_ne }
 // Spec: 06-types.md § Never Type
 // Design: 03-type-system/01-primitive-types.md § Never
 
-@test_never_panic tests @never_panic () -> void = run(
+@test_never_panic tests @never_panic () -> void = {
     // Test that panic returns Never and coerces to any type
-    let result: int = if false then panic(msg: "unreachable") else 42,
+    let result: int = if false then panic(msg: "unreachable") else 42;
     assert_eq(
         actual: result,
         expected: 42,
-    ),
-)
+    )
+}
 
-@never_panic () -> int = if false then panic(msg: "unreachable") else 42
+@never_panic () -> int = if false then panic(msg: "unreachable") else 42;
 
-@test_never_coercion tests @never_coercion () -> void = run(
+@test_never_coercion tests @never_coercion () -> void = {
     // Never coerces to any type in conditionals
-    let x: str = if true then "hello" else panic(msg: "never reached"),
+    let x: str = if true then "hello" else panic(msg: "never reached");
     assert_eq(
         actual: x,
         expected: "hello",
-    ),
-)
+    )
+}
 
-@never_coercion () -> str = if true then "hello" else panic(msg: "never reached")
+@never_coercion () -> str = if true then "hello" else panic(msg: "never reached");
 
 // =============================================================================
 // Extended int Tests — Edge Cases
 // =============================================================================
 
-@test_int_large_positive tests @int_large_positive () -> void = run(
-    let x = 9223372036854775807,
-    assert(cond: x > 0),
-)
+@test_int_large_positive tests @int_large_positive () -> void = {
+    let x = 9223372036854775807;
+    assert(cond: x > 0)
+}
 
-@int_large_positive () -> int = 9223372036854775807
+@int_large_positive () -> int = 9223372036854775807;
 
-@test_int_large_negative tests @int_large_negative () -> void = run(
-    let x = -9223372036854775808,
-    assert(cond: x < 0),
-)
+@test_int_large_negative tests @int_large_negative () -> void = {
+    let x = -9223372036854775808;
+    assert(cond: x < 0)
+}
 
-@int_large_negative () -> int = -9223372036854775808
+@int_large_negative () -> int = -9223372036854775808;
 
-@test_int_hex_mixed_case tests @int_hex_mixed_case () -> void = run(
-    assert_eq(actual: 0xABcd, expected: 43981),
+@test_int_hex_mixed_case tests @int_hex_mixed_case () -> void = {
+    assert_eq(actual: 0xABcd, expected: 43981);
     // Note: Capital X in hex literals (0X...) is not supported, only lowercase 0x...
-    assert_eq(actual: 0xaBCd, expected: 43981),
-)
+    assert_eq(actual: 0xaBCd, expected: 43981)
+}
 
-@int_hex_mixed_case () -> int = 0xABcd
+@int_hex_mixed_case () -> int = 0xABcd;
 
-@test_int_underscore_positions tests @int_underscore_positions () -> void = run(
-    assert_eq(actual: 1_2_3, expected: 123),
-    assert_eq(actual: 1__2, expected: 12),
-)
+@test_int_underscore_positions tests @int_underscore_positions () -> void = {
+    assert_eq(actual: 1_2_3, expected: 123);
+    assert_eq(actual: 1__2, expected: 12)
+}
 
-@int_underscore_positions () -> int = 1_2_3
+@int_underscore_positions () -> int = 1_2_3;
 
-@test_int_negation tests @int_negation () -> void = run(
-    let x = 5,
-    assert_eq(actual: -x, expected: -5),
-    assert_eq(actual: --x, expected: 5),
-    assert_eq(actual: -(-x), expected: 5),
-)
+@test_int_negation tests @int_negation () -> void = {
+    let x = 5;
+    assert_eq(actual: -x, expected: -5);
+    assert_eq(actual: --x, expected: 5);
+    assert_eq(actual: -(-x), expected: 5)
+}
 
-@int_negation () -> int = -5
+@int_negation () -> int = -5;
 
-@test_int_bitwise_and tests @int_bitwise_and () -> void = run(
-    assert_eq(actual: 0xFF & 0x0F, expected: 0x0F),
-    assert_eq(actual: 12 & 10, expected: 8),
-)
+@test_int_bitwise_and tests @int_bitwise_and () -> void = {
+    assert_eq(actual: 0xFF & 0x0F, expected: 0x0F);
+    assert_eq(actual: 12 & 10, expected: 8)
+}
 
-@int_bitwise_and () -> int = 0xFF & 0x0F
+@int_bitwise_and () -> int = 0xFF & 0x0F;
 
-@test_int_bitwise_or tests @int_bitwise_or () -> void = run(
-    assert_eq(actual: 0xF0 | 0x0F, expected: 0xFF),
-    assert_eq(actual: 12 | 10, expected: 14),
-)
+@test_int_bitwise_or tests @int_bitwise_or () -> void = {
+    assert_eq(actual: 0xF0 | 0x0F, expected: 0xFF);
+    assert_eq(actual: 12 | 10, expected: 14)
+}
 
-@int_bitwise_or () -> int = 0xF0 | 0x0F
+@int_bitwise_or () -> int = 0xF0 | 0x0F;
 
-@test_int_bitwise_xor tests @int_bitwise_xor () -> void = run(
-    assert_eq(actual: 0xFF ^ 0x0F, expected: 0xF0),
-    assert_eq(actual: 12 ^ 10, expected: 6),
-)
+@test_int_bitwise_xor tests @int_bitwise_xor () -> void = {
+    assert_eq(actual: 0xFF ^ 0x0F, expected: 0xF0);
+    assert_eq(actual: 12 ^ 10, expected: 6)
+}
 
-@int_bitwise_xor () -> int = 0xFF ^ 0x0F
+@int_bitwise_xor () -> int = 0xFF ^ 0x0F;
 
-@test_int_bitwise_not tests @int_bitwise_not () -> void = run(
-    assert_eq(actual: ~0, expected: -1),
-    assert_eq(actual: ~~5, expected: 5),
-)
+@test_int_bitwise_not tests @int_bitwise_not () -> void = {
+    assert_eq(actual: ~0, expected: -1);
+    assert_eq(actual: ~~5, expected: 5)
+}
 
-@int_bitwise_not () -> int = ~0
+@int_bitwise_not () -> int = ~0;
 
-@test_int_left_shift tests @int_left_shift () -> void = run(
-    assert_eq(actual: 1 << 4, expected: 16),
-    assert_eq(actual: 3 << 2, expected: 12),
-)
+@test_int_left_shift tests @int_left_shift () -> void = {
+    assert_eq(actual: 1 << 4, expected: 16);
+    assert_eq(actual: 3 << 2, expected: 12)
+}
 
-@int_left_shift () -> int = 1 << 4
+@int_left_shift () -> int = 1 << 4;
 
 // Right shift operator now works after lexer boundary fix.
 // The lexer produces single `>` tokens, parser combines adjacent `>` tokens as `>>` in expressions.
-@test_int_right_shift tests @int_right_shift () -> void = run(
-    assert_eq(actual: 16 >> 4, expected: 1),
-    assert_eq(actual: 12 >> 2, expected: 3),
-)
+@test_int_right_shift tests @int_right_shift () -> void = {
+    assert_eq(actual: 16 >> 4, expected: 1);
+    assert_eq(actual: 12 >> 2, expected: 3)
+}
 
-@int_right_shift () -> int = 16 >> 4
+@int_right_shift () -> int = 16 >> 4;
 
-@test_int_modulo_negative tests @int_modulo_negative () -> void = run(
-    assert_eq(actual: 7 % 3, expected: 1),
-    assert_eq(actual: -7 % 3, expected: -1),
-    assert_eq(actual: 7 % -3, expected: 1),
-)
+@test_int_modulo_negative tests @int_modulo_negative () -> void = {
+    assert_eq(actual: 7 % 3, expected: 1);
+    assert_eq(actual: -7 % 3, expected: -1);
+    assert_eq(actual: 7 % -3, expected: 1)
+}
 
-@int_modulo_negative () -> int = -7 % 3
+@int_modulo_negative () -> int = -7 % 3;
 
-@test_int_division_truncates tests @int_division_truncates () -> void = run(
-    assert_eq(actual: 5 / 2, expected: 2),
-    assert_eq(actual: -5 / 2, expected: -2),
-    assert_eq(actual: 5 / -2, expected: -2),
-)
+@test_int_division_truncates tests @int_division_truncates () -> void = {
+    assert_eq(actual: 5 / 2, expected: 2);
+    assert_eq(actual: -5 / 2, expected: -2);
+    assert_eq(actual: 5 / -2, expected: -2)
+}
 
-@int_division_truncates () -> int = 5 / 2
+@int_division_truncates () -> int = 5 / 2;
 
-@test_int_operator_precedence tests @int_operator_precedence () -> void = run(
-    assert_eq(actual: 2 + 3 * 4, expected: 14),
-    assert_eq(actual: (2 + 3) * 4, expected: 20),
-    assert_eq(actual: 10 - 4 - 2, expected: 4),
-    assert_eq(actual: 10 - (4 - 2), expected: 8),
-)
+@test_int_operator_precedence tests @int_operator_precedence () -> void = {
+    assert_eq(actual: 2 + 3 * 4, expected: 14);
+    assert_eq(actual: (2 + 3) * 4, expected: 20);
+    assert_eq(actual: 10 - 4 - 2, expected: 4);
+    assert_eq(actual: 10 - (4 - 2), expected: 8)
+}
 
-@int_operator_precedence () -> int = 2 + 3 * 4
+@int_operator_precedence () -> int = 2 + 3 * 4;
 
 // =============================================================================
 // Extended float Tests — Edge Cases
 // =============================================================================
 
-@test_float_zero tests @float_zero () -> void = run(
-    assert(cond: 0.0 == 0.0),
-    assert(cond: -0.0 == 0.0),
-)
+@test_float_zero tests @float_zero () -> void = {
+    assert(cond: 0.0 == 0.0);
+    assert(cond: -0.0 == 0.0)
+}
 
-@float_zero () -> float = 0.0
+@float_zero () -> float = 0.0;
 
-@test_float_small tests @float_small () -> void = run(
-    let x = 0.000001,
-    assert(cond: x > 0.0),
-    assert(cond: x < 0.001),
-)
+@test_float_small tests @float_small () -> void = {
+    let x = 0.000001;
+    assert(cond: x > 0.0);
+    assert(cond: x < 0.001)
+}
 
-@float_small () -> float = 0.000001
+@float_small () -> float = 0.000001;
 
-@test_float_scientific_negative_exp tests @float_scientific_negative_exp () -> void = run(
-    let x = 1.5e-10,
-    assert(cond: x > 0.0),
-    assert(cond: x < 0.000001),
-)
+@test_float_scientific_negative_exp tests @float_scientific_negative_exp () -> void = {
+    let x = 1.5e-10;
+    assert(cond: x > 0.0);
+    assert(cond: x < 0.000001)
+}
 
-@float_scientific_negative_exp () -> float = 1.5e-10
+@float_scientific_negative_exp () -> float = 1.5e-10;
 
-@test_float_mixed_arithmetic tests @float_mixed_arithmetic () -> void = run(
-    assert(cond: 1.5 + 2.5 == 4.0),
-    assert(cond: 5.0 - 2.5 == 2.5),
-    assert(cond: 2.0 * 1.5 == 3.0),
-    assert(cond: 3.0 / 2.0 == 1.5),
-)
+@test_float_mixed_arithmetic tests @float_mixed_arithmetic () -> void = {
+    assert(cond: 1.5 + 2.5 == 4.0);
+    assert(cond: 5.0 - 2.5 == 2.5);
+    assert(cond: 2.0 * 1.5 == 3.0);
+    assert(cond: 3.0 / 2.0 == 1.5)
+}
 
-@float_mixed_arithmetic () -> float = 1.5 + 2.5
+@float_mixed_arithmetic () -> float = 1.5 + 2.5;
 
-@test_float_negation tests @float_negation () -> void = run(
-    let x = 3.14,
-    assert(cond: -x < 0.0),
-    assert(cond: --x > 0.0),
-)
+@test_float_negation tests @float_negation () -> void = {
+    let x = 3.14;
+    assert(cond: -x < 0.0);
+    assert(cond: --x > 0.0)
+}
 
-@float_negation () -> float = -3.14
+@float_negation () -> float = -3.14;
 
 // =============================================================================
 // Extended bool Tests — Edge Cases
 // =============================================================================
 
-@test_bool_short_circuit_and tests @bool_short_circuit_and () -> void = run(
-    let evaluated = false,
-    let result = false && panic(msg: "should not evaluate"),
-    assert(cond: !result),
-)
+@test_bool_short_circuit_and tests @bool_short_circuit_and () -> void = {
+    let evaluated = false;
+    let result = false && panic(msg: "should not evaluate");
+    assert(cond: !result)
+}
 
-@bool_short_circuit_and () -> bool = false && true
+@bool_short_circuit_and () -> bool = false && true;
 
-@test_bool_short_circuit_or tests @bool_short_circuit_or () -> void = run(
-    let result = true || panic(msg: "should not evaluate"),
-    assert(cond: result),
-)
+@test_bool_short_circuit_or tests @bool_short_circuit_or () -> void = {
+    let result = true || panic(msg: "should not evaluate");
+    assert(cond: result)
+}
 
-@bool_short_circuit_or () -> bool = true || false
+@bool_short_circuit_or () -> bool = true || false;
 
-@test_bool_complex_expression tests @bool_complex_expression () -> void = run(
-    assert(cond: (true && false) || true),
-    assert(cond: !(false && true) && true),
-    assert(cond: (1 < 2) && (3 > 2)),
-)
+@test_bool_complex_expression tests @bool_complex_expression () -> void = {
+    assert(cond: (true && false) || true);
+    assert(cond: !(false && true) && true);
+    assert(cond: (1 < 2) && (3 > 2))
+}
 
-@bool_complex_expression () -> bool = (true && false) || true
+@bool_complex_expression () -> bool = (true && false) || true;
 
 // =============================================================================
 // Extended str Tests — Edge Cases
@@ -659,179 +659,179 @@ use std.testing { assert, assert_eq, assert_ne }
 // "こんにちは" has 5 codepoints but 15 bytes (3 UTF-8 bytes per character).
 // Use .chars().count() for codepoint count when available.
 
-@str_unicode_content () -> str = "こんにちは"
+@str_unicode_content () -> str = "こんにちは";
 
-@test_str_unicode_byte_len tests @str_unicode_byte_len () -> void = run(
-    let x = "こんにちは",
+@test_str_unicode_byte_len tests @str_unicode_byte_len () -> void = {
+    let x = "こんにちは";
     // .len() returns byte count, not character count
-    assert(cond: x.len() == 15),
-)
+    assert(cond: x.len() == 15)
+}
 
-@str_unicode_byte_len () -> int = "こんにちは".len()
+@str_unicode_byte_len () -> int = "こんにちは".len();
 
-@test_str_emoji tests @str_emoji () -> void = run(
-    let x = "Hello 👋 World",
-    assert(cond: x.len() > 10),
-)
+@test_str_emoji tests @str_emoji () -> void = {
+    let x = "Hello 👋 World";
+    assert(cond: x.len() > 10)
+}
 
-@str_emoji () -> str = "Hello 👋 World"
+@str_emoji () -> str = "Hello 👋 World";
 
-@test_str_multiline_escape tests @str_multiline_escape () -> void = run(
-    let x = "line1\nline2\nline3",
-    assert(cond: x.len() > 15),
-)
+@test_str_multiline_escape tests @str_multiline_escape () -> void = {
+    let x = "line1\nline2\nline3";
+    assert(cond: x.len() > 15)
+}
 
-@str_multiline_escape () -> str = "line1\nline2\nline3"
+@str_multiline_escape () -> str = "line1\nline2\nline3";
 
-@test_str_tab_escape tests @str_tab_escape () -> void = run(
-    let x = "col1\tcol2",
-    assert(cond: x.len() == 9),
-)
+@test_str_tab_escape tests @str_tab_escape () -> void = {
+    let x = "col1\tcol2";
+    assert(cond: x.len() == 9)
+}
 
-@str_tab_escape () -> str = "col1\tcol2"
+@str_tab_escape () -> str = "col1\tcol2";
 
-@test_str_quote_escape tests @str_quote_escape () -> void = run(
-    let x = "He said \"hello\"",
-    assert(cond: x.len() > 10),
-)
+@test_str_quote_escape tests @str_quote_escape () -> void = {
+    let x = "He said \"hello\"";
+    assert(cond: x.len() > 10)
+}
 
-@str_quote_escape () -> str = "He said \"hello\""
+@str_quote_escape () -> str = "He said \"hello\"";
 
-@test_str_backslash_escape tests @str_backslash_escape () -> void = run(
-    let x = "path\\to\\file",
-    assert(cond: x.len() == 12),
-)
+@test_str_backslash_escape tests @str_backslash_escape () -> void = {
+    let x = "path\\to\\file";
+    assert(cond: x.len() == 12)
+}
 
-@str_backslash_escape () -> str = "path\\to\\file"
+@str_backslash_escape () -> str = "path\\to\\file";
 
-@test_str_concat_multiple tests @str_concat_multiple () -> void = run(
-    let x = "a" + "b" + "c" + "d",
-    assert_eq(actual: x, expected: "abcd"),
-)
+@test_str_concat_multiple tests @str_concat_multiple () -> void = {
+    let x = "a" + "b" + "c" + "d";
+    assert_eq(actual: x, expected: "abcd")
+}
 
-@str_concat_multiple () -> str = "a" + "b" + "c" + "d"
+@str_concat_multiple () -> str = "a" + "b" + "c" + "d";
 
-@test_str_concat_with_empty tests @str_concat_with_empty () -> void = run(
-    let x = "" + "hello" + "",
-    assert_eq(actual: x, expected: "hello"),
-)
+@test_str_concat_with_empty tests @str_concat_with_empty () -> void = {
+    let x = "" + "hello" + "";
+    assert_eq(actual: x, expected: "hello")
+}
 
-@str_concat_with_empty () -> str = "" + "hello" + ""
+@str_concat_with_empty () -> str = "" + "hello" + "";
 
-@test_str_lexicographic_comparison tests @str_lexicographic_comparison () -> void = run(
-    assert(cond: "apple" < "banana"),
-    assert(cond: "abc" < "abd"),
-    assert(cond: "a" < "aa"),
-    assert(cond: "" < "a"),
-)
+@test_str_lexicographic_comparison tests @str_lexicographic_comparison () -> void = {
+    assert(cond: "apple" < "banana");
+    assert(cond: "abc" < "abd");
+    assert(cond: "a" < "aa");
+    assert(cond: "" < "a")
+}
 
-@str_lexicographic_comparison () -> bool = "apple" < "banana"
+@str_lexicographic_comparison () -> bool = "apple" < "banana";
 
 // =============================================================================
 // Extended char Tests — Edge Cases
 // =============================================================================
 
-@test_char_digits tests @char_digits () -> void = run(
-    assert_eq(actual: '0', expected: '0'),
-    assert_eq(actual: '9', expected: '9'),
-    assert(cond: '0' < '9'),
-)
+@test_char_digits tests @char_digits () -> void = {
+    assert_eq(actual: '0', expected: '0');
+    assert_eq(actual: '9', expected: '9');
+    assert(cond: '0' < '9')
+}
 
-@char_digits () -> char = '5'
+@char_digits () -> char = '5';
 
-@test_char_special tests @char_special () -> void = run(
-    let space = ' ',
-    let at = '@',
-    let hash = '#',
-    assert(cond: space != at),
-    assert(cond: at != hash),
-)
+@test_char_special tests @char_special () -> void = {
+    let space = ' ';
+    let at = '@';
+    let hash = '#';
+    assert(cond: space != at);
+    assert(cond: at != hash)
+}
 
-@char_special () -> char = '@'
+@char_special () -> char = '@';
 
-@test_char_emoji tests @char_emoji () -> void = run(
-    let emoji = '😀',
-    assert_eq(actual: emoji, expected: '😀'),
-)
+@test_char_emoji tests @char_emoji () -> void = {
+    let emoji = '😀';
+    assert_eq(actual: emoji, expected: '😀')
+}
 
-@char_emoji () -> char = '😀'
+@char_emoji () -> char = '😀';
 
 // =============================================================================
 // Type Conversions
 // =============================================================================
 
-@test_int_to_float tests @int_to_float () -> void = run(
-    let x: int = 42,
-    let y: float = float(x),
-    assert(cond: y == 42.0),
-)
+@test_int_to_float tests @int_to_float () -> void = {
+    let x: int = 42;
+    let y: float = float(x);
+    assert(cond: y == 42.0)
+}
 
-@int_to_float () -> float = float(42)
+@int_to_float () -> float = float(42);
 
-@test_float_to_int tests @float_to_int () -> void = run(
-    let x: float = 3.7,
-    let y: int = int(x),
-    assert_eq(actual: y, expected: 3),
-)
+@test_float_to_int tests @float_to_int () -> void = {
+    let x: float = 3.7;
+    let y: int = int(x);
+    assert_eq(actual: y, expected: 3)
+}
 
-@float_to_int () -> int = int(3.7)
+@float_to_int () -> int = int(3.7);
 
-@test_float_to_int_negative tests @float_to_int_negative () -> void = run(
-    let x: float = -3.7,
-    let y: int = int(x),
-    assert_eq(actual: y, expected: -3),
-)
+@test_float_to_int_negative tests @float_to_int_negative () -> void = {
+    let x: float = -3.7;
+    let y: int = int(x);
+    assert_eq(actual: y, expected: -3)
+}
 
-@float_to_int_negative () -> int = int(-3.7)
+@float_to_int_negative () -> int = int(-3.7);
 
-@test_int_to_str tests @int_to_str () -> void = run(
-    let x: int = 42,
-    let s: str = str(x),
-    assert_eq(actual: s, expected: "42"),
-)
+@test_int_to_str tests @int_to_str () -> void = {
+    let x: int = 42;
+    let s: str = str(x);
+    assert_eq(actual: s, expected: "42")
+}
 
-@int_to_str () -> str = str(42)
+@int_to_str () -> str = str(42);
 
-@test_int_to_str_negative tests @int_to_str_negative () -> void = run(
-    let x: int = -123,
-    let s: str = str(x),
-    assert_eq(actual: s, expected: "-123"),
-)
+@test_int_to_str_negative tests @int_to_str_negative () -> void = {
+    let x: int = -123;
+    let s: str = str(x);
+    assert_eq(actual: s, expected: "-123")
+}
 
-@int_to_str_negative () -> str = str(-123)
+@int_to_str_negative () -> str = str(-123);
 
-@test_float_to_str tests @float_to_str () -> void = run(
-    let x: float = 3.14,
-    let s: str = str(x),
-    assert(cond: s.len() > 0),
-)
+@test_float_to_str tests @float_to_str () -> void = {
+    let x: float = 3.14;
+    let s: str = str(x);
+    assert(cond: s.len() > 0)
+}
 
-@float_to_str () -> str = str(3.14)
+@float_to_str () -> str = str(3.14);
 
-@test_bool_to_str tests @bool_to_str () -> void = run(
-    assert_eq(actual: str(true), expected: "true"),
-    assert_eq(actual: str(false), expected: "false"),
-)
+@test_bool_to_str tests @bool_to_str () -> void = {
+    assert_eq(actual: str(true), expected: "true");
+    assert_eq(actual: str(false), expected: "false")
+}
 
-@bool_to_str () -> str = str(true)
+@bool_to_str () -> str = str(true);
 
 // TODO: IMPLEMENTATION BUG: int(b) where b is byte doesn't work - "cannot convert byte to int"
-// @test_byte_to_int tests @byte_to_int () -> void = run(
+// @test_byte_to_int tests @byte_to_int () -> void = {
 //     let b: byte = 200,
 //     let i: int = int(b),
 //     assert_eq(actual: i, expected: 200),
-// )
+// }
 
-@byte_to_int () -> int = 200
+@byte_to_int () -> int = 200;
 
 // TODO: IMPLEMENTATION BUG: int(b) where b is byte doesn't work - "cannot convert byte to int"
-// @test_int_to_byte tests @int_to_byte () -> void = run(
+// @test_int_to_byte tests @int_to_byte () -> void = {
 //     let i: int = 100,
 //     let b: byte = byte(i),
 //     assert_eq(actual: int(b), expected: 100),
-// )
+// }
 
-@int_to_byte () -> byte = byte(100)
+@int_to_byte () -> byte = byte(100);
 
 // =============================================================================
 // Duration — Time Duration
@@ -840,162 +840,162 @@ use std.testing { assert, assert_eq, assert_ne }
 // Design: 03-type-system/01-primitive-types.md § Duration
 
 // Literal parsing tests - these verify the lexer accepts all Duration suffixes
-@test_duration_nanoseconds tests @duration_nanoseconds () -> void = run(
-    let d = 100ns,
+@test_duration_nanoseconds tests @duration_nanoseconds () -> void = {
+    let d = 100ns;
     // Literal parses correctly (operators not yet implemented)
-    assert(cond: true),
-)
+    assert(cond: true)
+}
 
-@duration_nanoseconds () -> Duration = 100ns
+@duration_nanoseconds () -> Duration = 100ns;
 
-@test_duration_microseconds tests @duration_microseconds () -> void = run(
-    let d = 50us,
-    assert(cond: true),
-)
+@test_duration_microseconds tests @duration_microseconds () -> void = {
+    let d = 50us;
+    assert(cond: true)
+}
 
-@duration_microseconds () -> Duration = 50us
+@duration_microseconds () -> Duration = 50us;
 
-@test_duration_milliseconds tests @duration_milliseconds () -> void = run(
-    let d = 100ms,
-    assert(cond: true),
-)
+@test_duration_milliseconds tests @duration_milliseconds () -> void = {
+    let d = 100ms;
+    assert(cond: true)
+}
 
-@duration_milliseconds () -> Duration = 100ms
+@duration_milliseconds () -> Duration = 100ms;
 
-@test_duration_seconds tests @duration_seconds () -> void = run(
-    let d = 30s,
-    assert(cond: true),
-)
+@test_duration_seconds tests @duration_seconds () -> void = {
+    let d = 30s;
+    assert(cond: true)
+}
 
-@duration_seconds () -> Duration = 30s
+@duration_seconds () -> Duration = 30s;
 
-@test_duration_minutes tests @duration_minutes () -> void = run(
-    let d = 5m,
-    assert(cond: true),
-)
+@test_duration_minutes tests @duration_minutes () -> void = {
+    let d = 5m;
+    assert(cond: true)
+}
 
-@duration_minutes () -> Duration = 5m
+@duration_minutes () -> Duration = 5m;
 
-@test_duration_hours tests @duration_hours () -> void = run(
-    let d = 2h,
-    assert(cond: true),
-)
+@test_duration_hours tests @duration_hours () -> void = {
+    let d = 2h;
+    assert(cond: true)
+}
 
-@duration_hours () -> Duration = 2h
+@duration_hours () -> Duration = 2h;
 
-@test_duration_annotated tests @duration_annotated () -> void = run(
-    let d: Duration = 500ms,
-    assert(cond: true),
-)
+@test_duration_annotated tests @duration_annotated () -> void = {
+    let d: Duration = 500ms;
+    assert(cond: true)
+}
 
-@duration_annotated () -> Duration = run(
-    let d: Duration = 500ms,
-    d,
-)
+@duration_annotated () -> Duration = {
+    let d: Duration = 500ms;
+    d
+}
 
 // Arithmetic and comparison tests
-@test_duration_addition tests @duration_addition () -> void = run(
-    let d1 = 100ms,
-    let d2 = 200ms,
+@test_duration_addition tests @duration_addition () -> void = {
+    let d1 = 100ms;
+    let d2 = 200ms;
     assert_eq(
         actual: d1 + d2,
         expected: 300ms,
-    ),
-)
+    )
+}
 
-@duration_addition () -> Duration = 100ms + 200ms
+@duration_addition () -> Duration = 100ms + 200ms;
 
-@test_duration_subtraction tests @duration_subtraction () -> void = run(
-    let d1 = 500ms,
-    let d2 = 200ms,
+@test_duration_subtraction tests @duration_subtraction () -> void = {
+    let d1 = 500ms;
+    let d2 = 200ms;
     assert_eq(
         actual: d1 - d2,
         expected: 300ms,
-    ),
-)
+    )
+}
 
-@duration_subtraction () -> Duration = 500ms - 200ms
+@duration_subtraction () -> Duration = 500ms - 200ms;
 
-@test_duration_multiplication tests @duration_multiplication () -> void = run(
-    let d = 100ms,
+@test_duration_multiplication tests @duration_multiplication () -> void = {
+    let d = 100ms;
     assert_eq(
         actual: d * 3,
         expected: 300ms,
-    ),
-)
+    )
+}
 
-@duration_multiplication () -> Duration = 100ms * 3
+@duration_multiplication () -> Duration = 100ms * 3;
 
-@test_duration_division tests @duration_division () -> void = run(
-    let d = 300ms,
+@test_duration_division tests @duration_division () -> void = {
+    let d = 300ms;
     assert_eq(
         actual: d / 3,
         expected: 100ms,
-    ),
-)
+    )
+}
 
-@duration_division () -> Duration = 300ms / 3
+@duration_division () -> Duration = 300ms / 3;
 
-@test_duration_comparison tests @duration_comparison () -> void = run(
-    assert(cond: 100ms < 200ms),
-    assert(cond: 200ms > 100ms),
-    assert(cond: 100ms <= 100ms),
-    assert(cond: 100ms >= 100ms),
-    assert(cond: 100ms == 100ms),
-    assert(cond: 100ms != 200ms),
-)
+@test_duration_comparison tests @duration_comparison () -> void = {
+    assert(cond: 100ms < 200ms);
+    assert(cond: 200ms > 100ms);
+    assert(cond: 100ms <= 100ms);
+    assert(cond: 100ms >= 100ms);
+    assert(cond: 100ms == 100ms);
+    assert(cond: 100ms != 200ms)
+}
 
-@duration_comparison () -> bool = 100ms < 200ms
+@duration_comparison () -> bool = 100ms < 200ms;
 
-@test_duration_negation tests @duration_negation () -> void = run(
-    let d = 100ms,
+@test_duration_negation tests @duration_negation () -> void = {
+    let d = 100ms;
     assert_eq(
         actual: -d,
         expected: -100ms,
-    ),
-)
+    )
+}
 
-@duration_negation () -> Duration = -100ms
+@duration_negation () -> Duration = -100ms;
 
-@test_duration_zero tests @duration_zero () -> void = run(
-    let d = 0ms,
+@test_duration_zero tests @duration_zero () -> void = {
+    let d = 0ms;
     assert_eq(
         actual: d,
         expected: 0ns,
-    ),
-)
+    )
+}
 
-@duration_zero () -> Duration = 0ms
+@duration_zero () -> Duration = 0ms;
 
-@test_duration_unit_equivalence tests @duration_unit_equivalence () -> void = run(
+@test_duration_unit_equivalence tests @duration_unit_equivalence () -> void = {
     // 1000 nanoseconds = 1 microsecond
     assert_eq(
         actual: 1000ns,
         expected: 1us,
-    ),
+    );
     // 1000 microseconds = 1 millisecond
     assert_eq(
         actual: 1000us,
         expected: 1ms,
-    ),
+    );
     // 1000 milliseconds = 1 second
     assert_eq(
         actual: 1000ms,
         expected: 1s,
-    ),
+    );
     // 60 seconds = 1 minute
     assert_eq(
         actual: 60s,
         expected: 1m,
-    ),
+    );
     // 60 minutes = 1 hour
     assert_eq(
         actual: 60m,
         expected: 1h,
-    ),
-)
+    )
+}
 
-@duration_unit_equivalence () -> Duration = 1000ms
+@duration_unit_equivalence () -> Duration = 1000ms;
 
 // =============================================================================
 // Size — Byte Size
@@ -1004,705 +1004,705 @@ use std.testing { assert, assert_eq, assert_ne }
 // Design: 03-type-system/01-primitive-types.md § Size
 
 // Literal parsing tests - these verify the lexer accepts all Size suffixes
-@test_size_bytes tests @size_bytes () -> void = run(
-    let s = 100b,
-    assert(cond: true),
-)
+@test_size_bytes tests @size_bytes () -> void = {
+    let s = 100b;
+    assert(cond: true)
+}
 
-@size_bytes () -> Size = 100b
+@size_bytes () -> Size = 100b;
 
-@test_size_kilobytes tests @size_kilobytes () -> void = run(
-    let s = 4kb,
-    assert(cond: true),
-)
+@test_size_kilobytes tests @size_kilobytes () -> void = {
+    let s = 4kb;
+    assert(cond: true)
+}
 
-@size_kilobytes () -> Size = 4kb
+@size_kilobytes () -> Size = 4kb;
 
-@test_size_megabytes tests @size_megabytes () -> void = run(
-    let s = 10mb,
-    assert(cond: true),
-)
+@test_size_megabytes tests @size_megabytes () -> void = {
+    let s = 10mb;
+    assert(cond: true)
+}
 
-@size_megabytes () -> Size = 10mb
+@size_megabytes () -> Size = 10mb;
 
-@test_size_gigabytes tests @size_gigabytes () -> void = run(
-    let s = 2gb,
-    assert(cond: true),
-)
+@test_size_gigabytes tests @size_gigabytes () -> void = {
+    let s = 2gb;
+    assert(cond: true)
+}
 
-@size_gigabytes () -> Size = 2gb
+@size_gigabytes () -> Size = 2gb;
 
-@test_size_terabytes tests @size_terabytes () -> void = run(
-    let s = 1tb,
-    assert(cond: true),
-)
+@test_size_terabytes tests @size_terabytes () -> void = {
+    let s = 1tb;
+    assert(cond: true)
+}
 
-@size_terabytes () -> Size = 1tb
+@size_terabytes () -> Size = 1tb;
 
-@test_size_annotated tests @size_annotated () -> void = run(
-    let s: Size = 512kb,
-    assert(cond: true),
-)
+@test_size_annotated tests @size_annotated () -> void = {
+    let s: Size = 512kb;
+    assert(cond: true)
+}
 
-@size_annotated () -> Size = run(
-    let s: Size = 512kb,
-    s,
-)
+@size_annotated () -> Size = {
+    let s: Size = 512kb;
+    s
+}
 
 // Arithmetic and comparison tests
-@test_size_addition tests @size_addition () -> void = run(
-    let s1 = 100b,
-    let s2 = 200b,
+@test_size_addition tests @size_addition () -> void = {
+    let s1 = 100b;
+    let s2 = 200b;
     assert_eq(
         actual: s1 + s2,
         expected: 300b,
-    ),
-)
+    )
+}
 
-@size_addition () -> Size = 100b + 200b
+@size_addition () -> Size = 100b + 200b;
 
-@test_size_subtraction tests @size_subtraction () -> void = run(
-    let s1 = 500b,
-    let s2 = 200b,
+@test_size_subtraction tests @size_subtraction () -> void = {
+    let s1 = 500b;
+    let s2 = 200b;
     assert_eq(
         actual: s1 - s2,
         expected: 300b,
-    ),
-)
+    )
+}
 
-@size_subtraction () -> Size = 500b - 200b
+@size_subtraction () -> Size = 500b - 200b;
 
-@test_size_multiplication tests @size_multiplication () -> void = run(
-    let s = 100b,
+@test_size_multiplication tests @size_multiplication () -> void = {
+    let s = 100b;
     assert_eq(
         actual: s * 3,
         expected: 300b,
-    ),
-)
+    )
+}
 
-@size_multiplication () -> Size = 100b * 3
+@size_multiplication () -> Size = 100b * 3;
 
-@test_size_division tests @size_division () -> void = run(
-    let s = 300b,
+@test_size_division tests @size_division () -> void = {
+    let s = 300b;
     assert_eq(
         actual: s / 3,
         expected: 100b,
-    ),
-)
+    )
+}
 
-@size_division () -> Size = 300b / 3
+@size_division () -> Size = 300b / 3;
 
-@test_size_comparison tests @size_comparison () -> void = run(
-    assert(cond: 100b < 200b),
-    assert(cond: 200b > 100b),
-    assert(cond: 100b <= 100b),
-    assert(cond: 100b >= 100b),
-    assert(cond: 100b == 100b),
-    assert(cond: 100b != 200b),
-)
+@test_size_comparison tests @size_comparison () -> void = {
+    assert(cond: 100b < 200b);
+    assert(cond: 200b > 100b);
+    assert(cond: 100b <= 100b);
+    assert(cond: 100b >= 100b);
+    assert(cond: 100b == 100b);
+    assert(cond: 100b != 200b)
+}
 
-@size_comparison () -> bool = 100b < 200b
+@size_comparison () -> bool = 100b < 200b;
 
-@test_size_zero tests @size_zero () -> void = run(
-    let s = 0b,
+@test_size_zero tests @size_zero () -> void = {
+    let s = 0b;
     assert_eq(
         actual: s,
         expected: 0kb,
-    ),
-)
+    )
+}
 
-@size_zero () -> Size = 0b
+@size_zero () -> Size = 0b;
 
-@test_size_unit_equivalence tests @size_unit_equivalence () -> void = run(
+@test_size_unit_equivalence tests @size_unit_equivalence () -> void = {
     // SI units: decimal notation - what you see is what you get
     // 1000 bytes = 1 kilobyte
     assert_eq(
         actual: 1000b,
         expected: 1kb,
-    ),
+    );
     // 1000 kilobytes = 1 megabyte
     assert_eq(
         actual: 1000kb,
         expected: 1mb,
-    ),
+    );
     // 1000 megabytes = 1 gigabyte
     assert_eq(
         actual: 1000mb,
         expected: 1gb,
-    ),
+    );
     // 1000 gigabytes = 1 terabyte
     assert_eq(
         actual: 1000gb,
         expected: 1tb,
-    ),
-)
+    )
+}
 
-@size_unit_equivalence () -> Size = 1000b
+@size_unit_equivalence () -> Size = 1000b;
 
 // =============================================================================
 // Duration — Extended Tests
 // =============================================================================
 
-@test_duration_mixed_unit_arithmetic tests @duration_mixed_unit_arithmetic () -> void = run(
+@test_duration_mixed_unit_arithmetic tests @duration_mixed_unit_arithmetic () -> void = {
     // Adding different units should work
     assert_eq(
         actual: 1s + 500ms,
         expected: 1500ms,
-    ),
+    );
     assert_eq(
         actual: 1m + 30s,
         expected: 90s,
-    ),
+    );
     assert_eq(
         actual: 2h + 30m,
         expected: 150m,
-    ),
+    );
     assert_eq(
         actual: 1us + 500ns,
         expected: 1500ns,
-    ),
-)
+    )
+}
 
-@duration_mixed_unit_arithmetic () -> Duration = 1s + 500ms
+@duration_mixed_unit_arithmetic () -> Duration = 1s + 500ms;
 
-@test_duration_negative_arithmetic tests @duration_negative_arithmetic () -> void = run(
+@test_duration_negative_arithmetic tests @duration_negative_arithmetic () -> void = {
     // Negative durations
-    let neg = -100ms,
+    let neg = -100ms;
     assert_eq(
         actual: neg + 100ms,
         expected: 0ns,
-    ),
+    );
     assert_eq(
         actual: 100ms + neg,
         expected: 0ns,
-    ),
+    );
     // Subtracting larger from smaller gives negative
     assert_eq(
         actual: 100ms - 200ms,
         expected: -100ms,
-    ),
-)
+    )
+}
 
-@duration_negative_arithmetic () -> Duration = -100ms
+@duration_negative_arithmetic () -> Duration = -100ms;
 
-@test_duration_int_multiplication tests @duration_int_multiplication () -> void = run(
+@test_duration_int_multiplication tests @duration_int_multiplication () -> void = {
     // Duration * int
     assert_eq(
         actual: 100ms * 5,
         expected: 500ms,
-    ),
+    );
     // int * Duration
     assert_eq(
         actual: 5 * 100ms,
         expected: 500ms,
-    ),
+    );
     // Multiply by negative int
     assert_eq(
         actual: 100ms * -2,
         expected: -200ms,
-    ),
-)
+    )
+}
 
-@duration_int_multiplication () -> Duration = 100ms * 5
+@duration_int_multiplication () -> Duration = 100ms * 5;
 
-@test_duration_modulo tests @duration_modulo () -> void = run(
+@test_duration_modulo tests @duration_modulo () -> void = {
     // Duration % Duration
     assert_eq(
         actual: 1500ms % 1s,
         expected: 500ms,
-    ),
+    );
     assert_eq(
         actual: 100s % 1m,
         expected: 40s,
-    ),
-)
+    )
+}
 
-@duration_modulo () -> Duration = 1500ms % 1s
+@duration_modulo () -> Duration = 1500ms % 1s;
 
-@test_duration_comparison_mixed_units tests @duration_comparison_mixed_units () -> void = run(
+@test_duration_comparison_mixed_units tests @duration_comparison_mixed_units () -> void = {
     // Comparing across units
-    assert(cond: 1000ms == 1s),
-    assert(cond: 60s == 1m),
-    assert(cond: 60m == 1h),
-    assert(cond: 1001ms > 1s),
-    assert(cond: 999ms < 1s),
-    assert(cond: 1us > 999ns),
-)
+    assert(cond: 1000ms == 1s);
+    assert(cond: 60s == 1m);
+    assert(cond: 60m == 1h);
+    assert(cond: 1001ms > 1s);
+    assert(cond: 999ms < 1s);
+    assert(cond: 1us > 999ns)
+}
 
-@duration_comparison_mixed_units () -> bool = 1000ms == 1s
+@duration_comparison_mixed_units () -> bool = 1000ms == 1s;
 
-@test_duration_double_negation tests @duration_double_negation () -> void = run(
-    let d = 100ms,
+@test_duration_double_negation tests @duration_double_negation () -> void = {
+    let d = 100ms;
     assert_eq(
         actual: --d,
         expected: 100ms,
-    ),
+    );
     assert_eq(
         actual: -(-100ms),
         expected: 100ms,
-    ),
-)
+    )
+}
 
-@duration_double_negation () -> Duration = --100ms
+@duration_double_negation () -> Duration = --100ms;
 
 // =============================================================================
 // Size — Extended Tests
 // =============================================================================
 
-@test_size_mixed_unit_arithmetic tests @size_mixed_unit_arithmetic () -> void = run(
+@test_size_mixed_unit_arithmetic tests @size_mixed_unit_arithmetic () -> void = {
     // Adding different units - SI decimal: 1kb = 1000b
     assert_eq(
         actual: 1kb + 512b,
         expected: 1512b,
-    ),
+    );
     assert_eq(
         actual: 1mb + 512kb,
         expected: 1512kb,
-    ),
+    );
     assert_eq(
         actual: 1gb + 512mb,
         expected: 1512mb,
-    ),
-)
+    )
+}
 
-@size_mixed_unit_arithmetic () -> Size = 1kb + 512b
+@size_mixed_unit_arithmetic () -> Size = 1kb + 512b;
 
-@test_size_int_multiplication tests @size_int_multiplication () -> void = run(
+@test_size_int_multiplication tests @size_int_multiplication () -> void = {
     // Size * int
     assert_eq(
         actual: 100b * 5,
         expected: 500b,
-    ),
+    );
     // int * Size
     assert_eq(
         actual: 5 * 100b,
         expected: 500b,
-    ),
+    );
     assert_eq(
         actual: 2 * 1kb,
         expected: 2kb,
-    ),
-)
+    )
+}
 
-@size_int_multiplication () -> Size = 100b * 5
+@size_int_multiplication () -> Size = 100b * 5;
 
-@test_size_modulo tests @size_modulo () -> void = run(
+@test_size_modulo tests @size_modulo () -> void = {
     // Size % Size - SI decimal: 1kb = 1000b
     assert_eq(
         actual: 1500b % 1kb,
         expected: 500b,
-    ),
+    );
     assert_eq(
         actual: 2500kb % 1mb,
         expected: 500kb,
-    ),
-)
+    )
+}
 
-@size_modulo () -> Size = 1500b % 1kb
+@size_modulo () -> Size = 1500b % 1kb;
 
-@test_size_comparison_mixed_units tests @size_comparison_mixed_units () -> void = run(
+@test_size_comparison_mixed_units tests @size_comparison_mixed_units () -> void = {
     // Comparing across units - SI decimal notation
-    assert(cond: 1000b == 1kb),
-    assert(cond: 1000kb == 1mb),
-    assert(cond: 1000mb == 1gb),
-    assert(cond: 1000gb == 1tb),
-    assert(cond: 1001b > 1kb),
-    assert(cond: 999b < 1kb),
-)
+    assert(cond: 1000b == 1kb);
+    assert(cond: 1000kb == 1mb);
+    assert(cond: 1000mb == 1gb);
+    assert(cond: 1000gb == 1tb);
+    assert(cond: 1001b > 1kb);
+    assert(cond: 999b < 1kb)
+}
 
-@size_comparison_mixed_units () -> bool = 1000b == 1kb
+@size_comparison_mixed_units () -> bool = 1000b == 1kb;
 
-@test_size_large_values tests @size_large_values () -> void = run(
+@test_size_large_values tests @size_large_values () -> void = {
     // Working with terabytes
-    let one_tb = 1tb,
-    let two_tb = 2tb,
+    let one_tb = 1tb;
+    let two_tb = 2tb;
     assert_eq(
         actual: one_tb + one_tb,
         expected: two_tb,
-    ),
+    );
     assert_eq(
         actual: two_tb / 2,
         expected: one_tb,
-    ),
-)
+    )
+}
 
-@size_large_values () -> Size = 1tb + 1tb
+@size_large_values () -> Size = 1tb + 1tb;
 
 // =============================================================================
 // Duration Extraction Methods
 // =============================================================================
 // Spec: 06-types.md § Duration Conversion Methods
 
-@test_duration_nanoseconds_method tests @duration_nanoseconds_method () -> void = run(
+@test_duration_nanoseconds_method tests @duration_nanoseconds_method () -> void = {
     // Basic extraction
-    assert_eq(actual: 1000ns.nanoseconds(), expected: 1000),
-    assert_eq(actual: 1us.nanoseconds(), expected: 1000),
-    assert_eq(actual: 1ms.nanoseconds(), expected: 1000000),
-    assert_eq(actual: 1s.nanoseconds(), expected: 1000000000),
+    assert_eq(actual: 1000ns.nanoseconds(), expected: 1000);
+    assert_eq(actual: 1us.nanoseconds(), expected: 1000);
+    assert_eq(actual: 1ms.nanoseconds(), expected: 1000000);
+    assert_eq(actual: 1s.nanoseconds(), expected: 1000000000);
     // Negative durations
-    assert_eq(actual: (-100ns).nanoseconds(), expected: -100),
-    assert_eq(actual: (-1ms).nanoseconds(), expected: -1000000),
-)
+    assert_eq(actual: (-100ns).nanoseconds(), expected: -100);
+    assert_eq(actual: (-1ms).nanoseconds(), expected: -1000000)
+}
 
-@duration_nanoseconds_method () -> int = 1000ns.nanoseconds()
+@duration_nanoseconds_method () -> int = 1000ns.nanoseconds();
 
-@test_duration_microseconds_method tests @duration_microseconds_method () -> void = run(
+@test_duration_microseconds_method tests @duration_microseconds_method () -> void = {
     // Truncating behavior
-    assert_eq(actual: 1500ns.microseconds(), expected: 1),
-    assert_eq(actual: 1000us.microseconds(), expected: 1000),
-    assert_eq(actual: 1ms.microseconds(), expected: 1000),
-    assert_eq(actual: 1s.microseconds(), expected: 1000000),
+    assert_eq(actual: 1500ns.microseconds(), expected: 1);
+    assert_eq(actual: 1000us.microseconds(), expected: 1000);
+    assert_eq(actual: 1ms.microseconds(), expected: 1000);
+    assert_eq(actual: 1s.microseconds(), expected: 1000000);
     // Negative durations - truncate toward zero
-    assert_eq(actual: (-1500ns).microseconds(), expected: -1),
-)
+    assert_eq(actual: (-1500ns).microseconds(), expected: -1)
+}
 
-@duration_microseconds_method () -> int = 1us.microseconds()
+@duration_microseconds_method () -> int = 1us.microseconds();
 
-@test_duration_ms_method tests @duration_ms_method () -> void = run(
+@test_duration_ms_method tests @duration_ms_method () -> void = {
     // Truncating behavior
-    assert_eq(actual: 1500us.milliseconds(), expected: 1),
-    assert_eq(actual: 1000ms.milliseconds(), expected: 1000),
-    assert_eq(actual: 1s.milliseconds(), expected: 1000),
-    assert_eq(actual: 1m.milliseconds(), expected: 60000),
+    assert_eq(actual: 1500us.milliseconds(), expected: 1);
+    assert_eq(actual: 1000ms.milliseconds(), expected: 1000);
+    assert_eq(actual: 1s.milliseconds(), expected: 1000);
+    assert_eq(actual: 1m.milliseconds(), expected: 60000);
     // Negative durations
-    assert_eq(actual: (-1500us).milliseconds(), expected: -1),
-)
+    assert_eq(actual: (-1500us).milliseconds(), expected: -1)
+}
 
-@duration_ms_method () -> int = 1000ms.milliseconds()
+@duration_ms_method () -> int = 1000ms.milliseconds();
 
-@test_duration_seconds_method tests @duration_seconds_method () -> void = run(
+@test_duration_seconds_method tests @duration_seconds_method () -> void = {
     // Truncating behavior - per spec: `90s.minutes()` returns `1`
-    assert_eq(actual: 1500ms.seconds(), expected: 1),
-    assert_eq(actual: 90s.seconds(), expected: 90),
-    assert_eq(actual: 1m.seconds(), expected: 60),
-    assert_eq(actual: 1h.seconds(), expected: 3600),
+    assert_eq(actual: 1500ms.seconds(), expected: 1);
+    assert_eq(actual: 90s.seconds(), expected: 90);
+    assert_eq(actual: 1m.seconds(), expected: 60);
+    assert_eq(actual: 1h.seconds(), expected: 3600);
     // Negative durations
-    assert_eq(actual: (-1500ms).seconds(), expected: -1),
-)
+    assert_eq(actual: (-1500ms).seconds(), expected: -1)
+}
 
-@duration_seconds_method () -> int = 90s.seconds()
+@duration_seconds_method () -> int = 90s.seconds();
 
-@test_duration_minutes_method tests @duration_minutes_method () -> void = run(
+@test_duration_minutes_method tests @duration_minutes_method () -> void = {
     // Truncating behavior - per spec: `90s.minutes()` returns `1`
-    assert_eq(actual: 90s.minutes(), expected: 1),
-    assert_eq(actual: 120s.minutes(), expected: 2),
-    assert_eq(actual: 1h.minutes(), expected: 60),
-    assert_eq(actual: 2h.minutes(), expected: 120),
+    assert_eq(actual: 90s.minutes(), expected: 1);
+    assert_eq(actual: 120s.minutes(), expected: 2);
+    assert_eq(actual: 1h.minutes(), expected: 60);
+    assert_eq(actual: 2h.minutes(), expected: 120);
     // Negative durations
-    assert_eq(actual: (-90s).minutes(), expected: -1),
-)
+    assert_eq(actual: (-90s).minutes(), expected: -1)
+}
 
-@duration_minutes_method () -> int = 90s.minutes()
+@duration_minutes_method () -> int = 90s.minutes();
 
-@test_duration_hours_method tests @duration_hours_method () -> void = run(
+@test_duration_hours_method tests @duration_hours_method () -> void = {
     // Truncating behavior
-    assert_eq(actual: 90m.hours(), expected: 1),
-    assert_eq(actual: 120m.hours(), expected: 2),
-    assert_eq(actual: 3600s.hours(), expected: 1),
-    assert_eq(actual: 7200s.hours(), expected: 2),
+    assert_eq(actual: 90m.hours(), expected: 1);
+    assert_eq(actual: 120m.hours(), expected: 2);
+    assert_eq(actual: 3600s.hours(), expected: 1);
+    assert_eq(actual: 7200s.hours(), expected: 2);
     // Negative durations
-    assert_eq(actual: (-90m).hours(), expected: -1),
-)
+    assert_eq(actual: (-90m).hours(), expected: -1)
+}
 
-@duration_hours_method () -> int = 2h.hours()
+@duration_hours_method () -> int = 2h.hours();
 
 // =============================================================================
 // Size Extraction Methods
 // =============================================================================
 // Spec: 06-types.md § Size Conversion Methods
 
-@test_size_bytes_method tests @size_bytes_method () -> void = run(
+@test_size_bytes_method tests @size_bytes_method () -> void = {
     // Basic extraction - SI decimal: 1kb = 1000 bytes
-    assert_eq(actual: 1000b.bytes(), expected: 1000),
-    assert_eq(actual: 1kb.bytes(), expected: 1000),
-    assert_eq(actual: 1mb.bytes(), expected: 1000000),
-)
+    assert_eq(actual: 1000b.bytes(), expected: 1000);
+    assert_eq(actual: 1kb.bytes(), expected: 1000);
+    assert_eq(actual: 1mb.bytes(), expected: 1000000)
+}
 
-@size_bytes_method () -> int = 1000b.bytes()
+@size_bytes_method () -> int = 1000b.bytes();
 
-@test_size_kilobytes_method tests @size_kilobytes_method () -> void = run(
+@test_size_kilobytes_method tests @size_kilobytes_method () -> void = {
     // Truncating behavior - SI decimal: 1kb = 1000b, 1mb = 1000kb
-    assert_eq(actual: 1500b.kilobytes(), expected: 1),
-    assert_eq(actual: 1000kb.kilobytes(), expected: 1000),
-    assert_eq(actual: 1mb.kilobytes(), expected: 1000),
-    assert_eq(actual: 1gb.kilobytes(), expected: 1000000),
-)
+    assert_eq(actual: 1500b.kilobytes(), expected: 1);
+    assert_eq(actual: 1000kb.kilobytes(), expected: 1000);
+    assert_eq(actual: 1mb.kilobytes(), expected: 1000);
+    assert_eq(actual: 1gb.kilobytes(), expected: 1000000)
+}
 
-@size_kilobytes_method () -> int = 1000kb.kilobytes()
+@size_kilobytes_method () -> int = 1000kb.kilobytes();
 
-@test_size_megabytes_method tests @size_megabytes_method () -> void = run(
+@test_size_megabytes_method tests @size_megabytes_method () -> void = {
     // Truncating behavior - SI decimal: 1mb = 1000kb, 1gb = 1000mb
-    assert_eq(actual: 1500kb.megabytes(), expected: 1),
-    assert_eq(actual: 1000mb.megabytes(), expected: 1000),
-    assert_eq(actual: 1gb.megabytes(), expected: 1000),
-    assert_eq(actual: 1tb.megabytes(), expected: 1000000),
-)
+    assert_eq(actual: 1500kb.megabytes(), expected: 1);
+    assert_eq(actual: 1000mb.megabytes(), expected: 1000);
+    assert_eq(actual: 1gb.megabytes(), expected: 1000);
+    assert_eq(actual: 1tb.megabytes(), expected: 1000000)
+}
 
-@size_megabytes_method () -> int = 1000mb.megabytes()
+@size_megabytes_method () -> int = 1000mb.megabytes();
 
-@test_size_gigabytes_method tests @size_gigabytes_method () -> void = run(
+@test_size_gigabytes_method tests @size_gigabytes_method () -> void = {
     // Truncating behavior - SI decimal: 1gb = 1000mb, 1tb = 1000gb
-    assert_eq(actual: 1500mb.gigabytes(), expected: 1),
-    assert_eq(actual: 1000gb.gigabytes(), expected: 1000),
-    assert_eq(actual: 1tb.gigabytes(), expected: 1000),
-)
+    assert_eq(actual: 1500mb.gigabytes(), expected: 1);
+    assert_eq(actual: 1000gb.gigabytes(), expected: 1000);
+    assert_eq(actual: 1tb.gigabytes(), expected: 1000)
+}
 
-@size_gigabytes_method () -> int = 1000gb.gigabytes()
+@size_gigabytes_method () -> int = 1000gb.gigabytes();
 
-@test_size_terabytes_method tests @size_terabytes_method () -> void = run(
+@test_size_terabytes_method tests @size_terabytes_method () -> void = {
     // Truncating behavior - SI decimal: 1tb = 1000gb
-    assert_eq(actual: 1500gb.terabytes(), expected: 1),
-    assert_eq(actual: 2tb.terabytes(), expected: 2),
-)
+    assert_eq(actual: 1500gb.terabytes(), expected: 1);
+    assert_eq(actual: 2tb.terabytes(), expected: 2)
+}
 
-@size_terabytes_method () -> int = 1tb.terabytes()
+@size_terabytes_method () -> int = 1tb.terabytes();
 
 // =============================================================================
 // Duration Factory Methods (Associated Functions)
 // =============================================================================
 // Spec: 06-types.md § Duration Factory Methods
 
-@test_duration_from_nanoseconds tests @duration_from_ns () -> void = run(
-    let d = Duration.from_nanoseconds(ns: 1000),
-    assert_eq(actual: d, expected: 1000ns),
-)
+@test_duration_from_nanoseconds tests @duration_from_ns () -> void = {
+    let d = Duration.from_nanoseconds(ns: 1000);
+    assert_eq(actual: d, expected: 1000ns)
+}
 
-@duration_from_ns () -> Duration = Duration.from_nanoseconds(ns: 1000)
+@duration_from_ns () -> Duration = Duration.from_nanoseconds(ns: 1000);
 
-@test_duration_from_microseconds tests @duration_from_us () -> void = run(
-    let d = Duration.from_microseconds(us: 500),
-    assert_eq(actual: d, expected: 500us),
-)
+@test_duration_from_microseconds tests @duration_from_us () -> void = {
+    let d = Duration.from_microseconds(us: 500);
+    assert_eq(actual: d, expected: 500us)
+}
 
-@duration_from_us () -> Duration = Duration.from_microseconds(us: 500)
+@duration_from_us () -> Duration = Duration.from_microseconds(us: 500);
 
-@test_duration_from_milliseconds tests @duration_from_ms () -> void = run(
-    let d = Duration.from_milliseconds(ms: 100),
-    assert_eq(actual: d, expected: 100ms),
-)
+@test_duration_from_milliseconds tests @duration_from_ms () -> void = {
+    let d = Duration.from_milliseconds(ms: 100);
+    assert_eq(actual: d, expected: 100ms)
+}
 
-@duration_from_ms () -> Duration = Duration.from_milliseconds(ms: 100)
+@duration_from_ms () -> Duration = Duration.from_milliseconds(ms: 100);
 
-@test_duration_from_seconds tests @duration_from_s () -> void = run(
-    let d = Duration.from_seconds(s: 30),
-    assert_eq(actual: d, expected: 30s),
-)
+@test_duration_from_seconds tests @duration_from_s () -> void = {
+    let d = Duration.from_seconds(s: 30);
+    assert_eq(actual: d, expected: 30s)
+}
 
-@duration_from_s () -> Duration = Duration.from_seconds(s: 30)
+@duration_from_s () -> Duration = Duration.from_seconds(s: 30);
 
-@test_duration_from_minutes tests @duration_from_m () -> void = run(
-    let d = Duration.from_minutes(m: 5),
-    assert_eq(actual: d, expected: 5m),
-)
+@test_duration_from_minutes tests @duration_from_m () -> void = {
+    let d = Duration.from_minutes(m: 5);
+    assert_eq(actual: d, expected: 5m)
+}
 
-@duration_from_m () -> Duration = Duration.from_minutes(m: 5)
+@duration_from_m () -> Duration = Duration.from_minutes(m: 5);
 
-@test_duration_from_hours tests @duration_from_h () -> void = run(
-    let d = Duration.from_hours(h: 2),
-    assert_eq(actual: d, expected: 2h),
-)
+@test_duration_from_hours tests @duration_from_h () -> void = {
+    let d = Duration.from_hours(h: 2);
+    assert_eq(actual: d, expected: 2h)
+}
 
-@duration_from_h () -> Duration = Duration.from_hours(h: 2)
+@duration_from_h () -> Duration = Duration.from_hours(h: 2);
 
 // =============================================================================
 // Size Factory Methods (Associated Functions)
 // =============================================================================
 // Spec: 06-types.md § Size Factory Methods
 
-@test_size_from_bytes tests @size_from_b () -> void = run(
-    let s = Size.from_bytes(b: 1024),
-    assert_eq(actual: s, expected: 1024b),
-)
+@test_size_from_bytes tests @size_from_b () -> void = {
+    let s = Size.from_bytes(b: 1024);
+    assert_eq(actual: s, expected: 1024b)
+}
 
-@size_from_b () -> Size = Size.from_bytes(b: 1024)
+@size_from_b () -> Size = Size.from_bytes(b: 1024);
 
-@test_size_from_kilobytes tests @size_from_kb () -> void = run(
-    let s = Size.from_kilobytes(kb: 4),
-    assert_eq(actual: s, expected: 4kb),
-)
+@test_size_from_kilobytes tests @size_from_kb () -> void = {
+    let s = Size.from_kilobytes(kb: 4);
+    assert_eq(actual: s, expected: 4kb)
+}
 
-@size_from_kb () -> Size = Size.from_kilobytes(kb: 4)
+@size_from_kb () -> Size = Size.from_kilobytes(kb: 4);
 
-@test_size_from_megabytes tests @size_from_mb () -> void = run(
-    let s = Size.from_megabytes(mb: 10),
-    assert_eq(actual: s, expected: 10mb),
-)
+@test_size_from_megabytes tests @size_from_mb () -> void = {
+    let s = Size.from_megabytes(mb: 10);
+    assert_eq(actual: s, expected: 10mb)
+}
 
-@size_from_mb () -> Size = Size.from_megabytes(mb: 10)
+@size_from_mb () -> Size = Size.from_megabytes(mb: 10);
 
-@test_size_from_gigabytes tests @size_from_gb () -> void = run(
-    let s = Size.from_gigabytes(gb: 2),
-    assert_eq(actual: s, expected: 2gb),
-)
+@test_size_from_gigabytes tests @size_from_gb () -> void = {
+    let s = Size.from_gigabytes(gb: 2);
+    assert_eq(actual: s, expected: 2gb)
+}
 
-@size_from_gb () -> Size = Size.from_gigabytes(gb: 2)
+@size_from_gb () -> Size = Size.from_gigabytes(gb: 2);
 
-@test_size_from_terabytes tests @size_from_tb () -> void = run(
-    let s = Size.from_terabytes(tb: 1),
-    assert_eq(actual: s, expected: 1tb),
-)
+@test_size_from_terabytes tests @size_from_tb () -> void = {
+    let s = Size.from_terabytes(tb: 1);
+    assert_eq(actual: s, expected: 1tb)
+}
 
-@size_from_tb () -> Size = Size.from_terabytes(tb: 1)
+@size_from_tb () -> Size = Size.from_terabytes(tb: 1);
 
 // Associated Functions: Complex Scenarios
 // Spec: 04-declarations.md § Associated Functions
 
 // Method chaining: Type.factory().method()
-@test_duration_chain_single tests @duration_chain_single () -> void = run(
-    assert_eq(actual: Duration.from_hours(h: 2).minutes(), expected: 120),
-)
-@duration_chain_single () -> int = Duration.from_hours(h: 2).minutes()
+@test_duration_chain_single tests @duration_chain_single () -> void = {
+    assert_eq(actual: Duration.from_hours(h: 2).minutes(), expected: 120)
+}
+@duration_chain_single () -> int = Duration.from_hours(h: 2).minutes();
 
-@test_size_chain_single tests @size_chain_single () -> void = run(
+@test_size_chain_single tests @size_chain_single () -> void = {
     // SI decimal: 2gb = 2000mb
-    assert_eq(actual: Size.from_gigabytes(gb: 2).megabytes(), expected: 2000),
-)
-@size_chain_single () -> int = Size.from_gigabytes(gb: 2).megabytes()
+    assert_eq(actual: Size.from_gigabytes(gb: 2).megabytes(), expected: 2000)
+}
+@size_chain_single () -> int = Size.from_gigabytes(gb: 2).megabytes();
 
 // Method chaining: (Type.factory() + Type.factory()).method()
-@test_duration_chain_after_arithmetic tests @duration_chain_arithmetic () -> void = run(
-    let mins = (Duration.from_hours(h: 1) + Duration.from_minutes(m: 30)).minutes(),
-    assert_eq(actual: mins, expected: 90),
-)
-@duration_chain_arithmetic () -> int = (Duration.from_hours(h: 1) + Duration.from_minutes(m: 30)).minutes()
+@test_duration_chain_after_arithmetic tests @duration_chain_arithmetic () -> void = {
+    let mins = (Duration.from_hours(h: 1) + Duration.from_minutes(m: 30)).minutes();
+    assert_eq(actual: mins, expected: 90)
+}
+@duration_chain_arithmetic () -> int = (Duration.from_hours(h: 1) + Duration.from_minutes(m: 30)).minutes();
 
-@test_size_chain_after_arithmetic tests @size_chain_arithmetic () -> void = run(
+@test_size_chain_after_arithmetic tests @size_chain_arithmetic () -> void = {
     // SI decimal: 1mb = 1000kb, so 1mb + 512kb = 1512kb
-    let kb = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes(),
-    assert_eq(actual: kb, expected: 1512),
-)
-@size_chain_arithmetic () -> int = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes()
+    let kb = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes();
+    assert_eq(actual: kb, expected: 1512)
+}
+@size_chain_arithmetic () -> int = (Size.from_megabytes(mb: 1) + Size.from_kilobytes(kb: 512)).kilobytes();
 
 // Chaining in list context with map
-@test_duration_list_chain tests @duration_list_map () -> void = run(
-    let durations = [Duration.from_seconds(s: 60), Duration.from_seconds(s: 120), Duration.from_seconds(s: 180)],
-    let minutes = durations.map(d -> d.minutes()),
-    assert_eq(actual: minutes, expected: [1, 2, 3]),
-)
+@test_duration_list_chain tests @duration_list_map () -> void = {
+    let durations = [Duration.from_seconds(s: 60), Duration.from_seconds(s: 120), Duration.from_seconds(s: 180)];
+    let minutes = durations.map(d -> d.minutes());
+    assert_eq(actual: minutes, expected: [1, 2, 3])
+}
 @duration_list_map () -> [int] =
     [Duration.from_seconds(s: 60), Duration.from_seconds(s: 120), Duration.from_seconds(s: 180)]
-        .map(d -> d.minutes())
+        .map(d -> d.minutes());
 
-@test_size_list_chain tests @size_list_map () -> void = run(
-    let sizes = [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)],
-    let mbs = sizes.map(s -> s.megabytes()),
-    assert_eq(actual: mbs, expected: [1, 2]),
-)
+@test_size_list_chain tests @size_list_map () -> void = {
+    let sizes = [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)];
+    let mbs = sizes.map(s -> s.megabytes());
+    assert_eq(actual: mbs, expected: [1, 2])
+}
 @size_list_map () -> [int] =
-    [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)].map(s -> s.megabytes())
+    [Size.from_kilobytes(kb: 1024), Size.from_kilobytes(kb: 2048)].map(s -> s.megabytes());
 
 // Chaining with filter
-@test_duration_filter_chain tests @duration_filter () -> void = run(
+@test_duration_filter_chain tests @duration_filter () -> void = {
     let long_durations = [
         Duration.from_seconds(s: 30),
         Duration.from_minutes(m: 2),
         Duration.from_seconds(s: 45),
         Duration.from_minutes(m: 5),
-    ].filter(d -> d > Duration.from_minutes(m: 1)),
-    assert_eq(actual: len(collection: long_durations), expected: 2),
-)
+    ].filter(d -> d > Duration.from_minutes(m: 1));
+    assert_eq(actual: len(collection: long_durations), expected: 2)
+}
 @duration_filter () -> [Duration] = [
     Duration.from_seconds(s: 30),
     Duration.from_minutes(m: 2),
     Duration.from_seconds(s: 45),
     Duration.from_minutes(m: 5),
-].filter(d -> d > Duration.from_minutes(m: 1))
+].filter(d -> d > Duration.from_minutes(m: 1));
 
 // Chaining map and filter together
-@test_duration_map_filter_chain tests @duration_map_filter () -> void = run(
+@test_duration_map_filter_chain tests @duration_map_filter () -> void = {
     let result = [
         Duration.from_seconds(s: 30),
         Duration.from_minutes(m: 2),
         Duration.from_seconds(s: 90),
-    ].map(d -> d.seconds()).filter(s -> s >= 60),
-    assert_eq(actual: result, expected: [120, 90]),
-)
+    ].map(d -> d.seconds()).filter(s -> s >= 60);
+    assert_eq(actual: result, expected: [120, 90])
+}
 @duration_map_filter () -> [int] = [
     Duration.from_seconds(s: 30),
     Duration.from_minutes(m: 2),
     Duration.from_seconds(s: 90),
-].map(d -> d.seconds()).filter(s -> s >= 60)
+].map(d -> d.seconds()).filter(s -> s >= 60);
 
 // Chaining with fold
-@test_duration_fold_chain tests @duration_fold () -> void = run(
+@test_duration_fold_chain tests @duration_fold () -> void = {
     let total = [
         Duration.from_minutes(m: 10),
         Duration.from_minutes(m: 20),
         Duration.from_minutes(m: 30),
-    ].fold(init: 0ns, f: (acc, d) -> acc + d),
-    assert_eq(actual: total, expected: 60m),
-)
+    ].fold(init: 0ns, f: (acc, d) -> acc + d);
+    assert_eq(actual: total, expected: 60m)
+}
 @duration_fold () -> Duration = [
     Duration.from_minutes(m: 10),
     Duration.from_minutes(m: 20),
     Duration.from_minutes(m: 30),
-].fold(init: 0ns, f: (acc, d) -> acc + d)
+].fold(init: 0ns, f: (acc, d) -> acc + d);
 
 // Arithmetic with factory results
-@test_duration_factory_arithmetic tests @duration_factory_add () -> void = run(
-    let total = Duration.from_minutes(m: 30) + Duration.from_seconds(s: 90),
-    assert_eq(actual: total, expected: 31m + 30s),
-)
-@duration_factory_add () -> Duration = Duration.from_minutes(m: 30) + Duration.from_seconds(s: 90)
+@test_duration_factory_arithmetic tests @duration_factory_add () -> void = {
+    let total = Duration.from_minutes(m: 30) + Duration.from_seconds(s: 90);
+    assert_eq(actual: total, expected: 31m + 30s)
+}
+@duration_factory_add () -> Duration = Duration.from_minutes(m: 30) + Duration.from_seconds(s: 90);
 
-@test_size_factory_arithmetic tests @size_factory_add () -> void = run(
-    let total = Size.from_megabytes(mb: 512) + Size.from_kilobytes(kb: 512),
-    assert_eq(actual: total, expected: 512mb + 512kb),
-)
-@size_factory_add () -> Size = Size.from_megabytes(mb: 512) + Size.from_kilobytes(kb: 512)
+@test_size_factory_arithmetic tests @size_factory_add () -> void = {
+    let total = Size.from_megabytes(mb: 512) + Size.from_kilobytes(kb: 512);
+    assert_eq(actual: total, expected: 512mb + 512kb)
+}
+@size_factory_add () -> Size = Size.from_megabytes(mb: 512) + Size.from_kilobytes(kb: 512);
 
 // Comparisons with factory results
-@test_duration_factory_compare tests @duration_factory_lt () -> void = run(
-    assert(cond: Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1)),
-    assert(cond: Duration.from_minutes(m: 60) == Duration.from_hours(h: 1)),
-)
-@duration_factory_lt () -> bool = Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1)
+@test_duration_factory_compare tests @duration_factory_lt () -> void = {
+    assert(cond: Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1));
+    assert(cond: Duration.from_minutes(m: 60) == Duration.from_hours(h: 1))
+}
+@duration_factory_lt () -> bool = Duration.from_seconds(s: 59) < Duration.from_minutes(m: 1);
 
-@test_size_factory_compare tests @size_factory_lt () -> void = run(
+@test_size_factory_compare tests @size_factory_lt () -> void = {
     // SI decimal: 1mb = 1000kb, 1gb = 1000mb
-    assert(cond: Size.from_kilobytes(kb: 999) < Size.from_megabytes(mb: 1)),
-    assert(cond: Size.from_megabytes(mb: 1000) == Size.from_gigabytes(gb: 1)),
-)
-@size_factory_lt () -> bool = Size.from_kilobytes(kb: 999) < Size.from_megabytes(mb: 1)
+    assert(cond: Size.from_kilobytes(kb: 999) < Size.from_megabytes(mb: 1));
+    assert(cond: Size.from_megabytes(mb: 1000) == Size.from_gigabytes(gb: 1))
+}
+@size_factory_lt () -> bool = Size.from_kilobytes(kb: 999) < Size.from_megabytes(mb: 1);
 
 // Factory in conditional expressions
-@test_duration_factory_conditional tests @duration_conditional () -> void = run(
-    assert_eq(actual: duration_conditional(fast: true), expected: 100ms),
-    assert_eq(actual: duration_conditional(fast: false), expected: 5s),
-)
+@test_duration_factory_conditional tests @duration_conditional () -> void = {
+    assert_eq(actual: duration_conditional(fast: true), expected: 100ms);
+    assert_eq(actual: duration_conditional(fast: false), expected: 5s)
+}
 @duration_conditional (fast: bool) -> Duration =
-    if fast then Duration.from_milliseconds(ms: 100) else Duration.from_seconds(s: 5)
+    if fast then Duration.from_milliseconds(ms: 100) else Duration.from_seconds(s: 5);
 
 // Factory results as function arguments
-@test_duration_factory_as_arg tests @use_duration_arg () -> void = run(
-    assert_eq(actual: use_duration_arg(), expected: 7200),
-)
-@accepts_duration (d: Duration) -> int = d.seconds()
-@use_duration_arg () -> int = accepts_duration(d: Duration.from_hours(h: 2))
+@test_duration_factory_as_arg tests @use_duration_arg () -> void = {
+    assert_eq(actual: use_duration_arg(), expected: 7200)
+}
+@accepts_duration (d: Duration) -> int = d.seconds();
+@use_duration_arg () -> int = accepts_duration(d: Duration.from_hours(h: 2));
 
 // Nested factory calls in expressions
-@test_nested_factory tests @nested_duration_calc () -> void = run(
-    let result = nested_duration_calc(),
-    assert_eq(actual: result.seconds(), expected: 3720),
-)
-@nested_duration_calc () -> Duration = run(
-    let base = Duration.from_hours(h: 1),
-    let extra = Duration.from_minutes(m: 2),
-    base + extra,
-)
+@test_nested_factory tests @nested_duration_calc () -> void = {
+    let result = nested_duration_calc();
+    assert_eq(actual: result.seconds(), expected: 3720)
+}
+@nested_duration_calc () -> Duration = {
+    let base = Duration.from_hours(h: 1);
+    let extra = Duration.from_minutes(m: 2);
+    base + extra
+}
 
 // Factory with computed arguments
-@test_factory_computed_arg tests @factory_with_computed () -> void = run(
-    assert_eq(actual: factory_with_computed(), expected: 300s),
-)
-@factory_with_computed () -> Duration = run(
-    let minutes = 5,
-    Duration.from_minutes(m: minutes),
-)
+@test_factory_computed_arg tests @factory_with_computed () -> void = {
+    assert_eq(actual: factory_with_computed(), expected: 300s)
+}
+@factory_with_computed () -> Duration = {
+    let minutes = 5;
+    Duration.from_minutes(m: minutes)
+}
 
 // Multiple factories in single expression
-@test_multi_factory_expr tests @multi_factory () -> void = run(
-    let total = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256),
-    assert(cond: total > Size.from_gigabytes(gb: 1)),
-)
-@multi_factory () -> Size = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256)
+@test_multi_factory_expr tests @multi_factory () -> void = {
+    let total = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256);
+    assert(cond: total > Size.from_gigabytes(gb: 1))
+}
+@multi_factory () -> Size = Size.from_gigabytes(gb: 1) + Size.from_megabytes(mb: 500) + Size.from_kilobytes(kb: 256);
