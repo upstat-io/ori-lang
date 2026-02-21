@@ -6,9 +6,9 @@ use ori_ir::{
     CallArg, CapabilityRef, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef,
     ExternBlock, ExternItem, ExternParam, FieldInit, Function, GenericParam, ImplAssocType,
     ImplDef, ImplMethod, MapEntry, MatchPatternId, MatchPatternRange, Name, NamedExpr, Param,
-    ParsedType, ParsedTypeId, ParsedTypeRange, Span, Stmt, StmtKind, TemplatePart,
-    TemplatePartRange, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod, TraitItem,
-    TraitMethodSig, TypeDecl, UseDef, WhereClause,
+    ParsedType, ParsedTypeId, ParsedTypeRange, PostContract, PreContract, Span, Stmt, StmtKind,
+    TemplatePart, TemplatePartRange, TestDef, TraitAssocType, TraitDef, TraitDefaultMethod,
+    TraitItem, TraitMethodSig, TypeDecl, UseDef, WhereClause,
 };
 
 /// Deep copier for AST nodes with span adjustment.
@@ -998,6 +998,27 @@ impl<'old> AstCopier<'old> {
             .map(|w| self.copy_where_clause(w, new_arena))
             .collect();
 
+        let new_pre_contracts = func
+            .pre_contracts
+            .iter()
+            .map(|c| PreContract {
+                condition: self.copy_expr(c.condition, new_arena),
+                message: c.message,
+                span: self.adjust_span(c.span),
+            })
+            .collect();
+
+        let new_post_contracts = func
+            .post_contracts
+            .iter()
+            .map(|c| PostContract {
+                params: c.params.clone(),
+                condition: self.copy_expr(c.condition, new_arena),
+                message: c.message,
+                span: self.adjust_span(c.span),
+            })
+            .collect();
+
         Function {
             name: func.name,
             generics: new_arena.alloc_generic_params(new_generics),
@@ -1016,6 +1037,8 @@ impl<'old> AstCopier<'old> {
                 .collect(),
             where_clauses: new_where_clauses,
             guard: func.guard.map(|g| self.copy_expr(g, new_arena)),
+            pre_contracts: new_pre_contracts,
+            post_contracts: new_post_contracts,
             body: self.copy_expr(func.body, new_arena),
             span: self.adjust_span(func.span),
             visibility: func.visibility,

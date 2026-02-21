@@ -118,6 +118,9 @@ pub use ast::{
     NamedExprRange,
     Param,
     ParamRange,
+    PostContract,
+    // Function contract types
+    PreContract,
     Stmt,
     StmtKind,
     StructField,

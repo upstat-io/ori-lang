@@ -223,6 +223,8 @@ fn generic_functions_are_skipped() {
         capabilities: vec![],
         where_clauses: vec![],
         guard: None,
+        pre_contracts: vec![],
+        post_contracts: vec![],
         body: ori_ir::ExprId::INVALID,
         span: ori_ir::Span::new(0, 0),
         visibility: ori_ir::Visibility::Private,

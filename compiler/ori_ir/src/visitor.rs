@@ -240,6 +240,13 @@ pub fn walk_function<'ast, V: Visitor<'ast> + ?Sized>(
     if let Some(guard) = function.guard {
         visitor.visit_expr_id(guard, arena);
     }
+    // Visit contract condition expressions
+    for pre in &function.pre_contracts {
+        visitor.visit_expr_id(pre.condition, arena);
+    }
+    for post in &function.post_contracts {
+        visitor.visit_expr_id(post.condition, arena);
+    }
     visitor.visit_expr_id(function.body, arena);
 }
 

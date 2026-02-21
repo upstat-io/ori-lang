@@ -1,0 +1,30 @@
+// Spec: 10-patterns.md § Function-Level Contracts
+// Tests for multiple pre/post contracts on a single function.
+
+use std.testing { assert_eq }
+
+// Multiple pre-conditions + post-condition
+@divide (a: int, b: int) -> int
+    pre(b != 0 | "divisor must not be zero")
+    pre(a >= 0 | "dividend must be non-negative")
+    post(r -> r >= 0)
+    post(r -> r * b <= a)
+= a div b;
+
+@test_divide tests @divide () -> void = {
+    assert_eq(divide(10, 3), 3);
+    assert_eq(divide(0, 5), 0);
+    assert_eq(divide(100, 10), 10);
+}
+
+// Pre and post interleaved
+@bounded_increment (n: int, max: int) -> int
+    pre(n < max | "n must be below max")
+    post(r -> r > n)
+    post(r -> r <= max)
+= n + 1;
+
+@test_bounded_increment tests @bounded_increment () -> void = {
+    assert_eq(bounded_increment(5, 10), 6);
+    assert_eq(bounded_increment(0, 1), 1);
+}

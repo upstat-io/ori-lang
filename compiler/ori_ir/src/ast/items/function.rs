@@ -14,6 +14,57 @@ use super::super::Visibility;
 use super::imports::UseDef;
 use super::traits::WhereClause;
 
+/// Pre-condition contract on a function.
+///
+/// Grammar: `pre_contract = "pre" "(" check_expr ")" .`
+///
+/// Evaluated before the function body. Panics if condition is false.
+/// Example: `pre(amount > 0 | "amount must be positive")`
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct PreContract {
+    /// The boolean condition expression.
+    pub condition: ExprId,
+    /// Optional custom panic message (interned string literal).
+    pub message: Option<Name>,
+    /// Source span covering `pre(...)`.
+    pub span: Span,
+}
+
+impl Spanned for PreContract {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+/// Post-condition contract on a function.
+///
+/// Grammar: `post_contract = "post" "(" postcheck_expr ")" .`
+///
+/// Evaluated after the function body. The return value is bound to the
+/// lambda parameters before checking the condition.
+///
+/// Example: `post(r -> r > 0 | "result must be positive")`
+/// Example: `post((f, t) -> f.balance + t.balance == total)`
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub struct PostContract {
+    /// Parameter names binding the return value.
+    /// Single: `post(r -> ...)` → `["r"]`
+    /// Tuple: `post((a, b) -> ...)` → `["a", "b"]`
+    pub params: Vec<Name>,
+    /// The boolean condition expression.
+    pub condition: ExprId,
+    /// Optional custom panic message (interned string literal).
+    pub message: Option<Name>,
+    /// Source span covering `post(...)`.
+    pub span: Span,
+}
+
+impl Spanned for PostContract {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// Parameter in a function or lambda.
 ///
 /// Supports clause-based parameters with patterns and default values:
@@ -75,6 +126,10 @@ pub struct Function {
     /// Guard clause: `if condition` before `=`
     /// Example: `@abs (n: int) -> int if n < 0 = -n`
     pub guard: Option<ExprId>,
+    /// Pre-condition contracts: `pre(condition | "message")`
+    pub pre_contracts: Vec<PreContract>,
+    /// Post-condition contracts: `post(r -> condition | "message")`
+    pub post_contracts: Vec<PostContract>,
     pub body: ExprId,
     pub span: Span,
     pub visibility: Visibility,
@@ -84,8 +139,9 @@ impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, guard: {:?}, visibility: {:?} }}",
-            self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.guard, self.visibility
+            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, guard: {:?}, pre: {}, post: {}, visibility: {:?} }}",
+            self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.guard,
+            self.pre_contracts.len(), self.post_contracts.len(), self.visibility
         )
     }
 }
