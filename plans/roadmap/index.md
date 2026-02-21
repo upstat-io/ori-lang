@@ -88,6 +88,7 @@ trait bounds, where clause, constraints
 derive, #derive, Eq, Clone, Hashable, Debug, Default, Printable
 operator traits, Add, Sub, Mul, Div, Neg, Rem
 BitAnd, BitOr, BitXor, Shl, Shr, BitNot
+MatMul, matrix multiplication, @ operator
 Comparable, Ordering, compare, less, greater, equal
 Iterator, DoubleEndedIterator, Iterable, Collect
 Into, conversion trait, type conversion

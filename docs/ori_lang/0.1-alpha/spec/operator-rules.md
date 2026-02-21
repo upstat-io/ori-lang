@@ -403,7 +403,7 @@ PREC  OPERATORS              ASSOC   DESCRIPTION
 ────  ─────────              ─────   ───────────
 1     . [] () ? as as?       left    postfix
 2     ! - ~                  right   unary
-3     * / % div              left    multiplicative
+3     * / % div @            left    multiplicative
 4     + -                    left    additive
 5     << >>                  left    shift
 6     .. ..= [by]            left    range (by is step modifier)
@@ -430,6 +430,7 @@ OPERATOR -> TRAIT -> METHOD
 /    -> Div      -> divide(self, other:)
 div  -> FloorDiv -> floor_divide(self, other:)
 %    -> Rem      -> remainder(self, other:)
+@    -> MatMul   -> matrix_multiply(self, rhs:)
 -    -> Neg      -> negate(self)
 !    -> Not      -> not(self)
 ~    -> BitNot   -> bit_not(self)
