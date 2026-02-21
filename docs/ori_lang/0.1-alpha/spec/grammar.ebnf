@@ -447,7 +447,9 @@ let_expr = "let" binding_pattern [ ":" type ] "=" expression .
 assignment        = assignment_target "=" expression
                   | assignment_target compound_op expression .
 assignment_target = identifier { "[" expression "]" | "." identifier } .
-compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" .
+compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" | "@="
+                  | "&=" | "|=" | "^=" | "<<=" | ">>="
+                  | "&&=" | "||=" .
 binding           = let_expr | assignment .  /* convenience grouping; not currently referenced */
 
 // --- Conditional ---

@@ -970,6 +970,24 @@ The right side evaluates before assignment:
 x = compute();  // compute() evaluated, then assigned to x
 ```
 
+### Compound Assignment
+
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § `compound_op`
+> **Rules:** See [operator-rules.md](operator-rules.md) § Compound Assignment
+
+A _compound assignment_ `x op= y` desugars to `x = x op y` at parse time. The left-hand side must be a mutable binding. Compound assignment is a statement, not an expression.
+
+```ori
+x += 1;              // desugars to: x = x + 1
+point.x *= scale;    // desugars to: point.x = point.x * scale
+flags |= MASK;       // desugars to: flags = flags | MASK
+passed &&= check();  // desugars to: passed = passed && check()
+```
+
+Supported operators: `+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`.
+
+The `&&=` and `||=` forms preserve short-circuit evaluation: `x &&= expr` does not evaluate `expr` when `x` is `false`.
+
 ### Short-Circuit Evaluation
 
 Logical and coalesce operators may skip the right operand:

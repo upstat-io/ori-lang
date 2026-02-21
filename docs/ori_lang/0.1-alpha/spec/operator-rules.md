@@ -447,3 +447,38 @@ RESOLUTION ORDER
 1. Primitive type -> direct evaluation
 2. User type -> trait method lookup
 ```
+
+---
+
+## Compound Assignment
+
+```
+DESUGARING
+──────────
+x op= y  =>  x = x op y    [parser-level rewrite]
+
+SUPPORTED OPERATORS (TRAIT-BASED)
+─────────────────────────────────
++=   desugars via  Add
+-=   desugars via  Sub
+*=   desugars via  Mul
+/=   desugars via  Div
+%=   desugars via  Rem
+@=   desugars via  MatMul
+&=   desugars via  BitAnd
+|=   desugars via  BitOr
+^=   desugars via  BitXor
+<<=  desugars via  Shl
+>>=  desugars via  Shr
+
+SUPPORTED OPERATORS (LOGICAL)
+─────────────────────────────
+&&=  desugars to  x = x && y    [bool-only, short-circuit preserved]
+||=  desugars to  x = x || y    [bool-only, short-circuit preserved]
+
+CONSTRAINTS
+───────────
+- Left-hand side must be a mutable binding (no $ prefix)
+- Compound assignment is a statement, not an expression
+- Target expression is duplicated in AST (pure: no side effects)
+```
