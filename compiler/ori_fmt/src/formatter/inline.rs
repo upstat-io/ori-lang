@@ -352,6 +352,10 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
 
             // Postfix operators
+            ExprKind::Unsafe(inner) => {
+                self.ctx.emit("unsafe ");
+                self.emit_inline(*inner);
+            }
             ExprKind::Await(inner) => {
                 self.emit_inline(*inner);
                 self.ctx.emit(".await");

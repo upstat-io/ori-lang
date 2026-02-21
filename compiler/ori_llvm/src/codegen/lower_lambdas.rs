@@ -266,6 +266,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             | CanExpr::Some(e)
             | CanExpr::Try(e)
             | CanExpr::Await(e)
+            | CanExpr::Unsafe(e)
             | CanExpr::Break { value: e, .. }
             | CanExpr::Continue { value: e, .. } => {
                 self.collect_free_vars(e, params, captures, seen);

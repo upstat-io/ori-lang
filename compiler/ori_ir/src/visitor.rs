@@ -288,7 +288,10 @@ pub fn walk_expr<'ast, V: Visitor<'ast> + ?Sized>(
         ExprKind::Unary { operand, .. } => {
             visitor.visit_expr_id(*operand, arena);
         }
-        ExprKind::Try(inner) | ExprKind::Await(inner) | ExprKind::Some(inner) => {
+        ExprKind::Try(inner)
+        | ExprKind::Await(inner)
+        | ExprKind::Some(inner)
+        | ExprKind::Unsafe(inner) => {
             visitor.visit_expr_id(*inner, arena);
         }
         ExprKind::Cast { expr, .. } => {

@@ -173,6 +173,7 @@ impl ArcLowerer<'_> {
                 step,
                 inclusive,
             } => self.lower_range(start, end, step, inclusive, ty, span),
+            CanExpr::Unsafe(inner) => self.lower_expr(inner),
             CanExpr::Try(inner) => self.lower_try(inner, ty, span),
             CanExpr::Cast {
                 expr,

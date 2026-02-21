@@ -213,6 +213,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         // Control Flow Expressions
         ExprKind::Break { value, .. } => infer_break(engine, arena, *value, span),
         ExprKind::Continue { value, .. } => infer_continue(engine, arena, *value, span),
+        ExprKind::Unsafe(inner) => infer_expr(engine, arena, *inner),
         ExprKind::Try(inner) => infer_try(engine, arena, *inner, span),
         ExprKind::Await(inner) => infer_await(engine, arena, *inner, span),
 

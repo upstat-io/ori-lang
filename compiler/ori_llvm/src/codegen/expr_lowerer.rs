@@ -359,6 +359,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             // --- Constructs (lower_constructs.rs) ---
             CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, id),
             CanExpr::SelfRef => self.lower_self_ref(),
+            CanExpr::Unsafe(inner) => self.lower(inner),
             CanExpr::Await(inner) => self.lower_await(inner),
             CanExpr::WithCapability {
                 capability,

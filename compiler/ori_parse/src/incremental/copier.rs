@@ -259,6 +259,7 @@ impl<'old> AstCopier<'old> {
                     ExprId::INVALID
                 },
             },
+            ExprKind::Unsafe(inner) => ExprKind::Unsafe(self.copy_expr(*inner, new_arena)),
             ExprKind::Await(inner) => ExprKind::Await(self.copy_expr(*inner, new_arena)),
             ExprKind::Try(inner) => ExprKind::Try(self.copy_expr(*inner, new_arena)),
             ExprKind::Cast { expr, ty, fallible } => ExprKind::Cast {
