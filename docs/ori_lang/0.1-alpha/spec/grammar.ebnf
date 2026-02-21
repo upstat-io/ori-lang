@@ -399,7 +399,7 @@ member_name    = identifier | keyword | int_literal .  /* keywords/ints valid af
 match_method   = "match" "(" match_arm { "," match_arm } ")" .
 call_args      = "(" [ call_arg { "," call_arg } ] ")" .
 call_arg       = named_arg | positional_arg | spread_arg .
-named_arg      = identifier ":" expression .
+named_arg      = identifier ":" [ expression ] .  /* punned when expression omitted: f(x:) = f(x: x) */
 positional_arg = expression .
 spread_arg     = "..." expression .  /* spread into variadic position only */
 
@@ -563,7 +563,9 @@ match_pattern = literal_pattern
 literal_pattern     = [ "-" ] int_literal | string_literal | char_literal | bool_literal .
 identifier_pattern  = identifier .
 wildcard_pattern    = "_" .
-variant_pattern     = type_path [ "(" [ match_pattern { "," match_pattern } ] ")" ] .
+variant_pattern     = type_path [ "(" [ variant_field { "," variant_field } ] ")" ] .
+variant_field       = identifier ":" [ match_pattern ]   /* named; punned if pattern omitted */
+                    | match_pattern .                     /* positional */
 struct_pattern      = [ type_path ] "{" [ field_pattern { "," field_pattern } ] [ ".." ] "}" .
 field_pattern       = identifier [ ":" match_pattern ] .
 tuple_pattern       = "(" [ match_pattern { "," match_pattern } ] ")" .
