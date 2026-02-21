@@ -128,6 +128,20 @@ impl<'src> TokenCooker<'src> {
             RawTag::Shl => TokenKind::Shl,
             RawTag::QuestionQuestion => TokenKind::DoubleQuestion,
 
+            // Compound assignment operators
+            RawTag::PlusEq => TokenKind::PlusEq,
+            RawTag::MinusEq => TokenKind::MinusEq,
+            RawTag::StarEq => TokenKind::StarEq,
+            RawTag::SlashEq => TokenKind::SlashEq,
+            RawTag::PercentEq => TokenKind::PercentEq,
+            RawTag::AtEq => TokenKind::AtEq,
+            RawTag::AmpersandEq => TokenKind::AmpEq,
+            RawTag::PipeEq => TokenKind::PipeEq,
+            RawTag::CaretEq => TokenKind::CaretEq,
+            RawTag::ShlEq => TokenKind::ShlEq,
+            RawTag::AmpersandAmpersandEq => TokenKind::AmpAmpEq,
+            RawTag::PipePipeEq => TokenKind::PipePipeEq,
+
             // Delimiters
             RawTag::LeftParen => TokenKind::LParen,
             RawTag::RightParen => TokenKind::RParen,

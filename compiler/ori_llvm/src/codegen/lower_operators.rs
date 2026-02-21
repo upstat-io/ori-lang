@@ -118,6 +118,9 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 Some(self.build_range_struct(lhs, rhs, inclusive))
             }
 
+            // MatMul has no primitive lowering (trait-dispatched only)
+            BinaryOp::MatMul => None,
+
             // Short-circuit handled above; this arm is unreachable.
             BinaryOp::And | BinaryOp::Or | BinaryOp::Coalesce => unreachable!(),
         }

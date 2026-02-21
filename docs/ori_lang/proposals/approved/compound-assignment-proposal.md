@@ -290,3 +290,7 @@ The `div` operator uses a keyword, not a symbol. No language has `div=` as a com
 9. Precedence of RHS: `x += a * b` desugars to `x = x + (a * b)` (RHS is full expression)
 10. `&&=` short-circuits correctly: `x &&= expr` does not evaluate `expr` when `x` is `false`
 11. `||=` short-circuits correctly: `x ||= expr` does not evaluate `expr` when `x` is `true`
+
+## Errata (added 2026-02-21)
+
+> **Extended by power-operator-proposal**: The `**=` compound assignment operator was added by the power operator proposal, bringing the total to 14 compound operators. `**=` desugars to `x = x ** y` via the `Pow` trait, following the same pattern as all other trait-based compound operators. The lexer requires a `StarStarEq` token tag (three characters: `*`, `*`, `=`).

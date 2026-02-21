@@ -1,6 +1,7 @@
 # Proposal: `**` Power / Exponentiation Operator
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-02-21
 **Author:** Eric
 **Created:** 2026-02-21
 **Affects:** Lexer, parser, IR, type checker, evaluator, LLVM codegen, standard library prelude
@@ -121,13 +122,13 @@ Updated precedence table:
 | Level | Operators | Associativity |
 |-------|-----------|---------------|
 | 1 | `.` `[]` `()` `?` | left |
-| 2 | `!` `-` `~` | right (unary) |
-| **2.5** | **`**`** | **right** |
-| 3 | `*` `/` `%` `div` `@` | left |
-| 4 | `+` `-` | left |
+| **2** | **`**`** | **right** |
+| 3 | `!` `-` `~` | right (unary) |
+| 4 | `*` `/` `%` `div` `@` | left |
+| 5 | `+` `-` | left |
 | ... | ... | ... |
 
-**Note on unary minus:** `-x ** 2` parses as `-(x ** 2)`, not `(-x) ** 2`. This matches Python and mathematical convention. If the programmer wants `(-x) ** 2`, they write it with parentheses.
+**Note on unary minus:** `**` binds tighter than unary `-`, so `-x ** 2` parses as `-(x ** 2)`, not `(-x) ** 2`. This matches Python, Ruby, Fortran, and mathematical convention. In the recursive descent parser, `unary_expr` calls `power_expr`, and `power_expr` calls `postfix_expr` — power is parsed deeper (tighter) than unary. If the programmer wants `(-x) ** 2`, they write it with parentheses.
 
 ### Integer Exponentiation
 
@@ -149,9 +150,11 @@ Overflow follows Ori's standard overflow behavior (panic in debug, wrapping beha
 ## Grammar Changes
 
 ```ebnf
-(* New precedence level between unary and multiplicative *)
-power_expr          = unary_expr [ "**" power_expr ] .    (* right-associative *)
-multiplicative_expr = power_expr { ( "*" | "/" | "%" | "div" | "@" ) power_expr } .
+(* Power binds tighter than unary: -x ** 2 = -(x ** 2) *)
+(* unary_expr updated to call power_expr instead of postfix_expr *)
+unary_expr          = [ "!" | "-" | "~" ] power_expr .
+power_expr          = postfix_expr [ "**" power_expr ] .    (* right-associative *)
+multiplicative_expr = unary_expr { ( "*" | "/" | "%" | "div" | "@" ) unary_expr } .
 ```
 
 ---

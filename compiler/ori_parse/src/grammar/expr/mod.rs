@@ -26,7 +26,7 @@ mod postfix;
 mod primary;
 
 use crate::{chain, committed, require, ParseError, ParseOutcome, Parser};
-use ori_ir::{Expr, ExprId, ExprKind, TokenKind, UnaryOp};
+use ori_ir::{BinaryOp, Expr, ExprId, ExprKind, TokenKind, UnaryOp};
 use ori_stack::ensure_sufficient_stack;
 use tracing::trace;
 
@@ -118,7 +118,81 @@ impl Parser<'_> {
             )));
         }
 
+        // Check for compound assignment (+=, -=, *=, /=, %=, @=, &=, |=, ^=, <<=, &&=, ||=)
+        // Desugars: `x op= y` → `x = x op y`
+        if let Some(op) = self.compound_assign_op() {
+            return self.desugar_compound_assign(left, op, 1);
+        }
+
+        // Check for >>= (synthesized from three adjacent > > = tokens)
+        if self.cursor.is_shift_right_assign() {
+            return self.desugar_compound_assign(left, BinaryOp::Shr, 3);
+        }
+
         ParseOutcome::consumed_ok(left)
+    }
+
+    /// Desugar a compound assignment expression.
+    ///
+    /// `x op= y` → `Assign { target: x, value: Binary { op, left: x_copy, right: y } }`
+    ///
+    /// `token_count` is how many tokens to consume for the operator:
+    /// - 1 for single-token operators (`+=`, `-=`, etc.)
+    /// - 3 for `>>=` (three adjacent `>` `>` `=` tokens)
+    fn desugar_compound_assign(
+        &mut self,
+        target: ExprId,
+        op: BinaryOp,
+        token_count: u8,
+    ) -> ParseOutcome<ExprId> {
+        let target_expr = self.arena.get_expr(target);
+        let left_span = target_expr.span;
+
+        // Consume the compound assignment operator token(s)
+        match token_count {
+            1 => {
+                self.cursor.advance();
+            }
+            3 => {
+                self.cursor.consume_triple();
+            }
+            _ => unreachable!(),
+        }
+
+        // Parse the right-hand side
+        let rhs = require!(
+            self,
+            self.parse_expr(),
+            "expression after compound assignment"
+        );
+        let rhs_span = self.arena.get_expr(rhs).span;
+
+        // Duplicate the target expression as the left operand of the binary op.
+        // ExprKind is Copy, so this is a cheap re-allocation in the arena.
+        let left_copy = self
+            .arena
+            .alloc_expr(Expr::new(target_expr.kind, left_span));
+
+        // Build the binary expression: target op rhs
+        let binary_span = left_span.merge(rhs_span);
+        let binary = self.arena.alloc_expr(Expr::new(
+            ExprKind::Binary {
+                op,
+                left: left_copy,
+                right: rhs,
+            },
+            binary_span,
+        ));
+
+        // Build the assignment: target = binary
+        let assign_span = left_span.merge(rhs_span);
+        ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
+            ExprKind::Assign {
+                target,
+                value: binary,
+            },
+            assign_span,
+        )))
     }
 
     /// Parse binary expressions using a Pratt parser.

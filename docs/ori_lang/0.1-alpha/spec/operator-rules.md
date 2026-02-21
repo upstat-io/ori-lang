@@ -51,7 +51,7 @@ MAINTENANCE
 
 ```
 assoc=right
-prec=14 (lowest binary)
+prec=15 (lowest binary)
 
 TYPE RULES
 ──────────
@@ -97,7 +97,7 @@ SHORT-CIRCUIT: e2 not evaluated when e1 is Some/Ok
 
 ```
 assoc=left
-prec=3 (* / % div), prec=4 (+ -)
+prec=4 (* / % div @), prec=5 (+ -)
 
 TYPE RULES
 ──────────
@@ -158,11 +158,53 @@ s1 + s2 => concat
 
 ---
 
+## Power `**`
+
+```
+assoc=right
+prec=2 (tighter than unary, looser than postfix)
+
+TYPE RULES
+──────────
+e1 : int    e2 : int
+────────────────────    POW-INT
+    e1 ** e2 : int
+
+e1 : float    e2 : float
+──────────────────────────    POW-FLOAT
+     e1 ** e2 : float
+
+e1 : float    e2 : int
+─────────────────────────    POW-FLOAT-INT
+     e1 ** e2 : float
+
+e1 : int    e2 : float
+─────────────────────────    POW-INT-FLOAT
+     e1 ** e2 : float
+
+EVALUATION
+──────────
+n1 ** n2 => int_power    [n1 : int, n2 : int, n2 >= 0]
+n1 ** n2 => panic        [n1 : int, n2 : int, n2 < 0, "negative exponent on integer"]
+n1 ** 0 => 1             [for all n1, including 0 ** 0]
+f1 ** f2 => libm_pow     [delegates to libm pow()]
+
+OVERFLOW
+────────
+int ** int follows standard overflow behavior (panic in debug)
+
+TRAIT DISPATCH
+──────────────
+** -> Pow -> power(self, rhs:)
+```
+
+---
+
 ## Comparison `==` `!=` `<` `<=` `>` `>=`
 
 ```
 assoc=left
-prec=7 (< <= > >=), prec=8 (== !=)
+prec=8 (< <= > >=), prec=9 (== !=)
 
 TYPE RULES
 ──────────
@@ -192,7 +234,7 @@ v1 >= v2 => compare(v1, v2) != Less
 
 ```
 assoc=left
-prec=12 (&&), prec=13 (||)
+prec=13 (&&), prec=14 (||)
 
 TYPE RULES
 ──────────
@@ -218,7 +260,7 @@ false || e2 => eval(e2)
 
 ```
 assoc=left
-prec=9 (&), prec=10 (^), prec=11 (|), prec=5 (<< >>)
+prec=10 (&), prec=11 (^), prec=12 (|), prec=6 (<< >>)
 
 TYPE RULES
 ──────────
@@ -254,7 +296,7 @@ byte width = 8 bits (valid shift: 0..7)
 
 ```
 assoc=left
-prec=6
+prec=7
 
 TYPE RULES
 ──────────
@@ -276,7 +318,7 @@ e1 : int    e2 : int    e3 : int
 ## Unary `-` `!` `~`
 
 ```
-prec=2 (highest after postfix)
+prec=3 (between power and multiplicative)
 
 TYPE RULES
 ──────────
@@ -402,19 +444,20 @@ e? : Never                  [early return path when e is None/Err]
 PREC  OPERATORS              ASSOC   DESCRIPTION
 ────  ─────────              ─────   ───────────
 1     . [] () ? as as?       left    postfix
-2     ! - ~                  right   unary
-3     * / % div @            left    multiplicative
-4     + -                    left    additive
-5     << >>                  left    shift
-6     .. ..= [by]            left    range (by is step modifier)
-7     < > <= >=              left    comparison
-8     == !=                  left    equality
-9     &                      left    bitwise and
-10    ^                      left    bitwise xor
-11    |                      left    bitwise or
-12    &&                     left    logical and
-13    ||                     left    logical or
-14    ??                     RIGHT   coalesce
+2     **                     right   power
+3     ! - ~                  right   unary
+4     * / % div @            left    multiplicative
+5     + -                    left    additive
+6     << >>                  left    shift
+7     .. ..= [by]            left    range (by is step modifier)
+8     < > <= >=              left    comparison
+9     == !=                  left    equality
+10    &                      left    bitwise and
+11    ^                      left    bitwise xor
+12    |                      left    bitwise or
+13    &&                     left    logical and
+14    ||                     left    logical or
+15    ??                     RIGHT   coalesce
 ```
 
 ---
@@ -430,6 +473,7 @@ OPERATOR -> TRAIT -> METHOD
 /    -> Div      -> divide(self, other:)
 div  -> FloorDiv -> floor_divide(self, other:)
 %    -> Rem      -> remainder(self, other:)
+**   -> Pow      -> power(self, rhs:)
 @    -> MatMul   -> matrix_multiply(self, rhs:)
 -    -> Neg      -> negate(self)
 !    -> Not      -> not(self)
@@ -464,6 +508,7 @@ SUPPORTED OPERATORS (TRAIT-BASED)
 *=   desugars via  Mul
 /=   desugars via  Div
 %=   desugars via  Rem
+**=  desugars via  Pow
 @=   desugars via  MatMul
 &=   desugars via  BitAnd
 |=   desugars via  BitOr

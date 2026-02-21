@@ -335,12 +335,25 @@ fn greater_is_always_single() {
 }
 
 #[test]
-fn no_compound_assignment() {
-    // Ori has no compound assignment operators
-    assert_eq!(scan_tags("+="), vec![RawTag::Plus, RawTag::Equal]);
-    assert_eq!(scan_tags("-="), vec![RawTag::Minus, RawTag::Equal]);
-    assert_eq!(scan_tags("*="), vec![RawTag::Star, RawTag::Equal]);
-    assert_eq!(scan_tags("/="), vec![RawTag::Slash, RawTag::Equal]);
+fn compound_assignment_tokens() {
+    // Compound assignment operators are single tokens (maximal munch)
+    assert_eq!(scan_tags("+="), vec![RawTag::PlusEq]);
+    assert_eq!(scan_tags("-="), vec![RawTag::MinusEq]);
+    assert_eq!(scan_tags("*="), vec![RawTag::StarEq]);
+    assert_eq!(scan_tags("/="), vec![RawTag::SlashEq]);
+    assert_eq!(scan_tags("%="), vec![RawTag::PercentEq]);
+    assert_eq!(scan_tags("@="), vec![RawTag::AtEq]);
+    assert_eq!(scan_tags("&="), vec![RawTag::AmpersandEq]);
+    assert_eq!(scan_tags("|="), vec![RawTag::PipeEq]);
+    assert_eq!(scan_tags("^="), vec![RawTag::CaretEq]);
+    assert_eq!(scan_tags("<<="), vec![RawTag::ShlEq]);
+    assert_eq!(scan_tags("&&="), vec![RawTag::AmpersandAmpersandEq]);
+    assert_eq!(scan_tags("||="), vec![RawTag::PipePipeEq]);
+    // >>= stays as three tokens (> is always single for generics)
+    assert_eq!(
+        scan_tags(">>="),
+        vec![RawTag::Greater, RawTag::Greater, RawTag::Equal]
+    );
 }
 
 // ─── Delimiters ────────────────────────────────────────────────

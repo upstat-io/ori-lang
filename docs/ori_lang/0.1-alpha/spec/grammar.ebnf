@@ -72,7 +72,7 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 // --- Operators ---
 // See: 03-lexical-elements.md § Operators
 
-arith_op  = "+" | "-" | "*" | "/" | "%" | "div" .
+arith_op  = "+" | "-" | "*" | "/" | "%" | "div" | "**" .
 comp_op   = "==" | "!=" | "<" | ">" | "<=" | ">=" .
 logic_op  = "&&" | "||" | "!" .
 bit_op    = "&" | "|" | "^" | "~" | "<<" | ">>" .
@@ -406,11 +406,17 @@ spread_arg     = "..." expression .  /* spread into variadic position only */
 // --- Unary Expressions ---
 // See: 09-expressions.md § Unary Expressions
 
-unary_expr = [ "!" | "-" | "~" ] postfix_expr .
+unary_expr = [ "!" | "-" | "~" ] power_expr .
+
+// --- Power Expression ---
+// See: operator-rules.md § Power
+// ** binds tighter than unary: -x ** 2 = -(x ** 2)
+
+power_expr = postfix_expr [ "**" power_expr ] .  /* right-associative */
 
 // --- Binary Expressions ---
 // See: 09-expressions.md § Binary Expressions
-// Precedence (lowest to highest): ??, ||, &&, |, ^, &, ==, cmp, range, shift, add, mul
+// Precedence (lowest to highest): ??, ||, &&, |, ^, &, ==, cmp, range, shift, add, mul, unary, power
 
 binary_expr   = coalesce_expr .
 coalesce_expr = or_expr [ "??" coalesce_expr ] .  /* right-associative */
@@ -447,7 +453,7 @@ let_expr = "let" binding_pattern [ ":" type ] "=" expression .
 assignment        = assignment_target "=" expression
                   | assignment_target compound_op expression .
 assignment_target = identifier { "[" expression "]" | "." identifier } .
-compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" | "@="
+compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" | "**=" | "@="
                   | "&=" | "|=" | "^=" | "<<=" | ">>="
                   | "&&=" | "||=" .
 binding           = let_expr | assignment .  /* convenience grouping; not currently referenced */

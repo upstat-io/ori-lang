@@ -207,24 +207,24 @@ fn test_detect_triple_equals() {
 fn test_detect_increment_operator() {
     let (desc, help) = detect_common_mistake("++").unwrap();
     assert_eq!(desc, "increment operator");
-    assert!(help.contains("x = x + 1"));
+    assert!(help.contains("x += 1"), "help was: {help}");
 }
 
 #[test]
 fn test_detect_decrement_operator() {
     let (desc, help) = detect_common_mistake("--").unwrap();
     assert_eq!(desc, "decrement operator");
-    assert!(help.contains("x = x - 1"));
+    assert!(help.contains("x -= 1"), "help was: {help}");
 }
 
 #[test]
-fn test_detect_compound_assignment() {
+fn test_compound_assignment_not_a_mistake() {
+    // Compound assignment operators are valid syntax (not common mistakes)
     for op in &["+=", "-=", "*=", "/=", "%="] {
-        let result = detect_common_mistake(op);
-        assert!(result.is_some(), "Should detect {op}");
-        let (desc, help) = result.unwrap();
-        assert_eq!(desc, "compound assignment");
-        assert!(help.contains("x = x"));
+        assert!(
+            detect_common_mistake(op).is_none(),
+            "{op} should not be detected as a mistake"
+        );
     }
 }
 
