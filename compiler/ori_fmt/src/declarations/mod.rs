@@ -18,6 +18,8 @@
 //! - [`types`]: Type declaration formatting (struct, sum, newtype)
 //! - [`traits`]: Trait definition formatting
 //! - [`impls`]: Impl block formatting
+//! - [`def_impls`]: Default implementation block formatting
+//! - [`extends`]: Extension block formatting
 //! - [`imports`]: Import statement formatting
 //! - [`configs`]: Constant definition formatting
 //! - [`tests_fmt`]: Test definition formatting
@@ -25,6 +27,8 @@
 
 mod comments;
 mod configs;
+mod def_impls;
+mod extends;
 mod extern_def;
 mod functions;
 mod impls;
@@ -133,6 +137,18 @@ fn collect_module_positions(module: &Module) -> Vec<u32> {
             positions.push(assoc.span.start);
         }
         for method in &impl_def.methods {
+            positions.push(method.span.start);
+        }
+    }
+    for def_impl in &module.def_impls {
+        positions.push(def_impl.span.start);
+        for method in &def_impl.methods {
+            positions.push(method.span.start);
+        }
+    }
+    for extend in &module.extends {
+        positions.push(extend.span.start);
+        for method in &extend.methods {
             positions.push(method.span.start);
         }
     }
@@ -333,6 +349,26 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             first_item = false;
         }
 
+        // Default implementations
+        for def_impl in &module.def_impls {
+            if !first_item {
+                self.ctx.emit_newline();
+            }
+            self.format_def_impl(def_impl);
+            self.ctx.emit_newline();
+            first_item = false;
+        }
+
+        // Extensions
+        for extend in &module.extends {
+            if !first_item {
+                self.ctx.emit_newline();
+            }
+            self.format_extend(extend);
+            self.ctx.emit_newline();
+            first_item = false;
+        }
+
         // Extern blocks
         for extern_block in &module.extern_blocks {
             if !first_item {
@@ -433,6 +469,28 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             }
             self.emit_comments_before(impl_def.span.start, comments, comment_index);
             self.format_impl_with_comments(impl_def, comments, comment_index);
+            self.ctx.emit_newline();
+            first_item = false;
+        }
+
+        // Default implementations
+        for def_impl in &module.def_impls {
+            if !first_item {
+                self.ctx.emit_newline();
+            }
+            self.emit_comments_before(def_impl.span.start, comments, comment_index);
+            self.format_def_impl_with_comments(def_impl, comments, comment_index);
+            self.ctx.emit_newline();
+            first_item = false;
+        }
+
+        // Extensions
+        for extend in &module.extends {
+            if !first_item {
+                self.ctx.emit_newline();
+            }
+            self.emit_comments_before(extend.span.start, comments, comment_index);
+            self.format_extend_with_comments(extend, comments, comment_index);
             self.ctx.emit_newline();
             first_item = false;
         }

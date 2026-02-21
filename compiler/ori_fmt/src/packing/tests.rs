@@ -87,34 +87,38 @@ mod construct_tests {
         assert!(!ConstructKind::TupleElements.is_list());
     }
 
+    /// All `ConstructKind` variants in one place. When a new variant is added,
+    /// update this array — the `construct_predicates_consistent` test below will
+    /// verify it stays in sync with `is_always_stacked()`, `determine_packing()`,
+    /// `separator_for()`, and `name()`.
+    const ALL_CONSTRUCTS: [ConstructKind; 22] = [
+        ConstructKind::RunTopLevel,
+        ConstructKind::Try,
+        ConstructKind::Match,
+        ConstructKind::Recurse,
+        ConstructKind::Parallel,
+        ConstructKind::Spawn,
+        ConstructKind::Nursery,
+        ConstructKind::FunctionParams,
+        ConstructKind::FunctionArgs,
+        ConstructKind::GenericParams,
+        ConstructKind::WhereConstraints,
+        ConstructKind::Capabilities,
+        ConstructKind::StructFieldsDef,
+        ConstructKind::StructFieldsLiteral,
+        ConstructKind::SumVariants,
+        ConstructKind::MapEntries,
+        ConstructKind::TupleElements,
+        ConstructKind::ImportItems,
+        ConstructKind::ListSimple,
+        ConstructKind::ListComplex,
+        ConstructKind::RunNested,
+        ConstructKind::MatchArms,
+    ];
+
     #[test]
     fn construct_names_unique() {
-        let constructs = [
-            ConstructKind::RunTopLevel,
-            ConstructKind::Try,
-            ConstructKind::Match,
-            ConstructKind::Recurse,
-            ConstructKind::Parallel,
-            ConstructKind::Spawn,
-            ConstructKind::Nursery,
-            ConstructKind::FunctionParams,
-            ConstructKind::FunctionArgs,
-            ConstructKind::GenericParams,
-            ConstructKind::WhereConstraints,
-            ConstructKind::Capabilities,
-            ConstructKind::StructFieldsDef,
-            ConstructKind::StructFieldsLiteral,
-            ConstructKind::SumVariants,
-            ConstructKind::MapEntries,
-            ConstructKind::TupleElements,
-            ConstructKind::ImportItems,
-            ConstructKind::ListSimple,
-            ConstructKind::ListComplex,
-            ConstructKind::RunNested,
-            ConstructKind::MatchArms,
-        ];
-
-        let mut names: Vec<_> = constructs.iter().map(|c| c.name()).collect();
+        let mut names: Vec<_> = ALL_CONSTRUCTS.iter().map(|c| c.name()).collect();
         let original_len = names.len();
         names.sort_unstable();
         names.dedup();
@@ -123,6 +127,26 @@ mod construct_tests {
             original_len,
             "All construct names should be unique"
         );
+    }
+
+    /// Verify that `is_always_stacked()` agrees with `determine_packing()`:
+    /// a construct is always-stacked iff its default packing is `AlwaysStacked`.
+    #[test]
+    fn construct_predicates_consistent() {
+        for &kind in &ALL_CONSTRUCTS {
+            let packing = determine_packing(kind, false, false, false, 1);
+            let stacked = kind.is_always_stacked();
+
+            assert_eq!(
+                stacked,
+                packing == Packing::AlwaysStacked,
+                "{kind:?}: is_always_stacked()={stacked} but determine_packing()={packing:?}",
+            );
+
+            // Verify name() and separator_for() don't panic
+            let _ = kind.name();
+            let _ = separator_for(kind, packing);
+        }
     }
 }
 
