@@ -88,8 +88,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             // Inline: " = body"
             self.ctx.emit(" = ");
             let current_column = self.ctx.column();
-            let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                .with_starting_column(current_column);
+            let mut expr_formatter =
+                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                    .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
@@ -99,8 +100,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             // and break internally. Other constructs also stay on same line.
             self.ctx.emit(" = ");
             let current_column = self.ctx.column();
-            let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                .with_starting_column(current_column);
+            let mut expr_formatter =
+                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                    .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');

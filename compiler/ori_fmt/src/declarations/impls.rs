@@ -75,7 +75,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 let current_column = self.ctx.column();
                 let current_indent = self.ctx.indent_level();
                 let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, self.config)
+                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                         .with_indent_level(current_indent)
                         .with_starting_column(current_column);
                 expr_formatter.format(method.body);
@@ -167,7 +167,7 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
                 let current_column = self.ctx.column();
                 let current_indent = self.ctx.indent_level();
                 let mut expr_formatter =
-                    Formatter::with_config(self.arena, self.interner, self.config)
+                    Formatter::with_config(self.arena, self.interner, *self.ctx.config())
                         .with_indent_level(current_indent)
                         .with_starting_column(current_column);
                 expr_formatter.format(method.body);

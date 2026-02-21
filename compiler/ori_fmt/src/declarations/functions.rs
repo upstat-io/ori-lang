@@ -76,8 +76,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             // Inline: " = body"
             self.ctx.emit(" = ");
             let current_column = self.ctx.column();
-            let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                .with_starting_column(current_column);
+            let mut expr_formatter =
+                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                    .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
@@ -94,9 +95,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
 
             // Create formatter with indent level 1 for proper nested breaks
             // Use format_broken to prevent re-evaluation of fit at new position
-            let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                .with_indent_level(1)
-                .with_starting_column(self.ctx.column());
+            let mut expr_formatter =
+                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                    .with_indent_level(1)
+                    .with_starting_column(self.ctx.column());
             expr_formatter.format_broken(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
@@ -106,8 +108,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             // Other constructs stay on same line, break internally: " = [...\n]"
             self.ctx.emit(" = ");
             let current_column = self.ctx.column();
-            let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                .with_starting_column(current_column);
+            let mut expr_formatter =
+                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                    .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
             ends_with_brace = body_output.ends_with('}');
@@ -176,8 +179,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
             | ori_ir::ExprKind::Cast { .. }
             | ori_ir::ExprKind::Unary { .. } => {
                 // Only break if body would fit on its own line
-                let indent_width = self.config.indent_size;
-                let max_width = self.config.max_width;
+                let config = self.ctx.config();
+                let indent_width = config.indent_size;
+                let max_width = config.max_width;
                 body_width != ALWAYS_STACKED && body_width + indent_width <= max_width
             }
 

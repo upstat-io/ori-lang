@@ -5,7 +5,7 @@
 
 use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
-use super::{binary_op_str, unary_op_str, Formatter};
+use super::{binary_op_str, needs_binary_parens, unary_op_str, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an expression inline (single line).
@@ -503,50 +503,9 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    /// Emit a binary operand, wrapping in parentheses if needed for precedence.
-    ///
-    /// Parentheses are needed when:
-    /// - The operand is a binary expression with lower precedence (higher number)
-    /// - The operand has equal precedence but is on the "wrong" side for associativity
-    ///   (all binary ops are left-associative except `??` which is right-associative)
+    /// Emit a binary operand inline, wrapping in parentheses if needed for precedence.
     fn emit_binary_operand_inline(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
-        let expr = self.arena.get_expr(operand);
-
-        let needs_parens = match &expr.kind {
-            ExprKind::Binary { op: child_op, .. } => {
-                let parent_prec = parent_op.precedence();
-                let child_prec = child_op.precedence();
-
-                match child_prec.cmp(&parent_prec) {
-                    std::cmp::Ordering::Greater => {
-                        // Child has lower precedence (higher number) - needs parens
-                        true
-                    }
-                    std::cmp::Ordering::Equal => {
-                        // Same precedence - check associativity
-                        // All ops are left-associative except ??
-                        // For left-assoc: a + b + c = (a + b) + c, so right operand needs parens
-                        // For right-assoc (??): a ?? b ?? c = a ?? (b ?? c), so left operand needs parens
-                        let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
-                        // Left operand of right-assoc needs parens, else right operand
-                        if is_right_assoc {
-                            is_left
-                        } else {
-                            !is_left
-                        }
-                    }
-                    std::cmp::Ordering::Less => {
-                        // Child has higher precedence - no parens needed
-                        false
-                    }
-                }
-            }
-            // Lambda/Let/If as operands also need parens
-            ExprKind::Lambda { .. } | ExprKind::Let { .. } | ExprKind::If { .. } => true,
-            _ => false,
-        };
-
-        if needs_parens {
+        if needs_binary_parens(self.arena, operand, parent_op, is_left) {
             self.ctx.emit("(");
             self.emit_inline(operand);
             self.ctx.emit(")");
