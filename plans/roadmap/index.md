@@ -18,6 +18,10 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
+> **ACTIVE REROUTE**: `plans/arc_optimization/` — ARC Optimization. Closes 5 stubs in `arc_emitter.rs` (IsShared, Reuse, RcDec drop, PartialApply, non-atomic refcounts), adds Swift-inspired RC identity normalization + known-safe elimination, Koka-inspired `@fbip` enforcement. 3 sections: codegen completeness, optimization enhancements, verification. Design reference: `plans/dpr_arc-optimization_02212026.md`.
+
+---
+
 ## How to Use
 
 1. **Search this file** (Ctrl+F / Cmd+F) for keywords related to what you're looking for
