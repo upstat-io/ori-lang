@@ -424,7 +424,7 @@ cmp_expr      = range_expr { ( "<" | ">" | "<=" | ">=" ) range_expr } .
 range_expr    = shift_expr [ ( ".." | "..=" ) [ shift_expr ] [ "by" shift_expr ] ] .
 shift_expr    = add_expr { ( "<<" | ">>" ) add_expr } .
 add_expr      = mul_expr { ( "+" | "-" ) mul_expr } .
-mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
+mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" | "@" ) unary_expr } .
 
 // --- With Expression ---
 // See: 09-expressions.md § With Expression, 14-capabilities.md § Providing Capabilities

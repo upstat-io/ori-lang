@@ -1549,6 +1549,46 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
 - [x] **Update Spec**: `09-expressions.md` — Operator Traits section [done] (verified 2026-02-15, already present at line 403 with full trait/method/desugaring tables)
 - [x] **Update**: `CLAUDE.md` — operator traits in prelude and operators section [done] (verified 2026-02-15, already in ori-syntax.md lines 93 and 191)
 
+### 3.21.1 MatMul Operator (`@`)
+
+**Proposal**: `proposals/approved/matmul-operator-proposal.md`
+
+Add `@` as a binary operator for matrix multiplication at multiplicative precedence (level 3), desugaring to the `MatMul` trait method `matrix_multiply()`. Follows Python PEP 465 convention for ML/scientific computing adoption. The `@` token is disambiguated by parser context (item position = function sigil, expression position = matmul operator, pattern position = binding).
+
+#### Dependencies
+
+- [x] Operator Traits (3.21) — trait dispatch infrastructure [done]
+
+#### Implementation
+
+- [ ] **Implement**: Add `MatMul` variant to `BinaryOp` in IR
+  - [ ] `BinaryOp::MatMul` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
+  - [ ] **Files**: `ori_ir/src/ast/operators.rs`
+  - [ ] **Rust Tests**: `ori_ir/src/ast/operators/tests.rs`
+
+- [ ] **Implement**: Parser — add `TokenKind::At` to multiplicative precedence level
+  - [ ] Add entry to `OPER_TABLE` in `grammar/expr/operators.rs`
+  - [ ] **Files**: `ori_parse/src/grammar/expr/operators.rs`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/operators/tests.rs` — matmul parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/matmul.ori` — precedence, associativity, disambiguation
+
+- [ ] **Implement**: Evaluator — add `BinaryOp::MatMul` error arms to primitive type handlers
+  - [ ] ~17 match arms returning "type does not implement MatMul" for all primitive handlers
+  - [ ] **Files**: `ori_eval/src/operators.rs`
+
+- [ ] **Implement**: Define `MatMul` trait in prelude
+  - [ ] `trait MatMul<Rhs = Self> { type Output = Self; @matrix_multiply (self, rhs: Rhs) -> Self.Output }`
+  - [ ] **Files**: `library/std/prelude.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/matmul.ori` — user-defined MatMul impl
+
+- [ ] **Implement**: LLVM codegen support
+  - [ ] Falls through via trait dispatch — verify no special-casing needed
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — matmul codegen test
+
+- [ ] **Update Spec**: `operator-rules.md` — add `@` to multiplicative group and trait dispatch table
+- [ ] **Update Spec**: `grammar.ebnf` — add `"@"` to `mul_expr` production
+- [ ] **Update**: `.claude/rules/ori-syntax.md` — document `@` operator and `MatMul` trait
+
 ---
 
 ## 3.22 `with` Syntax for Bounds (Capability Unification)

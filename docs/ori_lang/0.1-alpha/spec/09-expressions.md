@@ -437,6 +437,7 @@ Operators are desugared to trait method calls. User-defined types can implement 
 | `a / b` | `Div` | `a.divide(rhs: b)` |
 | `a div b` | `FloorDiv` | `a.floor_divide(rhs: b)` |
 | `a % b` | `Rem` | `a.remainder(rhs: b)` |
+| `a @ b` | `MatMul` | `a.matrix_multiply(rhs: b)` |
 
 ### Unary Operators
 
