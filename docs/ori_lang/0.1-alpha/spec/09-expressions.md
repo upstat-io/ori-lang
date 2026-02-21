@@ -416,6 +416,7 @@ Operators are listed from highest to lowest precedence:
 | 13 | `&&` | Left | Logical AND |
 | 14 | `\|\|` | Left | Logical OR |
 | 15 | `??` | Right | Coalesce |
+| 16 | `\|>` | Left | Pipe |
 
 Parentheses override precedence:
 
@@ -894,6 +895,100 @@ Elements evaluate left-to-right:
 {"a": first(), "b": second()};
 
 ```
+
+## Pipe Operator
+
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § `pipe_expr`, `pipe_step`
+
+The _pipe operator_ `|>` enables left-to-right function composition. The left operand is evaluated and passed as an argument to the right operand.
+
+```ori
+data
+    |> filter(predicate: x -> x > 0)
+    |> map(transform: x -> x * 2)
+    |> sum
+```
+
+### Implicit Fill
+
+When the right side of `|>` is a function call, the piped value fills the single _unspecified parameter_. A parameter is unspecified when it is both (a) not provided in the call arguments and (b) has no default value.
+
+```ori
+// max_pool2d has params: (input: Tensor, kernel_size: int) -> Tensor
+x |> max_pool2d(kernel_size: 2)
+// Fills: max_pool2d(input: x, kernel_size: 2)
+```
+
+It is a compile-time error if:
+- Zero parameters are unspecified (all provided or defaulted): "nothing for pipe to fill"
+- Two or more parameters are unspecified: "ambiguous pipe target; specify all parameters except one"
+
+### Method Calls on the Piped Value
+
+A leading `.` calls a method on the piped value itself, rather than passing it as a function argument:
+
+```ori
+x |> .flatten(start_dim: 1)    // x.flatten(start_dim: 1)
+x |> .sort()                   // x.sort()
+```
+
+Without the dot, the pipe step is a free function call with implicit fill:
+
+```ori
+x |> sort          // free function: sort(<piped>: x)
+x |> .sort()       // method: x.sort()
+```
+
+### Lambda Pipe Steps
+
+A lambda receives the piped value as its parameter:
+
+```ori
+x |> (a -> a @ weight + bias)
+x |> (a -> a ** 2)
+```
+
+### Error Propagation
+
+The `?` operator on a pipe step applies to the result of the desugared call:
+
+```ori
+data |> parse_csv?
+// Desugars to: parse_csv(input: data)?
+```
+
+### Desugaring
+
+Each pipe step desugars to a let-binding and an ordinary call:
+
+```ori
+expr |> func(arg: val)
+// Desugars to:
+{
+    let $__pipe = expr;
+    func(<unspecified>: __pipe, arg: val)
+}
+
+expr |> .method(arg: val)
+// Desugars to:
+{
+    let $__pipe = expr;
+    __pipe.method(arg: val)
+}
+```
+
+The type checker resolves implicit fill by inspecting the function signature. The evaluator and codegen see only the desugared form.
+
+### Precedence and Associativity
+
+`|>` has the lowest precedence of all binary operators (level 16, below `??` at 15). It is left-associative.
+
+```ori
+a + b |> process       // (a + b) |> process
+a |> f |> g |> h       // ((a |> f) |> g) |> h — equivalent to h(g(f(a)))
+```
+
+---
 
 ## Spread Operator
 

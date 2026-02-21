@@ -1,14 +1,17 @@
 # Proposal: Pipe Operator
 
-**Status:** Draft (Reconsidered)
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-01-25
 **Rejected:** 2026-01-28
 **Reconsidered:** 2026-02-21
+**Approved:** 2026-02-21
+**Affects:** Lexer, parser, IR, type checker, formatter
+**Depends on:** None (named arguments already exist; argument punning and operator traits are orthogonal)
 
 ---
 
-## Errata: Why This Rejection Is Being Reconsidered
+## Errata: Why This Rejection Was Reconsidered
 
 The original rejection (2026-01-28) stated:
 
@@ -47,7 +50,7 @@ Combining functions from different modules that weren't designed to chain requir
 
 The original rejection evaluated pipe against collection chaining and correctly found it redundant there. But Ori's ambition now extends to ML, data science, and cross-module composition — domains where data flows through **free functions and methods on different objects**. Neither method chaining nor `extend` provides a clean solution.
 
-The original design used an explicit `_` placeholder on every pipe step. The revised design below replaces this with **implicit fill** — a delegation-style mechanism that is more consistent with how Ori already works.
+The revised design uses **implicit fill** — a delegation-style mechanism that is more consistent with how Ori already works.
 
 ---
 
@@ -140,6 +143,18 @@ x |> log_softmax(dim: -1)
 
 The compiler knows exactly which parameter to fill because named arguments identify every other parameter. There is **exactly one slot left** — the pipe fills it.
 
+**"Unspecified" definition:** A parameter is _unspecified_ when it is both (a) not provided in the call arguments and (b) has no default value. Parameters with defaults are treated as already filled for pipe purposes.
+
+```ori
+// foo has params: (a: int, b: int, c: int = 0) -> int
+5 |> foo(b: 3)
+// OK: a is unspecified (no default, not in call). c has a default. Fills a.
+// Equivalent to: foo(a: 5, b: 3, c: 0)
+
+5 |> foo
+// Error: `foo` has 2 unspecified parameters (a, b); pipe can only fill one.
+```
+
 **Compile errors:**
 - Zero unspecified parameters → "all parameters already specified; nothing for pipe to fill"
 - Two or more unspecified parameters → "ambiguous pipe target; specify all parameters except one"
@@ -159,9 +174,10 @@ Pipe extends this principle: **you specify the arguments you know, and the pipe 
 ### Syntax
 
 ```ebnf
-pipe_expr = pipe_expr "|>" pipe_step .
-pipe_step = "." identifier [ "(" { call_arg } ")" ]    (* method on piped value *)
-          | expression [ "(" { call_arg } ")" ] .       (* function / method call *)
+pipe_expr = coalesce_expr { "|>" pipe_step } .
+pipe_step = "." member_name [ call_args ]
+          | postfix_expr [ call_args ]
+          | lambda .
 ```
 
 ### Method Calls on the Piped Value
@@ -181,6 +197,17 @@ x |> relu           // relu(input: x) — free function, pipe fills param
 x |> .flatten()     // x.flatten() — method on x
 ```
 
+### Lambda Pipe Steps
+
+For expression-level operations that don't fit the function-call model, use a lambda:
+
+```ori
+x |> (a -> a @ weight + bias)    // matmul and add
+x |> (a -> a ** 2)                // power
+```
+
+The lambda receives the piped value as its parameter and returns the result. This provides full flexibility without introducing a separate placeholder mechanism.
+
 ### Precedence
 
 `|>` has lower precedence than all other binary operators:
@@ -188,8 +215,8 @@ x |> .flatten()     // x.flatten() — method on x
 | Level | Operators |
 |-------|-----------|
 | ... | ... |
-| 14 | `??` |
-| **15** | **`\|>`** |
+| 15 | `??` |
+| **16** | **`\|>`** |
 
 ```ori
 // Parsed as: (a + b) |> process
@@ -299,7 +326,7 @@ let $slug = title
     let $v = qkv.select(dim: 0, index: 2);
 
     softmax(input: q @ k.T * self.head_dim ** -0.5, dim: -1)
-        |> _ @ v
+        |> (attn -> attn @ v)
         |> .transpose(dim0: 1, dim1: 2)
         |> .reshape(shape: [b, t, c])
         |> self.proj.forward
@@ -314,7 +341,7 @@ let $data = read_file(path: "input.csv")?
     |> validate;
 ```
 
-The `?` applies to the result of each pipe step naturally.
+The `?` on a pipe step applies to the **result** of the desugared call. `|> parse_csv?` desugars to `{ let $__pipe = ...; parse_csv(input: __pipe)? }` — the `?` propagates the error from the call result, not from the function reference.
 
 ---
 
@@ -355,16 +382,16 @@ Methods require the type to define them. `extend` requires writing wrapper metho
 
 The `extend` answer moves boilerplate from one place to another. Pipe eliminates it.
 
-### Fallback: Explicit `_` Placeholder
+### Why Lambdas Instead of `_` Placeholder?
 
-For rare cases where implicit fill doesn't apply (e.g., the piped value should go into a complex expression rather than a function parameter), the `_` placeholder is still available:
+For expression-level operations (like `a @ v` or `a ** 2`), the pipe uses a lambda instead of a `_` placeholder:
 
 ```ori
-x |> _ @ weight + bias    // piped value used in an expression, not as a named arg
-x |> _ ** 2               // piped value used with an operator
+x |> (a -> a @ weight)    // instead of: x |> _ @ weight
+x |> (a -> a ** 2)         // instead of: x |> _ ** 2
 ```
 
-The rule: if the RHS of `|>` is a function call with exactly one unspecified parameter, implicit fill applies. Otherwise, `_` must be used.
+This keeps the pipe operator as a single-mechanism feature — implicit fill for function calls, lambdas for everything else. The alternative (a `_` placeholder) would introduce a second, different mode with its own scoping rules, multi-use semantics, and nesting behavior. Lambdas are already well-understood in Ori and compose with all existing features.
 
 ---
 
@@ -390,6 +417,22 @@ The rule: if the RHS of `|>` is a function call with exactly one unspecified par
 ```ori
 5 |> get_value
 // Error: `get_value` takes no parameters; nothing for pipe to fill
+```
+
+### Default Parameters
+
+```ori
+// foo has params: (a: int, b: int, c: int = 0) -> int
+5 |> foo(b: 3)
+// OK: a is unspecified (no value, no default). c has a default.
+// Fills a. Equivalent to: foo(a: 5, b: 3)
+
+// bar has params: (a: int = 0, b: int = 0) -> int
+5 |> bar
+// Error: zero params without defaults; nothing for pipe to fill
+
+5 |> bar(b: 3)
+// Error: zero params without defaults; a has a default, b is specified
 ```
 
 ### Method vs Free Function Ambiguity
@@ -443,15 +486,6 @@ expr |> func(arg: val)
 }
 ```
 
-The compiler:
-1. Evaluates the LHS and binds to a temporary
-2. Looks up the function signature on the RHS
-3. Identifies the single unspecified parameter
-4. Inserts the temporary as that parameter's value
-5. Emits an ordinary function call
-
-This happens in the parser or as an early desugaring pass — the type checker and evaluator see ordinary let-bindings and function calls.
-
 ### `.method()` Desugaring
 
 ```ori
@@ -464,18 +498,44 @@ expr |> .method(arg: val)
 }
 ```
 
-### IR
+### Lambda Desugaring
 
-No new AST node needed. `|>` desugars to existing constructs (let-binding + function call). The IR never sees pipe — it's pure syntax sugar.
+```ori
+expr |> (x -> x @ weight)
+
+// Desugars to:
+{
+    let $__pipe = expr;
+    (x -> x @ weight)(__pipe)
+}
+```
+
+### `?` on Pipe Steps
+
+```ori
+expr |> parse_csv?
+
+// Desugars to:
+{
+    let $__pipe = expr;
+    parse_csv(input: __pipe)?
+}
+```
+
+The `?` is postfix on the desugared call result, not on the function name.
+
+### Phases
+
+The parser produces a `Pipe` AST node. The type checker resolves implicit fill by looking up the function signature, identifying the single unspecified parameter, and desugaring to a let-binding + ordinary function call. The evaluator and LLVM codegen see only the desugared form.
 
 | Crate | Change |
 |-------|--------|
 | `ori_lexer` | Recognize `\|>` as a two-character token |
-| `ori_parse` | Parse at precedence 15; desugar to let-binding + call with implicit fill |
-| `ori_ir` | No change — desugared before IR |
-| `ori_types` | No change — sees let-binding + call |
-| `ori_eval` | No change — sees let-binding + call |
-| `ori_llvm` | No change — sees let-binding + call |
+| `ori_ir` | Add `Pipe` expression variant (LHS expression + pipe step) |
+| `ori_parse` | Parse at precedence 16 (below `??`); produce `Pipe` AST node |
+| `ori_types` | Resolve implicit fill: identify unspecified param, desugar to let-binding + call |
+| `ori_eval` | No change — sees desugared let-binding + call |
+| `ori_llvm` | No change — sees desugared let-binding + call |
 | `ori_fmt` | Format pipe chains with line-break-per-step |
 
 ---
@@ -485,11 +545,13 @@ No new AST node needed. `|>` desugars to existing constructs (let-binding + func
 | Feature | Interaction |
 |---------|------------|
 | Named arguments | Implicit fill uses named args to identify the unfilled slot |
+| Default parameters | Params with defaults are treated as filled; only no-default params count as "unspecified" |
 | Argument punning | Orthogonal — `x \|> f(weight:, bias:, stride: 2)` |
 | Method chaining | Complementary — use `.method()` chains when same type, pipe when crossing types/modules |
-| `?` operator | Applies to each step: `x \|> parse? \|> validate` |
-| `@` matmul | Use `_` fallback: `x \|> _ @ weight` |
-| `**` power | Use `_` fallback: `x \|> _ ** 2` |
+| `?` operator | Applies to the desugared call result: `x \|> parse? \|> validate` desugars to `parse(input: x)?` |
+| `@` matmul | Use lambda: `x \|> (a -> a @ weight)` |
+| `**` power | Use lambda: `x \|> (a -> a ** 2)` |
+| Lambdas | Pipe step can be a lambda for expression-level operations |
 
 ---
 
@@ -497,8 +559,9 @@ No new AST node needed. `|>` desugars to existing constructs (let-binding + func
 
 ```ebnf
 pipe_expr    = coalesce_expr { "|>" pipe_step } .
-pipe_step    = "." identifier [ "(" { call_arg } ")" ]
-             | expression [ "(" { call_arg } ")" ] .
+pipe_step    = "." member_name [ call_args ]
+             | postfix_expr [ call_args ]
+             | lambda .
 ```
 
 ---
@@ -508,13 +571,13 @@ pipe_step    = "." identifier [ "(" { call_arg } ")" ]
 | Aspect | Design |
 |--------|--------|
 | Operator | `\|>` |
-| Fill mechanism | Implicit — fills the single unspecified parameter |
+| Fill mechanism | Implicit — fills the single unspecified parameter (no default, not in call) |
 | Method calls | `\|> .method()` — leading dot calls method on piped value |
-| Explicit fallback | `_` placeholder for non-function-call expressions |
-| Precedence | 15 (lowest binary, below `??`) |
+| Expression fallback | Lambda: `\|> (x -> expr)` |
+| Precedence | 16 (lowest binary, below `??`) |
 | Associativity | Left-to-right |
-| Desugars to | Let-binding + function call |
-| IR impact | None — pure syntax sugar |
+| Desugars to | Let-binding + function call (resolved in type checker) |
+| IR impact | `Pipe` AST node in `ori_ir`; fully desugared before eval/LLVM |
 
 ---
 
@@ -527,7 +590,9 @@ pipe_step    = "." identifier [ "(" { call_arg } ")" ]
 5. Error: `5 \|> add` → "2 unspecified parameters, pipe can only fill one"
 6. Error: `5 \|> add(a: 1, b: 2)` → "all parameters specified, nothing for pipe to fill"
 7. Nested: `a \|> f(x: b \|> g)` → `f(x: g(b), <remaining>: a)`
-8. With `?`: `x \|> parse? \|> validate` propagates errors
-9. Fallback `_`: `x \|> _ @ weight` works for operator expressions
+8. With `?`: `x \|> parse_csv?` desugars to `parse_csv(input: x)?`
+9. Lambda: `x \|> (a -> a @ weight)` evaluates to `x @ weight`
 10. Formatter: pipe chains break one-step-per-line
 11. With punning: `x \|> conv2d(weight:, bias:, stride: 2)` fills `input`
+12. Default params: `5 \|> foo(b: 3)` fills `a` when `c` has a default value
+13. Error: `5 \|> bar` when all params have defaults → "nothing for pipe to fill"

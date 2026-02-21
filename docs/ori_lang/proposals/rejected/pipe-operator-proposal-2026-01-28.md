@@ -7,6 +7,12 @@
 
 ---
 
+## Errata (added 2026-02-21)
+
+> **Superseded by [pipe-operator-proposal](../approved/pipe-operator-proposal.md)**: This rejection was reconsidered and reversed. The original rejection correctly identified that pipe is redundant for collection processing (method chaining covers it). However, it did not consider ML/neural network pipelines, data processing with heterogeneous receivers, and cross-module function composition — domains where method chaining fundamentally does not work. The revised proposal was approved with implicit fill semantics leveraging Ori's named arguments.
+
+---
+
 ## Rejection Rationale
 
 The pipe operator solves a problem that Ori doesn't have. Ori already provides multiple mechanisms for readable data transformation chains:
