@@ -13,7 +13,6 @@ impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an expression in broken (multi-line) format.
     #[expect(
         clippy::too_many_lines,
-        clippy::cognitive_complexity,
         reason = "exhaustive ExprKind broken formatting dispatch"
     )]
     pub(super) fn emit_broken(&mut self, expr_id: ExprId) {
