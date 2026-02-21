@@ -282,6 +282,7 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Intrinsics` | Low-level SIMD and bit operations | No |
 | `FFI` | Foreign function interface | No |
 | `Suspend` | Suspension marker | Yes |
+| `Unsafe` | Safety bypass marker | No |
 
 ### Cache Capability
 
@@ -436,18 +437,43 @@ When resolving a capability name, the compiler checks in order:
 
 When both an imported `def impl` and a module-local `def impl` exist for the same capability, imported takes precedence.
 
-### Suspend Binding Prohibition
+### Marker Capabilities
 
-`Suspend` is a marker capability — it has no methods and cannot be provided via `with...in`. Attempting to bind `Suspend` is a compile-time error:
+> **Proposal:** [unsafe-semantics-proposal.md](../../../proposals/approved/unsafe-semantics-proposal.md)
+
+A _marker capability_ is a capability with no methods, no bindable implementation, and a specific discharge mechanism. Marker capabilities gate operations or contexts — they track what the code does, not what API it uses.
+
+Shared semantics for all marker capabilities:
+
+- No methods — gates operations, not API surface
+- Cannot be bound via `with...in` (E1203)
+- Propagates through the call chain like any capability
+- Each marker has its own discharge mechanism
+
+| Marker | Purpose | Discharge |
+|--------|---------|-----------|
+| `Suspend` | May suspend execution | Runtime / concurrency patterns |
+| `Unsafe` | Bypasses safety guarantees | `unsafe { }` block |
+
+Attempting to bind a marker capability is a compile-time error:
 
 ```ori
-with Suspend = SomeImpl in  // ERROR: Suspend cannot be bound
+with Suspend = SomeImpl in  // ERROR: marker capability cannot be bound
     suspending_fn()
+
+with Unsafe = something in  // ERROR: marker capability cannot be bound
+    unsafe_fn()
 ```
 
-Suspending context is provided by:
+`Suspend` context is provided by:
 - The runtime for `@main () uses Suspend`
 - Concurrency patterns: `parallel`, `spawn`, `nursery`
+
+`Unsafe` context is provided by:
+- `unsafe { expr }` blocks — programmer assertion of safety
+- Functions declaring `uses Unsafe` (propagates to callers)
+
+See [FFI § Unsafe Expressions](24-ffi.md#unsafe-expressions) for the full specification of unsafe operations.
 
 ## Testing
 
@@ -553,7 +579,7 @@ Functions without `uses` are pure: no side effects, cannot suspend, safely paral
 | E1200 | Missing capability (callee requires capability caller lacks) |
 | E1201 | Unbound capability (no `with` or `def impl` available) |
 | E1202 | Type does not implement capability trait |
-| E1203 | `Suspend` capability cannot be explicitly bound |
+| E1203 | Marker capability cannot be explicitly bound (`Suspend`, `Unsafe`) |
 | E1204 | Handler missing required operation (trait method not defined in handler) |
 | E1205 | Handler operation signature mismatch (parameters or return type) |
 | E1206 | Handler state type inconsistency (operations return different state types) |

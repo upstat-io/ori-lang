@@ -664,7 +664,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] **Rust Tests**: `ori_llvm/src/ffi/c_ffi_tests.rs`
 
 - [ ] **Implement**: Unsafe expressions
-  - [ ] `unsafe(...)` expression codegen (same as safe, marker only)
+  - [ ] `unsafe { ... }` block codegen (same as inner expr, marker only)
   - [ ] `uses FFI` capability requirement at call sites
   - [ ] Pointer operations: `ptr_read<T>(ptr:)`, `ptr_write<T>(ptr:, value:)`
   - [ ] Pointer arithmetic (future)

@@ -311,12 +311,16 @@ Calling C variadic functions requires `unsafe`.
 
 ## Unsafe Expressions
 
-Operations that bypass Ori's safety guarantees require `unsafe`:
+> **Proposal:** [unsafe-semantics-proposal.md](../../../proposals/approved/unsafe-semantics-proposal.md)
+
+Operations that bypass Ori's safety guarantees require the `Unsafe` capability. The `unsafe { }` block discharges this capability locally:
 
 ```ori
 @raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
-    unsafe(ptr_read_byte(ptr: ptr, offset: offset));
+    unsafe { ptr_read_byte(ptr: ptr, offset: offset) };
 ```
+
+`Unsafe` is a _marker capability_ — it cannot be bound via `with...in` (E1203). A function that wraps unsafe operations in `unsafe { }` blocks does not propagate `Unsafe` to callers. See [Capabilities § Marker Capabilities](14-capabilities.md#marker-capabilities).
 
 ### Operations Requiring Unsafe
 
@@ -328,7 +332,7 @@ Operations that bypass Ori's safety guarantees require `unsafe`:
 
 ### Safe FFI Calls
 
-Regular FFI calls (via `extern` declarations) are safe to call but require the `FFI` capability. Only operations Ori cannot verify require `unsafe`.
+Regular FFI calls (via `extern` declarations) are safe to call but require the `FFI` capability. Only operations Ori cannot verify require `unsafe`. The `FFI` capability tracks provenance (foreign code); the `Unsafe` capability tracks trust (safety bypasses).
 
 ## FFI Capability
 

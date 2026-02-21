@@ -355,7 +355,7 @@ statement   = ( let_expr | expression ) ";" .
 // --- Unsafe Expression ---
 // See: spec/24-ffi.md § Unsafe Blocks
 
-unsafe_expr = "unsafe" block_expr | "unsafe" "(" expression ")" .
+unsafe_expr = "unsafe" block_expr .
 
 // --- Embed Expressions ---
 // See: 11-built-in-functions.md § embed, § has_embed
