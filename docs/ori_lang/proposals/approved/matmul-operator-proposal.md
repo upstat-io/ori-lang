@@ -233,6 +233,10 @@ This is the same reason Python added `@` — `*` was already taken for element-w
 
 ---
 
+## Errata (added 2026-02-21)
+
+> **Precedence renumbered by power-operator-proposal**: The `**` (power) operator was inserted at precedence level 2, shifting all subsequent levels by +1. Multiplicative (including `@`) moved from level 3 to level 4. The relative ordering is unchanged — `@` still has the same precedence as `*`, `/`, `%`, `div`.
+
 ## Verification
 
 1. Existing `@` usage (function declarations, pattern bindings) unchanged

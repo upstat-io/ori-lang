@@ -728,8 +728,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             BinaryOp::Shl => self.builder.shl(lhs, rhs, "shl"),
             BinaryOp::Shr => self.builder.ashr(lhs, rhs, "shr"),
             BinaryOp::FloorDiv => self.builder.sdiv(lhs, rhs, "floordiv"),
-            BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::Coalesce => {
-                // Range/coalesce ops are desugared before reaching ARC IR
+            BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::Coalesce | BinaryOp::MatMul => {
+                // Range/coalesce/matmul ops are desugared or trait-dispatched before reaching ARC IR
                 tracing::warn!(?op, "ArcIrEmitter: desugared op in binary expression");
                 self.builder.const_i64(0)
             }

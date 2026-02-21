@@ -30,6 +30,12 @@ sections:
     title: Compound Assignment Operators
     status: not-started
   - id: "15C.9"
+    title: MatMul Operator
+    status: not-started
+  - id: "15C.10"
+    title: Power Operator
+    status: not-started
+  - id: "15C.11"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -623,7 +629,109 @@ for item in items {
 
 ---
 
-## 15C.9 Section Completion Checklist
+## 15C.9 MatMul Operator (`@`)
+
+**Proposal**: `proposals/approved/matmul-operator-proposal.md`
+
+Add `@` as a binary operator for matrix multiplication. Desugars to `MatMul` trait method `matrix_multiply()`. Same precedence as `*`/`/`/`%`/`div` (level 4, multiplicative). The `@` token is disambiguated by syntactic context (item position = function declaration, expression position = matmul, pattern position = at-binding).
+
+### IR
+
+- [ ] **Implement**: Add `MatMul` variant to `BinaryOp` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
+  - [ ] **Rust Tests**: `ori_ir/src/ast/tests.rs`
+
+### Parser
+
+- [ ] **Implement**: Add `TokenKind::At` to multiplicative precedence level in expression parser
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — matmul parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/matmul/basic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/matmul/precedence.ori`
+
+### Evaluator
+
+- [ ] **Implement**: Add `BinaryOp::MatMul` error arms to primitive type handlers (no primitive implements `MatMul`)
+  - [ ] **Rust Tests**: `ori_eval/src/tests/` — matmul error on primitives
+
+### Standard Library
+
+- [ ] **Implement**: Add `MatMul` trait definition to `library/std/prelude.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/matmul_trait.ori`
+
+### LLVM
+
+- [ ] **LLVM Support**: Falls through via trait dispatch — no special-casing needed
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/operators.rs` — matmul trait dispatch
+
+---
+
+## 15C.10 Power Operator (`**`)
+
+**Proposal**: `proposals/approved/power-operator-proposal.md`
+
+Add `**` as a right-associative binary operator for exponentiation. Desugars to `Pow` trait method `power()`. Binds tighter than unary `-` (precedence level 2): `-x ** 2 = -(x ** 2)`. Compound assignment `**=` included.
+
+### Lexer
+
+- [ ] **Implement**: Add `StarStar` and `StarStarEq` raw token tags to `ori_lexer_core/src/tag/mod.rs`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
+- [ ] **Implement**: Update raw scanner to recognize `**` and `**=` (longest-match: `*` → peek `*` → peek `=`)
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — power token scanning
+- [ ] **Implement**: Map `StarStar` → `TokenKind::Pow` and `StarStarEq` → compound assignment in cooker
+  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — power token cooking
+
+### IR
+
+- [ ] **Implement**: Add `Pow` variant to `BinaryOp` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
+  - [ ] **Rust Tests**: `ori_ir/src/ast/tests.rs` — BinaryOp::Pow methods
+
+### Parser
+
+- [ ] **Implement**: Add `parse_power_expr()` between `parse_unary_expr()` and `parse_postfix_expr()` — right-associative
+  - `unary_expr` calls `power_expr`; `power_expr` calls `postfix_expr`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — power expression parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/power/basic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/right_assoc.ori` — `2 ** 3 ** 2 = 512`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/unary_minus.ori` — `-2 ** 2 = -4`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/precedence.ori` — `a * b ** 2 = a * (b ** 2)`
+- [ ] **Implement**: Parse `**=` compound assignment (desugar to `x = x ** y`)
+  - [ ] **Ori Tests**: `tests/spec/operators/power/compound_assign.ori`
+
+### Type Checker
+
+- [ ] **Implement**: Falls through via `BinaryOp::trait_name()` returning `"Pow"` — no special-casing
+  - [ ] **Ori Tests**: `tests/compile-fail/power_no_impl.ori` — "type `str` does not implement `Pow`"
+
+### Evaluator
+
+- [ ] **Implement**: Built-in `int ** int` dispatch (binary exponentiation, panic on negative exponent)
+  - [ ] **Rust Tests**: `ori_eval/src/tests/` — int power evaluation
+  - [ ] **Ori Tests**: `tests/spec/operators/power/int_power.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/negative_exponent_panic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/zero_pow_zero.ori` — `0 ** 0 = 1`
+- [ ] **Implement**: Built-in `float ** float` dispatch (delegates to libm `pow()`)
+  - [ ] **Rust Tests**: `ori_eval/src/tests/` — float power evaluation
+  - [ ] **Ori Tests**: `tests/spec/operators/power/float_power.ori`
+- [ ] **Implement**: Mixed-type dispatch: `float ** int`, `int ** float` → `float`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/mixed_types.ori`
+- [ ] **Implement**: Overflow follows standard overflow behavior (panic in debug)
+  - [ ] **Ori Tests**: `tests/spec/operators/power/overflow.ori`
+
+### Standard Library
+
+- [ ] **Implement**: Add `Pow` trait definition to `library/std/prelude.ori`
+  - Trait: `trait Pow<Rhs = Self> { type Output = Self; @power (self, rhs: Rhs) -> Self.Output }`
+  - Built-in impls: `Pow for int`, `Pow for float`, `Pow<int> for float`, `Pow<float> for int`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/pow_trait.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/pow_user_defined.ori`
+
+### LLVM
+
+- [ ] **LLVM Support**: Primitive impls via `llvm.pow` intrinsic; user types via trait dispatch
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/operators.rs` — power operator codegen
+
+---
+
+## 15C.11 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated

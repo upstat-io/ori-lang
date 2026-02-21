@@ -85,9 +85,11 @@ pub(super) mod bp {
     pub const RANGE: u8 = 17;                     // .. ..= (non-assoc, special)
     pub const SHIFT: (u8, u8) = (19, 20);        // << >>
     pub const ADDITIVE: (u8, u8) = (21, 22);     // + -
-    pub const MULTIPLICATIVE: (u8, u8) = (23, 24); // * / % div
+    pub const MULTIPLICATIVE: (u8, u8) = (23, 24); // * / % div @
 }
 ```
+
+**Note:** The `**` (power) operator is NOT in this Pratt table — it is parsed by a dedicated `parse_power_expr()` function between `parse_unary_expr()` and `parse_postfix_expr()`, using simple right-recursive descent: `power_expr = postfix_expr [ "**" power_expr ]`. This is because `**` binds tighter than unary `-` (so `-x ** 2 = -(x ** 2)`), placing it outside the Pratt-parsed precedence levels.
 
 Range operators use a single binding power constant rather than a pair because they are non-associative — `1..10..20` is a parse error. A `parsed_range` flag prevents chaining.
 

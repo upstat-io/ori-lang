@@ -6,17 +6,14 @@
 use super::cursor::Cursor;
 use ori_ir::TokenKind;
 
-// Compile-time assertion: TokenSet uses a u128 bitset, so all discriminant
-// indices must fit in 0..127. If this fails, TokenSet needs a wider backing type.
-const _: () = assert!(
-    ori_ir::TokenTag::MAX_DISCRIMINANT <= 127,
-    "TokenSet uses u128 bitset; all discriminant indices must be < 128"
-);
+// TokenSet uses a [u128; 2] bitset (256 bits), covering all possible u8
+// discriminant indices (0-255). No compile-time bound check needed since
+// TokenTag discriminants are repr(u8), which is inherently < 256.
 
 /// A set of token kinds using bitset representation for O(1) membership testing.
 ///
-/// Each bit in the u128 corresponds to a `TokenKind` discriminant index.
-/// With 116 token kinds, we need u128 (128 bits) to cover all variants.
+/// Uses `[u128; 2]` (256 bits) to cover all possible `TokenKind` discriminant
+/// indices (0-255). Indices 0-127 are stored in `self.0[0]`, 128-255 in `self.0[1]`.
 ///
 /// # Performance
 /// - Membership testing: O(1) via bitwise AND
@@ -34,13 +31,13 @@ const _: () = assert!(
 /// }
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TokenSet(u128);
+pub struct TokenSet([u128; 2]);
 
 impl TokenSet {
     /// Create an empty token set.
     #[inline]
     pub const fn new() -> Self {
-        Self(0)
+        Self([0; 2])
     }
 
     /// Create a token set containing a single token kind.
@@ -50,7 +47,14 @@ impl TokenSet {
         reason = "const fn builder API; by-value required for static init"
     )]
     pub const fn single(kind: TokenKind) -> Self {
-        Self(1u128 << kind.discriminant_index())
+        let idx = kind.discriminant_index();
+        let mut bits = [0u128; 2];
+        if idx < 128 {
+            bits[0] = 1u128 << idx;
+        } else {
+            bits[1] = 1u128 << (idx - 128);
+        }
+        Self(bits)
     }
 
     /// Add a token kind to this set (builder pattern for const contexts).
@@ -61,21 +65,28 @@ impl TokenSet {
         reason = "const fn builder API; by-value required for static init"
     )]
     pub const fn with(self, kind: TokenKind) -> Self {
-        Self(self.0 | (1u128 << kind.discriminant_index()))
+        let idx = kind.discriminant_index();
+        let mut bits = self.0;
+        if idx < 128 {
+            bits[0] |= 1u128 << idx;
+        } else {
+            bits[1] |= 1u128 << (idx - 128);
+        }
+        Self(bits)
     }
 
     /// Union of two token sets.
     #[inline]
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
-        Self(self.0 | other.0)
+        Self([self.0[0] | other.0[0], self.0[1] | other.0[1]])
     }
 
     /// Intersection of two token sets.
     #[inline]
     #[must_use]
     pub const fn intersection(self, other: Self) -> Self {
-        Self(self.0 & other.0)
+        Self([self.0[0] & other.0[0], self.0[1] & other.0[1]])
     }
 
     /// Check if this set contains a token kind.
@@ -84,25 +95,24 @@ impl TokenSet {
     /// O(1) bitwise AND operation.
     #[inline]
     pub const fn contains(&self, kind: &TokenKind) -> bool {
-        (self.0 & (1u128 << kind.discriminant_index())) != 0
+        let idx = kind.discriminant_index();
+        if idx < 128 {
+            (self.0[0] & (1u128 << idx)) != 0
+        } else {
+            (self.0[1] & (1u128 << (idx - 128))) != 0
+        }
     }
 
     /// Check if this set is empty.
     #[inline]
     pub const fn is_empty(&self) -> bool {
-        self.0 == 0
+        self.0[0] == 0 && self.0[1] == 0
     }
 
     /// Count the number of token kinds in this set.
     #[inline]
     pub const fn count(&self) -> u32 {
-        self.0.count_ones()
-    }
-
-    /// Get the raw bits of this set (for iteration).
-    #[inline]
-    pub const fn bits(&self) -> u128 {
-        self.0
+        self.0[0].count_ones() + self.0[1].count_ones()
     }
 
     /// Iterate over the discriminant indices in this set.
@@ -111,19 +121,28 @@ impl TokenSet {
     /// `TokenKind::from_discriminant_index()` to convert back to token kinds
     /// for display purposes.
     pub fn iter_indices(&self) -> TokenSetIterator {
-        TokenSetIterator { bits: self.0 }
+        TokenSetIterator {
+            lo: self.0[0],
+            hi: self.0[1],
+        }
     }
 
     /// Add a token kind to this set (non-const mutation).
     #[inline]
     pub fn insert(&mut self, kind: &TokenKind) {
-        self.0 |= 1u128 << kind.discriminant_index();
+        let idx = kind.discriminant_index();
+        if idx < 128 {
+            self.0[0] |= 1u128 << idx;
+        } else {
+            self.0[1] |= 1u128 << (idx - 128);
+        }
     }
 
     /// Union with another set (non-const mutation).
     #[inline]
     pub fn union_with(&mut self, other: &Self) {
-        self.0 |= other.0;
+        self.0[0] |= other.0[0];
+        self.0[1] |= other.0[1];
     }
 
     /// Format this token set as a human-readable list for error messages.
@@ -155,31 +174,40 @@ impl TokenSet {
 }
 
 /// Iterator over discriminant indices in a `TokenSet`.
+///
+/// Iterates the low 128 bits first, then the high 128 bits.
 pub struct TokenSetIterator {
-    bits: u128,
+    lo: u128,
+    hi: u128,
 }
 
 impl Iterator for TokenSetIterator {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bits == 0 {
-            return None;
+        if self.lo != 0 {
+            let idx = self.lo.trailing_zeros();
+            self.lo &= self.lo - 1; // Clear the lowest set bit
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "u128::trailing_zeros() max is 127"
+            )]
+            Some(idx as u8)
+        } else if self.hi != 0 {
+            let idx = self.hi.trailing_zeros();
+            self.hi &= self.hi - 1;
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "128 + u128::trailing_zeros() max is 255, fits u8"
+            )]
+            Some((128 + idx) as u8)
+        } else {
+            None
         }
-        // SAFETY: trailing_zeros() on u128 returns 0-127, which fits in u8
-        let idx = self.bits.trailing_zeros();
-        debug_assert!(idx <= 127, "TokenSet index out of u8 range");
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "u128::trailing_zeros() max is 127"
-        )]
-        let idx = idx as u8;
-        self.bits &= self.bits - 1; // Clear the lowest set bit
-        Some(idx)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let count = self.bits.count_ones() as usize;
+        let count = (self.lo.count_ones() + self.hi.count_ones()) as usize;
         (count, Some(count))
     }
 }

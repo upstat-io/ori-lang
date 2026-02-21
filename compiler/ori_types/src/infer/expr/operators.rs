@@ -37,7 +37,8 @@ pub(crate) fn infer_binary(
         | BinaryOp::Mul
         | BinaryOp::Div
         | BinaryOp::Mod
-        | BinaryOp::FloorDiv => {
+        | BinaryOp::FloorDiv
+        | BinaryOp::MatMul => {
             let resolved_left = engine.resolve(left_ty);
             let resolved_right = engine.resolve(right_ty);
             let left_tag = engine.pool().tag(resolved_left);

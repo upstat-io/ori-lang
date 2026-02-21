@@ -161,8 +161,13 @@ impl Parser<'_> {
             return None;
         }
 
-        // Special case: Gt may be compound >= or >>
+        // Special case: Gt may be compound >= or >> or >>=
         if tag == TokenKind::TAG_GT {
+            // Check >>= first: if we greedily match >> here, parse_expr_inner
+            // can't see >>=. Returning None defers to the compound assignment path.
+            if self.cursor.is_shift_right_assign() {
+                return None;
+            }
             if self.cursor.is_greater_equal() {
                 return Some((bp::COMPARISON.0, bp::COMPARISON.1, BinaryOp::GtEq, 2));
             }
@@ -177,6 +182,30 @@ impl Parser<'_> {
             op_from_u8(info.op),
             info.token_count as usize,
         ))
+    }
+
+    /// Map a compound assignment token tag to its corresponding `BinaryOp`.
+    ///
+    /// Returns `None` for non-compound-assignment tags. The `>>=` case is
+    /// handled separately via `is_shift_right_assign()` since it's synthesized
+    /// from three adjacent `>` `>` `=` tokens (not a single lexer token).
+    #[inline]
+    pub(crate) fn compound_assign_op(&self) -> Option<BinaryOp> {
+        match self.cursor.current_tag() {
+            TokenKind::TAG_PLUS_EQ => Some(BinaryOp::Add),
+            TokenKind::TAG_MINUS_EQ => Some(BinaryOp::Sub),
+            TokenKind::TAG_STAR_EQ => Some(BinaryOp::Mul),
+            TokenKind::TAG_SLASH_EQ => Some(BinaryOp::Div),
+            TokenKind::TAG_PERCENT_EQ => Some(BinaryOp::Mod),
+            TokenKind::TAG_AT_EQ => Some(BinaryOp::MatMul),
+            TokenKind::TAG_AMP_EQ => Some(BinaryOp::BitAnd),
+            TokenKind::TAG_PIPE_EQ => Some(BinaryOp::BitOr),
+            TokenKind::TAG_CARET_EQ => Some(BinaryOp::BitXor),
+            TokenKind::TAG_SHL_EQ => Some(BinaryOp::Shl),
+            TokenKind::TAG_AMPAMP_EQ => Some(BinaryOp::And),
+            TokenKind::TAG_PIPEPIPE_EQ => Some(BinaryOp::Or),
+            _ => None,
+        }
     }
 
     /// Match prefix unary operators (`-`, `!`, `~`).
@@ -239,7 +268,8 @@ mod tests {
     /// are handled as special cases in `infix_binding_power`:
     /// - `Range`, `RangeInclusive`: non-associative, parsed in the Pratt loop
     /// - `GtEq`, `Shr`: compound tokens synthesized from `>` + `=`/`>`
-    const SPECIAL_CASE_COUNT: usize = 4;
+    /// - `MatMul`: not yet wired as infix `@` (only reachable via `@=` desugaring)
+    const SPECIAL_CASE_COUNT: usize = 5;
 
     /// Count all `BinaryOp` variants via exhaustive match (compiler-enforced).
     ///
@@ -257,6 +287,7 @@ mod tests {
             | BinaryOp::Div
             | BinaryOp::Mod
             | BinaryOp::FloorDiv
+            | BinaryOp::MatMul
             | BinaryOp::Eq
             | BinaryOp::NotEq
             | BinaryOp::Lt
@@ -274,7 +305,7 @@ mod tests {
             | BinaryOp::RangeInclusive
             | BinaryOp::Coalesce => {}
         };
-        22
+        23
     }
 
     #[test]

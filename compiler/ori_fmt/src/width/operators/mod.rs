@@ -38,6 +38,8 @@ pub(super) fn binary_op_width(op: BinaryOp) -> usize {
         BinaryOp::RangeInclusive => 3,
         // Coalesce: ??
         BinaryOp::Coalesce => 2,
+        // MatMul: @
+        BinaryOp::MatMul => 1,
     };
     // " op " - space on each side
     1 + op_w + 1

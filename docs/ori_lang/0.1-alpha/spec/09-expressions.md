@@ -402,19 +402,20 @@ Operators are listed from highest to lowest precedence:
 | Level | Operators | Associativity | Description |
 |-------|-----------|---------------|-------------|
 | 1 | `.` `[]` `()` `?` `as` `as?` | Left | Postfix |
-| 2 | `!` `-` `~` | Right | Unary |
-| 3 | `*` `/` `%` `div` | Left | Multiplicative |
-| 4 | `+` `-` | Left | Additive |
-| 5 | `<<` `>>` | Left | Shift |
-| 6 | `..` `..=` `by` | Left | Range |
-| 7 | `<` `>` `<=` `>=` | Left | Relational |
-| 8 | `==` `!=` | Left | Equality |
-| 9 | `&` | Left | Bitwise AND |
-| 10 | `^` | Left | Bitwise XOR |
-| 11 | `\|` | Left | Bitwise OR |
-| 12 | `&&` | Left | Logical AND |
-| 13 | `\|\|` | Left | Logical OR |
-| 14 | `??` | Right | Coalesce |
+| 2 | `**` | Right | Power |
+| 3 | `!` `-` `~` | Right | Unary |
+| 4 | `*` `/` `%` `div` `@` | Left | Multiplicative |
+| 5 | `+` `-` | Left | Additive |
+| 6 | `<<` `>>` | Left | Shift |
+| 7 | `..` `..=` `by` | Left | Range |
+| 8 | `<` `>` `<=` `>=` | Left | Relational |
+| 9 | `==` `!=` | Left | Equality |
+| 10 | `&` | Left | Bitwise AND |
+| 11 | `^` | Left | Bitwise XOR |
+| 12 | `\|` | Left | Bitwise OR |
+| 13 | `&&` | Left | Logical AND |
+| 14 | `\|\|` | Left | Logical OR |
+| 15 | `??` | Right | Coalesce |
 
 Parentheses override precedence:
 
@@ -437,6 +438,7 @@ Operators are desugared to trait method calls. User-defined types can implement 
 | `a / b` | `Div` | `a.divide(rhs: b)` |
 | `a div b` | `FloorDiv` | `a.floor_divide(rhs: b)` |
 | `a % b` | `Rem` | `a.remainder(rhs: b)` |
+| `a ** b` | `Pow` | `a.power(rhs: b)` |
 | `a @ b` | `MatMul` | `a.matrix_multiply(rhs: b)` |
 
 ### Unary Operators
@@ -984,7 +986,7 @@ flags |= MASK;       // desugars to: flags = flags | MASK
 passed &&= check();  // desugars to: passed = passed && check()
 ```
 
-Supported operators: `+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`.
+Supported operators: `+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`.
 
 The `&&=` and `||=` forms preserve short-circuit evaluation: `x &&= expr` does not evaluate `expr` when `x` is `false`.
 
