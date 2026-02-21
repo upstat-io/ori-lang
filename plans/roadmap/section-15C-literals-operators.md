@@ -27,6 +27,9 @@ sections:
     title: Null Coalesce Operator
     status: not-started
   - id: "15C.8"
+    title: Compound Assignment Operators
+    status: not-started
+  - id: "15C.9"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -558,7 +561,69 @@ let count = get_count() ?? 0
 
 ---
 
-## 15C.8 Section Completion Checklist
+## 15C.8 Compound Assignment Operators
+
+**Proposal**: `proposals/approved/compound-assignment-proposal.md`
+
+Add compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`) that desugar to `x = x op y` at the parser level.
+
+```ori
+let sum = 0;
+for item in items {
+    sum += item.value;
+}
+```
+
+### Lexer
+
+- [ ] **Implement**: Add 13 new raw token tags to `ori_lexer_core/src/tag/mod.rs`
+  - `PlusEq`, `MinusEq`, `StarEq`, `SlashEq`, `PercentEq`, `AtEq`, `AmpEq`, `PipeEq`, `CaretEq`, `ShlEq`, `ShrEq`, `AmpAmpEq`, `PipePipeEq`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — scanning tests
+
+- [ ] **Implement**: Update raw scanner to scan compound assignment tokens
+  - Two-char: `+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`
+  - Three-char: `<<=`, `>>=`, `&&=`, `||=`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — replace `no_compound_assignment` test
+
+- [ ] **Implement**: Map raw tags to `TokenKind` in cooker
+  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — compound assignment cooking
+
+### Parser
+
+- [ ] **Implement**: Parse compound assignment and desugar to `Assign { target, value: Binary/And/Or }`
+  - Trait-based ops: map `PlusEq` → `BinaryOp::Add`, etc.
+  - Logical ops: map `AmpAmpEq` → `ExprKind::And`, `PipePipeEq` → `ExprKind::Or`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — compound assignment parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/basic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/field_access.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/subscript.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/logical.ori`
+
+- [ ] **Implement**: Remove compound assignment from "common mistake" detection
+  - Remove `+=`, `-=`, `*=`, `/=`, `%=` from `mistakes.rs`
+  - Remove `&&=`, `||=` from `mistakes.rs`
+  - Keep `??=` as mistake (still unsupported)
+  - [ ] **Rust Tests**: `ori_parse/src/error/tests.rs` — update detection tests
+
+### Error Messages
+
+- [ ] **Implement**: Error for compound assignment on immutable binding (`$`)
+  - Message: "cannot use compound assignment on immutable binding `$y`. Remove `$` for mutability: `let y = ...`"
+  - [ ] **Ori Tests**: `tests/compile-fail/compound_assign_immutable.ori`
+
+- [ ] **Implement**: Error for compound assignment as expression
+  - Message: "compound assignment is a statement, not an expression"
+  - [ ] **Ori Tests**: `tests/compile-fail/compound_assign_as_expression.ori`
+
+### LLVM Support
+
+- [ ] **LLVM Support**: No changes needed — parser desugars before reaching LLVM codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/compound_assign_tests.rs` — verify desugared form compiles correctly
+
+---
+
+## 15C.9 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated
