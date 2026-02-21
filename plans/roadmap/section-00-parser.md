@@ -1154,7 +1154,7 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 
 #### Phase 4: Migration
 - [x] **Run**: `scripts/migrate_block_syntax.py` on all documentation (.md files) (2026-02-20)
-- [ ] **Manual**: Migrate `pre_check:`/`post_check:` references to function-level `pre()`/`post()` <!-- unblocked: contract parsing implemented 2026-02-21 -->
+- [x] **Manual**: Migrate `pre_check:`/`post_check:` references to function-level `pre()`/`post()` (2026-02-21) — README examples, parser context comment, design doc
 - [x] **Run**: `scripts/migrate_block_syntax.py` on all `.ori` test files (2026-02-20)
 - [x] **Update**: `grammar.ebnf` with new block/match/try rules (2026-02-20)
 - [x] **Update**: `.claude/rules/ori-syntax.md` with new syntax (2026-02-20)

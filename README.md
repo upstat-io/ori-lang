@@ -45,11 +45,11 @@ Every function requires tests. No exceptions. No skipping. No "I'll add tests la
     memo: true,
 )
 
-@test_fibonacci tests @fibonacci () -> void = run(
-    assert_eq(fibonacci(n: 0), 0),
-    assert_eq(fibonacci(n: 1), 1),
-    assert_eq(fibonacci(n: 10), 55),
-)
+@test_fibonacci tests @fibonacci () -> void = {
+    assert_eq(fibonacci(n: 0), 0);
+    assert_eq(fibonacci(n: 1), 1);
+    assert_eq(fibonacci(n: 10), 55);
+}
 ```
 
 ### Dependency-Aware Test Execution
@@ -60,10 +60,10 @@ Tests are in the dependency graph. Change `@parse`, and tests for `@compile` (wh
 @parse (input: str) -> Result<Ast, Error> = ...
 @test_parse tests @parse () -> void = ...
 
-@compile (input: str) -> Result<Binary, Error> = run(
-    let ast = parse(input: input)?,
-    generate_code(ast: ast),
-)
+@compile (input: str) -> Result<Binary, Error> = {
+    let ast = parse(input: input)?;
+    generate_code(ast: ast)
+}
 @test_compile tests @compile () -> void = ...
 ```
 
@@ -105,12 +105,11 @@ Side effects are tracked through capabilities. Mocking is just providing a diffe
     Http.get("/users/" + str(id))
 
 @test_fetch_user tests @fetch_user () -> void =
-    with Http = MockHttp(responses: {"/users/1": mock_user}) in
-    run(
-        let result = fetch_user(id: 1),
-        assert_ok(result),
-        assert_eq(result.unwrap().name, "Alice"),
-    )
+    with Http = MockHttp(responses: {"/users/1": mock_user}) in {
+        let result = fetch_user(id: 1);
+        assert_ok(result);
+        assert_eq(result.unwrap().name, "Alice");
+    }
 ```
 
 No test framework. No mocking library. Just the language.
@@ -120,16 +119,15 @@ No test framework. No mocking library. Just the language.
 Functions declare and enforce their invariants.
 
 ```ori
-@sqrt (x: float) -> float = run(
-    pre_check: x >= 0.0,
-    newton_raphson(x),
-    post_check: r -> r >= 0.0,
-)
+@sqrt (x: float) -> float
+    pre(x >= 0.0)
+    post(r -> r >= 0.0)
+= newton_raphson(x)
 
-@test_sqrt tests @sqrt () -> void = run(
-    assert_eq(sqrt(x: 4.0), 2.0),
-    assert_panics(sqrt(x: -1.0)),
-)
+@test_sqrt tests @sqrt () -> void = {
+    assert_eq(sqrt(x: 4.0), 2.0);
+    assert_panics(sqrt(x: -1.0));
+}
 ```
 
 ### Declarative Patterns
@@ -137,20 +135,20 @@ Functions declare and enforce their invariants.
 Express *what* you want, not *how*. First-class patterns replace error-prone loops.
 
 ```ori
-@process_users (users: [User]) -> [str] = run(
-    let active = filter(over: users, predicate: u -> u.is_active),
-    let sorted = sort_by(over: active, key: u -> u.name),
-    map(over: sorted, transform: u -> u.email),
-)
+@process_users (users: [User]) -> [str] = {
+    let active = filter(over: users, predicate: u -> u.is_active);
+    let sorted = sort_by(over: active, key: u -> u.name);
+    map(over: sorted, transform: u -> u.email)
+}
 
-@test_process_users tests @process_users () -> void = run(
+@test_process_users tests @process_users () -> void = {
     let users = [
         User { name: "Bob", email: "bob@x.com", is_active: true },
         User { name: "Alice", email: "alice@x.com", is_active: true },
         User { name: "Charlie", email: "charlie@x.com", is_active: false },
-    ],
-    assert_eq(process_users(users: users), ["alice@x.com", "bob@x.com"]),
-)
+    ];
+    assert_eq(process_users(users: users), ["alice@x.com", "bob@x.com"]);
+}
 ```
 
 ### No Null or Exceptions
@@ -162,16 +160,16 @@ Express *what* you want, not *how*. First-class patterns replace error-prone loo
     if b == 0 then Err("division by zero")
     else Ok(a / b)
 
-@safe_compute (x: int, y: int) -> Result<int, str> = try(
-    let quotient = divide(a: 100, b: x)?,
-    let result = divide(a: quotient, b: y)?,
-    Ok(result),
-)
+@safe_compute (x: int, y: int) -> Result<int, str> = try {
+    let quotient = divide(a: 100, b: x)?;
+    let result = divide(a: quotient, b: y)?;
+    Ok(result)
+}
 
-@test_divide tests @divide () -> void = run(
-    assert_eq(divide(a: 10, b: 2), Ok(5)),
-    assert_eq(divide(a: 10, b: 0), Err("division by zero")),
-)
+@test_divide tests @divide () -> void = {
+    assert_eq(divide(a: 10, b: 2), Ok(5));
+    assert_eq(divide(a: 10, b: 0), Err("division by zero"));
+}
 ```
 
 ## Quick Start
