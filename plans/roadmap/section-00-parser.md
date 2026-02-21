@@ -1140,21 +1140,21 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
   - [x] **Ori Tests**: All AOT and spec tests migrated
 
 #### Phase 3: Parser — Function-Level Contracts <!-- deferred: separate feature (15D.1) -->
-- [ ] **Implement**: `pre(condition)` parsing between return type and `=`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — pre contract parsing
-  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/pre_basic.ori`
-- [ ] **Implement**: `post(r -> condition)` parsing between return type and `=`
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — post contract parsing
-  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/post_basic.ori`
-- [ ] **Implement**: Multiple `pre()`/`post()` declarations
-  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/multiple_contracts.ori`
-- [ ] **Implement**: Message syntax `pre(condition | "message")`
-  - [ ] **Ori Tests**: `tests/spec/syntax/contracts/contract_messages.ori`
-- [ ] **Implement**: IR changes — move `pre_checks`/`post_checks` from `FunctionSeq::Run` to function definition node
+- [x] **Implement**: `pre(condition)` parsing between return type and `=` (2026-02-21)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/item/function/tests.rs` — pre contract parsing (4 tests)
+  - [x] **Ori Tests**: `tests/spec/declarations/contracts/pre_basic.ori`
+- [x] **Implement**: `post(r -> condition)` parsing between return type and `=` (2026-02-21)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/item/function/tests.rs` — post contract parsing (4 tests)
+  - [x] **Ori Tests**: `tests/spec/declarations/contracts/post_basic.ori`
+- [x] **Implement**: Multiple `pre()`/`post()` declarations (2026-02-21)
+  - [x] **Ori Tests**: `tests/spec/declarations/contracts/multiple_contracts.ori`
+- [x] **Implement**: Message syntax `pre(condition | "message")` (2026-02-21)
+  - [x] **Ori Tests**: Tests included in `pre_basic.ori` and `post_basic.ori` (message variants)
+- [x] **Implement**: IR changes — `PreContract`/`PostContract` structs + `pre_contracts`/`post_contracts` fields on `Function` (2026-02-21)
 
 #### Phase 4: Migration
 - [x] **Run**: `scripts/migrate_block_syntax.py` on all documentation (.md files) (2026-02-20)
-- [ ] **Manual**: Migrate `pre_check:`/`post_check:` references to function-level `pre()`/`post()` <!-- blocked: contracts not yet implemented -->
+- [ ] **Manual**: Migrate `pre_check:`/`post_check:` references to function-level `pre()`/`post()` <!-- unblocked: contract parsing implemented 2026-02-21 -->
 - [x] **Run**: `scripts/migrate_block_syntax.py` on all `.ori` test files (2026-02-20)
 - [x] **Update**: `grammar.ebnf` with new block/match/try rules (2026-02-20)
 - [x] **Update**: `.claude/rules/ori-syntax.md` with new syntax (2026-02-20)
@@ -1169,7 +1169,8 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
   - Always emit comma after every arm including last (spec: 16-formatting.md:786)
 - [x] **Update**: Golden tests updated to match new formatting (19 files) (2026-02-21)
 - [ ] **Implement**: Contract formatting (pre/post between signature and `=`) <!-- blocked-by:15D -->
-  - Blocked: `Function` IR has no `pre_conditions`/`post_conditions` fields
+  - IR unblocked: `Function` now has `pre_contracts`/`post_contracts` fields (2026-02-21)
+  - Still blocked: formatter needs contract emit logic (depends on 15D contract enforcement design)
 - [x] **Fix**: Formatter double-emits `$` for immutable local bindings (2026-02-21)
   - `emit_stmt()` emits `let $` AND `emit_binding_pattern()` emits `$` → produces `let $$x`
   - Root cause: `$` prefix emitted in two independent locations (stacked.rs:211, patterns.rs:135-137)

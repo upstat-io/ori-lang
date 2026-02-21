@@ -1,0 +1,43 @@
+// Spec: 10-patterns.md § Function-Level Contracts
+// Tests that `pre()` contract syntax parses correctly on function declarations.
+//
+// Note: Contract runtime enforcement is not yet implemented.
+// These tests verify that the parser accepts the syntax and the
+// type checker handles functions with contracts without errors.
+
+use std.testing { assert_eq }
+
+// Basic pre-condition
+@safe_divide (a: int, b: int) -> int
+    pre(b != 0)
+= a div b;
+
+@test_safe_divide tests @safe_divide () -> void = {
+    assert_eq(safe_divide(10, 2), 5);
+    assert_eq(safe_divide(7, 3), 2);
+    assert_eq(safe_divide(0, 5), 0);
+}
+
+// Pre-condition with custom message
+@withdraw (balance: int, amount: int) -> int
+    pre(amount > 0 | "amount must be positive")
+    pre(balance >= amount | "insufficient funds")
+= balance - amount;
+
+@test_withdraw tests @withdraw () -> void = {
+    assert_eq(withdraw(100, 50), 50);
+    assert_eq(withdraw(100, 100), 0);
+}
+
+// Pre-condition with complex expression
+@clamp (value: int, low: int, high: int) -> int
+    pre(low <= high | "low must not exceed high")
+= if value < low then low
+  else if value > high then high
+  else value;
+
+@test_clamp tests @clamp () -> void = {
+    assert_eq(clamp(5, 0, 10), 5);
+    assert_eq(clamp(-1, 0, 10), 0);
+    assert_eq(clamp(15, 0, 10), 10);
+}
