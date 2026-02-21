@@ -121,31 +121,42 @@ pub fn determine_packing(
     has_empty_lines: bool,
     _item_count: usize,
 ) -> Packing {
-    // Always-stacked constructs (from spec lines 78-90)
-    if construct.is_always_stacked() {
-        return Packing::AlwaysStacked;
-    }
+    // Determine the base strategy from the construct kind (exhaustive match
+    // ensures new variants must make an explicit packing decision)
+    let base = match construct {
+        // Always stacked (spec lines 78-90)
+        ConstructKind::RunTopLevel
+        | ConstructKind::Try
+        | ConstructKind::Match
+        | ConstructKind::Recurse
+        | ConstructKind::Parallel
+        | ConstructKind::Spawn
+        | ConstructKind::Nursery
+        | ConstructKind::MatchArms => return Packing::AlwaysStacked,
 
-    // Empty lines between items → preserve vertical spacing
-    if has_empty_lines {
+        // Simple lists can pack multiple per line
+        ConstructKind::ListSimple => Packing::FitOrPackMultiple,
+
+        // Everything else: try inline, else one per line
+        ConstructKind::FunctionParams
+        | ConstructKind::FunctionArgs
+        | ConstructKind::GenericParams
+        | ConstructKind::WhereConstraints
+        | ConstructKind::Capabilities
+        | ConstructKind::StructFieldsDef
+        | ConstructKind::StructFieldsLiteral
+        | ConstructKind::SumVariants
+        | ConstructKind::MapEntries
+        | ConstructKind::TupleElements
+        | ConstructKind::ImportItems
+        | ConstructKind::ListComplex
+        | ConstructKind::RunNested => Packing::FitOrOnePerLine,
+    };
+
+    // Metadata overrides: user intent signals that force multiline
+    if has_empty_lines || has_trailing_comma || has_comments {
         return Packing::AlwaysOnePerLine;
     }
 
-    // Trailing comma signals user intent to break
-    if has_trailing_comma {
-        return Packing::AlwaysOnePerLine;
-    }
-
-    // Comments force breaking
-    if has_comments {
-        return Packing::AlwaysOnePerLine;
-    }
-
-    // Simple lists can pack multiple per line
-    if matches!(construct, ConstructKind::ListSimple) {
-        return Packing::FitOrPackMultiple;
-    }
-
-    // Default: try inline, else one per line
-    Packing::FitOrOnePerLine
+    base
 }
