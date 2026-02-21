@@ -157,6 +157,10 @@ impl IteratorValue {
         clippy::arithmetic_side_effects,
         reason = "pos/byte_pos increments are guarded by bounds checks; range step is user-provided i64"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive IteratorValue next-element dispatch"
+    )]
     pub fn next(&self) -> (Option<Value>, IteratorValue) {
         match self {
             IteratorValue::List { items, front, back } => {
@@ -710,6 +714,10 @@ impl fmt::Debug for IteratorValue {
 }
 
 impl PartialEq for IteratorValue {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive IteratorValue equality dispatch"
+    )]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (

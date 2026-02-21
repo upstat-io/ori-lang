@@ -1,8 +1,8 @@
 use super::*;
-use crate::Pool;
+use crate::{Idx, Pool};
 use ori_ir::{
     ast::{Expr, ExprKind, MapEntry, MatchArm, MatchPattern, Param, Stmt, StmtKind},
-    BindingPattern, ExprArena, ExprId, Name, Span,
+    BindingPattern, ExprArena, ExprId, Mutability, Name, Span, StringInterner,
 };
 
 // ========================================================================
@@ -1263,14 +1263,14 @@ fn test_infer_block_with_let() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let _stmt = arena.alloc_stmt(Stmt {
         kind: StmtKind::Let {
             pattern,
             ty: ori_ir::ParsedTypeId::INVALID,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1301,7 +1301,7 @@ fn test_infer_block_let_with_type_annotation() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let int_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1309,7 +1309,7 @@ fn test_infer_block_let_with_type_annotation() {
             pattern,
             ty: int_ty,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1353,7 +1353,7 @@ fn test_infer_block_let_annotation_list_type() {
 
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let list_ty = arena.alloc_parsed_type(list_annotation);
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1361,7 +1361,7 @@ fn test_infer_block_let_annotation_list_type() {
             pattern,
             ty: list_ty,
             init: list,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1396,7 +1396,7 @@ fn test_infer_block_let_annotation_type_mismatch() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let str_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1404,7 +1404,7 @@ fn test_infer_block_let_annotation_type_mismatch() {
             pattern,
             ty: str_ty,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1669,107 +1669,6 @@ fn test_infer_coalesce() {
 // ========================================================================
 // Pattern Expression Tests (FunctionSeq)
 // ========================================================================
-
-#[test]
-fn test_infer_function_seq_run() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    let mut arena = ExprArena::new();
-
-    // run(let x = 42, x + 1)
-    let init = alloc(&mut arena, ExprKind::Int(42));
-    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
-        name: name(1),
-        mutable: true,
-    });
-    let bindings = arena.alloc_seq_bindings([ori_ir::SeqBinding::Let {
-        pattern,
-        ty: ori_ir::ParsedTypeId::INVALID,
-        value: init,
-        mutable: false,
-        span: Span::DUMMY,
-    }]);
-
-    // x + 1 where x is name(1)
-    let x_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
-    let one = alloc(&mut arena, ExprKind::Int(1));
-    let result = alloc(
-        &mut arena,
-        ExprKind::Binary {
-            op: BinaryOp::Add,
-            left: x_ref,
-            right: one,
-        },
-    );
-
-    let func_seq = ori_ir::FunctionSeq::Run {
-        pre_checks: ori_ir::CheckRange::EMPTY,
-        bindings,
-        result,
-        post_checks: ori_ir::CheckRange::EMPTY,
-        span: Span::DUMMY,
-    };
-    let seq_id = arena.alloc_function_seq(func_seq);
-    let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
-
-    let ty = infer_expr(&mut engine, &arena, expr_id);
-
-    assert_eq!(ty, Idx::INT, "run should return result type");
-    assert!(!engine.has_errors());
-}
-
-#[test]
-fn test_infer_function_seq_run_multiple_bindings() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    let mut arena = ExprArena::new();
-
-    // run(let x = 1, let y = "hello", y)
-    let x_init = alloc(&mut arena, ExprKind::Int(1));
-    let y_init = alloc(&mut arena, ExprKind::String(ori_ir::Name::from_raw(100)));
-
-    let pattern1 = arena.alloc_binding_pattern(BindingPattern::Name {
-        name: name(1),
-        mutable: true,
-    });
-    let pattern2 = arena.alloc_binding_pattern(BindingPattern::Name {
-        name: name(2),
-        mutable: true,
-    });
-    let bindings = arena.alloc_seq_bindings([
-        ori_ir::SeqBinding::Let {
-            pattern: pattern1,
-            ty: ori_ir::ParsedTypeId::INVALID,
-            value: x_init,
-            mutable: false,
-            span: Span::DUMMY,
-        },
-        ori_ir::SeqBinding::Let {
-            pattern: pattern2,
-            ty: ori_ir::ParsedTypeId::INVALID,
-            value: y_init,
-            mutable: false,
-            span: Span::DUMMY,
-        },
-    ]);
-
-    let y_ref = alloc(&mut arena, ExprKind::Ident(name(2)));
-
-    let func_seq = ori_ir::FunctionSeq::Run {
-        pre_checks: ori_ir::CheckRange::EMPTY,
-        bindings,
-        result: y_ref,
-        post_checks: ori_ir::CheckRange::EMPTY,
-        span: Span::DUMMY,
-    };
-    let seq_id = arena.alloc_function_seq(func_seq);
-    let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
-
-    let ty = infer_expr(&mut engine, &arena, expr_id);
-
-    assert_eq!(ty, Idx::STR, "run should return str from y");
-    assert!(!engine.has_errors());
-}
 
 #[test]
 fn test_infer_function_exp_print() {
@@ -2191,6 +2090,7 @@ fn typeck_builtin_methods_all_resolve() {
             "Iterator" => (Tag::Iterator, iterator_ty),
             "DoubleEndedIterator" => (Tag::DoubleEndedIterator, dei_ty),
             "Channel" => (Tag::Channel, channel_ty),
+            "error" => (Tag::Error, Idx::ERROR),
             "tuple" => (Tag::Tuple, tuple_ty),
             other => panic!("unknown type name in TYPECK_BUILTIN_METHODS: {other:?}"),
         };
@@ -2371,6 +2271,54 @@ fn test_eq_satisfied_by_tuple() {
     assert!(
         super::calls::type_satisfies_trait(tuple_ty, "Eq", &pool),
         "(int, str) should satisfy Eq (equals() implemented in §3.14)"
+    );
+}
+
+// ========================================================================
+// Trait Satisfaction Tests — Len satisfied by tuple (§3.0.1)
+// ========================================================================
+
+#[test]
+fn test_len_satisfied_by_tuple() {
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+
+    assert!(
+        super::calls::type_satisfies_trait(tuple_ty, "Len", &pool),
+        "(int, str) should satisfy Len"
+    );
+}
+
+#[test]
+fn test_len_satisfied_by_triple_tuple() {
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::BOOL, Idx::STR]);
+
+    assert!(
+        super::calls::type_satisfies_trait(tuple_ty, "Len", &pool),
+        "(int, bool, str) should satisfy Len"
+    );
+}
+
+#[test]
+fn test_len_satisfied_by_single_tuple() {
+    let mut pool = Pool::new();
+    let tuple_ty = pool.tuple(&[Idx::INT]);
+
+    assert!(
+        super::calls::type_satisfies_trait(tuple_ty, "Len", &pool),
+        "(int,) should satisfy Len"
+    );
+}
+
+#[test]
+fn test_len_not_satisfied_by_result() {
+    let mut pool = Pool::new();
+    let res_ty = pool.result(Idx::INT, Idx::STR);
+
+    assert!(
+        !super::calls::type_satisfies_trait(res_ty, "Len", &pool),
+        "Result<int, str> should NOT satisfy Len"
     );
 }
 
@@ -2640,5 +2588,287 @@ fn find_infinite_source_unknown_method_returns_none() {
     assert_eq!(
         result, None,
         "unknown methods are conservative — no false positives"
+    );
+}
+
+// ========================================================================
+// Trait Satisfaction Sync Tests — Name-based vs String-based
+// ========================================================================
+
+/// Verify that `WellKnownNames::type_satisfies_trait` (Name-based) produces
+/// identical results to the string-based `calls::type_satisfies_trait` for all
+/// primitive and compound types × all known trait names.
+///
+/// When adding a new trait to either function, this test catches drift between
+/// the two implementations.
+#[test]
+fn well_known_trait_satisfaction_sync() {
+    use crate::check::WellKnownNames;
+
+    let interner = StringInterner::new();
+    let wk = WellKnownNames::new(&interner);
+
+    // All trait names used across both primitive and compound satisfaction checks
+    let trait_names: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Default",
+        "Printable",
+        "Debug",
+        "Sendable",
+        "Add",
+        "Sub",
+        "Mul",
+        "Div",
+        "FloorDiv",
+        "Rem",
+        "Neg",
+        "BitAnd",
+        "BitOr",
+        "BitXor",
+        "BitNot",
+        "Shl",
+        "Shr",
+        "Not",
+        "Len",
+        "IsEmpty",
+        "Iterable",
+        "Iterator",
+        "DoubleEndedIterator",
+        // A trait name NOT in any list — should be false everywhere
+        "Nonexistent",
+    ];
+
+    let primitives: &[(Idx, &str)] = &[
+        (Idx::INT, "int"),
+        (Idx::FLOAT, "float"),
+        (Idx::BOOL, "bool"),
+        (Idx::STR, "str"),
+        (Idx::CHAR, "char"),
+        (Idx::BYTE, "byte"),
+        (Idx::UNIT, "unit"),
+        (Idx::DURATION, "duration"),
+        (Idx::SIZE, "size"),
+        (Idx::ORDERING, "ordering"),
+    ];
+
+    let mut pool = Pool::new();
+
+    for &(ty, type_name) in primitives {
+        for &trait_str in trait_names {
+            let trait_name = interner.intern(trait_str);
+            let string_result = super::calls::type_satisfies_trait(ty, trait_str, &pool);
+            let name_result = wk.type_satisfies_trait(ty, trait_name, &pool);
+            assert_eq!(
+                string_result, name_result,
+                "SYNC MISMATCH: {type_name} × {trait_str}: \
+                 string={string_result}, name={name_result}",
+            );
+        }
+    }
+
+    // Compound types (require pool construction)
+    let list_ty = pool.list(Idx::INT);
+    let map_ty = pool.map(Idx::STR, Idx::INT);
+    let set_ty = pool.set(Idx::INT);
+    let opt_ty = pool.option(Idx::INT);
+    let res_ty = pool.result(Idx::STR, Idx::INT);
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+    let range_ty = pool.range(Idx::INT);
+    let iter_ty = pool.iterator(Idx::INT);
+    let dei_ty = pool.double_ended_iterator(Idx::INT);
+
+    let compounds: &[(Idx, &str)] = &[
+        (list_ty, "[int]"),
+        (map_ty, "{str: int}"),
+        (set_ty, "Set<int>"),
+        (opt_ty, "Option<int>"),
+        (res_ty, "Result<str, int>"),
+        (tuple_ty, "(int, str)"),
+        (range_ty, "Range<int>"),
+        (iter_ty, "Iterator<int>"),
+        (dei_ty, "DoubleEndedIterator<int>"),
+    ];
+
+    for &(ty, type_name) in compounds {
+        for &trait_str in trait_names {
+            let trait_name = interner.intern(trait_str);
+            let string_result = super::calls::type_satisfies_trait(ty, trait_str, &pool);
+            let name_result = wk.type_satisfies_trait(ty, trait_name, &pool);
+            assert_eq!(
+                string_result, name_result,
+                "SYNC MISMATCH: {type_name} × {trait_str}: \
+                 string={string_result}, name={name_result}",
+            );
+        }
+    }
+}
+
+// ========================================================================
+// Printable Trait Satisfaction — E2038 coverage
+// ========================================================================
+
+/// Verify Printable trait satisfaction for all types relevant to string
+/// interpolation. Primitives with Printable should pass; void should not.
+/// Compound types (collections, wrappers, tuples) should all satisfy Printable.
+#[test]
+fn printable_satisfaction_primitives_and_compounds() {
+    use crate::check::WellKnownNames;
+
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+
+    let wk = WellKnownNames::new(&interner);
+    let printable = wk.printable;
+
+    // Primitives WITH Printable
+    let printable_primitives = [
+        (Idx::INT, "int"),
+        (Idx::FLOAT, "float"),
+        (Idx::BOOL, "bool"),
+        (Idx::STR, "str"),
+        (Idx::CHAR, "char"),
+        (Idx::BYTE, "byte"),
+        (Idx::DURATION, "Duration"),
+        (Idx::SIZE, "Size"),
+        (Idx::ORDERING, "Ordering"),
+    ];
+    for &(ty, name) in &printable_primitives {
+        assert!(
+            wk.type_satisfies_trait(ty, printable, &pool),
+            "{name} should satisfy Printable"
+        );
+    }
+
+    // Primitives WITHOUT Printable
+    assert!(
+        !wk.type_satisfies_trait(Idx::UNIT, printable, &pool),
+        "void should NOT satisfy Printable"
+    );
+    assert!(
+        !wk.type_satisfies_trait(Idx::NEVER, printable, &pool),
+        "Never should NOT satisfy Printable (via trait check)"
+    );
+
+    // Compound types WITH Printable
+    let list_ty = pool.list(Idx::INT);
+    let map_ty = pool.map(Idx::STR, Idx::INT);
+    let set_ty = pool.set(Idx::INT);
+    let opt_ty = pool.option(Idx::INT);
+    let res_ty = pool.result(Idx::INT, Idx::STR);
+    let tuple_ty = pool.tuple(&[Idx::INT, Idx::STR]);
+    let range_ty = pool.range(Idx::INT);
+
+    let printable_compounds = [
+        (list_ty, "[int]"),
+        (map_ty, "{str: int}"),
+        (set_ty, "Set<int>"),
+        (opt_ty, "Option<int>"),
+        (res_ty, "Result<int, str>"),
+        (tuple_ty, "(int, str)"),
+        (range_ty, "Range<int>"),
+    ];
+    for &(ty, name) in &printable_compounds {
+        assert!(
+            wk.type_satisfies_trait(ty, printable, &pool),
+            "{name} should satisfy Printable (for interpolation)"
+        );
+    }
+}
+
+// ========================================================================
+// Into Trait — Builtin Method Resolution (§3.17)
+// ========================================================================
+
+/// `int.into()` resolves to `float` via `resolve_builtin_method`.
+#[test]
+fn into_int_resolves_to_float() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, Idx::INT, Tag::Int, "into");
+    assert_eq!(
+        result,
+        Some(Idx::FLOAT),
+        "int.into() should return float (numeric widening)"
+    );
+}
+
+/// `str.into()` resolves to `Error` — wraps string as error message.
+#[test]
+fn into_str_resolves_to_error() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, Idx::STR, Tag::Str, "into");
+    assert_eq!(
+        result,
+        Some(Idx::ERROR),
+        "str.into() should return Error (string wraps as error message)"
+    );
+}
+
+/// `Set<int>.into()` resolves to `[int]` — set converts to list.
+#[test]
+fn into_set_resolves_to_list() {
+    let mut pool = Pool::new();
+    let set_ty = pool.set(Idx::INT);
+    let expected_list = pool.list(Idx::INT);
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, set_ty, Tag::Set, "into");
+    assert_eq!(
+        result,
+        Some(expected_list),
+        "Set<int>.into() should return [int]"
+    );
+}
+
+/// Set's `.into()` preserves the element type parameter.
+#[test]
+fn into_set_preserves_element_type() {
+    let mut pool = Pool::new();
+    let set_ty = pool.set(Idx::STR);
+    let expected_list = pool.list(Idx::STR);
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, set_ty, Tag::Set, "into");
+    assert_eq!(
+        result,
+        Some(expected_list),
+        "Set<str>.into() should return [str], preserving element type"
+    );
+}
+
+/// `Ordering.then_with()` resolves to `Ordering` via `resolve_builtin_method`.
+#[test]
+fn then_with_ordering_resolves_to_ordering() {
+    let mut pool = Pool::new();
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, Idx::ORDERING, Tag::Ordering, "then_with");
+    assert_eq!(
+        result,
+        Some(Idx::ORDERING),
+        "Ordering.then_with() should return Ordering"
+    );
+}
+
+/// Named (user-defined) types do NOT resolve `.into()` via builtins —
+/// custom Into impls are dispatched through the `TraitRegistry`.
+#[test]
+fn into_not_on_named_types_via_builtins() {
+    let mut pool = Pool::new();
+    let interner = StringInterner::new();
+    let user_type_name = interner.intern("Celsius");
+    let user_ty = pool.named(user_type_name);
+    let mut engine = InferEngine::new(&mut pool);
+
+    let result = resolve_builtin_method(&mut engine, user_ty, Tag::Named, "into");
+    assert_eq!(
+        result, None,
+        "Named types should not resolve .into() via builtins (uses TraitRegistry)"
     );
 }

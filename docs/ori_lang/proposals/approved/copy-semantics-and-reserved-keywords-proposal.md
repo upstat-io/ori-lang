@@ -140,10 +140,10 @@ let $BUFFER_SIZE = 1024
 static COUNTER: int = 0
 
 @increment () -> int uses Intrinsics =
-    unsafe(run(
-        COUNTER = COUNTER + 1,
-        COUNTER,
-    ))
+    unsafe {
+        COUNTER = COUNTER + 1
+        COUNTER
+    }
 ```
 
 Note: The exact syntax for static declarations (standalone `static` vs `let static`) will be determined in the implementation proposal.
@@ -343,3 +343,7 @@ let COUNTER: int = 0
 4. **Static syntax:** Should it be standalone `static NAME` or Ori-style `let static NAME`?
 
 These questions don't need answers now. The reserved slots support any direction.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.

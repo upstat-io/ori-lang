@@ -3,6 +3,6 @@
 use std.testing { assert, assert_eq, assert_ne }
 use "../hello_world" { hello }
 
-@test_hello tests @hello () -> void = run(
+@test_hello tests @hello () -> void = {
     assert(cond: hello() == "Hello world!")
-)
+}

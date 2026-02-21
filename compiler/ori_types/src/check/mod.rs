@@ -75,7 +75,7 @@ mod well_known;
 
 // Re-export for use in sibling modules (e.g., infer::expr::type_resolution).
 pub(crate) use object_safety::{check_parsed_type_object_safety, ObjectSafetyChecker};
-pub(crate) use well_known::{is_concrete_named_type, resolve_well_known_generic};
+pub(crate) use well_known::{is_concrete_named_type, resolve_well_known_generic, WellKnownNames};
 
 #[cfg(test)]
 mod integration_tests;
@@ -124,6 +124,10 @@ pub struct ModuleChecker<'a> {
     // === Type Storage ===
     /// Unified type pool (becomes part of output).
     pool: Pool,
+
+    // === Name Cache ===
+    /// Pre-interned primitive and well-known type names for O(1) resolution.
+    well_known: WellKnownNames,
 
     // === Registries ===
     /// Registry for user-defined types (structs, enums).
@@ -190,10 +194,12 @@ pub struct ModuleChecker<'a> {
 impl<'a> ModuleChecker<'a> {
     /// Create a new module checker.
     pub fn new(arena: &'a ExprArena, interner: &'a StringInterner) -> Self {
+        let well_known = WellKnownNames::new(interner);
         Self {
             arena,
             interner,
             pool: Pool::new(),
+            well_known,
             types: TypeRegistry::new(),
             traits: TraitRegistry::new(),
             methods: MethodRegistry::new(),
@@ -224,10 +230,12 @@ impl<'a> ModuleChecker<'a> {
         types: TypeRegistry,
         traits: TraitRegistry,
     ) -> Self {
+        let well_known = WellKnownNames::new(interner);
         Self {
             arena,
             interner,
             pool: Pool::new(),
+            well_known,
             types,
             traits,
             methods: MethodRegistry::new(),
@@ -267,6 +275,39 @@ impl<'a> ModuleChecker<'a> {
     #[inline]
     pub fn interner(&self) -> &'a StringInterner {
         self.interner
+    }
+
+    /// Get the pre-interned well-known type names cache.
+    #[inline]
+    pub(crate) fn well_known(&self) -> &WellKnownNames {
+        &self.well_known
+    }
+
+    /// Resolve a primitive type name to its fixed `Idx` via the name cache.
+    #[inline]
+    pub fn resolve_primitive_name(&self, name: Name) -> Option<Idx> {
+        self.well_known.resolve_primitive(name)
+    }
+
+    /// Resolve a well-known generic type name via the name cache.
+    ///
+    /// Split borrow: reads `well_known` (immutable) and writes `pool` (mutable)
+    /// from the same `&mut self`. This is safe because they're independent fields.
+    #[inline]
+    pub fn resolve_well_known_generic_cached(&mut self, name: Name, args: &[Idx]) -> Option<Idx> {
+        self.well_known.resolve_generic(&mut self.pool, name, args)
+    }
+
+    /// Check if a name is a well-known concrete type (not a trait object).
+    #[inline]
+    pub fn is_well_known_concrete_cached(&self, name: Name, num_args: usize) -> bool {
+        self.well_known.is_concrete(name, num_args)
+    }
+
+    /// Resolve a registration-phase primitive (Ordering, Duration, Size).
+    #[inline]
+    pub fn resolve_registration_primitive(&self, name: Name) -> Option<Idx> {
+        self.well_known.resolve_registration_primitive(name)
     }
 
     /// Get the type pool.
@@ -596,6 +637,7 @@ impl<'a> ModuleChecker<'a> {
     /// Propagates capability state so the engine can validate call-site capabilities.
     pub fn create_engine(&mut self) -> InferEngine<'_> {
         let interner = self.interner;
+        let well_known = &self.well_known;
         // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
         let traits = &self.traits;
         let sigs = &self.signatures;
@@ -606,6 +648,7 @@ impl<'a> ModuleChecker<'a> {
         let provided_caps = self.provided_capabilities.clone();
         let mut engine = InferEngine::new(&mut self.pool);
         engine.set_interner(interner);
+        engine.set_well_known(well_known);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
@@ -624,6 +667,7 @@ impl<'a> ModuleChecker<'a> {
     /// Propagates capability state so the engine can validate call-site capabilities.
     pub fn create_engine_with_env(&mut self, env: TypeEnv) -> InferEngine<'_> {
         let interner = self.interner;
+        let well_known = &self.well_known;
         // Split borrow: pool (mut) + traits, signatures, types, consts (shared)
         let traits = &self.traits;
         let sigs = &self.signatures;
@@ -634,6 +678,7 @@ impl<'a> ModuleChecker<'a> {
         let provided_caps = self.provided_capabilities.clone();
         let mut engine = InferEngine::with_env(&mut self.pool, env);
         engine.set_interner(interner);
+        engine.set_well_known(well_known);
         engine.set_trait_registry(traits);
         engine.set_signatures(sigs);
         engine.set_type_registry(types);
@@ -707,30 +752,7 @@ impl<'a> ModuleChecker<'a> {
     ///
     /// Consumes the checker and returns the typed module with any errors.
     pub fn finish(self) -> TypeCheckResult {
-        // Sort functions by name for deterministic output regardless of
-        // FxHashMap iteration order. Required for Salsa's Eq comparison.
-        let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();
-        functions.sort_by_key(|f| f.name);
-
-        // Extract type definitions (already sorted by name via BTreeMap).
-        let types = self.types.into_entries();
-
-        // Sort and dedup pattern resolutions for O(log n) binary search.
-        let mut pattern_resolutions = self.pattern_resolutions;
-        pattern_resolutions.sort_by_key(|(k, _)| *k);
-        pattern_resolutions.dedup_by_key(|(k, _)| *k);
-
-        let typed = TypedModule {
-            expr_types: self.expr_types,
-            functions,
-            types,
-            errors: self.errors,
-            warnings: self.warnings,
-            pattern_resolutions,
-            impl_sigs: self.impl_sigs,
-        };
-
-        TypeCheckResult::from_typed(typed)
+        self.finish_with_pool().0
     }
 
     /// Consume the checker and return the pool along with the result.
@@ -739,6 +761,7 @@ impl<'a> ModuleChecker<'a> {
     /// after checking is complete.
     pub fn finish_with_pool(self) -> (TypeCheckResult, Pool) {
         let pool = self.pool;
+
         // Sort functions by name for deterministic output regardless of
         // FxHashMap iteration order. Required for Salsa's Eq comparison.
         let mut functions: Vec<FunctionSig> = self.signatures.into_values().collect();

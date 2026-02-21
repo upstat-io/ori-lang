@@ -153,34 +153,32 @@ trait Iterator {
         FilterIterator { source: self, predicate: predicate }
 
     // Reduction
-    @fold<U> (self, initial: U, op: (U, Self.Item) -> U) -> U = run(
-        let acc = initial,
-        let iter = self,
-        loop(
-            match(
-                iter.next(),
-                (Some(item), next_iter) -> run(
-                    acc = op(acc, item),
-                    iter = next_iter,
-                    continue,
-                ),
-                (None, _) -> break acc,
-            ),
-        ),
-    )
+    @fold<U> (self, initial: U, op: (U, Self.Item) -> U) -> U = {
+        let acc = initial
+        let iter = self
+        loop {
+            match iter.next() {
+                (Some(item), next_iter) -> {
+                    acc = op(acc, item)
+                    iter = next_iter
+                    continue
+                }
+                (None, _) -> break acc
+            }
+        }
+    }
 
-    @find (self, predicate: (Self.Item) -> bool) -> Option<Self.Item> = run(
-        let iter = self,
-        loop(
-            match(
-                iter.next(),
+    @find (self, predicate: (Self.Item) -> bool) -> Option<Self.Item> = {
+        let iter = self
+        loop {
+            match iter.next() {
                 (Some(item), next_iter) ->
                     if predicate(item) then break Some(item)
-                    else run(iter = next_iter, continue),
-                (None, _) -> break None,
-            ),
-        ),
-    )
+                    else {iter = next_iter, continue}
+                (None, _) -> break None
+            }
+        }
+    }
 
     // Collection
     @collect<C: Collect<Self.Item>> (self) -> C =
@@ -243,46 +241,43 @@ trait DoubleEndedIterator: Iterator {
     @rev (self) -> RevIterator<Self> =
         RevIterator { source: self }
 
-    @last (self) -> Option<Self.Item> = run(
-        let result: Option<Self.Item> = None,
-        let iter = self,
-        loop(
-            match(
-                iter.next_back(),
-                (Some(item), _) -> break Some(item),
-                (None, _) -> break result,
-            ),
-        ),
-    )
+    @last (self) -> Option<Self.Item> = {
+        let result: Option<Self.Item> = None
+        let iter = self
+        loop {
+            match iter.next_back() {
+                (Some(item), _) -> break Some(item)
+                (None, _) -> break result
+            }
+        }
+    }
 
-    @rfind (self, predicate: (Self.Item) -> bool) -> Option<Self.Item> = run(
-        let iter = self,
-        loop(
-            match(
-                iter.next_back(),
+    @rfind (self, predicate: (Self.Item) -> bool) -> Option<Self.Item> = {
+        let iter = self
+        loop {
+            match iter.next_back() {
                 (Some(item), next_iter) ->
                     if predicate(item) then break Some(item)
-                    else run(iter = next_iter, continue),
-                (None, _) -> break None,
-            ),
-        ),
-    )
+                    else {iter = next_iter, continue}
+                (None, _) -> break None
+            }
+        }
+    }
 
-    @rfold<U> (self, initial: U, op: (U, Self.Item) -> U) -> U = run(
-        let acc = initial,
-        let iter = self,
-        loop(
-            match(
-                iter.next_back(),
-                (Some(item), next_iter) -> run(
-                    acc = op(acc, item),
-                    iter = next_iter,
-                    continue,
-                ),
-                (None, _) -> break acc,
-            ),
-        ),
-    )
+    @rfold<U> (self, initial: U, op: (U, Self.Item) -> U) -> U = {
+        let acc = initial
+        let iter = self
+        loop {
+            match iter.next_back() {
+                (Some(item), next_iter) -> {
+                    acc = op(acc, item)
+                    iter = next_iter
+                    continue
+                }
+                (None, _) -> break acc
+            }
+        }
+    }
 }
 ```
 
@@ -320,20 +315,19 @@ for x in items do
     process(x: x)
 
 // Desugars to:
-run(
-    let iter = items.iter(),
-    loop(
-        match(
-            iter.next(),
-            (Some(x), next_iter) -> run(
-                process(x: x),
-                iter = next_iter,
-                continue,
-            ),
-            (None, _) -> break,
-        ),
-    ),
-)
+{
+    let iter = items.iter()
+    loop {
+        match iter.next() {
+            (Some(x), next_iter) -> {
+                process(x: x)
+                iter = next_iter
+                continue
+            }
+            (None, _) -> break
+        }
+    }
+}
 ```
 
 For `for...yield`:
@@ -438,16 +432,16 @@ impl Iterator for RangeIterator<int> {
 }
 
 impl DoubleEndedIterator for RangeIterator<int> {
-    @next_back (self) -> (Option<int>, RangeIterator<int>) = run(
+    @next_back (self) -> (Option<int>, RangeIterator<int>) = {
         let back_pos = if self.step > 0 then
             self.end - 1 - ((self.end - 1 - self.current) % self.step)
         else
-            self.end + 1 - ((self.current - self.end - 1) % (-self.step)),
+            self.end + 1 - ((self.current - self.end - 1) % (-self.step))
         if (self.step > 0 && back_pos >= self.current) || (self.step < 0 && back_pos <= self.current) then
             (Some(back_pos), RangeIterator { current: self.current, end: back_pos, step: self.step })
         else
-            (None, self),
-    )
+            (None, self)
+    }
 }
 
 type MapIterator<I: Iterator, U> = { source: I, transform: (I.Item) -> U }
@@ -455,61 +449,57 @@ type MapIterator<I: Iterator, U> = { source: I, transform: (I.Item) -> U }
 impl<I: Iterator, U> Iterator for MapIterator<I, U> {
     type Item = U
     @next (self) -> (Option<U>, MapIterator<I, U>) =
-        match(
-            self.source.next(),
+        match self.source.next() {
             (Some(item), next_source) ->
-                (Some(self.transform(item)), MapIterator { source: next_source, transform: self.transform }),
+                (Some(self.transform(item)), MapIterator { source: next_source, transform: self.transform })
             (None, exhausted) ->
-                (None, MapIterator { source: exhausted, transform: self.transform }),
-        )
+                (None, MapIterator { source: exhausted, transform: self.transform })
+        }
 }
 
 impl<I: DoubleEndedIterator, U> DoubleEndedIterator for MapIterator<I, U> {
     @next_back (self) -> (Option<U>, MapIterator<I, U>) =
-        match(
-            self.source.next_back(),
+        match self.source.next_back() {
             (Some(item), next_source) ->
-                (Some(self.transform(item)), MapIterator { source: next_source, transform: self.transform }),
+                (Some(self.transform(item)), MapIterator { source: next_source, transform: self.transform })
             (None, exhausted) ->
-                (None, MapIterator { source: exhausted, transform: self.transform }),
-        )
+                (None, MapIterator { source: exhausted, transform: self.transform })
+        }
 }
 
 type FilterIterator<I: Iterator> = { source: I, predicate: (I.Item) -> bool }
 
 impl<I: Iterator> Iterator for FilterIterator<I> {
     type Item = I.Item
-    @next (self) -> (Option<I.Item>, FilterIterator<I>) = run(
-        let source = self.source,
-        loop(
-            match(
-                source.next(),
+    @next (self) -> (Option<I.Item>, FilterIterator<I>) = {
+        let source = self.source
+        loop {
+            match source.next() {
                 (Some(item), next_source) ->
                     if self.predicate(item) then
                         break (Some(item), FilterIterator { source: next_source, predicate: self.predicate })
-                    else run(source = next_source, continue),
+                    else {source = next_source, continue}
                 (None, exhausted) ->
-                    break (None, FilterIterator { source: exhausted, predicate: self.predicate }),
-            ),
-        ),
-    )
+                    break (None, FilterIterator { source: exhausted, predicate: self.predicate })
+            }
+        }
+    }
 }
 
 impl<I: DoubleEndedIterator> DoubleEndedIterator for FilterIterator<I> {
-    @next_back (self) -> (Option<I.Item>, FilterIterator<I>) = run(
-        let source = self.source,
-        loop(
-            match(
-                source.next_back(),
+    @next_back (self) -> (Option<I.Item>, FilterIterator<I>) = {
+        let source = self.source
+        loop {
+            match source.next_back() {
                 (Some(item), next_source) ->
                     if self.predicate(item) then
                         break (Some(item), FilterIterator { source: next_source, predicate: self.predicate })
-                    else run(source = next_source, continue),
+                    else {source = next_source, continue}
                 (None, exhausted) ->
-                    break (None, FilterIterator { source: exhausted, predicate: self.predicate }),
-            ),
-        ),
-    )
+                    break (None, FilterIterator { source: exhausted, predicate: self.predicate })
+            }
+        }
+    }
 }
 
 type RevIterator<I: DoubleEndedIterator> = { source: I }
@@ -517,20 +507,18 @@ type RevIterator<I: DoubleEndedIterator> = { source: I }
 impl<I: DoubleEndedIterator> Iterator for RevIterator<I> {
     type Item = I.Item
     @next (self) -> (Option<I.Item>, RevIterator<I>) =
-        match(
-            self.source.next_back(),
-            (Some(item), next_source) -> (Some(item), RevIterator { source: next_source }),
-            (None, exhausted) -> (None, RevIterator { source: exhausted }),
-        )
+        match self.source.next_back() {
+            (Some(item), next_source) -> (Some(item), RevIterator { source: next_source })
+            (None, exhausted) -> (None, RevIterator { source: exhausted })
+        }
 }
 
 impl<I: DoubleEndedIterator> DoubleEndedIterator for RevIterator<I> {
     @next_back (self) -> (Option<I.Item>, RevIterator<I>) =
-        match(
-            self.source.next(),
-            (Some(item), next_source) -> (Some(item), RevIterator { source: next_source }),
-            (None, exhausted) -> (None, RevIterator { source: exhausted }),
-        )
+        match self.source.next() {
+            (Some(item), next_source) -> (Some(item), RevIterator { source: next_source })
+            (None, exhausted) -> (None, RevIterator { source: exhausted })
+        }
 }
 
 type CycleIterator<I: Iterator + Clone> = { original: I, current: I }
@@ -538,21 +526,19 @@ type CycleIterator<I: Iterator + Clone> = { original: I, current: I }
 impl<I: Iterator + Clone> Iterator for CycleIterator<I> {
     type Item = I.Item
     @next (self) -> (Option<I.Item>, CycleIterator<I>) =
-        match(
-            self.current.next(),
+        match self.current.next() {
             (Some(item), next_current) ->
-                (Some(item), CycleIterator { original: self.original, current: next_current }),
+                (Some(item), CycleIterator { original: self.original, current: next_current })
             (None, _) ->
                 // Restart from original
-                match(
-                    self.original.clone().next(),
+                match self.original.clone().next() {
                     (Some(item), next_current) ->
-                        (Some(item), CycleIterator { original: self.original, current: next_current }),
+                        (Some(item), CycleIterator { original: self.original, current: next_current })
                     (None, _) ->
                         // Original was empty, stay exhausted
-                        (None, self),
-                ),
-        )
+                        (None, self)
+                }
+        }
 }
 
 // ... additional iterator types for take, skip, enumerate, zip, chain, flatten, etc.
@@ -600,11 +586,11 @@ impl<T> Iterator for TreeIterator<T> {
     @next (self) -> (Option<T>, TreeIterator<T>) =
         if is_empty(collection: self.stack) then
             (None, self)
-        else run(
-            let node = self.stack[# - 1],
-            let new_stack = self.stack.take(n: # - 1) + node.children,
-            (Some(node.value), TreeIterator { stack: new_stack }),
-        )
+        else {
+            let node = self.stack[# - 1]
+            let new_stack = self.stack.take(n: # - 1) + node.children
+            (Some(node.value), TreeIterator { stack: new_stack })
+        }
 }
 
 // Now TreeNode works with for loops and iterator methods
@@ -630,11 +616,11 @@ let sum = tree.iter().fold(initial: 0, op: (a, b) -> a + b)
     where I.Item == V
 = items.iter().fold(
     initial: {},
-    op: (groups, item) -> run(
-        let k = key(item),
-        let existing = groups[k].unwrap_or(default: []),
-        groups.insert(key: k, value: existing + [item]),
-    ),
+    op: (groups, item) -> {
+        let k = key(item)
+        let existing = groups[k].unwrap_or(default: [])
+        groups.insert(key: k, value: existing + [item])
+    },
 )
 ```
 
@@ -655,10 +641,10 @@ let sum = tree.iter().fold(initial: 0, op: (a, b) -> a + b)
         .filter(predicate: word -> !is_empty(collection: word))
         .fold(
             initial: {},
-            op: (counts, word) -> run(
-                let count = counts[word].unwrap_or(default: 0),
-                counts.insert(key: word, value: count + 1),
-            ),
+            op: (counts, word) -> {
+                let count = counts[word].unwrap_or(default: 0)
+                counts.insert(key: word, value: count + 1)
+            },
         )
 ```
 
@@ -795,12 +781,12 @@ A future proposal may add generator functions for easier iterator definition:
 @fibonacci () -> Iterator<int> = generate(
     let a = 0,
     let b = 1,
-    loop(
-        yield a,
-        let next = a + b,
-        a = b,
-        b = next,
-    ),
+    loop {
+        yield a
+        let next = a + b
+        a = b
+        b = next
+    },
 )
 ```
 

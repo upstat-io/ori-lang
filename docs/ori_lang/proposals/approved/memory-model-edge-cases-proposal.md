@@ -122,11 +122,11 @@ Destructors run when a value's reference count reaches zero:
 The spec promises destructors run "no later than scope end":
 
 ```ori
-@example () -> void = run(
+@example () -> void = {
     let resource = acquire(),  // refcount = 1
     use_resource(resource),    // may increment temporarily
     // <- destructor runs here, before function returns
-)
+}
 ```
 
 ### Scope Nesting
@@ -134,14 +134,14 @@ The spec promises destructors run "no later than scope end":
 Inner scopes are destroyed before outer:
 
 ```ori
-@nested () -> void = run(
-    let outer = create_outer(),
-    run(
-        let inner = create_inner(),
+@nested () -> void = {
+    let outer = create_outer()
+    {
+        let inner = create_inner()
         // inner's destructor runs here
-    ),
+    }
     // outer's destructor runs here
-)
+}
 ```
 
 ### Early Drop
@@ -149,16 +149,16 @@ Inner scopes are destroyed before outer:
 Values may be dropped before scope end if no longer referenced:
 
 ```ori
-@early () -> void = run(
-    let x = create(),
-    use(x),
+@early () -> void = {
+    let x = create()
+    use(x)
     // x not used after this point
     // Compiler MAY drop x here (optimization)
 
     long_operation(),  // x might already be dropped
 
     // x's destructor runs no later than here
-)
+}
 ```
 
 ---
@@ -176,10 +176,10 @@ impl Drop for BadType {
     @drop (self) -> void = panic(msg: "destructor failed!")
 }
 
-@example () -> void = run(
-    let bad = BadType { ... },
+@example () -> void = {
+    let bad = BadType { ... }
     // When bad is dropped, destructor panics
-)
+}
 ```
 
 ### Resolution: Abort on Double Panic
@@ -191,13 +191,13 @@ If a panic occurs during destructor execution while already unwinding from anoth
 3. Exit code indicates abnormal termination
 
 ```ori
-@double_panic () -> void = run(
-    let bad1 = BadType { ... },
-    let bad2 = BadType { ... },
-    panic(msg: "initial panic"),
+@double_panic () -> void = {
+    let bad1 = BadType { ... }
+    let bad2 = BadType { ... }
+    panic(msg: "initial panic")
     // Unwinding begins, bad2's destructor runs, panics
     // ABORT: double panic
-)
+}
 ```
 
 ### Single Panic in Destructor
@@ -209,13 +209,13 @@ If a destructor panics during normal execution (not unwinding):
 3. Each destructor runs in isolation
 
 ```ori
-@single_panic () -> void = run(
-    let good = GoodType { ... },
+@single_panic () -> void = {
+    let good = GoodType { ... }
     let bad = BadType { ... },  // Destructor panics
     // bad's destructor panics
     // good's destructor still runs
     // panic propagates after all destructors complete
-)
+}
 ```
 
 ### Destructor Order During Panic
@@ -223,13 +223,13 @@ If a destructor panics during normal execution (not unwinding):
 When unwinding, destructors run in reverse declaration order:
 
 ```ori
-@unwind_order () -> void = run(
+@unwind_order () -> void = {
     let a = create_a(),  // Destroyed 3rd
     let b = create_b(),  // Destroyed 2nd
     let c = create_c(),  // Destroyed 1st
-    may_panic(),
+    may_panic()
     // If panic: c dropped, then b, then a
-)
+}
 ```
 
 ---
@@ -335,15 +335,15 @@ let tuple = (first, second, third)
 Destructors run in the task that drops the value:
 
 ```ori
-@task1 () uses Suspend = run(
-    let resource = acquire(),
+@task1 () uses Suspend = {
+    let resource = acquire()
     // resource's destructor runs in task1
-)
+}
 
-@task2 () uses Suspend = run(
-    let resource = acquire(),
+@task2 () uses Suspend = {
+    let resource = acquire()
     // resource's destructor runs in task2
-)
+}
 ```
 
 ### Async Destructors
@@ -380,11 +380,11 @@ resource.close()  // Explicit async cleanup
 When a task is cancelled, destructors still run:
 
 ```ori
-@cancellable_task () uses Suspend = run(
-    let resource = acquire(),
+@cancellable_task () uses Suspend = {
+    let resource = acquire()
     long_async_operation(),  // Task cancelled here
     // resource's destructor STILL runs during cancellation
-)
+}
 ```
 
 ---
@@ -400,12 +400,12 @@ impl Drop for FileHandle {
     @drop (self) -> void = close_fd(self.fd)  // Synchronous OS call
 }
 
-@process_file (path: str) -> Result<void, Error> = run(
-    let file = open(path)?,
-    process_contents(file)?,
+@process_file (path: str) -> Result<void, Error> = {
+    let file = open(path)?
+    process_contents(file)?
     // file automatically closed here
-    Ok(()),
-)
+    Ok(())
+}
 ```
 
 ### Avoiding Destructor Panics
@@ -414,37 +414,37 @@ impl Drop for FileHandle {
 type Connection = { ... }
 
 impl Drop for Connection {
-    @drop (self) -> void = run(
+    @drop (self) -> void = {
         // Don't panic in destructor — handle errors gracefully
-        match(self.close_internal(),
-            Ok(_) -> (),
+        match self.close_internal() {
+            Ok(_) -> ()
             Err(e) -> log_error(e),  // Log, don't panic
-        ),
-    )
+        }
+    }
 }
 ```
 
 ### Reference Counting in Action
 
 ```ori
-@shared_data_example () uses Suspend = run(
+@shared_data_example () uses Suspend = {
     let data = create_large_data(),  // refcount = 1
 
     parallel(
         tasks: [
-            () -> run(
+            () -> {
                 use(data),  // refcount = 2 during use
                 // refcount decremented when task ends
-            ),
-            () -> run(
+            }
+            () -> {
                 use(data),  // refcount = 2 or 3 depending on timing
-            ),
-        ],
-    ),
+            }
+        ]
+    )
     // Both tasks done, refcount = 1
 
     // data's destructor runs when this scope ends
-)
+}
 ```
 
 ---

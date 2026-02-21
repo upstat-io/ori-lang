@@ -22,11 +22,10 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use super::ast::{
-    ArmRange, CallArg, CallArgRange, CheckExpr, CheckRange, Expr, ExprKind, FieldInit,
-    FieldInitRange, GenericParam, GenericParamRange, ListElement, ListElementRange, MapElement,
-    MapElementRange, MapEntry, MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param,
-    ParamRange, SeqBinding, SeqBindingRange, Stmt, StructLitField, StructLitFieldRange,
-    TemplatePartRange,
+    ArmRange, CallArg, CallArgRange, Expr, ExprKind, FieldInit, FieldInitRange, GenericParam,
+    GenericParamRange, ListElement, ListElementRange, MapElement, MapElementRange, MapEntry,
+    MapEntryRange, MatchArm, NamedExpr, NamedExprRange, Param, ParamRange, Stmt, StructLitField,
+    StructLitFieldRange, TemplatePartRange,
 };
 use super::{
     BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
@@ -121,12 +120,6 @@ pub struct ExprArena {
     /// Map elements (entries and spreads) for map literals with spread.
     map_elements: Vec<MapElement>,
 
-    /// Sequence bindings for `function_seq` (run/try).
-    seq_bindings: Vec<SeqBinding>,
-
-    /// Check expressions for `run()` pre/post checks.
-    checks: Vec<CheckExpr>,
-
     /// Named expressions for `function_exp`.
     named_exprs: Vec<NamedExpr>,
 
@@ -216,8 +209,6 @@ impl ExprArena {
             struct_lit_fields: Vec::with_capacity(estimated_exprs / 16),
             list_elements: Vec::with_capacity(estimated_exprs / 16),
             map_elements: Vec::with_capacity(estimated_exprs / 16),
-            seq_bindings: Vec::with_capacity(estimated_exprs / 16),
-            checks: Vec::with_capacity(estimated_exprs / 32),
             named_exprs: Vec::with_capacity(estimated_exprs / 16),
             call_args: Vec::with_capacity(estimated_exprs / 16),
             generic_params: Vec::with_capacity(estimated_exprs / 32),
@@ -550,56 +541,6 @@ impl ExprArena {
         &self.map_elements[start..end]
     }
 
-    /// Allocate sequence bindings, return range.
-    pub fn alloc_seq_bindings(
-        &mut self,
-        bindings: impl IntoIterator<Item = SeqBinding>,
-    ) -> SeqBindingRange {
-        let start = to_u32(self.seq_bindings.len(), "sequence bindings");
-        self.seq_bindings.extend(bindings);
-        debug_assert!(
-            self.seq_bindings.len() >= start as usize,
-            "arena corruption: seq_bindings length {} < start {}",
-            self.seq_bindings.len(),
-            start
-        );
-        let len = to_u16(
-            self.seq_bindings.len() - start as usize,
-            "sequence binding list",
-        );
-        SeqBindingRange::new(start, len)
-    }
-
-    /// Get sequence bindings by range.
-    #[inline]
-    pub fn get_seq_bindings(&self, range: SeqBindingRange) -> &[SeqBinding] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.seq_bindings[start..end]
-    }
-
-    /// Allocate check expressions, return range.
-    pub fn alloc_checks(&mut self, checks: impl IntoIterator<Item = CheckExpr>) -> CheckRange {
-        let start = to_u32(self.checks.len(), "check expressions");
-        self.checks.extend(checks);
-        debug_assert!(
-            self.checks.len() >= start as usize,
-            "arena corruption: checks length {} < start {}",
-            self.checks.len(),
-            start
-        );
-        let len = to_u16(self.checks.len() - start as usize, "check expression list");
-        CheckRange::new(start, len)
-    }
-
-    /// Get check expressions by range.
-    #[inline]
-    pub fn get_checks(&self, range: CheckRange) -> &[CheckExpr] {
-        let start = range.start as usize;
-        let end = start + range.len as usize;
-        &self.checks[start..end]
-    }
-
     /// Allocate named expressions, return range.
     pub fn alloc_named_exprs(
         &mut self,
@@ -871,8 +812,6 @@ impl ExprArena {
         self.struct_lit_fields.clear();
         self.list_elements.clear();
         self.map_elements.clear();
-        self.seq_bindings.clear();
-        self.checks.clear();
         self.named_exprs.clear();
         self.call_args.clear();
         self.generic_params.clear();
@@ -1010,13 +949,13 @@ impl ExprArena {
     );
 
     define_direct_append!(
-        checks,
-        CheckExpr,
-        CheckRange,
-        start_checks,
-        push_check,
-        finish_checks,
-        "check expression list"
+        stmts,
+        Stmt,
+        StmtRange,
+        start_stmts,
+        push_stmt,
+        finish_stmts,
+        "statement list"
     );
 }
 
@@ -1033,8 +972,6 @@ impl PartialEq for ExprArena {
             && self.struct_lit_fields == other.struct_lit_fields
             && self.list_elements == other.list_elements
             && self.map_elements == other.map_elements
-            && self.seq_bindings == other.seq_bindings
-            && self.checks == other.checks
             && self.named_exprs == other.named_exprs
             && self.call_args == other.call_args
             && self.generic_params == other.generic_params
@@ -1064,8 +1001,6 @@ impl Hash for ExprArena {
         self.struct_lit_fields.hash(state);
         self.list_elements.hash(state);
         self.map_elements.hash(state);
-        self.seq_bindings.hash(state);
-        self.checks.hash(state);
         self.named_exprs.hash(state);
         self.call_args.hash(state);
         self.generic_params.hash(state);

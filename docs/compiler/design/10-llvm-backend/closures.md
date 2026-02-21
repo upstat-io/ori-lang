@@ -158,7 +158,8 @@ The `IrBuilder` provides methods for working with closure fat pointers:
 
 | File | Purpose |
 |------|---------|
-| `codegen/lower_calls.rs` | `lower_lambda`, `lower_closure_call`, capture analysis |
+| `codegen/lower_lambdas.rs` | `lower_lambda`, `find_captures`, capture analysis |
+| `codegen/lower_calls.rs` | `lower_closure_call`, call dispatch |
 | `codegen/ir_builder.rs` | `closure_type()`, `extract_value`, `build_struct`, `call_indirect` |
 | `codegen/arc_emitter.rs` | ARC emission for closure values (retain/release env) |
 | `codegen/lower_literals.rs` | Function-as-value wrapping (non-lambda function references as fat pointers) |

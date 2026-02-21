@@ -23,6 +23,10 @@ impl Parser<'_> {
     /// Returns a `ParsedType` representing the full type structure.
     ///
     /// Recursive types use arena-allocated IDs for their children.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive type token dispatch covering all primitive, container, and user-defined type forms"
+    )]
     pub(crate) fn parse_type(&mut self) -> Option<ParsedType> {
         if self.cursor.check_type_keyword() {
             // Read discriminant tag before advancing to avoid cloning the 16-byte TokenKind.

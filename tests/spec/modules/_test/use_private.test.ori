@@ -13,17 +13,17 @@ use "../use_imports" {
 // Test: Private import with :: prefix
 // =============================================================================
 
-@test_private_import tests @internal_helper () -> void = run(
+@test_private_import tests @internal_helper () -> void = {
     // Private function imported with :: prefix
-    assert_eq(actual: internal_helper(5), expected: 10),
+    assert_eq(actual: internal_helper(5), expected: 10);
     assert_eq(actual: internal_helper(0), expected: 0)
-)
+}
 
 // Dummy function to satisfy test target requirement
-@internal_helper (x: int) -> int = x * 2
+@internal_helper (x: int) -> int = x * 2;
 
-@test_private_with_public tests @add () -> void = run(
+@test_private_with_public tests @add () -> void = {
     // Mix of public and private imports works
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
     assert_eq(actual: internal_helper(7), expected: 14)
-)
+}

@@ -32,6 +32,15 @@ sections:
   - id: "18.7"
     title: Const in Trait Bounds
     status: not-started
+  - id: "18.8"
+    title: "Expanded Const Generic Eligibility (Capability Unification)"
+    status: not-started
+  - id: "18.9"
+    title: "Associated Consts in Traits (Capability Unification)"
+    status: not-started
+  - id: "18.10"
+    title: "Const Functions in Type Positions (Capability Unification)"
+    status: not-started
 ---
 
 # Section 18: Const Generics
@@ -594,9 +603,9 @@ impl FixedSize for [int, max 5] {
 @total_size<T: FixedSize, $N: int> () -> int = T.SIZE * N
 
 // Associated const in generic context
-@print_size<T: FixedSize> () -> void = run(
+@print_size<T: FixedSize> () -> void = {
     print(msg: `Size: {T.SIZE}`)
-)
+}
 ```
 
 ### Implementation
@@ -650,17 +659,17 @@ impl<$ROWS: int, $COLS: int> Matrix<ROWS, COLS> {
         data: [],  // Will be filled with zeros
     }
 
-    @get (self, row: int, col: int) -> float = run(
-        assert(condition: row >= 0 && row < ROWS),
-        assert(condition: col >= 0 && col < COLS),
+    @get (self, row: int, col: int) -> float = {
+        assert(condition: row >= 0 && row < ROWS)
+        assert(condition: col >= 0 && col < COLS)
         self.data[row * COLS + col]
-    )
+    }
 
-    @set (self, row: int, col: int, value: float) -> void = run(
-        assert(condition: row >= 0 && row < ROWS),
-        assert(condition: col >= 0 && col < COLS),
+    @set (self, row: int, col: int, value: float) -> void = {
+        assert(condition: row >= 0 && row < ROWS)
+        assert(condition: col >= 0 && col < COLS)
         self.data[row * COLS + col] = value
-    )
+    }
 
     @rows (self) -> int = ROWS  // Compile-time constant
 
@@ -671,18 +680,18 @@ impl<$ROWS: int, $COLS: int> Matrix<ROWS, COLS> {
 @multiply<$M: int, $N: int, $P: int> (
     a: Matrix<M, N>,
     b: Matrix<N, P>,
-) -> Matrix<M, P> = run(
-    let result = Matrix.new(),
+) -> Matrix<M, P> = {
+    let result = Matrix.new()
 
     for i in 0..M do
         for j in 0..P do
-            let sum = 0.0,
+            let sum = 0.0
             for k in 0..N do
-                sum = sum + a.get(row: i, col: k) * b.get(row: k, col: j),
-            result.set(row: i, col: j, value: sum),
+                sum = sum + a.get(row: i, col: k) * b.get(row: k, col: j)
+            result.set(row: i, col: j, value: sum)
 
     result
-)
+}
 
 // Usage
 let a: Matrix<2, 3> = Matrix.new()
@@ -692,3 +701,66 @@ let c: Matrix<2, 4> = multiply(a: a, b: b)  // Types checked at compile time!
 // This would be a compile error:
 // let bad: Matrix<2, 5> = multiply(a: a, b: b)  // Error: dimension mismatch
 ```
+
+---
+
+## 18.8 Expanded Const Generic Eligibility (Capability Unification)
+
+**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 3
+
+Replace the `{int, bool}` whitelist with: any type with `Eq + Hashable` is const-eligible. This expands const generics to `str`, `char`, `byte`, user enums, user structs, and compound types.
+
+**Blocked by**: Section 5.5 (Compound Type Inference) — needed for `[int]` and `(T, U)` eligibility <!-- blocked-by:5 -->
+
+### Implementation
+
+- [ ] **Implement**: Type checker — replace hardcoded `matches!(type, Int | Bool)` with trait registry lookup for `Eq + Hashable`
+  - [ ] **Rust Tests**: `ori_types/src/check/tests.rs` — const eligibility check tests
+- [ ] **Implement**: Update E1040 error message — "requires Eq + Hashable" instead of "only int and bool allowed"
+  - [ ] **Ori Tests**: `tests/compile-fail/const_generic_not_eligible.ori`
+- [ ] **Ori Tests**: `tests/spec/types/const_generics_expanded.ori` — str, char, byte, user enum, user struct as const params
+- [ ] **Update Spec**: `grammar.ebnf` — remove `const_type = "int" | "bool"` restriction
+- [ ] **Update Spec**: `06-types.md` — const generic eligibility section
+- [ ] **Verify**: `./test-all.sh` passes
+
+---
+
+## 18.9 Associated Consts in Traits (Capability Unification)
+
+**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 4
+
+Add `$name: Type` syntax to trait definitions and impls. Extends the associated types pattern to compile-time values.
+
+**Blocked by**: Section 18.0 (Const Evaluation Termination) <!-- blocked-by:18 -->
+
+### Implementation
+
+- [ ] **Implement**: Parser — accept `$name: Type` and `$name: Type = expr` as trait items
+- [ ] **Implement**: Parser — accept `$name = expr` as impl items
+- [ ] **Implement**: IR — add `AssocConst` to `TraitItem` and `ImplItem`
+- [ ] **Implement**: Type checker — register associated consts alongside methods and types
+- [ ] **Implement**: Type checker — const expression unification for `T.$rank` in where clauses
+- [ ] **Implement**: Evaluator — associated const resolution
+- [ ] **Ori Tests**: `tests/spec/traits/associated_consts.ori`
+- [ ] **LLVM Support**: Const folding for associated consts
+- [ ] **Verify**: `./test-all.sh` passes
+
+---
+
+## 18.10 Const Functions in Type Positions (Capability Unification)
+
+**Proposal**: `proposals/approved/capability-unification-generics-proposal.md` — Phase 5
+
+Allow `$product(S)`, `$len(S)` etc. in type positions and where clauses. Most complex phase.
+
+**Blocked by**: Section 18.9 (Associated Consts) <!-- blocked-by:18 -->
+
+### Implementation
+
+- [ ] **Implement**: Const function analysis — identify which functions are compile-time evaluable
+- [ ] **Implement**: Type checker — const expression evaluation in type positions
+- [ ] **Implement**: Type checker — const unification (`$product(FROM)` unifies with concrete values)
+- [ ] **Implement**: Built-in const functions: `$len`, `$product`, `$sum`, `$min`, `$max`
+- [ ] **Ori Tests**: `tests/spec/types/const_functions_in_types.ori`
+- [ ] **LLVM Support**: Compile-time evaluation in LLVM codegen
+- [ ] **Verify**: `./test-all.sh` passes

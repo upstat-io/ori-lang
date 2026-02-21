@@ -47,7 +47,6 @@ pub enum TokenKind {
     Let,
     Loop,
     Match,
-    Mut,
     Pub,
     SelfLower, // self
     SelfUpper, // Self
@@ -205,7 +204,6 @@ impl TokenKind {
     pub const TAG_LET: u8 = TokenTag::KwLet as u8;
     pub const TAG_LOOP: u8 = TokenTag::KwLoop as u8;
     pub const TAG_MATCH: u8 = TokenTag::KwMatch as u8;
-    pub const TAG_MUT: u8 = TokenTag::KwMut as u8;
     pub const TAG_PUB: u8 = TokenTag::KwPub as u8;
     pub const TAG_SELF_LOWER: u8 = TokenTag::KwSelfLower as u8;
     pub const TAG_SELF_UPPER: u8 = TokenTag::KwSelfUpper as u8;
@@ -325,6 +323,10 @@ impl TokenKind {
     /// This is a simple match that compiles to a discriminant extraction,
     /// which is typically a single memory load on the tag field.
     #[inline]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TokenKind → discriminant index mapping"
+    )]
     pub const fn discriminant_index(&self) -> u8 {
         match self {
             // Literals (0-10)
@@ -357,7 +359,6 @@ impl TokenKind {
             Self::Let => TokenTag::KwLet as u8,
             Self::Loop => TokenTag::KwLoop as u8,
             Self::Match => TokenTag::KwMatch as u8,
-            Self::Mut => TokenTag::KwMut as u8,
             Self::Pub => TokenTag::KwPub as u8,
             Self::SelfLower => TokenTag::KwSelfLower as u8,
             Self::SelfUpper => TokenTag::KwSelfUpper as u8,
@@ -561,7 +562,6 @@ impl TokenKind {
             TokenKind::Let => Some("let"),
             TokenKind::Loop => Some("loop"),
             TokenKind::Match => Some("match"),
-            TokenKind::Mut => Some("mut"),
             TokenKind::Pub => Some("pub"),
             TokenKind::SelfLower => Some("self"),
             TokenKind::SelfUpper => Some("Self"),
@@ -630,6 +630,10 @@ impl TokenKind {
     ///
     /// The generated assembly is comparable to a direct array lookup.
     #[inline]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TokenKind → display name dispatch"
+    )]
     pub fn display_name(&self) -> &'static str {
         match self {
             TokenKind::Int(_) => "integer",
@@ -654,7 +658,6 @@ impl TokenKind {
             TokenKind::Let => "let",
             TokenKind::Loop => "loop",
             TokenKind::Match => "match",
-            TokenKind::Mut => "mut",
             TokenKind::Pub => "pub",
             TokenKind::SelfLower => "self",
             TokenKind::SelfUpper => "Self",
@@ -764,6 +767,10 @@ impl TokenKind {
     /// Used by `TokenSet::format_expected()` for generating error messages like
     /// "expected `,`, `)`, or `}`".
     #[inline]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive discriminant index → friendly name lookup"
+    )]
     pub fn friendly_name_from_index(index: u8) -> Option<&'static str> {
         // Map indices to friendly names, excluding internal/error tokens.
         // Uses TokenTag values as indices. Some arms are merged when different
@@ -798,7 +805,7 @@ impl TokenKind {
             23 => Some("let"),
             24 => Some("loop"),
             25 => Some("match"),
-            26 => Some("mut"),
+            // 26 was "mut" — removed
             27 => Some("pub"),
             28 => Some("self"),
             29 => Some("Self"),

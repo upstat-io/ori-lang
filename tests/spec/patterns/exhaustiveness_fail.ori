@@ -7,149 +7,149 @@
 // =============================================================================
 
 #compile_fail("non-exhaustive")
-@test_option_missing_none tests @_opt_none () -> void = run(
-    let _ = match(Some(1),
-        Some(v) -> v,
-    ),
-    (),
-)
+@test_option_missing_none tests @_opt_none () -> void = {
+    let _ = match Some(1) {
+        Some(v) -> v
+    };
+    ()
+}
 
-@_opt_none () -> bool = true
+@_opt_none () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: Option missing Some
 // =============================================================================
 
 #compile_fail("non-exhaustive")
-@test_option_missing_some tests @_opt_some () -> void = run(
-    let opt: Option<int> = None,
-    let _ = match(opt,
-        None -> 0,
-    ),
-    (),
-)
+@test_option_missing_some tests @_opt_some () -> void = {
+    let opt: Option<int> = None;
+    let _ = match opt {
+        None -> 0
+    };
+    ()
+}
 
-@_opt_some () -> bool = true
+@_opt_some () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: Result missing Err
 // =============================================================================
 
 #compile_fail("non-exhaustive")
-@test_result_missing_err tests @_res_err () -> void = run(
-    let _ = match(Ok(1),
-        Ok(v) -> v,
-    ),
-    (),
-)
+@test_result_missing_err tests @_res_err () -> void = {
+    let _ = match Ok(1) {
+        Ok(v) -> v
+    };
+    ()
+}
 
-@_res_err () -> bool = true
+@_res_err () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: user enum missing variant
 // =============================================================================
 
-type Direction = North | South | East | West
+type Direction = North | South | East | West;
 
 #compile_fail("non-exhaustive")
-@test_enum_missing_variants tests @_enum_dir () -> void = run(
-    let d: Direction = North,
-    let _ = match(d,
+@test_enum_missing_variants tests @_enum_dir () -> void = {
+    let d: Direction = North;
+    let _ = match d {
         North -> 1,
-        South -> 2,
-    ),
-    (),
-)
+        South -> 2
+    };
+    ()
+}
 
-@_enum_dir () -> bool = true
+@_enum_dir () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: bool missing false
 // =============================================================================
 
 #compile_fail("non-exhaustive")
-@test_bool_missing_false tests @_bool_f () -> void = run(
-    let _ = match(true,
-        true -> 1,
-    ),
-    (),
-)
+@test_bool_missing_false tests @_bool_f () -> void = {
+    let _ = match true {
+        true -> 1
+    };
+    ()
+}
 
-@_bool_f () -> bool = true
+@_bool_f () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: int without wildcard
 // =============================================================================
 
 #compile_fail("non-exhaustive")
-@test_int_no_wildcard tests @_int_wc () -> void = run(
-    let _ = match(42,
+@test_int_no_wildcard tests @_int_wc () -> void = {
+    let _ = match 42 {
         0 -> "zero",
-        1 -> "one",
-    ),
-    (),
-)
+        1 -> "one"
+    };
+    ()
+}
 
-@_int_wc () -> bool = true
+@_int_wc () -> bool = true;
 
 // =============================================================================
 // Redundant: bool with extra wildcard after full coverage
 // =============================================================================
 
 #compile_fail("redundant")
-@test_bool_redundant_wildcard tests @_bool_red () -> void = run(
-    let _ = match(true,
+@test_bool_redundant_wildcard tests @_bool_red () -> void = {
+    let _ = match true {
         true -> 1,
         false -> 0,
-        _ -> -1,
-    ),
-    (),
-)
+        _ -> -1
+    };
+    ()
+}
 
-@_bool_red () -> bool = true
+@_bool_red () -> bool = true;
 
 // =============================================================================
 // Redundant: wildcard before specific pattern
 // =============================================================================
 
 #compile_fail("redundant")
-@test_wildcard_then_specific tests @_wc_spec () -> void = run(
-    let _ = match(42,
+@test_wildcard_then_specific tests @_wc_spec () -> void = {
+    let _ = match 42 {
         _ -> 0,
-        42 -> 1,
-    ),
-    (),
-)
+        42 -> 1
+    };
+    ()
+}
 
-@_wc_spec () -> bool = true
+@_wc_spec () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: list with exact patterns only (no rest pattern)
 // =============================================================================
 
 #compile_fail("non-exhaustive")
-@test_list_exact_only tests @_list_exact () -> void = run(
-    let lst: [int] = [1, 2],
-    let _ = match(lst,
+@test_list_exact_only tests @_list_exact () -> void = {
+    let lst: [int] = [1, 2];
+    let _ = match lst {
         [] -> "empty",
-        [_] -> "one",
-    ),
-    (),
-)
+        [_] -> "one"
+    };
+    ()
+}
 
-@_list_exact () -> bool = true
+@_list_exact () -> bool = true;
 
 // =============================================================================
 // Non-exhaustive: list with rest pattern missing empty
 // =============================================================================
 
 #compile_fail("non-exhaustive")
-@test_list_missing_empty tests @_list_empty () -> void = run(
-    let lst: [int] = [],
-    let _ = match(lst,
-        [_, ..] -> "nonempty",
-    ),
-    (),
-)
+@test_list_missing_empty tests @_list_empty () -> void = {
+    let lst: [int] = [];
+    let _ = match lst {
+        [_, ..] -> "nonempty"
+    };
+    ()
+}
 
-@_list_empty () -> bool = true
+@_list_empty () -> bool = true;

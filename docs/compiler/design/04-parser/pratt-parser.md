@@ -91,6 +91,10 @@ pub(super) mod bp {
 
 Range operators use a single binding power constant rather than a pair because they are non-associative — `1..10..20` is a parse error. A `parsed_range` flag prevents chaining.
 
+### Static OPER_TABLE
+
+The `infix_binding_power()` function uses a static `OPER_TABLE`: a 128-entry lookup table indexed by token discriminant tag (`TokenTag` as `u8`). Each entry stores the left and right binding powers, operator variant index, and token count. Non-operator tags have `left_bp == 0` (sentinel for "not an operator"). This provides O(1) operator lookup — a single array index instead of a match chain — on the hottest path in the Pratt loop. The `Gt` entry maps to `BinaryOp::Gt` by default; compound `>=` and `>>` are handled by adjacency checks at the call site.
+
 ## Entry Points
 
 Different contexts need different subsets of operators:
@@ -176,7 +180,6 @@ Postfix operators are not part of the Pratt loop — they are handled by `apply_
 | `obj.field` | Field access | Dot + ident |
 | `arr[i]` | Index | Bracket-delimited |
 | `expr?` | Try operator | Single token |
-| `expr.await` | Await | Dot + keyword |
 | `expr as Type` | Cast | `as` keyword |
 | `expr as? Type` | Safe cast | `as?` keyword pair |
 

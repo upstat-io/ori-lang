@@ -10,7 +10,6 @@
 
 use ori_ir::{ExprArena, Name, ParsedType, Span};
 
-use super::well_known;
 use crate::{ObjectSafetyViolation, TypeCheckError};
 
 /// Trait for contexts that can check object safety of trait names.
@@ -110,8 +109,7 @@ pub(crate) fn check_parsed_type_object_safety<C: ObjectSafetyChecker>(
 
 impl ObjectSafetyChecker for super::ModuleChecker<'_> {
     fn is_well_known_concrete(&self, name: Name, num_args: usize) -> bool {
-        let name_str = self.interner().lookup(name);
-        well_known::is_concrete_named_type(name_str, num_args)
+        self.well_known().is_concrete(name, num_args)
     }
 
     fn check_and_emit(&mut self, name: Name, span: Span) {

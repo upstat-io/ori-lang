@@ -10,9 +10,9 @@ use std.testing { assert_eq }
 pub use "./math_lib" { add, multiply }
 
 // Local function that uses re-exported function
-pub @quad (x: int) -> int = multiply(a: x, b: 4)
+pub @quad (x: int) -> int = multiply(a: x, b: 4);
 
 // Test for local function
-@test_quad tests @quad () -> void = run(
+@test_quad tests @quad () -> void = {
     assert_eq(actual: quad(x: 10), expected: 40)
-)
+}

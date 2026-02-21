@@ -7,55 +7,49 @@ section: "Constructs"
 
 # Patterns
 
-Formatting rules for compiler-recognized patterns: `run`, `try`, `match`, `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for`, and `nursery`.
+Formatting rules for compiler-recognized patterns: blocks, `try`, `match`, `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with`, `for`, and `nursery`.
 
-## run and try
+## Blocks and try
 
-### Always Stacked
+### Block Expressions
 
-`run` and `try` are **always** stacked regardless of width. They never appear inline.
+Block expressions use `{ }` with newline-separated expressions. The last expression is the block's value. Multi-line blocks are **always** stacked regardless of width.
 
 ```ori
-// ALWAYS this format
-let result = run(
-    let x = compute(),
-    let y = transform(x),
-    x + y,
-)
+// ALWAYS this format for multi-line blocks
+let result = {
+    let x = compute()
+    let y = transform(x)
+    x + y
+}
 
-// NEVER inline (even if short)
-// let result = run(let x = 1, x + 1)  // NO
+// Short blocks may use comma-separated one-liner
+let result = { let x = 1, x + 1 }
 ```
 
-### With Contracts (Future)
+### Contracts on Functions
 
-> **Note:** Pre-check and post-check formatting is defined in the spec but not yet implemented in the formatter. The patterns below show the intended behavior.
-
-Pre-check and post-check appear as named arguments:
+Contracts (`pre()`/`post()`) appear on the **function declaration**, between the signature and `=`:
 
 ```ori
-let result = run(
-    pre_check: b != 0,
-    a / b,
-)
+@divide (a: int, b: int) -> int
+    pre(b != 0) = a / b
 
-let result = run(
-    pre_check: b != 0 | "divisor cannot be zero",
-    a / b,
-)
+@divide (a: int, b: int) -> int
+    pre(b != 0 | "divisor cannot be zero") = a / b
 
-let result = run(
-    let value = compute(),
-    post_check: result -> result >= 0,
-    value,
-)
+@compute (n: int) -> int
+    post(result -> result >= 0) = {
+    let value = compute_inner(n)
+    value
+}
 
-let result = run(
-    pre_check: n >= 0.0 | "cannot take sqrt of negative",
-    let result = compute_sqrt(n),
-    post_check: result -> result >= 0.0,
-    result,
-)
+@compute_sqrt (n: float) -> float
+    pre(n >= 0.0 | "cannot take sqrt of negative")
+    post(result -> result >= 0.0) = {
+    let result = sqrt(n)
+    result
+}
 ```
 
 ### Long Conditions Break
@@ -63,49 +57,51 @@ let result = run(
 Binary expressions in contracts break before operators:
 
 ```ori
-let result = run(
-    pre_check: data.is_valid()
+@process (data: Data) -> Output
+    pre(data.is_valid()
         && data.size() > 0
-        && data.size() < max_size,
-    process(data),
-)
+        && data.size() < max_size) = process_inner(data)
 ```
 
-### try Pattern
+### try Blocks
 
-Same rules as `run`, with `?` propagation:
+`try` uses block syntax with `?` propagation:
 
 ```ori
-let result = try(
-    let data = fetch(url: endpoint)?,
-    let parsed = parse(input: data)?,
-    Ok(parsed),
-)
+let result = try {
+    let data = fetch(url: endpoint)?
+    let parsed = parse(input: data)?
+    Ok(parsed)
+}
 ```
 
 ## match
 
-### Scrutinee on First Line, Arms Below
+### Scrutinee Before Block, Arms Below
 
-`match` always has arms stacked, never inline:
+Multi-line `match` has arms stacked with trailing commas. Short matches (all simple expressions, no guards, fits in line width) may be single-line:
 
 ```ori
-let label = match(status,
+// Single-line (short, simple)
+let label = match b { true -> "yes", false -> "no" };
+
+// Multi-line
+let label = match status {
     Pending -> "waiting",
     Running -> "in progress",
     Complete -> "done",
     Failed -> "error",
-)
+}
 ```
 
 ### Arms with Longer Bodies
 
 ```ori
-let message = match(event,
+let message = match event {
     Click(x, y) -> format(template: "Clicked at ({}, {})", x, y),
     KeyPress(key, mods) -> format(template: "Key: {} with {:?}", key, mods),
     _ -> "unknown event",
-)
+}
 ```
 
 ### Arms with Long Calls
@@ -113,40 +109,39 @@ let message = match(event,
 When an arm body has a long function call, break the call **arguments** (not after `->`):
 
 ```ori
-let result = match(event,
+let result = match event {
     Click(x, y) -> handle_click_with_long_name(
         x: x,
         y: y,
         options: defaults,
     ),
     KeyPress(key) -> handle_key(key),
-)
+}
 ```
 
 ### Arms with Always-Stacked Bodies
 
-Break after `->` only when the body is an always-stacked pattern (`run`, `try`, `match`):
+Break after `->` only when the body is an always-stacked pattern (block, `try`, `match`):
 
 ```ori
-let result = match(input,
-    Some(data) ->
-        run(
-            let validated = validate(data),
-            transform(validated),
-        ),
+let result = match input {
+    Some(data) -> {
+        let validated = validate(data);
+        transform(validated)
+    },
     None -> default_value,
-)
+}
 ```
 
 ### Guards
 
 ```ori
-let category = match(n,
+let category = match n {
     x if x < 0 -> "negative",
     0 -> "zero",
     x if x < 10 -> "small",
     _ -> "large",
-)
+}
 ```
 
 ## recurse
@@ -312,12 +307,12 @@ for x in 0..10 do
 ### Labeled Loops
 
 ```ori
-loop:outer(0, n ->
-    loop:inner(0, m ->
-        if condition then break:outer(result)
-        else continue:inner,
-    ),
-)
+loop:outer {
+    loop:inner {
+        if condition then break:outer result
+        else continue:inner
+    }
+}
 ```
 
 ## nursery
@@ -326,11 +321,11 @@ loop:outer(0, n ->
 
 ```ori
 let results = nursery(
-    body: n -> run(
-        n.spawn(task: fetch(url: "/a")),
-        n.spawn(task: fetch(url: "/b")),
-        n.spawn(task: fetch(url: "/c")),
-    ),
+    body: n -> {
+        n.spawn(task: fetch(url: "/a"))
+        n.spawn(task: fetch(url: "/b"))
+        n.spawn(task: fetch(url: "/c"))
+    },
     on_error: CancelRemaining,
     timeout: 30s,
 )
@@ -342,11 +337,10 @@ When the body lambda is complex, break after arrow:
 
 ```ori
 let results = nursery(
-    body: n ->
-        run(
-            let urls = generate_urls(count: 10),
-            for url in urls do n.spawn(task: fetch(url: url)),
-        ),
+    body: n -> {
+        let urls = generate_urls(count: 10)
+        for url in urls do n.spawn(task: fetch(url: url))
+    },
     on_error: CollectAll,
 )
 ```

@@ -147,10 +147,10 @@ pub struct Database {
 #[salsa::db]
 impl salsa::Database for Database {
     fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
-        // Optional: log events for debugging
-        if std::env::var("ORI_DEBUG").is_ok() {
-            eprintln!("[Salsa] {:?}", event());
-        }
+        // Optional: log events for debugging via structured tracing.
+        // Enabled by setting ORI_LOG (falls back to RUST_LOG).
+        // Example: ORI_LOG=oric=debug ori check file.ori
+        tracing::trace!(target: "oric", ?event, "salsa event");
     }
 }
 
@@ -238,6 +238,38 @@ fn test_incremental() {
 }
 ```
 
+## Session-Scoped Side-Caches
+
+Three caches on `CompilerDb` store results **outside** Salsa's dependency graph because their value types (`Pool`, `CanonResult`, `ResolvedImports`) do not implement the `Clone + Eq + Hash` traits that Salsa requires for tracked return values. Each is `Arc<RwLock<HashMap<PathBuf, ...>>>`:
+
+| Cache | Contents | Populated By |
+|-------|----------|--------------|
+| `PoolCache` | `Arc<Pool>` — TypePool reuse across queries | `typed()` Salsa query, after type checking |
+| `CanonCache` | `SharedCanonResult` — canonicalization results | `typed()` Salsa query, after canonicalization |
+| `ImportsCache` | `Arc<ResolvedImports>` — module import resolution | Import resolution phase |
+
+Because these caches live outside Salsa, they are **not automatically invalidated** when inputs change. The function `invalidate_file_caches()` must be called explicitly before re-type-checking a file:
+
+```rust
+let guard = invalidate_file_caches(db, &path);  // Returns CacheGuard
+let result = type_check_with_imports_and_pool(db, ..., guard);
+```
+
+### CacheGuard Pattern
+
+`CacheGuard` is a zero-sized proof token that `invalidate_file_caches()` returns. The `type_check_with_imports_and_pool()` function requires a `CacheGuard` parameter, making it a compile-time error to skip invalidation:
+
+```rust
+pub(crate) struct CacheGuard(());
+
+impl CacheGuard {
+    /// For synthetic/imported modules not tracked by Salsa.
+    pub(crate) fn untracked() -> Self { CacheGuard(()) }
+}
+```
+
+This ensures that any code path triggering re-type-checking either calls `invalidate_file_caches()` (returning a `CacheGuard`) or explicitly opts out via `CacheGuard::untracked()` for modules with no cache entries.
+
 ## Common Mistakes
 
 ### 1. Forgetting Eq on Output Types
@@ -264,9 +296,9 @@ fn tokens(db: &dyn Db, file: SourceFile) -> TokenList {
     // ...
 }
 
-// Right - use event logging
+// Right - use structured tracing (enabled via ORI_LOG)
 fn salsa_event(&self, event: &dyn Fn() -> salsa::Event) {
-    println!("[Salsa] {:?}", event());
+    tracing::trace!(target: "oric", ?event, "salsa event");
 }
 ```
 

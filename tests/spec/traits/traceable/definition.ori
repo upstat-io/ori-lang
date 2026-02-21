@@ -4,76 +4,76 @@
 use std.testing { assert_eq, assert }
 
 // Error type works with Err()
-@test_err tests @err () -> void = run(
-    let r = Err(Error("hello")),
-    assert(cond: r.is_err()),
-)
+@test_err tests @err () -> void = {
+    let r = Err(Error("hello"));
+    assert(cond: r.is_err())
+}
 
-@err () -> bool = run(
-    let r = Err(Error("hello")),
-    r.is_err(),
-)
+@err () -> bool = {
+    let r = Err(Error("hello"));
+    r.is_err()
+}
 
 // has_trace callable on Result<T, Error>
-@test_has tests @has () -> void = run(
-    let r = Err(Error("test")),
+@test_has tests @has () -> void = {
+    let r = Err(Error("test"));
     assert_eq(
         actual: r.has_trace(),
         expected: false,
-    ),
-)
+    )
+}
 
-@has () -> bool = run(
-    let r = Err(Error("test")),
-    r.has_trace(),
-)
+@has () -> bool = {
+    let r = Err(Error("test"));
+    r.has_trace()
+}
 
 // trace() callable on Result<T, Error>
-@test_trace tests @trace () -> void = run(
-    let r = Err(Error("test")),
+@test_trace tests @trace () -> void = {
+    let r = Err(Error("test"));
     assert_eq(
         actual: r.trace(),
         expected: "",
-    ),
-)
+    )
+}
 
-@trace () -> str = run(
-    let r = Err(Error("test")),
-    r.trace(),
-)
+@trace () -> str = {
+    let r = Err(Error("test"));
+    r.trace()
+}
 
 // trace_entries() callable
-@test_entries tests @entries () -> void = run(
-    let r = Err(Error("test")),
+@test_entries tests @entries () -> void = {
+    let r = Err(Error("test"));
     assert_eq(
         actual: r.trace_entries().len(),
         expected: 0,
-    ),
-)
+    )
+}
 
-@entries () -> int = run(
-    let r = Err(Error("test")),
-    r.trace_entries().len(),
-)
+@entries () -> int = {
+    let r = Err(Error("test"));
+    r.trace_entries().len()
+}
 
 // All methods work on Ok variant
-@test_ok tests @ok () -> void = run(
-    let r: Result<int, Error> = Ok(42),
+@test_ok tests @ok () -> void = {
+    let r: Result<int, Error> = Ok(42);
     assert_eq(
         actual: r.has_trace(),
         expected: false,
-    ),
+    );
     assert_eq(
         actual: r.trace(),
         expected: "",
-    ),
+    );
     assert_eq(
         actual: r.trace_entries().len(),
         expected: 0,
-    ),
-)
+    )
+}
 
-@ok () -> bool = run(
-    let r: Result<int, Error> = Ok(42),
-    r.has_trace() == false,
-)
+@ok () -> bool = {
+    let r: Result<int, Error> = Ok(42);
+    r.has_trace() == false
+}

@@ -5,10 +5,15 @@
 
 use ori_ir::{BinaryOp, ExprId, ExprKind, Name, StringLookup};
 
-use super::{binary_op_str, unary_op_str, Formatter};
+use super::{binary_op_str, needs_binary_parens, unary_op_str, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an expression inline (single line).
+    #[expect(
+        clippy::too_many_lines,
+        clippy::cognitive_complexity,
+        reason = "exhaustive ExprKind formatting dispatch"
+    )]
     pub(super) fn emit_inline(&mut self, expr_id: ExprId) {
         let expr = self.arena.get_expr(expr_id);
 
@@ -130,17 +135,14 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Let binding
             // Per spec: mutable is default, $ prefix for immutable
+            // The $ prefix is emitted by emit_binding_pattern(), not here
             ExprKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable,
+                mutable: _,
             } => {
-                if *mutable {
-                    self.ctx.emit("let ");
-                } else {
-                    self.ctx.emit("let $");
-                }
+                self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
                 self.ctx.emit(" = ");
@@ -350,6 +352,10 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
 
             // Postfix operators
+            ExprKind::Unsafe(inner) => {
+                self.ctx.emit("unsafe ");
+                self.emit_inline(*inner);
+            }
             ExprKind::Await(inner) => {
                 self.emit_inline(*inner);
                 self.ctx.emit(".await");
@@ -426,9 +432,8 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(":");
                     self.ctx.emit(self.interner.lookup(*label));
                 }
-                self.ctx.emit("(");
+                self.ctx.emit(" ");
                 self.emit_inline(*body);
-                self.ctx.emit(")");
             }
 
             // Block
@@ -436,9 +441,11 @@ impl<I: StringLookup> Formatter<'_, I> {
                 let stmts_list = self.arena.get_stmt_range(*stmts);
                 if stmts_list.is_empty() {
                     if result.is_present() {
+                        self.ctx.emit("{ ");
                         self.emit_inline(*result);
+                        self.ctx.emit(" }");
                     } else {
-                        self.ctx.emit("()");
+                        self.ctx.emit("{}");
                     }
                 } else {
                     // Blocks with statements always break
@@ -500,50 +507,9 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    /// Emit a binary operand, wrapping in parentheses if needed for precedence.
-    ///
-    /// Parentheses are needed when:
-    /// - The operand is a binary expression with lower precedence (higher number)
-    /// - The operand has equal precedence but is on the "wrong" side for associativity
-    ///   (all binary ops are left-associative except `??` which is right-associative)
+    /// Emit a binary operand inline, wrapping in parentheses if needed for precedence.
     fn emit_binary_operand_inline(&mut self, operand: ExprId, parent_op: BinaryOp, is_left: bool) {
-        let expr = self.arena.get_expr(operand);
-
-        let needs_parens = match &expr.kind {
-            ExprKind::Binary { op: child_op, .. } => {
-                let parent_prec = parent_op.precedence();
-                let child_prec = child_op.precedence();
-
-                match child_prec.cmp(&parent_prec) {
-                    std::cmp::Ordering::Greater => {
-                        // Child has lower precedence (higher number) - needs parens
-                        true
-                    }
-                    std::cmp::Ordering::Equal => {
-                        // Same precedence - check associativity
-                        // All ops are left-associative except ??
-                        // For left-assoc: a + b + c = (a + b) + c, so right operand needs parens
-                        // For right-assoc (??): a ?? b ?? c = a ?? (b ?? c), so left operand needs parens
-                        let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
-                        // Left operand of right-assoc needs parens, else right operand
-                        if is_right_assoc {
-                            is_left
-                        } else {
-                            !is_left
-                        }
-                    }
-                    std::cmp::Ordering::Less => {
-                        // Child has higher precedence - no parens needed
-                        false
-                    }
-                }
-            }
-            // Lambda/Let/If as operands also need parens
-            ExprKind::Lambda { .. } | ExprKind::Let { .. } | ExprKind::If { .. } => true,
-            _ => false,
-        };
-
-        if needs_parens {
+        if needs_binary_parens(self.arena, operand, parent_op, is_left) {
             self.ctx.emit("(");
             self.emit_inline(operand);
             self.ctx.emit(")");

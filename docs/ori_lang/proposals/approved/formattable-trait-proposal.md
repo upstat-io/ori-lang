@@ -186,10 +186,10 @@ All `Printable` types have a blanket `Formattable` implementation:
 
 ```ori
 impl<T: Printable> Formattable for T {
-    @format (self, spec: FormatSpec) -> str = run(
-        let base = self.to_str(),
-        apply_format(s: base, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = {
+        let base = self.to_str()
+        apply_format(s: base, spec: spec)
+    }
 }
 ```
 
@@ -203,13 +203,13 @@ This applies width, alignment, and fill. Type-specific formatting (binary, hex, 
 
 ```ori
 impl Formattable for int {
-    @format (self, spec: FormatSpec) -> str = match(spec.format_type,
-        Some(Binary) -> format_int_base(n: self, base: 2, spec: spec),
-        Some(Octal) -> format_int_base(n: self, base: 8, spec: spec),
-        Some(Hex) -> format_int_base(n: self, base: 16, lowercase: true, spec: spec),
-        Some(HexUpper) -> format_int_base(n: self, base: 16, lowercase: false, spec: spec),
-        _ -> format_int_decimal(n: self, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = match spec.format_type {
+        Some(Binary) -> format_int_base(n: self, base: 2, spec: spec)
+        Some(Octal) -> format_int_base(n: self, base: 8, spec: spec)
+        Some(Hex) -> format_int_base(n: self, base: 16, lowercase: true, spec: spec)
+        Some(HexUpper) -> format_int_base(n: self, base: 16, lowercase: false, spec: spec)
+        _ -> format_int_decimal(n: self, spec: spec)
+    }
 }
 ```
 
@@ -217,13 +217,13 @@ impl Formattable for int {
 
 ```ori
 impl Formattable for float {
-    @format (self, spec: FormatSpec) -> str = match(spec.format_type,
-        Some(Exp) -> format_scientific(n: self, uppercase: false, spec: spec),
-        Some(ExpUpper) -> format_scientific(n: self, uppercase: true, spec: spec),
-        Some(Fixed) -> format_fixed(n: self, spec: spec),
-        Some(Percent) -> format_percent(n: self, spec: spec),
-        _ -> format_float_default(n: self, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = match spec.format_type {
+        Some(Exp) -> format_scientific(n: self, uppercase: false, spec: spec)
+        Some(ExpUpper) -> format_scientific(n: self, uppercase: true, spec: spec)
+        Some(Fixed) -> format_fixed(n: self, spec: spec)
+        Some(Percent) -> format_percent(n: self, spec: spec)
+        _ -> format_float_default(n: self, spec: spec)
+    }
 }
 ```
 
@@ -231,13 +231,13 @@ impl Formattable for float {
 
 ```ori
 impl Formattable for str {
-    @format (self, spec: FormatSpec) -> str = run(
-        let s = match(spec.precision,
-            Some(n) -> self.take(count: n),
-            None -> self,
-        ),
-        apply_alignment(s: s, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = {
+        let s = match spec.precision {
+            Some(n) -> self.take(count: n)
+            None -> self
+        }
+        apply_alignment(s: s, spec: spec)
+    }
 }
 ```
 
@@ -251,12 +251,12 @@ impl Formattable for str {
 type Money = { cents: int }
 
 impl Formattable for Money {
-    @format (self, spec: FormatSpec) -> str = run(
-        let dollars = self.cents / 100,
-        let cents = self.cents % 100,
-        let base = `${dollars}.{cents:02}`,
-        apply_alignment(s: base, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = {
+        let dollars = self.cents / 100
+        let cents = self.cents % 100
+        let base = `${dollars}.{cents:02}`
+        apply_alignment(s: base, spec: spec)
+    }
 }
 ```
 

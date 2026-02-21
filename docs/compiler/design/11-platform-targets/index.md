@@ -63,7 +63,7 @@ See `ori_llvm/src/aot/target.rs` for implementation.
 
 ### Recursion Limiting
 
-To provide a good developer experience on WASM, the interpreter tracks call depth and fails gracefully before exhausting the stack:
+To provide a good developer experience on WASM, the interpreter tracks call depth via a `CallStack` struct that stores detailed `CallFrame` backtrace frames (function name + call site span), and fails gracefully before exhausting the stack:
 
 ```
 [runtime] maximum recursion depth exceeded (WASM limit: 200)

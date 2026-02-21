@@ -20,188 +20,188 @@
 // // Helper functions that return Result (type inferred)
 // @succeed (x: int) = Ok(x)
 //
-// @fail_if_zero (x: int) = run(
+// @fail_if_zero (x: int) = {
 //     if x == 0 then Err("zero not allowed") else Ok(x),
-// )
+// }
 //
-// @double_if_positive (x: int) = run(
+// @double_if_positive (x: int) = {
 //     if x > 0 then Ok(x * 2) else Err("must be positive"),
-// )
+// }
 //
-// @try_success () = try(
+// @try_success () = try {
 //     let x = succeed(5),
 //     let y = succeed(10),
 //     Ok(x + y),
-// )
+// }
 //
-// @try_early_return () = try(
+// @try_early_return () = try {
 //     let x = fail_if_zero(0),
 //     let y = succeed(10),
 //     Ok(x + y),
-// )
+// }
 //
-// @try_chain (n: int) = try(
+// @try_chain (n: int) = try {
 //     let a = fail_if_zero(n),
 //     let b = double_if_positive(a),
 //     Ok(b),
-// )
+// }
 //
-// @try_with_transform (x: int) = try(
+// @try_with_transform (x: int) = try {
 //     let a = succeed(x),
 //     let doubled = double_if_positive(a),
 //     let tripled = succeed(doubled + a),
 //     Ok(tripled),
-// )
+// }
 //
 // // =============================================================================
 // // try with ? operator
 // // =============================================================================
-// @parse_int (s: str) -> Result<int, str> = match(s,
+// @parse_int (s: str) -> Result<int, str> = match s {
 //     "1" -> Ok(1),
 //     "2" -> Ok(2),
 //     "3" -> Ok(3),
 //     _ -> Err("invalid number"),
-// )
+// }
 //
-// @try_question_mark (a: str, b: str) -> Result<int, str> = try(
+// @try_question_mark (a: str, b: str) -> Result<int, str> = try {
 //     let x = parse_int(s: a)?,
 //     let y = parse_int(s: b)?,
 //     Ok(x + y),
-// )
+// }
 //
 // // =============================================================================
 // // try with nested calls
 // // =============================================================================
-// @outer_op (x: int) -> Result<int, str> = try(
+// @outer_op (x: int) -> Result<int, str> = try {
 //     let inner = inner_op(x)?,
 //     Ok(inner * 2),
-// )
+// }
 //
-// @inner_op (x: int) -> Result<int, str> = run(
+// @inner_op (x: int) -> Result<int, str> = {
 //     if x > 0 then Ok(x) else Err("must be positive"),
-// )
+// }
 //
 // @try_nested () -> Result<int, str> = outer_op(5)
 //
 // // =============================================================================
 // // try with Option
 // // =============================================================================
-// @find_value (key: str) -> Option<int> = match(key,
+// @find_value (key: str) -> Option<int> = match key {
 //     "a" -> Some(1),
 //     "b" -> Some(2),
 //     _ -> None,
-// )
+// }
 //
-// @try_with_option (k1: str, k2: str) -> Result<int, str> = try(
+// @try_with_option (k1: str, k2: str) -> Result<int, str> = try {
 //     let v1 = find_value(key: k1).ok_or(error: "missing k1")?,
 //     let v2 = find_value(key: k2).ok_or(error: "missing k2")?,
 //     Ok(v1 + v2),
-// )
+// }
 //
-// @try_final_expr (x: int) -> Result<int, str> = try(
+// @try_final_expr (x: int) -> Result<int, str> = try {
 //     let doubled = succeed(x: x * 2)?,
 //     Ok(doubled),
-// )
+// }
 //
-// @try_complex (n: int) -> Result<[int], str> = try(
+// @try_complex (n: int) -> Result<[int], str> = try {
 //     let a = fail_if_zero(x: n)?,
 //     let b = double_if_positive(x: a)?,
 //     let c = succeed(x: b + 1)?,
 //     Ok([a, b, c]),
-// )
+// }
 //
 // // The second call should not execute because first fails
 // // Should not reach here
-// @try_short_circuit () -> Result<str, str> = try(
+// @try_short_circuit () -> Result<str, str> = try {
 //     let _ = fail_if_zero(x: 0)?,
 //     Ok("done"),
-// )
+// }
 //
 // // =============================================================================
 // // Basic try tests
 // // =============================================================================
-// @test_try_success tests @try_success () -> void = run(
+// @test_try_success tests @try_success () -> void = {
 //     let result = try_success(),
 //     assert(cond: is_ok(r: result)),
-// )
+// }
 //
-// @test_try_early_return tests @try_early_return () -> void = run(
+// @test_try_early_return tests @try_early_return () -> void = {
 //     let result = try_early_return(),
 //     assert(cond: is_err(r: result)),
-// )
+// }
 //
 // // This should not execute
-// @test_try_chain tests @try_chain () -> void = run(
+// @test_try_chain tests @try_chain () -> void = {
 //     let result = try_chain(5),
 //     assert(cond: is_ok(r: result)),
-// )
+// }
 //
-// @test_try_chain_fail tests @try_chain_fail () -> void = run(
+// @test_try_chain_fail tests @try_chain_fail () -> void = {
 //     let result = try_chain(0),
 //     assert(cond: is_err(r: result)),
-// )
+// }
 //
 // // =============================================================================
 // // try with transformations
 // // =============================================================================
-// @test_try_with_transform tests @try_with_transform () -> void = run(
+// @test_try_with_transform tests @try_with_transform () -> void = {
 //     let result = try_with_transform(3),
 //     assert(cond: is_ok(r: result)),
-// )
+// }
 //
-// @test_try_question_mark tests @try_question_mark () -> void = run(
+// @test_try_question_mark tests @try_question_mark () -> void = {
 //     let result = try_question_mark("1", "2"),
 //     assert(cond: is_ok(r: result)),
-// )
+// }
 //
-// @test_try_question_mark_err tests @try_question_mark_err () -> void = run(
+// @test_try_question_mark_err tests @try_question_mark_err () -> void = {
 //     let result = try_question_mark("1", "invalid"),
 //     assert(cond: is_err(r: result)),
-// )
+// }
 //
-// @test_try_nested tests @try_nested () -> void = run(
+// @test_try_nested tests @try_nested () -> void = {
 //     let result = outer_op(5),
 //     assert(cond: is_ok(r: result)),
-// )
+// }
 //
-// @test_try_nested_err tests @try_nested_err () -> void = run(
+// @test_try_nested_err tests @try_nested_err () -> void = {
 //     let result = outer_op(-1),
 //     assert(cond: is_err(r: result)),
-// )
+// }
 //
 // // Using try with Option requires converting to Result
-// @test_try_with_option tests @try_with_option () -> void = run(
+// @test_try_with_option tests @try_with_option () -> void = {
 //     let result = try_with_option("a", "b"),
 //     assert(cond: is_ok(r: result)),
-// )
+// }
 //
 // // =============================================================================
 // // try returning the final expression
 // // =============================================================================
-// @test_try_final_expr tests @try_final_expr () -> void = run(
+// @test_try_final_expr tests @try_final_expr () -> void = {
 //     let result = try_final_expr(10),
-//     match(result,
+//     match result {
 //         Ok(n) -> assert_eq(actual: n, expected: 20),
 //         Err(_) -> assert(cond: false),
-//     ),
-// )
+//     },
+// }
 //
 // // =============================================================================
 // // try with complex expressions
 // // =============================================================================
-// @test_try_complex tests @try_complex () -> void = run(
+// @test_try_complex tests @try_complex () -> void = {
 //     let result = try_complex(5),
 //     assert(cond: is_ok(r: result)),
-// )
+// }
 //
 // // =============================================================================
 // // try with early return on first error
 // // =============================================================================
-// @test_try_short_circuit tests @try_short_circuit () -> void = run(
-//     let result = try(
+// @test_try_short_circuit tests @try_short_circuit () -> void = {
+//     let result = try {
 //         let _ = fail_if_zero(x: 0)?,
 //         let _ = succeed(x: 100)?,
 //         Ok("done"),
-//     ),
+//     },
 //     assert(cond: is_err(r: result)),
-// )
+// }

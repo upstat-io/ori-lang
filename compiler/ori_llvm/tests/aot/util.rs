@@ -424,11 +424,12 @@ pub fn wasm_opt_available() -> bool {
 
 // AOT compile-and-run helpers
 
-/// Get the path to the `ori` binary.
+/// Get the path to an LLVM-enabled `ori` binary.
 ///
-/// When both debug and release binaries exist, prefers the **most recently
-/// modified** one. This prevents stale-binary bugs where `cargo bl` (debug)
-/// builds new code but tests silently pick up an old release binary.
+/// When both debug and release binaries exist, prefers one with LLVM support.
+/// If both have LLVM support, picks the most recently modified. If neither
+/// has LLVM support, panics with a clear message instead of letting 100+
+/// AOT tests fail individually with cryptic E5004 errors.
 pub fn ori_binary() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir
@@ -439,7 +440,11 @@ pub fn ori_binary() -> PathBuf {
     let debug_path = workspace_root.join("target/debug/ori");
     let release_path = workspace_root.join("target/release/ori");
 
-    match (debug_path.exists(), release_path.exists()) {
+    let debug_llvm = debug_path.exists() && has_llvm_support(&debug_path);
+    let release_llvm = release_path.exists() && has_llvm_support(&release_path);
+
+    match (debug_llvm, release_llvm) {
+        // Both have LLVM — pick most recent
         (true, true) => {
             let debug_mtime = fs::metadata(&debug_path).and_then(|m| m.modified()).ok();
             let release_mtime = fs::metadata(&release_path).and_then(|m| m.modified()).ok();
@@ -449,10 +454,42 @@ pub fn ori_binary() -> PathBuf {
                 _ => debug_path,
             }
         }
+        // Only one has LLVM — use it regardless of mtime
         (true, false) => debug_path,
         (false, true) => release_path,
-        (false, false) => PathBuf::from("ori"),
+        // Neither has LLVM — fail fast with a clear message
+        (false, false) => {
+            panic!(
+                "No LLVM-enabled ori binary found.\n\
+                 AOT tests require `ori` built with --features llvm.\n\
+                 Run `cargo bl` (debug) or `cargo blr` (release) first,\n\
+                 or use `./llvm-test.sh` which builds automatically.\n\
+                 \n\
+                 Checked:\n  \
+                   debug:   {} (exists: {})\n  \
+                   release: {} (exists: {})",
+                debug_path.display(),
+                debug_path.exists(),
+                release_path.display(),
+                release_path.exists(),
+            );
+        }
     }
+}
+
+/// Check whether an `ori` binary has LLVM/AOT support by running `ori build`
+/// with no arguments and checking for the E5004 "requires LLVM backend" error.
+fn has_llvm_support(binary: &Path) -> bool {
+    Command::new(binary)
+        .args(["build", "--help"])
+        .output()
+        .map(|o| {
+            // A non-LLVM binary prints E5004 to stderr; an LLVM binary
+            // prints "cannot find file" or usage info (but no E5004).
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            !stderr.contains("E5004")
+        })
+        .unwrap_or(false)
 }
 
 /// Compile and run an Ori program, returning the exit code.

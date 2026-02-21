@@ -77,7 +77,7 @@ Key characteristics:
 - **No interning or keyword resolution** — The raw scanner sees identifiers and keywords identically (`RawTag::Ident`)
 
 ```rust
-// RawTag is a u8 enum with ~50 variants
+// RawTag is a u8 enum with 68 variants (gaps in numbering for future expansion)
 #[repr(u8)]
 pub enum RawTag {
     Ident, Int, Float, HexInt, BinInt, String, Char, Duration, Size,
@@ -173,6 +173,21 @@ lex_full() → LexResult{tokens, errors} → lex_with_comments() (discards metad
 lex_with_comments()                    → full LexOutput
 ```
 
+## Encoding Issues Detection
+
+`SourceBuffer::encoding_issues()` detects encoding problems during buffer construction:
+
+- **UTF-8 BOM** (`0xEF 0xBB 0xBF`) — forbidden per Ori spec
+- **UTF-16 LE BOM** (`0xFF 0xFE`) — wrong encoding
+- **UTF-16 BE BOM** (`0xFE 0xFF`) — wrong encoding
+- **Interior null bytes** (U+0000) — forbidden per grammar (`unicode_char` excludes NUL)
+
+Issues are recorded as `EncodingIssue` values carrying `EncodingIssueKind`, byte position, and byte length. The integration layer (`ori_lexer`) converts these into `LexError` diagnostics with spans and messages.
+
+## Unicode Confusables Detection
+
+The cooking layer detects Unicode lookalike characters via `cook_invalid_byte()`. When the raw scanner produces `RawTag::InvalidByte` for a non-ASCII byte, the cooker attempts UTF-8 decoding and calls `unicode_confusables::lookup_confusable()` to identify characters that resemble ASCII operators or delimiters (e.g., full-width parentheses, Unicode minus signs). Matches produce targeted diagnostics: "Did you mean ASCII `X`?"
+
 ## Keyword System
 
 ### Reserved Keywords
@@ -231,19 +246,19 @@ Template literals use backtick delimiters and support interpolation with `{expr}
 
 ### Token Production
 
-The scanner produces four template token types:
+The scanner produces four raw template token types. The cooking layer maps them to `TokenKind` variants, renaming `TemplateComplete` to `TemplateFull` in the process:
 
 ```
 `text{expr}more{expr2}end`
 
-TemplateHead("text")          // ` to first {
-  ... expression tokens ...   // normal tokens for expr
-TemplateMiddle("more")        // } to next {
-  ... expression tokens ...   // normal tokens for expr2
-TemplateTail("end")           // } to closing `
+RawTag::TemplateHead    → TokenKind::TemplateHead("text")      // ` to first {
+  ... expression tokens ...                                     // normal tokens for expr
+RawTag::TemplateMiddle  → TokenKind::TemplateMiddle("more")    // } to next {
+  ... expression tokens ...                                     // normal tokens for expr2
+RawTag::TemplateTail    → TokenKind::TemplateTail("end")       // } to closing `
 
 `no interpolation`
-TemplateComplete("no interpolation")  // ` to ` with no { }
+RawTag::TemplateComplete → TokenKind::TemplateFull("no interpolation")  // ` to ` with no { }
 ```
 
 ### Depth Tracking
@@ -444,21 +459,30 @@ All cross-crate hot functions are marked `#[inline]` to let the compiler optimiz
 
 ## Salsa Integration
 
-Two Salsa queries expose the lexer:
+A three-level Salsa query hierarchy exposes the lexer:
 
 ```rust
+// Full path — returns tokens + metadata (comments, trivia)
+#[salsa::tracked]
+pub fn tokens_with_metadata(db: &dyn Db, file: SourceFile) -> LexOutput { ... }
+
+// Intermediate — strips metadata, returns tokens + errors
+#[salsa::tracked]
+pub fn lex_result(db: &dyn Db, file: SourceFile) -> LexResult {
+    let output = tokens_with_metadata(db, file);
+    LexResult { tokens: output.tokens, errors: output.errors }
+}
+
 // Fast path for parsing — returns only tokens
 #[salsa::tracked]
 pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList {
-    let source = file.text(db);
-    ori_lexer::lex(db.interner(), &source)
+    lex_result(db, file).tokens
 }
 
-// Full path for formatter/IDE — returns tokens + metadata
+// Error extraction
 #[salsa::tracked]
-pub fn tokens_with_metadata(db: &dyn Db, file: SourceFile) -> LexOutput {
-    let source = file.text(db);
-    ori_lexer::lex_with_comments(db.interner(), &source)
+pub fn lex_errors(db: &dyn Db, file: SourceFile) -> Vec<LexError> {
+    lex_result(db, file).errors
 }
 ```
 

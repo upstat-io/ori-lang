@@ -116,15 +116,15 @@ with Logger = MyLogger in Logger.info(message: "Custom")
 ```ori
 def impl Logger { @info (msg: str) = print(msg: "[DEF] " + msg) }
 
-@example () -> void = run(
+@example () -> void = {
     Logger.info(message: "A"),  // Uses def impl: "[DEF] A"
 
-    with Logger = CustomLogger in run(
+    with Logger = CustomLogger in {
         Logger.info(message: "B"),  // Uses CustomLogger
-    ),
+    }
 
     Logger.info(message: "C"),  // Back to def impl: "[DEF] C"
-)
+}
 ```
 
 ### Nested with...in
@@ -132,15 +132,15 @@ def impl Logger { @info (msg: str) = print(msg: "[DEF] " + msg) }
 Inner `with` shadows outer:
 
 ```ori
-with Logger = LoggerA in run(
+with Logger = LoggerA in {
     Logger.info(message: "A"),  // LoggerA
 
-    with Logger = LoggerB in run(
+    with Logger = LoggerB in {
         Logger.info(message: "B"),  // LoggerB (shadows A)
-    ),
+    }
 
     Logger.info(message: "C"),  // LoggerA again
-)
+}
 ```
 
 ### with...in Shadows def impl
@@ -148,10 +148,10 @@ with Logger = LoggerA in run(
 ```ori
 def impl Logger { ... }
 
-with Logger = TestLogger in run(
+with Logger = TestLogger in {
     // def impl is completely shadowed here
     Logger.info(message: "Test"),  // Uses TestLogger
-)
+}
 ```
 
 ---
@@ -311,11 +311,11 @@ Each is independent — conflicts are per-trait.
 def impl Logger { ... }
 def impl Cache { ... }
 
-with Logger = TestLogger in run(
+with Logger = TestLogger in {
     // TestLogger used, but Cache still uses def impl
     Logger.info(message: "Test")
     Cache.get(key: "foo")  // Uses def impl
-)
+}
 ```
 
 ---
@@ -436,22 +436,22 @@ pub def impl Logger {
 ```ori
 use std.logging { Logger }
 
-@my_function () -> Result<int, Error> = run(
-    Logger.info(message: "Starting"),
+@my_function () -> Result<int, Error> = {
+    Logger.info(message: "Starting")
     // ... do work ...
-    Ok(42),
-)
+    Ok(42)
+}
 
-@test_my_function tests @my_function () -> void = run(
-    let logs = [],
-    let capture = MockLogger { logs: logs },
+@test_my_function tests @my_function () -> void = {
+    let logs = []
+    let capture = MockLogger { logs: logs }
 
     with Logger = capture in
-        my_function(),
+        my_function()
 
-    assert_eq(actual: logs.len(), expected: 1),
-    assert(condition: logs[0].contains(substr: "Starting")),
-)
+    assert_eq(actual: logs.len(), expected: 1)
+    assert(condition: logs[0].contains(substr: "Starting"))
+}
 ```
 
 ---

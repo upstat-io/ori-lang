@@ -56,7 +56,6 @@ pub enum TokenTag {
     KwLet = 23,
     KwLoop = 24,
     KwMatch = 25,
-    KwMut = 26,
     KwPub = 27,
     KwSelfLower = 28,
     KwSelfUpper = 29,
@@ -185,6 +184,7 @@ impl TokenTag {
     pub const MAX_DISCRIMINANT: u8 = Self::Eof as u8;
 
     /// Get a human-readable name for this tag.
+    #[expect(clippy::too_many_lines, reason = "exhaustive TokenTag → name dispatch")]
     pub const fn name(self) -> &'static str {
         match self {
             Self::Ident => "identifier",
@@ -214,7 +214,6 @@ impl TokenTag {
             Self::KwLet => "let",
             Self::KwLoop => "loop",
             Self::KwMatch => "match",
-            Self::KwMut => "mut",
             Self::KwPub => "pub",
             Self::KwSelfLower => "self",
             Self::KwSelfUpper => "Self",

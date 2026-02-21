@@ -285,11 +285,11 @@ trait Logger {
 }
 
 // Can use as trait object
-@with_logger (logger: Logger, action: () -> void) -> void = run(
-    logger.log(level: Level.Info, message: "Starting"),
-    action(),
-    logger.log(level: Level.Info, message: "Complete"),
-)
+@with_logger (logger: Logger, action: () -> void) -> void = {
+    logger.log(level: Level.Info, message: "Starting")
+    action()
+    logger.log(level: Level.Info, message: "Complete")
+}
 ```
 
 ### Non-Object-Safe with Workaround

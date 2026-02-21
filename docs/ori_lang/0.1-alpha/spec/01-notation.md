@@ -55,11 +55,11 @@ production_name = expression .
 Valid:
 
 ```ori
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 ```
 
 Invalid:
 
 ```ori
-@add (a: int, b: int) = a + b  // error: missing return type
+@add (a: int, b: int) = a + b;  // error: missing return type
 ```

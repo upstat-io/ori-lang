@@ -1,0 +1,10 @@
+// Spec: comparable-hashable-traits-proposal.md § Error Messages
+// Type used as map key must implement Hashable
+
+type Point = { x: int, y: int }
+
+#[compile_fail("cannot be used as map key")]
+@test_map_key_not_hashable () -> void = {
+    let map: {Point: int} = {};
+    ()
+}

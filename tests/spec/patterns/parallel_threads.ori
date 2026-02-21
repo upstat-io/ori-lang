@@ -8,33 +8,33 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Basic test that thread_id() returns an integer
-@test_thread_id tests @get_thread_id () -> void = run(
-    let id = thread_id(),
+@test_thread_id tests @get_thread_id () -> void = {
+    let id = thread_id();
     // Thread ID should be a positive integer
     assert(
         cond: id > 0,
-    ),
-)
+    )
+}
 
-@get_thread_id () -> int = run(
-    thread_id(),
-)
+@get_thread_id () -> int = {
+    thread_id()
+}
 
 // Test that thread_id() returns consistent value in same thread
-@test_thread_id_consistent tests @thread_id_consistent () -> void = run(
-    let id1 = thread_id(),
-    let id2 = thread_id(),
+@test_thread_id_consistent tests @thread_id_consistent () -> void = {
+    let id1 = thread_id();
+    let id2 = thread_id();
     assert_eq(
         actual: id1,
         expected: id2,
-    ),
-)
+    )
+}
 
-@thread_id_consistent () -> bool = run(
-    let id1 = thread_id(),
-    let id2 = thread_id(),
-    id1 == id2,
-)
+@thread_id_consistent () -> bool = {
+    let id1 = thread_id();
+    let id2 = thread_id();
+    id1 == id2
+}
 
 // =============================================================================
 // Parallel Pattern with Thread IDs (New List-Only Syntax)
@@ -42,7 +42,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Test parallel pattern executes all tasks
 // TODO: Fix len() to use .collection not .value
-// @test_parallel_basic tests @parallel_basic () -> void = run(
+// @test_parallel_basic tests @parallel_basic () -> void = {
 //     let results = parallel(
 //         tasks: [1 + 1, 2 + 2],
 //     ),
@@ -51,13 +51,13 @@ use std.testing { assert, assert_eq, assert_ne }
 //         actual: len(value: results),
 //         expected: 2,
 //     ),
-// )
+// }
 //
-// @parallel_basic () = run(
+// @parallel_basic () = {
 //     parallel(
 //         tasks: [1 + 1, 2 + 2],
 //     ),
-// )
+// }
 
 // =============================================================================
 // Parallel Thread Verification
@@ -66,7 +66,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // Test that parallel execution uses different threads
 // When thread_id is called in parallel branches, they should run in different threads
 // TODO: Fix len() to use .collection not .value
-// @test_parallel_threads tests @parallel_threads () -> void = run(
+// @test_parallel_threads tests @parallel_threads () -> void = {
 //     let results = parallel(
 //         tasks: [thread_id(), thread_id()],
 //     ),
@@ -75,13 +75,13 @@ use std.testing { assert, assert_eq, assert_ne }
 //         actual: len(value: results),
 //         expected: 2,
 //     ),
-// )
+// }
 //
-// @parallel_threads () = run(
+// @parallel_threads () = {
 //     parallel(
 //         tasks: [thread_id(), thread_id()],
 //     ),
-// )
+// }
 
 // =============================================================================
 // Parallel with Timeout
@@ -89,7 +89,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Test parallel with timeout - tasks complete within timeout
 // TODO: Fix len() to use .collection not .value
-// @test_parallel_with_timeout tests @parallel_with_timeout () -> void = run(
+// @test_parallel_with_timeout tests @parallel_with_timeout () -> void = {
 //     let results = parallel(
 //         tasks: [1 + 1, 2 + 2],
 //         timeout: 5000ms,
@@ -99,18 +99,18 @@ use std.testing { assert, assert_eq, assert_ne }
 //         actual: len(value: results),
 //         expected: 2,
 //     ),
-// )
+// }
 //
-// @parallel_with_timeout () = run(
+// @parallel_with_timeout () = {
 //     parallel(
 //         tasks: [1 + 1, 2 + 2],
 //         timeout: 5000ms,
 //     ),
-// )
+// }
 
 // Test timeout value - each result is wrapped in Result
 // TODO: Fix len() to use .collection not .value
-// @test_parallel_timeout_results tests @parallel_timeout_results () -> void = run(
+// @test_parallel_timeout_results tests @parallel_timeout_results () -> void = {
 //     let results = parallel(
 //         tasks: [10, 20],
 //         timeout: 1000ms,
@@ -120,12 +120,12 @@ use std.testing { assert, assert_eq, assert_ne }
 //         actual: len(value: results),
 //         expected: 2,
 //     ),
-// )
+// }
 //
-// @parallel_timeout_results () = run(
+// @parallel_timeout_results () = {
 //     parallel(
 //         tasks: [10, 20],
 //         timeout: 1000ms,
 //     ),
-// )
+// }
 

@@ -38,12 +38,12 @@ fn generate_n_types(n: usize) -> String {
         .join("\n\n")
 }
 
-/// Generate N functions with run patterns.
-fn generate_n_run_patterns(n: usize) -> String {
+/// Generate N functions with block expressions.
+fn generate_n_block_patterns(n: usize) -> String {
     (0..n)
         .map(|i| {
             format!(
-                "@p{i} (value: int) -> int = run(\n    let step1 = value + {i},\n    let result = step1 * 2,\n    result,\n)"
+                "@p{i} (value: int) -> int = {{\n    let step1 = value + {i};\n    let result = step1 * 2;\n    result\n}}"
             )
         })
         .collect::<Vec<_>>()
@@ -138,7 +138,7 @@ fn bench_format_run_patterns(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(5));
 
     for size in &[10, 50, 100, 500] {
-        let source = generate_n_run_patterns(*size);
+        let source = generate_n_block_patterns(*size);
         group.bench_with_input(BenchmarkId::new("count", size), &source, |b, src| {
             b.iter(|| black_box(parse_and_format(src)));
         });

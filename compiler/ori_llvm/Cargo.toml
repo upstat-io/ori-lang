@@ -51,12 +51,33 @@ object = "0.36"
 [lints.rust]
 # unsafe_code is required for llvm-sys FFI calls
 unsafe_code = "allow"
+dead_code = "deny"
+unused = { level = "deny", priority = -1 }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
-# Allow for LLVM FFI work
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+allow_attributes_without_reason = "warn"
+
+# Deny footguns
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+# unwrap/expect allowed: inkwell builder API returns Result for every LLVM instruction;
+# these only fail on internal LLVM state corruption, not user input
+unwrap_used = "allow"
+expect_used = "allow"
+
+# Allow for CLI/practical reasons
+needless_return = "deny"
+print_stdout = "allow"
+print_stderr = "allow"
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
+too_many_lines = "deny"
+cognitive_complexity = "deny"
+similar_names = "allow"

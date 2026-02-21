@@ -57,14 +57,14 @@ The backend follows patterns from `rustc_codegen_llvm`, using a two-layer archit
 
 ## Type Mappings
 
-Ori types map to LLVM types as follows:
+Ori types map to LLVM types as follows. These are **canonical** mappings — the compiler may use narrower types when it can prove semantic equivalence (see [Representation Optimization Proposal](../../../ori_lang/proposals/approved/representation-optimization-proposal.md)):
 
 | Ori Type | LLVM Type | Notes |
 |----------|-----------|-------|
-| `int` | `i64` | 64-bit signed integer |
-| `float` | `f64` | 64-bit IEEE 754 |
-| `bool` | `i1` | 1-bit boolean |
-| `byte` | `i8` | 8-bit unsigned |
+| `int` | `i64` | Canonical: signed integer, range [-2⁶³, 2⁶³ - 1] |
+| `float` | `f64` | Canonical: IEEE 754 double-precision |
+| `bool` | `i1` | 1-bit boolean (already narrowed from canonical) |
+| `byte` | `i8` | Unsigned, range [0, 255] (already narrowed from canonical) |
 | `str` | `{ i64, ptr }` | Length + data pointer |
 | `[T]` | `{ i64, i64, ptr }` | Length, capacity, data pointer |
 | `Option<T>` | `{ i8, T }` | Tag (0=None, 1=Some) + payload |
@@ -200,9 +200,9 @@ entry → header → body → header (or exit via break)
 Loop context tracks continue and exit targets for nested control flow:
 ```rust
 let for_loop_ctx = LoopContext {
-    header: latch_bb,  // continue → latch (increment then check)
-    exit: exit_bb,     // break → exit
-    break_phi: None,
+    exit_block: exit_bb,                // break → exit
+    continue_block: latch_bb,           // continue → latch (increment then check)
+    break_values: Vec::new(),           // deferred break-with-value PHI inputs
 };
 ```
 
@@ -216,10 +216,11 @@ The backend links against runtime functions for operations that require heap all
 | Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float` |
 | Collections | `ori_list_new`, `ori_list_free`, `ori_list_len` |
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
-| Reference Counting | `ori_rc_new`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count`, `ori_rc_data` |
-| Panic | `ori_panic`, `ori_panic_cstr` |
-| Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str` |
+| Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count` |
+| Panic | `ori_panic`, `ori_panic_cstr`, `ori_register_panic_handler` |
+| Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`, `ori_assert_eq_float` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
+| Entry | `ori_run_main`, `ori_args_from_argv` |
 
 ## Documentation Sections
 
@@ -239,24 +240,31 @@ The backend links against runtime functions for operations that require heap all
 
 ### Code Generation (`codegen/`)
 
-| File | Purpose |
-|------|---------|
-| `type_info.rs` | `TypeInfo` enum, `TypeInfoStore`, `TypeLayoutResolver` |
-| `ir_builder.rs` | `IrBuilder` -- ID-based LLVM instruction builder |
-| `scope.rs` | Persistent-map variable scoping with O(1) clone |
-| `value_id.rs` | `ValueId`, `BlockId`, `FunctionId`, `LLVMTypeId` opaque handles |
-| `function_compiler.rs` | Function declaration, ABI, body compilation orchestration |
-| `abi.rs` | ABI computation (parameter passing, sret returns) |
-| `runtime_decl.rs` | Runtime function declarations in LLVM module |
-| `type_registration.rs` | `register_user_types()` -- eager type resolution from `TypeEntry` |
+| File / Directory | Purpose |
+|------------------|---------|
+| `type_info/mod.rs` | `TypeInfo` enum, `TypeInfoStore`, `TypeLayoutResolver` |
+| `ir_builder/mod.rs` | `IrBuilder` -- ID-based LLVM instruction builder (9 submodules: aggregates, arithmetic, calls, comparisons, constants, control_flow, conversions, memory, phi_types_blocks) |
+| `scope/mod.rs` | Persistent-map variable scoping with O(1) clone |
+| `value_id/mod.rs` | `ValueId`, `BlockId`, `FunctionId`, `LLVMTypeId` opaque handles |
+| `function_compiler/mod.rs` | Function declaration, ABI, body compilation orchestration |
+| `abi/mod.rs` | ABI computation (parameter passing, sret returns) |
+| `runtime_decl/mod.rs` | Runtime function declarations in LLVM module |
+| `type_registration/mod.rs` | `register_user_types()` -- eager type resolution from `TypeEntry` |
 | `expr_lowerer.rs` | `ExprLowerer` -- expression dispatch coordinator |
 | `lower_literals.rs` | Literals, identifiers, constants |
 | `lower_operators.rs` | Binary/unary ops, cast, short-circuit |
-| `lower_control_flow.rs` | If, loop, for, block, break, continue, match |
+| `lower_control_flow.rs` | If, loop, block, break, continue, match |
+| `lower_for_loop.rs` | Dedicated for-loop lowering (range, list, str, option, set, map) |
 | `lower_error_handling.rs` | Ok, Err, Some, None, Try (`?` operator) |
 | `lower_collections.rs` | List, map, tuple, struct, range, field, index |
 | `lower_calls.rs` | Call, MethodCall, Lambda (fat-pointer closures) |
-| `lower_constructs.rs` | FunctionSeq, FunctionExp, SelfRef, Await |
+| `lower_lambdas.rs` | Lambda/closure lowering |
+| `lower_constructs.rs` | Block expressions (FunctionSeq IR), FunctionExp, SelfRef, Await |
+| `lower_conversion_builtins.rs` | `str()`, `int()`, `float()`, `byte()`, `assert_eq()` conversions |
+| `lower_iterator_trampolines.rs` | Iterator trampolines |
+| `lower_builtin_methods/` | Built-in method dispatch (9 files: collections, helpers, inner_dispatch, iterator, option, primitives, result, tuple, mod) |
+| `lower_collection_methods/` | Loop-based collection method implementation (list, map, set) |
+| `derive_codegen/` | Derived trait code generation (bodies, field_ops, string_helpers, mod) |
 | `arc_emitter.rs` | ARC IR emission (retain/release/drop) |
 
 ### AOT
@@ -266,7 +274,7 @@ The backend links against runtime functions for operations that require heap all
 | `aot/target.rs` | Target configuration and machine creation |
 | `aot/object.rs` | Object file emission |
 | `aot/mangle.rs` | Symbol mangling/demangling |
-| `aot/debug.rs` | Debug information (DWARF/CodeView) |
+| `aot/debug/` | Debug information (DWARF/CodeView) |
 | `aot/passes.rs` | Optimization pipeline |
 | `aot/linker/` | Platform-agnostic linker driver |
 | `aot/runtime.rs` | Runtime library discovery |

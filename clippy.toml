@@ -1,3 +1,5 @@
+too-many-lines-threshold = 100
+
 # Clippy configuration for oric
 #
 # Enforce usage of wrapper types instead of raw smart pointers:

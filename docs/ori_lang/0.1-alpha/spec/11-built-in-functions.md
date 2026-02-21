@@ -14,7 +14,7 @@ Core functions provided by the language. All built-in functions require named ar
 Built-in names cannot be used for function definitions. Reserved in call position only; may be used as variables.
 
 ```ori
-let min = 5           // OK: variable
+let min = 5;           // OK: variable
 min(left: a, right: b) // OK: calls built-in
 @min (...) = ...      // error: reserved name
 ```
@@ -42,7 +42,7 @@ len(collection: T) -> int
 is_empty(collection: T) -> bool
 ```
 
-Works on `[T]`, `{K: V}`, `str`. For strings, returns code point count.
+Works on `[T]`, `{K: V}`, `str`, `Set<T>`, `Range<int>`, tuples. For strings, returns byte count (not codepoint count). Use `.chars().count()` for codepoint count.
 
 ## Option Functions
 
@@ -120,10 +120,10 @@ panic(msg: str) -> Never
 An optional top-level function that executes before program termination when a panic occurs.
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `Fatal error: {info.message}`),
-    print(msg: `Location: {info.location.file}:{info.location.line}`),
-)
+@panic (info: PanicInfo) -> void = {
+    print(msg: `Fatal error: {info.message}`);
+    print(msg: `Location: {info.location.file}:{info.location.line}`);
+}
 ```
 
 ### Rules
@@ -163,12 +163,12 @@ When multiple tasks panic simultaneously:
 If no `@panic` handler is defined:
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `panic: {info.message}`),
-    print(msg: `  at {info.location.file}:{info.location.line}`),
+@panic (info: PanicInfo) -> void = {
+    print(msg: `panic: {info.message}`);
+    print(msg: `  at {info.location.file}:{info.location.line}`);
     for frame in info.stack_trace do
-        print(msg: `    {frame.function}`),
-)
+        print(msg: `    {frame.function}`);
+}
 ```
 
 ### Capabilities
@@ -187,16 +187,15 @@ todo(reason: str) -> Never
 Marks unfinished code. Panics with "not yet implemented" and file location.
 
 ```ori
-@parse_json (input: str) -> Result<Json, Error> = todo()
+@parse_json (input: str) -> Result<Json, Error> = todo();
 // Panics: "not yet implemented at src/parser.ori:15"
 
-@handle_event (event: Event) -> void = match(
-    event,
+@handle_event (event: Event) -> void = match event {
     Click(pos) -> handle_click(pos: pos),
     Scroll(delta) -> todo(reason: "scroll handling"),
     // Panics: "not yet implemented: scroll handling at src/ui.ori:42"
     KeyPress(key) -> handle_key(key: key),
-)
+}
 ```
 
 ### unreachable
@@ -209,12 +208,11 @@ unreachable(reason: str) -> Never
 Marks code that should never execute. Panics with "unreachable code reached" and file location.
 
 ```ori
-@day_type (day: int) -> str = match(
-    day,
+@day_type (day: int) -> str = match day {
     1 | 2 | 3 | 4 | 5 -> "weekday",
     6 | 7 -> "weekend",
     _ -> unreachable(reason: "day must be 1-7"),
-)
+}
 ```
 
 ### dbg
@@ -227,10 +225,10 @@ dbg<T: Debug>(value: T, label: str) -> T
 Prints value with location to stderr, returns value unchanged. Requires `Debug` trait. Uses `Print` capability.
 
 ```ori
-let x = dbg(value: calculate())
+let x = dbg(value: calculate());
 // Prints: [src/math.ori:10] = 42
 
-let y = dbg(value: get_y(), label: "y coordinate")
+let y = dbg(value: get_y(), label: "y coordinate");
 // Prints: [src/point.ori:6] y coordinate = 200
 ```
 
@@ -257,12 +255,12 @@ drop_early<T>(value: T) -> void
 Forces a value to be dropped before the end of its scope. Takes ownership of the value, causing its destructor to run immediately (if the type implements `Drop`) and its memory to be reclaimed.
 
 ```ori
-run(
-    let file = open_file(path: "data.txt"),
-    let content = read_all(file),
-    drop_early(value: file),  // Close immediately, don't wait for scope end
-    process(content),         // Continue with content, file already closed
-)
+{
+    let file = open_file(path: "data.txt");
+    let content = read_all(file);
+    drop_early(value: file);  // Close immediately, don't wait for scope end
+    process(content);         // Continue with content, file already closed
+}
 ```
 
 Works for any type, not just types implementing `Drop`:
@@ -297,7 +295,7 @@ Common patterns:
 
 ```ori
 // Initialize list
-let zeros: [int] = repeat(value: 0).take(count: 100).collect()
+let zeros: [int] = repeat(value: 0).take(count: 100).collect();
 
 // Zip with constant
 items.iter().zip(other: repeat(value: multiplier)).map(transform: (x, m) -> x * m)
@@ -319,20 +317,68 @@ Causes a compile-time error with the given message. Valid only in contexts that 
 ```ori
 // OK: compile_error in conditional block
 #target(os: "windows")
-@platform_specific () -> void = compile_error(msg: "Windows not supported")
+@platform_specific () -> void = compile_error(msg: "Windows not supported");
 
 // OK: compile_error in dead branch
 @check () -> void =
     if $target_os == "windows" then
         compile_error(msg: "Windows not supported")
     else
-        ()
+        ();
 
 // ERROR: compile_error in unconditional code
-@bad () -> void = compile_error(msg: "always fails")
+@bad () -> void = compile_error(msg: "always fails");
 ```
 
 See [Conditional Compilation](24-conditional-compilation.md) for conditional compilation semantics.
+
+### embed
+
+```
+embed(path_expr) -> str | [byte]
+```
+
+Embeds the contents of a file at compile time. The path must be a const-evaluable `str` expression, resolved relative to the source file containing the `embed` expression. The return type is determined by the expected type in context:
+
+- If `str` is expected, the file must be valid UTF-8. A compile-time error is produced if the file contains invalid UTF-8 sequences.
+- If `[byte]` is expected, the file is read as raw bytes with no encoding validation.
+
+If the expected type cannot be inferred, it is an error. The compiler must require an explicit type annotation.
+
+```ori
+// UTF-8 text embedding
+let $SCHEMA: str = embed("schema.sql");
+
+// Binary embedding
+let $ICON: [byte] = embed("assets/icon.png");
+
+// Const expression paths (not limited to literals)
+let $DATA_DIR = "data";
+let $CONFIG: str = embed(`{$DATA_DIR}/config.toml`);
+```
+
+**Path restrictions:**
+- Absolute paths are an error.
+- Paths that resolve outside the project root (via `..`) are an error.
+- Path separators must be `/` (normalized by the compiler across platforms).
+
+**Size limit:** The default maximum embedded file size is 10 MB. This limit may be overridden per-expression with `#embed_limit(size:)` or project-wide in `ori.toml`.
+
+**Dependency tracking:** The compiler must track embedded files as build dependencies. Modifications to an embedded file must trigger recompilation of the module containing the `embed` expression.
+
+### has_embed
+
+```
+has_embed(path_expr) -> bool
+```
+
+Compile-time boolean expression. Evaluates to `true` if the file at `path_expr` exists and is readable, `false` otherwise. The path is resolved with the same rules as `embed`.
+
+```ori
+let $HELP: str = if has_embed("HELP.md") then embed("HELP.md") else "No help available";
+```
+
+**Dependency tracking:** The compiler must track files referenced by `has_embed`. A change in file existence must trigger recompilation.
 
 ## Prelude
 
@@ -346,6 +392,7 @@ Available without import:
 - `todo`, `unreachable`, `dbg`
 - `repeat`, `drop_early`
 - `compile_error`
+- `embed`, `has_embed`
 - `is_cancelled` (async contexts only)
 - `CancellationError`, `CancellationReason` types
 - `PanicInfo` type (with `message`, `location`, `stack_trace`, `thread_id`)
@@ -409,16 +456,16 @@ str.contains(substr: str) -> bool
 ### std.resilience
 
 ```ori
-use std.resilience { retry, exponential, linear }
+use std.resilience { retry, exponential, linear };
 
-retry(op: fetch(url), attempts: 3, backoff: exponential(base: 100ms))
+retry(op: fetch(url), attempts: 3, backoff: exponential(base: 100ms));
 retry(op: fetch(url), attempts: 5, backoff: linear(delay: 100ms))
 ```
 
 ### std.validate
 
 ```ori
-use std.validate { validate }
+use std.validate { validate };
 
 validate(
     rules: [

@@ -105,7 +105,7 @@ fn resolve_const_param_type_none_returns_error() {
 /// When adding a new well-known type (with a dedicated Pool constructor),
 /// it must be handled in ALL THREE resolution paths:
 /// 1. `resolve_parsed_type_simple` — registration phase
-/// 2. `resolve_type_with_vars` — signature collection phase
+/// 2. `resolve_and_check_type_with_vars` — signature collection phase
 /// 3. `resolve_parsed_type` — inference phase
 ///
 /// This test catches drift: if a new type is added to one path but not the
@@ -148,10 +148,16 @@ fn well_known_type_resolution_sync() {
         let reg_idx = resolve_parsed_type_simple(&mut checker, &parsed, arena_ref);
         let reg_tag = checker.pool().tag(reg_idx);
 
-        // Path 2: resolve_type_with_vars (signatures)
+        // Path 2: resolve_and_check_type_with_vars (signatures)
         let mut checker2 = ModuleChecker::new(&arena, &interner);
         let empty_vars = FxHashMap::default();
-        let sig_idx = resolve_type_with_vars(&mut checker2, &parsed, &empty_vars, &arena);
+        let sig_idx = resolve_and_check_type_with_vars(
+            &mut checker2,
+            &parsed,
+            &empty_vars,
+            ori_ir::Span::DUMMY,
+            &arena,
+        );
         let sig_tag = checker2.pool().tag(sig_idx);
 
         // Path 3: resolve_parsed_type (inference)
@@ -168,7 +174,7 @@ fn well_known_type_resolution_sync() {
         );
         assert_eq!(
             sig_tag, expected_tag,
-            "resolve_type_with_vars: {name_str} expected {expected_tag:?}, got {sig_tag:?}",
+            "resolve_and_check_type_with_vars: {name_str} expected {expected_tag:?}, got {sig_tag:?}",
         );
         assert_eq!(
             infer_tag, expected_tag,

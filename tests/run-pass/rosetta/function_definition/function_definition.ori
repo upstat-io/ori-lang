@@ -3,54 +3,54 @@
 // Ori uses @name (params) -> return_type = expression
 
 // Simple function with no parameters
-@greeting () -> str = "Hello, World!"
+@greeting () -> str = "Hello, World!";
 
 // Function with one parameter
-@square (n: int) -> int = n * n
+@square (n: int) -> int = n * n;
 
 // Function with multiple parameters
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 // Function with different types
 @repeat_string (s: str, n: int) -> str =
     if n <= 0 then ""
-    else s + repeat_string(s: s, n: n - 1)
+    else s + repeat_string(s: s, n: n - 1);
 
 // Function returning a list
-@range_list (start: int, end: int) -> [int] = (start..end).collect()
+@range_list (start: int, end: int) -> [int] = (start..end).collect();
 
 // Function with boolean return
-@is_even (n: int) -> bool = n % 2 == 0
+@is_even (n: int) -> bool = n % 2 == 0;
 
 // Function using other functions (composition)
-@sum_of_squares (a: int, b: int) -> int = add(a: square(a), b: square(b))
+@sum_of_squares (a: int, b: int) -> int = add(a: square(a), b: square(b));
 
 // Recursive function
 @factorial (n: int) -> int = recurse(
     condition: n <= 1,
     base: 1,
     step: n * self(n - 1),
-)
+);
 
 // Function with conditional body
 @fizzbuzz (n: int) -> str =
     if n % 15 == 0 then "FizzBuzz"
     else if n % 3 == 0 then "Fizz"
     else if n % 5 == 0 then "Buzz"
-    else str(n)
+    else str(n);
 
 // Function taking a function as parameter (via lambda)
-@apply_twice (f: (int) -> int, x: int) -> int = f(f(x))
+@apply_twice (f: (int) -> int, x: int) -> int = f(f(x));
 
-@main () -> void = run(
-    print(msg: greeting()),
-    print(msg: "square(5) = " + str(square(5))),
-    print(msg: "add(3, 4) = " + str(add(a: 3, b: 4))),
-    print(msg: "repeat_string(\"ab\", 3) = " + repeat_string(s: "ab", n: 3)),
-    print(msg: "range_list(1, 5) = " + str(range_list(start: 1, end: 5))),
-    print(msg: "is_even(4) = " + str(is_even(4))),
-    print(msg: "sum_of_squares(3, 4) = " + str(sum_of_squares(a: 3, b: 4))),
-    print(msg: "factorial(5) = " + str(factorial(5))),
-    print(msg: "fizzbuzz(15) = " + fizzbuzz(15)),
-    print(msg: "apply_twice(square, 2) = " + str(apply_twice(f: x -> x * x, x: 2))),
-)
+@main () -> void = {
+    print(msg: greeting());
+    print(msg: "square(5) = " + str(square(5)));
+    print(msg: "add(3, 4) = " + str(add(a: 3, b: 4)));
+    print(msg: "repeat_string(\"ab\", 3) = " + repeat_string(s: "ab", n: 3));
+    print(msg: "range_list(1, 5) = " + str(range_list(start: 1, end: 5)));
+    print(msg: "is_even(4) = " + str(is_even(4)));
+    print(msg: "sum_of_squares(3, 4) = " + str(sum_of_squares(a: 3, b: 4)));
+    print(msg: "factorial(5) = " + str(factorial(5)));
+    print(msg: "fizzbuzz(15) = " + fizzbuzz(15));
+    print(msg: "apply_twice(square, 2) = " + str(apply_twice(f: x -> x * x, x: 2)))
+}

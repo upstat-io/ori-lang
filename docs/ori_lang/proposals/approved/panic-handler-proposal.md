@@ -13,16 +13,16 @@
 Add an optional app-wide `@panic` handler function that executes before program termination when a panic occurs. This provides a hook for logging, error reporting, and cleanup without enabling local recovery.
 
 ```ori
-@main () -> void = run(
-    start_application(),
-)
+@main () -> void = {
+    start_application()
+}
 
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `Fatal error: {info.message}`),
-    print(msg: `Location: {info.location.file}:{info.location.line}`),
-    send_to_error_tracking(info),
-    cleanup_resources(),
-)
+@panic (info: PanicInfo) -> void = {
+    print(msg: `Fatal error: {info.message}`)
+    print(msg: `Location: {info.location.file}:{info.location.line}`)
+    send_to_error_tracking(info)
+    cleanup_resources()
+}
 ```
 
 ---
@@ -47,10 +47,10 @@ Production applications need crash handling:
 
 ```ori
 // Current: panic just exits
-@process_request (req: Request) -> Response = run(
+@process_request (req: Request) -> Response = {
     let data = parse(req.body),  // might panic on malformed data
     // ... if this panics, no logging, no cleanup, nothing
-)
+}
 ```
 
 Operators have no visibility into crashes. Users see abrupt termination.
@@ -101,9 +101,9 @@ But as a **first-class language construct**, not a runtime API.
 An optional top-level function with a specific signature:
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
+@panic (info: PanicInfo) -> void = {
     // handle the panic
-)
+}
 ```
 
 **Rules:**
@@ -136,9 +136,9 @@ The `thread_id` is `Some(id)` when the panic occurs in a concurrent context (ins
 Inside the `@panic` handler, `print()` automatically writes to stderr instead of stdout:
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
+@panic (info: PanicInfo) -> void = {
     print(msg: `Crash: {info.message}`),  // Writes to stderr
-)
+}
 ```
 
 This ensures panic output goes to the error stream without needing a separate `print_stderr` function.
@@ -149,12 +149,12 @@ If no `@panic` handler is defined, default behavior:
 
 ```ori
 // Implicit default
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `panic: {info.message}`),
-    print(msg: `  at {info.location.file}:{info.location.line}`),
+@panic (info: PanicInfo) -> void = {
+    print(msg: `panic: {info.message}`)
+    print(msg: `  at {info.location.file}:{info.location.line}`)
     for frame in info.stack_trace do
-        print(msg: `    {frame.function}`),
-)
+        print(msg: `    {frame.function}`)
+}
 ```
 
 ### Capabilities
@@ -163,20 +163,20 @@ The `@panic` handler may declare any capability:
 
 ```ori
 // OK: basic I/O for logging (Print is implicit)
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `Crash: {info.message}`),
-)
+@panic (info: PanicInfo) -> void = {
+    print(msg: `Crash: {info.message}`)
+}
 
 // OK: file writing
-@panic (info: PanicInfo) -> void uses FileSystem = run(
-    write_file(path: "/var/log/crashes.log", content: info.to_str()),
-)
+@panic (info: PanicInfo) -> void uses FileSystem = {
+    write_file(path: "/var/log/crashes.log", content: info.to_str())
+}
 
 // OK but risky: network calls might timeout/fail
-@panic (info: PanicInfo) -> void uses Http = run(
+@panic (info: PanicInfo) -> void uses Http = {
     // This could hang or fail - use with caution
-    Http.post(url: "https://errors.example.com", body: info),
-)
+    Http.post(url: "https://errors.example.com", body: info)
+}
 ```
 
 **Warning:** Capabilities that perform I/O (Http, FileSystem, Network) may hang, timeout, or fail. This risks the handler never completing.
@@ -191,10 +191,10 @@ The `@panic` handler may declare any capability:
 If the panic handler itself panics:
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
+@panic (info: PanicInfo) -> void = {
     panic(msg: "oops"),  // panic inside panic handler
     // Immediate termination, no recursion
-)
+}
 ```
 
 The runtime detects re-panic and terminates immediately with both panic messages.
@@ -245,37 +245,37 @@ Each process has its own `@panic` handler. Parent process isn't affected by chil
 ### Basic Logging
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
-    print(msg: ""),
-    print(msg: "=== FATAL ERROR ==="),
-    print(msg: `Message: {info.message}`),
-    print(msg: `Location: {info.location.file}:{info.location.line}`),
-    print(msg: `Function: {info.location.function}`),
-    print(msg: ""),
-    print(msg: "Stack trace:"),
+@panic (info: PanicInfo) -> void = {
+    print(msg: "")
+    print(msg: "=== FATAL ERROR ===")
+    print(msg: `Message: {info.message}`)
+    print(msg: `Location: {info.location.file}:{info.location.line}`)
+    print(msg: `Function: {info.location.function}`)
+    print(msg: "")
+    print(msg: "Stack trace:")
     for frame in info.stack_trace do
-        print(msg: `  - {frame.function}`),
-)
+        print(msg: `  - {frame.function}`)
+}
 ```
 
 ### Error Reporting Service
 
 ```ori
-@panic (info: PanicInfo) -> void uses Http, Clock = run(
+@panic (info: PanicInfo) -> void uses Http, Clock = {
     let report = CrashReport {
-        app_version: $version,
-        message: info.message,
-        stack: info.stack_trace,
-        timestamp: Clock.now(),
-    },
+        app_version: $version
+        message: info.message
+        stack: info.stack_trace
+        timestamp: Clock.now()
+    }
 
     // Best-effort send - might fail, that's OK
     let _ = Http.post(
-        url: "https://sentry.example.com/api/crashes",
-        body: report.to_json(),
-        timeout: 5s,
-    ),
-)
+        url: "https://sentry.example.com/api/crashes"
+        body: report.to_json()
+        timeout: 5s
+    )
+}
 ```
 
 ### Graceful Cleanup
@@ -285,33 +285,33 @@ Each process has its own `@panic` handler. Parent process isn't affected by chil
 let $db_connection: Option<DbConnection> = None
 let $temp_files: [str] = []
 
-@panic (info: PanicInfo) -> void uses FileSystem = run(
-    print(msg: `Fatal: {info.message}`),
+@panic (info: PanicInfo) -> void uses FileSystem = {
+    print(msg: `Fatal: {info.message}`)
 
     // Clean up temp files
     for file in $temp_files do
-        let _ = FileSystem.delete(path: file),
+        let _ = FileSystem.delete(path: file)
 
     // Note: can't safely close DB here if it might have caused the panic
-    print(msg: "Cleanup attempted"),
-)
+    print(msg: "Cleanup attempted")
+}
 ```
 
 ### User-Friendly Message
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
-    print(msg: ""),
-    print(msg: "Oops! Something went wrong."),
-    print(msg: ""),
-    print(msg: "The application encountered an unexpected error and needs to close."),
-    print(msg: ""),
-    print(msg: "Technical details:"),
-    print(msg: `  {info.message}`),
-    print(msg: `  at {info.location.file}:{info.location.line}`),
-    print(msg: ""),
-    print(msg: "Please report this issue at: https://github.com/example/app/issues"),
-)
+@panic (info: PanicInfo) -> void = {
+    print(msg: "")
+    print(msg: "Oops! Something went wrong.")
+    print(msg: "")
+    print(msg: "The application encountered an unexpected error and needs to close.")
+    print(msg: "")
+    print(msg: "Technical details:")
+    print(msg: `  {info.message}`)
+    print(msg: `  at {info.location.file}:{info.location.line}`)
+    print(msg: "")
+    print(msg: "Please report this issue at: https://github.com/example/app/issues")
+}
 ```
 
 ### Conditional Debug Info
@@ -319,17 +319,17 @@ let $temp_files: [str] = []
 ```ori
 let $debug_mode = false
 
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `Error: {info.message}`),
+@panic (info: PanicInfo) -> void = {
+    print(msg: `Error: {info.message}`)
 
-    if $debug_mode then run(
-        print(msg: ""),
-        print(msg: "Debug information:"),
-        print(msg: `Location: {info.location.file}:{info.location.line}`),
+    if $debug_mode then {
+        print(msg: "")
+        print(msg: "Debug information:")
+        print(msg: `Location: {info.location.file}:{info.location.line}`)
         for frame in info.stack_trace do
-            print(msg: `  {frame.function}`),
-    ),
-)
+            print(msg: `  {frame.function}`)
+    }
+}
 ```
 
 ---
@@ -341,10 +341,10 @@ let $debug_mode = false
 Alternative considered:
 
 ```ori
-@main () -> void = run(
+@main () -> void = {
     on_panic(handler: info -> log(msg: info)),  // runtime registration
-    start_app(),
-)
+    start_app()
+}
 ```
 
 Problems:
@@ -460,10 +460,10 @@ The `@panic` handler provides:
 ```ori
 @main () -> void = start_app()
 
-@panic (info: PanicInfo) -> void = run(
-    log_crash(info),
-    send_report(info),
-)
+@panic (info: PanicInfo) -> void = {
+    log_crash(info)
+    send_report(info)
+}
 ```
 
 Program crashes are now visible and reportable, without compromising Ori's error handling philosophy.

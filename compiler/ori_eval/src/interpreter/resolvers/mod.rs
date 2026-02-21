@@ -126,6 +126,9 @@ pub enum CollectionMethod {
     IterRFind,
     /// `Iterator<T>.rfold(initial: U, op: (U, T) -> U) -> U` (double-ended only)
     IterRFold,
+
+    /// `Ordering.then_with(f: () -> Ordering) -> Ordering` (lazy lexicographic chaining)
+    OrderingThenWith,
 }
 
 impl CollectionMethod {

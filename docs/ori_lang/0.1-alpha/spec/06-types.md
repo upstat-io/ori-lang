@@ -15,16 +15,18 @@ Every value has a type determined at compile time.
 
 | Type | Description | Default |
 |------|-------------|---------|
-| `int` | 64-bit signed integer | `0` |
-| `float` | 64-bit IEEE 754 | `0.0` |
+| `int` | Signed integer (range: -2⁶³ to 2⁶³ - 1) | `0` |
+| `float` | IEEE 754 double-precision (range: ±1.8 × 10³⁰⁸, ~15-17 digits) | `0.0` |
 | `bool` | `true` or `false` | `false` |
 | `str` | UTF-8 string | `""` |
-| `byte` | 8-bit unsigned | `0` |
+| `byte` | Unsigned integer (range: 0 to 255) | `0` |
 | `char` | Unicode scalar value (U+0000–U+10FFFF, excluding surrogates) | — |
 | `void` | Unit type, alias for `()` | `()` |
 | `Never` | Bottom type, uninhabited | — |
 | `Duration` | Time span (nanoseconds) | `0ns` |
 | `Size` | Byte count | `0b` |
+
+> **Note:** The ranges above define the _semantic contract_ — the set of values a type can hold and the precision of its operations. The compiler may use a narrower machine representation when it can prove semantic equivalence. See [System Considerations § Representation Optimization](22-system-considerations.md#representation-optimization).
 
 `Never` is the _bottom type_ — a type with no values. It represents computations that never complete normally.
 
@@ -38,8 +40,8 @@ Every value has a type determined at compile time.
 **Coercion:** `Never` coerces to any type `T`. Since `Never` has no values, the coercion never actually executes — the expression diverges before producing a value.
 
 ```ori
-let x: int = panic(msg: "unreachable")  // Never coerces to int
-let y: str = unreachable()              // Never coerces to str
+let x: int = panic(msg: "unreachable");  // Never coerces to int
+let y: str = unreachable();              // Never coerces to str
 ```
 
 **Expressions producing Never:**
@@ -51,19 +53,19 @@ let y: str = unreachable()              // Never coerces to str
 | `unreachable()`, `unreachable(reason:)` | Assertion, terminates |
 | `break`, `continue` | Loop control (inside loops) |
 | `expr?` on `Err`/`None` | Early return path |
-| `loop(...)` with no `break` | Infinite loop |
+| `loop { }` with no `break` | Infinite loop |
 
 **Type inference:** In conditionals, `Never` does not constrain the result type:
 
 ```ori
-let x = if condition then 42 else panic(msg: "fail")
+let x = if condition then 42 else panic(msg: "fail");
 // Type: int (Never coerces to int)
 ```
 
 If all paths return `Never`, the expression has type `Never`:
 
 ```ori
-let x = if condition then panic(msg: "a") else panic(msg: "b")
+let x = if condition then panic(msg: "a") else panic(msg: "b");
 // x: Never
 ```
 
@@ -86,7 +88,7 @@ type Bad = { value: Never }  // error E2019: uninhabited struct field
 `Never` may appear in sum type variant payloads. Such variants are unconstructable:
 
 ```ori
-type MaybeNever = Value(int) | Impossible(Never)
+type MaybeNever = Value(int) | Impossible(Never);
 // Only Value(int) values can exist
 ```
 
@@ -106,30 +108,30 @@ type MaybeNever = Value(int) | Impossible(Never)
 | `h` | hours | 3,600,000,000,000 |
 
 ```ori
-let timeout = 30s
-let delay = 100ms
-let precise = 500us
+let timeout = 30s;
+let delay = 100ms;
+let precise = 500us;
 ```
 
 Decimal notation is supported as compile-time sugar:
 
 ```ori
-let half_second = 0.5s      // 500,000,000 nanoseconds
-let precise = 1.56s         // 1,560,000,000 nanoseconds
-let quarter_hour = 0.25h    // 15 minutes
+let half_second = 0.5s;      // 500,000,000 nanoseconds
+let precise = 1.56s;         // 1,560,000,000 nanoseconds
+let quarter_hour = 0.25h;    // 15 minutes
 ```
 
 The decimal portion is converted to an exact integer value using integer arithmetic—no floating-point operations are involved. The result must be a whole number of nanoseconds; otherwise, it is an error:
 
 ```ori
 // Valid - results in whole nanoseconds
-1.5s           // 1,500,000,000 ns
-0.001s         // 1,000,000 ns (1ms)
-1.123456789s   // 1,123,456,789 ns
+1.5s;           // 1,500,000,000 ns
+0.001s;         // 1,000,000 ns (1ms)
+1.123456789s;   // 1,123,456,789 ns
 
 // Invalid - sub-nanosecond precision
-1.5ns          // Error: 1.5 nanoseconds is not a whole number
-1.0000000001s  // Error: result has sub-nanosecond precision
+1.5ns;          // Error: 1.5 nanoseconds is not a whole number
+1.0000000001s;  // Error: result has sub-nanosecond precision
 ```
 
 **Arithmetic:**
@@ -151,19 +153,19 @@ Arithmetic panics on overflow.
 
 ```ori
 impl Duration {
-    @nanoseconds (self) -> int
-    @microseconds (self) -> int
-    @milliseconds (self) -> int
-    @seconds (self) -> int
-    @minutes (self) -> int
-    @hours (self) -> int
+    @nanoseconds (self) -> int;
+    @microseconds (self) -> int;
+    @milliseconds (self) -> int;
+    @seconds (self) -> int;
+    @minutes (self) -> int;
+    @hours (self) -> int;
 
-    @from_nanoseconds (ns: int) -> Duration
-    @from_microseconds (us: int) -> Duration
-    @from_milliseconds (ms: int) -> Duration
-    @from_seconds (s: int) -> Duration
-    @from_minutes (m: int) -> Duration
-    @from_hours (h: int) -> Duration
+    @from_nanoseconds (ns: int) -> Duration;
+    @from_microseconds (us: int) -> Duration;
+    @from_milliseconds (ms: int) -> Duration;
+    @from_seconds (s: int) -> Duration;
+    @from_minutes (m: int) -> Duration;
+    @from_hours (h: int) -> Duration;
 }
 ```
 
@@ -188,28 +190,28 @@ Extraction methods truncate toward zero: `90s.minutes()` returns `1`.
 Size uses SI/decimal units (powers of 1000). Programs requiring exact powers of 1024 should use explicit byte counts: `1024b`, `1048576b`.
 
 ```ori
-let buffer = 64kb
-let limit = 10mb
-let heap = 2gb
+let buffer = 64kb;
+let limit = 10mb;
+let heap = 2gb;
 ```
 
 Decimal notation is supported as compile-time sugar:
 
 ```ori
-let half_kb = 0.5kb         // 500 bytes
-let one_and_half_mb = 1.5mb // 1,500,000 bytes
-let quarter_gb = 0.25gb     // 250,000,000 bytes
+let half_kb = 0.5kb;         // 500 bytes
+let one_and_half_mb = 1.5mb; // 1,500,000 bytes
+let quarter_gb = 0.25gb;     // 250,000,000 bytes
 ```
 
 The decimal portion is converted to an exact integer value using integer arithmetic. The result must be a whole number of bytes; otherwise, it is an error:
 
 ```ori
 // Valid - results in whole bytes
-1.5kb          // 1,500 bytes
-0.001mb        // 1,000 bytes (1kb)
+1.5kb;          // 1,500 bytes
+0.001mb;        // 1,000 bytes (1kb)
 
 // Invalid - sub-byte precision
-0.5b           // Error: 0.5 bytes is not a whole number
+0.5b;           // Error: 0.5 bytes is not a whole number
 ```
 
 **Arithmetic:**
@@ -230,17 +232,17 @@ Unary negation (`-`) is not permitted on Size. It is a compile-time error.
 
 ```ori
 impl Size {
-    @bytes (self) -> int
-    @kilobytes (self) -> int
-    @megabytes (self) -> int
-    @gigabytes (self) -> int
-    @terabytes (self) -> int
+    @bytes (self) -> int;
+    @kilobytes (self) -> int;
+    @megabytes (self) -> int;
+    @gigabytes (self) -> int;
+    @terabytes (self) -> int;
 
-    @from_bytes (b: int) -> Size
-    @from_kilobytes (kb: int) -> Size
-    @from_megabytes (mb: int) -> Size
-    @from_gigabytes (gb: int) -> Size
-    @from_terabytes (tb: int) -> Size
+    @from_bytes (b: int) -> Size;
+    @from_kilobytes (kb: int) -> Size;
+    @from_megabytes (mb: int) -> Size;
+    @from_gigabytes (gb: int) -> Size;
+    @from_terabytes (tb: int) -> Size;
 }
 ```
 
@@ -269,8 +271,8 @@ Ordered, homogeneous collection with compile-time maximum capacity `N`. Stored i
 `N` must be a compile-time constant: a positive integer literal or a `$` constant binding.
 
 ```ori
-let buffer: [int, max 10] = []      // Empty, capacity 10
-let coords: [int, max 3] = [1, 2, 3] // Full, capacity 3
+let buffer: [int, max 10] = [];       // Empty, capacity 10
+let coords: [int, max 3] = [1, 2, 3]; // Full, capacity 3
 ```
 
 **Subtype relationship:** `[T, max N]` is a subtype of `[T]`. A fixed-capacity list can be passed where a dynamic list is expected. The capacity limit is retained even when viewed as `[T]`.
@@ -291,9 +293,10 @@ let coords: [int, max 3] = [1, 2, 3] // Full, capacity 3
 **Conversion from dynamic list:**
 
 ```ori
-let dynamic: [int] = [1, 2, 3]
-let fixed: [int, max 10] = dynamic.to_fixed<10>()      // Panic if len > 10
-let maybe: Option<[int, max 10]> = dynamic.try_to_fixed<10>()
+let dynamic: [int] = [1, 2, 3];
+let fixed: [int, max 10] = dynamic.to_fixed<10>();      // Panic if len > 10
+let maybe: Option<[int, max 10]> = dynamic.try_to_fixed<10>();
+
 ```
 
 **Trait implementations:** Fixed-capacity lists implement the same traits as regular lists (`Eq`, `Hashable`, `Comparable`, `Clone`, `Debug`, `Printable`, `Sendable`, `Iterable`, `DoubleEndedIterator`, `Collect`) with the same constraints.
@@ -326,15 +329,16 @@ Fixed-size heterogeneous collection. `()` is the unit value.
 Elements are accessed by zero-based numeric index:
 
 ```ori
-let point = (3, 4)
-point.0         // 3
-point.1         // 4
+let point = (3, 4);
+point.0;         // 3
+point.1;         // 4
 ```
 
 Tuples also support destructuring in `let` and `match` patterns:
 
 ```ori
-let (x, y) = point
+let (x, y) = point;
+
 ```
 
 ### Function
@@ -352,8 +356,8 @@ Range<T>
 Produced by `..` (exclusive) and `..=` (inclusive). Bounds must be `Comparable`.
 
 ```ori
-0..10       // 0 to 9
-0..=10      // 0 to 10
+0..10;       // 0 to 9
+0..=10;      // 0 to 10
 ```
 
 ## Generic Types
@@ -361,8 +365,8 @@ Produced by `..` (exclusive) and `..=` (inclusive). Bounds must be `Comparable`.
 Type parameters in angle brackets:
 
 ```ori
-Option<int>
-Result<User, Error>
+Option<int>;
+Result<User, Error>;
 type Pair<T> = { first: T, second: T }
 ```
 
@@ -371,7 +375,7 @@ type Pair<T> = { first: T, second: T }
 A _const generic parameter_ is a compile-time constant value (not a type) that parameterizes a type or function. Const generic parameters use the `$` sigil followed by a type annotation:
 
 ```ori
-@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N] = ...
+@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N] = ...;
 
 type RingBuffer<T, $N: int> = {
     data: [T, max N],
@@ -391,7 +395,7 @@ Const generic parameters can be used wherever a compile-time constant is expecte
 // Const bound in where clause
 @non_empty_array<$N: int> () -> [int, max N]
     where N > 0
-= ...
+= ...;
 ```
 
 #### Default Values
@@ -399,12 +403,12 @@ Const generic parameters can be used wherever a compile-time constant is expecte
 Const generics can have default values:
 
 ```ori
-@buffer<$N: int = 64> () -> [byte, max N] = ...
+@buffer<$N: int = 64> () -> [byte, max N] = ...;
 
-buffer()          // Uses N = 64
-buffer<128>()     // Overrides to N = 128
+buffer();          // Uses N = 64
+buffer<128>();     // Overrides to N = 128
 
-type Vector<T, $N: int = 3> = [T, max N]
+type Vector<T, $N: int = 3> = [T, max N];
 
 Vector<float>         // 3D vector
 Vector<float, 4>      // 4D vector
@@ -417,11 +421,11 @@ Default const values must be:
 ```ori
 @sized<$N: int = 10> ()
     where N > 0       // OK: 10 > 0
-= ...
+= ...;
 
 @bad<$N: int = 0> ()
     where N > 0       // ERROR: default value 0 violates bound
-= ...
+= ...;
 ```
 
 #### Parameter Ordering
@@ -429,9 +433,9 @@ Default const values must be:
 When mixing type and const generic parameters, either ordering is allowed:
 
 ```ori
-@example<T, $N: int> (...)      // Type first (preferred)
-@example<$N: int, T> (...)      // Const first (allowed)
-@example<T, $N: int, U> (...)   // Interleaved (allowed)
+@example<T, $N: int> (...);      // Type first (preferred)
+@example<$N: int, T> (...);      // Const first (allowed)
+@example<T, $N: int, U> (...);   // Interleaved (allowed)
 ```
 
 **Style recommendation**: Place type parameters before const generics for consistency.
@@ -441,8 +445,8 @@ When mixing type and const generic parameters, either ordering is allowed:
 **Explicit instantiation:**
 
 ```ori
-zeros<10>()                      // [int, max 10]
-replicate<str, 5>(value: "hi")   // [str, max 5]
+zeros<10>();                      // [int, max 10]
+replicate<str, 5>(value: "hi");   // [str, max 5]
 ```
 
 **Inferred instantiation:**
@@ -450,7 +454,7 @@ replicate<str, 5>(value: "hi")   // [str, max 5]
 When possible, const generics are inferred from context:
 
 ```ori
-let buffer: [int, max 100] = zeros()  // N = 100 inferred
+let buffer: [int, max 100] = zeros();  // N = 100 inferred
 ```
 
 **Partial inference:**
@@ -458,7 +462,7 @@ let buffer: [int, max 100] = zeros()  // N = 100 inferred
 Type parameters can be inferred while const generics are explicit:
 
 ```ori
-let items = replicate<_, 5>(value: "hello")  // T = str inferred, N = 5 explicit
+let items = replicate<_, 5>(value: "hello");  // T = str inferred, N = 5 explicit
 ```
 
 #### Monomorphization
@@ -466,12 +470,12 @@ let items = replicate<_, 5>(value: "hello")  // T = str inferred, N = 5 explicit
 Each unique combination of const generic values produces a distinct monomorphized function or type:
 
 ```ori
-zeros<5>()   // Generates zeros_5
-zeros<10>()  // Generates zeros_10
+zeros<5>();   // Generates zeros_5
+zeros<10>();  // Generates zeros_10
 
 // These are distinct types:
-let a: [int, max 5] = ...
-let b: [int, max 10] = a  // ERROR: type mismatch
+let a: [int, max 5] = ...;
+let b: [int, max 10] = a;  // ERROR: type mismatch
 ```
 
 The compiler may warn for excessive instantiations that impact compile time or binary size.
@@ -481,12 +485,12 @@ The compiler may warn for excessive instantiations that impact compile time or b
 Const generics enable arithmetic in type positions:
 
 ```ori
-@double_capacity<T, $N: int> (items: [T, max N]) -> [T, max N * 2] = ...
+@double_capacity<T, $N: int> (items: [T, max N]) -> [T, max N * 2] = ...;
 
 @halve<T, $N: int> (items: [T, max N]) -> [T, max N / 2]
     where N > 0
     where N % 2 == 0
-= ...
+= ...;
 ```
 
 Allowed arithmetic operations in type positions:
@@ -538,11 +542,11 @@ When calling a function with const bounds, the caller's bounds must _imply_ the 
 ```ori
 @inner<$N: int> () -> [int, max N]
     where N >= 10
-= ...
+= ...;
 
 @outer<$M: int> () -> [int, max M]
     where M >= 20  // M >= 20 implies M >= 10
-= inner<M>()       // OK
+= inner<M>();       // OK
 ```
 
 **Overflow handling:**
@@ -553,19 +557,19 @@ Arithmetic overflow during const bound evaluation is a compile-time error (E1033
 
 ```ori
 // Conversion methods on [T]
-[T].to_fixed<$N: int>() -> [T, max N]
-[T].try_to_fixed<$N: int>() -> Option<[T, max N]>
+[T].to_fixed<$N: int>() -> [T, max N];
+[T].try_to_fixed<$N: int>() -> Option<[T, max N]>;
 ```
 
 ## Built-in Types
 
 ```
-type Option<T> = Some(T) | None
-type Result<T, E> = Ok(T) | Err(E)
-type Ordering = Less | Equal | Greater
+type Option<T> = Some(T) | None;
+type Result<T, E> = Ok(T) | Err(E);
+type Ordering = Less | Equal | Greater;
 type Error = { message: str, source: Option<Error> }  // trace field internal
 type TraceEntry = { function: str, file: str, line: int, column: int }
-type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
+type NurseryErrorMode = CancelRemaining | CollectAll | FailFast;
 ```
 
 ### Ordering
@@ -582,14 +586,14 @@ The `Ordering` type represents the result of comparing two values.
 
 ```ori
 impl Ordering {
-    @is_less (self) -> bool
-    @is_equal (self) -> bool
-    @is_greater (self) -> bool
-    @is_less_or_equal (self) -> bool
-    @is_greater_or_equal (self) -> bool
-    @reverse (self) -> Ordering
-    @then (self, other: Ordering) -> Ordering
-    @then_with (self, f: () -> Ordering) -> Ordering
+    @is_less (self) -> bool;
+    @is_equal (self) -> bool;
+    @is_greater (self) -> bool;
+    @is_less_or_equal (self) -> bool;
+    @is_greater_or_equal (self) -> bool;
+    @reverse (self) -> Ordering;
+    @then (self, other: Ordering) -> Ordering;
+    @then_with (self, f: () -> Ordering) -> Ordering;
 }
 ```
 
@@ -599,10 +603,11 @@ The `then_with` method is a lazy variant that only evaluates its argument when `
 
 ```ori
 // Lexicographic comparison of (a1, a2) with (b1, b2)
-compare(left: a1, right: b1).then(other: compare(left: a2, right: b2))
+compare(left: a1, right: b1).then(other: compare(left: a2, right: b2));
 
 // Lazy version — second comparison only evaluated if first is Equal
-compare(left: a1, right: b1).then_with(f: () -> compare(left: a2, right: b2))
+compare(left: a1, right: b1).then_with(f: () -> compare(left: a2, right: b2));
+
 ```
 
 #### Ordering Traits
@@ -628,25 +633,25 @@ type CloneableConsumer<T: Sendable>  // Consumer that implements Clone
 
 ```ori
 // One-to-one (exclusive, fastest)
-@channel<T: Sendable> (buffer: int) -> (Producer<T>, Consumer<T>)
+@channel<T: Sendable> (buffer: int) -> (Producer<T>, Consumer<T>);
 
 // Fan-in (many-to-one, producer cloneable)
-@channel_in<T: Sendable> (buffer: int) -> (CloneableProducer<T>, Consumer<T>)
+@channel_in<T: Sendable> (buffer: int) -> (CloneableProducer<T>, Consumer<T>);
 
 // Fan-out (one-to-many, consumer cloneable)
-@channel_out<T: Sendable> (buffer: int) -> (Producer<T>, CloneableConsumer<T>)
+@channel_out<T: Sendable> (buffer: int) -> (Producer<T>, CloneableConsumer<T>);
 
 // Many-to-many (both cloneable)
-@channel_all<T: Sendable> (buffer: int) -> (CloneableProducer<T>, CloneableConsumer<T>)
+@channel_all<T: Sendable> (buffer: int) -> (CloneableProducer<T>, CloneableConsumer<T>);
 ```
 
 ### Producer Methods
 
 ```ori
 impl<T: Sendable> Producer<T> {
-    @send (self, value: T) -> void uses Async  // Consumes value
-    @close (self) -> void
-    @is_closed (self) -> bool
+    @send (self, value: T) -> void uses Async;  // Consumes value
+    @close (self) -> void;
+    @is_closed (self) -> bool;
 }
 ```
 
@@ -656,12 +661,12 @@ Sending a value transfers ownership. The value cannot be used after send.
 
 ```ori
 impl<T: Sendable> Consumer<T> {
-    @receive (self) -> Option<T> uses Async
-    @is_closed (self) -> bool
+    @receive (self) -> Option<T> uses Async;
+    @is_closed (self) -> bool;
 }
 
 impl<T: Sendable> Iterable for Consumer<T> {
-    type Item = T
+    type Item = T;
 }
 ```
 
@@ -672,11 +677,11 @@ impl<T: Sendable> Iterable for Consumer<T> {
 `CloneableProducer` and `CloneableConsumer` implement `Clone`. Regular `Producer` and `Consumer` do not.
 
 ```ori
-let (p, c) = channel<int>(buffer: 10)
+let (p, c) = channel<int>(buffer: 10);
 // p.clone()  // error: Producer<int> does not implement Clone
 
-let (p, c) = channel_in<int>(buffer: 10)
-let p2 = p.clone()  // OK: CloneableProducer implements Clone
+let (p, c) = channel_in<int>(buffer: 10);
+let p2 = p.clone();  // OK: CloneableProducer implements Clone
 ```
 
 ## User-Defined Types
@@ -692,13 +697,13 @@ type Point = { x: int, y: int }
 ### Sum Type
 
 ```ori
-type Status = Pending | Running | Done | Failed(reason: str)
+type Status = Pending | Running | Done | Failed(reason: str);
 ```
 
 ### Newtype
 
 ```ori
-type UserId = int
+type UserId = int;
 ```
 
 A _newtype_ creates a distinct nominal type that wraps an existing type.
@@ -708,14 +713,14 @@ A _newtype_ creates a distinct nominal type that wraps an existing type.
 Newtypes use their type name as a constructor:
 
 ```ori
-type UserId = int
-let id = UserId(42)
+type UserId = int;
+let id = UserId(42);
 ```
 
 Literals cannot directly become newtypes:
 
 ```ori
-let id: UserId = 42  // error: expected UserId, found int
+let id: UserId = 42;  // error: expected UserId, found int
 ```
 
 **Underlying Value Access:**
@@ -723,8 +728,8 @@ let id: UserId = 42  // error: expected UserId, found int
 The underlying value is accessed via `.inner`:
 
 ```ori
-let id = UserId(42)
-let raw: int = id.inner
+let id = UserId(42);
+let raw: int = id.inner;
 ```
 
 The `.inner` accessor is always public, regardless of the newtype's visibility. The type-safety boundary is at construction, not access.
@@ -734,17 +739,17 @@ The `.inner` accessor is always public, regardless of the newtype's visibility. 
 Newtypes do not automatically inherit traits from their underlying type:
 
 ```ori
-type UserId = int
-let a = UserId(1)
-let b = UserId(2)
-a == b  // error: UserId does not implement Eq
+type UserId = int;
+let a = UserId(1);
+let b = UserId(2);
+a == b;  // error: UserId does not implement Eq
 ```
 
 Derive traits explicitly:
 
 ```ori
 #derive(Eq, Hashable, Clone, Debug)
-type UserId = int
+type UserId = int;
 ```
 
 **No Method Inheritance:**
@@ -752,19 +757,19 @@ type UserId = int
 Newtypes do not expose the underlying type's methods:
 
 ```ori
-type Email = str
-let email = Email("user@example.com")
-email.len()        // error: Email has no method len
-email.inner.len()  // OK
+type Email = str;
+let email = Email("user@example.com");
+email.len();        // error: Email has no method len
+email.inner.len();  // OK
 ```
 
 **Generic Newtypes:**
 
 ```ori
-type NonEmpty<T> = [T]
+type NonEmpty<T> = [T];
 
 impl<T> NonEmpty<T> {
-    @first (self) -> T = self.inner[0]
+    @first (self) -> T = self.inner[0];
 }
 ```
 
@@ -845,9 +850,9 @@ User-defined types are nominally typed. Identical structure does not imply same 
 A trait name used as a type represents "any value implementing this trait":
 
 ```ori
-@display (item: Printable) -> void = print(item.to_str())
+@display (item: Printable) -> void = print(item.to_str());
 
-let items: [Printable] = [point, user, "hello"]
+let items: [Printable] = [point, user, "hello"];
 ```
 
 The compiler determines the dispatch mechanism. Users specify *what* (any Printable), not *how* (vtable vs monomorphization).
@@ -874,12 +879,12 @@ Methods cannot return `Self`:
 ```ori
 // NOT object-safe: returns Self
 trait Clone {
-    @clone (self) -> Self
+    @clone (self) -> Self;
 }
 
 // Object-safe: returns fixed type
 trait Printable {
-    @to_str (self) -> str
+    @to_str (self) -> str;
 }
 ```
 
@@ -892,12 +897,12 @@ Methods cannot take `Self` as a parameter (except for the first `self` receiver)
 ```ori
 // NOT object-safe: Self as parameter
 trait Eq {
-    @equals (self, other: Self) -> bool
+    @equals (self, other: Self) -> bool;
 }
 
 // Object-safe: takes trait object
 trait EqDyn {
-    @equals_any (self, other: EqDyn) -> bool
+    @equals_any (self, other: EqDyn) -> bool;
 }
 ```
 
@@ -910,12 +915,12 @@ Methods cannot have type parameters:
 ```ori
 // NOT object-safe: generic method
 trait Converter {
-    @convert<T> (self) -> T
+    @convert<T> (self) -> T;
 }
 
 // Object-safe: no generics
 trait Formatter {
-    @format (self, spec: FormatSpec) -> str
+    @format (self, spec: FormatSpec) -> str;
 }
 ```
 
@@ -926,7 +931,8 @@ Generic methods require monomorphization at compile time, but trait objects defe
 Trait objects can have additional bounds. All component traits must be object-safe:
 
 ```ori
-@store (item: Printable + Hashable) -> void
+@store (item: Printable + Hashable) -> void;
+
 ```
 
 **Error Codes**
@@ -939,7 +945,7 @@ The `Clone` trait enables explicit value duplication:
 
 ```ori
 trait Clone {
-    @clone (self) -> Self
+    @clone (self) -> Self;
 }
 ```
 
@@ -993,7 +999,7 @@ The `Drop` trait enables custom cleanup when a value's reference count reaches z
 
 ```ori
 trait Drop {
-    @drop (self) -> void
+    @drop (self) -> void;
 }
 ```
 
@@ -1002,10 +1008,10 @@ trait Drop {
 Drop is called when the ARC reference count reaches zero:
 
 ```ori
-run(
-    let resource = acquire_resource(),  // refcount: 1
-    use_resource(resource),             // refcount may increase
-)                                       // refcount: 0, drop called
+{
+    let resource = acquire_resource();  // refcount: 1
+    use_resource(resource);             // refcount may increase
+}                                       // refcount: 0, drop called
 ```
 
 For values not shared, drop occurs at scope exit. Drop is also called on early exit (via `?`, `break`, or panic).
@@ -1015,11 +1021,11 @@ For values not shared, drop occurs at scope exit. Drop is also called on early e
 Values are dropped in reverse declaration order (LIFO):
 
 ```ori
-run(
-    let a = Resource { name: "a" },
-    let b = Resource { name: "b" },
-    let c = Resource { name: "c" },
-)
+{
+    let a = Resource { name: "a" };
+    let b = Resource { name: "b" };
+    let c = Resource { name: "c" };
+}
 // Drop order: c, b, a
 ```
 
@@ -1033,7 +1039,7 @@ run(
 
 ```ori
 impl Drop for Connection {
-    @drop (self) -> void uses Suspend = ...  // error E0980: Drop cannot be async
+    @drop (self) -> void uses Suspend = ...;  // error E0980: Drop cannot be async
 }
 ```
 
@@ -1050,14 +1056,14 @@ impl Drop for Connection {
 The `drop_early` function forces drop before scope exit:
 
 ```ori
-@drop_early<T> (value: T) -> void
+@drop_early<T> (value: T) -> void;
 
-run(
-    let file = open_file(path),
-    let content = read_all(file),
-    drop_early(value: file),  // Close immediately
+{
+    let file = open_file(path);
+    let content = read_all(file);
+    drop_early(value: file);  // Close immediately
     // ... continue processing content
-)
+}
 ```
 
 ### Standard Implementations
@@ -1071,11 +1077,11 @@ Types wrapping external resources typically implement Drop:
 
 ```ori
 impl Drop for FileHandle {
-    @drop (self) -> void = close_file_descriptor(self.fd)
+    @drop (self) -> void = close_file_descriptor(self.fd);
 }
 
 impl Drop for Lock {
-    @drop (self) -> void = release_lock(self.handle)
+    @drop (self) -> void = release_lock(self.handle);
 }
 ```
 
@@ -1085,10 +1091,10 @@ Drop should handle its own errors. Drop cannot return errors; propagating would 
 
 ```ori
 impl Drop for Connection {
-    @drop (self) -> void = match(self.close(),
-        Ok(_) -> (),
+    @drop (self) -> void = match self.close() {
+        Ok(_) -> ()
         Err(e) -> log(msg: `close failed: {e}`),  // Log, don't propagate
-    )
+    }
 }
 ```
 
@@ -1102,15 +1108,15 @@ The `Into` trait represents semantic, lossless type conversion:
 
 ```ori
 trait Into<T> {
-    @into (self) -> T
+    @into (self) -> T;
 }
 ```
 
 **Usage:**
 
 ```ori
-let error: Error = "something went wrong".into()
-let f: float = 42.into()
+let error: Error = "something went wrong".into();
+let f: float = 42.into();
 ```
 
 Conversion requires explicit `.into()` method call. Ori does NOT perform implicit conversion.
@@ -1137,16 +1143,16 @@ The `As` trait defines infallible type conversion:
 
 ```ori
 trait As<T> {
-    @as (self) -> T
+    @as (self) -> T;
 }
 ```
 
 The `as` operator desugars to this trait:
 
 ```ori
-42 as float
+42 as float;
 // Desugars to:
-As<float>.as(self: 42)
+As<float>.as(self: 42);
 ```
 
 **Standard Implementations:**
@@ -1168,16 +1174,16 @@ The `TryAs` trait defines fallible type conversion:
 
 ```ori
 trait TryAs<T> {
-    @try_as (self) -> Option<T>
+    @try_as (self) -> Option<T>;
 }
 ```
 
 The `as?` operator desugars to this trait:
 
 ```ori
-"42" as? int
+"42" as? int;
 // Desugars to:
-TryAs<int>.try_as(self: "42")
+TryAs<int>.try_as(self: "42");
 ```
 
 **Standard Implementations:**
@@ -1204,10 +1210,10 @@ TryAs<int>.try_as(self: "42")
 Lossy conversions (like `float -> int`) are not supported by `as` or `as?`. Use explicit methods that communicate intent:
 
 ```ori
-3.7.truncate()   // 3 (toward zero)
-3.7.round()      // 4 (nearest)
-3.7.floor()      // 3 (toward negative infinity)
-3.7.ceil()       // 4 (toward positive infinity)
+3.7.truncate();   // 3 (toward zero)
+3.7.round();      // 4 (nearest)
+3.7.floor();      // 3 (toward negative infinity)
+3.7.ceil();       // 4 (toward positive infinity)
 ```
 
 It is a compile-time error to use `as` for a lossy conversion.
@@ -1217,10 +1223,10 @@ It is a compile-time error to use `as` for a lossy conversion.
 Types can implement conversion traits:
 
 ```ori
-type UserId = int
+type UserId = int;
 
 impl As<str> for UserId {
-    @as (self) -> str = "user_" + (self.inner as str)
+    @as (self) -> str = "user_" + (self.inner as str);
 }
 
 impl TryAs<Username> for str {
@@ -1228,7 +1234,7 @@ impl TryAs<Username> for str {
         if self.is_empty() || self.len() > 32 then
             None
         else
-            Some(Username { value: self })
+            Some(Username { value: self });
 }
 ```
 
@@ -1238,7 +1244,7 @@ The `Debug` trait provides developer-facing string representation:
 
 ```ori
 trait Debug {
-    @debug (self) -> str
+    @debug (self) -> str;
 }
 ```
 
@@ -1248,7 +1254,7 @@ Unlike `Printable`, which is for user-facing display, `Debug` shows the complete
 #derive(Debug)
 type Point = { x: int, y: int }
 
-Point { x: 1, y: 2 }.debug()  // "Point { x: 1, y: 2 }"
+Point { x: 1, y: 2 }.debug();  // "Point { x: 1, y: 2 }"
 ```
 
 ### Standard Implementations
@@ -1283,7 +1289,7 @@ Collections implement `Debug` when their element types implement `Debug`:
 #derive(Debug)
 type Config = { host: str, port: int }
 
-Config { host: "localhost", port: 8080 }.debug()
+Config { host: "localhost", port: 8080 }.debug();
 // "Config { host: \"localhost\", port: 8080 }"
 ```
 
@@ -1295,7 +1301,7 @@ Types may implement `Debug` manually for custom formatting:
 type SecretKey = { value: [byte] }
 
 impl Debug for SecretKey {
-    @debug (self) -> str = "SecretKey { value: [REDACTED] }"
+    @debug (self) -> str = "SecretKey { value: [REDACTED] }";
 }
 ```
 
@@ -1305,21 +1311,21 @@ Four traits formalize iteration:
 
 ```ori
 trait Iterator {
-    type Item
-    @next (self) -> (Option<Self.Item>, Self)
+    type Item;
+    @next (self) -> (Option<Self.Item>, Self);
 }
 
 trait DoubleEndedIterator: Iterator {
-    @next_back (self) -> (Option<Self.Item>, Self)
+    @next_back (self) -> (Option<Self.Item>, Self);
 }
 
 trait Iterable {
-    type Item
-    @iter (self) -> impl Iterator where Item == Self.Item
+    type Item;
+    @iter (self) -> impl Iterator where Item == Self.Item;
 }
 
 trait Collect<T> {
-    @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T
+    @from_iter<I: Iterator> (iter: I) -> Self where I.Item == T;
 }
 ```
 
@@ -1370,6 +1376,7 @@ The only types with interior mutability are runtime-provided resources. These wr
 
 ```ori
 impl Sendable for MyType { }  // error: cannot implement Sendable manually
+
 ```
 
 ### Standard Implementations
@@ -1407,11 +1414,11 @@ User-defined types are not `Sendable` when they contain non-Sendable fields.
 The compiler analyzes closure captures to determine Sendability:
 
 ```ori
-let x: int = 10              // int: Sendable
-let handle: FileHandle = ... // FileHandle: NOT Sendable
+let x: int = 10;              // int: Sendable
+let handle: FileHandle = ...; // FileHandle: NOT Sendable
 
-let f = () -> x + 1          // f is Sendable
-let g = () -> handle.read()  // g is NOT Sendable
+let f = () -> x + 1;          // f is Sendable
+let g = () -> handle.read();  // g is NOT Sendable
 ```
 
 When closures cross task boundaries, the compiler verifies all captures are Sendable:
@@ -1422,7 +1429,7 @@ parallel(
         () -> process(x),      // OK: x is Sendable
         () -> read(handle),    // error: handle is not Sendable
     ],
-)
+);
 ```
 
 ### Channel Constraint
@@ -1430,10 +1437,10 @@ parallel(
 Channel types require `T: Sendable`:
 
 ```ori
-let (p, c) = channel<int>(buffer: 10)  // OK: int is Sendable
+let (p, c) = channel<int>(buffer: 10);  // OK: int is Sendable
 
 type Handle = { file: FileHandle }
-let (p, c) = channel<Handle>(buffer: 10)  // error: Handle is not Sendable
+let (p, c) = channel<Handle>(buffer: 10);  // error: Handle is not Sendable
 ```
 
 ## Existential Types
@@ -1446,7 +1453,7 @@ An _existential type_ written `impl Trait` represents an opaque type that satisf
 
 ```ori
 @make_iterator (items: [int]) -> impl Iterator where Item == int =
-    items.iter()
+    items.iter();
 ```
 
 The grammar for existential types:
@@ -1461,7 +1468,7 @@ assoc_constraint  = identifier "==" type .
 Multiple trait bounds use `+`:
 
 ```ori
-@clonable_iter () -> impl Iterator + Clone where Item == int = ...
+@clonable_iter () -> impl Iterator + Clone where Item == int = ...;
 ```
 
 ### Semantics
@@ -1469,9 +1476,9 @@ Multiple trait bounds use `+`:
 **Opaqueness:** Callers see only the trait interface. The concrete type's fields and methods beyond the trait bounds are inaccessible.
 
 ```ori
-let iter = make_iterator(items: [1, 2, 3])
-iter.next()   // OK: Iterator method
-iter.list     // error: cannot access concrete type's fields
+let iter = make_iterator(items: [1, 2, 3]);
+iter.next();   // OK: Iterator method
+iter.list;     // error: cannot access concrete type's fields
 ```
 
 **Single Concrete Type:** All return paths must yield the same concrete type:
@@ -1479,12 +1486,12 @@ iter.list     // error: cannot access concrete type's fields
 ```ori
 // OK: all paths return ListIterator<int>
 @numbers (flag: bool) -> impl Iterator where Item == int =
-    if flag then [1, 2, 3].iter() else [4, 5, 6].iter()
+    if flag then [1, 2, 3].iter() else [4, 5, 6].iter();
 
 // error: different concrete types
 @bad (flag: bool) -> impl Iterator where Item == int =
     if flag then [1, 2, 3].iter()     // ListIterator<int>
-    else (1..10).iter()               // RangeIterator<int>
+    else (1..10).iter();               // RangeIterator<int>
 ```
 
 **Static Dispatch:** The compiler monomorphizes each call site. No vtable overhead.
@@ -1503,7 +1510,7 @@ iter.list     // error: cannot access concrete type's fields
 
 ```ori
 // Argument position: use generic parameter
-@process<I: Iterator> (iter: I) -> int where I.Item == int = ...
+@process<I: Iterator> (iter: I) -> int where I.Item == int = ...;
 
 // Struct field: use generic parameter
 type Container<I: Iterator> = { iter: I } where I.Item == int

@@ -109,22 +109,18 @@ pub fn process_derives(
 
         let type_name = type_decl.name;
 
-        // Get field names and types based on type kind
-        let (field_names, field_types) = match &type_decl.kind {
+        // Build DerivedMethodInfo based on type kind
+        let (field_names, field_types, variant_names) = match &type_decl.kind {
             TypeDeclKind::Struct(fields) => {
                 let names = fields.iter().map(|f| f.name).collect();
                 let types = extract_field_types(fields, interner);
-                (names, types)
+                (names, types, Vec::new())
             }
-            TypeDeclKind::Sum(_variants) => {
-                // For sum types, we'll need variant-specific handling
-                // For now, use empty lists and handle variants in the evaluator
-                (Vec::new(), Vec::new())
+            TypeDeclKind::Sum(variants) => {
+                let vnames: Vec<Name> = variants.iter().map(|v| v.name).collect();
+                (Vec::new(), Vec::new(), vnames)
             }
-            TypeDeclKind::Newtype(_) => {
-                // Newtypes wrap a single value
-                (Vec::new(), Vec::new())
-            }
+            TypeDeclKind::Newtype(_) => (Vec::new(), Vec::new(), Vec::new()),
         };
 
         // Process each derived trait
@@ -133,7 +129,11 @@ pub fn process_derives(
 
             if let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) {
                 let method_name = interner.intern(trait_kind.method_name());
-                let info = DerivedMethodInfo::new(trait_kind, field_names.clone());
+                let info = if variant_names.is_empty() {
+                    DerivedMethodInfo::new(trait_kind, field_names.clone())
+                } else {
+                    DerivedMethodInfo::new_sum(trait_kind, variant_names.clone())
+                };
 
                 // Store Default field types in the evaluator-local registry
                 if trait_kind == DerivedTrait::Default {

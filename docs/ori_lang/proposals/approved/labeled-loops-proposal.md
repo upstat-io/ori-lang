@@ -207,14 +207,14 @@ This is consistent with most languages.
 Labels work inside `run`:
 
 ```ori
-let result = run(
-    let data = prepare(),
+let result = {
+    let data = prepare()
     loop:process(
-        let batch = next_batch(data),
-        if is_empty(batch) then break:process result,
-        process_batch(batch),
-    ),
-)
+        let batch = next_batch(data)
+        if is_empty(batch) then break:process result
+        process_batch(batch)
+    )
+}
 ```
 
 ### In Match Arms
@@ -224,10 +224,10 @@ Labels can be referenced from match arms:
 ```ori
 loop:outer(
     let item = get_next(),
-    match(item,
-        Done -> break:outer,
-        Value(v) -> process(v),
-    ),
+    match item {
+        Done -> break:outer
+        Value(v) -> process(v)
+    },
 )
 ```
 
@@ -326,10 +326,10 @@ error[E0873]: `continue` with value in `for...do`
     loop:main(
         for batch in batches do
             for task in batch do
-                match(task.execute(),
-                    Err(e) -> break:main Err(e),
-                    Ok(_) -> (),
-                ),
+                match task.execute() {
+                    Err(e) -> break:main Err(e)
+                    Ok(_) -> ()
+                },
         Ok(()),
     )
 ```
@@ -340,10 +340,10 @@ error[E0873]: `continue` with value in `for...do`
 @process_valid_rows (data: [[Option<int>]]) -> [[int]] =
     for:outer row in data yield
         for cell in row yield
-            match(cell,
+            match cell {
                 None -> continue:outer,  // Skip entire row
-                Some(v) -> v,
-            ),
+                Some(v) -> v
+            },
 ```
 
 ---

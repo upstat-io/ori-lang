@@ -195,23 +195,20 @@ type GameWorld = {
     entities: Hive<Entity>
 }
 
-@spawn_entity (world: GameWorld, name: str, pos: Vec2) -> Handle<Entity> = run(
+@spawn_entity (world: GameWorld, name: str, pos: Vec2) -> Handle<Entity> =
     world.entities.insert(Entity {
         name,
         position: pos,
         health: 100
     })
-)
 
-@despawn_entity (world: GameWorld, handle: Handle<Entity>) -> void = run(
+@despawn_entity (world: GameWorld, handle: Handle<Entity>) -> void =
     world.entities.erase(handle)
-)
 
-@update_all (world: GameWorld) -> void = run(
-    for entity in world.entities do run(
+@update_all (world: GameWorld) -> void =
+    for entity in world.entities do {
         entity.position = entity.position + Vec2 { x: 1.0, y: 0.0 }
-    )
-)
+    }
 ```
 
 ### Graph with Dynamic Nodes
@@ -228,24 +225,22 @@ type Graph = {
     nodes: Hive<Node>
 }
 
-@add_node (g: Graph, value: int) -> Handle<Node> = run(
+@add_node (g: Graph, value: int) -> Handle<Node> =
     g.nodes.insert(Node { value, neighbors: [] })
-)
 
-@connect (g: Graph, from: Handle<Node>, to: Handle<Node>) -> void = run(
+@connect (g: Graph, from: Handle<Node>, to: Handle<Node>) -> void =
     g.nodes[from].neighbors.push(to)
-)
 
-@remove_node (g: Graph, handle: Handle<Node>) -> void = run(
+@remove_node (g: Graph, handle: Handle<Node>) -> void = {
     // Remove references to this node from all neighbors
-    for node in g.nodes do run(
+    for node in g.nodes do {
         node.neighbors = filter(
             over: node.neighbors,
             predicate: h -> h != handle
         )
-    ),
+    };
     g.nodes.erase(handle)
-)
+}
 ```
 
 ### Particle System
@@ -263,25 +258,24 @@ type ParticleSystem = {
     particles: Hive<Particle>
 }
 
-@spawn (sys: ParticleSystem, pos: Vec2, vel: Vec2) -> Handle<Particle> = run(
+@spawn (sys: ParticleSystem, pos: Vec2, vel: Vec2) -> Handle<Particle> =
     sys.particles.insert(Particle {
         position: pos,
         velocity: vel,
         lifetime: 2.0
     })
-)
 
-@update (sys: ParticleSystem, dt: float) -> void = run(
-    let to_remove: [Handle<Particle>] = [],
+@update (sys: ParticleSystem, dt: float) -> void = {
+    let to_remove: [Handle<Particle>] = [];
 
-    for (handle, p) in sys.particles.entries() do run(
-        p.position = p.position + p.velocity * dt,
-        p.lifetime = p.lifetime - dt,
+    for (handle, p) in sys.particles.entries() do {
+        p.position = p.position + p.velocity * dt;
+        p.lifetime = p.lifetime - dt;
         if p.lifetime <= 0.0 then to_remove.push(handle)
-    ),
+    };
 
     for handle in to_remove do sys.particles.erase(handle)
-)
+}
 ```
 
 ### Object Pool Pattern
@@ -298,28 +292,27 @@ type ConnectionPool = {
     connections: Hive<Connection>
 }
 
-@acquire (pool: ConnectionPool) -> Handle<Connection> = run(
+@acquire (pool: ConnectionPool) -> Handle<Connection> =
     pool.connections.insert(Connection {
         socket: Socket.connect("server:8080"),
         last_active: now()
     })
-)
 
-@release (pool: ConnectionPool, handle: Handle<Connection>) -> void = run(
-    pool.connections[handle].socket.close(),
+@release (pool: ConnectionPool, handle: Handle<Connection>) -> void = {
+    pool.connections[handle].socket.close();
     pool.connections.erase(handle)
-)
+}
 
-@cleanup_stale (pool: ConnectionPool, timeout: Duration) -> void = run(
-    let now_time = now(),
-    let stale: [Handle<Connection>] = [],
+@cleanup_stale (pool: ConnectionPool, timeout: Duration) -> void = {
+    let now_time = now();
+    let stale: [Handle<Connection>] = [];
 
-    for (handle, conn) in pool.connections.entries() do run(
+    for (handle, conn) in pool.connections.entries() do {
         if now_time - conn.last_active > timeout then stale.push(handle)
-    ),
+    };
 
     for handle in stale do release(pool, handle)
-)
+}
 ```
 
 ---

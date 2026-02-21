@@ -7,197 +7,197 @@ use std.testing { assert, assert_eq, assert_ne }
 // match Expression (Basic)
 // =============================================================================
 
-@test_match_literal tests @match_literal () -> void = run(
-    let result = match_literal(1),
+@test_match_literal tests @match_literal () -> void = {
+    let result = match_literal(1);
     assert_eq(
         actual: result,
         expected: "one",
-    ),
-    let result2 = match_literal(2),
+    );
+    let result2 = match_literal(2);
     assert_eq(
         actual: result2,
         expected: "two",
-    ),
-)
+    )
+}
 
-@match_literal (n: int) -> str = match(n,
+@match_literal (n: int) -> str = match n {
     1 -> "one",
     2 -> "two",
-    _ -> "other",
-)
+    _ -> "other"
+}
 
-@test_match_wildcard tests @match_wildcard () -> void = run(
-    let result = match_wildcard(99),
+@test_match_wildcard tests @match_wildcard () -> void = {
+    let result = match_wildcard(99);
     assert_eq(
         actual: result,
         expected: "other",
-    ),
-)
+    )
+}
 
-@match_wildcard (n: int) -> str = match(n,
+@match_wildcard (n: int) -> str = match n {
     1 -> "one",
-    _ -> "other",
-)
+    _ -> "other"
+}
 
-@test_match_binding tests @match_binding () -> void = run(
-    let result = match_binding(5),
+@test_match_binding tests @match_binding () -> void = {
+    let result = match_binding(5);
     assert_eq(
         actual: result,
         expected: 10,
-    ),
-)
+    )
+}
 
-@match_binding (n: int) -> int = match(n,
-    x -> x * 2,
-)
+@match_binding (n: int) -> int = match n {
+    x -> x * 2
+}
 
-@test_match_multiple_arms tests @match_multiple_arms () -> void = run(
+@test_match_multiple_arms tests @match_multiple_arms () -> void = {
     assert_eq(
         actual: match_multiple_arms(0),
         expected: "zero",
-    ),
+    );
     assert_eq(
         actual: match_multiple_arms(1),
         expected: "one",
-    ),
+    );
     assert_eq(
         actual: match_multiple_arms(2),
         expected: "two",
-    ),
+    );
     assert_eq(
         actual: match_multiple_arms(100),
         expected: "many",
-    ),
-)
+    )
+}
 
-@match_multiple_arms (n: int) -> str = match(n,
+@match_multiple_arms (n: int) -> str = match n {
     0 -> "zero",
     1 -> "one",
     2 -> "two",
-    _ -> "many",
-)
+    _ -> "many"
+}
 
 // =============================================================================
 // match with Option
 // =============================================================================
 
-@test_match_option_some tests @match_option_some () -> void = run(
-    let opt = Some(42),
-    let result = match_option(opt),
+@test_match_option_some tests @match_option_some () -> void = {
+    let opt = Some(42);
+    let result = match_option(opt);
     assert_eq(
         actual: result,
         expected: 42,
-    ),
-)
+    )
+}
 
-@test_match_option_none tests @match_option_none () -> void = run(
-    let opt = None,
-    let result = match_option(opt),
+@test_match_option_none tests @match_option_none () -> void = {
+    let opt = None;
+    let result = match_option(opt);
     assert_eq(
         actual: result,
         expected: 0,
-    ),
-)
+    )
+}
 
-@match_option (opt) -> int = match(opt,
+@match_option (opt) -> int = match opt {
     Some(x) -> x,
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // match with Result
 // =============================================================================
 
-@test_match_result_ok tests @match_result_ok () -> void = run(
-    let result = match_result(Ok(10)),
+@test_match_result_ok tests @match_result_ok () -> void = {
+    let result = match_result(Ok(10));
     assert_eq(
         actual: result,
         expected: 10,
-    ),
-)
+    )
+}
 
-@test_match_result_err tests @match_result_err () -> void = run(
-    let result = match_result(Err("error")),
+@test_match_result_err tests @match_result_err () -> void = {
+    let result = match_result(Err("error"));
     assert_eq(
         actual: result,
         expected: -1,
-    ),
-)
+    )
+}
 
-@match_result (res) -> int = match(res,
+@match_result (res) -> int = match res {
     Ok(x) -> x,
-    Err(_) -> -1,
-)
+    Err(_) -> -1
+}
 
 // =============================================================================
 // Literal Patterns - Extended Coverage
 // =============================================================================
 
 // String literals
-@test_match_string_literal tests @match_string_literal () -> void = run(
-    assert_eq(actual: match_string_literal("hello"), expected: 1),
-    assert_eq(actual: match_string_literal("world"), expected: 2),
-    assert_eq(actual: match_string_literal(""), expected: 3),
-    assert_eq(actual: match_string_literal("other"), expected: 0),
-)
+@test_match_string_literal tests @match_string_literal () -> void = {
+    assert_eq(actual: match_string_literal("hello"), expected: 1);
+    assert_eq(actual: match_string_literal("world"), expected: 2);
+    assert_eq(actual: match_string_literal(""), expected: 3);
+    assert_eq(actual: match_string_literal("other"), expected: 0)
+}
 
-@match_string_literal (s: str) -> int = match(s,
+@match_string_literal (s: str) -> int = match s {
     "hello" -> 1,
     "world" -> 2,
     "" -> 3,
-    _ -> 0,
-)
+    _ -> 0
+}
 
 // Boolean literals
-@test_match_bool_literal tests @match_bool_literal () -> void = run(
-    assert_eq(actual: match_bool_literal(true), expected: "yes"),
-    assert_eq(actual: match_bool_literal(false), expected: "no"),
-)
+@test_match_bool_literal tests @match_bool_literal () -> void = {
+    assert_eq(actual: match_bool_literal(true), expected: "yes");
+    assert_eq(actual: match_bool_literal(false), expected: "no")
+}
 
-@match_bool_literal (b: bool) -> str = match(b,
+@match_bool_literal (b: bool) -> str = match b {
     true -> "yes",
-    false -> "no",
-)
+    false -> "no"
+}
 
 // Negative literal patterns now work after parser update.
-@test_match_negative_literal tests @match_negative_literal () -> void = run(
-    assert_eq(actual: match_negative_literal(-1), expected: "minus one"),
-    assert_eq(actual: match_negative_literal(-100), expected: "very negative"),
-    assert_eq(actual: match_negative_literal(0), expected: "zero"),
-    assert_eq(actual: match_negative_literal(1), expected: "positive"),
-)
+@test_match_negative_literal tests @match_negative_literal () -> void = {
+    assert_eq(actual: match_negative_literal(-1), expected: "minus one");
+    assert_eq(actual: match_negative_literal(-100), expected: "very negative");
+    assert_eq(actual: match_negative_literal(0), expected: "zero");
+    assert_eq(actual: match_negative_literal(1), expected: "positive")
+}
 
-@match_negative_literal (n: int) -> str = match(n,
+@match_negative_literal (n: int) -> str = match n {
     -1 -> "minus one",
     -100 -> "very negative",
     0 -> "zero",
-    _ -> "positive",
-)
+    _ -> "positive"
+}
 
 // =============================================================================
 // Binding Patterns - Extended Coverage
 // =============================================================================
 
 // Binding with complex expression in arm
-@test_match_binding_complex_expr tests @match_binding_complex_expr () -> void = run(
-    assert_eq(actual: match_binding_complex_expr(3), expected: 27),
-    assert_eq(actual: match_binding_complex_expr(4), expected: 64),
-)
+@test_match_binding_complex_expr tests @match_binding_complex_expr () -> void = {
+    assert_eq(actual: match_binding_complex_expr(3), expected: 27);
+    assert_eq(actual: match_binding_complex_expr(4), expected: 64)
+}
 
-@match_binding_complex_expr (n: int) -> int = match(n,
-    x -> x * x * x,
-)
+@match_binding_complex_expr (n: int) -> int = match n {
+    x -> x * x * x
+}
 
 // Multiple matches using same binding name (shadowing between arms)
-@test_match_binding_reuse tests @match_binding_reuse () -> void = run(
-    assert_eq(actual: match_binding_reuse(Some(10)), expected: 20),
-    assert_eq(actual: match_binding_reuse(None), expected: 0),
-)
+@test_match_binding_reuse tests @match_binding_reuse () -> void = {
+    assert_eq(actual: match_binding_reuse(Some(10)), expected: 20);
+    assert_eq(actual: match_binding_reuse(None), expected: 0)
+}
 
-@match_binding_reuse (opt: Option<int>) -> int = match(opt,
+@match_binding_reuse (opt: Option<int>) -> int = match opt {
     Some(x) -> x + x,
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // Option Patterns - Extended Coverage
@@ -205,323 +205,323 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Nested generics now work after lexer boundary fix (Phase 1 of parser_v2 plan).
 // The lexer produces single `>` tokens, and the parser combines them as needed.
-@test_match_nested_option tests @match_nested_option () -> void = run(
-    assert_eq(actual: match_nested_option(Some(Some(5))), expected: 5),
-    assert_eq(actual: match_nested_option(Some(None)), expected: -1),
-    assert_eq(actual: match_nested_option(None), expected: -2),
-)
+@test_match_nested_option tests @match_nested_option () -> void = {
+    assert_eq(actual: match_nested_option(Some(Some(5))), expected: 5);
+    assert_eq(actual: match_nested_option(Some(None)), expected: -1);
+    assert_eq(actual: match_nested_option(None), expected: -2)
+}
 
-@match_nested_option (opt: Option<Option<int>>) -> int = match(opt,
+@match_nested_option (opt: Option<Option<int>>) -> int = match opt {
     Some(Some(x)) -> x,
     Some(None) -> -1,
-    None -> -2,
-)
+    None -> -2
+}
 
 // Option with different inner types
-@test_match_option_string tests @match_option_string () -> void = run(
-    assert_eq(actual: match_option_string(Some("hello")), expected: 5),
-    assert_eq(actual: match_option_string(Some("")), expected: 0),
-    assert_eq(actual: match_option_string(None), expected: -1),
-)
+@test_match_option_string tests @match_option_string () -> void = {
+    assert_eq(actual: match_option_string(Some("hello")), expected: 5);
+    assert_eq(actual: match_option_string(Some("")), expected: 0);
+    assert_eq(actual: match_option_string(None), expected: -1)
+}
 
-@match_option_string (opt: Option<str>) -> int = match(opt,
+@match_option_string (opt: Option<str>) -> int = match opt {
     Some(s) -> s.len(),
-    None -> -1,
-)
+    None -> -1
+}
 
 // Option with computation in arm
-@test_match_option_compute tests @match_option_compute () -> void = run(
-    assert_eq(actual: match_option_compute(Some(7)), expected: 49),
-    assert_eq(actual: match_option_compute(None), expected: 0),
-)
+@test_match_option_compute tests @match_option_compute () -> void = {
+    assert_eq(actual: match_option_compute(Some(7)), expected: 49);
+    assert_eq(actual: match_option_compute(None), expected: 0)
+}
 
-@match_option_compute (opt: Option<int>) -> int = match(opt,
+@match_option_compute (opt: Option<int>) -> int = match opt {
     Some(n) -> n * n,
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // Result Patterns - Extended Coverage
 // =============================================================================
 
 // Nested Result generics now work after lexer boundary fix.
-@test_match_nested_result tests @match_nested_result () -> void = run(
-    assert_eq(actual: match_nested_result(Ok(Ok(42))), expected: 42),
-    assert_eq(actual: match_nested_result(Ok(Err("inner"))), expected: -1),
-    assert_eq(actual: match_nested_result(Err("outer")), expected: -2),
-)
+@test_match_nested_result tests @match_nested_result () -> void = {
+    assert_eq(actual: match_nested_result(Ok(Ok(42))), expected: 42);
+    assert_eq(actual: match_nested_result(Ok(Err("inner"))), expected: -1);
+    assert_eq(actual: match_nested_result(Err("outer")), expected: -2)
+}
 
-@match_nested_result (res: Result<Result<int, str>, str>) -> int = match(res,
+@match_nested_result (res: Result<Result<int, str>, str>) -> int = match res {
     Ok(Ok(x)) -> x,
     Ok(Err(_)) -> -1,
-    Err(_) -> -2,
-)
+    Err(_) -> -2
+}
 
 // Result with error binding
-@test_match_result_err_binding tests @match_result_err_binding () -> void = run(
-    assert_eq(actual: match_result_err_binding(Ok(10)), expected: "ok: 10"),
-    assert_eq(actual: match_result_err_binding(Err("failed")), expected: "err: failed"),
-)
+@test_match_result_err_binding tests @match_result_err_binding () -> void = {
+    assert_eq(actual: match_result_err_binding(Ok(10)), expected: "ok: 10");
+    assert_eq(actual: match_result_err_binding(Err("failed")), expected: "err: failed")
+}
 
-@match_result_err_binding (res: Result<int, str>) -> str = match(res,
+@match_result_err_binding (res: Result<int, str>) -> str = match res {
     Ok(n) -> "ok: " + str(n),
-    Err(e) -> "err: " + e,
-)
+    Err(e) -> "err: " + e
+}
 
 // =============================================================================
 // Match as Expression (used inline)
 // =============================================================================
 
-@test_match_inline_expression tests @match_inline_expression () -> void = run(
-    let doubled = match_inline_double(Some(5)),
-    assert_eq(actual: doubled, expected: 10),
-    let defaulted = match_inline_double(None),
-    assert_eq(actual: defaulted, expected: 0),
-)
+@test_match_inline_expression tests @match_inline_expression () -> void = {
+    let doubled = match_inline_double(Some(5));
+    assert_eq(actual: doubled, expected: 10);
+    let defaulted = match_inline_double(None);
+    assert_eq(actual: defaulted, expected: 0)
+}
 
 @match_inline_double (opt: Option<int>) -> int =
-    match(opt, Some(x) -> x * 2, None -> 0)
+    match opt { Some(x) -> x * 2, None -> 0}
 
 // Match result used directly in arithmetic
-@test_match_in_arithmetic tests @match_in_arithmetic () -> void = run(
-    assert_eq(actual: match_in_arithmetic(Some(3)), expected: 106),
-    assert_eq(actual: match_in_arithmetic(None), expected: 100),
-)
+@test_match_in_arithmetic tests @match_in_arithmetic () -> void = {
+    assert_eq(actual: match_in_arithmetic(Some(3)), expected: 106);
+    assert_eq(actual: match_in_arithmetic(None), expected: 100)
+}
 
 @match_in_arithmetic (opt: Option<int>) -> int =
-    100 + match(opt, Some(x) -> x * 2, None -> 0)
+    100 + match opt { Some(x) -> x * 2, None -> 0}
 
 // Match result used in string concatenation
-@test_match_in_concat tests @match_in_concat () -> void = run(
-    assert_eq(actual: match_in_concat(true), expected: "value: yes"),
-    assert_eq(actual: match_in_concat(false), expected: "value: no"),
-)
+@test_match_in_concat tests @match_in_concat () -> void = {
+    assert_eq(actual: match_in_concat(true), expected: "value: yes");
+    assert_eq(actual: match_in_concat(false), expected: "value: no")
+}
 
 @match_in_concat (b: bool) -> str =
-    "value: " + match(b, true -> "yes", false -> "no")
+    "value: " + match b { true -> "yes", false -> "no"}
 
 // =============================================================================
 // Nested Match Expressions
 // =============================================================================
 
-@test_nested_match tests @nested_match () -> void = run(
-    assert_eq(actual: nested_match(Some(1)), expected: "one"),
-    assert_eq(actual: nested_match(Some(2)), expected: "two"),
-    assert_eq(actual: nested_match(Some(99)), expected: "other number"),
-    assert_eq(actual: nested_match(None), expected: "nothing"),
-)
+@test_nested_match tests @nested_match () -> void = {
+    assert_eq(actual: nested_match(Some(1)), expected: "one");
+    assert_eq(actual: nested_match(Some(2)), expected: "two");
+    assert_eq(actual: nested_match(Some(99)), expected: "other number");
+    assert_eq(actual: nested_match(None), expected: "nothing")
+}
 
-@nested_match (opt: Option<int>) -> str = match(opt,
-    Some(n) -> match(n,
+@nested_match (opt: Option<int>) -> str = match opt {
+    Some(n) -> match n {
         1 -> "one",
         2 -> "two",
-        _ -> "other number",
-    ),
-    None -> "nothing",
-)
+        _ -> "other number"
+    },
+    None -> "nothing"
+}
 
 // Option<Result<int, str>> now works after lexer boundary fix.
-@test_double_nested_match tests @double_nested_match () -> void = run(
-    assert_eq(actual: double_nested_match(Some(Ok(1))), expected: "ok one"),
-    assert_eq(actual: double_nested_match(Some(Ok(2))), expected: "ok other"),
-    assert_eq(actual: double_nested_match(Some(Err("x"))), expected: "error"),
-    assert_eq(actual: double_nested_match(None), expected: "none"),
-)
+@test_double_nested_match tests @double_nested_match () -> void = {
+    assert_eq(actual: double_nested_match(Some(Ok(1))), expected: "ok one");
+    assert_eq(actual: double_nested_match(Some(Ok(2))), expected: "ok other");
+    assert_eq(actual: double_nested_match(Some(Err("x"))), expected: "error");
+    assert_eq(actual: double_nested_match(None), expected: "none")
+}
 
-@double_nested_match (opt: Option<Result<int, str>>) -> str = match(opt,
-    Some(res) -> match(res,
-        Ok(n) -> match(n,
+@double_nested_match (opt: Option<Result<int, str>>) -> str = match opt {
+    Some(res) -> match res {
+        Ok(n) -> match n {
             1 -> "ok one",
-            _ -> "ok other",
-        ),
-        Err(_) -> "error",
-    ),
-    None -> "none",
-)
+            _ -> "ok other"
+        },
+        Err(_) -> "error"
+    },
+    None -> "none"
+}
 
 // =============================================================================
 // Match with Function Calls
 // =============================================================================
 
-@helper_add (a: int, b: int) -> int = a + b
+@helper_add (a: int, b: int) -> int = a + b;
 
-@test_match_with_function_in_scrutinee tests @match_with_function_in_scrutinee () -> void = run(
-    assert_eq(actual: match_with_function_in_scrutinee(2, 3), expected: "five"),
-    assert_eq(actual: match_with_function_in_scrutinee(5, 5), expected: "ten"),
-    assert_eq(actual: match_with_function_in_scrutinee(1, 1), expected: "other"),
-)
+@test_match_with_function_in_scrutinee tests @match_with_function_in_scrutinee () -> void = {
+    assert_eq(actual: match_with_function_in_scrutinee(2, 3), expected: "five");
+    assert_eq(actual: match_with_function_in_scrutinee(5, 5), expected: "ten");
+    assert_eq(actual: match_with_function_in_scrutinee(1, 1), expected: "other")
+}
 
-@match_with_function_in_scrutinee (a: int, b: int) -> str = match(helper_add(a: a, b: b),
+@match_with_function_in_scrutinee (a: int, b: int) -> str = match helper_add(a: a, b: b) {
     5 -> "five",
     10 -> "ten",
-    _ -> "other",
-)
+    _ -> "other"
+}
 
 // Match with function call in arm
-@helper_square (n: int) -> int = n * n
+@helper_square (n: int) -> int = n * n;
 
-@test_match_with_function_in_arm tests @match_with_function_in_arm () -> void = run(
-    assert_eq(actual: match_with_function_in_arm(Some(4)), expected: 16),
-    assert_eq(actual: match_with_function_in_arm(Some(5)), expected: 25),
-    assert_eq(actual: match_with_function_in_arm(None), expected: 0),
-)
+@test_match_with_function_in_arm tests @match_with_function_in_arm () -> void = {
+    assert_eq(actual: match_with_function_in_arm(Some(4)), expected: 16);
+    assert_eq(actual: match_with_function_in_arm(Some(5)), expected: 25);
+    assert_eq(actual: match_with_function_in_arm(None), expected: 0)
+}
 
-@match_with_function_in_arm (opt: Option<int>) -> int = match(opt,
+@match_with_function_in_arm (opt: Option<int>) -> int = match opt {
     Some(n) -> helper_square(n: n),
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // Edge Cases
 // =============================================================================
 
 // Match on zero
-@test_match_zero tests @match_zero () -> void = run(
-    assert_eq(actual: match_zero(0), expected: "zero"),
-    assert_eq(actual: match_zero(1), expected: "nonzero"),
-)
+@test_match_zero tests @match_zero () -> void = {
+    assert_eq(actual: match_zero(0), expected: "zero");
+    assert_eq(actual: match_zero(1), expected: "nonzero")
+}
 
-@match_zero (n: int) -> str = match(n,
+@match_zero (n: int) -> str = match n {
     0 -> "zero",
-    _ -> "nonzero",
-)
+    _ -> "nonzero"
+}
 
 // Match on empty vs non-empty string
-@test_match_empty_string tests @match_empty_string () -> void = run(
-    assert_eq(actual: match_empty_string(""), expected: "empty"),
-    assert_eq(actual: match_empty_string("a"), expected: "non-empty"),
-    assert_eq(actual: match_empty_string("hello world"), expected: "non-empty"),
-)
+@test_match_empty_string tests @match_empty_string () -> void = {
+    assert_eq(actual: match_empty_string(""), expected: "empty");
+    assert_eq(actual: match_empty_string("a"), expected: "non-empty");
+    assert_eq(actual: match_empty_string("hello world"), expected: "non-empty")
+}
 
-@match_empty_string (s: str) -> str = match(s,
+@match_empty_string (s: str) -> str = match s {
     "" -> "empty",
-    _ -> "non-empty",
-)
+    _ -> "non-empty"
+}
 
 // First matching arm wins (order matters)
-@test_match_first_wins tests @match_first_wins () -> void = run(
-    assert_eq(actual: match_first_wins(1), expected: "first"),
-)
+@test_match_first_wins tests @match_first_wins () -> void = {
+    assert_eq(actual: match_first_wins(1), expected: "first")
+}
 
-@match_first_wins (n: int) -> str = match(n,
+@match_first_wins (n: int) -> str = match n {
     1 -> "first",
     1 -> "second",
-    _ -> "other",
-)
+    _ -> "other"
+}
 
 // Wildcard catches all after specific patterns
-@test_match_wildcard_catches_all tests @match_wildcard_catches_all () -> void = run(
-    assert_eq(actual: match_wildcard_catches_all(1), expected: "one"),
-    assert_eq(actual: match_wildcard_catches_all(2), expected: "wildcard"),
-    assert_eq(actual: match_wildcard_catches_all(3), expected: "wildcard"),
-)
+@test_match_wildcard_catches_all tests @match_wildcard_catches_all () -> void = {
+    assert_eq(actual: match_wildcard_catches_all(1), expected: "one");
+    assert_eq(actual: match_wildcard_catches_all(2), expected: "wildcard");
+    assert_eq(actual: match_wildcard_catches_all(3), expected: "wildcard")
+}
 
-@match_wildcard_catches_all (n: int) -> str = match(n,
+@match_wildcard_catches_all (n: int) -> str = match n {
     1 -> "one",
-    _ -> "wildcard",
-)
+    _ -> "wildcard"
+}
 
 // =============================================================================
 // Type Inference Through Match
 // =============================================================================
 
 // Return type inferred from arms
-@test_match_type_inference tests @match_type_inference () -> void = run(
-    let result = match_returns_int(true),
-    assert_eq(actual: result, expected: 42),
-    let result2 = match_returns_int(false),
-    assert_eq(actual: result2, expected: 0),
-)
+@test_match_type_inference tests @match_type_inference () -> void = {
+    let result = match_returns_int(true);
+    assert_eq(actual: result, expected: 42);
+    let result2 = match_returns_int(false);
+    assert_eq(actual: result2, expected: 0)
+}
 
-@match_returns_int (b: bool) -> int = match(b,
+@match_returns_int (b: bool) -> int = match b {
     true -> 42,
-    false -> 0,
-)
+    false -> 0
+}
 
 // Binding type inferred from scrutinee
-@test_match_binding_type_inference tests @match_binding_type_inference () -> void = run(
-    assert_eq(actual: match_binding_type_inference(Some("test")), expected: 4),
-    assert_eq(actual: match_binding_type_inference(None), expected: 0),
-)
+@test_match_binding_type_inference tests @match_binding_type_inference () -> void = {
+    assert_eq(actual: match_binding_type_inference(Some("test")), expected: 4);
+    assert_eq(actual: match_binding_type_inference(None), expected: 0)
+}
 
-@match_binding_type_inference (opt: Option<str>) -> int = match(opt,
+@match_binding_type_inference (opt: Option<str>) -> int = match opt {
     Some(s) -> s.len(),
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // Complex Combined Usage
 // =============================================================================
 
 // Match with let bindings in run block
-@test_match_with_let_bindings tests @match_with_let_bindings () -> void = run(
-    let input = Some(5),
-    let result = match(input,
+@test_match_with_let_bindings tests @match_with_let_bindings () -> void = {
+    let input = Some(5);
+    let result = match input {
         Some(x) -> x + 10,
-        None -> 0,
-    ),
-    assert_eq(actual: result, expected: 15),
-)
+        None -> 0
+    };
+    assert_eq(actual: result, expected: 15)
+}
 
 // For loops in run blocks now work after parser update.
-@test_match_in_for tests @match_in_for () -> void = run(
-    let items = [Some(1), None, Some(3), None, Some(5)],
-    let mut total = 0,
-    for item in items do total = total + match(item,
+@test_match_in_for tests @match_in_for () -> void = {
+    let items = [Some(1), None, Some(3), None, Some(5)];
+    let total = 0;
+    for item in items do total = total + match item {
         Some(x) -> x,
-        None -> 0,
-    ),
-    assert_eq(actual: total, expected: 9),
-)
+        None -> 0
+    };
+    assert_eq(actual: total, expected: 9)
+}
 
 // Chain of transformations using match with helper
-@test_match_chain tests @match_chain () -> void = run(
-    assert_eq(actual: match_chain(Some(2)), expected: "small even"),
-    assert_eq(actual: match_chain(Some(3)), expected: "small odd"),
-    assert_eq(actual: match_chain(Some(100)), expected: "large"),
-    assert_eq(actual: match_chain(None), expected: "nothing"),
-)
+@test_match_chain tests @match_chain () -> void = {
+    assert_eq(actual: match_chain(Some(2)), expected: "small even");
+    assert_eq(actual: match_chain(Some(3)), expected: "small odd");
+    assert_eq(actual: match_chain(Some(100)), expected: "large");
+    assert_eq(actual: match_chain(None), expected: "nothing")
+}
 
-@match_chain (opt: Option<int>) -> str = match(opt,
+@match_chain (opt: Option<int>) -> str = match opt {
     Some(n) -> classify_number(n: n),
-    None -> "nothing",
-)
+    None -> "nothing"
+}
 
-@classify_number (n: int) -> str = run(
-    let is_large = n > 10,
-    match(is_large,
+@classify_number (n: int) -> str = {
+    let is_large = n > 10;
+    match is_large {
         true -> "large",
-        false -> run(
-            let is_even = n % 2 == 0,
-            match(is_even,
+        false -> {
+            let is_even = n % 2 == 0;
+            match is_even {
                 true -> "small even",
-                false -> "small odd",
-            ),
-        ),
-    ),
-)
+                false -> "small odd"
+            }
+        }
+    }
+}
 
 // =============================================================================
 // Large number of arms
 // =============================================================================
 
-@test_match_many_arms tests @match_many_arms () -> void = run(
-    assert_eq(actual: match_many_arms(0), expected: "zero"),
-    assert_eq(actual: match_many_arms(1), expected: "one"),
-    assert_eq(actual: match_many_arms(2), expected: "two"),
-    assert_eq(actual: match_many_arms(3), expected: "three"),
-    assert_eq(actual: match_many_arms(4), expected: "four"),
-    assert_eq(actual: match_many_arms(5), expected: "five"),
-    assert_eq(actual: match_many_arms(6), expected: "six"),
-    assert_eq(actual: match_many_arms(7), expected: "seven"),
-    assert_eq(actual: match_many_arms(8), expected: "eight"),
-    assert_eq(actual: match_many_arms(9), expected: "nine"),
-    assert_eq(actual: match_many_arms(10), expected: "ten"),
-    assert_eq(actual: match_many_arms(11), expected: "other"),
-    assert_eq(actual: match_many_arms(100), expected: "other"),
-)
+@test_match_many_arms tests @match_many_arms () -> void = {
+    assert_eq(actual: match_many_arms(0), expected: "zero");
+    assert_eq(actual: match_many_arms(1), expected: "one");
+    assert_eq(actual: match_many_arms(2), expected: "two");
+    assert_eq(actual: match_many_arms(3), expected: "three");
+    assert_eq(actual: match_many_arms(4), expected: "four");
+    assert_eq(actual: match_many_arms(5), expected: "five");
+    assert_eq(actual: match_many_arms(6), expected: "six");
+    assert_eq(actual: match_many_arms(7), expected: "seven");
+    assert_eq(actual: match_many_arms(8), expected: "eight");
+    assert_eq(actual: match_many_arms(9), expected: "nine");
+    assert_eq(actual: match_many_arms(10), expected: "ten");
+    assert_eq(actual: match_many_arms(11), expected: "other");
+    assert_eq(actual: match_many_arms(100), expected: "other")
+}
 
-@match_many_arms (n: int) -> str = match(n,
+@match_many_arms (n: int) -> str = match n {
     0 -> "zero",
     1 -> "one",
     2 -> "two",
@@ -533,39 +533,39 @@ use std.testing { assert, assert_eq, assert_ne }
     8 -> "eight",
     9 -> "nine",
     10 -> "ten",
-    _ -> "other",
-)
+    _ -> "other"
+}
 
 // =============================================================================
 // Match with method calls in arms
 // =============================================================================
 
-@test_match_with_method_calls tests @match_with_method_calls () -> void = run(
-    assert_eq(actual: match_with_method_calls(Some("hello")), expected: 5),
-    assert_eq(actual: match_with_method_calls(Some("ab")), expected: 2),
-    assert_eq(actual: match_with_method_calls(None), expected: 0),
-)
+@test_match_with_method_calls tests @match_with_method_calls () -> void = {
+    assert_eq(actual: match_with_method_calls(Some("hello")), expected: 5);
+    assert_eq(actual: match_with_method_calls(Some("ab")), expected: 2);
+    assert_eq(actual: match_with_method_calls(None), expected: 0)
+}
 
-@match_with_method_calls (opt: Option<str>) -> int = match(opt,
+@match_with_method_calls (opt: Option<str>) -> int = match opt {
     Some(s) -> s.len(),
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // Match returning different types unified
 // =============================================================================
 
-@test_match_unified_return tests @match_unified_return () -> void = run(
-    assert_eq(actual: match_unified_return(1), expected: 100),
-    assert_eq(actual: match_unified_return(2), expected: 200),
-    assert_eq(actual: match_unified_return(3), expected: 0),
-)
+@test_match_unified_return tests @match_unified_return () -> void = {
+    assert_eq(actual: match_unified_return(1), expected: 100);
+    assert_eq(actual: match_unified_return(2), expected: 200);
+    assert_eq(actual: match_unified_return(3), expected: 0)
+}
 
-@match_unified_return (n: int) -> int = match(n,
+@match_unified_return (n: int) -> int = match n {
     1 -> 100,
     2 -> 200,
-    _ -> 0,
-)
+    _ -> 0
+}
 
 // =============================================================================
 // Struct Patterns
@@ -574,117 +574,117 @@ use std.testing { assert, assert_eq, assert_ne }
 type Point = { x: int, y: int }
 
 // Struct patterns now work after parser update.
-@test_match_struct_pattern tests @match_struct_pattern () -> void = run(
-    let p1 = Point { x: 0, y: 0 },
-    let p2 = Point { x: 1, y: 2 },
-    let p3 = Point { x: 0, y: 5 },
-    assert_eq(actual: match_struct_pattern(p1), expected: "origin"),
-    assert_eq(actual: match_struct_pattern(p2), expected: "x=1, y=2"),
-    assert_eq(actual: match_struct_pattern(p3), expected: "on y-axis"),
-)
+@test_match_struct_pattern tests @match_struct_pattern () -> void = {
+    let p1 = Point { x: 0, y: 0 };
+    let p2 = Point { x: 1, y: 2 };
+    let p3 = Point { x: 0, y: 5 };
+    assert_eq(actual: match_struct_pattern(p1), expected: "origin");
+    assert_eq(actual: match_struct_pattern(p2), expected: "x=1, y=2");
+    assert_eq(actual: match_struct_pattern(p3), expected: "on y-axis")
+}
 
-@match_struct_pattern (p: Point) -> str = match(p,
+@match_struct_pattern (p: Point) -> str = match p {
     { x: 0, y: 0 } -> "origin",
     { x: 0, y } -> "on y-axis",
-    { x, y } -> "x=" + str(x) + ", y=" + str(y),
-)
+    { x, y } -> "x=" + str(x) + ", y=" + str(y)
+}
 
 // =============================================================================
 // Tuple Patterns - WORKING
 // =============================================================================
 
-@test_match_tuple_basic tests @match_tuple_basic () -> void = run(
-    assert_eq(actual: match_tuple_basic((1, 2)), expected: 3),
-    assert_eq(actual: match_tuple_basic((10, 20)), expected: 30),
-)
+@test_match_tuple_basic tests @match_tuple_basic () -> void = {
+    assert_eq(actual: match_tuple_basic((1, 2)), expected: 3);
+    assert_eq(actual: match_tuple_basic((10, 20)), expected: 30)
+}
 
-@match_tuple_basic (t: (int, int)) -> int = match(t,
-    (x, y) -> x + y,
-)
+@match_tuple_basic (t: (int, int)) -> int = match t {
+    (x, y) -> x + y
+}
 
-@test_match_tuple_with_literals tests @match_tuple_with_literals () -> void = run(
-    assert_eq(actual: match_tuple_with_literals((0, 0)), expected: "origin"),
-    assert_eq(actual: match_tuple_with_literals((1, 0)), expected: "on x-axis"),
-    assert_eq(actual: match_tuple_with_literals((0, 1)), expected: "on y-axis"),
-    assert_eq(actual: match_tuple_with_literals((2, 3)), expected: "elsewhere"),
-)
+@test_match_tuple_with_literals tests @match_tuple_with_literals () -> void = {
+    assert_eq(actual: match_tuple_with_literals((0, 0)), expected: "origin");
+    assert_eq(actual: match_tuple_with_literals((1, 0)), expected: "on x-axis");
+    assert_eq(actual: match_tuple_with_literals((0, 1)), expected: "on y-axis");
+    assert_eq(actual: match_tuple_with_literals((2, 3)), expected: "elsewhere")
+}
 
-@match_tuple_with_literals (t: (int, int)) -> str = match(t,
+@match_tuple_with_literals (t: (int, int)) -> str = match t {
     (0, 0) -> "origin",
     (_, 0) -> "on x-axis",
     (0, _) -> "on y-axis",
-    _ -> "elsewhere",
-)
+    _ -> "elsewhere"
+}
 
-@test_match_tuple_nested tests @match_tuple_nested () -> void = run(
-    assert_eq(actual: match_tuple_nested(((1, 2), 3)), expected: 6),
-)
+@test_match_tuple_nested tests @match_tuple_nested () -> void = {
+    assert_eq(actual: match_tuple_nested(((1, 2), 3)), expected: 6)
+}
 
-@match_tuple_nested (t: ((int, int), int)) -> int = match(t,
-    ((a, b), c) -> a + b + c,
-)
+@match_tuple_nested (t: ((int, int), int)) -> int = match t {
+    ((a, b), c) -> a + b + c
+}
 
-@test_match_tuple_with_option tests @match_tuple_with_option () -> void = run(
-    assert_eq(actual: match_tuple_with_option((Some(5), 10)), expected: 15),
-    assert_eq(actual: match_tuple_with_option((None, 10)), expected: 10),
-)
+@test_match_tuple_with_option tests @match_tuple_with_option () -> void = {
+    assert_eq(actual: match_tuple_with_option((Some(5), 10)), expected: 15);
+    assert_eq(actual: match_tuple_with_option((None, 10)), expected: 10)
+}
 
-@match_tuple_with_option (t: (Option<int>, int)) -> int = match(t,
+@match_tuple_with_option (t: (Option<int>, int)) -> int = match t {
     (Some(x), y) -> x + y,
-    (None, y) -> y,
-)
+    (None, y) -> y
+}
 
 // =============================================================================
 // List Patterns
 // =============================================================================
 
 // List patterns now work after parser update.
-@test_match_list_pattern tests @match_list_pattern () -> void = run(
-    assert_eq(actual: match_list_pattern([]), expected: "empty"),
-    assert_eq(actual: match_list_pattern([1]), expected: "single: 1"),
-    assert_eq(actual: match_list_pattern([1, 2]), expected: "starts with 1, rest has 1 items"),
-    assert_eq(actual: match_list_pattern([1, 2, 3]), expected: "starts with 1, rest has 2 items"),
-)
+@test_match_list_pattern tests @match_list_pattern () -> void = {
+    assert_eq(actual: match_list_pattern([]), expected: "empty");
+    assert_eq(actual: match_list_pattern([1]), expected: "single: 1");
+    assert_eq(actual: match_list_pattern([1, 2]), expected: "starts with 1, rest has 1 items");
+    assert_eq(actual: match_list_pattern([1, 2, 3]), expected: "starts with 1, rest has 2 items")
+}
 
-@match_list_pattern (lst: [int]) -> str = match(lst,
+@match_list_pattern (lst: [int]) -> str = match lst {
     [] -> "empty",
     [x] -> "single: " + str(x),
-    [head, ..tail] -> "starts with " + str(head) + ", rest has " + str(len(collection: tail)) + " items",
-)
+    [head, ..tail] -> "starts with " + str(head) + ", rest has " + str(len(collection: tail)) + " items"
+}
 
 // =============================================================================
 // Or-Patterns
 // =============================================================================
 
 // Or-patterns now work after parser update.
-@test_match_or_pattern tests @match_or_pattern () -> void = run(
-    assert_eq(actual: match_or_pattern(1), expected: "one or two"),
-    assert_eq(actual: match_or_pattern(2), expected: "one or two"),
-    assert_eq(actual: match_or_pattern(3), expected: "three or four"),
-    assert_eq(actual: match_or_pattern(4), expected: "three or four"),
-    assert_eq(actual: match_or_pattern(5), expected: "other"),
-)
+@test_match_or_pattern tests @match_or_pattern () -> void = {
+    assert_eq(actual: match_or_pattern(1), expected: "one or two");
+    assert_eq(actual: match_or_pattern(2), expected: "one or two");
+    assert_eq(actual: match_or_pattern(3), expected: "three or four");
+    assert_eq(actual: match_or_pattern(4), expected: "three or four");
+    assert_eq(actual: match_or_pattern(5), expected: "other")
+}
 
-@match_or_pattern (n: int) -> str = match(n,
+@match_or_pattern (n: int) -> str = match n {
     1 | 2 -> "one or two",
     3 | 4 -> "three or four",
-    _ -> "other",
-)
+    _ -> "other"
+}
 
 // =============================================================================
 // At-Patterns
 // =============================================================================
 
 // At-patterns now work after parser update.
-@test_match_at_pattern tests @match_at_pattern () -> void = run(
-    assert_eq(actual: match_at_pattern(Some(5)), expected: "got Some with value 5"),
-    assert_eq(actual: match_at_pattern(None), expected: "got None"),
-)
+@test_match_at_pattern tests @match_at_pattern () -> void = {
+    assert_eq(actual: match_at_pattern(Some(5)), expected: "got Some with value 5");
+    assert_eq(actual: match_at_pattern(None), expected: "got None")
+}
 
-@match_at_pattern (opt: Option<int>) -> str = match(opt,
+@match_at_pattern (opt: Option<int>) -> str = match opt {
     x @ Some(v) -> "got Some with value " + str(v),
-    x @ None -> "got None",
-)
+    x @ None -> "got None"
+}
 
 // =============================================================================
 // Range Patterns
@@ -692,234 +692,234 @@ type Point = { x: int, y: int }
 
 // Range patterns now work after parser update.
 // Note: Open-start ranges (..=0) are not yet supported, using explicit bounds.
-@test_match_range_pattern tests @match_range_pattern () -> void = run(
-    assert_eq(actual: match_range_pattern(0), expected: "zero"),
-    assert_eq(actual: match_range_pattern(1), expected: "small"),
-    assert_eq(actual: match_range_pattern(5), expected: "small"),
-    assert_eq(actual: match_range_pattern(10), expected: "medium"),
-    assert_eq(actual: match_range_pattern(50), expected: "medium"),
-    assert_eq(actual: match_range_pattern(100), expected: "large"),
-    assert_eq(actual: match_range_pattern(1000), expected: "large"),
-)
+@test_match_range_pattern tests @match_range_pattern () -> void = {
+    assert_eq(actual: match_range_pattern(0), expected: "zero");
+    assert_eq(actual: match_range_pattern(1), expected: "small");
+    assert_eq(actual: match_range_pattern(5), expected: "small");
+    assert_eq(actual: match_range_pattern(10), expected: "medium");
+    assert_eq(actual: match_range_pattern(50), expected: "medium");
+    assert_eq(actual: match_range_pattern(100), expected: "large");
+    assert_eq(actual: match_range_pattern(1000), expected: "large")
+}
 
-@match_range_pattern (n: int) -> str = match(n,
+@match_range_pattern (n: int) -> str = match n {
     0 -> "zero",
     1..10 -> "small",
     10..100 -> "medium",
-    _ -> "large",
-)
+    _ -> "large"
+}
 
 // =============================================================================
 // Guards
 // =============================================================================
 
 // Match guards now work after parser update.
-@test_match_guard tests @match_guard () -> void = run(
-    assert_eq(actual: match_guard(5), expected: "small positive"),
-    assert_eq(actual: match_guard(15), expected: "large positive"),
-    assert_eq(actual: match_guard(0), expected: "zero"),
-    assert_eq(actual: match_guard(-5), expected: "negative"),
-)
+@test_match_guard tests @match_guard () -> void = {
+    assert_eq(actual: match_guard(5), expected: "small positive");
+    assert_eq(actual: match_guard(15), expected: "large positive");
+    assert_eq(actual: match_guard(0), expected: "zero");
+    assert_eq(actual: match_guard(-5), expected: "negative")
+}
 
-@match_guard (n: int) -> str = match(n,
+@match_guard (n: int) -> str = match n {
     x.match(x > 10) -> "large positive",
     x.match(x > 0) -> "small positive",
     0 -> "zero",
-    _ -> "negative",
-)
+    _ -> "negative"
+}
 
 // =============================================================================
 // Complex Nested Patterns
 // =============================================================================
 
 // Matching Option containing another Option (simulated without nested generics bug)
-@test_match_option_of_int_list tests @match_option_of_int_list () -> void = run(
-    assert_eq(actual: match_option_of_int_list(Some([1, 2, 3])), expected: 3),
-    assert_eq(actual: match_option_of_int_list(Some([])), expected: 0),
-    assert_eq(actual: match_option_of_int_list(None), expected: -1),
-)
+@test_match_option_of_int_list tests @match_option_of_int_list () -> void = {
+    assert_eq(actual: match_option_of_int_list(Some([1, 2, 3])), expected: 3);
+    assert_eq(actual: match_option_of_int_list(Some([])), expected: 0);
+    assert_eq(actual: match_option_of_int_list(None), expected: -1)
+}
 
-@match_option_of_int_list (opt: Option<[int]>) -> int = match(opt,
+@match_option_of_int_list (opt: Option<[int]>) -> int = match opt {
     Some(lst) -> lst.len(),
-    None -> -1,
-)
+    None -> -1
+}
 
 // Match with multiple levels of nesting (without triggering >> bug)
-@test_match_result_of_option tests @match_result_of_option () -> void = run(
-    assert_eq(actual: match_result_of_option(Ok(Some(42))), expected: 42),
-    assert_eq(actual: match_result_of_option(Ok(None)), expected: 0),
-    assert_eq(actual: match_result_of_option(Err("error")), expected: -1),
-)
+@test_match_result_of_option tests @match_result_of_option () -> void = {
+    assert_eq(actual: match_result_of_option(Ok(Some(42))), expected: 42);
+    assert_eq(actual: match_result_of_option(Ok(None)), expected: 0);
+    assert_eq(actual: match_result_of_option(Err("error")), expected: -1)
+}
 
-@match_result_of_option (res: Result<Option<int>, str>) -> int = match(res,
-    Ok(opt) -> match(opt,
+@match_result_of_option (res: Result<Option<int>, str>) -> int = match res {
+    Ok(opt) -> match opt {
         Some(x) -> x,
-        None -> 0,
-    ),
-    Err(_) -> -1,
-)
+        None -> 0
+    },
+    Err(_) -> -1
+}
 
 // =============================================================================
 // Match with conditionals in arms
 // =============================================================================
 
-@test_match_with_if_in_arm tests @match_with_if_in_arm () -> void = run(
-    assert_eq(actual: match_with_if_in_arm(Some(5)), expected: 25),
-    assert_eq(actual: match_with_if_in_arm(Some(15)), expected: 15),
-    assert_eq(actual: match_with_if_in_arm(None), expected: 0),
-)
+@test_match_with_if_in_arm tests @match_with_if_in_arm () -> void = {
+    assert_eq(actual: match_with_if_in_arm(Some(5)), expected: 25);
+    assert_eq(actual: match_with_if_in_arm(Some(15)), expected: 15);
+    assert_eq(actual: match_with_if_in_arm(None), expected: 0)
+}
 
-@match_with_if_in_arm (opt: Option<int>) -> int = match(opt,
+@match_with_if_in_arm (opt: Option<int>) -> int = match opt {
     Some(x) -> if x < 10 then x * x else x,
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // Match exhaustiveness
 // =============================================================================
 
 // This should work - all bool cases covered
-@test_match_exhaustive_bool tests @match_exhaustive_bool () -> void = run(
-    assert_eq(actual: match_exhaustive_bool(true), expected: 1),
-    assert_eq(actual: match_exhaustive_bool(false), expected: 0),
-)
+@test_match_exhaustive_bool tests @match_exhaustive_bool () -> void = {
+    assert_eq(actual: match_exhaustive_bool(true), expected: 1);
+    assert_eq(actual: match_exhaustive_bool(false), expected: 0)
+}
 
-@match_exhaustive_bool (b: bool) -> int = match(b,
+@match_exhaustive_bool (b: bool) -> int = match b {
     true -> 1,
-    false -> 0,
-)
+    false -> 0
+}
 
 // This should work - wildcard covers remaining cases
-@test_match_exhaustive_with_wildcard tests @match_exhaustive_with_wildcard () -> void = run(
-    assert_eq(actual: match_exhaustive_with_wildcard(Some(1)), expected: "one"),
-    assert_eq(actual: match_exhaustive_with_wildcard(Some(2)), expected: "other"),
-    assert_eq(actual: match_exhaustive_with_wildcard(None), expected: "none"),
-)
+@test_match_exhaustive_with_wildcard tests @match_exhaustive_with_wildcard () -> void = {
+    assert_eq(actual: match_exhaustive_with_wildcard(Some(1)), expected: "one");
+    assert_eq(actual: match_exhaustive_with_wildcard(Some(2)), expected: "other");
+    assert_eq(actual: match_exhaustive_with_wildcard(None), expected: "none")
+}
 
-@match_exhaustive_with_wildcard (opt: Option<int>) -> str = match(opt,
+@match_exhaustive_with_wildcard (opt: Option<int>) -> str = match opt {
     Some(1) -> "one",
     Some(_) -> "other",
-    None -> "none",
-)
+    None -> "none"
+}
 
 // =============================================================================
 // Match with recursive functions
 // =============================================================================
 
-@test_match_recursive tests @factorial () -> void = run(
-    assert_eq(actual: factorial(0), expected: 1),
-    assert_eq(actual: factorial(1), expected: 1),
-    assert_eq(actual: factorial(5), expected: 120),
-    assert_eq(actual: factorial(10), expected: 3628800),
-)
+@test_match_recursive tests @factorial () -> void = {
+    assert_eq(actual: factorial(0), expected: 1);
+    assert_eq(actual: factorial(1), expected: 1);
+    assert_eq(actual: factorial(5), expected: 120);
+    assert_eq(actual: factorial(10), expected: 3628800)
+}
 
-@factorial (n: int) -> int = match(n,
+@factorial (n: int) -> int = match n {
     0 -> 1,
-    _ -> n * factorial(n: n - 1),
-)
+    _ -> n * factorial(n: n - 1)
+}
 
 // =============================================================================
 // Match in lambda expressions
 // =============================================================================
 
-@test_match_in_lambda tests @match_in_lambda () -> void = run(
-    let classifier = (n: int) -> str = match(n,
+@test_match_in_lambda tests @match_in_lambda () -> void = {
+    let classifier = (n: int) -> str = match n {
         0 -> "zero",
-        _ -> "nonzero",
-    ),
-    assert_eq(actual: classifier(0), expected: "zero"),
-    assert_eq(actual: classifier(5), expected: "nonzero"),
-)
+        _ -> "nonzero"
+    };
+    assert_eq(actual: classifier(0), expected: "zero");
+    assert_eq(actual: classifier(5), expected: "nonzero")
+}
 
-@match_in_lambda () -> void = ()
+@match_in_lambda () -> void = ();
 
 // =============================================================================
 // Match with captured variables
 // =============================================================================
 
-@test_match_with_captured_var tests @match_with_captured_var () -> void = run(
-    let threshold = 10,
-    let result = classify_with_threshold(n: 5, threshold: threshold),
-    assert_eq(actual: result, expected: "below"),
-    let result2 = classify_with_threshold(n: 15, threshold: threshold),
-    assert_eq(actual: result2, expected: "above or equal"),
-)
+@test_match_with_captured_var tests @match_with_captured_var () -> void = {
+    let threshold = 10;
+    let result = classify_with_threshold(n: 5, threshold: threshold);
+    assert_eq(actual: result, expected: "below");
+    let result2 = classify_with_threshold(n: 15, threshold: threshold);
+    assert_eq(actual: result2, expected: "above or equal")
+}
 
 @classify_with_threshold (n: int, threshold: int) -> str =
-    if n < threshold then "below" else "above or equal"
+    if n < threshold then "below" else "above or equal";
 
-@match_with_captured_var () -> void = ()
+@match_with_captured_var () -> void = ();
 
 // =============================================================================
 // Match with early returns via Result
 // =============================================================================
 
-@test_match_error_propagation tests @process_result () -> void = run(
-    assert_eq(actual: process_result(Ok(5)), expected: Ok(25)),
-    assert_eq(actual: process_result(Err("bad")), expected: Err("bad")),
-)
+@test_match_error_propagation tests @process_result () -> void = {
+    assert_eq(actual: process_result(Ok(5)), expected: Ok(25));
+    assert_eq(actual: process_result(Err("bad")), expected: Err("bad"))
+}
 
-@process_result (r: Result<int, str>) -> Result<int, str> = match(r,
+@process_result (r: Result<int, str>) -> Result<int, str> = match r {
     Ok(x) -> Ok(x * x),
-    Err(e) -> Err(e),
-)
+    Err(e) -> Err(e)
+}
 
 // =============================================================================
 // Match preserving complex types
 // =============================================================================
 
-@test_match_preserving_list tests @match_preserving_list () -> void = run(
-    assert_eq(actual: match_preserving_list(Some([1, 2, 3])), expected: [1, 2, 3]),
-    assert_eq(actual: match_preserving_list(None), expected: []),
-)
+@test_match_preserving_list tests @match_preserving_list () -> void = {
+    assert_eq(actual: match_preserving_list(Some([1, 2, 3])), expected: [1, 2, 3]);
+    assert_eq(actual: match_preserving_list(None), expected: [])
+}
 
-@match_preserving_list (opt: Option<[int]>) -> [int] = match(opt,
+@match_preserving_list (opt: Option<[int]>) -> [int] = match opt {
     Some(lst) -> lst,
-    None -> [],
-)
+    None -> []
+}
 
 // =============================================================================
 // Match with string patterns
 // =============================================================================
 
-@test_match_string_patterns tests @match_string_patterns () -> void = run(
-    assert_eq(actual: match_string_patterns("GET"), expected: "read"),
-    assert_eq(actual: match_string_patterns("POST"), expected: "create"),
-    assert_eq(actual: match_string_patterns("PUT"), expected: "update"),
-    assert_eq(actual: match_string_patterns("DELETE"), expected: "delete"),
-    assert_eq(actual: match_string_patterns("PATCH"), expected: "unknown"),
-    assert_eq(actual: match_string_patterns(""), expected: "unknown"),
-)
+@test_match_string_patterns tests @match_string_patterns () -> void = {
+    assert_eq(actual: match_string_patterns("GET"), expected: "read");
+    assert_eq(actual: match_string_patterns("POST"), expected: "create");
+    assert_eq(actual: match_string_patterns("PUT"), expected: "update");
+    assert_eq(actual: match_string_patterns("DELETE"), expected: "delete");
+    assert_eq(actual: match_string_patterns("PATCH"), expected: "unknown");
+    assert_eq(actual: match_string_patterns(""), expected: "unknown")
+}
 
-@match_string_patterns (method: str) -> str = match(method,
+@match_string_patterns (method: str) -> str = match method {
     "GET" -> "read",
     "POST" -> "create",
     "PUT" -> "update",
     "DELETE" -> "delete",
-    _ -> "unknown",
-)
+    _ -> "unknown"
+}
 
 // =============================================================================
 // Method-style match: expr.match(arms...)
 // =============================================================================
 
-@test_method_match tests @method_match () -> void = run(
-    assert_eq(actual: method_match(x: 0), expected: "zero"),
-    assert_eq(actual: method_match(x: 42), expected: "answer"),
-    assert_eq(actual: method_match(x: 99), expected: "other"),
-)
+@test_method_match tests @method_match () -> void = {
+    assert_eq(actual: method_match(x: 0), expected: "zero");
+    assert_eq(actual: method_match(x: 42), expected: "answer");
+    assert_eq(actual: method_match(x: 99), expected: "other")
+}
 
 @method_match (x: int) -> str = x.match(
     0 -> "zero",
     42 -> "answer",
     _ -> "other",
-)
+);
 
-@test_method_match_nested tests @method_match_nested () -> void = run(
-    assert_eq(actual: method_match_nested(x: 0, y: 0), expected: "both zero"),
-    assert_eq(actual: method_match_nested(x: 0, y: 5), expected: "x zero"),
-    assert_eq(actual: method_match_nested(x: 1, y: 0), expected: "x nonzero"),
-)
+@test_method_match_nested tests @method_match_nested () -> void = {
+    assert_eq(actual: method_match_nested(x: 0, y: 0), expected: "both zero");
+    assert_eq(actual: method_match_nested(x: 0, y: 5), expected: "x zero");
+    assert_eq(actual: method_match_nested(x: 1, y: 0), expected: "x nonzero")
+}
 
 @method_match_nested (x: int, y: int) -> str = x.match(
     0 -> y.match(
@@ -927,29 +927,29 @@ type Point = { x: int, y: int }
         _ -> "x zero",
     ),
     _ -> "x nonzero",
-)
+);
 
-@test_method_match_with_guard tests @method_match_with_guard () -> void = run(
-    assert_eq(actual: method_match_with_guard(n: 20), expected: "large"),
-    assert_eq(actual: method_match_with_guard(n: 5), expected: "small"),
-    assert_eq(actual: method_match_with_guard(n: -3), expected: "non-positive"),
-)
+@test_method_match_with_guard tests @method_match_with_guard () -> void = {
+    assert_eq(actual: method_match_with_guard(n: 20), expected: "large");
+    assert_eq(actual: method_match_with_guard(n: 5), expected: "small");
+    assert_eq(actual: method_match_with_guard(n: -3), expected: "non-positive")
+}
 
 @method_match_with_guard (n: int) -> str = n.match(
     x.match(x > 10) -> "large",
     x.match(x > 0) -> "small",
     _ -> "non-positive",
-)
+);
 
-@test_method_match_on_expr tests @method_match_on_expr () -> void = run(
-    assert_eq(actual: method_match_on_expr(x: -1), expected: "zero"),
-    assert_eq(actual: method_match_on_expr(x: 0), expected: "one"),
-    assert_eq(actual: method_match_on_expr(x: 5), expected: "other"),
-)
+@test_method_match_on_expr tests @method_match_on_expr () -> void = {
+    assert_eq(actual: method_match_on_expr(x: -1), expected: "zero");
+    assert_eq(actual: method_match_on_expr(x: 0), expected: "one");
+    assert_eq(actual: method_match_on_expr(x: 5), expected: "other")
+}
 
 @method_match_on_expr (x: int) -> str = (x + 1).match(
     0 -> "zero",
     1 -> "one",
     _ -> "other",
-)
+);
 

@@ -503,19 +503,19 @@ This table will be updated as cryptographic recommendations evolve.
 use std.crypto { hash_password, verify_password }
 
 @register_user (username: str, password: str) -> Result<User, Error> uses Crypto, Database =
-    run(
-        let hash = hash_password(password: password),
-        Database.insert(user: User { username, password_hash: hash }),
-    )
+    {
+        let hash = hash_password(password: password)
+        Database.insert(user: User { username, password_hash: hash })
+    }
 
 @login (username: str, password: str) -> Result<Session, Error> uses Crypto, Database =
-    run(
-        let user = Database.find_user(username: username)?,
+    {
+        let user = Database.find_user(username: username)?
         if verify_password(password: password, hash: user.password_hash) then
             Ok(create_session(user: user))
         else
-            Err(InvalidCredentials),
-    )
+            Err(InvalidCredentials)
+    }
 ```
 
 ### Encrypted Configuration
@@ -525,18 +525,18 @@ use std.crypto { generate_key, encrypt, decrypt }
 use std.json { parse_as, to_json_string }
 
 @save_secrets (config: Config, key: SecretKey) -> Result<void, Error> uses Crypto, FileSystem =
-    run(
-        let json = to_json_string(value: config),
-        let encrypted = encrypt(key: key, plaintext: json.as_bytes()),
-        FileSystem.write(path: "secrets.enc", data: encrypted),
-    )
+    {
+        let json = to_json_string(value: config)
+        let encrypted = encrypt(key: key, plaintext: json.as_bytes())
+        FileSystem.write(path: "secrets.enc", data: encrypted)
+    }
 
 @load_secrets (key: SecretKey) -> Result<Config, Error> uses Crypto, FileSystem =
-    run(
-        let encrypted = FileSystem.read_bytes(path: "secrets.enc")?,
-        let json = decrypt(key: key, ciphertext: encrypted)?,
-        parse_as<Config>(source: str.from_bytes(json)),
-    )
+    {
+        let encrypted = FileSystem.read_bytes(path: "secrets.enc")?
+        let json = decrypt(key: key, ciphertext: encrypted)?
+        parse_as<Config>(source: str.from_bytes(json))
+    }
 ```
 
 ### Message Signing
@@ -564,10 +564,10 @@ use std.crypto { generate_key_exchange_keypair, derive_shared_secret, encrypt, d
 
 // Establish encrypted channel between two parties
 @establish_channel (my_keypair: KeyExchangeKeyPair, their_public: KeyExchangePublicKey) -> SecretKey uses Crypto =
-    run(
-        let shared = derive_shared_secret(my_private: my_keypair.private, their_public: their_public),
-        SecretKey.from_bytes(bytes: shared).unwrap_or(panic(msg: "Invalid shared secret")),
-    )
+    {
+        let shared = derive_shared_secret(my_private: my_keypair.private, their_public: their_public)
+        SecretKey.from_bytes(bytes: shared).unwrap_or(panic(msg: "Invalid shared secret"))
+    }
 ```
 
 ---

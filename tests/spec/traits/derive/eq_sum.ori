@@ -1,0 +1,141 @@
+// Spec: 06-types.md § Derive — Eq derivation for sum types
+// Formal semantics: variant matching — same variant + equal payloads → equal
+//
+// §3.15: Derived Traits Formal Semantics
+
+use std.testing { assert }
+
+// --- Type definitions ---
+
+#[derive(Eq)]
+type Shape = Circle(radius: float) | Rectangle(w: float, h: float) | Triangle(a: float, b: float, c: float);
+
+#[derive(Eq)]
+type Color = Red | Green | Blue;
+
+#[derive(Eq)]
+type Wrapper = { value: int }
+
+#[derive(Eq)]
+type Outcome = Success(value: Wrapper) | Failure(msg: str);
+
+// --- Same variant, same payload ---
+
+@test_same_variant tests @same_variant () -> void = {
+    let c1 = Circle(radius: 1.0);
+    let c2 = Circle(radius: 1.0);
+    assert(cond: c1 == c2)
+}
+@same_variant () -> bool = Circle(radius: 1.0) == Circle(radius: 1.0);
+
+// --- Same variant, different payload ---
+
+@test_same_variant_diff tests @same_variant_diff () -> void = {
+    assert(cond: Circle(radius: 1.0) != Circle(radius: 2.0))
+}
+@same_variant_diff () -> bool = Circle(radius: 1.0) != Circle(radius: 2.0);
+
+// --- Different variants ---
+
+@test_different_variants tests @diff_variant () -> void = {
+    assert(cond: Circle(radius: 1.0) != Rectangle(w: 2.0, h: 3.0))
+}
+@diff_variant () -> bool = Circle(radius: 1.0) != Rectangle(w: 2.0, h: 3.0);
+
+// --- Payload-less variants (enum-like) ---
+
+@test_payloadless_eq tests @payloadless_eq () -> void = {
+    assert(cond: Red == Red)
+}
+@payloadless_eq () -> bool = Red == Red;
+
+@test_payloadless_neq tests @payloadless_neq () -> void = {
+    assert(cond: Red != Green)
+}
+@payloadless_neq () -> bool = Red != Green;
+
+// --- All payload-less variants distinct ---
+
+@test_all_variants_distinct tests @all_distinct () -> void = {
+    assert(cond: Red != Green);
+    assert(cond: Green != Blue);
+    assert(cond: Red != Blue)
+}
+@all_distinct () -> bool = (Red != Green) && (Green != Blue) && (Red != Blue);
+
+// --- Multi-payload variant ---
+
+@test_multi_payload_eq tests @multi_payload_eq () -> void = {
+    assert(cond: Rectangle(w: 2.0, h: 3.0) == Rectangle(w: 2.0, h: 3.0))
+}
+@multi_payload_eq () -> bool = Rectangle(w: 2.0, h: 3.0) == Rectangle(w: 2.0, h: 3.0);
+
+@test_multi_payload_neq tests @multi_payload_neq () -> void = {
+    assert(cond: Rectangle(w: 2.0, h: 3.0) != Rectangle(w: 2.0, h: 4.0))
+}
+@multi_payload_neq () -> bool = Rectangle(w: 2.0, h: 3.0) != Rectangle(w: 2.0, h: 4.0);
+
+// --- Three-payload variant ---
+
+@test_three_payload tests @three_payload () -> void = {
+    assert(cond: Triangle(a: 3.0, b: 4.0, c: 5.0) == Triangle(a: 3.0, b: 4.0, c: 5.0))
+}
+@three_payload () -> bool = Triangle(a: 3.0, b: 4.0, c: 5.0) == Triangle(a: 3.0, b: 4.0, c: 5.0);
+
+@test_three_payload_neq tests @three_payload_neq () -> void = {
+    assert(cond: Triangle(a: 3.0, b: 4.0, c: 5.0) != Triangle(a: 3.0, b: 4.0, c: 6.0))
+}
+@three_payload_neq () -> bool = Triangle(a: 3.0, b: 4.0, c: 5.0) != Triangle(a: 3.0, b: 4.0, c: 6.0);
+
+// --- Nested struct in sum type ---
+
+@test_nested_eq tests @nested_eq () -> void = {
+    let r1 = Success(value: Wrapper { value: 42 });
+    let r2 = Success(value: Wrapper { value: 42 });
+    assert(cond: r1 == r2)
+}
+@nested_eq () -> bool = {
+    Success(value: Wrapper { value: 42 }) == Success(value: Wrapper { value: 42 })
+}
+
+@test_nested_neq tests @nested_neq () -> void = {
+    let r1 = Success(value: Wrapper { value: 42 });
+    let r2 = Success(value: Wrapper { value: 99 });
+    assert(cond: r1 != r2)
+}
+@nested_neq () -> bool = {
+    Success(value: Wrapper { value: 42 }) != Success(value: Wrapper { value: 99 })
+}
+
+@test_ok_vs_err tests @ok_vs_err () -> void = {
+    let ok = Success(value: Wrapper { value: 42 });
+    let err = Failure(msg: "failed");
+    assert(cond: ok != err)
+}
+@ok_vs_err () -> bool = {
+    Success(value: Wrapper { value: 42 }) != Failure(msg: "failed")
+}
+
+// --- Reflexivity on sum type ---
+
+@test_reflexive tests @sum_reflexive () -> void = {
+    let c = Circle(radius: 5.0);
+    assert(cond: c == c)
+}
+@sum_reflexive () -> bool = {
+    let c = Circle(radius: 5.0);
+    c == c
+}
+
+// --- Symmetry on sum type ---
+
+@test_symmetric tests @sum_symmetric () -> void = {
+    let c1 = Circle(radius: 5.0);
+    let c2 = Circle(radius: 5.0);
+    assert(cond: (c1 == c2) == (c2 == c1))
+}
+@sum_symmetric () -> bool = {
+    let c1 = Circle(radius: 5.0);
+    let c2 = Circle(radius: 5.0);
+    (c1 == c2) == (c2 == c1)
+}

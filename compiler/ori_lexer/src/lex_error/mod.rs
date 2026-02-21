@@ -102,8 +102,6 @@ pub enum LexErrorKind {
     ReservedFutureKeyword { keyword: &'static str },
 
     // Cross-language pattern errors
-    /// `;` used (C/JavaScript/Rust habit).
-    Semicolon,
     /// `===` or `!==` used (JavaScript habit).
     TripleEqual,
     /// `'string'` used instead of `"string"` (Python/JS habit).
@@ -510,17 +508,6 @@ impl LexError {
                 format!("`{keyword}` is reserved for future use; choose a different name"),
                 0,
             )],
-        }
-    }
-
-    /// Create a semicolon error with removal suggestion.
-    #[cold]
-    pub fn semicolon(span: Span) -> Self {
-        Self {
-            span,
-            kind: LexErrorKind::Semicolon,
-            context: LexErrorContext::TopLevel,
-            suggestions: vec![LexSuggestion::removal("remove the semicolon", span)],
         }
     }
 

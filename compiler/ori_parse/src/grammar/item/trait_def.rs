@@ -87,6 +87,7 @@ impl Parser<'_> {
                 None
             };
 
+            self.eat_optional_semicolon();
             Ok(TraitItem::AssocType(TraitAssocType {
                 name,
                 default_type,
@@ -113,6 +114,7 @@ impl Parser<'_> {
                 self.cursor.skip_newlines();
                 let body = self.parse_expr().into_result()?;
                 let end_span = self.arena.get_expr(body).span;
+                self.eat_optional_item_semicolon();
                 Ok(TraitItem::DefaultMethod(TraitDefaultMethod {
                     name,
                     params,
@@ -121,6 +123,7 @@ impl Parser<'_> {
                     span: start_span.merge(end_span),
                 }))
             } else {
+                self.eat_optional_semicolon();
                 Ok(TraitItem::MethodSig(TraitMethodSig {
                     name,
                     params,

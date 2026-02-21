@@ -290,20 +290,20 @@ let bad: int = for x in items yield x.count  // ERROR: int is not Collect<int>
 ### In Run
 
 ```ori
-run(
-    let data = prepare(),
-    let results = for x in data yield process(x),
-    summarize(results),
-)
+{
+    let data = prepare()
+    let results = for x in data yield process(x)
+    summarize(results)
+}
 ```
 
 ### In Match Arms
 
 ```ori
-match(source,
-    Some(items) -> for x in items yield x * 2,
-    None -> [],
-)
+match source {
+    Some(items) -> for x in items yield x * 2
+    None -> []
+}
 ```
 
 ---
@@ -411,10 +411,10 @@ let pairs = for x in 0..3 for y in 0..3 yield (x, y)
 let processed = for item in items yield
     if item.skip then continue,
     if item.stop then break,
-    match(item.transform(),
-        Ok(v) -> v,
-        Err(_) -> continue,
-    ),
+    match item.transform() {
+        Ok(v) -> v
+        Err(_) -> continue
+    },
 ```
 
 ### Into Set

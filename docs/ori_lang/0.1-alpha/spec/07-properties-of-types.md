@@ -49,8 +49,8 @@ A value of type `S` is assignable to type `T` if:
 No implicit conversions:
 
 ```ori
-let x: float = 42        // error
-let x: float = float(42) // OK
+let x: float = 42;        // error
+let x: float = float(42); // OK
 ```
 
 ## Variance
@@ -60,10 +60,10 @@ Generics are invariant. `Container<T>` is only compatible with `Container<T>`.
 ## Type Constraints
 
 ```ori
-@sort<T: Comparable> (items: [T]) -> [T] = ...
+@sort<T: Comparable> (items: [T]) -> [T] = ...;
 
 @process<T, U> (items: [T], f: (T) -> U) -> [U]
-    where T: Clone, U: Default = ...
+    where T: Clone, U: Default = ...;
 ```
 
 ## Default Values
@@ -88,14 +88,14 @@ The `Printable` trait provides human-readable string conversion.
 
 ```ori
 trait Printable {
-    @to_str (self) -> str
+    @to_str (self) -> str;
 }
 ```
 
 `Printable` is required for string interpolation without format specifiers:
 
 ```ori
-let x = 42
+let x = 42;
 `value: {x}`  // Calls x.to_str()
 ```
 
@@ -132,14 +132,14 @@ The `Formattable` trait provides formatted string conversion with format specifi
 
 ```ori
 trait Formattable {
-    @format (self, spec: FormatSpec) -> str
+    @format (self, spec: FormatSpec) -> str;
 }
 ```
 
 `Formattable` is required for string interpolation with format specifiers:
 
 ```ori
-let n = 42
+let n = 42;
 `hex: {n:x}`     // Calls n.format(spec: ...) with Hex format type
 `padded: {n:08}` // Calls n.format(spec: ...) with width 8, zero-pad
 ```
@@ -156,11 +156,11 @@ type FormatSpec = {
     format_type: Option<FormatType>,
 }
 
-type Alignment = Left | Center | Right
+type Alignment = Left | Center | Right;
 
-type Sign = Plus | Minus | Space
+type Sign = Plus | Minus | Space;
 
-type FormatType = Binary | Octal | Hex | HexUpper | Exp | ExpUpper | Fixed | Percent
+type FormatType = Binary | Octal | Hex | HexUpper | Exp | ExpUpper | Fixed | Percent;
 ```
 
 These types are in the prelude.
@@ -229,10 +229,10 @@ All `Printable` types have a blanket `Formattable` implementation:
 
 ```ori
 impl<T: Printable> Formattable for T {
-    @format (self, spec: FormatSpec) -> str = run(
-        let base = self.to_str(),
-        apply_format(s: base, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = {
+        let base = self.to_str();
+        apply_format(s: base, spec: spec)
+    }
 }
 ```
 
@@ -246,22 +246,22 @@ User types may implement `Formattable` for custom formatting:
 type Money = { cents: int }
 
 impl Formattable for Money {
-    @format (self, spec: FormatSpec) -> str = run(
-        let dollars = self.cents / 100,
-        let cents = self.cents % 100,
-        let base = `${dollars}.{cents:02}`,
-        apply_alignment(s: base, spec: spec),
-    )
+    @format (self, spec: FormatSpec) -> str = {
+        let dollars = self.cents / 100;
+        let cents = self.cents % 100;
+        let base = `${dollars}.{cents:02}`;
+        apply_alignment(s: base, spec: spec)
+    }
 }
 ```
 
 Newtypes can delegate to their inner value:
 
 ```ori
-type UserId = int
+type UserId = int;
 
 impl Formattable for UserId {
-    @format (self, spec: FormatSpec) -> str = self.inner.format(spec: spec)
+    @format (self, spec: FormatSpec) -> str = self.inner.format(spec: spec);
 }
 ```
 
@@ -279,7 +279,7 @@ The `Default` trait provides zero/empty values.
 
 ```ori
 trait Default {
-    @default () -> Self
+    @default () -> Self;
 }
 ```
 
@@ -318,7 +318,7 @@ Sum types cannot derive `Default` (ambiguous variant):
 
 ```ori
 #derive(Default)  // error: cannot derive Default for sum type
-type Status = Pending | Running | Done
+type Status = Pending | Running | Done;
 ```
 
 ## Traceable Trait
@@ -327,20 +327,20 @@ The `Traceable` trait enables error trace propagation.
 
 ```ori
 trait Traceable {
-    @with_trace (self, entry: TraceEntry) -> Self
-    @trace (self) -> str
-    @trace_entries (self) -> [TraceEntry]
-    @has_trace (self) -> bool
+    @with_trace (self, entry: TraceEntry) -> Self;
+    @trace (self) -> str;
+    @trace_entries (self) -> [TraceEntry];
+    @has_trace (self) -> bool;
 }
 ```
 
 The `?` operator automatically adds trace entries at propagation points:
 
 ```ori
-@outer () -> Result<int, Error> = run(
-    let x = inner()?,  // Adds trace entry for this location
-    Ok(x * 2),
-)
+@outer () -> Result<int, Error> = {
+    let x = inner()?;  // Adds trace entry for this location
+    Ok(x * 2)
+}
 ```
 
 ### TraceEntry Type
@@ -361,13 +361,67 @@ type TraceEntry = {
 | `Error` | Yes |
 | `Result<T, E>` where `E: Traceable` | Yes (delegates to E) |
 
+## Len Trait
+
+The `Len` trait provides length information for collections and sequences.
+
+```ori
+trait Len {
+    @len (self) -> int;
+}
+```
+
+### Semantic Requirements
+
+Implementations _must_ satisfy:
+
+- **Non-negative**: `x.len() >= 0` for all `x`
+- **Deterministic**: `x.len()` returns the same value for unchanged `x`
+
+### String Length
+
+For `str`, `.len()` returns the **byte count**, not the codepoint or grapheme count:
+
+```ori
+"hello".len()  // 5
+"café".len()   // 5 (é is 2 bytes in UTF-8)
+"日本".len()   // 6 (each character is 3 bytes)
+```
+
+### Standard Implementations
+
+| Type | Implements `Len` | Returns |
+|------|-------------------|---------|
+| `[T]` | Yes | Number of elements |
+| `str` | Yes | Number of bytes |
+| `{K: V}` | Yes | Number of entries |
+| `Set<T>` | Yes | Number of elements |
+| `Range<int>` | Yes | Number of values in range |
+| `(T₁, T₂, ...)` | Yes | Number of elements (statically known) |
+
+### Derivation
+
+`Len` cannot be derived. Types _must_ implement it explicitly or be built-in.
+
+### Distinction from Iterator.count()
+
+The `Len` trait is distinct from `Iterator.count()`:
+
+| | `Len.len()` | `Iterator.count()` |
+|--|------------|-------------------|
+| **Complexity** | O(1) for built-in types | O(n) — consumes the iterator |
+| **Side effects** | None — non-consuming | Consuming — iterator is exhausted |
+| **Semantics** | Current size of collection | Number of remaining elements |
+
+Iterators do _not_ implement `Len`. To count iterator elements, use `.count()`.
+
 ## Comparable Trait
 
 The `Comparable` trait provides total ordering for values.
 
 ```ori
 trait Comparable: Eq {
-    @compare (self, other: Self) -> Ordering
+    @compare (self, other: Self) -> Ordering;
 }
 ```
 
@@ -449,7 +503,7 @@ The `Hashable` trait provides hash values for map keys and set elements.
 
 ```ori
 trait Hashable: Eq {
-    @hash (self) -> int
+    @hash (self) -> int;
 }
 ```
 
@@ -488,11 +542,12 @@ Floats hash consistently with equality:
 
 ### Map Key and Set Element Requirements
 
-To use a type as a map key or set element, it must implement both `Eq` and `Hashable`:
+To use a type as a map key or set element, it must implement both `Eq` and `Hashable`.
+Using a type that does not implement `Hashable` as a map key is an error (E2031):
 
 ```ori
-let map: {Point: str} = {}  // Point must be Eq + Hashable
-let set: Set<Point> = Set.new()  // Point must be Eq + Hashable
+let map: {Point: str} = {};  // Point must be Eq + Hashable
+let set: Set<Point> = Set.new();  // Point must be Eq + Hashable
 ```
 
 ### hash_combine Function
@@ -501,7 +556,7 @@ The `hash_combine` function in the prelude mixes hash values:
 
 ```ori
 @hash_combine (seed: int, value: int) -> int =
-    seed ^ (value + 0x9e3779b9 + (seed << 6) + (seed >> 2))
+    seed ^ (value + 0x9e3779b9 + (seed << 6) + (seed >> 2));
 ```
 
 This follows the boost hash_combine pattern for good distribution. Users implementing custom `Hashable` can use this function directly.
@@ -517,7 +572,7 @@ type Point = { x: int, y: int }
 // Generated: combine field hashes using hash_combine
 ```
 
-Deriving `Hashable` without `Eq` produces a warning.
+Deriving `Hashable` without `Eq` is an error (E2029). The hash invariant requires that equal values produce equal hashes, which cannot be guaranteed without an `Eq` implementation.
 
 ## Into Trait
 
@@ -525,7 +580,7 @@ The `Into` trait provides semantic, lossless type conversions.
 
 ```ori
 trait Into<T> {
-    @into (self) -> T
+    @into (self) -> T;
 }
 ```
 
@@ -536,16 +591,16 @@ trait Into<T> {
 Conversions are always explicit. The caller must invoke `.into()`:
 
 ```ori
-let error: Error = "something went wrong".into()
+let error: Error = "something went wrong".into();
 ```
 
 When a function accepts `impl Into<T>`, the caller must still call `.into()` explicitly:
 
 ```ori
-@fail (err: impl Into<Error>) -> Never = panic(msg: err.into().message)
+@fail (err: impl Into<Error>) -> Never = panic(msg: err.into().message);
 
-fail(err: "simple message".into())  // Explicit .into() required
-fail(err: Error { message: "detailed" })  // No conversion needed
+fail(err: "simple message".into());  // Explicit .into() required
+fail(err: Error { message: "detailed" });  // No conversion needed
 ```
 
 No implicit conversion occurs at call sites. This maintains Ori's "no implicit conversions" principle.
@@ -573,14 +628,14 @@ No implicit conversion occurs at call sites. This maintains Ori's "no implicit c
 User types may implement `Into` for meaningful conversions:
 
 ```ori
-type UserId = int
+type UserId = int;
 
 impl Into<str> for UserId {
-    @into (self) -> str = `user-{self.inner}`
+    @into (self) -> str = `user-{self.inner}`;
 }
 
-let id = UserId(42)
-let s: str = id.into()  // "user-42"
+let id = UserId(42);
+let s: str = id.into();  // "user-42"
 ```
 
 ### No Blanket Identity
@@ -593,9 +648,9 @@ Conversions do not chain automatically:
 
 ```ori
 // Given: A implements Into<B>, B implements Into<C>
-let a: A = ...
-let c: C = a.into()         // ERROR: A does not implement Into<C>
-let c: C = a.into().into()  // OK: explicit A → B → C
+let a: A = ...;
+let c: C = a.into();         // ERROR: A does not implement Into<C>
+let c: C = a.into().into();  // OK: explicit A → B → C
 ```
 
 ### Orphan Rules
@@ -608,5 +663,5 @@ let c: C = a.into().into()  // OK: explicit A → B → C
 
 | Code | Description |
 |------|-------------|
-| E0960 | Type does not implement `Into<T>` |
-| E0961 | Multiple `Into` implementations apply (ambiguous) |
+| E2036 | Type does not implement `Into<T>` |
+| E2037 | Multiple `Into` implementations apply (ambiguous) |

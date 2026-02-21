@@ -45,9 +45,9 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use ori_diagnostic::Suggestion;
 
 use crate::{
-    diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx, PatternKey,
-    PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeCheckWarning, TypeErrorKind,
-    TypeProblem, TypeRegistry, UnifyEngine, UnifyError,
+    check::WellKnownNames, diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx,
+    PatternKey, PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeCheckWarning,
+    TypeErrorKind, TypeProblem, TypeRegistry, UnifyEngine, UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -97,6 +97,9 @@ pub struct InferEngine<'pool> {
     /// String interner for resolving names in error messages.
     interner: Option<&'pool StringInterner>,
 
+    /// Pre-interned well-known type names for O(1) annotation resolution.
+    well_known: Option<&'pool WellKnownNames>,
+
     /// Trait registry for where-clause validation at call sites.
     trait_registry: Option<&'pool TraitRegistry>,
 
@@ -143,6 +146,7 @@ impl<'pool> InferEngine<'pool> {
             errors: Vec::new(),
             warnings: Vec::new(),
             interner: None,
+            well_known: None,
             trait_registry: None,
             signatures: None,
             type_registry: None,
@@ -168,6 +172,7 @@ impl<'pool> InferEngine<'pool> {
             errors: Vec::new(),
             warnings: Vec::new(),
             interner: None,
+            well_known: None,
             trait_registry: None,
             signatures: None,
             type_registry: None,
@@ -184,6 +189,19 @@ impl<'pool> InferEngine<'pool> {
     /// Set the string interner for resolving names in error messages.
     pub fn set_interner(&mut self, interner: &'pool StringInterner) {
         self.interner = Some(interner);
+    }
+
+    /// Set the well-known names cache for O(1) type annotation resolution.
+    pub(crate) fn set_well_known(&mut self, wk: &'pool WellKnownNames) {
+        self.well_known = Some(wk);
+    }
+
+    /// Get the well-known names cache.
+    ///
+    /// Returns with the `'pool` lifetime so the result can be used while
+    /// mutably borrowing the engine for pool operations.
+    pub(crate) fn well_known(&self) -> Option<&'pool WellKnownNames> {
+        self.well_known
     }
 
     /// Set the trait registry for where-clause validation.

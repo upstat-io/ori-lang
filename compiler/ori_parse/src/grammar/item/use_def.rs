@@ -61,6 +61,7 @@ impl Parser<'_> {
             self.cursor.advance();
             let alias = committed!(self.cursor.expect_ident());
             let end_span = self.cursor.previous_span();
+            self.eat_optional_semicolon();
             return ParseOutcome::consumed_ok(UseDef {
                 path,
                 items: vec![],
@@ -133,6 +134,9 @@ impl Parser<'_> {
         }));
 
         let end_span = self.cursor.previous_span();
+
+        // Optional trailing `;`
+        self.eat_optional_semicolon();
 
         ParseOutcome::consumed_ok(UseDef {
             path,

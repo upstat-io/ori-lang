@@ -36,6 +36,8 @@ struct MethodNames {
     join: Name,
     // Internal (rewritten by canonicalization)
     collect_set: Name,
+    // Ordering — closure-taking method
+    then_with: Name,
 }
 
 impl MethodNames {
@@ -66,6 +68,7 @@ impl MethodNames {
             rfold: interner.intern("rfold"),
             join: interner.intern("join"),
             collect_set: interner.intern(ori_ir::builtin_constants::iterator::COLLECT_SET_METHOD),
+            then_with: interner.intern("then_with"),
         }
     }
 }
@@ -93,6 +96,10 @@ impl CollectionMethodResolver {
     }
 
     /// Resolve methods on `Iterator<T>` values.
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "linear name-to-method dispatch over 25 pre-interned iterator methods"
+    )]
     fn resolve_iterator_method(&self, method_name: Name) -> Option<CollectionMethod> {
         let m = &self.methods;
         if method_name == m.next {
@@ -204,6 +211,9 @@ impl MethodResolver for CollectionMethodResolver {
             Value::Iterator(_) => self
                 .resolve_iterator_method(method_name)
                 .map_or(MethodResolution::NotFound, MethodResolution::Collection),
+            Value::Ordering(_) if method_name == self.methods.then_with => {
+                MethodResolution::Collection(CollectionMethod::OrderingThenWith)
+            }
             _ => MethodResolution::NotFound,
         }
     }

@@ -65,7 +65,7 @@ pub use methods::TYPECK_BUILTIN_METHODS;
 pub(super) use type_resolution::resolve_and_check_parsed_type;
 pub use type_resolution::resolve_parsed_type;
 
-use ori_ir::{ExprArena, ExprId, ExprKind, Span};
+use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
 use ori_stack::ensure_sufficient_stack;
 
 use super::InferEngine;
@@ -86,6 +86,10 @@ pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Expr
 }
 
 /// Inner implementation of expression inference, dispatching on `ExprKind`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ExprKind → inference handler router"
+)]
 fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx {
     let expr = arena.get_expr(expr_id);
     let span = expr.span;
@@ -209,6 +213,7 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         // Control Flow Expressions
         ExprKind::Break { value, .. } => infer_break(engine, arena, *value, span),
         ExprKind::Continue { value, .. } => infer_continue(engine, arena, *value, span),
+        ExprKind::Unsafe(inner) => infer_expr(engine, arena, *inner),
         ExprKind::Try(inner) => infer_try(engine, arena, *inner, span),
         ExprKind::Await(inner) => infer_await(engine, arena, *inner, span),
 
@@ -242,9 +247,18 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
 
         // Template Literals
         ExprKind::TemplateLiteral { parts, .. } => {
-            // Infer each interpolated expression (for error reporting), result is always str
+            // Infer each interpolated expression and validate format specs
             for part in arena.get_template_parts(*parts) {
-                infer_expr(engine, arena, part.expr);
+                let part_ty = infer_expr(engine, arena, part.expr);
+
+                if part.format_spec == Name::EMPTY {
+                    // {expr} — requires Printable for to_str() conversion (E2038)
+                    check_interpolation_printable(engine, part_ty, span);
+                } else {
+                    // {expr:spec} — validate format spec (E2034/E2035)
+                    // Formattable requirement is implied; Printable not needed
+                    validate_format_spec(engine, part.format_spec, part_ty, span);
+                }
             }
             Idx::STR
         }
@@ -312,75 +326,10 @@ pub fn check_expr(
         }
     }
 
-    // Propagate expected type through `run(...)` to the result expression.
-    // This enables bidirectional type checking to flow through function bodies,
-    // which are always wrapped in `run(...)` (FunctionSeq::Run).
-    if let ExprKind::FunctionSeq(seq_id) = &expr.kind {
-        let func_seq = arena.get_function_seq(*seq_id);
-        if let ori_ir::FunctionSeq::Run {
-            pre_checks,
-            bindings,
-            result,
-            post_checks,
-            ..
-        } = func_seq
-        {
-            let result_ty = check_run_seq(
-                engine,
-                arena,
-                *pre_checks,
-                *bindings,
-                *result,
-                *post_checks,
-                expected,
-                span,
-            );
-            engine.store_type(expr_id.raw() as usize, result_ty);
-            return result_ty;
-        }
-    }
-
     // Default: infer the type and check against expected
     let inferred = infer_expr(engine, arena, expr_id);
     let _ = engine.check_type(inferred, expected, span);
     inferred
-}
-
-/// Bidirectional `run(...)`: propagate expected type to result expression.
-///
-/// Mirrors `infer_run_seq` but calls `check_expr` on the result expression
-/// instead of `infer_expr`, enabling expected type propagation through function
-/// bodies (which are always wrapped in `run(...)`).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "mirrors infer_run_seq signature plus expected/span"
-)]
-fn check_run_seq(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    pre_checks: ori_ir::CheckRange,
-    bindings: ori_ir::SeqBindingRange,
-    result: ExprId,
-    post_checks: ori_ir::CheckRange,
-    expected: &Expected,
-    span: Span,
-) -> Idx {
-    engine.enter_scope();
-
-    infer_pre_checks(engine, arena, pre_checks);
-
-    let seq_bindings = arena.get_seq_bindings(bindings);
-    for binding in seq_bindings {
-        infer_seq_binding(engine, arena, binding, false);
-    }
-
-    // Check result expression against expected type (bidirectional)
-    let result_ty = check_expr(engine, arena, result, expected, span);
-
-    infer_post_checks(engine, arena, post_checks, result_ty);
-
-    engine.exit_scope();
-    result_ty
 }
 
 /// Bidirectional collect: resolve `iter.collect()` to `Set<T>` when expected.
@@ -416,6 +365,108 @@ fn check_collect_to_set(
     let set_ty = engine.pool_mut().set(elem);
     engine.store_type(expr_id.raw() as usize, set_ty);
     Some(set_ty)
+}
+
+/// Validate that an interpolated expression's type implements `Printable` (E2038).
+///
+/// Follows the `check_map_key_hashable` pattern: resolve type, skip variables/errors,
+/// check primitives + compound types via `WellKnownNames`, then check user types
+/// via `TraitRegistry`.
+fn check_interpolation_printable(engine: &mut InferEngine<'_>, expr_type: Idx, span: Span) {
+    let resolved = engine.resolve(expr_type);
+    let tag = engine.pool().tag(resolved);
+
+    // Skip unresolved variables, error sentinels, and Never (coerces to anything)
+    if matches!(tag, Tag::Var | Tag::Infer | Tag::Never) || resolved == Idx::ERROR {
+        return;
+    }
+
+    // Check via WellKnownNames (primitives + compound types)
+    let satisfies_via_wellknown = {
+        engine
+            .well_known()
+            .is_some_and(|wk| wk.type_satisfies_trait(resolved, wk.printable, engine.pool()))
+    };
+    if satisfies_via_wellknown {
+        return;
+    }
+
+    // User-defined types: check trait registry for Printable impl
+    let has_impl = {
+        let printable_name = engine.well_known().map(|wk| wk.printable);
+        if let Some(p_name) = printable_name {
+            let printable_idx = engine.pool_mut().named(p_name);
+            engine
+                .trait_registry()
+                .is_some_and(|reg| reg.has_impl(printable_idx, resolved))
+        } else {
+            // No well-known cache — skip check (isolated test context)
+            return;
+        }
+    };
+    if !has_impl {
+        engine.push_error(crate::TypeCheckError::missing_printable(span, resolved));
+    }
+}
+
+/// Validate a format specification against the expression's inferred type.
+///
+/// Checks:
+/// 1. The format spec parses correctly (E2034 if not)
+/// 2. The format type is compatible with the expression type (E2035 if not):
+///    - `b`, `o`, `x`, `X` require `int`
+///    - `e`, `E`, `f`, `%` require `float`
+fn validate_format_spec(
+    engine: &mut InferEngine<'_>,
+    format_spec: Name,
+    expr_type: Idx,
+    span: Span,
+) {
+    use ori_ir::format_spec::parse_format_spec;
+
+    let Some(spec_str) = engine.lookup_name(format_spec) else {
+        return;
+    };
+
+    if spec_str.is_empty() {
+        return;
+    }
+
+    let parsed = match parse_format_spec(spec_str) {
+        Ok(p) => p,
+        Err(e) => {
+            engine.push_error(crate::TypeCheckError::invalid_format_spec(
+                span,
+                spec_str.to_owned(),
+                e.to_string(),
+            ));
+            return;
+        }
+    };
+
+    // Validate format type against expression type
+    let Some(fmt_type) = parsed.format_type else {
+        return;
+    };
+
+    let resolved = engine.resolve(expr_type);
+    let tag = engine.pool().tag(resolved);
+
+    if fmt_type.is_integer_only() && !matches!(tag, Tag::Int) {
+        engine.push_error(crate::TypeCheckError::format_type_mismatch(
+            span,
+            resolved,
+            fmt_type.name().to_owned(),
+            "int",
+        ));
+    } else if fmt_type.is_float_only() && !matches!(tag, Tag::Float) {
+        engine.push_error(crate::TypeCheckError::format_type_mismatch(
+            span,
+            resolved,
+            fmt_type.name().to_owned(),
+            "float",
+        ));
+    }
 }
 
 #[cfg(test)]

@@ -56,11 +56,10 @@ impl ArcLowerer<'_> {
         &mut self,
         pattern: ori_ir::canon::CanBindingPatternId,
         init: CanId,
-        mutable: bool,
     ) -> ArcVarId {
         let init_val = self.lower_expr(init);
         let binding = self.arena.get_binding_pattern(pattern);
-        self.bind_pattern(binding, init_val, mutable, init);
+        self.bind_pattern(binding, init_val, init);
         self.emit_unit()
     }
 
@@ -100,13 +99,18 @@ impl ArcLowerer<'_> {
         }
 
         // Then branch.
+        // After lowering, the current block may differ from `then_block`
+        // if the branch contains invoke calls (which terminate the entry
+        // block and create continuation blocks). We must jump from wherever
+        // lowering left us, not from the original entry block.
         self.builder.position_at(then_block);
         self.scope = pre_scope.clone();
         let then_val = self.lower_expr(then_branch);
         let then_scope = self.scope.clone();
         let then_terminated = self.builder.is_terminated();
+        let then_exit = self.builder.current_block();
 
-        // Else branch.
+        // Else branch (same continuation-block reasoning as above).
         self.builder.position_at(else_block);
         self.scope = pre_scope.clone();
         let else_val = if else_branch.is_valid() {
@@ -116,6 +120,7 @@ impl ArcLowerer<'_> {
         };
         let else_scope = self.scope.clone();
         let else_terminated = self.builder.is_terminated();
+        let else_exit = self.builder.current_block();
 
         // Add SSA merge parameters.
         let result_param = self.builder.add_block_param(merge_block, ty);
@@ -128,7 +133,7 @@ impl ArcLowerer<'_> {
         );
 
         if !then_terminated {
-            self.builder.position_at(then_block);
+            self.builder.position_at(then_exit);
             let mut jump_args = vec![then_val];
             for (name, _) in &rebindings {
                 let var = then_scope.lookup(*name).unwrap_or(then_val);
@@ -138,7 +143,7 @@ impl ArcLowerer<'_> {
         }
 
         if !else_terminated {
-            self.builder.position_at(else_block);
+            self.builder.position_at(else_exit);
             let mut jump_args = vec![else_val];
             for (name, _) in &rebindings {
                 let var = else_scope.lookup(*name).unwrap_or(else_val);

@@ -8,174 +8,174 @@ use std.testing { assert_eq }
 // Option<int> exhaustive
 // =============================================================================
 
-@test_option_exhaustive tests @option_exhaustive () -> void = run(
-    assert_eq(actual: option_exhaustive(Some(42)), expected: 42),
-    assert_eq(actual: option_exhaustive(None), expected: 0),
-)
+@test_option_exhaustive tests @option_exhaustive () -> void = {
+    assert_eq(actual: option_exhaustive(Some(42)), expected: 42);
+    assert_eq(actual: option_exhaustive(None), expected: 0)
+}
 
-@option_exhaustive (opt: Option<int>) -> int = match(opt,
+@option_exhaustive (opt: Option<int>) -> int = match opt {
     Some(v) -> v,
-    None -> 0,
-)
+    None -> 0
+}
 
 // =============================================================================
 // Result<int, str> exhaustive
 // =============================================================================
 
-@test_result_exhaustive tests @result_exhaustive () -> void = run(
-    assert_eq(actual: result_exhaustive(Ok(10)), expected: 10),
-    assert_eq(actual: result_exhaustive(Err("fail")), expected: -1),
-)
+@test_result_exhaustive tests @result_exhaustive () -> void = {
+    assert_eq(actual: result_exhaustive(Ok(10)), expected: 10);
+    assert_eq(actual: result_exhaustive(Err("fail")), expected: -1)
+}
 
-@result_exhaustive (res: Result<int, str>) -> int = match(res,
+@result_exhaustive (res: Result<int, str>) -> int = match res {
     Ok(v) -> v,
-    Err(_) -> -1,
-)
+    Err(_) -> -1
+}
 
 // =============================================================================
 // User-defined enum exhaustive (unit variants)
 // =============================================================================
 
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
-@test_color_exhaustive tests @color_exhaustive () -> void = run(
-    assert_eq(actual: color_exhaustive(Red), expected: "red"),
-    assert_eq(actual: color_exhaustive(Green), expected: "green"),
-    assert_eq(actual: color_exhaustive(Blue), expected: "blue"),
-)
+@test_color_exhaustive tests @color_exhaustive () -> void = {
+    assert_eq(actual: color_exhaustive(Red), expected: "red");
+    assert_eq(actual: color_exhaustive(Green), expected: "green");
+    assert_eq(actual: color_exhaustive(Blue), expected: "blue")
+}
 
-@color_exhaustive (c: Color) -> str = match(c,
+@color_exhaustive (c: Color) -> str = match c {
     Red -> "red",
     Green -> "green",
-    Blue -> "blue",
-)
+    Blue -> "blue"
+}
 
 // =============================================================================
 // User-defined enum exhaustive (variants with fields)
 // =============================================================================
 
-type Shape = Circle(radius: int) | Rectangle(width: int, height: int)
+type Shape = Circle(radius: int) | Rectangle(width: int, height: int);
 
-@test_shape_exhaustive tests @shape_exhaustive () -> void = run(
-    assert_eq(actual: shape_exhaustive(Circle(radius: 5)), expected: 5),
-    assert_eq(actual: shape_exhaustive(Rectangle(width: 3, height: 4)), expected: 12),
-)
+@test_shape_exhaustive tests @shape_exhaustive () -> void = {
+    assert_eq(actual: shape_exhaustive(Circle(radius: 5)), expected: 5);
+    assert_eq(actual: shape_exhaustive(Rectangle(width: 3, height: 4)), expected: 12)
+}
 
-@shape_exhaustive (s: Shape) -> int = match(s,
+@shape_exhaustive (s: Shape) -> int = match s {
     Circle(r) -> r,
-    Rectangle(w, h) -> w * h,
-)
+    Rectangle(w, h) -> w * h
+}
 
 // =============================================================================
 // Bool exhaustive (true, false)
 // =============================================================================
 
-@test_bool_exhaustive tests @bool_exhaustive () -> void = run(
-    assert_eq(actual: bool_exhaustive(true), expected: 1),
-    assert_eq(actual: bool_exhaustive(false), expected: 0),
-)
+@test_bool_exhaustive tests @bool_exhaustive () -> void = {
+    assert_eq(actual: bool_exhaustive(true), expected: 1);
+    assert_eq(actual: bool_exhaustive(false), expected: 0)
+}
 
-@bool_exhaustive (b: bool) -> int = match(b,
+@bool_exhaustive (b: bool) -> int = match b {
     true -> 1,
-    false -> 0,
-)
+    false -> 0
+}
 
 // =============================================================================
 // Option with wildcard fallback
 // =============================================================================
 
-@test_option_wildcard tests @option_wildcard () -> void = run(
-    assert_eq(actual: option_wildcard(Some(99)), expected: 99),
-    assert_eq(actual: option_wildcard(None), expected: -1),
-)
+@test_option_wildcard tests @option_wildcard () -> void = {
+    assert_eq(actual: option_wildcard(Some(99)), expected: 99);
+    assert_eq(actual: option_wildcard(None), expected: -1)
+}
 
-@option_wildcard (opt: Option<int>) -> int = match(opt,
+@option_wildcard (opt: Option<int>) -> int = match opt {
     Some(v) -> v,
-    _ -> -1,
-)
+    _ -> -1
+}
 
 // =============================================================================
 // Int with wildcard (infinite type)
 // =============================================================================
 
-@test_int_wildcard tests @int_wildcard () -> void = run(
-    assert_eq(actual: int_wildcard(0), expected: "zero"),
-    assert_eq(actual: int_wildcard(1), expected: "one"),
-    assert_eq(actual: int_wildcard(42), expected: "other"),
-)
+@test_int_wildcard tests @int_wildcard () -> void = {
+    assert_eq(actual: int_wildcard(0), expected: "zero");
+    assert_eq(actual: int_wildcard(1), expected: "one");
+    assert_eq(actual: int_wildcard(42), expected: "other")
+}
 
-@int_wildcard (n: int) -> str = match(n,
+@int_wildcard (n: int) -> str = match n {
     0 -> "zero",
     1 -> "one",
-    _ -> "other",
-)
+    _ -> "other"
+}
 
 // =============================================================================
 // List with rest pattern covers all lengths (empty + rest)
 // =============================================================================
 
-@test_list_empty_plus_rest tests @list_empty_plus_rest () -> void = run(
-    assert_eq(actual: list_empty_plus_rest([]), expected: "empty"),
-    assert_eq(actual: list_empty_plus_rest([1]), expected: "nonempty"),
-    assert_eq(actual: list_empty_plus_rest([1, 2, 3]), expected: "nonempty"),
-)
+@test_list_empty_plus_rest tests @list_empty_plus_rest () -> void = {
+    assert_eq(actual: list_empty_plus_rest([]), expected: "empty");
+    assert_eq(actual: list_empty_plus_rest([1]), expected: "nonempty");
+    assert_eq(actual: list_empty_plus_rest([1, 2, 3]), expected: "nonempty")
+}
 
-@list_empty_plus_rest (lst: [int]) -> str = match(lst,
+@list_empty_plus_rest (lst: [int]) -> str = match lst {
     [] -> "empty",
-    [_, ..] -> "nonempty",
-)
+    [_, ..] -> "nonempty"
+}
 
 // =============================================================================
 // List with rest-only pattern (covers everything including empty)
 // =============================================================================
 
-@test_list_rest_only tests @list_rest_only () -> void = run(
-    assert_eq(actual: list_rest_only([]), expected: 0),
-    assert_eq(actual: list_rest_only([1, 2, 3]), expected: 3),
-)
+@test_list_rest_only tests @list_rest_only () -> void = {
+    assert_eq(actual: list_rest_only([]), expected: 0);
+    assert_eq(actual: list_rest_only([1, 2, 3]), expected: 3)
+}
 
-@list_rest_only (lst: [int]) -> int = match(lst,
-    [..all] -> all.len(),
-)
+@list_rest_only (lst: [int]) -> int = match lst {
+    [..all] -> all.len()
+}
 
 // =============================================================================
 // List with multiple exact lengths + rest
 // =============================================================================
 
-@test_list_multi_exact_plus_rest tests @list_multi_exact_plus_rest () -> void = run(
-    assert_eq(actual: list_multi_exact_plus_rest([]), expected: "none"),
-    assert_eq(actual: list_multi_exact_plus_rest([1]), expected: "one"),
-    assert_eq(actual: list_multi_exact_plus_rest([1, 2]), expected: "many"),
-    assert_eq(actual: list_multi_exact_plus_rest([1, 2, 3, 4, 5]), expected: "many"),
-)
+@test_list_multi_exact_plus_rest tests @list_multi_exact_plus_rest () -> void = {
+    assert_eq(actual: list_multi_exact_plus_rest([]), expected: "none");
+    assert_eq(actual: list_multi_exact_plus_rest([1]), expected: "one");
+    assert_eq(actual: list_multi_exact_plus_rest([1, 2]), expected: "many");
+    assert_eq(actual: list_multi_exact_plus_rest([1, 2, 3, 4, 5]), expected: "many")
+}
 
-@list_multi_exact_plus_rest (lst: [int]) -> str = match(lst,
+@list_multi_exact_plus_rest (lst: [int]) -> str = match lst {
     [] -> "none",
     [_] -> "one",
-    [_, _, ..] -> "many",
-)
+    [_, _, ..] -> "many"
+}
 
 // =============================================================================
 // Never variant omitted from exhaustiveness (uninhabited variant)
 // =============================================================================
 
-type MaybeNever = Value(v: int) | Impossible(n: Never)
+type MaybeNever = Value(v: int) | Impossible(n: Never);
 
-@test_never_variant_omittable tests @never_variant_omittable () -> void = run(
-    assert_eq(actual: never_variant_omittable(Value(v: 42)), expected: 42),
-)
+@test_never_variant_omittable tests @never_variant_omittable () -> void = {
+    assert_eq(actual: never_variant_omittable(Value(v: 42)), expected: 42)
+}
 
 // Impossible(n: Never) can never be constructed, so omitting it is fine
-@never_variant_omittable (m: MaybeNever) -> int = match(m,
-    Value(v) -> v,
-)
+@never_variant_omittable (m: MaybeNever) -> int = match m {
+    Value(v) -> v
+}
 
 // Never variant can still be matched explicitly (not redundant)
-@test_never_variant_explicit tests @never_variant_explicit () -> void = run(
-    assert_eq(actual: never_variant_explicit(Value(v: 10)), expected: 10),
-)
+@test_never_variant_explicit tests @never_variant_explicit () -> void = {
+    assert_eq(actual: never_variant_explicit(Value(v: 10)), expected: 10)
+}
 
-@never_variant_explicit (m: MaybeNever) -> int = match(m,
+@never_variant_explicit (m: MaybeNever) -> int = match m {
     Value(v) -> v,
-    Impossible(_) -> 0,
-)
+    Impossible(_) -> 0
+}

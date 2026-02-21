@@ -5,4 +5,4 @@ type VeryLongTypeNameForTestingFormatterBehavior = { value: int }
 
 type AnotherExtremelyLongTypeNameUsedInThisTestFile = { field: int }
 
-@process (x: VeryLongTypeNameForTestingFormatterBehavior) -> int = x.value
+@process (x: VeryLongTypeNameForTestingFormatterBehavior) -> int = x.value;

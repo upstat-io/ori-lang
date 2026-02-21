@@ -84,6 +84,10 @@ pub enum EvalOutput {
 
 impl EvalOutput {
     /// Convert a runtime Value to a Salsa-compatible `EvalOutput`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive Value → EvalOutput conversion dispatch"
+    )]
     pub fn from_value(value: &Value, interner: &StringInterner) -> Self {
         match value {
             Value::Int(n) => EvalOutput::Int(n.raw()),
@@ -461,10 +465,11 @@ pub struct EvalErrorSnapshot {
     pub kind_name: String,
     /// The specific error code for this error kind (e.g., `E6001` for division by zero).
     ///
-    /// Populated from `error_code_for_kind()` at snapshot creation time, ensuring
-    /// the snapshot carries the exact same error code that `eval_error_to_diagnostic()`
-    /// would produce. This avoids the lossy `kind_name` → error code reverse-mapping
-    /// that `snapshot_to_diagnostic()` previously had to do (falling back to `E6099`).
+    /// Populated from `EvalErrorKind::error_code()` at snapshot creation time,
+    /// ensuring the snapshot carries the exact same error code that
+    /// `EvalError::to_diagnostic()` would produce. This avoids the lossy
+    /// `kind_name` → error code reverse-mapping that `snapshot_to_diagnostic()`
+    /// previously had to do (falling back to `E6099`).
     pub error_code: ErrorCode,
     /// Source location where the error occurred.
     pub span: Option<Span>,
@@ -495,7 +500,7 @@ impl EvalErrorSnapshot {
 
         let kind_name = err.kind.variant_name().to_string();
 
-        let error_code = crate::problem::eval::error_code_for_kind(&err.kind);
+        let error_code = err.kind.error_code();
 
         Self {
             message: err.message.clone(),

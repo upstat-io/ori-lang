@@ -56,6 +56,13 @@ pub fn format(
 }
 
 fn full_document_range(text: &str) -> Range {
+    // NOTE: This computes the range from the *original* document text,
+    // not from the formatted result. If formatting changes the number of
+    // lines (e.g., adding or removing blank lines), the range end may not
+    // cover the entire original document correctly. In practice, LSP
+    // clients handle a range that extends beyond EOF gracefully, but the
+    // range calculation is technically incorrect when formatting changes
+    // the file length.
     let lines: Vec<&str> = text.lines().collect();
     let last_line = lines.len().saturating_sub(1);
     let last_col = lines.last().map(|l| l.len()).unwrap_or(0);
@@ -103,9 +110,9 @@ let formatted = match ori_fmt::format(&doc.text) {
 Pros: Simple, non-destructive
 Cons: Silent failure
 
-### Option B: Incremental Formatting (Implemented)
+### Option B: Incremental Formatting (Available in `ori_fmt`, Not Yet Used by LSP)
 
-Use `ori_fmt::format_incremental()` to format only declarations overlapping a changed region:
+The `ori_fmt` crate provides `format_incremental()` to format only declarations overlapping a changed region. The API exists but is not yet integrated into the LSP server (which currently uses full-document formatting):
 
 ```rust
 use ori_fmt::incremental::{format_incremental, IncrementalResult, apply_regions};

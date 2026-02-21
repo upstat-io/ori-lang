@@ -1,14 +1,16 @@
 //! Control flow lowering for V2 codegen.
 //!
-//! Handles if/else, blocks, let bindings, loops, for-loops, break/continue,
+//! Handles if/else, blocks, let bindings, loops, break/continue,
 //! assignment, and match expressions.
+//!
+//! For-loop lowering lives in `lower_for_loop.rs`.
 
 use std::mem;
 
 use ori_ir::canon::{
     CanBindingPattern, CanBindingPatternId, CanExpr, CanId, CanRange, DecisionTreeId,
 };
-use ori_ir::{Name, Span};
+use ori_ir::{Mutability, Name, Span};
 use ori_types::Idx;
 
 use crate::aot::debug::DebugLevel;
@@ -118,7 +120,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         pattern: CanBindingPatternId,
         init: CanId,
-        mutable: bool,
+        mutable: Mutability,
     ) -> Option<ValueId> {
         let init_val = self.lower(init)?;
         let binding_pattern = self.canon.arena.get_binding_pattern(pattern);
@@ -188,7 +190,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         &mut self,
         pattern: &CanBindingPattern,
         val: ValueId,
-        mutable: bool,
+        mutable: Mutability,
         init_id: CanId,
     ) {
         match pattern {
@@ -198,7 +200,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             } => {
                 // Per-binding mutability: use the flag from the pattern itself
                 // to support `let ($x, y) = ...` with mixed mutability.
-                if *pat_mutable {
+                if pat_mutable.is_mutable() {
                     let init_type = self.expr_type(init_id);
                     let llvm_ty = self.resolve_type(init_type);
                     let name_str = self.resolve_name(*name).to_owned();
@@ -260,7 +262,7 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                         self.bind_pattern(sub_pattern, elem_val, mutable, init_id);
                     }
                 }
-                if let Some(_rest_name) = rest {
+                if let Some((_rest_name, _rest_mutable)) = rest {
                     tracing::warn!(
                         "list rest pattern (`...name`) not yet implemented in V2 codegen"
                     );
@@ -318,283 +320,6 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
             let result_llvm_ty = self.resolve_type(result_type);
             self.builder
                 .phi_from_incoming(result_llvm_ty, &loop_ctx.break_values, "loop.result")
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // For loop
-    // -----------------------------------------------------------------------
-
-    /// Lower `CanExpr::For { binding, iter, guard, body, is_yield }`.
-    pub(crate) fn lower_for(
-        &mut self,
-        binding: Name,
-        iter: CanId,
-        guard: CanId,
-        body: CanId,
-        is_yield: bool,
-        expr_id: CanId,
-    ) -> Option<ValueId> {
-        let iter_val = self.lower(iter)?;
-        let iter_type = self.expr_type(iter);
-        let type_info = self.type_info.get(iter_type);
-
-        match type_info {
-            super::type_info::TypeInfo::Range => {
-                self.lower_for_range(binding, iter_val, guard, body, is_yield, expr_id)
-            }
-            super::type_info::TypeInfo::List { .. } => {
-                self.lower_for_list(binding, iter_val, iter_type, guard, body, is_yield, expr_id)
-            }
-            _ => {
-                tracing::warn!(?iter_type, "for-loop over non-range/non-list type");
-                self.builder.record_codegen_error();
-                None
-            }
-        }
-    }
-
-    /// For-loop over a range.
-    fn lower_for_range(
-        &mut self,
-        binding: Name,
-        range_val: ValueId,
-        guard: CanId,
-        body: CanId,
-        is_yield: bool,
-        expr_id: CanId,
-    ) -> Option<ValueId> {
-        // Extract range components
-        let start = self.builder.extract_value(range_val, 0, "range.start")?;
-        let end = self.builder.extract_value(range_val, 1, "range.end")?;
-        let inclusive = self.builder.extract_value(range_val, 2, "range.incl")?;
-
-        // Yield setup: allocate list buffer and write index
-        let yield_ctx = if is_yield {
-            Some(self.setup_yield_context(start, end, inclusive, expr_id)?)
-        } else {
-            None
-        };
-
-        let entry_bb = self.builder.current_block()?;
-        let header_bb = self
-            .builder
-            .append_block(self.current_function, "for.header");
-        let body_bb = self.builder.append_block(self.current_function, "for.body");
-        let latch_bb = self
-            .builder
-            .append_block(self.current_function, "for.latch");
-        let exit_bb = self.builder.append_block(self.current_function, "for.exit");
-
-        self.builder.br(header_bb);
-
-        // Header: phi for induction variable + bounds check
-        self.builder.position_at_end(header_bb);
-        let i64_ty = self.builder.i64_type();
-        let i_phi = self.builder.phi(i64_ty, "for.i");
-        self.builder.add_phi_incoming(i_phi, &[(start, entry_bb)]);
-
-        // Bounds check: i < end (or i <= end if inclusive)
-        let cmp_lt = self.builder.icmp_slt(i_phi, end, "for.lt");
-        let cmp_eq = self.builder.icmp_eq(i_phi, end, "for.eq");
-        let incl_ok = self.builder.and(inclusive, cmp_eq, "for.incl_ok");
-        let in_bounds = self.builder.or(cmp_lt, incl_ok, "for.inbounds");
-
-        // Apply guard if present
-        let cond = if guard.is_valid() {
-            self.builder.cond_br(in_bounds, body_bb, exit_bb);
-            self.builder.position_at_end(body_bb);
-
-            // Bind the loop variable so guard can reference it
-            self.scope.bind_immutable(binding, i_phi);
-            let guard_val = self.lower(guard)?;
-
-            let guarded_body_bb = self
-                .builder
-                .append_block(self.current_function, "for.guarded");
-            self.builder.cond_br(guard_val, guarded_body_bb, latch_bb);
-            self.builder.position_at_end(guarded_body_bb);
-            guard_val
-        } else {
-            self.builder.cond_br(in_bounds, body_bb, exit_bb);
-            self.builder.position_at_end(body_bb);
-
-            // Bind the loop variable
-            self.scope.bind_immutable(binding, i_phi);
-            in_bounds
-        };
-        let _ = cond;
-
-        // Save/set loop context — continue goes to latch
-        let prev_loop = self.loop_ctx.take();
-        self.loop_ctx = Some(LoopContext {
-            exit_block: exit_bb,
-            continue_block: latch_bb,
-            break_values: Vec::new(),
-        });
-
-        // Body
-        let body_val = self.lower(body);
-
-        // Yield: store body value into the output list
-        if let (Some(ref yc), Some(bv)) = (&yield_ctx, body_val) {
-            self.emit_yield_store(yc, bv);
-        }
-
-        if !self.builder.current_block_terminated() {
-            self.builder.br(latch_bb);
-        }
-
-        // Latch: increment and back-edge
-        self.builder.position_at_end(latch_bb);
-        let one = self.builder.const_i64(1);
-        let next = self.builder.add(i_phi, one, "for.next");
-        self.builder.add_phi_incoming(i_phi, &[(next, latch_bb)]);
-        self.builder.br(header_bb);
-
-        // Restore loop context
-        let loop_ctx = self.loop_ctx.take().unwrap();
-        self.loop_ctx = prev_loop;
-
-        // Exit
-        self.builder.position_at_end(exit_bb);
-
-        // Yield: build and return the list struct
-        if let Some(yc) = yield_ctx {
-            return self.finish_yield_list(&yc, expr_id);
-        }
-
-        if loop_ctx.break_values.is_empty() {
-            Some(self.builder.const_i64(0))
-        } else {
-            let unit_ty = self.builder.unit_type();
-            self.builder
-                .phi_from_incoming(unit_ty, &loop_ctx.break_values, "for.result")
-        }
-    }
-
-    /// For-loop over a list.
-    fn lower_for_list(
-        &mut self,
-        binding: Name,
-        list_val: ValueId,
-        list_type: Idx,
-        guard: CanId,
-        body: CanId,
-        is_yield: bool,
-        expr_id: CanId,
-    ) -> Option<ValueId> {
-        // List = {i64 len, i64 cap, ptr data}
-        let len = self.builder.extract_value(list_val, 0, "list.len")?;
-        let data_ptr = self.builder.extract_value(list_val, 2, "list.data")?;
-
-        // Get element type from TypeInfo
-        let elem_idx = match self.type_info.get(list_type) {
-            super::type_info::TypeInfo::List { element } => element,
-            _ => Idx::INT,
-        };
-        let elem_llvm_ty = self.resolve_type(elem_idx);
-
-        // Yield setup: allocate output list using source list length as capacity
-        let yield_ctx = if is_yield {
-            Some(self.setup_yield_context_with_capacity(len, expr_id)?)
-        } else {
-            None
-        };
-
-        let entry_bb = self.builder.current_block()?;
-        let header_bb = self
-            .builder
-            .append_block(self.current_function, "forlist.header");
-        let body_bb = self
-            .builder
-            .append_block(self.current_function, "forlist.body");
-        let latch_bb = self
-            .builder
-            .append_block(self.current_function, "forlist.latch");
-        let exit_bb = self
-            .builder
-            .append_block(self.current_function, "forlist.exit");
-
-        let zero = self.builder.const_i64(0);
-        self.builder.br(header_bb);
-
-        // Header: index phi + bounds check
-        self.builder.position_at_end(header_bb);
-        let i64_ty = self.builder.i64_type();
-        let idx_phi = self.builder.phi(i64_ty, "forlist.idx");
-        self.builder.add_phi_incoming(idx_phi, &[(zero, entry_bb)]);
-
-        let in_bounds = self.builder.icmp_slt(idx_phi, len, "forlist.inbounds");
-        self.builder.cond_br(in_bounds, body_bb, exit_bb);
-
-        // Body: load element, bind, execute body
-        self.builder.position_at_end(body_bb);
-        let elem_ptr = self
-            .builder
-            .gep(elem_llvm_ty, data_ptr, &[idx_phi], "forlist.elem_ptr");
-        let elem_val = self.builder.load(elem_llvm_ty, elem_ptr, "forlist.elem");
-
-        // Handle guard
-        if guard.is_valid() {
-            self.scope.bind_immutable(binding, elem_val);
-            let guard_val = self.lower(guard);
-            if let Some(gv) = guard_val {
-                let guarded_bb = self
-                    .builder
-                    .append_block(self.current_function, "forlist.guarded");
-                self.builder.cond_br(gv, guarded_bb, latch_bb);
-                self.builder.position_at_end(guarded_bb);
-            }
-        } else {
-            self.scope.bind_immutable(binding, elem_val);
-        }
-
-        // Save/set loop context
-        let prev_loop = self.loop_ctx.take();
-        self.loop_ctx = Some(LoopContext {
-            exit_block: exit_bb,
-            continue_block: latch_bb,
-            break_values: Vec::new(),
-        });
-
-        let body_val = self.lower(body);
-
-        // Yield: store body value into the output list
-        if let (Some(ref yc), Some(bv)) = (&yield_ctx, body_val) {
-            self.emit_yield_store(yc, bv);
-        }
-
-        if !self.builder.current_block_terminated() {
-            self.builder.br(latch_bb);
-        }
-
-        // Latch
-        self.builder.position_at_end(latch_bb);
-        let one = self.builder.const_i64(1);
-        let next_idx = self.builder.add(idx_phi, one, "forlist.next");
-        self.builder
-            .add_phi_incoming(idx_phi, &[(next_idx, latch_bb)]);
-        self.builder.br(header_bb);
-
-        // Restore loop context
-        let loop_ctx = self.loop_ctx.take().unwrap();
-        self.loop_ctx = prev_loop;
-
-        // Exit
-        self.builder.position_at_end(exit_bb);
-
-        // Yield: build and return the list struct
-        if let Some(yc) = yield_ctx {
-            return self.finish_yield_list(&yc, expr_id);
-        }
-
-        if loop_ctx.break_values.is_empty() {
-            Some(self.builder.const_i64(0))
-        } else {
-            let unit_ty = self.builder.unit_type();
-            self.builder
-                .phi_from_incoming(unit_ty, &loop_ctx.break_values, "forlist.result")
         }
     }
 
@@ -798,113 +523,4 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
                 .phi_from_incoming(result_llvm_ty, &incoming, "match.result")
         }
     }
-
-    // -----------------------------------------------------------------------
-    // For-yield helpers
-    // -----------------------------------------------------------------------
-
-    /// Context for a for-yield loop: the allocated buffer and write index.
-    fn setup_yield_context(
-        &mut self,
-        start: ValueId,
-        end: ValueId,
-        inclusive: ValueId,
-        expr_id: CanId,
-    ) -> Option<YieldContext> {
-        // Compute capacity: end - start + (inclusive ? 1 : 0)
-        // Clamp to 0 if negative (start > end).
-        let diff = self.builder.sub(end, start, "yield.diff");
-        let one = self.builder.const_i64(1);
-        let zero = self.builder.const_i64(0);
-        let incl_extra = self
-            .builder
-            .select(inclusive, one, zero, "yield.incl_extra");
-        let raw_cap = self.builder.add(diff, incl_extra, "yield.raw_cap");
-        let is_neg = self.builder.icmp_slt(raw_cap, zero, "yield.neg");
-        let cap = self.builder.select(is_neg, zero, raw_cap, "yield.cap");
-
-        self.setup_yield_context_with_capacity(cap, expr_id)
-    }
-
-    /// Setup yield context with a pre-computed capacity value.
-    fn setup_yield_context_with_capacity(
-        &mut self,
-        cap: ValueId,
-        expr_id: CanId,
-    ) -> Option<YieldContext> {
-        let result_type = self.expr_type(expr_id);
-        let type_info = self.type_info.get(result_type);
-        let elem_idx = match &type_info {
-            super::type_info::TypeInfo::List { element } => *element,
-            _ => ori_types::Idx::INT,
-        };
-        let elem_llvm_ty = self.resolve_type(elem_idx);
-        let elem_size = self.type_info.get(elem_idx).size().unwrap_or(8);
-
-        // Allocate raw data buffer: ori_list_alloc_data(capacity, elem_size) -> *mut u8
-        let esize = self.builder.const_i64(elem_size as i64);
-        let i64_ty = self.builder.i64_type();
-        let i64_ty2 = self.builder.i64_type();
-        let ptr_ty = self.builder.ptr_type();
-        let alloc_data =
-            self.builder
-                .get_or_declare_function("ori_list_alloc_data", &[i64_ty, i64_ty2], ptr_ty);
-        let data_ptr = self.builder.call(alloc_data, &[cap, esize], "yield.data")?;
-
-        // Write index alloca at function entry (for mem2reg promotion)
-        let i64_llvm = self.builder.i64_type();
-        let write_idx =
-            self.builder
-                .create_entry_alloca(self.current_function, "yield.widx", i64_llvm);
-        let zero = self.builder.const_i64(0);
-        self.builder.store(zero, write_idx);
-
-        Some(YieldContext {
-            data_ptr,
-            write_idx,
-            cap,
-            elem_llvm_ty,
-        })
-    }
-
-    /// Store a body value into the yield output list and increment write index.
-    fn emit_yield_store(&mut self, yc: &YieldContext, body_val: ValueId) {
-        let i64_ty = self.builder.i64_type();
-        let widx = self.builder.load(i64_ty, yc.write_idx, "yield.widx_cur");
-
-        // Store element at data[write_idx]
-        let elem_ptr = self
-            .builder
-            .gep(yc.elem_llvm_ty, yc.data_ptr, &[widx], "yield.elem_ptr");
-        self.builder.store(body_val, elem_ptr);
-
-        // Increment write index
-        let one = self.builder.const_i64(1);
-        let next_widx = self.builder.add(widx, one, "yield.widx_next");
-        self.builder.store(next_widx, yc.write_idx);
-    }
-
-    /// Build the final list struct from yield context after the loop completes.
-    fn finish_yield_list(&mut self, yc: &YieldContext, expr_id: CanId) -> Option<ValueId> {
-        let i64_ty = self.builder.i64_type();
-        let final_len = self.builder.load(i64_ty, yc.write_idx, "yield.final_len");
-        let result_type = self.expr_type(expr_id);
-        let list_ty = self.resolve_type(result_type);
-        Some(
-            self.builder
-                .build_struct(list_ty, &[final_len, yc.cap, yc.data_ptr], "yield.list"),
-        )
-    }
-}
-
-/// Temporary state for for-yield list construction.
-struct YieldContext {
-    /// Pointer to the allocated data buffer.
-    data_ptr: ValueId,
-    /// Alloca holding the current write index (mutable counter).
-    write_idx: ValueId,
-    /// Allocated capacity of the buffer.
-    cap: ValueId,
-    /// LLVM type of each element (for GEP sizing).
-    elem_llvm_ty: super::value_id::LLVMTypeId,
 }

@@ -50,7 +50,9 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.add_cold_attribute(panic_cstr);
 
     // -- Entry point wrapper --
-    // ori_run_main wraps @main with catch_unwind for clean panic handling
+    // ori_run_main wraps @main with catch_unwind for clean panic handling.
+    // Parameter is `extern "C" fn()` but declared as `ptr` — LLVM opaque
+    // pointers erase the distinction, so both are ABI-compatible.
     builder.declare_extern_function("ori_run_main", &[ptr_ty], Some(i32_ty));
 
     // -- Assertion functions --
@@ -78,11 +80,40 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_str_eq", &[ptr_ty, ptr_ty], Some(bool_ty));
     builder.declare_extern_function("ori_str_ne", &[ptr_ty, ptr_ty], Some(bool_ty));
     builder.declare_extern_function("ori_str_compare", &[ptr_ty, ptr_ty], Some(i8_ty));
+    builder.declare_extern_function("ori_str_hash", &[ptr_ty], Some(i64_ty));
+
+    // -- String iteration --
+    // ori_str_next_char(data: ptr, len: i64, byte_offset: i64) -> {i32 codepoint, i64 next_offset}
+    let char_result_ty = builder.register_type(
+        builder
+            .scx()
+            .type_struct(
+                &[
+                    builder.scx().type_i32().into(),
+                    builder.scx().type_i64().into(),
+                ],
+                false,
+            )
+            .into(),
+    );
+    builder.declare_extern_function(
+        "ori_str_next_char",
+        &[ptr_ty, i64_ty, i64_ty],
+        Some(char_result_ty),
+    );
 
     // -- Type conversion functions --
     builder.declare_extern_function("ori_str_from_int", &[i64_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_bool", &[bool_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_float", &[f64_ty], Some(str_ty));
+
+    // -- Format functions (§3.16 Formattable trait) --
+    // Each takes the value + format spec string (ptr + len) and returns formatted OriStr.
+    builder.declare_extern_function("ori_format_int", &[i64_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_float", &[f64_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_str", &[ptr_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_bool", &[bool_ty, ptr_ty, i64_ty], Some(str_ty));
+    builder.declare_extern_function("ori_format_char", &[i32_ty, ptr_ty, i64_ty], Some(str_ty));
 
     // -- Reference counting (V2: data-pointer style, 8-byte header) --
     //
@@ -134,6 +165,48 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
             .into(),
     );
     builder.declare_extern_function("ori_args_from_argv", &[i32_ty, ptr_ty], Some(list_ty));
+
+    // -- Iterator functions --
+    // Constructors: return opaque iterator handle (ptr)
+    builder.declare_extern_function(
+        "ori_iter_from_list",
+        &[ptr_ty, i64_ty, i64_ty],
+        Some(ptr_ty),
+    );
+    builder.declare_extern_function(
+        "ori_iter_from_range",
+        &[i64_ty, i64_ty, i64_ty, bool_ty],
+        Some(ptr_ty),
+    );
+
+    // Next: ori_iter_next(iter, out_ptr, elem_size) -> i8 (0=done, 1=has_next)
+    builder.declare_extern_function("ori_iter_next", &[ptr_ty, ptr_ty, i64_ty], Some(i8_ty));
+
+    // Adapters: take source handle, return new handle
+    // ori_iter_map(iter, transform_fn, transform_env, in_size) -> ptr
+    builder.declare_extern_function(
+        "ori_iter_map",
+        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        Some(ptr_ty),
+    );
+    // ori_iter_filter(iter, predicate_fn, predicate_env, elem_size) -> ptr
+    builder.declare_extern_function(
+        "ori_iter_filter",
+        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
+        Some(ptr_ty),
+    );
+    builder.declare_extern_function("ori_iter_take", &[ptr_ty, i64_ty], Some(ptr_ty));
+    builder.declare_extern_function("ori_iter_skip", &[ptr_ty, i64_ty], Some(ptr_ty));
+    builder.declare_extern_function("ori_iter_enumerate", &[ptr_ty], Some(ptr_ty));
+
+    // Consumers
+    // ori_iter_collect(iter, elem_size, out_ptr) -> void (sret pattern)
+    builder.declare_extern_function("ori_iter_collect", &[ptr_ty, i64_ty, ptr_ty], void);
+    // ori_iter_count(iter, elem_size) -> i64
+    builder.declare_extern_function("ori_iter_count", &[ptr_ty, i64_ty], Some(i64_ty));
+
+    // Cleanup
+    builder.declare_extern_function("ori_iter_drop", &[ptr_ty], void);
 
     // -- Panic handler registration --
     builder.declare_extern_function("ori_register_panic_handler", &[ptr_ty], void);

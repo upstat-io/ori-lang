@@ -8,198 +8,198 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // Simple mutable assignment
-@test_mutable_basic tests @mutable_basic () -> void = run(
-    assert_eq(actual: mutable_basic(), expected: 10),
-)
+@test_mutable_basic tests @mutable_basic () -> void = {
+    assert_eq(actual: mutable_basic(), expected: 10)
+}
 
-@mutable_basic () -> int = run(
-    let mut x = 5,
-    x = 10,
-    x,
-)
+@mutable_basic () -> int = {
+    let x = 5;
+    x = 10;
+    x
+}
 
 // Multiple reassignments
-@test_mutable_multiple_assign tests @mutable_multiple_assign () -> void = run(
-    assert_eq(actual: mutable_multiple_assign(), expected: 4),
-)
+@test_mutable_multiple_assign tests @mutable_multiple_assign () -> void = {
+    assert_eq(actual: mutable_multiple_assign(), expected: 4)
+}
 
-@mutable_multiple_assign () -> int = run(
-    let mut x = 1,
-    x = 2,
-    x = 3,
-    x = 4,
-    x,
-)
+@mutable_multiple_assign () -> int = {
+    let x = 1;
+    x = 2;
+    x = 3;
+    x = 4;
+    x
+}
 
 // Mutable with arithmetic
-@test_mutable_arithmetic tests @mutable_arithmetic () -> void = run(
-    assert_eq(actual: mutable_arithmetic(), expected: 6),
-)
+@test_mutable_arithmetic tests @mutable_arithmetic () -> void = {
+    assert_eq(actual: mutable_arithmetic(), expected: 6)
+}
 
-@mutable_arithmetic () -> int = run(
-    let mut count = 0,
-    count = count + 1,
-    count = count + 2,
-    count = count + 3,
-    count,
-)
+@mutable_arithmetic () -> int = {
+    let count = 0;
+    count = count + 1;
+    count = count + 2;
+    count = count + 3;
+    count
+}
 
 // =============================================================================
 // Mutable variables in loops (the original bug)
 // =============================================================================
 
 // Mutable counter in loop - this was the failing case
-@test_mutable_loop tests @mutable_loop () -> void = run(
-    assert_eq(actual: mutable_loop(), expected: 3),
-)
+@test_mutable_loop tests @mutable_loop () -> void = {
+    assert_eq(actual: mutable_loop(), expected: 3)
+}
 
-@mutable_loop () -> int = run(
-    let mut count = 0,
-    loop(run(
-        count = count + 1,
-        if count >= 3 then break,
-    )),
-    count,
-)
+@mutable_loop () -> int = {
+    let count = 0;
+    loop {
+        count = count + 1;
+        if count >= 3 then break
+    };
+    count
+}
 
 // Mutable accumulator with for loop
-@test_mutable_sum tests @mutable_sum () -> void = run(
-    assert_eq(actual: mutable_sum(), expected: 15),
-)
+@test_mutable_sum tests @mutable_sum () -> void = {
+    assert_eq(actual: mutable_sum(), expected: 15)
+}
 
-@mutable_sum () -> int = run(
-    let mut sum = 0,
-    for i in 1..=5 do sum = sum + i,
-    sum,
-)
+@mutable_sum () -> int = {
+    let sum = 0;
+    for i in 1..=5 do sum = sum + i;
+    sum
+}
 
 // Mutable with while-like loop pattern
-@test_mutable_while_pattern tests @mutable_while_pattern () -> void = run(
-    assert_eq(actual: mutable_while_pattern(), expected: 55),
-)
+@test_mutable_while_pattern tests @mutable_while_pattern () -> void = {
+    assert_eq(actual: mutable_while_pattern(), expected: 55)
+}
 
-@mutable_while_pattern () -> int = run(
-    let mut n = 10,
-    let mut result = 0,
-    loop(run(
-        if n == 0 then break,
-        result = result + n,
-        n = n - 1,
-    )),
-    result,
-)
+@mutable_while_pattern () -> int = {
+    let n = 10;
+    let result = 0;
+    loop {
+        if n == 0 then break;
+        result = result + n;
+        n = n - 1
+    };
+    result
+}
 
 // Nested loops with mutable
-@test_mutable_nested_loops tests @mutable_nested_loops () -> void = run(
-    assert_eq(actual: mutable_nested_loops(), expected: 18),
-)
+@test_mutable_nested_loops tests @mutable_nested_loops () -> void = {
+    assert_eq(actual: mutable_nested_loops(), expected: 18)
+}
 
-@mutable_nested_loops () -> int = run(
-    let mut total = 0,
+@mutable_nested_loops () -> int = {
+    let total = 0;
     for i in 1..=3 do
         for j in 1..=2 do
-            total = total + i * j,
-    total,
-)
+            total = total + i * j;
+    total
+}
 
 // =============================================================================
 // Immutable variables (should still work)
 // =============================================================================
 
 // Immutable basic
-@test_immutable tests @immutable_var () -> void = run(
-    assert_eq(actual: immutable_var(), expected: 6),
-)
+@test_immutable tests @immutable_var () -> void = {
+    assert_eq(actual: immutable_var(), expected: 6)
+}
 
-@immutable_var () -> int = run(let x = 5, x + 1)
+@immutable_var () -> int = {let x = 5; x + 1}
 
 // Immutable in expression
-@test_immutable_expr tests @immutable_expr () -> void = run(
-    assert_eq(actual: immutable_expr(), expected: 25),
-)
+@test_immutable_expr tests @immutable_expr () -> void = {
+    assert_eq(actual: immutable_expr(), expected: 25)
+}
 
-@immutable_expr () -> int = run(
-    let x = 3,
-    let y = 4,
-    x * x + y * y,
-)
+@immutable_expr () -> int = {
+    let x = 3;
+    let y = 4;
+    x * x + y * y
+}
 
 // =============================================================================
 // Mixed mutable and immutable
 // =============================================================================
 
 // Mix of mutable and immutable
-@test_mixed_mutability tests @mixed_mutability () -> void = run(
-    assert_eq(actual: mixed_mutability(), expected: 55),
-)
+@test_mixed_mutability tests @mixed_mutability () -> void = {
+    assert_eq(actual: mixed_mutability(), expected: 55)
+}
 
-@mixed_mutability () -> int = run(
-    let immut = 10,
-    let mut accum = 0,
-    for i in 1..=immut do accum = accum + i,
-    accum,
-)
+@mixed_mutability () -> int = {
+    let immut = 10;
+    let accum = 0;
+    for i in 1..=immut do accum = accum + i;
+    accum
+}
 
 // Shadowing with different mutability
-@test_shadow_mutability tests @shadow_mutability () -> void = run(
-    assert_eq(actual: shadow_mutability(), expected: 11),
-)
+@test_shadow_mutability tests @shadow_mutability () -> void = {
+    assert_eq(actual: shadow_mutability(), expected: 11)
+}
 
-@shadow_mutability () -> int = run(
-    let x = 5,
-    let mut x = x * 2,
-    x = x + 1,
-    x,
-)
+@shadow_mutability () -> int = {
+    let x = 5;
+    let x = x * 2;
+    x = x + 1;
+    x
+}
 
 // =============================================================================
 // Tuple destructuring with mutable
 // =============================================================================
 
 // Mutable tuple elements
-@test_mutable_tuple tests @mutable_tuple () -> void = run(
-    assert_eq(actual: mutable_tuple(), expected: 33),
-)
+@test_mutable_tuple tests @mutable_tuple () -> void = {
+    assert_eq(actual: mutable_tuple(), expected: 33)
+}
 
-@mutable_tuple () -> int = run(
-    let mut (a, b) = (1, 2),
-    a = a + 10,
-    b = b + 20,
-    a + b,
-)
+@mutable_tuple () -> int = {
+    let (a, b) = (1, 2);
+    a = a + 10;
+    b = b + 20;
+    a + b
+}
 
 // =============================================================================
 // Edge cases
 // =============================================================================
 
 // Mutable that's never reassigned (should still work)
-@test_mutable_no_assign tests @mutable_no_assign () -> void = run(
-    assert_eq(actual: mutable_no_assign(), expected: 42),
-)
+@test_mutable_no_assign tests @mutable_no_assign () -> void = {
+    assert_eq(actual: mutable_no_assign(), expected: 42)
+}
 
-@mutable_no_assign () -> int = run(
-    let mut x = 42,
-    x,
-)
+@mutable_no_assign () -> int = {
+    let x = 42;
+    x
+}
 
 // Mutable initialized to 0
-@test_mutable_zero tests @mutable_zero () -> void = run(
-    assert_eq(actual: mutable_zero(), expected: 1),
-)
+@test_mutable_zero tests @mutable_zero () -> void = {
+    assert_eq(actual: mutable_zero(), expected: 1)
+}
 
-@mutable_zero () -> int = run(
-    let mut x = 0,
-    x = x + 1,
-    x,
-)
+@mutable_zero () -> int = {
+    let x = 0;
+    x = x + 1;
+    x
+}
 
 // Negative values
-@test_mutable_negative tests @mutable_negative () -> void = run(
-    assert_eq(actual: mutable_negative(), expected: -8),
-)
+@test_mutable_negative tests @mutable_negative () -> void = {
+    assert_eq(actual: mutable_negative(), expected: -8)
+}
 
-@mutable_negative () -> int = run(
-    let mut x = -5,
-    x = x - 3,
-    x,
-)
+@mutable_negative () -> int = {
+    let x = -5;
+    x = x - 3;
+    x
+}

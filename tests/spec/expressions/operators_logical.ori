@@ -7,396 +7,396 @@ use std.testing { assert, assert_eq }
 // Logical AND (&&)
 // =============================================================================
 
-@test_and_true_true tests @and_true_true () -> void = run(
-    assert(cond: and_true_true()),
-)
+@test_and_true_true tests @and_true_true () -> void = {
+    assert(cond: and_true_true())
+}
 
-@and_true_true () -> bool = true && true
+@and_true_true () -> bool = true && true;
 
-@test_and_true_false tests @and_true_false () -> void = run(
-    assert(cond: !and_true_false()),
-)
+@test_and_true_false tests @and_true_false () -> void = {
+    assert(cond: !and_true_false())
+}
 
-@and_true_false () -> bool = true && false
+@and_true_false () -> bool = true && false;
 
-@test_and_false_true tests @and_false_true () -> void = run(
-    assert(cond: !and_false_true()),
-)
+@test_and_false_true tests @and_false_true () -> void = {
+    assert(cond: !and_false_true())
+}
 
-@and_false_true () -> bool = false && true
+@and_false_true () -> bool = false && true;
 
-@test_and_false_false tests @and_false_false () -> void = run(
-    assert(cond: !and_false_false()),
-)
+@test_and_false_false tests @and_false_false () -> void = {
+    assert(cond: !and_false_false())
+}
 
-@and_false_false () -> bool = false && false
+@and_false_false () -> bool = false && false;
 
-@test_and_chain tests @and_chain () -> void = run(
-    assert(cond: true && true && true),
-    assert(cond: !(true && true && false)),
-    assert(cond: !(false && true && true)),
-)
+@test_and_chain tests @and_chain () -> void = {
+    assert(cond: true && true && true);
+    assert(cond: !(true && true && false));
+    assert(cond: !(false && true && true))
+}
 
-@and_chain () -> bool = true && true && true
+@and_chain () -> bool = true && true && true;
 
 // =============================================================================
 // Logical OR (||)
 // =============================================================================
 
-@test_or_true_true tests @or_true_true () -> void = run(
-    assert(cond: or_true_true()),
-)
+@test_or_true_true tests @or_true_true () -> void = {
+    assert(cond: or_true_true())
+}
 
-@or_true_true () -> bool = true || true
+@or_true_true () -> bool = true || true;
 
-@test_or_true_false tests @or_true_false () -> void = run(
-    assert(cond: or_true_false()),
-)
+@test_or_true_false tests @or_true_false () -> void = {
+    assert(cond: or_true_false())
+}
 
-@or_true_false () -> bool = true || false
+@or_true_false () -> bool = true || false;
 
-@test_or_false_true tests @or_false_true () -> void = run(
-    assert(cond: or_false_true()),
-)
+@test_or_false_true tests @or_false_true () -> void = {
+    assert(cond: or_false_true())
+}
 
-@or_false_true () -> bool = false || true
+@or_false_true () -> bool = false || true;
 
-@test_or_false_false tests @or_false_false () -> void = run(
-    assert(cond: !or_false_false()),
-)
+@test_or_false_false tests @or_false_false () -> void = {
+    assert(cond: !or_false_false())
+}
 
-@or_false_false () -> bool = false || false
+@or_false_false () -> bool = false || false;
 
-@test_or_chain tests @or_chain () -> void = run(
-    assert(cond: true || false || false),
-    assert(cond: false || false || true),
-    assert(cond: !(false || false || false)),
-)
+@test_or_chain tests @or_chain () -> void = {
+    assert(cond: true || false || false);
+    assert(cond: false || false || true);
+    assert(cond: !(false || false || false))
+}
 
-@or_chain () -> bool = true || false || false
+@or_chain () -> bool = true || false || false;
 
 // =============================================================================
 // Logical NOT (!)
 // =============================================================================
 
-@test_not_true tests @not_true () -> void = run(
-    assert(cond: !not_true()),
-)
+@test_not_true tests @not_true () -> void = {
+    assert(cond: !not_true())
+}
 
-@not_true () -> bool = !true
+@not_true () -> bool = !true;
 
-@test_not_false tests @not_false () -> void = run(
-    assert(cond: not_false()),
-)
+@test_not_false tests @not_false () -> void = {
+    assert(cond: not_false())
+}
 
-@not_false () -> bool = !false
+@not_false () -> bool = !false;
 
-@test_double_not tests @double_not () -> void = run(
-    assert(cond: double_not()),
-)
+@test_double_not tests @double_not () -> void = {
+    assert(cond: double_not())
+}
 
-@double_not () -> bool = !!true
+@double_not () -> bool = !!true;
 
-@test_triple_not tests @triple_not () -> void = run(
-    assert(cond: !triple_not()),
-)
+@test_triple_not tests @triple_not () -> void = {
+    assert(cond: !triple_not())
+}
 
-@triple_not () -> bool = !!!true
+@triple_not () -> bool = !!!true;
 
 // =============================================================================
 // Short-Circuit AND
 // =============================================================================
 
-@test_and_short_circuit tests @and_short_circuit () -> void = run(
+@test_and_short_circuit tests @and_short_circuit () -> void = {
     // false && X should not evaluate X
-    let result = false && panic(msg: "should not execute"),
-    assert(cond: !result),
-)
+    let result = false && panic(msg: "should not execute");
+    assert(cond: !result)
+}
 
-@and_short_circuit () -> bool = false && panic(msg: "should not execute")
+@and_short_circuit () -> bool = false && panic(msg: "should not execute");
 
-@test_and_short_circuit_side_effect tests @and_short_circuit_side_effect () -> void = run(
+@test_and_short_circuit_side_effect tests @and_short_circuit_side_effect () -> void = {
     // When left is false, right side effect should not occur
-    let x = 0,
-    let result = false && run(x = 100, true),
-    assert_eq(actual: x, expected: 0),
-    assert(cond: !result),
-)
+    let x = 0;
+    let result = false && {x = 100; true};
+    assert_eq(actual: x, expected: 0);
+    assert(cond: !result)
+}
 
-@and_short_circuit_side_effect () -> bool = run(
-    let x = 0,
-    false && run(x = 100, true),
-)
+@and_short_circuit_side_effect () -> bool = {
+    let x = 0;
+    false && {x = 100; true}
+}
 
-@test_and_no_short_circuit tests @and_no_short_circuit () -> void = run(
+@test_and_no_short_circuit tests @and_no_short_circuit () -> void = {
     // When left is true, right should be evaluated
-    let x = 0,
-    let result = true && run(x = 100, true),
-    assert_eq(actual: x, expected: 100),
-    assert(cond: result),
-)
+    let x = 0;
+    let result = true && {x = 100; true};
+    assert_eq(actual: x, expected: 100);
+    assert(cond: result)
+}
 
-@and_no_short_circuit () -> bool = run(
-    let x = 0,
-    true && run(x = 100, true),
-)
+@and_no_short_circuit () -> bool = {
+    let x = 0;
+    true && {x = 100; true}
+}
 
 // =============================================================================
 // Short-Circuit OR
 // =============================================================================
 
-@test_or_short_circuit tests @or_short_circuit () -> void = run(
+@test_or_short_circuit tests @or_short_circuit () -> void = {
     // true || X should not evaluate X
-    let result = true || panic(msg: "should not execute"),
-    assert(cond: result),
-)
+    let result = true || panic(msg: "should not execute");
+    assert(cond: result)
+}
 
-@or_short_circuit () -> bool = true || panic(msg: "should not execute")
+@or_short_circuit () -> bool = true || panic(msg: "should not execute");
 
-@test_or_short_circuit_side_effect tests @or_short_circuit_side_effect () -> void = run(
+@test_or_short_circuit_side_effect tests @or_short_circuit_side_effect () -> void = {
     // When left is true, right side effect should not occur
-    let x = 0,
-    let result = true || run(x = 100, false),
-    assert_eq(actual: x, expected: 0),
-    assert(cond: result),
-)
+    let x = 0;
+    let result = true || {x = 100; false};
+    assert_eq(actual: x, expected: 0);
+    assert(cond: result)
+}
 
-@or_short_circuit_side_effect () -> bool = run(
-    let x = 0,
-    true || run(x = 100, false),
-)
+@or_short_circuit_side_effect () -> bool = {
+    let x = 0;
+    true || {x = 100; false}
+}
 
-@test_or_no_short_circuit tests @or_no_short_circuit () -> void = run(
+@test_or_no_short_circuit tests @or_no_short_circuit () -> void = {
     // When left is false, right should be evaluated
-    let x = 0,
-    let result = false || run(x = 100, true),
-    assert_eq(actual: x, expected: 100),
-    assert(cond: result),
-)
+    let x = 0;
+    let result = false || {x = 100; true};
+    assert_eq(actual: x, expected: 100);
+    assert(cond: result)
+}
 
-@or_no_short_circuit () -> bool = run(
-    let x = 0,
-    false || run(x = 100, true),
-)
+@or_no_short_circuit () -> bool = {
+    let x = 0;
+    false || {x = 100; true}
+}
 
 // =============================================================================
 // Combined Logical Operations
 // =============================================================================
 
-@test_and_or_combined tests @and_or_combined () -> void = run(
+@test_and_or_combined tests @and_or_combined () -> void = {
     // && has higher precedence than ||
     // true || false && false = true || (false && false) = true || false = true
-    assert(cond: true || false && false),
-)
+    assert(cond: true || false && false)
+}
 
-@and_or_combined () -> bool = true || false && false
+@and_or_combined () -> bool = true || false && false;
 
-@test_or_and_combined tests @or_and_combined () -> void = run(
+@test_or_and_combined tests @or_and_combined () -> void = {
     // false && true || true = (false && true) || true = false || true = true
-    assert(cond: false && true || true),
-)
+    assert(cond: false && true || true)
+}
 
-@or_and_combined () -> bool = false && true || true
+@or_and_combined () -> bool = false && true || true;
 
 // Parentheses change associativity: (true || false) && false = false
-@test_parens_change_precedence tests @parens_change_precedence () -> void = run(
+@test_parens_change_precedence tests @parens_change_precedence () -> void = {
     // (true || false) && false = true && false = false
-    assert(cond: !((true || false) && false)),
-)
+    assert(cond: !((true || false) && false))
+}
 
-@parens_change_precedence () -> bool = (true || false) && false
+@parens_change_precedence () -> bool = (true || false) && false;
 
-@test_not_with_and tests @not_with_and () -> void = run(
-    assert(cond: !false && true),
-    assert(cond: !(false && true)),
-)
+@test_not_with_and tests @not_with_and () -> void = {
+    assert(cond: !false && true);
+    assert(cond: !(false && true))
+}
 
-@not_with_and () -> bool = !false && true
+@not_with_and () -> bool = !false && true;
 
-@test_not_with_or tests @not_with_or () -> void = run(
-    assert(cond: !false || false),
-    assert(cond: !(false || false)),
-)
+@test_not_with_or tests @not_with_or () -> void = {
+    assert(cond: !false || false);
+    assert(cond: !(false || false))
+}
 
-@not_with_or () -> bool = !false || false
+@not_with_or () -> bool = !false || false;
 
 // =============================================================================
 // De Morgan's Laws
 // =============================================================================
 
-@test_de_morgan_and tests @de_morgan_and () -> void = run(
-    let a = true,
-    let b = false,
+@test_de_morgan_and tests @de_morgan_and () -> void = {
+    let a = true;
+    let b = false;
     // !(a && b) == !a || !b
-    assert_eq(actual: !(a && b), expected: !a || !b),
-)
+    assert_eq(actual: !(a && b), expected: !a || !b)
+}
 
-@de_morgan_and () -> bool = run(
-    let a = true,
-    let b = false,
-    !(a && b) == (!a || !b),
-)
+@de_morgan_and () -> bool = {
+    let a = true;
+    let b = false;
+    !(a && b) == (!a || !b)
+}
 
-@test_de_morgan_or tests @de_morgan_or () -> void = run(
-    let a = true,
-    let b = false,
+@test_de_morgan_or tests @de_morgan_or () -> void = {
+    let a = true;
+    let b = false;
     // !(a || b) == !a && !b
-    assert_eq(actual: !(a || b), expected: !a && !b),
-)
+    assert_eq(actual: !(a || b), expected: !a && !b)
+}
 
-@de_morgan_or () -> bool = run(
-    let a = true,
-    let b = false,
-    !(a || b) == (!a && !b),
-)
+@de_morgan_or () -> bool = {
+    let a = true;
+    let b = false;
+    !(a || b) == (!a && !b)
+}
 
 // =============================================================================
 // Logical with Comparisons
 // =============================================================================
 
-@test_comparison_and tests @comparison_and () -> void = run(
-    let x = 5,
-    assert(cond: x > 0 && x < 10),
-    assert(cond: !(x < 0 && x < 10)),
-)
+@test_comparison_and tests @comparison_and () -> void = {
+    let x = 5;
+    assert(cond: x > 0 && x < 10);
+    assert(cond: !(x < 0 && x < 10))
+}
 
-@comparison_and () -> bool = run(
-    let x = 5,
-    x > 0 && x < 10,
-)
+@comparison_and () -> bool = {
+    let x = 5;
+    x > 0 && x < 10
+}
 
-@test_comparison_or tests @comparison_or () -> void = run(
-    let x = 15,
-    assert(cond: x < 0 || x > 10),
-    assert(cond: !(x < 0 || x < 10)),
-)
+@test_comparison_or tests @comparison_or () -> void = {
+    let x = 15;
+    assert(cond: x < 0 || x > 10);
+    assert(cond: !(x < 0 || x < 10))
+}
 
-@comparison_or () -> bool = run(
-    let x = 15,
-    x < 0 || x > 10,
-)
+@comparison_or () -> bool = {
+    let x = 15;
+    x < 0 || x > 10
+}
 
-@test_complex_condition tests @complex_condition () -> void = run(
-    let x = 5,
-    let y = 10,
+@test_complex_condition tests @complex_condition () -> void = {
+    let x = 5;
+    let y = 10;
     // (x > 0 && x < 10) || (y > 0 && y < 20)
-    assert(cond: (x > 0 && x < 10) || (y > 0 && y < 20)),
-)
+    assert(cond: (x > 0 && x < 10) || (y > 0 && y < 20))
+}
 
-@complex_condition () -> bool = run(
-    let x = 5,
-    let y = 10,
-    (x > 0 && x < 10) || (y > 0 && y < 20),
-)
+@complex_condition () -> bool = {
+    let x = 5;
+    let y = 10;
+    (x > 0 && x < 10) || (y > 0 && y < 20)
+}
 
 // =============================================================================
 // Evaluation Order
 // =============================================================================
 
-@test_and_left_first tests @and_left_first () -> void = run(
-    let order: [int] = [],
-    let result = run(order = order + [1], true) && run(order = order + [2], true),
-    assert_eq(actual: order, expected: [1, 2]),
-)
+@test_and_left_first tests @and_left_first () -> void = {
+    let order: [int] = [];
+    let result = {order = order + [1]; true} && {order = order + [2]; true};
+    assert_eq(actual: order, expected: [1, 2])
+}
 
-@and_left_first () -> bool = run(
-    let order: [int] = [],
-    run(order = order + [1], true) && run(order = order + [2], true),
-)
+@and_left_first () -> bool = {
+    let order: [int] = [];
+    {order = order + [1]; true} && {order = order + [2]; true}
+}
 
-@test_or_left_first tests @or_left_first () -> void = run(
-    let order: [int] = [],
-    let result = run(order = order + [1], false) || run(order = order + [2], true),
-    assert_eq(actual: order, expected: [1, 2]),
-)
+@test_or_left_first tests @or_left_first () -> void = {
+    let order: [int] = [];
+    let result = {order = order + [1]; false} || {order = order + [2]; true};
+    assert_eq(actual: order, expected: [1, 2])
+}
 
-@or_left_first () -> bool = run(
-    let order: [int] = [],
-    run(order = order + [1], false) || run(order = order + [2], true),
-)
+@or_left_first () -> bool = {
+    let order: [int] = [];
+    {order = order + [1]; false} || {order = order + [2]; true}
+}
 
 // =============================================================================
 // Idempotent and Identity Laws
 // =============================================================================
 
-@test_and_identity tests @and_identity () -> void = run(
-    let x = true,
-    assert_eq(actual: x && true, expected: x),
-    let y = false,
-    assert_eq(actual: y && true, expected: y),
-)
+@test_and_identity tests @and_identity () -> void = {
+    let x = true;
+    assert_eq(actual: x && true, expected: x);
+    let y = false;
+    assert_eq(actual: y && true, expected: y)
+}
 
-@and_identity () -> bool = run(
-    let x = true,
-    x && true,
-)
+@and_identity () -> bool = {
+    let x = true;
+    x && true
+}
 
-@test_and_annihilator tests @and_annihilator () -> void = run(
-    let x = true,
-    assert_eq(actual: x && false, expected: false),
-)
+@test_and_annihilator tests @and_annihilator () -> void = {
+    let x = true;
+    assert_eq(actual: x && false, expected: false)
+}
 
-@and_annihilator () -> bool = run(
-    let x = true,
-    x && false,
-)
+@and_annihilator () -> bool = {
+    let x = true;
+    x && false
+}
 
-@test_or_identity tests @or_identity () -> void = run(
-    let x = true,
-    assert_eq(actual: x || false, expected: x),
-    let y = false,
-    assert_eq(actual: y || false, expected: y),
-)
+@test_or_identity tests @or_identity () -> void = {
+    let x = true;
+    assert_eq(actual: x || false, expected: x);
+    let y = false;
+    assert_eq(actual: y || false, expected: y)
+}
 
-@or_identity () -> bool = run(
-    let x = true,
-    x || false,
-)
+@or_identity () -> bool = {
+    let x = true;
+    x || false
+}
 
-@test_or_annihilator tests @or_annihilator () -> void = run(
-    let x = false,
-    assert_eq(actual: x || true, expected: true),
-)
+@test_or_annihilator tests @or_annihilator () -> void = {
+    let x = false;
+    assert_eq(actual: x || true, expected: true)
+}
 
-@or_annihilator () -> bool = run(
-    let x = false,
-    x || true,
-)
+@or_annihilator () -> bool = {
+    let x = false;
+    x || true
+}
 
 // =============================================================================
 // Practical Patterns
 // =============================================================================
 
-@test_guard_pattern tests @guard_pattern () -> void = run(
+@test_guard_pattern tests @guard_pattern () -> void = {
     // Common pattern: check non-null then use
-    let opt = Some(42),
-    let result = is_some(opt: opt) && opt.unwrap_or(default: 0) > 0,
-    assert(cond: result),
-)
+    let opt = Some(42);
+    let result = is_some(opt: opt) && opt.unwrap_or(default: 0) > 0;
+    assert(cond: result)
+}
 
-@guard_pattern () -> bool = run(
-    let opt = Some(42),
-    is_some(opt: opt) && opt.unwrap_or(default: 0) > 0,
-)
+@guard_pattern () -> bool = {
+    let opt = Some(42);
+    is_some(opt: opt) && opt.unwrap_or(default: 0) > 0
+}
 
-@test_default_pattern tests @default_pattern () -> void = run(
+@test_default_pattern tests @default_pattern () -> void = {
     // Common pattern: use default if condition false
-    let condition = false,
-    let result = condition || true, // default to true
-    assert(cond: result),
-)
+    let condition = false;
+    let result = condition || true; // default to true
+    assert(cond: result)
+}
 
-@default_pattern () -> bool = run(
-    let condition = false,
-    condition || true,
-)
+@default_pattern () -> bool = {
+    let condition = false;
+    condition || true
+}
 
-@is_valid (x: int) -> bool = x > 0 && x < 100
+@is_valid (x: int) -> bool = x > 0 && x < 100;
 
-@test_function_in_condition tests @function_in_condition () -> void = run(
-    assert(cond: is_valid(x: 50)),
-    assert(cond: !is_valid(x: 0)),
-    assert(cond: !is_valid(x: 100)),
-)
+@test_function_in_condition tests @function_in_condition () -> void = {
+    assert(cond: is_valid(x: 50));
+    assert(cond: !is_valid(x: 0));
+    assert(cond: !is_valid(x: 100))
+}
 
-@function_in_condition () -> bool = is_valid(x: 50)
+@function_in_condition () -> bool = is_valid(x: 50);

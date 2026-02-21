@@ -386,23 +386,23 @@ for (name, value) in person.fields() do
 use std.json { JsonValue }
 use std.reflect { Reflect, TypeKind }
 
-@to_json_generic<T: Reflect> (value: T) -> JsonValue = run(
-    let info = value.type_info(),
+@to_json_generic<T: Reflect> (value: T) -> JsonValue = {
+    let info = value.type_info()
     match info.kind {
-        Primitive -> to_json_primitive(value:),
-        Struct -> to_json_struct(value:),
-        Enum -> to_json_enum(value:),
-        List -> to_json_list(value:),
-        Map -> to_json_map(value:),
-        _ -> JsonValue.Null,
-    },
-)
+        Primitive -> to_json_primitive(value:)
+        Struct -> to_json_struct(value:)
+        Enum -> to_json_enum(value:)
+        List -> to_json_list(value:)
+        Map -> to_json_map(value:)
+        _ -> JsonValue.Null
+    }
+}
 
-@to_json_struct<T: Reflect> (value: T) -> JsonValue = run(
+@to_json_struct<T: Reflect> (value: T) -> JsonValue = {
     let pairs = for (name, field_value) in value.fields()
-        yield (name, to_json_unknown(value: field_value)),
-    JsonValue.Object(pairs.collect()),
-)
+        yield (name, to_json_unknown(value: field_value))
+    JsonValue.Object(pairs.collect())
+}
 
 @to_json_unknown (value: Unknown) -> JsonValue = match value.type_info().kind {
     Primitive -> match value.type_name() {
@@ -552,27 +552,27 @@ Per `proposals/approved/reflection-api-proposal.md § Deferred Decisions`:
 ```ori
 use std.reflect { Reflect, TypeKind }
 
-@debug_print<T: Reflect> (value: T, indent: int = 0) -> str = run(
-    let info = value.type_info(),
-    let prefix = " ".repeat(count: indent * 2),
+@debug_print<T: Reflect> (value: T, indent: int = 0) -> str = {
+    let info = value.type_info()
+    let prefix = " ".repeat(count: indent * 2)
     match info.kind {
-        Struct -> run(
+        Struct -> {
             let fields_str = for (name, field) in value.fields()
-                yield `{prefix}  {name}: {debug_print(value: field, indent: indent + 1)}`,
-            `{info.name} {{\n{fields_str.join(separator: ",\n")}\n{prefix}}}`,
-        ),
-        Enum -> run(
-            let variant = value.current_variant().unwrap().name,
+                yield `{prefix}  {name}: {debug_print(value: field, indent: indent + 1)}`
+            `{info.name} {{\n{fields_str.join(separator: ",\n")}\n{prefix}}}`
+        }
+        Enum -> {
+            let variant = value.current_variant().unwrap().name
             if value.field_count() == 0 then variant
-            else run(
+            else {
                 let fields_str = for (_, field) in value.fields()
-                    yield debug_print(value: field, indent: indent + 1),
-                `{variant}({fields_str.join(separator: ", ")})`,
-            ),
-        ),
-        _ -> value.to_str(),
-    },
-)
+                    yield debug_print(value: field, indent: indent + 1)
+                `{variant}({fields_str.join(separator: ", ")})`
+            }
+        }
+        _ -> value.to_str()
+    }
+}
 
 // Usage
 #derive(Reflect)

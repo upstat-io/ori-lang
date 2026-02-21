@@ -99,11 +99,11 @@ impl Comparable for int {
 
 ```ori
 impl Ordering {
-    @is_less (self) -> bool = match(self, Less -> true, _ -> false)
-    @is_equal (self) -> bool = match(self, Equal -> true, _ -> false)
-    @is_greater (self) -> bool = match(self, Greater -> true, _ -> false)
-    @is_less_or_equal (self) -> bool = match(self, Greater -> false, _ -> true)
-    @is_greater_or_equal (self) -> bool = match(self, Less -> false, _ -> true)
+    @is_less (self) -> bool = match self { Less -> true, _ -> false}
+    @is_equal (self) -> bool = match self { Equal -> true, _ -> false}
+    @is_greater (self) -> bool = match self { Greater -> true, _ -> false}
+    @is_less_or_equal (self) -> bool = match self { Greater -> false, _ -> true}
+    @is_greater_or_equal (self) -> bool = match self { Less -> false, _ -> true}
 }
 ```
 
@@ -116,11 +116,11 @@ compare(left: 2, right: 2).is_equal() // true
 
 ```ori
 impl Ordering {
-    @reverse (self) -> Ordering = match(self,
-        Less -> Greater,
-        Equal -> Equal,
-        Greater -> Less,
-    )
+    @reverse (self) -> Ordering = match self {
+        Less -> Greater
+        Equal -> Equal
+        Greater -> Less
+    }
 }
 ```
 
@@ -136,10 +136,10 @@ Chain comparisons (used for lexicographic ordering):
 
 ```ori
 impl Ordering {
-    @then (self, other: Ordering) -> Ordering = match(self,
-        Equal -> other,
-        result -> result,
-    )
+    @then (self, other: Ordering) -> Ordering = match self {
+        Equal -> other
+        result -> result
+    }
 }
 ```
 
@@ -156,10 +156,10 @@ Lazy version of `then`:
 
 ```ori
 impl Ordering {
-    @then_with (self, f: () -> Ordering) -> Ordering = match(self,
-        Equal -> f(),
-        result -> result,
-    )
+    @then_with (self, f: () -> Ordering) -> Ordering = match self {
+        Equal -> f()
+        result -> result
+    }
 }
 ```
 

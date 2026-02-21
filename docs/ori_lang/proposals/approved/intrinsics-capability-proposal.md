@@ -191,10 +191,10 @@ The `int` type is 64-bit in Ori, so integer SIMD uses i64 lanes.
 ### Example: SIMD Dot Product
 
 ```ori
-@simd_dot_4 (a: [float, max 4], b: [float, max 4]) -> float uses Intrinsics = run(
-    let products = Intrinsics.simd_mul_f32x4(a: a, b: b),
-    Intrinsics.simd_sum_f32x4(a: products),
-)
+@simd_dot_4 (a: [float, max 4], b: [float, max 4]) -> float uses Intrinsics = {
+    let products = Intrinsics.simd_mul_f32x4(a: a, b: b)
+    Intrinsics.simd_sum_f32x4(a: products)
+}
 ```
 
 ### Platform Availability

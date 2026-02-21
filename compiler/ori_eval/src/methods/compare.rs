@@ -176,6 +176,30 @@ pub fn equals_values(a: &Value, b: &Value, interner: &StringInterner) -> Result<
     }
 }
 
+/// FNV-1a offset basis (64-bit).
+///
+/// Must match `FNV_OFFSET_BASIS` in `ori_llvm/codegen/derive_codegen/mod.rs`
+/// and `ori_rt/src/lib.rs` (`ori_str_hash`).
+pub const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
+
+/// FNV-1a prime (64-bit).
+///
+/// Must match `FNV_PRIME` in `ori_llvm/codegen/derive_codegen/mod.rs`
+/// and `ori_rt/src/lib.rs` (`ori_str_hash`).
+pub const FNV_PRIME: u64 = 1_099_511_628_211;
+
+/// FNV-1a hash over a byte slice.
+///
+/// Matches the runtime's `ori_str_hash` and the LLVM backend's string hash.
+pub fn fnv1a_hash(bytes: &[u8]) -> i64 {
+    let mut hash = FNV_OFFSET_BASIS;
+    for &byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash.cast_signed()
+}
+
 /// Combine two hash values using the Boost hash combine algorithm.
 ///
 /// Uses the golden ratio constant `0x9e3779b9` to mix bits, providing good
@@ -194,22 +218,12 @@ pub fn hash_combine(seed: i64, value: i64) -> i64 {
 /// `DefaultHasher` (str). For compound types, combines element hashes
 /// with `hash_combine`. Float normalization ensures `-0.0` and `+0.0`
 /// produce the same hash, and all NaN representations hash identically.
-#[expect(
-    clippy::only_used_in_recursion,
-    reason = "interner needed for future struct/newtype deep hashing via method dispatch"
-)]
 pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError> {
     match v {
         Value::Int(n) => Ok(n.raw()),
         Value::Float(f) => Ok(hash_float(*f)),
         Value::Bool(b) => Ok(i64::from(*b)),
-        Value::Str(s) => {
-            use std::collections::hash_map::DefaultHasher;
-            use std::hash::{Hash, Hasher};
-            let mut hasher = DefaultHasher::new();
-            s.hash(&mut hasher);
-            Ok(hasher.finish().cast_signed())
-        }
+        Value::Str(s) => Ok(fnv1a_hash(s.as_bytes())),
         Value::Char(c) => Ok(i64::from(*c as u32)),
         Value::Byte(b) => Ok(i64::from(*b)),
         Value::Duration(d) => Ok(*d),
@@ -242,11 +256,7 @@ pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError
         Value::Map(map) => {
             let mut h = 0_i64;
             for (key, val) in map.iter() {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                key.hash(&mut hasher);
-                let key_hash = hasher.finish().cast_signed();
+                let key_hash = fnv1a_hash(key.as_bytes());
                 let val_hash = hash_value(val, interner)?;
                 h ^= hash_combine(key_hash, val_hash);
             }
@@ -258,6 +268,34 @@ pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError
                 h ^= hash_value(val, interner)?;
             }
             Ok(h)
+        }
+        // Struct: FNV-1a over field values (matching derived hash)
+        Value::Struct(sv) => {
+            let mut hash = FNV_OFFSET_BASIS;
+            for field_val in sv.fields.iter() {
+                let field_hash = (hash_value(field_val, interner)?).cast_unsigned();
+                hash ^= field_hash;
+                hash = hash.wrapping_mul(FNV_PRIME);
+            }
+            Ok(hash.cast_signed())
+        }
+        // Variant: discriminant (variant name hash) + payload fields
+        Value::Variant {
+            variant_name,
+            fields,
+            ..
+        } => {
+            let mut hash = FNV_OFFSET_BASIS;
+            let variant_str = interner.lookup(*variant_name);
+            let discriminant = fnv1a_hash(variant_str.as_bytes()).cast_unsigned();
+            hash ^= discriminant;
+            hash = hash.wrapping_mul(FNV_PRIME);
+            for field in fields.as_ref() {
+                let field_hash = (hash_value(field, interner)?).cast_unsigned();
+                hash ^= field_hash;
+                hash = hash.wrapping_mul(FNV_PRIME);
+            }
+            Ok(hash.cast_signed())
         }
         _ => Err(EvalError::new(format!("cannot hash {}", v.type_name()))),
     }

@@ -16,48 +16,48 @@
 // // List Literals
 // // =============================================================================
 //
-// @test_empty_list tests @empty_list () -> void = run(
+// @test_empty_list tests @empty_list () -> void = {
 //     assert_eq(actual: len(collection: empty_list()), expected: 0),
-// )
+// }
 //
 // @empty_list () -> [int] = []
 //
-// @test_single_element_list tests @single_element_list () -> void = run(
+// @test_single_element_list tests @single_element_list () -> void = {
 //     assert_eq(actual: single_element_list()[0], expected: 42),
-// )
+// }
 //
 // @single_element_list () -> [int] = [42]
 //
-// @test_multi_element_list tests @multi_element_list () -> void = run(
+// @test_multi_element_list tests @multi_element_list () -> void = {
 //     let list = multi_element_list(),
 //     assert_eq(actual: list[0], expected: 1),
 //     assert_eq(actual: list[1], expected: 2),
 //     assert_eq(actual: list[2], expected: 3),
-// )
+// }
 //
 // @multi_element_list () -> [int] = [1, 2, 3]
 //
-// @test_list_with_expressions tests @list_with_expressions () -> void = run(
+// @test_list_with_expressions tests @list_with_expressions () -> void = {
 //     let list = list_with_expressions(),
 //     assert_eq(actual: list[0], expected: 3),
 //     assert_eq(actual: list[1], expected: 7),
 //     assert_eq(actual: list[2], expected: 15),
-// )
+// }
 //
 // @list_with_expressions () -> [int] = [1 + 2, 3 + 4, 5 + 10]
 //
-// @test_nested_list tests @nested_list () -> void = run(
+// @test_nested_list tests @nested_list () -> void = {
 //     let outer = nested_list(),
 //     assert_eq(actual: outer[0][0], expected: 1),
 //     assert_eq(actual: outer[1][1], expected: 4),
-// )
+// }
 //
 // @nested_list () -> [[int]] = [[1, 2], [3, 4]]
 //
-// @test_list_with_trailing_comma tests @list_with_trailing_comma () -> void = run(
+// @test_list_with_trailing_comma tests @list_with_trailing_comma () -> void = {
 //     let list = list_with_trailing_comma(),
 //     assert_eq(actual: len(collection: list), expected: 3),
-// )
+// }
 //
 // @list_with_trailing_comma () -> [int] = [1, 2, 3,]
 //
@@ -70,54 +70,54 @@
 // // 2. Map keys must be strings (int keys rejected)
 // // 3. Missing key panics instead of returning Option
 //
-// @test_empty_map tests @empty_map () -> void = run(
+// @test_empty_map tests @empty_map () -> void = {
 //     let m = empty_map(),
 //     assert(cond: is_empty(collection: m)),
-// )
+// }
 //
 // @empty_map () -> {str: int} = {}
 //
-// @test_single_entry_map tests @single_entry_map () -> void = run(
+// @test_single_entry_map tests @single_entry_map () -> void = {
 //     let m = single_entry_map(),
 //     assert_eq(actual: m["key"] ?? 0, expected: 42),
-// )
+// }
 //
 // @single_entry_map () -> {str: int} = {"key": 42}
 //
-// @test_multi_entry_map tests @multi_entry_map () -> void = run(
+// @test_multi_entry_map tests @multi_entry_map () -> void = {
 //     let m = multi_entry_map(),
 //     assert_eq(actual: m["a"] ?? 0, expected: 1),
 //     assert_eq(actual: m["b"] ?? 0, expected: 2),
 //     assert_eq(actual: m["c"] ?? 0, expected: 3),
-// )
+// }
 //
 // @multi_entry_map () -> {str: int} = {"a": 1, "b": 2, "c": 3}
 //
 // // SKIP: Computed map key syntax {[expr]: value} not fully implemented.
 // // Parser treats [expr] as list literal, not computed key.
 // #skip("computed map key syntax not implemented")
-// @test_map_computed_key tests @map_computed_key () -> void = run(
+// @test_map_computed_key tests @map_computed_key () -> void = {
 //     let m = map_computed_key(),
 //     assert_eq(actual: m["key_1"] ?? 0, expected: 100),
-// )
+// }
 //
-// @map_computed_key () -> {str: int} = run(
+// @map_computed_key () -> {str: int} = {
 //     let suffix = "_1",
 //     {["key" + suffix]: 100},
-// )
+// }
 //
-// @test_map_int_keys tests @map_int_keys () -> void = run(
+// @test_map_int_keys tests @map_int_keys () -> void = {
 //     let m = map_int_keys(),
 //     assert_eq(actual: m[1] ?? "", expected: "one"),
 //     assert_eq(actual: m[2] ?? "", expected: "two"),
-// )
+// }
 //
 // @map_int_keys () -> {int: str} = {1: "one", 2: "two", 3: "three"}
 //
-// @test_map_missing_key tests @map_missing_key () -> void = run(
+// @test_map_missing_key tests @map_missing_key () -> void = {
 //     let m = {"a": 1},
 //     assert(cond: is_none(opt: m["missing"])),
-// )
+// }
 //
 // @map_missing_key () -> Option<int> = {"a": 1}["missing"]
 //
@@ -127,52 +127,52 @@
 //
 // type Point = { x: int, y: int }
 //
-// @test_struct_basic tests @struct_basic () -> void = run(
+// @test_struct_basic tests @struct_basic () -> void = {
 //     let p = struct_basic(),
 //     assert_eq(actual: p.x, expected: 10),
 //     assert_eq(actual: p.y, expected: 20),
-// )
+// }
 //
 // @struct_basic () -> Point = Point { x: 10, y: 20 }
 //
-// @test_struct_shorthand tests @struct_shorthand () -> void = run(
+// @test_struct_shorthand tests @struct_shorthand () -> void = {
 //     let p = struct_shorthand(),
 //     assert_eq(actual: p.x, expected: 5),
 //     assert_eq(actual: p.y, expected: 15),
-// )
+// }
 //
-// @struct_shorthand () -> Point = run(
+// @struct_shorthand () -> Point = {
 //     let x = 5,
 //     let y = 15,
 //     Point { x, y },
-// )
+// }
 //
-// @test_struct_mixed_notation tests @struct_mixed_notation () -> void = run(
+// @test_struct_mixed_notation tests @struct_mixed_notation () -> void = {
 //     let p = struct_mixed_notation(),
 //     assert_eq(actual: p.x, expected: 100),
 //     assert_eq(actual: p.y, expected: 200),
-// )
+// }
 //
-// @struct_mixed_notation () -> Point = run(
+// @struct_mixed_notation () -> Point = {
 //     let x = 100,
 //     Point { x, y: 200 },
-// )
+// }
 //
-// @test_struct_with_expressions tests @struct_with_expressions () -> void = run(
+// @test_struct_with_expressions tests @struct_with_expressions () -> void = {
 //     let p = struct_with_expressions(),
 //     assert_eq(actual: p.x, expected: 3),
 //     assert_eq(actual: p.y, expected: 7),
-// )
+// }
 //
 // @struct_with_expressions () -> Point = Point { x: 1 + 2, y: 3 + 4 }
 //
 // type Rectangle = { top_left: Point, bottom_right: Point }
 //
-// @test_nested_struct tests @nested_struct () -> void = run(
+// @test_nested_struct tests @nested_struct () -> void = {
 //     let rect = nested_struct(),
 //     assert_eq(actual: rect.top_left.x, expected: 0),
 //     assert_eq(actual: rect.bottom_right.y, expected: 50),
-// )
+// }
 //
 // @nested_struct () -> Rectangle = Rectangle {
 //     top_left: Point { x: 0, y: 0 },
@@ -183,47 +183,47 @@
 // // Tuple Literals
 // // =============================================================================
 //
-// @test_tuple_pair tests @tuple_pair () -> void = run(
+// @test_tuple_pair tests @tuple_pair () -> void = {
 //     let t = tuple_pair(),
 //     let (a, b) = t,
 //     assert_eq(actual: a, expected: 1),
 //     assert_eq(actual: b, expected: 2),
-// )
+// }
 //
 // @tuple_pair () -> (int, int) = (1, 2)
 //
-// @test_tuple_mixed_types tests @tuple_mixed_types () -> void = run(
+// @test_tuple_mixed_types tests @tuple_mixed_types () -> void = {
 //     let t = tuple_mixed_types(),
 //     let (n, s) = t,
 //     assert_eq(actual: n, expected: 42),
 //     assert_eq(actual: s, expected: "hello"),
-// )
+// }
 //
 // @tuple_mixed_types () -> (int, str) = (42, "hello")
 //
-// @test_tuple_triple tests @tuple_triple () -> void = run(
+// @test_tuple_triple tests @tuple_triple () -> void = {
 //     let t = tuple_triple(),
 //     let (a, b, c) = t,
 //     assert(cond: a),
 //     assert_eq(actual: b, expected: 42),
-// )
+// }
 //
 // @tuple_triple () -> (bool, int, str) = (true, 42, "test")
 //
-// @test_unit_tuple tests @unit_tuple () -> void = run(
+// @test_unit_tuple tests @unit_tuple () -> void = {
 //     let u = unit_tuple(),
 //     assert(cond: true),
-// )
+// }
 //
 // @unit_tuple () -> () = ()
 //
-// @test_nested_tuple tests @nested_tuple () -> void = run(
+// @test_nested_tuple tests @nested_tuple () -> void = {
 //     let t = nested_tuple(),
 //     let ((a, b), c) = t,
 //     assert_eq(actual: a, expected: 1),
 //     assert_eq(actual: b, expected: 2),
 //     assert_eq(actual: c, expected: 3),
-// )
+// }
 //
 // @nested_tuple () -> ((int, int), int) = ((1, 2), 3)
 //
@@ -231,17 +231,17 @@
 // // Evaluation Order
 // // =============================================================================
 //
-// @test_list_eval_order tests @list_eval_order () -> void = run(
+// @test_list_eval_order tests @list_eval_order () -> void = {
 //     let result = list_eval_order(),
 //     assert_eq(actual: result[0], expected: 1),
 //     assert_eq(actual: result[1], expected: 2),
 //     assert_eq(actual: result[2], expected: 3),
-// )
+// }
 //
-// @list_eval_order () -> [int] = run(
-//     let mut counter = 0,
-//     [run(counter = counter + 1, counter), run(counter = counter + 1, counter), run(counter = counter + 1, counter)],
-// )
+// @list_eval_order () -> [int] = {
+//     let counter = 0,
+//     [{counter = counter + 1; counter}, {counter = counter + 1; counter}, {counter = counter + 1; counter}],
+// }
 //
 // // =============================================================================
 // // Complex Combinations
@@ -249,23 +249,23 @@
 //
 // type Config = { name: str, values: [int] }
 //
-// @test_complex_struct tests @complex_struct () -> void = run(
+// @test_complex_struct tests @complex_struct () -> void = {
 //     let c = complex_struct(),
 //     assert_eq(actual: c.name, expected: "test"),
 //     assert_eq(actual: len(collection: c.values), expected: 3),
-// )
+// }
 //
 // @complex_struct () -> Config = Config {
 //     name: "test",
 //     values: [1, 2, 3],
 // }
 //
-// @test_list_of_structs tests @list_of_structs () -> void = run(
+// @test_list_of_structs tests @list_of_structs () -> void = {
 //     let points = list_of_structs(),
 //     assert_eq(actual: len(collection: points), expected: 3),
 //     assert_eq(actual: points[0].x, expected: 0),
 //     assert_eq(actual: points[2].y, expected: 6),
-// )
+// }
 //
 // @list_of_structs () -> [Point] = [
 //     Point { x: 0, y: 0 },
@@ -273,12 +273,12 @@
 //     Point { x: 3, y: 6 },
 // ]
 //
-// @test_list_of_tuples tests @list_of_tuples () -> void = run(
+// @test_list_of_tuples tests @list_of_tuples () -> void = {
 //     let pairs = list_of_tuples(),
 //     assert_eq(actual: len(collection: pairs), expected: 2),
 //     let (a, b) = pairs[0],
 //     assert_eq(actual: a, expected: 1),
 //     assert_eq(actual: b, expected: "one"),
-// )
+// }
 //
 // @list_of_tuples () -> [(int, str)] = [(1, "one"), (2, "two")]

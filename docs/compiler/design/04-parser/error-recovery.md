@@ -92,6 +92,19 @@ fn parse_binary(&mut self) -> ParseOutcome<ExprId> {
 
 Extracts the value on success, returns early on any error.
 
+#### `committed!` — Bridge from Result to ParseOutcome after commitment
+
+```rust
+fn parse_trait(&mut self) -> ParseOutcome<TraitDef> {
+    // ... consumed `trait` keyword, now committed to this production
+    let name = committed!(self.expect_ident());  // Result<Name, ParseError> → Name or ConsumedErr
+    let generics = committed!(self.parse_generics());
+    // ...
+}
+```
+
+After the parser has consumed tokens that commit it to a production (e.g., the `trait` keyword), subsequent parsing steps use `Result<T, ParseError>` internally. The `committed!` macro bridges these `Result` values into `ParseOutcome`: on `Ok(value)` it unwraps the value; on `Err(error)` it returns `ConsumedErr` with the error's span. This is used extensively throughout the parser for the "post-commitment" portion of productions where backtracking is no longer appropriate.
+
 ### Combinators
 
 `ParseOutcome` also provides functional combinators:
@@ -121,7 +134,7 @@ This produces messages like "expected expression, found `}` (while parsing an if
 
 ## TokenSet: Bitset-Based Recovery Points
 
-Token sets use a `u128` bitfield for O(1) membership testing. Each bit corresponds to a `TokenKind` discriminant index, supporting all 115 token kinds.
+Token sets use a `u128` bitfield for O(1) membership testing. Each bit corresponds to a `TokenKind` discriminant index, supporting all 122 token kinds.
 
 ```rust
 pub struct TokenSet(u128);
@@ -234,10 +247,34 @@ Error codes:
 | Code | Meaning |
 |------|---------|
 | `E1001` | Unexpected token |
-| `E1002` | Expected expression / import position |
+| `E1002` | Expected expression / trailing operator / expected declaration |
 | `E1003` | Unclosed delimiter |
 | `E1004` | Expected identifier |
-| `E1006` | Orphaned attributes |
+| `E1005` | Expected type |
+| `E1006` | Orphaned attributes / invalid attribute |
+| `E1008` | Invalid pattern |
+| `E1009` | Pattern argument error (wrong count, wrong type) |
+| `E1015` | Unsupported keyword (e.g., `return` in expression position) |
+
+### ParseErrorKind Variants
+
+The `ParseErrorKind` enum covers structured error categories beyond simple "unexpected token":
+
+| Variant | Description |
+|---------|-------------|
+| `ExpectedExpression` | Expression expected but not found |
+| `TrailingOperator` | Binary operator without a right-hand operand (e.g., `x +`) |
+| `ExpectedDeclaration` | Declaration expected at module level |
+| `UnclosedDelimiter` | Missing closing bracket, paren, or brace |
+| `ExpectedIdentifier` | Identifier expected (e.g., after `let`) |
+| `ExpectedType` | Type annotation expected |
+| `InvalidPattern` | Malformed pattern in match arm or binding |
+| `PatternArgumentError` | Wrong argument count or type in compiler patterns (e.g., `cache`, `recurse`) |
+| `InvalidFunctionClause` | Malformed function clause (pre/post check) |
+| `InvalidAttribute` | Unknown or malformed attribute |
+| `UnsupportedKeyword` | Foreign or reserved keyword (e.g., `return`, `fn`) with guidance toward Ori equivalent |
+
+Each variant carries context-specific fields (the offending token, expected types, pattern names) and maps to an error code via `error_code()`. The `empathetic_hint()` method on each variant provides targeted guidance -- for example, `TrailingOperator { operator: Plus }` produces "The `+` operator needs a value on both sides, like `a + b`."
 
 ## Placeholder Nodes
 

@@ -317,7 +317,7 @@ fn check_impl_method(
 
     let mut param_types = Vec::with_capacity(params.len());
     for p in &params {
-        let is_self = checker.interner().lookup(p.name) == "self";
+        let is_self = p.name == checker.well_known().self_kw;
         let ty = match &p.ty {
             Some(parsed_ty) => resolve_type_with_self(checker, parsed_ty, type_params, self_type),
             None if is_self => self_type,

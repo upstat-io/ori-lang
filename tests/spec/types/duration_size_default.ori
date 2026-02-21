@@ -8,105 +8,105 @@ use std.testing { assert, assert_eq }
 // Duration — Default Trait
 // =============================================================================
 
-@test_duration_default_basic tests @duration_default_basic () -> void = run(
+@test_duration_default_basic tests @duration_default_basic () -> void = {
     // Duration.default() returns 0ns
-    let d = Duration.default(),
-    assert_eq(actual: d, expected: 0ns),
-)
+    let d = Duration.default();
+    assert_eq(actual: d, expected: 0ns)
+}
 
-@duration_default_basic () -> Duration = Duration.default()
+@duration_default_basic () -> Duration = Duration.default();
 
-@test_duration_default_is_zero tests @duration_default_zero () -> void = run(
+@test_duration_default_is_zero tests @duration_default_zero () -> void = {
     // Default duration equals zero in any unit
-    let d = Duration.default(),
-    assert_eq(actual: d.nanoseconds(), expected: 0),
-    assert_eq(actual: d.microseconds(), expected: 0),
-    assert_eq(actual: d.milliseconds(), expected: 0),
-    assert_eq(actual: d.seconds(), expected: 0),
-    assert_eq(actual: d.minutes(), expected: 0),
-    assert_eq(actual: d.hours(), expected: 0),
-)
+    let d = Duration.default();
+    assert_eq(actual: d.nanoseconds(), expected: 0);
+    assert_eq(actual: d.microseconds(), expected: 0);
+    assert_eq(actual: d.milliseconds(), expected: 0);
+    assert_eq(actual: d.seconds(), expected: 0);
+    assert_eq(actual: d.minutes(), expected: 0);
+    assert_eq(actual: d.hours(), expected: 0)
+}
 
-@duration_default_zero () -> int = Duration.default().nanoseconds()
+@duration_default_zero () -> int = Duration.default().nanoseconds();
 
-@test_duration_default_equality tests @duration_default_eq () -> void = run(
+@test_duration_default_equality tests @duration_default_eq () -> void = {
     // Two calls to default() produce equal values
-    let d1 = Duration.default(),
-    let d2 = Duration.default(),
-    assert_eq(actual: d1, expected: d2),
-)
+    let d1 = Duration.default();
+    let d2 = Duration.default();
+    assert_eq(actual: d1, expected: d2)
+}
 
-@duration_default_eq () -> bool = Duration.default() == Duration.default()
+@duration_default_eq () -> bool = Duration.default() == Duration.default();
 
-@test_duration_default_comparable tests @duration_default_cmp () -> void = run(
+@test_duration_default_comparable tests @duration_default_cmp () -> void = {
     // Default duration compares equal to 0ns literal
-    let d = Duration.default(),
-    assert(cond: d == 0ns),
-    assert(cond: d == 0ms),
-    assert(cond: d == 0s),
-)
+    let d = Duration.default();
+    assert(cond: d == 0ns);
+    assert(cond: d == 0ms);
+    assert(cond: d == 0s)
+}
 
-@duration_default_cmp () -> bool = Duration.default() == 0ns
+@duration_default_cmp () -> bool = Duration.default() == 0ns;
 
-@test_duration_default_arithmetic tests @duration_default_arith () -> void = run(
+@test_duration_default_arithmetic tests @duration_default_arith () -> void = {
     // Default duration can be used in arithmetic
-    let d = Duration.default(),
-    assert_eq(actual: d + 100ms, expected: 100ms),
-    assert_eq(actual: 100ms + d, expected: 100ms),
-    assert_eq(actual: d * 5, expected: 0ns),
-)
+    let d = Duration.default();
+    assert_eq(actual: d + 100ms, expected: 100ms);
+    assert_eq(actual: 100ms + d, expected: 100ms);
+    assert_eq(actual: d * 5, expected: 0ns)
+}
 
-@duration_default_arith () -> Duration = Duration.default() + 100ms
+@duration_default_arith () -> Duration = Duration.default() + 100ms;
 
 // =============================================================================
 // Size — Default Trait
 // =============================================================================
 
-@test_size_default_basic tests @size_default_basic () -> void = run(
+@test_size_default_basic tests @size_default_basic () -> void = {
     // Size.default() returns 0b
-    let s = Size.default(),
-    assert_eq(actual: s, expected: 0b),
-)
+    let s = Size.default();
+    assert_eq(actual: s, expected: 0b)
+}
 
-@size_default_basic () -> Size = Size.default()
+@size_default_basic () -> Size = Size.default();
 
-@test_size_default_is_zero tests @size_default_zero () -> void = run(
+@test_size_default_is_zero tests @size_default_zero () -> void = {
     // Default size equals zero in any unit
-    let s = Size.default(),
-    assert_eq(actual: s.bytes(), expected: 0),
-    assert_eq(actual: s.kilobytes(), expected: 0),
-    assert_eq(actual: s.megabytes(), expected: 0),
-    assert_eq(actual: s.gigabytes(), expected: 0),
-    assert_eq(actual: s.terabytes(), expected: 0),
-)
+    let s = Size.default();
+    assert_eq(actual: s.bytes(), expected: 0);
+    assert_eq(actual: s.kilobytes(), expected: 0);
+    assert_eq(actual: s.megabytes(), expected: 0);
+    assert_eq(actual: s.gigabytes(), expected: 0);
+    assert_eq(actual: s.terabytes(), expected: 0)
+}
 
-@size_default_zero () -> int = Size.default().bytes()
+@size_default_zero () -> int = Size.default().bytes();
 
-@test_size_default_equality tests @size_default_eq () -> void = run(
+@test_size_default_equality tests @size_default_eq () -> void = {
     // Two calls to default() produce equal values
-    let s1 = Size.default(),
-    let s2 = Size.default(),
-    assert_eq(actual: s1, expected: s2),
-)
+    let s1 = Size.default();
+    let s2 = Size.default();
+    assert_eq(actual: s1, expected: s2)
+}
 
-@size_default_eq () -> bool = Size.default() == Size.default()
+@size_default_eq () -> bool = Size.default() == Size.default();
 
-@test_size_default_comparable tests @size_default_cmp () -> void = run(
+@test_size_default_comparable tests @size_default_cmp () -> void = {
     // Default size compares equal to 0b literal
-    let s = Size.default(),
-    assert(cond: s == 0b),
-    assert(cond: s == 0kb),
-    assert(cond: s == 0mb),
-)
+    let s = Size.default();
+    assert(cond: s == 0b);
+    assert(cond: s == 0kb);
+    assert(cond: s == 0mb)
+}
 
-@size_default_cmp () -> bool = Size.default() == 0b
+@size_default_cmp () -> bool = Size.default() == 0b;
 
-@test_size_default_arithmetic tests @size_default_arith () -> void = run(
+@test_size_default_arithmetic tests @size_default_arith () -> void = {
     // Default size can be used in arithmetic
-    let s = Size.default(),
-    assert_eq(actual: s + 1kb, expected: 1kb),
-    assert_eq(actual: 1kb + s, expected: 1kb),
-    assert_eq(actual: s * 5, expected: 0b),
-)
+    let s = Size.default();
+    assert_eq(actual: s + 1kb, expected: 1kb);
+    assert_eq(actual: 1kb + s, expected: 1kb);
+    assert_eq(actual: s * 5, expected: 0b)
+}
 
-@size_default_arith () -> Size = Size.default() + 1kb
+@size_default_arith () -> Size = Size.default() + 1kb;

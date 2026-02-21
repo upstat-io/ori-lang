@@ -133,6 +133,8 @@ cargo fmt --all
 
 Split large files into focused modules.
 
+**Known debt:** At least 11 files in `ori_types` exceed 500 lines (765–2874 lines), concentrated in inference (`infer/expr/`, `infer/mod.rs`), type checking (`check/mod.rs`), unification (`unify/mod.rs`), error reporting (`type_error/check_error/mod.rs`), and the type pool (`pool/mod.rs`). These are known technical debt targeted for splitting as their subsystems stabilize.
+
 ### 2.3 Function Length
 
 - Target: < 50 lines
@@ -514,16 +516,18 @@ We enable pedantic lints. Fix warnings properly:
 | `match_same_arms` | Merge with or-patterns |
 | `unused_self` | Convert to associated function |
 
-### 8.3 Never Use
+### 8.3 Suppression Policy
 
-Do not use these to silence warnings:
+Fix the underlying issue rather than silencing warnings. When suppression is genuinely necessary (e.g., a clippy lint that does not apply to a specific case), use `#[expect(...)]` (Rust 1.81+) with a `reason`:
 
-- `#[allow(clippy::...)]` attributes
-- `#[expect(...)]` attributes
-- Cargo.toml lint configuration to disable
-- Comments to suppress
+```rust
+#[expect(clippy::cast_sign_loss, reason = "value is validated non-negative above")]
+let index = offset as usize;
+```
 
-Fix the underlying issue instead.
+`#[expect(...)]` is preferred over `#[allow(...)]` because the compiler verifies the suppressed lint actually fires. If the underlying code changes so the lint no longer triggers, `#[expect(...)]` produces a warning — preventing stale suppression attributes from accumulating.
+
+Do not use bare `#[allow(clippy::...)]` without a `reason` string. Do not use Cargo.toml lint configuration to broadly disable lints.
 
 ---
 
@@ -567,7 +571,7 @@ Before merging:
 - [ ] `cargo clippy --workspace -- -D warnings`
 - [ ] `cargo test --workspace`
 - [ ] Documentation updated
-- [ ] No `#[allow(...)]` added
+- [ ] No bare `#[allow(...)]` added (use `#[expect(..., reason = "...")]` when suppression is needed)
 
 ### Before PR
 
@@ -592,7 +596,7 @@ Before merging:
 
 ### Don't
 
-- Use `#[allow(...)]` to silence warnings
+- Use bare `#[allow(...)]` to silence warnings (use `#[expect(...)]` with a reason instead)
 - Leave TODO comments without tracking
 - Commit failing tests
 - Use `unwrap()` on user input

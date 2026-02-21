@@ -8,4 +8,4 @@
 
 #[fail("expected compilation to fail")]
 #[compile_fail("nonexistent error")]
-@test_compile_fail_with_valid_code () -> void = ()
+@test_compile_fail_with_valid_code () -> void = ();

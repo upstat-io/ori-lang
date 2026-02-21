@@ -193,12 +193,12 @@ impl As<str> for UserId {
 
 // Fallible: String might not be valid username
 impl TryAs<Username> for str {
-    @try_as (self) -> Option<Username> = run(
+    @try_as (self) -> Option<Username> = {
         if self.is_empty() || self.len() > 32 then
             None
         else
-            Some(Username { value: self }),
-    )
+            Some(Username { value: self })
+    }
 }
 ```
 
@@ -261,16 +261,15 @@ let s = count as str
 ### Parsing User Input
 
 ```ori
-@parse_port (input: str) -> Result<int, str> = run(
-    let port = input.trim() as? int,
-    match(
-        port,
+@parse_port (input: str) -> Result<int, str> = {
+    let port = input.trim() as? int
+    match port {
         Some(p) -> if p > 0 && p <= 65535
             then Ok(p)
-            else Err("port out of range"),
-        None -> Err("invalid port number"),
-    ),
-)
+            else Err("port out of range")
+        None -> Err("invalid port number")
+    }
+}
 ```
 
 ### Display Formatting

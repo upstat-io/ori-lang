@@ -362,6 +362,10 @@ impl TokenCategory {
 }
 
 impl From<&TokenKind> for TokenCategory {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TokenKind → spacing category dispatch"
+    )]
     fn from(kind: &TokenKind) -> Self {
         match kind {
             TokenKind::Int(_) => TokenCategory::Int,
@@ -378,7 +382,6 @@ impl From<&TokenKind> for TokenCategory {
             // Keywords treated as identifiers for spacing purposes
             TokenKind::Ident(_)
             | TokenKind::Async
-            | TokenKind::Mut
             | TokenKind::Dyn
             | TokenKind::Skip
             | TokenKind::Suspend

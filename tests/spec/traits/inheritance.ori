@@ -21,11 +21,11 @@ type Person = { first_name: str, last_name: str }
 
 // Implementing the child trait requires implementing the parent trait too
 impl Named for Person {
-    @name (self) -> str = self.first_name + " " + self.last_name
+    @name (self) -> str = self.first_name + " " + self.last_name;
 }
 
 impl Describable for Person {
-    @describe (self) -> str = "Person: " + self.name()
+    @describe (self) -> str = "Person: " + self.name();
 }
 
 // =============================================================================
@@ -50,15 +50,15 @@ trait Auditable: Trackable {
 type Record = { record_id: int, data: str }
 
 impl Identifiable for Record {
-    @id (self) -> int = self.record_id
+    @id (self) -> int = self.record_id;
 }
 
 impl Trackable for Record {
-    @track (self) -> str = "Tracking record #" + str(self.id())
+    @track (self) -> str = "Tracking record #" + str(self.id());
 }
 
 impl Auditable for Record {
-    @audit (self) -> str = "Audit: " + self.track() + " [" + self.data + "]"
+    @audit (self) -> str = "Audit: " + self.track() + " [" + self.data + "]";
 }
 
 // =============================================================================
@@ -70,13 +70,13 @@ trait Printable {
 }
 
 trait Formatted: Printable {
-    @format (self) -> str = "[Formatted: " + self.to_string() + "]"
+    @format (self) -> str = "[Formatted: " + self.to_string() + "]";
 }
 
 type Value = { amount: int }
 
 impl Printable for Value {
-    @to_string (self) -> str = str(self.amount)
+    @to_string (self) -> str = str(self.amount);
 }
 
 impl Formatted for Value {
@@ -90,49 +90,49 @@ impl Formatted for Value {
 type Currency = { amount: int, symbol: str }
 
 impl Printable for Currency {
-    @to_string (self) -> str = self.symbol + str(self.amount)
+    @to_string (self) -> str = self.symbol + str(self.amount);
 }
 
 impl Formatted for Currency {
     // Override the default format method
-    @format (self) -> str = "Currency: " + self.to_string()
+    @format (self) -> str = "Currency: " + self.to_string();
 }
 
 // =============================================================================
 // Tests
 // =============================================================================
 
-@test_parent_trait_method tests @name () -> void = run(
-    let person = Person { first_name: "John", last_name: "Doe" },
-    assert_eq(actual: person.name(), expected: "John Doe"),
-)
+@test_parent_trait_method tests @name () -> void = {
+    let person = Person { first_name: "John", last_name: "Doe" };
+    assert_eq(actual: person.name(), expected: "John Doe")
+}
 
-@test_child_trait_method tests @describe () -> void = run(
-    let person = Person { first_name: "John", last_name: "Doe" },
-    assert_eq(actual: person.describe(), expected: "Person: John Doe"),
-)
+@test_child_trait_method tests @describe () -> void = {
+    let person = Person { first_name: "John", last_name: "Doe" };
+    assert_eq(actual: person.describe(), expected: "Person: John Doe")
+}
 
-@test_grandparent_trait_method tests @id () -> void = run(
-    let record = Record { record_id: 42, data: "test data" },
-    assert_eq(actual: record.id(), expected: 42),
-)
+@test_grandparent_trait_method tests @id () -> void = {
+    let record = Record { record_id: 42, data: "test data" };
+    assert_eq(actual: record.id(), expected: 42)
+}
 
-@test_parent_uses_grandparent tests @track () -> void = run(
-    let record = Record { record_id: 123, data: "test" },
-    assert_eq(actual: record.track(), expected: "Tracking record #123"),
-)
+@test_parent_uses_grandparent tests @track () -> void = {
+    let record = Record { record_id: 123, data: "test" };
+    assert_eq(actual: record.track(), expected: "Tracking record #123")
+}
 
-@test_child_uses_parent_and_grandparent tests @audit () -> void = run(
-    let record = Record { record_id: 7, data: "important" },
-    assert_eq(actual: record.audit(), expected: "Audit: Tracking record #7 [important]"),
-)
+@test_child_uses_parent_and_grandparent tests @audit () -> void = {
+    let record = Record { record_id: 7, data: "important" };
+    assert_eq(actual: record.audit(), expected: "Audit: Tracking record #7 [important]")
+}
 
-@test_inherited_default_method tests @format () -> void = run(
-    let value = Value { amount: 100 },
-    assert_eq(actual: value.format(), expected: "[Formatted: 100]"),
-)
+@test_inherited_default_method tests @format () -> void = {
+    let value = Value { amount: 100 };
+    assert_eq(actual: value.format(), expected: "[Formatted: 100]")
+}
 
-@test_overridden_inherited_method () -> void = run(
-    let currency = Currency { amount: 50, symbol: "$" },
-    assert_eq(actual: currency.format(), expected: "Currency: $50"),
-)
+@test_overridden_inherited_method () -> void = {
+    let currency = Currency { amount: 50, symbol: "$" };
+    assert_eq(actual: currency.format(), expected: "Currency: $50")
+}

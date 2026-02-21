@@ -2,8 +2,8 @@
 // Tests formatter handling of string literals that exceed 100 characters
 // Note: Strings are atomic tokens and cannot be broken, so they may exceed line width
 
-@long_message () -> str = "This is a very long string literal that definitely exceeds one hundred characters and tests how the formatter handles it."
+@long_message () -> str = "This is a very long string literal that definitely exceeds one hundred characters and tests how the formatter handles it.";
 
-@path () -> str = "/home/user/documents/projects/very-long-project-name/src/components/deeply/nested/folder/file.txt"
+@path () -> str = "/home/user/documents/projects/very-long-project-name/src/components/deeply/nested/folder/file.txt";
 
-@url () -> str = "https://example.com/api/v1/users/12345/preferences/notifications/email?enabled=true&frequency=daily"
+@url () -> str = "https://example.com/api/v1/users/12345/preferences/notifications/email?enabled=true&frequency=daily";

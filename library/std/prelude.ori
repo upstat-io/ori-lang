@@ -35,6 +35,20 @@ pub trait Printable {
     @to_str (self) -> str
 }
 
+// Supports custom formatting with format specifications (spec §3.16)
+// All Printable types get a blanket impl that falls back to to_str()
+//
+// Built-in format types (registered by the compiler, like Ordering):
+// - pub type Alignment = Left | Center | Right
+// - pub type Sign = Plus | Minus | Space
+// - pub type FormatType = Binary | Octal | Hex | HexUpper | Exp | ExpUpper | Fixed | Percent
+// - pub type FormatSpec = { fill: Option<char>, align: Option<Alignment>,
+//     sign: Option<Sign>, width: Option<int>, precision: Option<int>,
+//     format_type: Option<FormatType> }
+pub trait Formattable {
+    @format (self, spec: FormatSpec) -> str
+}
+
 // Developer-facing structural representation
 pub trait Debug {
     @debug (self) -> str
@@ -58,6 +72,11 @@ pub trait Traceable {
     @trace (self) -> str
     @trace_entries (self) -> [TraceEntry]
     @has_trace (self) -> bool
+}
+
+// Types with a countable length (collections, strings, tuples, ranges)
+pub trait Len {
+    @len (self) -> int
 }
 
 // =============================================================================
@@ -203,6 +222,20 @@ pub trait Index<Key, Value> {
 }
 
 // =============================================================================
+// Conversion Traits
+// =============================================================================
+//
+// Explicit, lossless type conversion via `.into()`.
+// Distinct from `as`/`as?` (built-in primitive casts).
+// No blanket identity impl. No auto-chaining.
+// Standard impls: str -> Error, int -> float, Set<T> -> [T]
+
+// Explicit type conversion
+pub trait Into<T> {
+    @into (self) -> T
+}
+
+// =============================================================================
 // Capability Traits
 // =============================================================================
 //
@@ -287,49 +320,49 @@ pub trait Env {
 // =============================================================================
 // Utility Functions
 // =============================================================================
-// Get the length of a list
-pub @len<T> (collection: [T]) -> int = collection.len()
+// Get the length of any collection implementing Len
+pub @len<T: Len> (collection: T) -> int = collection.len();
 
 // Check if a list is empty
-pub @is_empty<T> (collection: [T]) -> bool = collection.len() == 0
+pub @is_empty<T> (collection: [T]) -> bool = collection.len() == 0;
 
 // Check if Option is Some
-pub @is_some<T> (opt: Option<T>) -> bool = match(opt,
+pub @is_some<T> (opt: Option<T>) -> bool = match opt {
     Some(_) -> true,
-    None -> false,
-)
+    None -> false
+}
 
 // Check if Option is None
-pub @is_none<T> (opt: Option<T>) -> bool = match(opt,
+pub @is_none<T> (opt: Option<T>) -> bool = match opt {
     Some(_) -> false,
-    None -> true,
-)
+    None -> true
+}
 
 // Check if Result is Ok
-pub @is_ok<T, E> (r: Result<T, E>) -> bool = match(r,
+pub @is_ok<T, E> (r: Result<T, E>) -> bool = match r {
     Ok(_) -> true,
-    Err(_) -> false,
-)
+    Err(_) -> false
+}
 
 // Check if Result is Err
-pub @is_err<T, E> (r: Result<T, E>) -> bool = match(r,
+pub @is_err<T, E> (r: Result<T, E>) -> bool = match r {
     Ok(_) -> false,
-    Err(_) -> true,
-)
+    Err(_) -> true
+}
 
 // =============================================================================
 // Comparison Functions
 // =============================================================================
 // Compare two integers
-pub @compare (a: int, b: int) -> Ordering = run(
-    if a < b then Less else if a > b then Greater else Equal,
-)
+pub @compare (a: int, b: int) -> Ordering = {
+    if a < b then Less else if a > b then Greater else Equal
+}
 
 // Get the minimum of two integers
-pub @min (a: int, b: int) -> int = if a < b then a else b
+pub @min (a: int, b: int) -> int = if a < b then a else b;
 
 // Get the maximum of two integers
-pub @max (a: int, b: int) -> int = if a > b then a else b
+pub @max (a: int, b: int) -> int = if a > b then a else b;
 
 // Combine two hash values using the Boost hash combine algorithm.
 // Uses wrapping arithmetic (built-in) since hash computation overflows by design.

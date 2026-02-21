@@ -70,6 +70,9 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
     }
 
     /// Format a test body, breaking to new line if it doesn't fit after `= `.
+    ///
+    /// Per grammar: expression bodies require trailing `;` but block bodies
+    /// ending with `}` do not.
     fn format_test_body(&mut self, body: ExprId) {
         // Calculate body width to determine if it fits inline
         let body_width = self.width_calc.width(body);
@@ -79,25 +82,36 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         let fits_inline =
             body_width != ALWAYS_STACKED && self.ctx.fits(space_after_eq + body_width);
 
+        let ends_with_brace;
+
         if fits_inline {
             // Inline: " = body"
             self.ctx.emit(" = ");
             let current_column = self.ctx.column();
-            let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                .with_starting_column(current_column);
+            let mut expr_formatter =
+                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                    .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
+            ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
         } else {
             // Body doesn't fit - always-stacked constructs (run/try/match) stay on same line
             // and break internally. Other constructs also stay on same line.
             self.ctx.emit(" = ");
             let current_column = self.ctx.column();
-            let mut expr_formatter = Formatter::with_config(self.arena, self.interner, self.config)
-                .with_starting_column(current_column);
+            let mut expr_formatter =
+                Formatter::with_config(self.arena, self.interner, *self.ctx.config())
+                    .with_starting_column(current_column);
             expr_formatter.format(body);
             let body_output = expr_formatter.ctx.as_str().trim_end();
+            ends_with_brace = body_output.ends_with('}');
             self.ctx.emit(body_output);
+        }
+
+        // Trailing semicolon for non-block expression bodies
+        if !ends_with_brace {
+            self.ctx.emit(";");
         }
     }
 }

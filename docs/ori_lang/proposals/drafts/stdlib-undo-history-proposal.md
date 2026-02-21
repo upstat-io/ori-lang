@@ -122,27 +122,25 @@ Timeline: S0 → S1 → S2 → [S3] → S4 → S5
 
 // Undo: move back one state
 @undo<T> (self) -> History<T> =
-    match(
-        self.past,
-        [] -> self,  // Nothing to undo
+    match self.past {
+        [] -> self  // Nothing to undo
         [prev, ..rest] -> History {
             past: rest,
             present: prev,
             future: [self.present] + self.future,
-        },
-    )
+        }
+    }
 
 // Redo: move forward one state
 @redo<T> (self) -> History<T> =
-    match(
-        self.future,
-        [] -> self,  // Nothing to redo
+    match self.future {
+        [] -> self  // Nothing to redo
         [next, ..rest] -> History {
             past: [self.present] + self.past,
             present: next,
             future: rest,
-        },
-    )
+        }
+    }
 
 // Get current state
 @current<T> (self) -> T =
@@ -185,12 +183,12 @@ Timeline: S0 → S1 → S2 → [S3] → S4 → S5
     (0..n).fold(initial: self, op: (h, _) -> h.redo())
 
 // Go to specific point in history
-@go_to<T> (self, index: int) -> History<T> = run(
-    let current_index = len(collection: self.past),
+@go_to<T> (self, index: int) -> History<T> = {
+    let current_index = len(collection: self.past);
     if index < current_index
     then self.undo_n(n: current_index - index)
-    else self.redo_n(n: index - current_index),
-)
+    else self.redo_n(n: index - current_index)
+}
 
 // Undo all
 @undo_all<T> (self) -> History<T> =
@@ -275,27 +273,27 @@ type Editor = History<Document>
     ed.modify(f: doc -> move_cursor(doc: doc, offset: offset))
 
 // Usage
-@example_editor () -> void = run(
-    let ed = new_editor(),
-    let ed = editor_insert(ed: ed, text: "Hello"),
-    let ed = editor_insert(ed: ed, text: " World"),
+@example_editor () -> void = {
+    let ed = new_editor();
+    let ed = editor_insert(ed: ed, text: "Hello");
+    let ed = editor_insert(ed: ed, text: " World");
 
-    assert_eq(actual: ed.current().content, expected: "Hello World"),
+    assert_eq(actual: ed.current().content, expected: "Hello World");
 
-    let ed = ed.undo(),
-    assert_eq(actual: ed.current().content, expected: "Hello"),
+    let ed = ed.undo();
+    assert_eq(actual: ed.current().content, expected: "Hello");
 
-    let ed = ed.undo(),
-    assert_eq(actual: ed.current().content, expected: ""),
+    let ed = ed.undo();
+    assert_eq(actual: ed.current().content, expected: "");
 
-    let ed = ed.redo(),
-    assert_eq(actual: ed.current().content, expected: "Hello"),
+    let ed = ed.redo();
+    assert_eq(actual: ed.current().content, expected: "Hello");
 
     // New edit clears redo
-    let ed = editor_insert(ed: ed, text: "!!!"),
-    assert_eq(actual: ed.current().content, expected: "Hello!!!"),
-    assert(condition: !ed.can_redo()),
-)
+    let ed = editor_insert(ed: ed, text: "!!!");
+    assert_eq(actual: ed.current().content, expected: "Hello!!!");
+    assert(condition: !ed.can_redo())
+}
 ```
 
 ### Drawing Application
@@ -316,27 +314,25 @@ type DrawingApp = History<Canvas>
     Canvas { shapes: canvas.shapes + [shape], selected: Some(len(collection: canvas.shapes)) }
 
 @delete_selected (canvas: Canvas) -> Canvas =
-    match(
-        canvas.selected,
-        None -> canvas,
+    match canvas.selected {
+        None -> canvas
         Some(idx) -> Canvas {
             shapes: canvas.shapes.remove_at(index: idx),
             selected: None,
-        },
-    )
+        }
+    }
 
 @move_selected (canvas: Canvas, dx: float, dy: float) -> Canvas =
-    match(
-        canvas.selected,
-        None -> canvas,
+    match canvas.selected {
+        None -> canvas
         Some(idx) -> Canvas {
             shapes: canvas.shapes.update_at(
                 index: idx,
                 f: shape -> translate_shape(shape: shape, dx: dx, dy: dy),
             ),
             selected: canvas.selected,
-        },
-    )
+        }
+    }
 
 // App operations
 @app_add_circle (app: DrawingApp, center: Point, radius: float) -> DrawingApp =
@@ -399,17 +395,16 @@ type FormState = {
 
 type Form = History<FormState>
 
-@update_field (state: FormState, field: str, value: str) -> FormState = run(
-    let new_data = match(
-        field,
-        "name" -> FormData { ..state.data, name: value },
-        "email" -> FormData { ..state.data, email: value },
-        "age" -> FormData { ..state.data, age: parse_int(s: value).ok() },
-        _ -> state.data,
-    ),
-    let errors = validate_form(data: new_data),
-    FormState { data: new_data, errors: errors },
-)
+@update_field (state: FormState, field: str, value: str) -> FormState = {
+    let new_data = match field {
+        "name" -> FormData { ..state.data, name: value }
+        "email" -> FormData { ..state.data, email: value }
+        "age" -> FormData { ..state.data, age: parse_int(s: value).ok() }
+        _ -> state.data
+    };
+    let errors = validate_form(data: new_data);
+    FormState { data: new_data, errors: errors }
+}
 
 // User can undo form changes
 @form_set (form: Form, field: str, value: str) -> Form =
@@ -438,21 +433,20 @@ type GroupedHistory<T> = {
     GroupedHistory { history: self.history, pending: self.pending + [state] }
 
 @end_group<T> (self) -> History<T> =
-    match(
-        self.pending,
-        [] -> self.history,
-        [final, ..] -> self.history.push(state: final),  // Only keep final state
-    )
+    match self.pending {
+        [] -> self.history
+        [final, ..] -> self.history.push(state: final)  // Only keep final state
+    }
 
 // Usage: drag operation should undo as one step
-@drag_shape (app: DrawingApp, moves: [Point]) -> DrawingApp = run(
-    let grouped = app.begin_group(),
+@drag_shape (app: DrawingApp, moves: [Point]) -> DrawingApp = {
+    let grouped = app.begin_group();
     let grouped = moves.fold(
         initial: grouped,
         op: (g, pos) -> g.group_push(state: move_to(canvas: g.current(), pos: pos)),
-    ),
-    grouped.end_group(),
-)
+    );
+    grouped.end_group()
+}
 ```
 
 ---

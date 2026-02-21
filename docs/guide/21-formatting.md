@@ -23,57 +23,57 @@ Ori has one canonical code style, enforced by `ori fmt`. No configuration, no de
 Four spaces per level, no tabs:
 
 ```ori
-@example () -> void = run(
-    let x = 10,
-    if x > 0 then run(
-        let y = x * 2,
-        print(msg: `{y}`),
-    ),
-)
+@example () -> void = {
+    let x = 10;
+    if x > 0 then {
+        let y = x * 2;
+        print(msg: `{y}`)
+    }
+}
 ```
 
 ### Spacing Around Operators
 
 ```ori
 // Binary operators
-a + b
-x == y
-m && n
+a + b;
+x == y;
+m && n;
 
 // No space for unary
-!condition
--value
+!condition;
+-value;
 
 // No space around . and ?
-point.x
-result?
+point.x;
+result?;
 ```
 
 ### Spacing Around Arrows
 
 ```ori
 // Lambda arrows
-x -> x + 1
-(a, b) -> a + b
+x -> x + 1;
+(a, b) -> a + b;
 
 // Return type arrows
-@fn () -> int = ...
+@fn () -> int = ...;
 ```
 
 ### Spacing in Delimiters
 
 ```ori
 // Space after colon
-x: int
-key: value
+x: int;
+key: value;
 
 // Space after comma
-f(a, b, c)
-[1, 2, 3]
+f(a, b, c);
+[1, 2, 3];
 
 // No space inside parens/brackets
-f(x)
-[1, 2]
+f(x);
+[1, 2];
 
 // Space inside braces (structs)
 Point { x, y }
@@ -91,9 +91,10 @@ Core principle: **inline if ≤100 characters, break otherwise**.
 ### Inline (Fits)
 
 ```ori
-assert_eq(actual: result, expected: 10)
-Point { x: 0, y: 0 }
-let short = [1, 2, 3]
+assert_eq(actual: result, expected: 10);
+Point { x: 0, y: 0 };
+let short = [1, 2, 3];
+
 ```
 
 ### Broken (Exceeds Width)
@@ -103,18 +104,19 @@ send_notification(
     user_id: current_user,
     message: notification_text,
     priority: Priority.High,
-)
+);
 
 Point {
     x: some_long_expression,
     y: another_long_expression,
-}
+};
 
 let long_list = [
     first_long_item,
     second_long_item,
     third_long_item,
-]
+];
+
 ```
 
 ### Nested Constructs
@@ -127,7 +129,7 @@ send_email(
     to: recipient,
     subject: "Hello",
     body: format_body(name: user.name, date: today()),
-)
+);
 
 // Both break
 send_email(
@@ -137,39 +139,39 @@ send_email(
         content: message_content,
     ),
     body: body_text,
-)
+);
+
 ```
 
 ## Always-Stacked Constructs
 
 Some constructs always stack, regardless of width:
 
-### run and try
+### Blocks and try
 
 ```ori
 // Always stacked
-run(
-    let x = compute(),
-    let y = process(input: x),
-    y,
-)
+{
+    let x = compute();
+    let y = process(input: x);
+    y
+}
 
-try(
-    let data = fetch()?,
-    let result = parse(data: data)?,
-    Ok(result),
-)
+try {
+    let data = fetch()?;
+    let result = parse(data: data)?;
+    Ok(result)
+}
 ```
 
 ### match Arms
 
 ```ori
 // One arm per line
-match(
-    value,
-    Some(x) -> process(x: x),
-    None -> default_value,
-)
+match value {
+    Some(x) -> process(x: x)
+    None -> default_value
+}
 ```
 
 ### recurse, parallel, spawn, nursery
@@ -197,7 +199,7 @@ One per line when broken:
 
 ```ori
 // Inline
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
 // Broken
 @send_email (
@@ -205,14 +207,14 @@ One per line when broken:
     subject: str,
     body: str,
     attachments: [Attachment],
-) -> Result<void, Error> = ...
+) -> Result<void, Error> = ...;
 ```
 
 ### Generics and Where Clauses
 
 ```ori
 // Inline
-@process<T: Clone> (x: T) -> T = ...
+@process<T: Clone> (x: T) -> T = ...;
 
 // Broken
 @complex<T, U, V> (
@@ -222,7 +224,7 @@ One per line when broken:
 ) -> Result<V, Error>
     where T: Clone + Debug,
           U: Sendable,
-          V: Default = ...
+          V: Default = ...;
 ```
 
 ### Struct Fields
@@ -249,7 +251,8 @@ type Status =
     | Pending
     | Active(since: DateTime)
     | Inactive(reason: str)
-    | Terminated
+    | Terminated;
+
 ```
 
 ### Lists
@@ -277,14 +280,15 @@ Each method on its own line when broken:
 
 ```ori
 // Inline
-numbers.iter().map(transform: x -> x * 2).collect()
+numbers.iter().map(transform: x -> x * 2).collect();
 
 // Broken
 numbers.iter()
     .filter(predicate: x -> x > 0)
     .map(transform: x -> x * 2)
     .take(count: 10)
-    .collect()
+    .collect();
+
 ```
 
 ### Binary Expressions
@@ -293,19 +297,20 @@ Break before operator:
 
 ```ori
 // Inline
-let total = a + b + c
+let total = a + b + c;
 
 // Broken
 let total = very_long_first_operand
     + very_long_second_operand
-    + very_long_third_operand
+    + very_long_third_operand;
+
 ```
 
 ### Conditionals
 
 ```ori
 // Inline
-if condition then result else alternative
+if condition then result else alternative;
 
 // Broken
 if some_complex_condition then
@@ -313,7 +318,8 @@ if some_complex_condition then
 else if another_condition then
     second_result
 else
-    default_result
+    default_result;
+
 ```
 
 ### Lambdas
@@ -322,14 +328,14 @@ Break after `->` only for always-stacked patterns:
 
 ```ori
 // Inline
-x -> x + 1
+x -> x + 1;
 
 // With run (always stacked)
-x -> run(
-    let y = compute(input: x),
-    let z = process(input: y),
-    z,
-)
+x -> {
+    let y = compute(input: x);
+    let z = process(input: y);
+    z
+};
 ```
 
 ## Trailing Commas
@@ -338,8 +344,8 @@ Always on multi-line, forbidden on single-line:
 
 ```ori
 // Single line — no trailing comma
-Point { x: 0, y: 0 }
-[1, 2, 3]
+Point { x: 0, y: 0 };
+[1, 2, 3];
 
 // Multi-line — trailing comma required
 Point {
@@ -359,38 +365,39 @@ Point {
 ### After Import Block
 
 ```ori
-use std.math { sqrt, abs }
-use "./utils" { helper }
+use std.math { sqrt, abs };
+use "./utils" { helper };
 
-@main () -> void = ...
+
+@main () -> void = ...;
 ```
 
 ### After Constants Block
 
 ```ori
-let $MAX_SIZE = 100
-let $TIMEOUT = 30s
+let $MAX_SIZE = 100;
+let $TIMEOUT = 30s;
 
-@process () -> void = ...
+@process () -> void = ...;
 ```
 
 ### Between Functions
 
 ```ori
-@first () -> void = ...
+@first () -> void = ...;
 
-@second () -> void = ...
+@second () -> void = ...;
 
-@third () -> void = ...
+@third () -> void = ...;
 ```
 
 ### Between Trait/Impl Methods
 
 ```ori
 impl Displayable for Point {
-    @display (self) -> str = `({self.x}, {self.y})`
+    @display (self) -> str = `({self.x}, {self.y})`;
 
-    @format (self, spec: FormatSpec) -> str = ...
+    @format (self, spec: FormatSpec) -> str = ...;
 }
 ```
 
@@ -400,15 +407,15 @@ Exception: single-method blocks don't need blank lines.
 
 ```ori
 // BAD
-@first () -> void = ...
+@first () -> void = ...;
 
 
-@second () -> void = ...
+@second () -> void = ...;
 
 // GOOD
-@first () -> void = ...
+@first () -> void = ...;
 
-@second () -> void = ...
+@second () -> void = ...;
 ```
 
 ## Comments
@@ -417,10 +424,10 @@ Comments must be on their own line:
 
 ```ori
 // This is valid
-let x = 42
+let x = 42;
 
 // This is NOT valid
-let y = 42  // inline comment
+let y = 42;  // inline comment
 ```
 
 Space after `//`:
@@ -435,7 +442,7 @@ Space after `//`:
 ### Type Aliases
 
 ```ori
-type UserId = int
+type UserId = int;
 type Point = { x: int, y: int }
 ```
 
@@ -443,14 +450,14 @@ type Point = { x: int, y: int }
 
 ```ori
 trait Displayable {
-    @display (self) -> str
+    @display (self) -> str;
 }
 
 trait Container {
-    type Item
+    type Item;
 
-    @get (self, index: int) -> Option<Self.Item>
-    @len (self) -> int
+    @get (self, index: int) -> Option<Self.Item>;
+    @len (self) -> int;
 }
 ```
 
@@ -458,30 +465,30 @@ trait Container {
 
 ```ori
 impl Displayable for Point {
-    @display (self) -> str = `({self.x}, {self.y})`
+    @display (self) -> str = `({self.x}, {self.y})`;
 }
 
 impl<T: Displayable> Displayable for [T] {
-    @display (self) -> str = run(
-        let items = self.iter().map(transform: x -> x.display()).collect(),
-        `[{items.join(sep: ", ")}]`,
-    )
+    @display (self) -> str = {
+        let items = self.iter().map(transform: x -> x.display()).collect();
+        `[{items.join(sep: ", ")}]`
+    }
 }
 ```
 
 ### Tests
 
 ```ori
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-    assert_eq(actual: add(a: -1, b: 1), expected: 0),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
+    assert_eq(actual: add(a: -1, b: 1), expected: 0)
+}
 
 @test_with_mock tests @fetch () -> void =
-    with Http = MockHttp { responses: {} } in run(
-        let result = fetch(url: "/test"),
-        assert_err(result: result),
-    )
+    with Http = MockHttp { responses: {} } in {
+        let result = fetch(url: "/test");
+        assert_err(result: result)
+    }
 ```
 
 ## Running the Formatter

@@ -8,8 +8,8 @@
 
 use std.testing { assert_eq }
 
-@debug_only () -> int = 42
+@debug_only () -> int = 42;
 
-@test_cfg_attr tests @debug_only () -> void = run(
-    assert_eq(actual: debug_only(), expected: 42),
-)
+@test_cfg_attr tests @debug_only () -> void = {
+    assert_eq(actual: debug_only(), expected: 42)
+}

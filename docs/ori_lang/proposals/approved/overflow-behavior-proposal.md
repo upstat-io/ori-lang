@@ -186,9 +186,9 @@ type Counter = { value: int }
 
 use std.math { saturating_add }
 
-@increment (c: Counter) -> Counter = run(
+@increment (c: Counter) -> Counter = {
     Counter { value: saturating_add(a: c.value, b: 1) }
-)
+}
 
 // Counter.value stays at int.max instead of overflowing
 ```
@@ -198,16 +198,16 @@ use std.math { saturating_add }
 ```ori
 use std.math { wrapping_add, wrapping_mul }
 
-@hash (bytes: [byte]) -> int = run(
+@hash (bytes: [byte]) -> int = {
     fold(
-        over: bytes,
-        init: 0,
+        over: bytes
+        init: 0
         op: (acc, b) -> wrapping_add(
-            a: wrapping_mul(a: acc, b: 31),
+            a: wrapping_mul(a: acc, b: 31)
             b: int(b)
         )
     )
-)
+}
 ```
 
 ### Checked Arithmetic for User Input
@@ -215,12 +215,12 @@ use std.math { wrapping_add, wrapping_mul }
 ```ori
 use std.math { checked_add }
 
-@add_scores (a: int, b: int) -> Result<int, str> = run(
-    match(checked_add(a: a, b: b),
-        Some(result) -> Ok(result),
+@add_scores (a: int, b: int) -> Result<int, str> = {
+    match checked_add(a: a, b: b) {
+        Some(result) -> Ok(result)
         None -> Err("score overflow")
-    )
-)
+    }
+}
 ```
 
 ### Compile-Time Constants

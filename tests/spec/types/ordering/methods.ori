@@ -12,115 +12,115 @@ use std.testing { assert, assert_eq }
 // --- is_less ---
 
 @test_is_less_on_less tests @is_less_less () -> void =
-    assert(cond: Less.is_less())
+    assert(cond: Less.is_less());
 
-@is_less_less () -> bool = Less.is_less()
+@is_less_less () -> bool = Less.is_less();
 
 @test_is_less_on_equal tests @is_less_equal () -> void =
-    assert(cond: !Equal.is_less())
+    assert(cond: !Equal.is_less());
 
-@is_less_equal () -> bool = Equal.is_less()
+@is_less_equal () -> bool = Equal.is_less();
 
 @test_is_less_on_greater tests @is_less_greater () -> void =
-    assert(cond: !Greater.is_less())
+    assert(cond: !Greater.is_less());
 
-@is_less_greater () -> bool = Greater.is_less()
+@is_less_greater () -> bool = Greater.is_less();
 
 // --- is_equal ---
 
 @test_is_equal_on_less tests @is_equal_less () -> void =
-    assert(cond: !Less.is_equal())
+    assert(cond: !Less.is_equal());
 
-@is_equal_less () -> bool = Less.is_equal()
+@is_equal_less () -> bool = Less.is_equal();
 
 @test_is_equal_on_equal tests @is_equal_equal () -> void =
-    assert(cond: Equal.is_equal())
+    assert(cond: Equal.is_equal());
 
-@is_equal_equal () -> bool = Equal.is_equal()
+@is_equal_equal () -> bool = Equal.is_equal();
 
 @test_is_equal_on_greater tests @is_equal_greater () -> void =
-    assert(cond: !Greater.is_equal())
+    assert(cond: !Greater.is_equal());
 
-@is_equal_greater () -> bool = Greater.is_equal()
+@is_equal_greater () -> bool = Greater.is_equal();
 
 // --- is_greater ---
 
 @test_is_greater_on_less tests @is_greater_less () -> void =
-    assert(cond: !Less.is_greater())
+    assert(cond: !Less.is_greater());
 
-@is_greater_less () -> bool = Less.is_greater()
+@is_greater_less () -> bool = Less.is_greater();
 
 @test_is_greater_on_equal tests @is_greater_equal () -> void =
-    assert(cond: !Equal.is_greater())
+    assert(cond: !Equal.is_greater());
 
-@is_greater_equal () -> bool = Equal.is_greater()
+@is_greater_equal () -> bool = Equal.is_greater();
 
 @test_is_greater_on_greater tests @is_greater_greater () -> void =
-    assert(cond: Greater.is_greater())
+    assert(cond: Greater.is_greater());
 
-@is_greater_greater () -> bool = Greater.is_greater()
+@is_greater_greater () -> bool = Greater.is_greater();
 
 // --- is_less_or_equal ---
 
 @test_is_less_or_equal_on_less tests @is_loe_less () -> void =
-    assert(cond: Less.is_less_or_equal())
+    assert(cond: Less.is_less_or_equal());
 
-@is_loe_less () -> bool = Less.is_less_or_equal()
+@is_loe_less () -> bool = Less.is_less_or_equal();
 
 @test_is_less_or_equal_on_equal tests @is_loe_equal () -> void =
-    assert(cond: Equal.is_less_or_equal())
+    assert(cond: Equal.is_less_or_equal());
 
-@is_loe_equal () -> bool = Equal.is_less_or_equal()
+@is_loe_equal () -> bool = Equal.is_less_or_equal();
 
 @test_is_less_or_equal_on_greater tests @is_loe_greater () -> void =
-    assert(cond: !Greater.is_less_or_equal())
+    assert(cond: !Greater.is_less_or_equal());
 
-@is_loe_greater () -> bool = Greater.is_less_or_equal()
+@is_loe_greater () -> bool = Greater.is_less_or_equal();
 
 // --- is_greater_or_equal ---
 
 @test_is_greater_or_equal_on_less tests @is_goe_less () -> void =
-    assert(cond: !Less.is_greater_or_equal())
+    assert(cond: !Less.is_greater_or_equal());
 
-@is_goe_less () -> bool = Less.is_greater_or_equal()
+@is_goe_less () -> bool = Less.is_greater_or_equal();
 
 @test_is_greater_or_equal_on_equal tests @is_goe_equal () -> void =
-    assert(cond: Equal.is_greater_or_equal())
+    assert(cond: Equal.is_greater_or_equal());
 
-@is_goe_equal () -> bool = Equal.is_greater_or_equal()
+@is_goe_equal () -> bool = Equal.is_greater_or_equal();
 
 @test_is_greater_or_equal_on_greater tests @is_goe_greater () -> void =
-    assert(cond: Greater.is_greater_or_equal())
+    assert(cond: Greater.is_greater_or_equal());
 
-@is_goe_greater () -> bool = Greater.is_greater_or_equal()
+@is_goe_greater () -> bool = Greater.is_greater_or_equal();
 
 // =============================================================================
 // Ordering Type — reverse Method
 // =============================================================================
 
 @test_reverse_less tests @reverse_less () -> void =
-    assert(cond: Less.reverse().is_greater())
+    assert(cond: Less.reverse().is_greater());
 
-@reverse_less () -> Ordering = Less.reverse()
+@reverse_less () -> Ordering = Less.reverse();
 
 @test_reverse_equal tests @reverse_equal () -> void =
-    assert(cond: Equal.reverse().is_equal())
+    assert(cond: Equal.reverse().is_equal());
 
-@reverse_equal () -> Ordering = Equal.reverse()
+@reverse_equal () -> Ordering = Equal.reverse();
 
 @test_reverse_greater tests @reverse_greater () -> void =
-    assert(cond: Greater.reverse().is_less())
+    assert(cond: Greater.reverse().is_less());
 
-@reverse_greater () -> Ordering = Greater.reverse()
+@reverse_greater () -> Ordering = Greater.reverse();
 
-@test_reverse_is_involution tests @reverse_involution () -> void = run(
+@test_reverse_is_involution tests @reverse_involution () -> void = {
     // reverse(reverse(x)) == x
-    assert(cond: Less.reverse().reverse().is_less()),
-    assert(cond: Equal.reverse().reverse().is_equal()),
-    assert(cond: Greater.reverse().reverse().is_greater()),
-)
+    assert(cond: Less.reverse().reverse().is_less());
+    assert(cond: Equal.reverse().reverse().is_equal());
+    assert(cond: Greater.reverse().reverse().is_greater())
+}
 
-@reverse_involution () -> bool = Less.reverse().reverse().is_less()
+@reverse_involution () -> bool = Less.reverse().reverse().is_less();
 
 // =============================================================================
 // Ordering Type — Usage with compare()
@@ -128,74 +128,93 @@ use std.testing { assert, assert_eq }
 // Note: These tests require the Comparable trait implementation on int,
 // which returns Ordering. Skipped until Comparable is implemented for primitives.
 
-@test_compare_returns_ordering tests @compare_result () -> void = run(
-    let result = 1.compare(other: 2),
-    assert(cond: result.is_less()),
-)
+@test_compare_returns_ordering tests @compare_result () -> void = {
+    let result = 1.compare(other: 2);
+    assert(cond: result.is_less())
+}
 
-@compare_result () -> Ordering = 1.compare(other: 2)
+@compare_result () -> Ordering = 1.compare(other: 2);
 
 @test_compare_int_less tests @cmp_int_less () -> void =
-    assert(cond: 1.compare(other: 2).is_less())
+    assert(cond: 1.compare(other: 2).is_less());
 
-@cmp_int_less () -> bool = 1.compare(other: 2).is_less()
+@cmp_int_less () -> bool = 1.compare(other: 2).is_less();
 
 @test_compare_int_equal tests @cmp_int_equal () -> void =
-    assert(cond: 5.compare(other: 5).is_equal())
+    assert(cond: 5.compare(other: 5).is_equal());
 
-@cmp_int_equal () -> bool = 5.compare(other: 5).is_equal()
+@cmp_int_equal () -> bool = 5.compare(other: 5).is_equal();
 
 @test_compare_int_greater tests @cmp_int_greater () -> void =
-    assert(cond: 10.compare(other: 3).is_greater())
+    assert(cond: 10.compare(other: 3).is_greater());
 
-@cmp_int_greater () -> bool = 10.compare(other: 3).is_greater()
+@cmp_int_greater () -> bool = 10.compare(other: 3).is_greater();
 
 // =============================================================================
 // Ordering Type — Clone Trait
 // =============================================================================
 
-@test_ordering_clone tests @ordering_clone () -> void = run(
-    let original = Less,
-    let cloned = original.clone(),
-    assert(cond: cloned.is_less()),
-)
+@test_ordering_clone tests @ordering_clone () -> void = {
+    let original = Less;
+    let cloned = original.clone();
+    assert(cond: cloned.is_less())
+}
 
-@ordering_clone () -> Ordering = Less.clone()
+@ordering_clone () -> Ordering = Less.clone();
 
 // =============================================================================
 // Ordering Type — Printable Trait
 // =============================================================================
 
 @test_ordering_to_str_less tests @to_str_less () -> void =
-    assert_eq(actual: Less.to_str(), expected: "Less")
+    assert_eq(actual: Less.to_str(), expected: "Less");
 
-@to_str_less () -> str = Less.to_str()
+@to_str_less () -> str = Less.to_str();
 
 @test_ordering_to_str_equal tests @to_str_equal () -> void =
-    assert_eq(actual: Equal.to_str(), expected: "Equal")
+    assert_eq(actual: Equal.to_str(), expected: "Equal");
 
-@to_str_equal () -> str = Equal.to_str()
+@to_str_equal () -> str = Equal.to_str();
 
 @test_ordering_to_str_greater tests @to_str_greater () -> void =
-    assert_eq(actual: Greater.to_str(), expected: "Greater")
+    assert_eq(actual: Greater.to_str(), expected: "Greater");
 
-@to_str_greater () -> str = Greater.to_str()
+@to_str_greater () -> str = Greater.to_str();
 
 // =============================================================================
 // Ordering Type — Hashable Trait
 // =============================================================================
 
-@test_ordering_hash_distinct tests @hash_distinct () -> void = run(
-    let h_less = Less.hash(),
-    let h_equal = Equal.hash(),
-    let h_greater = Greater.hash(),
+@test_ordering_hash_distinct tests @hash_distinct () -> void = {
+    let h_less = Less.hash();
+    let h_equal = Equal.hash();
+    let h_greater = Greater.hash();
     // All three must be distinct
-    assert(cond: h_less != h_equal),
-    assert(cond: h_equal != h_greater),
-    assert(cond: h_less != h_greater),
-)
+    assert(cond: h_less != h_equal);
+    assert(cond: h_equal != h_greater);
+    assert(cond: h_less != h_greater)
+}
 
-@hash_distinct () -> int = Less.hash()
+@hash_distinct () -> int = Less.hash();
+
+// =============================================================================
+// Ordering Type — Debug Trait
+// =============================================================================
+
+@test_ordering_debug_less tests @debug_less () -> void =
+    assert_eq(actual: Less.debug(), expected: "Less");
+
+@debug_less () -> str = Less.debug();
+
+@test_ordering_debug_equal tests @debug_equal () -> void =
+    assert_eq(actual: Equal.debug(), expected: "Equal");
+
+@debug_equal () -> str = Equal.debug();
+
+@test_ordering_debug_greater tests @debug_greater () -> void =
+    assert_eq(actual: Greater.debug(), expected: "Greater");
+
+@debug_greater () -> str = Greater.debug();
 
 // =============================================================================
 // Ordering Type — then Method
@@ -207,35 +226,35 @@ use std.testing { assert, assert_eq }
 // --- then: Equal chains to other ---
 
 @test_then_equal_continues tests @then_equal () -> void =
-    assert(cond: Equal.then(other: Less).is_less())
+    assert(cond: Equal.then(other: Less).is_less());
 
-@then_equal () -> Ordering = Equal.then(other: Less)
+@then_equal () -> Ordering = Equal.then(other: Less);
 
 // --- then: Non-equal keeps self ---
 
 @test_then_less_returns_self tests @then_less () -> void =
-    assert(cond: Less.then(other: Greater).is_less())
+    assert(cond: Less.then(other: Greater).is_less());
 
-@then_less () -> Ordering = Less.then(other: Greater)
+@then_less () -> Ordering = Less.then(other: Greater);
 
 @test_then_greater_returns_self tests @then_greater () -> void =
-    assert(cond: Greater.then(other: Less).is_greater())
+    assert(cond: Greater.then(other: Less).is_greater());
 
-@then_greater () -> Ordering = Greater.then(other: Less)
+@then_greater () -> Ordering = Greater.then(other: Less);
 
 // --- then: Equal chains to Equal ---
 
 @test_then_equal_equal tests @then_equal_equal () -> void =
-    assert(cond: Equal.then(other: Equal).is_equal())
+    assert(cond: Equal.then(other: Equal).is_equal());
 
-@then_equal_equal () -> Ordering = Equal.then(other: Equal)
+@then_equal_equal () -> Ordering = Equal.then(other: Equal);
 
 // --- then: chaining for lexicographic comparison ---
 
-@test_then_chained tests @then_chained () -> void = run(
+@test_then_chained tests @then_chained () -> void = {
     // Compare (1, 2) with (1, 3): first fields equal, second fields differ
-    let result = Equal.then(other: Less),
-    assert(cond: result.is_less()),
-)
+    let result = Equal.then(other: Less);
+    assert(cond: result.is_less())
+}
 
-@then_chained () -> Ordering = Equal.then(other: Less)
+@then_chained () -> Ordering = Equal.then(other: Less);

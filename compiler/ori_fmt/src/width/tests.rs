@@ -6,7 +6,8 @@ use literals::{bool_width, char_width, float_width, int_width, string_width};
 use operators::{binary_op_width, unary_op_width};
 use ori_ir::{
     ast::{Expr, ExprKind, Stmt, StmtKind},
-    BinaryOp, DurationUnit, ExprArena, Name, SizeUnit, Span, StmtRange, StringInterner, UnaryOp,
+    BinaryOp, DurationUnit, ExprArena, Mutability, Name, SizeUnit, Span, StmtRange, StringInterner,
+    UnaryOp,
 };
 use patterns::binding_pattern_width;
 
@@ -640,8 +641,8 @@ fn test_width_loop() {
     );
     let mut calc = WidthCalculator::new(&arena, &interner);
 
-    // "loop(42)" = 5 + 2 + 1 = 8
-    assert_eq!(calc.width(loop_expr), 8);
+    // "loop 42" = 4 + 1 + 2 = 7
+    assert_eq!(calc.width(loop_expr), 7);
 }
 
 #[test]
@@ -753,34 +754,14 @@ fn test_always_stacked_match() {
 }
 
 #[test]
-fn test_always_stacked_run() {
-    let mut arena = ExprArena::new();
-    let interner = StringInterner::new();
-
-    let result = make_expr(&mut arena, ExprKind::Int(1));
-    let bindings = arena.alloc_seq_bindings([]);
-    let seq_id = arena.alloc_function_seq(FunctionSeq::Run {
-        pre_checks: ori_ir::CheckRange::EMPTY,
-        bindings,
-        result,
-        post_checks: ori_ir::CheckRange::EMPTY,
-        span: Span::new(0, 1),
-    });
-    let run = make_expr(&mut arena, ExprKind::FunctionSeq(seq_id));
-
-    let mut calc = WidthCalculator::new(&arena, &interner);
-    assert_eq!(calc.width(run), ALWAYS_STACKED);
-}
-
-#[test]
 fn test_always_stacked_try() {
     let mut arena = ExprArena::new();
     let interner = StringInterner::new();
 
     let result = make_expr(&mut arena, ExprKind::Int(1));
-    let bindings = arena.alloc_seq_bindings([]);
+    let stmts = StmtRange::EMPTY;
     let seq_id = arena.alloc_function_seq(FunctionSeq::Try {
-        bindings,
+        stmts,
         result,
         span: Span::new(0, 1),
     });
@@ -905,7 +886,7 @@ fn test_binding_pattern_name() {
     let name = interner.intern("foo");
     let pattern = ori_ir::BindingPattern::Name {
         name,
-        mutable: true,
+        mutable: Mutability::Mutable,
     };
 
     assert_eq!(binding_pattern_width(&pattern, &interner), 3); // "foo"
@@ -927,11 +908,11 @@ fn test_binding_pattern_tuple() {
     let pattern = ori_ir::BindingPattern::Tuple(vec![
         ori_ir::BindingPattern::Name {
             name: a,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
         ori_ir::BindingPattern::Name {
             name: b,
-            mutable: true,
+            mutable: Mutability::Mutable,
         },
     ]);
 
@@ -1033,8 +1014,8 @@ fn test_width_loop_labeled() {
     let loop_expr = make_expr(&mut arena, ExprKind::Loop { label, body });
     let mut calc = WidthCalculator::new(&arena, &interner);
 
-    // "loop:main(42)" = 4 + 1 + 4 + 1 + 2 + 1 = 13
-    assert_eq!(calc.width(loop_expr), 13);
+    // "loop:main 42" = 4 + 1 + 4 + 1 + 2 = 12
+    assert_eq!(calc.width(loop_expr), 12);
 }
 
 #[test]

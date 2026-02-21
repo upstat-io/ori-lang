@@ -1,4 +1,4 @@
 // Rosetta Code: Hello world/Text
 // Task: Display "Hello world!" to the user
 
-@hello () -> str = "Hello world!"
+@hello () -> str = "Hello world!";

@@ -7,6 +7,10 @@ use super::substitute_type_params_with_map;
 use crate::{Idx, TypeCheckError, TypeKind, TypeRegistry, VariantFields};
 
 /// Infer the type of an identifier reference.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive identifier resolution: env, constructors, builtins, and prelude functions"
+)]
 pub(crate) fn infer_ident(engine: &mut InferEngine<'_>, name: Name, span: Span) -> Idx {
     // 1. Environment lookup (functions, parameters, let bindings)
     if let Some(scheme) = engine.env().lookup(name) {

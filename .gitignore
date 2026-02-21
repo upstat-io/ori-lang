@@ -64,6 +64,10 @@ rustc-ice-*.txt
 !std.log/
 *.temp
 
+# Python
+__pycache__/
+*.pyc
+
 #claude
 .claude/discussions
 scratchpad

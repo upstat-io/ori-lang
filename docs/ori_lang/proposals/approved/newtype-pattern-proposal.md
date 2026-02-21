@@ -205,15 +205,15 @@ Add methods via `impl`:
 type Email = str
 
 impl Email {
-    @domain (self) -> str = run(
-        let parts = self.inner.split(sep: "@"),
-        parts[1],
-    )
+    @domain (self) -> str = {
+        let parts = self.inner.split(sep: "@")
+        parts[1]
+    }
 
-    @local_part (self) -> str = run(
-        let parts = self.inner.split(sep: "@"),
-        parts[0],
-    )
+    @local_part (self) -> str = {
+        let parts = self.inner.split(sep: "@")
+        parts[0]
+    }
 }
 
 let email = Email("user@example.com")

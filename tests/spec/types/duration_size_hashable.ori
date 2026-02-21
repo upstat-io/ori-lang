@@ -8,125 +8,125 @@ use std.testing { assert, assert_eq, assert_ne }
 // Duration — Hashable Trait
 // =============================================================================
 
-@test_duration_hash_basic tests @duration_hash_basic () -> void = run(
+@test_duration_hash_basic tests @duration_hash_basic () -> void = {
     // hash() returns an int
-    let h = 100ms.hash(),
-    assert(cond: true), // If we got here, hash() worked
-)
+    let h = 100ms.hash();
+    assert(cond: true) // If we got here, hash() worked
+}
 
-@duration_hash_basic () -> int = 100ms.hash()
+@duration_hash_basic () -> int = 100ms.hash();
 
-@test_duration_hash_equality tests @duration_hash_eq () -> void = run(
+@test_duration_hash_equality tests @duration_hash_eq () -> void = {
     // Equal durations must have equal hashes
-    let h1 = 1s.hash(),
-    let h2 = 1000ms.hash(),
-    assert_eq(actual: h1, expected: h2),
-)
+    let h1 = 1s.hash();
+    let h2 = 1000ms.hash();
+    assert_eq(actual: h1, expected: h2)
+}
 
-@duration_hash_eq () -> bool = 1s.hash() == 1000ms.hash()
+@duration_hash_eq () -> bool = 1s.hash() == 1000ms.hash();
 
-@test_duration_hash_different_values tests @duration_hash_diff () -> void = run(
+@test_duration_hash_different_values tests @duration_hash_diff () -> void = {
     // Different durations should (usually) have different hashes
     // Note: Hash collisions are allowed but unlikely for small values
-    let h1 = 100ms.hash(),
-    let h2 = 200ms.hash(),
-    assert_ne(actual: h1, unexpected: h2),
-)
+    let h1 = 100ms.hash();
+    let h2 = 200ms.hash();
+    assert_ne(actual: h1, unexpected: h2)
+}
 
-@duration_hash_diff () -> bool = 100ms.hash() != 200ms.hash()
+@duration_hash_diff () -> bool = 100ms.hash() != 200ms.hash();
 
-@test_duration_hash_zero tests @duration_hash_zero () -> void = run(
+@test_duration_hash_zero tests @duration_hash_zero () -> void = {
     // Zero duration should have a consistent hash
-    let h1 = 0ns.hash(),
-    let h2 = 0ms.hash(),
-    assert_eq(actual: h1, expected: h2),
-)
+    let h1 = 0ns.hash();
+    let h2 = 0ms.hash();
+    assert_eq(actual: h1, expected: h2)
+}
 
-@duration_hash_zero () -> int = 0ns.hash()
+@duration_hash_zero () -> int = 0ns.hash();
 
-@test_duration_hash_negative tests @duration_hash_neg () -> void = run(
+@test_duration_hash_negative tests @duration_hash_neg () -> void = {
     // Negative durations should hash
-    let h = (-100ms).hash(),
-    assert(cond: true),
-)
+    let h = (-100ms).hash();
+    assert(cond: true)
+}
 
-@duration_hash_neg () -> int = (-100ms).hash()
+@duration_hash_neg () -> int = (-100ms).hash();
 
-@test_duration_hash_negative_positive_different tests @duration_hash_sign () -> void = run(
+@test_duration_hash_negative_positive_different tests @duration_hash_sign () -> void = {
     // Positive and negative durations should have different hashes
-    let h_pos = 100ms.hash(),
-    let h_neg = (-100ms).hash(),
-    assert_ne(actual: h_pos, unexpected: h_neg),
-)
+    let h_pos = 100ms.hash();
+    let h_neg = (-100ms).hash();
+    assert_ne(actual: h_pos, unexpected: h_neg)
+}
 
-@duration_hash_sign () -> bool = 100ms.hash() != (-100ms).hash()
+@duration_hash_sign () -> bool = 100ms.hash() != (-100ms).hash();
 
-@test_duration_hash_units_equivalent tests @duration_hash_units () -> void = run(
+@test_duration_hash_units_equivalent tests @duration_hash_units () -> void = {
     // Equivalent durations in different units have same hash
-    assert_eq(actual: 1000ns.hash(), expected: 1us.hash()),
-    assert_eq(actual: 1000us.hash(), expected: 1ms.hash()),
-    assert_eq(actual: 1000ms.hash(), expected: 1s.hash()),
-    assert_eq(actual: 60s.hash(), expected: 1m.hash()),
-    assert_eq(actual: 60m.hash(), expected: 1h.hash()),
-)
+    assert_eq(actual: 1000ns.hash(), expected: 1us.hash());
+    assert_eq(actual: 1000us.hash(), expected: 1ms.hash());
+    assert_eq(actual: 1000ms.hash(), expected: 1s.hash());
+    assert_eq(actual: 60s.hash(), expected: 1m.hash());
+    assert_eq(actual: 60m.hash(), expected: 1h.hash())
+}
 
-@duration_hash_units () -> bool = 1000ms.hash() == 1s.hash()
+@duration_hash_units () -> bool = 1000ms.hash() == 1s.hash();
 
 // =============================================================================
 // Size — Hashable Trait
 // =============================================================================
 
-@test_size_hash_basic tests @size_hash_basic () -> void = run(
+@test_size_hash_basic tests @size_hash_basic () -> void = {
     // hash() returns an int
-    let h = 1kb.hash(),
-    assert(cond: true),
-)
+    let h = 1kb.hash();
+    assert(cond: true)
+}
 
-@size_hash_basic () -> int = 1kb.hash()
+@size_hash_basic () -> int = 1kb.hash();
 
-@test_size_hash_equality tests @size_hash_eq () -> void = run(
+@test_size_hash_equality tests @size_hash_eq () -> void = {
     // Equal sizes must have equal hashes
     // SI units: 1kb = 1000 bytes (decimal notation)
-    let h1 = 1kb.hash(),
-    let h2 = 1000b.hash(),
-    assert_eq(actual: h1, expected: h2),
-)
+    let h1 = 1kb.hash();
+    let h2 = 1000b.hash();
+    assert_eq(actual: h1, expected: h2)
+}
 
-@size_hash_eq () -> bool = 1kb.hash() == 1000b.hash()
+@size_hash_eq () -> bool = 1kb.hash() == 1000b.hash();
 
-@test_size_hash_different_values tests @size_hash_diff () -> void = run(
+@test_size_hash_different_values tests @size_hash_diff () -> void = {
     // Different sizes should (usually) have different hashes
-    let h1 = 100b.hash(),
-    let h2 = 200b.hash(),
-    assert_ne(actual: h1, unexpected: h2),
-)
+    let h1 = 100b.hash();
+    let h2 = 200b.hash();
+    assert_ne(actual: h1, unexpected: h2)
+}
 
-@size_hash_diff () -> bool = 100b.hash() != 200b.hash()
+@size_hash_diff () -> bool = 100b.hash() != 200b.hash();
 
-@test_size_hash_zero tests @size_hash_zero () -> void = run(
+@test_size_hash_zero tests @size_hash_zero () -> void = {
     // Zero size should have a consistent hash
-    let h1 = 0b.hash(),
-    let h2 = 0kb.hash(),
-    assert_eq(actual: h1, expected: h2),
-)
+    let h1 = 0b.hash();
+    let h2 = 0kb.hash();
+    assert_eq(actual: h1, expected: h2)
+}
 
-@size_hash_zero () -> int = 0b.hash()
+@size_hash_zero () -> int = 0b.hash();
 
-@test_size_hash_units_equivalent tests @size_hash_units () -> void = run(
+@test_size_hash_units_equivalent tests @size_hash_units () -> void = {
     // Equivalent sizes in different units have same hash
     // SI units: decimal notation - 1000b = 1kb, 1000kb = 1mb, etc.
-    assert_eq(actual: 1000b.hash(), expected: 1kb.hash()),
-    assert_eq(actual: 1000kb.hash(), expected: 1mb.hash()),
-    assert_eq(actual: 1000mb.hash(), expected: 1gb.hash()),
-    assert_eq(actual: 1000gb.hash(), expected: 1tb.hash()),
-)
+    assert_eq(actual: 1000b.hash(), expected: 1kb.hash());
+    assert_eq(actual: 1000kb.hash(), expected: 1mb.hash());
+    assert_eq(actual: 1000mb.hash(), expected: 1gb.hash());
+    assert_eq(actual: 1000gb.hash(), expected: 1tb.hash())
+}
 
-@size_hash_units () -> bool = 1000b.hash() == 1kb.hash()
+@size_hash_units () -> bool = 1000b.hash() == 1kb.hash();
 
-@test_size_hash_large tests @size_hash_large () -> void = run(
+@test_size_hash_large tests @size_hash_large () -> void = {
     // Large sizes should hash
-    let h = 1tb.hash(),
-    assert(cond: true),
-)
+    let h = 1tb.hash();
+    assert(cond: true)
+}
 
-@size_hash_large () -> int = 1tb.hash()
+@size_hash_large () -> int = 1tb.hash();

@@ -45,10 +45,10 @@ The `drop` method is called when a value's reference count reaches zero.
 Drop is called when ARC refcount reaches zero:
 
 ```ori
-run(
+{
     let resource = acquire_resource(),  // refcount: 1
     use_resource(resource),             // refcount may increase
-)                                       // refcount: 0, drop called
+}                                       // refcount: 0, drop called
 ```
 
 ### Scope Exit
@@ -56,11 +56,11 @@ run(
 For values not shared, drop occurs at scope exit:
 
 ```ori
-@process () -> void = run(
+@process () -> void = {
     let file = open_file(path),  // Created
-    read_all(file),
+    read_all(file)
     // drop(file) called here — end of scope
-)
+}
 ```
 
 ### Early Return
@@ -68,12 +68,12 @@ For values not shared, drop occurs at scope exit:
 Drop is called on early returns:
 
 ```ori
-@process () -> Result<Data, Error> = run(
+@process () -> Result<Data, Error> = {
     let file = open_file(path),  // Created
     let content = read(file)?,   // If Err, file is dropped before return
-    Ok(parse(content)),
+    Ok(parse(content))
     // If Ok, file is dropped here
-)
+}
 ```
 
 ---
@@ -85,11 +85,11 @@ Drop is called on early returns:
 Values are dropped in reverse declaration order:
 
 ```ori
-run(
-    let a = Resource { name: "a" },
-    let b = Resource { name: "b" },
-    let c = Resource { name: "c" },
-)
+{
+    let a = Resource { name: "a" }
+    let b = Resource { name: "b" }
+    let c = Resource { name: "c" }
+}
 // Drop order: c, b, a
 ```
 
@@ -100,9 +100,9 @@ Fields are dropped in reverse declaration order, then the struct:
 ```ori
 type Container = { first: Resource, second: Resource }
 
-run(
-    let c = Container { first: r1, second: r2 },
-)
+{
+    let c = Container { first: r1, second: r2 }
+}
 // Drop order: r2, r1 (reverse field order)
 ```
 
@@ -111,9 +111,9 @@ run(
 Collection elements are dropped in reverse order (back-to-front):
 
 ```ori
-run(
-    let list = [r1, r2, r3],
-)
+{
+    let list = [r1, r2, r3]
+}
 // Drop order: r3, r2, r1 (back-to-front)
 ```
 
@@ -127,10 +127,10 @@ Drop cannot perform async operations:
 
 ```ori
 impl Drop for Connection {
-    @drop (self) -> void = run(
+    @drop (self) -> void = {
         self.send_goodbye(),  // ERROR if async
-        self.close(),
-    )
+        self.close()
+    }
 }
 ```
 
@@ -160,10 +160,10 @@ impl Drop for Bad {
     @drop (self) -> void = panic(msg: "drop failed")  // Dangerous
 }
 
-run(
-    let bad = Bad {},
+{
+    let bad = Bad {}
     panic(msg: "first panic"),  // During unwind, Bad.drop panics -> ABORT
-)
+}
 ```
 
 ---
@@ -251,12 +251,12 @@ Force drop before scope exit:
 ```ori
 @drop_early<T> (value: T) -> void = ()  // Takes ownership, value is dropped
 
-run(
-    let file = open_file(path),
-    let content = read_all(file),
+{
+    let file = open_file(path)
+    let content = read_all(file)
     drop_early(file),  // Close immediately
     // ... continue processing content
-)
+}
 ```
 
 ### Rationale
@@ -276,11 +276,11 @@ impl Drop for TempFile {
     @drop (self) -> void = delete_file(self.path)
 }
 
-@with_temp_file<T> (f: (TempFile) -> T) -> T = run(
-    let temp = TempFile { path: create_temp() },
-    f(temp),
+@with_temp_file<T> (f: (TempFile) -> T) -> T = {
+    let temp = TempFile { path: create_temp() }
+    f(temp)
     // temp.drop() automatically deletes file
-)
+}
 ```
 
 ### Logging
@@ -289,17 +289,17 @@ impl Drop for TempFile {
 type TimedOperation = { name: str, start: Duration }
 
 impl Drop for TimedOperation {
-    @drop (self) -> void = run(
-        let elapsed = now() - self.start,
-        log(msg: `{self.name} took {elapsed}`),
-    )
+    @drop (self) -> void = {
+        let elapsed = now() - self.start
+        log(msg: `{self.name} took {elapsed}`)
+    }
 }
 
-@measure<T> (name: str, f: () -> T) -> T = run(
-    let op = TimedOperation { name: name, start: now() },
-    f(),
+@measure<T> (name: str, f: () -> T) -> T = {
+    let op = TimedOperation { name: name, start: now() }
+    f()
     // Logs duration when op is dropped
-)
+}
 ```
 
 ### Reference Counting Debug
@@ -322,10 +322,10 @@ Drop should handle its own errors:
 
 ```ori
 impl Drop for Connection {
-    @drop (self) -> void = match(self.close(),
-        Ok(_) -> (),
+    @drop (self) -> void = match self.close() {
+        Ok(_) -> ()
         Err(e) -> log(msg: `close failed: {e}`),  // Log, don't propagate
-    )
+    }
 }
 ```
 

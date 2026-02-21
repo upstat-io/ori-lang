@@ -13,48 +13,48 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Valid: unconstrained generic
-@id<T> (x: T) -> T = x
+@id<T> (x: T) -> T = x;
 
-@test_id tests @id () -> void = run(
-    assert_eq(actual: id(x: 42), expected: 42),
-    assert_eq(actual: id(x: "hello"), expected: "hello"),
-)
+@test_id tests @id () -> void = {
+    assert_eq(actual: id(x: 42), expected: 42);
+    assert_eq(actual: id(x: "hello"), expected: "hello")
+}
 
 // Valid: generic with multiple type parameters
-@pair<A, B> (a: A, b: B) -> (A, B) = (a, b)
+@pair<A, B> (a: A, b: B) -> (A, B) = (a, b);
 
-@test_pair tests @pair () -> void = run(
-    let p = pair(a: 1, b: "one"),
-    let (n, s) = p,
-    assert_eq(actual: n, expected: 1),
-)
+@test_pair tests @pair () -> void = {
+    let p = pair(a: 1, b: "one");
+    let (n, s) = p;
+    assert_eq(actual: n, expected: 1)
+}
 
 // Valid: generic returning different type
-@first<A, B> (a: A, b: B) -> A = a
+@first<A, B> (a: A, b: B) -> A = a;
 
-@test_first tests @first () -> void = run(
-    assert_eq(actual: first(a: 42, b: "ignored"), expected: 42),
-)
+@test_first tests @first () -> void = {
+    assert_eq(actual: first(a: 42, b: "ignored"), expected: 42)
+}
 
 // =============================================================================
 // Generic type constraints
 // =============================================================================
 
 // Valid: Eq constraint
-@are_equal<T: Eq> (a: T, b: T) -> bool = a == b
+@are_equal<T: Eq> (a: T, b: T) -> bool = a == b;
 
-@test_are_equal tests @are_equal () -> void = run(
-    assert_eq(actual: are_equal(a: 1, b: 1), expected: true),
-    assert_eq(actual: are_equal(a: "a", b: "b"), expected: false),
-)
+@test_are_equal tests @are_equal () -> void = {
+    assert_eq(actual: are_equal(a: 1, b: 1), expected: true);
+    assert_eq(actual: are_equal(a: "a", b: "b"), expected: false)
+}
 
 // Valid: Comparable constraint
-@is_less<T: Comparable> (a: T, b: T) -> bool = a < b
+@is_less<T: Comparable> (a: T, b: T) -> bool = a < b;
 
-@test_is_less tests @is_less () -> void = run(
-    assert_eq(actual: is_less(a: 1, b: 2), expected: true),
-    assert_eq(actual: is_less(a: "b", b: "a"), expected: false),
-)
+@test_is_less tests @is_less () -> void = {
+    assert_eq(actual: is_less(a: 1, b: 2), expected: true);
+    assert_eq(actual: is_less(a: "b", b: "a"), expected: false)
+}
 
 // =============================================================================
 // Generic types
@@ -63,52 +63,52 @@ use std.testing { assert, assert_eq, assert_ne }
 // Valid: generic struct
 type Box<T> = { value: T }
 
-@test_box_int () -> void = run(
-    let b: Box<int> = Box { value: 42 },
-    assert_eq(actual: b.value, expected: 42),
-)
+@test_box_int () -> void = {
+    let b: Box<int> = Box { value: 42 };
+    assert_eq(actual: b.value, expected: 42)
+}
 
-@test_box_str () -> void = run(
-    let b: Box<str> = Box { value: "hello" },
-    assert_eq(actual: b.value, expected: "hello"),
-)
+@test_box_str () -> void = {
+    let b: Box<str> = Box { value: "hello" };
+    assert_eq(actual: b.value, expected: "hello")
+}
 
 // Invalid: Box instantiated with wrong inner type
 #[compile_fail("type mismatch")]
-@test_box_wrong_type () -> void = run(
-    let b: Box<int> = Box { value: "not int" },
-    (),
-)
+@test_box_wrong_type () -> void = {
+    let b: Box<int> = Box { value: "not int" };
+    ()
+}
 
 // =============================================================================
 // Generic impl blocks
 // =============================================================================
 
 impl<T> Box<T> {
-    @get (self) -> T = self.value
+    @get (self) -> T = self.value;
 }
 
-@test_generic_impl tests @get () -> void = run(
-    let b = Box { value: 42 },
-    assert_eq(actual: b.get(), expected: 42),
-)
+@test_generic_impl tests @get () -> void = {
+    let b = Box { value: 42 };
+    assert_eq(actual: b.get(), expected: 42)
+}
 
 // =============================================================================
 // Type parameter inference
 // =============================================================================
 
 // Valid: type parameter inferred from argument
-@test_inferred_type_param () -> void = run(
-    let result = id(x: 42),
-    assert_eq(actual: result, expected: 42),
-)
+@test_inferred_type_param () -> void = {
+    let result = id(x: 42);
+    assert_eq(actual: result, expected: 42)
+}
 
 // Valid: type parameter inferred in chain
-@test_inferred_chain () -> void = run(
-    let nums = [1, 2, 3],
-    let doubled = nums.map(transform: x -> x * 2),
-    assert_eq(actual: doubled, expected: [2, 4, 6]),
-)
+@test_inferred_chain () -> void = {
+    let nums = [1, 2, 3];
+    let doubled = nums.map(transform: x -> x * 2);
+    assert_eq(actual: doubled, expected: [2, 4, 6])
+}
 
 // =============================================================================
 // Generic functions with Option/Result
@@ -116,38 +116,38 @@ impl<T> Box<T> {
 
 // Valid: function that works with any Option
 @unwrap_or<T> (opt: Option<T>, default: T) -> T =
-    match(opt,
+    match opt {
         Some(x) -> x,
-        None -> default,
-    )
+        None -> default
+    }
 
-@test_unwrap_or tests @unwrap_or () -> void = run(
-    let opt = None,
-    let result = unwrap_or(opt: opt, default: 42),
-    assert_eq(actual: result, expected: 42),
-)
+@test_unwrap_or tests @unwrap_or () -> void = {
+    let opt = None;
+    let result = unwrap_or(opt: opt, default: 42);
+    assert_eq(actual: result, expected: 42)
+}
 
-@test_unwrap_or_some tests @unwrap_or () -> void = run(
-    let opt = Some(10),
-    let result = unwrap_or(opt: opt, default: 42),
-    assert_eq(actual: result, expected: 10),
-)
+@test_unwrap_or_some tests @unwrap_or () -> void = {
+    let opt = Some(10);
+    let result = unwrap_or(opt: opt, default: 42);
+    assert_eq(actual: result, expected: 10)
+}
 
 // Valid: function that works with any Result
 @ok_or<T, E> (result: Result<T, E>, default: T) -> T =
-    match(result,
+    match result {
         Ok(x) -> x,
-        Err(_) -> default,
-    )
+        Err(_) -> default
+    }
 
-@test_ok_or tests @ok_or () -> void = run(
-    let res = Err("error"),
-    let value = ok_or(result: res, default: 42),
-    assert_eq(actual: value, expected: 42),
-)
+@test_ok_or tests @ok_or () -> void = {
+    let res = Err("error");
+    let value = ok_or(result: res, default: 42);
+    assert_eq(actual: value, expected: 42)
+}
 
-@test_ok_or_ok tests @ok_or () -> void = run(
-    let res = Ok(10),
-    let value = ok_or(result: res, default: 42),
-    assert_eq(actual: value, expected: 10),
-)
+@test_ok_or_ok tests @ok_or () -> void = {
+    let res = Ok(10);
+    let value = ok_or(result: res, default: 42);
+    assert_eq(actual: value, expected: 10)
+}

@@ -7,7 +7,7 @@ trait Cloneable {
 }
 
 #[compile_fail("cannot be made into an object")]
-@use_clone () -> void = run(
-    let x: Cloneable = 42,
-    print(msg: "done"),
-)
+@use_clone () -> void = {
+    let x: Cloneable = 42;
+    print(msg: "done")
+}

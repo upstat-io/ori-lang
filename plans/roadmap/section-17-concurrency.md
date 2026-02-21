@@ -290,11 +290,11 @@ Four constructors for different concurrency patterns.
 Values are consumed when sent, preventing data races.
 
 ```ori
-@producer (p: Producer<Data>) -> void uses Async = run(
-    let data = create_data(),
+@producer (p: Producer<Data>) -> void uses Async = {
+    let data = create_data()
     p.send(value: data),  // Ownership transferred
     // data.field         // ERROR: 'data' moved into channel
-)
+}
 ```
 
 ### Implementation
@@ -590,26 +590,26 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
 ## Example: Worker Pool with Fan-In
 
 ```ori
-@worker_pool (jobs: [Job]) -> [Result<Output, Error>] uses Async = run(
-    let (sender, receiver) = channel_in<Result<Output, Error>>(buffer: 100),
+@worker_pool (jobs: [Job]) -> [Result<Output, Error>] uses Async = {
+    let (sender, receiver) = channel_in<Result<Output, Error>>(buffer: 100)
 
     nursery(
-        body: n -> run(
+        body: n -> {
             // Spawn workers with cloned senders
             for i in 0..4 do
-                n.spawn(task: () -> worker(sender.clone(), i)),
+                n.spawn(task: () -> worker(sender.clone(), i))
             // Spawn job feeder
-            n.spawn(task: () -> run(
-                for job in jobs do sender.send(value: Ok(job)),
-                sender.close(),
-            )),
-        ),
-        on_error: CollectAll,
-    ),
+            n.spawn(task: () -> {
+                for job in jobs do sender.send(value: Ok(job))
+                sender.close()
+            })
+        }
+        on_error: CollectAll
+    )
 
     // Collect results
-    for result in receiver yield result,
-)
+    for result in receiver yield result
+}
 ```
 
 ---

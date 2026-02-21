@@ -13,19 +13,19 @@ use std.testing { assert_eq }
 
 // Smaller - larger panics (result would be negative)
 #fail("size subtraction would result in negative value")
-@test_size_sub_negative tests @_size_sub () -> void = run(
-    let _ = 1b - 2b,
-    (),
-)
+@test_size_sub_negative tests @_size_sub () -> void = {
+    let _ = 1b - 2b;
+    ()
+}
 
-@_size_sub () -> bool = true
+@_size_sub () -> bool = true;
 
 // Exactly zero is fine: x - x = 0
-@test_size_sub_to_zero tests @_size_sub_zero () -> void = run(
-    assert_eq(actual: 5kb - 5kb, expected: 0b),
-)
+@test_size_sub_to_zero tests @_size_sub_zero () -> void = {
+    assert_eq(actual: 5kb - 5kb, expected: 0b)
+}
 
-@_size_sub_zero () -> Size = 5kb - 5kb
+@_size_sub_zero () -> Size = 5kb - 5kb;
 
 // =============================================================================
 // Addition Overflow
@@ -33,26 +33,26 @@ use std.testing { assert_eq }
 
 // Two large sizes that exceed u64::MAX when added
 #fail("integer overflow in size addition")
-@test_size_add_overflow tests @_size_add () -> void = run(
-    let max_bytes = Size.from_bytes(b: 9223372036854775807),
+@test_size_add_overflow tests @_size_add () -> void = {
+    let max_bytes = Size.from_bytes(b: 9223372036854775807);
     // doubled = 2 * (2^63 - 1) = 2^64 - 2 (valid, within u64)
-    let doubled = max_bytes + max_bytes,
+    let doubled = max_bytes + max_bytes;
     // 2^64 - 2 + 2 = 2^64 > u64::MAX (overflow!)
-    let _ = doubled + 2b,
-    (),
-)
+    let _ = doubled + 2b;
+    ()
+}
 
-@_size_add () -> bool = true
+@_size_add () -> bool = true;
 
 // Near boundary: 2 * MAX_BYTES is valid (2^64 - 2 < u64::MAX)
-@test_size_add_near_boundary tests @_size_add_ok () -> void = run(
-    let max_bytes = Size.from_bytes(b: 9223372036854775807),
-    let doubled = max_bytes + max_bytes,
+@test_size_add_near_boundary tests @_size_add_ok () -> void = {
+    let max_bytes = Size.from_bytes(b: 9223372036854775807);
+    let doubled = max_bytes + max_bytes;
     // Should not panic — 2 * (2^63 - 1) = 2^64 - 2 is within u64
-    assert_eq(actual: doubled + 0b, expected: doubled),
-)
+    assert_eq(actual: doubled + 0b, expected: doubled)
+}
 
-@_size_add_ok () -> bool = true
+@_size_add_ok () -> bool = true;
 
 // =============================================================================
 // Multiplication Overflow
@@ -60,23 +60,23 @@ use std.testing { assert_eq }
 
 // Large size * 3 exceeds u64::MAX
 #fail("integer overflow in size multiplication")
-@test_size_mul_overflow tests @_size_mul () -> void = run(
-    let big = Size.from_bytes(b: 9223372036854775807),
-    let _ = big * 3,
-    (),
-)
+@test_size_mul_overflow tests @_size_mul () -> void = {
+    let big = Size.from_bytes(b: 9223372036854775807);
+    let _ = big * 3;
+    ()
+}
 
-@_size_mul () -> bool = true
+@_size_mul () -> bool = true;
 
 // int * large size also overflows
 #fail("integer overflow in size multiplication")
-@test_size_int_mul_overflow tests @_size_int_mul () -> void = run(
-    let big = Size.from_bytes(b: 9223372036854775807),
-    let _ = 3 * big,
-    (),
-)
+@test_size_int_mul_overflow tests @_size_int_mul () -> void = {
+    let big = Size.from_bytes(b: 9223372036854775807);
+    let _ = 3 * big;
+    ()
+}
 
-@_size_int_mul () -> bool = true
+@_size_int_mul () -> bool = true;
 
 // =============================================================================
 // Multiply / Divide by Negative
@@ -84,30 +84,30 @@ use std.testing { assert_eq }
 
 // Size * negative is rejected
 #fail("cannot multiply Size by negative integer")
-@test_size_mul_negative tests @_size_mul_neg () -> void = run(
-    let _ = 1kb * -1,
-    (),
-)
+@test_size_mul_negative tests @_size_mul_neg () -> void = {
+    let _ = 1kb * -1;
+    ()
+}
 
-@_size_mul_neg () -> bool = true
+@_size_mul_neg () -> bool = true;
 
 // negative * Size is also rejected
 #fail("cannot multiply Size by negative integer")
-@test_size_int_mul_negative tests @_size_int_mul_neg () -> void = run(
-    let _ = -1 * 1kb,
-    (),
-)
+@test_size_int_mul_negative tests @_size_int_mul_neg () -> void = {
+    let _ = -1 * 1kb;
+    ()
+}
 
-@_size_int_mul_neg () -> bool = true
+@_size_int_mul_neg () -> bool = true;
 
 // Size / negative is rejected
 #fail("cannot divide Size by negative integer")
-@test_size_div_negative tests @_size_div_neg () -> void = run(
-    let _ = 1kb / -1,
-    (),
-)
+@test_size_div_negative tests @_size_div_neg () -> void = {
+    let _ = 1kb / -1;
+    ()
+}
 
-@_size_div_neg () -> bool = true
+@_size_div_neg () -> bool = true;
 
 // =============================================================================
 // Division / Modulo by Zero
@@ -115,21 +115,21 @@ use std.testing { assert_eq }
 
 // Size / 0 panics
 #fail("division by zero")
-@test_size_div_zero tests @_size_divz () -> void = run(
-    let _ = 1kb / 0,
-    (),
-)
+@test_size_div_zero tests @_size_divz () -> void = {
+    let _ = 1kb / 0;
+    ()
+}
 
-@_size_divz () -> bool = true
+@_size_divz () -> bool = true;
 
 // Size % 0 panics
 #fail("modulo by zero")
-@test_size_mod_zero tests @_size_modz () -> void = run(
-    let _ = 1kb % 0b,
-    (),
-)
+@test_size_mod_zero tests @_size_modz () -> void = {
+    let _ = 1kb % 0b;
+    ()
+}
 
-@_size_modz () -> bool = true
+@_size_modz () -> bool = true;
 
 // =============================================================================
 // Factory Method Overflow
@@ -137,37 +137,37 @@ use std.testing { assert_eq }
 
 // from_terabytes with huge value overflows u64 during byte conversion
 #fail("integer overflow in size factory conversion")
-@test_size_factory_overflow tests @_size_factory () -> void = run(
-    let _ = Size.from_terabytes(tb: 9223372036854775807),
-    (),
-)
+@test_size_factory_overflow tests @_size_factory () -> void = {
+    let _ = Size.from_terabytes(tb: 9223372036854775807);
+    ()
+}
 
-@_size_factory () -> bool = true
+@_size_factory () -> bool = true;
 
 // =============================================================================
 // Valid Boundary Operations (must NOT panic)
 // =============================================================================
 
 // MAX_BYTES + 0 = MAX_BYTES
-@test_size_max_add_zero tests @_size_max_zero () -> void = run(
-    let max_bytes = Size.from_bytes(b: 9223372036854775807),
-    assert_eq(actual: max_bytes + 0b, expected: max_bytes),
-)
+@test_size_max_add_zero tests @_size_max_zero () -> void = {
+    let max_bytes = Size.from_bytes(b: 9223372036854775807);
+    assert_eq(actual: max_bytes + 0b, expected: max_bytes)
+}
 
-@_size_max_zero () -> Size = Size.from_bytes(b: 9223372036854775807)
+@_size_max_zero () -> Size = Size.from_bytes(b: 9223372036854775807);
 
 // MAX_BYTES * 1 = MAX_BYTES
-@test_size_max_mul_one tests @_size_max_one () -> void = run(
-    let max_bytes = Size.from_bytes(b: 9223372036854775807),
-    assert_eq(actual: max_bytes * 1, expected: max_bytes),
-)
+@test_size_max_mul_one tests @_size_max_one () -> void = {
+    let max_bytes = Size.from_bytes(b: 9223372036854775807);
+    assert_eq(actual: max_bytes * 1, expected: max_bytes)
+}
 
-@_size_max_one () -> Size = Size.from_bytes(b: 9223372036854775807)
+@_size_max_one () -> Size = Size.from_bytes(b: 9223372036854775807);
 
 // MAX_BYTES - MAX_BYTES = 0
-@test_size_max_sub_self tests @_size_max_sub () -> void = run(
-    let max_bytes = Size.from_bytes(b: 9223372036854775807),
-    assert_eq(actual: max_bytes - max_bytes, expected: 0b),
-)
+@test_size_max_sub_self tests @_size_max_sub () -> void = {
+    let max_bytes = Size.from_bytes(b: 9223372036854775807);
+    assert_eq(actual: max_bytes - max_bytes, expected: 0b)
+}
 
-@_size_max_sub () -> Size = Size.from_bytes(b: 9223372036854775807) - Size.from_bytes(b: 9223372036854775807)
+@_size_max_sub () -> Size = Size.from_bytes(b: 9223372036854775807) - Size.from_bytes(b: 9223372036854775807);

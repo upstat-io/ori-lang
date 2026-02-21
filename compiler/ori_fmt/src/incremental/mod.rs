@@ -17,7 +17,7 @@
 use crate::comments::CommentIndex;
 use crate::declarations::ModuleFormatter;
 use ori_ir::ast::items::Module;
-use ori_ir::{CommentList, ExprArena, StringLookup};
+use ori_ir::{CommentList, ExprArena, Spanned, StringLookup};
 
 /// A region of formatted text with its original position.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,23 +53,46 @@ struct DeclInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeclKind {
     Import,
+    ExtensionImport,
     Const,
     Type,
     Trait,
     Impl,
+    DefImpl,
+    Extend,
+    ExternBlock,
     Function,
     Test,
+    FileAttr,
 }
 
 /// Collect all declarations with their spans.
 fn collect_declarations(module: &Module) -> Vec<DeclInfo> {
     let mut decls = Vec::new();
 
+    if let Some(attr) = &module.file_attr {
+        decls.push(DeclInfo {
+            start: attr.span().start,
+            end: attr.span().end,
+            kind: DeclKind::FileAttr,
+            index: 0,
+        });
+    }
+
     for (i, import) in module.imports.iter().enumerate() {
         decls.push(DeclInfo {
             start: import.span.start,
             end: import.span.end,
             kind: DeclKind::Import,
+            index: i,
+        });
+    }
+
+    for (i, ext_import) in module.extension_imports.iter().enumerate() {
+        decls.push(DeclInfo {
+            start: ext_import.span.start,
+            end: ext_import.span.end,
+            kind: DeclKind::ExtensionImport,
             index: i,
         });
     }
@@ -106,6 +129,33 @@ fn collect_declarations(module: &Module) -> Vec<DeclInfo> {
             start: impl_def.span.start,
             end: impl_def.span.end,
             kind: DeclKind::Impl,
+            index: i,
+        });
+    }
+
+    for (i, def_impl) in module.def_impls.iter().enumerate() {
+        decls.push(DeclInfo {
+            start: def_impl.span.start,
+            end: def_impl.span.end,
+            kind: DeclKind::DefImpl,
+            index: i,
+        });
+    }
+
+    for (i, extend) in module.extends.iter().enumerate() {
+        decls.push(DeclInfo {
+            start: extend.span.start,
+            end: extend.span.end,
+            kind: DeclKind::Extend,
+            index: i,
+        });
+    }
+
+    for (i, extern_block) in module.extern_blocks.iter().enumerate() {
+        decls.push(DeclInfo {
+            start: extern_block.span.start,
+            end: extern_block.span.end,
+            kind: DeclKind::ExternBlock,
             index: i,
         });
     }
@@ -196,13 +246,17 @@ pub fn format_incremental<I: StringLookup>(
         return IncrementalResult::NoChangeNeeded;
     }
 
-    // If change overlaps with imports or configs, we need to format all of them as a block
-    let has_import = overlapping.iter().any(|d| d.kind == DeclKind::Import);
-    let has_const = overlapping.iter().any(|d| d.kind == DeclKind::Const);
+    // If change overlaps with block-formatted declarations, do full format
+    // (imports, extension imports, constants, and file attributes are block-formatted
+    // and their order/grouping matters)
+    let needs_full_format = overlapping.iter().any(|d| {
+        matches!(
+            d.kind,
+            DeclKind::Import | DeclKind::ExtensionImport | DeclKind::Const | DeclKind::FileAttr
+        )
+    });
 
-    // For simplicity, if the change affects imports or configs, do full format
-    // (these are block-formatted and order matters)
-    if has_import || has_const {
+    if needs_full_format {
         return IncrementalResult::FullFormatNeeded;
     }
 
@@ -234,6 +288,11 @@ pub fn format_incremental<I: StringLookup>(
     }
 }
 
+/// Maximum byte gap between the end of a comment and the start of a declaration
+/// for the comment to be considered "belonging to" that declaration. Accounts for
+/// blank lines and whitespace between a doc comment block and its declaration.
+const MAX_COMMENT_DECL_GAP: u32 = 100;
+
 /// Find the start of comments that precede a declaration.
 fn find_preceding_comment_start(comments: &CommentList, decl_start: u32) -> Option<u32> {
     let mut earliest = None;
@@ -241,11 +300,8 @@ fn find_preceding_comment_start(comments: &CommentList, decl_start: u32) -> Opti
     for comment in comments.iter() {
         // Comment is before the declaration
         if comment.span.end <= decl_start {
-            // Check if it's close enough (within reasonable distance)
-            // Comments right before a declaration belong to it
             let gap = decl_start - comment.span.end;
-            if gap < 100 {
-                // Reasonable gap for preceding comments
+            if gap < MAX_COMMENT_DECL_GAP {
                 match earliest {
                     None => earliest = Some(comment.span.start),
                     Some(e) if comment.span.start < e => earliest = Some(comment.span.start),
@@ -285,6 +341,21 @@ fn format_single_declaration<I: StringLookup>(
             formatter.emit_comments_before(impl_def.span.start, comments, comment_index);
             formatter.format_impl(impl_def);
         }
+        DeclKind::DefImpl => {
+            let def_impl = &module.def_impls[decl.index];
+            formatter.emit_comments_before(def_impl.span.start, comments, comment_index);
+            formatter.format_def_impl(def_impl);
+        }
+        DeclKind::Extend => {
+            let extend = &module.extends[decl.index];
+            formatter.emit_comments_before(extend.span.start, comments, comment_index);
+            formatter.format_extend(extend);
+        }
+        DeclKind::ExternBlock => {
+            let extern_block = &module.extern_blocks[decl.index];
+            formatter.emit_comments_before(extern_block.span.start, comments, comment_index);
+            formatter.format_extern_block(extern_block);
+        }
         DeclKind::Function => {
             let func = &module.functions[decl.index];
             formatter.emit_comments_before_function(func, comments, comment_index);
@@ -295,9 +366,9 @@ fn format_single_declaration<I: StringLookup>(
             formatter.emit_comments_before(test.span.start, comments, comment_index);
             formatter.format_test(test);
         }
-        // Import and Config are handled as blocks, not individually
-        DeclKind::Import | DeclKind::Const => {
-            unreachable!("Import and Config should trigger full format")
+        // Block-formatted declarations trigger full format
+        DeclKind::Import | DeclKind::ExtensionImport | DeclKind::Const | DeclKind::FileAttr => {
+            unreachable!("Block-formatted declarations should trigger full format")
         }
     }
 
@@ -321,6 +392,12 @@ pub fn apply_regions(source: &str, mut regions: Vec<FormattedRegion>) -> String 
 
     for region in regions {
         let start = region.original_start;
+        debug_assert!(
+            region.original_end <= result.len(),
+            "FormattedRegion original_end ({}) exceeds source length ({})",
+            region.original_end,
+            result.len(),
+        );
         let end = region.original_end.min(result.len());
 
         if start <= end && start <= result.len() {

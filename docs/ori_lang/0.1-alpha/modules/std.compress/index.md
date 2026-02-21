@@ -164,11 +164,12 @@ type CompressError =
 use std.compress.gzip { compress }
 use std.fs { read_bytes, write_bytes }
 
-@compress_file (src: str, dst: str) uses FileSystem -> Result<void, Error> = run(
-    let data = read_bytes(src)?,
-    let compressed = compress(data),
-    write_bytes(dst, compressed),
-)
+@compress_file (src: str, dst: str) uses FileSystem -> Result<void, Error> = {
+    let data = read_bytes(src)?
+    let compressed = compress(data)
+
+    write_bytes(dst, compressed)
+}
 ```
 
 ### Extract zip
@@ -177,19 +178,20 @@ use std.fs { read_bytes, write_bytes }
 use std.compress.zip { ZipArchive }
 use std.fs { read_bytes, write_bytes, create_dir_all }
 
-@extract_zip (zip_path: str, dest: str) uses FileSystem -> Result<void, Error> = run(
-    let data = read_bytes(zip_path)?,
-    let archive = ZipArchive.from_bytes(data)?,
+@extract_zip (zip_path: str, dest: str) uses FileSystem -> Result<void, Error> = {
+    let data = read_bytes(zip_path)?
+    let archive = ZipArchive.from_bytes(data)?
 
     for entry in archive.entries() do
-        if !entry.is_dir then run(
-            let content = archive.read(entry.name)?,
-            let path = dest + "/" + entry.name,
-            create_dir_all(parent(path))?,
-            write_bytes(path, content)?,
-        ),
-    Ok(()),
-)
+        if !entry.is_dir then {
+            let content = archive.read(entry.name)?
+            let path = dest + "/" + entry.name
+            create_dir_all(parent(path))?
+            write_bytes(path, content)?
+        }
+
+    Ok(())
+}
 ```
 
 ---

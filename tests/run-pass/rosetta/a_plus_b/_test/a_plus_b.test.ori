@@ -3,20 +3,20 @@
 use std.testing { assert, assert_eq, assert_ne }
 use "../a_plus_b" { add }
 
-@test_add_positive tests @add () -> void = run(
-    assert(cond: add(a: 2, b: 3) == 5),
-    assert(cond: add(a: 100, b: 200) == 300),
+@test_add_positive tests @add () -> void = {
+    assert(cond: add(a: 2, b: 3) == 5);
+    assert(cond: add(a: 100, b: 200) == 300);
     assert(cond: add(a: 1, b: 1) == 2)
-)
+}
 
-@test_add_negative tests @add () -> void = run(
-    assert(cond: add(a: -1, b: -1) == -2),
-    assert(cond: add(a: -5, b: 10) == 5),
+@test_add_negative tests @add () -> void = {
+    assert(cond: add(a: -1, b: -1) == -2);
+    assert(cond: add(a: -5, b: 10) == 5);
     assert(cond: add(a: 5, b: -10) == -5)
-)
+}
 
-@test_add_zero tests @add () -> void = run(
-    assert(cond: add(a: 0, b: 0) == 0),
-    assert(cond: add(a: 0, b: 5) == 5),
+@test_add_zero tests @add () -> void = {
+    assert(cond: add(a: 0, b: 0) == 0);
+    assert(cond: add(a: 0, b: 5) == 5);
     assert(cond: add(a: 5, b: 0) == 5)
-)
+}

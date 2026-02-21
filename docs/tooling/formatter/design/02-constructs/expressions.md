@@ -197,15 +197,14 @@ items.fold(0, (acc, x) -> acc + x)
 
 ### Always-Stacked Body - Break After Arrow
 
-Break after `->` **only** when the body is an always-stacked pattern (`run`, `try`, `match`):
+Break after `->` **only** when the body is an always-stacked construct (block, `try`, `match`):
 
 ```ori
-let process = x ->
-    run(
-        let doubled = x * 2,
-        let validated = validate(doubled),
-        validated,
-    )
+let process = x -> {
+    let doubled = x * 2;
+    let validated = validate(doubled);
+    validated
+}
 ```
 
 ### Lambda in Call Context
@@ -230,11 +229,10 @@ Break after `->` only for always-stacked bodies:
 ```ori
 // Always-stacked body - break after arrow
 items.map(
-    x ->
-        run(
-            let y = x * 2,
-            validate(y),
-        ),
+    x -> {
+        let y = x * 2;
+        validate(y)
+    },
 )
 ```
 
@@ -243,11 +241,10 @@ items.map(
 ```ori
 items.fold(
     0,
-    (acc, x) ->
-        run(
-            let computed = compute(x),
-            acc + computed,
-        ),
+    (acc, x) -> {
+        let computed = compute(x);
+        acc + computed
+    },
 )
 ```
 

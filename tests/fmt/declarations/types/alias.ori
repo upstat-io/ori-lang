@@ -2,8 +2,8 @@
 // Spec: 08-declarations.md § Type Definitions
 // Design: tooling/formatter/design/02-constructs/declarations.md
 
-type UserId = int
+type UserId = int;
 
-type Username = str
+type Username = str;
 
-type Score = float
+type Score = float;

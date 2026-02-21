@@ -10,7 +10,10 @@
 )]
 
 use crate::{parse, ParseContext, ParseOutput, Parser};
-use ori_ir::{BinaryOp, BindingPattern, ExprKind, FunctionExpKind, FunctionSeq, StringInterner};
+use ori_ir::{
+    BinaryOp, BindingPattern, ExprKind, FunctionExpKind, FunctionSeq, Mutability, StmtKind,
+    StringInterner,
+};
 
 fn parse_source(source: &str) -> ParseOutput {
     let interner = StringInterner::new();
@@ -20,7 +23,7 @@ fn parse_source(source: &str) -> ParseOutput {
 
 #[test]
 fn test_parse_literal() {
-    let result = parse_source("@main () -> int = 42");
+    let result = parse_source("@main () -> int = 42;");
 
     assert!(!result.has_errors());
     assert_eq!(result.module.functions.len(), 1);
@@ -32,7 +35,7 @@ fn test_parse_literal() {
 
 #[test]
 fn test_parse_binary_expr() {
-    let result = parse_source("@add () -> int = 1 + 2 * 3");
+    let result = parse_source("@add () -> int = 1 + 2 * 3;");
 
     assert!(!result.has_errors());
 
@@ -66,7 +69,7 @@ fn test_parse_binary_expr() {
 
 #[test]
 fn test_parse_if_expr() {
-    let result = parse_source("@test () -> int = if true then 1 else 2");
+    let result = parse_source("@test () -> int = if true then 1 else 2;");
 
     assert!(!result.has_errors());
 
@@ -94,8 +97,8 @@ fn test_parse_if_expr() {
 }
 
 #[test]
-fn test_parse_function_seq_run() {
-    let result = parse_source("@test () -> int = run(let x = 1, let y = 2, x + y)");
+fn test_parse_block_expr() {
+    let result = parse_source("@test () -> int = { let x = 1; let y = 2; x + y }");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -105,22 +108,26 @@ fn test_parse_function_seq_run() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::FunctionSeq(seq_id) = &body.kind {
-        let seq = result.arena.get_function_seq(*seq_id);
-        if let FunctionSeq::Run { bindings, .. } = seq {
-            let seq_bindings = result.arena.get_seq_bindings(*bindings);
-            assert_eq!(seq_bindings.len(), 2);
-        } else {
-            panic!("Expected FunctionSeq::Run, got {seq:?}");
-        }
+    if let ExprKind::Block { stmts, result: res } = &body.kind {
+        let stmt_list = result.arena.get_stmt_range(*stmts);
+        assert_eq!(stmt_list.len(), 2, "Expected 2 let statements");
+        assert!(
+            matches!(stmt_list[0].kind, StmtKind::Let { .. }),
+            "First stmt should be Let"
+        );
+        assert!(
+            matches!(stmt_list[1].kind, StmtKind::Let { .. }),
+            "Second stmt should be Let"
+        );
+        assert!(res.is_valid(), "Block should have a result expression");
     } else {
-        panic!("Expected run function_seq, got {:?}", body.kind);
+        panic!("Expected Block expression, got {:?}", body.kind);
     }
 }
 
 #[test]
 fn test_parse_let_expression() {
-    let result = parse_source("@test () -> void = let x = 1");
+    let result = parse_source("@test () -> void = let x = 1;");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -141,7 +148,7 @@ fn test_parse_let_expression() {
         assert!(matches!(pattern, BindingPattern::Name { .. }));
         assert!(!ty.is_valid());
         // Per spec: let x = v is mutable by default
-        assert!(mutable);
+        assert!(mutable.is_mutable());
     } else {
         panic!("Expected let expression, got {:?}", body.kind);
     }
@@ -149,7 +156,7 @@ fn test_parse_let_expression() {
 
 #[test]
 fn test_parse_let_with_type() {
-    let result = parse_source("@test () -> void = let x: int = 1");
+    let result = parse_source("@test () -> void = let x: int = 1;");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -167,8 +174,8 @@ fn test_parse_let_with_type() {
 }
 
 #[test]
-fn test_parse_run_with_let() {
-    let result = parse_source("@test () -> int = run(let x = 1, x)");
+fn test_parse_block_with_let() {
+    let result = parse_source("@test () -> int = { let x = 1; x }");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -178,23 +185,23 @@ fn test_parse_run_with_let() {
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
 
-    if let ExprKind::FunctionSeq(seq_id) = &body.kind {
-        let seq = result.arena.get_function_seq(*seq_id);
-        if let FunctionSeq::Run { bindings, .. } = seq {
-            let seq_bindings = result.arena.get_seq_bindings(*bindings);
-            assert_eq!(seq_bindings.len(), 1);
-        } else {
-            panic!("Expected FunctionSeq::Run, got {seq:?}");
-        }
+    if let ExprKind::Block { stmts, result: res } = &body.kind {
+        let stmt_list = result.arena.get_stmt_range(*stmts);
+        assert_eq!(stmt_list.len(), 1, "Expected 1 let statement");
+        assert!(
+            matches!(stmt_list[0].kind, StmtKind::Let { .. }),
+            "Stmt should be Let"
+        );
+        assert!(res.is_valid(), "Block should have a result expression");
     } else {
-        panic!("Expected run function_seq, got {:?}", body.kind);
+        panic!("Expected Block expression, got {:?}", body.kind);
     }
 }
 
 #[test]
 fn test_parse_function_exp_print() {
     // Test parsing print function_exp (one of the remaining compiler patterns)
-    let result = parse_source("@test () -> void = print(msg: \"hello\")");
+    let result = parse_source("@test () -> void = print(msg: \"hello\");");
 
     if result.has_errors() {
         eprintln!("Parse errors: {:?}", result.errors);
@@ -221,7 +228,7 @@ fn test_parse_timeout_multiline() {
         r#"@test () -> void = timeout(
         operation: print(msg: "hi"),
         after: 5s
-    )"#,
+    );"#,
     );
 
     if result.has_errors() {
@@ -232,7 +239,7 @@ fn test_parse_timeout_multiline() {
 
 #[test]
 fn test_parse_list() {
-    let result = parse_source("@test () -> int = [1, 2, 3]");
+    let result = parse_source("@test () -> int = [1, 2, 3];");
 
     assert!(!result.has_errors());
 
@@ -251,9 +258,9 @@ fn test_parse_result_hash() {
     use std::collections::HashSet;
     let mut set = HashSet::new();
 
-    let result1 = parse_source("@main () -> int = 42");
-    let result2 = parse_source("@main () -> int = 42");
-    let result3 = parse_source("@main () -> int = 43");
+    let result1 = parse_source("@main () -> int = 42;");
+    let result2 = parse_source("@main () -> int = 42;");
+    let result3 = parse_source("@main () -> int = 43;");
 
     set.insert(result1);
     set.insert(result2); // duplicate
@@ -268,7 +275,7 @@ fn test_parse_timeout_pattern() {
         r#"@main () -> void = timeout(
         operation: print(msg: "hello"),
         after: 5s
-    )"#,
+    );"#,
     );
 
     for err in &result.errors {
@@ -282,17 +289,16 @@ fn test_parse_timeout_pattern() {
 }
 
 #[test]
-fn test_parse_runner_syntax() {
-    // Test the exact syntax used in the runner tests
-    // Functions are called without @ prefix
+fn test_parse_block_in_test() {
+    // Test block expression syntax in a test function with target
     let result = parse_source(
         r#"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@test_add tests @add () -> void = run(
-    let result = add(a: 1, b: 2),
+@test_add tests @add () -> void = {
+    let result = add(a: 1, b: 2);
     print(msg: "done")
-)
+}
 "#,
     );
 
@@ -314,11 +320,11 @@ fn test_at_in_expression_is_error() {
     // Using @name(...) in an expression should be a syntax error
     let result = parse_source(
         r"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@test_add tests @add () -> void = run(
+@test_add tests @add () -> void = {
     @add(a: 1, b: 2)
-)
+}
 ",
     );
 
@@ -332,7 +338,7 @@ fn test_at_in_expression_is_error() {
 fn test_uses_clause_single_capability() {
     let result = parse_source(
         r"
-@fetch (url: str) -> str uses Http = Http.get(url: url)
+@fetch (url: str) -> str uses Http = Http.get(url: url);
 ",
     );
 
@@ -347,7 +353,7 @@ fn test_uses_clause_single_capability() {
 fn test_uses_clause_multiple_capabilities() {
     let result = parse_source(
         r#"
-@save (data: str) -> void uses FileSystem, Async = FileSystem.write(path: "/data", content: data)
+@save (data: str) -> void uses FileSystem, Async = FileSystem.write(path: "/data", content: data);
 "#,
     );
 
@@ -363,7 +369,7 @@ fn test_uses_clause_with_where() {
     // uses clause must come before where clause
     let result = parse_source(
         r"
-@process<T> (data: T) -> T uses Logger where T: Clone = data
+@process<T> (data: T) -> T uses Logger where T: Clone = data;
 ",
     );
 
@@ -380,7 +386,7 @@ fn test_no_uses_clause() {
     // Pure function - no uses clause
     let result = parse_source(
         r"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 ",
     );
 
@@ -398,7 +404,7 @@ fn test_with_capability_expression() {
         r"
 @example () -> int =
     with Http = MockHttp in
-        42
+        42;
 ",
     );
 
@@ -426,7 +432,7 @@ fn test_with_capability_with_struct_provider() {
         r#"
 @example () -> int =
     with Http = RealHttp { base_url: "https://api.example.com" } in
-        fetch(url: "/data")
+        fetch(url: "/data");
 "#,
     );
 
@@ -445,7 +451,7 @@ fn test_with_capability_nested() {
 @example () -> int =
     with Http = MockHttp in
         with Cache = MockCache in
-            42
+            42;
 ",
     );
 
@@ -463,7 +469,7 @@ fn test_no_async_type_modifier() {
     // The `async` keyword is reserved but should cause a parse error when used as type.
     let result = parse_source(
         r"
-@example () -> async int = 42
+@example () -> async int = 42;
 ",
     );
 
@@ -479,10 +485,10 @@ fn test_async_keyword_reserved() {
     // The async keyword is reserved and cannot be used as an identifier
     let result = parse_source(
         r"
-@test () -> int = run(
-    let async = 42,
-    async,
-)
+@test () -> int = {
+    let async = 42;
+    async
+}
 ",
     );
 
@@ -497,7 +503,7 @@ fn test_uses_async_capability_parses() {
         r"
 trait Async {}
 
-@async_op () -> int uses Async = 42
+@async_op () -> int uses Async = 42;
 ",
     );
 
@@ -515,7 +521,7 @@ trait Async {}
 #[test]
 fn test_shift_right_operator() {
     // >> is detected as two adjacent > tokens in expression context
-    let result = parse_source("@test () -> int = 8 >> 2");
+    let result = parse_source("@test () -> int = 8 >> 2;");
 
     assert!(
         !result.has_errors(),
@@ -542,7 +548,7 @@ fn test_shift_right_operator() {
 #[test]
 fn test_greater_equal_operator() {
     // >= is detected as adjacent > and = tokens in expression context
-    let result = parse_source("@test () -> bool = 5 >= 3");
+    let result = parse_source("@test () -> bool = 5 >= 3;");
 
     assert!(
         !result.has_errors(),
@@ -569,7 +575,7 @@ fn test_greater_equal_operator() {
 #[test]
 fn test_shift_left_operator() {
     // << should still work (single token from lexer)
-    let result = parse_source("@test () -> int = 2 << 3");
+    let result = parse_source("@test () -> int = 2 << 3;");
 
     assert!(
         !result.has_errors(),
@@ -596,7 +602,7 @@ fn test_shift_left_operator() {
 #[test]
 fn test_greater_than_operator() {
     // Single > should still work
-    let result = parse_source("@test () -> bool = 5 > 3");
+    let result = parse_source("@test () -> bool = 5 > 3;");
 
     assert!(
         !result.has_errors(),
@@ -623,7 +629,7 @@ fn test_greater_than_operator() {
 #[test]
 fn test_shift_right_with_space() {
     // > > with space should NOT be treated as >>
-    let result = parse_source("@test () -> int = 8 > > 2");
+    let result = parse_source("@test () -> int = 8 > > 2;");
 
     // This should have errors because `> > 2` is invalid syntax
     // (comparison followed by another >)
@@ -636,7 +642,7 @@ fn test_shift_right_with_space() {
 #[test]
 fn test_greater_equal_with_space() {
     // > = with space should NOT be treated as >=
-    let result = parse_source("@test () -> bool = 5 > = 3");
+    let result = parse_source("@test () -> bool = 5 > = 3;");
 
     // This should have errors because `> = 3` is invalid syntax
     assert!(
@@ -650,10 +656,10 @@ fn test_nested_generic_and_shift() {
     // Test that nested generics work in a type annotation and >> works in expression
     let result = parse_source(
         r"
-@test () -> Result<Result<int, str>, str> = run(
-    let x = 8 >> 2,
+@test () -> Result<Result<int, str>, str> = {
+    let x = 8 >> 2;
     Ok(Ok(x))
-)",
+}",
     );
 
     assert!(
@@ -672,7 +678,7 @@ fn test_struct_literal_in_expression() {
         r"
 type Point = { x: int, y: int }
 
-@test () -> int = Point { x: 1, y: 2 }.x
+@test () -> int = Point { x: 1, y: 2 }.x;
 ",
     );
 
@@ -690,7 +696,7 @@ fn test_struct_literal_in_if_then_body() {
         r"
 type Point = { x: int, y: int }
 
-@test () -> int = if true then Point { x: 1, y: 2 }.x else 0
+@test () -> int = if true then Point { x: 1, y: 2 }.x else 0;
 ",
     );
 
@@ -711,7 +717,7 @@ fn test_if_condition_disallows_struct_literal() {
         r"
 type Point = { x: int, y: int }
 
-@test () -> int = if Point { x: 1, y: 2 }.x > 0 then 1 else 0
+@test () -> int = if Point { x: 1, y: 2 }.x > 0 then 1 else 0;
 ",
     );
 
@@ -726,7 +732,7 @@ type Point = { x: int, y: int }
 fn test_context_methods() {
     // Exercise the context API to ensure it compiles and works
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@test () = 42", &interner);
+    let tokens = ori_lexer::lex("@test () = 42;", &interner);
     let mut parser = Parser::new(&tokens, &interner);
 
     // Test context() getter
@@ -772,7 +778,7 @@ mod metadata_tests {
         let source = r"// #Description
 // This is a test
 
-@main () -> void = ()
+@main () -> void = ();
 ";
         let output = parse_with_comments(source);
 
@@ -791,7 +797,7 @@ mod metadata_tests {
         let source = r"// #Description
 // A simple function
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let output = parse_with_comments(source);
 
@@ -820,7 +826,7 @@ mod metadata_tests {
 // #Second description
 
 // #This one should attach
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let output = parse_with_comments(source);
 
@@ -846,7 +852,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_no_comments() {
-        let output = parse_with_comments("@main () -> int = 42");
+        let output = parse_with_comments("@main () -> int = 42;");
 
         assert!(output.metadata.comments.is_empty());
     }
@@ -855,7 +861,7 @@ mod metadata_tests {
     fn test_metadata_regular_vs_doc_comments() {
         let source = r"// Regular comment
 // #Doc comment
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let output = parse_with_comments(source);
 
@@ -870,10 +876,10 @@ mod metadata_tests {
     #[test]
     fn test_metadata_multiple_functions_with_comments() {
         let source = r"// #Function 1
-@foo () -> int = 1
+@foo () -> int = 1;
 
 // #Function 2
-@bar () -> int = 2
+@bar () -> int = 2;
 ";
         let output = parse_with_comments(source);
 
@@ -897,7 +903,7 @@ mod metadata_tests {
 
     #[test]
     fn test_metadata_multiline() {
-        let source = "@main () -> int =\n    let x = 1\n    x + 1\n";
+        let source = "@main () -> int = {\n    let x = 1;\n    x + 1\n}\n";
         let output = parse_with_comments(source);
 
         assert_eq!(
@@ -931,7 +937,7 @@ mod metadata_tests {
     fn test_parse_with_empty_metadata() {
         // Test that parse() produces empty metadata by default
         let interner = StringInterner::new();
-        let tokens = ori_lexer::lex("@main () -> int = 42", &interner);
+        let tokens = ori_lexer::lex("@main () -> int = 42;", &interner);
         let output = crate::parse(&tokens, &interner);
 
         // Default parse produces empty metadata
@@ -968,7 +974,7 @@ mod metadata_tests {
     #[test]
     fn test_no_warnings_when_doc_comments_attached() {
         let source = r"// #Description
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -983,7 +989,7 @@ mod metadata_tests {
     fn test_warning_for_detached_doc_comment_blank_line() {
         let source = r"// #Detached doc
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1001,7 +1007,7 @@ mod metadata_tests {
 
     #[test]
     fn test_warning_for_doc_comment_at_end_of_file() {
-        let source = r"@main () -> int = 42
+        let source = r"@main () -> int = 42;
 // #Orphan at end
 ";
         let mut output = parse_with_comments(source);
@@ -1026,7 +1032,7 @@ mod metadata_tests {
     fn test_no_warning_for_regular_comments() {
         let source = r"// Regular comment (not a doc comment)
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1042,7 +1048,7 @@ mod metadata_tests {
     fn test_warning_includes_helpful_hint() {
         let source = r"// #Detached
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1060,7 +1066,7 @@ mod metadata_tests {
     fn test_warning_to_diagnostic() {
         let source = r"// #Detached
 
-@main () -> int = 42
+@main () -> int = 42;
 ";
         let mut output = parse_with_comments(source);
         output.check_detached_doc_comments();
@@ -1083,31 +1089,31 @@ mod metadata_tests {
 fn test_valid_declarations_at_module_level() {
     let valid_sources = &[
         // Functions
-        "@add (a: int, b: int) -> int = a + b",
-        "@main () -> void = print(msg: \"hello\")",
+        "@add (a: int, b: int) -> int = a + b;",
+        "@main () -> void = print(msg: \"hello\");",
         // Types
         "type Point = { x: int, y: int }",
-        "type Color = Red | Green | Blue",
+        "type Color = Red | Green | Blue;",
         // Traits
         "trait Printable {\n    @to_str (self) -> str\n}",
         // Impl blocks
-        "type Foo = { x: int }\nimpl Foo {\n    @get_x (self) -> int = self.x\n}",
+        "type Foo = { x: int }\nimpl Foo {\n    @get_x (self) -> int = self.x;\n}",
         // Constants
-        "let $x = 42",
-        "let $name = \"hello\"",
+        "let $x = 42;",
+        "let $name = \"hello\";",
         // Constants without `let` (backwards compat)
-        "$y = 100",
+        "$y = 100;",
         // Imports
         "use std.math { sqrt }",
         // Extend blocks
-        "type Bar = { v: int }\nextend Bar {\n    @val (self) -> int = self.v\n}",
+        "type Bar = { v: int }\nextend Bar {\n    @val (self) -> int = self.v;\n}",
         // Visibility modifiers
-        "pub @add (a: int, b: int) -> int = a + b",
-        "pub type Color = Red | Green | Blue",
-        "pub let $x = 42",
+        "pub @add (a: int, b: int) -> int = a + b;",
+        "pub type Color = Red | Green | Blue;",
+        "pub let $x = 42;",
         // Multiple declarations
         "type A = { x: int }\ntype B = { y: str }",
-        "@foo () -> int = 1\n@bar () -> int = 2",
+        "@foo () -> int = 1;\n@bar () -> int = 2;",
         // Empty file
         "",
         // Only whitespace/newlines
@@ -1183,7 +1189,7 @@ fn test_return_at_module_level_produces_specific_error() {
 /// `return` inside a function body also produces a specific error (via `parse_control_flow_primary`).
 #[test]
 fn test_return_in_function_body_produces_error() {
-    let result = parse_source("@foo () -> int = return 42");
+    let result = parse_source("@foo () -> int = return 42;");
     assert!(result.has_errors());
     let return_err = result
         .errors
@@ -1212,7 +1218,7 @@ fn test_mutable_let_at_module_level_rejected() {
 /// `let $x = 42` at module level parses as a constant.
 #[test]
 fn test_const_let_at_module_level_accepted() {
-    let result = parse_source("let $timeout = 30");
+    let result = parse_source("let $timeout = 30;");
     assert!(!result.has_errors());
     assert_eq!(result.module.consts.len(), 1);
 }
@@ -1220,7 +1226,7 @@ fn test_const_let_at_module_level_accepted() {
 /// `pub let $x = 42` at module level parses as a public constant.
 #[test]
 fn test_pub_const_let_at_module_level_accepted() {
-    let result = parse_source("pub let $api_base = \"https://example.com\"");
+    let result = parse_source("pub let $api_base = \"https://example.com\";");
     assert!(!result.has_errors());
     assert_eq!(result.module.consts.len(), 1);
 }
@@ -1261,7 +1267,7 @@ fn test_multiple_invalid_tokens_each_produce_error() {
 /// Valid declarations mixed with invalid tokens: valid parts still parse.
 #[test]
 fn test_mixed_valid_and_invalid_at_module_level() {
-    let result = parse_source("@foo () -> int = 42\n42\n@bar () -> int = 1");
+    let result = parse_source("@foo () -> int = 42;\n42\n@bar () -> int = 1;");
     assert!(result.has_errors());
     // The valid functions should still be parsed
     assert_eq!(
@@ -1271,15 +1277,13 @@ fn test_mixed_valid_and_invalid_at_module_level() {
     );
 }
 
-/// Semicolons at top level produce errors (not silently eaten).
+/// Semicolons after top-level items are accepted (optional during dual-mode).
 #[test]
-fn test_semicolons_at_module_level_produce_errors() {
-    // Semicolons are TokenKind::Semicolon (not Error), so they hit the catch-all.
-    // The lex error pipeline also reports them, but the parser should reject too.
+fn test_semicolons_after_top_level_items_accepted() {
     let result = parse_source("@foo () -> int = 42;");
     assert!(
-        result.has_errors(),
-        "Semicolons at module level should produce errors"
+        !result.has_errors(),
+        "Semicolons after function definitions should be accepted: {result:?}"
     );
 }
 
@@ -1296,7 +1300,7 @@ fn parse_source_with_interner(source: &str) -> (ParseOutput, StringInterner) {
 #[test]
 fn test_labeled_break() {
     let (result, interner) =
-        parse_source_with_interner("@f () -> int = loop:outer(break:outer 42)");
+        parse_source_with_interner("@f () -> int = loop:outer { break:outer 42 }");
     assert!(
         !result.has_errors(),
         "labeled break should parse: {result:?}"
@@ -1310,7 +1314,16 @@ fn test_labeled_break() {
             "outer",
             "loop label should be 'outer'"
         );
-        let break_expr = result.arena.get_expr(*body);
+        // loop body is a block { break:outer 42 }
+        let loop_body = result.arena.get_expr(*body);
+        let break_id = if let ExprKind::Block { result: res, .. } = &loop_body.kind {
+            *res
+        } else if let ExprKind::Break { .. } = &loop_body.kind {
+            *body
+        } else {
+            panic!("expected Block or Break, got {loop_body:?}");
+        };
+        let break_expr = result.arena.get_expr(break_id);
         if let ExprKind::Break { label, value } = &break_expr.kind {
             assert_eq!(
                 interner.lookup(*label),
@@ -1329,7 +1342,7 @@ fn test_labeled_break() {
 #[test]
 fn test_labeled_continue() {
     let (result, interner) =
-        parse_source_with_interner("@f () -> void = for:outer x in [1] do continue:outer");
+        parse_source_with_interner("@f () -> void = for:outer x in [1] do continue:outer;");
     assert!(
         !result.has_errors(),
         "labeled continue should parse: {result:?}"
@@ -1360,14 +1373,23 @@ fn test_labeled_continue() {
 
 #[test]
 fn test_unlabeled_break_still_works() {
-    let result = parse_source("@f () -> int = loop(break 42)");
+    let result = parse_source("@f () -> int = loop { break 42 }");
     assert!(!result.has_errors(), "unlabeled break should still parse");
 
     let func = &result.module.functions[0];
     let body = result.arena.get_expr(func.body);
     if let ExprKind::Loop { label, body } = &body.kind {
         assert_eq!(*label, ori_ir::Name::EMPTY, "loop should have no label");
-        let break_expr = result.arena.get_expr(*body);
+        // loop body is a block { break 42 }
+        let loop_body = result.arena.get_expr(*body);
+        let break_id = if let ExprKind::Block { result: res, .. } = &loop_body.kind {
+            *res
+        } else if let ExprKind::Break { .. } = &loop_body.kind {
+            *body
+        } else {
+            panic!("expected Block or Break, got {loop_body:?}");
+        };
+        let break_expr = result.arena.get_expr(break_id);
         if let ExprKind::Break { label, value } = &break_expr.kind {
             assert_eq!(*label, ori_ir::Name::EMPTY, "break should have no label");
             assert!(value.is_present(), "break should have a value");
@@ -1381,7 +1403,7 @@ fn test_unlabeled_break_still_works() {
 
 #[test]
 fn test_unlabeled_continue_still_works() {
-    let result = parse_source("@f () -> void = for x in [1] do continue");
+    let result = parse_source("@f () -> void = for x in [1] do continue;");
     assert!(
         !result.has_errors(),
         "unlabeled continue should still parse"
@@ -1391,7 +1413,7 @@ fn test_unlabeled_continue_still_works() {
 #[test]
 fn test_labeled_for_loop() {
     let (result, interner) =
-        parse_source_with_interner("@f () -> void = for:items x in [1, 2, 3] do break");
+        parse_source_with_interner("@f () -> void = for:items x in [1, 2, 3] do break;");
     assert!(!result.has_errors(), "labeled for should parse: {result:?}");
 
     let func = &result.module.functions[0];
@@ -1409,7 +1431,7 @@ fn test_labeled_for_loop() {
 
 #[test]
 fn test_labeled_loop() {
-    let (result, interner) = parse_source_with_interner("@f () -> int = loop:main(break 0)");
+    let (result, interner) = parse_source_with_interner("@f () -> int = loop:main { break 0 }");
     assert!(
         !result.has_errors(),
         "labeled loop should parse: {result:?}"
@@ -1431,8 +1453,8 @@ fn test_labeled_loop() {
 #[test]
 fn test_labeled_continue_with_value() {
     let result = parse_source(
-        "@f () -> [int] = for:lp x in [1, 2, 3] yield run(\
-            if x == 2 then continue:lp 0, x)",
+        "@f () -> [int] = for:lp x in [1, 2, 3] yield {\
+            if x == 2 then continue:lp 0; x }",
     );
     assert!(
         !result.has_errors(),
@@ -1443,9 +1465,9 @@ fn test_labeled_continue_with_value() {
 #[test]
 fn test_nested_labels() {
     let result = parse_source(
-        "@f () -> void = for:outer x in [1] do for:inner y in [2] do run(\
-            if y == 2 then continue:outer,\
-            if x == 1 then break:inner)",
+        "@f () -> void = for:outer x in [1] do for:inner y in [2] do {\
+            if y == 2 then continue:outer;\
+            if x == 1 then break:inner }",
     );
     assert!(
         !result.has_errors(),
@@ -1457,7 +1479,7 @@ fn test_nested_labels() {
 fn test_label_with_space_is_not_label() {
     // `break :outer` with a space should NOT parse as a label.
     // The `:outer` is treated as a value expression which is invalid.
-    let result = parse_source("@f () -> void = for x in [1] do break :outer");
+    let result = parse_source("@f () -> void = for x in [1] do break :outer;");
     assert!(
         result.has_errors(),
         "space before colon should prevent label parsing"
@@ -1467,7 +1489,7 @@ fn test_label_with_space_is_not_label() {
 #[test]
 fn test_tuple_field_access() {
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: (int, int)) -> int = t.0", &interner);
+    let tokens = ori_lexer::lex("@f (t: (int, int)) -> int = t.0;", &interner);
     let result = parse(&tokens, &interner);
 
     assert!(
@@ -1490,7 +1512,7 @@ fn test_chained_tuple_field_access_with_parens() {
     // Chained tuple field access requires parentheses: (t.0).1
     // because the lexer tokenizes `0.1` as a float literal.
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = (t.0).1", &interner);
+    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = (t.0).1;", &interner);
     let result = parse(&tokens, &interner);
 
     assert!(
@@ -1523,10 +1545,187 @@ fn test_bare_chained_tuple_field_is_error() {
     // `t.0.1` without parens fails because lexer tokenizes `0.1` as float.
     // This is a known limitation — use `(t.0).1` instead.
     let interner = StringInterner::new();
-    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = t.0.1", &interner);
+    let tokens = ori_lexer::lex("@f (t: ((int, int), int)) -> int = t.0.1;", &interner);
     let result = parse(&tokens, &interner);
     assert!(
         result.has_errors(),
         "bare t.0.1 should fail (lexer sees 0.1 as float)"
+    );
+}
+
+// =============================================================================
+// $ immutability in let parsing paths (LEAK-1)
+// =============================================================================
+//
+// Three paths parse let bindings:
+// 1. parse_block_let_binding (blocks)     — correct: lets parse_binding_pattern handle $
+// 2. parse_let_expr_body (expression-form) — buggy: consumes $ before parse_binding_pattern
+// 3. parse_try_let_binding (try blocks)    — buggy: consumes $ before parse_binding_pattern
+//
+// The evaluator reads mutability from BindingPattern::Name.mutable, not from
+// ExprKind::Let.mutable or StmtKind::Let.mutable. When $ is consumed before
+// parse_binding_pattern sees it, the pattern records Mutable (wrong).
+
+#[test]
+fn test_let_expr_dollar_immutable_on_pattern() {
+    // Expression-form let: `let $x = 42` should produce Immutable on the pattern.
+    let result = parse_source("@test () -> void = let $x = 42;");
+    assert!(!result.has_errors(), "Expected no parse errors");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &body.kind
+    else {
+        panic!("Expected ExprKind::Let, got {:?}", body.kind);
+    };
+
+    // Statement-level mutability is correct (set before parse_binding_pattern)
+    assert_eq!(
+        *mutable,
+        Mutability::Immutable,
+        "ExprKind::Let.mutable should be Immutable for `let $x`"
+    );
+
+    // Pattern-level mutability MUST also be Immutable — this is what the evaluator reads
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Immutable,
+        "BindingPattern::Name.mutable should be Immutable for `let $x` (evaluator authority)"
+    );
+}
+
+#[test]
+fn test_block_let_dollar_immutable_on_pattern() {
+    // Regression guard: block-form let correctly passes $ to parse_binding_pattern.
+    let result = parse_source("@test () -> int = { let $x = 42; x }");
+    assert!(!result.has_errors(), "Expected no parse errors");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::Block { stmts, .. } = &body.kind else {
+        panic!("Expected Block, got {:?}", body.kind);
+    };
+
+    let stmt_list = result.arena.get_stmt_range(*stmts);
+    assert_eq!(stmt_list.len(), 1);
+
+    let StmtKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &stmt_list[0].kind
+    else {
+        panic!("Expected StmtKind::Let");
+    };
+
+    assert_eq!(*mutable, Mutability::Immutable);
+
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Immutable,
+        "block-form let $x: BindingPattern.mutable should be Immutable"
+    );
+}
+
+#[test]
+fn test_try_let_dollar_immutable_on_pattern() {
+    // Try-block let: `try { let $x = Ok(5); Ok(x) }` should produce Immutable on the pattern.
+    let result = parse_source("@test () -> void = try { let $x = Ok(5); Ok(x) }");
+
+    if result.has_errors() {
+        eprintln!("Parse errors: {:?}", result.errors);
+    }
+    assert!(!result.has_errors(), "Expected no parse errors");
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::FunctionSeq(seq_id) = &body.kind else {
+        panic!("Expected FunctionSeq, got {:?}", body.kind);
+    };
+
+    let FunctionSeq::Try { stmts, .. } = result.arena.get_function_seq(*seq_id) else {
+        panic!("Expected FunctionSeq::Try");
+    };
+
+    let stmt_list = result.arena.get_stmt_range(*stmts);
+    assert!(!stmt_list.is_empty(), "Expected at least one try binding");
+
+    let StmtKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &stmt_list[0].kind
+    else {
+        panic!("Expected StmtKind::Let in try, got {:?}", stmt_list[0].kind);
+    };
+
+    assert_eq!(
+        *mutable,
+        Mutability::Immutable,
+        "StmtKind::Let.mutable should be Immutable for `let $x` in try"
+    );
+
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Immutable,
+        "try-block let $x: BindingPattern.mutable should be Immutable (evaluator authority)"
+    );
+}
+
+#[test]
+fn test_let_expr_default_mutable_on_pattern() {
+    // Verify that `let x = 42` (no $) produces Mutable on both levels.
+    let result = parse_source("@test () -> void = let x = 42;");
+    assert!(!result.has_errors());
+
+    let func = &result.module.functions[0];
+    let body = result.arena.get_expr(func.body);
+
+    let ExprKind::Let {
+        pattern: pat_id,
+        mutable,
+        ..
+    } = &body.kind
+    else {
+        panic!("Expected ExprKind::Let");
+    };
+
+    assert_eq!(*mutable, Mutability::Mutable);
+
+    let BindingPattern::Name {
+        mutable: pat_mut, ..
+    } = result.arena.get_binding_pattern(*pat_id)
+    else {
+        panic!("Expected BindingPattern::Name");
+    };
+    assert_eq!(
+        *pat_mut,
+        Mutability::Mutable,
+        "let x (no $): BindingPattern.mutable should be Mutable"
     );
 }

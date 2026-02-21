@@ -18,6 +18,10 @@ impl Lowerer<'_> {
     /// the source arena (`ExprKind` is `Copy`), then matches on it to produce
     /// a `CanExpr`. This avoids borrow conflicts — we don't hold a reference
     /// to `self.src` while mutating `self.arena`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ExprKind → CanExpr lowering dispatch"
+    )]
     pub(crate) fn lower_expr(&mut self, id: ExprId) -> CanId {
         let kind = *self.src.expr_kind(id);
         let span = self.src.expr_span(id);
@@ -80,6 +84,10 @@ impl Lowerer<'_> {
             ExprKind::Continue { label, value } => {
                 let val = self.lower_optional(value);
                 self.push(CanExpr::Continue { label, value: val }, span, ty)
+            }
+            ExprKind::Unsafe(inner) => {
+                let inner = self.lower_expr(inner);
+                self.push(CanExpr::Unsafe(inner), span, ty)
             }
             ExprKind::Await(inner) => {
                 let inner = self.lower_expr(inner);

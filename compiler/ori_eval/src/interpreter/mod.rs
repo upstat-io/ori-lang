@@ -49,7 +49,9 @@
 mod builder;
 mod can_eval;
 mod derived_methods;
+mod format;
 mod function_call;
+mod interned_names;
 mod method_dispatch;
 pub mod resolvers;
 mod scope_guard;
@@ -73,177 +75,7 @@ use ori_patterns::{
     recursion_limit_exceeded, ControlAction, EvalError, EvalResult, PatternExecutor,
 };
 
-/// Pre-interned print method names for print dispatch in `eval_method_call`.
-///
-/// These names are interned once at Interpreter construction so that
-/// `eval_method_call` can check for print methods via `Name` comparison
-/// (a single `u32 == u32` check) instead of string lookup.
-#[derive(Clone, Copy)]
-pub(crate) struct PrintNames {
-    pub(crate) print: Name,
-    pub(crate) println: Name,
-    pub(crate) builtin_print: Name,
-    pub(crate) builtin_println: Name,
-}
-
-impl PrintNames {
-    /// Pre-intern all print method names.
-    fn new(interner: &StringInterner) -> Self {
-        Self {
-            print: interner.intern("print"),
-            println: interner.intern("println"),
-            builtin_print: interner.intern("__builtin_print"),
-            builtin_println: interner.intern("__builtin_println"),
-        }
-    }
-}
-
-/// Pre-interned type names for hot-path method dispatch.
-///
-/// These names are interned once at Interpreter construction to avoid
-/// repeated hash lookups in `get_value_type_name()`, which is called
-/// on every method dispatch.
-#[derive(Clone, Copy)]
-pub(crate) struct TypeNames {
-    pub(crate) range: Name,
-    pub(crate) int: Name,
-    pub(crate) float: Name,
-    pub(crate) bool_: Name,
-    pub(crate) str_: Name,
-    pub(crate) char_: Name,
-    pub(crate) byte: Name,
-    pub(crate) void: Name,
-    pub(crate) duration: Name,
-    pub(crate) size: Name,
-    pub(crate) ordering: Name,
-    pub(crate) list: Name,
-    pub(crate) map: Name,
-    pub(crate) set: Name,
-    pub(crate) tuple: Name,
-    pub(crate) option: Name,
-    pub(crate) result: Name,
-    pub(crate) function: Name,
-    pub(crate) function_val: Name,
-    pub(crate) iterator: Name,
-    pub(crate) module: Name,
-    pub(crate) error: Name,
-}
-
-/// Pre-interned property names for `FunctionExp` prop dispatch.
-///
-/// These names are interned once at Interpreter construction so that
-/// `find_prop_value` and `find_prop_can_id` can compare `Name` values
-/// directly (single `u32 == u32`) instead of string lookup per prop.
-#[derive(Clone, Copy)]
-pub(crate) struct PropNames {
-    pub(crate) msg: Name,
-    pub(crate) operation: Name,
-    pub(crate) tasks: Name,
-    pub(crate) acquire: Name,
-    pub(crate) action: Name,
-    pub(crate) release: Name,
-    pub(crate) expr: Name,
-    pub(crate) condition: Name,
-    pub(crate) base: Name,
-    pub(crate) step: Name,
-    pub(crate) memo: Name,
-}
-
-impl PropNames {
-    /// Pre-intern all `FunctionExp` property names.
-    fn new(interner: &StringInterner) -> Self {
-        Self {
-            msg: interner.intern("msg"),
-            operation: interner.intern("operation"),
-            tasks: interner.intern("tasks"),
-            acquire: interner.intern("acquire"),
-            action: interner.intern("action"),
-            release: interner.intern("release"),
-            expr: interner.intern("expr"),
-            condition: interner.intern("condition"),
-            base: interner.intern("base"),
-            step: interner.intern("step"),
-            memo: interner.intern("memo"),
-        }
-    }
-}
-
-/// Pre-interned operator trait method names for user-defined operator dispatch.
-///
-/// These names are interned once at Interpreter construction so that
-/// `eval_can_binary` and `eval_can_unary` can dispatch user-defined operator
-/// trait methods via `Name` comparison instead of re-interning on every call.
-#[derive(Clone, Copy)]
-pub(crate) struct OpNames {
-    pub(crate) add: Name,
-    pub(crate) subtract: Name,
-    pub(crate) multiply: Name,
-    pub(crate) divide: Name,
-    pub(crate) floor_divide: Name,
-    pub(crate) remainder: Name,
-    pub(crate) bit_and: Name,
-    pub(crate) bit_or: Name,
-    pub(crate) bit_xor: Name,
-    pub(crate) shift_left: Name,
-    pub(crate) shift_right: Name,
-    pub(crate) negate: Name,
-    pub(crate) not: Name,
-    pub(crate) bit_not: Name,
-    pub(crate) index: Name,
-}
-
-impl OpNames {
-    /// Pre-intern all operator trait method names.
-    fn new(interner: &StringInterner) -> Self {
-        Self {
-            add: interner.intern("add"),
-            subtract: interner.intern("subtract"),
-            multiply: interner.intern("multiply"),
-            divide: interner.intern("divide"),
-            floor_divide: interner.intern("floor_divide"),
-            remainder: interner.intern("remainder"),
-            bit_and: interner.intern("bit_and"),
-            bit_or: interner.intern("bit_or"),
-            bit_xor: interner.intern("bit_xor"),
-            shift_left: interner.intern("shift_left"),
-            shift_right: interner.intern("shift_right"),
-            negate: interner.intern("negate"),
-            not: interner.intern("not"),
-            bit_not: interner.intern("bit_not"),
-            index: interner.intern("index"),
-        }
-    }
-}
-
-impl TypeNames {
-    /// Pre-intern all primitive type names.
-    pub(crate) fn new(interner: &StringInterner) -> Self {
-        Self {
-            range: interner.intern("range"),
-            int: interner.intern("int"),
-            float: interner.intern("float"),
-            bool_: interner.intern("bool"),
-            str_: interner.intern("str"),
-            char_: interner.intern("char"),
-            byte: interner.intern("byte"),
-            void: interner.intern("void"),
-            duration: interner.intern("Duration"),
-            size: interner.intern("Size"),
-            ordering: interner.intern("Ordering"),
-            list: interner.intern("list"),
-            map: interner.intern("map"),
-            set: interner.intern("Set"),
-            tuple: interner.intern("tuple"),
-            option: interner.intern("Option"),
-            result: interner.intern("Result"),
-            function: interner.intern("function"),
-            function_val: interner.intern("function_val"),
-            iterator: interner.intern("Iterator"),
-            module: interner.intern("module"),
-            error: interner.intern("error"),
-        }
-    }
-}
+pub(crate) use interned_names::{FormatNames, OpNames, PrintNames, PropNames, TypeNames};
 
 /// Whether this interpreter owns a scoped environment that should be popped on drop.
 ///
@@ -291,6 +123,8 @@ pub struct Interpreter<'a> {
     pub(crate) prop_names: PropNames,
     /// Pre-interned operator trait method names for user-defined operator dispatch.
     pub(crate) op_names: OpNames,
+    /// Pre-interned format-related names for `FormatSpec` value construction.
+    pub(crate) format_names: FormatNames,
     /// Pre-interned builtin method names for `Name`-based dispatch.
     /// Avoids de-interning in `dispatch_builtin_method` on every call.
     pub(crate) builtin_method_names: crate::methods::BuiltinMethodNames,
@@ -604,6 +438,7 @@ impl<'a> Interpreter<'a> {
             print_names: self.print_names,
             prop_names: self.prop_names,
             op_names: self.op_names,
+            format_names: self.format_names,
             builtin_method_names: self.builtin_method_names,
             source_file_path: self.source_file_path.clone(),
             source_text: self.source_text.clone(),
@@ -671,6 +506,38 @@ impl<'a> Interpreter<'a> {
         self.env.define_global(equal_name, Value::ordering_equal());
         self.env
             .define_global(greater_name, Value::ordering_greater());
+
+        // Built-in format spec enum variants (§3.16 Formattable)
+        self.register_format_variants();
+    }
+
+    /// Register `Alignment`, `Sign`, and `FormatType` enum variants as globals.
+    ///
+    /// These unit variants are used by the `Formattable` trait's `FormatSpec` struct.
+    /// Uses the generic `Value::Variant` representation (not a dedicated Value variant)
+    /// since format spec types are only used in formatting, not in hot-path operators.
+    fn register_format_variants(&mut self) {
+        let alignment = self.interner.intern("Alignment");
+        for name in ["Left", "Center", "Right"] {
+            let n = self.interner.intern(name);
+            self.env
+                .define_global(n, Value::variant(alignment, n, vec![]));
+        }
+
+        let sign = self.interner.intern("Sign");
+        for name in ["Plus", "Minus", "Space"] {
+            let n = self.interner.intern(name);
+            self.env.define_global(n, Value::variant(sign, n, vec![]));
+        }
+
+        let format_type = self.interner.intern("FormatType");
+        for name in [
+            "Binary", "Octal", "Hex", "HexUpper", "Exp", "ExpUpper", "Fixed", "Percent",
+        ] {
+            let n = self.interner.intern(name);
+            self.env
+                .define_global(n, Value::variant(format_type, n, vec![]));
+        }
     }
 
     /// Get captured print output.

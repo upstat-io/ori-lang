@@ -13,11 +13,11 @@
 Add automatic stack trace collection to `Result` error paths, enabling developers to see where errors originated, not just where they were caught.
 
 ```ori
-@fetch_user (id: int) -> Result<User, Error> uses Http = try(
-    let response = Http.get("/users/" + str(id))?,
-    let user = parse_user(response)?,
-    Ok(user),
-)
+@fetch_user (id: int) -> Result<User, Error> uses Http = try {
+    let response = Http.get("/users/" + str(id))?
+    let user = parse_user(response)?
+    Ok(user)
+}
 
 // When this fails, the error includes a trace:
 //   Error: invalid JSON at position 42
@@ -37,17 +37,17 @@ Add automatic stack trace collection to `Result` error paths, enabling developer
 When errors propagate through multiple function calls, the original error location is lost:
 
 ```ori
-@main () -> Result<void, Error> = try(
+@main () -> Result<void, Error> = try {
     let data = process()?,  // Error caught here, but where did it start?
-    Ok(()),
-)
+    Ok(())
+}
 
-@process () -> Result<Data, Error> = try(
-    let raw = fetch()?,
-    let parsed = parse(raw)?,
+@process () -> Result<Data, Error> = try {
+    let raw = fetch()?
+    let parsed = parse(raw)?
     let validated = validate(parsed)?,  // Maybe the error originated here?
-    Ok(validated),
-)
+    Ok(validated)
+}
 ```
 
 With only the error message, debugging requires:
@@ -72,13 +72,13 @@ type Error = {
 This requires explicit wrapping at each level:
 
 ```ori
-@process () -> Result<Data, Error> = try(
+@process () -> Result<Data, Error> = try {
     let raw = fetch().map_err(e -> Error {
-        message: "failed to fetch",
-        source: Some(e),
-    })?,
+        message: "failed to fetch"
+        source: Some(e)
+    })?
     // ... more wrapping ...
-)
+}
 ```
 
 **Problems:**
@@ -111,11 +111,11 @@ Zig's approach is notable because:
 When `?` propagates an error, the current source location is automatically recorded:
 
 ```ori
-@load (path: str) -> Result<Data, Error> = try(
+@load (path: str) -> Result<Data, Error> = try {
     let content = read_file(path)?,  // Location recorded if Err
     let parsed = parse(content)?,     // Location recorded if Err
-    Ok(parsed),
-)
+    Ok(parsed)
+}
 ```
 
 No syntax changes required. The `?` operator handles trace collection internally.
@@ -204,10 +204,10 @@ The `Printable` implementation for `Error` includes the trace:
 
 ```ori
 let result = load("data.json")
-match(result,
-    Ok(data) -> use(data),
+match result {
+    Ok(data) -> use(data)
     Err(e) -> print(str(e)),  // Includes trace automatically
-)
+}
 ```
 
 Output:
@@ -241,18 +241,18 @@ Example with non-Traceable custom error:
 ```ori
 type MyError = NotFound | InvalidFormat | NetworkError
 
-@load (path: str) -> Result<Data, MyError> = try(
+@load (path: str) -> Result<Data, MyError> = try {
     let content = read_file(path)
         .map_err(e -> NotFound)?,  // MyError doesn't carry trace
-    Ok(parse(content)),
-)
+    Ok(parse(content))
+}
 
 // To get traces, convert at the boundary:
-@main () -> Result<void, Error> = try(
+@main () -> Result<void, Error> = try {
     let data = load("data.json")
         .context("failed to load data")?,  // Converts to Error, preserves trace
-    Ok(()),
-)
+    Ok(())
+}
 ```
 
 ### Conversion Traits
@@ -291,13 +291,13 @@ impl Result<T, E> {
 
 Usage:
 ```ori
-@load_config () -> Result<Config, Error> = try(
+@load_config () -> Result<Config, Error> = try {
     let content = read_file("config.json")
-        .context("failed to load config")?,
+        .context("failed to load config")?
     let config = parse(content)
-        .context("invalid config format")?,
-    Ok(config),
-)
+        .context("invalid config format")?
+    Ok(config)
+}
 ```
 
 Output on error:
@@ -342,12 +342,12 @@ This proposal adds the following to the prelude:
 ### Basic Error Propagation
 
 ```ori
-@fetch_and_process (url: str) -> Result<Data, Error> uses Http = try(
-    let response = Http.get(url)?,
-    let data = parse_response(response)?,
-    let validated = validate(data)?,
-    Ok(validated),
-)
+@fetch_and_process (url: str) -> Result<Data, Error> uses Http = try {
+    let response = Http.get(url)?
+    let data = parse_response(response)?
+    let validated = validate(data)?
+    Ok(validated)
+}
 
 // If validate() fails:
 // Error: validation failed: missing required field 'id'
@@ -377,35 +377,35 @@ This proposal adds the following to the prelude:
 ### Programmatic Trace Access
 
 ```ori
-@report_error (e: Error) -> void = run(
-    print("Error: " + e.message),
+@report_error (e: Error) -> void = {
+    print("Error: " + e.message)
 
-    if e.has_trace() then run(
-        print("Stack trace:"),
+    if e.has_trace() then {
+        print("Stack trace:")
         for entry in e.trace_entries() do
-            print("  " + entry.function + " at " + entry.file + ":" + str(entry.line)),
-    ) else print("(no trace available)"),
-)
+            print("  " + entry.function + " at " + entry.file + ":" + str(entry.line))
+    } else print("(no trace available)")
+}
 ```
 
 ### Integration with Logging
 
 ```ori
-@handle_request (req: Request) -> Result<Response, Error> uses Http, Logger = try(
-    let result = process(req),
+@handle_request (req: Request) -> Result<Response, Error> uses Http, Logger = try {
+    let result = process(req)
 
-    match(result,
-        Ok(resp) -> Ok(resp),
-        Err(e) -> run(
+    match result {
+        Ok(resp) -> Ok(resp)
+        Err(e) -> {
             Logger.error("Request failed", {
-                "error": e.message,
-                "trace": e.trace(),
-                "request_id": req.id,
-            }),
-            Err(e),
-        ),
-    ),
-)
+                "error": e.message
+                "trace": e.trace()
+                "request_id": req.id
+            })
+            Err(e)
+        }
+    }
+}
 ```
 
 ---

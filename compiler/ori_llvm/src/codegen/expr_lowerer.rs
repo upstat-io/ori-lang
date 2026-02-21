@@ -58,27 +58,35 @@ pub(crate) struct LoopContext {
 // PropNames
 // ---------------------------------------------------------------------------
 
-/// Pre-interned `FunctionExp` property names for O(1) lookup.
+/// Pre-interned well-known names for O(1) lookup during codegen.
 ///
-/// Interned once per `ExprLowerer` so that property dispatch in
-/// `lower_constructs.rs` compares `Name` values directly (`u32 == u32`)
-/// instead of deinterning to `&str` on every named expression.
+/// Interned once per `ExprLowerer` so that dispatch code compares
+/// `Name` values directly (`u32 == u32`) instead of calling
+/// `interner.intern()` on every use.
 #[derive(Clone, Copy)]
 pub(crate) struct PropNames {
+    // FunctionExp property names
     pub(crate) msg: Name,
     pub(crate) message: Name,
     pub(crate) value: Name,
     pub(crate) expr: Name,
+    // Trait method names (used by inner dispatch in lower_builtin_methods/)
+    pub(crate) eq: Name,
+    pub(crate) compare: Name,
+    pub(crate) hash: Name,
 }
 
 impl PropNames {
-    /// Pre-intern all property names used by construct lowering.
+    /// Pre-intern all well-known names used by codegen.
     fn new(interner: &StringInterner) -> Self {
         Self {
             msg: interner.intern("msg"),
             message: interner.intern("message"),
             value: interner.intern("value"),
             expr: interner.intern("expr"),
+            eq: interner.intern("eq"),
+            compare: interner.intern("compare"),
+            hash: interner.intern("hash"),
         }
     }
 }
@@ -351,12 +359,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ExprLowerer<'a, 'scx, 'ctx, 'tcx> {
             // --- Constructs (lower_constructs.rs) ---
             CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, id),
             CanExpr::SelfRef => self.lower_self_ref(),
+            CanExpr::Unsafe(inner) => self.lower(inner),
             CanExpr::Await(inner) => self.lower_await(inner),
             CanExpr::WithCapability {
                 capability,
                 provider,
                 body,
             } => self.lower_with_capability(capability, provider, body),
+
+            // --- Formatting (§3.16 Formattable trait) ---
+            CanExpr::FormatWith { expr, spec } => self.lower_format_with(expr, spec, id),
 
             // --- Error placeholder (should not reach codegen) ---
             CanExpr::Error => {

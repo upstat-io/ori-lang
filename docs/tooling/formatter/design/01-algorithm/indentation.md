@@ -89,30 +89,30 @@ trait Printable {
 impl Point {
     @new (x: int, y: int) -> Point = Point { x, y }    // +4
 
-    @distance (self, other: Point) -> float = run(
-        let dx = self.x - other.x,                      // +8 (nested)
-        let dy = self.y - other.y,
-        sqrt(float(dx * dx + dy * dy)),
-    )
+    @distance (self, other: Point) -> float = {
+        let dx = self.x - other.x                       // +8 (nested)
+        let dy = self.y - other.y
+        sqrt(float(dx * dx + dy * dy))
+    }
 }
 ```
 
-### Pattern Bodies (+4 spaces)
+### Block and Pattern Bodies (+4 spaces)
 
-`run`, `try`, `match`, and other patterns indent their contents:
+Blocks, `try`, `match`, and other patterns indent their contents:
 
 ```ori
-let result = run(
-    let x = compute(),     // +4
-    let y = transform(x),
-    x + y,
-)
+let result = {
+    let x = compute()      // +4
+    let y = transform(x)
+    x + y
+}
 
-let label = match(status,
-    Pending -> "waiting",  // +4
-    Running -> "in progress",
-    Complete -> "done",
-)
+let label = match status {
+    Pending -> "waiting"   // +4
+    Running -> "in progress"
+    Complete -> "done"
+}
 ```
 
 ### Broken Chains (+4 spaces)
@@ -145,11 +145,10 @@ let result = first_value
 When a lambda body breaks after the arrow:
 
 ```ori
-let process = x ->
-    run(                   // +4
-        let y = x * 2,     // +8 (nested run)
-        validate(y),
-    )
+let process = x -> {
+    let y = x * 2          // +4 (nested block)
+    validate(y)
+}
 ```
 
 ### Where Clauses (+4 spaces)
@@ -173,20 +172,20 @@ Indentation accumulates with nesting:
 
 ```ori
 impl Calculator {                              // 0
-    @compute (self, input: Data) -> int = run( // +4
+    @compute (self, input: Data) -> int = {    // +4
         let validated = validate(              // +8
             data: input,                       // +12
             rules: self.rules,
-        ),
+        )
         let result = process(                  // +8
             input: validated,
             options: Options {                 // +12
                 timeout: 30s,                  // +16
                 retries: 3,
             },
-        ),
-        result,                                // +8
-    )
+        )
+        result                                 // +8
+    }
 }
 ```
 
@@ -206,16 +205,16 @@ let longer: int = 2
 
 ```ori
 // NO - do not align match arms
-match(value,
-    Some(x) -> x,
-    None    -> 0,
-)
+match value {
+    Some(x) -> x
+    None    -> 0
+}
 
 // YES - consistent indentation
-match(value,
-    Some(x) -> x,
-    None -> 0,
-)
+match value {
+    Some(x) -> x
+    None -> 0
+}
 ```
 
 ## Continuation Lines

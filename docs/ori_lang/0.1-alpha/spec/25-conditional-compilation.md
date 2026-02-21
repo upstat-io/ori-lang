@@ -57,7 +57,7 @@ Target families group related operating systems:
 
 ```ori
 #target(family: "unix")
-@get_home_dir () -> str = Env.get("HOME").unwrap_or("/home")
+@get_home_dir () -> str = Env.get("HOME").unwrap_or("/home");
 ```
 
 ### Combined Conditions (AND)
@@ -66,7 +66,7 @@ Multiple conditions in one attribute require all to match:
 
 ```ori
 #target(os: "linux", arch: "x86_64")
-@linux_x64_only () -> void = ...
+@linux_x64_only () -> void = ...;
 ```
 
 Multiple attributes also combine with AND:
@@ -74,7 +74,7 @@ Multiple attributes also combine with AND:
 ```ori
 #target(os: "linux")
 #target(arch: "x86_64")
-@linux_x64_only () -> void = ...
+@linux_x64_only () -> void = ...;
 ```
 
 ### OR Conditions
@@ -83,10 +83,10 @@ The `any_*` variants match any value in a list:
 
 ```ori
 #target(any_os: ["linux", "macos", "freebsd"])
-@unix_like () -> void = ...
+@unix_like () -> void = ...;
 
 #target(any_arch: ["x86_64", "aarch64"])
-@desktop_arch () -> void = ...
+@desktop_arch () -> void = ...;
 ```
 
 ### Negation
@@ -95,13 +95,13 @@ The `not_*` prefix negates a condition:
 
 ```ori
 #target(not_os: "windows")
-@non_windows () -> void = ...
+@non_windows () -> void = ...;
 
 #target(not_arch: "wasm32")
-@native_only () -> void = ...
+@native_only () -> void = ...;
 
 #target(not_family: "wasm")
-@native_platform () -> void = ...
+@native_platform () -> void = ...;
 ```
 
 ## Configuration Flags
@@ -110,26 +110,26 @@ The `not_*` prefix negates a condition:
 
 ```ori
 #cfg(debug)
-@debug_only () -> void = ...
+@debug_only () -> void = ...;
 
 #cfg(release)
-@release_only () -> void = ...
+@release_only () -> void = ...;
 
 #cfg(not_debug)
-@optimized () -> void = ...
+@optimized () -> void = ...;
 ```
 
 ### Feature Flags
 
 ```ori
 #cfg(feature: "ssl")
-@secure_connect () -> void = ...
+@secure_connect () -> void = ...;
 
 #cfg(feature: "async")
-type AsyncRuntime = ...
+type AsyncRuntime = ...;
 
 #cfg(not_feature: "ssl")
-@insecure_fallback () -> void = ...
+@insecure_fallback () -> void = ...;
 ```
 
 Feature names must be valid Ori identifiers:
@@ -141,7 +141,7 @@ Feature names must be valid Ori identifiers:
 
 ```ori
 #cfg(any_feature: ["ssl", "tls"])
-@secure_connection () -> void = ...
+@secure_connection () -> void = ...;
 ```
 
 ## Applicable Items
@@ -164,8 +164,8 @@ The `#!` prefix applies a condition to the entire file:
 #!target(os: "linux")
 
 // Everything in this file is Linux-only
-@epoll_create () -> int = ...
-@epoll_wait (fd: int) -> [Event] = ...
+@epoll_create () -> int = ...;
+@epoll_wait (fd: int) -> [Event] = ...;
 ```
 
 File-level conditions must appear before any declarations (after comments and doc comments).
@@ -186,7 +186,7 @@ Target information is available as compile-time constants:
 
 ```ori
 @get_path_separator () -> str =
-    if $target_os == "windows" then "\\" else "/"
+    if $target_os == "windows" then "\\" else "/";
 ```
 
 Branches conditioned on compile-time constants are eliminated. The false branch is not type-checked:
@@ -196,7 +196,7 @@ Branches conditioned on compile-time constants are eliminated. The false branch 
     if $target_os == "windows" then
         WinApi.get_hwnd()  // Only type-checked on Windows
     else
-        panic(msg: "Not supported")
+        panic(msg: "Not supported");
 ```
 
 ## Compilation Semantics
@@ -207,10 +207,10 @@ Code in false conditions is completely eliminated from the binary:
 
 ```ori
 #target(os: "linux")
-@linux_func () -> void = ...  // Not in Windows binary
+@linux_func () -> void = ...;  // Not in Windows binary
 
 #cfg(debug)
-let $verbose = true  // Not in release binary
+let $verbose = true;  // Not in release binary
 ```
 
 ### Parse vs Type-Check
@@ -222,11 +222,11 @@ Code in false conditions is:
 ```ori
 #target(os: "nonexistent")
 @broken () -> void =
-    this_is_not_valid!@#$  // Parse error, even if not compiled
+    this_is_not_valid!@#$;  // Parse error, even if not compiled
 
 #target(os: "windows")
 @windows_only () -> void =
-    WindowsApi.call()  // Only type-checked when targeting Windows
+    WindowsApi.call();  // Only type-checked when targeting Windows
 ```
 
 ## Command Line

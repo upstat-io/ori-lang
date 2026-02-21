@@ -11,7 +11,7 @@ fn parse_source(source: &str) -> ParseOutput {
 fn test_parse_def_impl_basic() {
     let source = r#"
 def impl Http {
-@get (url: str) -> str = "response"
+@get (url: str) -> str = "response";
 }
 "#;
     let output = parse_source(source);
@@ -31,7 +31,7 @@ def impl Http {
 fn test_parse_def_impl_public() {
     let source = r#"
 pub def impl Http {
-@get (url: str) -> str = "response"
+@get (url: str) -> str = "response";
 }
 "#;
     let output = parse_source(source);
@@ -48,9 +48,9 @@ pub def impl Http {
 fn test_parse_def_impl_multiple_methods() {
     let source = r#"
 def impl Http {
-@get (url: str) -> str = "get"
-@post (url: str, body: str) -> str = "post"
-@delete (url: str) -> void = ()
+@get (url: str) -> str = "get";
+@post (url: str, body: str) -> str = "post";
+@delete (url: str) -> void = ();
 }
 "#;
     let output = parse_source(source);
@@ -84,11 +84,11 @@ def impl Http {
 fn test_parse_multiple_def_impls() {
     let source = r#"
 pub def impl Http {
-@get (url: str) -> str = "response"
+@get (url: str) -> str = "response";
 }
 
 def impl FileSystem {
-@read (path: str) -> str = "content"
+@read (path: str) -> str = "content";
 }
 "#;
     let output = parse_source(source);

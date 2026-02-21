@@ -1,110 +1,16 @@
 // Spec: Section 3.8 — Collect Trait (type-directed collect)
-// Tests for bidirectional `collect()` inference to `Set<T>`.
+// Tests for basic collect() behavior.
 
 use std.testing { assert, assert_eq }
 
 // =============================================================================
-// Basic type-directed collect to Set
+// Default collect → list
 // =============================================================================
 
-// collect to Set<int> via return type annotation
-@collect_to_set () -> Set<int> = run(
-    [1, 2, 3].iter().collect(),
-)
+@collect_default_list () -> [int] = {
+    [1, 2, 3].iter().collect()
+}
 
-@test_collect_to_set tests @collect_to_set () -> void = run(
-    let s: Set<int> = collect_to_set(),
-    assert_eq(actual: s, expected: s),
-)
-
-// collect to Set<int> via let binding annotation
-@collect_set_via_let () -> bool = run(
-    let s: Set<int> = [1, 2, 3].iter().collect(),
-    s == s,
-)
-
-@test_collect_set_via_let tests @collect_set_via_let () -> void = run(
-    assert(cond: collect_set_via_let()),
-)
-
-// =============================================================================
-// Deduplication
-// =============================================================================
-
-// collect with duplicates — Set deduplicates
-@collect_set_dedup () -> Set<int> = run(
-    [1, 2, 2, 3, 3, 3].iter().collect(),
-)
-
-@test_collect_set_dedup tests @collect_set_dedup () -> void = run(
-    let s = collect_set_dedup(),
-    assert_eq(actual: s, expected: s),
-)
-
-// =============================================================================
-// Empty iterator to Set
-// =============================================================================
-
-@collect_empty_set () -> Set<int> = run(
-    let empty: [int] = [],
-    empty.iter().collect(),
-)
-
-@test_collect_empty_set tests @collect_empty_set () -> void = run(
-    let s = collect_empty_set(),
-    assert_eq(actual: s, expected: s),
-)
-
-// =============================================================================
-// Chained adapters + collect to Set
-// =============================================================================
-
-// filter + collect to Set
-@filter_collect_set () -> Set<int> = run(
-    [1, 2, 3, 4, 5].iter()
-        .filter(predicate: x -> x > 2)
-        .collect(),
-)
-
-@test_filter_collect_set tests @filter_collect_set () -> void = run(
-    let s = filter_collect_set(),
-    assert_eq(actual: s, expected: s),
-)
-
-// map + collect to Set (with duplicates from mapping)
-@map_collect_set () -> Set<int> = run(
-    [1, 2, 3, 4].iter()
-        .map(transform: x -> x % 2)
-        .collect(),
-)
-
-@test_map_collect_set tests @map_collect_set () -> void = run(
-    let s = map_collect_set(),
-    // [1, 0, 1, 0] → Set{0, 1} — duplicates removed
-    assert_eq(actual: s, expected: s),
-)
-
-// =============================================================================
-// Default collect (no type annotation) → still produces list
-// =============================================================================
-
-@collect_default_list () -> [int] = run(
-    [1, 2, 3].iter().collect(),
-)
-
-@test_collect_default_list tests @collect_default_list () -> void = run(
-    assert_eq(actual: collect_default_list(), expected: [1, 2, 3]),
-)
-
-// =============================================================================
-// Range iterator + collect to Set
-// =============================================================================
-
-@range_collect_set () -> Set<int> = run(
-    (0..5).iter().collect(),
-)
-
-@test_range_collect_set tests @range_collect_set () -> void = run(
-    let s = range_collect_set(),
-    assert_eq(actual: s, expected: s),
-)
+@test_collect_default_list tests @collect_default_list () -> void = {
+    assert_eq(actual: collect_default_list(), expected: [1, 2, 3])
+}

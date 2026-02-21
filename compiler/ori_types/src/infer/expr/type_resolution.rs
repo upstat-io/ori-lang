@@ -4,7 +4,7 @@ use ori_ir::{ExprArena, Name, ParsedType, ParsedTypeRange, Span, TypeId};
 
 use super::super::InferEngine;
 use crate::check::ObjectSafetyChecker;
-use crate::{Idx, ObjectSafetyViolation, TypeCheckError};
+use crate::{Idx, ObjectSafetyViolation, Tag, TypeCheckError};
 
 /// Resolve a `ParsedType` from the AST into a pool `Idx`.
 ///
@@ -28,6 +28,10 @@ use crate::{Idx, ObjectSafetyViolation, TypeCheckError};
 /// - Named type lookup requires `TypeRegistry` integration (section 07)
 /// - `SelfType` requires trait/impl context
 /// - `AssociatedType` requires projection support
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ParsedType variant resolution covering all primitive, container, and user-defined types"
+)]
 pub fn resolve_parsed_type(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -90,20 +94,31 @@ pub fn resolve_parsed_type(
             // Well-known generic types must use their dedicated Pool constructors
             // to match types created during inference.
             if !resolved_args.is_empty() {
-                if let Some(name_str) = engine.lookup_name(*name) {
-                    if let Some(idx) = crate::check::resolve_well_known_generic(
+                // Grab cache pointer before mutably borrowing pool
+                let wk = engine.well_known();
+                let resolved = if let Some(wk) = wk {
+                    wk.resolve_generic(engine.pool_mut(), *name, &resolved_args)
+                } else if let Some(name_str) = engine.lookup_name(*name) {
+                    crate::check::resolve_well_known_generic(
                         engine.pool_mut(),
                         name_str,
                         &resolved_args,
-                    ) {
-                        return idx;
-                    }
+                    )
+                } else {
+                    None
+                };
+                if let Some(idx) = resolved {
+                    return idx;
                 }
                 return engine.pool_mut().applied(*name, &resolved_args);
             }
 
-            // No type args — check for builtin primitive names
-            if let Some(name_str) = engine.lookup_name(*name) {
+            // No type args — check for builtin primitive names via cache
+            if let Some(wk) = engine.well_known() {
+                if let Some(idx) = wk.resolve_primitive(*name) {
+                    return idx;
+                }
+            } else if let Some(name_str) = engine.lookup_name(*name) {
                 match name_str {
                     "int" => return Idx::INT,
                     "float" => return Idx::FLOAT,
@@ -215,8 +230,54 @@ pub(crate) fn resolve_type_id(engine: &mut InferEngine<'_>, type_id: TypeId) -> 
 }
 
 // ============================================================================
-// Object Safety Checking (Inference Phase)
+// Type Well-Formedness Checks (Inference Phase)
 // ============================================================================
+
+/// Check that map key types implement `Hashable` (E2031).
+///
+/// If `ty` is a `Map<K, V>`, verifies that `K` implements `Hashable`.
+/// Uses `WellKnownNames::type_satisfies_trait` for primitives and compound types,
+/// and the trait registry for user-defined types.
+fn check_map_key_hashable(engine: &mut InferEngine<'_>, ty: Idx, span: Span) {
+    if engine.pool().tag(ty) != Tag::Map {
+        return;
+    }
+
+    let key_ty = engine.pool().map_key(ty);
+    let key_tag = engine.pool().tag(key_ty);
+
+    // Skip checks for type variables (not yet resolved) and error types
+    if key_tag == Tag::Var || key_tag == Tag::Infer || key_ty == Idx::ERROR {
+        return;
+    }
+
+    // Check via WellKnownNames (primitives + compound types) — borrow dance
+    let satisfies_via_wellknown = {
+        engine
+            .well_known()
+            .is_some_and(|wk| wk.type_satisfies_trait(key_ty, wk.hashable, engine.pool()))
+    };
+    if satisfies_via_wellknown {
+        return;
+    }
+
+    // User-defined types: check trait registry for Hashable impl
+    let has_impl = {
+        let hashable_name = engine.well_known().map(|wk| wk.hashable);
+        if let Some(h_name) = hashable_name {
+            let hashable_idx = engine.pool_mut().named(h_name);
+            engine
+                .trait_registry()
+                .is_some_and(|reg| reg.has_impl(hashable_idx, key_ty))
+        } else {
+            // No well-known cache — skip check (isolated test context)
+            return;
+        }
+    };
+    if !has_impl {
+        engine.push_error(TypeCheckError::non_hashable_map_key(span, key_ty));
+    }
+}
 
 /// Resolve a parsed type and check it for non-object-safe trait usage (E2024).
 ///
@@ -231,7 +292,9 @@ pub(crate) fn resolve_and_check_parsed_type(
     span: Span,
 ) -> Idx {
     crate::check::check_parsed_type_object_safety(engine, parsed, span, arena);
-    resolve_parsed_type(engine, arena, parsed)
+    let resolved = resolve_parsed_type(engine, arena, parsed);
+    check_map_key_hashable(engine, resolved, span);
+    resolved
 }
 
 /// `InferEngine` implementation of object safety checking.
@@ -241,8 +304,12 @@ pub(crate) fn resolve_and_check_parsed_type(
 /// pass the object safety check.
 impl ObjectSafetyChecker for InferEngine<'_> {
     fn is_well_known_concrete(&self, name: Name, num_args: usize) -> bool {
-        self.lookup_name(name)
-            .is_some_and(|s| crate::check::is_concrete_named_type(s, num_args))
+        if let Some(wk) = self.well_known() {
+            wk.is_concrete(name, num_args)
+        } else {
+            self.lookup_name(name)
+                .is_some_and(|s| crate::check::is_concrete_named_type(s, num_args))
+        }
     }
 
     fn check_and_emit(&mut self, name: Name, span: Span) {

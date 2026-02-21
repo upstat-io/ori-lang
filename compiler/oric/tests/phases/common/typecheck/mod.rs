@@ -15,7 +15,7 @@ use ori_types::{TypeCheckError, TypeCheckResult};
 /// # Example
 ///
 /// ```ignore
-/// let result = typecheck_source("@add(a: int, b: int) -> int = a + b");
+/// let result = typecheck_source("@add(a: int, b: int) -> int = a + b;");
 /// assert!(!result.has_errors());
 /// ```
 pub fn typecheck_source(source: &str) -> TypeCheckResult {
@@ -38,7 +38,7 @@ pub fn typecheck_source(source: &str) -> TypeCheckResult {
 /// # Example
 ///
 /// ```ignore
-/// let typed = typecheck_ok("@main () -> int = 42");
+/// let typed = typecheck_ok("@main () -> int = 42;");
 /// ```
 pub fn typecheck_ok(source: &str) -> TypeCheckResult {
     let interner = StringInterner::new();

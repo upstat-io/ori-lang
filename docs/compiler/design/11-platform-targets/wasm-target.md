@@ -36,14 +36,28 @@ The `WasmConfig` struct controls WASM-specific options:
 
 ```rust
 pub struct WasmConfig {
-    /// Memory configuration (import vs export, initial/max pages)
+    /// Memory configuration (import vs export, initial/max pages).
     pub memory: WasmMemoryConfig,
-    /// Generate JavaScript bindings
-    pub generate_js_bindings: bool,
-    /// Generate TypeScript declarations
-    pub generate_ts_declarations: bool,
+    /// Stack configuration (size in bytes, separate from memory).
+    pub stack: WasmStackConfig,
+    /// Output generation options (JS bindings, TypeScript decls, wasm-opt).
+    pub output: WasmOutputOptions,
+    /// Enable WASI support.
+    pub wasi: bool,
+    /// WASI-specific configuration (when wasi is true).
+    pub wasi_config: Option<WasiConfig>,
+    /// WebAssembly feature flags.
+    pub features: WasmFeatures,
 }
 ```
+
+`WasmStackConfig` is separate from `WasmMemoryConfig` because WASM stack size is a linker argument (`--stack-size`), not a memory import/export setting. The default is 1MB.
+
+`WasmFeatures` controls target feature flags (SIMD, bulk memory, reference types, multi-value, exception handling). These map to `wasm-ld --enable-*` flags. `WasmFeatures::default_enabled()` turns on `bulk_memory` and `multi_value`.
+
+`WasiConfig` configures WASI capability access (filesystem, clock, random, environment variables, command-line arguments) and preopened directory mappings. Factory methods `WasiConfig::cli()` and `WasiConfig::minimal()` provide common configurations.
+
+`WasmOutputOptions` controls post-compilation output: `generate_js_bindings` and `generate_dts` for JavaScript/TypeScript binding generation, and `run_wasm_opt` / `wasm_opt_level` for Binaryen wasm-opt post-processing (optimization levels O0-O4, Os, Oz).
 
 See `ori_llvm/src/aot/wasm.rs` for implementation details.
 
@@ -98,7 +112,7 @@ WASM runtimes have fixed stack sizes that cannot grow dynamically:
 Each Ori function call consumes multiple WASM stack frames:
 
 ```
-eval() → eval_inner() → eval_call() → create_interpreter() → eval()
+eval_can() → eval_can_inner() → eval_call() → create_interpreter() → eval_can()
 ```
 
 This multiplication (~5-10x) means 200 Ori calls ≈ 1000-2000 WASM frames.
@@ -124,12 +138,12 @@ WASM sandboxing means these capabilities require host integration:
 
 Why the conservative default limit? Each Ori call involves:
 
-1. `eval()` - Expression evaluation entry
-2. `eval_inner()` - Main dispatch
-3. `eval_call()` - Function call handling
+1. `eval_can()` - Canonical IR evaluation entry (`can_eval.rs`)
+2. `eval_can_inner()` - Main dispatch
+3. `eval_call()` - Function call handling (`function_call.rs:28`)
 4. `create_function_interpreter()` - Child interpreter setup
 5. `InterpreterBuilder::build()` - Builder pattern
-6. Back to `eval()` for the function body
+6. Back to `eval_can()` for the function body
 
 That's 5-6 Rust stack frames per Ori function call, plus frames for:
 - Pattern matching in the body

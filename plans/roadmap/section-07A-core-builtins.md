@@ -29,6 +29,9 @@ sections:
     title: Resource Management
     status: not-started
   - id: "7A.8"
+    title: Compile-Time File Embedding
+    status: not-started
+  - id: "7A.9"
     title: Section Completion Checklist
     status: in-progress
 ---
@@ -41,6 +44,7 @@ sections:
 > **PROPOSALS**:
 > - `proposals/approved/as-conversion-proposal.md` — Type conversion syntax
 > - `proposals/approved/developer-functions-proposal.md` — Developer convenience functions
+> - `proposals/approved/embed-expression-proposal.md` — Compile-time file embedding
 
 ---
 
@@ -376,7 +380,58 @@ Adds `drop_early` function for explicit early resource release.
 
 ---
 
-## 7A.8 Section Completion Checklist
+## 7A.8 Compile-Time File Embedding
+
+> **PROPOSAL**: `proposals/approved/embed-expression-proposal.md`
+>
+> `embed` and `has_embed` built-in expressions for compile-time file embedding.
+> Type-driven: `str` (UTF-8 validated) or `[byte]` (raw binary) based on expected type.
+> Paths are const-evaluable expressions, relative to source file, restricted to project root.
+
+- [ ] **Implement**: `embed(path)` — Compile-time file embedding
+  - Context-sensitive keyword, parsed as `EmbedExpr` node
+  - Type-driven: `str` → UTF-8 read + validation, `[byte]` → raw bytes
+  - Path must be const-evaluable `str` (supports interpolation, const functions)
+  - Path resolution relative to source file, no absolute paths, no project escape
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/embed.rs` — type inference for embed
+  - [ ] **Ori Tests**: `tests/spec/embed/embed_str.ori`, `tests/spec/embed/embed_bytes.ori`
+  - [ ] **LLVM Support**: Emit embedded data in `.rodata` section
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/embed_tests.rs` — embed codegen
+
+- [ ] **Implement**: `has_embed(path)` — Compile-time file existence check
+  - Returns compile-time `bool`
+  - Same path resolution rules as `embed`
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/embed.rs` — has_embed type checking
+  - [ ] **Ori Tests**: `tests/spec/embed/has_embed.ori`
+  - [ ] **LLVM Support**: LLVM codegen for has_embed
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/embed_tests.rs` — has_embed codegen
+
+- [ ] **Implement**: File size limit enforcement (10 MB default)
+  - `#embed_limit(size:)` attribute for per-expression override
+  - `ori.toml` `[embed] max_file_size` for project-wide override
+  - [ ] **Ori Tests**: `tests/compile-fail/embed_size_limit.ori`
+
+- [ ] **Implement**: File dependency tracking in Salsa
+  - Hash-based invalidation (content hash, not mtime)
+  - Embedded file changes trigger recompilation
+  - `has_embed` file existence changes trigger recompilation
+  - [ ] **Rust Tests**: `oric/src/queries/embed.rs` — dependency tracking
+
+- [ ] **Implement**: Error diagnostics
+  - File not found (with "did you mean?" suggestions)
+  - Absolute path error
+  - Path escapes project root error
+  - Invalid UTF-8 error (when `str` expected)
+  - Cannot infer embed type error
+  - File exceeds size limit error
+  - [ ] **Ori Tests**: `tests/compile-fail/embed_errors.ori`
+
+- [ ] **Implement**: Binary deduplication — multiple references to same file share one copy
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/embed_tests.rs` — deduplication
+
+---
+
+## 7A.9 Section Completion Checklist
 
 - [ ] All items above have all checkboxes marked `[ ]`
 - [ ] Re-evaluate against docs/compiler-design/v2/02-design-principles.md

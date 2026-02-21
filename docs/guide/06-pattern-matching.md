@@ -14,12 +14,11 @@ Pattern matching is how you inspect and decompose values in Ori. It's the primar
 The `match` expression compares a value against patterns:
 
 ```ori
-@color_code (c: Color) -> str = match(
-    c,
+@color_code (c: Color) -> str = match c {
     Red -> "#FF0000",
     Green -> "#00FF00",
     Blue -> "#0000FF",
-)
+};
 ```
 
 Structure:
@@ -33,12 +32,11 @@ Structure:
 `match` is an expression, so it returns a value:
 
 ```ori
-let description = match(
-    status,
+let description = match status {
     Active -> "Running",
     Paused -> "On hold",
     Stopped -> "Finished",
-)
+};
 ```
 
 All branches must return the same type.
@@ -50,23 +48,21 @@ All branches must return the same type.
 Match exact values:
 
 ```ori
-@describe_number (n: int) -> str = match(
-    n,
+@describe_number (n: int) -> str = match n {
     0 -> "zero",
     1 -> "one",
     2 -> "two",
     _ -> "many",
-)
+};
 ```
 
 Works with strings, characters, and booleans too:
 
 ```ori
-@is_yes (s: str) -> bool = match(
-    s,
+@is_yes (s: str) -> bool = match s {
     "yes" | "y" | "Y" -> true,
     _ -> false,
-)
+};
 ```
 
 ### Binding Patterns
@@ -74,11 +70,10 @@ Works with strings, characters, and booleans too:
 Capture the value in a variable:
 
 ```ori
-@double (n: int) -> int = match(
-    n,
+@double (n: int) -> int = match n {
     0 -> 0,
     x -> x * 2,    // x binds to n's value
-)
+};
 ```
 
 ### Wildcard Pattern
@@ -86,11 +81,10 @@ Capture the value in a variable:
 `_` matches anything and discards it:
 
 ```ori
-@is_zero (n: int) -> bool = match(
-    n,
+@is_zero (n: int) -> bool = match n {
     0 -> true,
     _ -> false,    // Don't care what it is
-)
+};
 ```
 
 ### Variant Patterns
@@ -100,13 +94,12 @@ Match sum type variants:
 ```ori
 type Shape =
     | Circle(radius: float)
-    | Rectangle(width: float, height: float)
+    | Rectangle(width: float, height: float);
 
-@area (s: Shape) -> float = match(
-    s,
+@area (s: Shape) -> float = match s {
     Circle(radius) -> 3.14159 * radius * radius,
     Rectangle(width, height) -> width * height,
-)
+};
 ```
 
 ### Struct Patterns
@@ -116,13 +109,12 @@ Match on struct fields:
 ```ori
 type Point = { x: int, y: int }
 
-@describe_point (p: Point) -> str = match(
-    p,
+@describe_point (p: Point) -> str = match p {
     Point { x: 0, y: 0 } -> "origin",
     Point { x: 0, y } -> `on y-axis at {y}`,
     Point { x, y: 0 } -> `on x-axis at {x}`,
     Point { x, y } -> `at ({x}, {y})`,
-)
+};
 ```
 
 Use `..` to ignore remaining fields:
@@ -130,10 +122,9 @@ Use `..` to ignore remaining fields:
 ```ori
 type User = { id: int, name: str, email: str, active: bool }
 
-@user_name (u: User) -> str = match(
-    u,
+@user_name (u: User) -> str = match u {
     User { name, .. } -> name,
-)
+};
 ```
 
 ### Tuple Patterns
@@ -141,13 +132,12 @@ type User = { id: int, name: str, email: str, active: bool }
 Match on tuple elements:
 
 ```ori
-@describe_pair (p: (int, int)) -> str = match(
-    p,
+@describe_pair (p: (int, int)) -> str = match p {
     (0, 0) -> "origin",
     (0, y) -> `y-axis at {y}`,
     (x, 0) -> `x-axis at {x}`,
     (x, y) -> `({x}, {y})`,
-)
+};
 ```
 
 ### List Patterns
@@ -155,13 +145,12 @@ Match on tuple elements:
 Match on list structure:
 
 ```ori
-@describe_list (items: [int]) -> str = match(
-    items,
+@describe_list (items: [int]) -> str = match items {
     [] -> "empty",
     [x] -> `single element: {x}`,
     [x, y] -> `two elements: {x} and {y}`,
     [first, ..rest] -> `starts with {first}, {len(collection: rest)} more`,
-)
+};
 ```
 
 List pattern syntax:
@@ -176,14 +165,13 @@ List pattern syntax:
 Match value in a range:
 
 ```ori
-@grade (score: int) -> str = match(
-    score,
+@grade (score: int) -> str = match score {
     90..=100 -> "A",
     80..90 -> "B",
     70..80 -> "C",
     60..70 -> "D",
     _ -> "F",
-)
+};
 ```
 
 ## Advanced Patterns
@@ -193,17 +181,15 @@ Match value in a range:
 Match multiple patterns with `|`:
 
 ```ori
-@is_primary (c: Color) -> bool = match(
-    c,
+@is_primary (c: Color) -> bool = match c {
     Red | Green | Blue -> true,
     _ -> false,
-)
+};
 
-@is_weekend (day: str) -> bool = match(
-    day,
+@is_weekend (day: str) -> bool = match day {
     "Saturday" | "Sunday" -> true,
     _ -> false,
-)
+};
 ```
 
 ### At Patterns
@@ -211,42 +197,40 @@ Match multiple patterns with `|`:
 Bind a name while also matching a pattern:
 
 ```ori
-@process (s: Status) -> str = match(
-    s,
-    status @ Failed(_) -> run(
-        log_failure(status: status),   // Use the full value
-        "failed",
-    ),
+@process (s: Status) -> str = match s {
+    status @ Failed(_) -> {
+        log_failure(status: status);   // Use the full value
+
+        "failed"
+    },
     _ -> "ok",
-)
+};
 ```
 
 ### Guards
 
-Add conditions with `.match()`:
+Add conditions with `if` guards:
 
 ```ori
-@classify (n: int) -> str = match(
-    n,
-    x.match(x < 0) -> "negative",
+@classify (n: int) -> str = match n {
+    x if x < 0 -> "negative",
     0 -> "zero",
-    x.match(x < 10) -> "small",
-    x.match(x < 100) -> "medium",
+    x if x < 10 -> "small",
+    x if x < 100 -> "medium",
     _ -> "large",
-)
+};
 ```
 
 Guards are evaluated after the pattern matches:
 
 ```ori
-@describe_age (age: int) -> str = match(
-    age,
-    a.match(a < 0) -> "invalid",
-    a.match(a < 13) -> "child",
-    a.match(a < 20) -> "teenager",
-    a.match(a < 65) -> "adult",
+@describe_age (age: int) -> str = match age {
+    a if a < 0 -> "invalid",
+    a if a < 13 -> "child",
+    a if a < 20 -> "teenager",
+    a if a < 65 -> "adult",
     _ -> "senior",
-)
+};
 ```
 
 ### Combining Patterns
@@ -257,16 +241,15 @@ Combine different pattern types:
 type Request =
     | Get(path: str)
     | Post(path: str, body: str)
-    | Delete(path: str)
+    | Delete(path: str);
 
-@handle (r: Request) -> str = match(
-    r,
-    Get(path).match(path.starts_with("/api")) -> `API GET: {path}`,
-    Post(path, body).match(body.len() > 1000) -> "Body too large",
+@handle (r: Request) -> str = match r {
+    Get(path) if path.starts_with("/api") -> `API GET: {path}`,
+    Post(path, body) if body.len() > 1000 -> "Body too large",
     Delete("/admin") -> "Cannot delete admin",
     Get(path) | Delete(path) -> `Reading: {path}`,
     Post(path, _) -> `Writing: {path}`,
-)
+};
 ```
 
 ## Exhaustiveness
@@ -276,15 +259,14 @@ The compiler ensures you handle all cases.
 ### Complete Coverage
 
 ```ori
-type Direction = North | South | East | West
+type Direction = North | South | East | West;
 
 // ERROR: non-exhaustive match
-@describe (d: Direction) -> str = match(
-    d,
+@describe (d: Direction) -> str = match d {
     North -> "up",
     South -> "down",
     // Missing East and West!
-)
+};
 ```
 
 The compiler tells you what's missing:
@@ -301,11 +283,10 @@ error: non-exhaustive match
 Use `_` as a catch-all:
 
 ```ori
-@is_north (d: Direction) -> bool = match(
-    d,
+@is_north (d: Direction) -> bool = match d {
     North -> true,
     _ -> false,    // Handles South, East, West
-)
+};
 ```
 
 ### Unreachable Patterns
@@ -314,11 +295,10 @@ The compiler warns about patterns that can never match:
 
 ```ori
 // WARNING: unreachable pattern
-@example (n: int) -> int = match(
-    n,
+@example (n: int) -> int = match n {
     _ -> 0,        // This matches everything
     42 -> 42,      // Never reached!
-)
+};
 ```
 
 ## Pattern Matching in Functions
@@ -328,24 +308,24 @@ The compiler warns about patterns that can never match:
 Define functions with pattern-matched parameters:
 
 ```ori
-@factorial (0: int) -> int = 1
-@factorial (n) -> int = n * factorial(n: n - 1)
+@factorial (0: int) -> int = 1;
+@factorial (n) -> int = n * factorial(n: n - 1);
 ```
 
 ### Guards in Functions
 
 ```ori
-@abs (n: int) -> int if n < 0 = -n
-@abs (n: int) -> int = n
+@abs (n: int) -> int if n < 0 = -n;
+@abs (n: int) -> int = n;
 ```
 
 ### Combining Clauses and Guards
 
 ```ori
-@classify (0: int) -> str = "zero"
-@classify (n) -> str if n < 0 = "negative"
-@classify (n) -> str if n < 10 = "small"
-@classify (_: int) -> str = "large"
+@classify (0: int) -> str = "zero";
+@classify (n) -> str if n < 0 = "negative";
+@classify (n) -> str if n < 10 = "small";
+@classify (_: int) -> str = "large";
 ```
 
 ## Common Patterns
@@ -353,21 +333,19 @@ Define functions with pattern-matched parameters:
 ### Handling Option
 
 ```ori
-@display_name (name: Option<str>) -> str = match(
-    name,
+@display_name (name: Option<str>) -> str = match name {
     Some(n) -> n,
     None -> "Anonymous",
-)
+};
 ```
 
 ### Handling Result
 
 ```ori
-@process_result (r: Result<int, str>) -> str = match(
-    r,
+@process_result (r: Result<int, str>) -> str = match r {
     Ok(value) -> `Success: {value}`,
     Err(error) -> `Error: {error}`,
-)
+};
 ```
 
 ### Extracting Nested Data
@@ -381,11 +359,10 @@ type Response = {
     }>,
 }
 
-@get_user_name (r: Response) -> Option<str> = match(
-    r,
+@get_user_name (r: Response) -> Option<str> = match r {
     Response { data: Some({ user: Some(u), .. }), .. } -> Some(u.name),
     _ -> None,
-)
+};
 ```
 
 ### Matching Multiple Values
@@ -393,15 +370,14 @@ type Response = {
 Use tuples to match multiple values at once:
 
 ```ori
-@compare_sizes (a: int, b: int) -> str = match(
-    (a, b),
+@compare_sizes (a: int, b: int) -> str = match (a, b) {
     (0, 0) -> "both zero",
     (0, _) -> "first is zero",
     (_, 0) -> "second is zero",
-    (x, y).match(x == y) -> "equal",
-    (x, y).match(x < y) -> "first is smaller",
+    (x, y) if x == y -> "equal",
+    (x, y) if x < y -> "first is smaller",
     _ -> "first is larger",
-)
+};
 ```
 
 ## Refutability
@@ -413,9 +389,9 @@ Patterns can be:
 Always match — used in `let` bindings:
 
 ```ori
-let x = 42                    // Always matches
-let (a, b) = tuple            // Always matches (tuple has two elements)
-let Point { x, y } = point    // Always matches
+let x = 42;                    // Always matches
+let (a, b) = tuple;            // Always matches (tuple has two elements)
+let Point { x, y } = point;    // Always matches
 ```
 
 ### Refutable Patterns
@@ -423,11 +399,10 @@ let Point { x, y } = point    // Always matches
 Might not match — used in `match`:
 
 ```ori
-match(
-    option,
+match option {
     Some(x) -> use(x),        // Only matches Some
     None -> handle_none(),     // Only matches None
-)
+};
 ```
 
 ### Lists are Refutable
@@ -435,17 +410,16 @@ match(
 List patterns in `let` can panic:
 
 ```ori
-let [first, second] = items   // PANIC if items doesn't have exactly 2 elements
+let [first, second] = items;   // PANIC if items doesn't have exactly 2 elements
 ```
 
 Use `match` for safe list patterns:
 
 ```ori
-let first_two = match(
-    items,
+let first_two = match items {
     [a, b, ..] -> Some((a, b)),
     _ -> None,
-)
+};
 ```
 
 ## Complete Example
@@ -457,67 +431,63 @@ type Json =
     | Number(value: float)
     | String(value: str)
     | Array(items: [Json])
-    | Object(fields: {str: Json})
+    | Object(fields: {str: Json});
 
-@json_type (j: Json) -> str = match(
-    j,
+@json_type (j: Json) -> str = match j {
     Null -> "null",
     Bool(_) -> "boolean",
     Number(_) -> "number",
     String(_) -> "string",
     Array(_) -> "array",
     Object(_) -> "object",
-)
+};
 
-@test_json_type tests @json_type () -> void = run(
-    assert_eq(actual: json_type(j: Null), expected: "null"),
-    assert_eq(actual: json_type(j: Bool(value: true)), expected: "boolean"),
-    assert_eq(actual: json_type(j: Array(items: [])), expected: "array"),
-)
+@test_json_type tests @json_type () -> void = {
+    assert_eq(actual: json_type(j: Null), expected: "null");
+    assert_eq(actual: json_type(j: Bool(value: true)), expected: "boolean");
+    assert_eq(actual: json_type(j: Array(items: [])), expected: "array")
+}
 
-@json_to_string (j: Json) -> str = match(
-    j,
+@json_to_string (j: Json) -> str = match j {
     Null -> "null",
     Bool(true) -> "true",
     Bool(false) -> "false",
     Number(n) -> `{n}`,
     String(s) -> `"{s}"`,
-    Array(items) -> run(
-        let parts = for item in items yield json_to_string(j: item),
-        `[{parts.join(sep: ", ")}]`,
-    ),
-    Object(fields) -> run(
+    Array(items) -> {
+        let parts = for item in items yield json_to_string(j: item);
+        `[{parts.join(sep: ", ")}]`
+    },
+    Object(fields) -> {
         let parts = for (key, value) in fields.entries()
-            yield `"{key}": {json_to_string(j: value)}`,
-        `\{{parts.join(sep: ", ")}\}`,
-    ),
-)
+            yield `"{key}": {json_to_string(j: value)}`;
+        `\{{parts.join(sep: ", ")}\}`
+    },
+};
 
-@test_json_to_string tests @json_to_string () -> void = run(
-    assert_eq(actual: json_to_string(j: Null), expected: "null"),
-    assert_eq(actual: json_to_string(j: Number(value: 42.0)), expected: "42"),
+@test_json_to_string tests @json_to_string () -> void = {
+    assert_eq(actual: json_to_string(j: Null), expected: "null");
+    assert_eq(actual: json_to_string(j: Number(value: 42.0)), expected: "42");
     assert_eq(
-        actual: json_to_string(j: Array(items: [Number(value: 1.0), Number(value: 2.0)])),
-        expected: "[1, 2]",
-    ),
-)
+        actual: json_to_string(j: Array(items: [Number(value: 1.0), Number(value: 2.0)]))
+        expected: "[1, 2]"
+    )
+}
 
-@get_string_field (obj: Json, key: str) -> Option<str> = match(
-    obj,
-    Object(fields) -> match(
-        fields[key],
+@get_string_field (obj: Json, key: str) -> Option<str> = match obj {
+    Object(fields) -> match fields[key] {
         Some(String(s)) -> Some(s),
         _ -> None,
-    ),
+    },
     _ -> None,
-)
+};
 
-@test_get_string_field tests @get_string_field () -> void = run(
-    let obj = Object(fields: {"name": String(value: "Alice")}),
-    assert_eq(actual: get_string_field(obj: obj, key: "name"), expected: Some("Alice")),
-    assert_eq(actual: get_string_field(obj: obj, key: "age"), expected: None),
-    assert_eq(actual: get_string_field(obj: Null, key: "name"), expected: None),
-)
+@test_get_string_field tests @get_string_field () -> void = {
+    let obj = Object(fields: {"name": String(value: "Alice")});
+    assert_eq(actual: get_string_field(obj: obj, key: "name"), expected: Some("Alice"));
+    assert_eq(actual: get_string_field(obj: obj, key: "age"), expected: None);
+    assert_eq(actual: get_string_field(obj: Null, key: "name"), expected: None)
+}
 ```
 
 ## Quick Reference
@@ -537,26 +507,25 @@ Variant(x)               // Sum type variant
 10..20                   // Range
 A | B                    // Or pattern
 x @ Pattern              // At pattern
-x.match(condition)       // Guard
+x if condition           // Guard
 ```
 
 ### Match Expression
 
 ```ori
-match(
-    value,
+match value {
     Pattern1 -> result1,
     Pattern2 -> result2,
     _ -> default,
-)
+};
 ```
 
 ### Function Clauses
 
 ```ori
-@fn (0: int) -> int = 0
-@fn (n) -> int if n < 0 = -n
-@fn (n) -> int = n
+@fn (0: int) -> int = 0;
+@fn (n) -> int if n < 0 = -n;
+@fn (n) -> int = n;
 ```
 
 ## What's Next
