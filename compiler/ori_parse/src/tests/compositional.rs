@@ -1185,12 +1185,16 @@ mod mixed_expressions {
     #[test]
     fn test_unsafe_expressions() {
         let sources = &[
-            // Basic unsafe
-            "@test () -> int = unsafe(ptr_read(ptr: p));",
-            // Unsafe in block
-            "@test () -> int = { let ptr = get_ptr(); unsafe(ptr_read(ptr: ptr)) }",
-            // Unsafe with method call
-            "@test () -> void = unsafe(ptr.write(value: 42));",
+            // Basic unsafe block — single expression
+            "@test () -> int = unsafe { ptr_read(ptr: p) };",
+            // Unsafe block in block — multi-statement
+            "@test () -> int = { let ptr = get_ptr(); unsafe { ptr_read(ptr: ptr) } }",
+            // Unsafe block with method call
+            "@test () -> void = unsafe { ptr.write(value: 42) };",
+            // Nested unsafe blocks
+            "@test () -> int = unsafe { unsafe { 42 } };",
+            // Unsafe block with multi-statement body
+            "@test () -> int = unsafe { let raw = ptr_read(ptr: p); raw };",
         ];
 
         for source in sources {
@@ -1202,6 +1206,16 @@ mod mixed_expressions {
                 result.errors
             );
         }
+    }
+
+    #[test]
+    fn test_unsafe_requires_block() {
+        // Parenthesized form is no longer valid
+        let result = parse_source("@test () -> int = unsafe(42);");
+        assert!(
+            result.has_errors(),
+            "Parenthesized unsafe should be rejected"
+        );
     }
 }
 

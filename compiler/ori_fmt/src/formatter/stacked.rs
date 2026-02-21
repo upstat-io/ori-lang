@@ -128,6 +128,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             | ExprKind::Some(_)
             | ExprKind::Break { .. }
             | ExprKind::Continue { .. }
+            | ExprKind::Unsafe(_)
             | ExprKind::Await(_)
             | ExprKind::Try(_)
             | ExprKind::Cast { .. }

@@ -535,7 +535,7 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 
 - [x] **Audit**: Unsafe expressions — grammar.ebnf § unsafe_expr [done] (2026-02-10)
   - [x] `unsafe(expr)` — parsed correctly (verified 2026-02-10; parenthesized form removed by unsafe-semantics-proposal 2026-02-20)
-  - [ ] `unsafe { expr }` — block-only form (proposal approved 2026-02-20, implementation pending)
+  - [x] `unsafe { expr }` — block-only form (implemented 2026-02-21)
 
 ### 0.5.3 List Literals
 
@@ -1131,7 +1131,9 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
   - [x] **Ori Tests**: All spec tests migrated to new syntax
 - [x] **Implement**: `loop { block_body }` syntax (drop parens) (2026-02-20)
   - [x] **Ori Tests**: All spec tests migrated to new syntax
-- [ ] **Implement**: `unsafe { block_body }` syntax (block-only form) <!-- proposal approved: proposals/approved/unsafe-semantics-proposal.md; implementation deferred to Section 6.9 -->
+- [x] **Implement**: `unsafe { block_body }` syntax (block-only form) (2026-02-21)
+  - [x] **Rust Tests**: Parser unit tests for block syntax + rejection of paren form
+  - [x] **Ori Tests**: `tests/spec/capabilities/unsafe_block.ori` — 6 test cases
 - [x] **Implement**: `for...do { block_body }` and `for...yield { block_body }` (automatic — blocks are expressions) (2026-02-20)
 - [x] **Implement**: Remove old `run()`/`match()`/`try()` paren forms from parser (2026-02-20)
   - [x] **Rust Tests**: Old syntax produces helpful error messages

@@ -184,7 +184,9 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             label.raw().hash(state);
             hash_node(arena, value, state);
         }
-        CanExpr::Try(child) | CanExpr::Await(child) => hash_node(arena, child, state),
+        CanExpr::Try(child) | CanExpr::Await(child) | CanExpr::Unsafe(child) => {
+            hash_node(arena, child, state);
+        }
 
         // Bindings
         CanExpr::Block { stmts, result } => {

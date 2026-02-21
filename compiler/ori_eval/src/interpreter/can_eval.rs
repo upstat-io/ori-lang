@@ -409,6 +409,7 @@ impl Interpreter<'_> {
                 Value::None => Err(ControlAction::Propagate(Value::None)),
                 other => Ok(other),
             },
+            CanExpr::Unsafe(inner) => self.eval_can(inner),
             CanExpr::Await(_) => {
                 let span = self.can_span(can_id);
                 Err(Self::attach_span(await_not_supported().into(), span))

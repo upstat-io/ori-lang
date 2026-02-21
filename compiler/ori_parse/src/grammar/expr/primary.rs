@@ -36,6 +36,9 @@ const LITERAL_TOKENS: TokenSet = TokenSet::new()
 /// Note: `Cache`, `Catch`, `Parallel`, `Spawn`, `Recurse`, `Timeout` are NOT
 /// listed here — the lexer only produces these tokens when followed by `(`,
 /// so they never appear in identifier position.
+///
+/// Note: `Unsafe` is NOT listed here — it is parsed as `unsafe { block_body }`
+/// expression form, not as an identifier. See `parse_unsafe_expr()`.
 const IDENT_LIKE_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::Ident(Name::EMPTY))
     .with(TokenKind::Print)
@@ -47,7 +50,6 @@ const IDENT_LIKE_TOKENS: TokenSet = TokenSet::new()
     .with(TokenKind::BoolType)
     .with(TokenKind::CharType)
     .with(TokenKind::ByteType)
-    .with(TokenKind::Unsafe)
     .with(TokenKind::Suspend)
     .with(TokenKind::Extern);
 
@@ -172,10 +174,10 @@ impl Parser<'_> {
             | TokenKind::TAG_SIZE => {
                 return self.parse_literal_primary();
             }
-            TokenKind::TAG_IDENT
-            | TokenKind::TAG_UNSAFE
-            | TokenKind::TAG_SUSPEND
-            | TokenKind::TAG_EXTERN => return self.parse_ident_primary(),
+            TokenKind::TAG_IDENT | TokenKind::TAG_SUSPEND | TokenKind::TAG_EXTERN => {
+                return self.parse_ident_primary()
+            }
+            TokenKind::TAG_UNSAFE => return self.parse_unsafe_expr(),
             TokenKind::TAG_LPAREN => return self.parse_parenthesized(),
             TokenKind::TAG_LBRACKET => return self.parse_list_literal(),
             TokenKind::TAG_LBRACE => return self.parse_block_or_map(),
@@ -310,7 +312,7 @@ impl Parser<'_> {
     }
 
     /// Parse identifier-like tokens: `Ident`, soft keywords used as identifiers
-    /// (`Print`, `Panic`, `SelfLower`, `Unsafe`, `Suspend`, `Extern`),
+    /// (`Print`, `Panic`, `SelfLower`, `Suspend`, `Extern`),
     /// and type conversion keywords (`IntType`, `FloatType`, etc.).
     ///
     /// Note: `Cache`, `Catch`, `Parallel`, `Spawn`, `Recurse`, `Timeout` are
@@ -346,7 +348,6 @@ impl Parser<'_> {
             TokenKind::BoolType => "bool",
             TokenKind::CharType => "char",
             TokenKind::ByteType => "byte",
-            TokenKind::Unsafe => "unsafe",
             TokenKind::Suspend => "suspend",
             TokenKind::Extern => "extern",
             _ => {
@@ -1388,6 +1389,43 @@ impl Parser<'_> {
                 ParseOutcome::empty_err(TEMPLATE_TOKENS, self.cursor.current_span().start as usize)
             }
         }
+    }
+
+    /// Parse unsafe block expression: `unsafe { block_body }`.
+    ///
+    /// Per proposal: `unsafe` is block-only (no parenthesized form).
+    /// The inner block discharges the `Unsafe` capability within its scope.
+    /// Grammar: `unsafe_expr = "unsafe" block_expr .`
+    fn parse_unsafe_expr(&mut self) -> ParseOutcome<ExprId> {
+        if !self.cursor.check(&TokenKind::Unsafe) {
+            return ParseOutcome::empty_err_expected(
+                &TokenKind::Unsafe,
+                self.cursor.current_span().start as usize,
+            );
+        }
+        let span = self.cursor.current_span();
+        self.cursor.advance(); // consume `unsafe`
+
+        if !self.cursor.check(&TokenKind::LBrace) {
+            return ParseOutcome::consumed_err(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1002,
+                    "expected `{` after `unsafe`",
+                    self.cursor.current_span(),
+                )
+                .with_help("Use block syntax: `unsafe { expr }`"),
+                span,
+            );
+        }
+
+        // Parse the block body — reuse the standard block parser
+        let body = require!(self, self.parse_block_or_map(), "unsafe block body");
+        let end_span = self.arena.get_expr(body).span;
+
+        ParseOutcome::consumed_ok(
+            self.arena
+                .alloc_expr(Expr::new(ExprKind::Unsafe(body), span.merge(end_span))),
+        )
     }
 
     /// Parse capability provision: `with Capability = Provider in body`

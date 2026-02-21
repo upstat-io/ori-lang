@@ -53,7 +53,9 @@ use operators::{binary_op_width, unary_op_width};
 use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup};
 use patterns::binding_pattern_width;
 use rustc_hash::{FxBuildHasher, FxHashMap};
-use wrappers::{await_width, cast_width, err_width, loop_width, ok_width, some_width, try_width};
+use wrappers::{
+    await_width, cast_width, err_width, loop_width, ok_width, some_width, try_width, unsafe_width,
+};
 
 /// Sentinel value indicating a construct that always uses stacked format.
 ///
@@ -285,7 +287,8 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::Break { label, value } => break_width(self, *label, *value),
             ExprKind::Continue { label, value } => continue_width(self, *label, *value),
 
-            // Postfix operators - delegated to wrappers module
+            // Unsafe block and postfix operators
+            ExprKind::Unsafe(inner) => unsafe_width(self, *inner),
             ExprKind::Await(inner) => await_width(self, *inner),
             ExprKind::Try(inner) => try_width(self, *inner),
             ExprKind::Cast { expr, ty, fallible } => {
