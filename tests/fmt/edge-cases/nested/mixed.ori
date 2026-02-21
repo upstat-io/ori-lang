@@ -2,7 +2,8 @@
     let doubled = value * 2;
     let result = match doubled {
         0 -> "zero",
-        n -> "nonzero"
+        n -> "nonzero",
     };
+
     result
 }

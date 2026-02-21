@@ -56,6 +56,10 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(";");
                 }
                 if result.is_present() {
+                    // Blank line before result when 2+ statements precede it
+                    if stmts_list.len() >= 2 {
+                        self.ctx.emit_newline();
+                    }
                     self.ctx.emit_newline_indent();
                     self.format(*result);
                 }
@@ -147,9 +151,8 @@ impl<I: StringLookup> Formatter<'_, I> {
         self.format(scrutinee);
         self.ctx.emit(" {");
         let arms_list = self.arena.get_arms(arms);
-        let arm_count = arms_list.len();
         self.ctx.indent();
-        for (i, arm) in arms_list.iter().enumerate() {
+        for arm in arms_list {
             self.ctx.emit_newline_indent();
             self.emit_match_pattern(&arm.pattern);
             if let Some(guard) = arm.guard {
@@ -158,9 +161,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
             self.ctx.emit(" -> ");
             self.format(arm.body);
-            if i + 1 < arm_count {
-                self.ctx.emit(",");
-            }
+            self.ctx.emit(",");
         }
         self.ctx.dedent();
         self.ctx.emit_newline_indent();
@@ -180,6 +181,10 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
 
         if result.is_present() {
+            // Blank line before result when 2+ statements precede it
+            if stmts_list.len() >= 2 {
+                self.ctx.emit_newline();
+            }
             self.ctx.emit_newline_indent();
             self.format(result);
         }
@@ -194,17 +199,14 @@ impl<I: StringLookup> Formatter<'_, I> {
         match &stmt.kind {
             ori_ir::StmtKind::Expr(expr) => self.format(*expr),
             // Per spec: mutable is default, $ prefix for immutable
+            // The $ prefix is emitted by emit_binding_pattern(), not here
             ori_ir::StmtKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable,
+                mutable: _,
             } => {
-                if mutable.is_mutable() {
-                    self.ctx.emit("let ");
-                } else {
-                    self.ctx.emit("let $");
-                }
+                self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
                 self.ctx.emit(" = ");

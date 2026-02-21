@@ -4,5 +4,5 @@
 @classify_list (lst: [int]) -> str = match lst {
     [] -> "empty",
     [x] -> "single",
-    [head, ..tail] -> "multiple"
+    [head, ..tail] -> "multiple",
 }

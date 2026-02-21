@@ -5,9 +5,9 @@
     (0, 0) -> "origin",
     (_, 0) -> "x-axis",
     (0, _) -> "y-axis",
-    (a, b) -> "elsewhere"
+    (a, b) -> "elsewhere",
 }
 
 @nested_tuple (t: ((int, int), int)) -> int = match t {
-    ((a, b), c) -> a + b + c
+    ((a, b), c) -> a + b + c,
 }

@@ -5,5 +5,5 @@
     0 -> "zero",
     1..10 -> "small",
     10..100 -> "medium",
-    _ -> "large"
+    _ -> "large",
 }

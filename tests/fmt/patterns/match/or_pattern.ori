@@ -4,5 +4,5 @@
 @combine (n: int) -> str = match n {
     1 | 2 -> "one or two",
     3 | 4 | 5 -> "three to five",
-    _ -> "other"
+    _ -> "other",
 }

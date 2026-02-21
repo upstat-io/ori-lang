@@ -1,9 +1,14 @@
-// Immutable bindings
+// Immutable bindings with $ prefix
 // Spec: 06-expressions.md § Let Bindings
-// NOTE: $ immutable modifier is only for module-level constants,
-// not local bindings in run patterns.
 
-@with_binding () -> int = {
-    let x = 42;
-    x
+@with_immutable () -> int = {
+    let $x = 42;
+    $x
+}
+
+@with_both () -> int = {
+    let $a = 10;
+    let b = 20;
+
+    $a + b
 }

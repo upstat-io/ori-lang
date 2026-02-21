@@ -5,5 +5,5 @@
     x if x > 10 -> "large",
     x if x > 0 -> "small",
     0 -> "zero",
-    _ -> "negative"
+    _ -> "negative",
 }
