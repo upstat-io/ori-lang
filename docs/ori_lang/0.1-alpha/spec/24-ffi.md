@@ -374,11 +374,25 @@ pub use "./read" { read, read_bytes };
 
 ### Native FFI Errors
 
-C functions typically return error codes. Wrap in `Result`:
+C functions typically return error codes. Deep FFI provides declarative error protocols that automate error checking and `Result` wrapping:
+
+```ori
+// Declarative: #error(errno) generates Result wrapping automatically
+extern "c" from "libc" #error(errno) {
+    @open (path: str, flags: c_int, mode: c_int) -> c_int as "open"
+}
+
+// Effective Ori signature: @open (...) -> Result<int, FfiError> uses FFI("libc")
+let fd = open(path: "/etc/hostname", flags: O_RDONLY, mode: 0)?
+```
+
+Available error protocols: `#error(errno)`, `#error(nonzero)`, `#error(null)`, `#error(negative)`, `#error(success: N)`, `#error(none)`. See [Deep FFI proposal](../../../proposals/approved/deep-ffi-proposal.md) for full specification.
+
+Manual wrapping remains supported for custom error handling:
 
 ```ori
 extern "c" from "libc" {
-    @_open (path: str, flags: int, mode: int) -> int as "open"
+    @_open (path: str, flags: c_int, mode: c_int) -> c_int as "open"
 }
 
 pub @open_file (path: str) -> Result<int, FileError> uses FFI =
@@ -407,7 +421,13 @@ If JavaScript throws, the function returns `Err` with the exception message.
 
 ### Native
 
-Standard C memory management. Ori's ARC handles Ori objects; C objects follow C conventions.
+Ori's ARC handles Ori objects. For C objects, Deep FFI provides ownership annotations that integrate with ARC:
+
+- `owned CPtr` returns with `#free(fn)`: The compiler generates a `Drop` impl that calls the specified cleanup function. The value is tracked by ARC like any Ori value.
+- `borrowed CPtr` returns: Ori does not free the pointer. For `borrowed str`, Ori copies the string immediately.
+- Unannotated `CPtr`: Follows C conventions (untracked). Deep FFI phases enforcement from optional to warning to error.
+
+See [Deep FFI proposal](../../../proposals/approved/deep-ffi-proposal.md) for the full ownership model.
 
 ### WASM
 
@@ -443,3 +463,91 @@ pub @sin (angle: float) -> float = _sin(x: angle);
 ```
 
 See [Conditional Compilation](25-conditional-compilation.md) for attribute syntax.
+
+## Deep FFI Extensions
+
+> **Proposal:** [deep-ffi-proposal.md](../../../proposals/approved/deep-ffi-proposal.md)
+
+Deep FFI is a set of opt-in annotations that layer on top of the extern declaration syntax. All existing FFI code continues to work unchanged.
+
+### Parameter Modifiers
+
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § FFI (`param_modifier`)
+
+Two modifiers for extern parameters:
+
+| Modifier | Meaning | Compiler Action |
+|----------|---------|-----------------|
+| `out` | C writes to this address; value folded into return type | Allocate stack slot, pass address, extract value after call |
+| `mut` | C may modify this buffer in place | Pass pointer to existing buffer |
+
+```ori
+extern "c" from "sqlite3" #error(nonzero) {
+    @sqlite3_open (filename: str, db: out owned CPtr) -> c_int
+}
+
+// Effective Ori signature:
+// @sqlite3_open (filename: str) -> Result<CPtr, FfiError> uses FFI("sqlite3")
+```
+
+### Ownership Annotations
+
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § FFI (`ownership`)
+
+Two keywords — `owned` and `borrowed` — specify memory ownership transfer at the FFI boundary.
+
+| Annotation | On Return Type | On Parameter |
+|------------|---------------|--------------|
+| `owned` | Ori takes ownership; cleanup via `#free` | Ori transfers ownership to C |
+| `borrowed` | Ori copies immediately (str, [byte]) or non-owning view (CPtr) | C borrows temporarily |
+| _(none)_ | **str: borrowed** (safe default). Primitives: by value. CPtr: warning → error | Primitives: by value. CPtr: borrowed by default |
+
+The `#free(fn)` attribute specifies a cleanup function for `owned CPtr` returns. The compiler generates a `Drop` impl that calls this function when the value goes out of scope:
+
+```ori
+extern "c" from "sqlite3" #free(sqlite3_close) #error(nonzero) {
+    @sqlite3_open (filename: str, db: out owned CPtr) -> c_int
+    @sqlite3_close (db: owned CPtr) -> c_int
+}
+```
+
+### Error Protocol Mapping
+
+A block-level `#error(...)` attribute specifies how C return values map to `Result<T, FfiError>`:
+
+| Protocol | Attribute | Success Condition |
+|----------|-----------|-------------------|
+| POSIX errno | `#error(errno)` | Return >= 0 |
+| Non-zero is error | `#error(nonzero)` | Return = 0 |
+| Negative is error | `#error(negative)` | Return >= 0 |
+| NULL is error | `#error(null)` | Return != NULL |
+| Specific success | `#error(success: N)` | Return = N |
+| No protocol | `#error(none)` | (no check) |
+
+Per-function `#error(...)` overrides the block default. `FfiError` is defined in `std.ffi`.
+
+### Parametric FFI Capability
+
+`FFI` is a _parametric capability_. Each extern block's `from "..."` clause defines a distinct capability namespace:
+
+```ori
+@query (path: str) -> Result<Row, FfiError> uses FFI("sqlite3") = ...
+```
+
+Unparameterized `uses FFI` is shorthand for all FFI capabilities (backward compatible).
+
+### Capability-Gated Testability
+
+Each extern block generates a compiler-internal trait. The `with FFI("lib") = handler { ... } in` construct redirects extern calls to mock implementations:
+
+```ori
+@test tests query {
+    with FFI("sqlite3") = handler {
+        sqlite3_open: (filename: str) -> Result<CPtr, FfiError> = Ok(CPtr.null()),
+    } in {
+        test_database_logic()
+    }
+}
+```
+
+The stateless `handler { ... }` form (without state) is syntactic sugar for `handler(state: ()) { ... }` from the stateful-mock-testing system. Unmocked functions fall through to the real C implementation.

@@ -179,13 +179,25 @@ extension_import = [ "pub" ] "extension" import_path "{" extension_item { "," ex
 extension_item   = identifier "." identifier .
 
 // --- FFI (Foreign Function Interface) ---
-// See: spec/23-ffi.md
+// See: spec/24-ffi.md
 
-extern_block  = [ "pub" ] "extern" string_literal [ "from" string_literal ] "{" { extern_item } "}" .
-extern_item   = "@" identifier extern_params "->" type [ "as" string_literal ] .
+extern_block  = [ "pub" ] "extern" string_literal [ "from" string_literal ]
+                { block_attribute } "{" { extern_item } "}" .
+extern_item   = "@" identifier extern_params "->" [ ownership ] type
+                [ "as" string_literal ]
+                { item_attribute } .
 extern_params = "(" [ extern_param { "," extern_param } ] [ c_variadic ] ")" .
-extern_param  = identifier ":" type .
+extern_param  = [ param_modifier ] identifier ":" [ ownership ] type .
 c_variadic    = "," "..." .  /* C-style variadic - only valid in extern "c" blocks */
+
+// Deep FFI annotations (see: proposals/approved/deep-ffi-proposal.md)
+param_modifier  = "out" | "mut" .
+ownership       = "owned" | "borrowed" .
+block_attribute = "#" identifier "(" { attribute_arg } ")" .  /* #error(...), #free(...) */
+item_attribute  = "#" identifier "(" { attribute_arg } ")" .  /* per-function overrides */
+
+// Parametric FFI capability
+ffi_capability  = "FFI" [ "(" string_literal ")" ] .
 
 
 // ============================================================================
