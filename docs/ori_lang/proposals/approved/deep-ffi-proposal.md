@@ -1,10 +1,11 @@
 # Proposal: Deep FFI — Higher-Level Foreign Function Interface
 
-**Status:** Draft
+**Status:** Approved
 **Author:** Eric
 **Created:** 2026-02-21
+**Approved:** 2026-02-21
 **Affects:** Language core (parser, IR, type checker), compiler (codegen), standard library
-**Depends on:** Platform FFI (approved), Unsafe Semantics (approved)
+**Depends on:** Platform FFI (approved), Unsafe Semantics (approved), Drop Trait (approved), Stateful Mock Testing (approved)
 **Extends:** `spec/24-ffi.md` — all existing FFI syntax remains valid
 
 ---
@@ -102,9 +103,9 @@ When Ori types appear in extern declarations, the compiler generates marshalling
 | Ori Type in Extern | C ABI Translation | Generated Code |
 |--------------------|-------------------|----------------|
 | `str` (input) | `const char*` | Allocate null-terminated copy, pass pointer, free after return |
-| `str` (return) | `const char*` | Copy into Ori string, do not free (C owns the pointer) |
-| `[byte]` (input) | `const uint8_t*, size_t` | Pass data pointer + length as two C arguments |
-| `mut [byte]` | `uint8_t*` | Pass pointer to existing buffer |
+| `str` (return) | `const char*` | Copy into Ori string, do not free (borrowed by default — see §2) |
+| `[byte]` (input) | `const uint8_t*, size_t` | Pass `(data_ptr, length)` as two adjacent C arguments |
+| `mut [byte]` | `uint8_t*, size_t*` | Pass `(buffer_ptr, &capacity)` — C writes actual length |
 | `int` → `c_int` | `int32_t` | Narrow with bounds check (panic on overflow) |
 | `float` → `c_float` | `float` | Narrow (precision loss is silent, matches C semantics) |
 | `bool` | `int` | Convert `true`→1, `false`→0; reverse on return |
@@ -136,7 +137,7 @@ extern "c" from "sqlite3" #error(nonzero) {
 }
 
 // Effective Ori signature:
-@sqlite3_open (filename: str) -> Result<CPtr, FfiError> uses FFI
+@sqlite3_open (filename: str) -> Result<CPtr, FfiError> uses FFI("sqlite3")
 ```
 
 Multiple `out` parameters become a tuple:
@@ -147,12 +148,12 @@ extern "c" from "mylib" #error(nonzero) {
 }
 
 // Effective Ori signature:
-@get_size (handle: CPtr) -> Result<(int, int), FfiError> uses FFI
+@get_size (handle: CPtr) -> Result<(int, int), FfiError> uses FFI("mylib")
 ```
 
 #### `[byte]` Length Parameter Elision
 
-When `[byte]` appears in an extern declaration, the compiler generates the length argument automatically. The extern declaration does not include a separate length parameter — the compiler inserts it at the C ABI level:
+When `[byte]` appears in an extern declaration, the compiler generates the length argument automatically. The extern declaration does not include a separate length parameter — the compiler inserts it at the C ABI level as an adjacent `(ptr, len)` pair:
 
 ```ori
 // Deep FFI:
@@ -160,22 +161,18 @@ extern "c" from "z" {
     @compress (dest: mut [byte], source: [byte]) -> c_int
 }
 
-// C function actually called:
-// int compress(uint8_t* dest, size_t* destLen, const uint8_t* source, size_t sourceLen)
+// C arguments generated (strict adjacency):
+// compress(uint8_t* dest, size_t* destLen, const uint8_t* source, size_t sourceLen)
+//          ^^^^^^^^^^^^^^^^^^^^^^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//          mut [byte] → (ptr, &len)        [byte] → (ptr, len)
 ```
 
-When the C function's argument order does not match the default `(ptr, len)` pair layout, the `as` clause maps to the C name and the compiler matches by parameter name:
+**Rules:**
 
-```ori
-extern "c" from "z" {
-    @compress (
-        dest: mut [byte],
-        source: [byte],
-    ) -> c_int as "compress"
-}
-```
-
-If the compiler cannot automatically determine the length argument pairing (e.g., unusual C signature), fall back to explicit C types:
+1. Each `[byte]` parameter generates two adjacent C arguments: `(ptr, len)` in that order.
+2. `mut [byte]` generates `(ptr, &len)` where the length is an in/out parameter.
+3. The compiler inserts the length immediately after the pointer argument. There is no name matching — C has no named parameters at the ABI level.
+4. If the C function's argument order does not match adjacent `(ptr, len)` pairs, fall back to explicit C types:
 
 ```ori
 // Explicit fallback — no auto-marshalling
@@ -186,15 +183,16 @@ extern "c" from "unusual_lib" {
 
 #### String Return Marshalling
 
-Strings returned from C have ambiguous ownership. The `borrowed` annotation (see §2) resolves this:
+Strings returned from C default to borrowed semantics — Ori copies the string immediately and does not free the C pointer. This is the safe default because the vast majority of C functions returning `const char*` return pointers to internal buffers (e.g., `strerror()`, `sqlite3_errmsg()`, `getenv()`).
 
 ```ori
 extern "c" from "sqlite3" {
-    @sqlite3_errmsg (db: CPtr) -> borrowed str  // C owns the string; Ori copies immediately
+    @sqlite3_errmsg (db: CPtr) -> str            // Borrowed by default: Ori copies, does not free
+    @alloc_string (len: c_int) -> owned str       // Ori takes ownership and frees
 }
 ```
 
-Without `borrowed`, a `str` return means Ori takes ownership of the null-terminated C string (and frees it). This matches the principle: explicit ownership at the boundary.
+See §2 for the full `owned`/`borrowed` annotation system.
 
 ### 2. Ownership Annotations
 
@@ -216,9 +214,11 @@ param_modifier = "out" | "mut" .
 
 | Annotation | On Return Type | On Parameter |
 |------------|---------------|--------------|
-| `owned` | Ori takes ownership; cleanup via `#free` | Ori transfers ownership to C; drops its reference |
+| `owned` | Ori takes ownership; cleanup via `#free` (for CPtr) or frees (for str) | Ori transfers ownership to C; drops its reference |
 | `borrowed` | Ori copies immediately (str, [byte]) or creates non-owning view (CPtr) | C borrows temporarily; must not store past call return |
-| _(none)_ | Primitives: pass by value. CPtr: compile warning → error (ambiguous) | Primitives: pass by value. CPtr: borrowed by default |
+| _(none)_ | **str: borrowed** (copy, don't free). Primitives: by value. CPtr: warning → error | Primitives: by value. CPtr: borrowed by default |
+
+> **Note:** The `borrowed` annotation in extern declarations describes an ownership _transfer protocol_ at the FFI boundary. It is distinct from the future `Borrowed` type category reserved by the low-level-future-proofing proposal, which describes a value's _storage semantics_. Both involve "not owned," but operate at different levels: FFI `borrowed` governs what happens at the C/Ori boundary; type-level `Borrowed` governs how a value lives in memory.
 
 #### The `#free` Annotation
 
@@ -251,7 +251,7 @@ When a function returns `owned CPtr` with a `#free` function, the compiler gener
 type __Owned_sqlite3_db = { ptr: CPtr }
 
 impl Drop for __Owned_sqlite3_db {
-    @drop (self) -> void uses FFI = sqlite3_close(db: self.ptr)
+    @drop (self) -> void uses FFI("sqlite3") = sqlite3_close(db: self.ptr)
 }
 ```
 
@@ -259,18 +259,20 @@ The user sees an opaque value that automatically cleans up when it goes out of s
 
 ```ori
 // Before Deep FFI:
-pub @query (path: str, sql: str) -> Result<[Row], DbError> uses FFI = {
-    let db = sqlite3_open(filename: path)?
-    let result = sqlite3_exec(db: db, sql: sql)
-    sqlite3_close(db: db)   // Must remember this!
-    result                   // And what if sqlite3_exec panics? Leak.
-}
+pub @query (path: str, sql: str) -> Result<[Row], DbError> uses FFI =
+    {
+        let db = sqlite3_open(filename: path)?
+        let result = sqlite3_exec(db: db, sql: sql)
+        sqlite3_close(db: db)   // Must remember this!
+        result                   // And what if sqlite3_exec panics? Leak.
+    }
 
 // After Deep FFI:
-pub @query (path: str, sql: str) -> Result<[Row], DbError> uses FFI = {
-    let db = sqlite3_open(filename: path)?   // owned CPtr, auto-freed on scope exit
-    sqlite3_exec(db: db, sql: sql)           // if this fails, db is still freed
-}
+pub @query (path: str, sql: str) -> Result<[Row], DbError> uses FFI("sqlite3") =
+    {
+        let db = sqlite3_open(filename: path)?   // owned CPtr, auto-freed on scope exit
+        sqlite3_exec(db: db, sql: sql)           // if this fails, db is still freed
+    }
 ```
 
 #### Phased Enforcement
@@ -292,14 +294,14 @@ A block-level `#error(...)` attribute specifies how C return values map to `Resu
 extern "c" from "libc" #error(errno) {
     @open (path: str, flags: c_int, mode: c_int) -> c_int as "open"
     @read (fd: c_int, buf: mut [byte]) -> c_int as "read"
-    @strerror (errnum: c_int) -> borrowed str #error(none)  // opt out
+    @strerror (errnum: c_int) -> str #error(none)  // opt out (str return is borrowed by default)
 }
 
 // SQLite: non-zero return → error code
 extern "c" from "sqlite3" #error(nonzero) {
     @sqlite3_open (filename: str, db: out owned CPtr) -> c_int
     @sqlite3_exec (db: CPtr, sql: str) -> c_int
-    @sqlite3_errmsg (db: CPtr) -> borrowed str #error(none)
+    @sqlite3_errmsg (db: CPtr) -> str #error(none)  // borrowed by default
 }
 
 // Specific success value
@@ -329,7 +331,9 @@ Per-function `#error(...)` overrides the block default. `#error(none)` opts out 
 #### FfiError Type
 
 ```ori
-// Defined in std.ffi (or prelude)
+// Defined in std.ffi
+use std.ffi { FfiError }
+
 type FfiError = {
     code: int,
     message: str,
@@ -341,6 +345,8 @@ The `message` field is populated from:
 - `strerror(errno)` for `#error(errno)` protocol
 - Custom lookup if `#error_codes({...})` is provided (future extension)
 - `"FFI error code: {code}"` as fallback
+
+`FfiError` lives in `std.ffi`, not the prelude. FFI-specific types should not pollute the prelude namespace.
 
 #### Return Type Transformation
 
@@ -358,27 +364,64 @@ When error protocol is active AND there are `out` parameters, the `out` values b
 
 ### 4. Capability-Gated Testability
 
-The `FFI` capability is already bindable. Deep FFI adds mock infrastructure so that `with FFI = mock in { ... }` actually works.
+Deep FFI makes `FFI` a parametric, trait-based capability. Each `extern "c" from "lib"` block generates a compiler-internal trait, and extern function calls dispatch through this trait. This enables the existing `with...in` handler mechanism to intercept FFI calls for testing.
+
+#### Trait-Based FFI Dispatch
+
+Each extern block generates a compiler-internal trait:
+
+```ori
+// What the programmer writes:
+extern "c" from "sqlite3" #error(nonzero) {
+    @sqlite3_open (filename: str, db: out owned CPtr) -> c_int
+    @sqlite3_exec (db: CPtr, sql: str) -> c_int
+    @sqlite3_errmsg (db: CPtr) -> str #error(none)
+}
+
+// What the compiler generates (conceptual, not user-visible):
+trait __FFI_sqlite3 {
+    @sqlite3_open (filename: str) -> Result<CPtr, FfiError>
+    @sqlite3_exec (db: CPtr, sql: str) -> Result<void, FfiError>
+    @sqlite3_errmsg (db: CPtr) -> str
+}
+```
+
+The generated trait uses the Ori-visible signatures (after marshalling, `out` folding, and error protocol transformation). Normal calls dispatch through the default implementation (the real C function). When `with FFI("sqlite3") = ...` is active, calls dispatch through the provided handler.
+
+#### Parametric FFI Capability
+
+`FFI` is no longer a single flat capability. It is parametric — `FFI("sqlite3")`, `FFI("libc")`, etc. — with each extern block's `from "..."` clause defining a distinct capability namespace:
+
+```ori
+// This function uses both sqlite3 and libc FFI
+@query (path: str, sql: str) -> Result<[Row], DbError> uses FFI("sqlite3"), FFI("libc") = ...
+
+// This function uses unparameterized FFI (all extern blocks)
+@legacy_wrapper () -> void uses FFI = ...
+```
+
+Unparameterized `uses FFI` is shorthand for "requires all FFI capabilities" — backward compatible with existing code.
 
 #### The Problem
 
 ```ori
 // This Ori function requires a real C library to test
-pub @hash_password (password: str) -> str uses FFI = {
-    let salt = crypto_random_bytes(count: 16)
-    argon2_hash(password: password, salt: salt)
-}
+pub @hash_password (password: str) -> str uses FFI("libsodium") =
+    {
+        let salt = crypto_random_bytes(count: 16)
+        argon2_hash(password: password, salt: salt)
+    }
 ```
 
 Testing requires libsodium installed, linked, and available. This makes tests slow, non-deterministic, and non-portable.
 
 #### The Solution: Handler-Based Mocking
 
-Ori's capability system already supports handler binding via `with Cap = handler(...) in`. Deep FFI extends this to extern functions:
+Ori's capability system already supports handler binding via `with Cap = handler(...) in` (see stateful-mock-testing proposal). Deep FFI uses the same mechanism. For stateless FFI mocks, `handler { ... }` (without state) is syntactic sugar for `handler(state: ()) { op: (_, args...) -> ((), result) }`:
 
 ```ori
 @test tests hash_password {
-    with FFI = handler {
+    with FFI("libsodium") = handler {
         crypto_random_bytes: (count: int) -> [byte] =
             [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
         argon2_hash: (password: str, salt: [byte]) -> str =
@@ -390,14 +433,31 @@ Ori's capability system already supports handler binding via `with Cap = handler
 }
 ```
 
+For stateful FFI mocks (e.g., counting calls), use the full `handler(state: S) { ... }` form from the stateful-mock-testing proposal:
+
+```ori
+@test tests call_counting {
+    with FFI("libc") = handler(state: 0) {
+        open: (s, path: str, flags: c_int, mode: c_int) -> (int, Result<int, FfiError>) =
+            (s + 1, Ok(42)),
+        close: (s, fd: c_int) -> (int, Result<void, FfiError>) =
+            (s + 1, Ok(())),
+    } in {
+        let fd = open(path: "/tmp/test", flags: O_RDONLY, mode: 0)?
+        close(fd: fd)?
+    }
+}
+```
+
 #### Dispatch Semantics
 
-When `with FFI = handler { ... } in { body }`:
+When `with FFI("lib") = handler { ... } in { body }`:
 
-1. Within `body`, calls to extern functions listed in the handler are redirected to the mock implementations
-2. Extern functions NOT listed in the handler fall through to the real C implementation
-3. The handler functions must match the Ori-visible signature (after marshalling and error protocol transformation)
-4. Type checking verifies handler function signatures against the extern declarations
+1. Within `body`, calls to extern functions from the named library are redirected to the handler
+2. Extern functions from OTHER libraries fall through to the real C implementation
+3. Handler functions must match the Ori-visible signature (after marshalling and error protocol)
+4. Type checking validates handler signatures against the generated trait
+5. Unmocked functions within a mocked library call the real C function
 
 #### Selective Mocking
 
@@ -412,23 +472,6 @@ with FFI("sqlite3") = handler {
     test_database_logic()
 }
 ```
-
-The string argument to `FFI(...)` matches the `from` clause in the extern declaration.
-
-#### Future: Auto-Generated Mock Traits
-
-In a future phase, the compiler could auto-generate a trait from each extern block:
-
-```ori
-// Compiler-generated (not user-visible):
-trait __FFI_sqlite3 {
-    @sqlite3_open (filename: str) -> Result<CPtr, FfiError>
-    @sqlite3_close (db: owned CPtr) -> Result<void, FfiError>
-    @sqlite3_exec (db: CPtr, sql: str) -> Result<void, FfiError>
-}
-```
-
-This enables IDE autocompletion for mock implementations and compile-time verification that mocks are complete.
 
 ### 5. Const-Generic Safety at Boundaries
 
@@ -472,7 +515,7 @@ Every existing extern declaration continues to work unchanged:
 | `#repr("c")` structs | Unchanged |
 | Callbacks `(CPtr, CPtr) -> int` | Unchanged |
 | `unsafe { }` for variadics | Unchanged |
-| `uses FFI` capability | Unchanged — mock infrastructure adds to it, doesn't change it |
+| `uses FFI` capability | Unchanged — `uses FFI` (unparameterized) remains valid as shorthand |
 
 **New features are additive.** Nothing in the existing grammar or spec is modified — only extended.
 
@@ -493,6 +536,9 @@ extern_item     = "@" identifier extern_params "->" [ ownership ] type
                   [ "as" string_literal ]
                   [ "#" identifier "(" { attribute_arg } ")" ]
                   [ where_clause ] .
+
+(* Parametric FFI capability *)
+ffi_capability  = "FFI" [ "(" string_literal ")" ] .
 ```
 
 The `#error(...)` and `#free(...)` attributes use the existing attribute syntax — no grammar change needed.
@@ -509,16 +555,16 @@ extern "c" from "sqlite3" #error(nonzero) #free(sqlite3_close) {
     @sqlite3_open (filename: str, db: out owned CPtr) -> c_int
     @sqlite3_close (db: owned CPtr) -> c_int
     @sqlite3_exec (db: CPtr, sql: str) -> c_int
-    @sqlite3_errmsg (db: CPtr) -> borrowed str #error(none)
+    @sqlite3_errmsg (db: CPtr) -> str #error(none)   // str returns are borrowed by default
 }
 
 // Safe public API — nearly boilerplate-free
 pub type Database = { handle: owned CPtr }
 
-pub @open (path: str) -> Result<Database, FfiError> uses FFI =
+pub @open (path: str) -> Result<Database, FfiError> uses FFI("sqlite3") =
     Ok(Database { handle: sqlite3_open(filename: path)? })
 
-pub @exec (db: Database, sql: str) -> Result<void, FfiError> uses FFI =
+pub @exec (db: Database, sql: str) -> Result<void, FfiError> uses FFI("sqlite3") =
     sqlite3_exec(db: db.handle, sql: sql)
 
 // User code — zero FFI awareness
@@ -550,7 +596,7 @@ extern "c" from "openblas" #error(none) {
 pub @matmul<$M: int, $N: int, $P: int> (
     a: Matrix<M, N>,
     b: Matrix<N, P>,
-) -> Matrix<M, P> uses FFI = {
+) -> Matrix<M, P> uses FFI("openblas") = {
     let result = Matrix.zeros()
     unsafe {
         cblas_dgemm(
@@ -569,8 +615,14 @@ pub @matmul<$M: int, $N: int, $P: int> (
 
 // Test — no BLAS library needed!
 @test tests matmul {
-    with FFI = handler {
-        cblas_dgemm: (...) -> void = {
+    with FFI("openblas") = handler {
+        cblas_dgemm: (
+            order: c_int, transA: c_int, transB: c_int,
+            m: c_int, n: c_int, k: c_int,
+            alpha: float, a: [float], lda: c_int,
+            b: [float], ldb: c_int,
+            beta: float, c: mut [float], ldc: c_int,
+        ) -> void = {
             // Naive O(n³) implementation for testing
             // ...
         },
@@ -590,7 +642,7 @@ extern "c" from "libc" #error(errno) {
     @open (path: str, flags: c_int, mode: c_int) -> c_int as "open"
     @read (fd: c_int, buf: mut [byte]) -> c_int as "read"
     @close (fd: c_int) -> c_int as "close"
-    @strerror (errnum: c_int) -> borrowed str #error(none)
+    @strerror (errnum: c_int) -> str #error(none)   // borrowed by default
 }
 
 // User code:
@@ -624,23 +676,47 @@ Ori is expression-based. Side-effect-only parameters are an anti-pattern. Conver
 
 **Alternative considered:** Keep as `mut` parameters. Rejected: `mut` parameters for the sole purpose of returning a value through them is a C-ism that Ori should not propagate.
 
+### Why does `str` default to borrowed (copy immediately)?
+
+The vast majority of C functions returning `const char*` return pointers to internal buffers (`strerror()`, `sqlite3_errmsg()`, `getenv()`). Making "owned" the default would cause beginners to accidentally free memory they don't own. The safe default is borrowed — Ori copies the string immediately and does not free the C pointer.
+
+**Alternative considered:** Default to owned. Rejected: dangerous — most C string returns are borrowed. `owned str` is the opt-in for the less common case where C allocates a string for the caller to free.
+
+**Alternative considered:** Require annotation always. Rejected: too verbose for the common case.
+
 ### Why does `borrowed str` copy immediately?
 
 Ori has no lifetime system. Borrowed string views would require tracking how long the C string remains valid — which requires lifetime annotations Ori deliberately avoids. Copying is safe and consistent with the existing marshalling behavior. When/if borrowed views are implemented, this can evolve to zero-copy.
 
 **Alternative considered:** Lifetime-bounded views. Rejected: Ori has no lifetimes. The slot is reserved but unimplemented.
 
-### Why handler-based mocking rather than a new mock framework?
+### Why trait-based FFI dispatch for testability?
 
-Ori's capability system already supports `with Cap = handler { ... } in` for stateful effect handling. FFI is a capability. Using the same mechanism maintains conceptual consistency and avoids introducing a separate test-specific framework.
+Each extern block generates a compiler-internal trait. This enables the existing `with...in` handler mechanism (from the stateful-mock-testing proposal) to intercept FFI calls — no new dispatch mechanism needed. The generated traits also enable IDE autocompletion for mock implementations and compile-time verification that mocks are complete.
+
+**Alternative considered:** Name-based redirection (compiler maintains function lookup table). Rejected: less type-safe, doesn't leverage existing handler infrastructure.
 
 **Alternative considered:** `#[mock]` attribute on extern blocks. Rejected: test infrastructure should not require language syntax changes.
+
+### Why handler-based mocking rather than a new mock framework?
+
+Ori's capability system already supports `with Cap = handler { ... } in` for stateful effect handling (stateful-mock-testing proposal). FFI is a parametric capability. Using the same mechanism maintains conceptual consistency. The stateless `handler { ... }` form (without state) is sugar for `handler(state: ()) { op: (_, args...) -> ((), result) }` — no new syntax needed.
+
+### Why parametric FFI capabilities?
+
+`FFI("sqlite3")` and `FFI("libc")` are distinct capabilities because they represent distinct trust domains. Mocking sqlite3 should not affect libc calls. Parametric capabilities enable selective mocking and fine-grained capability tracking.
+
+**Alternative considered:** Single flat `FFI` capability with name-based routing in handlers. Rejected: coarser granularity, less type-safe.
 
 ### Why not auto-import C headers (like Zig's @cImport)?
 
 Zig's approach is magical — it hides the FFI boundary entirely. Ori's design principle is "explicit boundaries": FFI calls are clearly marked, not hidden. The boundary should be *visible but low-friction*. Deep FFI reduces friction (less boilerplate) without hiding the boundary (extern blocks are still explicit).
 
 **Alternative considered:** `ori bindgen header.h` tool. Deferred to future work — useful but orthogonal to the language design.
+
+### Why is `borrowed` not conflicting with the Borrowed type category?
+
+The `borrowed` annotation in extern declarations describes an ownership _transfer protocol_ at the FFI boundary — it says "C owns this pointer; Ori copies immediately." The `Borrowed` type variant reserved by the low-level-future-proofing proposal describes a value's _storage semantics_ — a view with a lifetime constraint. The two concepts are related (both involve "not owned") but operate at different levels: one is a marshalling directive, the other is a type system property. Different syntactic positions (extern parameter annotation vs type constructor) prevent ambiguity.
 
 ---
 
@@ -664,7 +740,7 @@ Zig's approach is magical — it hides the FFI boundary entirely. Ori's design p
 **Scope:** The features that eliminate the most boilerplate with the least change.
 
 1. `#error(errno | nonzero | null | negative | success: N | none)` block/function attributes
-2. `FfiError` type in std.ffi
+2. `FfiError` type in `std.ffi`
 3. Automatic `Result<T, FfiError>` wrapping when error protocol is active
 4. `out` parameter modifier (parser → IR → codegen)
 5. `out` params folded into return type
@@ -680,7 +756,8 @@ Zig's approach is magical — it hides the FFI boundary entirely. Ori's design p
 2. `#free(fn)` attribute (block-level and per-function)
 3. Auto-generated Drop impls for `owned CPtr` with `#free`
 4. Compiler warnings for unannotated CPtr returns
-5. `borrowed str` → immediate copy semantics
+5. `str` returns default to borrowed (copy, don't free)
+6. `owned str` returns: Ori takes ownership and frees
 
 **Exit criteria:** The OpenSSL RSA example auto-frees on scope exit with zero manual cleanup.
 
@@ -688,8 +765,8 @@ Zig's approach is magical — it hides the FFI boundary entirely. Ori's design p
 
 **Scope:** Automatic type conversion beyond what the base spec provides.
 
-1. `[byte]` length elision (compiler inserts length argument)
-2. `mut [byte]` parameter handling
+1. `[byte]` length elision — adjacent `(ptr, len)` pair insertion
+2. `mut [byte]` parameter handling — adjacent `(ptr, &len)` pair insertion
 3. `int` ↔ `c_int` automatic narrowing/widening with bounds checks
 4. `bool` ↔ `c_int` conversion
 
@@ -697,12 +774,15 @@ Zig's approach is magical — it hides the FFI boundary entirely. Ori's design p
 
 ### Phase 4: Capability-Gated Testability
 
-**Scope:** Mock infrastructure for FFI. Architecturally complex.
+**Scope:** Trait-based FFI dispatch and mock infrastructure.
 
-1. `with FFI = handler { ... } in` dispatch routing
-2. Handler function signature validation against extern declarations
-3. Selective mocking via `FFI("library_name")`
-4. Fall-through to real implementation for unmocked functions
+1. Compiler generates internal traits from extern blocks
+2. Extern function calls dispatch through generated traits
+3. Parametric `FFI("lib")` capability in type checker
+4. `with FFI("lib") = handler { ... } in` dispatch routing
+5. Handler signature validation against generated traits
+6. Stateless `handler { ... }` as sugar for `handler(state: ()) { ... }`
+7. Fall-through to real implementation for unmocked functions
 
 **Exit criteria:** Can test the BLAS matmul wrapper without linking OpenBLAS.
 
@@ -740,7 +820,8 @@ After implementation, verify with:
 1. **Existing FFI tests pass unchanged** — backward compatibility
 2. **SQLite example compiles and runs** — `#error(nonzero)` + `out` + `owned` + `#free`
 3. **POSIX file I/O example** — `#error(errno)` protocol
-4. **Mock test example** — `with FFI = handler { ... } in` successfully mocks extern calls
-5. **Spec conformance** — update `spec/24-ffi.md` with new syntax and semantics
-6. **Grammar sync** — update `grammar.ebnf` with new productions
-7. **Syntax reference sync** — update `.claude/rules/ori-syntax.md`
+4. **Mock test example** — `with FFI("lib") = handler { ... } in` successfully mocks extern calls
+5. **Parametric capability** — `uses FFI("sqlite3")` tracks per-library, `uses FFI` is shorthand for all
+6. **Spec conformance** — update `spec/24-ffi.md` with new syntax and semantics
+7. **Grammar sync** — update `grammar.ebnf` with new productions
+8. **Syntax reference sync** — update `.claude/rules/ori-syntax.md`

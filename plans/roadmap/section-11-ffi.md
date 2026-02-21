@@ -37,6 +37,9 @@ sections:
   - id: "11.10"
     title: JsValue and Async (Section 3-4)
     status: not-started
+  - id: "11.11"
+    title: Deep FFI — Higher-Level FFI Abstractions
+    status: not-started
 ---
 
 # Section 11: Foreign Function Interface (FFI)
@@ -556,6 +559,90 @@ extern "js" {
 - [ ] **Test**: `tests/spec/ffi/js_async.ori`
   - [ ] JsPromise implicit resolution
   - [ ] Async function with FFI
+
+---
+
+## 11.11 Deep FFI — Higher-Level FFI Abstractions
+
+**Proposal**: `proposals/approved/deep-ffi-proposal.md`
+
+Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error protocols, ownership annotations, declarative marshalling, capability-gated testability, and const-generic safety. Each is independently useful and backward-compatible.
+
+### 11.11.1 Error Protocols + `out` Parameters (Phase 1)
+
+- [ ] **Implement**: `#error(errno | nonzero | null | negative | success: N | none)` block/function attributes
+  - [ ] **Parser**: Parse `#error(...)` on extern blocks and extern items
+  - [ ] **IR**: Represent error protocol in extern block IR
+  - [ ] **Type checker**: Transform return types when error protocol is active
+  - [ ] **Codegen**: Generate error check + `Result` wrapping code after C calls
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` — error protocol parsing
+  - [ ] **Ori Tests**: `tests/spec/ffi/error_protocol.ori`
+- [ ] **Implement**: `FfiError` type in `std.ffi`
+  - [ ] **Library**: Define `FfiError` type in `library/std/ffi.ori`
+- [ ] **Implement**: `out` parameter modifier (parser → IR → codegen)
+  - [ ] **Parser**: Parse `out` modifier on extern params
+  - [ ] **IR**: Represent `out` params in extern item IR
+  - [ ] **Type checker**: Fold `out` params into return type
+  - [ ] **Codegen**: Allocate stack slot, pass address, extract value
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` — `out` param parsing
+  - [ ] **Ori Tests**: `tests/spec/ffi/out_params.ori`
+- [ ] **Implement**: Errno reading infrastructure
+  - [ ] **Runtime**: `get_errno()` as compiler intrinsic
+  - [ ] **Codegen**: Read errno after C calls when `#error(errno)` active
+  - [ ] **LLVM Support**: LLVM codegen for errno reading
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — errno codegen
+
+### 11.11.2 Ownership Annotations (Phase 2)
+
+- [ ] **Implement**: `owned` / `borrowed` annotations
+  - [ ] **Parser**: Parse ownership annotations on extern params and return types
+  - [ ] **IR**: Represent ownership in extern item IR
+  - [ ] **Type checker**: Validate ownership combinations
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` — ownership annotation parsing
+  - [ ] **Ori Tests**: `tests/spec/ffi/ownership.ori`
+- [ ] **Implement**: `#free(fn)` attribute (block-level and per-function)
+  - [ ] **Parser**: Parse `#free(...)` on extern blocks and items
+  - [ ] **Codegen**: Wire up cleanup function
+- [ ] **Implement**: Auto-generated Drop impls for `owned CPtr` with `#free`
+  - [ ] **Type checker**: Generate synthetic Drop impl for owned CPtr types
+  - [ ] **Codegen**: Emit cleanup call on scope exit
+  - [ ] **LLVM Support**: LLVM codegen for auto-Drop
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — ownership codegen
+- [ ] **Implement**: `str` return defaults to borrowed (copy, don't free)
+  - [ ] **Ori Tests**: `tests/spec/ffi/str_return_borrowed.ori`
+- [ ] **Implement**: Compiler warnings for unannotated CPtr returns
+
+### 11.11.3 Declarative Marshalling Extensions (Phase 3)
+
+- [ ] **Implement**: `[byte]` length elision — adjacent `(ptr, len)` pair insertion
+  - [ ] **Type checker**: Detect `[byte]` params and expand to two C args
+  - [ ] **Codegen**: Insert length argument at call site
+  - [ ] **Ori Tests**: `tests/spec/ffi/byte_length_elision.ori`
+- [ ] **Implement**: `mut [byte]` parameter handling — adjacent `(ptr, &len)` pair
+- [ ] **Implement**: `int` ↔ `c_int` automatic narrowing/widening with bounds checks
+- [ ] **Implement**: `bool` ↔ `c_int` conversion
+  - [ ] **LLVM Support**: LLVM codegen for marshalling extensions
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — marshalling codegen
+
+### 11.11.4 Capability-Gated Testability (Phase 4)
+
+- [ ] **Implement**: Compiler generates internal traits from extern blocks
+  - [ ] **Type checker**: Auto-generate trait from each extern block's `from` clause
+- [ ] **Implement**: Parametric `FFI("lib")` capability
+  - [ ] **Type checker**: Parse and validate parametric FFI capability
+  - [ ] **Backward compat**: Unparameterized `uses FFI` remains shorthand for all
+- [ ] **Implement**: `with FFI("lib") = handler { ... } in` dispatch routing
+  - [ ] Handler signature validation against generated traits
+  - [ ] Stateless `handler { ... }` as sugar for `handler(state: ()) { ... }`
+  - [ ] Fall-through to real C implementation for unmocked functions
+  - [ ] **Ori Tests**: `tests/spec/ffi/mock_handler.ori`
+
+### 11.11.5 Const-Generic Safety (Phase 5 — Future)
+
+- [ ] **Design**: Where clauses on extern items with const expressions
+  - [ ] Depends on Section 18 (Const Generics) being complete
+- [ ] **Implement**: Buffer size validation at compile time
+- [ ] **Implement**: Fixed-capacity list `[T, max N]` at FFI boundary
 
 ---
 
