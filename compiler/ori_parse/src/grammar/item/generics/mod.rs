@@ -41,14 +41,21 @@ impl Parser<'_> {
     /// - Const generics: `$N: int`, `$N: int = 10`
     /// - Default type parameters for traits: `trait Add<Rhs = Self>`
     pub(crate) fn parse_generics(&mut self) -> ParseOutcome<GenericParamRange> {
-        use crate::series::SeriesConfig;
-
         if !self.cursor.check(&TokenKind::Lt) {
             return ParseOutcome::empty_err_expected(
                 &TokenKind::Lt,
                 self.cursor.current_span().start as usize,
             );
         }
+
+        self.in_error_context(
+            crate::ErrorContext::GenericParams,
+            Self::parse_generics_body,
+        )
+    }
+
+    fn parse_generics_body(&mut self) -> ParseOutcome<GenericParamRange> {
+        use crate::series::SeriesConfig;
 
         // Committed: `<` confirmed, all errors from here are hard errors
         committed!(self.cursor.expect(&TokenKind::Lt));

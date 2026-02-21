@@ -2,6 +2,7 @@
 //!
 //! Parses call, method call, field access, index expressions, and struct literals.
 
+use crate::error::ErrorContext;
 use crate::{chain, committed, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     CallArg, Expr, ExprId, ExprKind, FieldInit, Param, ParsedTypeId, StructLitField, TokenKind,
@@ -71,13 +72,18 @@ impl Parser<'_> {
 
             if self.cursor.check(&TokenKind::LParen) {
                 self.cursor.advance();
-                expr = self.parse_postfix_call(expr)?;
+                expr = self.in_error_context_result(ErrorContext::FunctionCall, |p| {
+                    p.parse_postfix_call(expr)
+                })?;
             } else if self.cursor.check(&TokenKind::Dot) {
                 self.cursor.advance();
                 expr = self.parse_postfix_dot(expr)?;
             } else if self.cursor.check(&TokenKind::LBracket) {
                 self.cursor.advance();
-                let index = self.parse_index_expr()?;
+                let index = self.in_error_context_result(
+                    ErrorContext::IndexExpression,
+                    Self::parse_index_expr,
+                )?;
                 self.cursor.expect(&TokenKind::RBracket)?;
                 let span = self
                     .arena
@@ -97,7 +103,9 @@ impl Parser<'_> {
                     let struct_name = *name;
                     let start_span = expr_data.span;
                     self.cursor.advance();
-                    expr = self.parse_postfix_struct_lit(struct_name, start_span)?;
+                    expr = self.in_error_context_result(ErrorContext::StructLiteral, |p| {
+                        p.parse_postfix_struct_lit(struct_name, start_span)
+                    })?;
                 } else {
                     break;
                 }
@@ -177,39 +185,41 @@ impl Parser<'_> {
         if self.cursor.check(&TokenKind::LParen) {
             // Method call
             self.cursor.advance();
-            let (call_args, has_named) = self.parse_call_args()?;
-            self.cursor.expect(&TokenKind::RParen)?;
+            self.in_error_context_result(ErrorContext::MethodCall, |p| {
+                let (call_args, has_named) = p.parse_call_args()?;
+                p.cursor.expect(&TokenKind::RParen)?;
 
-            let span = self
-                .arena
-                .get_expr(receiver)
-                .span
-                .merge(self.cursor.previous_span());
+                let span = p
+                    .arena
+                    .get_expr(receiver)
+                    .span
+                    .merge(p.cursor.previous_span());
 
-            if has_named {
-                let args_range = self.arena.alloc_call_args(call_args);
-                Ok(self.arena.alloc_expr(Expr::new(
-                    ExprKind::MethodCallNamed {
-                        receiver,
-                        method: field,
-                        args: args_range,
-                    },
-                    span,
-                )))
-            } else {
-                let args: Vec<ExprId> = call_args.into_iter().map(|a| a.value).collect();
-                let args_list = self.arena.alloc_expr_list_inline(&args);
-                Ok(self.arena.alloc_expr(Expr::new(
-                    ExprKind::MethodCall {
-                        receiver,
-                        method: field,
-                        args: args_list,
-                    },
-                    span,
-                )))
-            }
+                if has_named {
+                    let args_range = p.arena.alloc_call_args(call_args);
+                    Ok(p.arena.alloc_expr(Expr::new(
+                        ExprKind::MethodCallNamed {
+                            receiver,
+                            method: field,
+                            args: args_range,
+                        },
+                        span,
+                    )))
+                } else {
+                    let args: Vec<ExprId> = call_args.into_iter().map(|a| a.value).collect();
+                    let args_list = p.arena.alloc_expr_list_inline(&args);
+                    Ok(p.arena.alloc_expr(Expr::new(
+                        ExprKind::MethodCall {
+                            receiver,
+                            method: field,
+                            args: args_list,
+                        },
+                        span,
+                    )))
+                }
+            })
         } else {
-            // Field access
+            // Field access — no context needed (single token, can't fail after member name)
             let span = self
                 .arena
                 .get_expr(receiver)

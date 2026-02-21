@@ -80,9 +80,11 @@ impl Parser<'_> {
             };
 
             self.parse_test_body(name, targets, attrs, start_span)
+                .with_error_context(crate::ErrorContext::TestDef)
         } else if self.cursor.interner().lookup(name).starts_with("test_") {
             // Free-floating test (name starts with test_ but no targets)
             self.parse_test_body(name, Vec::new(), attrs, start_span)
+                .with_error_context(crate::ErrorContext::TestDef)
         } else {
             // Regular function
             // Optional generic parameters: <T, U: Bound>
