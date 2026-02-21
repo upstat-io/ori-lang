@@ -167,6 +167,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Spec**: Add `Len Trait` section to `07-properties-of-types.md` [done] (2026-02-18)
 
 ### 3.0.2 IsEmpty Trait
+**Proposal**: `proposals/approved/is-empty-trait-proposal.md` (approved 2026-02-21)
 
 - [x] **Implemented**: Trait bound `IsEmpty` recognized for `[T]`, `str`, `{K: V}`, `Set<T>` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_is_empty_bound_satisfied_by_*`
@@ -175,6 +176,13 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string method tests
   - [x] **LLVM Support**: LLVM codegen for `.is_empty()` — inline IR in `lower_calls.rs`
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_empty()` on lists (2 tests) and strings (2 tests) [done] (2026-02-13)
+- [ ] **Implement**: Add `Range<int>` and `[T, max N]` to IsEmpty trait bound recognition
+  - [ ] **Rust Tests**: `ori_types` — `test_is_empty_bound_satisfied_by_range`, `test_is_empty_bound_satisfied_by_fixed_list`
+  - [ ] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — range and fixed-size list is_empty tests
+- [ ] **Implement**: Update prelude `is_empty()` to use `<T: IsEmpty>` bound (generic function)
+  - [ ] **Implement**: Add `IsEmpty` trait definition to `library/std/prelude.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — generic is_empty tests (str, map via `<T: IsEmpty>` bound)
+- [ ] **Spec**: Add `IsEmpty Trait` section to `07-properties-of-types.md`
 
 ### 3.0.3 Option Methods
 
@@ -432,7 +440,8 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 ## 3.6 Section Completion Checklist
 
-- [x] Core library traits (3.0): Len, IsEmpty, Option, Result, Comparable, Eq — all complete [done] (2026-02-10)
+- [ ] Core library traits (3.0): Len, IsEmpty, Option, Result, Comparable, Eq — mostly complete [done] (2026-02-10)
+  - **Remaining**: IsEmpty — add Range<int>/[T, max N] support, generic prelude function, spec section (approved 2026-02-21)
   - [x] **Gap**: Clone/Hashable/Default/Printable methods NOT callable on primitives — FIXED: V2 type checker resolvers return correct types for clone/hash/equals on primitives [done] (2026-02-15). Clone also works on compound types (collections, wrappers, tuples). hash/equals on compound types reverted (phase boundary leak — evaluator/LLVM not implemented); tracked under 3.14.
 - [x] Trait declarations (3.1): Parse, required methods, default methods, self, Self, inheritance — all complete [done] (2026-02-10)
   - [x] **Gap**: Static methods `Type.method()` — FIXED, was stale TODO [done] (2026-02-13)

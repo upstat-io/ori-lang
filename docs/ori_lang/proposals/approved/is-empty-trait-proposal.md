@@ -1,6 +1,7 @@
 # Proposal: IsEmpty Trait for Collection Emptiness
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-02-21
 **Author:** Eric (with AI assistance)
 **Created:** 2026-02-05
 **Affects:** Type system, prelude, standard library
@@ -14,7 +15,7 @@ This proposal formalizes the `IsEmpty` trait for types that can be checked for e
 
 **Key features:**
 1. **IsEmpty trait** with `.is_empty() -> bool` method
-2. **Built-in implementations** for `[T]`, `str`, `{K: V}`, `Set<T>`
+2. **Built-in implementations** for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<int>`, `[T, max N]`
 3. **Generic `is_empty()` function** in prelude using `IsEmpty` bound
 
 ---
@@ -55,6 +56,7 @@ is_empty(collection: "")      // ERROR: expected [T], found str
 | `{K: V}` | `true` if no entries |
 | `Set<T>` | `true` if no elements |
 | `[T, max N]` | `true` if current length is 0 |
+| `Range<int>` | `true` if `start >= end` |
 
 ---
 
@@ -80,6 +82,10 @@ pub trait IsEmpty {
 - Some types may implement `IsEmpty` without `Len` (e.g., lazy iterators where counting is expensive)
 - The semantic requirement is: `is_empty()` returns `true` iff the collection has no items
 
+### Relationship to Iterable
+
+All built-in types that implement `Iterable` also implement `IsEmpty`. This ensures that any type usable in a `for` loop can also be checked for emptiness. However, `IsEmpty` is a standalone trait — it does not require or extend `Iterable`. User-defined types implementing `Iterable` should implement `IsEmpty` separately if emptiness checking is meaningful for that type.
+
 ### Built-in Implementations
 
 The compiler provides built-in implementations for core types:
@@ -91,6 +97,7 @@ The compiler provides built-in implementations for core types:
 | `{K: V}` | `true` if no entries |
 | `Set<T>` | `true` if no elements |
 | `[T, max N]` | `true` if length is 0 |
+| `Range<int>` | `true` if `start >= end` |
 
 These are implemented in the evaluator's method registry, not in Ori source.
 
@@ -117,40 +124,7 @@ With the `IsEmpty` trait, users can write generic functions:
 
 ## Specification Text
 
-Add to `07-properties-of-types.md` after the Len Trait section:
-
-### IsEmpty Trait
-
-The `IsEmpty` trait provides emptiness checking for collections.
-
-```ori
-trait IsEmpty {
-    @is_empty (self) -> bool
-}
-```
-
-#### Semantic Requirements
-
-Implementations must satisfy:
-- **Consistency**: `is_empty()` returns `true` iff the collection has no items
-- **Deterministic**: `x.is_empty()` returns the same value for unchanged `x`
-- **Relationship to Len**: If a type implements both `Len` and `IsEmpty`, then `x.is_empty() == (x.len() == 0)`
-
-#### Standard Implementations
-
-| Type | Implements `IsEmpty` |
-|------|---------------------|
-| `[T]` | Yes |
-| `str` | Yes |
-| `{K: V}` | Yes |
-| `Set<T>` | Yes |
-| `[T, max N]` | Yes |
-
-Note: `Range<T>` does not implement `IsEmpty` because ranges are never "empty" in the collection sense—they represent a mathematical interval.
-
-#### Derivation
-
-`IsEmpty` cannot be derived. Types must implement it explicitly or be built-in.
+Added to `07-properties-of-types.md` after the Len Trait section. See spec for authoritative text.
 
 ---
 
@@ -159,7 +133,7 @@ Note: `Range<T>` does not implement `IsEmpty` because ranges are never "empty" i
 ### Phase 1: Type Checker Support
 
 1. Add `IsEmpty` to recognized built-in traits in V2 type checker
-2. Implement `type_implements_is_empty()` for `[T]`, `str`, `{K: V}`, `Set<T>`
+2. Implement `type_implements_is_empty()` for `[T]`, `str`, `{K: V}`, `Set<T>`, `Range<int>`, `[T, max N]`
 3. Ensure trait bound `<T: IsEmpty>` resolves correctly
 
 **Files:**
