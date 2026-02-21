@@ -179,6 +179,10 @@ impl Parser<'_> {
         ))
     }
 
+    /// Match prefix unary operators (`-`, `!`, `~`).
+    ///
+    /// Note: `UnaryOp::Try` exists in `ori_ir` but is intentionally not produced here.
+    /// Postfix `?` is parsed as `ExprKind::Try` in `apply_postfix_ops()`, not as a unary op.
     #[inline]
     pub(crate) fn match_unary_op(&self) -> Option<UnaryOp> {
         match self.cursor.current_tag() {

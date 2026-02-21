@@ -8,6 +8,7 @@
 mod match_patterns;
 
 use crate::context::ParseContext;
+use crate::error::ErrorContext;
 use crate::{committed, require, ParseError, ParseOutcome, Parser};
 use ori_ir::{
     Expr, ExprId, ExprKind, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm, NamedExpr,
@@ -31,7 +32,7 @@ impl Parser<'_> {
                 span,
             );
         }
-        self.parse_try_block()
+        self.in_error_context(ErrorContext::TryExpression, Self::parse_try_block)
     }
 
     /// Parse `try { stmts; result }` — parses block contents as `FunctionSeq::Try`
@@ -230,11 +231,15 @@ impl Parser<'_> {
     /// Parse for pattern: for(over: items, [map: transform,] match: Pattern -> expr, default: value)
     ///
     /// Called after `for` keyword has been consumed by `parse_primary`.
+    pub(crate) fn parse_for_pattern(&mut self) -> ParseOutcome<ExprId> {
+        self.in_error_context(ErrorContext::ForPattern, Self::parse_for_pattern_body)
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "multi-clause for-pattern parser handling over/map/match/default props"
     )]
-    pub(crate) fn parse_for_pattern(&mut self) -> ParseOutcome<ExprId> {
+    fn parse_for_pattern_body(&mut self) -> ParseOutcome<ExprId> {
         let start_span = self.cursor.previous_span();
         committed!(self.cursor.expect(&TokenKind::LParen));
         self.cursor.skip_newlines();

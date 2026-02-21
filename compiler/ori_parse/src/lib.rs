@@ -17,7 +17,7 @@ mod snapshot;
 mod tests;
 
 pub use context::ParseContext;
-pub use cursor::Cursor;
+pub(crate) use cursor::Cursor;
 pub use error::{DetachmentReason, ErrorContext, ParseError, ParseWarning};
 pub use outcome::ParseOutcome;
 pub use recovery::{synchronize, TokenSet, FUNCTION_BOUNDARY, STMT_BOUNDARY};

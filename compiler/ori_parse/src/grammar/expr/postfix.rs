@@ -119,14 +119,18 @@ impl Parser<'_> {
                 expr = self.arena.alloc_expr(Expr::new(ExprKind::Try(expr), span));
             } else if self.cursor.check(&TokenKind::As) {
                 self.cursor.advance();
-                expr = self.parse_postfix_cast(expr)?;
+                expr = self.in_error_context_result(ErrorContext::TypeAnnotation, |p| {
+                    p.parse_postfix_cast(expr)
+                })?;
             } else if self.cursor.check(&TokenKind::Arrow) {
                 let expr_data = self.arena.get_expr(expr);
                 if let ExprKind::Ident(name) = &expr_data.kind {
                     let param_span = expr_data.span;
                     let param_name = *name;
                     self.cursor.advance();
-                    expr = self.parse_postfix_lambda(param_name, param_span)?;
+                    expr = self.in_error_context_result(ErrorContext::Closure, |p| {
+                        p.parse_postfix_lambda(param_name, param_span)
+                    })?;
                 }
                 break;
             } else {
