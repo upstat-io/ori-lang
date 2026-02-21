@@ -11,6 +11,17 @@ use super::{binary_op_str, needs_binary_parens, Formatter};
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an expression in broken (multi-line) format.
+    ///
+    /// **Invariant:** This match is exhaustive with no wildcard `_ =>` arm.
+    /// Every `ExprKind` variant is listed explicitly so that adding a new variant
+    /// causes a compile error here, in `emit_inline()`, and in `calculate_width()`.
+    /// The `broken_dispatch_has_no_wildcard` test enforces this at the source level.
+    ///
+    /// Variant groups:
+    /// - **Custom broken**: Compound expressions with multi-line rendering logic
+    /// - **Always-stacked**: Block, Match, `FunctionSeq`, `FunctionExp` → `emit_stacked()`
+    /// - **Leaf/atom**: Irreducible expressions → `emit_inline()` (parent breaks around them)
+    /// - **Simple compound**: Subexpressions that don't benefit from breaking → `emit_inline()`
     #[expect(
         clippy::too_many_lines,
         clippy::cognitive_complexity,
@@ -383,11 +394,49 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.dedent();
             }
 
-            // Block - delegate to stacked formatting when broken
-            ExprKind::Block { .. } => self.emit_stacked(expr_id),
+            // Always-stacked constructs: delegate to stacked rendering
+            ExprKind::Block { .. }
+            | ExprKind::Match { .. }
+            | ExprKind::FunctionSeq(..)
+            | ExprKind::FunctionExp(..) => self.emit_stacked(expr_id),
 
-            // Fallback to inline for things that don't have special broken format
-            _ => self.emit_inline(expr_id),
+            // Inline-adequate expressions: either leaf/atoms with no substructure
+            // to break, or simple compounds where breaking wouldn't help readability.
+            // When these exceed the line width, the *parent* expression breaks.
+            //
+            // Leaf/atoms
+            ExprKind::Int(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::String(_)
+            | ExprKind::Char(_)
+            | ExprKind::Duration { .. }
+            | ExprKind::Size { .. }
+            | ExprKind::Unit
+            | ExprKind::Ident(_)
+            | ExprKind::Const(_)
+            | ExprKind::SelfRef
+            | ExprKind::FunctionRef(_)
+            | ExprKind::HashLength
+            | ExprKind::None
+            | ExprKind::TemplateFull(_)
+            | ExprKind::Error
+            // Simple compounds
+            | ExprKind::Unary { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Ok(_)
+            | ExprKind::Err(_)
+            | ExprKind::Some(_)
+            | ExprKind::Break { .. }
+            | ExprKind::Continue { .. }
+            | ExprKind::Await(_)
+            | ExprKind::Try(_)
+            | ExprKind::Cast { .. }
+            | ExprKind::Assign { .. }
+            | ExprKind::Loop { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::TemplateLiteral { .. } => self.emit_inline(expr_id),
         }
     }
 

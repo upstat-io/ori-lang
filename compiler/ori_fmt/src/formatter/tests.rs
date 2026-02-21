@@ -554,3 +554,38 @@ fn format_context_newline_indent_combined() {
 
     assert_eq!(ctx.as_str(), "first\n    second");
 }
+
+// Structural enforcement: no wildcard arms in dispatch tables
+
+/// Check that a source file has no wildcard match arms in non-comment lines.
+fn has_wildcard_match_arm(source: &str) -> bool {
+    source.lines().any(|line| {
+        let trimmed = line.trim();
+        // Skip comments and doc comments
+        !trimmed.starts_with("//") && !trimmed.starts_with("///") && trimmed.contains("_ =>")
+    })
+}
+
+/// Verify that `emit_broken()` has no wildcard match arm.
+/// All `ExprKind` variants must be handled explicitly so that adding
+/// a new variant causes a compile error in all three dispatch tables.
+#[test]
+fn broken_dispatch_has_no_wildcard() {
+    let source = include_str!("broken.rs");
+    assert!(
+        !has_wildcard_match_arm(source),
+        "emit_broken() must not have a wildcard `_ =>` arm — \
+         every ExprKind variant must be handled explicitly"
+    );
+}
+
+/// Verify that `emit_stacked()` has no wildcard match arm.
+#[test]
+fn stacked_dispatch_has_no_wildcard() {
+    let source = include_str!("stacked.rs");
+    assert!(
+        !has_wildcard_match_arm(source),
+        "emit_stacked() must not have a wildcard `_ =>` arm — \
+         every ExprKind variant must be handled explicitly"
+    );
+}

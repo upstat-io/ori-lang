@@ -9,6 +9,19 @@ use super::Formatter;
 
 impl<I: StringLookup> Formatter<'_, I> {
     /// Emit an always-stacked construct (try, match, etc.).
+    ///
+    /// **Invariant:** This match is exhaustive with no wildcard `_ =>` arm.
+    /// Every `ExprKind` variant is listed explicitly so that adding a new variant
+    /// causes a compile error. The `stacked_dispatch_has_no_wildcard` test enforces this.
+    ///
+    /// Variant groups:
+    /// - **Custom stacked**: Block, Match, `FunctionSeq`, `FunctionExp` — multi-line rendering
+    /// - **Custom broken**: Compound expressions → `emit_broken()` for line-breaking logic
+    /// - **Leaf/atom + simple compound**: → `emit_inline()` (no structure to stack)
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ExprKind stacked formatting dispatch"
+    )]
     pub(super) fn emit_stacked(&mut self, expr_id: ExprId) {
         let expr = self.arena.get_expr(expr_id);
 
@@ -68,8 +81,60 @@ impl<I: StringLookup> Formatter<'_, I> {
                 self.ctx.emit("}");
             }
 
-            // For other always-stacked constructs, use broken format
-            _ => self.emit_broken(expr_id),
+            // Compound expressions with custom broken rendering
+            ExprKind::Binary { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::CallNamed { .. }
+            | ExprKind::MethodCall { .. }
+            | ExprKind::MethodCallNamed { .. }
+            | ExprKind::List(_)
+            | ExprKind::Map(_)
+            | ExprKind::MapWithSpread(_)
+            | ExprKind::ListWithSpread(_)
+            | ExprKind::Struct { .. }
+            | ExprKind::StructWithSpread { .. }
+            | ExprKind::Tuple(_)
+            | ExprKind::If { .. }
+            | ExprKind::Let { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::WithCapability { .. }
+            | ExprKind::For { .. } => self.emit_broken(expr_id),
+
+            // Inline-adequate: leaf/atoms and simple compounds
+            //
+            // Leaf/atoms
+            ExprKind::Int(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::String(_)
+            | ExprKind::Char(_)
+            | ExprKind::Duration { .. }
+            | ExprKind::Size { .. }
+            | ExprKind::Unit
+            | ExprKind::Ident(_)
+            | ExprKind::Const(_)
+            | ExprKind::SelfRef
+            | ExprKind::FunctionRef(_)
+            | ExprKind::HashLength
+            | ExprKind::None
+            | ExprKind::TemplateFull(_)
+            | ExprKind::Error
+            // Simple compounds
+            | ExprKind::Unary { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Ok(_)
+            | ExprKind::Err(_)
+            | ExprKind::Some(_)
+            | ExprKind::Break { .. }
+            | ExprKind::Continue { .. }
+            | ExprKind::Await(_)
+            | ExprKind::Try(_)
+            | ExprKind::Cast { .. }
+            | ExprKind::Assign { .. }
+            | ExprKind::Loop { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::TemplateLiteral { .. } => self.emit_inline(expr_id),
         }
     }
 
