@@ -231,9 +231,13 @@ pub const STMT_BOUNDARY: TokenSet = TokenSet::new()
     .with(TokenKind::Type) // Type declaration
     .with(TokenKind::Trait) // Trait definition
     .with(TokenKind::Impl) // Impl block
+    .with(TokenKind::Def) // Default impl block (`def impl`)
     .with(TokenKind::Pub) // Public declaration
     .with(TokenKind::Let) // Module-level constant
+    .with(TokenKind::Dollar) // Constant declaration (`$name = value`)
     .with(TokenKind::Extend) // Extension
+    .with(TokenKind::Extern) // Extern block
+    .with(TokenKind::Extension) // Extension import (misplaced after declarations)
     .with(TokenKind::Eof); // End of file
 
 /// Recovery set for function-level boundaries.

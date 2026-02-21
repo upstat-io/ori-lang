@@ -94,7 +94,123 @@ fn test_stmt_boundary_contains() {
     assert!(STMT_BOUNDARY.contains(&TokenKind::Use));
     assert!(STMT_BOUNDARY.contains(&TokenKind::Type));
     assert!(STMT_BOUNDARY.contains(&TokenKind::Pub));
+    assert!(STMT_BOUNDARY.contains(&TokenKind::Dollar));
+    assert!(STMT_BOUNDARY.contains(&TokenKind::Extern));
+    assert!(STMT_BOUNDARY.contains(&TokenKind::Def));
+    assert!(STMT_BOUNDARY.contains(&TokenKind::Extension));
     assert!(!STMT_BOUNDARY.contains(&TokenKind::Plus));
+}
+
+/// Completeness test: every token that can start a top-level declaration or import
+/// must be present in `STMT_BOUNDARY`. This prevents drift when new declaration
+/// kinds are added to `dispatch_declaration()` or `parse_imports()`.
+#[test]
+fn stmt_boundary_covers_all_declaration_starters() {
+    // Every token checked at the top of dispatch_declaration() or parse_imports()
+    // as a declaration/import start. Keep sorted by dispatch order.
+    //
+    // When adding a new declaration kind to the parser, add its leading token here.
+    // The test will fail if STMT_BOUNDARY is not updated to match.
+    let declaration_starters: &[(TokenKind, &str)] = &[
+        // parse_imports()
+        (TokenKind::Use, "import statement"),
+        (TokenKind::Extension, "extension import"),
+        // dispatch_declaration()
+        (TokenKind::At, "function/test definition"),
+        (TokenKind::Trait, "trait definition"),
+        (TokenKind::Def, "default impl block (def impl)"),
+        (TokenKind::Impl, "impl block"),
+        (TokenKind::Extend, "extension"),
+        (TokenKind::Type, "type declaration"),
+        (TokenKind::Let, "module-level constant (let $name)"),
+        (TokenKind::Dollar, "constant declaration ($name = value)"),
+        (TokenKind::Extern, "extern block"),
+        // Visibility modifier (can prefix any declaration)
+        (TokenKind::Pub, "public declaration"),
+        // Always present
+        (TokenKind::Eof, "end of file"),
+    ];
+
+    for (kind, description) in declaration_starters {
+        assert!(
+            STMT_BOUNDARY.contains(kind),
+            "STMT_BOUNDARY missing {kind:?} ({description}) — \
+             add `.with(TokenKind::{kind:?})` to the STMT_BOUNDARY definition",
+        );
+    }
+}
+
+/// Reverse completeness: STMT_BOUNDARY must not contain stale tokens.
+/// If a declaration kind is removed from the parser, its token must be removed
+/// from STMT_BOUNDARY too.
+#[test]
+fn stmt_boundary_has_no_stale_entries() {
+    // The complete set of tokens that should be in STMT_BOUNDARY.
+    // If this test fails after removing a declaration kind, remove the token
+    // from STMT_BOUNDARY in recovery/mod.rs.
+    let expected = TokenSet::new()
+        .with(TokenKind::At)
+        .with(TokenKind::Use)
+        .with(TokenKind::Type)
+        .with(TokenKind::Trait)
+        .with(TokenKind::Impl)
+        .with(TokenKind::Def)
+        .with(TokenKind::Pub)
+        .with(TokenKind::Let)
+        .with(TokenKind::Dollar)
+        .with(TokenKind::Extend)
+        .with(TokenKind::Extern)
+        .with(TokenKind::Extension)
+        .with(TokenKind::Eof);
+
+    assert_eq!(
+        STMT_BOUNDARY, expected,
+        "STMT_BOUNDARY has entries not in the expected set (stale token?) \
+         or is missing entries (drift?). Update both STMT_BOUNDARY and this test.",
+    );
+}
+
+// Behavioral recovery tests: verify synchronize() actually stops at
+// the declaration-start tokens that were added to STMT_BOUNDARY.
+
+#[test]
+fn synchronize_stops_at_dollar_constant() {
+    let ctx = TestCtx::new("broken stuff $MAX = 100");
+    let mut cursor = ctx.cursor();
+
+    let found = synchronize(&mut cursor, STMT_BOUNDARY);
+    assert!(found);
+    assert!(cursor.check(&TokenKind::Dollar));
+}
+
+#[test]
+fn synchronize_stops_at_extern_block() {
+    let ctx = TestCtx::new("broken stuff extern \"c\" {}");
+    let mut cursor = ctx.cursor();
+
+    let found = synchronize(&mut cursor, STMT_BOUNDARY);
+    assert!(found);
+    assert!(cursor.check(&TokenKind::Extern));
+}
+
+#[test]
+fn synchronize_stops_at_def_impl() {
+    let ctx = TestCtx::new("broken stuff def impl Eq for Foo {}");
+    let mut cursor = ctx.cursor();
+
+    let found = synchronize(&mut cursor, STMT_BOUNDARY);
+    assert!(found);
+    assert!(cursor.check(&TokenKind::Def));
+}
+
+#[test]
+fn synchronize_stops_at_extension_import() {
+    let ctx = TestCtx::new("broken stuff extension my_ext");
+    let mut cursor = ctx.cursor();
+
+    let found = synchronize(&mut cursor, STMT_BOUNDARY);
+    assert!(found);
+    assert!(cursor.check(&TokenKind::Extension));
 }
 
 #[test]
