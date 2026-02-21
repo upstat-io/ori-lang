@@ -27,10 +27,6 @@ impl ParseContext {
     /// Used in `if` conditions to avoid ambiguity with blocks.
     pub const NO_STRUCT_LIT: Self = Self(1 << 2);
 
-    /// Parsing a compile-time constant expression.
-    /// Restricts allowed constructs to those evaluable at compile time.
-    pub const CONST_EXPR: Self = Self(1 << 3);
-
     /// Inside a loop body.
     /// Makes `break` and `continue` valid.
     pub const IN_LOOP: Self = Self(1 << 4);
@@ -118,12 +114,6 @@ impl ParseContext {
     #[inline]
     pub const fn allows_yield(self) -> bool {
         self.has(Self::ALLOW_YIELD)
-    }
-
-    /// Check if we're in a const expression context.
-    #[inline]
-    pub const fn in_const_expr(self) -> bool {
-        self.has(Self::CONST_EXPR)
     }
 
     /// Check if we're inside an index expression.
