@@ -97,6 +97,9 @@ default type parameters, default associated types
 inherent impl, trait impl, generic impl
 trait resolution, method resolution, dispatch
 Formattable, format spec, padding, alignment
+with syntax, T with Trait, capability unification
+bound syntax, generic bounds, where clause bounds
+supertrait with, trait Foo with Bar
 ```
 
 ---
@@ -132,6 +135,8 @@ Option, Some, None, optional
 Result, Ok, Err, error handling
 Ordering, Less, Equal, Greater
 List, Map, Set, collections
+with clause, type T with Eq, derive replacement
+capability unification, structural capabilities
 Tuple, tuple type, (T, U)
 Range, range type, iterator
 Function type, (T) -> U, callable
@@ -522,6 +527,9 @@ const bound, N > 0
 const constraint, where N
 const arithmetic, N + 1
 fixed size, [T, max N]
+const eligibility, Eq + Hashable, capability unification
+associated consts, $rank: int, trait consts
+const functions in types, $product, $len
 ```
 
 ---

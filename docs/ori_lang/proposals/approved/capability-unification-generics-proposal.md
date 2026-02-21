@@ -1,6 +1,7 @@
 # Proposal: Capability Unification & Generics Upgrade
 
-**Status:** Draft
+**Status:** Approved
+**Approved:** 2026-02-20
 **Author:** Eric (with AI assistance)
 **Created:** 2026-02-20
 **Affects:** Compiler (all layers), type system, traits, capabilities, generics, grammar, spec, stdlib
@@ -9,7 +10,7 @@
 
 ## Summary
 
-Unify traits and capabilities under a single conceptual model using two keywords: **`with`** for structural capabilities (what types *have*) and **`uses`** for environmental capabilities (what functions *do*). Replace `#derive(Trait)` with `type T with Trait`, replace `:` in generic bounds with `T with Trait`, and derive const generic eligibility from the capability model rather than a whitelist.
+Establish a consistent keyword vocabulary for capabilities — **`with`** for structural capabilities (what types *have*) and **`uses`** for environmental capabilities (what functions *do*) — replacing the three disconnected syntaxes (`#derive`, `:`, `uses`) with two purposeful keywords. Replace `#derive(Trait)` with `type T with Trait`, replace `:` in generic bounds with `T with Trait`, and derive const generic eligibility from the capability model rather than a whitelist.
 
 | Current | Proposed |
 |---------|----------|
@@ -28,7 +29,7 @@ This proposal is the foundation for Ori's generics upgrade (const generics, asso
 ## Table of Contents
 
 - [Part I: Vision & Motivation](#part-i-vision--motivation)
-  - [1. The Problem: Three Disconnected Systems](#1-the-problem-three-disconnected-systems)
+  - [1. The Problem: Three Vocabularies for One Concept](#1-the-problem-three-vocabularies-for-one-concept)
   - [2. The Model: with/uses](#2-the-model-withuses)
   - [3. Landscape Analysis](#3-landscape-analysis)
   - [4. Prior Art](#4-prior-art)
@@ -69,9 +70,9 @@ This proposal is the foundation for Ori's generics upgrade (const generics, asso
 
 # Part I: Vision & Motivation
 
-## 1. The Problem: Three Disconnected Systems
+## 1. The Problem: Three Vocabularies for One Concept
 
-Ori currently has three separate mechanisms for describing what entities can do:
+Ori currently has three separate syntaxes for describing what entities can do:
 
 ### 1.1 Derive Annotations (`#derive`)
 
@@ -110,9 +111,9 @@ Functions declare required effects via the `uses` keyword:
 
 This uses a purpose-built keyword with its own tracking infrastructure (`FxHashSet<Name>` in the type checker) separate from the trait registry.
 
-### 1.4 Why Three Systems Is a Problem
+### 1.4 Why Three Vocabularies Is Costly
 
-These three mechanisms describe the same fundamental concept — **what an entity can do** — using three different syntaxes, three different conceptual frameworks, and partially separate compiler infrastructure:
+These three mechanisms describe the same fundamental concept — **what an entity can do** — using three different syntaxes and conceptual frameworks:
 
 | Mechanism | Syntax | Meaning | Infrastructure |
 |-----------|--------|---------|----------------|
@@ -122,9 +123,9 @@ These three mechanisms describe the same fundamental concept — **what an entit
 
 A new user must learn three mechanisms, three syntaxes, and three mental models. But the underlying question is always the same: **what capabilities does this entity have?**
 
-### 1.5 The Cost of Fragmentation
+### 1.5 The Cost of Inconsistent Vocabulary
 
-The fragmentation has concrete costs:
+The vocabulary inconsistency has concrete costs:
 
 1. **Const generic eligibility needs a whitelist.** The current const-generics proposal restricts parameters to `int` and `bool` because there's no general way to ask "can this type be used as a compile-time value?" With a unified model, the answer is: "does it have `Eq + Hashable`?" — the same question the compiler needs to answer for any type used in a generic bound.
 
@@ -189,14 +190,14 @@ The expression form `with Cap = Provider in body` remains unchanged. It provides
 
 The parser trivially disambiguates these from syntactic context.
 
-### The Unifying Concept
+### The Consistent Vocabulary
 
 Both `with` and `uses` answer the same question: **what can this entity do?** The difference is *where the answer comes from*:
 
 - Structural capabilities (`with`) come from the entity's definition — its fields, its structure
 - Environmental capabilities (`uses`) come from the entity's context — its callers, its runtime
 
-This is one concept (capabilities), two flavors (structural/environmental), two keywords (`with`/`uses`).
+This is one concept (capabilities), two flavors (structural/environmental), two keywords (`with`/`uses`). The compiler infrastructure remains appropriately separate — structural capabilities use the `TraitRegistry`, environmental capabilities use effect tracking — but the user-facing vocabulary is unified.
 
 ---
 
@@ -323,9 +324,9 @@ Ori's rule — any type `with Eq, Hashable` — is general enough for real use (
 
 Only Koka has a comparable built-in effect system. But Koka has no const generics — it can track what functions do but not what size things are. Ori would be the first language with both: track the shapes of your tensors AND the effects of your functions.
 
-### 5.3 Conceptual Unification
+### 5.3 Consistent Vocabulary
 
-This is the part no other language has. Every other language treats traits/type classes and effects as separate systems. Ori's `with`/`uses` unification makes traits and effects instances of one concept: capabilities. Types have structural capabilities (`with Eq`). Functions have environmental capabilities (`uses Gpu`). Generic bounds are capability requirements (`T with Comparable`). One mental model.
+This is the part no other language has. Every other language treats traits/type classes and effects as separate systems with separate syntax. Ori's `with`/`uses` vocabulary gives both a consistent framing: capabilities. Types have structural capabilities (`with Eq`). Functions have environmental capabilities (`uses Gpu`). Generic bounds are capability requirements (`T with Comparable`). Two keywords, one mental model — even though the compiler infrastructure remains appropriately separate (structural capabilities use `TraitRegistry`, environmental capabilities use effect tracking).
 
 ### 5.4 Honest Gaps
 
@@ -335,13 +336,13 @@ Ori would NOT match:
 - **Zig / Mojo on comptime generality** — types aren't values in Ori. You can't write `@create<$T: type>() -> T`. Zig can. This limits metaprogramming.
 - **Koka on effect formalism** — Koka's row-polymorphic effects are mathematically more precise. Ori's capabilities are more practical but less formally grounded. You can't write a function generic over "any set of capabilities" — Ori's `uses` is a flat list, not a row variable.
 
-### 5.5 Where Ori Would Be Best-in-Class
+### 5.5 Where Ori Would Differentiate
 
-| Domain | Why | Current Best |
-|--------|-----|-------------|
+| Domain | Ori's Approach | Current Closest |
+|--------|---------------|----------------|
 | Shape-typed numeric code | Const list generics + compile-time shape checking | Dex (research, inactive) |
 | Effect-tracked practical systems | Capabilities built into the type system, not a library | Koka (but no generics) |
-| Conceptual simplicity | One concept (capabilities) instead of three | No one does this |
+| Vocabulary consistency | Two keywords (`with`/`uses`) instead of three syntaxes | No direct precedent |
 | Const generic breadth with type safety | Any `Eq + Hashable` type, not just integers | Zig/Mojo (duck-typed) |
 
 ---
@@ -1983,4 +1984,4 @@ Investigation revealed that while Eq and Http are mechanically different (struct
 
 The const generic eligibility insight came from a side conversation: "what types can be const generic parameters?" is the same question as "what types have Eq + Hashable?" — and the capability model answers it without needing a whitelist.
 
-The landscape analysis confirmed that no existing language combines general const generics, first-class effect tracking, and a unified conceptual model. Ori's position — more powerful than Rust, more structured than Zig, more accessible than Lean, with effects that Koka lacks generics for — represents a category of one.
+The landscape analysis confirmed that no existing language combines general const generics, first-class effect tracking, and a consistent keyword vocabulary for both. Ori's position — more powerful than Rust, more structured than Zig, more accessible than Lean, with effects that Koka lacks generics for — occupies a distinctive niche.

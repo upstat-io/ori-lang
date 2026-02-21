@@ -1,10 +1,14 @@
 # Proposal: Derived Traits
 
-**Status:** Approved
+**Status:** Approved (partially superseded)
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-30
 **Approved:** 2026-01-30
 **Affects:** Compiler, type system, traits
+
+## Errata (added 2026-02-20)
+
+> **Partially superseded by capability-unification-generics-proposal**: The `#derive(Trait)` syntax described in this proposal is replaced by `type T with Trait = { ... }` syntax. Derivation rules, field constraints, error codes, and the set of 7 derivable traits remain valid. Only the syntax for declaring derivation changes.
 
 ---
 

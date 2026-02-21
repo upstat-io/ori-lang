@@ -1,10 +1,14 @@
 # Proposal: Basic Const Generics
 
-**Status:** Approved
+**Status:** Approved (partially superseded)
 **Approved:** 2026-01-31
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
 **Affects:** Compiler, type system, generics, type inference
+
+## Errata (added 2026-02-20)
+
+> **Partially superseded by capability-unification-generics-proposal**: The "Allowed Const Types" restriction to `int` and `bool` is replaced by a capability-based check: any type with `Eq + Hashable` is const-eligible. Additionally, `T: Trait` bound syntax in examples will become `T with Trait`. All other sections (syntax, monomorphization, inference, const bounds) remain valid.
 
 ---
 
