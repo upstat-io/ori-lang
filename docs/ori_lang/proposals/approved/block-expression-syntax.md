@@ -642,3 +642,7 @@ Data from experiments: 43 immutable bindings (`let $`), 3 mutable bindings (`let
 > **Superseded by [match-arm-comma-separator-proposal](match-arm-comma-separator-proposal.md)**: This proposal specified match arms as newline-separated. The match-arm-comma-separator proposal changes arms to comma-separated (with optional trailing commas), aligning match syntax with Rust and making it consistent with the explicit-punctuation style introduced by this proposal's semicolons. Additionally, the guard syntax `.match(condition)` is replaced by `if condition` — `.match()` now exclusively refers to method-style pattern matching.
 >
 > Affected sections: "Match arms — separated by newlines" (Design § Semicolons), "`match` Syntax" (Design), grammar `match_arms` production, parser changes item 4.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.

@@ -568,3 +568,7 @@ format(
 | C variadic | `extern ... { @fn (...) }` | Unsafe, no type |
 
 Variadic functions provide ergonomic APIs for variable-argument patterns while maintaining Ori's commitment to type safety. The `...T` syntax is familiar, composable with spread, and clearly distinguishes safe Ori variadics from unsafe C interop.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.

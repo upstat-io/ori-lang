@@ -1064,3 +1064,7 @@ Some environments (embedded, sandboxed) may not have FFI access. A complete pure
 ### Why yyjson over simdjson?
 
 simdjson is read-only (no serialization). yyjson supports both parsing and serialization, making it a better fit for a complete JSON library.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.

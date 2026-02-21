@@ -534,7 +534,8 @@ This section ensures the parser handles every syntactic construct in the Ori spe
 ### 0.5.2 Unsafe Expression
 
 - [x] **Audit**: Unsafe expressions — grammar.ebnf § unsafe_expr [done] (2026-02-10)
-  - [x] `unsafe(expr)` — parses correctly (verified via `ori parse`)
+  - [x] `unsafe(expr)` — parsed correctly (verified 2026-02-10; parenthesized form removed by unsafe-semantics-proposal 2026-02-20)
+  - [ ] `unsafe { expr }` — block-only form (proposal approved 2026-02-20, implementation pending)
 
 ### 0.5.3 List Literals
 
@@ -1113,18 +1114,14 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 ### Implementation
 
 #### Phase 1: Parser — Block Expressions
-- [ ] **Implement**: Newline-as-separator tokenization inside `{ }` blocks <!-- deferred: semicolons-only for now -->
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — newline separation tests
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/newline_separation.ori`
+- ~~**Implement**: Newline-as-separator tokenization inside `{ }` blocks~~ — N/A: semicolons-only design decision (2026-02-20)
 - [x] **Implement**: Block expression parsing (`{ block_body }`) — semicolons as separators (2026-02-20)
   - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — `test_parse_block_expr`
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori`
 - [x] **Implement**: Block vs map vs struct disambiguation (2-token lookahead) (2026-02-20)
   - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — block/map disambiguation
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori`
-- [ ] **Implement**: Balanced delimiter continuation rules (newlines suppressed inside `()`, `[]`, `{}`)
-  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs` — continuation tests
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/continuation.ori`
+- ~~**Implement**: Balanced delimiter continuation rules~~ — N/A: only needed for newline separators (2026-02-20)
 
 #### Phase 2: Parser — Construct Migration
 - [x] **Implement**: `match expr { arms }` syntax (scrutinee before block) (2026-02-20)
@@ -1134,8 +1131,7 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
   - [x] **Ori Tests**: All spec tests migrated to new syntax
 - [x] **Implement**: `loop { block_body }` syntax (drop parens) (2026-02-20)
   - [x] **Ori Tests**: All spec tests migrated to new syntax
-- [ ] **Implement**: `unsafe { block_body }` syntax (retain `unsafe(expr)` for single-expression)
-  - [ ] **Ori Tests**: `tests/spec/syntax/blocks/unsafe_block.ori`
+- [ ] **Implement**: `unsafe { block_body }` syntax (block-only form) <!-- proposal approved: proposals/approved/unsafe-semantics-proposal.md; implementation deferred to Section 6.9 -->
 - [x] **Implement**: `for...do { block_body }` and `for...yield { block_body }` (automatic — blocks are expressions) (2026-02-20)
 - [x] **Implement**: Remove old `run()`/`match()`/`try()` paren forms from parser (2026-02-20)
   - [x] **Rust Tests**: Old syntax produces helpful error messages
@@ -1170,17 +1166,17 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 - [ ] **Implement**: Contract formatting (pre/post between signature and `=`)
 
 #### Phase 6: Dead Code Cleanup — `FunctionSeq::Run` Removal
-> Parser removal done (Phase 2), but `FunctionSeq::Run` IR variant and all downstream consumers
-> remain as dead code. Requires coordinated removal across 6 crates (13+ files).
-> Blocked on Phase 3 (contracts) since `pre_checks`/`post_checks` live on `FunctionSeq::Run`.
-- [ ] **Remove**: `FunctionSeq::Run` variant from `ori_ir/src/ast/patterns/seq/mod.rs`
-- [ ] **Remove**: Formatter dead paths (marked with `TODO(§0.10-cleanup)`):
+> Completed as part of Block Unification plan (`plans/block_unify/`), commit `01c43e21`.
+> Removed `FunctionSeq::Run`, `SeqBinding`, `CheckExpr`, `CheckRange` and all downstream
+> consumers across 37 files in 9 crates. `FunctionSeq` reduced from 4 → 3 variants (Try, Match, ForPattern).
+- [x] **Remove**: `FunctionSeq::Run` variant from `ori_ir/src/ast/patterns/seq/mod.rs` (2026-02-20)
+- [x] **Remove**: Formatter dead paths (2026-02-20):
   - `ori_fmt/src/formatter/stacked.rs` — `emit_function_seq()` Run arm + `emit_run_with_checks()`
   - `ori_fmt/src/rules/run_rule.rs` — entire module (`RunRule`, `RunContext`, `is_run()`)
   - `ori_fmt/src/width/mod.rs` — `FunctionSeq::Run` arm in width calculation
-- [ ] **Remove**: Type checker dead paths: `ori_types/src/infer/expr/sequences.rs`, `ori_types/src/infer/expr/mod.rs`
-- [ ] **Remove**: Canon lowering dead paths: `ori_canon/src/lower/sequences.rs`
-- [ ] **Remove**: Incremental copier dead paths: `ori_parse/src/incremental/copier.rs`
-- [ ] **Remove**: Visitor dead paths: `ori_ir/src/visitor.rs`
-- [ ] **Remove**: Test references: `ori_fmt/src/width/tests.rs`, `ori_ir/src/ast/patterns/seq/tests.rs`, `ori_types/src/infer/expr/tests.rs`
-- [ ] **Verify**: `./test-all.sh` passes after removal
+- [x] **Remove**: Type checker dead paths: `ori_types/src/infer/expr/sequences.rs`, `ori_types/src/infer/expr/mod.rs` (2026-02-20)
+- [x] **Remove**: Canon lowering dead paths: `ori_canon/src/lower/sequences.rs` (2026-02-20)
+- [x] **Remove**: Incremental copier dead paths: `ori_parse/src/incremental/copier.rs` (2026-02-20)
+- [x] **Remove**: Visitor dead paths: `ori_ir/src/visitor.rs` (2026-02-20)
+- [x] **Remove**: Test references: `ori_fmt/src/width/tests.rs`, `ori_ir/src/ast/patterns/seq/tests.rs`, `ori_types/src/infer/expr/tests.rs` (2026-02-20)
+- [x] **Verify**: `./test-all.sh` passes after removal (10,215+ tests passing) (2026-02-20)

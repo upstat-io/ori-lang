@@ -59,7 +59,7 @@ sections:
 | Support callbacks? | Yes (native) | Required for many C APIs |
 | Memory management? | Manual in unsafe blocks | C doesn't know about ARC |
 | Async WASM handling? | Implicit JsPromise resolution | Preserves Ori's "no await" philosophy |
-| Unsafe operations? | `unsafe(...)` expressions | Explicit marking for unverifiable ops |
+| Unsafe operations? | `unsafe { ... }` blocks | Explicit marking for unverifiable ops |
 
 ---
 
@@ -267,7 +267,7 @@ type CacheAligned = { value: int }
 ```ori
 @raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
     // Direct pointer arithmetic - Ori cannot verify safety
-    unsafe(ptr_read_byte(ptr: ptr, offset: offset))
+    unsafe { ptr_read_byte(ptr: ptr, offset: offset) }
 ```
 
 ### Semantics

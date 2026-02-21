@@ -902,3 +902,7 @@ Ori uses 64-bit `int` and `float` exclusively for simplicity. At FFI boundaries,
 ### Why unsafe blocks?
 
 Some FFI operations (raw pointer manipulation, unchecked array access) cannot be verified by Ori. An explicit `unsafe` block clearly marks dangerous code, documents that safety is the programmer's responsibility, and allows auditing of safety-critical sections.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.

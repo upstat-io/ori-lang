@@ -777,3 +777,7 @@ C structs often contain fixed-size arrays (e.g., `char name[256]`). The fixed-ca
 ### Why `.zeroed()` method?
 
 FFI structs passed to C functions that populate them (like `stat()`) need to be zero-initialized. A `.zeroed()` method is cleaner than manually initializing every field and makes intent clear.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.
