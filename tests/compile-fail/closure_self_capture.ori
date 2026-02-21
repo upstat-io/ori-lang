@@ -5,7 +5,7 @@
 // A closure cannot capture itself as this would create a reference cycle
 // that cannot be broken by ARC without a backup garbage collector.
 
-#[compile_fail("unknown identifier")]
+#[compile_fail("closure cannot capture itself")]
 @test_self_capture () -> void = {
     let f = () -> f;
     ()

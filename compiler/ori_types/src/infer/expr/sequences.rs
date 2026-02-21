@@ -201,8 +201,10 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
             let binding_name = pattern_first_name(pat);
             let errors_before = engine.error_count();
 
-            // Enter scope for let-polymorphism (allows generalization of lambdas)
-            engine.enter_scope();
+            // Enter rank scope for let-polymorphism (not binding scope).
+            // The binding is added to the try block's env via bind_pattern() after
+            // exiting, so a full child scope is unnecessary — rank elevation suffices.
+            engine.enter_rank_scope();
 
             // Handle type annotation if present, or generalize for let-polymorphism
             let final_ty = if ty.is_valid() {
@@ -245,8 +247,8 @@ pub(crate) fn infer_try_stmt(engine: &mut InferEngine<'_>, arena: &ExprArena, st
                 engine.generalize(bound_ty)
             };
 
-            // Exit scope before binding (generalization happens at current rank)
-            engine.exit_scope();
+            // Exit rank scope before binding (generalization happens at current rank)
+            engine.exit_rank_scope();
 
             // Bind pattern to type
             bind_pattern(engine, arena, pat, final_ty);
