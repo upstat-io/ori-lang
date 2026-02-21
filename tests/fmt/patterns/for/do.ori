@@ -4,5 +4,6 @@
 @sum_items (items: [int]) -> int = {
     let total = 0;
     for x in items do total = total + x;
+
     total
 }

@@ -4,11 +4,11 @@
 @nested_option (opt: Option<Option<int>>) -> int = match opt {
     Some(Some(x)) -> x,
     Some(None) -> -1,
-    None -> -2
+    None -> -2,
 }
 
 @nested_result (res: Result<Result<int, str>, str>) -> int = match res {
     Ok(Ok(x)) -> x,
     Ok(Err(_)) -> -1,
-    Err(_) -> -2
+    Err(_) -> -2,
 }

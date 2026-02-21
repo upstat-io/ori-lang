@@ -55,6 +55,7 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
 @compute_stats (input: [DataRecord], output: [ProcessedRecord]) -> PipelineStats = {
     let total = 0;
     let processed = 0;
+
     PipelineStats { total: total, processed: processed, filtered: total - processed, errors: 0 }
 }
 
@@ -77,6 +78,7 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
     let valid = DataRecord { id: 1, value: 100, category: "A", valid: true };
     let invalid = DataRecord { id: 0, value: 100, category: "A", valid: true };
     assert_eq(actual: validate_record(record: valid), expected: true);
+
     assert_eq(actual: validate_record(record: invalid), expected: false)
 }
 
@@ -84,5 +86,6 @@ type PipelineStats = { total: int, processed: int, filtered: int, errors: int }
 @test_transform tests @transform_record () -> void = {
     let input = DataRecord { id: 1, value: 50, category: "B", valid: true };
     let output = transform_record(record: input);
+
     assert_eq(actual: output.transformed_value, expected: 100)
 }

@@ -1160,10 +1160,19 @@ Replace parenthesized `function_seq` syntax with curly-brace block expressions. 
 - [x] **Verify**: `./test-all.sh` passes with new syntax (10,219 tests passing) (2026-02-20)
 
 #### Phase 5: Formatter
-- [ ] **Implement**: Block formatting rules (indentation, newline separation)
-- [ ] **Implement**: Blank-line-before-result enforcement
-- [ ] **Implement**: Match block formatting (arm alignment)
-- [ ] **Implement**: Contract formatting (pre/post between signature and `=`)
+- [x] **Implement**: Blank-line-before-result enforcement (2026-02-21)
+  - Block and try-block: emit blank line before result when 2+ statements precede it
+  - Spec rule: 16-formatting.md:74-85
+- [x] **Implement**: Match trailing comma on every arm (2026-02-21)
+  - Always emit comma after every arm including last (spec: 16-formatting.md:786)
+- [x] **Update**: Golden tests updated to match new formatting (19 files) (2026-02-21)
+- [ ] **Implement**: Contract formatting (pre/post between signature and `=`) <!-- blocked-by:15D -->
+  - Blocked: `Function` IR has no `pre_conditions`/`post_conditions` fields
+- [x] **Fix**: Formatter double-emits `$` for immutable local bindings (2026-02-21)
+  - `emit_stmt()` emits `let $` AND `emit_binding_pattern()` emits `$` → produces `let $$x`
+  - Root cause: `$` prefix emitted in two independent locations (stacked.rs:211, patterns.rs:135-137)
+  - Parser is correct (strips `$`, sets Immutable); formatter had the bug
+  - Fix: Removed `$` from `emit_stmt` in all 3 renderers (stacked, inline, broken); `emit_binding_pattern` is sole owner
 
 #### Phase 6: Dead Code Cleanup — `FunctionSeq::Run` Removal
 > Completed as part of Block Unification plan (`plans/block_unify/`), commit `01c43e21`.

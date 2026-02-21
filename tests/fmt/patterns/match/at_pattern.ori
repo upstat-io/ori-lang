@@ -3,5 +3,5 @@
 
 @describe (opt: Option<int>) -> str = match opt {
     x @ Some(v) -> "some",
-    x @ None -> "none"
+    x @ None -> "none",
 }

@@ -223,17 +223,14 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             // Let binding
             // Per spec: mutable is default, $ prefix for immutable
+            // The $ prefix is emitted by emit_binding_pattern(), not here
             ExprKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable,
+                mutable: _,
             } => {
-                if mutable.is_mutable() {
-                    self.ctx.emit("let ");
-                } else {
-                    self.ctx.emit("let $");
-                }
+                self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
                 self.ctx.emit(" =");

@@ -4,15 +4,15 @@
 @classify (n: int) -> str = match n {
     0 -> "zero",
     1 -> "one",
-    _ -> "other"
+    _ -> "other",
 }
 
 @option_value (opt) -> int = match opt {
     Some(x) -> x,
-    None -> 0
+    None -> 0,
 }
 
 @result_value (res) -> int = match res {
     Ok(x) -> x,
-    Err(_) -> -1
+    Err(_) -> -1,
 }

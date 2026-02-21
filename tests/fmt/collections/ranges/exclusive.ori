@@ -4,11 +4,13 @@
 @simple () -> int = {
     let sum = 0;
     for i in 0..10 do let sum = sum + i;
+
     sum
 }
 
 @start_end () -> int = {
     let sum = 0;
     for i in 5..15 do let sum = sum + i;
+
     sum
 }

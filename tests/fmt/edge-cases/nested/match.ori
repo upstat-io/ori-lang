@@ -4,16 +4,16 @@
 @classify_nested (x: int, y: int) -> str = match x {
     0 -> match y {
         0 -> "both zero",
-        n -> "x zero, y nonzero"
+        n -> "x zero, y nonzero",
     },
     n -> match y {
         0 -> "x nonzero, y zero",
         m -> match m + n {
             0 -> "sum zero",
             sum if sum > 100 -> "large sum",
-            _ -> "small sum"
-        }
-    }
+            _ -> "small sum",
+        },
+    },
 }
 
 @deeply_nested (a: int) -> int = match a {
@@ -22,8 +22,8 @@
     n -> match n % 2 {
         0 -> match n / 2 {
             0 -> 0,
-            m -> m * 2
+            m -> m * 2,
         },
-        _ -> n
-    }
+        _ -> n,
+    },
 }

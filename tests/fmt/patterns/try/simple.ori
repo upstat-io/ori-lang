@@ -6,6 +6,7 @@
 @process () -> Result<int, str> = try {
     let x = succeed(5);
     let y = succeed(10);
+
     Ok(x + y)
 }
 
@@ -13,5 +14,6 @@
     let a = succeed(n);
     let b = succeed(a * 2);
     let c = succeed(b + 1);
+
     Ok(c)
 }

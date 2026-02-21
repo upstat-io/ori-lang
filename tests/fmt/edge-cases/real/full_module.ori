@@ -54,6 +54,7 @@ type TaskList = { tasks: [Task], owner: str }
 @test_create_task tests @create_task () -> void = {
     let task = create_task(id: 1, name: "Test", priority: 3);
     assert_eq(actual: task.id, expected: 1);
+
     assert_eq(actual: task.name, expected: "Test")
 }
 
@@ -61,6 +62,7 @@ type TaskList = { tasks: [Task], owner: str }
 @test_complete tests @complete_task () -> void = {
     let task = create_task(id: 1, name: "Test", priority: 3);
     let completed = complete_task(task: task);
+
     assert_eq(actual: completed.id, expected: 1)
 }
 
@@ -69,5 +71,6 @@ type TaskList = { tasks: [Task], owner: str }
     let low = create_task(id: 1, name: "Low", priority: 2);
     let high = create_task(id: 2, name: "High", priority: 8);
     assert_eq(actual: is_high_priority(task: low), expected: false);
+
     assert_eq(actual: is_high_priority(task: high), expected: true)
 }
