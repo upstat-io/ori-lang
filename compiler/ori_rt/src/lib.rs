@@ -57,6 +57,8 @@ pub mod iterator;
 use std::cell::{Cell, RefCell};
 use std::ffi::CStr;
 use std::panic;
+#[cfg(not(feature = "single-threaded"))]
+use std::sync::atomic::{AtomicI64, Ordering};
 
 /// Ori panic payload for stack unwinding (AOT mode).
 ///
@@ -360,9 +362,13 @@ pub extern "C" fn ori_rc_alloc(size: usize, align: usize) -> *mut u8 {
         return std::ptr::null_mut();
     }
 
-    // Initialize strong_count to 1
+    // Initialize strong_count to 1.
+    // No ordering needed — this allocation is not yet visible to other threads.
     // SAFETY: base is valid and 8-byte aligned
     unsafe {
+        #[cfg(not(feature = "single-threaded"))]
+        base.cast::<AtomicI64>().write(AtomicI64::new(1));
+        #[cfg(feature = "single-threaded")]
         base.cast::<i64>().write(1);
     }
 
@@ -374,6 +380,11 @@ pub extern "C" fn ori_rc_alloc(size: usize, align: usize) -> *mut u8 {
 /// Increment the reference count of an RC'd object.
 ///
 /// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
+///
+/// Uses `Relaxed` ordering: the increment only needs to be atomic, not
+/// ordered with respect to other memory operations. The incrementing
+/// thread already holds a valid reference, so no synchronization is
+/// needed. Matches Swift's `swift_retain` and Rust's `Arc::clone`.
 #[no_mangle]
 pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
     if data_ptr.is_null() {
@@ -381,9 +392,18 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
     }
 
     // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
+    // and 8-byte aligned. AtomicI64 has the same layout as i64.
     unsafe {
-        let rc_ptr = data_ptr.sub(8).cast::<i64>();
-        *rc_ptr += 1;
+        #[cfg(not(feature = "single-threaded"))]
+        {
+            let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).fetch_add(1, Ordering::Relaxed);
+        }
+        #[cfg(feature = "single-threaded")]
+        {
+            let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            *rc_ptr += 1;
+        }
     }
 }
 
@@ -398,6 +418,14 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
 /// If `drop_fn` is null, the memory is leaked when refcount reaches zero.
 /// This should not happen in well-formed programs — every RC type must have
 /// a drop function.
+///
+/// Uses `Release` ordering on the decrement: ensures all writes to the
+/// object through this reference are visible before any thread deallocates.
+/// An `Acquire` fence before calling the drop function ensures the
+/// deallocating thread sees all prior writes from all threads.
+///
+/// This is the standard ARC pattern from Rust's `Arc::drop` and Swift's
+/// `swift_release`.
 #[no_mangle]
 pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*mut u8)>) {
     if data_ptr.is_null() {
@@ -405,15 +433,38 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     }
 
     // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
-    let should_drop = unsafe {
-        let rc_ptr = data_ptr.sub(8).cast::<i64>();
-        *rc_ptr -= 1;
-        *rc_ptr <= 0
-    };
+    // and 8-byte aligned. AtomicI64 has the same layout as i64.
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        let prev = unsafe {
+            let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).fetch_sub(1, Ordering::Release)
+        };
 
-    if should_drop {
-        if let Some(f) = drop_fn {
-            f(data_ptr);
+        if prev <= 1 {
+            // Acquire fence: synchronize with all Release decrements from other
+            // threads. This ensures the drop function sees all writes that any
+            // thread made through their reference before decrementing.
+            std::sync::atomic::fence(Ordering::Acquire);
+
+            if let Some(f) = drop_fn {
+                f(data_ptr);
+            }
+        }
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let should_drop = unsafe {
+            let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            *rc_ptr -= 1;
+            *rc_ptr <= 0
+        };
+
+        if should_drop {
+            if let Some(f) = drop_fn {
+                f(data_ptr);
+            }
         }
     }
 }
@@ -442,6 +493,7 @@ pub extern "C" fn ori_rc_free(data_ptr: *mut u8, size: usize, align: usize) {
 /// Get the current reference count (for testing and debugging).
 ///
 /// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
+/// Uses `Relaxed` ordering — this is a diagnostic read, not a synchronization point.
 #[no_mangle]
 pub extern "C" fn ori_rc_count(data_ptr: *const u8) -> i64 {
     if data_ptr.is_null() {
@@ -449,7 +501,18 @@ pub extern "C" fn ori_rc_count(data_ptr: *const u8) -> i64 {
     }
 
     // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
-    unsafe { *data_ptr.sub(8).cast::<i64>() }
+    // and 8-byte aligned. AtomicI64 has the same layout as i64.
+    unsafe {
+        #[cfg(not(feature = "single-threaded"))]
+        {
+            let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).load(Ordering::Relaxed)
+        }
+        #[cfg(feature = "single-threaded")]
+        {
+            *data_ptr.sub(8).cast::<i64>()
+        }
+    }
 }
 
 /// Print a string to stdout.
@@ -1157,3 +1220,6 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

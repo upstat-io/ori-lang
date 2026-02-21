@@ -6,6 +6,8 @@
 
 > **ACTIVE REROUTE — Block Unification Refactor**: All roadmap work is suspended until `plans/block_unify/` is complete. See `plans/block_unify/00-overview.md` for the full plan. This reroute was added because the block-syntax migration (commit `4e0c1611`) revealed a fundamental duality: `FunctionSeq::Run` + `SeqBinding` and `ExprKind::Block` + `StmtKind` are two parallel representations of sequential code, creating 27 dispatch sites across 7 crates. Adopting the Gleam pattern (one block type, one statement type) eliminates ~13 redundant dispatch sites and prevents future block-like constructs from doubling the maintenance burden. Remove this block when all 5 block_unify sections are complete.
 
+> **ACTIVE REROUTE — ARC Optimization**: ARC-related roadmap items (Section 21A ARC codegen, Section 17 atomic refcounts) are rerouted to `plans/arc_optimization/`. See `plans/arc_optimization/00-overview.md` for the full plan, `plans/dpr_arc-optimization_02212026.md` for prior art analysis. This reroute was added because `arc_emitter.rs` has 5 significant stubs (`IsShared` always false, `Reuse` falls back to alloc, `RcDec` null drop, `PartialApply` null env, non-atomic refcounts) that must be closed before ARC-managed types can work in AOT. The plan covers 3 phases: codegen completeness (Swift/Lean 4 patterns), optimization enhancements (RC identity normalization, known-safe elimination), and verification (Koka-inspired `@fbip` enforcement, dual-execution testing). Remove this block when all 3 arc_optimization sections are complete.
+
 ## Source Plans
 
 This roadmap consolidates:
