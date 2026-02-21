@@ -9,7 +9,7 @@ use crate::context::FormatContext;
 use crate::emitter::Emitter;
 
 /// Format a parsed type expression.
-pub(super) fn format_parsed_type<I: StringLookup, E: Emitter>(
+pub(crate) fn format_parsed_type<I: StringLookup, E: Emitter>(
     ty: &ParsedType,
     arena: &ExprArena,
     interner: &I,
@@ -227,7 +227,7 @@ pub(crate) fn format_const_expr<I: StringLookup, E: Emitter>(
 }
 
 /// Convert a [`TypeId`] to its string representation.
-pub(super) fn type_id_to_str(id: TypeId) -> &'static str {
+pub(crate) fn type_id_to_str(id: TypeId) -> &'static str {
     match id {
         TypeId::INT => "int",
         TypeId::FLOAT => "float",

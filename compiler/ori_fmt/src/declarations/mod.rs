@@ -34,7 +34,7 @@ mod tests_fmt;
 mod traits;
 mod types;
 
-pub(crate) use parsed_types::format_const_expr;
+pub(crate) use parsed_types::format_parsed_type;
 
 use crate::comments::CommentIndex;
 use crate::context::{FormatConfig, FormatContext};
@@ -156,7 +156,6 @@ pub struct ModuleFormatter<'a, I: StringLookup> {
     pub(super) interner: &'a I,
     pub(super) ctx: FormatContext<StringEmitter>,
     pub(super) width_calc: WidthCalculator<'a, I>,
-    pub(super) config: FormatConfig,
 }
 
 impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
@@ -172,7 +171,6 @@ impl<'a, I: StringLookup> ModuleFormatter<'a, I> {
             interner,
             ctx: FormatContext::with_config(config),
             width_calc: WidthCalculator::new(arena, interner),
-            config,
         }
     }
 
