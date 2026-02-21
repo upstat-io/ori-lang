@@ -12,7 +12,7 @@ Test discovery finds all `.ori` files in a directory tree for test execution.
 ## Location
 
 ```
-compiler/oric/src/test/discovery.rs (~154 lines)
+compiler/oric/src/test/discovery/mod.rs (85 lines)
 ```
 
 ## Architecture
@@ -190,8 +190,8 @@ impl TestRunner {
 Coverage checking (which functions have tests) is handled in the **runner**, not discovery:
 
 ```rust
-// runner.rs lines 538-588
-fn compute_coverage(&self, results: &[FileSummary]) -> CoverageReport {
+// runner/mod.rs
+fn coverage_report(&self, path: &Path) -> CoverageReport {
     // Examines which functions are targeted by tests
     // Reports functions without test coverage
 }

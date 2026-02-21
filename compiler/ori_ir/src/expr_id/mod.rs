@@ -443,8 +443,8 @@ impl fmt::Debug for MatchPatternRange {
 
 /// Index into binding pattern storage in arena.
 ///
-/// Used to replace inline `BindingPattern` in `ExprKind::Let`, `StmtKind::Let`,
-/// and `SeqBinding::Let` with arena allocation.
+/// Used to replace inline `BindingPattern` in `ExprKind::Let` and `StmtKind::Let`
+/// with arena allocation.
 ///
 /// # Salsa Compatibility
 /// Has all required traits: Copy, Clone, Eq, `PartialEq`, Hash, Debug

@@ -2,8 +2,8 @@
 // Spec: 08-declarations.md § Function Declarations
 // Design: tooling/formatter/design/02-constructs/declarations.md
 
-pub @public_fn (x: int) -> int = x * 2
+pub @public_fn (x: int) -> int = x * 2;
 
-@private_fn (x: int) -> int = x * 3
+@private_fn (x: int) -> int = x * 3;
 
-pub @public_generic<T> (x: T) -> T = x
+pub @public_generic<T> (x: T) -> T = x;

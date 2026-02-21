@@ -5,7 +5,7 @@
 // Self-capture through nested expressions is still a cycle.
 
 #[compile_fail("closure cannot capture itself")]
-@test_self_capture_nested () -> void = run(
-    let f = () -> if true then f else f,
+@test_self_capture_nested () -> void = {
+    let f = () -> if true then f else f;
     ()
-)
+}

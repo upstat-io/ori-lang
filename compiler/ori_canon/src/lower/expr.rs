@@ -85,6 +85,10 @@ impl Lowerer<'_> {
                 let val = self.lower_optional(value);
                 self.push(CanExpr::Continue { label, value: val }, span, ty)
             }
+            ExprKind::Unsafe(inner) => {
+                let inner = self.lower_expr(inner);
+                self.push(CanExpr::Unsafe(inner), span, ty)
+            }
             ExprKind::Await(inner) => {
                 let inner = self.lower_expr(inner);
                 self.push(CanExpr::Await(inner), span, ty)

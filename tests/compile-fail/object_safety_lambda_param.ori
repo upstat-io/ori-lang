@@ -7,7 +7,7 @@ trait Cloneable {
 }
 
 #[compile_fail("cannot be made into an object")]
-@use_clone_lambda () -> void = run(
-    let f = (x: Cloneable) -> x,
-    print(msg: "done"),
-)
+@use_clone_lambda () -> void = {
+    let f = (x: Cloneable) -> x;
+    print(msg: "done")
+}

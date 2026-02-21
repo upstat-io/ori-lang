@@ -36,16 +36,15 @@ trait Cache {
 The `Cache` capability represents access to a caching layer. Functions that read from or write to a cache must declare `uses Cache` in their signature.
 
 ```ori
-@get_user_cached (id: str) -> Result<User, Error> uses Cache, Http, Async = run(
-    match(Cache.get("user:" + id),
-        Some(json) -> Ok(parse(json)?),
-        None -> run(
-            let user = fetch_user(id)?,
-            Cache.set_with_ttl("user:" + id, stringify(user), 5m),
-            Ok(user),
-        ),
-    ),
-)
+@get_user_cached (id: str) -> Result<User, Error> uses Cache, Http, Async =
+    match Cache.get("user:" + id) {
+        Some(json) -> Ok(parse(json)?)
+        None -> {
+            let user = fetch_user(id)?
+            Cache.set_with_ttl("user:" + id, stringify(user), 5m)
+            Ok(user)
+        }
+    }
 ```
 
 **Implementations:**
@@ -146,26 +145,26 @@ impl Cache for MockCache {
 @test_cache_hit tests @get_user_cached () -> void =
     with Cache = MockCache { data: {"user:123": "{\"name\": \"Alice\"}"} } in
     with Http = MockHttp { responses: {} } in  // HTTP not called on cache hit
-    run(
-        let user = get_user_cached("123")?,
+    {
+        let user = get_user_cached("123")?
         assert_eq(
             .actual: user.name,
             .expected: "Alice",
-        ),
-    )
+        )
+    }
 
 @test_cache_miss tests @get_user_cached () -> void =
     with Cache = MockCache { data: {} } in
     with Http = MockHttp { responses: {"/users/123": "{\"name\": \"Bob\"}"} } in
-    run(
-        let user = get_user_cached("123")?,
+    {
+        let user = get_user_cached("123")?
         assert_eq(
             .actual: user.name,
             .expected: "Bob",
-        ),
+        )
         // Verify it was cached
-        assert(Cache.exists("user:123")),
-    )
+        assert(Cache.exists("user:123"))
+    }
 ```
 
 ---
@@ -183,10 +182,10 @@ Retrieves a value from the cache.
 ```ori
 use std.cache { get }
 
-match(get("session:" + session_id),
-    Some(data) -> parse(data),
-    None -> create_session(),
-)
+match get("session:" + session_id) {
+    Some(data) -> parse(data)
+    None -> create_session()
+}
 ```
 
 ---
@@ -268,14 +267,14 @@ else
     key: str,
     fetch: () -> Result<T, Error>,
     ttl: Duration,
-) -> Result<T, Error> uses Cache = match(Cache.get(key),
-    Some(json) -> Ok(parse(json)?),
-    None -> run(
-        let value = fetch()?,
-        Cache.set_with_ttl(key, stringify(value), ttl),
-        Ok(value),
-    ),
-)
+) -> Result<T, Error> uses Cache = match Cache.get(key) {
+    Some(json) -> Ok(parse(json)?)
+    None -> {
+        let value = fetch()?
+        Cache.set_with_ttl(key, stringify(value), ttl)
+        Ok(value)
+    }
+}
 
 // Usage
 @get_user (id: str) -> Result<User, Error> uses Cache, Http, Async =
@@ -289,21 +288,21 @@ else
 ### Write-Through Pattern
 
 ```ori
-@update_user (user: User) -> Result<void, Error> uses Cache, Database = run(
-    Database.execute("UPDATE users SET name = ? WHERE id = ?", [user.name, user.id])?,
-    Cache.set("user:" + user.id, stringify(user)),
-    Ok(()),
-)
+@update_user (user: User) -> Result<void, Error> uses Cache, Database = {
+    Database.execute("UPDATE users SET name = ? WHERE id = ?", [user.name, user.id])?
+    Cache.set("user:" + user.id, stringify(user))
+    Ok(())
+}
 ```
 
 ### Cache Invalidation
 
 ```ori
-@invalidate_user_cache (id: str) -> void uses Cache = run(
-    Cache.delete("user:" + id),
-    Cache.delete("user_posts:" + id),
-    Cache.delete("user_followers:" + id),
-)
+@invalidate_user_cache (id: str) -> void uses Cache = {
+    Cache.delete("user:" + id)
+    Cache.delete("user_posts:" + id)
+    Cache.delete("user_followers:" + id)
+}
 ```
 
 ---
@@ -315,17 +314,17 @@ else
 ```ori
 use std.cache { get, set_with_ttl }
 
-@check_rate_limit (ip: str, limit: int, window: Duration) -> Result<void, Error> uses Cache = run(
-    let key = "rate:" + ip,
-    let count = get(key).and_then(parse_int).unwrap_or(0),
+@check_rate_limit (ip: str, limit: int, window: Duration) -> Result<void, Error> uses Cache = {
+    let key = "rate:" + ip
+    let count = get(key).and_then(parse_int).unwrap_or(0)
 
     if count >= limit then
         Err(Error { message: "Rate limit exceeded", source: None })
-    else run(
-        set_with_ttl(key, str(count + 1), window),
-        Ok(()),
-    ),
-)
+    else {
+        set_with_ttl(key, str(count + 1), window)
+        Ok(())
+    }
+}
 ```
 
 ### Session management
@@ -334,11 +333,12 @@ use std.cache { get, set_with_ttl }
 use std.cache { get, set_with_ttl, delete }
 use std.math.rand { random_bytes }
 
-@create_session (user_id: str) -> str uses Cache, Random = run(
-    let token = random_bytes(32).to_hex(),
-    set_with_ttl("session:" + token, user_id, 24h),
-    token,
-)
+@create_session (user_id: str) -> str uses Cache, Random = {
+    let token = random_bytes(32).to_hex()
+    set_with_ttl("session:" + token, user_id, 24h)
+
+    token
+}
 
 @get_session_user (token: str) -> Option<str> uses Cache =
     get("session:" + token)

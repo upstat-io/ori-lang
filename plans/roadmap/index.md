@@ -10,7 +10,11 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **PRIORITY ESCALATION — Section 15D.3** (after `catch(expr)`): Remove `mut` keyword, implement `$` immutability bindings. The spec and grammar already removed `mut`, but the compiler still accepts it. There are 163 `let mut` occurrences across 28 test files — this count grows with every new feature. Syntax migrations become exponentially harder to land as more code accumulates. Promoted from Tier 5 → Tier 1 to minimize migration debt.
+> **~~PRIORITY ESCALATION~~ RESOLVED (2026-02-20)**: Section 15D.3 `$` immutability enforcement — block expression syntax (`{ }` with `;`), old `run()`/`match()`/`try()`/`loop()` syntax removed, compile-time immutability enforcement (E2039), all 229+ test files migrated. Remaining 15D.3 items: `mut` keyword removal, `$x`/`x` scope conflicts, module-level immutability.
+
+---
+
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-20)**: `plans/block_unify/` — Block Unification complete. `FunctionSeq::Run` / `SeqBinding` eliminated. Single `ExprKind::Block` + `StmtKind` representation (Gleam pattern). TypeEnv parallel maps merged into single `Binding` struct. Parser block parsing deduplicated via `collect_block_stmts()`. All 5 sections complete, 10,219 tests passing.
 
 ---
 
@@ -93,6 +97,9 @@ default type parameters, default associated types
 inherent impl, trait impl, generic impl
 trait resolution, method resolution, dispatch
 Formattable, format spec, padding, alignment
+with syntax, T with Trait, capability unification
+bound syntax, generic bounds, where clause bounds
+supertrait with, trait Foo with Bar
 ```
 
 ---
@@ -128,6 +135,8 @@ Option, Some, None, optional
 Result, Ok, Err, error handling
 Ordering, Less, Equal, Greater
 List, Map, Set, collections
+with clause, type T with Eq, derive replacement
+capability unification, structural capabilities
 Tuple, tuple type, (T, U)
 Range, range type, iterator
 Function type, (T) -> U, callable
@@ -518,6 +527,9 @@ const bound, N > 0
 const constraint, where N
 const arithmetic, N + 1
 fixed size, [T, max N]
+const eligibility, Eq + Hashable, capability unification
+associated consts, $rank: int, trait consts
+const functions in types, $product, $len
 ```
 
 ---

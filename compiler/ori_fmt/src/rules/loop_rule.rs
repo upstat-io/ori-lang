@@ -2,7 +2,7 @@
 //!
 //! # Decision
 //!
-//! Complex body (contains run/try/match/for) always breaks.
+//! Complex body (contains try/match/for) always breaks.
 //!
 //! # Spec Reference
 //!
@@ -14,7 +14,7 @@ use ori_ir::{ExprArena, ExprId, ExprKind, FunctionSeq};
 ///
 /// # Principle
 ///
-/// "When loop contains complex body (run, try, match, for), break after loop("
+/// "When loop contains complex body (try, match, for), break after loop("
 ///
 /// Simple loop bodies can stay inline. Complex bodies always break.
 ///
@@ -38,7 +38,7 @@ impl LoopRule {
     /// Check if a loop body is "complex" (requires breaking).
     ///
     /// Complex bodies contain:
-    /// - run, try, match expressions
+    /// - try, match expressions
     /// - for loops
     /// - Other loops
     pub fn has_complex_body(arena: &ExprArena, body: ExprId) -> bool {
@@ -48,10 +48,7 @@ impl LoopRule {
             // Function sequences are complex
             ExprKind::FunctionSeq(seq_id) => {
                 let seq = arena.get_function_seq(*seq_id);
-                matches!(
-                    seq,
-                    FunctionSeq::Run { .. } | FunctionSeq::Try { .. } | FunctionSeq::Match { .. }
-                )
+                matches!(seq, FunctionSeq::Try { .. } | FunctionSeq::Match { .. })
             }
 
             // For loops, nested loops, and match expressions are complex

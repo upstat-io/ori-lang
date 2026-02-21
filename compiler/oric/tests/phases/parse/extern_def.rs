@@ -164,7 +164,7 @@ fn test_multiple_extern_blocks() {
 #[test]
 fn test_extern_with_functions() {
     let output = parse_ok(
-        "extern \"c\" from \"m\" {\n    @_sin (x: float) -> float as \"sin\"\n}\n@main () -> void = ()",
+        "extern \"c\" from \"m\" {\n    @_sin (x: float) -> float as \"sin\"\n}\n@main () -> void = ();",
     );
     assert_eq!(output.module.extern_blocks.len(), 1);
     assert_eq!(output.module.functions.len(), 1);

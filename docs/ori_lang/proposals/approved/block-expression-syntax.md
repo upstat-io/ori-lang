@@ -20,7 +20,7 @@ Replace the parenthesized `function_seq` syntax with curly-brace block syntax. M
 | `unsafe(run(...))` | `unsafe { ... }` |
 | `run(pre_check: c, body, post_check: r -> c)` | `pre(c) post(r -> c)` on function |
 
-Blocks are expressions. The last expression in a block is its value. Newlines separate expressions. `run()` is removed from the language.
+Blocks are expressions. Statements are terminated by `;`. The last expression in a block (without `;`) is its value. `run()` is removed from the language.
 
 ---
 
@@ -46,21 +46,21 @@ The commas and trailing parenthesis add visual noise without semantic value:
         Game { ...game, food }
     }
 
-// Proposed — block syntax
+// Proposed — block syntax with semicolons
 @spawn_food (game: Game) -> Game uses Random = {
     let food = loop {
         let $p = Point {
             x: Random.int_in_range(min: 1, max: game.width - 2),
             y: Random.int_in_range(min: 1, max: game.height - 2),
-        }
+        };
         if !occupies(snake: game.snake, p:) then break p
-    }
+    };
 
     Game { ...game, food }
 }
 ```
 
-What disappeared: `run(`, `)`, every comma between statements, `loop(run(` nesting. What remained: every meaningful line of code.
+What disappeared: `run(`, `)`, `loop(run(` nesting. Semicolons replace commas as statement terminators — a universally understood convention. What remained: every meaningful line of code.
 
 ### `match()` and `try()` Have the Same Problem
 
@@ -83,8 +83,9 @@ What disappeared: `run(`, `)`, every comma between statements, `loop(run(` nesti
         Lit(value) -> Ok(value)
         Var(name) -> env[name].ok_or(error: "undefined: " + name)
         BinOp(op, left, right) -> {
-            let l = eval(expr: left, env:)?
-            let r = eval(expr: right, env:)?
+            let $l = eval(expr: left, env:)?;
+            let $r = eval(expr: right, env:)?;
+
             Ok(l + r)
         }
     }
@@ -99,42 +100,44 @@ Because `{ }` is an expression form, every construct that takes an expression ge
 ```ori
 // Loop body
 loop {
-    let $key = unsafe(_read_key())
-    if key == $KEY_QUIT then break
-    game = tick(game:)
+    let $key = unsafe(_read_key());
+    if key == $KEY_QUIT then break;
+    game = tick(game:);
 }
 
 // For...do body
 for x in items do {
-    let $processed = transform(value: x)
-    output(value: processed)
+    let $processed = transform(value: x);
+    output(value: processed);
 }
 
 // For...yield with block — block value is what gets yielded
 for i in 0..n yield {
-    let $x = f(i:)
+    let $x = f(i:);
+
     x * 2
 }
 
 // If...then branches
 if score >= 10 then {
-    let $bonus = score * 2
-    print(msg: `Winner! Bonus: {bonus}`)
+    let $bonus = score * 2;
+    print(msg: `Winner! Bonus: {bonus}`);
 } else {
-    print(msg: "Try again")
+    print(msg: "Try again");
 }
 
 // Lambda body
 x -> {
-    let $doubled = x * 2
+    let $doubled = x * 2;
+
     doubled + 1
 }
 
 // Unsafe body
 unsafe {
-    _game_over(n: game.score)
-    _sleep(ms: 3000)
-    _cleanup()
+    _game_over(n: game.score);
+    _sleep(ms: 3000);
+    _cleanup();
 }
 ```
 
@@ -147,8 +150,8 @@ With `run()` removed, contracts (`pre_check:`/`post_check:`) need a new home. Ra
 ```ori
 // Current — contracts buried inside {} body
 @divide (a: int, b: int) -> int = {
-    pre_check: b != 0
-    a div b
+    pre_check: b != 0;
+    a div b;
     post_check: r -> r * b <= a
 }
 
@@ -156,9 +159,7 @@ With `run()` removed, contracts (`pre_check:`/`post_check:`) need a new home. Ra
 @divide (a: int, b: int) -> int
     pre(b != 0)
     post(r -> r * b <= a)
-= {
-    a div b
-}
+= a div b
 ```
 
 Contracts describe what a function *promises*, not how it *works*. They are part of the interface. Placing them between the signature and the body makes this explicit, enables tooling (LSP hover, documentation) to surface them without parsing bodies, and eliminates the need for `run()` to exist.
@@ -178,27 +179,27 @@ Ori's sigil system (`@` for functions, `$` for statics) provides strong visual l
     }
 
 @main () -> void uses Random, FFI = {
-    let $w = 30
-    let $h = 20
+    let $w = 30;
+    let $h = 20;
 
-    unsafe(_init(w:, h:))
-    let game = new_game(width: w, height: h)
-    render(game:)
+    unsafe(_init(w:, h:));
+    let game = new_game(width: w, height: h);
+    render(game:);
 
     loop {
-        unsafe(_sleep(ms: 120))
-        let $key = unsafe(_read_key())
-        if key == $KEY_QUIT then break
-        game = handle_input(game:, key:)
-        game = tick(game:)
-        if !game.alive then break
-        render(game:)
+        unsafe(_sleep(ms: 120));
+        let $key = unsafe(_read_key());
+        if key == $KEY_QUIT then break;
+        game = handle_input(game:, key:);
+        game = tick(game:);
+        if !game.alive then break;
+        render(game:);
     }
 
     unsafe {
-        _game_over(n: game.score)
-        _sleep(ms: 3000)
-        _cleanup()
+        _game_over(n: game.score);
+        _sleep(ms: 3000);
+        _cleanup();
     }
 }
 ```
@@ -215,74 +216,100 @@ Key advantages over Rust's equivalent:
 
 ## Design
 
+### Semicolons
+
+Ori uses Rust-style semicolons consistently across the language. Semicolons terminate statements; the absence of a semicolon on the last expression in a block marks it as the block's value.
+
+**Inside blocks** — `;` terminates every statement. The last expression without `;` is the block's value:
+
+```ori
+{
+    let $x = compute();
+    let $y = transform(value: x);
+
+    x + y    // <- no semicolon: this is the block's value
+}
+```
+
+A block where every expression has `;` is a void block (like Rust):
+
+```ori
+{
+    setup();
+    do_work();
+    cleanup();    // semicolon on last line: block returns void
+}
+```
+
+**Top-level items** — the universal rule is: **ends with `}`? No `;`. Everything else: `;`.** This matches Rust exactly.
+
+```ori
+// Imports — always ;
+use std.math { sqrt };
+use "./utils" { helper };
+
+// Constants — always ;
+let $MAX_SIZE = 1024;
+let $PI = 3.14159;
+
+// Functions — ; when body is expression, no ; when body is block
+@double (x: int) -> int = x * 2;
+
+@process (items: [int]) -> int = {
+    let $total = fold(over: items, init: 0, op: (a, b) -> a + b);
+
+    total
+}
+
+// Types — struct (ends with }) no ;, sum/newtype ;
+type Point = { x: int, y: int }
+
+type UserId = int;
+
+type Shape = Circle(r: float) | Rect(w: float, h: float);
+
+// Traits, impls, extends, extern blocks — end with }, no ;
+trait Drawable {
+    @draw (self) -> void;              // method signature — ;
+    @color (self) -> str = "black";    // default method (expression body) — ;
+}
+
+impl Drawable for Point {
+    @draw (self) -> void = print(msg: `({self.x}, {self.y})`);
+}
+```
+
+**Match arms** — separated by newlines (no `;`). Multi-expression arm bodies use blocks with `;`:
+
+```ori
+match dir {
+    Up    -> Point { ...point, y: point.y - 1 }
+    Down  -> Point { ...point, y: point.y + 1 }
+    Left  -> Point { ...point, x: point.x - 1 }
+    Right -> Point { ...point, x: point.x + 1 }
+}
+```
+
 ### Block Syntax
 
-A block is `{ expr1 \n expr2 \n ... \n exprn }` where newlines separate expressions and the last expression is the block's value.
+A block is `{ stmt; stmt; expr }` where `;` terminates statements and the last expression (without `;`) is the block's value. This follows Rust's block semantics exactly.
 
 ```ori
 {
-    let $x = compute()
-    let $y = transform(value: x)
+    let $x = compute();
+    let $y = transform(value: x);
 
-    x + y    // <- block value
-}
-```
-
-### Newline Separation
-
-Inside `{ }` blocks, newlines separate expressions. Commas are optionally allowed for one-liner blocks:
-
-```ori
-// Multiline — newlines separate
-{
-    let $x = 1
-    let $y = 2
-    x + y
-}
-
-// One-liner — commas allowed
-match dir { Up -> Down, Down -> Up, Left -> Right, Right -> Left }
-```
-
-### Continuation Rules
-
-Newline handling follows the **balanced delimiter** approach (Go, Kotlin):
-
-- **Inside `()`, `[]`, or nested `{}`**: Newlines do NOT end statements. Expressions can span multiple lines freely.
-- **Outside balanced delimiters**: Newlines ARE statement separators.
-- **No trailing-operator continuation**: A binary operator at line-end does NOT automatically continue to the next line. Wrap multi-line expressions in parentheses.
-- **Keyword constructs**: `match`, `if...then`, `for...do`, `loop`, `unsafe`, `try` consume their full syntactic form regardless of newlines — the parser knows these constructs require additional tokens.
-
-```ori
-// Balanced delimiters suppress newlines
-let $result = some_function(
-    arg1: value1,
-    arg2: value2,
-)
-
-// Multi-line binary expression — use parens
-let $total = (
-    base_price
-    + tax
-    + shipping
-)
-
-// Keywords consume their full form across newlines
-match expr {
-    Pattern1 -> result1
-    Pattern2 -> result2
+    x + y    // <- block value (no semicolon)
 }
 ```
 
 ### Last Expression Is the Value
 
-The last expression in a block is its value. This is the same semantic `run()` already has (last argument = result), just with different visual framing.
+The last expression in a block is its value — identified by the absence of a trailing `;`. This is the same semantic `run()` already has (last argument = result), expressed with universally understood syntax.
 
-**The type checker is the safety net.** If someone appends a `print()` after what was the value expression, the return type changes from `T` to `void` — immediate compile error. Rust proves this is sufficient over 10 years of production use.
-
-**Blocks naturally fall into two readable shapes:**
-
-**Shape 1 — Setup + result**: `let` bindings cluster at the top, value expression sits alone at the bottom. The `let` lines look visually different from the result line.
+**Two visual signals** make the result expression unmistakable:
+1. **No semicolon** — syntactically marks it as the value (compiler-enforced)
+2. **Blank line above** — `ori fmt` enforces a blank line before the result in setup+result blocks
 
 ```ori
 @spawn_food (game: Game) -> Game uses Random = {
@@ -290,27 +317,27 @@ The last expression in a block is its value. This is the same semantic `run()` a
         let $p = Point {
             x: Random.int_in_range(min: 1, max: game.width - 2),
             y: Random.int_in_range(min: 1, max: game.height - 2),
-        }
+        };
         if !occupies(snake: game.snake, p:) then break p
-    }
+    };
 
     Game { ...game, food }
 }
 ```
 
-**Shape 2 — Pure side effects**: the block is `void`, every line is a statement. No "value" to confuse.
+**The type checker is the safety net.** If someone appends a `print();` after what was the value expression, the return type changes from `T` to `void` — immediate compile error. Rust proves this is sufficient over 10 years of production use.
+
+**Void blocks** — when every expression has `;`, the block returns void:
 
 ```ori
 @main () -> void = {
-    unsafe(_init(w:, h:))
-    let game = new_game(width: w, height: h)
-    render(game:)
+    unsafe(_init(w:, h:));
+    let game = new_game(width: w, height: h);
+    render(game:);
     loop { ... }
-    unsafe(_cleanup())
+    unsafe(_cleanup());
 }
 ```
-
-**Formatting convention**: `ori fmt` enforces a blank line before the result expression when a block has setup + value. This provides a visual "here's the value" signal without syntax cost.
 
 ### Not `return`
 
@@ -318,19 +345,17 @@ This is **not** implicit return. `return` is control flow — it jumps out of a 
 
 ### `match` Syntax
 
-The scrutinee moves before the block. Arms are newline-separated (commas optional for one-liners). Multi-expression arms use blocks.
+The scrutinee moves before the block. Arms are newline-separated. Multi-expression arm bodies use blocks with semicolons.
 
 ```ori
-// Simple — one-liner with commas
-match dir { Up -> Down, Down -> Up, Left -> Right, Right -> Left }
-
 // Standard — newline-separated arms
 match expr {
     Lit(value) -> Ok(value)
     Var(name) -> env[name].ok_or(error: "undefined: " + name)
     BinOp(op, left, right) -> {
-        let l = eval(expr: left, env:)?
-        let r = eval(expr: right, env:)?
+        let $l = eval(expr: left, env:)?;
+        let $r = eval(expr: right, env:)?;
+
         Ok(l + r)
     }
 }
@@ -342,8 +367,9 @@ match expr {
 
 ```ori
 try {
-    let $x = fallible()?
-    let $y = other()?
+    let $x = fallible()?;
+    let $y = other()?;
+
     Ok(x + y)
 }
 ```
@@ -355,16 +381,16 @@ These constructs take a block directly:
 ```ori
 // Loop
 loop {
-    let $x = next()
-    if x == 0 then break
-    process(value: x)
+    let $x = next();
+    if x == 0 then break;
+    process(value: x);
 }
 
 // Unsafe — block form
 unsafe {
-    _game_over(n: game.score)
-    _sleep(ms: 3000)
-    _cleanup()
+    _game_over(n: game.score);
+    _sleep(ms: 3000);
+    _cleanup();
 }
 
 // Unsafe — single-expression form retained
@@ -372,13 +398,14 @@ unsafe(_cleanup())
 
 // For...do
 for gen in 0..20 do {
-    print(msg: display(grid:))
-    grid = step(grid:)
+    print(msg: display(grid:));
+    grid = step(grid:);
 }
 
 // For...yield — block value is yielded
 for i in 0..n yield {
-    let $x = f(i:)
+    let $x = f(i:);
+
     x * 2
 }
 ```
@@ -387,7 +414,7 @@ for i in 0..n yield {
 
 `run()` is removed from the language. Its two former roles are replaced:
 
-1. **Sequencing** — replaced by `{ }` blocks (with commas for inline one-liners)
+1. **Sequencing** — replaced by `{ }` blocks with `;`-terminated statements
 2. **Contracts** — replaced by function-level `pre()`/`post()` declarations
 
 ### Function-Level Contracts: `pre()` / `post()`
@@ -398,9 +425,7 @@ Contracts move from `run()` body-level to the function declaration, following C+
 @divide (a: int, b: int) -> int
     pre(b != 0)
     post(r -> r * b <= a)
-= {
-    a div b
-}
+= a div b
 ```
 
 #### Syntax
@@ -412,9 +437,7 @@ Contracts move from `run()` body-level to the function declaration, following C+
     pre(another_condition)            // Optional: multiple checks allowed
     post(result -> condition)         // Optional: checked after body
     post(result -> condition | "msg") // Optional: with custom message
-= {
-    // body
-}
+= expression
 ```
 
 #### Semantics
@@ -445,13 +468,14 @@ All semantic decisions from the approved `checks-proposal` are preserved:
 @f (x: int) -> int
     pre(x > 0)
     post(r -> r > x)
-= { x + 1 }
+= x + 1
 
 // Desugars to:
 @f (x: int) -> int = {
-    if !(x > 0) then panic(msg: "pre failed: x > 0")
-    let $__result = { x + 1 }
-    if !(r -> r > x)(__result) then panic(msg: "post failed: r > x")
+    if !(x > 0) then panic(msg: "pre failed: x > 0");
+    let $__result = x + 1;
+    if !(r -> r > x)(__result) then panic(msg: "post failed: r > x");
+
     __result
 }
 ```
@@ -464,16 +488,12 @@ The compiler embeds the condition's source text as a string literal for default 
 // Basic
 @abs (x: int) -> int
     post(r -> r >= 0)
-= {
-    if x < 0 then -x else x
-}
+= if x < 0 then -x else x
 
 @sqrt (x: float) -> float
     pre(x >= 0.0)
     post(r -> r >= 0.0)
-= {
-    newton_raphson(x: x)
-}
+= newton_raphson(x: x)
 
 // Multiple conditions with messages
 @transfer (from: Account, to: Account, amount: int) -> (Account, Account)
@@ -484,8 +504,9 @@ The compiler embeds the condition's source text as a string literal for default 
     post((f, t) -> t.balance == to.balance + amount)
     post((f, t) -> f.balance + t.balance == from.balance + to.balance)
 = {
-    let $new_from = Account { id: from.id, balance: from.balance - amount }
-    let $new_to = Account { id: to.id, balance: to.balance + amount }
+    let $new_from = Account { id: from.id, balance: from.balance - amount };
+    let $new_to = Account { id: to.id, balance: to.balance + amount };
+
     (new_from, new_to)
 }
 
@@ -519,9 +540,9 @@ The compiler embeds the condition's source text as a string literal for default 
 
 | Layer | Change |
 |-------|--------|
-| Lexer | None — `{` `}` already tokenized |
+| Lexer | Add `;` as a token (if not already present) |
 | IR | `FunctionSeq::Run` loses `pre_checks`/`post_checks` fields. Contract checks move to function definition node. |
-| Parser | New paths: bare `{ }` -> block expression, `match expr { }`, `try { }`, `loop { }` / `unsafe { }` / `for...do { }` drop parens. Function-level `pre()`/`post()` parsing. Newline-as-separator logic. |
+| Parser | New paths: bare `{ }` -> block expression, `match expr { }`, `try { }`, `loop { }` / `unsafe { }` / `for...do { }` drop parens. Function-level `pre()`/`post()` parsing. Semicolon-terminated statements inside blocks. Semicolons on `use`, `let $`, and expression-bodied declarations. |
 | Type checker | Contract validation moves from `Run` handling to function definition handling |
 | Evaluator | Contract evaluation moves to function entry/exit |
 | LLVM codegen | Contract codegen moves to function entry/exit |
@@ -531,36 +552,40 @@ The compiler embeds the condition's source text as a string literal for default 
 
 The parser needs:
 
-1. **Bare `{ }`**: When `{` appears in expression position and disambiguation says "block" (not map/struct), parse as a block expression — newline-separated bindings + result expression.
+1. **Semicolons in blocks**: Inside `{ }`, parse `;`-terminated statements followed by an optional result expression (no `;`). A block where every expression has `;` is void.
 
-2. **`match expr { }`**: When `match` is followed by an expression then `{`, parse the scrutinee, then parse newline-separated match arms inside the block.
+2. **Top-level semicolons**: `use` imports and `let $` constants require `;`. Function declarations, type definitions, and other items that end with `}` do not. Expression-bodied declarations (functions, methods, newtypes, sum types) require `;`.
 
-3. **`try { }`**: When `try` is followed by `{`, parse as a try block with newline-separated bindings + result expression.
+3. **Bare `{ }`**: When `{` appears in expression position and disambiguation says "block" (not map/struct), parse as a block expression.
 
-4. **`loop { }` / `unsafe { }` / `for...do { }`**: When these keywords are followed by `{`, parse the block body directly.
+4. **`match expr { }`**: When `match` is followed by an expression then `{`, parse the scrutinee, then parse newline-separated match arms inside the block.
 
-5. **Newline handling**: Track newlines as statement separators inside blocks, suppressed inside balanced `()`, `[]`, `{}`.
+5. **`try { }`**: When `try` is followed by `{`, parse as a try block.
 
-6. **Function-level `pre()`/`post()`**: After parsing `-> ReturnType`, check for `pre` or `post` tokens before `=`.
+6. **`loop { }` / `unsafe { }` / `for...do { }`**: When these keywords are followed by `{`, parse the block body directly.
 
-7. **Removal**: `run()`, `match()`, `try()` paren-based forms are removed.
+7. **Function-level `pre()`/`post()`**: After parsing `-> ReturnType`, check for `pre` or `post` tokens before `=`.
+
+8. **Removal**: `run()`, `match()`, `try()` paren-based forms are removed.
 
 ### Grammar Changes
 
 ```ebnf
-(* Block expressions *)
-block_expr     = "{" block_body "}" .
-block_body     = { block_item sep } result_expr [ sep ] .
-block_item     = let_binding | stmt_expr .
-sep            = NEWLINE | "," .
+(* Block expressions — semicolons terminate statements, last expression is value *)
+block_expr     = "{" { statement } [ expression ] "}" .
+statement      = ( let_expr | expression ) ";" .
+
+(* Top-level semicolons *)
+import         = "use" import_path [ import_list | "as" identifier ] ";" .
+constant_decl  = "let" "$" identifier [ ":" type ] "=" expression ";" .
 
 (* Match — scrutinee before block *)
 match_expr     = "match" expr "{" match_arms "}" .
-match_arms     = { match_arm sep } [ match_arm ] .
+match_arms     = { match_arm NEWLINE } [ match_arm ] .
 match_arm      = pattern [ "if" expr ] "->" expr .
 
 (* Try — keyword before block *)
-try_expr       = "try" "{" block_body "}" .
+try_expr       = "try" block_expr .
 
 (* Loop — direct block *)
 loop_expr      = "loop" [ label ] block_expr .
@@ -583,10 +608,11 @@ postcheck_expr = lambda_params "->" check_expr .
 
 ## Testing
 
-- All existing `run()` / `match()` / `try()` tests rewritten to use block syntax
+- All existing `run()` / `match()` / `try()` tests rewritten to use block syntax with semicolons
+- Parser tests for semicolons: required in blocks, on `use`/`let $`, on expression-bodied declarations
+- Parser tests for missing semicolons (error recovery and messages)
+- Parser tests for void blocks (trailing `;` on last expression)
 - Parser tests for disambiguation (block vs map vs struct)
-- Parser tests for newline separation and optional comma tolerance
-- Parser tests for continuation rules (balanced delimiters suppress newlines)
 - Parser tests for function-level `pre()` / `post()` contracts
 - Formatter tests for blank-line-before-result enforcement
 - Error message tests for common mistakes (e.g., writing `match(expr, ...)` with old syntax)
@@ -608,3 +634,15 @@ See errata added to `checks-proposal.md`.
 Discovered during spec experiments (2026-02-19) writing an expression evaluator, Game of Life, Snake game, and dice game in Ori. The `run()` ceremony was the most consistent friction point across all four programs. Discussion progressed from "add `{ }` blocks" to "all `function_seq` constructs become blocks, `run` is the unnamed default, contracts move to function declarations."
 
 Data from experiments: 43 immutable bindings (`let $`), 3 mutable bindings (`let`), confirming the `$` = static convention works well with block syntax. The mutable-by-default design with `$` opt-in immutability provides the lightest ceremony of any mutable-by-default language (1 character vs TypeScript's `const` at 5, Java's `final` at 5, C#'s `readonly` at 8).
+
+---
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [match-arm-comma-separator-proposal](match-arm-comma-separator-proposal.md)**: This proposal specified match arms as newline-separated. The match-arm-comma-separator proposal changes arms to comma-separated (with optional trailing commas), aligning match syntax with Rust and making it consistent with the explicit-punctuation style introduced by this proposal's semicolons. Additionally, the guard syntax `.match(condition)` is replaced by `if condition` — `.match()` now exclusively refers to method-style pattern matching.
+>
+> Affected sections: "Match arms — separated by newlines" (Design § Semicolons), "`match` Syntax" (Design), grammar `match_arms` production, parser changes item 4.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.

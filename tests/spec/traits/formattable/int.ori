@@ -8,86 +8,86 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // Binary
-@test_int_binary tests @int_binary () -> void = run(
-    assert_eq(actual: `{42:b}`, expected: "101010"),
-    assert_eq(actual: `{0:b}`, expected: "0"),
-    assert_eq(actual: `{255:b}`, expected: "11111111"),
-)
+@test_int_binary tests @int_binary () -> void = {
+    assert_eq(actual: `{42:b}`, expected: "101010");
+    assert_eq(actual: `{0:b}`, expected: "0");
+    assert_eq(actual: `{255:b}`, expected: "11111111")
+}
 
-@int_binary () -> str = `{42:b}`
+@int_binary () -> str = `{42:b}`;
 
 // Octal
-@test_int_octal tests @int_octal () -> void = run(
-    assert_eq(actual: `{42:o}`, expected: "52"),
-    assert_eq(actual: `{0:o}`, expected: "0"),
-    assert_eq(actual: `{255:o}`, expected: "377"),
-)
+@test_int_octal tests @int_octal () -> void = {
+    assert_eq(actual: `{42:o}`, expected: "52");
+    assert_eq(actual: `{0:o}`, expected: "0");
+    assert_eq(actual: `{255:o}`, expected: "377")
+}
 
-@int_octal () -> str = `{42:o}`
+@int_octal () -> str = `{42:o}`;
 
 // Hex (lowercase)
-@test_int_hex tests @int_hex () -> void = run(
-    assert_eq(actual: `{42:x}`, expected: "2a"),
-    assert_eq(actual: `{255:x}`, expected: "ff"),
-    assert_eq(actual: `{0:x}`, expected: "0"),
-)
+@test_int_hex tests @int_hex () -> void = {
+    assert_eq(actual: `{42:x}`, expected: "2a");
+    assert_eq(actual: `{255:x}`, expected: "ff");
+    assert_eq(actual: `{0:x}`, expected: "0")
+}
 
-@int_hex () -> str = `{42:x}`
+@int_hex () -> str = `{42:x}`;
 
 // Hex (uppercase)
-@test_int_hex_upper tests @int_hex_upper () -> void = run(
-    assert_eq(actual: `{42:X}`, expected: "2A"),
-    assert_eq(actual: `{255:X}`, expected: "FF"),
-)
+@test_int_hex_upper tests @int_hex_upper () -> void = {
+    assert_eq(actual: `{42:X}`, expected: "2A");
+    assert_eq(actual: `{255:X}`, expected: "FF")
+}
 
-@int_hex_upper () -> str = `{42:X}`
+@int_hex_upper () -> str = `{42:X}`;
 
 // =============================================================================
 // Alternate Form (#)
 // =============================================================================
 
-@test_int_alternate tests @int_alternate () -> void = run(
-    assert_eq(actual: `{42:#b}`, expected: "0b101010"),
-    assert_eq(actual: `{42:#o}`, expected: "0o52"),
-    assert_eq(actual: `{42:#x}`, expected: "0x2a"),
-    assert_eq(actual: `{42:#X}`, expected: "0X2A"),
-)
+@test_int_alternate tests @int_alternate () -> void = {
+    assert_eq(actual: `{42:#b}`, expected: "0b101010");
+    assert_eq(actual: `{42:#o}`, expected: "0o52");
+    assert_eq(actual: `{42:#x}`, expected: "0x2a");
+    assert_eq(actual: `{42:#X}`, expected: "0X2A")
+}
 
-@int_alternate () -> str = `{42:#x}`
+@int_alternate () -> str = `{42:#x}`;
 
 // =============================================================================
 // Sign
 // =============================================================================
 
-@test_int_sign tests @int_sign () -> void = run(
-    assert_eq(actual: `{42:+}`, expected: "+42"),
-    assert_eq(actual: `{-7:+}`, expected: "-7"),
-    assert_eq(actual: `{0:+}`, expected: "+0"),
-)
+@test_int_sign tests @int_sign () -> void = {
+    assert_eq(actual: `{42:+}`, expected: "+42");
+    assert_eq(actual: `{-7:+}`, expected: "-7");
+    assert_eq(actual: `{0:+}`, expected: "+0")
+}
 
-@int_sign () -> str = `{42:+}`
+@int_sign () -> str = `{42:+}`;
 
 // =============================================================================
 // Zero Padding
 // =============================================================================
 
-@test_int_zero_pad tests @int_zero_pad () -> void = run(
-    assert_eq(actual: `{42:08}`, expected: "00000042"),
-    assert_eq(actual: `{42:08x}`, expected: "0000002a"),
-)
+@test_int_zero_pad tests @int_zero_pad () -> void = {
+    assert_eq(actual: `{42:08}`, expected: "00000042");
+    assert_eq(actual: `{42:08x}`, expected: "0000002a")
+}
 
-@int_zero_pad () -> str = `{42:08}`
+@int_zero_pad () -> str = `{42:08}`;
 
 // =============================================================================
 // Width
 // =============================================================================
 
-@test_int_width tests @int_width () -> void = run(
-    assert_eq(actual: `{42:>10}`, expected: "        42"),
-    assert_eq(actual: `{42:<10}`, expected: "42        "),
-    assert_eq(actual: `{42:^10}`, expected: "    42    "),
-)
+@test_int_width tests @int_width () -> void = {
+    assert_eq(actual: `{42:>10}`, expected: "        42");
+    assert_eq(actual: `{42:<10}`, expected: "42        ");
+    assert_eq(actual: `{42:^10}`, expected: "    42    ")
+}
 
-@int_width () -> str = `{42:>10}`
+@int_width () -> str = `{42:>10}`;
 
-@main () -> void = print(msg: "Formattable int tests")
+@main () -> void = print(msg: "Formattable int tests");

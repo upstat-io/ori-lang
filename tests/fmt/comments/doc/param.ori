@@ -1,3 +1,3 @@
 // * a: The first operand
 // * b: The second operand
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;

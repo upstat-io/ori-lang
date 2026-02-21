@@ -11,77 +11,77 @@ use std.testing { assert, assert_eq }
 // Basic Dead Branch Elimination
 // =============================================================================
 
-@true_branch () -> int = if true then 1 else 2
+@true_branch () -> int = if true then 1 else 2;
 
-@test_true_branch tests @true_branch () -> void = run(
-    assert_eq(actual: true_branch(), expected: 1),
-)
+@test_true_branch tests @true_branch () -> void = {
+    assert_eq(actual: true_branch(), expected: 1)
+}
 
-@false_branch () -> int = if false then 1 else 2
+@false_branch () -> int = if false then 1 else 2;
 
-@test_false_branch tests @false_branch () -> void = run(
-    assert_eq(actual: false_branch(), expected: 2),
-)
+@test_false_branch tests @false_branch () -> void = {
+    assert_eq(actual: false_branch(), expected: 2)
+}
 
 // =============================================================================
 // Dead Branch with Side Effects (panic must NOT execute)
 // =============================================================================
 
-@dead_panic_else () -> int = if true then 42 else panic(msg: "dead branch executed")
+@dead_panic_else () -> int = if true then 42 else panic(msg: "dead branch executed");
 
-@test_dead_panic_else tests @dead_panic_else () -> void = run(
-    assert_eq(actual: dead_panic_else(), expected: 42),
-)
+@test_dead_panic_else tests @dead_panic_else () -> void = {
+    assert_eq(actual: dead_panic_else(), expected: 42)
+}
 
-@dead_panic_then () -> int = if false then panic(msg: "dead branch executed") else 3
+@dead_panic_then () -> int = if false then panic(msg: "dead branch executed") else 3;
 
-@test_dead_panic_then tests @dead_panic_then () -> void = run(
-    assert_eq(actual: dead_panic_then(), expected: 3),
-)
+@test_dead_panic_then tests @dead_panic_then () -> void = {
+    assert_eq(actual: dead_panic_then(), expected: 3)
+}
 
 // =============================================================================
 // Compound Boolean Conditions
 // =============================================================================
 
-@and_true () -> int = if (true && true) then 42 else 0
+@and_true () -> int = if (true && true) then 42 else 0;
 
-@test_and_true tests @and_true () -> void = run(
-    assert_eq(actual: and_true(), expected: 42),
-)
+@test_and_true tests @and_true () -> void = {
+    assert_eq(actual: and_true(), expected: 42)
+}
 
-@and_false () -> int = if (true && false) then 0 else 99
+@and_false () -> int = if (true && false) then 0 else 99;
 
-@test_and_false tests @and_false () -> void = run(
-    assert_eq(actual: and_false(), expected: 99),
-)
+@test_and_false tests @and_false () -> void = {
+    assert_eq(actual: and_false(), expected: 99)
+}
 
-@or_true () -> int = if (false || true) then 1 else 0
+@or_true () -> int = if (false || true) then 1 else 0;
 
-@test_or_true tests @or_true () -> void = run(
-    assert_eq(actual: or_true(), expected: 1),
-)
+@test_or_true tests @or_true () -> void = {
+    assert_eq(actual: or_true(), expected: 1)
+}
 
-@or_false () -> int = if (false || false) then 0 else 7
+@or_false () -> int = if (false || false) then 0 else 7;
 
-@test_or_false tests @or_false () -> void = run(
-    assert_eq(actual: or_false(), expected: 7),
-)
+@test_or_false tests @or_false () -> void = {
+    assert_eq(actual: or_false(), expected: 7)
+}
 
 // =============================================================================
 // Negation
 // =============================================================================
 
-@not_true () -> int = if !true then 0 else 5
+@not_true () -> int = if !true then 0 else 5;
 
-@test_not_true tests @not_true () -> void = run(
-    assert_eq(actual: not_true(), expected: 5),
-)
+@test_not_true tests @not_true () -> void = {
+    assert_eq(actual: not_true(), expected: 5)
+}
 
-@not_false () -> int = if !false then 5 else 0
+@not_false () -> int = if !false then 5 else 0;
 
-@test_not_false tests @not_false () -> void = run(
-    assert_eq(actual: not_false(), expected: 5),
-)
+@test_not_false tests @not_false () -> void = {
+    assert_eq(actual: not_false(), expected: 5)
+}
 
 // =============================================================================
 // Nested Constant Conditions
@@ -91,11 +91,11 @@ use std.testing { assert, assert_eq }
     if true then
         if false then 0 else 10
     else
-        99
+        99;
 
-@test_nested_const tests @nested_const () -> void = run(
-    assert_eq(actual: nested_const(), expected: 10),
-)
+@test_nested_const tests @nested_const () -> void = {
+    assert_eq(actual: nested_const(), expected: 10)
+}
 
 @deep_nested () -> int =
     if true then
@@ -104,8 +104,8 @@ use std.testing { assert, assert_eq }
         else
             panic(msg: "unreachable")
     else
-        panic(msg: "unreachable")
+        panic(msg: "unreachable");
 
-@test_deep_nested tests @deep_nested () -> void = run(
-    assert_eq(actual: deep_nested(), expected: 42),
-)
+@test_deep_nested tests @deep_nested () -> void = {
+    assert_eq(actual: deep_nested(), expected: 42)
+}

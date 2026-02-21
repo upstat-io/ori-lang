@@ -18,7 +18,7 @@
 // - split(s: str) -> [str]
 //
 // Convenience functions (recompile each call):
-// - match(pattern: str, s: str) -> bool
+// - match pattern: str { s: str} -> bool
 // - find(pattern: str, s: str) -> Option<str>
 // - replace(pattern: str, s: str, replacement: str) -> str
 //

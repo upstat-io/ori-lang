@@ -47,8 +47,8 @@ Special values `inf`, `-inf`, and `nan` are supported.
 All strings are UTF-8 encoded. There is no separate ASCII or byte-string type.
 
 ```ori
-let greeting = "Hello, 世界"  // UTF-8
-let emoji = "🎉"              // UTF-8
+let greeting = "Hello, 世界";  // UTF-8
+let emoji = "🎉";              // UTF-8
 ```
 
 ### Indexing
@@ -56,8 +56,8 @@ let emoji = "🎉"              // UTF-8
 String indexing returns a single Unicode codepoint as a `str`:
 
 ```ori
-let s = "héllo"
-s[0]  // "h"
+let s = "héllo";
+s[0];  // "h"
 s[1]  // "é" (single codepoint)
 ```
 
@@ -68,8 +68,8 @@ The index refers to codepoint position, not byte position. Out-of-bounds indexin
 Some visual characters consist of multiple codepoints:
 
 ```ori
-let astronaut = "🧑‍🚀"  // 3 codepoints: person + ZWJ + rocket
-len(astronaut)        // 3
+let astronaut = "🧑‍🚀";  // 3 codepoints: person + ZWJ + rocket
+len(astronaut);        // 3
 astronaut[0]          // "🧑"
 ```
 
@@ -109,7 +109,7 @@ Tail calls are guaranteed to be optimized. A tail call does not consume stack sp
 
 ```ori
 @countdown (n: int) -> void =
-    if n <= 0 then void else countdown(n: n - 1)  // tail call
+    if n <= 0 then void else countdown(n: n - 1);  // tail call
 
 countdown(n: 1000000)  // does not overflow stack
 ```
@@ -122,7 +122,7 @@ Non-tail recursive calls consume stack space. Deep recursion may cause stack ove
 
 ```ori
 @sum_to (n: int) -> int =
-    if n <= 0 then 0 else n + sum_to(n: n - 1)  // not tail call
+    if n <= 0 then 0 else n + sum_to(n: n - 1);  // not tail call
 
 sum_to(n: 1000000)  // may overflow stack
 ```

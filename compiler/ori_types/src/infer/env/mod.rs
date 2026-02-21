@@ -8,18 +8,30 @@
     reason = "Rc<TypeEnvInner> is intentional for O(1) parent chain cloning via Rc::make_mut copy-on-write semantics. This matches TypeEnv in env.rs."
 )]
 
-use ori_ir::Name;
+use ori_ir::{Mutability, Name};
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 use crate::Idx;
 
+/// A single binding entry in the type environment.
+///
+/// Combines the type scheme and optional mutability info into one struct,
+/// eliminating the need for parallel `bindings`/`mutability` maps.
+#[derive(Copy, Clone, Debug)]
+struct Binding {
+    /// The type (or type scheme) for this name.
+    ty: Idx,
+    /// Mutability from `let` bindings. `None` for prelude/param bindings
+    /// that don't carry explicit mutability.
+    mutable: Option<Mutability>,
+}
+
 /// Internal storage for `TypeEnv`.
 #[derive(Clone, Debug)]
 struct TypeEnvInner {
-    /// Name → type scheme bindings.
-    /// Schemes are just `Idx` (could be a Scheme tag or a monomorphic type).
-    bindings: FxHashMap<Name, Idx>,
+    /// Name → binding (type + mutability) map.
+    bindings: FxHashMap<Name, Binding>,
 
     /// Parent scope for lookup chaining.
     parent: Option<TypeEnv>,
@@ -82,7 +94,37 @@ impl TypeEnv {
     /// For monomorphic types, pass the type directly.
     /// For polymorphic types, pass a Scheme `Idx`.
     pub fn bind(&mut self, name: Name, ty: Idx) {
-        Rc::make_mut(&mut self.0).bindings.insert(name, ty);
+        Rc::make_mut(&mut self.0)
+            .bindings
+            .insert(name, Binding { ty, mutable: None });
+    }
+
+    /// Bind a name to a type and record its mutability.
+    ///
+    /// `Mutability::Mutable` = `let x` (can be reassigned).
+    /// `Mutability::Immutable` = `let $x` (immutable binding).
+    pub fn bind_with_mutability(&mut self, name: Name, ty: Idx, mutable: Mutability) {
+        Rc::make_mut(&mut self.0).bindings.insert(
+            name,
+            Binding {
+                ty,
+                mutable: Some(mutable),
+            },
+        );
+    }
+
+    /// Check if a binding is mutable, searching parent scopes.
+    ///
+    /// Returns `Some(true)` for mutable, `Some(false)` for immutable,
+    /// `None` if the name has no recorded mutability (e.g., function params,
+    /// prelude bindings).
+    pub fn is_mutable(&self, name: Name) -> Option<bool> {
+        self.0
+            .bindings
+            .get(&name)
+            .and_then(|b| b.mutable)
+            .map(Mutability::is_mutable)
+            .or_else(|| self.0.parent.as_ref().and_then(|p| p.is_mutable(name)))
     }
 
     /// Bind a name to a type scheme (alias for `bind`).
@@ -102,7 +144,7 @@ impl TypeEnv {
         self.0
             .bindings
             .get(&name)
-            .copied()
+            .map(|b| b.ty)
             .or_else(|| self.0.parent.as_ref().and_then(|p| p.lookup(name)))
     }
 
@@ -203,7 +245,7 @@ impl Default for TypeEnv {
 /// Iterator over all bound names in a `TypeEnv`.
 struct NamesIterator<'a> {
     current: Option<&'a TypeEnv>,
-    current_iter: Option<std::collections::hash_map::Keys<'a, Name, Idx>>,
+    current_iter: Option<std::collections::hash_map::Keys<'a, Name, Binding>>,
 }
 
 impl Iterator for NamesIterator<'_> {

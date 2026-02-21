@@ -4,44 +4,46 @@
 use std.testing { assert, assert_eq }
 
 // Option<T>.clone() — Some variant
-@test_clone_option_some tests @clone_option_some () -> void = run(
-    let opt = Some(42),
-    let opt2 = opt.clone(),
-    assert_eq(actual: opt2 ?? 0, expected: 42),
-)
+@test_clone_option_some tests @clone_option_some () -> void = {
+    let opt = Some(42);
+    let opt2 = opt.clone();
+    assert_eq(actual: opt2 ?? 0, expected: 42)
+}
 
-@clone_option_some () -> Option<int> = Some(42).clone()
+@clone_option_some () -> Option<int> = Some(42).clone();
 
 // Option<T>.clone() — None variant
-@test_clone_option_none tests @clone_option_none () -> void = run(
-    let opt: Option<int> = None,
-    let opt2 = opt.clone(),
-    assert_eq(actual: opt2 ?? -1, expected: -1),
-)
+@test_clone_option_none tests @clone_option_none () -> void = {
+    let opt: Option<int> = None;
+    let opt2 = opt.clone();
+    assert_eq(actual: opt2 ?? -1, expected: -1)
+}
 
-@clone_option_none () -> Option<int> = run(
-    let opt: Option<int> = None,
-    opt.clone(),
-)
+@clone_option_none () -> Option<int> = {
+    let opt: Option<int> = None;
+    opt.clone()
+}
 
 // Result<T, E>.clone() — Ok variant
-@test_clone_result_ok tests @clone_result_ok () -> void = run(
-    let r: Result<int, str> = Ok(42),
-    let r2 = r.clone(),
-    assert_eq(actual: r2.unwrap(), expected: 42),
-)
+@test_clone_result_ok tests @clone_result_ok () -> void = {
+    let r: Result<int, str> = Ok(42);
+    let r2 = r.clone();
+    assert_eq(actual: r2.unwrap(), expected: 42)
+}
 
-@clone_result_ok () -> Result<int, str> = Ok(42).clone()
+@clone_result_ok () -> Result<int, str> = Ok(42).clone();
 
 // Result<T, E>.clone() — Err variant
-@test_clone_result_err tests @clone_result_err () -> void = run(
-    let r: Result<int, str> = Err("fail"),
-    let r2 = r.clone(),
-    assert(cond: r2.is_err()),
-)
+@test_clone_result_err tests @clone_result_err () -> void = {
+    let r: Result<int, str> = Err("fail");
+    let r2 = r.clone();
+    assert(cond: r2.is_err())
+}
 
-@clone_result_err () -> Result<int, str> = Err("fail").clone()
+@clone_result_err () -> Result<int, str> = {
+    Err("fail").clone()
+}
 
-@main () -> void = run(
-    print(msg: "Clone wrappers tests passed"),
-)
+@main () -> void = {
+    print(msg: "Clone wrappers tests passed")
+}

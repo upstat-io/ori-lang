@@ -14,8 +14,8 @@ pub trait Emitter {
     /// Emit a newline (Unix-style `\n`).
     fn emit_newline(&mut self);
 
-    /// Emit indentation (4 spaces per level).
-    fn emit_indent(&mut self, level: usize);
+    /// Emit indentation as the given number of spaces.
+    fn emit_indent(&mut self, spaces: usize);
 
     /// Emit a single space.
     fn emit_space(&mut self);
@@ -92,8 +92,7 @@ impl Emitter for StringEmitter {
         self.buffer.push('\n');
     }
 
-    fn emit_indent(&mut self, level: usize) {
-        let spaces = level * 4;
+    fn emit_indent(&mut self, spaces: usize) {
         for _ in 0..spaces {
             self.buffer.push(' ');
         }

@@ -1,0 +1,8 @@
+// Test that assignment to immutable binding inside a loop is caught (E2039)
+// The binding is in an outer scope but the assignment is inside a loop.
+
+#[compile_fail("cannot assign to immutable binding")]
+@test_assign_immutable_in_loop () -> void = {
+    let $count = 0;
+    for i in 0..5 do count = count + 1
+}

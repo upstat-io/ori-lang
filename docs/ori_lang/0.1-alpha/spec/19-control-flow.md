@@ -11,12 +11,12 @@ Control flow determines the order of expression evaluation and how execution tra
 
 ## Sequential Flow
 
-Expressions in `run(...)` evaluate left to right. Each expression completes before the next begins.
+Expressions in a block `{ }` evaluate top to bottom. Each expression completes before the next begins.
 
 ```ori
 {
-    let x = 1
-    let y = 2
+    let x = 1;
+    let y = 2;
     x + y
 }
 ```
@@ -31,7 +31,7 @@ If any expression terminates early (via `break`, `continue`, `?`, or panic), sub
 
 ```ori
 loop {
-    if done then break
+    if done then break;
     process()
 }
 ```
@@ -40,7 +40,7 @@ loop {
 
 ```ori
 let result = loop {
-    let x = compute()
+    let x = compute();
     if x > 100 then break x
 }
 // result = first x greater than 100
@@ -53,37 +53,43 @@ A `break` without a value in a context requiring a value is an error.
 `continue` skips to the next iteration of the innermost enclosing loop.
 
 ```ori
-for x in items do
-    if x < 0 then continue,
-    process(x),
+for x in items do {
+    if x < 0 then continue;
+    process(x);
+}
 ```
 
 In `for...yield`, `continue` without a value skips the element:
 
 ```ori
-for x in items yield
-    if x < 0 then continue,  // element not added
-    x * 2,
+for x in items yield {
+    if x < 0 then continue;  // element not added
+
+    x * 2
+}
 ```
 
 `continue` with a value uses that value for the current iteration:
 
 ```ori
-for x in items yield
-    if x < 0 then continue 0,  // use 0 instead
-    x * 2,
+for x in items yield {
+    if x < 0 then continue 0;  // use 0 instead
+
+    x * 2
+}
 ```
 
 ### Continue in Loop
 
-In `loop(...)`, `continue` skips to the next iteration. `continue value` is an error (E0861) — loops do not accumulate values:
+In `loop { }`, `continue` skips to the next iteration. `continue value` is an error (E0861) — loops do not accumulate values:
 
 ```ori
 loop {
-    if skip then continue,  // OK: start next iteration
-    if bad then continue 42,  // error E0861: loop doesn't collect
+    if skip then continue;  // OK: start next iteration
+    if bad then continue 42;  // error E0861: loop doesn't collect
     process()
 }
+```
 
 ## Labeled Loops
 
@@ -94,14 +100,14 @@ Labels allow `break` and `continue` to target an outer loop.
 Labels use the syntax `loop:name` or `for:name`, with no space around the colon:
 
 ```ori
-loop:outer(
+loop:outer {
     for x in items do
-        if x == target then break:outer,
-)
+        if x == target then break:outer
+}
 
 for:outer x in items do
     for y in other do
-        if done(x, y) then break:outer,
+        if done(x, y) then break:outer
 ```
 
 ### Label Reference
@@ -109,20 +115,20 @@ for:outer x in items do
 Reference labels with `break:name` or `continue:name`:
 
 ```ori
-loop:search(
+loop:search {
     for x in items do
-        if found(x) then break:search x,
-)
+        if found(x) then break:search x
+}
 ```
 
 With value:
 
 ```ori
-let result = loop:outer(
+let result = loop:outer {
     for x in items do
-        if match(x) then break:outer x,
-    None,
-)
+        if match(x) then break:outer x
+    None
+}
 ```
 
 ### Label Scope
@@ -130,15 +136,15 @@ let result = loop:outer(
 A label is visible within the loop body it labels. Labels scope correctly through arbitrary nesting:
 
 ```ori
-loop:a(
-    loop:b(
-        loop:c(
-            break:a,  // OK: exits outermost
-            break:b,  // OK: exits middle
-            break:c,  // OK: exits innermost
-        ),
-    ),
-)
+loop:a {
+    loop:b {
+        loop:c {
+            break:a;   // OK: exits outermost
+            break:b;   // OK: exits middle
+            break:c    // OK: exits innermost
+        }
+    }
+}
 ```
 
 There is no language-imposed limit on label nesting depth.
@@ -148,11 +154,11 @@ There is no language-imposed limit on label nesting depth.
 Labels cannot be shadowed within their scope:
 
 ```ori
-loop:outer(
-    loop:outer(  // ERROR E0871: label 'outer' already in scope
+loop:outer {
+    loop:outer {  // ERROR E0871: label 'outer' already in scope
         ...
-    ),
-)
+    }
+}
 ```
 
 ### Type Consistency
@@ -160,12 +166,13 @@ loop:outer(
 All `break` paths for a labeled loop must produce values of the same type:
 
 ```ori
-let x: int = loop:outer(
-    for item in items do
-        if a(item) then break:outer 1,      // int
-        if b(item) then break:outer "two",  // ERROR E0872: expected int, found str
-    0,
-)
+let x: int = loop:outer {
+    for item in items do {
+        if a(item) then break:outer 1;       // int
+        if b(item) then break:outer "two";   // ERROR E0872: expected int, found str
+    }
+    0
+}
 ```
 
 ### Continue With Value
@@ -174,9 +181,11 @@ In `for...yield` context, `continue:name value` contributes `value` to the outer
 
 ```ori
 let results = for:outer x in xs yield
-    for:inner y in ys yield
-        if special(x, y) then continue:outer x * y,  // Contribute to outer
-        transform(x, y),
+    for:inner y in ys yield {
+        if special(x, y) then continue:outer x * y;  // Contribute to outer
+
+        transform(x, y)
+    }
 ```
 
 The value in `continue:label value` must have the same type as the target loop's yield element type.
@@ -187,9 +196,10 @@ In `for...do` context, `continue:name value` is an error — there is no collect
 
 ```ori
 for:outer x in xs do
-    for y in ys do
-        if skip(x, y) then continue:outer 42,  // ERROR E0873: for-do doesn't collect
-        process(x, y),
+    for y in ys do {
+        if skip(x, y) then continue:outer 42;  // ERROR E0873: for-do doesn't collect
+        process(x, y);
+    }
 ```
 
 ### Valid Label Names
@@ -197,10 +207,10 @@ for:outer x in xs do
 Labels follow identifier rules. They cannot be keywords:
 
 ```ori
-loop:search(...)     // OK
-loop:_private(...)   // OK
-loop:loop123(...)    // OK
-loop:for(...)        // ERROR: 'for' is a keyword
+loop:search { }      // OK
+loop:_private { }    // OK
+loop:loop123 { }     // OK
+loop:for { }         // ERROR: 'for' is a keyword
 ```
 
 ## Error Propagation
@@ -213,8 +223,8 @@ If the value is `Err(e)`, the enclosing function returns `Err(e)`:
 
 ```ori
 @load (path: str) -> Result<Data, Error> = {
-    let content = read_file(path)?,  // Err propagates
-    let data = parse(content)?
+    let content = read_file(path)?;  // Err propagates
+    let data = parse(content)?;
     Ok(data)
 }
 ```
@@ -225,7 +235,7 @@ If the value is `None`, the enclosing function returns `None`:
 
 ```ori
 @find (id: int) -> Option<User> = {
-    let record = db.lookup(id)?,  // None propagates
+    let record = db.lookup(id)?;  // None propagates
     Some(User { ...record })
 }
 ```
@@ -246,7 +256,7 @@ Some expressions never produce a value normally:
 These expressions have type `Never`, which is compatible with any type:
 
 ```ori
-let x: int = if condition then 42 else panic("unreachable")
+let x: int = if condition then 42 else panic("unreachable");
 ```
 
 ## Evaluation in Conditionals
@@ -264,8 +274,8 @@ In `match`, only the matching arm evaluates:
 
 ```ori
 match value {
-    Some(x) -> process(x),  // only if Some
-    None -> default(),      // only if None
+    Some(x) -> process(x),   // only if Some
+    None -> default(),        // only if None
 }
 ```
 
@@ -280,6 +290,6 @@ Logical operators may skip evaluation of the right operand:
 | `??` | Left is not `None`/`Err` |
 
 ```ori
-valid && expensive()   // expensive() skipped if valid is false
-cached ?? compute()    // compute() skipped if cached is Some/Ok
+valid && expensive();   // expensive() skipped if valid is false
+cached ?? compute();    // compute() skipped if cached is Some/Ok
 ```

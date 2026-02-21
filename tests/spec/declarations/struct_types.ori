@@ -9,18 +9,18 @@ use std.testing { assert, assert_eq }
 
 type BasicStruct = { x: int, y: int }
 
-@test_basic_struct tests @_use_basic () -> void = run(
-    let s = BasicStruct { x: 10, y: 20 },
-    assert_eq(actual: s.x, expected: 10),
-    assert_eq(actual: s.y, expected: 20),
-)
+@test_basic_struct tests @_use_basic () -> void = {
+    let s = BasicStruct { x: 10, y: 20 };
+    assert_eq(actual: s.x, expected: 10);
+    assert_eq(actual: s.y, expected: 20)
+}
 
-@test_basic_struct_sum tests @_use_basic () -> void = run(
-    let s = BasicStruct { x: 10, y: 20 },
-    assert_eq(actual: s.x + s.y, expected: 30),
-)
+@test_basic_struct_sum tests @_use_basic () -> void = {
+    let s = BasicStruct { x: 10, y: 20 };
+    assert_eq(actual: s.x + s.y, expected: 30)
+}
 
-@_use_basic (s: BasicStruct) -> int = s.x + s.y
+@_use_basic (s: BasicStruct) -> int = s.x + s.y;
 
 // =============================================================================
 // Single Field Struct
@@ -28,12 +28,12 @@ type BasicStruct = { x: int, y: int }
 
 type SingleField = { value: int }
 
-@test_single_field tests @_use_single () -> void = run(
-    let s = SingleField { value: 42 },
-    assert_eq(actual: s.value, expected: 42),
-)
+@test_single_field tests @_use_single () -> void = {
+    let s = SingleField { value: 42 };
+    assert_eq(actual: s.value, expected: 42)
+}
 
-@_use_single (s: SingleField) -> int = s.value
+@_use_single (s: SingleField) -> int = s.value;
 
 // =============================================================================
 // Empty Struct
@@ -41,12 +41,12 @@ type SingleField = { value: int }
 
 type EmptyStruct = { }
 
-@test_empty_struct tests @_use_empty () -> void = run(
-    let s = EmptyStruct { },
-    assert(cond: true),  // Just verify it can be created
-)
+@test_empty_struct tests @_use_empty () -> void = {
+    let s = EmptyStruct { };
+    assert(cond: true)  // Just verify it can be created
+}
 
-@_use_empty (s: EmptyStruct) -> bool = true
+@_use_empty (s: EmptyStruct) -> bool = true;
 
 // =============================================================================
 // Nested Struct
@@ -55,25 +55,25 @@ type EmptyStruct = { }
 type Inner = { value: int }
 type Outer = { inner: Inner, name: str }
 
-@test_nested_struct tests @_use_outer () -> void = run(
-    let o = Outer { inner: Inner { value: 100 }, name: "test" },
-    assert_eq(actual: o.inner.value, expected: 100),
-    assert_eq(actual: o.name, expected: "test"),
-)
+@test_nested_struct tests @_use_outer () -> void = {
+    let o = Outer { inner: Inner { value: 100 }, name: "test" };
+    assert_eq(actual: o.inner.value, expected: 100);
+    assert_eq(actual: o.name, expected: "test")
+}
 
-@_use_outer (o: Outer) -> int = o.inner.value
+@_use_outer (o: Outer) -> int = o.inner.value;
 
 // Deep nesting
 type Level1 = { value: int }
 type Level2 = { inner: Level1 }
 type Level3 = { inner: Level2 }
 
-@test_deep_nesting tests @_use_level3 () -> void = run(
-    let l3 = Level3 { inner: Level2 { inner: Level1 { value: 42 } } },
-    assert_eq(actual: l3.inner.inner.value, expected: 42),
-)
+@test_deep_nesting tests @_use_level3 () -> void = {
+    let l3 = Level3 { inner: Level2 { inner: Level1 { value: 42 } } };
+    assert_eq(actual: l3.inner.inner.value, expected: 42)
+}
 
-@_use_level3 (l: Level3) -> int = l.inner.inner.value
+@_use_level3 (l: Level3) -> int = l.inner.inner.value;
 
 // =============================================================================
 // Struct with Many Fields
@@ -81,12 +81,12 @@ type Level3 = { inner: Level2 }
 
 type ManyFields = { a: int, b: int, c: int, d: int, e: int }
 
-@test_many_fields tests @_use_many () -> void = run(
-    let s = ManyFields { a: 1, b: 2, c: 3, d: 4, e: 5 },
-    assert_eq(actual: s.a + s.b + s.c + s.d + s.e, expected: 15),
-)
+@test_many_fields tests @_use_many () -> void = {
+    let s = ManyFields { a: 1, b: 2, c: 3, d: 4, e: 5 };
+    assert_eq(actual: s.a + s.b + s.c + s.d + s.e, expected: 15)
+}
 
-@_use_many (s: ManyFields) -> int = s.a
+@_use_many (s: ManyFields) -> int = s.a;
 
 // =============================================================================
 // Struct with Different Types
@@ -100,115 +100,115 @@ type MixedTypes = {
     char_field: char,
 }
 
-@test_mixed_types tests @_use_mixed () -> void = run(
+@test_mixed_types tests @_use_mixed () -> void = {
     let s = MixedTypes {
         int_field: 42,
         float_field: 3.14,
         bool_field: true,
         str_field: "hello",
         char_field: 'x',
-    },
-    assert_eq(actual: s.int_field, expected: 42),
-    assert(cond: s.bool_field),
-    assert_eq(actual: s.str_field, expected: "hello"),
-)
+    };
+    assert_eq(actual: s.int_field, expected: 42);
+    assert(cond: s.bool_field);
+    assert_eq(actual: s.str_field, expected: "hello")
+}
 
-@_use_mixed (s: MixedTypes) -> int = s.int_field
+@_use_mixed (s: MixedTypes) -> int = s.int_field;
 
 // =============================================================================
 // Struct Shorthand Initialization
 // =============================================================================
 
-@test_shorthand_init tests @_use_basic () -> void = run(
-    let x = 5,
-    let y = 10,
-    let s = BasicStruct { x, y },
-    assert_eq(actual: s.x, expected: 5),
-    assert_eq(actual: s.y, expected: 10),
-)
+@test_shorthand_init tests @_use_basic () -> void = {
+    let x = 5;
+    let y = 10;
+    let s = BasicStruct { x, y };
+    assert_eq(actual: s.x, expected: 5);
+    assert_eq(actual: s.y, expected: 10)
+}
 
-@test_mixed_shorthand tests @_use_basic () -> void = run(
-    let x = 5,
-    let s = BasicStruct { x, y: 10 },  // x is shorthand, y is explicit
-    assert_eq(actual: s.x, expected: 5),
-    assert_eq(actual: s.y, expected: 10),
-)
+@test_mixed_shorthand tests @_use_basic () -> void = {
+    let x = 5;
+    let s = BasicStruct { x, y: 10 };  // x is shorthand, y is explicit
+    assert_eq(actual: s.x, expected: 5);
+    assert_eq(actual: s.y, expected: 10)
+}
 
 // =============================================================================
 // Struct Update (Manual - without spread)
 // =============================================================================
 
-@test_manual_update tests @_use_basic () -> void = run(
-    let original = BasicStruct { x: 1, y: 2 },
-    let updated = BasicStruct { x: 100, y: original.y },
-    assert_eq(actual: updated.x, expected: 100),
-    assert_eq(actual: updated.y, expected: 2),
-)
+@test_manual_update tests @_use_basic () -> void = {
+    let original = BasicStruct { x: 1, y: 2 };
+    let updated = BasicStruct { x: 100, y: original.y };
+    assert_eq(actual: updated.x, expected: 100);
+    assert_eq(actual: updated.y, expected: 2)
+}
 
 // =============================================================================
 // Struct Spread Syntax - Basic
 // =============================================================================
 
-@test_spread_copy tests @_use_basic () -> void = run(
-    let original = BasicStruct { x: 1, y: 2 },
-    let copy = BasicStruct { ...original },
-    assert_eq(actual: copy.x, expected: 1),
-    assert_eq(actual: copy.y, expected: 2),
-)
+@test_spread_copy tests @_use_basic () -> void = {
+    let original = BasicStruct { x: 1, y: 2 };
+    let copy = BasicStruct { ...original };
+    assert_eq(actual: copy.x, expected: 1);
+    assert_eq(actual: copy.y, expected: 2)
+}
 
 // =============================================================================
 // Struct Spread with Override
 // =============================================================================
 
-@test_spread_override_x tests @_use_basic () -> void = run(
-    let original = BasicStruct { x: 1, y: 2 },
-    let updated = BasicStruct { ...original, x: 100 },
-    assert_eq(actual: updated.x, expected: 100),
-    assert_eq(actual: updated.y, expected: 2),
-)
+@test_spread_override_x tests @_use_basic () -> void = {
+    let original = BasicStruct { x: 1, y: 2 };
+    let updated = BasicStruct { ...original, x: 100 };
+    assert_eq(actual: updated.x, expected: 100);
+    assert_eq(actual: updated.y, expected: 2)
+}
 
-@test_spread_override_y tests @_use_basic () -> void = run(
-    let original = BasicStruct { x: 1, y: 2 },
-    let updated = BasicStruct { ...original, y: 200 },
-    assert_eq(actual: updated.x, expected: 1),
-    assert_eq(actual: updated.y, expected: 200),
-)
+@test_spread_override_y tests @_use_basic () -> void = {
+    let original = BasicStruct { x: 1, y: 2 };
+    let updated = BasicStruct { ...original, y: 200 };
+    assert_eq(actual: updated.x, expected: 1);
+    assert_eq(actual: updated.y, expected: 200)
+}
 
-@test_spread_override_both tests @_use_basic () -> void = run(
-    let original = BasicStruct { x: 1, y: 2 },
-    let updated = BasicStruct { ...original, x: 100, y: 200 },
-    assert_eq(actual: updated.x, expected: 100),
-    assert_eq(actual: updated.y, expected: 200),
-)
+@test_spread_override_both tests @_use_basic () -> void = {
+    let original = BasicStruct { x: 1, y: 2 };
+    let updated = BasicStruct { ...original, x: 100, y: 200 };
+    assert_eq(actual: updated.x, expected: 100);
+    assert_eq(actual: updated.y, expected: 200)
+}
 
 // =============================================================================
 // Multiple Spreads - Later Wins
 // =============================================================================
 
-@test_multiple_spreads tests @_use_basic () -> void = run(
-    let base1 = BasicStruct { x: 10, y: 20 },
-    let base2 = BasicStruct { x: 100, y: 200 },
+@test_multiple_spreads tests @_use_basic () -> void = {
+    let base1 = BasicStruct { x: 10, y: 20 };
+    let base2 = BasicStruct { x: 100, y: 200 };
     // Later spread wins over earlier spread
-    let result = BasicStruct { ...base1, ...base2 },
-    assert_eq(actual: result.x, expected: 100),
-    assert_eq(actual: result.y, expected: 200),
-)
+    let result = BasicStruct { ...base1, ...base2 };
+    assert_eq(actual: result.x, expected: 100);
+    assert_eq(actual: result.y, expected: 200)
+}
 
-@test_spread_then_explicit tests @_use_basic () -> void = run(
-    let base = BasicStruct { x: 10, y: 20 },
+@test_spread_then_explicit tests @_use_basic () -> void = {
+    let base = BasicStruct { x: 10, y: 20 };
     // Explicit field after spread wins
-    let result = BasicStruct { ...base, x: 999 },
-    assert_eq(actual: result.x, expected: 999),
-    assert_eq(actual: result.y, expected: 20),
-)
+    let result = BasicStruct { ...base, x: 999 };
+    assert_eq(actual: result.x, expected: 999);
+    assert_eq(actual: result.y, expected: 20)
+}
 
-@test_explicit_then_spread tests @_use_basic () -> void = run(
-    let base = BasicStruct { x: 10, y: 20 },
+@test_explicit_then_spread tests @_use_basic () -> void = {
+    let base = BasicStruct { x: 10, y: 20 };
     // Spread after explicit - spread wins for that field
-    let result = BasicStruct { x: 999, ...base },
-    assert_eq(actual: result.x, expected: 10),  // base.x wins
-    assert_eq(actual: result.y, expected: 20),
-)
+    let result = BasicStruct { x: 999, ...base };
+    assert_eq(actual: result.x, expected: 10);  // base.x wins
+    assert_eq(actual: result.y, expected: 20)
+}
 
 // =============================================================================
 // Spread with Nested Structs
@@ -217,17 +217,17 @@ type MixedTypes = {
 type Point = { x: int, y: int }
 type Line = { start: Point, end: Point }
 
-@test_nested_spread tests @_use_line () -> void = run(
+@test_nested_spread tests @_use_line () -> void = {
     let original = Line {
         start: Point { x: 0, y: 0 },
         end: Point { x: 10, y: 10 },
-    },
-    let updated = Line { ...original, end: Point { x: 20, y: 20 } },
-    assert_eq(actual: updated.start.x, expected: 0),
-    assert_eq(actual: updated.end.x, expected: 20),
-)
+    };
+    let updated = Line { ...original, end: Point { x: 20, y: 20 } };
+    assert_eq(actual: updated.start.x, expected: 0);
+    assert_eq(actual: updated.end.x, expected: 20)
+}
 
-@_use_line (l: Line) -> int = l.start.x
+@_use_line (l: Line) -> int = l.start.x;
 
 // =============================================================================
 // Spread with Many Fields
@@ -241,23 +241,23 @@ type Config = {
     timeout: int,
 }
 
-@test_spread_many_fields tests @_use_config () -> void = run(
+@test_spread_many_fields tests @_use_config () -> void = {
     let original = Config {
         name: "app",
         port: 8080,
         debug: false,
         host: "localhost",
         timeout: 30,
-    },
-    let updated = Config { ...original, debug: true, port: 9090 },
-    assert_eq(actual: updated.name, expected: "app"),
-    assert_eq(actual: updated.port, expected: 9090),
-    assert(cond: updated.debug),
-    assert_eq(actual: updated.host, expected: "localhost"),
-    assert_eq(actual: updated.timeout, expected: 30),
-)
+    };
+    let updated = Config { ...original, debug: true, port: 9090 };
+    assert_eq(actual: updated.name, expected: "app");
+    assert_eq(actual: updated.port, expected: 9090);
+    assert(cond: updated.debug);
+    assert_eq(actual: updated.host, expected: "localhost");
+    assert_eq(actual: updated.timeout, expected: 30)
+}
 
-@_use_config (c: Config) -> str = c.name
+@_use_config (c: Config) -> str = c.name;
 
 // =============================================================================
 // Generic Structs
@@ -265,44 +265,44 @@ type Config = {
 
 type Box<T> = { value: T }
 
-@test_generic_int tests @_use_box_int () -> void = run(
-    let b: Box<int> = Box { value: 42 },
-    assert_eq(actual: b.value, expected: 42),
-)
+@test_generic_int tests @_use_box_int () -> void = {
+    let b: Box<int> = Box { value: 42 };
+    assert_eq(actual: b.value, expected: 42)
+}
 
-@test_generic_str tests @_use_box_str () -> void = run(
-    let b: Box<str> = Box { value: "hello" },
-    assert_eq(actual: b.value, expected: "hello"),
-)
+@test_generic_str tests @_use_box_str () -> void = {
+    let b: Box<str> = Box { value: "hello" };
+    assert_eq(actual: b.value, expected: "hello")
+}
 
-@_use_box_int (b: Box<int>) -> int = b.value
-@_use_box_str (b: Box<str>) -> str = b.value
+@_use_box_int (b: Box<int>) -> int = b.value;
+@_use_box_str (b: Box<str>) -> str = b.value;
 
 type GenericPair<A, B> = { first: A, second: B }
 
-@test_generic_pair tests @_use_gpair () -> void = run(
-    let p: GenericPair<int, str> = GenericPair { first: 42, second: "hello" },
-    assert_eq(actual: p.first, expected: 42),
-    assert_eq(actual: p.second, expected: "hello"),
-)
+@test_generic_pair tests @_use_gpair () -> void = {
+    let p: GenericPair<int, str> = GenericPair { first: 42, second: "hello" };
+    assert_eq(actual: p.first, expected: 42);
+    assert_eq(actual: p.second, expected: "hello")
+}
 
-@_use_gpair (p: GenericPair<int, str>) -> int = p.first
+@_use_gpair (p: GenericPair<int, str>) -> int = p.first;
 
 // =============================================================================
 // Spread with Generic Structs
 // =============================================================================
 
-@test_spread_generic tests @_use_box_int () -> void = run(
-    let original: Box<int> = Box { value: 42 },
-    let copy: Box<int> = Box { ...original },
-    assert_eq(actual: copy.value, expected: 42),
-)
+@test_spread_generic tests @_use_box_int () -> void = {
+    let original: Box<int> = Box { value: 42 };
+    let copy: Box<int> = Box { ...original };
+    assert_eq(actual: copy.value, expected: 42)
+}
 
-@test_spread_override_generic tests @_use_box_int () -> void = run(
-    let original: Box<int> = Box { value: 42 },
-    let updated: Box<int> = Box { ...original, value: 100 },
-    assert_eq(actual: updated.value, expected: 100),
-)
+@test_spread_override_generic tests @_use_box_int () -> void = {
+    let original: Box<int> = Box { value: 42 };
+    let updated: Box<int> = Box { ...original, value: 100 };
+    assert_eq(actual: updated.value, expected: 100)
+}
 
 // =============================================================================
 // Struct with Optional Fields (Option type)
@@ -313,19 +313,19 @@ type OptionalFields = {
     optional: Option<str>,
 }
 
-@test_optional_some tests @_use_optional () -> void = run(
-    let s = OptionalFields { required: 42, optional: Some("value") },
-    assert_eq(actual: s.required, expected: 42),
-    assert(cond: is_some(opt: s.optional)),
-)
+@test_optional_some tests @_use_optional () -> void = {
+    let s = OptionalFields { required: 42, optional: Some("value") };
+    assert_eq(actual: s.required, expected: 42);
+    assert(cond: is_some(opt: s.optional))
+}
 
-@test_optional_none tests @_use_optional () -> void = run(
-    let s = OptionalFields { required: 42, optional: None },
-    assert_eq(actual: s.required, expected: 42),
-    assert(cond: is_none(opt: s.optional)),
-)
+@test_optional_none tests @_use_optional () -> void = {
+    let s = OptionalFields { required: 42, optional: None };
+    assert_eq(actual: s.required, expected: 42);
+    assert(cond: is_none(opt: s.optional))
+}
 
-@_use_optional (s: OptionalFields) -> int = s.required
+@_use_optional (s: OptionalFields) -> int = s.required;
 
 // =============================================================================
 // Struct with List Fields
@@ -333,13 +333,13 @@ type OptionalFields = {
 
 type WithList = { items: [int], name: str }
 
-@test_list_field tests @_use_with_list () -> void = run(
-    let s = WithList { items: [1, 2, 3], name: "test" },
-    assert_eq(actual: len(collection: s.items), expected: 3),
-    assert_eq(actual: s.items[0], expected: 1),
-)
+@test_list_field tests @_use_with_list () -> void = {
+    let s = WithList { items: [1, 2, 3], name: "test" };
+    assert_eq(actual: len(collection: s.items), expected: 3);
+    assert_eq(actual: s.items[0], expected: 1)
+}
 
-@_use_with_list (s: WithList) -> str = s.name
+@_use_with_list (s: WithList) -> str = s.name;
 
 // =============================================================================
 // Struct with Tuple Fields
@@ -347,14 +347,14 @@ type WithList = { items: [int], name: str }
 
 type WithTuple = { coords: (int, int), label: str }
 
-@test_tuple_field tests @_use_with_tuple () -> void = run(
-    let s = WithTuple { coords: (10, 20), label: "point" },
-    let (x, y) = s.coords,
-    assert_eq(actual: x, expected: 10),
-    assert_eq(actual: y, expected: 20),
-)
+@test_tuple_field tests @_use_with_tuple () -> void = {
+    let s = WithTuple { coords: (10, 20), label: "point" };
+    let (x, y) = s.coords;
+    assert_eq(actual: x, expected: 10);
+    assert_eq(actual: y, expected: 20)
+}
 
-@_use_with_tuple (s: WithTuple) -> str = s.label
+@_use_with_tuple (s: WithTuple) -> str = s.label;
 
 // =============================================================================
 // Struct with Function Fields
@@ -365,15 +365,15 @@ type WithFunction = {
     name: str,
 }
 
-@test_function_field tests @_use_with_fn () -> void = run(
+@test_function_field tests @_use_with_fn () -> void = {
     let s = WithFunction {
         transform: (x) -> x * 2,
         name: "doubler",
-    },
-    assert_eq(actual: s.transform(21), expected: 42),
-)
+    };
+    assert_eq(actual: s.transform(21), expected: 42)
+}
 
-@_use_with_fn (s: WithFunction) -> str = s.name
+@_use_with_fn (s: WithFunction) -> str = s.name;
 
 // =============================================================================
 // Struct Field Access Chaining
@@ -382,60 +382,60 @@ type WithFunction = {
 type Person = { name: str, age: int }
 type Company = { ceo: Person, name: str }
 
-@test_field_chaining tests @_use_company () -> void = run(
+@test_field_chaining tests @_use_company () -> void = {
     let c = Company {
         ceo: Person { name: "Alice", age: 45 },
         name: "TechCorp",
-    },
-    assert_eq(actual: c.ceo.name, expected: "Alice"),
-    assert_eq(actual: c.ceo.age, expected: 45),
-)
+    };
+    assert_eq(actual: c.ceo.name, expected: "Alice");
+    assert_eq(actual: c.ceo.age, expected: 45)
+}
 
-@_use_company (c: Company) -> str = c.name
+@_use_company (c: Company) -> str = c.name;
 
 // =============================================================================
 // Struct in Expressions
 // =============================================================================
 
-@test_struct_in_if tests @_use_basic () -> void = run(
-    let cond = true,
-    let s = if cond then BasicStruct { x: 1, y: 2 } else BasicStruct { x: 3, y: 4 },
-    assert_eq(actual: s.x, expected: 1),
-)
+@test_struct_in_if tests @_use_basic () -> void = {
+    let cond = true;
+    let s = if cond then BasicStruct { x: 1, y: 2 } else BasicStruct { x: 3, y: 4 };
+    assert_eq(actual: s.x, expected: 1)
+}
 
-@test_struct_in_match tests @_use_basic () -> void = run(
-    let opt: Option<int> = Some(42),
-    let s = match(opt,
+@test_struct_in_match tests @_use_basic () -> void = {
+    let opt: Option<int> = Some(42);
+    let s = match opt {
         Some(n) -> BasicStruct { x: n, y: n * 2 },
-        None -> BasicStruct { x: 0, y: 0 },
-    ),
-    assert_eq(actual: s.x, expected: 42),
-    assert_eq(actual: s.y, expected: 84),
-)
+        None -> BasicStruct { x: 0, y: 0 }
+    };
+    assert_eq(actual: s.x, expected: 42);
+    assert_eq(actual: s.y, expected: 84)
+}
 
 // =============================================================================
 // Struct Destructuring
 // =============================================================================
 
-@test_destructure tests @_use_basic () -> void = run(
-    let s = BasicStruct { x: 10, y: 20 },
-    let { x, y } = s,
-    assert_eq(actual: x, expected: 10),
-    assert_eq(actual: y, expected: 20),
-)
+@test_destructure tests @_use_basic () -> void = {
+    let s = BasicStruct { x: 10, y: 20 };
+    let { x, y } = s;
+    assert_eq(actual: x, expected: 10);
+    assert_eq(actual: y, expected: 20)
+}
 
-@test_destructure_partial tests @_use_basic () -> void = run(
-    let s = BasicStruct { x: 10, y: 20 },
-    let { x } = s,
-    assert_eq(actual: x, expected: 10),
-)
+@test_destructure_partial tests @_use_basic () -> void = {
+    let s = BasicStruct { x: 10, y: 20 };
+    let { x } = s;
+    assert_eq(actual: x, expected: 10)
+}
 
-@test_destructure_rename tests @_use_basic () -> void = run(
-    let s = BasicStruct { x: 10, y: 20 },
-    let { x: a, y: b } = s,
-    assert_eq(actual: a, expected: 10),
-    assert_eq(actual: b, expected: 20),
-)
+@test_destructure_rename tests @_use_basic () -> void = {
+    let s = BasicStruct { x: 10, y: 20 };
+    let { x: a, y: b } = s;
+    assert_eq(actual: a, expected: 10);
+    assert_eq(actual: b, expected: 20)
+}
 
 // =============================================================================
 // Struct Equality (with derived Eq)
@@ -444,15 +444,15 @@ type Company = { ceo: Person, name: str }
 #[derive(Eq)]
 type EqStruct = { a: int, b: int }
 
-@test_struct_eq tests @_use_eq_struct () -> void = run(
-    let s1 = EqStruct { a: 1, b: 2 },
-    let s2 = EqStruct { a: 1, b: 2 },
-    let s3 = EqStruct { a: 1, b: 3 },
-    assert(cond: s1 == s2),
-    assert(cond: s1 != s3),
-)
+@test_struct_eq tests @_use_eq_struct () -> void = {
+    let s1 = EqStruct { a: 1, b: 2 };
+    let s2 = EqStruct { a: 1, b: 2 };
+    let s3 = EqStruct { a: 1, b: 3 };
+    assert(cond: s1 == s2);
+    assert(cond: s1 != s3)
+}
 
-@_use_eq_struct (s: EqStruct) -> int = s.a
+@_use_eq_struct (s: EqStruct) -> int = s.a;
 
 // =============================================================================
 // Public Struct Types
@@ -460,12 +460,12 @@ type EqStruct = { a: int, b: int }
 
 pub type PublicStruct = { value: int }
 
-@test_public_struct tests @_use_public () -> void = run(
-    let s = PublicStruct { value: 42 },
-    assert_eq(actual: s.value, expected: 42),
-)
+@test_public_struct tests @_use_public () -> void = {
+    let s = PublicStruct { value: 42 };
+    assert_eq(actual: s.value, expected: 42)
+}
 
-@_use_public (s: PublicStruct) -> int = s.value
+@_use_public (s: PublicStruct) -> int = s.value;
 
 // =============================================================================
 // Struct with Reserved Word-like Field Names
@@ -477,11 +477,11 @@ type SpecialNames = {
     option: bool,
 }
 
-@test_special_names tests @_use_special () -> void = run(
-    let s = SpecialNames { value: 42, result: "ok", option: true },
-    assert_eq(actual: s.value, expected: 42),
-    assert_eq(actual: s.result, expected: "ok"),
-    assert(cond: s.option),
-)
+@test_special_names tests @_use_special () -> void = {
+    let s = SpecialNames { value: 42, result: "ok", option: true };
+    assert_eq(actual: s.value, expected: 42);
+    assert_eq(actual: s.result, expected: "ok");
+    assert(cond: s.option)
+}
 
-@_use_special (s: SpecialNames) -> int = s.value
+@_use_special (s: SpecialNames) -> int = s.value;

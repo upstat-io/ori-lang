@@ -1,15 +1,15 @@
 use std.testing { assert, assert_eq }
 
-type Status = Pending | Running(progress: int) | Done
+type Status = Pending | Running(progress: int) | Done;
 
-@test_sum_type_patterns tests @sum_type_patterns () -> void = run(
-    assert_eq(actual: sum_type_patterns(Pending), expected: "waiting"),
-    assert_eq(actual: sum_type_patterns(Running(progress: 50)), expected: "50%"),
-    assert_eq(actual: sum_type_patterns(Done), expected: "complete"),
-)
+@test_sum_type_patterns tests @sum_type_patterns () -> void = {
+    assert_eq(actual: sum_type_patterns(Pending), expected: "waiting");
+    assert_eq(actual: sum_type_patterns(Running(progress: 50)), expected: "50%");
+    assert_eq(actual: sum_type_patterns(Done), expected: "complete")
+}
 
-@sum_type_patterns (s: Status) -> str = match(s,
+@sum_type_patterns (s: Status) -> str = match s {
     Pending -> "waiting",
     Running(p) -> str(p) + "%",
-    Done -> "complete",
-)
+    Done -> "complete"
+}

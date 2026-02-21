@@ -9,134 +9,134 @@ use std.testing { assert_eq, assert }
 // =============================================================================
 
 // Never coerces to int in conditional
-@test_never_coerces_to_int tests @never_to_int () -> void = run(
-    let result: int = if false then panic(msg: "unreachable") else 42,
-    assert_eq(actual: result, expected: 42),
-)
+@test_never_coerces_to_int tests @never_to_int () -> void = {
+    let result: int = if false then panic(msg: "unreachable") else 42;
+    assert_eq(actual: result, expected: 42)
+}
 
-@never_to_int () -> int = if false then panic(msg: "unreachable") else 42
+@never_to_int () -> int = if false then panic(msg: "unreachable") else 42;
 
 // Never coerces to str in conditional
-@test_never_coerces_to_str tests @never_to_str () -> void = run(
-    let result: str = if true then "hello" else panic(msg: "unreachable"),
-    assert_eq(actual: result, expected: "hello"),
-)
+@test_never_coerces_to_str tests @never_to_str () -> void = {
+    let result: str = if true then "hello" else panic(msg: "unreachable");
+    assert_eq(actual: result, expected: "hello")
+}
 
-@never_to_str () -> str = if true then "hello" else panic(msg: "unreachable")
+@never_to_str () -> str = if true then "hello" else panic(msg: "unreachable");
 
 // Never coerces to bool in conditional
-@test_never_coerces_to_bool tests @never_to_bool () -> void = run(
-    let result: bool = if true then true else panic(msg: "unreachable"),
-    assert(cond: result),
-)
+@test_never_coerces_to_bool tests @never_to_bool () -> void = {
+    let result: bool = if true then true else panic(msg: "unreachable");
+    assert(cond: result)
+}
 
-@never_to_bool () -> bool = if true then true else panic(msg: "unreachable")
+@never_to_bool () -> bool = if true then true else panic(msg: "unreachable");
 
 // =============================================================================
 // Never in Complex Types
 // =============================================================================
 
 // Never coerces to list type
-@test_never_coerces_to_list tests @never_to_list () -> void = run(
-    let result: [int] = if true then [1, 2, 3] else panic(msg: "unreachable"),
-    assert_eq(actual: len(collection: result), expected: 3),
-)
+@test_never_coerces_to_list tests @never_to_list () -> void = {
+    let result: [int] = if true then [1, 2, 3] else panic(msg: "unreachable");
+    assert_eq(actual: len(collection: result), expected: 3)
+}
 
-@never_to_list () -> [int] = if true then [1, 2, 3] else panic(msg: "unreachable")
+@never_to_list () -> [int] = if true then [1, 2, 3] else panic(msg: "unreachable");
 
 // Never coerces to Option type
-@test_never_coerces_to_option tests @never_to_option () -> void = run(
-    let result: Option<int> = if true then Some(42) else panic(msg: "unreachable"),
-    assert(cond: is_some(opt: result)),
-)
+@test_never_coerces_to_option tests @never_to_option () -> void = {
+    let result: Option<int> = if true then Some(42) else panic(msg: "unreachable");
+    assert(cond: is_some(opt: result))
+}
 
-@never_to_option () -> Option<int> = if true then Some(42) else panic(msg: "unreachable")
+@never_to_option () -> Option<int> = if true then Some(42) else panic(msg: "unreachable");
 
 // Never coerces to Result type
-@test_never_coerces_to_result tests @never_to_result () -> void = run(
-    let result: Result<int, str> = if true then Ok(42) else panic(msg: "unreachable"),
-    assert(cond: is_ok(r: result)),
-)
+@test_never_coerces_to_result tests @never_to_result () -> void = {
+    let result: Result<int, str> = if true then Ok(42) else panic(msg: "unreachable");
+    assert(cond: is_ok(r: result))
+}
 
-@never_to_result () -> Result<int, str> = if true then Ok(42) else panic(msg: "unreachable")
+@never_to_result () -> Result<int, str> = if true then Ok(42) else panic(msg: "unreachable");
 
 // =============================================================================
 // Never-Producing Expressions
 // =============================================================================
 
 // panic returns Never and coerces
-@test_panic_coerces tests @panic_coerces () -> void = run(
-    let x: int = if false then panic(msg: "fail") else 1,
-    assert_eq(actual: x, expected: 1),
-)
+@test_panic_coerces tests @panic_coerces () -> void = {
+    let x: int = if false then panic(msg: "fail") else 1;
+    assert_eq(actual: x, expected: 1)
+}
 
-@panic_coerces () -> int = if false then panic(msg: "fail") else 1
+@panic_coerces () -> int = if false then panic(msg: "fail") else 1;
 
 // todo returns Never and coerces
-@test_todo_coerces tests @todo_coerces () -> void = run(
-    let x: int = if false then todo() else 2,
-    assert_eq(actual: x, expected: 2),
-)
+@test_todo_coerces tests @todo_coerces () -> void = {
+    let x: int = if false then todo() else 2;
+    assert_eq(actual: x, expected: 2)
+}
 
-@todo_coerces () -> int = if false then todo() else 2
+@todo_coerces () -> int = if false then todo() else 2;
 
 // todo with reason returns Never and coerces
-@test_todo_with_reason_coerces tests @todo_reason_coerces () -> void = run(
-    let x: int = if false then todo(reason: "implement later") else 3,
-    assert_eq(actual: x, expected: 3),
-)
+@test_todo_with_reason_coerces tests @todo_reason_coerces () -> void = {
+    let x: int = if false then todo(reason: "implement later") else 3;
+    assert_eq(actual: x, expected: 3)
+}
 
-@todo_reason_coerces () -> int = if false then todo(reason: "implement") else 3
+@todo_reason_coerces () -> int = if false then todo(reason: "implement") else 3;
 
 // unreachable returns Never and coerces
-@test_unreachable_coerces tests @unreachable_coerces () -> void = run(
-    let x: int = if false then unreachable() else 4,
-    assert_eq(actual: x, expected: 4),
-)
+@test_unreachable_coerces tests @unreachable_coerces () -> void = {
+    let x: int = if false then unreachable() else 4;
+    assert_eq(actual: x, expected: 4)
+}
 
-@unreachable_coerces () -> int = if false then unreachable() else 4
+@unreachable_coerces () -> int = if false then unreachable() else 4;
 
 // unreachable with reason returns Never and coerces
-@test_unreachable_with_reason_coerces tests @unreachable_reason_coerces () -> void = run(
-    let x: int = if false then unreachable(reason: "impossible") else 5,
-    assert_eq(actual: x, expected: 5),
-)
+@test_unreachable_with_reason_coerces tests @unreachable_reason_coerces () -> void = {
+    let x: int = if false then unreachable(reason: "impossible") else 5;
+    assert_eq(actual: x, expected: 5)
+}
 
-@unreachable_reason_coerces () -> int = if false then unreachable(reason: "impossible") else 5
+@unreachable_reason_coerces () -> int = if false then unreachable(reason: "impossible") else 5;
 
 // =============================================================================
 // Never in Match Expressions
 // =============================================================================
 
 // Never in match arm coerces to result type
-@test_never_in_match tests @never_in_match () -> void = run(
-    let opt = Some(42),
-    let result = match(opt,
+@test_never_in_match tests @never_in_match () -> void = {
+    let opt = Some(42);
+    let result = match opt {
         Some(x) -> x,
-        None -> panic(msg: "expected Some"),
-    ),
-    assert_eq(actual: result, expected: 42),
-)
+        None -> panic(msg: "expected Some")
+    };
+    assert_eq(actual: result, expected: 42)
+}
 
-@never_in_match () -> int = match(Some(42),
+@never_in_match () -> int = match Some(42) {
     Some(x) -> x,
-    None -> panic(msg: "expected Some"),
-)
+    None -> panic(msg: "expected Some")
+}
 
 // Multiple match arms can diverge
-@test_match_multiple_never tests @match_multiple_never () -> void = run(
-    let result: Result<int, str> = Ok(100),
-    let value = match(result,
+@test_match_multiple_never tests @match_multiple_never () -> void = {
+    let result: Result<int, str> = Ok(100);
+    let value = match result {
         Ok(x) -> x,
-        Err(e) -> panic(msg: e),
-    ),
-    assert_eq(actual: value, expected: 100),
-)
+        Err(e) -> panic(msg: e)
+    };
+    assert_eq(actual: value, expected: 100)
+}
 
-@match_multiple_never () -> int = match(Ok(100),
+@match_multiple_never () -> int = match Ok(100) {
     Ok(x) -> x,
-    Err(e) -> panic(msg: e),
-)
+    Err(e) -> panic(msg: e)
+}
 
 // =============================================================================
 // Never with Generic Contexts
@@ -144,93 +144,93 @@ use std.testing { assert_eq, assert }
 
 // Result<Never, E> can only be Err (conceptually)
 // We can't construct Result<Never, E>::Ok, so this tests the type system
-@test_result_never_ok tests @result_never_ok () -> void = run(
-    let result: Result<int, str> = Err("error"),
-    assert(cond: is_err(r: result)),
-)
+@test_result_never_ok tests @result_never_ok () -> void = {
+    let result: Result<int, str> = Err("error");
+    assert(cond: is_err(r: result))
+}
 
-@result_never_ok () -> bool = is_err(r: Err("error"))
+@result_never_ok () -> bool = is_err(r: Err("error"));
 
 // Option<Never> can only be None (conceptually)
-@test_option_never tests @option_never () -> void = run(
-    let opt: Option<int> = None,
-    assert(cond: is_none(opt: opt)),
-)
+@test_option_never tests @option_never () -> void = {
+    let opt: Option<int> = None;
+    assert(cond: is_none(opt: opt))
+}
 
-@option_never () -> bool = is_none(opt: None)
+@option_never () -> bool = is_none(opt: None);
 
 // =============================================================================
 // Never in Else Branch
 // =============================================================================
 
 // Common pattern: panic in else branch
-@test_never_else_panic tests @never_else_panic () -> void = run(
-    let x = 10,
-    let y = if x > 0 then x else panic(msg: "x must be positive"),
-    assert_eq(actual: y, expected: 10),
-)
+@test_never_else_panic tests @never_else_panic () -> void = {
+    let x = 10;
+    let y = if x > 0 then x else panic(msg: "x must be positive");
+    assert_eq(actual: y, expected: 10)
+}
 
-@never_else_panic () -> int = run(
-    let x = 10,
-    if x > 0 then x else panic(msg: "x must be positive"),
-)
+@never_else_panic () -> int = {
+    let x = 10;
+    if x > 0 then x else panic(msg: "x must be positive")
+}
 
 // Common pattern: todo in else branch
-@test_never_else_todo tests @never_else_todo () -> void = run(
-    let flag = true,
-    let result = if flag then "handled" else todo(reason: "handle false case"),
-    assert_eq(actual: result, expected: "handled"),
-)
+@test_never_else_todo tests @never_else_todo () -> void = {
+    let flag = true;
+    let result = if flag then "handled" else todo(reason: "handle false case");
+    assert_eq(actual: result, expected: "handled")
+}
 
-@never_else_todo () -> str = if true then "handled" else todo()
+@never_else_todo () -> str = if true then "handled" else todo();
 
 // =============================================================================
 // Never in Then Branch
 // =============================================================================
 
 // Never in then branch, result comes from else
-@test_never_then_panic tests @never_then_panic () -> void = run(
-    let condition = false,
-    let result = if condition then panic(msg: "not this") else 42,
-    assert_eq(actual: result, expected: 42),
-)
+@test_never_then_panic tests @never_then_panic () -> void = {
+    let condition = false;
+    let result = if condition then panic(msg: "not this") else 42;
+    assert_eq(actual: result, expected: 42)
+}
 
-@never_then_panic () -> int = if false then panic(msg: "not this") else 42
+@never_then_panic () -> int = if false then panic(msg: "not this") else 42;
 
 // =============================================================================
 // Nested Never Coercion
 // =============================================================================
 
 // Never in nested conditionals
-@test_nested_never tests @nested_never () -> void = run(
-    let a = true,
-    let b = true,
-    let result = if a then (if b then 1 else panic(msg: "b false")) else panic(msg: "a false"),
-    assert_eq(actual: result, expected: 1),
-)
+@test_nested_never tests @nested_never () -> void = {
+    let a = true;
+    let b = true;
+    let result = if a then (if b then 1 else panic(msg: "b false")) else panic(msg: "a false");
+    assert_eq(actual: result, expected: 1)
+}
 
-@nested_never () -> int = run(
-    let a = true,
-    let b = true,
-    if a then (if b then 1 else panic(msg: "b")) else panic(msg: "a"),
-)
+@nested_never () -> int = {
+    let a = true;
+    let b = true;
+    if a then (if b then 1 else panic(msg: "b")) else panic(msg: "a")
+}
 
 // =============================================================================
 // Short-Circuit with Never
 // =============================================================================
 
 // && short-circuits before Never
-@test_and_short_circuit_never tests @and_short_circuit_never () -> void = run(
-    let result = false && panic(msg: "should not evaluate"),
-    assert(cond: !result),
-)
+@test_and_short_circuit_never tests @and_short_circuit_never () -> void = {
+    let result = false && panic(msg: "should not evaluate");
+    assert(cond: !result)
+}
 
-@and_short_circuit_never () -> bool = false && panic(msg: "skip")
+@and_short_circuit_never () -> bool = false && panic(msg: "skip");
 
 // || short-circuits before Never
-@test_or_short_circuit_never tests @or_short_circuit_never () -> void = run(
-    let result = true || panic(msg: "should not evaluate"),
-    assert(cond: result),
-)
+@test_or_short_circuit_never tests @or_short_circuit_never () -> void = {
+    let result = true || panic(msg: "should not evaluate");
+    assert(cond: result)
+}
 
-@or_short_circuit_never () -> bool = true || panic(msg: "skip")
+@or_short_circuit_never () -> bool = true || panic(msg: "skip");

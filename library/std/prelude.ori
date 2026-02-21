@@ -321,48 +321,48 @@ pub trait Env {
 // Utility Functions
 // =============================================================================
 // Get the length of any collection implementing Len
-pub @len<T: Len> (collection: T) -> int = collection.len()
+pub @len<T: Len> (collection: T) -> int = collection.len();
 
 // Check if a list is empty
-pub @is_empty<T> (collection: [T]) -> bool = collection.len() == 0
+pub @is_empty<T> (collection: [T]) -> bool = collection.len() == 0;
 
 // Check if Option is Some
-pub @is_some<T> (opt: Option<T>) -> bool = match(opt,
+pub @is_some<T> (opt: Option<T>) -> bool = match opt {
     Some(_) -> true,
-    None -> false,
-)
+    None -> false
+}
 
 // Check if Option is None
-pub @is_none<T> (opt: Option<T>) -> bool = match(opt,
+pub @is_none<T> (opt: Option<T>) -> bool = match opt {
     Some(_) -> false,
-    None -> true,
-)
+    None -> true
+}
 
 // Check if Result is Ok
-pub @is_ok<T, E> (r: Result<T, E>) -> bool = match(r,
+pub @is_ok<T, E> (r: Result<T, E>) -> bool = match r {
     Ok(_) -> true,
-    Err(_) -> false,
-)
+    Err(_) -> false
+}
 
 // Check if Result is Err
-pub @is_err<T, E> (r: Result<T, E>) -> bool = match(r,
+pub @is_err<T, E> (r: Result<T, E>) -> bool = match r {
     Ok(_) -> false,
-    Err(_) -> true,
-)
+    Err(_) -> true
+}
 
 // =============================================================================
 // Comparison Functions
 // =============================================================================
 // Compare two integers
-pub @compare (a: int, b: int) -> Ordering = run(
-    if a < b then Less else if a > b then Greater else Equal,
-)
+pub @compare (a: int, b: int) -> Ordering = {
+    if a < b then Less else if a > b then Greater else Equal
+}
 
 // Get the minimum of two integers
-pub @min (a: int, b: int) -> int = if a < b then a else b
+pub @min (a: int, b: int) -> int = if a < b then a else b;
 
 // Get the maximum of two integers
-pub @max (a: int, b: int) -> int = if a > b then a else b
+pub @max (a: int, b: int) -> int = if a > b then a else b;
 
 // Combine two hash values using the Boost hash combine algorithm.
 // Uses wrapping arithmetic (built-in) since hash computation overflows by design.

@@ -53,9 +53,6 @@ pub(crate) struct KnownNames {
     pub channel_in: Name,
     pub channel_out: Name,
     pub channel_all: Name,
-    // Check properties
-    pub pre_check: Name,
-    pub post_check: Name,
     // For-pattern properties
     pub over: Name,
     pub map: Name,
@@ -73,8 +70,6 @@ impl KnownNames {
             channel_in: interner.intern("channel_in"),
             channel_out: interner.intern("channel_out"),
             channel_all: interner.intern("channel_all"),
-            pre_check: interner.intern("pre_check"),
-            post_check: interner.intern("post_check"),
             over: interner.intern("over"),
             map: interner.intern("map"),
             match_: interner.intern("match"),
@@ -809,6 +804,36 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consume a trailing semicolon if present.
+    ///
+    /// Used after items like `use`, `capset`, and trait method signatures
+    /// where `;` terminates the declaration but is not enforced by the parser.
+    pub(crate) fn eat_optional_semicolon(&mut self) {
+        if self.cursor.check(&TokenKind::Semicolon) {
+            self.cursor.advance();
+        }
+    }
+
+    /// Consume a required trailing semicolon after an item with an expression body.
+    ///
+    /// Per grammar: function/test/method bodies that end with `}` (block body)
+    /// don't need a trailing `;`. Non-block bodies (e.g., `@f () -> int = 42;`)
+    /// require `;` to terminate the declaration.
+    pub(crate) fn eat_optional_item_semicolon(&mut self) {
+        if self.cursor.check(&TokenKind::Semicolon) {
+            self.cursor.advance();
+        } else if !self.cursor.previous_non_newline_is_rbrace() {
+            self.deferred_errors.push(
+                ParseError::new(
+                    ori_diagnostic::ErrorCode::E1016,
+                    "expected `;` after item declaration",
+                    self.cursor.current_span(),
+                )
+                .with_help("Block bodies ending with `}` don't need `;`, but expression bodies do"),
+            );
+        }
+    }
+
     /// Recovery: skip to next statement (@ or use or EOF)
     fn recover_to_next_statement(&mut self) {
         recovery::synchronize(&mut self.cursor, recovery::STMT_BOUNDARY);
@@ -908,6 +933,9 @@ impl<'a> Parser<'a> {
 
                     state.stats.reused_count += 1;
                     self.skip_to_span_end(decl_ref.span);
+                    // Consume trailing `;` that was eaten by the original parse
+                    // but not included in the declaration span.
+                    self.eat_optional_semicolon();
                     continue;
                 }
             }

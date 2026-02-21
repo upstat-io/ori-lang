@@ -7,172 +7,172 @@ use std.testing { assert, assert_eq }
 // Primitive .hash() — Consistency Check
 // =============================================================================
 
-@test_int_hash_consistent tests @int_hash () -> void = run(
-    assert_eq(actual: 42.hash(), expected: 42.hash()),
-    assert_eq(actual: 0.hash(), expected: 0.hash()),
-)
+@test_int_hash_consistent tests @int_hash () -> void = {
+    assert_eq(actual: 42.hash(), expected: 42.hash());
+    assert_eq(actual: 0.hash(), expected: 0.hash())
+}
 
-@int_hash () -> int = 42.hash()
+@int_hash () -> int = 42.hash();
 
-@test_str_hash_consistent tests @str_hash () -> void = run(
-    assert_eq(actual: "hello".hash(), expected: "hello".hash()),
-    assert_eq(actual: "".hash(), expected: "".hash()),
-)
+@test_str_hash_consistent tests @str_hash () -> void = {
+    assert_eq(actual: "hello".hash(), expected: "hello".hash());
+    assert_eq(actual: "".hash(), expected: "".hash())
+}
 
-@str_hash () -> int = "hello".hash()
+@str_hash () -> int = "hello".hash();
 
-@test_bool_hash_consistent tests @bool_hash () -> void = run(
-    assert_eq(actual: true.hash(), expected: true.hash()),
-    assert_eq(actual: false.hash(), expected: false.hash()),
-)
+@test_bool_hash_consistent tests @bool_hash () -> void = {
+    assert_eq(actual: true.hash(), expected: true.hash());
+    assert_eq(actual: false.hash(), expected: false.hash())
+}
 
-@bool_hash () -> int = true.hash()
+@bool_hash () -> int = true.hash();
 
 // =============================================================================
 // Float .hash() — Normalization
 // =============================================================================
 
-@test_float_hash_consistent tests @float_hash () -> void = run(
-    assert_eq(actual: 3.14.hash(), expected: 3.14.hash()),
-    assert_eq(actual: 0.0.hash(), expected: 0.0.hash()),
-)
+@test_float_hash_consistent tests @float_hash () -> void = {
+    assert_eq(actual: 3.14.hash(), expected: 3.14.hash());
+    assert_eq(actual: 0.0.hash(), expected: 0.0.hash())
+}
 
-@float_hash () -> int = 3.14.hash()
+@float_hash () -> int = 3.14.hash();
 
 // =============================================================================
 // List .hash()
 // =============================================================================
 
-@test_list_hash_consistent tests @list_hash () -> void = run(
-    assert_eq(actual: [1, 2, 3].hash(), expected: [1, 2, 3].hash()),
-    let empty: [int] = [],
-    assert_eq(actual: empty.hash(), expected: empty.hash()),
-)
+@test_list_hash_consistent tests @list_hash () -> void = {
+    assert_eq(actual: [1, 2, 3].hash(), expected: [1, 2, 3].hash());
+    let empty: [int] = [];
+    assert_eq(actual: empty.hash(), expected: empty.hash())
+}
 
-@list_hash () -> int = [1, 2].hash()
+@list_hash () -> int = [1, 2].hash();
 
-@test_list_hash_order_matters tests @list_hash_order () -> void = run(
-    let h1 = [1, 2].hash(),
-    let h2 = [2, 1].hash(),
+@test_list_hash_order_matters tests @list_hash_order () -> void = {
+    let h1 = [1, 2].hash();
+    let h2 = [2, 1].hash();
     // Different order should produce different hashes (in practice)
-    assert(cond: h1 != h2),
-)
+    assert(cond: h1 != h2)
+}
 
-@list_hash_order () -> bool = [1, 2].hash() != [2, 1].hash()
+@list_hash_order () -> bool = [1, 2].hash() != [2, 1].hash();
 
 // =============================================================================
 // Tuple .hash()
 // =============================================================================
 
-@test_tuple_hash_consistent tests @tuple_hash () -> void = run(
-    assert_eq(actual: (1, "a").hash(), expected: (1, "a").hash()),
-    assert_eq(actual: (true, 42).hash(), expected: (true, 42).hash()),
-)
+@test_tuple_hash_consistent tests @tuple_hash () -> void = {
+    assert_eq(actual: (1, "a").hash(), expected: (1, "a").hash());
+    assert_eq(actual: (true, 42).hash(), expected: (true, 42).hash())
+}
 
-@tuple_hash () -> int = (1, "a").hash()
+@tuple_hash () -> int = (1, "a").hash();
 
 // =============================================================================
 // Option .hash()
 // =============================================================================
 
-@test_option_hash_consistent tests @option_hash () -> void = run(
-    assert_eq(actual: Some(42).hash(), expected: Some(42).hash()),
-    assert_eq(actual: None.hash(), expected: None.hash()),
-)
+@test_option_hash_consistent tests @option_hash () -> void = {
+    assert_eq(actual: Some(42).hash(), expected: Some(42).hash());
+    assert_eq(actual: None.hash(), expected: None.hash())
+}
 
-@option_hash () -> int = Some(1).hash()
+@option_hash () -> int = Some(1).hash();
 
-@test_option_hash_none_vs_some tests @opt_hash_diff () -> void = run(
-    let h_none = None.hash(),
-    let h_some = Some(0).hash(),
-    assert(cond: h_none != h_some),
-)
+@test_option_hash_none_vs_some tests @opt_hash_diff () -> void = {
+    let h_none = None.hash();
+    let h_some = Some(0).hash();
+    assert(cond: h_none != h_some)
+}
 
-@opt_hash_diff () -> bool = None.hash() != Some(0).hash()
+@opt_hash_diff () -> bool = None.hash() != Some(0).hash();
 
 // =============================================================================
 // Result .hash()
 // =============================================================================
 
-@test_result_hash_consistent tests @result_hash () -> void = run(
-    assert_eq(actual: Ok(1).hash(), expected: Ok(1).hash()),
-    assert_eq(actual: Err("x").hash(), expected: Err("x").hash()),
-)
+@test_result_hash_consistent tests @result_hash () -> void = {
+    assert_eq(actual: Ok(1).hash(), expected: Ok(1).hash());
+    assert_eq(actual: Err("x").hash(), expected: Err("x").hash())
+}
 
-@result_hash () -> int = Ok(1).hash()
+@result_hash () -> int = Ok(1).hash();
 
-@test_result_hash_ok_vs_err tests @res_hash_diff () -> void = run(
-    let h_ok = Ok(1).hash(),
-    let h_err = Err(1).hash(),
-    assert(cond: h_ok != h_err),
-)
+@test_result_hash_ok_vs_err tests @res_hash_diff () -> void = {
+    let h_ok = Ok(1).hash();
+    let h_err = Err(1).hash();
+    assert(cond: h_ok != h_err)
+}
 
-@res_hash_diff () -> bool = Ok(1).hash() != Err(1).hash()
+@res_hash_diff () -> bool = Ok(1).hash() != Err(1).hash();
 
 // =============================================================================
 // Map .hash()
 // =============================================================================
 
-@test_map_hash_consistent tests @map_hash () -> void = run(
-    let m = { "a": 1, "b": 2 },
-    assert_eq(actual: m.hash(), expected: m.hash()),
-)
+@test_map_hash_consistent tests @map_hash () -> void = {
+    let m = { "a": 1, "b": 2 };
+    assert_eq(actual: m.hash(), expected: m.hash())
+}
 
-@map_hash () -> int = run(
-    let m = { "x": 10 },
-    m.hash(),
-)
+@map_hash () -> int = {
+    let m = { "x": 10 };
+    m.hash()
+}
 
 // =============================================================================
 // hash_combine
 // =============================================================================
 
-@test_hash_combine_consistent tests @hc_consistent () -> void = run(
-    let h1 = hash_combine(seed: 0, value: 42),
-    let h2 = hash_combine(seed: 0, value: 42),
-    assert_eq(actual: h1, expected: h2),
-)
+@test_hash_combine_consistent tests @hc_consistent () -> void = {
+    let h1 = hash_combine(seed: 0, value: 42);
+    let h2 = hash_combine(seed: 0, value: 42);
+    assert_eq(actual: h1, expected: h2)
+}
 
-@hc_consistent () -> int = hash_combine(seed: 0, value: 42)
+@hc_consistent () -> int = hash_combine(seed: 0, value: 42);
 
-@test_hash_combine_different_seeds tests @hc_seeds () -> void = run(
-    let h1 = hash_combine(seed: 0, value: 42),
-    let h2 = hash_combine(seed: 1, value: 42),
-    assert(cond: h1 != h2),
-)
+@test_hash_combine_different_seeds tests @hc_seeds () -> void = {
+    let h1 = hash_combine(seed: 0, value: 42);
+    let h2 = hash_combine(seed: 1, value: 42);
+    assert(cond: h1 != h2)
+}
 
-@hc_seeds () -> bool = hash_combine(seed: 0, value: 42) != hash_combine(seed: 1, value: 42)
+@hc_seeds () -> bool = hash_combine(seed: 0, value: 42) != hash_combine(seed: 1, value: 42);
 
-@test_hash_combine_different_values tests @hc_values () -> void = run(
-    let h1 = hash_combine(seed: 100, value: 1),
-    let h2 = hash_combine(seed: 100, value: 2),
-    assert(cond: h1 != h2),
-)
+@test_hash_combine_different_values tests @hc_values () -> void = {
+    let h1 = hash_combine(seed: 100, value: 1);
+    let h2 = hash_combine(seed: 100, value: 2);
+    assert(cond: h1 != h2)
+}
 
-@hc_values () -> bool = hash_combine(seed: 0, value: 1) != hash_combine(seed: 0, value: 2)
+@hc_values () -> bool = hash_combine(seed: 0, value: 1) != hash_combine(seed: 0, value: 2);
 
 // =============================================================================
 // Hash Invariant: equals implies same hash
 // =============================================================================
 
-@test_hash_invariant_int tests @hash_inv_int () -> void = run(
-    let a = 42,
-    let b = 42,
-    assert(cond: a == b),
-    assert_eq(actual: a.hash(), expected: b.hash()),
-)
+@test_hash_invariant_int tests @hash_inv_int () -> void = {
+    let a = 42;
+    let b = 42;
+    assert(cond: a == b);
+    assert_eq(actual: a.hash(), expected: b.hash())
+}
 
-@hash_inv_int () -> bool = run(
-    let a = 42,
-    let b = 42,
-    a.hash() == b.hash(),
-)
+@hash_inv_int () -> bool = {
+    let a = 42;
+    let b = 42;
+    a.hash() == b.hash()
+}
 
-@test_hash_invariant_list tests @hash_inv_list () -> void = run(
-    let a = [1, 2, 3],
-    let b = [1, 2, 3],
-    assert(cond: a == b),
-    assert_eq(actual: a.hash(), expected: b.hash()),
-)
+@test_hash_invariant_list tests @hash_inv_list () -> void = {
+    let a = [1, 2, 3];
+    let b = [1, 2, 3];
+    assert(cond: a == b);
+    assert_eq(actual: a.hash(), expected: b.hash())
+}
 
-@hash_inv_list () -> bool = [1, 2].hash() == [1, 2].hash()
+@hash_inv_list () -> bool = [1, 2].hash() == [1, 2].hash();

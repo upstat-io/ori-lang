@@ -17,11 +17,11 @@
 //
 // @add_two (a: int, b: int) -> int = a + b
 //
-// @test_basic_params tests @add_two () -> void = run(
+// @test_basic_params tests @add_two () -> void = {
 //     assert_eq(actual: add_two(a: 3, b: 4), expected: 7),
 //     assert_eq(actual: add_two(a: 0, b: 0), expected: 0),
 //     assert_eq(actual: add_two(a: -5, b: 10), expected: 5),
-// )
+// }
 //
 // // =============================================================================
 // // Multiple Parameters
@@ -29,16 +29,16 @@
 //
 // @combine (a: int, b: int, c: int) -> int = a * b + c
 //
-// @test_multi_params tests @combine () -> void = run(
+// @test_multi_params tests @combine () -> void = {
 //     assert_eq(actual: combine(a: 2, b: 3, c: 4), expected: 10),
 //     assert_eq(actual: combine(a: 0, b: 100, c: 50), expected: 50),
-// )
+// }
 //
 // @combine_five (a: int, b: int, c: int, d: int, e: int) -> int = a + b + c + d + e
 //
-// @test_five_params tests @combine_five () -> void = run(
+// @test_five_params tests @combine_five () -> void = {
 //     assert_eq(actual: combine_five(a: 1, b: 2, c: 3, d: 4, e: 5), expected: 15),
-// )
+// }
 //
 // // =============================================================================
 // // Default Parameter Values - Explicit Arguments
@@ -46,26 +46,26 @@
 //
 // @with_default (x: int = 10) -> int = x * 2
 //
-// @test_default_explicit tests @with_default () -> void = run(
+// @test_default_explicit tests @with_default () -> void = {
 //     // Explicit argument overrides default
 //     assert_eq(actual: with_default(x: 5), expected: 10),
 //     assert_eq(actual: with_default(x: 0), expected: 0),
-// )
+// }
 //
 // @multi_defaults (a: int = 1, b: int = 2, c: int = 3) -> int = a + b + c
 //
-// @test_multi_defaults_all_explicit tests @multi_defaults () -> void = run(
+// @test_multi_defaults_all_explicit tests @multi_defaults () -> void = {
 //     // All explicit - defaults not used
 //     assert_eq(actual: multi_defaults(a: 10, b: 20, c: 30), expected: 60),
-// )
+// }
 //
 // // Mixed required and optional parameters
 // @mixed_params (required: int, optional: int = 100) -> int = required + optional
 //
-// @test_mixed_params_all_explicit tests @mixed_params () -> void = run(
+// @test_mixed_params_all_explicit tests @mixed_params () -> void = {
 //     // All args provided - default not used
 //     assert_eq(actual: mixed_params(required: 5, optional: 10), expected: 15),
-// )
+// }
 //
 // // =============================================================================
 // // Default Parameter Omission
@@ -75,25 +75,25 @@
 //
 // @greet (name: str = "World") -> str = "Hello, " + name
 //
-// @test_default_omission tests @greet () -> void = run(
+// @test_default_omission tests @greet () -> void = {
 //     // Call without argument - should use default "World"
 //     assert_eq(actual: greet(), expected: "Hello, World"),
-// )
+// }
 //
-// @test_default_override tests @greet () -> void = run(
+// @test_default_override tests @greet () -> void = {
 //     // Override the default
 //     assert_eq(actual: greet(name: "Alice"), expected: "Hello, Alice"),
-// )
+// }
 //
-// @test_multi_defaults_partial tests @multi_defaults () -> void = run(
+// @test_multi_defaults_partial tests @multi_defaults () -> void = {
 //     // Provide only first, use defaults for rest
 //     assert_eq(actual: multi_defaults(a: 100), expected: 105),  // 100 + 2 + 3
-// )
+// }
 //
-// @test_mixed_params_omit_optional tests @mixed_params () -> void = run(
+// @test_mixed_params_omit_optional tests @mixed_params () -> void = {
 //     // Provide only required, omit optional (should use default 100)
 //     assert_eq(actual: mixed_params(required: 5), expected: 105),
-// )
+// }
 //
 // // Named arguments allow any defaulted parameter to be omitted
 // //
@@ -103,15 +103,15 @@
 // @connect (host: str, port: int = 8080, timeout: int = 30) -> str =
 //     host + ":" + str(port) + "/" + str(timeout)
 //
-// @test_skip_middle_default tests @connect () -> void = run(
+// @test_skip_middle_default tests @connect () -> void = {
 //     // Omit port, provide timeout
 //     assert_eq(actual: connect(host: "localhost", timeout: 60), expected: "localhost:8080/60"),
-// )
+// }
 //
-// @test_skip_all_defaults tests @connect () -> void = run(
+// @test_skip_all_defaults tests @connect () -> void = {
 //     // Omit all defaults
 //     assert_eq(actual: connect(host: "example.com"), expected: "example.com:8080/30"),
-// )
+// }
 //
 // // =============================================================================
 // // Default Values with Expressions
@@ -119,21 +119,21 @@
 //
 // @default_expr (x: int = 2 + 3) -> int = x
 //
-// @test_default_expr_used tests @default_expr () -> void = run(
+// @test_default_expr_used tests @default_expr () -> void = {
 //     // Default expression should be evaluated
 //     assert_eq(actual: default_expr(), expected: 5),
-// )
+// }
 //
-// @test_default_expr_override tests @default_expr () -> void = run(
+// @test_default_expr_override tests @default_expr () -> void = {
 //     // Override the expression default
 //     assert_eq(actual: default_expr(x: 10), expected: 10),
-// )
+// }
 //
 // @complex_default (n: int = 10 * 5 - 7) -> int = n
 //
-// @test_complex_default tests @complex_default () -> void = run(
+// @test_complex_default tests @complex_default () -> void = {
 //     assert_eq(actual: complex_default(), expected: 43),
-// )
+// }
 //
 // // =============================================================================
 // // Pattern Matching in Parameters - Literal Patterns
@@ -144,31 +144,31 @@
 // @fib (1: int) -> int = 1
 // @fib (n: int) -> int = fib(n: n - 1) + fib(n: n - 2)
 //
-// @test_fib_base_zero tests @fib () -> void = run(
+// @test_fib_base_zero tests @fib () -> void = {
 //     assert_eq(actual: fib(n: 0), expected: 0),
-// )
+// }
 //
-// @test_fib_base_one tests @fib () -> void = run(
+// @test_fib_base_one tests @fib () -> void = {
 //     assert_eq(actual: fib(n: 1), expected: 1),
-// )
+// }
 //
-// @test_fib_recursive tests @fib () -> void = run(
+// @test_fib_recursive tests @fib () -> void = {
 //     assert_eq(actual: fib(n: 6), expected: 8),
 //     assert_eq(actual: fib(n: 10), expected: 55),
-// )
+// }
 //
 // // Factorial with pattern matching
 // @factorial (0: int) -> int = 1
 // @factorial (n: int) -> int = n * factorial(n: n - 1)
 //
-// @test_factorial_base tests @factorial () -> void = run(
+// @test_factorial_base tests @factorial () -> void = {
 //     assert_eq(actual: factorial(n: 0), expected: 1),
-// )
+// }
 //
-// @test_factorial_recursive tests @factorial () -> void = run(
+// @test_factorial_recursive tests @factorial () -> void = {
 //     assert_eq(actual: factorial(n: 5), expected: 120),
 //     assert_eq(actual: factorial(n: 10), expected: 3628800),
-// )
+// }
 //
 // // =============================================================================
 // // Pattern Matching with Lists
@@ -181,18 +181,18 @@
 // @list_len<T> ([]: [T]) -> int = 0
 // @list_len ([_, ..tail]: [T]) -> int = 1 + list_len(list: tail)
 //
-// @test_list_len_empty tests @list_len () -> void = run(
+// @test_list_len_empty tests @list_len () -> void = {
 //     let empty: [int] = [],
 //     assert_eq(actual: list_len(list: empty), expected: 0),
-// )
+// }
 //
-// @test_list_len_single tests @list_len () -> void = run(
+// @test_list_len_single tests @list_len () -> void = {
 //     assert_eq(actual: list_len(list: [42]), expected: 1),
-// )
+// }
 //
-// @test_list_len_multi tests @list_len () -> void = run(
+// @test_list_len_multi tests @list_len () -> void = {
 //     assert_eq(actual: list_len(list: [1, 2, 3, 4, 5]), expected: 5),
-// )
+// }
 //
 // // First element pattern
 // // SKIP: Pattern parameters without names (like [x, ..]: [T]) aren't fully implemented.
@@ -200,14 +200,14 @@
 // @first<T> ([x, ..]: [T]) -> T = x
 //
 // #skip("pattern parameters without names not implemented - use named params with match")
-// @test_first_int tests @first () -> void = run(
+// @test_first_int tests @first () -> void = {
 //     assert_eq(actual: first(list: [10, 20, 30]), expected: 10),
-// )
+// }
 //
 // #skip("pattern parameters without names not implemented - use named params with match")
-// @test_first_str tests @first () -> void = run(
+// @test_first_str tests @first () -> void = {
 //     assert_eq(actual: first(list: ["a", "b", "c"]), expected: "a"),
-// )
+// }
 //
 // // =============================================================================
 // // Guard Clauses
@@ -220,37 +220,37 @@
 // @abs (n: int) -> int if n < 0 = -n
 // @abs (n: int) -> int = n
 //
-// @test_abs_negative tests @abs () -> void = run(
+// @test_abs_negative tests @abs () -> void = {
 //     assert_eq(actual: abs(n: -5), expected: 5),
 //     assert_eq(actual: abs(n: -100), expected: 100),
-// )
+// }
 //
-// @test_abs_positive tests @abs () -> void = run(
+// @test_abs_positive tests @abs () -> void = {
 //     assert_eq(actual: abs(n: 5), expected: 5),
 //     assert_eq(actual: abs(n: 0), expected: 0),
-// )
+// }
 //
 // // Guard with multiple conditions
 // @classify (n: int) -> str if n < 0 = "negative"
 // @classify (n: int) -> str if n == 0 = "zero"
 // @classify (n: int) -> str = "positive"
 //
-// @test_classify tests @classify () -> void = run(
+// @test_classify tests @classify () -> void = {
 //     assert_eq(actual: classify(n: -10), expected: "negative"),
 //     assert_eq(actual: classify(n: 0), expected: "zero"),
 //     assert_eq(actual: classify(n: 10), expected: "positive"),
-// )
+// }
 //
 // // Guard with complex expression
 // @sign (n: int) -> int if n > 0 = 1
 // @sign (n: int) -> int if n < 0 = -1
 // @sign (n: int) -> int = 0
 //
-// @test_sign tests @sign () -> void = run(
+// @test_sign tests @sign () -> void = {
 //     assert_eq(actual: sign(n: 100), expected: 1),
 //     assert_eq(actual: sign(n: -100), expected: -1),
 //     assert_eq(actual: sign(n: 0), expected: 0),
-// )
+// }
 //
 // // =============================================================================
 // // Combined Patterns and Guards
@@ -259,13 +259,13 @@
 // @safe_div (n: int, 0: int) -> int = 0  // Division by zero returns 0
 // @safe_div (n: int, d: int) -> int = n / d
 //
-// @test_safe_div_normal tests @safe_div () -> void = run(
+// @test_safe_div_normal tests @safe_div () -> void = {
 //     assert_eq(actual: safe_div(n: 10, d: 2), expected: 5),
-// )
+// }
 //
-// @test_safe_div_zero tests @safe_div () -> void = run(
+// @test_safe_div_zero tests @safe_div () -> void = {
 //     assert_eq(actual: safe_div(n: 10, d: 0), expected: 0),
-// )
+// }
 //
 // // =============================================================================
 // // Generic Functions with Clause Parameters
@@ -277,12 +277,12 @@
 // @len ([_, ..tail]: [T]) -> int = 1 + len(list: tail)
 //
 // #skip("pattern parameters without names not implemented")
-// @test_generic_len tests @len () -> void = run(
+// @test_generic_len tests @len () -> void = {
 //     let ints: [int] = [1, 2, 3],
 //     let strs: [str] = ["a", "b"],
 //     assert_eq(actual: len(list: ints), expected: 3),
 //     assert_eq(actual: len(list: strs), expected: 2),
-// )
+// }
 //
 // // =============================================================================
 // // Visibility (pub only on first clause)
@@ -292,9 +292,9 @@
 // pub @public_factorial (0: int) -> int = 1
 // @public_factorial (n: int) -> int = n * public_factorial(n: n - 1)
 //
-// @test_public_factorial tests @public_factorial () -> void = run(
+// @test_public_factorial tests @public_factorial () -> void = {
 //     assert_eq(actual: public_factorial(n: 5), expected: 120),
-// )
+// }
 //
 // // =============================================================================
 // // Clause Ordering (top-to-bottom matching)
@@ -306,12 +306,12 @@
 // @match_order (n: int) -> str if n < 0 = "negative"
 // @match_order (n: int) -> str = "other"
 //
-// @test_match_order tests @match_order () -> void = run(
+// @test_match_order tests @match_order () -> void = {
 //     assert_eq(actual: match_order(n: 1), expected: "one"),
 //     assert_eq(actual: match_order(n: 2), expected: "two"),
 //     assert_eq(actual: match_order(n: -5), expected: "negative"),
 //     assert_eq(actual: match_order(n: 100), expected: "other"),
-// )
+// }
 //
 // // =============================================================================
 // // Mixed Type Parameters with Defaults
@@ -320,18 +320,18 @@
 // @format_greeting (greeting: str = "Hello", name: str = "World") -> str =
 //     greeting + ", " + name + "!"
 //
-// @test_format_all_defaults tests @format_greeting () -> void = run(
+// @test_format_all_defaults tests @format_greeting () -> void = {
 //     assert_eq(actual: format_greeting(), expected: "Hello, World!"),
-// )
+// }
 //
-// @test_format_partial tests @format_greeting () -> void = run(
+// @test_format_partial tests @format_greeting () -> void = {
 //     assert_eq(actual: format_greeting(name: "Alice"), expected: "Hello, Alice!"),
 //     assert_eq(actual: format_greeting(greeting: "Hi"), expected: "Hi, World!"),
-// )
+// }
 //
-// @test_format_all_explicit tests @format_greeting () -> void = run(
+// @test_format_all_explicit tests @format_greeting () -> void = {
 //     assert_eq(actual: format_greeting(greeting: "Hey", name: "Bob"), expected: "Hey, Bob!"),
-// )
+// }
 //
 // // =============================================================================
 // // Boolean Default Values
@@ -340,13 +340,13 @@
 // @maybe_double (n: int, should_double: bool = false) -> int =
 //     if should_double then n * 2 else n
 //
-// @test_bool_default_used tests @maybe_double () -> void = run(
+// @test_bool_default_used tests @maybe_double () -> void = {
 //     assert_eq(actual: maybe_double(n: 10), expected: 10),
-// )
+// }
 //
-// @test_bool_default_override tests @maybe_double () -> void = run(
+// @test_bool_default_override tests @maybe_double () -> void = {
 //     assert_eq(actual: maybe_double(n: 10, should_double: true), expected: 20),
-// )
+// }
 //
 // // =============================================================================
 // // Edge Cases
@@ -355,14 +355,14 @@
 // // Empty list as default
 // @with_empty_default (items: [int] = []) -> int = len(collection: items)
 //
-// @test_empty_list_default tests @with_empty_default () -> void = run(
+// @test_empty_list_default tests @with_empty_default () -> void = {
 //     assert_eq(actual: with_empty_default(), expected: 0),
 //     assert_eq(actual: with_empty_default(items: [1, 2, 3]), expected: 3),
-// )
+// }
 //
 // // Nested function calls in default expressions - Per spec: "Default expressions must not reference other parameters"
 // @nested_default (x: int = 2 * 3 + 1) -> int = x
 //
-// @test_nested_default tests @nested_default () -> void = run(
+// @test_nested_default tests @nested_default () -> void = {
 //     assert_eq(actual: nested_default(), expected: 7),
-// )
+// }

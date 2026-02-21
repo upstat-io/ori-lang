@@ -18,10 +18,10 @@ Every executable program must have exactly one `@main` function.
 Valid signatures:
 
 ```ori
-@main () -> void = ...
-@main () -> int = ...
-@main (args: [str]) -> void = ...
-@main (args: [str]) -> int = ...
+@main () -> void = ...;
+@main () -> int = ...;
+@main (args: [str]) -> void = ...;
+@main (args: [str]) -> int = ...;
 ```
 
 The `args` parameter, if present, contains command-line arguments passed to the program. It does not include the program name.
@@ -47,9 +47,9 @@ Program initialization proceeds in the following order:
 Config variables are compile-time constants evaluated before program execution.
 
 ```ori
-$timeout = 30s
-$max_retries = 3
-$double_timeout = $timeout * 2  // references other config
+$timeout = 30s;
+$max_retries = 3;
+$double_timeout = $timeout * 2;  // references other config
 ```
 
 Config variables may reference other config variables. The compiler determines evaluation order from dependencies. Circular dependencies are an error.
@@ -71,7 +71,7 @@ A program terminates normally when `@main` returns.
 
 ```ori
 @main () -> int = {
-    let success = do_work()
+    let success = do_work();
     if success then 0 else 1
 }
 ```
@@ -87,7 +87,7 @@ On panic:
 
 ```ori
 @main () -> void = {
-    let list = [1, 2, 3]
+    let list = [1, 2, 3];
     list[10],  // panic: index out of bounds
 }
 ```

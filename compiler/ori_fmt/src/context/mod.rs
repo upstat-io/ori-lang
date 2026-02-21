@@ -205,7 +205,7 @@ impl<E: Emitter> FormatContext<E> {
 
     /// Get the current indentation width in spaces.
     pub fn indent_width(&self) -> usize {
-        self.indent_level * INDENT_WIDTH
+        self.indent_level * self.config.indent_size
     }
 
     /// Set the current column position.
@@ -346,8 +346,8 @@ impl<E: Emitter> FormatContext<E> {
 
     /// Emit indentation at the current level and update column.
     pub fn emit_indent(&mut self) {
-        self.emitter.emit_indent(self.indent_level);
-        let indent_width = self.indent_level * INDENT_WIDTH;
+        let indent_width = self.indent_level * self.config.indent_size;
+        self.emitter.emit_indent(indent_width);
         self.column = indent_width;
         // After newline, shape has full width. Consume the indent width.
         // Note: next_line() already accounts for shape.indent, but emit_indent
@@ -368,13 +368,13 @@ impl<E: Emitter> FormatContext<E> {
     /// Increment indentation level.
     pub fn indent(&mut self) {
         self.indent_level += 1;
-        self.shape = self.shape.indent(INDENT_WIDTH);
+        self.shape = self.shape.indent(self.config.indent_size);
     }
 
     /// Decrement indentation level.
     pub fn dedent(&mut self) {
         self.indent_level = self.indent_level.saturating_sub(1);
-        self.shape = self.shape.dedent(INDENT_WIDTH);
+        self.shape = self.shape.dedent(self.config.indent_size);
     }
 
     /// Execute a closure with increased indentation.

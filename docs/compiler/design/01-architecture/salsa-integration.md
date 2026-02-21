@@ -254,3 +254,42 @@ file.set_text(&mut db).to(new_text);
 // Wrong - bypasses Salsa's tracking
 file.text = new_text;  // Won't compile anyway
 ```
+
+## Session-Scoped Side-Caches
+
+Not all compiler data can satisfy Salsa's `Clone + Eq + Hash` requirements. Three session-scoped caches live **outside** Salsa's dependency graph to hold such data:
+
+| Cache | Type | Purpose |
+|-------|------|---------|
+| `PoolCache` | `Arc<RwLock<HashMap<PathBuf, Arc<Pool>>>>` | Type pools from `typed()` |
+| `CanonCache` | `Arc<RwLock<HashMap<PathBuf, SharedCanonResult>>>` | Canonical IR from `canonicalize_cached()` |
+| `ImportsCache` | `Arc<RwLock<HashMap<PathBuf, Arc<ResolvedImports>>>>` | Resolved import maps |
+
+These caches are keyed by `PathBuf` for consistent key types and live on `CompilerDb`.
+
+### Invalidation Protocol
+
+Because Salsa doesn't track these caches, stale entries can silently cause correctness bugs. The `typed()` query calls `invalidate_file_caches()` before re-type-checking to clear entries for the affected file:
+
+```rust
+fn invalidate_file_caches(db: &dyn Db, path: &Path) -> CacheGuard {
+    db.pool_cache().invalidate(path);
+    db.canon_cache().invalidate(path);
+    db.imports_cache().invalidate(path);
+    CacheGuard(())
+}
+```
+
+### CacheGuard Safety Token
+
+`CacheGuard` is a zero-sized type that proves invalidation was performed. It is required by `type_check_with_imports_and_pool()` to prevent callers from accidentally skipping invalidation:
+
+```rust
+pub(crate) struct CacheGuard(());
+```
+
+It can only be created by:
+- `invalidate_file_caches()` — for Salsa-tracked files
+- `CacheGuard::untracked()` — for synthetic/imported modules not tracked by Salsa (no cache entries to invalidate)
+
+Any future code path that triggers re-type-checking **must** also call `invalidate_file_caches()` — failing to do so will cause silent correctness bugs from stale cache reads.

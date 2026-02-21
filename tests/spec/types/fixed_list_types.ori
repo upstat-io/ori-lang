@@ -13,50 +13,50 @@ use std.testing { assert, assert_eq }
 // NOTE: Fixed-capacity lists may not be fully implemented.
 // These tests are designed to expose missing features.
 
-@test_fixed_list_empty tests @fixed_list_empty () -> void = run(
-    let buffer: [int, max 10] = [],
-    assert_eq(actual: buffer.len(), expected: 0),
+@test_fixed_list_empty tests @fixed_list_empty () -> void = {
+    let buffer: [int, max 10] = [];
+    assert_eq(actual: buffer.len(), expected: 0);
     // assert_eq(actual: buffer.capacity(), expected: 10),
-)
+}
 
-@fixed_list_empty () -> [int, max 10] = []
+@fixed_list_empty () -> [int, max 10] = [];
 
-@test_fixed_list_partial tests @fixed_list_partial () -> void = run(
-    let buffer: [int, max 10] = [1, 2, 3],
-    assert_eq(actual: buffer.len(), expected: 3),
+@test_fixed_list_partial tests @fixed_list_partial () -> void = {
+    let buffer: [int, max 10] = [1, 2, 3];
+    assert_eq(actual: buffer.len(), expected: 3);
     // assert_eq(actual: buffer.capacity(), expected: 10),
     // assert(cond: !buffer.is_full()),
-)
+}
 
-@fixed_list_partial () -> [int, max 10] = [1, 2, 3]
+@fixed_list_partial () -> [int, max 10] = [1, 2, 3];
 
-@test_fixed_list_full tests @fixed_list_full () -> void = run(
-    let buffer: [int, max 3] = [1, 2, 3],
-    assert_eq(actual: buffer.len(), expected: 3),
+@test_fixed_list_full tests @fixed_list_full () -> void = {
+    let buffer: [int, max 3] = [1, 2, 3];
+    assert_eq(actual: buffer.len(), expected: 3);
     // assert(cond: buffer.is_full()),
-)
+}
 
-@fixed_list_full () -> [int, max 3] = [1, 2, 3]
+@fixed_list_full () -> [int, max 3] = [1, 2, 3];
 
 // =============================================================================
 // Fixed-Capacity with Different Types
 // =============================================================================
 
-@test_fixed_str tests @fixed_str () -> void = run(
-    let names: [str, max 5] = ["alice", "bob"],
-    assert_eq(actual: names.len(), expected: 2),
-    assert_eq(actual: names[0], expected: "alice"),
-)
+@test_fixed_str tests @fixed_str () -> void = {
+    let names: [str, max 5] = ["alice", "bob"];
+    assert_eq(actual: names.len(), expected: 2);
+    assert_eq(actual: names[0], expected: "alice")
+}
 
-@fixed_str () -> [str, max 5] = ["alice", "bob"]
+@fixed_str () -> [str, max 5] = ["alice", "bob"];
 
-@test_fixed_bool tests @fixed_bool () -> void = run(
-    let flags: [bool, max 4] = [true, false, true],
-    assert_eq(actual: flags.len(), expected: 3),
-    assert(cond: flags[0]),
-)
+@test_fixed_bool tests @fixed_bool () -> void = {
+    let flags: [bool, max 4] = [true, false, true];
+    assert_eq(actual: flags.len(), expected: 3);
+    assert(cond: flags[0])
+}
 
-@fixed_bool () -> [bool, max 4] = [true, false, true]
+@fixed_bool () -> [bool, max 4] = [true, false, true];
 
 // =============================================================================
 // Fixed-Capacity Methods
@@ -65,132 +65,132 @@ use std.testing { assert, assert_eq }
 // NOTE: These methods may not be implemented yet.
 // Uncomment when available.
 
-// @test_capacity tests @capacity () -> void = run(
+// @test_capacity tests @capacity () -> void = {
 //     let buffer: [int, max 100] = [1, 2, 3],
 //     assert_eq(actual: buffer.capacity(), expected: 100),
-// )
+// }
 
-// @capacity () -> int = run(
+// @capacity () -> int = {
 //     let buffer: [int, max 100] = [],
 //     buffer.capacity(),
-// )
+// }
 
-// @test_is_full tests @is_full () -> void = run(
+// @test_is_full tests @is_full () -> void = {
 //     let full: [int, max 2] = [1, 2],
 //     let partial: [int, max 10] = [1, 2],
 //     assert(cond: full.is_full()),
 //     assert(cond: !partial.is_full()),
-// )
+// }
 
-// @is_full () -> bool = run(
+// @is_full () -> bool = {
 //     let buffer: [int, max 2] = [1, 2],
 //     buffer.is_full(),
-// )
+// }
 
-// @test_remaining tests @remaining () -> void = run(
+// @test_remaining tests @remaining () -> void = {
 //     let buffer: [int, max 10] = [1, 2, 3],
 //     assert_eq(actual: buffer.remaining(), expected: 7),
-// )
+// }
 
-// @remaining () -> int = run(
+// @remaining () -> int = {
 //     let buffer: [int, max 10] = [1, 2, 3],
 //     buffer.remaining(),
-// )
+// }
 
 // =============================================================================
 // Fixed-Capacity Push Operations
 // =============================================================================
 
-// @test_push tests @push () -> void = run(
+// @test_push tests @push () -> void = {
 //     let buffer: [int, max 5] = [1, 2],
 //     buffer.push(item: 3),
 //     assert_eq(actual: buffer.len(), expected: 3),
 //     assert_eq(actual: buffer[2], expected: 3),
-// )
+// }
 
-// @push () -> [int, max 5] = run(
+// @push () -> [int, max 5] = {
 //     let buffer: [int, max 5] = [1, 2],
 //     buffer.push(item: 3),
 //     buffer,
-// )
+// }
 
-// @test_try_push tests @try_push () -> void = run(
+// @test_try_push tests @try_push () -> void = {
 //     let buffer: [int, max 2] = [1, 2],
 //     let success = buffer.try_push(item: 3),
 //     assert(cond: !success),
 //     assert_eq(actual: buffer.len(), expected: 2),
-// )
+// }
 
-// @try_push () -> bool = run(
+// @try_push () -> bool = {
 //     let buffer: [int, max 2] = [1, 2],
 //     buffer.try_push(item: 3),
-// )
+// }
 
-// @test_push_or_drop tests @push_or_drop () -> void = run(
+// @test_push_or_drop tests @push_or_drop () -> void = {
 //     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_drop(item: 3),
 //     // Item dropped, length unchanged
 //     assert_eq(actual: buffer.len(), expected: 2),
-// )
+// }
 
-// @push_or_drop () -> [int, max 2] = run(
+// @push_or_drop () -> [int, max 2] = {
 //     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_drop(item: 3),
 //     buffer,
-// )
+// }
 
-// @test_push_or_oldest tests @push_or_oldest () -> void = run(
+// @test_push_or_oldest tests @push_or_oldest () -> void = {
 //     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_oldest(item: 3),
 //     // First element removed, new element added
 //     assert_eq(actual: buffer.len(), expected: 2),
 //     assert_eq(actual: buffer[0], expected: 2),
 //     assert_eq(actual: buffer[1], expected: 3),
-// )
+// }
 
-// @push_or_oldest () -> [int, max 2] = run(
+// @push_or_oldest () -> [int, max 2] = {
 //     let buffer: [int, max 2] = [1, 2],
 //     buffer.push_or_oldest(item: 3),
 //     buffer,
-// )
+// }
 
 // =============================================================================
 // Conversion Between Fixed and Dynamic
 // =============================================================================
 
-// @test_to_dynamic tests @to_dynamic () -> void = run(
+// @test_to_dynamic tests @to_dynamic () -> void = {
 //     let fixed: [int, max 5] = [1, 2, 3],
 //     let dynamic: [int] = fixed.to_dynamic(),
 //     assert_eq(actual: dynamic.len(), expected: 3),
 //     assert_eq(actual: dynamic[0], expected: 1),
-// )
+// }
 
-// @to_dynamic () -> [int] = run(
+// @to_dynamic () -> [int] = {
 //     let fixed: [int, max 5] = [1, 2, 3],
 //     fixed.to_dynamic(),
-// )
+// }
 
-// @test_to_fixed tests @to_fixed () -> void = run(
+// @test_to_fixed tests @to_fixed () -> void = {
 //     let dynamic: [int] = [1, 2, 3],
 //     let fixed: [int, max 10] = dynamic.to_fixed<10>(),
 //     assert_eq(actual: fixed.len(), expected: 3),
-// )
+// }
 
-// @to_fixed () -> [int, max 10] = run(
+// @to_fixed () -> [int, max 10] = {
 //     let dynamic: [int] = [1, 2, 3],
 //     dynamic.to_fixed<10>(),
-// )
+// }
 
-// @test_try_to_fixed tests @try_to_fixed () -> void = run(
+// @test_try_to_fixed tests @try_to_fixed () -> void = {
 //     let dynamic: [int] = [1, 2, 3, 4, 5],
 //     let maybe_fixed: Option<[int, max 3]> = dynamic.try_to_fixed<3>(),
 //     assert(cond: is_none(opt: maybe_fixed)),
-// )
+// }
 
-// @try_to_fixed () -> Option<[int, max 3]> = run(
+// @try_to_fixed () -> Option<[int, max 3]> = {
 //     let dynamic: [int] = [1, 2, 3, 4, 5],
 //     dynamic.try_to_fixed<3>(),
-// )
+// }
 
 // =============================================================================
 // Fixed-Capacity Subtype Relationship
@@ -199,62 +199,62 @@ use std.testing { assert, assert_eq }
 // [T, max N] <: [T]
 // Fixed-capacity can be passed where dynamic is expected
 
-@accepts_dynamic (items: [int]) -> int = items.len()
+@accepts_dynamic (items: [int]) -> int = items.len();
 
-@test_fixed_as_dynamic tests @fixed_as_dynamic () -> void = run(
-    let fixed: [int, max 5] = [1, 2, 3],
-    let result = accepts_dynamic(items: fixed),
-    assert_eq(actual: result, expected: 3),
-)
+@test_fixed_as_dynamic tests @fixed_as_dynamic () -> void = {
+    let fixed: [int, max 5] = [1, 2, 3];
+    let result = accepts_dynamic(items: fixed);
+    assert_eq(actual: result, expected: 3)
+}
 
-@fixed_as_dynamic () -> int = run(
-    let fixed: [int, max 5] = [1, 2, 3],
-    accepts_dynamic(items: fixed),
-)
+@fixed_as_dynamic () -> int = {
+    let fixed: [int, max 5] = [1, 2, 3];
+    accepts_dynamic(items: fixed)
+}
 
 // =============================================================================
 // Fixed-Capacity Index Access
 // =============================================================================
 
-@test_fixed_index tests @fixed_index () -> void = run(
-    let buffer: [int, max 10] = [10, 20, 30],
-    assert_eq(actual: buffer[0], expected: 10),
-    assert_eq(actual: buffer[1], expected: 20),
-    assert_eq(actual: buffer[2], expected: 30),
-)
+@test_fixed_index tests @fixed_index () -> void = {
+    let buffer: [int, max 10] = [10, 20, 30];
+    assert_eq(actual: buffer[0], expected: 10);
+    assert_eq(actual: buffer[1], expected: 20);
+    assert_eq(actual: buffer[2], expected: 30)
+}
 
-@fixed_index () -> int = run(
-    let buffer: [int, max 10] = [10, 20, 30],
-    buffer[1],
-)
+@fixed_index () -> int = {
+    let buffer: [int, max 10] = [10, 20, 30];
+    buffer[1]
+}
 
-@test_fixed_index_last tests @fixed_index_last () -> void = run(
-    let buffer: [int, max 10] = [10, 20, 30],
-    assert_eq(actual: buffer[# - 1], expected: 30),
-)
+@test_fixed_index_last tests @fixed_index_last () -> void = {
+    let buffer: [int, max 10] = [10, 20, 30];
+    assert_eq(actual: buffer[# - 1], expected: 30)
+}
 
-@fixed_index_last () -> int = run(
-    let buffer: [int, max 10] = [10, 20, 30],
-    buffer[# - 1],
-)
+@fixed_index_last () -> int = {
+    let buffer: [int, max 10] = [10, 20, 30];
+    buffer[# - 1]
+}
 
 // =============================================================================
 // Fixed-Capacity Iteration
 // =============================================================================
 
-@test_fixed_iter tests @fixed_iter () -> void = run(
-    let buffer: [int, max 5] = [1, 2, 3],
-    let sum = 0,
-    for x in buffer do sum = sum + x,
-    assert_eq(actual: sum, expected: 6),
-)
+@test_fixed_iter tests @fixed_iter () -> void = {
+    let buffer: [int, max 5] = [1, 2, 3];
+    let sum = 0;
+    for x in buffer do sum = sum + x;
+    assert_eq(actual: sum, expected: 6)
+}
 
-@fixed_iter () -> int = run(
-    let buffer: [int, max 5] = [1, 2, 3],
-    let sum = 0,
-    for x in buffer do sum = sum + x,
-    sum,
-)
+@fixed_iter () -> int = {
+    let buffer: [int, max 5] = [1, 2, 3];
+    let sum = 0;
+    for x in buffer do sum = sum + x;
+    sum
+}
 
 // =============================================================================
 // Const Generic Capacity (via type parameter)
@@ -266,14 +266,14 @@ use std.testing { assert, assert_eq }
 //     tail: int,
 // }
 
-// @test_ring_buffer tests @ring_buffer () -> void = run(
+// @test_ring_buffer tests @ring_buffer () -> void = {
 //     let rb: RingBuffer<int, 5> = RingBuffer {
 //         data: [0, 0, 0, 0, 0],
 //         head: 0,
 //         tail: 0,
 //     },
 //     assert_eq(actual: rb.data.capacity(), expected: 5),
-// )
+// }
 
 // @ring_buffer () -> RingBuffer<int, 5> = RingBuffer {
 //     data: [0, 0, 0, 0, 0],
@@ -288,13 +288,13 @@ use std.testing { assert, assert_eq }
 // Until fixed-capacity is fully implemented, verify it at least
 // can be used as a dynamic list
 
-@test_fixed_basic_usage tests @fixed_basic_usage () -> void = run(
-    let items: [int, max 10] = [5, 10, 15],
-    assert_eq(actual: items.len(), expected: 3),
-    assert_eq(actual: items[0], expected: 5),
-)
+@test_fixed_basic_usage tests @fixed_basic_usage () -> void = {
+    let items: [int, max 10] = [5, 10, 15];
+    assert_eq(actual: items.len(), expected: 3);
+    assert_eq(actual: items[0], expected: 5)
+}
 
-@fixed_basic_usage () -> int = run(
-    let items: [int, max 10] = [5, 10, 15],
-    items[0] + items[1] + items[2],
-)
+@fixed_basic_usage () -> int = {
+    let items: [int, max 10] = [5, 10, 15];
+    items[0] + items[1] + items[2]
+}

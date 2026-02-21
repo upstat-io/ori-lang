@@ -7,218 +7,218 @@ use std.testing { assert, assert_eq }
 // Basic List Types
 // =============================================================================
 
-@test_list_int tests @list_int () -> void = run(
-    let items: [int] = [1, 2, 3, 4, 5],
-    assert_eq(actual: items.len(), expected: 5),
-    assert_eq(actual: items[0], expected: 1),
-    assert_eq(actual: items[4], expected: 5),
-)
+@test_list_int tests @list_int () -> void = {
+    let items: [int] = [1, 2, 3, 4, 5];
+    assert_eq(actual: items.len(), expected: 5);
+    assert_eq(actual: items[0], expected: 1);
+    assert_eq(actual: items[4], expected: 5)
+}
 
-@list_int () -> [int] = [1, 2, 3, 4, 5]
+@list_int () -> [int] = [1, 2, 3, 4, 5];
 
-@test_list_str tests @list_str () -> void = run(
-    let items: [str] = ["hello", "world", "ori"],
-    assert_eq(actual: items.len(), expected: 3),
-    assert_eq(actual: items[0], expected: "hello"),
-)
+@test_list_str tests @list_str () -> void = {
+    let items: [str] = ["hello", "world", "ori"];
+    assert_eq(actual: items.len(), expected: 3);
+    assert_eq(actual: items[0], expected: "hello")
+}
 
-@list_str () -> [str] = ["hello", "world", "ori"]
+@list_str () -> [str] = ["hello", "world", "ori"];
 
-@test_list_bool tests @list_bool () -> void = run(
-    let flags: [bool] = [true, false, true, false],
-    assert(cond: flags[0]),
-    assert(cond: !flags[1]),
-)
+@test_list_bool tests @list_bool () -> void = {
+    let flags: [bool] = [true, false, true, false];
+    assert(cond: flags[0]);
+    assert(cond: !flags[1])
+}
 
-@list_bool () -> [bool] = [true, false, true, false]
+@list_bool () -> [bool] = [true, false, true, false];
 
-@test_list_float tests @list_float () -> void = run(
-    let floats: [float] = [1.0, 2.5, 3.14, 0.0],
-    assert(cond: floats[0] == 1.0),
-    assert(cond: floats[2] > 3.0),
-)
+@test_list_float tests @list_float () -> void = {
+    let floats: [float] = [1.0, 2.5, 3.14, 0.0];
+    assert(cond: floats[0] == 1.0);
+    assert(cond: floats[2] > 3.0)
+}
 
-@list_float () -> [float] = [1.0, 2.5, 3.14, 0.0]
+@list_float () -> [float] = [1.0, 2.5, 3.14, 0.0];
 
-@test_list_char tests @list_char () -> void = run(
-    let chars: [char] = ['a', 'b', 'c', 'd'],
-    assert_eq(actual: chars[0], expected: 'a'),
-    assert_eq(actual: chars.len(), expected: 4),
-)
+@test_list_char tests @list_char () -> void = {
+    let chars: [char] = ['a', 'b', 'c', 'd'];
+    assert_eq(actual: chars[0], expected: 'a');
+    assert_eq(actual: chars.len(), expected: 4)
+}
 
-@list_char () -> [char] = ['a', 'b', 'c', 'd']
+@list_char () -> [char] = ['a', 'b', 'c', 'd'];
 
 // =============================================================================
 // Empty Lists
 // =============================================================================
 
-@test_empty_list tests @empty_list () -> void = run(
-    let items: [int] = [],
-    assert_eq(actual: items.len(), expected: 0),
-    assert(cond: is_empty(collection: items)),
-)
+@test_empty_list tests @empty_list () -> void = {
+    let items: [int] = [];
+    assert_eq(actual: items.len(), expected: 0);
+    assert(cond: is_empty(collection: items))
+}
 
-@empty_list () -> [int] = []
+@empty_list () -> [int] = [];
 
-@test_empty_list_str tests @empty_list_str () -> void = run(
-    let items: [str] = [],
-    assert(cond: is_empty(collection: items)),
-)
+@test_empty_list_str tests @empty_list_str () -> void = {
+    let items: [str] = [];
+    assert(cond: is_empty(collection: items))
+}
 
-@empty_list_str () -> [str] = []
+@empty_list_str () -> [str] = [];
 
 // =============================================================================
 // Single Element Lists
 // =============================================================================
 
-@test_single_element tests @single_element () -> void = run(
-    let items: [int] = [42],
-    assert_eq(actual: items.len(), expected: 1),
-    assert_eq(actual: items[0], expected: 42),
-)
+@test_single_element tests @single_element () -> void = {
+    let items: [int] = [42];
+    assert_eq(actual: items.len(), expected: 1);
+    assert_eq(actual: items[0], expected: 42)
+}
 
-@single_element () -> [int] = [42]
+@single_element () -> [int] = [42];
 
 // =============================================================================
 // Nested Lists (2D)
 // =============================================================================
 
-@test_nested_2d tests @nested_2d () -> void = run(
-    let matrix: [[int]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]],
-    assert_eq(actual: matrix.len(), expected: 3),
-    assert_eq(actual: matrix[0].len(), expected: 3),
-    assert_eq(actual: matrix[0][0], expected: 1),
-    assert_eq(actual: matrix[1][1], expected: 5),
-    assert_eq(actual: matrix[2][2], expected: 9),
-)
+@test_nested_2d tests @nested_2d () -> void = {
+    let matrix: [[int]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
+    assert_eq(actual: matrix.len(), expected: 3);
+    assert_eq(actual: matrix[0].len(), expected: 3);
+    assert_eq(actual: matrix[0][0], expected: 1);
+    assert_eq(actual: matrix[1][1], expected: 5);
+    assert_eq(actual: matrix[2][2], expected: 9)
+}
 
-@nested_2d () -> [[int]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+@nested_2d () -> [[int]] = [[1, 2, 3], [4, 5, 6], [7, 8, 9]];
 
-@test_nested_2d_str tests @nested_2d_str () -> void = run(
-    let grid: [[str]] = [["a", "b"], ["c", "d"]],
-    assert_eq(actual: grid[0][0], expected: "a"),
-    assert_eq(actual: grid[1][1], expected: "d"),
-)
+@test_nested_2d_str tests @nested_2d_str () -> void = {
+    let grid: [[str]] = [["a", "b"], ["c", "d"]];
+    assert_eq(actual: grid[0][0], expected: "a");
+    assert_eq(actual: grid[1][1], expected: "d")
+}
 
-@nested_2d_str () -> [[str]] = [["a", "b"], ["c", "d"]]
+@nested_2d_str () -> [[str]] = [["a", "b"], ["c", "d"]];
 
 // =============================================================================
 // Nested Lists (3D)
 // =============================================================================
 
-@test_nested_3d tests @nested_3d () -> void = run(
-    let cube: [[[int]]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]],
-    assert_eq(actual: cube[0][0][0], expected: 1),
-    assert_eq(actual: cube[1][1][1], expected: 8),
-)
+@test_nested_3d tests @nested_3d () -> void = {
+    let cube: [[[int]]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+    assert_eq(actual: cube[0][0][0], expected: 1);
+    assert_eq(actual: cube[1][1][1], expected: 8)
+}
 
-@nested_3d () -> [[[int]]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+@nested_3d () -> [[[int]]] = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
 
 // =============================================================================
 // Lists with Complex Element Types
 // =============================================================================
 
-@test_list_of_tuples tests @list_of_tuples () -> void = run(
-    let pairs: [(int, str)] = [(1, "one"), (2, "two"), (3, "three")],
-    assert_eq(actual: pairs.len(), expected: 3),
-    let (num, name) = pairs[0],
-    assert_eq(actual: num, expected: 1),
-    assert_eq(actual: name, expected: "one"),
-)
+@test_list_of_tuples tests @list_of_tuples () -> void = {
+    let pairs: [(int, str)] = [(1, "one"), (2, "two"), (3, "three")];
+    assert_eq(actual: pairs.len(), expected: 3);
+    let (num, name) = pairs[0];
+    assert_eq(actual: num, expected: 1);
+    assert_eq(actual: name, expected: "one")
+}
 
-@list_of_tuples () -> [(int, str)] = [(1, "one"), (2, "two"), (3, "three")]
+@list_of_tuples () -> [(int, str)] = [(1, "one"), (2, "two"), (3, "three")];
 
-@test_list_of_options tests @list_of_options () -> void = run(
-    let opts: [Option<int>] = [Some(1), None, Some(3), None, Some(5)],
-    assert_eq(actual: opts.len(), expected: 5),
-    assert(cond: is_some(opt: opts[0])),
-    assert(cond: is_none(opt: opts[1])),
-)
+@test_list_of_options tests @list_of_options () -> void = {
+    let opts: [Option<int>] = [Some(1), None, Some(3), None, Some(5)];
+    assert_eq(actual: opts.len(), expected: 5);
+    assert(cond: is_some(opt: opts[0]));
+    assert(cond: is_none(opt: opts[1]))
+}
 
-@list_of_options () -> [Option<int>] = [Some(1), None, Some(3), None, Some(5)]
+@list_of_options () -> [Option<int>] = [Some(1), None, Some(3), None, Some(5)];
 
-@test_list_of_results tests @list_of_results () -> void = run(
-    let results: [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)],
-    assert_eq(actual: results.len(), expected: 3),
-    assert(cond: is_ok(r: results[0])),
-    assert(cond: is_err(r: results[1])),
-)
+@test_list_of_results tests @list_of_results () -> void = {
+    let results: [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)];
+    assert_eq(actual: results.len(), expected: 3);
+    assert(cond: is_ok(r: results[0]));
+    assert(cond: is_err(r: results[1]))
+}
 
-@list_of_results () -> [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)]
+@list_of_results () -> [Result<int, str>] = [Ok(1), Err("fail"), Ok(3)];
 
 // =============================================================================
 // List Indexing
 // =============================================================================
 
-@test_list_index_first tests @list_index_first () -> void = run(
-    let items = [10, 20, 30, 40, 50],
-    assert_eq(actual: items[0], expected: 10),
-)
+@test_list_index_first tests @list_index_first () -> void = {
+    let items = [10, 20, 30, 40, 50];
+    assert_eq(actual: items[0], expected: 10)
+}
 
-@list_index_first () -> int = [10, 20, 30, 40, 50][0]
+@list_index_first () -> int = [10, 20, 30, 40, 50][0];
 
-@test_list_index_last tests @list_index_last () -> void = run(
-    let items = [10, 20, 30, 40, 50],
+@test_list_index_last tests @list_index_last () -> void = {
+    let items = [10, 20, 30, 40, 50];
     // # is length inside index brackets
-    assert_eq(actual: items[# - 1], expected: 50),
-)
+    assert_eq(actual: items[# - 1], expected: 50)
+}
 
-@list_index_last () -> int = [10, 20, 30, 40, 50][# - 1]
+@list_index_last () -> int = [10, 20, 30, 40, 50][# - 1];
 
-@test_list_index_middle tests @list_index_middle () -> void = run(
-    let items = [10, 20, 30, 40, 50],
-    assert_eq(actual: items[2], expected: 30),
-)
+@test_list_index_middle tests @list_index_middle () -> void = {
+    let items = [10, 20, 30, 40, 50];
+    assert_eq(actual: items[2], expected: 30)
+}
 
-@list_index_middle () -> int = [10, 20, 30, 40, 50][2]
+@list_index_middle () -> int = [10, 20, 30, 40, 50][2];
 
 // =============================================================================
 // List Operations
 // =============================================================================
 
-@test_list_len tests @list_len () -> void = run(
-    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-    assert_eq(actual: len(collection: items), expected: 10),
-)
+@test_list_len tests @list_len () -> void = {
+    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    assert_eq(actual: len(collection: items), expected: 10)
+}
 
-@list_len () -> int = len(collection: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+@list_len () -> int = len(collection: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
-@test_list_is_empty tests @list_is_empty () -> void = run(
-    let empty: [int] = [],
-    let nonempty = [1],
-    assert(cond: is_empty(collection: empty)),
-    assert(cond: !is_empty(collection: nonempty)),
-)
+@test_list_is_empty tests @list_is_empty () -> void = {
+    let empty: [int] = [];
+    let nonempty = [1];
+    assert(cond: is_empty(collection: empty));
+    assert(cond: !is_empty(collection: nonempty))
+}
 
-@list_is_empty () -> bool = is_empty(collection: [])
+@list_is_empty () -> bool = is_empty(collection: []);
 
 // =============================================================================
 // Lists in Function Parameters
 // =============================================================================
 
-@sum_list (items: [int]) -> int = run(
-    let total = 0,
-    for x in items do total = total + x,
-    total,
-)
+@sum_list (items: [int]) -> int = {
+    let total = 0;
+    for x in items do total = total + x;
+    total
+}
 
-@test_list_param tests @list_param () -> void = run(
-    let result = sum_list(items: [1, 2, 3, 4, 5]),
-    assert_eq(actual: result, expected: 15),
-)
+@test_list_param tests @list_param () -> void = {
+    let result = sum_list(items: [1, 2, 3, 4, 5]);
+    assert_eq(actual: result, expected: 15)
+}
 
-@list_param () -> int = sum_list(items: [1, 2, 3, 4, 5])
+@list_param () -> int = sum_list(items: [1, 2, 3, 4, 5]);
 
-@first_element (items: [int]) -> Option<int> = run(
-    if is_empty(collection: items) then None else Some(items[0]),
-)
+@first_element (items: [int]) -> Option<int> = {
+    if is_empty(collection: items) then None else Some(items[0])
+}
 
-@test_list_first_element tests @list_first_element () -> void = run(
-    let result = first_element(items: [42, 1, 2]),
-    assert(cond: is_some(opt: result)),
-)
+@test_list_first_element tests @list_first_element () -> void = {
+    let result = first_element(items: [42, 1, 2]);
+    assert(cond: is_some(opt: result))
+}
 
-@list_first_element () -> Option<int> = first_element(items: [42, 1, 2])
+@list_first_element () -> Option<int> = first_element(items: [42, 1, 2]);
 
 // =============================================================================
 // Lists as Return Types
@@ -227,47 +227,47 @@ use std.testing { assert, assert_eq }
 // STATUS: Lexer [OK], Parser [BROKEN] - expected identifier, found '_'
 // Parser does not accept wildcard '_' as binding pattern in for loops.
 
-@make_range (n: int) -> [int] = run(
-    let result: [int] = [],
-    let i = 0,
-    for _ in 0..n do run(
-        result = [...result, i],
-        i = i + 1,
-    ),
-    result,
-)
+@make_range (n: int) -> [int] = {
+    let result: [int] = [];
+    let i = 0;
+    for _ in 0..n do {
+        result = [...result, i];
+        i = i + 1
+    };
+    result
+}
 
-@test_list_return tests @list_return () -> void = run(
-    let result = make_range(n: 5),
-    assert_eq(actual: result.len(), expected: 5),
-    assert_eq(actual: result[0], expected: 0),
-    assert_eq(actual: result[4], expected: 4),
-)
+@test_list_return tests @list_return () -> void = {
+    let result = make_range(n: 5);
+    assert_eq(actual: result.len(), expected: 5);
+    assert_eq(actual: result[0], expected: 0);
+    assert_eq(actual: result[4], expected: 4)
+}
 
-@list_return () -> [int] = make_range(n: 5)
+@list_return () -> [int] = make_range(n: 5);
 
 // =============================================================================
 // List Type Inference
 // =============================================================================
 
-@test_inferred_list_type tests @inferred_list_type () -> void = run(
+@test_inferred_list_type tests @inferred_list_type () -> void = {
     // Type inferred from elements
-    let items = [1, 2, 3],
-    assert_eq(actual: items[0], expected: 1),
-)
+    let items = [1, 2, 3];
+    assert_eq(actual: items[0], expected: 1)
+}
 
-@inferred_list_type () -> int = run(
-    let items = [1, 2, 3],
-    items[0],
-)
+@inferred_list_type () -> int = {
+    let items = [1, 2, 3];
+    items[0]
+}
 
-@test_inferred_nested tests @inferred_nested () -> void = run(
+@test_inferred_nested tests @inferred_nested () -> void = {
     // Nested type inferred
-    let matrix = [[1, 2], [3, 4]],
-    assert_eq(actual: matrix[0][0], expected: 1),
-)
+    let matrix = [[1, 2], [3, 4]];
+    assert_eq(actual: matrix[0][0], expected: 1)
+}
 
-@inferred_nested () -> int = run(
-    let matrix = [[1, 2], [3, 4]],
-    matrix[0][0],
-)
+@inferred_nested () -> int = {
+    let matrix = [[1, 2], [3, 4]];
+    matrix[0][0]
+}

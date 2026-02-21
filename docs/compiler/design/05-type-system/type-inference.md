@@ -13,9 +13,23 @@ Ori uses Hindley-Milner (HM) type inference, extended with rank-based let-polymo
 
 ```
 compiler/ori_types/src/infer/
-├── mod.rs    # InferEngine struct, configuration, error handling
-├── expr.rs   # infer_expr() — per-expression type inference dispatch
-└── env.rs    # TypeEnv — scope chain for name resolution
+├── mod.rs        # InferEngine struct, configuration, error handling
+├── expr/         # Per-expression inference (directory, 13+ files)
+│   ├── mod.rs        # infer_expr() dispatch
+│   ├── calls.rs      # Function call inference
+│   ├── methods.rs    # Method call inference
+│   ├── operators.rs  # Binary/unary operator inference
+│   ├── identifiers.rs # Variable/function resolution
+│   ├── structs.rs    # Struct literal inference
+│   ├── collections.rs # List, map, set, tuple literals
+│   ├── control_flow.rs # if/match/loop expressions
+│   ├── blocks.rs     # Block/sequence inference
+│   ├── sequences.rs  # Expression sequences
+│   ├── constructors.rs # Variant/newtype constructors
+│   ├── concurrency.rs # Spawn/channel expressions
+│   └── type_resolution.rs # Type annotation resolution
+└── env/          # Type environment (directory)
+    └── mod.rs        # TypeEnv — Rc-based scope chain
 ```
 
 ## InferEngine
@@ -27,11 +41,14 @@ pub struct InferEngine<'pool> {
     expr_types: FxHashMap<ExprIndex, Idx>,  // Expression → inferred type
     context_stack: Vec<ContextKind>,        // For error reporting context
     errors: Vec<TypeCheckError>,            // Accumulated errors
+    warnings: Vec<TypeCheckWarning>,        // Accumulated warnings
 
     interner: Option<&'pool StringInterner>,
+    well_known: Option<&'pool WellKnownNames>,         // Pre-interned type names for O(1) annotation resolution
     trait_registry: Option<&'pool TraitRegistry>,
     signatures: Option<&'pool FxHashMap<Name, FunctionSig>>,
     type_registry: Option<&'pool TypeRegistry>,
+    const_types: Option<&'pool FxHashMap<Name, Idx>>,  // Module-level constant types for $name resolution
 
     self_type: Option<Idx>,                 // For recursive call patterns
     impl_self_type: Option<Idx>,            // For `Self` in impl blocks
@@ -52,14 +69,29 @@ The engine is created fresh for each function body check, receiving the pool, en
 
 **`loop_break_types: Vec<Idx>`** — A stack of expected break value types for nested loops. Each `loop()` expression pushes a fresh type variable onto this stack; `break expr` unifies the expression type with the top of the stack. Nested loops each get their own entry, and the stack is popped when exiting each loop scope.
 
+**`const_types: Option<&'pool FxHashMap<Name, Idx>>`** — Module-level constant types, set via `set_const_types()`. When the engine encounters a `$name` identifier (config variable reference), it resolves the type from this map. This enables type checking of module-level `let $VAR = ...` constants.
+
+**`well_known: Option<&'pool WellKnownNames>`** — Pre-interned `Name` handles for common type names (`int`, `str`, `bool`, `Option`, `Result`, etc.). Provides O(1) annotation resolution by avoiding repeated string interning lookups during type checking. Created once per `ModuleChecker` and shared across all `InferEngine` instances.
+
 ## Expression Inference
 
-The core inference function dispatches on `ExprKind`:
+Two top-level functions drive expression type checking, both exported from `ori_types`:
 
 ```rust
-#[tracing::instrument(level = "trace", skip(engine, arena))]
+/// Synthesize a type for an expression (bottom-up).
 pub fn infer_expr(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: ExprId) -> Idx
+
+/// Check an expression against an expected type (top-down).
+pub fn check_expr(
+    engine: &mut InferEngine<'_>,
+    arena: &ExprArena,
+    expr_id: ExprId,
+    expected: &Expected,
+    span: Span,
+) -> Idx
 ```
+
+`infer_expr` synthesizes a type from the expression alone. `check_expr` takes an `Expected` type and verifies the expression produces a compatible type, enabling bidirectional type checking. Most call sites use `infer_expr`; `check_expr` is used when the surrounding context provides a known expected type (e.g., function return types, annotated let bindings).
 
 ### Dispatch Table
 

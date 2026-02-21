@@ -10,435 +10,441 @@ use std.testing { assert, assert_eq }
 // Basic Character Literals - Lowercase Letters
 // =============================================================================
 
-@char_a () -> char = 'a'
+@char_a () -> char = 'a';
 
-@test_char_a tests @char_a () -> void = run(
-    assert(cond: char_a() == 'a'),
-)
+@test_char_a tests @char_a () -> void = {
+    assert(cond: char_a() == 'a')
+}
 
-@char_z () -> char = 'z'
+@char_z () -> char = 'z';
 
-@test_char_z tests @char_z () -> void = run(
-    assert(cond: char_z() == 'z'),
-)
+@test_char_z tests @char_z () -> void = {
+    assert(cond: char_z() == 'z')
+}
 
-@char_all_lower () -> bool = run(
-    'a' == 'a' && 'b' == 'b' && 'c' == 'c' && 'm' == 'm' && 'z' == 'z',
-)
+@char_all_lower () -> bool = {
+    'a' == 'a' && 'b' == 'b' && 'c' == 'c' && 'm' == 'm' && 'z' == 'z'
+}
 
-@test_char_all_lower tests @char_all_lower () -> void = run(
-    assert(cond: char_all_lower()),
-)
+@test_char_all_lower tests @char_all_lower () -> void = {
+    assert(cond: char_all_lower())
+}
 
 // =============================================================================
 // Basic Character Literals - Uppercase Letters
 // =============================================================================
 
-@char_A () -> char = 'A'
+@char_A () -> char = 'A';
 
-@test_char_A tests @char_A () -> void = run(
-    assert(cond: char_A() == 'A'),
-)
+@test_char_A tests @char_A () -> void = {
+    assert(cond: char_A() == 'A')
+}
 
-@char_Z () -> char = 'Z'
+@char_Z () -> char = 'Z';
 
-@test_char_Z tests @char_Z () -> void = run(
-    assert(cond: char_Z() == 'Z'),
-)
+@test_char_Z tests @char_Z () -> void = {
+    assert(cond: char_Z() == 'Z')
+}
 
-@char_all_upper () -> bool = run(
-    'A' == 'A' && 'B' == 'B' && 'C' == 'C' && 'M' == 'M' && 'Z' == 'Z',
-)
+@char_all_upper () -> bool = {
+    'A' == 'A' && 'B' == 'B' && 'C' == 'C' && 'M' == 'M' && 'Z' == 'Z'
+}
 
-@test_char_all_upper tests @char_all_upper () -> void = run(
-    assert(cond: char_all_upper()),
-)
+@test_char_all_upper tests @char_all_upper () -> void = {
+    assert(cond: char_all_upper())
+}
 
 // =============================================================================
 // Basic Character Literals - Digits
 // =============================================================================
 
-@char_0 () -> char = '0'
+@char_0 () -> char = '0';
 
-@test_char_0 tests @char_0 () -> void = run(
-    assert(cond: char_0() == '0'),
-)
+@test_char_0 tests @char_0 () -> void = {
+    assert(cond: char_0() == '0')
+}
 
-@char_9 () -> char = '9'
+@char_9 () -> char = '9';
 
-@test_char_9 tests @char_9 () -> void = run(
-    assert(cond: char_9() == '9'),
-)
+@test_char_9 tests @char_9 () -> void = {
+    assert(cond: char_9() == '9')
+}
 
-@char_all_digits () -> bool = run(
-    '0' == '0' && '1' == '1' && '5' == '5' && '9' == '9',
-)
+@char_all_digits () -> bool = {
+    '0' == '0' && '1' == '1' && '5' == '5' && '9' == '9'
+}
 
-@test_char_all_digits tests @char_all_digits () -> void = run(
-    assert(cond: char_all_digits()),
-)
+@test_char_all_digits tests @char_all_digits () -> void = {
+    assert(cond: char_all_digits())
+}
 
 // =============================================================================
 // Punctuation Characters
 // =============================================================================
 
-@char_space () -> char = ' '
+@char_space () -> char = ' ';
 
-@test_char_space tests @char_space () -> void = run(
-    assert(cond: char_space() == ' '),
-)
+@test_char_space tests @char_space () -> void = {
+    assert(cond: char_space() == ' ')
+}
 
-@char_dot () -> char = '.'
+@char_dot () -> char = '.';
 
-@test_char_dot tests @char_dot () -> void = run(
-    assert(cond: char_dot() == '.'),
-)
+@test_char_dot tests @char_dot () -> void = {
+    assert(cond: char_dot() == '.')
+}
 
-@char_comma () -> char = ','
+@char_comma () -> char = ',';
 
-@test_char_comma tests @char_comma () -> void = run(
-    assert(cond: char_comma() == ','),
-)
+@test_char_comma tests @char_comma () -> void = {
+    assert(cond: char_comma() == ',')
+}
 
-@char_exclamation () -> char = '!'
+@char_exclamation () -> char = '!';
 
-@test_char_exclamation tests @char_exclamation () -> void = run(
-    assert(cond: char_exclamation() == '!'),
-)
+@test_char_exclamation tests @char_exclamation () -> void = {
+    assert(cond: char_exclamation() == '!')
+}
 
-@char_question () -> char = '?'
+@char_question () -> char = '?';
 
-@test_char_question tests @char_question () -> void = run(
-    assert(cond: char_question() == '?'),
-)
+@test_char_question tests @char_question () -> void = {
+    assert(cond: char_question() == '?')
+}
 
-@char_at () -> char = '@'
+@char_at () -> char = '@';
 
-@test_char_at tests @char_at () -> void = run(
-    assert(cond: char_at() == '@'),
-)
+@test_char_at tests @char_at () -> void = {
+    assert(cond: char_at() == '@')
+}
 
-@char_hash () -> char = '#'
+@char_hash () -> char = '#';
 
-@test_char_hash tests @char_hash () -> void = run(
-    assert(cond: char_hash() == '#'),
-)
+@test_char_hash tests @char_hash () -> void = {
+    assert(cond: char_hash() == '#')
+}
 
-@char_dollar () -> char = '$'
+@char_dollar () -> char = '$';
 
-@test_char_dollar tests @char_dollar () -> void = run(
-    assert(cond: char_dollar() == '$'),
-)
+@test_char_dollar tests @char_dollar () -> void = {
+    assert(cond: char_dollar() == '$')
+}
 
-@char_percent () -> char = '%'
+@char_percent () -> char = '%';
 
-@test_char_percent tests @char_percent () -> void = run(
-    assert(cond: char_percent() == '%'),
-)
+@test_char_percent tests @char_percent () -> void = {
+    assert(cond: char_percent() == '%')
+}
 
-@char_caret () -> char = '^'
+@char_caret () -> char = '^';
 
-@test_char_caret tests @char_caret () -> void = run(
-    assert(cond: char_caret() == '^'),
-)
+@test_char_caret tests @char_caret () -> void = {
+    assert(cond: char_caret() == '^')
+}
 
-@char_ampersand () -> char = '&'
+@char_ampersand () -> char = '&';
 
-@test_char_ampersand tests @char_ampersand () -> void = run(
-    assert(cond: char_ampersand() == '&'),
-)
+@test_char_ampersand tests @char_ampersand () -> void = {
+    assert(cond: char_ampersand() == '&')
+}
 
-@char_asterisk () -> char = '*'
+@char_asterisk () -> char = '*';
 
-@test_char_asterisk tests @char_asterisk () -> void = run(
-    assert(cond: char_asterisk() == '*'),
-)
+@test_char_asterisk tests @char_asterisk () -> void = {
+    assert(cond: char_asterisk() == '*')
+}
 
 // =============================================================================
 // Bracket Characters
 // =============================================================================
 
-@char_paren_open () -> char = '('
+@char_paren_open () -> char = '(';
 
-@test_char_paren_open tests @char_paren_open () -> void = run(
-    assert(cond: char_paren_open() == '('),
-)
 
-@char_paren_close () -> char = ')'
+@test_char_paren_open tests @char_paren_open () -> void = {
+    assert(cond: char_paren_open() == '(')
+}
 
-@test_char_paren_close tests @char_paren_close () -> void = run(
-    assert(cond: char_paren_close() == ')'),
-)
+@char_paren_close () -> char = ')';
 
-@char_bracket_open () -> char = '['
 
-@test_char_bracket_open tests @char_bracket_open () -> void = run(
-    assert(cond: char_bracket_open() == '['),
-)
+@test_char_paren_close tests @char_paren_close () -> void = {
+    assert(cond: char_paren_close() == ')')
+}
 
-@char_bracket_close () -> char = ']'
+@char_bracket_open () -> char = '[';
 
-@test_char_bracket_close tests @char_bracket_close () -> void = run(
-    assert(cond: char_bracket_close() == ']'),
-)
 
-@char_brace_open () -> char = '{'
+@test_char_bracket_open tests @char_bracket_open () -> void = {
+    assert(cond: char_bracket_open() == '[')
+}
 
-@test_char_brace_open tests @char_brace_open () -> void = run(
-    assert(cond: char_brace_open() == '{'),
-)
+@char_bracket_close () -> char = ']';
 
-@char_brace_close () -> char = '}'
 
-@test_char_brace_close tests @char_brace_close () -> void = run(
-    assert(cond: char_brace_close() == '}'),
-)
+@test_char_bracket_close tests @char_bracket_close () -> void = {
+    assert(cond: char_bracket_close() == ']')
+}
+
+@char_brace_open () -> char = '{';
+
+
+@test_char_brace_open tests @char_brace_open () -> void = {
+    assert(cond: char_brace_open() == '{')
+}
+
+@char_brace_close () -> char = '}';
+
+
+@test_char_brace_close tests @char_brace_close () -> void = {
+    assert(cond: char_brace_close() == '}')
+}
 
 // =============================================================================
 // Escape Sequences
 // =============================================================================
 
-@char_escape_single_quote () -> char = '\''
+@char_escape_single_quote () -> char = '\'';
 
-@test_char_escape_single_quote tests @char_escape_single_quote () -> void = run(
-    assert(cond: char_escape_single_quote() == '\''),
-)
+@test_char_escape_single_quote tests @char_escape_single_quote () -> void = {
+    assert(cond: char_escape_single_quote() == '\'')
+}
 
-@char_escape_backslash () -> char = '\\'
+@char_escape_backslash () -> char = '\\';
 
-@test_char_escape_backslash tests @char_escape_backslash () -> void = run(
-    assert(cond: char_escape_backslash() == '\\'),
-)
+@test_char_escape_backslash tests @char_escape_backslash () -> void = {
+    assert(cond: char_escape_backslash() == '\\')
+}
 
-@char_escape_newline () -> char = '\n'
+@char_escape_newline () -> char = '\n';
 
-@test_char_escape_newline tests @char_escape_newline () -> void = run(
-    assert(cond: char_escape_newline() == '\n'),
-)
+@test_char_escape_newline tests @char_escape_newline () -> void = {
+    assert(cond: char_escape_newline() == '\n')
+}
 
-@char_escape_tab () -> char = '\t'
+@char_escape_tab () -> char = '\t';
 
-@test_char_escape_tab tests @char_escape_tab () -> void = run(
-    assert(cond: char_escape_tab() == '\t'),
-)
+@test_char_escape_tab tests @char_escape_tab () -> void = {
+    assert(cond: char_escape_tab() == '\t')
+}
 
-@char_escape_carriage () -> char = '\r'
+@char_escape_carriage () -> char = '\r';
 
-@test_char_escape_carriage tests @char_escape_carriage () -> void = run(
-    assert(cond: char_escape_carriage() == '\r'),
-)
+@test_char_escape_carriage tests @char_escape_carriage () -> void = {
+    assert(cond: char_escape_carriage() == '\r')
+}
 
-@char_escape_null () -> char = '\0'
+@char_escape_null () -> char = '\0';
 
-@test_char_escape_null tests @char_escape_null () -> void = run(
-    assert(cond: char_escape_null() == '\0'),
-)
+@test_char_escape_null tests @char_escape_null () -> void = {
+    assert(cond: char_escape_null() == '\0')
+}
 
 // =============================================================================
 // Character Comparisons
 // =============================================================================
 
-@char_compare_eq () -> bool = 'a' == 'a'
+@char_compare_eq () -> bool = 'a' == 'a';
 
-@test_char_compare_eq tests @char_compare_eq () -> void = run(
-    assert(cond: char_compare_eq()),
-)
+@test_char_compare_eq tests @char_compare_eq () -> void = {
+    assert(cond: char_compare_eq())
+}
 
-@char_compare_neq () -> bool = 'a' != 'b'
+@char_compare_neq () -> bool = 'a' != 'b';
 
-@test_char_compare_neq tests @char_compare_neq () -> void = run(
-    assert(cond: char_compare_neq()),
-)
+@test_char_compare_neq tests @char_compare_neq () -> void = {
+    assert(cond: char_compare_neq())
+}
 
-@char_compare_case () -> bool = 'A' != 'a'
+@char_compare_case () -> bool = 'A' != 'a';
 
-@test_char_compare_case tests @char_compare_case () -> void = run(
-    assert(cond: char_compare_case()), // Case sensitive
-)
+@test_char_compare_case tests @char_compare_case () -> void = {
+    assert(cond: char_compare_case()) // Case sensitive
+}
 
-@char_compare_escape () -> bool = '\n' == '\n'
+@char_compare_escape () -> bool = '\n' == '\n';
 
-@test_char_compare_escape tests @char_compare_escape () -> void = run(
-    assert(cond: char_compare_escape()),
-)
+@test_char_compare_escape tests @char_compare_escape () -> void = {
+    assert(cond: char_compare_escape())
+}
 
 // =============================================================================
 // Characters in Collections
 // =============================================================================
 
-@char_in_list () -> int = ['a', 'b', 'c'].len()
+@char_in_list () -> int = ['a', 'b', 'c'].len();
 
-@test_char_in_list tests @char_in_list () -> void = run(
-    assert_eq(actual: char_in_list(), expected: 3),
-)
+@test_char_in_list tests @char_in_list () -> void = {
+    assert_eq(actual: char_in_list(), expected: 3)
+}
 
 type CharStruct = { c: char, code: int }
 
-@char_in_struct () -> char = run(
-    let s = CharStruct { c: 'x', code: 120 },
-    s.c,
-)
+@char_in_struct () -> char = {
+    let s = CharStruct { c: 'x', code: 120 };
+    s.c
+}
 
-@test_char_in_struct tests @char_in_struct () -> void = run(
-    assert(cond: char_in_struct() == 'x'),
-)
+@test_char_in_struct tests @char_in_struct () -> void = {
+    assert(cond: char_in_struct() == 'x')
+}
 
 // =============================================================================
 // Character in Conditionals
 // =============================================================================
 
-@char_conditional () -> char = if true then 'y' else 'n'
+@char_conditional () -> char = if true then 'y' else 'n';
 
-@test_char_conditional tests @char_conditional () -> void = run(
-    assert(cond: char_conditional() == 'y'),
-)
+@test_char_conditional tests @char_conditional () -> void = {
+    assert(cond: char_conditional() == 'y')
+}
 
-@char_conditional_compare () -> char = if 'a' == 'a' then 't' else 'f'
+@char_conditional_compare () -> char = if 'a' == 'a' then 't' else 'f';
 
-@test_char_conditional_compare tests @char_conditional_compare () -> void = run(
-    assert(cond: char_conditional_compare() == 't'),
-)
+@test_char_conditional_compare tests @char_conditional_compare () -> void = {
+    assert(cond: char_conditional_compare() == 't')
+}
 
 // =============================================================================
 // Character Bindings
 // =============================================================================
 
-@char_binding () -> char = run(
-    let c = 'x',
-    c,
-)
+@char_binding () -> char = {
+    let c = 'x';
+    c
+}
 
-@test_char_binding tests @char_binding () -> void = run(
-    assert(cond: char_binding() == 'x'),
-)
+@test_char_binding tests @char_binding () -> void = {
+    assert(cond: char_binding() == 'x')
+}
 
-@char_rebind () -> char = run(
-    let c = 'a',
-    let c = 'b',
-    c,
-)
+@char_rebind () -> char = {
+    let c = 'a';
+    let c = 'b';
+    c
+}
 
-@test_char_rebind tests @char_rebind () -> void = run(
-    assert(cond: char_rebind() == 'b'),
-)
+@test_char_rebind tests @char_rebind () -> void = {
+    assert(cond: char_rebind() == 'b')
+}
 
 // =============================================================================
 // Character as Function Parameter
 // =============================================================================
 
-@char_param (c: char) -> char = c
+@char_param (c: char) -> char = c;
 
-@test_char_param tests @char_param () -> void = run(
-    assert(cond: char_param(c: 'z') == 'z'),
-)
+@test_char_param tests @char_param () -> void = {
+    assert(cond: char_param(c: 'z') == 'z')
+}
 
-@char_param_escape (c: char) -> char = c
+@char_param_escape (c: char) -> char = c;
 
-@test_char_param_escape tests @char_param_escape () -> void = run(
-    assert(cond: char_param_escape(c: '\n') == '\n'),
-)
+@test_char_param_escape tests @char_param_escape () -> void = {
+    assert(cond: char_param_escape(c: '\n') == '\n')
+}
 
 // =============================================================================
 // Operator Characters (as char literals)
 // =============================================================================
 
-@char_plus () -> char = '+'
+@char_plus () -> char = '+';
 
-@test_char_plus tests @char_plus () -> void = run(
-    assert(cond: char_plus() == '+'),
-)
+@test_char_plus tests @char_plus () -> void = {
+    assert(cond: char_plus() == '+')
+}
 
-@char_minus () -> char = '-'
+@char_minus () -> char = '-';
 
-@test_char_minus tests @char_minus () -> void = run(
-    assert(cond: char_minus() == '-'),
-)
+@test_char_minus tests @char_minus () -> void = {
+    assert(cond: char_minus() == '-')
+}
 
-@char_slash () -> char = '/'
+@char_slash () -> char = '/';
 
-@test_char_slash tests @char_slash () -> void = run(
-    assert(cond: char_slash() == '/'),
-)
+@test_char_slash tests @char_slash () -> void = {
+    assert(cond: char_slash() == '/')
+}
 
-@char_equals () -> char = '='
+@char_equals () -> char = '=';
 
-@test_char_equals tests @char_equals () -> void = run(
-    assert(cond: char_equals() == '='),
-)
+@test_char_equals tests @char_equals () -> void = {
+    assert(cond: char_equals() == '=')
+}
 
-@char_less () -> char = '<'
+@char_less () -> char = '<';
 
-@test_char_less tests @char_less () -> void = run(
-    assert(cond: char_less() == '<'),
-)
+@test_char_less tests @char_less () -> void = {
+    assert(cond: char_less() == '<')
+}
 
-@char_greater () -> char = '>'
+@char_greater () -> char = '>';
 
-@test_char_greater tests @char_greater () -> void = run(
-    assert(cond: char_greater() == '>'),
-)
+@test_char_greater tests @char_greater () -> void = {
+    assert(cond: char_greater() == '>')
+}
 
-@char_pipe () -> char = '|'
+@char_pipe () -> char = '|';
 
-@test_char_pipe tests @char_pipe () -> void = run(
-    assert(cond: char_pipe() == '|'),
-)
+@test_char_pipe tests @char_pipe () -> void = {
+    assert(cond: char_pipe() == '|')
+}
 
-@char_tilde () -> char = '~'
+@char_tilde () -> char = '~';
 
-@test_char_tilde tests @char_tilde () -> void = run(
-    assert(cond: char_tilde() == '~'),
-)
+@test_char_tilde tests @char_tilde () -> void = {
+    assert(cond: char_tilde() == '~')
+}
 
 // =============================================================================
 // Quote Characters (as char literals)
 // =============================================================================
 
-@char_double_quote () -> char = '"'
+@char_double_quote () -> char = '"';
 
-@test_char_double_quote tests @char_double_quote () -> void = run(
-    assert(cond: char_double_quote() == '"'),
-)
+@test_char_double_quote tests @char_double_quote () -> void = {
+    assert(cond: char_double_quote() == '"')
+}
 
-@char_backtick () -> char = '`'
+@char_backtick () -> char = '`';
 
-@test_char_backtick tests @char_backtick () -> void = run(
-    assert(cond: char_backtick() == '`'),
-)
+@test_char_backtick tests @char_backtick () -> void = {
+    assert(cond: char_backtick() == '`')
+}
 
 // =============================================================================
 // Underscore and Colon
 // =============================================================================
 
-@char_underscore () -> char = '_'
+@char_underscore () -> char = '_';
 
-@test_char_underscore tests @char_underscore () -> void = run(
-    assert(cond: char_underscore() == '_'),
-)
+@test_char_underscore tests @char_underscore () -> void = {
+    assert(cond: char_underscore() == '_')
+}
 
-@char_colon () -> char = ':'
+@char_colon () -> char = ':';
 
-@test_char_colon tests @char_colon () -> void = run(
-    assert(cond: char_colon() == ':'),
-)
+@test_char_colon tests @char_colon () -> void = {
+    assert(cond: char_colon() == ':')
+}
 
-@char_semicolon () -> char = ';'
+@char_semicolon () -> char = ';';
 
-@test_char_semicolon tests @char_semicolon () -> void = run(
-    assert(cond: char_semicolon() == ';'),
-)
+@test_char_semicolon tests @char_semicolon () -> void = {
+    assert(cond: char_semicolon() == ';')
+}
 
 // =============================================================================
 // Edge Case Characters
 // =============================================================================
 
-@char_different_escapes () -> bool = run(
-    let newline = '\n',
-    let tab = '\t',
-    let carriage = '\r',
-    newline != tab && tab != carriage && carriage != newline,
-)
+@char_different_escapes () -> bool = {
+    let newline = '\n';
+    let tab = '\t';
+    let carriage = '\r';
+    newline != tab && tab != carriage && carriage != newline
+}
 
-@test_char_different_escapes tests @char_different_escapes () -> void = run(
-    assert(cond: char_different_escapes()),
-)
+@test_char_different_escapes tests @char_different_escapes () -> void = {
+    assert(cond: char_different_escapes())
+}

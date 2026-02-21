@@ -1,16 +1,17 @@
 // Simple run pattern
 // Spec: 10-patterns.md § run
 
-@compute () -> int = run(
-    let x = 1,
-    let y = 2,
-    x + y,
-)
+@compute () -> int = {
+    let x = 1;
+    let y = 2;
 
-@nested () -> int = run(
-    let a = run(
-        let inner = 5,
-        inner * 2,
-    ),
-    a + 10,
-)
+    x + y
+}
+
+@nested () -> int = {
+    let a = {
+        let inner = 5;
+        inner * 2
+    };
+    a + 10
+}

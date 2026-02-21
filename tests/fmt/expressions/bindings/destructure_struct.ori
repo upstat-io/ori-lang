@@ -3,7 +3,7 @@
 
 type Point = { x: int, y: int }
 
-@distance_sq (p: Point) -> int = run(
-    let { x, y } = p,
-    x * x + y * y,
-)
+@distance_sq (p: Point) -> int = {
+    let { x, y } = p;
+    x * x + y * y
+}

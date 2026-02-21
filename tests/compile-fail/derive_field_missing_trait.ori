@@ -7,7 +7,7 @@ type FileHandle = { fd: int }
 type Container = { data: FileHandle }
 
 #[compile_fail("field type does not implement trait required by derive")]
-@test_field_missing () -> void = run(
-    let _ = Container { data: FileHandle { fd: 1 } } == Container { data: FileHandle { fd: 1 } },
+@test_field_missing () -> void = {
+    let _ = Container { data: FileHandle { fd: 1 } } == Container { data: FileHandle { fd: 1 } };
     ()
-)
+}

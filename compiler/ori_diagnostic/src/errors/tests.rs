@@ -87,7 +87,7 @@ fn test_all_documented_codes_retrievable() {
 /// 2. Bump `MAX_UNDOCUMENTED` here (with justification in the commit).
 #[test]
 fn test_undocumented_count_does_not_grow() {
-    const MAX_UNDOCUMENTED: usize = 52;
+    const MAX_UNDOCUMENTED: usize = 53;
 
     let undocumented: Vec<_> = ErrorCode::ALL
         .iter()

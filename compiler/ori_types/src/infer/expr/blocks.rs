@@ -32,6 +32,10 @@ pub(crate) fn infer_block(
             } => {
                 let pat = arena.get_binding_pattern(*pattern);
 
+                // Track error count for closure self-capture detection
+                let binding_name = pattern_first_name(pat);
+                let errors_before = engine.error_count();
+
                 // Enter rank scope for let-polymorphism (not binding scope).
                 // This allows type variables in the initializer to be generalized.
                 engine.enter_rank_scope();
@@ -54,6 +58,17 @@ pub(crate) fn infer_block(
                 } else {
                     // No annotation: infer and generalize for let-polymorphism
                     let init_ty = infer_expr(engine, arena, *init);
+
+                    // Detect closure self-capture: if init is a lambda and any new
+                    // errors are UnknownIdent matching the binding name, rewrite them
+                    // to the more helpful "closure cannot capture itself" message.
+                    // Example: `{ let f = () -> f; f }` — f isn't yet in scope.
+                    if let Some(name) = binding_name {
+                        if matches!(arena.get_expr(*init).kind, ExprKind::Lambda { .. }) {
+                            engine.rewrite_self_capture_errors(name, errors_before);
+                        }
+                    }
+
                     engine.generalize(init_ty)
                 };
 
@@ -91,7 +106,7 @@ pub(crate) fn infer_let(
     // Enforcement happens in the evaluator (`bind_can_pattern`) and codegen backends,
     // not here. Kept as a parameter for future "cannot assign to immutable binding"
     // diagnostics (like Rust's type checker emits).
-    _mutable: bool,
+    _mutable: ori_ir::Mutability,
     span: Span,
 ) -> Idx {
     // Enter scope for let-polymorphism.

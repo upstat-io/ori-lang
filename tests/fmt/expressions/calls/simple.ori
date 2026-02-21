@@ -1,8 +1,8 @@
 // Simple function calls
 // Spec: 04-declarations.md § Functions
 
-@greet () -> void = print(msg: "Hello")
+@greet () -> void = print(msg: "Hello");
 
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@use_add () -> int = add(a: 1, b: 2)
+@use_add () -> int = add(a: 1, b: 2);

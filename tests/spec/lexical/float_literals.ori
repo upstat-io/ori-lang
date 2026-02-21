@@ -9,359 +9,359 @@ use std.testing { assert, assert_eq }
 // Basic Float Literals
 // =============================================================================
 
-@float_zero () -> float = 0.0
+@float_zero () -> float = 0.0;
 
-@test_float_zero tests @float_zero () -> void = run(
-    assert(cond: float_zero() == 0.0),
-)
+@test_float_zero tests @float_zero () -> void = {
+    assert(cond: float_zero() == 0.0)
+}
 
-@float_one () -> float = 1.0
+@float_one () -> float = 1.0;
 
-@test_float_one tests @float_one () -> void = run(
-    assert(cond: float_one() == 1.0),
-)
+@test_float_one tests @float_one () -> void = {
+    assert(cond: float_one() == 1.0)
+}
 
-@float_pi () -> float = 3.14159265358979
+@float_pi () -> float = 3.14159265358979;
 
-@test_float_pi tests @float_pi () -> void = run(
+@test_float_pi tests @float_pi () -> void = {
     // Check approximate equality (float precision)
-    let diff = float_pi() - 3.14159265358979,
-    let abs_diff = if diff < 0.0 then -diff else diff,
-    assert(cond: abs_diff < 0.0000001),
-)
+    let diff = float_pi() - 3.14159265358979;
+    let abs_diff = if diff < 0.0 then -diff else diff;
+    assert(cond: abs_diff < 0.0000001)
+}
 
-@float_simple () -> float = 3.14
+@float_simple () -> float = 3.14;
 
-@test_float_simple tests @float_simple () -> void = run(
-    assert(cond: float_simple() == 3.14),
-)
+@test_float_simple tests @float_simple () -> void = {
+    assert(cond: float_simple() == 3.14)
+}
 
-@float_multi_decimal () -> float = 123.456
+@float_multi_decimal () -> float = 123.456;
 
-@test_float_multi_decimal tests @float_multi_decimal () -> void = run(
-    assert(cond: float_multi_decimal() == 123.456),
-)
+@test_float_multi_decimal tests @float_multi_decimal () -> void = {
+    assert(cond: float_multi_decimal() == 123.456)
+}
 
 // =============================================================================
 // Float with Exponents (Scientific Notation)
 // =============================================================================
 
-@float_exp_positive () -> float = 2.5e3
+@float_exp_positive () -> float = 2.5e3;
 
-@test_float_exp_positive tests @float_exp_positive () -> void = run(
-    assert(cond: float_exp_positive() == 2500.0),
-)
+@test_float_exp_positive tests @float_exp_positive () -> void = {
+    assert(cond: float_exp_positive() == 2500.0)
+}
 
-@float_exp_negative () -> float = 2.5e-2
+@float_exp_negative () -> float = 2.5e-2;
 
-@test_float_exp_negative tests @float_exp_negative () -> void = run(
-    assert(cond: float_exp_negative() == 0.025),
-)
+@test_float_exp_negative tests @float_exp_negative () -> void = {
+    assert(cond: float_exp_negative() == 0.025)
+}
 
-@float_exp_explicit_positive () -> float = 2.5e+2
+@float_exp_explicit_positive () -> float = 2.5e+2;
 
-@test_float_exp_explicit_positive tests @float_exp_explicit_positive () -> void = run(
-    assert(cond: float_exp_explicit_positive() == 250.0),
-)
+@test_float_exp_explicit_positive tests @float_exp_explicit_positive () -> void = {
+    assert(cond: float_exp_explicit_positive() == 250.0)
+}
 
-@float_exp_zero () -> float = 1.0e0
+@float_exp_zero () -> float = 1.0e0;
 
-@test_float_exp_zero tests @float_exp_zero () -> void = run(
-    assert(cond: float_exp_zero() == 1.0),
-)
+@test_float_exp_zero tests @float_exp_zero () -> void = {
+    assert(cond: float_exp_zero() == 1.0)
+}
 
-@float_exp_large () -> float = 1.0e10
+@float_exp_large () -> float = 1.0e10;
 
-@test_float_exp_large tests @float_exp_large () -> void = run(
-    assert(cond: float_exp_large() == 10000000000.0),
-)
+@test_float_exp_large tests @float_exp_large () -> void = {
+    assert(cond: float_exp_large() == 10000000000.0)
+}
 
-@float_exp_small () -> float = 1.0e-10
+@float_exp_small () -> float = 1.0e-10;
 
-@test_float_exp_small tests @float_exp_small () -> void = run(
-    let val = float_exp_small(),
-    let expected = 0.0000000001,
-    let diff = val - expected,
-    let abs_diff = if diff < 0.0 then -diff else diff,
-    assert(cond: abs_diff < 1.0e-15),
-)
+@test_float_exp_small tests @float_exp_small () -> void = {
+    let val = float_exp_small();
+    let expected = 0.0000000001;
+    let diff = val - expected;
+    let abs_diff = if diff < 0.0 then -diff else diff;
+    assert(cond: abs_diff < 1.0e-15)
+}
 
 // =============================================================================
 // Uppercase E in Exponent
 // =============================================================================
 
-@float_exp_uppercase () -> float = 3.0E+2
+@float_exp_uppercase () -> float = 3.0E+2;
 
-@test_float_exp_uppercase tests @float_exp_uppercase () -> void = run(
-    assert(cond: float_exp_uppercase() == 300.0),
-)
+@test_float_exp_uppercase tests @float_exp_uppercase () -> void = {
+    assert(cond: float_exp_uppercase() == 300.0)
+}
 
-@float_exp_uppercase_neg () -> float = 3.0E-2
+@float_exp_uppercase_neg () -> float = 3.0E-2;
 
-@test_float_exp_uppercase_neg tests @float_exp_uppercase_neg () -> void = run(
-    assert(cond: float_exp_uppercase_neg() == 0.03),
-)
+@test_float_exp_uppercase_neg tests @float_exp_uppercase_neg () -> void = {
+    assert(cond: float_exp_uppercase_neg() == 0.03)
+}
 
-@float_exp_uppercase_no_sign () -> float = 1.0E1
+@float_exp_uppercase_no_sign () -> float = 1.0E1;
 
-@test_float_exp_uppercase_no_sign tests @float_exp_uppercase_no_sign () -> void = run(
-    assert(cond: float_exp_uppercase_no_sign() == 10.0),
-)
+@test_float_exp_uppercase_no_sign tests @float_exp_uppercase_no_sign () -> void = {
+    assert(cond: float_exp_uppercase_no_sign() == 10.0)
+}
 
 // =============================================================================
 // Float with Underscores
 // =============================================================================
 
-@float_underscore_whole () -> float = 1_000.5
+@float_underscore_whole () -> float = 1_000.5;
 
-@test_float_underscore_whole tests @float_underscore_whole () -> void = run(
-    assert(cond: float_underscore_whole() == 1000.5),
-)
+@test_float_underscore_whole tests @float_underscore_whole () -> void = {
+    assert(cond: float_underscore_whole() == 1000.5)
+}
 
-@float_underscore_decimal () -> float = 3.141_592
+@float_underscore_decimal () -> float = 3.141_592;
 
-@test_float_underscore_decimal tests @float_underscore_decimal () -> void = run(
-    assert(cond: float_underscore_decimal() == 3.141592),
-)
+@test_float_underscore_decimal tests @float_underscore_decimal () -> void = {
+    assert(cond: float_underscore_decimal() == 3.141592)
+}
 
-@float_underscore_both () -> float = 1_234.567_89
+@float_underscore_both () -> float = 1_234.567_89;
 
-@test_float_underscore_both tests @float_underscore_both () -> void = run(
-    assert(cond: float_underscore_both() == 1234.56789),
-)
+@test_float_underscore_both tests @float_underscore_both () -> void = {
+    assert(cond: float_underscore_both() == 1234.56789)
+}
 
 // =============================================================================
 // Negative Floats (Unary Minus)
 // =============================================================================
 
-@float_neg_simple () -> float = -3.14
+@float_neg_simple () -> float = -3.14;
 
-@test_float_neg_simple tests @float_neg_simple () -> void = run(
-    assert(cond: float_neg_simple() == -3.14),
-)
+@test_float_neg_simple tests @float_neg_simple () -> void = {
+    assert(cond: float_neg_simple() == -3.14)
+}
 
-@float_neg_exp () -> float = -1.0e2
+@float_neg_exp () -> float = -1.0e2;
 
-@test_float_neg_exp tests @float_neg_exp () -> void = run(
-    assert(cond: float_neg_exp() == -100.0),
-)
+@test_float_neg_exp tests @float_neg_exp () -> void = {
+    assert(cond: float_neg_exp() == -100.0)
+}
 
-@float_neg_exp_neg () -> float = -2.5e-2
+@float_neg_exp_neg () -> float = -2.5e-2;
 
-@test_float_neg_exp_neg tests @float_neg_exp_neg () -> void = run(
-    assert(cond: float_neg_exp_neg() == -0.025),
-)
+@test_float_neg_exp_neg tests @float_neg_exp_neg () -> void = {
+    assert(cond: float_neg_exp_neg() == -0.025)
+}
 
 // =============================================================================
 // Edge Cases
 // =============================================================================
 
-@float_leading_zero () -> float = 0.5
+@float_leading_zero () -> float = 0.5;
 
-@test_float_leading_zero tests @float_leading_zero () -> void = run(
-    assert(cond: float_leading_zero() == 0.5),
-)
+@test_float_leading_zero tests @float_leading_zero () -> void = {
+    assert(cond: float_leading_zero() == 0.5)
+}
 
-@float_trailing_zeros () -> float = 1.500
+@float_trailing_zeros () -> float = 1.500;
 
-@test_float_trailing_zeros tests @float_trailing_zeros () -> void = run(
-    assert(cond: float_trailing_zeros() == 1.5),
-)
+@test_float_trailing_zeros tests @float_trailing_zeros () -> void = {
+    assert(cond: float_trailing_zeros() == 1.5)
+}
 
-@float_many_decimals () -> float = 0.123456789
+@float_many_decimals () -> float = 0.123456789;
 
-@test_float_many_decimals tests @float_many_decimals () -> void = run(
-    let diff = float_many_decimals() - 0.123456789,
-    let abs_diff = if diff < 0.0 then -diff else diff,
-    assert(cond: abs_diff < 0.0000001),
-)
+@test_float_many_decimals tests @float_many_decimals () -> void = {
+    let diff = float_many_decimals() - 0.123456789;
+    let abs_diff = if diff < 0.0 then -diff else diff;
+    assert(cond: abs_diff < 0.0000001)
+}
 
 // =============================================================================
 // Float Comparisons
 // =============================================================================
 
-@float_compare_eq () -> bool = 1.0 == 1.0
+@float_compare_eq () -> bool = 1.0 == 1.0;
 
-@test_float_compare_eq tests @float_compare_eq () -> void = run(
-    assert(cond: float_compare_eq()),
-)
+@test_float_compare_eq tests @float_compare_eq () -> void = {
+    assert(cond: float_compare_eq())
+}
 
-@float_compare_neq () -> bool = 1.0 != 2.0
+@float_compare_neq () -> bool = 1.0 != 2.0;
 
-@test_float_compare_neq tests @float_compare_neq () -> void = run(
-    assert(cond: float_compare_neq()),
-)
+@test_float_compare_neq tests @float_compare_neq () -> void = {
+    assert(cond: float_compare_neq())
+}
 
-@float_compare_lt () -> bool = 1.5 < 2.5
+@float_compare_lt () -> bool = 1.5 < 2.5;
 
-@test_float_compare_lt tests @float_compare_lt () -> void = run(
-    assert(cond: float_compare_lt()),
-)
+@test_float_compare_lt tests @float_compare_lt () -> void = {
+    assert(cond: float_compare_lt())
+}
 
-@float_compare_gt () -> bool = 2.5 > 1.5
+@float_compare_gt () -> bool = 2.5 > 1.5;
 
-@test_float_compare_gt tests @float_compare_gt () -> void = run(
-    assert(cond: float_compare_gt()),
-)
+@test_float_compare_gt tests @float_compare_gt () -> void = {
+    assert(cond: float_compare_gt())
+}
 
-@float_compare_lte () -> bool = 1.5 <= 1.5
+@float_compare_lte () -> bool = 1.5 <= 1.5;
 
-@test_float_compare_lte tests @float_compare_lte () -> void = run(
-    assert(cond: float_compare_lte()),
-    assert(cond: 1.0 <= 2.0),
-)
+@test_float_compare_lte tests @float_compare_lte () -> void = {
+    assert(cond: float_compare_lte());
+    assert(cond: 1.0 <= 2.0)
+}
 
-@float_compare_gte () -> bool = 2.5 >= 2.5
+@float_compare_gte () -> bool = 2.5 >= 2.5;
 
-@test_float_compare_gte tests @float_compare_gte () -> void = run(
-    assert(cond: float_compare_gte()),
-    assert(cond: 3.0 >= 2.0),
-)
+@test_float_compare_gte tests @float_compare_gte () -> void = {
+    assert(cond: float_compare_gte());
+    assert(cond: 3.0 >= 2.0)
+}
 
 // =============================================================================
 // Float Arithmetic
 // =============================================================================
 
-@float_add () -> float = 1.5 + 2.5
+@float_add () -> float = 1.5 + 2.5;
 
-@test_float_add tests @float_add () -> void = run(
-    assert(cond: float_add() == 4.0),
-)
+@test_float_add tests @float_add () -> void = {
+    assert(cond: float_add() == 4.0)
+}
 
-@float_sub () -> float = 5.0 - 2.5
+@float_sub () -> float = 5.0 - 2.5;
 
-@test_float_sub tests @float_sub () -> void = run(
-    assert(cond: float_sub() == 2.5),
-)
+@test_float_sub tests @float_sub () -> void = {
+    assert(cond: float_sub() == 2.5)
+}
 
-@float_mul () -> float = 2.0 * 3.5
+@float_mul () -> float = 2.0 * 3.5;
 
-@test_float_mul tests @float_mul () -> void = run(
-    assert(cond: float_mul() == 7.0),
-)
+@test_float_mul tests @float_mul () -> void = {
+    assert(cond: float_mul() == 7.0)
+}
 
-@float_div () -> float = 10.0 / 4.0
+@float_div () -> float = 10.0 / 4.0;
 
-@test_float_div tests @float_div () -> void = run(
-    assert(cond: float_div() == 2.5),
-)
+@test_float_div tests @float_div () -> void = {
+    assert(cond: float_div() == 2.5)
+}
 
 // =============================================================================
 // Float in Various Contexts
 // =============================================================================
 
-@float_in_list () -> int = [1.0, 2.5, 3.14].len()
+@float_in_list () -> int = [1.0, 2.5, 3.14].len();
 
-@test_float_in_list tests @float_in_list () -> void = run(
-    assert_eq(actual: float_in_list(), expected: 3),
-)
+@test_float_in_list tests @float_in_list () -> void = {
+    assert_eq(actual: float_in_list(), expected: 3)
+}
 
 type FloatStruct = { x: float, y: float }
 
-@float_in_struct () -> float = run(
-    let p = FloatStruct { x: 1.5, y: 2.5 },
-    p.x + p.y,
-)
+@float_in_struct () -> float = {
+    let p = FloatStruct { x: 1.5, y: 2.5 };
+    p.x + p.y
+}
 
-@test_float_in_struct tests @float_in_struct () -> void = run(
-    assert(cond: float_in_struct() == 4.0),
-)
+@test_float_in_struct tests @float_in_struct () -> void = {
+    assert(cond: float_in_struct() == 4.0)
+}
 
-@float_in_conditional () -> float = if 1.5 < 2.5 then 1.0 else 0.0
+@float_in_conditional () -> float = if 1.5 < 2.5 then 1.0 else 0.0;
 
-@test_float_in_conditional tests @float_in_conditional () -> void = run(
-    assert(cond: float_in_conditional() == 1.0),
-)
+@test_float_in_conditional tests @float_in_conditional () -> void = {
+    assert(cond: float_in_conditional() == 1.0)
+}
 
 // =============================================================================
 // Special Float Values via Arithmetic
 // =============================================================================
 
-@float_very_small () -> float = 0.0000001
+@float_very_small () -> float = 0.0000001;
 
-@test_float_very_small tests @float_very_small () -> void = run(
-    let val = float_very_small(),
-    assert(cond: val > 0.0),
-    assert(cond: val < 0.001),
-)
+@test_float_very_small tests @float_very_small () -> void = {
+    let val = float_very_small();
+    assert(cond: val > 0.0);
+    assert(cond: val < 0.001)
+}
 
-@float_very_large () -> float = 1.0e100
+@float_very_large () -> float = 1.0e100;
 
-@test_float_very_large tests @float_very_large () -> void = run(
-    let val = float_very_large(),
-    assert(cond: val > 0.0),
-)
+@test_float_very_large tests @float_very_large () -> void = {
+    let val = float_very_large();
+    assert(cond: val > 0.0)
+}
 
 // =============================================================================
 // Conversion from Int to Float Context
 // =============================================================================
 
-@float_int_context () -> float = run(
-    let i = 42,
-    let f = float(i),
-    f,
-)
+@float_int_context () -> float = {
+    let i = 42;
+    let f = float(i);
+    f
+}
 
-@test_float_int_context tests @float_int_context () -> void = run(
-    assert(cond: float_int_context() == 42.0),
-)
+@test_float_int_context tests @float_int_context () -> void = {
+    assert(cond: float_int_context() == 42.0)
+}
 
 // =============================================================================
 // Mixed Float Operations
 // =============================================================================
 
-@float_mixed_ops () -> float = 1.0 + 2.0 * 3.0 - 4.0 / 2.0
+@float_mixed_ops () -> float = 1.0 + 2.0 * 3.0 - 4.0 / 2.0;
 
-@test_float_mixed_ops tests @float_mixed_ops () -> void = run(
+@test_float_mixed_ops tests @float_mixed_ops () -> void = {
     // 1.0 + 6.0 - 2.0 = 5.0
-    assert(cond: float_mixed_ops() == 5.0),
-)
+    assert(cond: float_mixed_ops() == 5.0)
+}
 
-@float_parens () -> float = (1.0 + 2.0) * (3.0 + 4.0)
+@float_parens () -> float = (1.0 + 2.0) * (3.0 + 4.0);
 
-@test_float_parens tests @float_parens () -> void = run(
-    assert(cond: float_parens() == 21.0),
-)
+@test_float_parens tests @float_parens () -> void = {
+    assert(cond: float_parens() == 21.0)
+}
 
 // =============================================================================
 // Float Precision Edge Cases
 // =============================================================================
 
-@float_precision_add () -> bool = run(
+@float_precision_add () -> bool = {
     // This tests floating point precision behavior
-    let a = 0.1,
-    let b = 0.2,
-    let sum = a + b,
+    let a = 0.1;
+    let b = 0.2;
+    let sum = a + b;
     // Float arithmetic is not exact
-    let diff = sum - 0.3,
-    let abs_diff = if diff < 0.0 then -diff else diff,
-    abs_diff < 0.0000001,
-)
+    let diff = sum - 0.3;
+    let abs_diff = if diff < 0.0 then -diff else diff;
+    abs_diff < 0.0000001
+}
 
-@test_float_precision_add tests @float_precision_add () -> void = run(
-    assert(cond: float_precision_add()),
-)
+@test_float_precision_add tests @float_precision_add () -> void = {
+    assert(cond: float_precision_add())
+}
 
 // =============================================================================
 // Float Exponent Edge Cases
 // =============================================================================
 
-@float_exp_single_digit () -> float = 1.0e1
+@float_exp_single_digit () -> float = 1.0e1;
 
-@test_float_exp_single_digit tests @float_exp_single_digit () -> void = run(
-    assert(cond: float_exp_single_digit() == 10.0),
-)
+@test_float_exp_single_digit tests @float_exp_single_digit () -> void = {
+    assert(cond: float_exp_single_digit() == 10.0)
+}
 
-@float_exp_multi_digit () -> float = 1.0e12
+@float_exp_multi_digit () -> float = 1.0e12;
 
-@test_float_exp_multi_digit tests @float_exp_multi_digit () -> void = run(
-    assert(cond: float_exp_multi_digit() == 1000000000000.0),
-)
+@test_float_exp_multi_digit tests @float_exp_multi_digit () -> void = {
+    assert(cond: float_exp_multi_digit() == 1000000000000.0)
+}
 
-@float_exp_neg_multi_digit () -> float = 1.0e-12
+@float_exp_neg_multi_digit () -> float = 1.0e-12;
 
-@test_float_exp_neg_multi_digit tests @float_exp_neg_multi_digit () -> void = run(
-    let val = float_exp_neg_multi_digit(),
-    assert(cond: val > 0.0),
-    assert(cond: val < 0.000001),
-)
+@test_float_exp_neg_multi_digit tests @float_exp_neg_multi_digit () -> void = {
+    let val = float_exp_neg_multi_digit();
+    assert(cond: val > 0.0);
+    assert(cond: val < 0.000001)
+}

@@ -7,7 +7,7 @@ section: "Features"
 
 # Diagnostics
 
-> **Current Implementation**: Only lexer and parser errors are reported. Type checking integration, SuggestedFix, and code actions described below are not yet implemented — they represent the planned design.
+> **Current Implementation**: Lexer, parser, and type errors are reported (via `oric::type_check()`). The following are **not yet implemented**: `SuggestedFix` pattern, `DiagnosticTracker`, debouncing, warning tags (`UNNECESSARY`/`DEPRECATED`), and code actions. Diagnostic ranges fall back to a hardcoded `(0,0)-(0,10)` range when span extraction fails.
 
 Publishing parse errors, type errors, and warnings to the client.
 
@@ -47,8 +47,8 @@ textDocument/publishDiagnostics
 |--------|----------|----------|----------|--------|
 | Lexer | Error | Invalid token, unterminated string | No | ✅ Implemented |
 | Parser | Error | Missing `)`, unexpected token | Sometimes | ✅ Implemented |
-| Type checker | Error | Type mismatch, undefined variable | Sometimes | ❌ Not yet connected |
-| Type checker | Warning | Unused variable, unreachable code | Often | ❌ Not yet connected |
+| Type checker | Error | Type mismatch, undefined variable | Sometimes | ✅ Implemented |
+| Type checker | Warning | Unused variable, unreachable code | Often | ⚠️ Partial |
 | Linter (future) | Warning/Hint | Style suggestions | Usually | ❌ Not yet connected |
 
 ## SuggestedFix Support (from Go)

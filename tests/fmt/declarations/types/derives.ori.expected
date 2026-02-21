@@ -2,7 +2,7 @@
 type Point = { x: int, y: int }
 
 #derive(Debug)
-type Status = Pending | Running | Done
+type Status = Pending | Running | Done;
 
 #derive(Eq, Clone, Debug)
 type User = { id: int, name: str }

@@ -11,38 +11,38 @@ use "../higher_order_functions" {
     product,
 }
 
-@test_double_all tests @double_all () -> void = run(
-    assert(cond: double_all(arr: []) == []),
-    assert(cond: double_all(arr: [1]) == [2]),
-    assert(cond: double_all(arr: [1, 2, 3]) == [2, 4, 6]),
-)
+@test_double_all tests @double_all () -> void = {
+    assert(cond: double_all(arr: []) == []);
+    assert(cond: double_all(arr: [1]) == [2]);
+    assert(cond: double_all(arr: [1, 2, 3]) == [2, 4, 6])
+}
 
-@test_square_all tests @square_all () -> void = run(
-    assert(cond: square_all(arr: []) == []),
-    assert(cond: square_all(arr: [1, 2, 3]) == [1, 4, 9]),
-    assert(cond: square_all(arr: [4, 5]) == [16, 25]),
-)
+@test_square_all tests @square_all () -> void = {
+    assert(cond: square_all(arr: []) == []);
+    assert(cond: square_all(arr: [1, 2, 3]) == [1, 4, 9]);
+    assert(cond: square_all(arr: [4, 5]) == [16, 25])
+}
 
-@test_filter_positive tests @filter_positive () -> void = run(
-    assert(cond: filter_positive(arr: []) == []),
-    assert(cond: filter_positive(arr: [1, 2, 3]) == [1, 2, 3]),
-    assert(cond: filter_positive(arr: [-1, 0, 1, 2]) == [1, 2]),
-)
+@test_filter_positive tests @filter_positive () -> void = {
+    assert(cond: filter_positive(arr: []) == []);
+    assert(cond: filter_positive(arr: [1, 2, 3]) == [1, 2, 3]);
+    assert(cond: filter_positive(arr: [-1, 0, 1, 2]) == [1, 2])
+}
 
-@test_filter_even tests @filter_even () -> void = run(
-    assert(cond: filter_even(arr: []) == []),
-    assert(cond: filter_even(arr: [1, 2, 3, 4]) == [2, 4]),
-    assert(cond: filter_even(arr: [1, 3, 5]) == []),
-)
+@test_filter_even tests @filter_even () -> void = {
+    assert(cond: filter_even(arr: []) == []);
+    assert(cond: filter_even(arr: [1, 2, 3, 4]) == [2, 4]);
+    assert(cond: filter_even(arr: [1, 3, 5]) == [])
+}
 
-@test_sum tests @sum () -> void = run(
-    assert(cond: sum(arr: []) == 0),
-    assert(cond: sum(arr: [1]) == 1),
-    assert(cond: sum(arr: [1, 2, 3, 4, 5]) == 15),
-)
+@test_sum tests @sum () -> void = {
+    assert(cond: sum(arr: []) == 0);
+    assert(cond: sum(arr: [1]) == 1);
+    assert(cond: sum(arr: [1, 2, 3, 4, 5]) == 15)
+}
 
-@test_product tests @product () -> void = run(
-    assert(cond: product(arr: []) == 1),
-    assert(cond: product(arr: [5]) == 5),
-    assert(cond: product(arr: [1, 2, 3, 4]) == 24),
-)
+@test_product tests @product () -> void = {
+    assert(cond: product(arr: []) == 1);
+    assert(cond: product(arr: [5]) == 5);
+    assert(cond: product(arr: [1, 2, 3, 4]) == 24)
+}

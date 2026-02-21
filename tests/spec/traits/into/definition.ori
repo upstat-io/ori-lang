@@ -10,16 +10,16 @@ use std.testing { assert_eq }
 type Celsius = { degrees: int }
 
 impl Into<str> for Celsius {
-    @into (self) -> str = `{self.degrees}°C`
+    @into (self) -> str = `{self.degrees}°C`;
 }
 
-@celsius_to_str () -> str = run(
-    let temp = Celsius { degrees: 100 },
+@celsius_to_str () -> str = {
+    let temp = Celsius { degrees: 100 };
     temp.into()
-)
+}
 
 @test_celsius_to_str tests @celsius_to_str () -> void =
-    assert_eq(actual: celsius_to_str(), expected: "100°C")
+    assert_eq(actual: celsius_to_str(), expected: "100°C");
 
 // =============================================================================
 // User-defined Into impl — custom type to int
@@ -28,13 +28,13 @@ impl Into<str> for Celsius {
 type Wrapper = { value: int }
 
 impl Into<int> for Wrapper {
-    @into (self) -> int = self.value
+    @into (self) -> int = self.value;
 }
 
-@wrapper_to_int () -> int = run(
-    let w = Wrapper { value: 42 },
+@wrapper_to_int () -> int = {
+    let w = Wrapper { value: 42 };
     w.into()
-)
+}
 
 @test_wrapper_to_int tests @wrapper_to_int () -> void =
-    assert_eq(actual: wrapper_to_int(), expected: 42)
+    assert_eq(actual: wrapper_to_int(), expected: 42);

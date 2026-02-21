@@ -28,7 +28,6 @@ impl ArcLowerer<'_> {
         &mut self,
         pattern: &CanBindingPattern,
         value: ArcVarId,
-        mutable: bool,
         init_id: CanId,
     ) {
         match pattern {
@@ -38,7 +37,7 @@ impl ArcLowerer<'_> {
             } => {
                 // Per-binding mutability: use the flag from the pattern itself
                 // to support `let ($x, y) = ...` with mixed mutability.
-                if *pat_mutable {
+                if pat_mutable.is_mutable() {
                     self.scope.bind_mutable(*name, value);
                 } else {
                     self.scope.bind(*name, value);
@@ -56,7 +55,7 @@ impl ArcLowerer<'_> {
                     let sub_pattern = self.arena.get_binding_pattern(sub_pat_id);
                     let elem_ty = self.tuple_elem_type(init_ty, i);
                     let proj = self.builder.emit_project(elem_ty, value, i as u32, None);
-                    self.bind_pattern(sub_pattern, proj, mutable, init_id);
+                    self.bind_pattern(sub_pattern, proj, init_id);
                 }
             }
 
@@ -69,7 +68,7 @@ impl ArcLowerer<'_> {
                     let sub_pattern = self.arena.get_binding_pattern(fb.pattern);
                     // If the sub-pattern is just a Name matching the field name,
                     // bind it directly. Otherwise recurse.
-                    self.bind_pattern(sub_pattern, proj, mutable, init_id);
+                    self.bind_pattern(sub_pattern, proj, init_id);
                 }
             }
 
@@ -80,10 +79,10 @@ impl ArcLowerer<'_> {
                 for (i, &sub_pat_id) in elem_ids.iter().enumerate() {
                     let sub_pattern = self.arena.get_binding_pattern(sub_pat_id);
                     let proj = self.builder.emit_project(elem_ty, value, i as u32, None);
-                    self.bind_pattern(sub_pattern, proj, mutable, init_id);
+                    self.bind_pattern(sub_pattern, proj, init_id);
                 }
-                if let Some(rest_name) = rest {
-                    if mutable {
+                if let Some((rest_name, rest_mut)) = rest {
+                    if rest_mut.is_mutable() {
                         self.scope.bind_mutable(*rest_name, value);
                     } else {
                         self.scope.bind(*rest_name, value);

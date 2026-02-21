@@ -168,7 +168,12 @@ These pure functions work without Salsa and can be used by any client:
 Registers all functions from a module into the environment:
 
 ```rust
-pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut Environment) {
+pub fn register_module_functions(
+    module: &Module,
+    arena: &SharedArena,
+    env: &mut Environment,
+    canon: Option<&SharedCanonResult>,
+) {
     for func in &module.functions {
         let params = arena.get_param_names(func.params);
         let capabilities: Vec<_> = func.capabilities.iter().map(|c| c.name).collect();
@@ -185,6 +190,25 @@ pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut
     }
 }
 ```
+
+### MethodCollectionConfig
+
+The common parameters for method collection are grouped into a config struct, reducing parameter count across `collect_impl_methods_with_config`, `collect_extend_methods_with_config`, and `collect_def_impl_methods_with_config`:
+
+```rust
+pub struct MethodCollectionConfig<'a> {
+    /// The module containing methods to collect.
+    pub module: &'a Module,
+    /// Shared arena for expression lookup.
+    pub arena: &'a SharedArena,
+    /// Captured environment bindings (shared across all methods in a module).
+    pub captures: Arc<FxHashMap<Name, Value>>,
+    /// Canonical IR for setting canon on function values.
+    pub canon: Option<&'a SharedCanonResult>,
+}
+```
+
+The `_with_config` variants are the preferred API. The raw-parameter versions remain for backward compatibility.
 
 ### collect_impl_methods
 
@@ -307,7 +331,7 @@ fn register_module_alias(
     alias: Name,
     import_path: &Path,
 ) -> Result<(), ImportError> {
-    let mut namespace: HashMap<Name, Value> = HashMap::new();
+    let mut namespace: BTreeMap<Name, Value> = BTreeMap::new();
 
     for func in &imported.result.module.functions {
         if func.is_public {
@@ -357,35 +381,7 @@ pub fn is_test_module(path: &Path) -> bool {
 
 ## Circular Import Detection
 
-```rust
-pub struct LoadingContext {
-    loading_stack: Vec<PathBuf>,
-    loaded: HashSet<PathBuf>,
-}
-
-impl LoadingContext {
-    pub fn start_loading(&mut self, path: PathBuf) -> Result<(), ImportError> {
-        if self.would_cycle(&path) {
-            let cycle: Vec<String> = self.loading_stack
-                .iter()
-                .chain(std::iter::once(&path))
-                .map(|p| p.display().to_string())
-                .collect();
-            return Err(ImportError::new(format!(
-                "circular import detected: {}",
-                cycle.join(" -> ")
-            )));
-        }
-        self.loading_stack.push(path);
-        Ok(())
-    }
-
-    pub fn finish_loading(&mut self, path: PathBuf) {
-        self.loading_stack.pop();
-        self.loaded.insert(path);
-    }
-}
-```
+Circular import detection is handled by the unified `imports::resolve_imports()` pipeline in `oric/src/eval/module/import.rs`, rather than a standalone `LoadingContext` struct. The Salsa-based module loading tracks which modules are currently being loaded and detects cycles through the query dependency graph.
 
 ## Standard Library Resolution
 

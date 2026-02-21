@@ -24,8 +24,6 @@ use std::mem;
 
 use rustc_hash::FxHasher;
 
-use crate::Name;
-
 use super::{
     CanArena, CanBindingPattern, CanExpr, CanFieldBindingRange, CanFieldRange, CanId,
     CanMapEntryRange, CanNamedExprRange, CanParamRange, CanRange,
@@ -186,7 +184,14 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             label.raw().hash(state);
             hash_node(arena, value, state);
         }
-        CanExpr::Try(child) | CanExpr::Await(child) => hash_node(arena, child, state),
+        CanExpr::Try(child)
+        | CanExpr::Await(child)
+        | CanExpr::Unsafe(child)
+        | CanExpr::Ok(child)
+        | CanExpr::Err(child)
+        | CanExpr::Some(child) => {
+            hash_node(arena, child, state);
+        }
 
         // Bindings
         CanExpr::Block { stmts, result } => {
@@ -230,11 +235,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, start, state);
             hash_node(arena, end, state);
             hash_node(arena, step, state);
-        }
-
-        // Algebraic
-        CanExpr::Ok(child) | CanExpr::Err(child) | CanExpr::Some(child) => {
-            hash_node(arena, child, state);
         }
 
         // Capabilities
@@ -325,7 +325,8 @@ fn hash_binding_pattern(arena: &CanArena, id: super::CanBindingPatternId, state:
         CanBindingPattern::Struct { fields } => hash_field_bindings(arena, fields, state),
         CanBindingPattern::List { elements, rest } => {
             hash_binding_pattern_range(arena, elements, state);
-            rest.map(Name::raw).hash(state);
+            rest.map(|(name, mutable)| (name.raw(), mutable))
+                .hash(state);
         }
         CanBindingPattern::Wildcard => {}
     }

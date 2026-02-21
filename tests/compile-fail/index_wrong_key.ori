@@ -4,13 +4,13 @@
 type Lookup = { data: [int] }
 
 impl Index<int, int> for Lookup {
-    @index (self, key: int) -> int = self.data[key]
+    @index (self, key: int) -> int = self.data[key];
 }
 
 // Wrong key type: str instead of int
 #[compile_fail("type mismatch")]
-@test_wrong_key () -> void = run(
-    let l = Lookup { data: [1, 2, 3] },
-    let _ = l["hello"],
+@test_wrong_key () -> void = {
+    let l = Lookup { data: [1, 2, 3] };
+    let _ = l["hello"];
     ()
-)
+}

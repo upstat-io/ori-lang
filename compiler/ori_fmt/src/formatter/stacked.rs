@@ -1,14 +1,27 @@
 //! Stacked Formatting
 //!
-//! Methods for emitting always-stacked constructs (run, try, match, etc.)
+//! Methods for emitting always-stacked constructs (try, match, etc.)
 //! that always render in multi-line format.
 
-use ori_ir::{ArmRange, ExprId, ExprKind, SeqBinding, SeqBindingRange, StringLookup};
+use ori_ir::{ArmRange, ExprId, ExprKind, StmtRange, StringLookup};
 
 use super::Formatter;
 
 impl<I: StringLookup> Formatter<'_, I> {
-    /// Emit an always-stacked construct (run, try, match, etc.).
+    /// Emit an always-stacked construct (try, match, etc.).
+    ///
+    /// **Invariant:** This match is exhaustive with no wildcard `_ =>` arm.
+    /// Every `ExprKind` variant is listed explicitly so that adding a new variant
+    /// causes a compile error. The `stacked_dispatch_has_no_wildcard` test enforces this.
+    ///
+    /// Variant groups:
+    /// - **Custom stacked**: Block, Match, `FunctionSeq`, `FunctionExp` — multi-line rendering
+    /// - **Custom broken**: Compound expressions → `emit_broken()` for line-breaking logic
+    /// - **Leaf/atom + simple compound**: → `emit_inline()` (no structure to stack)
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ExprKind stacked formatting dispatch"
+    )]
     pub(super) fn emit_stacked(&mut self, expr_id: ExprId) {
         let expr = self.arena.get_expr(expr_id);
 
@@ -48,39 +61,93 @@ impl<I: StringLookup> Formatter<'_, I> {
 
             ExprKind::Block { stmts, result } => {
                 let stmts_list = self.arena.get_stmt_range(*stmts);
+                self.ctx.emit("{");
+                self.ctx.indent();
                 for stmt in stmts_list {
-                    self.emit_stmt(stmt);
                     self.ctx.emit_newline_indent();
+                    self.emit_stmt(stmt);
+                    self.ctx.emit(";");
                 }
                 if result.is_present() {
+                    // Blank line before result when 2+ statements precede it
+                    if stmts_list.len() >= 2 {
+                        self.ctx.emit_newline();
+                    }
+                    self.ctx.emit_newline_indent();
                     self.format(*result);
                 }
+                self.ctx.dedent();
+                self.ctx.emit_newline_indent();
+                self.ctx.emit("}");
             }
 
-            // For other always-stacked constructs, use broken format
-            _ => self.emit_broken(expr_id),
+            // Compound expressions with custom broken rendering
+            ExprKind::Binary { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::CallNamed { .. }
+            | ExprKind::MethodCall { .. }
+            | ExprKind::MethodCallNamed { .. }
+            | ExprKind::List(_)
+            | ExprKind::Map(_)
+            | ExprKind::MapWithSpread(_)
+            | ExprKind::ListWithSpread(_)
+            | ExprKind::Struct { .. }
+            | ExprKind::StructWithSpread { .. }
+            | ExprKind::Tuple(_)
+            | ExprKind::If { .. }
+            | ExprKind::Let { .. }
+            | ExprKind::Lambda { .. }
+            | ExprKind::WithCapability { .. }
+            | ExprKind::For { .. } => self.emit_broken(expr_id),
+
+            // Inline-adequate: leaf/atoms and simple compounds
+            //
+            // Leaf/atoms
+            ExprKind::Int(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::String(_)
+            | ExprKind::Char(_)
+            | ExprKind::Duration { .. }
+            | ExprKind::Size { .. }
+            | ExprKind::Unit
+            | ExprKind::Ident(_)
+            | ExprKind::Const(_)
+            | ExprKind::SelfRef
+            | ExprKind::FunctionRef(_)
+            | ExprKind::HashLength
+            | ExprKind::None
+            | ExprKind::TemplateFull(_)
+            | ExprKind::Error
+            // Simple compounds
+            | ExprKind::Unary { .. }
+            | ExprKind::Field { .. }
+            | ExprKind::Index { .. }
+            | ExprKind::Ok(_)
+            | ExprKind::Err(_)
+            | ExprKind::Some(_)
+            | ExprKind::Break { .. }
+            | ExprKind::Continue { .. }
+            | ExprKind::Unsafe(_)
+            | ExprKind::Await(_)
+            | ExprKind::Try(_)
+            | ExprKind::Cast { .. }
+            | ExprKind::Assign { .. }
+            | ExprKind::Loop { .. }
+            | ExprKind::Range { .. }
+            | ExprKind::TemplateLiteral { .. } => self.emit_inline(expr_id),
         }
     }
 
-    /// Emit a `function_seq` pattern (run, try, etc.).
+    /// Emit a `function_seq` pattern (try, match, etc.).
     pub(super) fn emit_function_seq(&mut self, seq: &ori_ir::FunctionSeq) {
         match seq {
-            ori_ir::FunctionSeq::Run {
-                pre_checks,
-                bindings,
-                result,
-                post_checks,
-                span: _,
-            } => {
-                self.emit_run_with_checks(*pre_checks, *bindings, *result, *post_checks);
-            }
-
             ori_ir::FunctionSeq::Try {
-                bindings,
+                stmts,
                 result,
                 span: _,
             } => {
-                self.emit_seq_with_bindings("try", *bindings, *result);
+                self.emit_try_block(*stmts, *result);
             }
 
             ori_ir::FunctionSeq::Match {
@@ -140,157 +207,57 @@ impl<I: StringLookup> Formatter<'_, I> {
     ///
     /// Format:
     /// ```text
-    /// match(scrutinee,
+    /// match scrutinee {
     ///     pattern -> body,
-    ///     pattern.match(guard) -> body,
-    /// )
+    ///     pattern if guard -> body,
+    /// }
     /// ```
     fn emit_match_construct(&mut self, scrutinee: ExprId, arms: ArmRange) {
-        self.ctx.emit("match(");
+        self.ctx.emit("match ");
         self.format(scrutinee);
-        self.ctx.emit(",");
+        self.ctx.emit(" {");
         let arms_list = self.arena.get_arms(arms);
-        self.ctx.emit_newline();
         self.ctx.indent();
         for arm in arms_list {
-            self.ctx.emit_indent();
+            self.ctx.emit_newline_indent();
             self.emit_match_pattern(&arm.pattern);
             if let Some(guard) = arm.guard {
-                self.ctx.emit(".match(");
+                self.ctx.emit(" if ");
                 self.format(guard);
-                self.ctx.emit(")");
             }
             self.ctx.emit(" -> ");
             self.format(arm.body);
             self.ctx.emit(",");
-            self.ctx.emit_newline();
         }
         self.ctx.dedent();
-        self.ctx.emit_indent();
-        self.ctx.emit(")");
+        self.ctx.emit_newline_indent();
+        self.ctx.emit("}");
     }
 
-    /// Emit a run pattern with optional pre/post checks.
-    ///
-    /// Format:
-    /// ```text
-    /// run(
-    ///     pre_check: cond | "message",
-    ///     binding1,
-    ///     result,
-    ///     post_check: r -> cond | "message",
-    /// )
-    /// ```
-    fn emit_run_with_checks(
-        &mut self,
-        pre_checks: ori_ir::CheckRange,
-        bindings: SeqBindingRange,
-        result: ExprId,
-        post_checks: ori_ir::CheckRange,
-    ) {
-        self.ctx.emit("run");
-        self.ctx.emit("(");
-        self.ctx.emit_newline();
+    /// Emit `try { stmts; result }` using block syntax.
+    fn emit_try_block(&mut self, stmts: StmtRange, result: ExprId) {
+        self.ctx.emit("try {");
         self.ctx.indent();
 
-        for check in self.arena.get_checks(pre_checks) {
-            self.ctx.emit_indent();
-            self.ctx.emit("pre_check: ");
-            self.format(check.expr);
-            if let Some(msg) = check.message {
-                self.ctx.emit(" | ");
-                self.format(msg);
-            }
-            self.ctx.emit(",");
-            self.ctx.emit_newline();
+        let stmts_list = self.arena.get_stmt_range(stmts);
+        for stmt in stmts_list {
+            self.ctx.emit_newline_indent();
+            self.emit_stmt(stmt);
+            self.ctx.emit(";");
         }
 
-        let bindings_list = self.arena.get_seq_bindings(bindings);
-        for binding in bindings_list {
-            self.ctx.emit_indent();
-            self.emit_seq_binding(binding);
-            self.ctx.emit(",");
-            self.ctx.emit_newline();
-        }
-
-        self.ctx.emit_indent();
-        self.format(result);
-        self.ctx.emit(",");
-
-        for check in self.arena.get_checks(post_checks) {
-            self.ctx.emit_newline();
-            self.ctx.emit_indent();
-            self.ctx.emit("post_check: ");
-            self.format(check.expr);
-            if let Some(msg) = check.message {
-                self.ctx.emit(" | ");
-                self.format(msg);
+        if result.is_present() {
+            // Blank line before result when 2+ statements precede it
+            if stmts_list.len() >= 2 {
+                self.ctx.emit_newline();
             }
-            self.ctx.emit(",");
+            self.ctx.emit_newline_indent();
+            self.format(result);
         }
 
         self.ctx.dedent();
         self.ctx.emit_newline_indent();
-        self.ctx.emit(")");
-    }
-
-    /// Emit a sequential pattern with bindings (shared by run/try).
-    ///
-    /// Format:
-    /// ```text
-    /// keyword(
-    ///     binding1,
-    ///     binding2,
-    ///     result,
-    /// )
-    /// ```
-    fn emit_seq_with_bindings(&mut self, keyword: &str, bindings: SeqBindingRange, result: ExprId) {
-        self.ctx.emit(keyword);
-        self.ctx.emit("(");
-        self.ctx.emit_newline();
-        self.ctx.indent();
-
-        let bindings_list = self.arena.get_seq_bindings(bindings);
-        for binding in bindings_list {
-            self.ctx.emit_indent();
-            self.emit_seq_binding(binding);
-            self.ctx.emit(",");
-            self.ctx.emit_newline();
-        }
-
-        self.ctx.emit_indent();
-        self.format(result);
-        self.ctx.emit(",");
-        self.ctx.dedent();
-        self.ctx.emit_newline_indent();
-        self.ctx.emit(")");
-    }
-
-    /// Emit a sequence binding.
-    fn emit_seq_binding(&mut self, binding: &SeqBinding) {
-        match binding {
-            // Per spec: mutable is default, $ prefix for immutable
-            SeqBinding::Let {
-                pattern,
-                ty: _,
-                value,
-                mutable,
-                span: _,
-            } => {
-                if *mutable {
-                    self.ctx.emit("let ");
-                } else {
-                    self.ctx.emit("let $");
-                }
-                let pat = self.arena.get_binding_pattern(*pattern);
-                self.emit_binding_pattern(pat);
-                self.ctx.emit(" = ");
-                self.format(*value);
-            }
-            SeqBinding::Stmt { expr, span: _ } => {
-                self.format(*expr);
-            }
-        }
+        self.ctx.emit("}");
     }
 
     /// Emit a statement.
@@ -298,17 +265,14 @@ impl<I: StringLookup> Formatter<'_, I> {
         match &stmt.kind {
             ori_ir::StmtKind::Expr(expr) => self.format(*expr),
             // Per spec: mutable is default, $ prefix for immutable
+            // The $ prefix is emitted by emit_binding_pattern(), not here
             ori_ir::StmtKind::Let {
                 pattern,
                 ty: _,
                 init,
-                mutable,
+                mutable: _,
             } => {
-                if *mutable {
-                    self.ctx.emit("let ");
-                } else {
-                    self.ctx.emit("let $");
-                }
+                self.ctx.emit("let ");
                 let pat = self.arena.get_binding_pattern(*pattern);
                 self.emit_binding_pattern(pat);
                 self.ctx.emit(" = ");

@@ -31,6 +31,8 @@ textDocument/hover
 
 ## Current Implementation
 
+> **Limitation**: Hover only works on function and type definitions at the top level. It does not resolve variable references, expressions, field accesses, or any identifiers inside function bodies. Hovering over a variable usage or a function call returns nothing.
+
 The current hover implementation finds items (functions, types) at the cursor position:
 
 ```rust

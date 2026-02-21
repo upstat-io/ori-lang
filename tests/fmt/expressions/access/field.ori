@@ -3,6 +3,6 @@
 
 type Point = { x: int, y: int }
 
-@get_x (p: Point) -> int = p.x
+@get_x (p: Point) -> int = p.x;
 
-@get_y (p: Point) -> int = p.y
+@get_y (p: Point) -> int = p.y;

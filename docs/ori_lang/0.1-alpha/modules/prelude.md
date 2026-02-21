@@ -17,10 +17,10 @@ Represents an optional value.
 ```ori
 let found: Option<User> = find_user(id)
 
-match(found,
-    Some(user) -> greet(user),
-    None -> print("not found"),
-)
+match found {
+    Some(user) -> greet(user)
+    None -> print("not found")
+}
 
 // With default
 let name = found.map(u -> u.name) ?? "anonymous"
@@ -48,10 +48,10 @@ Represents success or failure.
 ```ori
 let result: Result<Config, Error> = load_config(path)
 
-match(result,
-    Ok(config) -> start(config),
-    Err(e) -> log_error(e),
-)
+match result {
+    Ok(config) -> start(config)
+    Err(e) -> log_error(e)
+}
 
 // With ? operator (in try context)
 let config = load_config(path)?
@@ -81,11 +81,11 @@ Result of comparing two values.
 ```ori
 let cmp = compare(a, b)
 
-match(cmp,
-    Less -> print("a < b"),
-    Equal -> print("a == b"),
-    Greater -> print("a > b"),
-)
+match cmp {
+    Less -> print("a < b")
+    Equal -> print("a == b")
+    Greater -> print("a > b")
+}
 ```
 
 **Methods:**

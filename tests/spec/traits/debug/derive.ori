@@ -10,20 +10,20 @@ use std.testing { assert_eq }
 #[derive(Debug)]
 type Point = { x: int, y: int }
 
-@test_derived_debug_struct tests @derived_debug_struct () -> void = run(
-    let p = Point { x: 10, y: 20 },
-    assert_eq(actual: p.debug(), expected: "Point { x: 10, y: 20 }"),
-)
+@test_derived_debug_struct tests @derived_debug_struct () -> void = {
+    let p = Point { x: 10, y: 20 };
+    assert_eq(actual: p.debug(), expected: "Point { x: 10, y: 20 }")
+}
 
-@derived_debug_struct () -> str = Point { x: 10, y: 20 }.debug()
+@derived_debug_struct () -> str = Point { x: 10, y: 20 }.debug();
 
 // Debug on struct with string field shows escaped quotes
 #[derive(Debug)]
 type Person = { name: str, age: int }
 
-@test_derived_debug_string_field tests @derived_debug_string_field () -> void = run(
-    let p = Person { name: "Alice", age: 30 },
-    assert_eq(actual: p.debug(), expected: "Person { name: \"Alice\", age: 30 }"),
-)
+@test_derived_debug_string_field tests @derived_debug_string_field () -> void = {
+    let p = Person { name: "Alice", age: 30 };
+    assert_eq(actual: p.debug(), expected: "Person { name: \"Alice\", age: 30 }")
+}
 
-@derived_debug_string_field () -> str = Person { name: "Alice", age: 30 }.debug()
+@derived_debug_string_field () -> str = Person { name: "Alice", age: 30 }.debug();

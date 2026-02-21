@@ -8,32 +8,32 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // Default alignment for strings is left
-@test_str_width tests @str_width () -> void = run(
-    assert_eq(actual: `{"hi":>10}`, expected: "        hi"),
-    assert_eq(actual: `{"hi":<10}`, expected: "hi        "),
-    assert_eq(actual: `{"hi":^10}`, expected: "    hi    "),
-)
+@test_str_width tests @str_width () -> void = {
+    assert_eq(actual: `{"hi":>10}`, expected: "        hi");
+    assert_eq(actual: `{"hi":<10}`, expected: "hi        ");
+    assert_eq(actual: `{"hi":^10}`, expected: "    hi    ")
+}
 
-@str_width () -> str = `{"hi":>10}`
+@str_width () -> str = `{"hi":>10}`;
 
 // No format spec — pass through
-@test_no_spec tests @no_spec () -> void = run(
-    let n = 42,
-    assert_eq(actual: `{n}`, expected: "42"),
-    assert_eq(actual: `{"hello"}`, expected: "hello"),
-)
+@test_no_spec tests @no_spec () -> void = {
+    let n = 42;
+    assert_eq(actual: `{n}`, expected: "42");
+    assert_eq(actual: `{"hello"}`, expected: "hello")
+}
 
-@no_spec () -> str = `{42}`
+@no_spec () -> str = `{42}`;
 
 // =============================================================================
 // String Formatting — Precision Truncation
 // =============================================================================
 
-@test_str_precision tests @str_precision () -> void = run(
-    assert_eq(actual: `{"hello":.3}`, expected: "hel"),
-    assert_eq(actual: `{"hi":.10}`, expected: "hi"),
-)
+@test_str_precision tests @str_precision () -> void = {
+    assert_eq(actual: `{"hello":.3}`, expected: "hel");
+    assert_eq(actual: `{"hi":.10}`, expected: "hi")
+}
 
-@str_precision () -> str = `{"hello":.3}`
+@str_precision () -> str = `{"hello":.3}`;
 
-@main () -> void = print(msg: "Formattable definition tests")
+@main () -> void = print(msg: "Formattable definition tests");

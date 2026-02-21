@@ -1,6 +1,6 @@
 ---
 title: "Compiler Patterns"
-description: "Deep dive into run, try, recurse, cache, and with patterns."
+description: "Deep dive into blocks, try, match, recurse, cache, and with patterns."
 order: 19
 part: "Advanced Patterns"
 ---
@@ -13,10 +13,10 @@ Ori provides special patterns that the compiler handles with optimized code gene
 
 Patterns fall into two categories:
 
-**function_seq** — Sequential expressions (order matters):
-- `run` — sequential evaluation with bindings
-- `try` — error propagation
-- `match` — pattern matching
+**Block expressions** — Sequential expressions (order matters):
+- `{ }` blocks — sequential evaluation with bindings
+- `try { }` — error propagation
+- `match expr { }` — pattern matching
 
 **function_exp** — Named expressions:
 - `recurse` — self-referential recursion
@@ -24,16 +24,17 @@ Patterns fall into two categories:
 - `with` — resource management
 - `catch` — panic capture
 
-## The run Pattern
+## Block Expressions
 
 Sequential expressions where each step can use previous results:
 
 ```ori
 {
-    let a = compute_a()
-    let b = compute_b(input: a)
-    let c = compute_c(x: a, y: b)
-    c,  // Return value
+    let a = compute_a();
+    let b = compute_b(input: a);
+    let c = compute_c(x: a, y: b);
+
+    c
 }
 ```
 
@@ -41,9 +42,9 @@ Sequential expressions where each step can use previous results:
 
 ```ori
 @process_user (id: int) -> UserProfile = {
-    let user = fetch_user(id: id)
-    let orders = fetch_orders(user_id: user.id)
-    let stats = calculate_stats(orders: orders)
+    let user = fetch_user(id: id);
+    let orders = fetch_orders(user_id: user.id);
+    let stats = calculate_stats(orders: orders);
     UserProfile { user, orders, stats }
 }
 ```
@@ -54,72 +55,69 @@ Each binding is available to subsequent expressions:
 
 ```ori
 {
-    let x = 10
-    let y = x * 2,      // Can use x
-    let z = x + y,      // Can use x and y
-    print(msg: `{x} {y} {z}`)
-    z,                  // Final value is z
+    let x = 10;
+    let y = x * 2;       // Can use x
+    let z = x + y;       // Can use x and y
+    print(msg: `{x} {y} {z}`);
+
+    z                   // Final value is z
 }
 ```
 
 ### Side Effects
 
-`run` is for sequential operations with side effects:
+Blocks are for sequential operations with side effects:
 
 ```ori
 @save_and_notify (user: User) -> void = {
-    save_to_database(user: user)
-    send_email(to: user.email, subject: "Welcome!")
+    save_to_database(user: user);
+    send_email(to: user.email, subject: "Welcome!");
     log_event(type: "user_created", data: user.id)
 }
 ```
 
-### Contracts with run
+### Function Contracts
 
-Add preconditions and postconditions:
+Add preconditions and postconditions on the function declaration, between the return type and the `=`:
 
 ```ori
-@sqrt (x: float) -> float = {
-    pre_check: x >= 0.0 | "x must be non-negative"
-    compute_sqrt(x: x)
-    post_check: result -> result >= 0.0
-}
+@sqrt (x: float) -> float
+    pre(x >= 0.0 | "x must be non-negative")
+    post(result -> result >= 0.0)
+= compute_sqrt(x: x)
 ```
 
-- `pre_check:` — verified before the body runs
-- `post_check:` — verified after, receives the result as parameter
+- `pre(...)` — verified before the body runs
+- `post(...)` — verified after, receives the result as parameter
 - `| "message"` — custom error message (panics with this message if check fails)
 
 ### Contract Examples
 
 ```ori
-@divide (a: int, b: int) -> int = {
-    pre_check: b != 0 | "division by zero"
-    a / b
-}
+@divide (a: int, b: int) -> int
+    pre(b != 0 | "division by zero")
+= a / b
 
-@clamp (value: int, min: int, max: int) -> int = {
-    pre_check: min <= max | "min must not exceed max"
-    if value < min then min else if value > max then max else value
-    post_check: result -> result >= min && result <= max
-}
+@clamp (value: int, min: int, max: int) -> int
+    pre(min <= max | "min must not exceed max")
+    post(result -> result >= min && result <= max)
+= if value < min then min else if value > max then max else value
 
-@factorial (n: int) -> int = {
-    pre_check: n >= 0 | "factorial undefined for negative numbers"
-    if n <= 1 then 1 else n * factorial(n: n - 1)
-    post_check: result -> result > 0 | "factorial must be positive"
-}
+@factorial (n: int) -> int
+    pre(n >= 0 | "factorial undefined for negative numbers")
+    post(result -> result > 0 | "factorial must be positive")
+= if n <= 1 then 1 else n * factorial(n: n - 1)
 ```
 
 ## The try Pattern
 
-Like `run`, but designed for error propagation:
+A block designed for error propagation:
 
 ```ori
 try {
-    let a = fallible_a()?
-    let b = fallible_b(input: a)?
-    let c = fallible_c(x: a, y: b)?
+    let a = fallible_a()?;
+    let b = fallible_b(input: a)?;
+    let c = fallible_c(x: a, y: b)?;
     Ok(c)
 }
 ```
@@ -134,8 +132,9 @@ The `?` operator:
 
 ```ori
 @load_config () -> Result<Config, Error> = try {
-    let data = read_file(path: "config.json")?,  // Trace point
-    let config = parse_json(data: data)?,         // Trace point
+    let data = read_file(path: "config.json")?;   // Trace point
+    let config = parse_json(data: data)?;          // Trace point
+
     Ok(config)
 }
 ```
@@ -147,20 +146,20 @@ Trace:
   at load_config (config.ori:3:18)
 ```
 
-### Mixing try and run
+### Mixing try and blocks
 
-Use `try` for fallible code, `run` for infallible:
+Use `try { }` for fallible code, plain `{ }` for infallible:
 
 ```ori
 @process_batch (items: [int]) -> Result<Summary, Error> = try {
-    let results = for item in items yield process_item(id: item)?
+    let results = for item in items yield process_item(id: item)?;
 
-    // Switch to run for non-fallible computation
+    // Plain block for non-fallible computation
     let summary = {
-        let total = len(collection: results)
-        let sum = results.iter().fold(initial: 0, op: (a, b) -> a + b)
+        let total = len(collection: results);
+        let sum = results.iter().fold(initial: 0, op: (a, b) -> a + b);
         Summary { total, average: sum / total }
-    }
+    };
 
     Ok(summary)
 }
@@ -187,7 +186,8 @@ let description = match status {
     Active -> "Currently active"
     Inactive -> "Not active"
     Pending -> "Waiting for approval"
-}
+};
+
 ```
 
 ### Exhaustiveness
@@ -195,21 +195,22 @@ let description = match status {
 The compiler ensures all cases are covered:
 
 ```ori
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
 // ERROR: non-exhaustive match
 let name = match color {
     Red -> "red"
     Green -> "green"
     // Missing Blue!
-}
+};
 
 // OK: all cases covered
 let name = match color {
     Red -> "red"
     Green -> "green"
     Blue -> "blue"
-}
+};
+
 ```
 
 ## The recurse Pattern
@@ -328,9 +329,9 @@ Cache expensive computations:
 @test_cache tests @get_user_cached () -> void =
     with Http = MockHttp { responses: { "/users/1": `{"id": 1}` } },
          Cache = MockCache {} in {
-        let first = get_user_cached(id: 1),   // Fetches from Http
-        let second = get_user_cached(id: 1),  // Returns from cache
-        assert_ok(result: first)
+        let first = get_user_cached(id: 1);   // Fetches from Http
+        let second = get_user_cached(id: 1);  // Returns from cache
+        assert_ok(result: first);
         assert_ok(result: second)
     }
 ```
@@ -391,13 +392,13 @@ finally:
 Capture panics as Results:
 
 ```ori
-let result = catch(expr: might_panic())
+let result = catch(expr: might_panic());
 // Result<T, str>
 
 match result {
     Ok(value) -> print(msg: `Got: {value}`)
     Err(msg) -> print(msg: `Panic caught: {msg}`)
-}
+};
 ```
 
 ### When to Use catch
@@ -407,17 +408,18 @@ Use sparingly — panics indicate bugs, not expected errors:
 ```ori
 // Good: Test frameworks
 @test_panics tests @divide () -> void = {
-    let result = catch(expr: divide(a: 1, b: 0))
+    let result = catch(expr: divide(a: 1, b: 0));
     assert_err(result: result)
 }
 
 // Good: Plugin systems
 @run_plugin (plugin: Plugin) -> Result<void, str> =
-    catch(expr: plugin.execute())
+    catch(expr: plugin.execute());
 
 // Good: REPL environments
 @eval_safely (code: str) -> Result<Value, str> =
-    catch(expr: evaluate(code: code))
+    catch(expr: evaluate(code: code));
+
 ```
 
 ### catch vs Result
@@ -462,17 +464,16 @@ for(
 
 ## Combining Patterns
 
-### run with recurse
+### Contracts with recurse
 
 ```ori
-@tree_sum<T: Addable> (node: TreeNode<T>) -> T = {
-    pre_check: !is_null(node: node)
-    recurse(
-        condition: is_leaf(node: node)
-        base: node.value
-        step: node.value + self(node: node.left) + self(node: node.right)
-    )
-}
+@tree_sum<T: Addable> (node: TreeNode<T>) -> T
+    pre(!is_null(node: node))
+= recurse(
+    condition: is_leaf(node: node),
+    base: node.value,
+    step: node.value + self(node: node.left) + self(node: node.right),
+)
 ```
 
 ### try with cache
@@ -483,7 +484,7 @@ for(
         key: `fetch:{url}`
         op: Http.get(url: url)?
         ttl: 10m
-    )
+    );
     Ok(data)
 }
 ```
@@ -496,7 +497,7 @@ for(
         acquire: FileSystem.open(path: path)?
         use: file -> parse_data(content: FileSystem.read(file: file)?)
         release: file -> FileSystem.close(file: file)
-    )
+    );
     Ok(result)
 }
 ```
@@ -514,15 +515,12 @@ type User = { id: int, name: str, email: str }
 
 // Load config with validation
 @load_config (path: str) -> Result<Config, Error> uses FileSystem = try {
-    let content = FileSystem.read(path: path)?
-    let config = parse_config(data: content)?
+    let content = FileSystem.read(path: path)?;
+    let config = parse_config(data: content)?;
+    if config.max_retries <= 0 then panic(msg: "max_retries must be positive");
+    if config.cache_ttl <= 0s then panic(msg: "cache_ttl must be positive");
 
-    // Validate with contracts
-    {
-        pre_check: config.max_retries > 0 | "max_retries must be positive"
-        pre_check: config.cache_ttl > 0s | "cache_ttl must be positive"
-        Ok(config)
-    }
+    Ok(config)
 }
 
 @test_load_config tests @load_config () -> void =
@@ -531,7 +529,7 @@ type User = { id: int, name: str, email: str }
             "config.json": `{"database_url": "...", "cache_ttl": "5m", "max_retries": 3}`,
         },
     } in {
-        let result = load_config(path: "config.json")
+        let result = load_config(path: "config.json");
         assert_ok(result: result)
     }
 
@@ -566,12 +564,12 @@ type User = { id: int, name: str, email: str }
     uses Http, Cache, Logger, Async = try {
     let users = parallel(
         tasks: for id in ids yield () -> {
-            Logger.debug(msg: `Fetching user {id}`)
+            Logger.debug(msg: `Fetching user {id}`);
             get_user(id: id)
         }
         max_concurrent: 10
         timeout: 30s
-    )
+    );
 
     // Extract successful results
     let valid_users = for result in users
@@ -579,7 +577,7 @@ type User = { id: int, name: str, email: str }
         yield match result {
             Ok(user) -> user
             Err(_) -> continue
-        }
+        };
 
     Ok(valid_users)
 }
@@ -593,8 +591,8 @@ type User = { id: int, name: str, email: str }
     },
     Cache = MockCache {},
     Logger = MockLogger {} in {
-        let result = process_users(ids: [1, 2])
-        assert_ok(result: result)
+        let result = process_users(ids: [1, 2]);
+        assert_ok(result: result);
         match result {
             Ok(users) -> assert_eq(actual: len(collection: users), expected: 2)
             Err(_) -> panic(msg: "Expected Ok")
@@ -604,28 +602,29 @@ type User = { id: int, name: str, email: str }
 
 ## Quick Reference
 
-### run
+### Blocks
 
 ```ori
 {
-    let a = ...
-    let b = ...
+    let a = ...;
+    let b = ...;
+
     result
 }
 
-{
-    pre_check: condition | "error message"
-    body
-    post_check: result -> condition
-}
+// Contracts go on the function declaration:
+@name (params) -> ReturnType
+    pre(condition | "error message")
+    post(result -> condition)
+= body
 ```
 
 ### try
 
 ```ori
 try {
-    let a = fallible()?
-    let b = fallible()?
+    let a = fallible()?;
+    let b = fallible()?;
     Ok(result)
 }
 ```

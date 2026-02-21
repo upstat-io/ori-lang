@@ -7,93 +7,93 @@ use std.testing { assert, assert_eq, assert_ne }
 // recurse Pattern (Recursive Functions)
 // =============================================================================
 
-@test_factorial tests @factorial () -> void = run(
+@test_factorial tests @factorial () -> void = {
     assert_eq(
         actual: factorial(0),
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: factorial(1),
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: factorial(5),
         expected: 120,
-    ),
-)
+    )
+}
 
 @factorial (n: int) -> int = recurse(
     condition: n <= 1,
     base: 1,
     step: n * self(n - 1),
-)
+);
 
-@test_fibonacci tests @fibonacci () -> void = run(
+@test_fibonacci tests @fibonacci () -> void = {
     assert_eq(
         actual: fibonacci(0),
         expected: 0,
-    ),
+    );
     assert_eq(
         actual: fibonacci(1),
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: fibonacci(10),
         expected: 55,
-    ),
-)
+    )
+}
 
 @fibonacci (n: int) -> int = recurse(
     condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true,
-)
+);
 
-@test_sum_to_n tests @sum_to_n () -> void = run(
+@test_sum_to_n tests @sum_to_n () -> void = {
     assert_eq(
         actual: sum_to_n(0),
         expected: 0,
-    ),
+    );
     assert_eq(
         actual: sum_to_n(5),
         expected: 15,
-    ),
+    );
     assert_eq(
         actual: sum_to_n(10),
         expected: 55,
-    ),
-)
+    )
+}
 
 @sum_to_n (n: int) -> int = recurse(
     condition: n <= 0,
     base: 0,
     step: n + self(n - 1),
-)
+);
 
-@test_power tests @power () -> void = run(
+@test_power tests @power () -> void = {
     assert_eq(
         actual: power(
             base: 2,
             exp: 0,
         ),
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: power(
             base: 2,
             exp: 10,
         ),
         expected: 1024,
-    ),
+    );
     assert_eq(
         actual: power(
             base: 3,
             exp: 4,
         ),
         expected: 81,
-    ),
-)
+    )
+}
 
 @power (base: int, exp: int) -> int = recurse(
     condition: exp <= 0,
@@ -102,26 +102,26 @@ use std.testing { assert, assert_eq, assert_ne }
         base: base,
         exp: exp - 1,
     ),
-)
+);
 
 // =============================================================================
 // Parallel Recursion (stub - executes sequentially)
 // =============================================================================
 
-@test_fib_parallel tests @fib_parallel () -> void = run(
+@test_fib_parallel tests @fib_parallel () -> void = {
     assert_eq(
         actual: fib_parallel(0),
         expected: 0,
-    ),
+    );
     assert_eq(
         actual: fib_parallel(1),
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: fib_parallel(10),
         expected: 55,
-    ),
-)
+    )
+}
 
 // parallel: 5 means parallelize recursive calls when n > 5
 // Currently executes sequentially (stub) but syntax is accepted
@@ -130,105 +130,105 @@ use std.testing { assert, assert_eq, assert_ne }
     base: n,
     step: self(n - 1) + self(n - 2),
     parallel: 5,
-)
+);
 
 // =============================================================================
 // Memoization Tests
 // =============================================================================
 
-@test_fib_memo tests @fib_memo () -> void = run(
+@test_fib_memo tests @fib_memo () -> void = {
     // Without memo, this would be exponential time
     // With memo, it's linear
-    assert_eq(actual: fib_memo(20), expected: 6765),
-)
+    assert_eq(actual: fib_memo(20), expected: 6765)
+}
 
 @fib_memo (n: int) -> int = recurse(
     condition: n <= 1,
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true,
-)
+);
 
-@test_fib_large tests @fib_large () -> void = run(
+@test_fib_large tests @fib_large () -> void = {
     // Test larger fibonacci that would be impossible without memoization
-    let result = fib_memo(30),
-    assert_eq(actual: result, expected: 832040),
-)
+    let result = fib_memo(30);
+    assert_eq(actual: result, expected: 832040)
+}
 
 // =============================================================================
 // Multiple Parameters in Self Call
 // =============================================================================
 
-@test_gcd tests @gcd () -> void = run(
-    assert_eq(actual: gcd(a: 48, b: 18), expected: 6),
-    assert_eq(actual: gcd(a: 100, b: 25), expected: 25),
-    assert_eq(actual: gcd(a: 17, b: 13), expected: 1),
-)
+@test_gcd tests @gcd () -> void = {
+    assert_eq(actual: gcd(a: 48, b: 18), expected: 6);
+    assert_eq(actual: gcd(a: 100, b: 25), expected: 25);
+    assert_eq(actual: gcd(a: 17, b: 13), expected: 1)
+}
 
 @gcd (a: int, b: int) -> int = recurse(
     condition: b == 0,
     base: a,
     step: self(a: b, b: a % b),
-)
+);
 
-@test_ackermann tests @ackermann () -> void = run(
+@test_ackermann tests @ackermann () -> void = {
     // Ackermann function - tests deep recursion with memo
-    assert_eq(actual: ackermann(m: 0, n: 0), expected: 1),
-    assert_eq(actual: ackermann(m: 1, n: 1), expected: 3),
-    assert_eq(actual: ackermann(m: 2, n: 2), expected: 7),
-)
+    assert_eq(actual: ackermann(m: 0, n: 0), expected: 1);
+    assert_eq(actual: ackermann(m: 1, n: 1), expected: 3);
+    assert_eq(actual: ackermann(m: 2, n: 2), expected: 7)
+}
 
 @ackermann (m: int, n: int) -> int = recurse(
     condition: m == 0,
     base: n + 1,
     step: if n == 0 then self(m: m - 1, n: 1) else self(m: m - 1, n: self(m: m, n: n - 1)),
     memo: true,
-)
+);
 
 // =============================================================================
 // Tail Recursion Optimization
 // =============================================================================
 
-@test_sum_tail tests @sum_tail () -> void = run(
+@test_sum_tail tests @sum_tail () -> void = {
     // Tail-optimized should handle large N without stack overflow
-    assert_eq(actual: sum_tail(n: 100, acc: 0), expected: 5050),
-)
+    assert_eq(actual: sum_tail(n: 100, acc: 0), expected: 5050)
+}
 
 @sum_tail (n: int, acc: int) -> int = recurse(
     condition: n == 0,
     base: acc,
     step: self(n: n - 1, acc: acc + n),
-)
+);
 
-@test_factorial_tail tests @factorial_tail () -> void = run(
-    assert_eq(actual: factorial_tail(n: 5, acc: 1), expected: 120),
-    assert_eq(actual: factorial_tail(n: 10, acc: 1), expected: 3628800),
-)
+@test_factorial_tail tests @factorial_tail () -> void = {
+    assert_eq(actual: factorial_tail(n: 5, acc: 1), expected: 120);
+    assert_eq(actual: factorial_tail(n: 10, acc: 1), expected: 3628800)
+}
 
 @factorial_tail (n: int, acc: int) -> int = recurse(
     condition: n <= 1,
     base: acc,
     step: self(n: n - 1, acc: acc * n),
-)
+);
 
 // =============================================================================
 // Recurse with List Processing
 // =============================================================================
 
-@test_list_sum tests @list_sum () -> void = run(
-    assert_eq(actual: list_sum(items: [1, 2, 3, 4, 5], idx: 0), expected: 15),
-    assert_eq(actual: list_sum(items: [], idx: 0), expected: 0),
-)
+@test_list_sum tests @list_sum () -> void = {
+    assert_eq(actual: list_sum(items: [1, 2, 3, 4, 5], idx: 0), expected: 15);
+    assert_eq(actual: list_sum(items: [], idx: 0), expected: 0)
+}
 
 @list_sum (items: [int], idx: int) -> int = recurse(
     condition: idx >= items.len(),
     base: 0,
     step: items[idx] + self(items: items, idx: idx + 1),
-)
+);
 
-@test_list_max tests @list_max () -> void = run(
-    assert_eq(actual: list_max(items: [3, 1, 4, 1, 5, 9, 2, 6], idx: 0, current: 0), expected: 9),
-)
+@test_list_max tests @list_max () -> void = {
+    assert_eq(actual: list_max(items: [3, 1, 4, 1, 5, 9, 2, 6], idx: 0, current: 0), expected: 9)
+}
 
 @list_max (items: [int], idx: int, current: int) -> int = recurse(
     condition: idx >= items.len(),
@@ -238,80 +238,80 @@ use std.testing { assert, assert_eq, assert_ne }
         idx: idx + 1,
         current: if items[idx] > current then items[idx] else current,
     ),
-)
+);
 
 // =============================================================================
 // Recurse with String Processing
 // =============================================================================
 
-@test_count_char tests @count_char () -> void = run(
-    assert_eq(actual: count_char(s: "hello", c: 'l', idx: 0), expected: 2),
-    assert_eq(actual: count_char(s: "hello", c: 'x', idx: 0), expected: 0),
-)
+@test_count_char tests @count_char () -> void = {
+    assert_eq(actual: count_char(s: "hello", c: 'l', idx: 0), expected: 2);
+    assert_eq(actual: count_char(s: "hello", c: 'x', idx: 0), expected: 0)
+}
 
 @count_char (s: str, c: char, idx: int) -> int = recurse(
     condition: idx >= s.len(),
     base: 0,
-    step: run(
-        let count = if s[idx] == str(c) then 1 else 0,
-        count + self(s: s, c: c, idx: idx + 1),
-    ),
-)
+    step: {
+        let count = if s[idx] == str(c) then 1 else 0;
+        count + self(s: s, c: c, idx: idx + 1)
+    },
+);
 
 // =============================================================================
 // Recurse with Complex Conditions
 // =============================================================================
 
-@test_binary_search tests @binary_search () -> void = run(
-    let items = [1, 3, 5, 7, 9, 11, 13, 15],
-    assert_eq(actual: binary_search(items: items, target: 7, lo: 0, hi: items.len() - 1), expected: 3),
-    assert_eq(actual: binary_search(items: items, target: 1, lo: 0, hi: items.len() - 1), expected: 0),
-    assert_eq(actual: binary_search(items: items, target: 15, lo: 0, hi: items.len() - 1), expected: 7),
-    assert_eq(actual: binary_search(items: items, target: 6, lo: 0, hi: items.len() - 1), expected: -1),
-)
+@test_binary_search tests @binary_search () -> void = {
+    let items = [1, 3, 5, 7, 9, 11, 13, 15];
+    assert_eq(actual: binary_search(items: items, target: 7, lo: 0, hi: items.len() - 1), expected: 3);
+    assert_eq(actual: binary_search(items: items, target: 1, lo: 0, hi: items.len() - 1), expected: 0);
+    assert_eq(actual: binary_search(items: items, target: 15, lo: 0, hi: items.len() - 1), expected: 7);
+    assert_eq(actual: binary_search(items: items, target: 6, lo: 0, hi: items.len() - 1), expected: -1)
+}
 
 @binary_search (items: [int], target: int, lo: int, hi: int) -> int = recurse(
     condition: lo > hi,
     base: -1,
-    step: run(
-        let mid = (lo + hi) div 2,
-        let mid_val = items[mid],
+    step: {
+        let mid = (lo + hi) div 2;
+        let mid_val = items[mid];
         if mid_val == target then mid
         else if mid_val < target then self(items: items, target: target, lo: mid + 1, hi: hi)
-        else self(items: items, target: target, lo: lo, hi: mid - 1),
-    ),
-)
+        else self(items: items, target: target, lo: lo, hi: mid - 1)
+    },
+);
 
 // =============================================================================
 // Recurse Returning Collections
 // =============================================================================
 
-@test_range_list tests @range_list () -> void = run(
-    let result = range_list(start: 1, end: 5),
-    assert_eq(actual: result, expected: [1, 2, 3, 4, 5]),
-)
+@test_range_list tests @range_list () -> void = {
+    let result = range_list(start: 1, end: 5);
+    assert_eq(actual: result, expected: [1, 2, 3, 4, 5])
+}
 
 // NOTE: List spread in recurse step may not be supported
 // Simplified to use for/yield
-@range_list (start: int, end: int) -> [int] = for i in start..=end yield i
+@range_list (start: int, end: int) -> [int] = for i in start..=end yield i;
 
 // =============================================================================
 // Recurse with Boolean Condition
 // =============================================================================
 
-@test_is_even tests @is_even () -> void = run(
-    assert(cond: is_even(n: 0)),
-    assert(cond: is_even(n: 2)),
-    assert(cond: is_even(n: 100)),
-    assert(cond: !is_even(n: 1)),
-    assert(cond: !is_even(n: 99)),
-)
+@test_is_even tests @is_even () -> void = {
+    assert(cond: is_even(n: 0));
+    assert(cond: is_even(n: 2));
+    assert(cond: is_even(n: 100));
+    assert(cond: !is_even(n: 1));
+    assert(cond: !is_even(n: 99))
+}
 
 @is_even (n: int) -> bool = recurse(
     condition: n == 0,
     base: true,
     step: !self(n - 1),
-)
+);
 
 // =============================================================================
 // Mutual Recursion via Recurse
@@ -320,13 +320,13 @@ use std.testing { assert, assert_eq, assert_ne }
 // Note: True mutual recursion requires two separate functions
 // This tests indirect recursion through a helper
 
-@test_countdown tests @countdown () -> void = run(
-    let result = countdown(n: 5),
-    assert_eq(actual: result, expected: "5 4 3 2 1 0"),
-)
+@test_countdown tests @countdown () -> void = {
+    let result = countdown(n: 5);
+    assert_eq(actual: result, expected: "5 4 3 2 1 0")
+}
 
 @countdown (n: int) -> str = recurse(
     condition: n < 0,
     base: "",
     step: str(n) + if n > 0 then " " + self(n - 1) else "",
-)
+);

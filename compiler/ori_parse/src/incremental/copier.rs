@@ -2,7 +2,7 @@
 
 use ori_ir::incremental::ChangeMarker;
 use ori_ir::{
-    ast::{BindingPattern, FunctionExp, FunctionSeq, MatchArm, MatchPattern, SeqBinding},
+    ast::{BindingPattern, FunctionExp, FunctionSeq, MatchArm, MatchPattern},
     CallArg, CapabilityRef, ConstDef, DefImplDef, Expr, ExprArena, ExprId, ExprKind, ExtendDef,
     ExternBlock, ExternItem, ExternParam, FieldInit, Function, GenericParam, ImplAssocType,
     ImplDef, ImplMethod, MapEntry, MatchPatternId, MatchPatternRange, Name, NamedExpr, Param,
@@ -259,6 +259,7 @@ impl<'old> AstCopier<'old> {
                     ExprId::INVALID
                 },
             },
+            ExprKind::Unsafe(inner) => ExprKind::Unsafe(self.copy_expr(*inner, new_arena)),
             ExprKind::Await(inner) => ExprKind::Await(self.copy_expr(*inner, new_arena)),
             ExprKind::Try(inner) => ExprKind::Try(self.copy_expr(*inner, new_arena)),
             ExprKind::Cast { expr, ty, fallible } => ExprKind::Cast {
@@ -887,53 +888,34 @@ impl<'old> AstCopier<'old> {
         new_arena.alloc_parsed_type_list(new_ids)
     }
 
-    /// Copy a check range (pre/post checks for `run()`).
-    fn copy_check_range(
-        &self,
-        range: ori_ir::CheckRange,
-        new_arena: &mut ExprArena,
-    ) -> ori_ir::CheckRange {
-        let old_checks = self.old_arena.get_checks(range);
-        let new_checks: Vec<_> = old_checks
-            .iter()
-            .map(|c| ori_ir::CheckExpr {
-                expr: self.copy_expr(c.expr, new_arena),
-                message: c.message.map(|m| self.copy_expr(m, new_arena)),
-                span: self.adjust_span(c.span),
-            })
-            .collect();
-        new_arena.alloc_checks(new_checks)
-    }
-
     /// Copy a `FunctionSeq`.
     fn copy_function_seq(&self, seq: &FunctionSeq, new_arena: &mut ExprArena) -> FunctionSeq {
         match seq {
-            FunctionSeq::Run {
-                pre_checks,
-                bindings,
-                result,
-                post_checks,
-                span,
-            } => {
-                let new_pre = self.copy_check_range(*pre_checks, new_arena);
-                let new_bindings = self.copy_seq_binding_range(*bindings, new_arena);
-                let new_post = self.copy_check_range(*post_checks, new_arena);
-                FunctionSeq::Run {
-                    pre_checks: new_pre,
-                    bindings: new_bindings,
-                    result: self.copy_expr(*result, new_arena),
-                    post_checks: new_post,
-                    span: self.adjust_span(*span),
-                }
-            }
             FunctionSeq::Try {
-                bindings,
+                stmts,
                 result,
                 span,
             } => {
-                let new_bindings = self.copy_seq_binding_range(*bindings, new_arena);
+                let old_stmts = self.old_arena.get_stmt_range(*stmts);
+                let new_stmts: Vec<_> = old_stmts
+                    .iter()
+                    .map(|s| self.copy_stmt(s, new_arena))
+                    .collect();
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "statement indices won't exceed u32::MAX in practice"
+                )]
+                let start_id = if new_stmts.is_empty() {
+                    0
+                } else {
+                    let first_id = new_arena.alloc_stmt(new_stmts[0].clone());
+                    for stmt in new_stmts.iter().skip(1) {
+                        new_arena.alloc_stmt(stmt.clone());
+                    }
+                    first_id.index() as u32
+                };
                 FunctionSeq::Try {
-                    bindings: new_bindings,
+                    stmts: new_arena.alloc_stmt_range(start_id, new_stmts.len()),
                     result: self.copy_expr(*result, new_arena),
                     span: self.adjust_span(*span),
                 }
@@ -965,48 +947,6 @@ impl<'old> AstCopier<'old> {
                 map: map.map(|m| self.copy_expr(m, new_arena)),
                 arm: self.copy_match_arm(arm, new_arena),
                 default: self.copy_expr(*default, new_arena),
-                span: self.adjust_span(*span),
-            },
-        }
-    }
-
-    /// Copy a sequence binding range.
-    fn copy_seq_binding_range(
-        &self,
-        range: ori_ir::SeqBindingRange,
-        new_arena: &mut ExprArena,
-    ) -> ori_ir::SeqBindingRange {
-        let old_bindings = self.old_arena.get_seq_bindings(range);
-        let new_bindings: Vec<_> = old_bindings
-            .iter()
-            .map(|b| self.copy_seq_binding(b, new_arena))
-            .collect();
-        new_arena.alloc_seq_bindings(new_bindings)
-    }
-
-    /// Copy a sequence binding.
-    fn copy_seq_binding(&self, binding: &SeqBinding, new_arena: &mut ExprArena) -> SeqBinding {
-        match binding {
-            SeqBinding::Let {
-                pattern,
-                ty,
-                value,
-                mutable,
-                span,
-            } => {
-                let old_pattern = self.old_arena.get_binding_pattern(*pattern);
-                let copied_pattern = self.copy_binding_pattern(old_pattern);
-                let new_pattern_id = new_arena.alloc_binding_pattern(copied_pattern);
-                SeqBinding::Let {
-                    pattern: new_pattern_id,
-                    ty: self.copy_optional_parsed_type_id(*ty, new_arena),
-                    value: self.copy_expr(*value, new_arena),
-                    mutable: *mutable,
-                    span: self.adjust_span(*span),
-                }
-            }
-            SeqBinding::Stmt { expr, span } => SeqBinding::Stmt {
-                expr: self.copy_expr(*expr, new_arena),
                 span: self.adjust_span(*span),
             },
         }

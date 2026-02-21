@@ -197,14 +197,15 @@ let log_re = Regex.new(
     r"(?<message>.*)"
 )?
 
-@parse_log (line: str) -> Option<LogEntry> = run(
-    let caps = log_re.captures(line)?,
+@parse_log (line: str) -> Option<LogEntry> = {
+    let caps = log_re.captures(line)?
+
     Some(LogEntry {
         timestamp: caps.named["timestamp"],
         level: caps.named["level"],
         message: caps.named["message"],
-    }),
-)
+    })
+}
 ```
 
 ### Find all URLs
@@ -225,11 +226,10 @@ use std.text.regex { Regex }
 
 let var_re = Regex.new(r"\{\{(\w+)\}\}")?
 
-@render_template (template: str, vars: {str: str}) -> str = run(
+@render_template (template: str, vars: {str: str}) -> str =
     var_re.replace_all(template, |caps| ->
         vars[caps.groups[0] ?? ""] ?? caps.full
-    ),
-)
+    )
 
 render_template("Hello, {{name}}!", {"name": "Alice"})
 // "Hello, Alice!"

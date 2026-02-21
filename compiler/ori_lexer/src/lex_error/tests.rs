@@ -39,19 +39,6 @@ fn error_equality() {
 }
 
 #[test]
-fn semicolon_error_has_removal_suggestion() {
-    let span = Span::new(10, 11);
-    let err = LexError::semicolon(span);
-    assert_eq!(err.kind, LexErrorKind::Semicolon);
-    assert_eq!(err.suggestions.len(), 1);
-    let suggestion = &err.suggestions[0];
-    assert!(suggestion.replacement.is_some());
-    let replacement = suggestion.replacement.as_ref().unwrap();
-    assert_eq!(replacement.span, span);
-    assert_eq!(replacement.text, "");
-}
-
-#[test]
 fn triple_equal_error_has_replacement() {
     let span = Span::new(5, 8);
     let err = LexError::triple_equal(span);
@@ -115,7 +102,6 @@ fn all_factory_methods_compile() {
     let _ = LexError::standalone_backslash(s);
     let _ = LexError::decimal_not_representable(s);
     let _ = LexError::unicode_confusable(s, '\u{201C}', '"', "Left Double Quotation Mark");
-    let _ = LexError::semicolon(s);
     let _ = LexError::triple_equal(s);
     let _ = LexError::single_quote_string(s);
     let _ = LexError::increment_decrement(s, "++");
@@ -125,9 +111,9 @@ fn all_factory_methods_compile() {
 fn error_hash_compatible() {
     use std::collections::HashSet;
     let mut set = HashSet::new();
-    let e1 = LexError::semicolon(Span::new(0, 1));
-    let e2 = LexError::semicolon(Span::new(0, 1));
-    let e3 = LexError::triple_equal(Span::new(0, 3));
+    let e1 = LexError::triple_equal(Span::new(0, 3));
+    let e2 = LexError::triple_equal(Span::new(0, 3));
+    let e3 = LexError::standalone_backslash(Span::new(5, 6));
     set.insert(e1);
     set.insert(e2); // duplicate
     set.insert(e3);

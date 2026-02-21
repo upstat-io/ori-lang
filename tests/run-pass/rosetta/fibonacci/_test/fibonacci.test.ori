@@ -3,24 +3,24 @@
 use std.testing { assert, assert_eq, assert_ne }
 use "../fibonacci" { fib }
 
-@test_fib_base tests @fib () -> void = run(
-    assert(cond: fib(0) == 0),
+@test_fib_base tests @fib () -> void = {
+    assert(cond: fib(0) == 0);
     assert(cond: fib(1) == 1)
-)
+}
 
-@test_fib_sequence tests @fib () -> void = run(
-    assert(cond: fib(2) == 1),
-    assert(cond: fib(3) == 2),
-    assert(cond: fib(4) == 3),
-    assert(cond: fib(5) == 5),
-    assert(cond: fib(6) == 8),
+@test_fib_sequence tests @fib () -> void = {
+    assert(cond: fib(2) == 1);
+    assert(cond: fib(3) == 2);
+    assert(cond: fib(4) == 3);
+    assert(cond: fib(5) == 5);
+    assert(cond: fib(6) == 8);
     assert(cond: fib(7) == 13)
-)
+}
 
-@test_fib_larger tests @fib () -> void = run(
-    assert(cond: fib(10) == 55),
-    assert(cond: fib(15) == 610),
+@test_fib_larger tests @fib () -> void = {
+    assert(cond: fib(10) == 55);
+    assert(cond: fib(15) == 610);
     assert(cond: fib(20) == 6765)
-)
+}
 
 // NOTE: test_fib_parallel removed - requires anonymous record types

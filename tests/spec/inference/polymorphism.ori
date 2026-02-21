@@ -7,159 +7,159 @@ use std.testing { assert, assert_eq, assert_ne }
 // Let-Polymorphism (Generalization and Instantiation)
 // =============================================================================
 
-@test_let_poly_identity tests @let_poly_identity () -> void = run(
+@test_let_poly_identity tests @let_poly_identity () -> void = {
     // The identity function should work with different types
-    let id = x -> x,
-    let int_result = id(x: 42),
-    let str_result = id(x: "hello"),
+    let id = x -> x;
+    let int_result = id(x: 42);
+    let str_result = id(x: "hello");
     assert_eq(
         actual: int_result,
         expected: 42,
-    ),
+    );
     assert_eq(
         actual: str_result,
         expected: "hello",
-    ),
-)
+    )
+}
 
-@let_poly_identity () -> int = run(
-    let id = x -> x,
-    id(x: 42),
-)
+@let_poly_identity () -> int = {
+    let id = x -> x;
+    id(x: 42)
+}
 
-@test_let_poly_const tests @let_poly_const () -> void = run(
+@test_let_poly_const tests @let_poly_const () -> void = {
     // A function that ignores its second argument
-    let const_fn = (a, b) -> a,
+    let const_fn = (a, b) -> a;
     let result1 = const_fn(
         a: 1,
         b: "ignored",
-    ),
+    );
     let result2 = const_fn(
         a: "kept",
         b: 999,
-    ),
+    );
     assert_eq(
         actual: result1,
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: result2,
         expected: "kept",
-    ),
-)
+    )
+}
 
-@let_poly_const () -> int = run(
-    let const_fn = (a, b) -> a,
+@let_poly_const () -> int = {
+    let const_fn = (a, b) -> a;
     const_fn(
         a: 42,
         b: "ignored",
-    ),
-)
+    )
+}
 
 // =============================================================================
 // Polymorphism with Collections
 // =============================================================================
 
-@test_poly_list_head tests @poly_list_head () -> void = run(
+@test_poly_list_head tests @poly_list_head () -> void = {
     // A function that gets the first element
-    let head = xs -> xs[0],
-    let int_head = head(xs: [1, 2, 3]),
-    let str_head = head(xs: ["a", "b", "c"]),
+    let head = xs -> xs[0];
+    let int_head = head(xs: [1, 2, 3]);
+    let str_head = head(xs: ["a", "b", "c"]);
     assert_eq(
         actual: int_head,
         expected: 1,
-    ),
+    );
     assert_eq(
         actual: str_head,
         expected: "a",
-    ),
-)
+    )
+}
 
-@poly_list_head () -> int = run(
-    let head = xs -> xs[0],
-    head(xs: [1, 2, 3]),
-)
+@poly_list_head () -> int = {
+    let head = xs -> xs[0];
+    head(xs: [1, 2, 3])
+}
 
-@test_poly_list_length tests @poly_list_length () -> void = run(
+@test_poly_list_length tests @poly_list_length () -> void = {
     // Length works on any list type
-    let int_len = len(collection: [1, 2, 3]),
-    let str_len = len(collection: ["a", "b"]),
+    let int_len = len(collection: [1, 2, 3]);
+    let str_len = len(collection: ["a", "b"]);
     assert_eq(
         actual: int_len,
         expected: 3,
-    ),
+    );
     assert_eq(
         actual: str_len,
         expected: 2,
-    ),
-)
+    )
+}
 
-@poly_list_length () -> int = len(collection: [1, 2, 3])
+@poly_list_length () -> int = len(collection: [1, 2, 3]);
 
 // =============================================================================
 // Polymorphism with Option/Result
 // =============================================================================
 
-@test_poly_option tests @poly_option () -> void = run(
-    let int_opt = Some(42),
-    let str_opt = Some("hello"),
-    assert(cond: is_some(opt: int_opt)),
-    assert(cond: is_some(opt: str_opt)),
-)
+@test_poly_option tests @poly_option () -> void = {
+    let int_opt = Some(42);
+    let str_opt = Some("hello");
+    assert(cond: is_some(opt: int_opt));
+    assert(cond: is_some(opt: str_opt))
+}
 
-@poly_option () -> bool = run(
-    let opt = Some(42),
-    is_some(opt: opt),
-)
+@poly_option () -> bool = {
+    let opt = Some(42);
+    is_some(opt: opt)
+}
 
 // =============================================================================
 // Instantiation at Call Sites
 // =============================================================================
 
-@test_instantiate_multiple_calls tests @instantiate_multiple_calls () -> void = run(
+@test_instantiate_multiple_calls tests @instantiate_multiple_calls () -> void = {
     // Each use of a polymorphic function gets fresh type variables
-    let wrap = x -> Some(x),
-    let opt1 = wrap(x: 1),
-    let opt2 = wrap(x: "str"),
-    let opt3 = wrap(x: true),
-    assert(cond: is_some(opt: opt1)),
-    assert(cond: is_some(opt: opt2)),
-    assert(cond: is_some(opt: opt3)),
-)
+    let wrap = x -> Some(x);
+    let opt1 = wrap(x: 1);
+    let opt2 = wrap(x: "str");
+    let opt3 = wrap(x: true);
+    assert(cond: is_some(opt: opt1));
+    assert(cond: is_some(opt: opt2));
+    assert(cond: is_some(opt: opt3))
+}
 
-@instantiate_multiple_calls () -> bool = run(
-    let wrap = x -> Some(x),
-    is_some(opt: wrap(x: 42)),
-)
+@instantiate_multiple_calls () -> bool = {
+    let wrap = x -> Some(x);
+    is_some(opt: wrap(x: 42))
+}
 
 // =============================================================================
 // Type Inference Flow
 // =============================================================================
 
-@test_inference_flow_down tests @inference_flow_down () -> void = run(
+@test_inference_flow_down tests @inference_flow_down () -> void = {
     // Return type flows down to guide inference
-    let result: str = if true then "yes" else "no",
+    let result: str = if true then "yes" else "no";
     assert_eq(
         actual: result,
         expected: "yes",
-    ),
-)
+    )
+}
 
-@inference_flow_down () -> str = if true then "yes" else "no"
+@inference_flow_down () -> str = if true then "yes" else "no";
 
-@test_inference_flow_up tests @inference_flow_up () -> void = run(
+@test_inference_flow_up tests @inference_flow_up () -> void = {
     // Inferred types flow up
-    let x = 1,
-    let y = x + 1,
-    let z = y * 2,
+    let x = 1;
+    let y = x + 1;
+    let z = y * 2;
     assert_eq(
         actual: z,
         expected: 4,
-    ),
-)
+    )
+}
 
-@inference_flow_up () -> int = run(
-    let x = 1,
-    let y = x + 1,
-    y * 2,
-)
+@inference_flow_up () -> int = {
+    let x = 1;
+    let y = x + 1;
+    y * 2
+}

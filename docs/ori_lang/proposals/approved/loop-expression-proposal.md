@@ -1,10 +1,12 @@
 # Proposal: Loop Expression
 
-**Status:** Approved
+**Status:** Approved (syntax superseded)
 **Approved:** 2026-01-31
 **Author:** Eric (with AI assistance)
 **Created:** 2026-01-31
 **Affects:** Compiler, expressions, control flow
+
+> **Errata (2026-02-19):** `loop(body)` syntax is now `loop { body }` per `block-expression-syntax.md`. `run(...)` references should read as `{ }` blocks. Semantics (break values, labeled loops, type inference) remain valid.
 
 ---
 

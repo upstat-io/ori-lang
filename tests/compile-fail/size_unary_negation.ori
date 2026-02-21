@@ -2,9 +2,9 @@
 // Unary negation (-) is not permitted on Size. It is a compile-time error.
 
 #[compile_fail("cannot apply `-` to")]
-@test_size_negation_error () -> void = run(
-    let s = 100b,
+@test_size_negation_error () -> void = {
+    let s = 100b;
     // This should fail to compile: Size cannot be negated
-    let neg = -s,
-    (),
-)
+    let neg = -s;
+    ()
+}

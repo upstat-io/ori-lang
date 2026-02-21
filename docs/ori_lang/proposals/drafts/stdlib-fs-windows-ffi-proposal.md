@@ -418,7 +418,7 @@ Windows APIs use UTF-16 (wide strings). Ori strings are UTF-8.
         // Find null terminator
         let len = 0,
         loop(
-            let wchar = unsafe(ptr_read_u16(ptr: wstr, offset: len)),
+            let wchar = unsafe { ptr_read_u16(ptr: wstr, offset: len) },
             if wchar == 0 then break,
             len = len + 1,
             continue

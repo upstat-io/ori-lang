@@ -68,9 +68,6 @@ pub use ast::{
     CapabilityRef,
     // Conditional compilation attribute types
     CfgAttr,
-    // Check types
-    CheckExpr,
-    CheckRange,
     // Constant definition
     ConstDef,
     // Default implementation types
@@ -115,14 +112,12 @@ pub use ast::{
     MatchArm,
     MatchPattern,
     Module,
+    Mutability,
     // function_exp types
     NamedExpr,
     NamedExprRange,
     Param,
     ParamRange,
-    // function_seq types
-    SeqBinding,
-    SeqBindingRange,
     Stmt,
     StmtKind,
     StructField,

@@ -1,5 +1,5 @@
 use ori_ir::canon::{CanArena, CanBindingPattern, CanExpr, CanNode, CanonResult};
-use ori_ir::{Name, Span, StringInterner, TypeId};
+use ori_ir::{Mutability, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
 
@@ -12,7 +12,7 @@ fn bind_name_pattern() {
     let x_name = Name::from_raw(100);
     let pat = arena.push_binding_pattern(CanBindingPattern::Name {
         name: x_name,
-        mutable: false,
+        mutable: Mutability::Immutable,
     });
     let init = arena.push(CanNode::new(
         CanExpr::Int(42),
@@ -24,7 +24,7 @@ fn bind_name_pattern() {
         CanExpr::Let {
             pattern: pat,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         Span::new(0, 12),
         TypeId::from_raw(Idx::UNIT.raw()),

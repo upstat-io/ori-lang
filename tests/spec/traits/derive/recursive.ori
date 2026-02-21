@@ -8,80 +8,82 @@ use std.testing { assert, assert_eq }
 // --- Recursive sum type ---
 
 #[derive(Eq, Clone, Printable)]
-type Tree = Leaf(value: int) | Node(left: Tree, right: Tree)
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 
 // --- Eq on recursive type ---
 
-@test_leaf_eq tests @leaf_eq () -> void = run(
-    assert(cond: Leaf(value: 1) == Leaf(value: 1)),
-    assert(cond: Leaf(value: 1) != Leaf(value: 2)),
-)
-@leaf_eq () -> bool = Leaf(value: 1) == Leaf(value: 1)
+@test_leaf_eq tests @leaf_eq () -> void = {
+    assert(cond: Leaf(value: 1) == Leaf(value: 1));
+    assert(cond: Leaf(value: 1) != Leaf(value: 2))
+}
+@leaf_eq () -> bool = Leaf(value: 1) == Leaf(value: 1);
 
-@test_node_eq tests @node_eq () -> void = run(
-    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    assert(cond: t1 == t2),
-)
-@node_eq () -> bool = run(
-    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    t1 == t2,
-)
+@test_node_eq tests @node_eq () -> void = {
+    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    assert(cond: t1 == t2)
+}
+@node_eq () -> bool = {
+    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    t1 == t2
+}
 
-@test_node_neq tests @node_neq () -> void = run(
-    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 3)),
-    assert(cond: t1 != t2),
-)
-@node_neq () -> bool = run(
-    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 3)),
-    t1 != t2,
-)
+@test_node_neq tests @node_neq () -> void = {
+    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 3));
+    assert(cond: t1 != t2)
+}
+@node_neq () -> bool = {
+    let t1 = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    let t2 = Node(left: Leaf(value: 1), right: Leaf(value: 3));
+    t1 != t2
+}
 
 // --- Clone on recursive type ---
 
-@test_leaf_clone tests @leaf_clone () -> void = run(
-    let l = Leaf(value: 42),
-    assert(cond: l == l.clone()),
-)
-@leaf_clone () -> bool = run(
-    let l = Leaf(value: 42),
-    l == l.clone(),
-)
+@test_leaf_clone tests @leaf_clone () -> void = {
+    let l = Leaf(value: 42);
+    assert(cond: l == l.clone())
+}
+@leaf_clone () -> bool = {
+    let l = Leaf(value: 42);
+    l == l.clone()
+}
 
-@test_node_clone tests @node_clone () -> void = run(
-    let t = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    assert(cond: t == t.clone()),
-)
-@node_clone () -> bool = run(
-    let t = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    t == t.clone(),
-)
+@test_node_clone tests @node_clone () -> void = {
+    let t = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    assert(cond: t == t.clone())
+}
+@node_clone () -> bool = {
+    let t = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    t == t.clone()
+}
 
 // --- Printable on recursive type ---
 
-@test_leaf_print tests @leaf_print () -> void = run(
-    assert_eq(actual: Leaf(value: 42).to_str(), expected: "Leaf(42)"),
-)
-@leaf_print () -> str = Leaf(value: 42).to_str()
+@test_leaf_print tests @leaf_print () -> void = {
+    assert_eq(actual: Leaf(value: 42).to_str(), expected: "Leaf(42)")
+}
+@leaf_print () -> str = Leaf(value: 42).to_str();
 
-@test_node_print tests @node_print () -> void = run(
-    let t = Node(left: Leaf(value: 1), right: Leaf(value: 2)),
-    assert_eq(actual: t.to_str(), expected: "Node(Leaf(1), Leaf(2))"),
-)
-@node_print () -> str = Node(left: Leaf(value: 1), right: Leaf(value: 2)).to_str()
+@test_node_print tests @node_print () -> void = {
+    let t = Node(left: Leaf(value: 1), right: Leaf(value: 2));
+    assert_eq(actual: t.to_str(), expected: "Node(Leaf(1), Leaf(2))")
+}
+@node_print () -> str = {
+    Node(left: Leaf(value: 1), right: Leaf(value: 2)).to_str()
+}
 
 // --- Deep nesting ---
 
-@test_deep_eq tests @deep_eq () -> void = run(
-    let t1 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3)),
-    let t2 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3)),
-    assert(cond: t1 == t2),
-)
-@deep_eq () -> bool = run(
-    let t1 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3)),
-    let t2 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3)),
-    t1 == t2,
-)
+@test_deep_eq tests @deep_eq () -> void = {
+    let t1 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3));
+    let t2 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3));
+    assert(cond: t1 == t2)
+}
+@deep_eq () -> bool = {
+    let t1 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3));
+    let t2 = Node(left: Node(left: Leaf(value: 1), right: Leaf(value: 2)), right: Leaf(value: 3));
+    t1 == t2
+}

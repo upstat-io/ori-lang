@@ -7,68 +7,68 @@ use std.testing { assert_eq }
 // Fixed-Point
 // =============================================================================
 
-@test_float_fixed tests @float_fixed () -> void = run(
-    assert_eq(actual: `{3.14:.2f}`, expected: "3.14"),
-    assert_eq(actual: `{3.14159:.4f}`, expected: "3.1416"),
-    assert_eq(actual: `{1.0:.3f}`, expected: "1.000"),
-)
+@test_float_fixed tests @float_fixed () -> void = {
+    assert_eq(actual: `{3.14:.2f}`, expected: "3.14");
+    assert_eq(actual: `{3.14159:.4f}`, expected: "3.1416");
+    assert_eq(actual: `{1.0:.3f}`, expected: "1.000")
+}
 
-@float_fixed () -> str = `{3.14:.2f}`
+@float_fixed () -> str = `{3.14:.2f}`;
 
 // =============================================================================
 // Precision (default format)
 // =============================================================================
 
-@test_float_precision tests @float_precision () -> void = run(
-    assert_eq(actual: `{3.14159:.2}`, expected: "3.14"),
-    assert_eq(actual: `{3.14159:.4}`, expected: "3.1416"),
-)
+@test_float_precision tests @float_precision () -> void = {
+    assert_eq(actual: `{3.14159:.2}`, expected: "3.14");
+    assert_eq(actual: `{3.14159:.4}`, expected: "3.1416")
+}
 
-@float_precision () -> str = `{3.14159:.2}`
+@float_precision () -> str = `{3.14159:.2}`;
 
 // =============================================================================
 // Scientific Notation
 // =============================================================================
 
-@test_float_scientific tests @float_scientific () -> void = run(
-    assert_eq(actual: `{1500.0:e}`, expected: "1.5e3"),
-    assert_eq(actual: `{0.005:e}`, expected: "5e-3"),
-)
+@test_float_scientific tests @float_scientific () -> void = {
+    assert_eq(actual: `{1500.0:e}`, expected: "1.5e3");
+    assert_eq(actual: `{0.005:e}`, expected: "5e-3")
+}
 
-@float_scientific () -> str = `{1500.0:e}`
+@float_scientific () -> str = `{1500.0:e}`;
 
 // =============================================================================
 // Percentage
 // =============================================================================
 
-@test_float_percent tests @float_percent () -> void = run(
-    assert_eq(actual: `{0.75:%}`, expected: "75%"),
-    assert_eq(actual: `{1.0:%}`, expected: "100%"),
-    assert_eq(actual: `{0.123:.1%}`, expected: "12.3%"),
-)
+@test_float_percent tests @float_percent () -> void = {
+    assert_eq(actual: `{0.75:%}`, expected: "75%");
+    assert_eq(actual: `{1.0:%}`, expected: "100%");
+    assert_eq(actual: `{0.123:.1%}`, expected: "12.3%")
+}
 
-@float_percent () -> str = `{0.75:%}`
+@float_percent () -> str = `{0.75:%}`;
 
 // =============================================================================
 // Sign
 // =============================================================================
 
-@test_float_sign tests @float_sign () -> void = run(
-    assert_eq(actual: `{3.14:+}`, expected: "+3.14"),
-    assert_eq(actual: `{-3.14:+}`, expected: "-3.14"),
-)
+@test_float_sign tests @float_sign () -> void = {
+    assert_eq(actual: `{3.14:+}`, expected: "+3.14");
+    assert_eq(actual: `{-3.14:+}`, expected: "-3.14")
+}
 
-@float_sign () -> str = `{3.14:+}`
+@float_sign () -> str = `{3.14:+}`;
 
 // =============================================================================
 // Width
 // =============================================================================
 
-@test_float_width tests @float_width () -> void = run(
-    assert_eq(actual: `{3.14:>10}`, expected: "      3.14"),
-    assert_eq(actual: `{3.14:010.2f}`, expected: "0000003.14"),
-)
+@test_float_width tests @float_width () -> void = {
+    assert_eq(actual: `{3.14:>10}`, expected: "      3.14");
+    assert_eq(actual: `{3.14:010.2f}`, expected: "0000003.14")
+}
 
-@float_width () -> str = `{3.14:>10}`
+@float_width () -> str = `{3.14:>10}`;
 
-@main () -> void = print(msg: "Formattable float tests")
+@main () -> void = print(msg: "Formattable float tests");

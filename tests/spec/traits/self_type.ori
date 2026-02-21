@@ -54,7 +54,7 @@ trait Doubler {
 type Number = { n: int }
 
 impl Doubler for Number {
-    @value (self) -> int = self.n
+    @value (self) -> int = self.n;
     @double (self) -> Self = Number { n: self.n * 2 }
 }
 
@@ -76,49 +76,49 @@ impl Identity for Wrapper {
 // Tests
 // =============================================================================
 
-@test_self_negate_return tests @negate () -> void = run(
-    let v = Vector { x: 3, y: 4 },
-    let negated = v.negate(),
-    assert_eq(actual: negated.x, expected: -3),
-    assert_eq(actual: negated.y, expected: -4),
-)
+@test_self_negate_return tests @negate () -> void = {
+    let v = Vector { x: 3, y: 4 };
+    let negated = v.negate();
+    assert_eq(actual: negated.x, expected: -3);
+    assert_eq(actual: negated.y, expected: -4)
+}
 
-@test_self_method_return tests @scale () -> void = run(
-    let v = Vector { x: 2, y: 3 },
-    let scaled = v.scale(factor: 4),
-    assert_eq(actual: scaled.x, expected: 8),
-    assert_eq(actual: scaled.y, expected: 12),
-)
+@test_self_method_return tests @scale () -> void = {
+    let v = Vector { x: 2, y: 3 };
+    let scaled = v.scale(factor: 4);
+    assert_eq(actual: scaled.x, expected: 8);
+    assert_eq(actual: scaled.y, expected: 12)
+}
 
-@test_self_with_other_param tests @add () -> void = run(
-    let v1 = Vector { x: 1, y: 2 },
-    let v2 = Vector { x: 3, y: 4 },
-    let result = v1.add(other: v2),
-    assert_eq(actual: result.x, expected: 4),
-    assert_eq(actual: result.y, expected: 6),
-)
+@test_self_with_other_param tests @add () -> void = {
+    let v1 = Vector { x: 1, y: 2 };
+    let v2 = Vector { x: 3, y: 4 };
+    let result = v1.add(other: v2);
+    assert_eq(actual: result.x, expected: 4);
+    assert_eq(actual: result.y, expected: 6)
+}
 
-@test_self_trait_clone tests @clone () -> void = run(
-    let original = Amount { value: 100 },
-    let cloned = original.clone(),
-    assert_eq(actual: cloned.value, expected: 100),
-)
+@test_self_trait_clone tests @clone () -> void = {
+    let original = Amount { value: 100 };
+    let cloned = original.clone();
+    assert_eq(actual: cloned.value, expected: 100)
+}
 
-@test_self_trait_combine tests @combine () -> void = run(
-    let a = Amount { value: 30 },
-    let b = Amount { value: 12 },
-    let combined = a.combine(other: b),
-    assert_eq(actual: combined.value, expected: 42),
-)
+@test_self_trait_combine tests @combine () -> void = {
+    let a = Amount { value: 30 };
+    let b = Amount { value: 12 };
+    let combined = a.combine(other: b);
+    assert_eq(actual: combined.value, expected: 42)
+}
 
-@test_self_impl_double tests @double () -> void = run(
-    let num = Number { n: 21 },
-    let doubled = num.double(),
-    assert_eq(actual: doubled.n, expected: 42),
-)
+@test_self_impl_double tests @double () -> void = {
+    let num = Number { n: 21 };
+    let doubled = num.double();
+    assert_eq(actual: doubled.n, expected: 42)
+}
 
-@test_self_identity tests @identity () -> void = run(
-    let w = Wrapper { inner: 42 },
-    let same = w.identity(),
-    assert_eq(actual: same.inner, expected: 42),
-)
+@test_self_identity tests @identity () -> void = {
+    let w = Wrapper { inner: 42 };
+    let same = w.identity();
+    assert_eq(actual: same.inner, expected: 42)
+}

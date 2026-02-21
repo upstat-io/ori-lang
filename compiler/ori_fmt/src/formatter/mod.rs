@@ -50,7 +50,7 @@ mod tests;
 use crate::context::{FormatConfig, FormatContext};
 use crate::emitter::StringEmitter;
 use crate::width::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{BinaryOp, ExprArena, ExprId, StringLookup, UnaryOp};
+use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, StringLookup, UnaryOp};
 
 /// Get string representation of a binary operator.
 fn binary_op_str(op: BinaryOp) -> &'static str {
@@ -92,6 +92,44 @@ fn unary_op_str(op: UnaryOp) -> &'static str {
 
 // Note: Parentheses logic moved to rules::ParenthesesRule (Layer 4)
 // See rules::needs_parens() and rules::ParenPosition
+
+/// Check if a binary operand needs parentheses based on precedence and associativity.
+///
+/// Returns true when the operand is:
+/// - A binary expression with lower precedence (higher number) than the parent
+/// - A binary expression with equal precedence on the "wrong" side for associativity
+///   (all binary ops are left-associative except `??` which is right-associative)
+/// - A lambda, let, or if expression (always needs parens as binary operand)
+fn needs_binary_parens(
+    arena: &ExprArena,
+    operand: ExprId,
+    parent_op: BinaryOp,
+    is_left: bool,
+) -> bool {
+    let expr = arena.get_expr(operand);
+
+    match &expr.kind {
+        ExprKind::Binary { op: child_op, .. } => {
+            let parent_prec = parent_op.precedence();
+            let child_prec = child_op.precedence();
+
+            match child_prec.cmp(&parent_prec) {
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Equal => {
+                    let is_right_assoc = matches!(parent_op, BinaryOp::Coalesce);
+                    if is_right_assoc {
+                        is_left
+                    } else {
+                        !is_left
+                    }
+                }
+                std::cmp::Ordering::Less => false,
+            }
+        }
+        ExprKind::Lambda { .. } | ExprKind::Let { .. } | ExprKind::If { .. } => true,
+        _ => false,
+    }
+}
 
 /// Formatter for Ori source code.
 ///

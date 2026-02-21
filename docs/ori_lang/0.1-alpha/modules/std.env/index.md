@@ -75,23 +75,23 @@ impl Env for MockEnv {
         arguments: [],
         cwd: "/tmp",
     } in
-    run(
-        let url = get_database_url(),
+    {
+        let url = get_database_url()
         assert_eq(
             .actual: url,
             .expected: "postgres://test/testdb",
-        ),
-    )
+        )
+    }
 
 @test_database_url_default tests @get_database_url () -> void =
     with Env = MockEnv { vars: {}, arguments: [], cwd: "/tmp" } in
-    run(
-        let url = get_database_url(),
+    {
+        let url = get_database_url()
         assert_eq(
             .actual: url,
             .expected: "postgres://localhost/dev",
-        ),
-    )
+        )
+    }
 ```
 
 ---
@@ -265,23 +265,23 @@ type Config = {
 ```ori
 use std.env { args_os }
 
-@parse_args () uses Env -> Result<Options, str> = run(
-    let args = args_os(),
+@parse_args () uses Env -> Result<Options, str> = {
+    let args = args_os()
 
     // Fold through args, accumulating options or error
     args.fold(
         initial: Ok(Options.default()),
-        f: (acc, arg) -> try(
-            let options = acc?,
-            match(arg,
-                "--help" -> Ok(options.with_help(true)),
-                "--verbose" -> Ok(options.with_verbose(true)),
-                s if s.starts_with("--") -> Err("Unknown flag: " + s),
-                s -> Ok(options.with_file(s)),
-            ),
-        ),
-    ),
-)
+        f: (acc, arg) -> try {
+            let options = acc?
+            match arg {
+                "--help" -> Ok(options.with_help(true))
+                "--verbose" -> Ok(options.with_verbose(true))
+                s if s.starts_with("--") -> Err("Unknown flag: " + s)
+                s -> Ok(options.with_file(s))
+            }
+        },
+    )
+}
 ```
 
 ---

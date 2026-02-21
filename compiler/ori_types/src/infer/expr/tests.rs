@@ -2,7 +2,7 @@ use super::*;
 use crate::{Idx, Pool};
 use ori_ir::{
     ast::{Expr, ExprKind, MapEntry, MatchArm, MatchPattern, Param, Stmt, StmtKind},
-    BindingPattern, ExprArena, ExprId, Name, Span, StringInterner,
+    BindingPattern, ExprArena, ExprId, Mutability, Name, Span, StringInterner,
 };
 
 // ========================================================================
@@ -1263,14 +1263,14 @@ fn test_infer_block_with_let() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let _stmt = arena.alloc_stmt(Stmt {
         kind: StmtKind::Let {
             pattern,
             ty: ori_ir::ParsedTypeId::INVALID,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1301,7 +1301,7 @@ fn test_infer_block_let_with_type_annotation() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let int_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::INT));
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1309,7 +1309,7 @@ fn test_infer_block_let_with_type_annotation() {
             pattern,
             ty: int_ty,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1353,7 +1353,7 @@ fn test_infer_block_let_annotation_list_type() {
 
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let list_ty = arena.alloc_parsed_type(list_annotation);
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1361,7 +1361,7 @@ fn test_infer_block_let_annotation_list_type() {
             pattern,
             ty: list_ty,
             init: list,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1396,7 +1396,7 @@ fn test_infer_block_let_annotation_type_mismatch() {
     let init = alloc(&mut arena, ExprKind::Int(42));
     let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
         name: name(1),
-        mutable: true,
+        mutable: Mutability::Mutable,
     });
     let str_ty = arena.alloc_parsed_type(ParsedType::Primitive(ori_ir::TypeId::STR));
     let _stmt = arena.alloc_stmt(Stmt {
@@ -1404,7 +1404,7 @@ fn test_infer_block_let_annotation_type_mismatch() {
             pattern,
             ty: str_ty,
             init,
-            mutable: false,
+            mutable: Mutability::Immutable,
         },
         span: span(),
     });
@@ -1669,107 +1669,6 @@ fn test_infer_coalesce() {
 // ========================================================================
 // Pattern Expression Tests (FunctionSeq)
 // ========================================================================
-
-#[test]
-fn test_infer_function_seq_run() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    let mut arena = ExprArena::new();
-
-    // run(let x = 42, x + 1)
-    let init = alloc(&mut arena, ExprKind::Int(42));
-    let pattern = arena.alloc_binding_pattern(BindingPattern::Name {
-        name: name(1),
-        mutable: true,
-    });
-    let bindings = arena.alloc_seq_bindings([ori_ir::SeqBinding::Let {
-        pattern,
-        ty: ori_ir::ParsedTypeId::INVALID,
-        value: init,
-        mutable: false,
-        span: Span::DUMMY,
-    }]);
-
-    // x + 1 where x is name(1)
-    let x_ref = alloc(&mut arena, ExprKind::Ident(name(1)));
-    let one = alloc(&mut arena, ExprKind::Int(1));
-    let result = alloc(
-        &mut arena,
-        ExprKind::Binary {
-            op: BinaryOp::Add,
-            left: x_ref,
-            right: one,
-        },
-    );
-
-    let func_seq = ori_ir::FunctionSeq::Run {
-        pre_checks: ori_ir::CheckRange::EMPTY,
-        bindings,
-        result,
-        post_checks: ori_ir::CheckRange::EMPTY,
-        span: Span::DUMMY,
-    };
-    let seq_id = arena.alloc_function_seq(func_seq);
-    let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
-
-    let ty = infer_expr(&mut engine, &arena, expr_id);
-
-    assert_eq!(ty, Idx::INT, "run should return result type");
-    assert!(!engine.has_errors());
-}
-
-#[test]
-fn test_infer_function_seq_run_multiple_bindings() {
-    let mut pool = Pool::new();
-    let mut engine = InferEngine::new(&mut pool);
-    let mut arena = ExprArena::new();
-
-    // run(let x = 1, let y = "hello", y)
-    let x_init = alloc(&mut arena, ExprKind::Int(1));
-    let y_init = alloc(&mut arena, ExprKind::String(ori_ir::Name::from_raw(100)));
-
-    let pattern1 = arena.alloc_binding_pattern(BindingPattern::Name {
-        name: name(1),
-        mutable: true,
-    });
-    let pattern2 = arena.alloc_binding_pattern(BindingPattern::Name {
-        name: name(2),
-        mutable: true,
-    });
-    let bindings = arena.alloc_seq_bindings([
-        ori_ir::SeqBinding::Let {
-            pattern: pattern1,
-            ty: ori_ir::ParsedTypeId::INVALID,
-            value: x_init,
-            mutable: false,
-            span: Span::DUMMY,
-        },
-        ori_ir::SeqBinding::Let {
-            pattern: pattern2,
-            ty: ori_ir::ParsedTypeId::INVALID,
-            value: y_init,
-            mutable: false,
-            span: Span::DUMMY,
-        },
-    ]);
-
-    let y_ref = alloc(&mut arena, ExprKind::Ident(name(2)));
-
-    let func_seq = ori_ir::FunctionSeq::Run {
-        pre_checks: ori_ir::CheckRange::EMPTY,
-        bindings,
-        result: y_ref,
-        post_checks: ori_ir::CheckRange::EMPTY,
-        span: Span::DUMMY,
-    };
-    let seq_id = arena.alloc_function_seq(func_seq);
-    let expr_id = alloc(&mut arena, ExprKind::FunctionSeq(seq_id));
-
-    let ty = infer_expr(&mut engine, &arena, expr_id);
-
-    assert_eq!(ty, Idx::STR, "run should return str from y");
-    assert!(!engine.has_errors());
-}
 
 #[test]
 fn test_infer_function_exp_print() {

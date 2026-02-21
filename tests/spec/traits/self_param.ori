@@ -11,14 +11,14 @@ type Point = { x: int, y: int }
 
 impl Point {
     // self provides access to the instance
-    @get_x (self) -> int = self.x
-    @get_y (self) -> int = self.y
+    @get_x (self) -> int = self.x;
+    @get_y (self) -> int = self.y;
 
     // self can access multiple fields
-    @sum (self) -> int = self.x + self.y
+    @sum (self) -> int = self.x + self.y;
 
     // self access in computation
-    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y
+    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y;
 }
 
 // =============================================================================
@@ -36,15 +36,15 @@ trait Measurable {
 type Rectangle = { width: int, height: int }
 
 impl Describable for Rectangle {
-    @describe (self) -> str = "Rectangle(" + str(self.width) + "x" + str(self.height) + ")"
+    @describe (self) -> str = "Rectangle(" + str(self.width) + "x" + str(self.height) + ")";
 }
 
 impl Measurable for Rectangle {
-    @measure (self) -> int = self.width * self.height
+    @measure (self) -> int = self.width * self.height;
 }
 
 impl Rectangle {
-    @perimeter (self) -> int = 2 * (self.width + self.height)
+    @perimeter (self) -> int = 2 * (self.width + self.height);
 }
 
 // =============================================================================
@@ -55,10 +55,10 @@ type Counter = { value: int }
 
 impl Counter {
     // self with additional parameter
-    @add (self, amount: int) -> int = self.value + amount
+    @add (self, amount: int) -> int = self.value + amount;
 
     // self with multiple additional parameters
-    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale
+    @add_scaled (self, amount: int, scale: int) -> int = self.value + amount * scale;
 }
 
 trait Comparable {
@@ -66,54 +66,54 @@ trait Comparable {
 }
 
 impl Comparable for Counter {
-    @compare_to (self, other: int) -> bool = self.value == other
+    @compare_to (self, other: int) -> bool = self.value == other;
 }
 
 // =============================================================================
 // Tests
 // =============================================================================
 
-@test_self_field_access tests @get_x () -> void = run(
-    let p = Point { x: 10, y: 20 },
-    assert_eq(actual: p.get_x(), expected: 10),
-)
+@test_self_field_access tests @get_x () -> void = {
+    let p = Point { x: 10, y: 20 };
+    assert_eq(actual: p.get_x(), expected: 10)
+}
 
-@test_self_multiple_fields tests @sum () -> void = run(
-    let p = Point { x: 3, y: 4 },
-    assert_eq(actual: p.sum(), expected: 7),
-)
+@test_self_multiple_fields tests @sum () -> void = {
+    let p = Point { x: 3, y: 4 };
+    assert_eq(actual: p.sum(), expected: 7)
+}
 
-@test_self_computation tests @distance_from_origin () -> void = run(
-    let p = Point { x: 3, y: 4 },
-    assert_eq(actual: p.distance_from_origin(), expected: 25),
-)
+@test_self_computation tests @distance_from_origin () -> void = {
+    let p = Point { x: 3, y: 4 };
+    assert_eq(actual: p.distance_from_origin(), expected: 25)
+}
 
-@test_self_in_trait_impl tests @describe () -> void = run(
-    let rect = Rectangle { width: 5, height: 10 },
-    assert_eq(actual: rect.describe(), expected: "Rectangle(5x10)"),
-)
+@test_self_in_trait_impl tests @describe () -> void = {
+    let rect = Rectangle { width: 5, height: 10 };
+    assert_eq(actual: rect.describe(), expected: "Rectangle(5x10)")
+}
 
-@test_self_in_trait_impl_measure tests @measure () -> void = run(
-    let rect = Rectangle { width: 5, height: 10 },
-    assert_eq(actual: rect.measure(), expected: 50),
-)
+@test_self_in_trait_impl_measure tests @measure () -> void = {
+    let rect = Rectangle { width: 5, height: 10 };
+    assert_eq(actual: rect.measure(), expected: 50)
+}
 
-@test_self_inherent_impl tests @perimeter () -> void = run(
-    let rect = Rectangle { width: 5, height: 10 },
-    assert_eq(actual: rect.perimeter(), expected: 30),
-)
+@test_self_inherent_impl tests @perimeter () -> void = {
+    let rect = Rectangle { width: 5, height: 10 };
+    assert_eq(actual: rect.perimeter(), expected: 30)
+}
 
-@test_self_with_param tests @add () -> void = run(
-    let counter = Counter { value: 10 },
-    assert_eq(actual: counter.add(amount: 5), expected: 15),
-)
+@test_self_with_param tests @add () -> void = {
+    let counter = Counter { value: 10 };
+    assert_eq(actual: counter.add(amount: 5), expected: 15)
+}
 
-@test_self_with_multiple_params tests @add_scaled () -> void = run(
-    let counter = Counter { value: 10 },
-    assert_eq(actual: counter.add_scaled(amount: 5, scale: 3), expected: 25),
-)
+@test_self_with_multiple_params tests @add_scaled () -> void = {
+    let counter = Counter { value: 10 };
+    assert_eq(actual: counter.add_scaled(amount: 5, scale: 3), expected: 25)
+}
 
-@test_self_trait_with_param tests @compare_to () -> void = run(
-    let counter = Counter { value: 42 },
-    assert(cond: counter.compare_to(other: 42)),
-)
+@test_self_trait_with_param tests @compare_to () -> void = {
+    let counter = Counter { value: 42 };
+    assert(cond: counter.compare_to(other: 42))
+}

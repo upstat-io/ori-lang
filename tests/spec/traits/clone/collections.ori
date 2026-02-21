@@ -4,35 +4,35 @@
 use std.testing { assert, assert_eq }
 
 // [T].clone() — list of ints
-@test_clone_list tests @clone_list () -> void = run(
-    let items = [1, 2, 3],
-    let items2 = items.clone(),
-    assert_eq(actual: items2.len(), expected: 3),
-)
+@test_clone_list tests @clone_list () -> void = {
+    let items = [1, 2, 3];
+    let items2 = items.clone();
+    assert_eq(actual: items2.len(), expected: 3)
+}
 
-@clone_list () -> [int] = [1, 2, 3].clone()
+@clone_list () -> [int] = [1, 2, 3].clone();
 
 // [T].clone() — empty list
-@test_clone_list_empty tests @clone_list_empty () -> void = run(
-    let items: [int] = [],
-    let items2 = items.clone(),
-    assert_eq(actual: items2.len(), expected: 0),
-)
+@test_clone_list_empty tests @clone_list_empty () -> void = {
+    let items: [int] = [];
+    let items2 = items.clone();
+    assert_eq(actual: items2.len(), expected: 0)
+}
 
-@clone_list_empty () -> [int] = run(
-    let items: [int] = [],
-    items.clone(),
-)
+@clone_list_empty () -> [int] = {
+    let items: [int] = [];
+    items.clone()
+}
 
 // [T].clone() — list of strings
-@test_clone_list_str tests @clone_list_str () -> void = run(
-    let items = ["hello", "world"],
-    let items2 = items.clone(),
-    assert_eq(actual: items2.len(), expected: 2),
-)
+@test_clone_list_str tests @clone_list_str () -> void = {
+    let items = ["hello", "world"];
+    let items2 = items.clone();
+    assert_eq(actual: items2.len(), expected: 2)
+}
 
-@clone_list_str () -> [str] = ["hello", "world"].clone()
+@clone_list_str () -> [str] = ["hello", "world"].clone();
 
-@main () -> void = run(
-    print(msg: "Clone collections tests passed"),
-)
+@main () -> void = {
+    print(msg: "Clone collections tests passed")
+}

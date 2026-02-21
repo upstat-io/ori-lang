@@ -8,6 +8,14 @@
 //! `EvalErrorKind` provides typed error categories for diagnostic conversion.
 //! Factory functions (e.g., `division_by_zero()`) remain the public API —
 //! they populate both `kind` and `message` for backward compatibility.
+//!
+//! # Diagnostic Conversion
+//!
+//! `EvalErrorKind::error_code()`, `EvalErrorKind::primary_label()`, and
+//! `EvalError::to_diagnostic()` convert runtime errors into rich diagnostics
+//! with E6xxx error codes. See [`diagnostics`] submodule.
+
+pub mod diagnostics;
 
 use crate::value::Value;
 use ori_ir::{BinaryOp, Span};

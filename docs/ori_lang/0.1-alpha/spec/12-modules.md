@@ -36,8 +36,8 @@ Every source file defines one module.
 ### Relative (Local Files)
 
 ```ori
-use "./math" { add, subtract }
-use "../utils/helpers" { format }
+use "./math" { add, subtract };
+use "../utils/helpers" { format };
 ```
 
 Paths start with `./` or `../`, resolve from current file, omit `.ori`.
@@ -45,14 +45,14 @@ Paths start with `./` or `../`, resolve from current file, omit `.ori`.
 ### Module (Stdlib/Packages)
 
 ```ori
-use std.math { sqrt, abs }
-use std.net.http as http
+use std.math { sqrt, abs };
+use std.net.http as http;
 ```
 
 ### Private Access
 
 ```ori
-use "./math" { ::internal_helper }
+use "./math" { ::internal_helper };
 ```
 
 `::` prefix imports private (non-pub) items.
@@ -60,8 +60,8 @@ use "./math" { ::internal_helper }
 ### Aliases
 
 ```ori
-use "./math" { add as plus }
-use std.collections { HashMap as Map }
+use "./math" { add as plus };
+use std.collections { HashMap as Map };
 ```
 
 ### Default Bindings
@@ -69,8 +69,8 @@ use std.collections { HashMap as Map }
 When importing a trait that has a `def impl` in its source module, the default implementation is automatically bound to the trait name:
 
 ```ori
-use std.net.http { Http }  // Http bound to default impl
-Http.get(url: "...")       // Uses default
+use std.net.http { Http };  // Http bound to default impl
+Http.get(url: "...")        // Uses default
 ```
 
 Override with `with...in`:
@@ -83,7 +83,7 @@ with Http = MockHttp {} in
 To import a trait without its default:
 
 ```ori
-use std.net.http { Http without def }  // Import trait, skip def impl
+use std.net.http { Http without def };  // Import trait, skip def impl
 ```
 
 See [Declarations § Default Implementations](08-declarations.md#default-implementations).
@@ -93,9 +93,9 @@ See [Declarations § Default Implementations](08-declarations.md#default-impleme
 Items are private by default. `pub` exports:
 
 ```ori
-pub @add (a: int, b: int) -> int = a + b
+pub @add (a: int, b: int) -> int = a + b;
 pub type User = { id: int, name: str }
-pub $timeout = 30s
+pub $timeout = 30s;
 ```
 
 ### Nested Module Visibility
@@ -105,7 +105,7 @@ Parent modules cannot access child private items. Child modules cannot access pa
 The `::` prefix allows any module to explicitly import private items from another module:
 
 ```ori
-use "./internal" { ::private_helper }  // Explicit private access
+use "./internal" { ::private_helper };  // Explicit private access
 ```
 
 The `::` prefix makes the boundary crossing visible at the import site. The compiler does not restrict where `::` imports may appear.
@@ -113,19 +113,19 @@ The `::` prefix makes the boundary crossing visible at the import site. The comp
 ## Re-exports
 
 ```ori
-pub use "./client" { get, post }
+pub use "./client" { get, post };
 ```
 
 Re-exporting a trait includes its `def impl` if both are public:
 
 ```ori
-pub use std.logging { Logger }  // Re-exports trait AND def impl
+pub use std.logging { Logger };  // Re-exports trait AND def impl
 ```
 
 To re-export a trait without its default:
 
 ```ori
-pub use std.logging { Logger without def }  // Strips def impl permanently
+pub use std.logging { Logger without def };  // Strips def impl permanently
 ```
 
 When a trait is re-exported `without def`, consumers cannot access the original default through that export path — they must import from the original source.
@@ -136,16 +136,16 @@ Re-exports can chain through multiple levels. An item must be `pub` at every lev
 
 ```ori
 // level3.ori
-pub @deep () -> str = "deep"
+pub @deep () -> str = "deep";
 
 // level2.ori
-pub use "./level3" { deep }
+pub use "./level3" { deep };
 
 // level1.ori
-pub use "./level2" { deep }
+pub use "./level2" { deep };
 
 // main.ori
-use "./level1" { deep }  // Works through the chain
+use "./level1" { deep };  // Works through the chain
 ```
 
 Aliases propagate through chains. The same underlying item imported through multiple paths is not an error.
@@ -158,7 +158,7 @@ Extensions add methods to existing types without modifying their definition.
 
 ```ori
 extend Iterator {
-    @count (self) -> int = ...
+    @count (self) -> int = ...;
 }
 ```
 
@@ -167,16 +167,16 @@ Constrained extensions use angle brackets or where clauses (equivalent):
 ```ori
 // Angle bracket form
 extend<T: Clone> [T] {
-    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone())
+    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone());
 }
 
 // Where clause form
 extend [T] where T: Clone {
-    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone())
+    @duplicate_all (self) -> [T] = self.map(transform: x -> x.clone());
 }
 
 extend Iterator where Self.Item: Add {
-    @sum (self) -> Self.Item = ...
+    @sum (self) -> Self.Item = ...;
 }
 ```
 
@@ -194,19 +194,19 @@ Visibility is block-level. All methods in a `pub extend` block are public; all i
 
 ```ori
 pub extend Iterator {
-    @count (self) -> int = ...  // Publicly importable
+    @count (self) -> int = ...;  // Publicly importable
 }
 
 extend Iterator {
-    @internal (self) -> int = ...  // Module-private
+    @internal (self) -> int = ...;  // Module-private
 }
 ```
 
 ### Import
 
 ```ori
-extension std.iter.extensions { Iterator.count, Iterator.last }
-extension "./my_ext" { Iterator.sum }
+extension std.iter.extensions { Iterator.count, Iterator.last };
+extension "./my_ext" { Iterator.sum };
 ```
 
 Method-level granularity required; wildcards prohibited.
@@ -222,7 +222,7 @@ When calling `value.method()`:
 If multiple imported extensions define the same method, the call is ambiguous. Use qualified syntax:
 
 ```ori
-use "./ext_a" as ext_a
+use "./ext_a" as ext_a;
 ext_a.Point.distance(p)  // Calls ext_a's implementation
 ```
 
@@ -231,7 +231,7 @@ ext_a.Point.distance(p)  // Calls ext_a's implementation
 Extension imports are file-scoped. To re-export:
 
 ```ori
-pub extension std.iter.extensions { Iterator.count }
+pub extension std.iter.extensions { Iterator.count };
 ```
 
 ### Orphan Rules
@@ -342,12 +342,12 @@ A package can contain both. The binary imports from the library using the packag
 
 ```ori
 // lib.ori
-pub @exported () -> int = 42
-@internal () -> int = 1  // Private
+pub @exported () -> int = 42;
+@internal () -> int = 1;  // Private
 
 // main.ori
-use "my_pkg" { exported }      // OK: public
-use "my_pkg" { ::internal }    // ERROR: private access not allowed
+use "my_pkg" { exported };      // OK: public
+use "my_pkg" { ::internal };    // ERROR: private access not allowed
 ```
 
 This enforces clean API boundaries.

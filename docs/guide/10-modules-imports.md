@@ -28,16 +28,16 @@ Import from your project files with quoted paths:
 
 ```ori
 // Same directory
-use "./math" { add, subtract }
+use "./math" { add, subtract };
 
 // Parent directory
-use "../shared" { common_helper }
+use "../shared" { common_helper };
 
 // Subdirectory
-use "./utils/strings" { capitalize }
+use "./utils/strings" { capitalize };
 
 // Deeply nested
-use "./services/api/v2/client" { fetch }
+use "./services/api/v2/client" { fetch };
 ```
 
 Relative imports:
@@ -51,10 +51,10 @@ Relative imports:
 Import built-in modules with unquoted dot notation:
 
 ```ori
-use std.math { sqrt, abs, pow, floor, ceil }
-use std.time { Duration, now, today }
-use std.collections { HashMap, HashSet }
-use std.io { read_file, write_file }
+use std.math { sqrt, abs, pow, floor, ceil };
+use std.time { Duration, now, today };
+use std.collections { HashMap, HashSet };
+use std.io { read_file, write_file };
 ```
 
 Standard library imports:
@@ -67,8 +67,8 @@ Standard library imports:
 Import several items at once:
 
 ```ori
-use "./math" { add, subtract, multiply, divide }
-use std.math { sqrt, abs, pow, floor, ceil, round }
+use "./math" { add, subtract, multiply, divide };
+use std.math { sqrt, abs, pow, floor, ceil, round };
 ```
 
 Or spread across multiple lines for readability:
@@ -79,7 +79,7 @@ use "./math" {
     subtract,
     multiply,
     divide,
-}
+};
 ```
 
 ### Import Aliases
@@ -88,12 +88,12 @@ Rename imports to avoid conflicts or improve clarity:
 
 ```ori
 // Rename a single import
-use "./math" { add as sum }
-use "./strings" { split as split_string }
+use "./math" { add as sum };
+use "./strings" { split as split_string };
 
 // Now use the alias
-let result = sum(a: 1, b: 2)
-let parts = split_string(text: "a,b,c", delimiter: ",")
+let result = sum(a: 1, b: 2);
+let parts = split_string(text: "a,b,c", delimiter: ",");
 ```
 
 ### Module Aliases
@@ -101,12 +101,12 @@ let parts = split_string(text: "a,b,c", delimiter: ",")
 Give a whole module a shorter name:
 
 ```ori
-use std.collections.concurrent as cc
-use std.net.http.client as http
+use std.collections.concurrent as cc;
+use std.net.http.client as http;
 
 // Use with dot notation
-let map = cc.ConcurrentHashMap.new()
-let response = http.get(url: "/api/data")
+let map = cc.ConcurrentHashMap.new();
+let response = http.get(url: "/api/data");
 ```
 
 ## Visibility
@@ -117,18 +117,18 @@ Everything in Ori is private unless you explicitly make it public:
 
 ```ori
 // PRIVATE — only usable within this file
-@internal_helper (x: int) -> int = x * 2
+@internal_helper (x: int) -> int = x * 2;
 
 type InternalState = { count: int }
 
-let $INTERNAL_LIMIT = 100
+let $INTERNAL_LIMIT = 100;
 
 // PUBLIC — can be imported by other modules
-pub @process (x: int) -> int = internal_helper(x: x) + 1
+pub @process (x: int) -> int = internal_helper(x: x) + 1;
 
 pub type Config = { timeout: Duration }
 
-pub let $MAX_RETRIES = 3
+pub let $MAX_RETRIES = 3;
 ```
 
 ### Visibility Modifiers
@@ -149,7 +149,7 @@ Private by default encourages encapsulation:
 
 // Internal implementation detail — could change
 @build_connection_string (host: str, port: int, db: str) -> str =
-    `postgres://{host}:{port}/{db}`
+    `postgres://{host}:{port}/{db}`;
 
 // Public interface — stable contract
 pub @connect (config: DbConfig) -> Result<Connection, Error> uses Database = {
@@ -157,7 +157,7 @@ pub @connect (config: DbConfig) -> Result<Connection, Error> uses Database = {
         host: config.host
         port: config.port
         db: config.database
-    )
+    );
     Database.connect(connection_string: conn_str)
 }
 ```
@@ -170,10 +170,10 @@ Sometimes you need to access private items, especially for testing. Use the `::`
 
 ```ori
 // In test file
-use "./database" { ::build_connection_string }
+use "./database" { ::build_connection_string };
 
 @test_connection_string tests _ () -> void = {
-    let result = build_connection_string(host: "localhost", port: 5432, db: "test")
+    let result = build_connection_string(host: "localhost", port: 5432, db: "test");
     assert_eq(actual: result, expected: "postgres://localhost:5432/test")
 }
 ```
@@ -199,9 +199,9 @@ Without re-exports, users must know your internal structure:
 
 ```ori
 // Ugly — exposes internal organization
-use "mylib/internal/parser" { Parser, parse }
-use "mylib/internal/lexer" { Lexer, tokenize }
-use "mylib/internal/optimizer" { optimize }
+use "mylib/internal/parser" { Parser, parse };
+use "mylib/internal/lexer" { Lexer, tokenize };
+use "mylib/internal/optimizer" { optimize };
 ```
 
 ### Using `pub use`
@@ -210,16 +210,16 @@ Use `pub use` to expose items through a public interface:
 
 ```ori
 // In lib.ori
-pub use "./internal/parser" { Parser, parse }
-pub use "./internal/lexer" { Lexer, tokenize }
-pub use "./internal/optimizer" { optimize }
+pub use "./internal/parser" { Parser, parse };
+pub use "./internal/lexer" { Lexer, tokenize };
+pub use "./internal/optimizer" { optimize };
 ```
 
 Now users have a clean API:
 
 ```ori
 // Clean — single import point
-use "mylib" { Parser, Lexer, parse, tokenize, optimize }
+use "mylib" { Parser, Lexer, parse, tokenize, optimize };
 ```
 
 ### Re-export Patterns
@@ -229,19 +229,19 @@ use "mylib" { Parser, Lexer, parse, tokenize, optimize }
 ```ori
 // parser.ori has Parser, ParserConfig, ParserState, parse, parse_partial
 // Only expose the stable interface
-pub use "./internal/parser" { Parser, parse }
+pub use "./internal/parser" { Parser, parse };
 ```
 
 **Re-export with alias:**
 
 ```ori
-pub use "./internal/parser" { InternalParser as Parser }
+pub use "./internal/parser" { InternalParser as Parser };
 ```
 
 **Re-export types only:**
 
 ```ori
-pub use "./internal/parser" { Parser, ParserConfig }
+pub use "./internal/parser" { Parser, ParserConfig };
 // parse function stays internal
 ```
 
@@ -251,16 +251,16 @@ pub use "./internal/parser" { Parser, ParserConfig }
 
 ```ori
 // Standard library first
-use std.math { sqrt, abs }
-use std.time { Duration }
+use std.math { sqrt, abs };
+use std.time { Duration };
 
 // External packages second
-use http_client { get, post }
+use http_client { get, post };
 
 // Local imports last, grouped by proximity
-use "../shared" { Error, Result }
-use "./models" { User, Order }
-use "./utils" { format_date }
+use "../shared" { Error, Result };
+use "./models" { User, Order };
+use "./utils" { format_date };
 ```
 
 ### One Import per Line (Optional)
@@ -268,9 +268,9 @@ use "./utils" { format_date }
 For complex modules:
 
 ```ori
-use std.collections { HashMap }
-use std.collections { HashSet }
-use std.collections { BTreeMap }
+use std.collections { HashMap };
+use std.collections { HashSet };
+use std.collections { BTreeMap };
 ```
 
 ## Project Structure
@@ -348,30 +348,29 @@ calculator/
 
 ```ori
 // Basic arithmetic functions
-pub @add (a: int, b: int) -> int = a + b
+pub @add (a: int, b: int) -> int = a + b;
 
 @test_add tests @add () -> void = {
-    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
     assert_eq(actual: add(a: -1, b: 1), expected: 0)
 }
 
-pub @subtract (a: int, b: int) -> int = a - b
+pub @subtract (a: int, b: int) -> int = a - b;
 
 @test_subtract tests @subtract () -> void =
-    assert_eq(actual: subtract(a: 5, b: 3), expected: 2)
+    assert_eq(actual: subtract(a: 5, b: 3), expected: 2);
 
-pub @multiply (a: int, b: int) -> int = a * b
+pub @multiply (a: int, b: int) -> int = a * b;
 
 @test_multiply tests @multiply () -> void =
-    assert_eq(actual: multiply(a: 4, b: 5), expected: 20)
+    assert_eq(actual: multiply(a: 4, b: 5), expected: 20);
 
-pub @divide (a: int, b: int) -> int = {
-    pre_check: b != 0 | "division by zero"
-    a div b
-}
+pub @divide (a: int, b: int) -> int
+    pre(b != 0 | "division by zero")
+= a div b;
 
 @test_divide tests @divide () -> void = {
-    assert_eq(actual: divide(a: 10, b: 2), expected: 5)
+    assert_eq(actual: divide(a: 10, b: 2), expected: 5);
     assert_panics(f: () -> divide(a: 1, b: 0))
 }
 ```
@@ -380,28 +379,28 @@ pub @divide (a: int, b: int) -> int = {
 
 ```ori
 pub @format_result (operation: str, a: int, b: int, result: int) -> str =
-    `{a} {operation} {b} = {result}`
+    `{a} {operation} {b} = {result}`;
 
 @test_format tests @format_result () -> void =
     assert_eq(
         actual: format_result(operation: "+", a: 2, b: 3, result: 5),
         expected: "2 + 3 = 5",
-    )
+    );
 ```
 
 **main.ori:**
 
 ```ori
-use "./math" { add, subtract, multiply, divide }
-use "./format" { format_result }
+use "./math" { add, subtract, multiply, divide };
+use "./format" { format_result };
 
 @main () -> void = {
-    let a = 10
-    let b = 3
+    let a = 10;
+    let b = 3;
 
-    print(msg: format_result(operation: "+", a: a, b: b, result: add(a: a, b: b)))
-    print(msg: format_result(operation: "-", a: a, b: b, result: subtract(a: a, b: b)))
-    print(msg: format_result(operation: "*", a: a, b: b, result: multiply(a: a, b: b)))
+    print(msg: format_result(operation: "+", a: a, b: b, result: add(a: a, b: b)));
+    print(msg: format_result(operation: "-", a: a, b: b, result: subtract(a: a, b: b)));
+    print(msg: format_result(operation: "*", a: a, b: b, result: multiply(a: a, b: b)));
     print(msg: format_result(operation: "/", a: a, b: b, result: divide(a: a, b: b)))
 }
 ```
@@ -412,38 +411,38 @@ use "./format" { format_result }
 
 ```ori
 // Local imports (quoted, relative path)
-use "./file" { item1, item2 }
-use "./subdir/file" { item }
-use "../parent/file" { item }
+use "./file" { item1, item2 };
+use "./subdir/file" { item };
+use "../parent/file" { item };
 
 // Standard library (unquoted, dot notation)
-use std.module { item }
-use std.nested.module { item }
+use std.module { item };
+use std.nested.module { item };
 
 // Aliases
-use "./file" { original as alias }
-use std.module as alias
+use "./file" { original as alias };
+use std.module as alias;
 
 // Private access
-use "./file" { ::private_item }
+use "./file" { ::private_item };
 
 // Re-exports
-pub use "./file" { item }
+pub use "./file" { item };
 ```
 
 ### Visibility
 
 ```ori
 // Public
-pub @function_name ...
-pub type TypeName = ...
-pub let $CONSTANT = ...
+pub @function_name ...;
+pub type TypeName = ...;
+pub let $CONSTANT = ...;
 pub trait TraitName { ... }
 
 // Private (no keyword)
-@function_name ...
-type TypeName = ...
-let $CONSTANT = ...
+@function_name ...;
+type TypeName = ...;
+let $CONSTANT = ...;
 ```
 
 ## What's Next

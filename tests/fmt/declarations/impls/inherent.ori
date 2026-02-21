@@ -9,5 +9,5 @@ impl Point {
 
     @origin () -> Point = Point { x: 0, y: 0 }
 
-    @distance (self, other: Point) -> float = 0.0
+    @distance (self, other: Point) -> float = 0.0;
 }

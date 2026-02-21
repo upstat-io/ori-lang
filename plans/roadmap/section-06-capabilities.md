@@ -207,25 +207,35 @@ sections:
 
 ## 6.9 Unsafe Capability (FFI Prep)
 
+**Proposal**: `proposals/approved/unsafe-semantics-proposal.md`
+
 > **PREREQUISITE FOR**: Section 11 (FFI)
 > The Unsafe capability is required for FFI. Implement this before starting FFI work.
 
-- [ ] **Implement**: `Unsafe` marker capability
-  - [ ] Defined in prelude as marker trait (no methods): `library/std/prelude.ori`
-  - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe.ori` — basic tests
-  - [ ] **LLVM Support**: LLVM codegen for Unsafe marker capability
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — unsafe capability codegen
+- [ ] **Implement**: `Unsafe` marker capability (compiler intrinsic, like `Suspend`)
+  - [ ] Add `Unsafe` to standard capabilities list in type checker
+  - [ ] Generalize E1203 to cover all marker capabilities (not just `Suspend`)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe/` — basic tests, E1203 binding error
+  - [ ] **LLVM Support**: LLVM codegen for `unsafe { }` blocks (transparent — same as inner expr)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — unsafe block codegen
 
-- [ ] **Implement**: Unsafe capability requirements (Section 11)
+- [ ] **Implement**: `unsafe { }` block expression (Phases 1-4 of proposal)
+  - [ ] Add `ExprKind::Unsafe(ExprId)` to IR
+  - [ ] Parse `unsafe { block_body }` (block-only form — no parenthesized form)
+  - [ ] Update grammar.ebnf (remove parenthesized form — done in proposal approval)
+  - [ ] Type checker: `UnsafeContext` tracking, E1250 diagnostic
+  - [ ] Evaluator: `ExprKind::Unsafe(inner)` → `eval_expr(inner)` (transparent)
+  - [ ] Visitor support in `ori_ir/src/visitor.rs`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs`, `ori_types/src/infer/expr/tests.rs`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe/eval.ori`
+
+- [ ] **Implement**: Unsafe capability requirements (deferred to Section 11)
   - [ ] Required for: raw pointer operations (future)
-  - [ ] Required for: extern function calls (future)
-  - [ ] Required for: unsafe blocks (future)
+  - [ ] Required for: C variadic function calls (future)
+  - [ ] Required for: transmute operations (future)
   - [ ] Tests added when FFI implemented
 
-- [ ] **Implement**: AllowUnsafe provider type (Section 11)
-  - [ ] Concrete type that satisfies Unsafe capability
-  - [ ] For use in tests: `with Unsafe = AllowUnsafe in ...`
-  - [ ] Added when FFI tests need it
+> **Note:** `Unsafe` is a marker capability — it cannot be bound via `with...in`. There is no `AllowUnsafe` provider type. Unsafe code is tested by testing safe wrappers.
 
 ---
 

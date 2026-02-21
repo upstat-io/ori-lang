@@ -8,143 +8,143 @@
 use std.testing { assert, assert_eq }
 
 // Basic iterator rebinding pattern: manually calling next()
-@manual_next () -> [int] = run(
-    let iter = [10, 20, 30].iter(),
-    let (a, iter) = iter.next(),
-    let (b, iter) = iter.next(),
-    let (c, iter) = iter.next(),
-    let (d, _) = iter.next(),
-    assert_eq(actual: a, expected: Some(10)),
-    assert_eq(actual: b, expected: Some(20)),
-    assert_eq(actual: c, expected: Some(30)),
-    assert_eq(actual: d, expected: None),
-    [10, 20, 30],
-)
+@manual_next () -> [int] = {
+    let iter = [10, 20, 30].iter();
+    let (a, iter) = iter.next();
+    let (b, iter) = iter.next();
+    let (c, iter) = iter.next();
+    let (d, _) = iter.next();
+    assert_eq(actual: a, expected: Some(10));
+    assert_eq(actual: b, expected: Some(20));
+    assert_eq(actual: c, expected: Some(30));
+    assert_eq(actual: d, expected: None);
+    [10, 20, 30]
+}
 
-@test_manual_next tests @manual_next () -> void = run(
-    assert_eq(actual: manual_next(), expected: [10, 20, 30]),
-)
+@test_manual_next tests @manual_next () -> void = {
+    assert_eq(actual: manual_next(), expected: [10, 20, 30])
+}
 
 // Iterator rebinding preserves correct state across multiple next() calls
-@rebinding_state () -> int = run(
-    let iter = (1..6).iter(),
-    let (a, iter) = iter.next(),
-    let (b, iter) = iter.next(),
-    let (c, _) = iter.next(),
+@rebinding_state () -> int = {
+    let iter = (1..6).iter();
+    let (a, iter) = iter.next();
+    let (b, iter) = iter.next();
+    let (c, _) = iter.next();
     // a, b, c are all Option<int>; unwrap them
-    let a = a ?? 0,
-    let b = b ?? 0,
-    let c = c ?? 0,
-    a + b + c,
-)
+    let a = a ?? 0;
+    let b = b ?? 0;
+    let c = c ?? 0;
+    a + b + c
+}
 
-@test_rebinding_state tests @rebinding_state () -> void = run(
-    assert_eq(actual: rebinding_state(), expected: 6),
-)
+@test_rebinding_state tests @rebinding_state () -> void = {
+    assert_eq(actual: rebinding_state(), expected: 6)
+}
 
 // Rebinding with mapped iterators
-@rebinding_mapped () -> int = run(
-    let iter = [1, 2, 3].iter().map(transform: x -> x * 10),
-    let (a, iter) = iter.next(),
-    let (b, _) = iter.next(),
-    let a = a ?? 0,
-    let b = b ?? 0,
-    a + b,
-)
+@rebinding_mapped () -> int = {
+    let iter = [1, 2, 3].iter().map(transform: x -> x * 10);
+    let (a, iter) = iter.next();
+    let (b, _) = iter.next();
+    let a = a ?? 0;
+    let b = b ?? 0;
+    a + b
+}
 
-@test_rebinding_mapped tests @rebinding_mapped () -> void = run(
-    assert_eq(actual: rebinding_mapped(), expected: 30),
-)
+@test_rebinding_mapped tests @rebinding_mapped () -> void = {
+    assert_eq(actual: rebinding_mapped(), expected: 30)
+}
 
 // Rebinding with filtered iterators
-@rebinding_filtered () -> [Option<int>] = run(
-    let iter = [1, 2, 3, 4, 5].iter().filter(predicate: x -> x % 2 == 0),
-    let (a, iter) = iter.next(),
-    let (b, iter) = iter.next(),
-    let (c, _) = iter.next(),
-    [a, b, c],
-)
+@rebinding_filtered () -> [Option<int>] = {
+    let iter = [1, 2, 3, 4, 5].iter().filter(predicate: x -> x % 2 == 0);
+    let (a, iter) = iter.next();
+    let (b, iter) = iter.next();
+    let (c, _) = iter.next();
+    [a, b, c]
+}
 
-@test_rebinding_filtered tests @rebinding_filtered () -> void = run(
-    assert_eq(actual: rebinding_filtered(), expected: [Some(2), Some(4), None]),
-)
+@test_rebinding_filtered tests @rebinding_filtered () -> void = {
+    assert_eq(actual: rebinding_filtered(), expected: [Some(2), Some(4), None])
+}
 
 // Rebinding with chained iterators
-@rebinding_chained () -> [int] = run(
-    let a = [1, 2].iter(),
-    let b = [3, 4].iter(),
-    let iter = a.chain(other: b),
-    let (v1, iter) = iter.next(),
-    let (v2, iter) = iter.next(),
-    let (v3, iter) = iter.next(),
-    let (v4, _) = iter.next(),
-    [v1 ?? 0, v2 ?? 0, v3 ?? 0, v4 ?? 0],
-)
+@rebinding_chained () -> [int] = {
+    let a = [1, 2].iter();
+    let b = [3, 4].iter();
+    let iter = a.chain(other: b);
+    let (v1, iter) = iter.next();
+    let (v2, iter) = iter.next();
+    let (v3, iter) = iter.next();
+    let (v4, _) = iter.next();
+    [v1 ?? 0, v2 ?? 0, v3 ?? 0, v4 ?? 0]
+}
 
-@test_rebinding_chained tests @rebinding_chained () -> void = run(
-    assert_eq(actual: rebinding_chained(), expected: [1, 2, 3, 4]),
-)
+@test_rebinding_chained tests @rebinding_chained () -> void = {
+    assert_eq(actual: rebinding_chained(), expected: [1, 2, 3, 4])
+}
 
 // Exhausted iterator stays exhausted (fused guarantee + rebinding)
-@fused_rebinding () -> bool = run(
-    let iter = [1].iter(),
-    let (first, iter) = iter.next(),
-    assert_eq(actual: first, expected: Some(1)),
-    let (second, iter) = iter.next(),
-    assert_eq(actual: second, expected: None),
-    let (third, iter) = iter.next(),
-    assert_eq(actual: third, expected: None),
-    let (fourth, _) = iter.next(),
-    assert_eq(actual: fourth, expected: None),
-    true,
-)
+@fused_rebinding () -> bool = {
+    let iter = [1].iter();
+    let (first, iter) = iter.next();
+    assert_eq(actual: first, expected: Some(1));
+    let (second, iter) = iter.next();
+    assert_eq(actual: second, expected: None);
+    let (third, iter) = iter.next();
+    assert_eq(actual: third, expected: None);
+    let (fourth, _) = iter.next();
+    assert_eq(actual: fourth, expected: None);
+    true
+}
 
-@test_fused_rebinding tests @fused_rebinding () -> void = run(
-    assert(condition: fused_rebinding()),
-)
+@test_fused_rebinding tests @fused_rebinding () -> void = {
+    assert(condition: fused_rebinding())
+}
 
 // Tuple destructuring without iterator (general copy elision)
-@tuple_destructure () -> int = run(
-    let t = (1, 2, 3),
-    let (a, b, c) = t,
-    a + b + c,
-)
+@tuple_destructure () -> int = {
+    let t = (1, 2, 3);
+    let (a, b, c) = t;
+    a + b + c
+}
 
-@test_tuple_destructure tests @tuple_destructure () -> void = run(
-    assert_eq(actual: tuple_destructure(), expected: 6),
-)
+@test_tuple_destructure tests @tuple_destructure () -> void = {
+    assert_eq(actual: tuple_destructure(), expected: 6)
+}
 
 // Nested tuple destructuring
-@nested_tuple () -> int = run(
-    let t = ((1, 2), (3, 4)),
-    let ((a, b), (c, d)) = t,
-    a + b + c + d,
-)
+@nested_tuple () -> int = {
+    let t = ((1, 2), (3, 4));
+    let ((a, b), (c, d)) = t;
+    a + b + c + d
+}
 
-@test_nested_tuple tests @nested_tuple () -> void = run(
-    assert_eq(actual: nested_tuple(), expected: 10),
-)
+@test_nested_tuple tests @nested_tuple () -> void = {
+    assert_eq(actual: nested_tuple(), expected: 10)
+}
 
 // Rebinding with enumerated iterators
-@rebinding_enumerated () -> [(int, str)] = run(
-    let iter = ["a", "b", "c"].iter().enumerate(),
-    let (first, iter) = iter.next(),
-    let (second, _) = iter.next(),
-    [first ?? (0, ""), second ?? (0, "")],
-)
+@rebinding_enumerated () -> [(int, str)] = {
+    let iter = ["a", "b", "c"].iter().enumerate();
+    let (first, iter) = iter.next();
+    let (second, _) = iter.next();
+    [first ?? (0, ""), second ?? (0, "")]
+}
 
-@test_rebinding_enumerated tests @rebinding_enumerated () -> void = run(
-    assert_eq(actual: rebinding_enumerated(), expected: [(0, "a"), (1, "b")]),
-)
+@test_rebinding_enumerated tests @rebinding_enumerated () -> void = {
+    assert_eq(actual: rebinding_enumerated(), expected: [(0, "a"), (1, "b")])
+}
 
 // Escape case: original iterator accessible independently
-@escape_case () -> bool = run(
-    let original = [1, 2, 3].iter(),
-    let result = original.collect(),
-    assert_eq(actual: result, expected: [1, 2, 3]),
-    true,
-)
+@escape_case () -> bool = {
+    let original = [1, 2, 3].iter();
+    let result = original.collect();
+    assert_eq(actual: result, expected: [1, 2, 3]);
+    true
+}
 
-@test_escape_case tests @escape_case () -> void = run(
-    assert(condition: escape_case()),
-)
+@test_escape_case tests @escape_case () -> void = {
+    assert(condition: escape_case())
+}

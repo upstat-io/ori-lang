@@ -16,7 +16,7 @@ fn test_runner_empty_file() {
 fn test_runner_no_tests() {
     let dir = tempdir().unwrap();
     let path = dir.path().join("no_tests.ori");
-    std::fs::write(&path, "@add (a: int, b: int) -> int = a + b").unwrap();
+    std::fs::write(&path, "@add (a: int, b: int) -> int = a + b;").unwrap();
 
     let summary = run_test_file(&path);
     assert_eq!(summary.total(), 0);
@@ -30,12 +30,12 @@ fn test_runner_passing_test() {
     std::fs::write(
         &path,
         r#"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@test_add tests @add () -> void = run(
-let result = add(a: 1, b: 2),
+@test_add tests @add () -> void = {
+let result = add(a: 1, b: 2);
 print(msg: "done")
-)
+}
 "#,
     )
     .unwrap();
@@ -55,13 +55,13 @@ fn test_runner_failing_test() {
     std::fs::write(
         &path,
         r"
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@test_add tests @add () -> void = run(
-let _ = add(a: 1, b: 2),
-let _ = 1 / 0,
+@test_add tests @add () -> void = {
+let _ = add(a: 1, b: 2);
+let _ = 1 / 0;
 ()
-)
+}
 ",
     )
     .unwrap();
@@ -79,11 +79,11 @@ fn test_runner_filter() {
     std::fs::write(
         &path,
         r#"
-@foo () -> int = 1
-@bar () -> int = 2
+@foo () -> int = 1;
+@bar () -> int = 2;
 
-@test_foo tests @foo () -> void = print(msg: "pass")
-@test_bar tests @bar () -> void = print(msg: "pass")
+@test_foo tests @foo () -> void = print(msg: "pass");
+@test_bar tests @bar () -> void = print(msg: "pass");
 "#,
     )
     .unwrap();

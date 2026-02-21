@@ -1,7 +1,7 @@
 // No-parameter lambda
 // Spec: 06-expressions.md § Lambdas
 
-@get_value () -> int = run(
-    let f = () -> 42,
-    f(),
-)
+@get_value () -> int = {
+    let f = () -> 42;
+    f()
+}

@@ -4,8 +4,8 @@
 type Opaque = { data: int }
 
 #[compile_fail("does not implement `Printable`")]
-@test_interpolation_missing_printable () -> void = run(
-    let x = Opaque { data: 42 },
-    let _ = `value: {x}`,
+@test_interpolation_missing_printable () -> void = {
+    let x = Opaque { data: 42 };
+    let _ = `value: {x}`;
     ()
-)
+}

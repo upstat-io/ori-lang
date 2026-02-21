@@ -205,10 +205,6 @@ pub fn render_lex_error(err: &LexError) -> Diagnostic {
             .with_label(span, "reserved keyword"),
 
         // Cross-language pattern errors
-        LexErrorKind::Semicolon => Diagnostic::error(ErrorCode::E0007)
-            .with_message("Ori doesn't use semicolons — expressions are separated by newlines")
-            .with_label(span, "remove this semicolon"),
-
         LexErrorKind::TripleEqual => Diagnostic::error(ErrorCode::E0008)
             .with_message("Ori uses `==` for equality, not `===`")
             .with_label(span, "replace with `==`"),

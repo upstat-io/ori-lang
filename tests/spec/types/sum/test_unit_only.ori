@@ -1,16 +1,16 @@
 use std.testing { assert_eq, assert }
 
 // All-unit variant sum type (no payload)
-type Color = Red | Green | Blue
+type Color = Red | Green | Blue;
 
-@color_name (c: Color) -> str = match(c,
+@color_name (c: Color) -> str = match c {
     Red -> "red",
     Green -> "green",
-    Blue -> "blue",
-)
+    Blue -> "blue"
+}
 
-@test_unit_only tests @color_name () -> void = run(
-    assert_eq(actual: color_name(c: Red), expected: "red"),
-    assert_eq(actual: color_name(c: Green), expected: "green"),
-    assert_eq(actual: color_name(c: Blue), expected: "blue"),
-)
+@test_unit_only tests @color_name () -> void = {
+    assert_eq(actual: color_name(c: Red), expected: "red");
+    assert_eq(actual: color_name(c: Green), expected: "green");
+    assert_eq(actual: color_name(c: Blue), expected: "blue")
+}

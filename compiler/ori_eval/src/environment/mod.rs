@@ -14,17 +14,9 @@ use std::fmt;
 use std::ops::Deref;
 use std::rc::Rc;
 
+pub use ori_ir::Mutability;
 use ori_ir::Name;
 use ori_patterns::Value;
-
-/// Whether a variable binding can be reassigned.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mutability {
-    /// Binding can be reassigned (`let x = ...`).
-    Mutable,
-    /// Binding cannot be reassigned (`let $x = ...`).
-    Immutable,
-}
 
 /// Error returned by `Scope::assign` when assignment fails.
 ///
@@ -36,14 +28,6 @@ pub enum AssignError {
     Immutable,
     /// Variable not found in any scope.
     Undefined,
-}
-
-impl Mutability {
-    /// Returns `true` if this is `Mutable`.
-    #[inline]
-    pub fn is_mutable(self) -> bool {
-        matches!(self, Mutability::Mutable)
-    }
 }
 
 /// A single-threaded scope wrapper for reference-counted interior mutability.

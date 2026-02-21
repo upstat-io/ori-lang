@@ -59,6 +59,19 @@ pub(super) fn some_width<I: StringLookup>(
     5 + inner_w + 1
 }
 
+/// Calculate width of `unsafe { inner }`.
+pub(super) fn unsafe_width<I: StringLookup>(
+    calc: &mut WidthCalculator<'_, I>,
+    inner: ExprId,
+) -> usize {
+    let inner_w = calc.width(inner);
+    if inner_w == ALWAYS_STACKED {
+        return ALWAYS_STACKED;
+    }
+    // "unsafe " + inner
+    7 + inner_w
+}
+
 /// Calculate width of `inner?` (try/propagate).
 pub(super) fn try_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
@@ -100,8 +113,8 @@ pub(super) fn loop_width<I: StringLookup>(
     } else {
         1 + calc.interner.lookup(label).len()
     };
-    // "loop" + label + "(" + body + ")"
-    4 + lw + 1 + body_w + 1
+    // "loop" + label + " " + body
+    4 + lw + 1 + body_w
 }
 
 /// Calculate width of `expr as type` or `expr as? type`.

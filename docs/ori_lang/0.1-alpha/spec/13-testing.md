@@ -25,7 +25,7 @@ An _attached test_ declares one or more functions it tests:
 
 ```ori
 @test_add tests @add () -> void = {
-    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
 }
 ```
 
@@ -33,9 +33,9 @@ Multiple targets are specified by repeating the `tests` keyword:
 
 ```ori
 @test_roundtrip tests @parse tests @format () -> void = {
-    let ast = parse(input: "x + 1")
-    let output = format(ast: ast)
-    assert_eq(actual: output, expected: "x + 1")
+    let ast = parse(input: "x + 1");
+    let output = format(ast: ast);
+    assert_eq(actual: output, expected: "x + 1");
 }
 ```
 
@@ -47,8 +47,8 @@ A _floating test_ uses `_` as its target, indicating it tests no specific functi
 
 ```ori
 @test_integration tests _ () -> void = {
-    let result = full_pipeline(input: "program")
-    assert_ok(result: result)
+    let result = full_pipeline(input: "program");
+    assert_ok(result: result);
 }
 ```
 
@@ -71,10 +71,10 @@ All tests must:
 @test_example tests @example () -> void = {...}
 
 // Invalid - tests cannot have parameters
-@test_bad tests @bad (x: int) -> void = ...  // error
+@test_bad tests @bad (x: int) -> void = ...;  // error
 
 // Invalid - tests must return void
-@test_bad tests @bad () -> int = ...  // error
+@test_bad tests @bad () -> int = ...;  // error
 ```
 
 ## Test Coverage Requirement
@@ -187,10 +187,10 @@ If `@parse` changes:
 A test is _affected_ by a change if any function in the reverse transitive closure is one of its targets.
 
 ```ori
-@test_parse tests @parse () -> void = ...
-@test_compile tests @compile () -> void = ...
-@test_optimize tests @optimize () -> void = ...
-@test_run tests @run_program () -> void = ...
+@test_parse tests @parse () -> void = ...;
+@test_compile tests @compile () -> void = ...;
+@test_optimize tests @optimize () -> void = ...;
+@test_run tests @run_program () -> void = ...;
 ```
 
 If `@parse` changes:
@@ -365,7 +365,7 @@ A compile-fail test passes if compilation fails with an error containing the spe
 ```ori
 #compile_fail("type mismatch")
 @test_type_error tests @main () -> void = {
-    let x: int = "hello"
+    let x: int = "hello";
     ()
 }
 ```
@@ -381,7 +381,7 @@ A fail test passes if execution panics with a message containing the specified s
 ```ori
 #fail("division by zero")
 @test_div_zero tests @divide () -> void = {
-    divide(a: 10, b: 0)
+    divide(a: 10, b: 0);
     ()
 }
 ```
@@ -439,14 +439,14 @@ Test files use the `.test.ori` suffix. By convention, each source file `foo.ori`
 
 ```ori
 // src/_test/math.test.ori
-use "../math" { add, ::internal_helper }
+use "../math" { add, ::internal_helper };
 
 @test_add tests @add () -> void = {
-    assert_eq(actual: add(a: 2, b: 3), expected: 5)
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
 }
 
 @test_helper tests @internal_helper () -> void = {
-    assert_eq(actual: internal_helper(x: 5), expected: 10)
+    assert_eq(actual: internal_helper(x: 5), expected: 10);
 }
 ```
 
@@ -458,17 +458,17 @@ Functions with capabilities are tested by providing mock implementations via `wi
 
 ```ori
 @fetch_user (id: int) -> Result<User, Error> uses Http = {
-    let response = Http.get(url: `/users/{id}`)?
+    let response = Http.get(url: `/users/{id}`)?;
     Ok(parse_user(data: response))
 }
 
 @test_fetch_user tests @fetch_user () -> void =
     with Http = MockHttp { responses: {"/users/1": `{"name": "Alice"}`} } in
     {
-        let result = fetch_user(id: 1)
-        assert_ok(result: result)
-        let user = result.unwrap()
-        assert_eq(actual: user.name, expected: "Alice")
+        let result = fetch_user(id: 1);
+        assert_ok(result: result);
+        let user = result.unwrap();
+        assert_eq(actual: user.name, expected: "Alice");
     }
 ```
 
