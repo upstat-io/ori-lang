@@ -8,495 +8,495 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // fold: accumulate values
-@iter_fold () -> int = run(
-    [1, 2, 3].iter().fold(initial: 0, op: (acc, x) -> acc + x),
-)
+@iter_fold () -> int = {
+    [1, 2, 3].iter().fold(initial: 0, op: (acc, x) -> acc + x)
+}
 
-@test_iter_fold tests @iter_fold () -> void = run(
-    assert_eq(actual: iter_fold(), expected: 6),
-)
+@test_iter_fold tests @iter_fold () -> void = {
+    assert_eq(actual: iter_fold(), expected: 6)
+}
 
 // count: number of elements
-@iter_count () -> int = run(
-    [1, 2, 3].iter().count(),
-)
+@iter_count () -> int = {
+    [1, 2, 3].iter().count()
+}
 
-@test_iter_count tests @iter_count () -> void = run(
-    assert_eq(actual: iter_count(), expected: 3),
-)
+@test_iter_count tests @iter_count () -> void = {
+    assert_eq(actual: iter_count(), expected: 3)
+}
 
 // find: first matching element
-@iter_find () -> int = run(
-    let result = [1, 2, 3].iter().find(predicate: x -> x > 1),
-    match(result, Some(v) -> v, None -> -1),
-)
+@iter_find () -> int = {
+    let result = [1, 2, 3].iter().find(predicate: x -> x > 1);
+    match result { Some(v) -> v, None -> -1}
+}
 
-@test_iter_find tests @iter_find () -> void = run(
-    assert_eq(actual: iter_find(), expected: 2),
-)
+@test_iter_find tests @iter_find () -> void = {
+    assert_eq(actual: iter_find(), expected: 2)
+}
 
 // find: no match returns None
-@iter_find_none () -> bool = run(
-    let result = [1, 2, 3].iter().find(predicate: x -> x > 10),
-    match(result, Some(_) -> false, None -> true),
-)
+@iter_find_none () -> bool = {
+    let result = [1, 2, 3].iter().find(predicate: x -> x > 10);
+    match result { Some(_) -> false, None -> true}
+}
 
-@test_iter_find_none tests @iter_find_none () -> void = run(
-    assert(cond: iter_find_none()),
-)
+@test_iter_find_none tests @iter_find_none () -> void = {
+    assert(cond: iter_find_none())
+}
 
 // any: true if any element matches
-@iter_any_true () -> bool = run(
-    [1, 2, 3].iter().any(predicate: x -> x == 2),
-)
+@iter_any_true () -> bool = {
+    [1, 2, 3].iter().any(predicate: x -> x == 2)
+}
 
-@test_iter_any_true tests @iter_any_true () -> void = run(
-    assert(cond: iter_any_true()),
-)
+@test_iter_any_true tests @iter_any_true () -> void = {
+    assert(cond: iter_any_true())
+}
 
 // any: false if no element matches
-@iter_any_false () -> bool = run(
-    [1, 2, 3].iter().any(predicate: x -> x == 10),
-)
+@iter_any_false () -> bool = {
+    [1, 2, 3].iter().any(predicate: x -> x == 10)
+}
 
-@test_iter_any_false tests @iter_any_false () -> void = run(
-    assert(cond: !iter_any_false()),
-)
+@test_iter_any_false tests @iter_any_false () -> void = {
+    assert(cond: !iter_any_false())
+}
 
 // all: true if all match
-@iter_all_true () -> bool = run(
-    [1, 2, 3].iter().all(predicate: x -> x > 0),
-)
+@iter_all_true () -> bool = {
+    [1, 2, 3].iter().all(predicate: x -> x > 0)
+}
 
-@test_iter_all_true tests @iter_all_true () -> void = run(
-    assert(cond: iter_all_true()),
-)
+@test_iter_all_true tests @iter_all_true () -> void = {
+    assert(cond: iter_all_true())
+}
 
 // all: false if any fails
-@iter_all_false () -> bool = run(
-    [1, 2, 3].iter().all(predicate: x -> x > 1),
-)
+@iter_all_false () -> bool = {
+    [1, 2, 3].iter().all(predicate: x -> x > 1)
+}
 
-@test_iter_all_false tests @iter_all_false () -> void = run(
-    assert(cond: !iter_all_false()),
-)
+@test_iter_all_false tests @iter_all_false () -> void = {
+    assert(cond: !iter_all_false())
+}
 
 // for_each: verify it runs and returns void
-@iter_for_each () -> void = run(
-    [1, 2, 3].iter().for_each(f: x -> x + 1),
-)
+@iter_for_each () -> void = {
+    [1, 2, 3].iter().for_each(f: x -> x + 1)
+}
 
-@test_iter_for_each tests @iter_for_each () -> void = run(
-    iter_for_each(),
-)
+@test_iter_for_each tests @iter_for_each () -> void = {
+    iter_for_each()
+}
 
 // collect: gather all elements into a list
-@iter_collect () -> [int] = run(
-    [1, 2, 3].iter().collect(),
-)
+@iter_collect () -> [int] = {
+    [1, 2, 3].iter().collect()
+}
 
-@test_iter_collect tests @iter_collect () -> void = run(
-    assert_eq(actual: iter_collect(), expected: [1, 2, 3]),
-)
+@test_iter_collect tests @iter_collect () -> void = {
+    assert_eq(actual: iter_collect(), expected: [1, 2, 3])
+}
 
 // =============================================================================
 // Lazy Adapter Methods
 // =============================================================================
 
 // map: transform each element
-@iter_map () -> [int] = run(
-    [1, 2, 3].iter().map(transform: x -> x * 2).collect(),
-)
+@iter_map () -> [int] = {
+    [1, 2, 3].iter().map(transform: x -> x * 2).collect()
+}
 
-@test_iter_map tests @iter_map () -> void = run(
-    assert_eq(actual: iter_map(), expected: [2, 4, 6]),
-)
+@test_iter_map tests @iter_map () -> void = {
+    assert_eq(actual: iter_map(), expected: [2, 4, 6])
+}
 
 // filter: keep only matching elements
-@iter_filter () -> [int] = run(
-    [1, 2, 3, 4, 5].iter().filter(predicate: x -> x > 2).collect(),
-)
+@iter_filter () -> [int] = {
+    [1, 2, 3, 4, 5].iter().filter(predicate: x -> x > 2).collect()
+}
 
-@test_iter_filter tests @iter_filter () -> void = run(
-    assert_eq(actual: iter_filter(), expected: [3, 4, 5]),
-)
+@test_iter_filter tests @iter_filter () -> void = {
+    assert_eq(actual: iter_filter(), expected: [3, 4, 5])
+}
 
 // take: limit to first N elements
-@iter_take () -> [int] = run(
-    [1, 2, 3, 4, 5].iter().take(count: 3).collect(),
-)
+@iter_take () -> [int] = {
+    [1, 2, 3, 4, 5].iter().take(count: 3).collect()
+}
 
-@test_iter_take tests @iter_take () -> void = run(
-    assert_eq(actual: iter_take(), expected: [1, 2, 3]),
-)
+@test_iter_take tests @iter_take () -> void = {
+    assert_eq(actual: iter_take(), expected: [1, 2, 3])
+}
 
 // take more than available: yields all
-@iter_take_excess () -> [int] = run(
-    [1, 2].iter().take(count: 10).collect(),
-)
+@iter_take_excess () -> [int] = {
+    [1, 2].iter().take(count: 10).collect()
+}
 
-@test_iter_take_excess tests @iter_take_excess () -> void = run(
-    assert_eq(actual: iter_take_excess(), expected: [1, 2]),
-)
+@test_iter_take_excess tests @iter_take_excess () -> void = {
+    assert_eq(actual: iter_take_excess(), expected: [1, 2])
+}
 
 // skip: skip first N elements
-@iter_skip () -> [int] = run(
-    [1, 2, 3, 4, 5].iter().skip(count: 2).collect(),
-)
+@iter_skip () -> [int] = {
+    [1, 2, 3, 4, 5].iter().skip(count: 2).collect()
+}
 
-@test_iter_skip tests @iter_skip () -> void = run(
-    assert_eq(actual: iter_skip(), expected: [3, 4, 5]),
-)
+@test_iter_skip tests @iter_skip () -> void = {
+    assert_eq(actual: iter_skip(), expected: [3, 4, 5])
+}
 
 // skip more than available: yields empty
-@iter_skip_excess () -> [int] = run(
-    [1, 2].iter().skip(count: 10).collect(),
-)
+@iter_skip_excess () -> [int] = {
+    [1, 2].iter().skip(count: 10).collect()
+}
 
-@test_iter_skip_excess tests @iter_skip_excess () -> void = run(
-    assert_eq(actual: iter_skip_excess(), expected: []),
-)
+@test_iter_skip_excess tests @iter_skip_excess () -> void = {
+    assert_eq(actual: iter_skip_excess(), expected: [])
+}
 
 // =============================================================================
 // Chained Adapters
 // =============================================================================
 
 // filter + map + collect
-@iter_chain_filter_map () -> [int] = run(
+@iter_chain_filter_map () -> [int] = {
     [1, 2, 3, 4, 5].iter()
         .filter(predicate: x -> x > 2)
         .map(transform: x -> x * 10)
-        .collect(),
-)
+        .collect()
+}
 
-@test_iter_chain_filter_map tests @iter_chain_filter_map () -> void = run(
-    assert_eq(actual: iter_chain_filter_map(), expected: [30, 40, 50]),
-)
+@test_iter_chain_filter_map tests @iter_chain_filter_map () -> void = {
+    assert_eq(actual: iter_chain_filter_map(), expected: [30, 40, 50])
+}
 
 // filter + map + fold
-@iter_chain_fold () -> int = run(
+@iter_chain_fold () -> int = {
     [1, 2, 3, 4, 5].iter()
         .filter(predicate: x -> x > 2)
         .map(transform: x -> x * 10)
-        .fold(initial: 0, op: (acc, x) -> acc + x),
-)
+        .fold(initial: 0, op: (acc, x) -> acc + x)
+}
 
-@test_iter_chain_fold tests @iter_chain_fold () -> void = run(
-    assert_eq(actual: iter_chain_fold(), expected: 120),
-)
+@test_iter_chain_fold tests @iter_chain_fold () -> void = {
+    assert_eq(actual: iter_chain_fold(), expected: 120)
+}
 
 // take + skip combined
-@iter_skip_take () -> [int] = run(
+@iter_skip_take () -> [int] = {
     [1, 2, 3, 4, 5].iter()
         .skip(count: 1)
         .take(count: 3)
-        .collect(),
-)
+        .collect()
+}
 
-@test_iter_skip_take tests @iter_skip_take () -> void = run(
-    assert_eq(actual: iter_skip_take(), expected: [2, 3, 4]),
-)
+@test_iter_skip_take tests @iter_skip_take () -> void = {
+    assert_eq(actual: iter_skip_take(), expected: [2, 3, 4])
+}
 
 // map + count
-@iter_map_count () -> int = run(
+@iter_map_count () -> int = {
     [1, 2, 3].iter()
         .map(transform: x -> x * 2)
-        .count(),
-)
+        .count()
+}
 
-@test_iter_map_count tests @iter_map_count () -> void = run(
-    assert_eq(actual: iter_map_count(), expected: 3),
-)
+@test_iter_map_count tests @iter_map_count () -> void = {
+    assert_eq(actual: iter_map_count(), expected: 3)
+}
 
 // filter + any
-@iter_filter_any () -> bool = run(
+@iter_filter_any () -> bool = {
     [1, 2, 3, 4, 5].iter()
         .filter(predicate: x -> x > 3)
-        .any(predicate: x -> x == 5),
-)
+        .any(predicate: x -> x == 5)
+}
 
-@test_iter_filter_any tests @iter_filter_any () -> void = run(
-    assert(cond: iter_filter_any()),
-)
+@test_iter_filter_any tests @iter_filter_any () -> void = {
+    assert(cond: iter_filter_any())
+}
 
 // =============================================================================
 // Empty Iterator Edge Cases
 // =============================================================================
 
 // empty list iterator
-@iter_empty_count () -> int = run(
-    let empty: [int] = [],
-    empty.iter().count(),
-)
+@iter_empty_count () -> int = {
+    let empty: [int] = [];
+    empty.iter().count()
+}
 
-@test_iter_empty_count tests @iter_empty_count () -> void = run(
-    assert_eq(actual: iter_empty_count(), expected: 0),
-)
+@test_iter_empty_count tests @iter_empty_count () -> void = {
+    assert_eq(actual: iter_empty_count(), expected: 0)
+}
 
-@iter_empty_collect () -> [int] = run(
-    let empty: [int] = [],
-    empty.iter().collect(),
-)
+@iter_empty_collect () -> [int] = {
+    let empty: [int] = [];
+    empty.iter().collect()
+}
 
-@test_iter_empty_collect tests @iter_empty_collect () -> void = run(
-    assert_eq(actual: iter_empty_collect(), expected: []),
-)
+@test_iter_empty_collect tests @iter_empty_collect () -> void = {
+    assert_eq(actual: iter_empty_collect(), expected: [])
+}
 
-@iter_empty_any () -> bool = run(
-    let empty: [int] = [],
-    empty.iter().any(predicate: x -> x > 0),
-)
+@iter_empty_any () -> bool = {
+    let empty: [int] = [];
+    empty.iter().any(predicate: x -> x > 0)
+}
 
-@test_iter_empty_any tests @iter_empty_any () -> void = run(
-    assert(cond: !iter_empty_any()),
-)
+@test_iter_empty_any tests @iter_empty_any () -> void = {
+    assert(cond: !iter_empty_any())
+}
 
-@iter_empty_all () -> bool = run(
-    let empty: [int] = [],
-    empty.iter().all(predicate: x -> x > 0),
-)
+@iter_empty_all () -> bool = {
+    let empty: [int] = [];
+    empty.iter().all(predicate: x -> x > 0)
+}
 
-@test_iter_empty_all tests @iter_empty_all () -> void = run(
-    assert(cond: iter_empty_all()),
-)
+@test_iter_empty_all tests @iter_empty_all () -> void = {
+    assert(cond: iter_empty_all())
+}
 
 // =============================================================================
 // Range Iterator Methods
 // =============================================================================
 
 // Range collect via iterator
-@range_iter_collect () -> [int] = run(
-    (0..5).iter().collect(),
-)
+@range_iter_collect () -> [int] = {
+    (0..5).iter().collect()
+}
 
-@test_range_iter_collect tests @range_iter_collect () -> void = run(
-    assert_eq(actual: range_iter_collect(), expected: [0, 1, 2, 3, 4]),
-)
+@test_range_iter_collect tests @range_iter_collect () -> void = {
+    assert_eq(actual: range_iter_collect(), expected: [0, 1, 2, 3, 4])
+}
 
 // Range map via iterator
-@range_iter_map () -> [int] = run(
-    (1..=3).iter().map(transform: x -> x * x).collect(),
-)
+@range_iter_map () -> [int] = {
+    (1..=3).iter().map(transform: x -> x * x).collect()
+}
 
-@test_range_iter_map tests @range_iter_map () -> void = run(
-    assert_eq(actual: range_iter_map(), expected: [1, 4, 9]),
-)
+@test_range_iter_map tests @range_iter_map () -> void = {
+    assert_eq(actual: range_iter_map(), expected: [1, 4, 9])
+}
 
 // Range filter via iterator
-@range_iter_filter () -> [int] = run(
-    (0..10).iter().filter(predicate: x -> x % 2 == 0).collect(),
-)
+@range_iter_filter () -> [int] = {
+    (0..10).iter().filter(predicate: x -> x % 2 == 0).collect()
+}
 
-@test_range_iter_filter tests @range_iter_filter () -> void = run(
-    assert_eq(actual: range_iter_filter(), expected: [0, 2, 4, 6, 8]),
-)
+@test_range_iter_filter tests @range_iter_filter () -> void = {
+    assert_eq(actual: range_iter_filter(), expected: [0, 2, 4, 6, 8])
+}
 
 // Range fold via iterator
-@range_iter_fold () -> int = run(
-    (1..=10).iter().fold(initial: 0, op: (acc, x) -> acc + x),
-)
+@range_iter_fold () -> int = {
+    (1..=10).iter().fold(initial: 0, op: (acc, x) -> acc + x)
+}
 
-@test_range_iter_fold tests @range_iter_fold () -> void = run(
-    assert_eq(actual: range_iter_fold(), expected: 55),
-)
+@test_range_iter_fold tests @range_iter_fold () -> void = {
+    assert_eq(actual: range_iter_fold(), expected: 55)
+}
 
 // =============================================================================
 // String Iterator Methods
 // =============================================================================
 
-@str_iter_collect () -> [char] = run(
-    "abc".iter().collect(),
-)
+@str_iter_collect () -> [char] = {
+    "abc".iter().collect()
+}
 
-@test_str_iter_collect tests @str_iter_collect () -> void = run(
-    assert_eq(actual: str_iter_collect(), expected: ['a', 'b', 'c']),
-)
+@test_str_iter_collect tests @str_iter_collect () -> void = {
+    assert_eq(actual: str_iter_collect(), expected: ['a', 'b', 'c'])
+}
 
-@str_iter_count () -> int = run(
-    "hello".iter().count(),
-)
+@str_iter_count () -> int = {
+    "hello".iter().count()
+}
 
-@test_str_iter_count tests @str_iter_count () -> void = run(
-    assert_eq(actual: str_iter_count(), expected: 5),
-)
+@test_str_iter_count tests @str_iter_count () -> void = {
+    assert_eq(actual: str_iter_count(), expected: 5)
+}
 
 // =============================================================================
 // Phase 2C/2D — enumerate, zip, chain, flatten, flat_map, cycle
 // =============================================================================
 
 // enumerate: pair each item with its 0-based index
-@iter_enumerate () -> [(int, int)] = run(
-    [10, 20, 30].iter().enumerate().collect(),
-)
+@iter_enumerate () -> [(int, int)] = {
+    [10, 20, 30].iter().enumerate().collect()
+}
 
-@test_iter_enumerate tests @iter_enumerate () -> void = run(
-    assert_eq(actual: iter_enumerate(), expected: [(0, 10), (1, 20), (2, 30)]),
-)
+@test_iter_enumerate tests @iter_enumerate () -> void = {
+    assert_eq(actual: iter_enumerate(), expected: [(0, 10), (1, 20), (2, 30)])
+}
 
 // enumerate: empty list
-@iter_enumerate_empty () -> [(int, int)] = run(
-    let empty: [int] = [],
-    empty.iter().enumerate().collect(),
-)
+@iter_enumerate_empty () -> [(int, int)] = {
+    let empty: [int] = [];
+    empty.iter().enumerate().collect()
+}
 
-@test_iter_enumerate_empty tests @iter_enumerate_empty () -> void = run(
-    assert_eq(actual: iter_enumerate_empty(), expected: []),
-)
+@test_iter_enumerate_empty tests @iter_enumerate_empty () -> void = {
+    assert_eq(actual: iter_enumerate_empty(), expected: [])
+}
 
 // zip: equal length
-@iter_zip_equal () -> [(int, int)] = run(
-    let a = [1, 2, 3].iter(),
-    let b = [4, 5, 6].iter(),
-    a.zip(other: b).collect(),
-)
+@iter_zip_equal () -> [(int, int)] = {
+    let a = [1, 2, 3].iter();
+    let b = [4, 5, 6].iter();
+    a.zip(other: b).collect()
+}
 
-@test_iter_zip_equal tests @iter_zip_equal () -> void = run(
-    assert_eq(actual: iter_zip_equal(), expected: [(1, 4), (2, 5), (3, 6)]),
-)
+@test_iter_zip_equal tests @iter_zip_equal () -> void = {
+    assert_eq(actual: iter_zip_equal(), expected: [(1, 4), (2, 5), (3, 6)])
+}
 
 // zip: unequal length — stops at shorter
-@iter_zip_unequal () -> [(int, int)] = run(
-    let a = [1, 2].iter(),
-    let b = [10, 20, 30].iter(),
-    a.zip(other: b).collect(),
-)
+@iter_zip_unequal () -> [(int, int)] = {
+    let a = [1, 2].iter();
+    let b = [10, 20, 30].iter();
+    a.zip(other: b).collect()
+}
 
-@test_iter_zip_unequal tests @iter_zip_unequal () -> void = run(
-    assert_eq(actual: iter_zip_unequal(), expected: [(1, 10), (2, 20)]),
-)
+@test_iter_zip_unequal tests @iter_zip_unequal () -> void = {
+    assert_eq(actual: iter_zip_unequal(), expected: [(1, 10), (2, 20)])
+}
 
 // zip: empty
-@iter_zip_empty () -> [(int, int)] = run(
-    let empty: [int] = [],
-    let b = [1, 2].iter(),
-    empty.iter().zip(other: b).collect(),
-)
+@iter_zip_empty () -> [(int, int)] = {
+    let empty: [int] = [];
+    let b = [1, 2].iter();
+    empty.iter().zip(other: b).collect()
+}
 
-@test_iter_zip_empty tests @iter_zip_empty () -> void = run(
-    assert_eq(actual: iter_zip_empty(), expected: []),
-)
+@test_iter_zip_empty tests @iter_zip_empty () -> void = {
+    assert_eq(actual: iter_zip_empty(), expected: [])
+}
 
 // chain: basic
-@iter_chain () -> [int] = run(
-    let a = [1, 2].iter(),
-    let b = [3, 4, 5].iter(),
-    a.chain(other: b).collect(),
-)
+@iter_chain () -> [int] = {
+    let a = [1, 2].iter();
+    let b = [3, 4, 5].iter();
+    a.chain(other: b).collect()
+}
 
-@test_iter_chain tests @iter_chain () -> void = run(
-    assert_eq(actual: iter_chain(), expected: [1, 2, 3, 4, 5]),
-)
+@test_iter_chain tests @iter_chain () -> void = {
+    assert_eq(actual: iter_chain(), expected: [1, 2, 3, 4, 5])
+}
 
 // chain: empty first
-@iter_chain_empty_first () -> [int] = run(
-    let empty: [int] = [],
-    let b = [1, 2].iter(),
-    empty.iter().chain(other: b).collect(),
-)
+@iter_chain_empty_first () -> [int] = {
+    let empty: [int] = [];
+    let b = [1, 2].iter();
+    empty.iter().chain(other: b).collect()
+}
 
-@test_iter_chain_empty_first tests @iter_chain_empty_first () -> void = run(
-    assert_eq(actual: iter_chain_empty_first(), expected: [1, 2]),
-)
+@test_iter_chain_empty_first tests @iter_chain_empty_first () -> void = {
+    assert_eq(actual: iter_chain_empty_first(), expected: [1, 2])
+}
 
 // chain: empty second
-@iter_chain_empty_second () -> [int] = run(
-    let a = [1, 2].iter(),
-    let empty: [int] = [],
-    a.chain(other: empty.iter()).collect(),
-)
+@iter_chain_empty_second () -> [int] = {
+    let a = [1, 2].iter();
+    let empty: [int] = [];
+    a.chain(other: empty.iter()).collect()
+}
 
-@test_iter_chain_empty_second tests @iter_chain_empty_second () -> void = run(
-    assert_eq(actual: iter_chain_empty_second(), expected: [1, 2]),
-)
+@test_iter_chain_empty_second tests @iter_chain_empty_second () -> void = {
+    assert_eq(actual: iter_chain_empty_second(), expected: [1, 2])
+}
 
 // chain + filter
-@iter_chain_filter () -> [int] = run(
-    let a = [1, 2, 3].iter(),
-    let b = [4, 5, 6].iter(),
-    a.chain(other: b).filter(predicate: x -> x > 2).collect(),
-)
+@iter_chain_filter () -> [int] = {
+    let a = [1, 2, 3].iter();
+    let b = [4, 5, 6].iter();
+    a.chain(other: b).filter(predicate: x -> x > 2).collect()
+}
 
-@test_iter_chain_filter tests @iter_chain_filter () -> void = run(
-    assert_eq(actual: iter_chain_filter(), expected: [3, 4, 5, 6]),
-)
+@test_iter_chain_filter tests @iter_chain_filter () -> void = {
+    assert_eq(actual: iter_chain_filter(), expected: [3, 4, 5, 6])
+}
 
 // flatten: list of lists via map + flatten
-@iter_flatten () -> [int] = run(
+@iter_flatten () -> [int] = {
     [[1, 2], [3], [4, 5]].iter()
         .map(transform: sub -> sub.iter())
         .flatten()
-        .collect(),
-)
+        .collect()
+}
 
-@test_iter_flatten tests @iter_flatten () -> void = run(
-    assert_eq(actual: iter_flatten(), expected: [1, 2, 3, 4, 5]),
-)
+@test_iter_flatten tests @iter_flatten () -> void = {
+    assert_eq(actual: iter_flatten(), expected: [1, 2, 3, 4, 5])
+}
 
 // flatten: empty outer
-@iter_flatten_empty () -> [int] = run(
-    let empty: [[int]] = [],
+@iter_flatten_empty () -> [int] = {
+    let empty: [[int]] = [];
     empty.iter()
         .map(transform: sub -> sub.iter())
         .flatten()
-        .collect(),
-)
+        .collect()
+}
 
-@test_iter_flatten_empty tests @iter_flatten_empty () -> void = run(
-    assert_eq(actual: iter_flatten_empty(), expected: []),
-)
+@test_iter_flatten_empty tests @iter_flatten_empty () -> void = {
+    assert_eq(actual: iter_flatten_empty(), expected: [])
+}
 
 // flatten: empty inner lists
-@iter_flatten_empty_inner () -> [int] = run(
-    let empty1: [int] = [],
-    let empty2: [int] = [],
+@iter_flatten_empty_inner () -> [int] = {
+    let empty1: [int] = [];
+    let empty2: [int] = [];
     [empty1, [1], empty2, [2]].iter()
         .map(transform: sub -> sub.iter())
         .flatten()
-        .collect(),
-)
+        .collect()
+}
 
-@test_iter_flatten_empty_inner tests @iter_flatten_empty_inner () -> void = run(
-    assert_eq(actual: iter_flatten_empty_inner(), expected: [1, 2]),
-)
+@test_iter_flatten_empty_inner tests @iter_flatten_empty_inner () -> void = {
+    assert_eq(actual: iter_flatten_empty_inner(), expected: [1, 2])
+}
 
 // flat_map: expand each item
-@iter_flat_map () -> [int] = run(
+@iter_flat_map () -> [int] = {
     [1, 2, 3].iter()
         .flat_map(transform: x -> [x, x * 10].iter())
-        .collect(),
-)
+        .collect()
+}
 
-@test_iter_flat_map tests @iter_flat_map () -> void = run(
-    assert_eq(actual: iter_flat_map(), expected: [1, 10, 2, 20, 3, 30]),
-)
+@test_iter_flat_map tests @iter_flat_map () -> void = {
+    assert_eq(actual: iter_flat_map(), expected: [1, 10, 2, 20, 3, 30])
+}
 
 // flat_map: empty
-@iter_flat_map_empty () -> [int] = run(
-    let empty: [int] = [],
+@iter_flat_map_empty () -> [int] = {
+    let empty: [int] = [];
     empty.iter()
         .flat_map(transform: x -> [x, x].iter())
-        .collect(),
-)
+        .collect()
+}
 
-@test_iter_flat_map_empty tests @iter_flat_map_empty () -> void = run(
-    assert_eq(actual: iter_flat_map_empty(), expected: []),
-)
+@test_iter_flat_map_empty tests @iter_flat_map_empty () -> void = {
+    assert_eq(actual: iter_flat_map_empty(), expected: [])
+}
 
 // cycle + take
-@iter_cycle_take () -> [int] = run(
-    [1, 2, 3].iter().cycle().take(count: 7).collect(),
-)
+@iter_cycle_take () -> [int] = {
+    [1, 2, 3].iter().cycle().take(count: 7).collect()
+}
 
-@test_iter_cycle_take tests @iter_cycle_take () -> void = run(
-    assert_eq(actual: iter_cycle_take(), expected: [1, 2, 3, 1, 2, 3, 1]),
-)
+@test_iter_cycle_take tests @iter_cycle_take () -> void = {
+    assert_eq(actual: iter_cycle_take(), expected: [1, 2, 3, 1, 2, 3, 1])
+}
 
 // cycle: empty yields nothing
-@iter_cycle_empty () -> [int] = run(
-    let empty: [int] = [],
-    empty.iter().cycle().take(count: 5).collect(),
-)
+@iter_cycle_empty () -> [int] = {
+    let empty: [int] = [];
+    empty.iter().cycle().take(count: 5).collect()
+}
 
-@test_iter_cycle_empty tests @iter_cycle_empty () -> void = run(
-    assert_eq(actual: iter_cycle_empty(), expected: []),
-)
+@test_iter_cycle_empty tests @iter_cycle_empty () -> void = {
+    assert_eq(actual: iter_cycle_empty(), expected: [])
+}

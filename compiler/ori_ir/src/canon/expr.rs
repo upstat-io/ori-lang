@@ -9,7 +9,9 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use crate::{BinaryOp, DurationUnit, FunctionExpKind, Name, SizeUnit, Span, TypeId, UnaryOp};
+use crate::{
+    BinaryOp, DurationUnit, FunctionExpKind, Mutability, Name, SizeUnit, Span, TypeId, UnaryOp,
+};
 
 use super::ids::{CanBindingPatternId, CanFieldRange, CanId, CanMapEntryRange, CanRange};
 use super::patterns::{CanNamedExprRange, CanParamRange};
@@ -31,7 +33,7 @@ use super::pools::{ConstantId, DecisionTreeId};
 /// | `CallNamed` | `Call` (args reordered to positional) |
 /// | `MethodCallNamed` | `MethodCall` (args reordered) |
 /// | `TemplateFull` | `Str` |
-/// | `TemplateLiteral` | `Str` + `.to_str()` + `.concat()` chain |
+/// | `TemplateLiteral` | `Str` + `.to_str()` / `FormatWith` + `.concat()` chain |
 /// | `ListWithSpread` | `List` + `.concat()` chains |
 /// | `MapWithSpread` | `Map` + `.merge()` chains |
 /// | `StructWithSpread` | `Struct` with all fields resolved via `Field` access |
@@ -161,7 +163,7 @@ pub enum CanExpr {
     Let {
         pattern: CanBindingPatternId,
         init: CanId,
-        mutable: bool,
+        mutable: Mutability,
     },
     /// Assignment: `target = value`
     Assign { target: CanId, value: CanId },
@@ -206,6 +208,11 @@ pub enum CanExpr {
     /// Await async operation: `await expr`
     Await(CanId),
 
+    // Safety
+    /// Unsafe block: `unsafe { expr }` — discharges `Unsafe` capability.
+    /// Transparent at runtime — evaluates to inner expression.
+    Unsafe(CanId),
+
     // Capabilities
     /// Capability injection: `with Http = provider in body`
     WithCapability {
@@ -224,6 +231,14 @@ pub enum CanExpr {
         props: CanNamedExprRange,
     },
 
+    // Formatting
+    /// Format a value with a format specification: `{expr:spec}` in template strings.
+    ///
+    /// Emitted by canonicalization when a template interpolation has a format spec.
+    /// The spec is the raw interned string (e.g., `"08x"`, `">10.2f"`), parsed
+    /// at evaluation/codegen time. Produces `str`.
+    FormatWith { expr: CanId, spec: Name },
+
     // Error Recovery
     /// Parse/type error placeholder. Propagates silently through lowering.
     Error,
@@ -234,6 +249,7 @@ pub enum CanExpr {
 static_assert_size!(CanExpr, 24);
 
 impl fmt::Debug for CanExpr {
+    #[expect(clippy::too_many_lines, reason = "exhaustive CanExpr Debug formatting")]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CanExpr::Int(v) => write!(f, "Int({v})"),
@@ -312,7 +328,7 @@ impl fmt::Debug for CanExpr {
                 init,
                 mutable,
             } => {
-                write!(f, "Let({pattern:?}, {init:?}, mut={mutable})")
+                write!(f, "Let({pattern:?}, {init:?}, {mutable:?})")
             }
             CanExpr::Assign { target, value } => write!(f, "Assign({target:?}, {value:?})"),
             CanExpr::Lambda { params, body } => {
@@ -339,6 +355,7 @@ impl fmt::Debug for CanExpr {
             CanExpr::None => write!(f, "None"),
             CanExpr::Try(v) => write!(f, "Try({v:?})"),
             CanExpr::Await(v) => write!(f, "Await({v:?})"),
+            CanExpr::Unsafe(v) => write!(f, "Unsafe({v:?})"),
             CanExpr::WithCapability {
                 capability,
                 provider,
@@ -348,6 +365,9 @@ impl fmt::Debug for CanExpr {
             }
             CanExpr::FunctionExp { kind, props } => {
                 write!(f, "FunctionExp({kind:?}, {props:?})")
+            }
+            CanExpr::FormatWith { expr, spec } => {
+                write!(f, "FormatWith({expr:?}, {spec:?})")
             }
             CanExpr::Error => write!(f, "Error"),
         }

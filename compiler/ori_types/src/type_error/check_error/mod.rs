@@ -15,7 +15,7 @@
 //! - Suggestions are generated based on the specific problem
 
 use ori_diagnostic::ErrorCode;
-use ori_ir::{Name, Span};
+use ori_ir::{DerivedTrait, Name, Span};
 
 use ori_diagnostic::Suggestion;
 
@@ -272,6 +272,10 @@ impl TypeCheckError {
     ///   (e.g., `|idx| pool.format_type(idx)`)
     /// - `format_name`: Resolves an interned `Name` to its string value
     ///   (e.g., `|name| interner.lookup(name).to_string()`)
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TypeErrorKind → rich message dispatch"
+    )]
     pub fn format_message_rich(
         &self,
         format_type: &dyn Fn(Idx) -> String,
@@ -509,10 +513,101 @@ impl TypeCheckError {
                     format_type(*ty)
                 )
             }
-            TypeErrorKind::CannotDeriveDefaultForSumType { type_name } => {
+            TypeErrorKind::CannotDeriveForSumType {
+                type_name,
+                trait_kind,
+            } => {
                 format!(
-                    "cannot derive `Default` for sum type `{}`",
+                    "cannot derive `{}` for sum type `{}`",
+                    trait_kind.trait_name(),
                     format_name(*type_name)
+                )
+            }
+            TypeErrorKind::CannotDeriveWithoutSupertrait {
+                type_name,
+                trait_kind,
+                required,
+            } => {
+                format!(
+                    "cannot derive `{}` without `{}` for type `{}`",
+                    trait_kind.trait_name(),
+                    required.trait_name(),
+                    format_name(*type_name)
+                )
+            }
+            TypeErrorKind::HashInvariantViolation { type_name } => {
+                format!(
+                    "`Hashable` implementation for `{}` may violate hash invariant",
+                    format_name(*type_name)
+                )
+            }
+            TypeErrorKind::NonHashableMapKey { key_type } => {
+                format!(
+                    "`{}` cannot be used as map key (missing `Hashable`)",
+                    format_type(*key_type)
+                )
+            }
+            TypeErrorKind::FieldMissingTraitInDerive {
+                type_name,
+                trait_name,
+                field_name,
+                field_type,
+            } => {
+                format!(
+                    "cannot derive `{}` for `{}`: field `{}` of type `{}` does not implement `{}`",
+                    format_name(*trait_name),
+                    format_name(*type_name),
+                    format_name(*field_name),
+                    format_type(*field_type),
+                    format_name(*trait_name),
+                )
+            }
+            TypeErrorKind::TraitNotDerivable { trait_name } => {
+                format!("trait `{}` cannot be derived", format_name(*trait_name))
+            }
+            TypeErrorKind::InvalidFormatSpec { spec, reason } => {
+                format!("invalid format specification `{spec}`: {reason}")
+            }
+            TypeErrorKind::FormatTypeMismatch {
+                expr_type,
+                format_type: fmt_ty,
+                valid_for,
+            } => {
+                format!(
+                    "format type `{fmt_ty}` not supported for `{}`; valid for {valid_for}",
+                    format_type(*expr_type)
+                )
+            }
+            TypeErrorKind::IntoNotImplemented { ty, target } => {
+                if let Some(t) = target {
+                    format!(
+                        "type `{}` does not implement `Into<{}>`",
+                        format_type(*ty),
+                        format_type(*t)
+                    )
+                } else {
+                    format!(
+                        "type `{}` does not implement `Into` for any target type",
+                        format_type(*ty)
+                    )
+                }
+            }
+            TypeErrorKind::AmbiguousInto { ty } => {
+                format!(
+                    "ambiguous `.into()` call on `{}`: multiple `Into` implementations apply",
+                    format_type(*ty)
+                )
+            }
+            TypeErrorKind::MissingPrintable { ty } => {
+                format!(
+                    "`{}` does not implement `Printable` (cannot be used in string interpolation)",
+                    format_type(*ty)
+                )
+            }
+            TypeErrorKind::AssignToImmutable { name } => {
+                format!(
+                    "cannot assign to immutable binding `{}`",
+                    format_name(*name)
                 )
             }
         }
@@ -542,6 +637,10 @@ impl TypeCheckError {
     /// Uses `Idx::display_name()` for type names, which renders primitives
     /// (int, bool, str, etc.) and falls back to `"<type>"` for complex types
     /// that would need a Pool to render fully.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive TypeErrorKind message dispatch"
+    )]
     pub fn message(&self) -> String {
         match &self.kind {
             TypeErrorKind::Mismatch {
@@ -672,8 +771,71 @@ impl TypeCheckError {
                     ty.display_name()
                 )
             }
-            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => {
-                "cannot derive `Default` for sum type".to_string()
+            TypeErrorKind::CannotDeriveForSumType { trait_kind, .. } => {
+                format!("cannot derive `{}` for sum type", trait_kind.trait_name())
+            }
+            TypeErrorKind::CannotDeriveWithoutSupertrait {
+                trait_kind,
+                required,
+                ..
+            } => {
+                format!(
+                    "cannot derive `{}` without `{}`",
+                    trait_kind.trait_name(),
+                    required.trait_name()
+                )
+            }
+            TypeErrorKind::HashInvariantViolation { .. } => {
+                "`Hashable` implementation may violate hash invariant".to_string()
+            }
+            TypeErrorKind::NonHashableMapKey { key_type } => {
+                format!(
+                    "`{}` cannot be used as map key (missing `Hashable`)",
+                    key_type.display_name()
+                )
+            }
+            TypeErrorKind::FieldMissingTraitInDerive { .. } => {
+                "field type does not implement trait required by derive".to_string()
+            }
+            TypeErrorKind::TraitNotDerivable { .. } => "trait cannot be derived".to_string(),
+            TypeErrorKind::InvalidFormatSpec { spec, reason } => {
+                format!("invalid format specification `{spec}`: {reason}")
+            }
+            TypeErrorKind::FormatTypeMismatch {
+                expr_type,
+                format_type,
+                valid_for,
+            } => {
+                format!(
+                    "format type `{format_type}` not supported for `{}`; valid for {valid_for}",
+                    expr_type.display_name()
+                )
+            }
+            TypeErrorKind::IntoNotImplemented { ty, target } => {
+                if let Some(t) = target {
+                    format!(
+                        "type `{}` does not implement `Into<{}>`",
+                        ty.display_name(),
+                        t.display_name()
+                    )
+                } else {
+                    format!("type `{}` does not implement `Into`", ty.display_name())
+                }
+            }
+            TypeErrorKind::AmbiguousInto { ty } => {
+                format!(
+                    "ambiguous `.into()` call on `{}`: multiple `Into` implementations apply",
+                    ty.display_name()
+                )
+            }
+            TypeErrorKind::MissingPrintable { ty } => {
+                format!(
+                    "`{}` does not implement `Printable` (cannot be used in string interpolation)",
+                    ty.display_name()
+                )
+            }
+            TypeErrorKind::AssignToImmutable { .. } => {
+                "cannot assign to immutable binding".to_string()
             }
         }
     }
@@ -750,7 +912,40 @@ impl TypeCheckError {
             TypeErrorKind::AmbiguousIndex { .. } => ErrorCode::E2027,
 
             // E2028: Cannot derive Default for sum type
-            TypeErrorKind::CannotDeriveDefaultForSumType { .. } => ErrorCode::E2028,
+            TypeErrorKind::CannotDeriveForSumType { .. } => ErrorCode::E2028,
+
+            // E2029: Cannot derive Hashable without Eq
+            TypeErrorKind::CannotDeriveWithoutSupertrait { .. } => ErrorCode::E2029,
+
+            // E2030: Hash invariant violation
+            TypeErrorKind::HashInvariantViolation { .. } => ErrorCode::E2030,
+
+            // E2031: Non-hashable map key
+            TypeErrorKind::NonHashableMapKey { .. } => ErrorCode::E2031,
+
+            // E2032: Field missing trait in derive
+            TypeErrorKind::FieldMissingTraitInDerive { .. } => ErrorCode::E2032,
+
+            // E2033: Trait not derivable
+            TypeErrorKind::TraitNotDerivable { .. } => ErrorCode::E2033,
+
+            // E2034: Invalid format specification
+            TypeErrorKind::InvalidFormatSpec { .. } => ErrorCode::E2034,
+
+            // E2035: Format type not supported for expression type
+            TypeErrorKind::FormatTypeMismatch { .. } => ErrorCode::E2035,
+
+            // E2036: Type does not implement Into<T>
+            TypeErrorKind::IntoNotImplemented { .. } => ErrorCode::E2036,
+
+            // E2037: Ambiguous Into conversion
+            TypeErrorKind::AmbiguousInto { .. } => ErrorCode::E2037,
+
+            // E2038: Missing Printable for string interpolation
+            TypeErrorKind::MissingPrintable { .. } => ErrorCode::E2038,
+
+            // E2039: Cannot assign to immutable binding
+            TypeErrorKind::AssignToImmutable { .. } => ErrorCode::E2039,
         }
     }
 
@@ -994,13 +1189,133 @@ impl TypeCheckError {
     ///
     /// Emitted when `#[derive(Default)]` is applied to a sum type, which is
     /// invalid because there is no unambiguous default variant.
-    pub fn cannot_derive_default_for_sum_type(span: Span, type_name: Name) -> Self {
+    pub fn cannot_derive_for_sum_type(
+        span: Span,
+        type_name: Name,
+        trait_kind: DerivedTrait,
+    ) -> Self {
+        let suggestion = format!(
+            "remove `{}` from derive list, or implement `{}` manually choosing a specific variant",
+            trait_kind.trait_name(),
+            trait_kind.trait_name(),
+        );
         Self {
             span,
-            kind: TypeErrorKind::CannotDeriveDefaultForSumType { type_name },
+            kind: TypeErrorKind::CannotDeriveForSumType {
+                type_name,
+                trait_kind,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(suggestion, 0)],
+        }
+    }
+
+    /// Create a "cannot derive trait without required supertrait" error (E2029).
+    ///
+    /// Emitted when a derived trait requires a supertrait (e.g., `Hashable`
+    /// requires `Eq`, `Comparable` requires `Eq`) but the type does not derive
+    /// or implement the required supertrait.
+    pub fn cannot_derive_without_supertrait(
+        span: Span,
+        type_name: Name,
+        trait_kind: DerivedTrait,
+        required: DerivedTrait,
+    ) -> Self {
+        let suggestion = format!(
+            "add `{}` to the derive list: `#[derive({}, {})]`",
+            required.trait_name(),
+            required.trait_name(),
+            trait_kind.trait_name(),
+        );
+        Self {
+            span,
+            kind: TypeErrorKind::CannotDeriveWithoutSupertrait {
+                type_name,
+                trait_kind,
+                required,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(suggestion, 0)],
+        }
+    }
+
+    /// Create a "hash invariant violation" warning (E2030).
+    ///
+    /// Emitted when a type's `Hashable` and `Eq` implementations may be
+    /// inconsistent (e.g., one is derived and the other is manual).
+    pub fn hash_invariant_violation(span: Span, type_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::HashInvariantViolation { type_name },
             context: ErrorContext::default(),
             suggestions: vec![Suggestion::text(
-                "remove `Default` from derive list, or implement `Default` manually choosing a specific variant",
+                "ensure equal values produce equal hashes: if a == b then a.hash() == b.hash()",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "non-hashable map key" error (E2031).
+    ///
+    /// Emitted when a type that does not implement `Hashable` is used as a
+    /// map key or set element type.
+    pub fn non_hashable_map_key(span: Span, key_type: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::NonHashableMapKey { key_type },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add `#[derive(Eq, Hashable)]` to the type, or implement `Hashable` manually",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "field missing trait in derive" error (E2032).
+    ///
+    /// Emitted when `#[derive(Trait)]` is applied to a type but one of its
+    /// fields does not implement the required trait.
+    pub fn field_missing_trait_in_derive(
+        span: Span,
+        type_name: Name,
+        trait_name: Name,
+        field_name: Name,
+        field_type: Idx,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::FieldMissingTraitInDerive {
+                type_name,
+                trait_name,
+                field_name,
+                field_type,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "ensure all field types implement the derived trait, or implement the trait manually",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "trait not derivable" error (E2033).
+    ///
+    /// Emitted when `#[derive(Trait)]` is applied with a trait that cannot be
+    /// automatically derived.
+    pub fn trait_not_derivable(span: Span, trait_name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::TraitNotDerivable { trait_name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                format!(
+                    "derivable traits are: {}",
+                    DerivedTrait::ALL
+                        .iter()
+                        .map(DerivedTrait::trait_name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
                 0,
             )],
         }
@@ -1241,6 +1556,109 @@ impl TypeCheckError {
             )],
         }
     }
+
+    /// Create an "invalid format spec" error (E2034).
+    ///
+    /// Emitted when a format spec in a template string doesn't parse.
+    pub fn invalid_format_spec(span: Span, spec: String, reason: String) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::InvalidFormatSpec { spec, reason },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "format specs follow: [[fill]align][sign][#][0][width][.precision][type]",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "into not implemented" error (E2036).
+    ///
+    /// Emitted when `.into()` is called on a type that has no `Into`
+    /// implementation for the expected target type.
+    pub fn into_not_implemented(span: Span, ty: Idx, target: Option<Idx>) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::IntoNotImplemented { ty, target },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "implement `Into<T>` for this type, or use a different conversion method",
+                0,
+            )],
+        }
+    }
+
+    /// Create an "ambiguous into" error (E2037).
+    ///
+    /// Emitted when `.into()` is called on a type with multiple `Into`
+    /// implementations and the target type cannot be inferred.
+    pub fn ambiguous_into(span: Span, ty: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AmbiguousInto { ty },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add a type annotation to disambiguate: `let x: TargetType = value.into()`",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "missing printable" error (E2038).
+    ///
+    /// Emitted when a value used in string interpolation doesn't implement
+    /// the `Printable` trait (required for `to_str()` conversion).
+    pub fn missing_printable(span: Span, ty: Idx) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::MissingPrintable { ty },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "add `#derive(Printable)` to the type, or implement `Printable` manually",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "cannot assign to immutable binding" error (E2039).
+    ///
+    /// Emitted when assigning to a binding declared with `$` prefix (immutable).
+    pub fn assign_to_immutable(span: Span, name: Name) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::AssignToImmutable { name },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                "remove the `$` prefix to make this binding mutable, or use a new `let` binding",
+                0,
+            )],
+        }
+    }
+
+    /// Create a "format type mismatch" error (E2035).
+    ///
+    /// Emitted when a format type (e.g., `x`, `b`) is used with an
+    /// incompatible expression type.
+    pub fn format_type_mismatch(
+        span: Span,
+        expr_type: Idx,
+        format_type: String,
+        valid_for: &'static str,
+    ) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::FormatTypeMismatch {
+                expr_type,
+                format_type,
+                valid_for,
+            },
+            context: ErrorContext::default(),
+            suggestions: vec![Suggestion::text(
+                format!("this format type is only valid for {valid_for} types"),
+                0,
+            )],
+        }
+    }
 }
 
 /// What kind of type error occurred.
@@ -1459,10 +1877,96 @@ pub enum TypeErrorKind {
         ty: Idx,
     },
 
-    /// Cannot derive `Default` for a sum type (E2028).
-    CannotDeriveDefaultForSumType {
+    /// Cannot derive a trait for a sum type (E2028).
+    CannotDeriveForSumType {
         /// The sum type name.
         type_name: Name,
+        /// The trait that cannot be derived for sum types.
+        trait_kind: DerivedTrait,
+    },
+
+    /// Cannot derive a trait without its required supertrait (E2029).
+    CannotDeriveWithoutSupertrait {
+        /// The type name.
+        type_name: Name,
+        /// The trait being derived.
+        trait_kind: DerivedTrait,
+        /// The required supertrait that is missing.
+        required: DerivedTrait,
+    },
+
+    /// `Hashable` implementation may violate hash invariant (E2030).
+    HashInvariantViolation {
+        /// The type name with the potentially inconsistent impls.
+        type_name: Name,
+    },
+
+    /// Type cannot be used as map key — missing `Hashable` (E2031).
+    NonHashableMapKey {
+        /// The key type that doesn't implement Hashable.
+        key_type: Idx,
+    },
+
+    /// Field type does not implement trait required by derive (E2032).
+    FieldMissingTraitInDerive {
+        /// The type name being derived.
+        type_name: Name,
+        /// The trait being derived.
+        trait_name: Name,
+        /// The field name whose type lacks the trait.
+        field_name: Name,
+        /// The field's resolved type.
+        field_type: Idx,
+    },
+
+    /// Trait cannot be derived — not in the derivable set (E2033).
+    TraitNotDerivable {
+        /// The trait name that was attempted.
+        trait_name: Name,
+    },
+
+    /// Invalid format specification in template string (E2034).
+    InvalidFormatSpec {
+        /// The raw format spec string that failed to parse.
+        spec: String,
+        /// The parse error message.
+        reason: String,
+    },
+
+    /// Format type not supported for expression type (E2035).
+    FormatTypeMismatch {
+        /// The expression's inferred type.
+        expr_type: Idx,
+        /// The format type that's incompatible (e.g., "x", "b", "e").
+        format_type: String,
+        /// Which types are valid for this format type.
+        valid_for: &'static str,
+    },
+
+    /// Type does not implement `Into<T>` — no conversion available (E2036).
+    IntoNotImplemented {
+        /// The source type that `.into()` was called on.
+        ty: Idx,
+        /// The expected target type, if known from context.
+        target: Option<Idx>,
+    },
+
+    /// Multiple `Into` implementations apply — ambiguous conversion (E2037).
+    AmbiguousInto {
+        /// The source type that `.into()` was called on.
+        ty: Idx,
+    },
+
+    /// Type does not implement `Printable` — cannot be used in string interpolation (E2038).
+    MissingPrintable {
+        /// The type that doesn't implement Printable.
+        ty: Idx,
+    },
+
+    /// Cannot assign to immutable binding (E2039).
+    AssignToImmutable {
+        /// The name of the immutable binding.
+        name: Name,
     },
 }
 

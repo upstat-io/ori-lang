@@ -211,11 +211,11 @@ extern "js" {
 
 ```ori
 @fetch_text (url: str) -> str uses Suspend, FFI =
-    run(
+    {
         let response = _fetch(url: url),   // JsPromise<JsValue> resolved
         let text = _response_text(resp: response),  // JsPromise<str> resolved
         text
-    )
+    }
 ```
 
 **Semantics:**
@@ -311,12 +311,16 @@ Calling C variadic functions requires `unsafe`.
 
 ## Unsafe Expressions
 
-Operations that bypass Ori's safety guarantees require `unsafe`:
+> **Proposal:** [unsafe-semantics-proposal.md](../../../proposals/approved/unsafe-semantics-proposal.md)
+
+Operations that bypass Ori's safety guarantees require the `Unsafe` capability. The `unsafe { }` block discharges this capability locally:
 
 ```ori
 @raw_memory_access (ptr: CPtr, offset: int) -> byte uses FFI =
-    unsafe(ptr_read_byte(ptr: ptr, offset: offset))
+    unsafe { ptr_read_byte(ptr: ptr, offset: offset) };
 ```
+
+`Unsafe` is a _marker capability_ — it cannot be bound via `with...in` (E1203). A function that wraps unsafe operations in `unsafe { }` blocks does not propagate `Unsafe` to callers. See [Capabilities § Marker Capabilities](14-capabilities.md#marker-capabilities).
 
 ### Operations Requiring Unsafe
 
@@ -328,7 +332,7 @@ Operations that bypass Ori's safety guarantees require `unsafe`:
 
 ### Safe FFI Calls
 
-Regular FFI calls (via `extern` declarations) are safe to call but require the `FFI` capability. Only operations Ori cannot verify require `unsafe`.
+Regular FFI calls (via `extern` declarations) are safe to call but require the `FFI` capability. Only operations Ori cannot verify require `unsafe`. The `FFI` capability tracks provenance (foreign code); the `Unsafe` capability tracks trust (safety bypasses).
 
 ## FFI Capability
 
@@ -336,14 +340,14 @@ All FFI calls require the `FFI` capability:
 
 ```ori
 @call_c_function () -> int uses FFI =
-    some_c_function()
+    some_c_function();
 
 @manipulate_dom () -> void uses FFI =
-    run(
-        let elem = document_query(selector: "#app"),
-        element_set_text(elem: elem, text: "Hello"),
+    {
+        let elem = document_query(selector: "#app");
+        element_set_text(elem: elem, text: "Hello");
         drop_js_value(handle: elem)
-    )
+    }
 ```
 
 Standard library functions internally use FFI but expose clean Ori APIs without requiring the `FFI` capability from callers.
@@ -354,10 +358,10 @@ The `compile_error` built-in triggers a compile-time error:
 
 ```ori
 #target(arch: "wasm32")
-compile_error("std.fs is not available for WASM")
+compile_error("std.fs is not available for WASM");
 
 #target(not_arch: "wasm32")
-pub use "./read" { read, read_bytes }
+pub use "./read" { read, read_bytes };
 ```
 
 **Semantics:**
@@ -378,13 +382,13 @@ extern "c" from "libc" {
 }
 
 pub @open_file (path: str) -> Result<int, FileError> uses FFI =
-    run(
-        let fd = _open(path: path, flags: 0, mode: 0),
+    {
+        let fd = _open(path: path, flags: 0, mode: 0);
         if fd < 0 then
             Err(errno_to_error())
         else
             Ok(fd)
-    )
+    }
 ```
 
 ### WASM FFI Errors
@@ -412,11 +416,11 @@ Standard C memory management. Ori's ARC handles Ori objects; C objects follow C 
 
 ```ori
 @use_js_object () -> void uses FFI =
-    run(
-        let elem = document_query(selector: "#app"),
-        element_set_text(elem: elem, text: "Hello"),
+    {
+        let elem = document_query(selector: "#app");
+        element_set_text(elem: elem, text: "Hello");
         drop_js_value(handle: elem)
-    )
+    }
 ```
 
 ## Platform-Specific Declarations
@@ -435,7 +439,7 @@ extern "js" {
 }
 
 // Public API works on both platforms
-pub @sin (angle: float) -> float = _sin(x: angle)
+pub @sin (angle: float) -> float = _sin(x: angle);
 ```
 
 See [Conditional Compilation](25-conditional-compilation.md) for attribute syntax.

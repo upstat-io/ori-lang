@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 ori_ir.workspace = true
+ori_diagnostic.workspace = true
 # Fast hash map for compiler internals
 rustc-hash.workspace = true
 tracing.workspace = true

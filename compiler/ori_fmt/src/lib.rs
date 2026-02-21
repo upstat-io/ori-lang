@@ -76,7 +76,7 @@ pub use packing::{
 pub use rules::{
     needs_parens, BooleanBreakRule, BreakPoint, ChainedElseIfRule, ElseIfBranch, ForChain,
     ForLevel, IfChain, LoopRule, MethodChainRule, NestedForRule, ParenPosition, ParenthesesRule,
-    RunContext, RunRule, ShortBodyRule,
+    ShortBodyRule,
 };
 pub use shape::Shape;
 pub use spacing::{lookup_spacing, SpaceAction, TokenCategory, TokenMatcher, SPACE_RULES};

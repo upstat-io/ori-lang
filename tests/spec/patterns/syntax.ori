@@ -7,128 +7,128 @@ use std.testing { assert, assert_eq }
 // Run Pattern
 // =============================================================================
 
-@run_basic () -> int = run(
-    let x = 1,
-    let y = 2,
-    x + y,
-)
+@run_basic () -> int = {
+    let x = 1;
+    let y = 2;
+    x + y
+}
 
-@test_run_basic tests @run_basic () -> void = run(
-    assert_eq(actual: run_basic(), expected: 3),
-)
+@test_run_basic tests @run_basic () -> void = {
+    assert_eq(actual: run_basic(), expected: 3)
+}
 
 // =============================================================================
 // Match Pattern - Literal
 // =============================================================================
 
-@match_literal () -> int = run(
-    let x = 2,
-    match(x,
+@match_literal () -> int = {
+    let x = 2;
+    match x {
         1 -> 10,
         2 -> 20,
-        _ -> 0,
-    ),
-)
+        _ -> 0
+    }
+}
 
-@test_match_literal tests @match_literal () -> void = run(
-    assert_eq(actual: match_literal(), expected: 20),
-)
+@test_match_literal tests @match_literal () -> void = {
+    assert_eq(actual: match_literal(), expected: 20)
+}
 
 // =============================================================================
 // Match Pattern - Wildcard
 // =============================================================================
 
-@match_wildcard () -> int = run(
-    let x = 99,
-    match(x,
+@match_wildcard () -> int = {
+    let x = 99;
+    match x {
         1 -> 10,
-        _ -> 0,
-    ),
-)
+        _ -> 0
+    }
+}
 
-@test_match_wildcard tests @match_wildcard () -> void = run(
-    assert_eq(actual: match_wildcard(), expected: 0),
-)
+@test_match_wildcard tests @match_wildcard () -> void = {
+    assert_eq(actual: match_wildcard(), expected: 0)
+}
 
 // =============================================================================
 // Match Pattern - Binding
 // =============================================================================
 
-@match_binding () -> int = run(
-    let opt = Some(42),
-    match(opt,
+@match_binding () -> int = {
+    let opt = Some(42);
+    match opt {
         Some(v) -> v,
-        None -> 0,
-    ),
-)
+        None -> 0
+    }
+}
 
-@test_match_binding tests @match_binding () -> void = run(
-    assert_eq(actual: match_binding(), expected: 42),
-)
+@test_match_binding tests @match_binding () -> void = {
+    assert_eq(actual: match_binding(), expected: 42)
+}
 
 // =============================================================================
 // Match Pattern - Variant
 // =============================================================================
 
-type Status = Active | Inactive | Pending(count: int)
+type Status = Active | Inactive | Pending(count: int);
 
-@match_variant () -> int = run(
-    let s = Pending(count: 5),
-    match(s,
+@match_variant () -> int = {
+    let s = Pending(count: 5);
+    match s {
         Active -> 1,
         Inactive -> 0,
-        Pending(count) -> count,
-    ),
-)
+        Pending(count) -> count
+    }
+}
 
-@test_match_variant tests @match_variant () -> void = run(
-    assert_eq(actual: match_variant(), expected: 5),
-)
+@test_match_variant tests @match_variant () -> void = {
+    assert_eq(actual: match_variant(), expected: 5)
+}
 
 // =============================================================================
 // Match Pattern - Tuple
 // =============================================================================
 
-@match_tuple () -> int = run(
-    let t = (1, 2),
-    match(t,
-        (a, b) -> a + b,
-    ),
-)
+@match_tuple () -> int = {
+    let t = (1, 2);
+    match t {
+        (a, b) -> a + b
+    }
+}
 
-@test_match_tuple tests @match_tuple () -> void = run(
-    assert_eq(actual: match_tuple(), expected: 3),
-)
+@test_match_tuple tests @match_tuple () -> void = {
+    assert_eq(actual: match_tuple(), expected: 3)
+}
 
 // =============================================================================
 // Match Pattern - List
 // =============================================================================
 
-@match_list () -> int = run(
-    let list = [1, 2, 3],
-    match(list,
+@match_list () -> int = {
+    let list = [1, 2, 3];
+    match list {
         [a, b, c] -> a + b + c,
-        _ -> 0,
-    ),
-)
+        _ -> 0
+    }
+}
 
-@test_match_list tests @match_list () -> void = run(
-    assert_eq(actual: match_list(), expected: 6),
-)
+@test_match_list tests @match_list () -> void = {
+    assert_eq(actual: match_list(), expected: 6)
+}
 
 // =============================================================================
 // Binding Pattern - Tuple Destructure
 // =============================================================================
 
-@bind_tuple () -> int = run(
-    let t = (10, 20),
-    let (a, b) = t,
-    a + b,
-)
+@bind_tuple () -> int = {
+    let t = (10, 20);
+    let (a, b) = t;
+    a + b
+}
 
-@test_bind_tuple tests @bind_tuple () -> void = run(
-    assert_eq(actual: bind_tuple(), expected: 30),
-)
+@test_bind_tuple tests @bind_tuple () -> void = {
+    assert_eq(actual: bind_tuple(), expected: 30)
+}
 
 // =============================================================================
 // Binding Pattern - Struct Destructure
@@ -136,40 +136,40 @@ type Status = Active | Inactive | Pending(count: int)
 
 type Point = { x: int, y: int }
 
-@bind_struct () -> int = run(
-    let p = Point { x: 5, y: 10 },
-    let { x, y } = p,
-    x + y,
-)
+@bind_struct () -> int = {
+    let p = Point { x: 5, y: 10 };
+    let { x, y } = p;
+    x + y
+}
 
-@test_bind_struct tests @bind_struct () -> void = run(
-    assert_eq(actual: bind_struct(), expected: 15),
-)
+@test_bind_struct tests @bind_struct () -> void = {
+    assert_eq(actual: bind_struct(), expected: 15)
+}
 
 // =============================================================================
 // Binding Pattern - List Destructure
 // =============================================================================
 
-@bind_list () -> int = run(
-    let list = [1, 2, 3],
-    let [a, b, c] = list,
-    a + b + c,
-)
+@bind_list () -> int = {
+    let list = [1, 2, 3];
+    let [a, b, c] = list;
+    a + b + c
+}
 
-@test_bind_list tests @bind_list () -> void = run(
-    assert_eq(actual: bind_list(), expected: 6),
-)
+@test_bind_list tests @bind_list () -> void = {
+    assert_eq(actual: bind_list(), expected: 6)
+}
 
 // =============================================================================
 // Binding Pattern - List with Rest
 // =============================================================================
 
-@bind_list_rest () -> int = run(
-    let list = [1, 2, 3, 4, 5],
-    let [head, ..tail] = list,
-    head + tail.len(),
-)
+@bind_list_rest () -> int = {
+    let list = [1, 2, 3, 4, 5];
+    let [head, ..tail] = list;
+    head + tail.len()
+}
 
-@test_bind_list_rest tests @bind_list_rest () -> void = run(
-    assert_eq(actual: bind_list_rest(), expected: 5), // 1 + 4
-)
+@test_bind_list_rest tests @bind_list_rest () -> void = {
+    assert_eq(actual: bind_list_rest(), expected: 5) // 1 + 4
+}

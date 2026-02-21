@@ -12,4 +12,4 @@ trait Clone {
 // Printable is object-safe, but Clone is not — the combination should fail
 #[compile_fail("cannot be made into an object")]
 @show (item: Clone + Printable) -> void =
-    print(msg: "showing")
+    print(msg: "showing");

@@ -1,0 +1,39 @@
+// Spec: §3.16 Formattable Trait
+// Tests for basic format spec support in template strings
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Basic Format Specs — Width and Alignment
+// =============================================================================
+
+// Default alignment for strings is left
+@test_str_width tests @str_width () -> void = {
+    assert_eq(actual: `{"hi":>10}`, expected: "        hi");
+    assert_eq(actual: `{"hi":<10}`, expected: "hi        ");
+    assert_eq(actual: `{"hi":^10}`, expected: "    hi    ")
+}
+
+@str_width () -> str = `{"hi":>10}`;
+
+// No format spec — pass through
+@test_no_spec tests @no_spec () -> void = {
+    let n = 42;
+    assert_eq(actual: `{n}`, expected: "42");
+    assert_eq(actual: `{"hello"}`, expected: "hello")
+}
+
+@no_spec () -> str = `{42}`;
+
+// =============================================================================
+// String Formatting — Precision Truncation
+// =============================================================================
+
+@test_str_precision tests @str_precision () -> void = {
+    assert_eq(actual: `{"hello":.3}`, expected: "hel");
+    assert_eq(actual: `{"hi":.10}`, expected: "hi")
+}
+
+@str_precision () -> str = `{"hello":.3}`;
+
+@main () -> void = print(msg: "Formattable definition tests");

@@ -339,7 +339,6 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Or-patterns: `A | B | C`
   - [ ] At-patterns: `x @ Some(_)`
   - [ ] Guard patterns: `x if x > 0`
-  - [ ] Guard with `.match(condition)` method
   - [ ] Struct destructuring with field renaming: `{ x: px, y: py }`
   - [ ] List patterns with rest: `[first, ..rest]`, `[..init, last]`
   - [ ] Nested patterns
@@ -369,11 +368,11 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Local variables
   - [ ] Return statements
 
-- [ ] **Implement**: Function sequences (`run`, `try`, `match`)
-  - [ ] `run(let x = a, result)` sequential binding
-  - [ ] `run(pre_check:, body, post_check:)` with panic semantics
-  - [ ] `try(let x = f()?, Ok(x))` error propagation
-  - [ ] `match(v, P -> e, _ -> d)` pattern matching
+- [ ] **Implement**: Block expressions and control flow (`{ }`, `try`, `match`)
+  - [ ] `{ let x = a \n result }` sequential binding via block expressions
+  - [ ] `pre(cond) post(r -> cond)` function-level contract declarations
+  - [ ] `try { let x = f()? \n Ok(x) }` error propagation
+  - [ ] `match v { P -> e, _ -> d }` pattern matching
 
 - [ ] **Implement**: Recurse pattern
   - [ ] `recurse(condition:, base:, step:)` basic recursion
@@ -665,7 +664,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] **Rust Tests**: `ori_llvm/src/ffi/c_ffi_tests.rs`
 
 - [ ] **Implement**: Unsafe expressions
-  - [ ] `unsafe(...)` expression codegen (same as safe, marker only)
+  - [ ] `unsafe { ... }` block codegen (same as inner expr, marker only)
   - [ ] `uses FFI` capability requirement at call sites
   - [ ] Pointer operations: `ptr_read<T>(ptr:)`, `ptr_write<T>(ptr:, value:)`
   - [ ] Pointer arithmetic (future)
@@ -735,6 +734,8 @@ When implementing these features, ensure they also work across module boundaries
 - `proposals/approved/memory-model-edge-cases-proposal.md`
 - `proposals/approved/clone-trait-proposal.md`
 
+- [x] **Spec**: Type classification in `15-memory-model.md` updated to type-containment model (matches `ori_arc`)
+
 - [ ] **Implement**: Reference counting
   - [ ] Heap allocation with atomic refcount header: `{ refcount: AtomicU64, data: T }`
   - [ ] `fetch_add(1, Acquire)` on clone/share
@@ -791,6 +792,41 @@ When implementing these features, ensure they also work across module boundaries
 ---
 
 ## 21.16 Optimization Passes
+
+### 21.16.1 Representation Optimization
+**Proposal**: `proposals/approved/representation-optimization-proposal.md`
+
+Formalize the compiler's freedom to optimize machine representations while preserving semantic equivalence. Tier 1 and most Tier 2 optimizations are already implemented.
+
+- [x] **Tier 1: Type-Intrinsic Narrowing** — `type_info/mod.rs`
+  - [x] `bool` → `i1`, `byte` → `i8`, `char` → `i32`, `Ordering` → `i8`
+  - [x] `void` → zero-sized or `i64(0)`
+  - [x] Range inclusive flag → `i1`
+- [x] **Tier 2a: Enum Discriminant Narrowing** — `type_info/mod.rs`
+  - [x] All enum tags use `i8`
+  - [ ] Dynamic tag width for >256 variants (i16/i32)
+- [x] **Tier 2b: All-Unit Enum Elimination** — `type_info/mod.rs`
+  - [x] Enums with no payload variants omit payload array
+- [x] **Tier 2c: Sum Type Payload Sharing** — `lower_error_handling.rs`
+  - [x] Result uses max(Ok, Err) payload slot
+  - [x] Alloca+store+load coercion pattern with zero-initialization
+- [x] **Tier 2d: ARC Elision** — `type_info/mod.rs`
+  - [x] Transitive triviality classification with cycle detection
+  - [x] Two-level check: per-type conservative + transitive walk
+- [x] **Tier 2e: Newtype Erasure** — already specified in Types § Newtype
+- [ ] **Tier 2f: Struct Field Reordering** — not implemented
+  - [ ] Alignment-aware field ordering to reduce padding
+  - [ ] Respect `#repr` attribute constraints
+  - [ ] Maintain declaration-order mapping for derived traits
+- [ ] **Tier 3: LLVM-Delegated Value Range Narrowing** — future
+  - [ ] Emit `nsw`/`nuw` flags on overflow-checked arithmetic
+  - [ ] Emit `range` metadata on loads with known value ranges
+  - [ ] Emit `nonnull`/`dereferenceable` attributes on pointers
+- [ ] **Known Gaps**:
+  - [ ] ABI size computation ignores struct field padding (`abi/mod.rs`)
+  - [ ] `TypeInfo::alignment()` returns hardcoded values, not representation-aware
+
+### 21.16.2 LLVM Optimization Pipeline
 
 - [ ] **Implement**: Optimization pipeline
   - [ ] Configure standard optimization levels (O0, O1, O2, O3)

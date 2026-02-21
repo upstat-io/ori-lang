@@ -8,227 +8,227 @@ use std.testing { assert, assert_eq }
 // Integer Comparison
 // =============================================================================
 
-@test_int_less tests @int_less () -> void = run(
-    assert(cond: 1 < 2),
-    assert(cond: -5 < 0),
-    assert(cond: 0 < 1),
-)
+@test_int_less tests @int_less () -> void = {
+    assert(cond: 1 < 2);
+    assert(cond: -5 < 0);
+    assert(cond: 0 < 1)
+}
 
-@int_less () -> bool = 1 < 2
+@int_less () -> bool = 1 < 2;
 
-@test_int_greater tests @int_greater () -> void = run(
-    assert(cond: 2 > 1),
-    assert(cond: 0 > -5),
-    assert(cond: 100 > 99),
-)
+@test_int_greater tests @int_greater () -> void = {
+    assert(cond: 2 > 1);
+    assert(cond: 0 > -5);
+    assert(cond: 100 > 99)
+}
 
-@int_greater () -> bool = 2 > 1
+@int_greater () -> bool = 2 > 1;
 
-@test_int_less_eq tests @int_less_eq () -> void = run(
-    assert(cond: 1 <= 2),
-    assert(cond: 2 <= 2),
-    assert(cond: -1 <= 0),
-)
+@test_int_less_eq tests @int_less_eq () -> void = {
+    assert(cond: 1 <= 2);
+    assert(cond: 2 <= 2);
+    assert(cond: -1 <= 0)
+}
 
-@int_less_eq () -> bool = 1 <= 1
+@int_less_eq () -> bool = 1 <= 1;
 
-@test_int_greater_eq tests @int_greater_eq () -> void = run(
-    assert(cond: 2 >= 1),
-    assert(cond: 2 >= 2),
-    assert(cond: 0 >= -1),
-)
+@test_int_greater_eq tests @int_greater_eq () -> void = {
+    assert(cond: 2 >= 1);
+    assert(cond: 2 >= 2);
+    assert(cond: 0 >= -1)
+}
 
-@int_greater_eq () -> bool = 2 >= 2
+@int_greater_eq () -> bool = 2 >= 2;
 
 // =============================================================================
 // Float Comparison
 // =============================================================================
 
-@test_float_less tests @float_less () -> void = run(
-    assert(cond: 1.0 < 2.0),
-    assert(cond: -0.5 < 0.0),
-    assert(cond: 0.1 < 0.2),
-)
+@test_float_less tests @float_less () -> void = {
+    assert(cond: 1.0 < 2.0);
+    assert(cond: -0.5 < 0.0);
+    assert(cond: 0.1 < 0.2)
+}
 
-@float_less () -> bool = 1.0 < 2.0
+@float_less () -> bool = 1.0 < 2.0;
 
-@test_float_greater tests @float_greater () -> void = run(
-    assert(cond: 2.0 > 1.0),
-    assert(cond: 0.0 > -0.5),
-    assert(cond: 3.14 > 3.0),
-)
+@test_float_greater tests @float_greater () -> void = {
+    assert(cond: 2.0 > 1.0);
+    assert(cond: 0.0 > -0.5);
+    assert(cond: 3.14 > 3.0)
+}
 
-@float_greater () -> bool = 2.0 > 1.0
+@float_greater () -> bool = 2.0 > 1.0;
 
-@test_float_less_eq tests @float_less_eq () -> void = run(
-    assert(cond: 1.0 <= 2.0),
-    assert(cond: 2.0 <= 2.0),
-)
+@test_float_less_eq tests @float_less_eq () -> void = {
+    assert(cond: 1.0 <= 2.0);
+    assert(cond: 2.0 <= 2.0)
+}
 
-@float_less_eq () -> bool = 1.0 <= 1.0
+@float_less_eq () -> bool = 1.0 <= 1.0;
 
-@test_float_greater_eq tests @float_greater_eq () -> void = run(
-    assert(cond: 2.0 >= 1.0),
-    assert(cond: 2.0 >= 2.0),
-)
+@test_float_greater_eq tests @float_greater_eq () -> void = {
+    assert(cond: 2.0 >= 1.0);
+    assert(cond: 2.0 >= 2.0)
+}
 
-@float_greater_eq () -> bool = 2.0 >= 2.0
+@float_greater_eq () -> bool = 2.0 >= 2.0;
 
 // =============================================================================
 // String Comparison (Lexicographic)
 // =============================================================================
 
-@test_str_less tests @str_less () -> void = run(
-    assert(cond: "a" < "b"),
-    assert(cond: "abc" < "abd"),
-    assert(cond: "aa" < "ab"),
-)
+@test_str_less tests @str_less () -> void = {
+    assert(cond: "a" < "b");
+    assert(cond: "abc" < "abd");
+    assert(cond: "aa" < "ab")
+}
 
-@str_less () -> bool = "a" < "b"
+@str_less () -> bool = "a" < "b";
 
-@test_str_greater tests @str_greater () -> void = run(
-    assert(cond: "b" > "a"),
-    assert(cond: "z" > "y"),
-    assert(cond: "hello" > "hell"),
-)
+@test_str_greater tests @str_greater () -> void = {
+    assert(cond: "b" > "a");
+    assert(cond: "z" > "y");
+    assert(cond: "hello" > "hell")
+}
 
-@str_greater () -> bool = "b" > "a"
+@str_greater () -> bool = "b" > "a";
 
-@test_str_less_eq tests @str_less_eq () -> void = run(
-    assert(cond: "a" <= "b"),
-    assert(cond: "abc" <= "abc"),
-)
+@test_str_less_eq tests @str_less_eq () -> void = {
+    assert(cond: "a" <= "b");
+    assert(cond: "abc" <= "abc")
+}
 
-@str_less_eq () -> bool = "a" <= "a"
+@str_less_eq () -> bool = "a" <= "a";
 
-@test_str_greater_eq tests @str_greater_eq () -> void = run(
-    assert(cond: "b" >= "a"),
-    assert(cond: "abc" >= "abc"),
-)
+@test_str_greater_eq tests @str_greater_eq () -> void = {
+    assert(cond: "b" >= "a");
+    assert(cond: "abc" >= "abc")
+}
 
-@str_greater_eq () -> bool = "b" >= "b"
+@str_greater_eq () -> bool = "b" >= "b";
 
 // =============================================================================
 // Character Comparison
 // =============================================================================
 
-@test_char_less tests @char_less () -> void = run(
-    assert(cond: 'a' < 'b'),
-    assert(cond: 'A' < 'Z'),
-    assert(cond: '0' < '9'),
-)
+@test_char_less tests @char_less () -> void = {
+    assert(cond: 'a' < 'b');
+    assert(cond: 'A' < 'Z');
+    assert(cond: '0' < '9')
+}
 
-@char_less () -> bool = 'a' < 'b'
+@char_less () -> bool = 'a' < 'b';
 
-@test_char_greater tests @char_greater () -> void = run(
-    assert(cond: 'b' > 'a'),
-    assert(cond: 'z' > 'a'),
-)
+@test_char_greater tests @char_greater () -> void = {
+    assert(cond: 'b' > 'a');
+    assert(cond: 'z' > 'a')
+}
 
-@char_greater () -> bool = 'z' > 'a'
+@char_greater () -> bool = 'z' > 'a';
 
 // =============================================================================
 // Comparable Trait Bound
 // =============================================================================
 
-@find_min<T: Comparable> (a: T, b: T) -> T = if a < b then a else b
+@find_min<T: Comparable> (a: T, b: T) -> T = if a < b then a else b;
 
-@test_comparable_bound_int tests @find_min () -> void = run(
+@test_comparable_bound_int tests @find_min () -> void = {
     assert_eq(
         actual: find_min(a: 5, b: 3),
         expected: 3,
-    ),
+    );
     assert_eq(
         actual: find_min(a: -10, b: 10),
         expected: -10,
-    ),
-)
+    )
+}
 
-@test_comparable_bound_str tests @find_min () -> void = run(
+@test_comparable_bound_str tests @find_min () -> void = {
     assert_eq(
         actual: find_min(a: "banana", b: "apple"),
         expected: "apple",
-    ),
-)
+    )
+}
 
-@find_max<T: Comparable> (a: T, b: T) -> T = if a > b then a else b
+@find_max<T: Comparable> (a: T, b: T) -> T = if a > b then a else b;
 
-@test_find_max_int tests @find_max () -> void = run(
+@test_find_max_int tests @find_max () -> void = {
     assert_eq(
         actual: find_max(a: 5, b: 3),
         expected: 5,
-    ),
-)
+    )
+}
 
-@test_find_max_str tests @find_max () -> void = run(
+@test_find_max_str tests @find_max () -> void = {
     assert_eq(
         actual: find_max(a: "apple", b: "zebra"),
         expected: "zebra",
-    ),
-)
+    )
+}
 
 // =============================================================================
 // min and max Built-in Functions
 // =============================================================================
 
-@test_min_builtin tests @min_builtin () -> void = run(
+@test_min_builtin tests @min_builtin () -> void = {
     assert_eq(
         actual: min(5, 3),
         expected: 3,
-    ),
+    );
     assert_eq(
         actual: min(-10, 10),
         expected: -10,
-    ),
+    );
     assert_eq(
         actual: min(7, 7),
         expected: 7,
-    ),
-)
+    )
+}
 
-@min_builtin () -> int = min(5, 3)
+@min_builtin () -> int = min(5, 3);
 
-@test_max_builtin tests @max_builtin () -> void = run(
+@test_max_builtin tests @max_builtin () -> void = {
     assert_eq(
         actual: max(5, 3),
         expected: 5,
-    ),
+    );
     assert_eq(
         actual: max(-10, 10),
         expected: 10,
-    ),
+    );
     assert_eq(
         actual: max(7, 7),
         expected: 7,
-    ),
-)
+    )
+}
 
-@max_builtin () -> int = max(5, 3)
+@max_builtin () -> int = max(5, 3);
 
 // =============================================================================
 // Comparison Chain
 // =============================================================================
 
-@test_comparison_chain tests @comparison_chain () -> void = run(
+@test_comparison_chain tests @comparison_chain () -> void = {
     // a < b < c pattern
-    let a = 1,
-    let b = 2,
-    let c = 3,
-    assert(cond: a < b && b < c),
-)
+    let a = 1;
+    let b = 2;
+    let c = 3;
+    assert(cond: a < b && b < c)
+}
 
-@comparison_chain () -> bool = 1 < 2 && 2 < 3
+@comparison_chain () -> bool = 1 < 2 && 2 < 3;
 
-@test_sorted_check tests @sorted_check () -> void = run(
-    let items = [1, 2, 3, 4, 5],
+@test_sorted_check tests @sorted_check () -> void = {
+    let items = [1, 2, 3, 4, 5];
     // Check each adjacent pair
-    assert(cond: items[0] <= items[1]),
-    assert(cond: items[1] <= items[2]),
-    assert(cond: items[2] <= items[3]),
-    assert(cond: items[3] <= items[4]),
-)
+    assert(cond: items[0] <= items[1]);
+    assert(cond: items[1] <= items[2]);
+    assert(cond: items[2] <= items[3]);
+    assert(cond: items[3] <= items[4])
+}
 
-@sorted_check () -> bool = [1, 2, 3][0] < [1, 2, 3][1]
+@sorted_check () -> bool = [1, 2, 3][0] < [1, 2, 3][1];
 
 // =============================================================================
 // .compare() Method Tests — All Comparable Types
@@ -237,225 +237,225 @@ use std.testing { assert, assert_eq }
 // --- int.compare() ---
 
 @test_int_compare_less tests @int_cmp_less () -> void =
-    assert(cond: 1.compare(other: 2).is_less())
+    assert(cond: 1.compare(other: 2).is_less());
 
-@int_cmp_less () -> Ordering = 1.compare(other: 2)
+@int_cmp_less () -> Ordering = 1.compare(other: 2);
 
 @test_int_compare_equal tests @int_cmp_equal () -> void =
-    assert(cond: 5.compare(other: 5).is_equal())
+    assert(cond: 5.compare(other: 5).is_equal());
 
-@int_cmp_equal () -> Ordering = 5.compare(other: 5)
+@int_cmp_equal () -> Ordering = 5.compare(other: 5);
 
 @test_int_compare_greater tests @int_cmp_greater () -> void =
-    assert(cond: 10.compare(other: 3).is_greater())
+    assert(cond: 10.compare(other: 3).is_greater());
 
-@int_cmp_greater () -> Ordering = 10.compare(other: 3)
+@int_cmp_greater () -> Ordering = 10.compare(other: 3);
 
 // --- float.compare() ---
 
 @test_float_compare_less tests @float_cmp_less () -> void =
-    assert(cond: 1.0.compare(other: 2.0).is_less())
+    assert(cond: 1.0.compare(other: 2.0).is_less());
 
-@float_cmp_less () -> Ordering = 1.0.compare(other: 2.0)
+@float_cmp_less () -> Ordering = 1.0.compare(other: 2.0);
 
 @test_float_compare_equal tests @float_cmp_equal () -> void =
-    assert(cond: 3.14.compare(other: 3.14).is_equal())
+    assert(cond: 3.14.compare(other: 3.14).is_equal());
 
-@float_cmp_equal () -> Ordering = 3.14.compare(other: 3.14)
+@float_cmp_equal () -> Ordering = 3.14.compare(other: 3.14);
 
 @test_float_compare_greater tests @float_cmp_greater () -> void =
-    assert(cond: 9.9.compare(other: 1.1).is_greater())
+    assert(cond: 9.9.compare(other: 1.1).is_greater());
 
-@float_cmp_greater () -> Ordering = 9.9.compare(other: 1.1)
+@float_cmp_greater () -> Ordering = 9.9.compare(other: 1.1);
 
 // --- bool.compare() ---
 
 @test_bool_compare_false_true tests @bool_cmp_ft () -> void =
-    assert(cond: false.compare(other: true).is_less())
+    assert(cond: false.compare(other: true).is_less());
 
-@bool_cmp_ft () -> Ordering = false.compare(other: true)
+@bool_cmp_ft () -> Ordering = false.compare(other: true);
 
 @test_bool_compare_true_false tests @bool_cmp_tf () -> void =
-    assert(cond: true.compare(other: false).is_greater())
+    assert(cond: true.compare(other: false).is_greater());
 
-@bool_cmp_tf () -> Ordering = true.compare(other: false)
+@bool_cmp_tf () -> Ordering = true.compare(other: false);
 
-@test_bool_compare_equal tests @bool_cmp_eq () -> void = run(
-    assert(cond: true.compare(other: true).is_equal()),
-    assert(cond: false.compare(other: false).is_equal()),
-)
+@test_bool_compare_equal tests @bool_cmp_eq () -> void = {
+    assert(cond: true.compare(other: true).is_equal());
+    assert(cond: false.compare(other: false).is_equal())
+}
 
-@bool_cmp_eq () -> Ordering = true.compare(other: true)
+@bool_cmp_eq () -> Ordering = true.compare(other: true);
 
 // --- char.compare() ---
 
 @test_char_compare_less tests @char_cmp_less () -> void =
-    assert(cond: 'a'.compare(other: 'b').is_less())
+    assert(cond: 'a'.compare(other: 'b').is_less());
 
-@char_cmp_less () -> Ordering = 'a'.compare(other: 'b')
+@char_cmp_less () -> Ordering = 'a'.compare(other: 'b');
 
 @test_char_compare_equal tests @char_cmp_equal () -> void =
-    assert(cond: 'x'.compare(other: 'x').is_equal())
+    assert(cond: 'x'.compare(other: 'x').is_equal());
 
-@char_cmp_equal () -> Ordering = 'x'.compare(other: 'x')
+@char_cmp_equal () -> Ordering = 'x'.compare(other: 'x');
 
 @test_char_compare_greater tests @char_cmp_greater () -> void =
-    assert(cond: 'z'.compare(other: 'a').is_greater())
+    assert(cond: 'z'.compare(other: 'a').is_greater());
 
-@char_cmp_greater () -> Ordering = 'z'.compare(other: 'a')
+@char_cmp_greater () -> Ordering = 'z'.compare(other: 'a');
 
 // --- byte.compare() ---
 
 @test_byte_compare_less tests @byte_cmp_less () -> void =
-    assert(cond: 1b.compare(other: 2b).is_less())
+    assert(cond: 1b.compare(other: 2b).is_less());
 
-@byte_cmp_less () -> Ordering = 1b.compare(other: 2b)
+@byte_cmp_less () -> Ordering = 1b.compare(other: 2b);
 
 @test_byte_compare_equal tests @byte_cmp_equal () -> void =
-    assert(cond: 255b.compare(other: 255b).is_equal())
+    assert(cond: 255b.compare(other: 255b).is_equal());
 
-@byte_cmp_equal () -> Ordering = 255b.compare(other: 255b)
+@byte_cmp_equal () -> Ordering = 255b.compare(other: 255b);
 
 @test_byte_compare_greater tests @byte_cmp_greater () -> void =
-    assert(cond: 100b.compare(other: 50b).is_greater())
+    assert(cond: 100b.compare(other: 50b).is_greater());
 
-@byte_cmp_greater () -> Ordering = 100b.compare(other: 50b)
+@byte_cmp_greater () -> Ordering = 100b.compare(other: 50b);
 
 // --- str.compare() ---
 
 @test_str_compare_less tests @str_cmp_less () -> void =
-    assert(cond: "apple".compare(other: "banana").is_less())
+    assert(cond: "apple".compare(other: "banana").is_less());
 
-@str_cmp_less () -> Ordering = "apple".compare(other: "banana")
+@str_cmp_less () -> Ordering = "apple".compare(other: "banana");
 
 @test_str_compare_equal tests @str_cmp_equal () -> void =
-    assert(cond: "hello".compare(other: "hello").is_equal())
+    assert(cond: "hello".compare(other: "hello").is_equal());
 
-@str_cmp_equal () -> Ordering = "hello".compare(other: "hello")
+@str_cmp_equal () -> Ordering = "hello".compare(other: "hello");
 
 @test_str_compare_greater tests @str_cmp_greater () -> void =
-    assert(cond: "zebra".compare(other: "apple").is_greater())
+    assert(cond: "zebra".compare(other: "apple").is_greater());
 
-@str_cmp_greater () -> Ordering = "zebra".compare(other: "apple")
+@str_cmp_greater () -> Ordering = "zebra".compare(other: "apple");
 
 @test_str_compare_prefix tests @str_cmp_prefix () -> void =
-    assert(cond: "hello".compare(other: "hello world").is_less())
+    assert(cond: "hello".compare(other: "hello world").is_less());
 
-@str_cmp_prefix () -> Ordering = "hello".compare(other: "hello world")
+@str_cmp_prefix () -> Ordering = "hello".compare(other: "hello world");
 
 // --- [T].compare() (list) ---
 
 @test_list_compare_less tests @list_cmp_less () -> void =
-    assert(cond: [1, 2].compare(other: [1, 3]).is_less())
+    assert(cond: [1, 2].compare(other: [1, 3]).is_less());
 
-@list_cmp_less () -> Ordering = [1, 2].compare(other: [1, 3])
+@list_cmp_less () -> Ordering = [1, 2].compare(other: [1, 3]);
 
 @test_list_compare_equal tests @list_cmp_equal () -> void =
-    assert(cond: [1, 2, 3].compare(other: [1, 2, 3]).is_equal())
+    assert(cond: [1, 2, 3].compare(other: [1, 2, 3]).is_equal());
 
-@list_cmp_equal () -> Ordering = [1, 2, 3].compare(other: [1, 2, 3])
+@list_cmp_equal () -> Ordering = [1, 2, 3].compare(other: [1, 2, 3]);
 
 @test_list_compare_greater tests @list_cmp_greater () -> void =
-    assert(cond: [1, 2, 3].compare(other: [1, 2, 2]).is_greater())
+    assert(cond: [1, 2, 3].compare(other: [1, 2, 2]).is_greater());
 
-@list_cmp_greater () -> Ordering = [1, 2, 3].compare(other: [1, 2, 2])
+@list_cmp_greater () -> Ordering = [1, 2, 3].compare(other: [1, 2, 2]);
 
 @test_list_compare_shorter tests @list_cmp_shorter () -> void =
-    assert(cond: [1, 2].compare(other: [1, 2, 3]).is_less())
+    assert(cond: [1, 2].compare(other: [1, 2, 3]).is_less());
 
-@list_cmp_shorter () -> Ordering = [1, 2].compare(other: [1, 2, 3])
+@list_cmp_shorter () -> Ordering = [1, 2].compare(other: [1, 2, 3]);
 
 @test_list_compare_longer tests @list_cmp_longer () -> void =
-    assert(cond: [1, 2, 3].compare(other: [1, 2]).is_greater())
+    assert(cond: [1, 2, 3].compare(other: [1, 2]).is_greater());
 
-@list_cmp_longer () -> Ordering = [1, 2, 3].compare(other: [1, 2])
+@list_cmp_longer () -> Ordering = [1, 2, 3].compare(other: [1, 2]);
 
-@test_list_compare_empty tests @list_cmp_empty () -> void = run(
-    let empty: [int] = [],
-    assert(cond: empty.compare(other: [1]).is_less()),
-    assert(cond: empty.compare(other: empty).is_equal()),
-)
+@test_list_compare_empty tests @list_cmp_empty () -> void = {
+    let empty: [int] = [];
+    assert(cond: empty.compare(other: [1]).is_less());
+    assert(cond: empty.compare(other: empty).is_equal())
+}
 
-@list_cmp_empty () -> Ordering = run(
-    let empty: [int] = [],
-    empty.compare(other: empty),
-)
+@list_cmp_empty () -> Ordering = {
+    let empty: [int] = [];
+    empty.compare(other: empty)
+}
 
 // --- Option<T>.compare() ---
 
 @test_option_compare_none_none tests @opt_cmp_nn () -> void =
-    assert(cond: None.compare(other: None).is_equal())
+    assert(cond: None.compare(other: None).is_equal());
 
-@opt_cmp_nn () -> Ordering = None.compare(other: None)
+@opt_cmp_nn () -> Ordering = None.compare(other: None);
 
 @test_option_compare_none_some tests @opt_cmp_ns () -> void =
-    assert(cond: None.compare(other: Some(1)).is_less())
+    assert(cond: None.compare(other: Some(1)).is_less());
 
-@opt_cmp_ns () -> Ordering = None.compare(other: Some(1))
+@opt_cmp_ns () -> Ordering = None.compare(other: Some(1));
 
 @test_option_compare_some_none tests @opt_cmp_sn () -> void =
-    assert(cond: Some(1).compare(other: None).is_greater())
+    assert(cond: Some(1).compare(other: None).is_greater());
 
-@opt_cmp_sn () -> Ordering = Some(1).compare(other: None)
+@opt_cmp_sn () -> Ordering = Some(1).compare(other: None);
 
-@test_option_compare_some_some tests @opt_cmp_ss () -> void = run(
-    assert(cond: Some(1).compare(other: Some(2)).is_less()),
-    assert(cond: Some(5).compare(other: Some(5)).is_equal()),
-    assert(cond: Some(10).compare(other: Some(3)).is_greater()),
-)
+@test_option_compare_some_some tests @opt_cmp_ss () -> void = {
+    assert(cond: Some(1).compare(other: Some(2)).is_less());
+    assert(cond: Some(5).compare(other: Some(5)).is_equal());
+    assert(cond: Some(10).compare(other: Some(3)).is_greater())
+}
 
-@opt_cmp_ss () -> Ordering = Some(1).compare(other: Some(2))
+@opt_cmp_ss () -> Ordering = Some(1).compare(other: Some(2));
 
 // --- Result<T, E>.compare() ---
 
-@test_result_compare_ok_ok tests @res_cmp_oo () -> void = run(
-    assert(cond: Ok(1).compare(other: Ok(2)).is_less()),
-    assert(cond: Ok(5).compare(other: Ok(5)).is_equal()),
-    assert(cond: Ok(10).compare(other: Ok(3)).is_greater()),
-)
+@test_result_compare_ok_ok tests @res_cmp_oo () -> void = {
+    assert(cond: Ok(1).compare(other: Ok(2)).is_less());
+    assert(cond: Ok(5).compare(other: Ok(5)).is_equal());
+    assert(cond: Ok(10).compare(other: Ok(3)).is_greater())
+}
 
-@res_cmp_oo () -> Ordering = Ok(1).compare(other: Ok(2))
+@res_cmp_oo () -> Ordering = Ok(1).compare(other: Ok(2));
 
 @test_result_compare_ok_err tests @res_cmp_oe () -> void =
-    assert(cond: Ok(1).compare(other: Err("error")).is_less())
+    assert(cond: Ok(1).compare(other: Err("error")).is_less());
 
-@res_cmp_oe () -> Ordering = Ok(1).compare(other: Err("error"))
+@res_cmp_oe () -> Ordering = Ok(1).compare(other: Err("error"));
 
 @test_result_compare_err_ok tests @res_cmp_eo () -> void =
-    assert(cond: Err("error").compare(other: Ok(1)).is_greater())
+    assert(cond: Err("error").compare(other: Ok(1)).is_greater());
 
-@res_cmp_eo () -> Ordering = Err("error").compare(other: Ok(1))
+@res_cmp_eo () -> Ordering = Err("error").compare(other: Ok(1));
 
-@test_result_compare_err_err tests @res_cmp_ee () -> void = run(
-    assert(cond: Err("a").compare(other: Err("b")).is_less()),
-    assert(cond: Err("x").compare(other: Err("x")).is_equal()),
-    assert(cond: Err("z").compare(other: Err("a")).is_greater()),
-)
+@test_result_compare_err_err tests @res_cmp_ee () -> void = {
+    assert(cond: Err("a").compare(other: Err("b")).is_less());
+    assert(cond: Err("x").compare(other: Err("x")).is_equal());
+    assert(cond: Err("z").compare(other: Err("a")).is_greater())
+}
 
-@res_cmp_ee () -> Ordering = Err("a").compare(other: Err("b"))
+@res_cmp_ee () -> Ordering = Err("a").compare(other: Err("b"));
 
 // --- Ordering.compare() ---
 
-@test_ordering_compare_less tests @ord_cmp_less () -> void = run(
-    assert(cond: Less.compare(other: Less).is_equal()),
-    assert(cond: Less.compare(other: Equal).is_less()),
-    assert(cond: Less.compare(other: Greater).is_less()),
-)
+@test_ordering_compare_less tests @ord_cmp_less () -> void = {
+    assert(cond: Less.compare(other: Less).is_equal());
+    assert(cond: Less.compare(other: Equal).is_less());
+    assert(cond: Less.compare(other: Greater).is_less())
+}
 
-@ord_cmp_less () -> Ordering = Less.compare(other: Equal)
+@ord_cmp_less () -> Ordering = Less.compare(other: Equal);
 
-@test_ordering_compare_equal tests @ord_cmp_equal () -> void = run(
-    assert(cond: Equal.compare(other: Less).is_greater()),
-    assert(cond: Equal.compare(other: Equal).is_equal()),
-    assert(cond: Equal.compare(other: Greater).is_less()),
-)
+@test_ordering_compare_equal tests @ord_cmp_equal () -> void = {
+    assert(cond: Equal.compare(other: Less).is_greater());
+    assert(cond: Equal.compare(other: Equal).is_equal());
+    assert(cond: Equal.compare(other: Greater).is_less())
+}
 
-@ord_cmp_equal () -> Ordering = Equal.compare(other: Equal)
+@ord_cmp_equal () -> Ordering = Equal.compare(other: Equal);
 
-@test_ordering_compare_greater tests @ord_cmp_greater () -> void = run(
-    assert(cond: Greater.compare(other: Less).is_greater()),
-    assert(cond: Greater.compare(other: Equal).is_greater()),
-    assert(cond: Greater.compare(other: Greater).is_equal()),
-)
+@test_ordering_compare_greater tests @ord_cmp_greater () -> void = {
+    assert(cond: Greater.compare(other: Less).is_greater());
+    assert(cond: Greater.compare(other: Equal).is_greater());
+    assert(cond: Greater.compare(other: Greater).is_equal())
+}
 
-@ord_cmp_greater () -> Ordering = Greater.compare(other: Greater)
+@ord_cmp_greater () -> Ordering = Greater.compare(other: Greater);

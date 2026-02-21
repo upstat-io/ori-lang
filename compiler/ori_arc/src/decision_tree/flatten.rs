@@ -43,6 +43,10 @@ impl<'a> FlattenCtx<'a> {
     ///
     /// The `interner` is needed to resolve variant names for well-known types
     /// (`Option`, `Result`) which have dedicated Pool tags rather than `Tag::Enum`.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive MatchPattern → FlatPattern lowering"
+    )]
     pub fn flatten(&self, pattern: &MatchPattern, scrutinee_ty: ori_types::Idx) -> FlatPattern {
         match pattern {
             MatchPattern::Wildcard => FlatPattern::Wildcard,

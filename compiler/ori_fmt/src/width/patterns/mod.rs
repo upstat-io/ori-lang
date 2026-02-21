@@ -20,7 +20,7 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
 ) -> usize {
     match pattern {
         BindingPattern::Name { name, mutable } => {
-            let prefix = usize::from(!*mutable); // "$"
+            let prefix = usize::from(mutable.is_immutable()); // "$"
             prefix + interner.lookup(*name).len()
         }
 
@@ -54,7 +54,7 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
             for (i, field) in fields.iter().enumerate() {
                 let name_w = interner.lookup(field.name).len();
                 // Shorthand with $ prefix adds 1 for "$"
-                let dollar_w = usize::from(!field.mutable && field.pattern.is_none());
+                let dollar_w = usize::from(field.mutable.is_immutable() && field.pattern.is_none());
                 if let Some(pat) = &field.pattern {
                     // "name: pattern"
                     total += name_w + 2 + binding_pattern_width(pat, interner);
@@ -78,12 +78,15 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
                     total += COMMA_SEPARATOR_WIDTH;
                 }
             }
-            if let Some(rest_name) = rest {
+            if let Some((rest_name, rest_mut)) = rest {
                 if !elements.is_empty() {
                     total += COMMA_SEPARATOR_WIDTH;
                 }
-                // "..rest"
+                // "..$rest" or "..rest"
                 total += 2 + interner.lookup(*rest_name).len();
+                if rest_mut.is_immutable() {
+                    total += 1; // "$" prefix
+                }
             }
             total + 1 // "]"
         }

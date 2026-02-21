@@ -17,9 +17,9 @@ Comments start with `//` and extend to end of line. Inline comments are not perm
 
 ```ori
 // Valid comment
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 
-@sub (a: int, b: int) -> int = a - b  // error: inline comment
+@sub (a: int, b: int) -> int = a - b;  // error: inline comment
 ```
 
 ### Doc Comments
@@ -41,7 +41,7 @@ Any comment immediately preceding a declaration is treated as documentation. Non
 // TODO: refactor this
 
 // Computes the sum.
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;
 ```
 
 ## Identifiers
@@ -83,7 +83,7 @@ max      print    panic
 
 | Prec | Operators | Assoc |
 |------|-----------|-------|
-| 1 | `.` `[]` `()` `?` | Left |
+| 1 | `.` `[]` `()` `?` `as` `as?` | Left |
 | 2 | `!` `-` `~` (unary) | Right |
 | 3 | `*` `/` `%` `div` | Left |
 | 4 | `+` `-` | Left |
@@ -96,7 +96,7 @@ max      print    panic
 | 11 | `\|` | Left |
 | 12 | `&&` | Left |
 | 13 | `\|\|` | Left |
-| 14 | `??` | Left |
+| 14 | `??` | Right |
 
 ## Delimiters
 
@@ -109,7 +109,7 @@ Sigils are single-character prefixes with specific meanings:
 | Sigil | Purpose | Example |
 |-------|---------|---------|
 | `@` | Function declaration | `@main ()` |
-| `$` | Immutable binding | `let $timeout = 30s` |
+| `$` | Immutable binding | `let $timeout = 30s;` |
 
 The `$` sigil marks a binding as immutable. It appears at definition, import, and usage sites. See [Variables](05-variables.md) for details.
 
@@ -145,7 +145,7 @@ Regular strings do not support interpolation. Braces are literal characters.
 Template strings use backticks and support expression interpolation:
 
 ```ori
-let name = "World"
+let name = "World";
 `Hello, {name}!`  // "Hello, World!"
 ```
 
@@ -213,10 +213,10 @@ In _type context_, `>` closes a generic parameter list.
 
 ```ori
 // Parses correctly: each > is a separate token
-let x: Result<Result<int, str>, str> = Ok(Ok(1))
+let x: Result<Result<int, str>, str> = Ok(Ok(1));
 
 // In expressions, >> is right shift
-let y = 8 >> 2  // y = 2
+let y = 8 >> 2;  // y = 2
 ```
 
 This enables nested generic types while preserving shift operators in expressions.
@@ -231,7 +231,7 @@ An uppercase identifier followed by `{` is interpreted as:
 
 ```ori
 // Struct literal in expression
-let p = Point { x: 1, y: 2 }
+let p = Point { x: 1, y: 2 };
 
 // In if condition, struct literal not allowed
 // (the { would start a block in languages without `then`)
@@ -256,7 +256,7 @@ The identifier `by` is a keyword only when it follows a range expression (`..` o
 
 ```ori
 0..10 by 2          // by is a keyword (range step)
-let by = 2
+let by = 2;
 0..10 by by         // first by is keyword, second is variable
 ```
 

@@ -9,7 +9,7 @@ use crate::common::{parse_err, parse_ok};
 
 #[test]
 fn test_import_constant_basic() {
-    let output = parse_ok("use std.config { $MAX_SIZE }\n@main () -> void = ()");
+    let output = parse_ok("use std.config { $MAX_SIZE }\n@main () -> void = ();");
     assert_eq!(output.module.imports.len(), 1);
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 1);
@@ -21,7 +21,7 @@ fn test_import_constant_basic() {
 
 #[test]
 fn test_import_constant_multiple() {
-    let output = parse_ok("use std.config { $TIMEOUT, $MAX_RETRIES }\n@main () -> void = ()");
+    let output = parse_ok("use std.config { $TIMEOUT, $MAX_RETRIES }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 2);
     assert!(items[0].is_constant);
@@ -30,7 +30,7 @@ fn test_import_constant_multiple() {
 
 #[test]
 fn test_import_constant_mixed_with_regular() {
-    let output = parse_ok("use \"./module\" { add, $LIMIT }\n@main () -> void = ()");
+    let output = parse_ok("use \"./module\" { add, $LIMIT }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 2);
     assert!(!items[0].is_constant);
@@ -39,7 +39,7 @@ fn test_import_constant_mixed_with_regular() {
 
 #[test]
 fn test_import_constant_mixed_with_private() {
-    let output = parse_ok("use \"./module\" { ::internal, $LIMIT }\n@main () -> void = ()");
+    let output = parse_ok("use \"./module\" { ::internal, $LIMIT }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 2);
     assert!(items[0].is_private);
@@ -52,7 +52,7 @@ fn test_import_constant_mixed_with_private() {
 
 #[test]
 fn test_import_without_def_basic() {
-    let output = parse_ok("use std.net.http { Http without def }\n@main () -> void = ()");
+    let output = parse_ok("use std.net.http { Http without def }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 1);
     assert!(items[0].without_def);
@@ -63,7 +63,7 @@ fn test_import_without_def_basic() {
 
 #[test]
 fn test_import_without_def_with_alias() {
-    let output = parse_ok("use std.net.http { Http without def as H }\n@main () -> void = ()");
+    let output = parse_ok("use std.net.http { Http without def as H }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 1);
     assert!(items[0].without_def);
@@ -72,7 +72,7 @@ fn test_import_without_def_with_alias() {
 
 #[test]
 fn test_import_without_def_mixed_with_regular() {
-    let output = parse_ok("use std.net { Http without def, connect }\n@main () -> void = ()");
+    let output = parse_ok("use std.net { Http without def, connect }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 2);
     assert!(items[0].without_def);
@@ -81,7 +81,7 @@ fn test_import_without_def_mixed_with_regular() {
 
 #[test]
 fn test_import_without_def_private() {
-    let output = parse_ok("use \"./module\" { ::Trait without def }\n@main () -> void = ()");
+    let output = parse_ok("use \"./module\" { ::Trait without def }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 1);
     assert!(items[0].is_private);
@@ -92,7 +92,7 @@ fn test_import_without_def_private() {
 
 #[test]
 fn test_import_private_basic() {
-    let output = parse_ok("use \"./module\" { ::internal }\n@main () -> void = ()");
+    let output = parse_ok("use \"./module\" { ::internal }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 1);
     assert!(items[0].is_private);
@@ -102,7 +102,7 @@ fn test_import_private_basic() {
 
 #[test]
 fn test_import_private_with_alias() {
-    let output = parse_ok("use \"./module\" { ::internal as helper }\n@main () -> void = ()");
+    let output = parse_ok("use \"./module\" { ::internal as helper }\n@main () -> void = ();");
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 1);
     assert!(items[0].is_private);
@@ -114,7 +114,7 @@ fn test_import_private_with_alias() {
 #[test]
 fn test_import_all_forms_combined() {
     let output = parse_ok(
-        "use \"./module\" { add, ::internal, $LIMIT, Trait without def }\n@main () -> void = ()",
+        "use \"./module\" { add, ::internal, $LIMIT, Trait without def }\n@main () -> void = ();",
     );
     let items = &output.module.imports[0].items;
     assert_eq!(items.len(), 4);
@@ -147,7 +147,7 @@ fn test_import_without_missing_def() {
     // `without` without `def` should error (after consuming `without` as ident,
     // parser expects `def` keyword)
     parse_err(
-        "use std.net { Http without }\n@main () -> void = ()",
+        "use std.net { Http without }\n@main () -> void = ();",
         "expected def",
     );
 }

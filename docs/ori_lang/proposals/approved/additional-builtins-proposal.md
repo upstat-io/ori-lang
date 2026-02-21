@@ -187,10 +187,10 @@ The `thread_id` is `Some(id)` in concurrent contexts, `None` for single-threaded
 
 ```ori
 let result = catch(expr: risky_operation())
-match(result,
-    Ok(v) -> v,
+match result {
+    Ok(v) -> v
     Err(msg) -> handle_panic(msg),  // msg is panic message string
-)
+}
 ```
 
 Note: `catch` returns `Result<T, str>`, not `Result<T, PanicInfo>`.
@@ -198,11 +198,11 @@ Note: `catch` returns `Result<T, str>`, not `Result<T, PanicInfo>`.
 ### In @panic Handler
 
 ```ori
-@panic (info: PanicInfo) -> void = run(
-    print(msg: `panic at {info.location.file}:{info.location.line}: {info.message}`),
+@panic (info: PanicInfo) -> void = {
+    print(msg: `panic at {info.location.file}:{info.location.line}: {info.message}`)
     for frame in info.stack_trace do
-        print(msg: `  at {frame.function}`),
-)
+        print(msg: `  at {frame.function}`)
+}
 ```
 
 See the panic-handler-proposal for full details on the `@panic` function.
@@ -234,10 +234,10 @@ The `??` operator provides a default for `None` or `Err`:
 ```ori
 let value = opt ?? default
 // Equivalent to:
-match(opt,
-    Some(v) -> v,
-    None -> default,
-)
+match opt {
+    Some(v) -> v
+    None -> default
+}
 ```
 
 ### With Result
@@ -245,10 +245,10 @@ match(opt,
 ```ori
 let value = result ?? default
 // Equivalent to:
-match(result,
-    Ok(v) -> v,
-    Err(_) -> default,
-)
+match result {
+    Ok(v) -> v
+    Err(_) -> default
+}
 ```
 
 ## Short-Circuit Evaluation

@@ -379,10 +379,10 @@ impl QueryBuilder {
     @where_clause (self, cond: str) -> QueryBuilder = ...
 
     // Return opaque result type
-    @execute (self) -> impl Iterator where Item == Row = run(
-        let results = execute_query(builder: self),
+    @execute (self) -> impl Iterator where Item == Row = {
+        let results = execute_query(builder: self)
         results.iter()
-    )
+    }
 }
 
 // Usage - clean API, hidden implementation

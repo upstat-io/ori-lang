@@ -63,7 +63,6 @@ pub(crate) fn lookup(text: &str) -> Option<TokenKind> {
             "for" => Some(TokenKind::For),
             "int" => Some(TokenKind::IntType),
             "let" => Some(TokenKind::Let),
-            "mut" => Some(TokenKind::Mut),
             "pub" => Some(TokenKind::Pub),
             "run" => Some(TokenKind::Run),
             "str" => Some(TokenKind::StrType),

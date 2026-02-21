@@ -171,10 +171,10 @@ impl<T: Sendable> Iterable for Consumer<T> {
 ### Compile-Time Role Enforcement
 
 ```ori
-@produce (p: Producer<int>) -> void uses Suspend = run(
-    p.send(value: 42),
+@produce (p: Producer<int>) -> void uses Suspend = {
+    p.send(value: 42)
     // p.receive()  // ERROR: Producer<T> has no method 'receive'
-)
+}
 
 @consume (c: Consumer<int>) -> [int] uses Suspend =
     for item in c yield item
@@ -213,10 +213,10 @@ Multiple producers can send to a single consumer. Producer is cloneable.
 let (producer, consumer) = channel_in<Result>(buffer: 100)
 
 parallel(
-    tasks: (0..4).map(i -> run(
+    tasks: (0..4).map(i -> {
         let p = producer.clone(),  // OK: CloneableProducer implements Clone
-        worker(p, i),
-    )).collect(),
+        worker(p, i)
+    }).collect(),
 )
 
 // consumer.clone()  // ERROR: Consumer<T> does not implement Clone
@@ -234,10 +234,10 @@ Single producer sends to multiple consumers. Consumer is cloneable.
 let (producer, consumer) = channel_out<Task>(buffer: 100)
 
 parallel(
-    tasks: (0..4).map(i -> run(
+    tasks: (0..4).map(i -> {
         let c = consumer.clone(),  // OK: CloneableConsumer implements Clone
-        worker(c, i),
-    )).collect(),
+        worker(c, i)
+    }).collect(),
 )
 
 // producer.clone()  // ERROR: Producer<T> does not implement Clone
@@ -287,11 +287,11 @@ Go allows sending pointers while retaining the original, causing data races. Ori
 Sending a value **consumes** it:
 
 ```ori
-@producer (p: Producer<Data>) -> void uses Suspend = run(
-    let data = create_data(),
+@producer (p: Producer<Data>) -> void uses Suspend = {
+    let data = create_data()
     p.send(value: data),  // Ownership transferred
     // data.field         // ERROR: 'data' moved into channel
-)
+}
 ```
 
 ### Explicit Copy
@@ -299,11 +299,11 @@ Sending a value **consumes** it:
 To retain access, explicitly clone:
 
 ```ori
-@producer (p: Producer<Data>) -> void uses Suspend = run(
-    let data = create_data(),
+@producer (p: Producer<Data>) -> void uses Suspend = {
+    let data = create_data()
     p.send(value: data.clone()),  // Send a copy
     print(msg: data.field),       // Original still accessible
-)
+}
 ```
 
 ### Why This Works
@@ -384,13 +384,13 @@ type Nursery = {
     )
 
 // Fan-out with early termination
-@find_first (queries: [Query]) -> Option<Result> uses Suspend = run(
+@find_first (queries: [Query]) -> Option<Result> uses Suspend = {
     let results = nursery(
-        body: n -> for q in queries do n.spawn(task: () -> search(q)),
-        on_error: CancelRemaining,
-    ),
-    results.find(predicate: r -> r.is_ok()).and_then(transform: r -> r.ok()),
-)
+        body: n -> for q in queries do n.spawn(task: () -> search(q))
+        on_error: CancelRemaining
+    )
+    results.find(predicate: r -> r.is_ok()).and_then(transform: r -> r.ok())
+}
 ```
 
 ### Guarantees
@@ -407,23 +407,23 @@ type Nursery = {
 ### Safe Producer-Consumer
 
 ```ori
-@main () -> void uses Suspend = run(
-    let (producer, consumer) = channel<Job>(buffer: 100),
+@main () -> void uses Suspend = {
+    let (producer, consumer) = channel<Job>(buffer: 100)
 
     parallel(
         tasks: [
-            job_producer(producer),
-            job_consumer(consumer),
-        ],
-    ),
+            job_producer(producer)
+            job_consumer(consumer)
+        ]
+    )
 
-    print(msg: "All jobs processed"),
-)
+    print(msg: "All jobs processed")
+}
 
-@job_producer (p: Producer<Job>) -> void uses Suspend = run(
-    for job in load_jobs() do p.send(value: job),
-    p.close(),
-)
+@job_producer (p: Producer<Job>) -> void uses Suspend = {
+    for job in load_jobs() do p.send(value: job)
+    p.close()
+}
 
 @job_consumer (c: Consumer<Job>) -> void uses Suspend =
     for job in c do process(job)
@@ -432,44 +432,44 @@ type Nursery = {
 ### Worker Pool (Fan-In)
 
 ```ori
-@worker_pool (jobs: [Job]) -> [Result<Output, Error>] uses Suspend = run(
-    let (sender, receiver) = channel_in<Result<Output, Error>>(buffer: 100),
+@worker_pool (jobs: [Job]) -> [Result<Output, Error>] uses Suspend = {
+    let (sender, receiver) = channel_in<Result<Output, Error>>(buffer: 100)
 
     nursery(
-        body: n -> run(
+        body: n -> {
             // Spawn workers with cloned senders
             for i in 0..4 do
-                n.spawn(task: () -> worker(sender.clone(), i)),
+                n.spawn(task: () -> worker(sender.clone(), i))
             // Spawn job feeder
-            n.spawn(task: () -> run(
-                for job in jobs do sender.send(value: Ok(job)),
-                sender.close(),
-            )),
-        ),
-        on_error: CollectAll,
-    ),
+            n.spawn(task: () -> {
+                for job in jobs do sender.send(value: Ok(job))
+                sender.close()
+            })
+        }
+        on_error: CollectAll
+    )
 
     // Collect results
-    for result in receiver yield result,
-)
+    for result in receiver yield result
+}
 ```
 
 ### Pipeline with Backpressure
 
 ```ori
-@data_pipeline (input: Consumer<RawData>) -> [ProcessedData] uses Suspend = run(
-    let (stage1_out, stage1_in) = channel<Parsed>(buffer: 10),
-    let (stage2_out, stage2_in) = channel<Validated>(buffer: 10),
+@data_pipeline (input: Consumer<RawData>) -> [ProcessedData] uses Suspend = {
+    let (stage1_out, stage1_in) = channel<Parsed>(buffer: 10)
+    let (stage2_out, stage2_in) = channel<Validated>(buffer: 10)
 
     nursery(
-        body: n -> run(
-            n.spawn(task: () -> pipe(input, stage1_out, parse)),
-            n.spawn(task: () -> pipe(stage1_in, stage2_out, validate)),
-            n.spawn(task: () -> for item in stage2_in yield transform(item)),
-        ),
-        on_error: FailFast,
-    ),
-)
+        body: n -> {
+            n.spawn(task: () -> pipe(input, stage1_out, parse))
+            n.spawn(task: () -> pipe(stage1_in, stage2_out, validate))
+            n.spawn(task: () -> for item in stage2_in yield transform(item))
+        }
+        on_error: FailFast
+    )
+}
 
 @pipe<A, B> (input: Consumer<A>, output: Producer<B>, f: (A) -> B) -> void uses Suspend =
     for item in input do output.send(value: f(item))

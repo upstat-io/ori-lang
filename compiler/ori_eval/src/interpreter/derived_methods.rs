@@ -1,207 +1,360 @@
-//! Derived method evaluation for `#[derive(...)]` attributes.
+//! Derived method evaluation for `@derive(...)` attributes.
 //!
-//! This module handles evaluation of methods generated from derive attributes:
-//! - `#[derive(Eq)]` -> `eq` method
-//! - `#[derive(Clone)]` -> `clone` method
-//! - `#[derive(Hashable)]` -> `hash` method
-//! - `#[derive(Printable)]` -> `to_str` method
-//! - `#[derive(Debug)]` -> `debug` method
-//! - `#[derive(Default)]` -> `default` method
-//! - `#[derive(Comparable)]` -> `compare` method
+//! Uses [`DeriveStrategy`](ori_ir::derives::strategy::DeriveStrategy) from `ori_ir`
+//! to drive field iteration and result combination. Each strategy variant
+//! (`ForEachField`, `FormatFields`, etc.) has a corresponding handler that
+//! interprets the strategy using `Value` operations.
 
 use crate::derives::DefaultFieldType;
 use crate::errors::wrong_function_args;
 use crate::{EvalResult, StructValue, Value};
-use ori_ir::{DerivedMethodInfo, DerivedTrait, Name, TypeId};
+use ori_ir::{CombineOp, FieldOp, FormatOpen, StructBody};
+use ori_ir::{DerivedMethodInfo, Name, TypeId};
 use rustc_hash::FxHashMap;
 
 use super::Interpreter;
 
 impl Interpreter<'_> {
-    /// Evaluate a derived method (from `#[derive(...)]`).
+    /// Evaluate a derived method using its [`DeriveStrategy`].
     ///
-    /// These methods operate directly on struct field values rather than
-    /// having an expression body.
+    /// Dispatches on the strategy's `struct_body` to select the appropriate
+    /// evaluation handler: field comparison, string formatting, cloning, or
+    /// default construction.
     pub(super) fn eval_derived_method(
         &mut self,
         receiver: Value,
         info: &DerivedMethodInfo,
         args: &[Value],
     ) -> EvalResult {
-        match info.trait_kind {
-            DerivedTrait::Eq => self.eval_derived_eq(receiver, info, args),
-            DerivedTrait::Clone => self.eval_derived_clone(receiver, info),
-            DerivedTrait::Hashable => self.eval_derived_hash(receiver, info),
-            DerivedTrait::Printable => self.eval_derived_to_str(receiver, info),
-            DerivedTrait::Debug => self.eval_derived_debug(receiver, info),
-            DerivedTrait::Default => self.eval_derived_default(receiver, info),
-            DerivedTrait::Comparable => self.eval_derived_compare(receiver, info, args),
+        let strategy = info.trait_kind.strategy();
+        match strategy.struct_body {
+            StructBody::ForEachField { field_op, combine } => {
+                self.eval_for_each_field(receiver, info, args, field_op, combine)
+            }
+            StructBody::FormatFields {
+                open,
+                separator,
+                suffix,
+                include_names,
+            } => self.eval_format_fields(receiver, info, open, separator, suffix, include_names),
+            StructBody::CloneFields => Ok(receiver),
+            StructBody::DefaultConstruct => self.eval_default_construct(receiver, info),
         }
     }
 
-    /// Evaluate derived `eq` method for structs.
+    // ── ForEachField strategy ───────────────────────────────────────────
+
+    /// Apply a per-field operation and combine results.
     ///
-    /// Compares each field recursively.
-    #[expect(
-        clippy::unused_self,
-        reason = "Method on Interpreter for organizational consistency with other derived methods"
-    )]
+    /// Routes to struct or variant handling based on the receiver's shape.
+    /// Binary operations (Eq, Compare) require one argument; unary (Hash)
+    /// requires none.
     #[expect(
         clippy::needless_pass_by_value,
-        reason = "Consistent derived method dispatch signature"
+        reason = "Consistent strategy-driven dispatch signature"
     )]
-    fn eval_derived_eq(
+    fn eval_for_each_field(
         &self,
         receiver: Value,
         info: &DerivedMethodInfo,
         args: &[Value],
+        field_op: FieldOp,
+        combine: CombineOp,
     ) -> EvalResult {
-        // eq takes one argument: the other value to compare
-        if args.len() != 1 {
-            return Err(wrong_function_args(1, args.len()).into());
-        }
-
-        let other = &args[0];
-
-        // Both must be structs
-        let (Value::Struct(self_struct), Value::Struct(other_struct)) = (&receiver, other) else {
-            return Ok(Value::Bool(false)); // Different types are not equal
+        let other = if matches!(field_op, FieldOp::Equals | FieldOp::Compare) {
+            if args.len() != 1 {
+                return Err(wrong_function_args(1, args.len()).into());
+            }
+            Some(&args[0])
+        } else {
+            None
         };
 
-        // Must be the same type
-        if self_struct.type_name != other_struct.type_name {
-            return Ok(Value::Bool(false));
+        match (&receiver, other) {
+            (Value::Struct(self_s), Some(Value::Struct(other_s))) => {
+                self.for_each_struct(self_s, Some(other_s), info, field_op, combine)
+            }
+            (Value::Struct(self_s), None) => {
+                self.for_each_struct(self_s, None, info, field_op, combine)
+            }
+            (
+                Value::Variant {
+                    type_name: t1,
+                    variant_name: v1,
+                    fields: f1,
+                },
+                Some(Value::Variant {
+                    type_name: t2,
+                    variant_name: v2,
+                    fields: f2,
+                }),
+            ) => self.for_each_variant_binary(*t1, *v1, f1, *t2, *v2, f2, info, combine),
+            (
+                Value::Variant {
+                    variant_name,
+                    fields,
+                    ..
+                },
+                None,
+            ) => self.for_each_variant_unary(*variant_name, fields, combine),
+            _ => match combine {
+                CombineOp::AllTrue => Ok(Value::Bool(false)),
+                CombineOp::HashCombine => {
+                    use crate::methods::compare::FNV_OFFSET_BASIS;
+                    Ok(Value::int(FNV_OFFSET_BASIS.cast_signed()))
+                }
+                CombineOp::Lexicographic => Err(crate::errors::no_such_method(
+                    info.trait_kind.method_name(),
+                    "incompatible values",
+                )
+                .into()),
+            },
         }
+    }
 
-        // Compare each field
-        for field_name in &info.field_names {
-            let self_val = self_struct.get_field(*field_name);
-            let other_val = other_struct.get_field(*field_name);
-
-            match (self_val, other_val) {
-                (Some(sv), Some(ov)) => {
-                    if sv != ov {
-                        return Ok(Value::Bool(false));
+    /// `ForEachField` on named struct fields.
+    fn for_each_struct(
+        &self,
+        self_s: &StructValue,
+        other_s: Option<&StructValue>,
+        info: &DerivedMethodInfo,
+        field_op: FieldOp,
+        combine: CombineOp,
+    ) -> EvalResult {
+        match (field_op, combine) {
+            (FieldOp::Equals, CombineOp::AllTrue) => {
+                let Some(other) = other_s else {
+                    debug_assert!(false, "Equals requires other");
+                    return Ok(Value::Bool(false));
+                };
+                if self_s.type_name != other.type_name {
+                    return Ok(Value::Bool(false));
+                }
+                for field_name in &info.field_names {
+                    match (self_s.get_field(*field_name), other.get_field(*field_name)) {
+                        (Some(sv), Some(ov)) if sv == ov => {}
+                        _ => return Ok(Value::Bool(false)),
                     }
                 }
-                _ => return Ok(Value::Bool(false)), // Missing field
+                Ok(Value::Bool(true))
             }
-        }
-
-        Ok(Value::Bool(true))
-    }
-
-    /// Evaluate derived `clone` method for structs.
-    ///
-    /// Creates a deep copy of the struct.
-    #[expect(
-        clippy::unused_self,
-        reason = "Method on Interpreter for organizational consistency with other derived methods"
-    )]
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "Returns EvalResult for consistent derived method dispatch interface"
-    )]
-    fn eval_derived_clone(&self, receiver: Value, _info: &DerivedMethodInfo) -> EvalResult {
-        let Value::Struct(struct_val) = receiver else {
-            return Ok(receiver.clone()); // Non-structs just clone directly
-        };
-
-        // Clone the struct (Value::Struct already uses Arc for cheap cloning)
-        // For a true deep clone, we'd need to recursively clone nested values,
-        // but for now we rely on the structural clone behavior of Value.
-        Ok(Value::Struct(struct_val.clone()))
-    }
-
-    /// Evaluate derived `hash` method for structs.
-    ///
-    /// Combines hashes of all fields.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "Consistent derived method dispatch signature"
-    )]
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "Returns EvalResult for consistent derived method dispatch interface"
-    )]
-    #[expect(
-        clippy::cast_possible_wrap,
-        reason = "Hash values are opaque identifiers; wrapping is acceptable"
-    )]
-    fn eval_derived_hash(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let Value::Struct(struct_val) = &receiver else {
-            // For non-structs, use a simple hash
-            let mut hasher = DefaultHasher::new();
-            receiver.type_name().hash(&mut hasher);
-            return Ok(Value::int(hasher.finish() as i64));
-        };
-
-        let mut hasher = DefaultHasher::new();
-
-        // Hash the type name
-        self.interner.lookup(struct_val.type_name).hash(&mut hasher);
-
-        // Hash each field value
-        for field_name in &info.field_names {
-            if let Some(val) = struct_val.get_field(*field_name) {
-                val.hash(&mut hasher);
-            }
-        }
-
-        Ok(Value::int(hasher.finish() as i64))
-    }
-
-    /// Evaluate derived `to_str` method for structs.
-    ///
-    /// Produces human-readable format like `Point(10, 20)` per spec §7
-    /// (type name + field values in parens, no field names).
-    ///
-    /// Uses [`format_value_printable`] for each field to ensure:
-    /// - Strings are unquoted (human-readable)
-    /// - Nested structs are recursively formatted as `TypeName(vals...)`
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "Consistent derived method dispatch signature"
-    )]
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "Returns EvalResult for consistent derived method dispatch interface"
-    )]
-    fn eval_derived_to_str(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
-        let Value::Struct(struct_val) = &receiver else {
-            return Ok(Value::string(format!("{receiver}")));
-        };
-
-        let type_name = self.interner.lookup(struct_val.type_name);
-        // Pre-allocate capacity: type_name + "(" + estimated field content + ")"
-        // Overflow is impossible for reasonable struct sizes, and even if it wrapped,
-        // String::with_capacity handles it safely by allocating less.
-        #[expect(
-            clippy::arithmetic_side_effects,
-            reason = "capacity estimation, overflow is safe"
-        )]
-        let capacity = type_name.len() + 2 + info.field_names.len() * 12;
-        let mut result = String::with_capacity(capacity);
-
-        result.push_str(type_name);
-        result.push('(');
-
-        let mut first = true;
-        for field_name in &info.field_names {
-            if let Some(val) = struct_val.get_field(*field_name) {
-                if !first {
-                    result.push_str(", ");
+            (FieldOp::Compare, CombineOp::Lexicographic) => {
+                use crate::methods::compare::{compare_values, ordering_to_value};
+                let Some(other) = other_s else {
+                    debug_assert!(false, "Compare requires other");
+                    return Err(
+                        crate::errors::no_such_method("compare", "missing other argument").into(),
+                    );
+                };
+                if self_s.type_name != other.type_name {
+                    return Err(
+                        crate::errors::no_such_method("compare", "different struct types").into(),
+                    );
                 }
-                first = false;
-                result.push_str(&self.format_value_printable(val));
+                for field_name in &info.field_names {
+                    match (self_s.get_field(*field_name), other.get_field(*field_name)) {
+                        (Some(sv), Some(ov)) => {
+                            let ord = compare_values(sv, ov, self.interner)?;
+                            if ord != std::cmp::Ordering::Equal {
+                                return Ok(ordering_to_value(ord));
+                            }
+                        }
+                        _ => {
+                            return Err(crate::errors::no_such_method(
+                                "compare",
+                                "struct with missing field",
+                            )
+                            .into());
+                        }
+                    }
+                }
+                Ok(ordering_to_value(std::cmp::Ordering::Equal))
             }
+            (FieldOp::Hash, CombineOp::HashCombine) => {
+                use crate::methods::compare::{hash_value, FNV_OFFSET_BASIS, FNV_PRIME};
+                let mut hash = FNV_OFFSET_BASIS;
+                for field_name in &info.field_names {
+                    if let Some(val) = self_s.get_field(*field_name) {
+                        let field_hash = hash_value(val, self.interner)?.cast_unsigned();
+                        hash ^= field_hash;
+                        hash = hash.wrapping_mul(FNV_PRIME);
+                    }
+                }
+                Ok(Value::int(hash.cast_signed()))
+            }
+            // SAFETY: DerivedTrait::strategy() only produces valid (FieldOp, CombineOp) pairings:
+            // (Equals, AllTrue), (Compare, Lexicographic), (Hash, HashCombine).
+            _ => unreachable!(
+                "unsupported FieldOp+CombineOp: {:?}+{:?}",
+                field_op, combine
+            ),
         }
+    }
 
-        result.push(')');
-        Ok(Value::string(result))
+    /// `ForEachField` on variant payloads — binary case (Eq, Compare).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "variant fields from destructured match arms"
+    )]
+    fn for_each_variant_binary(
+        &self,
+        t1: Name,
+        v1: Name,
+        f1: &[Value],
+        t2: Name,
+        v2: Name,
+        f2: &[Value],
+        info: &DerivedMethodInfo,
+        combine: CombineOp,
+    ) -> EvalResult {
+        match combine {
+            CombineOp::AllTrue => Ok(Value::Bool(t1 == t2 && v1 == v2 && f1 == f2)),
+            CombineOp::Lexicographic => {
+                use crate::methods::compare::{compare_values, ordering_to_value};
+                let pos1 = info.variant_names.iter().position(|n| *n == v1);
+                let pos2 = info.variant_names.iter().position(|n| *n == v2);
+                match (pos1, pos2) {
+                    (Some(i1), Some(i2)) => {
+                        let ord = i1.cmp(&i2);
+                        if ord != std::cmp::Ordering::Equal {
+                            return Ok(ordering_to_value(ord));
+                        }
+                        for (sv, ov) in f1.iter().zip(f2.iter()) {
+                            let ord = compare_values(sv, ov, self.interner)?;
+                            if ord != std::cmp::Ordering::Equal {
+                                return Ok(ordering_to_value(ord));
+                            }
+                        }
+                        Ok(ordering_to_value(std::cmp::Ordering::Equal))
+                    }
+                    _ => Err(
+                        crate::errors::no_such_method("compare", "variant not found in type")
+                            .into(),
+                    ),
+                }
+            }
+            // SAFETY: strategy() pairs Hash with HashCombine; Hash is unary (no `other` param).
+            CombineOp::HashCombine => unreachable!("Hash is unary, not binary"),
+        }
+    }
+
+    /// `ForEachField` on variant payloads — unary case (Hash).
+    fn for_each_variant_unary(
+        &self,
+        variant_name: Name,
+        fields: &[Value],
+        combine: CombineOp,
+    ) -> EvalResult {
+        match combine {
+            CombineOp::HashCombine => {
+                use crate::methods::compare::{
+                    fnv1a_hash, hash_value, FNV_OFFSET_BASIS, FNV_PRIME,
+                };
+                let mut hash = FNV_OFFSET_BASIS;
+                let variant_str = self.interner.lookup(variant_name);
+                let discriminant = fnv1a_hash(variant_str.as_bytes()).cast_unsigned();
+                hash ^= discriminant;
+                hash = hash.wrapping_mul(FNV_PRIME);
+                for field in fields {
+                    let field_hash = hash_value(field, self.interner)?.cast_unsigned();
+                    hash ^= field_hash;
+                    hash = hash.wrapping_mul(FNV_PRIME);
+                }
+                Ok(Value::int(hash.cast_signed()))
+            }
+            // SAFETY: only Hash routes to unary variant handling; Hash pairs with HashCombine.
+            _ => unreachable!("only HashCombine uses unary variant handling"),
+        }
+    }
+
+    // ── FormatFields strategy ───────────────────────────────────────────
+
+    /// Format struct/variant fields into a string representation.
+    ///
+    /// Uses `format_value_printable` (Printable) or `debug_value` (Debug)
+    /// based on `include_names`.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "Consistent strategy-driven dispatch signature"
+    )]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "Returns EvalResult for consistent strategy-driven interface"
+    )]
+    fn eval_format_fields(
+        &self,
+        receiver: Value,
+        info: &DerivedMethodInfo,
+        open: FormatOpen,
+        separator: &str,
+        suffix: &str,
+        include_names: bool,
+    ) -> EvalResult {
+        let fmt = |val: &Value| -> String {
+            if include_names {
+                crate::methods::helpers::debug_value(val)
+            } else {
+                self.format_value_printable(val)
+            }
+        };
+
+        match &receiver {
+            Value::Struct(struct_val) => {
+                let type_name = self.interner.lookup(struct_val.type_name);
+                #[expect(
+                    clippy::arithmetic_side_effects,
+                    reason = "capacity estimation, overflow is safe"
+                )]
+                let capacity = type_name.len() + 4 + info.field_names.len() * 12;
+                let mut result = String::with_capacity(capacity);
+
+                result.push_str(type_name);
+                match open {
+                    FormatOpen::TypeNameParen => result.push('('),
+                    FormatOpen::TypeNameBrace => result.push_str(" { "),
+                }
+
+                let mut first = true;
+                for field_name in &info.field_names {
+                    if let Some(val) = struct_val.get_field(*field_name) {
+                        if !first {
+                            result.push_str(separator);
+                        }
+                        first = false;
+                        if include_names {
+                            let name_str = self.interner.lookup(*field_name);
+                            result.push_str(name_str);
+                            result.push_str(": ");
+                        }
+                        result.push_str(&fmt(val));
+                    }
+                }
+
+                result.push_str(suffix);
+                Ok(Value::string(result))
+            }
+            Value::Variant {
+                variant_name,
+                fields,
+                ..
+            } => {
+                let vname = self.interner.lookup(*variant_name);
+                if fields.is_empty() {
+                    return Ok(Value::string(vname.to_string()));
+                }
+                let mut result = String::from(vname);
+                result.push('(');
+                for (i, val) in fields.iter().enumerate() {
+                    if i > 0 {
+                        result.push_str(separator);
+                    }
+                    result.push_str(&fmt(val));
+                }
+                result.push(')');
+                Ok(Value::string(result))
+            }
+            _ => Ok(Value::string(fmt(&receiver))),
+        }
     }
 
     /// Format a value in Printable style (human-readable, no quotes on strings).
@@ -244,76 +397,49 @@ impl Interpreter<'_> {
                 result.push(')');
                 result
             }
+            Value::Variant {
+                variant_name,
+                fields,
+                ..
+            } => {
+                let vname = self.interner.lookup(*variant_name);
+                if fields.is_empty() {
+                    vname.to_string()
+                } else {
+                    let mut result = String::from(vname);
+                    result.push('(');
+                    for (i, fv) in fields.iter().enumerate() {
+                        if i > 0 {
+                            result.push_str(", ");
+                        }
+                        result.push_str(&self.format_value_printable(fv));
+                    }
+                    result.push(')');
+                    result
+                }
+            }
             _ => format!("{val}"),
         }
     }
 
-    /// Evaluate derived `debug` method for structs.
+    // ── DefaultConstruct strategy ───────────────────────────────────────
+
+    /// Construct a struct with all fields set to their type's default value.
     ///
-    /// Produces a developer-facing string like `Point { x: 10, y: 20 }` where
-    /// nested values use debug formatting (strings are quoted/escaped, etc.).
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "Consistent derived method dispatch signature"
-    )]
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "Returns EvalResult for consistent derived method dispatch interface"
-    )]
-    fn eval_derived_debug(&self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
-        use crate::methods::helpers::debug_value;
-        use std::fmt::Write;
-
-        let Value::Struct(struct_val) = &receiver else {
-            return Ok(Value::string(debug_value(&receiver)));
-        };
-
-        let type_name = self.interner.lookup(struct_val.type_name);
-        #[expect(
-            clippy::arithmetic_side_effects,
-            reason = "capacity estimation, overflow is safe"
-        )]
-        let capacity = type_name.len() + 4 + info.field_names.len() * 20;
-        let mut result = String::with_capacity(capacity);
-
-        result.push_str(type_name);
-        result.push_str(" { ");
-
-        let mut first = true;
-        for field_name in &info.field_names {
-            let field_str = self.interner.lookup(*field_name);
-            if let Some(val) = struct_val.get_field(*field_name) {
-                if !first {
-                    result.push_str(", ");
-                }
-                first = false;
-                let _ = write!(result, "{field_str}: {}", debug_value(val));
-            }
-        }
-
-        result.push_str(" }");
-        Ok(Value::string(result))
-    }
-
-    /// Evaluate derived `default` method for structs.
-    ///
-    /// Constructs a struct with all fields set to their type's default value.
     /// Called as a static method: `Point.default()` returns `Point { x: 0, y: 0 }`.
-    ///
     /// Field types are looked up from the `DefaultFieldTypeRegistry` rather than
     /// from `DerivedMethodInfo` — this keeps evaluator-specific data out of the IR.
     #[expect(
         clippy::needless_pass_by_value,
-        reason = "Consistent derived method dispatch signature"
+        reason = "Consistent strategy-driven dispatch signature"
     )]
-    fn eval_derived_default(&mut self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
+    fn eval_default_construct(&mut self, receiver: Value, info: &DerivedMethodInfo) -> EvalResult {
         let Value::TypeRef { type_name } = receiver else {
             return Err(crate::errors::no_such_method("default", "non-type").into());
         };
 
         let default_name = self.interner.intern("default");
 
-        // Look up field types from the evaluator-local registry
         let field_types = self
             .default_field_types
             .read()
@@ -321,7 +447,6 @@ impl Interpreter<'_> {
             .map(Vec::from);
 
         let Some(field_types) = field_types else {
-            // No field types registered — fall back to empty struct
             return Ok(Value::Struct(StructValue::new(
                 type_name,
                 FxHashMap::default(),
@@ -337,62 +462,6 @@ impl Interpreter<'_> {
         Ok(Value::Struct(StructValue::new(type_name, fields)))
     }
 
-    /// Evaluate derived `compare` method for structs.
-    ///
-    /// Lexicographic field comparison: compares fields in declaration order,
-    /// short-circuiting on the first non-equal field. Uses `compare_values()`
-    /// for recursive comparison of field values.
-    #[expect(
-        clippy::needless_pass_by_value,
-        reason = "Consistent derived method dispatch signature"
-    )]
-    fn eval_derived_compare(
-        &self,
-        receiver: Value,
-        info: &DerivedMethodInfo,
-        args: &[Value],
-    ) -> EvalResult {
-        use crate::methods::compare::{compare_values, ordering_to_value};
-
-        if args.len() != 1 {
-            return Err(wrong_function_args(1, args.len()).into());
-        }
-
-        let other = &args[0];
-
-        let (Value::Struct(self_struct), Value::Struct(other_struct)) = (&receiver, other) else {
-            return Err(crate::errors::no_such_method("compare", "non-struct value").into());
-        };
-
-        if self_struct.type_name != other_struct.type_name {
-            return Err(crate::errors::no_such_method("compare", "different struct types").into());
-        }
-
-        // Lexicographic comparison: compare fields in order, short-circuit on first difference
-        for field_name in &info.field_names {
-            let self_val = self_struct.get_field(*field_name);
-            let other_val = other_struct.get_field(*field_name);
-
-            match (self_val, other_val) {
-                (Some(sv), Some(ov)) => {
-                    let ord = compare_values(sv, ov, self.interner)?;
-                    if ord != std::cmp::Ordering::Equal {
-                        return Ok(ordering_to_value(ord));
-                    }
-                }
-                _ => {
-                    return Err(crate::errors::no_such_method(
-                        "compare",
-                        "struct with missing field",
-                    )
-                    .into());
-                }
-            }
-        }
-
-        Ok(ordering_to_value(std::cmp::Ordering::Equal))
-    }
-
     /// Produce the default value for a single field based on its type.
     fn default_value_for_field(
         &mut self,
@@ -406,7 +475,6 @@ impl Interpreter<'_> {
                 if name_str == "Option" {
                     return Ok(Value::None);
                 }
-                // Recursively call Type.default() for named types
                 let type_ref = Value::TypeRef { type_name: *name };
                 let default_name = self.interner.intern("default");
                 self.eval_method_call(type_ref, default_name, vec![])

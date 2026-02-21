@@ -33,8 +33,7 @@
       }
       return out || '(no output)';
     }
-    const errorType = result.error_type ? `[${result.error_type}] ` : '';
-    return `${errorType}${result.error || 'Unknown error'}`;
+    return result.error || 'Unknown error';
   });
 </script>
 

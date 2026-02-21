@@ -9,7 +9,7 @@
 // and the assertion will fail (1 != 2)
 // TODO: Fix assert_eq to use .actual/.expected not .left/.right
 // #[fail("assertion failed")]
-// @test_expected_assertion_failure () -> void = run(
+// @test_expected_assertion_failure () -> void = {
 //     assert_eq(left: 1, right: 2),
 //     ()
-// )
+// }

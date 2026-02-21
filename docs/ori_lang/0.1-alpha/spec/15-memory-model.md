@@ -50,12 +50,13 @@ Each binding in a sequence:
 3. Is destroyed when the sequence ends
 
 ```ori
-@process (input: Data) -> Result<Output, Error> = try(
-    let validated = validate(data: input)?,   // A: sees input
-    let enriched = enrich(data: validated)?,  // B: sees input, validated
-    let saved = save(data: enriched)?,        // C: sees input, validated, enriched
-    Ok(saved),
-)
+@process (input: Data) -> Result<Output, Error> = try {
+    let validated = validate(data: input)?;   // A: sees input
+    let enriched = enrich(data: validated)?;  // B: sees input, validated
+    let saved = save(data: enriched)?;        // C: sees input, validated, enriched
+
+    Ok(saved)
+}
 ```
 
 There is no mechanism for `saved` to reference the function `process`, or for `enriched` and `validated` to reference each other bidirectionally. Data flows forward through transformations.
@@ -64,9 +65,9 @@ There is no mechanism for `saved` to reference the function `process`, or for `e
 
 | Pattern | Data Flow | Cycle Prevention |
 |---------|-----------|------------------|
-| `run(a, b, c)` | Linear sequence | Each step sees only prior bindings |
-| `try(a?, b?, c?)` | Linear with early exit | Same as `run` |
-| `match(x, ...)` | Branching | Each branch is independent |
+| `{ a \n b \n c }` | Linear sequence | Each step sees only prior bindings |
+| `try { a? \n b? \n c? }` | Linear with early exit | Same as blocks |
+| `match x { ... }` | Branching | Each branch is independent |
 | `recurse(...)` | Iteration | State passed explicitly, no self-reference |
 | `parallel(...)` | Fan-out/fan-in | Results collected, no cross-task references |
 
@@ -81,8 +82,8 @@ Object ──▶ callback field ──▶ closure ──▶ captured self ──
 Ori closures capture by value. The closure receives a copy of captured data, not a reference back to the containing scope:
 
 ```ori
-let x = 5
-let f = () -> x + 1  // f contains a copy of 5, not a reference to x
+let x = 5;
+let f = () -> x + 1;  // f contains a copy of 5, not a reference to x
 ```
 
 This eliminates the most common source of cycles in functional-style code.
@@ -92,9 +93,9 @@ This eliminates the most common source of cycles in functional-style code.
 A closure is represented as a struct containing captured values:
 
 ```ori
-let x = 10
-let y = "hello"
-let f = () -> `{y}: {x}`
+let x = 10;
+let y = "hello";
+let f = () -> `{y}: {x}`;
 
 // f is approximately:
 // type _Closure_f = { captured_x: int, captured_y: str }
@@ -150,15 +151,17 @@ References are dropped when variables go out of scope or are reassigned.
 
 ### Atomicity
 
-All reference count operations are atomic (thread-safe). This ensures correct behavior when values are shared across concurrent tasks:
+All reference count operations are atomic. This ensures correct deallocation when values are shared across concurrent tasks.
 
-| Operation | Implementation |
-|-----------|----------------|
-| Increment refcount | Atomic fetch-add |
-| Decrement refcount | Atomic fetch-sub |
-| Check for zero | Part of decrement operation |
+| Operation | Atomic Instruction | Memory Ordering |
+|-----------|-------------------|-----------------|
+| Increment | Fetch-add | Acquire |
+| Decrement | Fetch-sub | Release |
+| Deallocation check | Fence before free | Acquire |
 
-Without atomic refcounts, concurrent decrements could both observe a non-zero count, leading to double-free or use-after-free bugs.
+The acquire fence before deallocation ensures the deallocating task observes all prior writes to the object from other tasks.
+
+> **Note:** An implementation may use non-atomic operations for values that provably do not escape the current task. This is an optimization; the observable behavior must be identical.
 
 ## Destruction
 
@@ -170,7 +173,7 @@ The `Drop` trait enables custom destruction logic:
 
 ```ori
 trait Drop {
-    @drop (self) -> void
+    @drop (self) -> void;
 }
 ```
 
@@ -196,12 +199,12 @@ Values may be dropped before scope end if no longer referenced (compiler optimiz
 Reverse creation order within a scope:
 
 ```ori
-run(
-    let a = create_a(),  // Destroyed 3rd
-    let b = create_b(),  // Destroyed 2nd
-    let c = create_c(),  // Destroyed 1st
+{
+    let a = create_a();  // Destroyed 3rd
+    let b = create_b();  // Destroyed 2nd
+    let c = create_c();  // Destroyed 1st
     // destroyed: c, b, a
-)
+}
 ```
 
 Struct fields are destroyed in reverse declaration order:
@@ -217,14 +220,14 @@ type Container = {
 List elements are destroyed back-to-front:
 
 ```ori
-let items = [a, b, c]
+let items = [a, b, c];
 // When dropped: c, then b, then a
 ```
 
 Tuple elements are destroyed right-to-left:
 
 ```ori
-let tuple = (first, second, third)
+let tuple = (first, second, third);
 // When dropped: third, then second, then first
 ```
 
@@ -248,7 +251,7 @@ Destructors cannot be async:
 
 ```ori
 impl Drop for Resource {
-    @drop (self) -> void uses Async = ...  // ERROR: drop cannot be async
+    @drop (self) -> void uses Async = ...;  // ERROR: drop cannot be async
 }
 ```
 
@@ -256,17 +259,59 @@ For async cleanup, use explicit methods:
 
 ```ori
 impl AsyncResource {
-    @close (self) -> void uses Async = ...  // Explicit async cleanup
+    @close (self) -> void uses Async = ...;  // Explicit async cleanup
 }
 
 impl Drop for AsyncResource {
-    @drop (self) -> void = ()  // Synchronous no-op
+    @drop (self) -> void = ();  // Synchronous no-op
 }
 ```
 
 ### Destructors and Task Cancellation
 
 When a task is cancelled, destructors still run during unwinding.
+
+## Reference Counting Optimizations
+
+An implementation may optimize reference counting operations provided the following observable behavior is preserved:
+
+1. Every reference-counted value is deallocated no later than the end of the scope in which it becomes unreachable
+2. `Drop.drop` is called exactly once per value, in the order specified by [§ Destruction Order](#destruction-order)
+3. No value is accessed after deallocation
+
+The following optimizations are permitted:
+
+| Optimization | Description |
+|-------------|-------------|
+| Scalar elision | No reference counting operations for scalar types (see [§ Type Classification](#type-classification)) |
+| Borrow inference | Omit increment/decrement for parameters that are borrowed and do not outlive the callee |
+| Move optimization | Elide the increment/decrement pair when a value is transferred on last use |
+| Redundant pair elimination | Remove an increment immediately followed by a decrement on the same value |
+| Constructor reuse | Reuse the existing allocation when the reference count is one (requires a runtime uniqueness check) |
+| Early drop | Deallocate a value before scope end when it is provably unreferenced for the remainder of the scope |
+
+These are permissions, not requirements. A conforming implementation may perform all, some, or none of these optimizations.
+
+## Ownership and Borrowing
+
+Every reference-counted value has exactly one _owner_. The owner is the binding, field, or container element that holds the value.
+
+### Ownership Transfer
+
+Ownership transfers on:
+
+- Assignment to a new binding
+- Passing as a function argument
+- Returning from a function
+- Storage in a container element or struct field
+
+On transfer, the previous owner relinquishes access. The reference count does not change; ownership moves without an increment/decrement pair.
+
+### Borrowed References
+
+A _borrowed reference_ provides temporary read access to a value without incrementing the reference count. A borrowed reference must not outlive its owner.
+
+The compiler infers ownership and borrowing. There is no user-visible syntax for ownership annotations or borrow markers.
 
 ## Cycle Prevention
 
@@ -284,33 +329,53 @@ type Graph = { nodes: [Node], edges: [(int, int)] }
 type Node = { next: Option<Node> }  // compile error
 ```
 
-## Value vs Reference Types
+## Type Classification
 
-| Semantics | Criteria |
-|-----------|----------|
-| Value | ≤32 bytes AND primitives only |
-| Reference | >32 bytes OR contains references |
+Every type is classified as either _scalar_ or _reference_ for the purpose of reference counting. Classification is determined by type containment, not by representation size.
 
-**Value types** (copied):
-- Primitives: `int`, `float`, `bool`, `char`, `byte`, `Duration`, `Size`
-- Small structs with only primitives
+### Scalar Types
 
-**Reference types** (shared, counted):
-- `str`, `[T]`, `{K: V}`, `Set<T>`
-- Structs containing references
-- Structs >32 bytes
+A type is scalar if it requires no reference counting. The following types are scalar:
 
-```ori
-type Point = { x: int, y: int }      // Value: 16 bytes, primitives
-type User = { id: int, name: str }   // Reference: contains str
-```
+- Primitive types: `int`, `float`, `bool`, `char`, `byte`, `Duration`, `Size`, `Ordering`
+- `unit` and `never`
+- Compound types (structs, enums, tuples, `Option<T>`, `Result<T, E>`, `Range<T>`) whose fields are all scalar
+
+### Reference Types
+
+A type is a reference type if it requires reference counting. The following types are reference types:
+
+- Heap-allocated types: `str`, `[T]`, `{K: V}`, `Set<T>`, `Channel<T>`
+- Function types and iterator types
+- Compound types containing at least one reference type field
+
+### Transitive Rule
+
+Classification is transitive: if any field of a compound type is a reference type, the compound type is a reference type.
+
+| Type | Classification | Reason |
+|------|---------------|--------|
+| `int` | Scalar | Primitive |
+| `(int, float, bool)` | Scalar | All fields scalar |
+| `{ x: int, y: int }` | Scalar | All fields scalar |
+| `str` | Reference | Heap-allocated |
+| `{ id: int, name: str }` | Reference | `name` is reference |
+| `Option<str>` | Reference | Inner type is reference |
+| `Option<int>` | Scalar | Inner type is scalar |
+| `[int]` | Reference | List is heap-allocated |
+| `Result<int, str>` | Reference | `str` is reference |
+
+Classification is independent of type size. A struct with ten `int` fields is scalar. A struct with one `str` field is a reference type regardless of its total size.
+
+### Generic Type Parameters
+
+Unresolved type parameters are conservatively treated as reference types. After monomorphization, all type parameters are concrete and classification is exact.
 
 ## Constraints
 
 - Self-referential types are compile errors
-- Cyclic structures are compile errors
 - Destruction in reverse creation order
-- Values destroyed when count reaches zero
+- Values destroyed when reference count reaches zero
 
 ## ARC Safety Invariants
 
@@ -321,8 +386,8 @@ Ori uses ARC without cycle detection. The following invariants must be maintaine
 Closures must capture variables by value. Reference captures are prohibited.
 
 ```ori
-let x = 5
-let f = () -> x + 1  // captures copy of x, not reference to x
+let x = 5;
+let f = () -> x + 1;  // captures copy of x, not reference to x
 ```
 
 This prevents cycles through closure environments.
@@ -355,6 +420,18 @@ If weak references are added to the language, they must:
 - Use distinct syntax (`Weak<T>`)
 - Require explicit upgrade operations returning `Option<T>`
 - Never be implicitly created
+
+### Task Isolation
+
+Values shared across task boundaries are reference-counted. Each task may independently increment and decrement the reference count of a shared value. Atomic reference count operations (see [§ Atomicity](#atomicity)) ensure that deallocation occurs exactly once, regardless of which task drops the last reference.
+
+A task must not hold a borrowed reference to a value owned by another task. All cross-task value sharing uses ownership transfer or reference count increment.
+
+See [Concurrency Model § Task Isolation](23-concurrency-model.md#task-isolation) for task isolation rules.
+
+### Handler Frame State
+
+Stateful handlers (see [Capabilities § Stateful Handlers](14-capabilities.md#stateful-handlers)) maintain frame-local mutable state within a `with...in` scope. This state is analogous to mutable loop variables: it is local to the handler frame, not aliased, and not accessible outside the `with...in` scope. Handler frame state does not violate Invariant 3 (no shared mutable references) because the state has a single owner (the handler frame) and is never shared.
 
 ### Feature Evaluation
 

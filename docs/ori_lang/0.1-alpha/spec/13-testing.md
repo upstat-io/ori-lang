@@ -24,19 +24,19 @@ A _test_ is a function that verifies the behavior of one or more target function
 An _attached test_ declares one or more functions it tests:
 
 ```ori
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
+}
 ```
 
 Multiple targets are specified by repeating the `tests` keyword:
 
 ```ori
-@test_roundtrip tests @parse tests @format () -> void = run(
-    let ast = parse(input: "x + 1"),
-    let output = format(ast: ast),
-    assert_eq(actual: output, expected: "x + 1"),
-)
+@test_roundtrip tests @parse tests @format () -> void = {
+    let ast = parse(input: "x + 1");
+    let output = format(ast: ast);
+    assert_eq(actual: output, expected: "x + 1");
+}
 ```
 
 An attached test satisfies the test coverage requirement for all of its targets.
@@ -46,10 +46,10 @@ An attached test satisfies the test coverage requirement for all of its targets.
 A _floating test_ uses `_` as its target, indicating it tests no specific function:
 
 ```ori
-@test_integration tests _ () -> void = run(
-    let result = full_pipeline(input: "program"),
-    assert_ok(result: result),
-)
+@test_integration tests _ () -> void = {
+    let result = full_pipeline(input: "program");
+    assert_ok(result: result);
+}
 ```
 
 Floating tests:
@@ -68,13 +68,13 @@ All tests must:
 
 ```ori
 // Valid
-@test_example tests @example () -> void = run(...)
+@test_example tests @example () -> void = {...}
 
 // Invalid - tests cannot have parameters
-@test_bad tests @bad (x: int) -> void = ...  // error
+@test_bad tests @bad (x: int) -> void = ...;  // error
 
 // Invalid - tests must return void
-@test_bad tests @bad () -> int = ...  // error
+@test_bad tests @bad () -> int = ...;  // error
 ```
 
 ## Test Coverage Requirement
@@ -187,10 +187,10 @@ If `@parse` changes:
 A test is _affected_ by a change if any function in the reverse transitive closure is one of its targets.
 
 ```ori
-@test_parse tests @parse () -> void = ...
-@test_compile tests @compile () -> void = ...
-@test_optimize tests @optimize () -> void = ...
-@test_run tests @run_program () -> void = ...
+@test_parse tests @parse () -> void = ...;
+@test_compile tests @compile () -> void = ...;
+@test_optimize tests @optimize () -> void = ...;
+@test_run tests @run_program () -> void = ...;
 ```
 
 If `@parse` changes:
@@ -353,7 +353,7 @@ A skipped test is parsed and type-checked but not executed:
 
 ```ori
 #skip("waiting for feature X")
-@test_feature tests @feature () -> void = run(...)
+@test_feature tests @feature () -> void = {...}
 ```
 
 Skipped tests satisfy the coverage requirement for their targets.
@@ -364,10 +364,10 @@ A compile-fail test passes if compilation fails with an error containing the spe
 
 ```ori
 #compile_fail("type mismatch")
-@test_type_error tests @main () -> void = run(
-    let x: int = "hello",
-    (),
-)
+@test_type_error tests @main () -> void = {
+    let x: int = "hello";
+    ()
+}
 ```
 
 The test fails if:
@@ -380,10 +380,10 @@ A fail test passes if execution panics with a message containing the specified s
 
 ```ori
 #fail("division by zero")
-@test_div_zero tests @divide () -> void = run(
-    divide(a: 10, b: 0),
-    (),
-)
+@test_div_zero tests @divide () -> void = {
+    divide(a: 10, b: 0);
+    ()
+}
 ```
 
 The test fails if:
@@ -439,15 +439,15 @@ Test files use the `.test.ori` suffix. By convention, each source file `foo.ori`
 
 ```ori
 // src/_test/math.test.ori
-use "../math" { add, ::internal_helper }
+use "../math" { add, ::internal_helper };
 
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 2, b: 3), expected: 5),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 2, b: 3), expected: 5);
+}
 
-@test_helper tests @internal_helper () -> void = run(
-    assert_eq(actual: internal_helper(x: 5), expected: 10),
-)
+@test_helper tests @internal_helper () -> void = {
+    assert_eq(actual: internal_helper(x: 5), expected: 10);
+}
 ```
 
 Private items may be imported using the `::` prefix (see [Modules § Private Access](12-modules.md#private-access)).
@@ -457,19 +457,19 @@ Private items may be imported using the `::` prefix (see [Modules § Private Acc
 Functions with capabilities are tested by providing mock implementations via `with...in`:
 
 ```ori
-@fetch_user (id: int) -> Result<User, Error> uses Http = run(
-    let response = Http.get(url: `/users/{id}`)?,
-    Ok(parse_user(data: response)),
-)
+@fetch_user (id: int) -> Result<User, Error> uses Http = {
+    let response = Http.get(url: `/users/{id}`)?;
+    Ok(parse_user(data: response))
+}
 
 @test_fetch_user tests @fetch_user () -> void =
     with Http = MockHttp { responses: {"/users/1": `{"name": "Alice"}`} } in
-    run(
-        let result = fetch_user(id: 1),
-        assert_ok(result: result),
-        let user = result.unwrap(),
-        assert_eq(actual: user.name, expected: "Alice"),
-    )
+    {
+        let result = fetch_user(id: 1);
+        assert_ok(result: result);
+        let user = result.unwrap();
+        assert_eq(actual: user.name, expected: "Alice");
+    }
 ```
 
 This enables fast, deterministic tests without actual I/O.

@@ -1,0 +1,11 @@
+// Spec: §3.13 Additional Core Traits — Printable requirement in string interpolation
+// Types used in string interpolation must implement Printable
+
+type Opaque = { data: int }
+
+#[compile_fail("does not implement `Printable`")]
+@test_interpolation_missing_printable () -> void = {
+    let x = Opaque { data: 42 };
+    let _ = `value: {x}`;
+    ()
+}

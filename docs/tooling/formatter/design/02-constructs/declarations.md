@@ -275,13 +275,13 @@ trait Iterator {
 
     @next (self) -> (Option<Self.Item>, Self)
 
-    @count (self) -> int = run(
-        let (item, rest) = self.next(),
-        match(item,
-            None -> 0,
-            Some(_) -> 1 + rest.count(),
-        ),
-    )
+    @count (self) -> int = {
+        let (item, rest) = self.next()
+        match item {
+            None -> 0
+            Some(_) -> 1 + rest.count()
+        }
+    }
 }
 ```
 
@@ -309,11 +309,11 @@ impl Printable for Point {
 impl Point {
     @new (x: int, y: int) -> Point = Point { x, y }
 
-    @distance (self, other: Point) -> float = run(
-        let dx = self.x - other.x,
-        let dy = self.y - other.y,
-        sqrt(float(dx * dx + dy * dy)),
-    )
+    @distance (self, other: Point) -> float = {
+        let dx = self.x - other.x
+        let dy = self.y - other.y
+        sqrt(float(dx * dx + dy * dy))
+    }
 
     @translate (self, dx: int, dy: int) -> Point =
         Point { x: self.x + dx, y: self.y + dy }
@@ -324,10 +324,10 @@ impl Point {
 
 ```ori
 impl<T: Clone> Clone for Option<T> {
-    @clone (self) -> Self = match(self,
-        Some(value) -> Some(value.clone()),
-        None -> None,
-    )
+    @clone (self) -> Self = match self {
+        Some(value) -> Some(value.clone())
+        None -> None
+    }
 }
 ```
 
@@ -336,35 +336,34 @@ impl<T: Clone> Clone for Option<T> {
 Tests follow function formatting rules. The `tests` clause stays with the signature:
 
 ```ori
-@test_add tests @add () -> void = run(
-    assert_eq(actual: add(a: 1, b: 2), expected: 3),
-    assert_eq(actual: add(a: -1, b: 1), expected: 0),
-)
+@test_add tests @add () -> void = {
+    assert_eq(actual: add(a: 1, b: 2), expected: 3)
+    assert_eq(actual: add(a: -1, b: 1), expected: 0)
+}
 
-@test_math tests @add tests @subtract () -> void = run(
-    assert_eq(actual: add(a: 2, b: 2), expected: 4),
-    assert_eq(actual: subtract(a: 5, b: 3), expected: 2),
-)
+@test_math tests @add tests @subtract () -> void = {
+    assert_eq(actual: add(a: 2, b: 2), expected: 4)
+    assert_eq(actual: subtract(a: 5, b: 3), expected: 2)
+}
 
-@test_integration tests _ () -> void = run(
-    let user = create_test_user(),
-    let result = process_user(user),
-    assert_ok(result: result),
-)
+@test_integration tests _ () -> void = {
+    let user = create_test_user()
+    let result = process_user(user)
+    assert_ok(result: result)
+}
 ```
 
 ### Test Attributes
 
 ```ori
 #skip("not implemented yet")
-@test_future tests @future_feature () -> void = run(
-    assert(condition: false),
-)
+@test_future tests @future_feature () -> void =
+    assert(condition: false)
 
 #compile_fail("expected type error")
-@test_type_error tests _ () -> void = run(
-    let x: int = "not an int",
-)
+@test_type_error tests _ () -> void = {
+    let x: int = "not an int"
+}
 ```
 
 ## Imports

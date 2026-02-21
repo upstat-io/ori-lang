@@ -14,7 +14,7 @@ use super::resolvers::{
     BuiltinMethodResolver, CollectionMethodResolver, MethodDispatcher, MethodResolverKind,
     UserRegistryResolver,
 };
-use super::{Interpreter, OpNames, PrintNames, PropNames, ScopeOwnership, TypeNames};
+use super::{FormatNames, Interpreter, OpNames, PrintNames, PropNames, ScopeOwnership, TypeNames};
 use crate::diagnostics::CallStack;
 use crate::eval_mode::{EvalMode, ModeState};
 use crate::{
@@ -200,6 +200,9 @@ impl<'a> InterpreterBuilder<'a> {
         // Pre-intern operator trait method names for user-defined operator dispatch
         let op_names = OpNames::new(self.interner);
 
+        // Pre-intern format-related names for FormatSpec value construction
+        let format_names = FormatNames::new(self.interner);
+
         // Pre-intern builtin method names for hot-path dispatch (u32 == u32)
         let builtin_method_names = crate::methods::BuiltinMethodNames::new(self.interner);
 
@@ -229,6 +232,7 @@ impl<'a> InterpreterBuilder<'a> {
             print_names,
             prop_names,
             op_names,
+            format_names,
             mode: self.mode,
             mode_state,
             call_stack,

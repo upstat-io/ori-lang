@@ -13,26 +13,30 @@ This section specifies implementation-level requirements and platform considerat
 
 ### Integers
 
-The `int` type is a 64-bit signed integer.
+The `int` type is a signed integer with the following semantic range:
 
 | Property | Value |
 |----------|-------|
-| Size | 64 bits |
-| Minimum | -9,223,372,036,854,775,808 (-2^63) |
-| Maximum | 9,223,372,036,854,775,807 (2^63 - 1) |
+| Canonical size | 64 bits |
+| Minimum | -9,223,372,036,854,775,808 (-2⁶³) |
+| Maximum | 9,223,372,036,854,775,807 (2⁶³ - 1) |
 | Overflow | Panics (see [Error Codes](https://ori-lang.com/docs/compiler-design/appendices/c-error-codes)) |
+
+The canonical size defines the semantic range. The compiler may use a narrower machine representation (see [§ Representation Optimization](#representation-optimization)).
 
 There is no separate unsigned integer type. Bitwise operations treat the value as unsigned bits.
 
 ### Floats
 
-The `float` type is a 64-bit IEEE 754 double-precision floating-point number.
+The `float` type is an IEEE 754 double-precision floating-point number:
 
 | Property | Value |
 |----------|-------|
-| Size | 64 bits |
+| Canonical size | 64 bits |
 | Precision | ~15-17 significant decimal digits |
-| Range | ±1.7976931348623157 × 10^308 |
+| Range | ±1.7976931348623157 × 10³⁰⁸ |
+
+The canonical size defines the semantic precision. The compiler may use a narrower machine representation when it can prove no precision loss (see [§ Representation Optimization](#representation-optimization)).
 
 Special values `inf`, `-inf`, and `nan` are supported.
 
@@ -43,8 +47,8 @@ Special values `inf`, `-inf`, and `nan` are supported.
 All strings are UTF-8 encoded. There is no separate ASCII or byte-string type.
 
 ```ori
-let greeting = "Hello, 世界"  // UTF-8
-let emoji = "🎉"              // UTF-8
+let greeting = "Hello, 世界";  // UTF-8
+let emoji = "🎉";              // UTF-8
 ```
 
 ### Indexing
@@ -52,8 +56,8 @@ let emoji = "🎉"              // UTF-8
 String indexing returns a single Unicode codepoint as a `str`:
 
 ```ori
-let s = "héllo"
-s[0]  // "h"
+let s = "héllo";
+s[0];  // "h"
 s[1]  // "é" (single codepoint)
 ```
 
@@ -64,8 +68,8 @@ The index refers to codepoint position, not byte position. Out-of-bounds indexin
 Some visual characters consist of multiple codepoints:
 
 ```ori
-let astronaut = "🧑‍🚀"  // 3 codepoints: person + ZWJ + rocket
-len(astronaut)        // 3
+let astronaut = "🧑‍🚀";  // 3 codepoints: person + ZWJ + rocket
+len(astronaut);        // 3
 astronaut[0]          // "🧑"
 ```
 
@@ -73,12 +77,12 @@ For grapheme-aware operations, use standard library functions.
 
 ### Length
 
-`len(str)` returns the number of codepoints, not bytes.
+`len(str)` returns the number of bytes, not codepoints. Use `.chars().count()` for codepoint count.
 
 ```ori
-len("hello")  // 5
-len("世界")    // 2
-len("🧑‍🚀")    // 3 (codepoints, not graphemes)
+len("hello")  // 5 (5 bytes)
+len("世界")    // 6 (each character is 3 UTF-8 bytes)
+len("🧑‍🚀")    // 11 (multi-byte emoji ZWJ sequence: 4+3+4)
 ```
 
 ## Collections
@@ -105,7 +109,7 @@ Tail calls are guaranteed to be optimized. A tail call does not consume stack sp
 
 ```ori
 @countdown (n: int) -> void =
-    if n <= 0 then void else countdown(n: n - 1)  // tail call
+    if n <= 0 then void else countdown(n: n - 1);  // tail call
 
 countdown(n: 1000000)  // does not overflow stack
 ```
@@ -118,7 +122,7 @@ Non-tail recursive calls consume stack space. Deep recursion may cause stack ove
 
 ```ori
 @sum_to (n: int) -> int =
-    if n <= 0 then 0 else n + sum_to(n: n - 1)  // not tail call
+    if n <= 0 then 0 else n + sum_to(n: n - 1);  // not tail call
 
 sum_to(n: 1000000)  // may overflow stack
 ```
@@ -156,3 +160,101 @@ Implementations may impose limits on:
 | Generic parameters | 64 |
 
 Exceeding these limits is a compile-time error.
+
+## Representation Optimization
+
+The compiler may optimize the machine representation of any type, provided the optimization preserves _semantic equivalence_. An optimization is semantically equivalent if no conforming program can distinguish the optimized representation from the canonical one through any language-level operation.
+
+### Canonical Representations
+
+| Type | Canonical | Semantic Range |
+|------|-----------|----------------|
+| `int` | 64-bit signed two's complement | [-2⁶³, 2⁶³ - 1] |
+| `float` | 64-bit IEEE 754 binary64 | ±1.8 × 10³⁰⁸, ~15-17 digits |
+| `bool` | 1-bit | `true` or `false` |
+| `byte` | 8-bit unsigned | [0, 255] |
+| `char` | 32-bit Unicode scalar | U+0000–U+10FFFF excluding surrogates |
+| `Ordering` | Tri-state | `Less`, `Equal`, `Greater` |
+
+### Permitted Optimizations
+
+Permitted optimizations include but are not limited to:
+
+- Narrowing primitive machine types (`bool` → `i1`, `byte` → `i8`, `char` → `i32`, `Ordering` → `i8`)
+- Enum discriminant narrowing (`i8` for ≤256 variants)
+- All-unit enum payload elimination
+- Sum type shared payload slots (`Result<T, E>` uses `max(sizeof(T), sizeof(E))`)
+- ARC operation elision for transitively trivial types
+- Newtype representation erasure
+- Struct field reordering for alignment
+- Integer narrowing based on value range analysis
+- Float narrowing when precision loss is provably zero
+
+### Guarantees
+
+1. The semantic range of every type is always preserved
+2. Overflow behavior is determined by the semantic type, not the machine representation
+3. Values stored and retrieved through any language operation are identical
+4. `debug()` and `print()` display semantic values
+5. `x == y` and `hash(x) == hash(y)` relationships are representation-independent
+6. Type classification for reference counting is determined by type containment, not representation size (see [Memory Model § Type Classification](15-memory-model.md#type-classification))
+
+### Non-Guarantees
+
+1. The exact machine representation of any type is unspecified
+2. Memory layout may differ between compiler versions and target platforms
+3. Struct field order in memory may differ from declaration order
+
+> **Note:** For the full specification including optimization tiers, cross-cutting invariants, and interaction with `#repr` attributes, see [Representation Optimization Proposal](../../proposals/approved/representation-optimization-proposal.md).
+
+## ARC Runtime
+
+This section specifies the runtime support for reference-counted heap objects in AOT-compiled programs.
+
+> **Note:** The ARC runtime ABI is not stable. Heap object layout and runtime function signatures may change between compiler versions. This section applies to the AOT compilation target only; the interpreter and JIT may use different representations.
+
+### Heap Object Layout
+
+A reference-counted heap object has the following layout:
+
+```
++──────────────────+───────────────────────────+
+| strong_count: i64 | data bytes ...           |
++──────────────────+───────────────────────────+
+^                    ^
+base (data_ptr - 8)  data_ptr
+```
+
+The `data_ptr` returned by allocation points to the data area, not to the header. The strong count is stored at `data_ptr - 8`. Minimum alignment is 8 bytes.
+
+The data pointer may be passed to foreign functions without adjustment.
+
+### Runtime Functions
+
+All runtime functions use the C calling convention (`extern "C"`).
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `ori_rc_alloc` | `(size: usize, align: usize) -> *mut u8` | Allocate `size + 8` bytes, initialize strong count to 1, return data pointer |
+| `ori_rc_inc` | `(data_ptr: *mut u8)` | Increment the strong count |
+| `ori_rc_dec` | `(data_ptr: *mut u8, drop_fn: fn(*mut u8))` | Decrement the strong count; if zero, call `drop_fn` |
+| `ori_rc_free` | `(data_ptr: *mut u8, size: usize, align: usize)` | Deallocate from `data_ptr - 8` with total size `size + 8` |
+| `ori_rc_count` | `(data_ptr: *const u8) -> i64` | Return the current strong count (diagnostic use only) |
+
+### Drop Functions
+
+Each reference type has a compiler-generated _drop function_ with signature `extern "C" fn(*mut u8)`. The drop function:
+
+1. Decrements reference counts of any reference-typed child fields (calling `ori_rc_dec` for each)
+2. Calls `ori_rc_free(data_ptr, size, align)` to release the allocation
+
+If the type implements the `Drop` trait, `Drop.drop` is called before step 1.
+
+### Built-in Type Representations
+
+| Type | Representation |
+|------|----------------|
+| `str` | `{ len: i64, data: *const u8 }` |
+| `[T]` | `{ len: i64, cap: i64, data: *mut u8 }` |
+| `Option<T>` | `{ tag: i8, value: T }` (tag 0 = `None`, 1 = `Some`) |
+| `Result<T, E>` | `{ tag: i8, value: max(T, E) }` (tag 0 = `Ok`, 1 = `Err`) |

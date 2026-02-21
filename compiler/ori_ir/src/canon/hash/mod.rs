@@ -24,8 +24,6 @@ use std::mem;
 
 use rustc_hash::FxHasher;
 
-use crate::Name;
-
 use super::{
     CanArena, CanBindingPattern, CanExpr, CanFieldBindingRange, CanFieldRange, CanId,
     CanMapEntryRange, CanNamedExprRange, CanParamRange, CanRange,
@@ -71,6 +69,7 @@ fn hash_node(arena: &CanArena, id: CanId, state: &mut FxHasher) {
 ///
 /// Organized by variant category for clarity. Each arm hashes non-child
 /// data first, then recurses into child `CanId`s in a deterministic order.
+#[expect(clippy::too_many_lines, reason = "exhaustive CanExpr hashing dispatch")]
 fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
     match *kind {
         // Literals — hash value directly
@@ -185,7 +184,14 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             label.raw().hash(state);
             hash_node(arena, value, state);
         }
-        CanExpr::Try(child) | CanExpr::Await(child) => hash_node(arena, child, state),
+        CanExpr::Try(child)
+        | CanExpr::Await(child)
+        | CanExpr::Unsafe(child)
+        | CanExpr::Ok(child)
+        | CanExpr::Err(child)
+        | CanExpr::Some(child) => {
+            hash_node(arena, child, state);
+        }
 
         // Bindings
         CanExpr::Block { stmts, result } => {
@@ -231,11 +237,6 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
             hash_node(arena, step, state);
         }
 
-        // Algebraic
-        CanExpr::Ok(child) | CanExpr::Err(child) | CanExpr::Some(child) => {
-            hash_node(arena, child, state);
-        }
-
         // Capabilities
         CanExpr::WithCapability {
             capability,
@@ -251,6 +252,12 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
         CanExpr::FunctionExp { kind, props } => {
             mem::discriminant(&kind).hash(state);
             hash_named_exprs(arena, props, state);
+        }
+
+        // Formatting
+        CanExpr::FormatWith { expr, spec } => {
+            spec.raw().hash(state);
+            hash_node(arena, expr, state);
         }
     }
 }
@@ -318,7 +325,8 @@ fn hash_binding_pattern(arena: &CanArena, id: super::CanBindingPatternId, state:
         CanBindingPattern::Struct { fields } => hash_field_bindings(arena, fields, state),
         CanBindingPattern::List { elements, rest } => {
             hash_binding_pattern_range(arena, elements, state);
-            rest.map(Name::raw).hash(state);
+            rest.map(|(name, mutable)| (name.raw(), mutable))
+                .hash(state);
         }
         CanBindingPattern::Wildcard => {}
     }

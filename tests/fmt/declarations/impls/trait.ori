@@ -9,5 +9,5 @@ trait Printable {
 }
 
 impl Printable for Point {
-    @to_str (self) -> str = "point"
+    @to_str (self) -> str = "point";
 }

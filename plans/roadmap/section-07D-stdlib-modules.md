@@ -472,13 +472,12 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **LLVM Support**: LLVM codegen for Clock capability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — Clock codegen
 
-- [ ] **Implement**: `MockClock` for testing
-  - `MockClock.new(now)` constructor
-  - `advance(by)` with interior mutability
-  - [ ] **Rust Tests**: `library/std/time/mock.rs`
-  - [ ] **Ori Tests**: `tests/spec/stdlib/time/mock_clock.ori`
-  - [ ] **LLVM Support**: LLVM codegen for MockClock
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — MockClock codegen
+- [ ] **Document**: Stateful clock mocking via handlers (replaces MockClock)
+  - MockClock is no longer a runtime-provided type with interior mutability
+  - Users build stateful clock mocks using `handler(state: Instant) { now: ..., advance: ... }`
+  - See `proposals/approved/stateful-mock-testing-proposal.md`
+  - Requires Section 6.16 (Stateful Handlers) to be implemented first
+  - [ ] **Ori Tests**: `tests/spec/stdlib/time/mock_clock.ori` — example using handler
 
 ---
 

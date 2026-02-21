@@ -49,7 +49,10 @@ sections:
   - id: "6.14"
     title: Intrinsics Capability
     status: not-started
-  - id: "6.15"
+  - id: "6.16"
+    title: Stateful Handlers
+    status: not-started
+  - id: "6.17"
     title: Section Completion Checklist
     status: in-progress
 ---
@@ -204,25 +207,35 @@ sections:
 
 ## 6.9 Unsafe Capability (FFI Prep)
 
+**Proposal**: `proposals/approved/unsafe-semantics-proposal.md`
+
 > **PREREQUISITE FOR**: Section 11 (FFI)
 > The Unsafe capability is required for FFI. Implement this before starting FFI work.
 
-- [ ] **Implement**: `Unsafe` marker capability
-  - [ ] Defined in prelude as marker trait (no methods): `library/std/prelude.ori`
-  - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe.ori` — basic tests
-  - [ ] **LLVM Support**: LLVM codegen for Unsafe marker capability
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — unsafe capability codegen
+- [ ] **Implement**: `Unsafe` marker capability (compiler intrinsic, like `Suspend`)
+  - [ ] Add `Unsafe` to standard capabilities list in type checker
+  - [ ] Generalize E1203 to cover all marker capabilities (not just `Suspend`)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe/` — basic tests, E1203 binding error
+  - [ ] **LLVM Support**: LLVM codegen for `unsafe { }` blocks (transparent — same as inner expr)
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — unsafe block codegen
 
-- [ ] **Implement**: Unsafe capability requirements (Section 11)
+- [ ] **Implement**: `unsafe { }` block expression (Phases 1-4 of proposal)
+  - [ ] Add `ExprKind::Unsafe(ExprId)` to IR
+  - [ ] Parse `unsafe { block_body }` (block-only form — no parenthesized form)
+  - [ ] Update grammar.ebnf (remove parenthesized form — done in proposal approval)
+  - [ ] Type checker: `UnsafeContext` tracking, E1250 diagnostic
+  - [ ] Evaluator: `ExprKind::Unsafe(inner)` → `eval_expr(inner)` (transparent)
+  - [ ] Visitor support in `ori_ir/src/visitor.rs`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/parser.rs`, `ori_types/src/infer/expr/tests.rs`
+  - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe/eval.ori`
+
+- [ ] **Implement**: Unsafe capability requirements (deferred to Section 11)
   - [ ] Required for: raw pointer operations (future)
-  - [ ] Required for: extern function calls (future)
-  - [ ] Required for: unsafe blocks (future)
+  - [ ] Required for: C variadic function calls (future)
+  - [ ] Required for: transmute operations (future)
   - [ ] Tests added when FFI implemented
 
-- [ ] **Implement**: AllowUnsafe provider type (Section 11)
-  - [ ] Concrete type that satisfies Unsafe capability
-  - [ ] For use in tests: `with Unsafe = AllowUnsafe in ...`
-  - [ ] Added when FFI tests need it
+> **Note:** `Unsafe` is a marker capability — it cannot be bound via `with...in`. There is no `AllowUnsafe` provider type. Unsafe code is tested by testing safe wrappers.
 
 ---
 
@@ -489,7 +502,59 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 
 ---
 
-## 6.15 Section Completion Checklist
+## 6.16 Stateful Handlers
+
+**Proposal**: `proposals/approved/stateful-mock-testing-proposal.md`
+
+Extend `with...in` to support stateful effect handlers. The `handler(state: expr) { ... }` construct threads local mutable state through handler operations, enabling stateful capability mocking while preserving value semantics.
+
+### Implementation
+
+- [ ] **Implement**: Add `handler` as context-sensitive keyword — grammar.ebnf § EXPRESSIONS
+  - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — `handler` token recognition (context-sensitive)
+  - [ ] **Ori Tests**: `tests/spec/capabilities/stateful-handlers.ori`
+
+- [ ] **Implement**: Parse `handler(state: expr) { op: expr, ... }` — grammar.ebnf § EXPRESSIONS
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/with_expr.rs` — handler expression parsing
+  - [ ] **Ori Tests**: `tests/spec/capabilities/stateful-handlers.ori`
+
+- [ ] **Implement**: IR representation for handler expressions
+  - [ ] Add `HandlerExpr` to expression AST (state initializer, operation map)
+  - [ ] **Rust Tests**: `ori_ir/src/ast/expr/tests.rs` — handler AST node
+
+- [ ] **Implement**: Type checker — verify handler operations match trait signature
+  - [ ] State replaces `self` in operation signatures
+  - [ ] Operations return `(S, R)` where S is state type, R is trait return type
+  - [ ] State type inferred from initializer, consistent across all operations
+  - [ ] All required trait methods must have handler operations
+  - [ ] Default trait methods used if not overridden
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — handler type checking
+  - [ ] **Ori Tests**: `tests/spec/capabilities/stateful-handlers.ori`
+
+- [ ] **Implement**: Error codes E1204-E1207
+  - [ ] E1204: handler missing required operation
+  - [ ] E1205: handler operation signature mismatch
+  - [ ] E1206: handler state type inconsistency
+  - [ ] E1207: handler operation for non-existent trait method
+  - [ ] **Rust Tests**: `oric/src/errors/` — handler error formatting
+  - [ ] **Ori Tests**: `tests/spec/capabilities/stateful-handler-errors.ori`
+
+- [ ] **Implement**: Evaluator — handler frame state threading
+  - [ ] Create handler frame with initial state on `with...in` entry
+  - [ ] Thread state through capability dispatch calls
+  - [ ] Independent state per handler (nested handlers)
+  - [ ] `with...in` returns body result only (state is internal)
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/with_expr.rs` — handler evaluation
+  - [ ] **Ori Tests**: `tests/spec/capabilities/stateful-handlers.ori`
+
+- [ ] **Implement**: LLVM codegen for stateful handlers
+  - [ ] Handler frame state allocation
+  - [ ] State threading through operation calls
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/stateful_handler_tests.rs`
+
+---
+
+## 6.17 Section Completion Checklist
 
 - [x] 6.1-6.5 complete (declaration, traits, suspend, providing, propagation) [done]
 - [x] 6.6 trait definitions in prelude (implementations in Section 7) [done]
@@ -500,10 +565,11 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
 - [ ] 6.12 Default Implementation Resolution — not started
 - [ ] 6.13 Named Capability Sets (`capset`) — not started
 - [ ] 6.14 Intrinsics Capability — not started
+- [ ] 6.16 Stateful Handlers — not started
 - [ ] LLVM codegen for capabilities — no test files exist
 - [ ] Full test suite: `./test-all.sh`
 
-**Exit Criteria**: Effect tracking works per spec (6.1-6.8 evaluator complete, 6.9-6.14 + 6.13 pending)
+**Exit Criteria**: Effect tracking works per spec (6.1-6.8 evaluator complete, 6.9-6.14, 6.16 pending)
 **Status**: Verified 2026-02-10.
 
 **Remaining for Section 7 (Stdlib)**:

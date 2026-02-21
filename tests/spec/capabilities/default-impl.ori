@@ -57,33 +57,33 @@
 // // =============================================================================
 //
 // // Test that def impl methods can be called via trait name
-// @test_def_impl_add () -> void = run(
+// @test_def_impl_add () -> void = {
 //     let result = Calculator.add(a: 2, b: 3),
 //     assert_eq(
 //         actual: result,
 //         expected: 5,
 //     ),
-// )
+// }
 //
-// @test_def_impl_multiply () -> void = run(
+// @test_def_impl_multiply () -> void = {
 //     let result = Calculator.multiply(a: 4, b: 5),
 //     assert_eq(
 //         actual: result,
 //         expected: 20,
 //     ),
-// )
+// }
 //
 // // Test pub def impl
-// @test_pub_def_impl () -> void = run(
+// @test_pub_def_impl () -> void = {
 //     let result = Formatter.format(value: "test"),
 //     assert_eq(
 //         actual: result,
 //         expected: "[formatted: test]",
 //     ),
-// )
+// }
 //
 // // Test multiple methods in def impl
-// @test_def_impl_greeter () -> void = run(
+// @test_def_impl_greeter () -> void = {
 //     assert_eq(
 //         actual: Greeter.hello(),
 //         expected: "Hello!",
@@ -92,4 +92,4 @@
 //         actual: Greeter.goodbye(),
 //         expected: "Goodbye!",
 //     ),
-// )
+// }

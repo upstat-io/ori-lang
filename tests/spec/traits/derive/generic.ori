@@ -1,0 +1,66 @@
+// Spec: 06-types.md § Derive — Generic type conditional derivation
+// Formal semantics: impl<T: Trait> Trait for GenericType<T>
+//
+// §3.15: Derived Traits Formal Semantics
+
+use std.testing { assert, assert_eq }
+
+// --- Generic struct with derived Eq ---
+
+#[derive(Eq, Clone)]
+type Pair<T> = { first: T, second: T }
+
+#[derive(Eq)]
+type Box<T> = { value: T }
+
+// --- Generic Eq: works when T: Eq ---
+
+@test_pair_int_eq tests @pair_int_eq () -> void = {
+    let p1 = Pair { first: 1, second: 2 };
+    let p2 = Pair { first: 1, second: 2 };
+    assert(cond: p1 == p2)
+}
+@pair_int_eq () -> bool = {
+    Pair { first: 1, second: 2 } == Pair { first: 1, second: 2 }
+}
+
+@test_pair_str_eq tests @pair_str_eq () -> void = {
+    let p1 = Pair { first: "a", second: "b" };
+    let p2 = Pair { first: "a", second: "b" };
+    assert(cond: p1 == p2)
+}
+@pair_str_eq () -> bool = {
+    Pair { first: "a", second: "b" } == Pair { first: "a", second: "b" }
+}
+
+@test_pair_neq tests @pair_neq () -> void = {
+    let p1 = Pair { first: 1, second: 2 };
+    let p2 = Pair { first: 1, second: 3 };
+    assert(cond: p1 != p2)
+}
+@pair_neq () -> bool = {
+    Pair { first: 1, second: 2 } != Pair { first: 1, second: 3 }
+}
+
+// --- Nested generic ---
+
+@test_nested_generic tests @nested_generic () -> void = {
+    let b1 = Box { value: Pair { first: 1, second: 2 } };
+    let b2 = Box { value: Pair { first: 1, second: 2 } };
+    assert(cond: b1 == b2)
+}
+@nested_generic () -> bool = {
+    Box { value: Pair { first: 1, second: 2 } }
+        == Box { value: Pair { first: 1, second: 2 } }
+}
+
+// --- Generic Clone ---
+
+@test_pair_clone tests @pair_clone () -> void = {
+    let p = Pair { first: 42, second: 99 };
+    assert(cond: p == p.clone())
+}
+@pair_clone () -> bool = {
+    let p = Pair { first: 42, second: 99 };
+    p == p.clone()
+}

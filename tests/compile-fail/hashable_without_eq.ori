@@ -1,0 +1,12 @@
+// Spec: comparable-hashable-traits-proposal.md § Error Messages
+// Cannot derive Hashable without Eq — hash invariant requires equality
+
+#[derive(Hashable)]
+type Point = { x: int, y: int }
+
+#[compile_fail("cannot derive `Hashable` without `Eq`")]
+@test_hashable_without_eq () -> void = {
+    let p = Point { x: 1, y: 2 };
+    let _ = p.hash();
+    ()
+}

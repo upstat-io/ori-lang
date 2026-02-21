@@ -4,53 +4,53 @@
 use std.testing { assert_eq }
 
 // List indexing: [T] implements Index<int, T>
-@list_index_first () -> int = [10, 20, 30][0]
+@list_index_first () -> int = [10, 20, 30][0];
 
 @test_list_index_first tests @list_index_first () -> void =
-    assert_eq(actual: list_index_first(), expected: 10)
+    assert_eq(actual: list_index_first(), expected: 10);
 
-@list_index_last () -> int = [10, 20, 30][2]
+@list_index_last () -> int = [10, 20, 30][2];
 
 @test_list_index_last tests @list_index_last () -> void =
-    assert_eq(actual: list_index_last(), expected: 30)
+    assert_eq(actual: list_index_last(), expected: 30);
 
 // Negative indexing
-@list_negative_index () -> int = [10, 20, 30][-1]
+@list_negative_index () -> int = [10, 20, 30][-1];
 
 @test_list_negative_index tests @list_negative_index () -> void =
-    assert_eq(actual: list_negative_index(), expected: 30)
+    assert_eq(actual: list_negative_index(), expected: 30);
 
 // Hash length shorthand
-@list_hash_index () -> int = [10, 20, 30][# - 1]
+@list_hash_index () -> int = [10, 20, 30][# - 1];
 
 @test_list_hash_index tests @list_hash_index () -> void =
-    assert_eq(actual: list_hash_index(), expected: 30)
+    assert_eq(actual: list_hash_index(), expected: 30);
 
 // Map indexing: {K: V} implements Index<K, Option<V>>
-@map_index_found () -> Option<int> = { "a": 1, "b": 2 }["a"]
+@map_index_found () -> Option<int> = { { "a": 1, "b": 2 }["a"] }
 
 @test_map_index_found tests @map_index_found () -> void =
-    assert_eq(actual: map_index_found(), expected: Some(1))
+    assert_eq(actual: map_index_found(), expected: Some(1));
 
-@map_index_missing () -> Option<int> = { "a": 1 }["z"]
+@map_index_missing () -> Option<int> = { { "a": 1 }["z"] }
 
 @test_map_index_missing tests @map_index_missing () -> void =
-    assert_eq(actual: map_index_missing(), expected: None)
+    assert_eq(actual: map_index_missing(), expected: None);
 
 // String indexing: str implements Index<int, str>
-@str_index () -> str = "hello"[1]
+@str_index () -> str = "hello"[1];
 
 @test_str_index tests @str_index () -> void =
-    assert_eq(actual: str_index(), expected: "e")
+    assert_eq(actual: str_index(), expected: "e");
 
 // String negative indexing
-@str_negative_index () -> str = "hello"[-1]
+@str_negative_index () -> str = "hello"[-1];
 
 @test_str_negative_index tests @str_negative_index () -> void =
-    assert_eq(actual: str_negative_index(), expected: "o")
+    assert_eq(actual: str_negative_index(), expected: "o");
 
 // String hash length shorthand
-@str_hash_index () -> str = "hello"[# - 1]
+@str_hash_index () -> str = "hello"[# - 1];
 
 @test_str_hash_index tests @str_hash_index () -> void =
-    assert_eq(actual: str_hash_index(), expected: "o")
+    assert_eq(actual: str_hash_index(), expected: "o");

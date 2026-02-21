@@ -177,15 +177,16 @@ process_fixed(items: dynamic)  // ERROR: cannot guarantee capacity
 Functions can be generic over capacity using const-generic parameters:
 
 ```ori
-@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N] = run(
-    pre_check: len(collection: items) >= 2,
-    let first = items[0],
-    let last = items[# - 1],
-    let result = items.clone(),
-    result[0] = last,
-    result[# - 1] = first,
+@swap_ends<T, $N: int> (items: [T, max N]) -> [T, max N]
+    pre(len(collection: items) >= 2)
+= {
+    let first = items[0]
+    let last = items[# - 1]
+    let result = items.clone()
+    result[0] = last
+    result[# - 1] = first
     result
-)
+}
 ```
 
 The `$N: int` syntax denotes a const-generic parameter — a compile-time integer value, not a type.
@@ -244,17 +245,18 @@ type UdpPacket = {
     payload: [byte, max 65507]  // UDP max payload
 }
 
-@parse_udp (raw: [byte]) -> Result<UdpPacket, ParseError> = run(
-    pre_check: len(collection: raw) >= 8,
-    let source_port = int(raw[0]) << 8 | int(raw[1]),
-    let dest_port = int(raw[2]) << 8 | int(raw[3]),
-    let payload_len = int(raw[4]) << 8 | int(raw[5]),
+@parse_udp (raw: [byte]) -> Result<UdpPacket, ParseError>
+    pre(len(collection: raw) >= 8)
+= {
+    let source_port = int(raw[0]) << 8 | int(raw[1])
+    let dest_port = int(raw[2]) << 8 | int(raw[3])
+    let payload_len = int(raw[4]) << 8 | int(raw[5])
 
-    if payload_len > 65507 then Err(ParseError.PayloadTooLarge),
+    if payload_len > 65507 then Err(ParseError.PayloadTooLarge)
 
-    let payload: [byte, max 65507] = raw[8..8 + payload_len].to_fixed<65507>(),
+    let payload: [byte, max 65507] = raw[8..8 + payload_len].to_fixed<65507>()
     Ok(UdpPacket { source_port, dest_port, payload })
-)
+}
 ```
 
 ### Ring Buffer
@@ -266,14 +268,14 @@ type RingBuffer<T, $N: int> = {
     tail: int
 }
 
-@push<T, $N: int> (rb: RingBuffer<T, N>, item: T) -> RingBuffer<T, N> = run(
-    let new_tail = (rb.tail + 1) % N,
-    if new_tail == rb.head then panic(msg: "ring buffer full"),
+@push<T, $N: int> (rb: RingBuffer<T, N>, item: T) -> RingBuffer<T, N> = {
+    let new_tail = (rb.tail + 1) % N
+    if new_tail == rb.head then panic(msg: "ring buffer full")
 
-    let new_data = rb.data.clone(),
-    new_data[rb.tail] = item,
+    let new_data = rb.data.clone()
+    new_data[rb.tail] = item
     RingBuffer { data: new_data, head: rb.head, tail: new_tail }
-)
+}
 ```
 
 ### Small Vector Optimization
@@ -284,20 +286,20 @@ type SmallVec<T> =
     | Inline(data: [T, max 8])
     | Heap(data: [T])
 
-@push<T> (sv: SmallVec<T>, item: T) -> SmallVec<T> = match(sv,
+@push<T> (sv: SmallVec<T>, item: T) -> SmallVec<T> = match sv {
     Inline(data) ->
         if len(collection: data) < 8
-        then run(data.push(item), Inline(data: data))
-        else run(
-            let heap = data.to_dynamic(),
-            heap.push(item),
+        then {data.push(item), Inline(data: data)}
+        else {
+            let heap = data.to_dynamic()
+            heap.push(item)
             Heap(data: heap)
-        ),
-    Heap(data) -> run(
-        data.push(item),
+        }
+    Heap(data) -> {
+        data.push(item)
         Heap(data: data)
-    )
-)
+    }
+}
 ```
 
 ### Embedded Systems
@@ -310,11 +312,11 @@ type SensorArray = {
     active_count: int
 }
 
-@read_all (arr: SensorArray) -> [Reading, max $max_sensors] = run(
-    let result: [Reading, max $max_sensors] = [],
-    for i in 0..arr.active_count do result.push(arr.sensors[i].read()),
+@read_all (arr: SensorArray) -> [Reading, max $max_sensors] = {
+    let result: [Reading, max $max_sensors] = []
+    for i in 0..arr.active_count do result.push(arr.sensors[i].read())
     result
-)
+}
 ```
 
 ---

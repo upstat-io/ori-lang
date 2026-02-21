@@ -82,9 +82,9 @@ Rust doesn't have variadic functions in the language; uses macros instead.
 
 ```ori
 // Variadic parameter (receives as list)
-@sum (numbers: ...int) -> int = run(
+@sum (numbers: ...int) -> int = {
     numbers.fold(initial: 0, op: (acc, n) -> acc + n)
-)
+}
 
 // Usage
 sum(1, 2, 3)        // 6
@@ -163,9 +163,9 @@ SpreadExpr       = '...' Expression ;
 
 ```ori
 // Require at least one argument
-@max (first: int, rest: ...int) -> int = run(
+@max (first: int, rest: ...int) -> int = {
     rest.fold(initial: first, op: (a, b) -> if a > b then a else b)
-)
+}
 
 max(1, 2, 3)   // 3
 max(5)         // 5
@@ -208,18 +208,18 @@ max()          // Error: max requires at least 1 argument
 
 ```ori
 // Generic variadic with trait bound
-@print_all<T: Printable> (items: ...T) -> void = run(
+@print_all<T: Printable> (items: ...T) -> void = {
     for item in items do print(item.to_str())
-)
+}
 
 print_all(1, 2, 3)              // OK: all int
 print_all("a", "b", "c")        // OK: all str
 print_all(1, "a")               // Error: mixed types
 
 // With explicit heterogeneous (trait object)
-@print_any (items: ...Printable) -> void = run(
+@print_any (items: ...Printable) -> void = {
     for item in items do print(item.to_str())
-)
+}
 
 print_any(1, "hello", true)     // OK: all Printable
 ```
@@ -259,7 +259,7 @@ extern "C" {
 }
 
 // Call with any types (unsafe, no type checking)
-unsafe(printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()))
+unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
 ```
 
 ### Distinction from Ori Variadics
@@ -308,10 +308,10 @@ unsafe(printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()))
 
 ```ori
 // Should variadic work in patterns?
-@process_commands (commands: ...(str, int)) -> void = run(
+@process_commands (commands: ...(str, int)) -> void = {
     for (name, priority) in commands do
         print(`Command: {name}, Priority: {priority}`)
-)
+}
 
 process_commands(("init", 1), ("run", 2), ("cleanup", 3))
 ```
@@ -340,27 +340,27 @@ Defer to future consideration. Current section focuses on function parameters on
 
 ```ori
 // Ori's format function (like Python's format or Rust's format!)
-@format (template: str, args: ...Printable) -> str = run(
+@format (template: str, args: ...Printable) -> str = {
     let mut result = ""
     let mut arg_index = 0
     let mut i = 0
 
-    loop(run(
+    loop {
         if i >= template.len() then break result
 
-        if template[i] == "{" && i + 1 < template.len() && template[i + 1] == "}" then run(
+        if template[i] == "{" && i + 1 < template.len() && template[i + 1] == "}" then {
             if arg_index >= args.len() then
                 panic("Not enough arguments for format string")
             result = result + args[arg_index].to_str()
             arg_index = arg_index + 1
             i = i + 2
-        )
-        else run(
+        }
+        else {
             result = result + template[i]
             i = i + 1
-        )
-    ))
-)
+        }
+    }
+}
 
 // Usage
 let msg = format("{} + {} = {}", 1, 2, 3)  // "1 + 2 = 3"

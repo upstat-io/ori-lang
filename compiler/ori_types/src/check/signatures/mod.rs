@@ -125,6 +125,10 @@ pub(super) fn infer_function_signature_from(
 /// Shared implementation for inferring a function signature from any arena.
 ///
 /// Returns the signature and the var IDs of generic type parameters.
+#[expect(
+    clippy::too_many_lines,
+    reason = "full function signature inference covering generics, params, return type, and where clauses"
+)]
 fn infer_function_signature_with_arena(
     checker: &mut ModuleChecker<'_>,
     func: &Function,
@@ -177,10 +181,13 @@ fn infer_function_signature_with_arena(
     let mut param_types = Vec::with_capacity(params.len());
     for p in &params {
         let ty = match &p.ty {
-            Some(parsed_ty) => {
-                check_parsed_type_object_safety(checker, parsed_ty, p.span, arena);
-                resolve_type_with_vars(checker, parsed_ty, &type_param_vars, arena)
-            }
+            Some(parsed_ty) => resolve_and_check_type_with_vars(
+                checker,
+                parsed_ty,
+                &type_param_vars,
+                p.span,
+                arena,
+            ),
             // Parameter without type annotation gets a fresh variable
             None => checker.pool_mut().fresh_var(),
         };
@@ -190,8 +197,7 @@ fn infer_function_signature_with_arena(
     // Resolve return type
     let return_type = match &func.return_ty {
         Some(parsed_ty) => {
-            check_parsed_type_object_safety(checker, parsed_ty, func.span, arena);
-            resolve_type_with_vars(checker, parsed_ty, &type_param_vars, arena)
+            resolve_and_check_type_with_vars(checker, parsed_ty, &type_param_vars, func.span, arena)
         }
         // No return type annotation: infer from the body.
         // Use a fresh type variable that will be unified with the body type
@@ -238,8 +244,10 @@ fn infer_function_signature_with_arena(
     let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
 
     // Check for special function attributes
-    let main_name = checker.interner().intern("main");
-    let is_main = func.name == main_name;
+    let is_main = {
+        let main_name = checker.interner().intern("main");
+        func.name == main_name
+    };
 
     let sig = FunctionSig {
         name: func.name,
@@ -282,8 +290,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
     for p in &params {
         let ty = match &p.ty {
             Some(parsed_ty) => {
-                check_parsed_type_object_safety(checker, parsed_ty, p.span, arena);
-                resolve_type_with_vars(checker, parsed_ty, &empty_vars, arena)
+                resolve_and_check_type_with_vars(checker, parsed_ty, &empty_vars, p.span, arena)
             }
             None => checker.pool_mut().fresh_var(),
         };
@@ -293,8 +300,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
     // Tests return their declared type, or unit if no annotation
     let return_type = match &test.return_ty {
         Some(parsed_ty) => {
-            check_parsed_type_object_safety(checker, parsed_ty, test.span, arena);
-            resolve_type_with_vars(checker, parsed_ty, &empty_vars, arena)
+            resolve_and_check_type_with_vars(checker, parsed_ty, &empty_vars, test.span, arena)
         }
         None => Idx::UNIT,
     };
@@ -337,29 +343,33 @@ fn resolve_const_param_type(checker: &ModuleChecker<'_>, param: &ori_ir::Generic
             _ => Idx::ERROR,
         },
         Some(ParsedType::Named { name, .. }) => {
-            let name_str = checker.interner().lookup(*name);
-            match name_str {
-                "int" => Idx::INT,
-                "bool" => Idx::BOOL,
-                _ => Idx::ERROR,
+            let wk = checker.well_known();
+            if *name == wk.int {
+                Idx::INT
+            } else if *name == wk.bool {
+                Idx::BOOL
+            } else {
+                Idx::ERROR
             }
         }
         _ => Idx::ERROR,
     }
 }
 
-/// Resolve a parsed type with generic parameter variables in scope.
+/// Resolve a parsed type and check object safety in a single pass.
 ///
-/// This differs from `resolve_parsed_type_simple` in that it:
-/// 1. Looks up type parameter names in the provided mapping
-/// 2. Returns the corresponding type variable for generic params
-///
-/// The `arena` parameter allows resolving types from either the local module's
-/// arena or a foreign module's arena, enabling import signature inference.
-fn resolve_type_with_vars(
+/// Combines the work of `resolve_type_with_vars` and
+/// `check_parsed_type_object_safety` into one tree walk.
+/// The `span` is used for object-safety error reporting on `Named` nodes.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive ParsedType variant resolution with object-safety checking in one tree walk"
+)]
+fn resolve_and_check_type_with_vars(
     checker: &mut ModuleChecker<'_>,
     parsed: &ParsedType,
     type_param_vars: &FxHashMap<Name, Idx>,
+    span: Span,
     arena: &ExprArena,
 ) -> Idx {
     match parsed {
@@ -375,7 +385,8 @@ fn resolve_type_with_vars(
         // List type: [T]
         ParsedType::List(elem_id) => {
             let elem = arena.get_parsed_type(*elem_id);
-            let elem_ty = resolve_type_with_vars(checker, elem, type_param_vars, arena);
+            let elem_ty =
+                resolve_and_check_type_with_vars(checker, elem, type_param_vars, span, arena);
             checker.pool_mut().list(elem_ty)
         }
 
@@ -383,8 +394,15 @@ fn resolve_type_with_vars(
         ParsedType::Map { key, value } => {
             let key_parsed = arena.get_parsed_type(*key);
             let value_parsed = arena.get_parsed_type(*value);
-            let key_ty = resolve_type_with_vars(checker, key_parsed, type_param_vars, arena);
-            let value_ty = resolve_type_with_vars(checker, value_parsed, type_param_vars, arena);
+            let key_ty =
+                resolve_and_check_type_with_vars(checker, key_parsed, type_param_vars, span, arena);
+            let value_ty = resolve_and_check_type_with_vars(
+                checker,
+                value_parsed,
+                type_param_vars,
+                span,
+                arena,
+            );
             checker.pool_mut().map(key_ty, value_ty)
         }
 
@@ -395,7 +413,7 @@ fn resolve_type_with_vars(
                 .iter()
                 .map(|&elem_id| {
                     let elem = arena.get_parsed_type(elem_id);
-                    resolve_type_with_vars(checker, elem, type_param_vars, arena)
+                    resolve_and_check_type_with_vars(checker, elem, type_param_vars, span, arena)
                 })
                 .collect();
             checker.pool_mut().tuple(&elem_types)
@@ -408,11 +426,12 @@ fn resolve_type_with_vars(
                 .iter()
                 .map(|&param_id| {
                     let param = arena.get_parsed_type(param_id);
-                    resolve_type_with_vars(checker, param, type_param_vars, arena)
+                    resolve_and_check_type_with_vars(checker, param, type_param_vars, span, arena)
                 })
                 .collect();
             let ret_parsed = arena.get_parsed_type(*ret);
-            let ret_ty = resolve_type_with_vars(checker, ret_parsed, type_param_vars, arena);
+            let ret_ty =
+                resolve_and_check_type_with_vars(checker, ret_parsed, type_param_vars, span, arena);
             checker.pool_mut().function(&param_types, ret_ty)
         }
 
@@ -420,50 +439,36 @@ fn resolve_type_with_vars(
         ParsedType::Named { name, type_args } => {
             // First, check if this is a type parameter
             if let Some(&var) = type_param_vars.get(name) {
-                // It's a generic type parameter - return the variable
                 return var;
             }
 
-            // Resolve type arguments if present
+            // Resolve type arguments (recursion handles object safety for children)
             let type_arg_ids = arena.get_parsed_type_list(*type_args);
             let resolved_args: Vec<Idx> = type_arg_ids
                 .iter()
                 .map(|&arg_id| {
                     let arg = arena.get_parsed_type(arg_id);
-                    resolve_type_with_vars(checker, arg, type_param_vars, arena)
+                    resolve_and_check_type_with_vars(checker, arg, type_param_vars, span, arena)
                 })
                 .collect();
 
-            // Well-known generic types must use their dedicated Pool constructors
-            // to ensure unification works correctly (e.g., Option<int> from a type
-            // annotation must produce the same Tag::Option as pool.option(int)).
+            // Object safety: check non-concrete named types for trait object usage
+            if !checker.is_well_known_concrete_cached(*name, type_arg_ids.len()) {
+                emit_object_safety_error(checker, *name, span);
+            }
+
+            // Well-known generic types → dedicated Pool constructors
             if !resolved_args.is_empty() {
-                let name_str = checker.interner().lookup(*name);
-                if let Some(idx) = super::well_known::resolve_well_known_generic(
-                    checker.pool_mut(),
-                    name_str,
-                    &resolved_args,
-                ) {
+                if let Some(idx) = checker.resolve_well_known_generic_cached(*name, &resolved_args)
+                {
                     return idx;
                 }
                 return checker.pool_mut().applied(*name, &resolved_args);
             }
 
-            // No type args — check for built-in primitive type names
-            let name_str = checker.interner().lookup(*name);
-            match name_str {
-                "int" => return Idx::INT,
-                "float" => return Idx::FLOAT,
-                "bool" => return Idx::BOOL,
-                "str" => return Idx::STR,
-                "char" => return Idx::CHAR,
-                "byte" => return Idx::BYTE,
-                "void" | "()" => return Idx::UNIT,
-                "never" | "Never" => return Idx::NEVER,
-                "Duration" | "duration" => return Idx::DURATION,
-                "Size" | "size" => return Idx::SIZE,
-                "Ordering" | "ordering" => return Idx::ORDERING,
-                _ => {}
+            // No type args — check for built-in primitive type names via cache
+            if let Some(idx) = checker.resolve_primitive_name(*name) {
+                return idx;
             }
 
             // User-defined bare named type
@@ -473,7 +478,13 @@ fn resolve_type_with_vars(
         // Fixed-size list: treat as regular list for now
         ParsedType::FixedList { elem, capacity: _ } => {
             let elem_parsed = arena.get_parsed_type(*elem);
-            let elem_ty = resolve_type_with_vars(checker, elem_parsed, type_param_vars, arena);
+            let elem_ty = resolve_and_check_type_with_vars(
+                checker,
+                elem_parsed,
+                type_param_vars,
+                span,
+                arena,
+            );
             checker.pool_mut().list(elem_ty)
         }
 
@@ -481,50 +492,53 @@ fn resolve_type_with_vars(
         ParsedType::Infer => checker.pool_mut().fresh_var(),
 
         // Self type: handled specially in impl blocks
-        ParsedType::SelfType => {
-            // In impl blocks, Self refers to the implementing type
-            // For now, return error - this should be resolved by the caller
-            Idx::ERROR
-        }
+        ParsedType::SelfType => Idx::ERROR,
 
         // Associated type: T::Item
-        ParsedType::AssociatedType { .. } => {
-            // Associated types require trait resolution.
+        ParsedType::AssociatedType { base, .. } => {
+            // Still recurse into base for object safety
+            let base_parsed = arena.get_parsed_type(*base);
+            resolve_and_check_type_with_vars(checker, base_parsed, type_param_vars, span, arena);
             Idx::ERROR
         }
 
-        // Const expression in type position (e.g., `$N` in `Array<int, $N>`)
-        ParsedType::ConstExpr(_) => {
-            // Const expressions in type positions produce their value type.
-            // For now, all const expressions are int (the only supported const type).
-            // Full const expression evaluation deferred to Section 18.4.
-            Idx::INT
-        }
+        // Const expression in type position
+        ParsedType::ConstExpr(_) => Idx::INT,
 
-        // Bounded trait object: resolve first bound as primary type
+        // Bounded trait object: resolve all bounds (checking object safety),
+        // return the first as the primary type.
         ParsedType::TraitBounds(bounds) => {
             let bound_ids = arena.get_parsed_type_list(*bounds);
-            if let Some(&first_id) = bound_ids.first() {
-                let first = arena.get_parsed_type(first_id);
-                resolve_type_with_vars(checker, first, type_param_vars, arena)
-            } else {
-                Idx::ERROR
+            let mut primary = Idx::ERROR;
+            for (i, &bound_id) in bound_ids.iter().enumerate() {
+                let bound = arena.get_parsed_type(bound_id);
+                let resolved =
+                    resolve_and_check_type_with_vars(checker, bound, type_param_vars, span, arena);
+                if i == 0 {
+                    primary = resolved;
+                }
             }
+            primary
         }
     }
 }
 
-/// Delegate to the generic object safety traversal.
+/// Emit an object safety error for a non-object-safe trait used as a type.
 ///
-/// `ModuleChecker` implements `ObjectSafetyChecker` (in `check/object_safety.rs`),
-/// so this is a thin wrapper for call-site convenience.
-fn check_parsed_type_object_safety(
-    checker: &mut ModuleChecker<'_>,
-    parsed: &ParsedType,
-    span: Span,
-    arena: &ExprArena,
-) {
-    super::object_safety::check_parsed_type_object_safety(checker, parsed, span, arena);
+/// Extracted to keep the fused resolve+check function focused on tree walking.
+fn emit_object_safety_error(checker: &mut ModuleChecker<'_>, name: Name, span: Span) {
+    use crate::{ObjectSafetyViolation, TypeCheckError};
+
+    let violations: Option<Vec<ObjectSafetyViolation>> = {
+        let trait_reg = checker.trait_registry();
+        trait_reg
+            .get_trait_by_name(name)
+            .filter(|entry| !entry.is_object_safe())
+            .map(|entry| entry.object_safety_violations.clone())
+    };
+    if let Some(violations) = violations {
+        checker.push_error(TypeCheckError::not_object_safe(span, name, violations));
+    }
 }
 
 #[cfg(test)]

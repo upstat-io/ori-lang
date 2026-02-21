@@ -228,6 +228,10 @@ fn extract_const_value(
 ///
 /// Returns `None` if the operation would cause undefined behavior
 /// (division by zero, integer overflow) — these are deferred to runtime.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive (BinaryOp, ConstValue, ConstValue) fold dispatch"
+)]
 fn fold_binary(op: BinaryOp, left: &ConstValue, right: &ConstValue) -> Option<ConstValue> {
     // Match by reference — all inner data is Copy, so no cloning needed.
     match (op, left, right) {

@@ -12,7 +12,7 @@ The PatternRegistry provides pattern lookup via the `Pattern` enum, using static
 ## Location
 
 ```
-compiler/ori_patterns/src/registry.rs
+compiler/ori_patterns/src/registry/mod.rs
 ```
 
 ## Architecture
@@ -32,6 +32,7 @@ pub enum Pattern {
     Catch(CatchPattern),
     Todo(TodoPattern),
     Unreachable(UnreachablePattern),
+    Channel(ChannelPattern),
 }
 
 impl PatternDefinition for Pattern {
@@ -71,6 +72,10 @@ impl PatternRegistry {
             FunctionExpKind::Catch => Pattern::Catch(CatchPattern),
             FunctionExpKind::Todo => Pattern::Todo(TodoPattern),
             FunctionExpKind::Unreachable => Pattern::Unreachable(UnreachablePattern),
+            FunctionExpKind::Channel
+            | FunctionExpKind::ChannelIn
+            | FunctionExpKind::ChannelOut
+            | FunctionExpKind::ChannelAll => Pattern::Channel(ChannelPattern),
         }
     }
 
@@ -80,8 +85,18 @@ impl PatternRegistry {
             FunctionExpKind::Recurse,
             FunctionExpKind::Parallel,
             FunctionExpKind::Spawn,
-            // ...
+            // ... all variants including ChannelIn, ChannelOut, ChannelAll
         ].into_iter()
+    }
+
+    /// Get the number of registered pattern kinds.
+    pub fn len(&self) -> usize {
+        self.kinds().count()
+    }
+
+    /// Check if the registry is empty (always false).
+    pub fn is_empty(&self) -> bool {
+        false
     }
 }
 ```
@@ -111,6 +126,10 @@ Pattern variants are ZSTs created inline in match arms -- no static instances ne
 | `catch` | Catch panics | `expr` |
 | `todo` | Unimplemented marker (returns Never) | - |
 | `unreachable` | Unreachable marker (returns Never) | - |
+| `channel` | Message passing channel (stub) | `buffer` |
+| `channel_in` | Channel input end (maps to `ChannelPattern`) | `buffer` |
+| `channel_out` | Channel output end (maps to `ChannelPattern`) | `buffer` |
+| `channel_all` | Bidirectional channel (maps to `ChannelPattern`) | `buffer` |
 
 ## Usage in Type Checker
 

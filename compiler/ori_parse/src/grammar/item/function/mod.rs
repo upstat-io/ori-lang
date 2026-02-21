@@ -134,6 +134,8 @@ impl Parser<'_> {
             let end_span = self.arena.get_expr(body).span;
             let span = start_span.merge(end_span);
 
+            self.eat_optional_item_semicolon();
+
             ParseOutcome::consumed_ok(FunctionOrTest::Function(Function {
                 name,
                 generics,
@@ -180,6 +182,8 @@ impl Parser<'_> {
         let end_span = self.arena.get_expr(body).span;
         let span = start_span.merge(end_span);
 
+        self.eat_optional_item_semicolon();
+
         ParseOutcome::consumed_ok(FunctionOrTest::Test(TestDef {
             name,
             targets,
@@ -203,6 +207,10 @@ impl Parser<'_> {
     /// - Literal patterns: `(0: int)` — clause-based functions
     /// - List patterns: `([]: [T])`, `([_, ..tail]: [T])` — clause-based functions
     /// - Default values: `(x: int = 42)`
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive parameter parsing covering patterns, self, literals, defaults, and type annotations"
+    )]
     pub(crate) fn parse_params(&mut self) -> Result<ParamRange, ParseError> {
         use crate::series::SeriesConfig;
 

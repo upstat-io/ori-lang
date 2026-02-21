@@ -167,6 +167,10 @@ pub fn dispatch_string_method(
         let mut hasher = DefaultHasher::new();
         s.hash(&mut hasher);
         Ok(Value::int(hasher.finish().cast_signed()))
+    // Into trait: str -> Error (wraps string as error message)
+    } else if method == n.into {
+        require_args("into", 0, args.len())?;
+        Ok(Value::error(s.to_string()))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "str").into())
     }
@@ -308,6 +312,10 @@ pub fn dispatch_set_method(
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
         Ok(Value::string(debug_value(&receiver)))
+    // Into trait: Set<T> -> [T] (collect to list)
+    } else if method == n.into {
+        require_args("into", 0, args.len())?;
+        Ok(Value::list(items.values().cloned().collect()))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }

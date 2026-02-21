@@ -158,23 +158,23 @@ type TraceEntry = {
 The `?` operator automatically adds trace entries:
 
 ```ori
-@outer () -> Result<int, Error> = run(
+@outer () -> Result<int, Error> = {
     let x = inner()?,  // Adds trace entry for this location
-    Ok(x * 2),
-)
+    Ok(x * 2)
+}
 ```
 
 ### Manual Trace Access
 
 ```ori
-match(result,
-    Ok(v) -> v,
-    Err(e) -> run(
+match result {
+    Ok(v) -> v
+    Err(e) -> {
         for entry in e.trace_entries() do
-            log(msg: `  at {entry.function} ({entry.file}:{entry.line})`),
-        panic(msg: e.message),
-    ),
-)
+            log(msg: `  at {entry.function} ({entry.file}:{entry.line})`)
+        panic(msg: e.message)
+    }
+}
 ```
 
 ## Standard Implementations

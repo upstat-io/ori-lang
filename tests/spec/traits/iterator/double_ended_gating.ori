@@ -9,183 +9,183 @@ use std.testing { assert_eq }
 // Positive: DEI methods work on list iterators (DoubleEndedIterator)
 // =============================================================================
 
-@rev_on_list () -> [int] = run(
-    [1, 2, 3].iter().rev().collect(),
-)
+@rev_on_list () -> [int] = {
+    [1, 2, 3].iter().rev().collect()
+}
 
-@test_rev_on_list tests @rev_on_list () -> void = run(
-    assert_eq(actual: rev_on_list(), expected: [3, 2, 1]),
-)
+@test_rev_on_list tests @rev_on_list () -> void = {
+    assert_eq(actual: rev_on_list(), expected: [3, 2, 1])
+}
 
-@last_on_list () -> Option<int> = run(
-    [10, 20, 30].iter().last(),
-)
+@last_on_list () -> Option<int> = {
+    [10, 20, 30].iter().last()
+}
 
-@test_last_on_list tests @last_on_list () -> void = run(
-    assert_eq(actual: last_on_list(), expected: Some(30)),
-)
+@test_last_on_list tests @last_on_list () -> void = {
+    assert_eq(actual: last_on_list(), expected: Some(30))
+}
 
 // =============================================================================
 // Positive: DEI methods work on range iterators (DoubleEndedIterator)
 // =============================================================================
 
-@rev_on_range () -> [int] = run(
-    (0..4).iter().rev().collect(),
-)
+@rev_on_range () -> [int] = {
+    (0..4).iter().rev().collect()
+}
 
-@test_rev_on_range tests @rev_on_range () -> void = run(
-    assert_eq(actual: rev_on_range(), expected: [3, 2, 1, 0]),
-)
+@test_rev_on_range tests @rev_on_range () -> void = {
+    assert_eq(actual: rev_on_range(), expected: [3, 2, 1, 0])
+}
 
-@last_on_range () -> Option<int> = run(
-    (0..10).iter().last(),
-)
+@last_on_range () -> Option<int> = {
+    (0..10).iter().last()
+}
 
-@test_last_on_range tests @last_on_range () -> void = run(
-    assert_eq(actual: last_on_range(), expected: Some(9)),
-)
+@test_last_on_range tests @last_on_range () -> void = {
+    assert_eq(actual: last_on_range(), expected: Some(9))
+}
 
 // =============================================================================
 // Positive: DEI methods work on string iterators (DoubleEndedIterator)
 // =============================================================================
 
-@rfind_on_str () -> Option<char> = run(
-    "hello".iter().rfind(c -> c == 'l'),
-)
+@rfind_on_str () -> Option<char> = {
+    "hello".iter().rfind(c -> c == 'l')
+}
 
-@test_rfind_on_str tests @rfind_on_str () -> void = run(
-    assert_eq(actual: rfind_on_str(), expected: Some('l')),
-)
+@test_rfind_on_str tests @rfind_on_str () -> void = {
+    assert_eq(actual: rfind_on_str(), expected: Some('l'))
+}
 
 // =============================================================================
 // Positive: map/filter preserve DoubleEndedIterator
 // =============================================================================
 
-@rev_after_map () -> [int] = run(
-    [1, 2, 3].iter().map(x -> x * 10).rev().collect(),
-)
+@rev_after_map () -> [int] = {
+    [1, 2, 3].iter().map(x -> x * 10).rev().collect()
+}
 
-@test_rev_after_map tests @rev_after_map () -> void = run(
-    assert_eq(actual: rev_after_map(), expected: [30, 20, 10]),
-)
+@test_rev_after_map tests @rev_after_map () -> void = {
+    assert_eq(actual: rev_after_map(), expected: [30, 20, 10])
+}
 
-@rev_after_filter () -> [int] = run(
-    [1, 2, 3, 4, 5, 6].iter().filter(x -> x % 2 == 0).rev().collect(),
-)
+@rev_after_filter () -> [int] = {
+    [1, 2, 3, 4, 5, 6].iter().filter(x -> x % 2 == 0).rev().collect()
+}
 
-@test_rev_after_filter tests @rev_after_filter () -> void = run(
-    assert_eq(actual: rev_after_filter(), expected: [6, 4, 2]),
-)
+@test_rev_after_filter tests @rev_after_filter () -> void = {
+    assert_eq(actual: rev_after_filter(), expected: [6, 4, 2])
+}
 
 // =============================================================================
 // Negative: rev() on map iterator (non-double-ended) — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rev_on_map_iter tests @_target_rev_map () -> void = run(
-    let m = {"a": 1, "b": 2},
-    let _ = m.iter().rev(),
-    (),
-)
+@test_rev_on_map_iter tests @_target_rev_map () -> void = {
+    let m = {"a": 1, "b": 2};
+    let _ = m.iter().rev();
+    ()
+}
 
-@_target_rev_map () -> bool = true
+@_target_rev_map () -> bool = true;
 
 // =============================================================================
 // Negative: rev() on set iterator (non-double-ended) — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rev_on_set_iter tests @_target_rev_set () -> void = run(
-    let s: Set<int> = [1, 2, 3].iter().collect(),
-    let _ = s.iter().rev(),
-    (),
-)
+@test_rev_on_set_iter tests @_target_rev_set () -> void = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let _ = s.iter().rev();
+    ()
+}
 
-@_target_rev_set () -> bool = true
+@_target_rev_set () -> bool = true;
 
 // =============================================================================
 // Negative: last() on map iterator — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_last_on_map_iter tests @_target_last_map () -> void = run(
-    let m = {"x": 10},
-    let _ = m.iter().last(),
-    (),
-)
+@test_last_on_map_iter tests @_target_last_map () -> void = {
+    let m = {"x": 10};
+    let _ = m.iter().last();
+    ()
+}
 
-@_target_last_map () -> bool = true
+@_target_last_map () -> bool = true;
 
 // =============================================================================
 // Negative: rfind() on set iterator — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rfind_on_set_iter tests @_target_rfind_set () -> void = run(
-    let s: Set<int> = [1, 2, 3].iter().collect(),
-    let _ = s.iter().rfind(x -> x > 1),
-    (),
-)
+@test_rfind_on_set_iter tests @_target_rfind_set () -> void = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let _ = s.iter().rfind(x -> x > 1);
+    ()
+}
 
-@_target_rfind_set () -> bool = true
+@_target_rfind_set () -> bool = true;
 
 // =============================================================================
 // Negative: rfold() on map iterator — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rfold_on_map_iter tests @_target_rfold_map () -> void = run(
-    let m = {"a": 1},
-    let _ = m.iter().rfold(0, (acc, x) -> acc),
-    (),
-)
+@test_rfold_on_map_iter tests @_target_rfold_map () -> void = {
+    let m = {"a": 1};
+    let _ = m.iter().rfold(0, (acc, x) -> acc);
+    ()
+}
 
-@_target_rfold_map () -> bool = true
+@_target_rfold_map () -> bool = true;
 
 // =============================================================================
 // Negative: rev() on repeat() (infinite, non-double-ended) — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rev_on_repeat tests @_target_rev_repeat () -> void = run(
-    let _ = repeat(42).rev(),
-    (),
-)
+@test_rev_on_repeat tests @_target_rev_repeat () -> void = {
+    let _ = repeat(42).rev();
+    ()
+}
 
-@_target_rev_repeat () -> bool = true
+@_target_rev_repeat () -> bool = true;
 
 // =============================================================================
 // Negative: rev() after take() (downgrades to Iterator) — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rev_after_take tests @_target_rev_take () -> void = run(
-    let _ = [1, 2, 3].iter().take(2).rev(),
-    (),
-)
+@test_rev_after_take tests @_target_rev_take () -> void = {
+    let _ = [1, 2, 3].iter().take(2).rev();
+    ()
+}
 
-@_target_rev_take () -> bool = true
+@_target_rev_take () -> bool = true;
 
 // =============================================================================
 // Negative: rev() after skip() (downgrades to Iterator) — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rev_after_skip tests @_target_rev_skip () -> void = run(
-    let _ = [1, 2, 3].iter().skip(1).rev(),
-    (),
-)
+@test_rev_after_skip tests @_target_rev_skip () -> void = {
+    let _ = [1, 2, 3].iter().skip(1).rev();
+    ()
+}
 
-@_target_rev_skip () -> bool = true
+@_target_rev_skip () -> bool = true;
 
 // =============================================================================
 // Negative: rev() after enumerate() (downgrades to Iterator) — compile error
 // =============================================================================
 
 #compile_fail("requires a DoubleEndedIterator")
-@test_rev_after_enumerate tests @_target_rev_enum () -> void = run(
-    let _ = [1, 2, 3].iter().enumerate().rev(),
-    (),
-)
+@test_rev_after_enumerate tests @_target_rev_enum () -> void = {
+    let _ = [1, 2, 3].iter().enumerate().rev();
+    ()
+}
 
-@_target_rev_enum () -> bool = true
+@_target_rev_enum () -> bool = true;

@@ -435,6 +435,20 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         f.add_attribute(AttributeLoc::Function, attr);
     }
 
+    /// Add the `noredzone` attribute to a function.
+    ///
+    /// Prevents the function from using the 128-byte red zone below `%rsp`
+    /// (`x86_64` `SysV` ABI). Required for JIT-compiled code where `fastcc`
+    /// functions call into host runtime functions: the host functions create
+    /// their own stack frames by pushing below `%rsp`, which can clobber
+    /// red-zone data if the JIT code was using it.
+    pub fn add_noredzone_attribute(&mut self, func: FunctionId) {
+        let f = self.arena.get_function(func);
+        let kind = Attribute::get_named_enum_kind_id("noredzone");
+        let attr = self.scx.llcx.create_enum_attribute(kind, 0);
+        f.add_attribute(AttributeLoc::Function, attr);
+    }
+
     /// Add the `noalias` attribute to a function's return value.
     ///
     /// Guarantees the returned pointer does not alias any other pointer

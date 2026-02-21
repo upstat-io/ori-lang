@@ -28,6 +28,10 @@ pub fn diff_types(pool: &Pool, expected: Idx, found: Idx) -> Vec<TypeProblem> {
 }
 
 /// Inner diffing logic that accumulates problems.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive (Tag, Tag) mismatch categorization"
+)]
 fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<TypeProblem>) {
     // Same type? No problem.
     if expected == found {
@@ -80,17 +84,14 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
             let found_elem = Idx::from_raw(pool.data(found));
             if exp_elem != found_elem {
                 problems.push(TypeProblem::ListElementMismatch { index: 0 });
-                // Recurse to find nested problems
                 diff_types_inner(pool, exp_elem, found_elem, problems);
             }
         }
 
         // Expected Option, got something else
         (Tag::Option, other) if other != Tag::Option => {
-            // Check if the inner type matches - might just need wrapping
             let inner = Idx::from_raw(pool.data(expected));
             if inner == found {
-                // Found T where Option<T> expected - suggest wrapping
                 problems.push(TypeProblem::TypeMismatch {
                     expected_category: "option",
                     found_category: tag_name(other),
@@ -149,72 +150,19 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
         }
 
         // === Function Problems ===
-
-        // Function arity/type mismatch
         (Tag::Function, Tag::Function) => {
-            let exp_params = pool.function_params(expected);
-            let found_params = pool.function_params(found);
-            let exp_ret = pool.function_return(expected);
-            let found_ret = pool.function_return(found);
-
-            if exp_params.len() == found_params.len() {
-                // Check each parameter
-                for (i, (exp_p, found_p)) in exp_params.iter().zip(found_params.iter()).enumerate()
-                {
-                    if exp_p != found_p {
-                        problems.push(TypeProblem::ArgumentMismatch {
-                            arg_index: i,
-                            expected: *exp_p,
-                            found: *found_p,
-                        });
-                    }
-                }
-            } else {
-                problems.push(TypeProblem::WrongArity {
-                    expected: exp_params.len(),
-                    found: found_params.len(),
-                });
-            }
-
-            if exp_ret != found_ret {
-                problems.push(TypeProblem::ReturnMismatch {
-                    expected: exp_ret,
-                    found: found_ret,
-                });
-            }
+            diff_function_types(pool, expected, found, problems);
         }
 
         // Expected function, got something else
         (Tag::Function, other) => {
             problems.push(TypeProblem::NotCallable { actual_type: found });
-            let _ = other; // suppress unused warning
+            let _ = other;
         }
 
         // === Tuple Problems ===
         (Tag::Tuple, Tag::Tuple) => {
-            let exp_elems = pool.tuple_elems(expected);
-            let found_elems = pool.tuple_elems(found);
-
-            if exp_elems.len() == found_elems.len() {
-                for (i, (exp_e, found_e)) in exp_elems.iter().zip(found_elems.iter()).enumerate() {
-                    if exp_e != found_e {
-                        diff_types_inner(pool, *exp_e, *found_e, problems);
-                        // Add context about which tuple element
-                        if problems.is_empty() {
-                            problems.push(TypeProblem::TypeMismatch {
-                                expected_category: "tuple element",
-                                found_category: "tuple element",
-                            });
-                        }
-                        let _ = i; // suppress unused warning
-                    }
-                }
-            } else {
-                problems.push(TypeProblem::WrongArity {
-                    expected: exp_elems.len(),
-                    found: found_elems.len(),
-                });
-            }
+            diff_tuple_types(pool, expected, found, problems);
         }
 
         // === Named Type Problems ===
@@ -231,28 +179,7 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
 
         // === Applied Type Problems ===
         (Tag::Applied, Tag::Applied) => {
-            let exp_name = pool.applied_name(expected);
-            let found_name = pool.applied_name(found);
-            let exp_args = pool.applied_args(expected);
-            let found_args = pool.applied_args(found);
-
-            if exp_name != found_name {
-                problems.push(TypeProblem::WrongRecordType {
-                    expected: exp_name,
-                    found: found_name,
-                });
-            } else if exp_args.len() != found_args.len() {
-                problems.push(TypeProblem::WrongArity {
-                    expected: exp_args.len(),
-                    found: found_args.len(),
-                });
-            } else {
-                for (exp_a, found_a) in exp_args.iter().zip(found_args.iter()) {
-                    if exp_a != found_a {
-                        diff_types_inner(pool, *exp_a, *found_a, problems);
-                    }
-                }
-            }
+            diff_applied_types(pool, expected, found, problems);
         }
 
         // === Generic Fallback ===
@@ -261,6 +188,90 @@ fn diff_types_inner(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<T
                 expected_category: tag_name(exp_tag),
                 found_category: tag_name(found_tag),
             });
+        }
+    }
+}
+
+/// Diff two function types, checking arity and parameter/return types.
+fn diff_function_types(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<TypeProblem>) {
+    let exp_params = pool.function_params(expected);
+    let found_params = pool.function_params(found);
+    let exp_ret = pool.function_return(expected);
+    let found_ret = pool.function_return(found);
+
+    if exp_params.len() == found_params.len() {
+        for (i, (exp_p, found_p)) in exp_params.iter().zip(found_params.iter()).enumerate() {
+            if exp_p != found_p {
+                problems.push(TypeProblem::ArgumentMismatch {
+                    arg_index: i,
+                    expected: *exp_p,
+                    found: *found_p,
+                });
+            }
+        }
+    } else {
+        problems.push(TypeProblem::WrongArity {
+            expected: exp_params.len(),
+            found: found_params.len(),
+        });
+    }
+
+    if exp_ret != found_ret {
+        problems.push(TypeProblem::ReturnMismatch {
+            expected: exp_ret,
+            found: found_ret,
+        });
+    }
+}
+
+/// Diff two tuple types, checking arity and element types.
+fn diff_tuple_types(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<TypeProblem>) {
+    let exp_elems = pool.tuple_elems(expected);
+    let found_elems = pool.tuple_elems(found);
+
+    if exp_elems.len() == found_elems.len() {
+        for (i, (exp_e, found_e)) in exp_elems.iter().zip(found_elems.iter()).enumerate() {
+            if exp_e != found_e {
+                diff_types_inner(pool, *exp_e, *found_e, problems);
+                if problems.is_empty() {
+                    problems.push(TypeProblem::TypeMismatch {
+                        expected_category: "tuple element",
+                        found_category: "tuple element",
+                    });
+                }
+                let _ = i;
+            }
+        }
+    } else {
+        problems.push(TypeProblem::WrongArity {
+            expected: exp_elems.len(),
+            found: found_elems.len(),
+        });
+    }
+}
+
+/// Diff two applied (generic) types, checking constructor name and type arguments.
+fn diff_applied_types(pool: &Pool, expected: Idx, found: Idx, problems: &mut Vec<TypeProblem>) {
+    let exp_name = pool.applied_name(expected);
+    let found_name = pool.applied_name(found);
+    let exp_args = pool.applied_args(expected);
+    let found_args = pool.applied_args(found);
+
+    if exp_name != found_name {
+        problems.push(TypeProblem::WrongRecordType {
+            expected: exp_name,
+            found: found_name,
+        });
+    } else if exp_args.len() != found_args.len() {
+        problems.push(TypeProblem::WrongArity {
+            expected: exp_args.len(),
+            found: found_args.len(),
+        });
+    } else {
+        for (exp_a, found_a) in exp_args.iter().zip(found_args.iter()) {
+            if exp_a != found_a {
+                diff_types_inner(pool, *exp_a, *found_a, problems);
+            }
         }
     }
 }

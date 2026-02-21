@@ -2,650 +2,265 @@
 //!
 //! Each error code is a unique identifier (e.g., `E1001`) with the first digit
 //! indicating the compiler phase. Used for `--explain` lookups and documentation.
+//!
+//! All error codes are declared in a single [`define_error_codes!`] invocation.
+//! The macro generates: the `ErrorCode` enum, `ALL`, `COUNT`, `as_str()`,
+//! `description()`, `Display`, and `FromStr`.
 
 use std::fmt;
 
-/// Error codes for all compiler diagnostics.
+/// Declare all error codes in a single location.
 ///
-/// Format: E#### where first digit indicates phase:
-/// - E0xxx: Lexer errors
-/// - E1xxx: Parser errors
-/// - E2xxx: Type errors
-/// - E3xxx: Pattern errors
-/// - E4xxx: ARC analysis errors
-/// - E5xxx: Codegen / LLVM errors
-/// - E6xxx: Runtime / eval errors
-/// - E9xxx: Internal compiler errors
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub enum ErrorCode {
-    // Lexer Errors (E0xxx)
-    /// Unterminated string literal
-    E0001,
-    /// Invalid character in source
-    E0002,
-    /// Invalid number literal
-    E0003,
-    /// Unterminated character literal
-    E0004,
-    /// Invalid escape sequence
-    E0005,
-    /// Unterminated template literal
-    E0006,
-    /// Semicolon (cross-language habit)
-    E0007,
-    /// Triple-equals (cross-language habit)
-    E0008,
-    /// Single-quote string (cross-language habit)
-    E0009,
-    /// Increment/decrement operator (cross-language habit)
-    E0010,
-    /// Unicode confusable character
-    E0011,
-    /// Detached doc comment (warning)
-    E0012,
-    /// Standalone backslash
-    E0013,
-    /// Decimal not representable as whole base units
-    E0014,
-    /// Reserved-future keyword used as identifier
-    E0015,
-    /// Floating-point duration/size literal not supported
-    E0911,
+/// Each entry is `$variant, $description` where:
+/// - `$variant` is the enum variant name (e.g., `E2001`, `W1001`)
+/// - `$description` is a one-line summary string
+///
+/// Generates:
+/// - `ErrorCode` enum with doc comments from descriptions
+/// - `ALL: &[ErrorCode]` — all variants for iteration
+/// - `COUNT: usize` — variant count
+/// - `as_str()` — variant name as `&'static str` (e.g., `"E2001"`)
+/// - `description()` — one-line summary
+macro_rules! define_error_codes {
+    ($( $variant:ident, $desc:literal );+ $(;)?) => {
+        /// Error codes for all compiler diagnostics.
+        ///
+        /// Format: E#### where first digit indicates phase:
+        /// - E0xxx: Lexer errors
+        /// - E1xxx: Parser errors
+        /// - E2xxx: Type errors
+        /// - E3xxx: Pattern errors
+        /// - E4xxx: ARC analysis errors
+        /// - E5xxx: Codegen / LLVM errors
+        /// - E6xxx: Runtime / eval errors
+        /// - E9xxx: Internal compiler errors
+        /// - W1xxx: Parser warnings
+        /// - W2xxx: Type checker warnings
+        #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+        pub enum ErrorCode {
+            $(
+                #[doc = $desc]
+                $variant,
+            )+
+        }
 
-    // Parser Errors (E1xxx)
-    /// Unexpected token
-    E1001,
-    /// Expected expression
-    E1002,
-    /// Unclosed delimiter
-    E1003,
-    /// Expected identifier
-    E1004,
-    /// Expected type
-    E1005,
-    /// Invalid function definition
-    E1006,
-    /// Missing function body
-    E1007,
-    /// Invalid pattern syntax
-    E1008,
-    /// Missing pattern argument
-    E1009,
-    /// Unknown pattern argument
-    E1010,
-    /// Multi-arg function call requires named arguments
-    E1011,
-    /// Invalid `function_seq` syntax
-    E1012,
-    /// `function_exp` requires named properties
-    E1013,
-    /// Reserved built-in function name
-    E1014,
-    /// Unsupported keyword (e.g., `return` is not valid in Ori)
-    E1015,
+        impl ErrorCode {
+            /// All error code variants, for exhaustive iteration and testing.
+            pub const ALL: &[ErrorCode] = &[ $( ErrorCode::$variant, )+ ];
 
-    // Type Errors (E2xxx)
-    /// Type mismatch
-    E2001,
-    /// Unknown type
-    E2002,
-    /// Unknown identifier
-    E2003,
-    /// Argument count mismatch
-    E2004,
-    /// Cannot infer type
-    E2005,
-    /// Duplicate definition
-    E2006,
-    /// Closure self-reference (closure cannot capture itself)
-    E2007,
-    /// Cyclic type definition
-    E2008,
-    /// Missing trait bound
-    E2009,
-    /// Coherence violation (conflicting implementations)
-    E2010,
-    /// Named arguments required
-    E2011,
-    /// Unknown capability (uses clause references non-existent trait)
-    E2012,
-    /// Provider does not implement capability trait
-    E2013,
-    /// Missing capability declaration (function uses capability without declaring it)
-    E2014,
-    /// Type parameter ordering violation (non-default after default)
-    E2015,
-    /// Missing type argument (no default available)
-    E2016,
-    /// Too many type arguments
-    E2017,
-    /// Missing associated type (impl missing required associated type)
-    E2018,
-    /// Never type used as struct field (uninhabited struct)
-    E2019,
-    /// Unsupported operator (type does not implement operator trait)
-    E2020,
-    /// Overlapping implementations with equal specificity
-    E2021,
-    /// Conflicting default methods from multiple super-traits
-    E2022,
-    /// Ambiguous method call (multiple traits provide same method)
-    E2023,
-    /// Trait is not object-safe (cannot be used as trait object)
-    E2024,
-    /// Type does not implement Index (not indexable)
-    E2025,
-    /// Wrong key type for Index impl
-    E2026,
-    /// Ambiguous index key type (multiple impls match)
-    E2027,
-    /// Cannot derive Default for sum type (ambiguous variant)
-    E2028,
+            /// Number of error code variants.
+            pub const COUNT: usize = [ $( ErrorCode::$variant, )+ ].len();
 
-    // Pattern Errors (E3xxx)
-    /// Unknown pattern
-    E3001,
-    /// Invalid pattern arguments
-    E3002,
-    /// Pattern type error
-    E3003,
+            /// Get the code as a string (e.g., `"E1001"`, `"W2001"`).
+            pub fn as_str(&self) -> &'static str {
+                match self {
+                    $( ErrorCode::$variant => stringify!($variant), )+
+                }
+            }
 
-    // ARC Analysis Errors (E4xxx)
-    /// Unsupported expression in ARC IR lowering
-    E4001,
-    /// Unsupported pattern in ARC IR lowering
-    E4002,
-    /// ARC internal error (invariant violation)
-    E4003,
-
-    // Codegen / LLVM Errors (E5xxx)
-    /// LLVM module verification failed (ICE)
-    E5001,
-    /// Optimization pipeline failed
-    E5002,
-    /// Object/assembly/bitcode emission failed
-    E5003,
-    /// Target not supported / target configuration failed
-    E5004,
-    /// Runtime library (`libori_rt.a`) not found
-    E5005,
-    /// Linker failed
-    E5006,
-    /// Debug info creation failed
-    E5007,
-    /// WASM-specific error
-    E5008,
-    /// Module target configuration failed
-    E5009,
-
-    // Runtime / Eval Errors (E6xxx)
-    /// Division by zero
-    E6001,
-    /// Modulo by zero
-    E6002,
-    /// Integer overflow
-    E6003,
-    /// Size subtraction would be negative
-    E6004,
-    /// Size multiply by negative
-    E6005,
-    /// Size divide by negative
-    E6006,
-    /// Type mismatch
-    E6010,
-    /// Invalid binary operator for type
-    E6011,
-    /// Binary type mismatch
-    E6012,
-    /// Undefined variable
-    E6020,
-    /// Undefined function
-    E6021,
-    /// Undefined constant
-    E6022,
-    /// Undefined field
-    E6023,
-    /// Undefined method
-    E6024,
-    /// Index out of bounds
-    E6025,
-    /// Key not found
-    E6026,
-    /// Immutable binding
-    E6027,
-    /// Arity mismatch
-    E6030,
-    /// Stack overflow (recursion limit)
-    E6031,
-    /// Not callable
-    E6032,
-    /// Non-exhaustive match
-    E6040,
-    /// Assertion failed
-    E6050,
-    /// Panic called
-    E6051,
-    /// Missing capability
-    E6060,
-    /// Const-eval budget exceeded
-    E6070,
-    /// Not implemented feature
-    E6080,
-    /// Custom runtime error
-    E6099,
-
-    // Internal Errors (E9xxx)
-    /// Internal compiler error
-    E9001,
-    /// Too many errors
-    E9002,
-
-    // Parser Warnings (W1xxx)
-    /// Detached doc comment
-    W1001,
-    /// Unknown calling convention in extern block
-    W1002,
-
-    // Type Checker Warnings (W2xxx)
-    /// Infinite iterator consumed without bound (e.g., `repeat(x).collect()`)
-    W2001,
+            /// Get the one-line description of this error code.
+            pub fn description(&self) -> &'static str {
+                match self {
+                    $( ErrorCode::$variant => $desc, )+
+                }
+            }
+        }
+    };
 }
 
+define_error_codes! {
+    // Lexer Errors (E0xxx)
+    E0001, "Unterminated string literal";
+    E0002, "Invalid character in source";
+    E0003, "Invalid number literal";
+    E0004, "Unterminated character literal";
+    E0005, "Invalid escape sequence";
+    E0006, "Unterminated template literal";
+    E0008, "Triple-equals (cross-language habit)";
+    E0009, "Single-quote string (cross-language habit)";
+    E0010, "Increment/decrement operator (cross-language habit)";
+    E0011, "Unicode confusable character";
+    E0012, "Detached doc comment (warning)";
+    E0013, "Standalone backslash";
+    E0014, "Decimal not representable as whole base units";
+    E0015, "Reserved-future keyword used as identifier";
+    E0911, "Floating-point duration/size literal not supported";
+
+    // Parser Errors (E1xxx)
+    E1001, "Unexpected token";
+    E1002, "Expected expression";
+    E1003, "Unclosed delimiter";
+    E1004, "Expected identifier";
+    E1005, "Expected type";
+    E1006, "Invalid function definition";
+    E1007, "Missing function body";
+    E1008, "Invalid pattern syntax";
+    E1009, "Missing pattern argument";
+    E1010, "Unknown pattern argument";
+    E1011, "Multi-arg function call requires named arguments";
+    E1012, "Invalid `function_seq` syntax";
+    E1013, "`function_exp` requires named properties";
+    E1014, "Reserved built-in function name";
+    E1015, "Unsupported keyword";
+    E1016, "Expected semicolon";
+
+    // Type Errors (E2xxx)
+    E2001, "Type mismatch";
+    E2002, "Unknown type";
+    E2003, "Unknown identifier";
+    E2004, "Argument count mismatch";
+    E2005, "Cannot infer type";
+    E2006, "Duplicate definition";
+    E2007, "Closure self-reference";
+    E2008, "Cyclic type definition";
+    E2009, "Missing trait bound";
+    E2010, "Coherence violation";
+    E2011, "Named arguments required";
+    E2012, "Unknown capability";
+    E2013, "Provider does not implement capability trait";
+    E2014, "Missing capability declaration";
+    E2015, "Type parameter ordering violation";
+    E2016, "Missing type argument";
+    E2017, "Too many type arguments";
+    E2018, "Missing associated type";
+    E2019, "Never type used as struct field";
+    E2020, "Unsupported operator";
+    E2021, "Overlapping implementations with equal specificity";
+    E2022, "Conflicting default methods from multiple super-traits";
+    E2023, "Ambiguous method call";
+    E2024, "Trait is not object-safe";
+    E2025, "Type does not implement Index";
+    E2026, "Wrong key type for Index impl";
+    E2027, "Ambiguous index key type";
+    E2028, "Cannot derive Default for sum type";
+    E2029, "Cannot derive Hashable without Eq";
+    E2030, "Hashable implementation may violate hash invariant";
+    E2031, "Type cannot be used as map key";
+    E2032, "Field type does not implement trait required by derive";
+    E2033, "Trait cannot be derived";
+    E2034, "Invalid format specification in template string";
+    E2035, "Format type not supported for expression type";
+    E2036, "Type does not implement Into<T>";
+    E2037, "Multiple Into implementations apply";
+    E2038, "Type does not implement Printable";
+    E2039, "Cannot assign to immutable binding";
+
+    // Pattern Errors (E3xxx)
+    E3001, "Unknown pattern";
+    E3002, "Invalid pattern arguments";
+    E3003, "Pattern type error";
+
+    // ARC Analysis Errors (E4xxx)
+    E4001, "Unsupported expression in ARC IR lowering";
+    E4002, "Unsupported pattern in ARC IR lowering";
+    E4003, "ARC internal error";
+
+    // Codegen / LLVM Errors (E5xxx)
+    E5001, "LLVM module verification failed";
+    E5002, "Optimization pipeline failed";
+    E5003, "Object/assembly/bitcode emission failed";
+    E5004, "Target not supported";
+    E5005, "Runtime library not found";
+    E5006, "Linker failed";
+    E5007, "Debug info creation failed";
+    E5008, "WASM-specific error";
+    E5009, "Module target configuration failed";
+
+    // Runtime / Eval Errors (E6xxx)
+    E6001, "Division by zero";
+    E6002, "Modulo by zero";
+    E6003, "Integer overflow";
+    E6004, "Size subtraction would be negative";
+    E6005, "Size multiply by negative";
+    E6006, "Size divide by negative";
+    E6010, "Type mismatch (runtime)";
+    E6011, "Invalid binary operator for type";
+    E6012, "Binary type mismatch";
+    E6020, "Undefined variable";
+    E6021, "Undefined function";
+    E6022, "Undefined constant";
+    E6023, "Undefined field";
+    E6024, "Undefined method";
+    E6025, "Index out of bounds";
+    E6026, "Key not found";
+    E6027, "Immutable binding";
+    E6030, "Arity mismatch";
+    E6031, "Stack overflow";
+    E6032, "Not callable";
+    E6040, "Non-exhaustive match";
+    E6050, "Assertion failed";
+    E6051, "Panic called";
+    E6060, "Missing capability (runtime)";
+    E6070, "Const-eval budget exceeded";
+    E6080, "Not implemented feature";
+    E6099, "Custom runtime error";
+
+    // Internal Errors (E9xxx)
+    E9001, "Internal compiler error";
+    E9002, "Too many errors";
+
+    // Parser Warnings (W1xxx)
+    W1001, "Detached doc comment";
+    W1002, "Unknown calling convention in extern block";
+
+    // Type Checker Warnings (W2xxx)
+    W2001, "Infinite iterator consumed without bound";
+}
+
+// ---------------------------------------------------------------------------
+// Phase classification (derived from naming convention)
+// ---------------------------------------------------------------------------
+
 impl ErrorCode {
-    /// All error code variants, for exhaustive testing.
-    ///
-    /// Kept in sync with `as_str()` which is exhaustive (Rust match enforces it).
-    /// When adding a new variant: add it to the enum, `as_str()`, and here.
-    /// The `test_all_variants_classified` test catches any omission.
-    pub const ALL: &[ErrorCode] = &[
-        // Lexer
-        ErrorCode::E0001,
-        ErrorCode::E0002,
-        ErrorCode::E0003,
-        ErrorCode::E0004,
-        ErrorCode::E0005,
-        ErrorCode::E0006,
-        ErrorCode::E0007,
-        ErrorCode::E0008,
-        ErrorCode::E0009,
-        ErrorCode::E0010,
-        ErrorCode::E0011,
-        ErrorCode::E0012,
-        ErrorCode::E0013,
-        ErrorCode::E0014,
-        ErrorCode::E0015,
-        ErrorCode::E0911,
-        // Parser
-        ErrorCode::E1001,
-        ErrorCode::E1002,
-        ErrorCode::E1003,
-        ErrorCode::E1004,
-        ErrorCode::E1005,
-        ErrorCode::E1006,
-        ErrorCode::E1007,
-        ErrorCode::E1008,
-        ErrorCode::E1009,
-        ErrorCode::E1010,
-        ErrorCode::E1011,
-        ErrorCode::E1012,
-        ErrorCode::E1013,
-        ErrorCode::E1014,
-        ErrorCode::E1015,
-        // Type
-        ErrorCode::E2001,
-        ErrorCode::E2002,
-        ErrorCode::E2003,
-        ErrorCode::E2004,
-        ErrorCode::E2005,
-        ErrorCode::E2006,
-        ErrorCode::E2007,
-        ErrorCode::E2008,
-        ErrorCode::E2009,
-        ErrorCode::E2010,
-        ErrorCode::E2011,
-        ErrorCode::E2012,
-        ErrorCode::E2013,
-        ErrorCode::E2014,
-        ErrorCode::E2015,
-        ErrorCode::E2016,
-        ErrorCode::E2017,
-        ErrorCode::E2018,
-        ErrorCode::E2019,
-        ErrorCode::E2020,
-        ErrorCode::E2021,
-        ErrorCode::E2022,
-        ErrorCode::E2023,
-        ErrorCode::E2024,
-        ErrorCode::E2025,
-        ErrorCode::E2026,
-        ErrorCode::E2027,
-        ErrorCode::E2028,
-        // Pattern
-        ErrorCode::E3001,
-        ErrorCode::E3002,
-        ErrorCode::E3003,
-        // ARC
-        ErrorCode::E4001,
-        ErrorCode::E4002,
-        ErrorCode::E4003,
-        // Codegen / LLVM
-        ErrorCode::E5001,
-        ErrorCode::E5002,
-        ErrorCode::E5003,
-        ErrorCode::E5004,
-        ErrorCode::E5005,
-        ErrorCode::E5006,
-        ErrorCode::E5007,
-        ErrorCode::E5008,
-        ErrorCode::E5009,
-        // Runtime / Eval
-        ErrorCode::E6001,
-        ErrorCode::E6002,
-        ErrorCode::E6003,
-        ErrorCode::E6004,
-        ErrorCode::E6005,
-        ErrorCode::E6006,
-        ErrorCode::E6010,
-        ErrorCode::E6011,
-        ErrorCode::E6012,
-        ErrorCode::E6020,
-        ErrorCode::E6021,
-        ErrorCode::E6022,
-        ErrorCode::E6023,
-        ErrorCode::E6024,
-        ErrorCode::E6025,
-        ErrorCode::E6026,
-        ErrorCode::E6027,
-        ErrorCode::E6030,
-        ErrorCode::E6031,
-        ErrorCode::E6032,
-        ErrorCode::E6040,
-        ErrorCode::E6050,
-        ErrorCode::E6051,
-        ErrorCode::E6060,
-        ErrorCode::E6070,
-        ErrorCode::E6080,
-        ErrorCode::E6099,
-        // Internal
-        ErrorCode::E9001,
-        ErrorCode::E9002,
-        // Warnings
-        ErrorCode::W1001,
-        ErrorCode::W1002,
-        ErrorCode::W2001,
-    ];
-
-    /// Get the numeric code as a string (e.g., "E1001").
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            // Lexer
-            ErrorCode::E0001 => "E0001",
-            ErrorCode::E0002 => "E0002",
-            ErrorCode::E0003 => "E0003",
-            ErrorCode::E0004 => "E0004",
-            ErrorCode::E0005 => "E0005",
-            ErrorCode::E0006 => "E0006",
-            ErrorCode::E0007 => "E0007",
-            ErrorCode::E0008 => "E0008",
-            ErrorCode::E0009 => "E0009",
-            ErrorCode::E0010 => "E0010",
-            ErrorCode::E0011 => "E0011",
-            ErrorCode::E0012 => "E0012",
-            ErrorCode::E0013 => "E0013",
-            ErrorCode::E0014 => "E0014",
-            ErrorCode::E0015 => "E0015",
-            ErrorCode::E0911 => "E0911",
-            // Parser
-            ErrorCode::E1001 => "E1001",
-            ErrorCode::E1002 => "E1002",
-            ErrorCode::E1003 => "E1003",
-            ErrorCode::E1004 => "E1004",
-            ErrorCode::E1005 => "E1005",
-            ErrorCode::E1006 => "E1006",
-            ErrorCode::E1007 => "E1007",
-            ErrorCode::E1008 => "E1008",
-            ErrorCode::E1009 => "E1009",
-            ErrorCode::E1010 => "E1010",
-            ErrorCode::E1011 => "E1011",
-            ErrorCode::E1012 => "E1012",
-            ErrorCode::E1013 => "E1013",
-            ErrorCode::E1014 => "E1014",
-            ErrorCode::E1015 => "E1015",
-            // Type
-            ErrorCode::E2001 => "E2001",
-            ErrorCode::E2002 => "E2002",
-            ErrorCode::E2003 => "E2003",
-            ErrorCode::E2004 => "E2004",
-            ErrorCode::E2005 => "E2005",
-            ErrorCode::E2006 => "E2006",
-            ErrorCode::E2007 => "E2007",
-            ErrorCode::E2008 => "E2008",
-            ErrorCode::E2009 => "E2009",
-            ErrorCode::E2010 => "E2010",
-            ErrorCode::E2011 => "E2011",
-            ErrorCode::E2012 => "E2012",
-            ErrorCode::E2013 => "E2013",
-            ErrorCode::E2014 => "E2014",
-            ErrorCode::E2015 => "E2015",
-            ErrorCode::E2016 => "E2016",
-            ErrorCode::E2017 => "E2017",
-            ErrorCode::E2018 => "E2018",
-            ErrorCode::E2019 => "E2019",
-            ErrorCode::E2020 => "E2020",
-            ErrorCode::E2021 => "E2021",
-            ErrorCode::E2022 => "E2022",
-            ErrorCode::E2023 => "E2023",
-            ErrorCode::E2024 => "E2024",
-            ErrorCode::E2025 => "E2025",
-            ErrorCode::E2026 => "E2026",
-            ErrorCode::E2027 => "E2027",
-            ErrorCode::E2028 => "E2028",
-            // Pattern
-            ErrorCode::E3001 => "E3001",
-            ErrorCode::E3002 => "E3002",
-            ErrorCode::E3003 => "E3003",
-            // ARC
-            ErrorCode::E4001 => "E4001",
-            ErrorCode::E4002 => "E4002",
-            ErrorCode::E4003 => "E4003",
-            // Codegen / LLVM
-            ErrorCode::E5001 => "E5001",
-            ErrorCode::E5002 => "E5002",
-            ErrorCode::E5003 => "E5003",
-            ErrorCode::E5004 => "E5004",
-            ErrorCode::E5005 => "E5005",
-            ErrorCode::E5006 => "E5006",
-            ErrorCode::E5007 => "E5007",
-            ErrorCode::E5008 => "E5008",
-            ErrorCode::E5009 => "E5009",
-            // Runtime / Eval
-            ErrorCode::E6001 => "E6001",
-            ErrorCode::E6002 => "E6002",
-            ErrorCode::E6003 => "E6003",
-            ErrorCode::E6004 => "E6004",
-            ErrorCode::E6005 => "E6005",
-            ErrorCode::E6006 => "E6006",
-            ErrorCode::E6010 => "E6010",
-            ErrorCode::E6011 => "E6011",
-            ErrorCode::E6012 => "E6012",
-            ErrorCode::E6020 => "E6020",
-            ErrorCode::E6021 => "E6021",
-            ErrorCode::E6022 => "E6022",
-            ErrorCode::E6023 => "E6023",
-            ErrorCode::E6024 => "E6024",
-            ErrorCode::E6025 => "E6025",
-            ErrorCode::E6026 => "E6026",
-            ErrorCode::E6027 => "E6027",
-            ErrorCode::E6030 => "E6030",
-            ErrorCode::E6031 => "E6031",
-            ErrorCode::E6032 => "E6032",
-            ErrorCode::E6040 => "E6040",
-            ErrorCode::E6050 => "E6050",
-            ErrorCode::E6051 => "E6051",
-            ErrorCode::E6060 => "E6060",
-            ErrorCode::E6070 => "E6070",
-            ErrorCode::E6080 => "E6080",
-            ErrorCode::E6099 => "E6099",
-            // Internal
-            ErrorCode::E9001 => "E9001",
-            ErrorCode::E9002 => "E9002",
-            // Warnings
-            ErrorCode::W1001 => "W1001",
-            ErrorCode::W1002 => "W1002",
-            ErrorCode::W2001 => "W2001",
-        }
-    }
-
     /// Check if this is a lexer error (E0xxx range).
     pub fn is_lexer_error(&self) -> bool {
-        matches!(
-            self,
-            ErrorCode::E0001
-                | ErrorCode::E0002
-                | ErrorCode::E0003
-                | ErrorCode::E0004
-                | ErrorCode::E0005
-                | ErrorCode::E0006
-                | ErrorCode::E0007
-                | ErrorCode::E0008
-                | ErrorCode::E0009
-                | ErrorCode::E0010
-                | ErrorCode::E0011
-                | ErrorCode::E0012
-                | ErrorCode::E0013
-                | ErrorCode::E0014
-                | ErrorCode::E0015
-                | ErrorCode::E0911
-        )
+        self.as_str().starts_with("E0")
     }
 
     /// Check if this is a parser/syntax error (E1xxx range).
     pub fn is_parser_error(&self) -> bool {
-        matches!(
-            self,
-            ErrorCode::E1001
-                | ErrorCode::E1002
-                | ErrorCode::E1003
-                | ErrorCode::E1004
-                | ErrorCode::E1005
-                | ErrorCode::E1006
-                | ErrorCode::E1007
-                | ErrorCode::E1008
-                | ErrorCode::E1009
-                | ErrorCode::E1010
-                | ErrorCode::E1011
-                | ErrorCode::E1012
-                | ErrorCode::E1013
-                | ErrorCode::E1014
-                | ErrorCode::E1015
-        )
+        self.as_str().starts_with("E1")
     }
 
     /// Check if this is a type error (E2xxx range).
     pub fn is_type_error(&self) -> bool {
-        matches!(
-            self,
-            ErrorCode::E2001
-                | ErrorCode::E2002
-                | ErrorCode::E2003
-                | ErrorCode::E2004
-                | ErrorCode::E2005
-                | ErrorCode::E2006
-                | ErrorCode::E2007
-                | ErrorCode::E2008
-                | ErrorCode::E2009
-                | ErrorCode::E2010
-                | ErrorCode::E2011
-                | ErrorCode::E2012
-                | ErrorCode::E2013
-                | ErrorCode::E2014
-                | ErrorCode::E2015
-                | ErrorCode::E2016
-                | ErrorCode::E2017
-                | ErrorCode::E2018
-                | ErrorCode::E2019
-                | ErrorCode::E2020
-                | ErrorCode::E2021
-                | ErrorCode::E2022
-                | ErrorCode::E2023
-                | ErrorCode::E2024
-                | ErrorCode::E2025
-                | ErrorCode::E2026
-                | ErrorCode::E2027
-                | ErrorCode::E2028
-        )
+        self.as_str().starts_with("E2")
     }
 
     /// Check if this is a pattern error (E3xxx range).
     pub fn is_pattern_error(&self) -> bool {
-        matches!(self, ErrorCode::E3001 | ErrorCode::E3002 | ErrorCode::E3003)
+        self.as_str().starts_with("E3")
     }
 
     /// Check if this is an ARC analysis error (E4xxx range).
     pub fn is_arc_error(&self) -> bool {
-        matches!(self, ErrorCode::E4001 | ErrorCode::E4002 | ErrorCode::E4003)
+        self.as_str().starts_with("E4")
     }
 
     /// Check if this is a codegen/LLVM error (E5xxx range).
     pub fn is_codegen_error(&self) -> bool {
-        matches!(
-            self,
-            ErrorCode::E5001
-                | ErrorCode::E5002
-                | ErrorCode::E5003
-                | ErrorCode::E5004
-                | ErrorCode::E5005
-                | ErrorCode::E5006
-                | ErrorCode::E5007
-                | ErrorCode::E5008
-                | ErrorCode::E5009
-        )
+        self.as_str().starts_with("E5")
     }
 
     /// Check if this is a runtime/eval error (E6xxx range).
     pub fn is_eval_error(&self) -> bool {
-        matches!(
-            self,
-            ErrorCode::E6001
-                | ErrorCode::E6002
-                | ErrorCode::E6003
-                | ErrorCode::E6004
-                | ErrorCode::E6005
-                | ErrorCode::E6006
-                | ErrorCode::E6010
-                | ErrorCode::E6011
-                | ErrorCode::E6012
-                | ErrorCode::E6020
-                | ErrorCode::E6021
-                | ErrorCode::E6022
-                | ErrorCode::E6023
-                | ErrorCode::E6024
-                | ErrorCode::E6025
-                | ErrorCode::E6026
-                | ErrorCode::E6027
-                | ErrorCode::E6030
-                | ErrorCode::E6031
-                | ErrorCode::E6032
-                | ErrorCode::E6040
-                | ErrorCode::E6050
-                | ErrorCode::E6051
-                | ErrorCode::E6060
-                | ErrorCode::E6070
-                | ErrorCode::E6080
-                | ErrorCode::E6099
-        )
+        self.as_str().starts_with("E6")
     }
 
     /// Check if this is an internal compiler error (E9xxx range).
     pub fn is_internal_error(&self) -> bool {
-        matches!(self, ErrorCode::E9001 | ErrorCode::E9002)
+        self.as_str().starts_with("E9")
     }
 
     /// Check if this is a warning code (Wxxx range).
     pub fn is_warning(&self) -> bool {
-        matches!(self, ErrorCode::W1001 | ErrorCode::W1002 | ErrorCode::W2001)
+        self.as_str().starts_with('W')
     }
 }
+
+// ---------------------------------------------------------------------------
+// Display and FromStr
+// ---------------------------------------------------------------------------
 
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -38,7 +38,7 @@ pub enum Packing {
     /// Always one item per line (user indicated via trailing comma).
     AlwaysOnePerLine,
 
-    /// Always stacked (run, try, match, etc.).
+    /// Always stacked (blocks, try, match, etc.).
     AlwaysStacked,
 }
 ```
@@ -50,9 +50,9 @@ Enumeration of all container types (22 kinds):
 ```rust
 pub enum ConstructKind {
     // Always Stacked (Spec lines 78-90)
-    RunTopLevel,    // run(...) at function body level
-    Try,            // try(...)
-    Match,          // match(val, ...)
+    RunTopLevel,    // run { ... } at function body level
+    Try,            // try { ... }
+    Match,          // match expr { ... }
     Recurse,        // recurse(...)
     Parallel,       // parallel(...)
     Spawn,          // spawn(...)
@@ -78,7 +78,7 @@ pub enum ConstructKind {
     ListComplex,    // [foo(), bar()] - structs/calls
 
     // Context-Dependent
-    RunNested,      // run(...) inside expression
+    RunNested,      // run { ... } inside expression
     MatchArms,      // match arm list (always one per line)
 }
 ```
@@ -206,21 +206,21 @@ Triggered by: trailing comma, comments inside container, empty lines between ite
 Always use stacked format with specific rules. Never goes inline.
 
 ```ori
-// run always stacks:
-run(
-    let x = compute(),
-    let y = process(x),
-    x + y,
-)
+// blocks always stack:
+{
+    let x = compute()
+    let y = process(x)
+    x + y
+}
 
 // match always stacks:
-match(value,
-    Some(x) -> process(x),
-    None -> default(),
-)
+match value {
+    Some(x) -> process(x)
+    None -> default()
+}
 ```
 
-Used for: `run`, `try`, `match`, `recurse`, `parallel`, `spawn`, `nursery`.
+Used for: blocks `{ }`, `try { }`, `match`, `recurse`, `parallel`, `spawn`, `nursery`.
 
 ## Simple Item Detection
 

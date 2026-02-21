@@ -1,2 +1,2 @@
 // #Calculates the sum of two integers.
-@add (a: int, b: int) -> int = a + b
+@add (a: int, b: int) -> int = a + b;

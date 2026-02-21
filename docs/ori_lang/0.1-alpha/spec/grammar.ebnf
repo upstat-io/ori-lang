@@ -59,11 +59,13 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 //           false, for, if, impl, in, let, loop, match, pub, self, Self, suspend,
 //           tests, then, trait, true, type, unsafe, use, uses, void, where, with, yield
 // Reserved (future, 5): asm, inline, static, union, view
-// Context-sensitive (patterns, 16): cache, catch, collect, filter, find, fold, map,
-//           nursery, parallel, recurse, retry, run, spawn, timeout, try, validate
-// Context-sensitive (pattern args, 7): body, default, expr, on_error, over, pre_check, post_check
+// Context-sensitive (patterns, 9): cache, catch, handler, nursery, parallel, recurse, spawn,
+//           timeout, try
+// Context-sensitive (pattern args, 10): body, buffer, default, expr, map, on_error, over,
+//           pre, post, state
 // Context-sensitive (imports, 2): from (extern blocks), without (import items, before "def")
 // Context-sensitive (other, 3): args (@main params), by (after range), max (fixed-capacity lists)
+// Context-sensitive (embed, 2): embed (file embedding), has_embed (file existence check)
 // Context-sensitive (type names, 5): bool, byte, float, int, str
 // Built-in constructors (4): channel, channel_all, channel_in, channel_out
 
@@ -80,7 +82,7 @@ other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
 // --- Delimiters ---
 
 delimiter = "(" | ")" | "[" | "]" | "{" | "}"
-          | "," | ":" | "." | "@" | "$" .
+          | "," | ":" | "." | "@" | "$" | ";" .
 
 // --- Literals ---
 // See: 03-lexical-elements.md § Literals
@@ -151,7 +153,7 @@ size_unit    = "b" | "kb" | "mb" | "gb" | "tb" .
 // See: 02-source-code.md, 12-modules.md
 // ============================================================================
 
-source_file = [ file_attribute ] { import | extension_import } { declaration } .
+source_file = [ file_attribute ] { import | reexport | extension_import } { declaration } .
 
 // File-level attribute (conditional compilation)
 // See: 24-conditional-compilation.md § File-Level Conditions
@@ -160,20 +162,20 @@ file_attribute = "#!" identifier "(" [ attribute_arg { "," attribute_arg } ] ")"
 // --- Imports ---
 // See: 12-modules.md § Imports
 
-import      = "use" import_path [ import_list | "as" identifier ] .
+import      = "use" import_path [ import_list | "as" identifier ] ";" .
 import_path = string_literal | identifier { "." identifier } .
 import_list = "{" import_item { "," import_item } "}" .
 import_item = [ "::" ] identifier [ "without" "def" ] [ "as" identifier ] | "$" identifier .
 
 // --- Re-exports ---
 
-reexport = "pub" "use" import_path import_list .
+reexport = "pub" "use" import_path import_list ";" .
 
 // --- Extensions ---
 // See: 12-modules.md § Extensions
 
 extension_def    = "extend" [ generics ] type [ where_clause ] "{" { method } "}" .
-extension_import = "extension" import_path "{" extension_item { "," extension_item } "}" .
+extension_import = [ "pub" ] "extension" import_path "{" extension_item { "," extension_item } "}" .
 extension_item   = identifier "." identifier .
 
 // --- FFI (Foreign Function Interface) ---
@@ -191,7 +193,7 @@ c_variadic    = "," "..." .  /* C-style variadic - only valid in extern "c" bloc
 // See: 08-declarations.md
 // ============================================================================
 
-declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl | extern_block | capset_decl ) .
+declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | extension_def | test | constant_decl | extern_block | capset_decl ) .
 
 // --- Attributes ---
 // See: 08-declarations.md § Attributes, 24-conditional-compilation.md
@@ -204,7 +206,9 @@ array_literal  = "[" [ string_literal { "," string_literal } ] "]" .
 // --- Functions ---
 // See: 08-declarations.md § Functions
 
-function      = "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] "=" expression .
+function      = "@" identifier [ generics ] clause_params "->" type [ uses_clause ] [ where_clause ] [ guard_clause ] { contract } "=" expression [ ";" ] .
+/* Semicolon rule: ";" is required when the body expression does not end with "}".
+   When the body is a block_expr (ending with "}"), ";" is omitted — same as Rust's fn. */
 clause_params = "(" [ clause_param { "," clause_param } ] ")" .
 clause_param  = match_pattern [ ":" type ] [ "=" expression ] .  /* pattern with optional type and default */
 guard_clause  = "if" expression .
@@ -237,12 +241,13 @@ comparison_op    = ">" | "<" | ">=" | "<=" | "==" | "!=" .
 // See: 14-capabilities.md
 
 uses_clause  = "uses" identifier { "," identifier } .
-capset_decl  = "capset" identifier "=" identifier { "," identifier } .
+capset_decl  = "capset" identifier "=" identifier { "," identifier } ";" .
 
 // --- Type Definitions ---
 // See: 08-declarations.md § Types, 06-types.md § User-Defined Types
 
-type_def    = "type" identifier [ generics ] [ where_clause ] "=" type_body .
+type_def    = "type" identifier [ generics ] [ where_clause ] "=" type_body [ ";" ] .
+/* Semicolon rule: ";" required for sum types and newtypes (no "}"); omitted for struct types (end with "}") */
 type_body   = struct_body | sum_body | type .
 struct_body = "{" [ field { "," field } ] "}" .
 sum_body    = variant { "|" variant } .
@@ -254,8 +259,9 @@ field       = identifier ":" type .
 
 trait_def      = "trait" identifier [ generics ] [ ":" bounds ] "{" { trait_item } "}" .
 trait_item     = method_sig | default_method | assoc_type .
-method_sig     = "@" identifier params "->" type .
-default_method = method_sig "=" expression .
+method_sig     = "@" identifier params "->" type ";" .
+default_method = "@" identifier params "->" type "=" expression [ ";" ] .
+/* Semicolon rule: same as function — ";" required unless body ends with "}" */
 assoc_type     = "type" identifier [ ":" bounds ] [ "=" type ] .
 params         = "(" [ param { "," param } ] ")" .
 param          = identifier ":" type | variadic_param .
@@ -268,20 +274,22 @@ impl_block    = inherent_impl | trait_impl | def_impl .
 inherent_impl = "impl" [ generics ] type_path [ where_clause ] "{" { method } "}" .
 trait_impl    = "impl" [ generics ] type_path "for" type [ where_clause ] "{" { method } "}" .
 def_impl      = "def" "impl" identifier "{" { def_impl_method } "}" .
-method        = "@" identifier params "->" type [ uses_clause ] "=" expression .
-def_impl_method = "@" identifier params "->" type "=" expression .  /* no self, no uses */
+method        = "@" identifier params "->" type [ uses_clause ] "=" expression [ ";" ] .
+def_impl_method = "@" identifier params "->" type "=" expression [ ";" ] .  /* no self, no uses */
+/* Semicolon rule: same as function — ";" required unless body ends with "}" */
 
 // --- Tests ---
 // See: 13-testing.md
 
-test         = "@" identifier "tests" test_targets "()" "->" "void" "=" expression .
+test         = "@" identifier "tests" test_targets "()" "->" "void" "=" expression [ ";" ] .
+/* Semicolon rule: same as function — ";" required unless body ends with "}" */
 test_targets = "_" | test_target { "tests" test_target } .
 test_target  = "@" identifier .
 
 // --- Constants (Immutable Bindings) ---
 // See: 04-constants.md
 
-constant_decl = "let" "$" identifier [ ":" type ] "=" expression .
+constant_decl = "let" "$" identifier [ ":" type ] "=" expression ";" .
 
 
 // ============================================================================
@@ -314,7 +322,7 @@ fixed_list_type = "[" type "," "max" const_expr "]" .
 map_type      = "{" type ":" type "}" .
 tuple_type    = "(" type { "," type } ")" | "()" .
 function_type = "(" [ type { "," type } ] ")" "->" type .
-const_expr    = integer_literal | "$" identifier | const_expr binary_op const_expr .
+/* const_expr is defined in § CONSTANT EXPRESSIONS below */
 
 
 // ============================================================================
@@ -322,7 +330,7 @@ const_expr    = integer_literal | "$" identifier | const_expr binary_op const_ex
 // See: 09-expressions.md
 // ============================================================================
 
-expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | unsafe_expr | binary_expr .
+expression = with_expr | let_expr | if_expr | for_expr | loop_expr | lambda | break_expr | continue_expr | unsafe_expr | block_expr | match_expr | try_expr | binary_expr .
 
 // --- Primary Expressions ---
 
@@ -330,13 +338,32 @@ primary       = literal | identifier | "self" | "Self"
               | "(" expression ")"
               | "#"                                   /* length in index context */
               | list_literal | map_literal | struct_literal
-              | pattern_expr                          /* run, try, match, parallel, etc. */
-              | unsafe_expr .
+              | block_expr                            /* { expr \n expr \n result } */
+              | match_expr                            /* match expr { arms } */
+              | try_expr                              /* try { block_body } */
+              | pattern_expr                          /* parallel, spawn, etc. */
+              | unsafe_expr
+              | embed_expr | has_embed_expr .
+
+// --- Block Expression ---
+// See: proposals/approved/block-expression-syntax.md
+// Semicolons terminate statements inside blocks. The last expression without ";"
+// is the block's value. A block where every expression has ";" returns void.
+
+block_expr  = "{" { statement } [ expression ] "}" .
+statement   = ( let_expr | assignment | expression ) ";" .
 
 // --- Unsafe Expression ---
 // See: spec/24-ffi.md § Unsafe Blocks
 
-unsafe_expr = "unsafe" "(" expression ")" .
+unsafe_expr = "unsafe" block_expr .
+
+// --- Embed Expressions ---
+// See: 11-built-in-functions.md § embed, § has_embed
+// See: proposals/approved/embed-expression-proposal.md
+
+embed_expr     = "embed" "(" expression ")" .
+has_embed_expr = "has_embed" "(" expression ")" .
 
 // List literals with spread support
 // See: 09-expressions.md § Spread Operator
@@ -383,10 +410,10 @@ unary_expr = [ "!" | "-" | "~" ] postfix_expr .
 
 // --- Binary Expressions ---
 // See: 09-expressions.md § Binary Expressions
-// Precedence (lowest to highest): ||, &&, |, ^, &, ==, cmp, range, shift, add, mul
+// Precedence (lowest to highest): ??, ||, &&, |, ^, &, ==, cmp, range, shift, add, mul
 
 binary_expr   = coalesce_expr .
-coalesce_expr = or_expr { "??" or_expr } .
+coalesce_expr = or_expr [ "??" coalesce_expr ] .  /* right-associative */
 or_expr       = and_expr { "||" and_expr } .
 and_expr      = bit_or_expr { "&&" bit_or_expr } .
 bit_or_expr   = bit_xor_expr { "|" bit_xor_expr } .
@@ -403,7 +430,15 @@ mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
 // See: 09-expressions.md § With Expression, 14-capabilities.md § Providing Capabilities
 
 with_expr           = "with" capability_binding { "," capability_binding } "in" expression .
-capability_binding  = identifier "=" expression .
+capability_binding  = identifier "=" ( handler_expr | expression ) .
+
+// --- Handler Expression (Stateful Effect Handlers) ---
+// See: 14-capabilities.md § Stateful Handlers, proposals/approved/stateful-mock-testing-proposal.md
+// `handler` is context-sensitive: valid only in the expression position of a capability_binding.
+
+handler_expr        = "handler" "(" "state" ":" expression ")" "{" handler_operations "}" .
+handler_operations  = handler_operation { "," handler_operation } .
+handler_operation   = identifier ":" expression .
 
 // --- Let Binding ---
 // See: 09-expressions.md § Let Binding, 05-variables.md
@@ -413,7 +448,7 @@ assignment        = assignment_target "=" expression
                   | assignment_target compound_op expression .
 assignment_target = identifier { "[" expression "]" | "." identifier } .
 compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" .
-binding           = let_expr | assignment .  /* used in run/try patterns */
+binding           = let_expr | assignment .  /* convenience grouping; not currently referenced */
 
 // --- Conditional ---
 // See: 09-expressions.md § Conditional
@@ -425,12 +460,13 @@ if_expr = "if" expression "then" expression
 // --- For Expression ---
 // See: 09-expressions.md § For Expression, 19-control-flow.md § Labeled Loops
 
-for_expr = "for" [ label ] binding_pattern "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
+for_expr       = "for" [ label ] binding_pattern "in" expression [ "if" expression ] { for_clause } ( "do" | "yield" ) expression .
+for_clause     = "for" binding_pattern "in" expression [ "if" expression ] .
 
 // --- Loop Expression ---
 // See: 09-expressions.md § Loop Expression, 19-control-flow.md § Labeled Loops
 
-loop_expr = "loop" [ label ] "(" expression ")" .
+loop_expr = "loop" [ label ] block_expr .
 
 // --- Labels ---
 // See: 19-control-flow.md § Labeled Loops
@@ -459,8 +495,7 @@ continue_expr = "continue" [ label ] [ expression ] .
 
 // --- Pattern Categories ---
 
-pattern_expr = function_seq | function_exp | function_val | channel_expr .
-function_seq = run_expr | try_expr | match_expr | for_pattern | catch_expr | nursery_expr .
+pattern_expr = function_exp | function_val | channel_expr | for_pattern | catch_expr | nursery_expr .
 function_exp = pattern_name "(" pattern_arg { "," pattern_arg } ")" .
 pattern_name = "recurse" | "parallel" | "spawn" | "timeout" | "cache" | "with" .  /* nursery has explicit nursery_expr */
 pattern_arg  = identifier ":" expression .
@@ -468,23 +503,26 @@ pattern_arg  = identifier ":" expression .
 // Type conversion patterns (call position only)
 function_val = ( "int" | "float" | "str" | "byte" ) "(" expression ")" .
 
-// --- Sequential Patterns ---
+// --- Block-Based Expressions ---
+// See: proposals/approved/block-expression-syntax.md
 
-// run: Sequential expressions with optional pre/post checks
-// See: 10-patterns.md § run
-run_expr        = "run" "(" [ run_prechecks ] { binding "," } expression [ run_postchecks ] ")" .
-run_prechecks   = { "pre_check" ":" check_expr "," } .
-run_postchecks  = { "," "post_check" ":" postcheck_expr } .
-check_expr      = expression [ "|" string_literal ] .
-postcheck_expr  = lambda_params "->" check_expr .
+// match: Pattern matching with scrutinee before block
+match_expr = "match" expression "{" match_arms "}" .
+match_arms = [ match_arm { "," match_arm } [ "," ] ] .
+match_arm  = match_pattern [ "if" expression ] "->" expression .
 
-// try: Error-propagating sequence (returns early on Err)
-try_expr = "try" "(" { binding "," } expression ")" .
+// try: Error-propagating block (returns early on Err)
+try_expr = "try" block_expr .
 
-// match: Pattern matching
-match_expr = "match" "(" expression "," match_arm { "," match_arm } ")" .
-match_arm  = match_pattern [ guard ] "->" expression .
-guard      = ".match" "(" expression ")" .
+// --- Function-Level Contracts ---
+// See: proposals/approved/block-expression-syntax.md § Function-Level Contracts
+// Contracts sit between the return type and the "=" in function declarations.
+
+contract       = pre_contract | post_contract .
+pre_contract   = "pre" "(" check_expr ")" .
+post_contract  = "post" "(" postcheck_expr ")" .
+check_expr     = expression [ "|" string_literal ] .
+postcheck_expr = lambda_params "->" check_expr .
 
 // for pattern: First-match iteration
 // See: 10-patterns.md § for Pattern
@@ -542,7 +580,7 @@ binding_pattern = [ "$" ] identifier
                 | "_"
                 | "{" [ field_binding { "," field_binding } ] "}"
                 | "(" [ binding_pattern { "," binding_pattern } ] ")"
-                | "[" [ binding_pattern { "," binding_pattern } [ ".." identifier ] ] "]" .
+                | "[" [ binding_pattern { "," binding_pattern } [ ".." [ "$" ] identifier ] ] "]" .
 field_binding   = [ "$" ] identifier [ ":" binding_pattern ] .
 
 
@@ -552,9 +590,8 @@ field_binding   = [ "$" ] identifier [ ":" binding_pattern ] .
 // ============================================================================
 
 const_expr = literal
-           | const_expr arith_op const_expr
-           | const_expr comp_op const_expr
-           | const_expr logic_op const_expr
+           | "$" identifier
+           | const_expr ( arith_op | comp_op | "&&" | "||" | "&" | "|" | "^" | "<<" | ">>" ) const_expr
            | unary_op const_expr
            | "(" const_expr ")" .
 

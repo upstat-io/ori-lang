@@ -1,0 +1,14 @@
+// Spec: §3.17 Into Trait — No automatic conversion chaining
+// If A: Into<B> and B: Into<C>, that does NOT make A: Into<C>.
+// Celsius has Into<str> and str has Into<Error>, but Celsius
+// does NOT have Into<Error>. Calling .into() on Celsius returns str.
+
+type Fahrenheit = { degrees: int }
+
+// Fahrenheit has no Into impl at all — .into() should fail
+#[compile_fail("does not implement `Into`")]
+@test_no_into_at_all () -> void = {
+    let f = Fahrenheit { degrees: 212 };
+    let _ = f.into();
+    ()
+}

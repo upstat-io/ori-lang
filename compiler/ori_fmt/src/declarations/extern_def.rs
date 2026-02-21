@@ -9,7 +9,7 @@ use super::ModuleFormatter;
 
 impl<I: StringLookup> ModuleFormatter<'_, I> {
     /// Format an extern block declaration.
-    pub(super) fn format_extern_block(&mut self, block: &ExternBlock) {
+    pub(crate) fn format_extern_block(&mut self, block: &ExternBlock) {
         if block.visibility == Visibility::Public {
             self.ctx.emit("pub ");
         }

@@ -2,8 +2,8 @@
 // Spec: 08-declarations.md § Function Declarations
 // Design: tooling/formatter/design/02-constructs/declarations.md
 
-@fetch (url: str) -> str uses Http = "response"
+@fetch (url: str) -> str uses Http = "response";
 
-@log_and_fetch (url: str) -> str uses Http, Logger = "response"
+@log_and_fetch (url: str) -> str uses Http, Logger = "response";
 
-@complex_op (x: int) -> int uses Http, Logger, FileSystem = x
+@complex_op (x: int) -> int uses Http, Logger, FileSystem = x;

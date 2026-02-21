@@ -20,11 +20,11 @@ Recoverable errors use `Result<T, E>` and `Option<T>` types. See [Types](06-type
 The `?` operator propagates errors. See [Control Flow](19-control-flow.md) for details.
 
 ```ori
-@load (path: str) -> Result<Data, Error> = run(
-    let content = read_file(path)?,
-    let data = parse(content)?,
-    Ok(data),
-)
+@load (path: str) -> Result<Data, Error> = {
+    let content = read_file(path)?;
+    let data = parse(content)?;
+    Ok(data)
+}
 ```
 
 ## Panics
@@ -57,7 +57,7 @@ panic(message)
 `panic` has return type `Never` and never returns normally:
 
 ```ori
-let x: int = if valid then value else panic("invalid state")
+let x: int = if valid then value else panic("invalid state");
 ```
 
 ### Panic Behavior
@@ -110,7 +110,7 @@ type PanicInfo = {
 ```ori
 impl Printable for PanicInfo {
     @to_str (self) -> str =
-        `panic at {self.location.file}:{self.location.line}:{self.location.column}: {self.message}`
+        `panic at {self.location.file}:{self.location.line}:{self.location.column}: {self.message}`;
 }
 ```
 
@@ -121,8 +121,8 @@ impl Printable for PanicInfo {
 Integer arithmetic panics on overflow:
 
 ```ori
-let max: int = 9223372036854775807  // max signed 64-bit
-let result = catch(expr: max + 1)   // Err("integer overflow")
+let max: int = 9223372036854775807;  // max signed 64-bit
+let result = catch(expr: max + 1);   // Err("integer overflow")
 ```
 
 Addition, subtraction, multiplication, and negation all panic on overflow. Programs requiring wrapping or saturating arithmetic should use methods from `std.math`.
@@ -132,13 +132,13 @@ Addition, subtraction, multiplication, and negation all panic on overflow. Progr
 The `catch` pattern captures panics and converts them to `Result<T, str>`:
 
 ```ori
-let result = catch(expr: dangerous_operation())
+let result = catch(expr: dangerous_operation());
 // result: Result<T, str>
 
-match(result,
+match result {
     Ok(value) -> use(value),
     Err(msg) -> handle_error(msg),
-)
+}
 ```
 
 If the expression evaluates successfully, `catch` returns `Ok(value)`. If the expression panics, `catch` returns `Err(message)` where `message` is the panic message string.
@@ -148,10 +148,10 @@ If the expression evaluates successfully, `catch` returns `Ok(value)`. If the ex
 `catch` expressions may be nested. A panic propagates to the innermost enclosing `catch`:
 
 ```ori
-catch(expr: run(
+catch(expr: {
     let x = catch(expr: may_panic())?,  // inner catch
     process(x),                          // may also panic
-))
+})
 // outer catch handles panics from process()
 ```
 
@@ -190,7 +190,7 @@ The `Error` trait provides a standard interface for error types:
 
 ```ori
 trait Error {
-    @message (self) -> str
+    @message (self) -> str;
 }
 ```
 
@@ -201,7 +201,7 @@ type ParseError = { line: int, message: str }
 
 impl Error for ParseError {
     @message (self) -> str =
-        "line " + str(self.line) + ": " + self.message
+        "line " + str(self.line) + ": " + self.message;
 }
 ```
 
@@ -214,11 +214,11 @@ When the `?` operator propagates an error, the source location is automatically 
 ### Automatic Collection
 
 ```ori
-@load (path: str) -> Result<Data, Error> = try(
+@load (path: str) -> Result<Data, Error> = try {
     let content = read_file(path)?,  // location recorded if Err
     let parsed = parse(content)?,     // location recorded if Err
-    Ok(parsed),
-)
+    Ok(parsed)
+}
 ```
 
 Traces are collected unconditionally in all builds. No syntax changes required.
@@ -265,11 +265,11 @@ One entry per line, most recent propagation point first. Function names are left
 `Result` provides a `.context()` method to add context while preserving traces:
 
 ```ori
-@load_config () -> Result<Config, Error> = try(
+@load_config () -> Result<Config, Error> = try {
     let content = read_file("config.json")
-        .context("failed to load config")?,
-    Ok(parse(content)),
-)
+        .context("failed to load config")?;
+    Ok(parse(content))
+}
 ```
 
 ### Traceable Trait
@@ -278,8 +278,8 @@ Custom error types may implement `Traceable` to carry their own traces:
 
 ```ori
 trait Traceable {
-    @with_trace (self, trace: [TraceEntry]) -> Self
-    @trace (self) -> [TraceEntry]
+    @with_trace (self, trace: [TraceEntry]) -> Self;
+    @trace (self) -> [TraceEntry];
 }
 ```
 
@@ -333,7 +333,7 @@ Each task in `parallel(...)` or `nursery(...)` maintains its own trace. When err
 
 ```ori
 @process_all (items: [int]) -> [Result<int, Error>] uses Async =
-    parallel(tasks: items.map(i -> () -> process(i)))
+    parallel(tasks: items.map(i -> () -> process(i)));
 
 // Each result's trace shows:
 // - Propagation points within the spawned task
@@ -348,10 +348,10 @@ The `catch` pattern converts panics to `Result<T, str>`. Panics do not generate 
 If code within `catch` returns `Err` (not a panic), the error's trace is preserved normally:
 
 ```ori
-let result = catch(expr: run(
+let result = catch(expr: {
     let x = fallible()?,  // Trace entry added
-    Ok(x),
-))
+    Ok(x)
+});
 // result: Result<Result<T, Error>, str>
 // Inner Err has trace; outer Ok means no panic
 ```

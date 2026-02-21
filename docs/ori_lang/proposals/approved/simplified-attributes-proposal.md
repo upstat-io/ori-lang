@@ -213,15 +213,15 @@ type Status = Active | Inactive | Pending(reason: str)
 
 ```ori
 #skip("flaky on CI, investigating")
-@test_network tests @fetch_data () -> void = run(
-    let result = fetch_data("https://example.com"),
+@test_network tests @fetch_data () -> void = {
+    let result = fetch_data("https://example.com")
     assert(is_ok(result))
-)
+}
 
 #skip("not yet implemented")
-@test_future_feature tests @coming_soon () -> void = run(
+@test_future_feature tests @coming_soon () -> void = {
     assert(false)
-)
+}
 ```
 
 ### Deprecation
@@ -237,14 +237,14 @@ pub @parse_v2 (input: str, options: ParseOptions) -> Result<Ast, ParseError> = .
 
 ```ori
 #cfg(target = "wasm")
-@platform_init () -> void = run(
+@platform_init () -> void = {
     wasm_specific_setup()
-)
+}
 
 #cfg(target = "native")
-@platform_init () -> void = run(
+@platform_init () -> void = {
     native_setup()
-)
+}
 ```
 
 ### Multiple Attributes

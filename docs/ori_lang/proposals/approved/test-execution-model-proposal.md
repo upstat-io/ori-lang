@@ -366,11 +366,11 @@ slow_test_threshold = "100ms"  # default
 Tests with `tests _` are explicitly excluded from compilation:
 
 ```ori
-@test_integration tests _ () -> void = run(
+@test_integration tests _ () -> void = {
     // Slow integration test with real I/O
-    let result = full_pipeline(input: large_input),
-    assert_ok(result: result),
-)
+    let result = full_pipeline(input: large_input)
+    assert_ok(result: result)
+}
 ```
 
 Floating tests:

@@ -7,142 +7,142 @@ use std.testing { assert, assert_eq }
 // Exclusive Range (..)
 // =============================================================================
 
-@test_exclusive_basic tests @exclusive_basic () -> void = run(
-    let r = for x in 0..5 yield x,
-    assert_eq(actual: r, expected: [0, 1, 2, 3, 4]),
-)
+@test_exclusive_basic tests @exclusive_basic () -> void = {
+    let r = for x in 0..5 yield x;
+    assert_eq(actual: r, expected: [0, 1, 2, 3, 4])
+}
 
-@exclusive_basic () -> [int] = for x in 0..5 yield x
+@exclusive_basic () -> [int] = for x in 0..5 yield x;
 
-@test_exclusive_empty tests @exclusive_empty () -> void = run(
-    let r = for x in 5..5 yield x,
-    assert_eq(actual: r, expected: []),
-)
+@test_exclusive_empty tests @exclusive_empty () -> void = {
+    let r = for x in 5..5 yield x;
+    assert_eq(actual: r, expected: [])
+}
 
-@exclusive_empty () -> [int] = for x in 5..5 yield x
+@exclusive_empty () -> [int] = for x in 5..5 yield x;
 
-@test_exclusive_single tests @exclusive_single () -> void = run(
-    let r = for x in 0..1 yield x,
-    assert_eq(actual: r, expected: [0]),
-)
+@test_exclusive_single tests @exclusive_single () -> void = {
+    let r = for x in 0..1 yield x;
+    assert_eq(actual: r, expected: [0])
+}
 
-@exclusive_single () -> [int] = for x in 0..1 yield x
+@exclusive_single () -> [int] = for x in 0..1 yield x;
 
-@test_exclusive_negative tests @exclusive_negative () -> void = run(
-    let r = for x in -3..3 yield x,
-    assert_eq(actual: r, expected: [-3, -2, -1, 0, 1, 2]),
-)
+@test_exclusive_negative tests @exclusive_negative () -> void = {
+    let r = for x in -3..3 yield x;
+    assert_eq(actual: r, expected: [-3, -2, -1, 0, 1, 2])
+}
 
-@exclusive_negative () -> [int] = for x in -3..3 yield x
+@exclusive_negative () -> [int] = for x in -3..3 yield x;
 
-@test_exclusive_all_negative tests @exclusive_all_negative () -> void = run(
-    let r = for x in -5..-2 yield x,
-    assert_eq(actual: r, expected: [-5, -4, -3]),
-)
+@test_exclusive_all_negative tests @exclusive_all_negative () -> void = {
+    let r = for x in -5..-2 yield x;
+    assert_eq(actual: r, expected: [-5, -4, -3])
+}
 
-@exclusive_all_negative () -> [int] = for x in -5..-2 yield x
+@exclusive_all_negative () -> [int] = for x in -5..-2 yield x;
 
 // =============================================================================
 // Inclusive Range (..=)
 // =============================================================================
 
-@test_inclusive_basic tests @inclusive_basic () -> void = run(
-    let r = for x in 0..=5 yield x,
-    assert_eq(actual: r, expected: [0, 1, 2, 3, 4, 5]),
-)
+@test_inclusive_basic tests @inclusive_basic () -> void = {
+    let r = for x in 0..=5 yield x;
+    assert_eq(actual: r, expected: [0, 1, 2, 3, 4, 5])
+}
 
-@inclusive_basic () -> [int] = for x in 0..=5 yield x
+@inclusive_basic () -> [int] = for x in 0..=5 yield x;
 
-@test_inclusive_single tests @inclusive_single () -> void = run(
-    let r = for x in 5..=5 yield x,
-    assert_eq(actual: r, expected: [5]),
-)
+@test_inclusive_single tests @inclusive_single () -> void = {
+    let r = for x in 5..=5 yield x;
+    assert_eq(actual: r, expected: [5])
+}
 
-@inclusive_single () -> [int] = for x in 5..=5 yield x
+@inclusive_single () -> [int] = for x in 5..=5 yield x;
 
-@test_inclusive_negative tests @inclusive_negative () -> void = run(
-    let r = for x in -2..=2 yield x,
-    assert_eq(actual: r, expected: [-2, -1, 0, 1, 2]),
-)
+@test_inclusive_negative tests @inclusive_negative () -> void = {
+    let r = for x in -2..=2 yield x;
+    assert_eq(actual: r, expected: [-2, -1, 0, 1, 2])
+}
 
-@inclusive_negative () -> [int] = for x in -2..=2 yield x
+@inclusive_negative () -> [int] = for x in -2..=2 yield x;
 
 // =============================================================================
 // Range with Step (by)
 // =============================================================================
 
-@test_step_positive tests @step_positive () -> void = run(
-    let r = for x in 0..10 by 2 yield x,
-    assert_eq(actual: r, expected: [0, 2, 4, 6, 8]),
-)
+@test_step_positive tests @step_positive () -> void = {
+    let r = for x in 0..10 by 2 yield x;
+    assert_eq(actual: r, expected: [0, 2, 4, 6, 8])
+}
 
-@step_positive () -> [int] = for x in 0..10 by 2 yield x
+@step_positive () -> [int] = for x in 0..10 by 2 yield x;
 
-@test_step_inclusive tests @step_inclusive () -> void = run(
-    let r = for x in 0..=10 by 2 yield x,
-    assert_eq(actual: r, expected: [0, 2, 4, 6, 8, 10]),
-)
+@test_step_inclusive tests @step_inclusive () -> void = {
+    let r = for x in 0..=10 by 2 yield x;
+    assert_eq(actual: r, expected: [0, 2, 4, 6, 8, 10])
+}
 
-@step_inclusive () -> [int] = for x in 0..=10 by 2 yield x
+@step_inclusive () -> [int] = for x in 0..=10 by 2 yield x;
 
-@test_step_three tests @step_three () -> void = run(
-    let r = for x in 0..10 by 3 yield x,
-    assert_eq(actual: r, expected: [0, 3, 6, 9]),
-)
+@test_step_three tests @step_three () -> void = {
+    let r = for x in 0..10 by 3 yield x;
+    assert_eq(actual: r, expected: [0, 3, 6, 9])
+}
 
-@step_three () -> [int] = for x in 0..10 by 3 yield x
+@step_three () -> [int] = for x in 0..10 by 3 yield x;
 
-@test_step_large tests @step_large () -> void = run(
-    let r = for x in 0..100 by 25 yield x,
-    assert_eq(actual: r, expected: [0, 25, 50, 75]),
-)
+@test_step_large tests @step_large () -> void = {
+    let r = for x in 0..100 by 25 yield x;
+    assert_eq(actual: r, expected: [0, 25, 50, 75])
+}
 
-@step_large () -> [int] = for x in 0..100 by 25 yield x
+@step_large () -> [int] = for x in 0..100 by 25 yield x;
 
 // =============================================================================
 // Negative Step (Descending)
 // =============================================================================
 
-@test_negative_step tests @negative_step () -> void = run(
-    let r = for x in 10..0 by -1 yield x,
-    assert_eq(actual: r, expected: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]),
-)
+@test_negative_step tests @negative_step () -> void = {
+    let r = for x in 10..0 by -1 yield x;
+    assert_eq(actual: r, expected: [10, 9, 8, 7, 6, 5, 4, 3, 2, 1])
+}
 
-@negative_step () -> [int] = for x in 10..0 by -1 yield x
+@negative_step () -> [int] = for x in 10..0 by -1 yield x;
 
-@test_negative_step_inclusive tests @negative_step_inclusive () -> void = run(
-    let r = for x in 10..=0 by -2 yield x,
-    assert_eq(actual: r, expected: [10, 8, 6, 4, 2, 0]),
-)
+@test_negative_step_inclusive tests @negative_step_inclusive () -> void = {
+    let r = for x in 10..=0 by -2 yield x;
+    assert_eq(actual: r, expected: [10, 8, 6, 4, 2, 0])
+}
 
-@negative_step_inclusive () -> [int] = for x in 10..=0 by -2 yield x
+@negative_step_inclusive () -> [int] = for x in 10..=0 by -2 yield x;
 
-@test_negative_step_skip tests @negative_step_skip () -> void = run(
-    let r = for x in 10..0 by -3 yield x,
-    assert_eq(actual: r, expected: [10, 7, 4, 1]),
-)
+@test_negative_step_skip tests @negative_step_skip () -> void = {
+    let r = for x in 10..0 by -3 yield x;
+    assert_eq(actual: r, expected: [10, 7, 4, 1])
+}
 
-@negative_step_skip () -> [int] = for x in 10..0 by -3 yield x
+@negative_step_skip () -> [int] = for x in 10..0 by -3 yield x;
 
 // =============================================================================
 // Mismatched Direction (Empty Range)
 // =============================================================================
 
-@test_mismatch_ascending tests @mismatch_ascending () -> void = run(
+@test_mismatch_ascending tests @mismatch_ascending () -> void = {
     // Trying to go from 0 to 10 with negative step = empty
-    let r = for x in 0..10 by -1 yield x,
-    assert_eq(actual: r, expected: []),
-)
+    let r = for x in 0..10 by -1 yield x;
+    assert_eq(actual: r, expected: [])
+}
 
-@mismatch_ascending () -> [int] = for x in 0..10 by -1 yield x
+@mismatch_ascending () -> [int] = for x in 0..10 by -1 yield x;
 
-@test_mismatch_descending tests @mismatch_descending () -> void = run(
+@test_mismatch_descending tests @mismatch_descending () -> void = {
     // Trying to go from 10 to 0 with positive step = empty
-    let r = for x in 10..0 by 1 yield x,
-    assert_eq(actual: r, expected: []),
-)
+    let r = for x in 10..0 by 1 yield x;
+    assert_eq(actual: r, expected: [])
+}
 
-@mismatch_descending () -> [int] = for x in 10..0 by 1 yield x
+@mismatch_descending () -> [int] = for x in 10..0 by 1 yield x;
 
 // =============================================================================
 // Zero Step (Panic)
@@ -150,299 +150,299 @@ use std.testing { assert, assert_eq }
 
 // Note: Zero step should panic at runtime but we can't easily test this
 // without assert_panics. The test below just verifies the syntax is valid.
-@zero_step_panic () -> [int] = for x in 0..10 by 0 yield x
+@zero_step_panic () -> [int] = for x in 0..10 by 0 yield x;
 
 // =============================================================================
 // Infinite Ranges (simulated with loop + break)
 // =============================================================================
 
-@test_infinite_with_break tests @infinite_with_break () -> void = run(
+@test_infinite_with_break tests @infinite_with_break () -> void = {
     // Simulate infinite range with loop
-    let mut r: [int] = [],
-    let mut i = 0,
-    loop(run(
-        if i >= 5 then break,
-        r = r + [i],
-        i = i + 1,
-    )),
-    assert_eq(actual: r, expected: [0, 1, 2, 3, 4]),
-)
+    let r: [int] = [];
+    let i = 0;
+    loop {
+        if i >= 5 then break;
+        r = r + [i];
+        i = i + 1
+    };
+    assert_eq(actual: r, expected: [0, 1, 2, 3, 4])
+}
 
-@infinite_with_break () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    loop(run(
-        if i >= 5 then break,
-        r = r + [i],
-        i = i + 1,
-    )),
-    r,
-)
+@infinite_with_break () -> [int] = {
+    let r: [int] = [];
+    let i = 0;
+    loop {
+        if i >= 5 then break;
+        r = r + [i];
+        i = i + 1
+    };
+    r
+}
 
-@test_infinite_from_nonzero tests @infinite_from_nonzero () -> void = run(
-    let mut r: [int] = [],
-    let mut i = 100,
-    loop(run(
-        if i >= 105 then break,
-        r = r + [i],
-        i = i + 1,
-    )),
-    assert_eq(actual: r, expected: [100, 101, 102, 103, 104]),
-)
+@test_infinite_from_nonzero tests @infinite_from_nonzero () -> void = {
+    let r: [int] = [];
+    let i = 100;
+    loop {
+        if i >= 105 then break;
+        r = r + [i];
+        i = i + 1
+    };
+    assert_eq(actual: r, expected: [100, 101, 102, 103, 104])
+}
 
-@infinite_from_nonzero () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 100,
-    loop(run(
-        if i >= 105 then break,
-        r = r + [i],
-        i = i + 1,
-    )),
-    r,
-)
+@infinite_from_nonzero () -> [int] = {
+    let r: [int] = [];
+    let i = 100;
+    loop {
+        if i >= 105 then break;
+        r = r + [i];
+        i = i + 1
+    };
+    r
+}
 
-@test_infinite_with_step tests @infinite_with_step () -> void = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
-    loop(run(
-        if count >= 5 then break,
-        r = r + [i],
-        i = i + 2,
-        count = count + 1,
-    )),
-    assert_eq(actual: r, expected: [0, 2, 4, 6, 8]),
-)
+@test_infinite_with_step tests @infinite_with_step () -> void = {
+    let r: [int] = [];
+    let i = 0;
+    let count = 0;
+    loop {
+        if count >= 5 then break;
+        r = r + [i];
+        i = i + 2;
+        count = count + 1
+    };
+    assert_eq(actual: r, expected: [0, 2, 4, 6, 8])
+}
 
-@infinite_with_step () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
-    loop(run(
-        if count >= 5 then break,
-        r = r + [i],
-        i = i + 2,
-        count = count + 1,
-    )),
-    r,
-)
+@infinite_with_step () -> [int] = {
+    let r: [int] = [];
+    let i = 0;
+    let count = 0;
+    loop {
+        if count >= 5 then break;
+        r = r + [i];
+        i = i + 2;
+        count = count + 1
+    };
+    r
+}
 
-@test_infinite_negative_step tests @infinite_negative_step () -> void = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
-    loop(run(
-        if count >= 5 then break,
-        r = r + [i],
-        i = i - 1,
-        count = count + 1,
-    )),
-    assert_eq(actual: r, expected: [0, -1, -2, -3, -4]),
-)
+@test_infinite_negative_step tests @infinite_negative_step () -> void = {
+    let r: [int] = [];
+    let i = 0;
+    let count = 0;
+    loop {
+        if count >= 5 then break;
+        r = r + [i];
+        i = i - 1;
+        count = count + 1
+    };
+    assert_eq(actual: r, expected: [0, -1, -2, -3, -4])
+}
 
-@infinite_negative_step () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = 0,
-    let mut count = 0,
-    loop(run(
-        if count >= 5 then break,
-        r = r + [i],
-        i = i - 1,
-        count = count + 1,
-    )),
-    r,
-)
+@infinite_negative_step () -> [int] = {
+    let r: [int] = [];
+    let i = 0;
+    let count = 0;
+    loop {
+        if count >= 5 then break;
+        r = r + [i];
+        i = i - 1;
+        count = count + 1
+    };
+    r
+}
 
-@test_infinite_from_negative tests @infinite_from_negative () -> void = run(
-    let mut r: [int] = [],
-    let mut i = -5,
-    loop(run(
-        if i >= 0 then break,
-        r = r + [i],
-        i = i + 1,
-    )),
-    assert_eq(actual: r, expected: [-5, -4, -3, -2, -1]),
-)
+@test_infinite_from_negative tests @infinite_from_negative () -> void = {
+    let r: [int] = [];
+    let i = -5;
+    loop {
+        if i >= 0 then break;
+        r = r + [i];
+        i = i + 1
+    };
+    assert_eq(actual: r, expected: [-5, -4, -3, -2, -1])
+}
 
-@infinite_from_negative () -> [int] = run(
-    let mut r: [int] = [],
-    let mut i = -5,
-    loop(run(
-        if i >= 0 then break,
-        r = r + [i],
-        i = i + 1,
-    )),
-    r,
-)
+@infinite_from_negative () -> [int] = {
+    let r: [int] = [];
+    let i = -5;
+    loop {
+        if i >= 0 then break;
+        r = r + [i];
+        i = i + 1
+    };
+    r
+}
 
 // =============================================================================
 // Range with Expressions
 // =============================================================================
 
-@test_range_with_vars tests @range_with_vars () -> void = run(
-    let start = 2,
-    let end = 7,
-    let r = for x in start..end yield x,
-    assert_eq(actual: r, expected: [2, 3, 4, 5, 6]),
-)
+@test_range_with_vars tests @range_with_vars () -> void = {
+    let start = 2;
+    let end = 7;
+    let r = for x in start..end yield x;
+    assert_eq(actual: r, expected: [2, 3, 4, 5, 6])
+}
 
-@range_with_vars () -> [int] = run(
-    let start = 2,
-    let end = 7,
-    for x in start..end yield x,
-)
+@range_with_vars () -> [int] = {
+    let start = 2;
+    let end = 7;
+    for x in start..end yield x
+}
 
-@test_range_with_arithmetic tests @range_with_arithmetic () -> void = run(
-    let r = for x in 1 + 1..2 * 5 yield x,
-    assert_eq(actual: r, expected: [2, 3, 4, 5, 6, 7, 8, 9]),
-)
+@test_range_with_arithmetic tests @range_with_arithmetic () -> void = {
+    let r = for x in 1 + 1..2 * 5 yield x;
+    assert_eq(actual: r, expected: [2, 3, 4, 5, 6, 7, 8, 9])
+}
 
-@range_with_arithmetic () -> [int] = for x in 1 + 1..2 * 5 yield x
+@range_with_arithmetic () -> [int] = for x in 1 + 1..2 * 5 yield x;
 
-@test_step_with_var tests @step_with_var () -> void = run(
-    let step = 3,
-    let r = for x in 0..12 by step yield x,
-    assert_eq(actual: r, expected: [0, 3, 6, 9]),
-)
+@test_step_with_var tests @step_with_var () -> void = {
+    let step = 3;
+    let r = for x in 0..12 by step yield x;
+    assert_eq(actual: r, expected: [0, 3, 6, 9])
+}
 
-@step_with_var () -> [int] = run(
-    let step = 3,
-    for x in 0..12 by step yield x,
-)
+@step_with_var () -> [int] = {
+    let step = 3;
+    for x in 0..12 by step yield x
+}
 
 // =============================================================================
 // Range in Different Contexts
 // =============================================================================
 
-@test_range_in_for_do tests @range_in_for_do () -> void = run(
-    let mut sum = 0,
-    for x in 1..=5 do sum = sum + x,
-    assert_eq(actual: sum, expected: 15),
-)
+@test_range_in_for_do tests @range_in_for_do () -> void = {
+    let sum = 0;
+    for x in 1..=5 do sum = sum + x;
+    assert_eq(actual: sum, expected: 15)
+}
 
-@range_in_for_do () -> int = run(
-    let mut sum = 0,
-    for x in 1..=5 do sum = sum + x,
-    sum,
-)
+@range_in_for_do () -> int = {
+    let sum = 0;
+    for x in 1..=5 do sum = sum + x;
+    sum
+}
 
-@test_range_with_filter tests @range_with_filter () -> void = run(
-    let evens = for x in 0..10 if x % 2 == 0 yield x,
-    assert_eq(actual: evens, expected: [0, 2, 4, 6, 8]),
-)
+@test_range_with_filter tests @range_with_filter () -> void = {
+    let evens = for x in 0..10 if x % 2 == 0 yield x;
+    assert_eq(actual: evens, expected: [0, 2, 4, 6, 8])
+}
 
-@range_with_filter () -> [int] = for x in 0..10 if x % 2 == 0 yield x
+@range_with_filter () -> [int] = for x in 0..10 if x % 2 == 0 yield x;
 
-@test_nested_ranges tests @nested_ranges () -> void = run(
-    let pairs = for x in 0..3 yield for y in 0..3 yield (x, y),
-    assert_eq(actual: pairs.len(), expected: 3),
-    assert_eq(actual: pairs[0].len(), expected: 3),
-)
+@test_nested_ranges tests @nested_ranges () -> void = {
+    let pairs = for x in 0..3 yield for y in 0..3 yield (x, y);
+    assert_eq(actual: pairs.len(), expected: 3);
+    assert_eq(actual: pairs[0].len(), expected: 3)
+}
 
-@nested_ranges () -> [[(int, int)]] = for x in 0..3 yield for y in 0..3 yield (x, y)
+@nested_ranges () -> [[(int, int)]] = for x in 0..3 yield for y in 0..3 yield (x, y);
 
 // =============================================================================
 // Range with for-yield (equivalent to iterator methods)
 // =============================================================================
 
-@test_range_count tests @range_count () -> void = run(
-    let list = for x in 0..10 yield x,
-    let count = len(collection: list),
-    assert_eq(actual: count, expected: 10),
-)
+@test_range_count tests @range_count () -> void = {
+    let list = for x in 0..10 yield x;
+    let count = len(collection: list);
+    assert_eq(actual: count, expected: 10)
+}
 
-@range_count () -> int = len(collection: for x in 0..10 yield x)
+@range_count () -> int = len(collection: for x in 0..10 yield x);
 
-@test_range_map tests @range_map () -> void = run(
-    let r = for x in 0..5 yield x * 2,
-    assert_eq(actual: r, expected: [0, 2, 4, 6, 8]),
-)
+@test_range_map tests @range_map () -> void = {
+    let r = for x in 0..5 yield x * 2;
+    assert_eq(actual: r, expected: [0, 2, 4, 6, 8])
+}
 
-@range_map () -> [int] = for x in 0..5 yield x * 2
+@range_map () -> [int] = for x in 0..5 yield x * 2;
 
-@test_range_filter tests @range_filter () -> void = run(
-    let r = for x in 0..10 if x % 3 == 0 yield x,
-    assert_eq(actual: r, expected: [0, 3, 6, 9]),
-)
+@test_range_filter tests @range_filter () -> void = {
+    let r = for x in 0..10 if x % 3 == 0 yield x;
+    assert_eq(actual: r, expected: [0, 3, 6, 9])
+}
 
-@range_filter () -> [int] = for x in 0..10 if x % 3 == 0 yield x
+@range_filter () -> [int] = for x in 0..10 if x % 3 == 0 yield x;
 
-@test_range_fold tests @range_fold () -> void = run(
-    let mut sum = 0,
-    for x in 1..=5 do sum = sum + x,
-    assert_eq(actual: sum, expected: 15),
-)
+@test_range_fold tests @range_fold () -> void = {
+    let sum = 0;
+    for x in 1..=5 do sum = sum + x;
+    assert_eq(actual: sum, expected: 15)
+}
 
-@range_fold () -> int = run(
-    let mut sum = 0,
-    for x in 1..=5 do sum = sum + x,
-    sum,
-)
+@range_fold () -> int = {
+    let sum = 0;
+    for x in 1..=5 do sum = sum + x;
+    sum
+}
 
 // =============================================================================
 // Edge Cases
 // =============================================================================
 
-@test_large_range tests @large_range () -> void = run(
-    let r = for x in 0..1000 by 100 yield x,
-    assert_eq(actual: r, expected: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]),
-)
+@test_large_range tests @large_range () -> void = {
+    let r = for x in 0..1000 by 100 yield x;
+    assert_eq(actual: r, expected: [0, 100, 200, 300, 400, 500, 600, 700, 800, 900])
+}
 
-@large_range () -> [int] = for x in 0..1000 by 100 yield x
+@large_range () -> [int] = for x in 0..1000 by 100 yield x;
 
-@test_step_one tests @step_one () -> void = run(
+@test_step_one tests @step_one () -> void = {
     // Explicit step of 1 should work same as no step
-    let r = for x in 0..5 by 1 yield x,
-    assert_eq(actual: r, expected: [0, 1, 2, 3, 4]),
-)
+    let r = for x in 0..5 by 1 yield x;
+    assert_eq(actual: r, expected: [0, 1, 2, 3, 4])
+}
 
-@step_one () -> [int] = for x in 0..5 by 1 yield x
+@step_one () -> [int] = for x in 0..5 by 1 yield x;
 
-@test_step_negative_one tests @step_negative_one () -> void = run(
-    let r = for x in 5..0 by -1 yield x,
-    assert_eq(actual: r, expected: [5, 4, 3, 2, 1]),
-)
+@test_step_negative_one tests @step_negative_one () -> void = {
+    let r = for x in 5..0 by -1 yield x;
+    assert_eq(actual: r, expected: [5, 4, 3, 2, 1])
+}
 
-@step_negative_one () -> [int] = for x in 5..0 by -1 yield x
+@step_negative_one () -> [int] = for x in 5..0 by -1 yield x;
 
 // =============================================================================
 // Practical Patterns
 // =============================================================================
 
-@test_countdown tests @countdown () -> void = run(
-    let nums = for x in 5..=1 by -1 yield x,
-    assert_eq(actual: nums, expected: [5, 4, 3, 2, 1]),
-)
+@test_countdown tests @countdown () -> void = {
+    let nums = for x in 5..=1 by -1 yield x;
+    assert_eq(actual: nums, expected: [5, 4, 3, 2, 1])
+}
 
-@countdown () -> [int] = for x in 5..=1 by -1 yield x
+@countdown () -> [int] = for x in 5..=1 by -1 yield x;
 
-@test_every_third tests @every_third () -> void = run(
-    let nums = for x in 0..=15 by 3 yield x,
-    assert_eq(actual: nums, expected: [0, 3, 6, 9, 12, 15]),
-)
+@test_every_third tests @every_third () -> void = {
+    let nums = for x in 0..=15 by 3 yield x;
+    assert_eq(actual: nums, expected: [0, 3, 6, 9, 12, 15])
+}
 
-@every_third () -> [int] = for x in 0..=15 by 3 yield x
+@every_third () -> [int] = for x in 0..=15 by 3 yield x;
 
-@test_indices tests @indices () -> void = run(
-    let list = ["a", "b", "c", "d", "e"],
-    let indexed = for i in 0..list.len() yield (i, list[i]),
-    assert_eq(actual: indexed.len(), expected: 5),
-    assert_eq(actual: indexed[0], expected: (0, "a")),
-    assert_eq(actual: indexed[4], expected: (4, "e")),
-)
+@test_indices tests @indices () -> void = {
+    let list = ["a", "b", "c", "d", "e"];
+    let indexed = for i in 0..list.len() yield (i, list[i]);
+    assert_eq(actual: indexed.len(), expected: 5);
+    assert_eq(actual: indexed[0], expected: (0, "a"));
+    assert_eq(actual: indexed[4], expected: (4, "e"))
+}
 
-@indices () -> [(int, str)] = run(
-    let list = ["a", "b", "c", "d", "e"],
-    for i in 0..list.len() yield (i, list[i]),
-)
+@indices () -> [(int, str)] = {
+    let list = ["a", "b", "c", "d", "e"];
+    for i in 0..list.len() yield (i, list[i])
+}
 
-@test_reverse_indices tests @reverse_indices () -> void = run(
-    let list = ["a", "b", "c"],
-    let reversed = for i in (list.len() - 1)..=0 by -1 yield list[i],
-    assert_eq(actual: reversed, expected: ["c", "b", "a"]),
-)
+@test_reverse_indices tests @reverse_indices () -> void = {
+    let list = ["a", "b", "c"];
+    let reversed = for i in (list.len() - 1)..=0 by -1 yield list[i];
+    assert_eq(actual: reversed, expected: ["c", "b", "a"])
+}
 
-@reverse_indices () -> [str] = run(
-    let list = ["a", "b", "c"],
-    for i in (list.len() - 1)..=0 by -1 yield list[i],
-)
+@reverse_indices () -> [str] = {
+    let list = ["a", "b", "c"];
+    for i in (list.len() - 1)..=0 by -1 yield list[i]
+}

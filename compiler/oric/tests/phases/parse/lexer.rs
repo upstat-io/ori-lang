@@ -88,7 +88,7 @@ fn test_lex_pattern_keywords() {
 #[test]
 fn test_lex_function_def() {
     let interner = test_interner();
-    let tokens = lex("@main () -> int = 42", &interner);
+    let tokens = lex("@main () -> int = 42;", &interner);
 
     assert!(matches!(tokens[0].kind, TokenKind::At));
     assert!(matches!(tokens[1].kind, TokenKind::Ident(_)));
@@ -287,7 +287,7 @@ fn test_lex_template_format_spec_complex() {
 fn test_lex_all_reserved_keywords() {
     let interner = test_interner();
     let source =
-        "async break continue do else false for if impl in let loop match mut pub self Self then trait true type use uses void where with yield";
+        "async break continue do else false for if impl in let loop match pub self Self then trait true type use uses void where with yield";
     let tokens = lex(source, &interner);
 
     let expected = [
@@ -304,7 +304,6 @@ fn test_lex_all_reserved_keywords() {
         TokenKind::Let,
         TokenKind::Loop,
         TokenKind::Match,
-        TokenKind::Mut,
         TokenKind::Pub,
         TokenKind::SelfLower,
         TokenKind::SelfUpper,
@@ -545,7 +544,7 @@ fn test_lex_with_comments_mixed_doc_types() {
 // * b: Second operand
 // !Panics on overflow
 // >add(a: 1, b: 2) -> 3
-@add (a: int, b: int) -> int = a + b";
+@add (a: int, b: int) -> int = a + b;";
 
     let output = lex_with_comments(source, &interner);
 
@@ -771,50 +770,40 @@ fn test_errors_surfaced_in_lex_output() {
 }
 
 #[test]
-fn test_semicolon_produces_error() {
+fn test_semicolon_is_valid_token() {
     let interner = test_interner();
     let output = lex_with_comments("let x = 42;", &interner);
 
-    // Semicolon should produce both a Semicolon token AND an error
-    assert!(output.has_errors(), "Expected error for semicolon");
-    assert_eq!(output.errors.len(), 1);
+    // Semicolons are valid tokens (used in block expressions and top-level items)
     assert!(
-        matches!(output.errors[0].kind, LexErrorKind::Semicolon),
-        "Expected Semicolon error kind, got {:?}",
-        output.errors[0].kind
+        !output.has_errors(),
+        "Semicolons should not produce errors: {:?}",
+        output.errors
     );
 
-    // The error should carry a removal suggestion
+    let kinds: Vec<_> = output.tokens.iter().map(|t| &t.kind).collect();
     assert!(
-        !output.errors[0].suggestions.is_empty(),
-        "Semicolon error should have a removal suggestion"
+        kinds.iter().any(|k| matches!(k, TokenKind::Semicolon)),
+        "Semicolon should produce a Semicolon token"
     );
 }
 
 #[test]
-fn test_semicolon_error_span() {
-    let interner = test_interner();
-    let output = lex_with_comments("let x = 42;", &interner);
-
-    assert_eq!(output.errors.len(), 1);
-    let err = &output.errors[0];
-    // The semicolon is at byte offset 10 (0-indexed), length 1
-    assert_eq!(err.span.start, 10);
-    assert_eq!(err.span.end, 11);
-}
-
-#[test]
-fn test_semicolon_recovery_tokens_correct() {
+fn test_semicolon_with_multiple_statements() {
     let interner = test_interner();
     let output = lex_with_comments("let x = 42;\nlet y = 10", &interner);
 
-    // After the semicolon error, the lexer should recover and produce
-    // correct tokens for the next line
+    // Semicolons produce tokens without errors
+    assert!(
+        !output.has_errors(),
+        "Semicolons should not produce errors: {:?}",
+        output.errors
+    );
+
     let kinds: Vec<_> = output.tokens.iter().map(|t| &t.kind).collect();
-    // Expected: let, x, =, 42, ;, newline, let, y, =, 10, EOF
     assert!(
         kinds.iter().any(|k| matches!(k, TokenKind::Semicolon)),
-        "Semicolon should still produce a Semicolon token for parser"
+        "Semicolon should produce a Semicolon token"
     );
 
     // Count Int tokens — should have both 42 and 10
@@ -822,10 +811,7 @@ fn test_semicolon_recovery_tokens_correct() {
         .iter()
         .filter(|k| matches!(k, TokenKind::Int(_)))
         .count();
-    assert_eq!(
-        int_count, 2,
-        "Both integer literals should be lexed after recovery"
-    );
+    assert_eq!(int_count, 2, "Both integer literals should be lexed");
 }
 
 // ── Unicode confusable detection ──────────────────────────────────────────
@@ -910,23 +896,29 @@ fn test_unicode_confusable_fullwidth_plus() {
 #[test]
 fn test_multiple_errors_accumulated() {
     let interner = test_interner();
-    // Two semicolons — should produce two errors
-    let output = lex_with_comments("let x = 1;\nlet y = 2;", &interner);
+    // Two standalone backslashes — should produce two errors
+    let output = lex_with_comments("a \\\nb \\", &interner);
 
     assert_eq!(
         output.errors.len(),
         2,
-        "Expected two errors for two semicolons"
+        "Expected two errors for two standalone backslashes"
     );
-    assert!(matches!(output.errors[0].kind, LexErrorKind::Semicolon));
-    assert!(matches!(output.errors[1].kind, LexErrorKind::Semicolon));
+    assert!(matches!(
+        output.errors[0].kind,
+        LexErrorKind::StandaloneBackslash
+    ));
+    assert!(matches!(
+        output.errors[1].kind,
+        LexErrorKind::StandaloneBackslash
+    ));
 }
 
 #[test]
 fn test_mixed_error_types() {
     let interner = test_interner();
-    // Semicolon + standalone backslash = two different error types
-    let output = lex_with_comments("a;\nb \\", &interner);
+    // Standalone backslash + unterminated string = two different error types
+    let output = lex_with_comments("a \\\n\"hello", &interner);
 
     assert!(
         output.errors.len() >= 2,
@@ -934,16 +926,16 @@ fn test_mixed_error_types() {
         output.errors.len()
     );
 
-    let has_semicolon = output
-        .errors
-        .iter()
-        .any(|e| matches!(e.kind, LexErrorKind::Semicolon));
     let has_backslash = output
         .errors
         .iter()
         .any(|e| matches!(e.kind, LexErrorKind::StandaloneBackslash));
-    assert!(has_semicolon, "Expected Semicolon error");
+    let has_unterminated = output
+        .errors
+        .iter()
+        .any(|e| matches!(e.kind, LexErrorKind::UnterminatedString));
     assert!(has_backslash, "Expected StandaloneBackslash error");
+    assert!(has_unterminated, "Expected UnterminatedString error");
 }
 
 // ── Error structure: WHERE+WHAT+WHY+HOW ───────────────────────────────────
@@ -951,7 +943,7 @@ fn test_mixed_error_types() {
 #[test]
 fn test_error_has_span() {
     let interner = test_interner();
-    let output = lex_with_comments("let x = 42;", &interner);
+    let output = lex_with_comments("a \\", &interner);
 
     for err in &output.errors {
         assert!(
@@ -965,51 +957,22 @@ fn test_error_has_span() {
 #[test]
 fn test_error_has_suggestions() {
     let interner = test_interner();
-    let output = lex_with_comments("let x = 42;", &interner);
+    let output = lex_with_comments("a \\", &interner);
 
-    // Semicolon error should have a removal suggestion
-    let semicolon_err = output
+    // Standalone backslash error should have a suggestion
+    let backslash_err = output
         .errors
         .iter()
-        .find(|e| matches!(e.kind, LexErrorKind::Semicolon))
-        .expect("Expected semicolon error");
+        .find(|e| matches!(e.kind, LexErrorKind::StandaloneBackslash))
+        .expect("Expected StandaloneBackslash error");
 
     assert!(
-        !semicolon_err.suggestions.is_empty(),
-        "Semicolon error should have suggestions"
+        !backslash_err.suggestions.is_empty(),
+        "StandaloneBackslash error should have suggestions"
     );
-
-    // The suggestion should be for removal (replacement with empty string)
-    let suggestion = &semicolon_err.suggestions[0];
-    assert!(
-        suggestion.replacement.is_some(),
-        "Semicolon suggestion should have a replacement"
-    );
-    if let Some(ref replacement) = suggestion.replacement {
-        assert_eq!(
-            replacement.text, "",
-            "Removal suggestion should replace with empty string"
-        );
-    }
 }
 
 // ── render_lex_error → Diagnostic rendering ───────────────────────────────
-
-#[test]
-fn test_render_lex_error_semicolon_diagnostic() {
-    use ori_lexer::lex_error::LexError;
-
-    let err = LexError::semicolon(ori_ir::Span::new(10, 11));
-    let diag = oric::problem::lex::render_lex_error(&err);
-
-    assert!(diag.is_error());
-    assert_eq!(diag.code, ori_diagnostic::ErrorCode::E0007);
-    assert!(
-        diag.message.contains("semicolon"),
-        "Message should mention semicolons: {}",
-        diag.message
-    );
-}
 
 #[test]
 fn test_render_lex_error_confusable_diagnostic() {
@@ -1111,7 +1074,7 @@ fn test_has_errors_helper() {
     let clean = lex_with_comments("let x = 42", &interner);
     assert!(!clean.has_errors());
 
-    let dirty = lex_with_comments("let x = 42;", &interner);
+    let dirty = lex_with_comments("let x = 42 \\", &interner);
     assert!(dirty.has_errors());
 }
 

@@ -44,13 +44,35 @@ sections:
 **Proposal**: `proposals/approved/match-expression-syntax-proposal.md`
 
 Documents the existing implementation of match expressions. Key specifications:
-- `match(scrutinee, pattern -> expression, ...)` syntax
-- Guard syntax `.match(condition)`
+- `match expr { pattern -> expression, ... }` syntax (comma-separated arms)
+- Guard syntax `if condition`
 - Pattern types: literal, binding, wildcard, variant, struct, tuple, list, range, or-pattern, at-pattern
 - Top-to-bottom, first-match-wins evaluation
 - Integer-only literal patterns (no float patterns)
 
 Status: **IMPLEMENTED** — This proposal formalizes existing behavior.
+
+## 9.0.1 Comma-Separated Match Arms
+
+**Proposal**: `proposals/approved/match-arm-comma-separator-proposal.md`
+
+Changes match arm separators from newlines to commas (trailing commas optional). Also formally adopts `if` guard syntax replacing `.match(condition)`. Key changes:
+- `match_arms = [ match_arm { "," match_arm } [ "," ] ]` — comma-separated
+- `match_arm = match_pattern [ "if" expression ] "->" expression` — `if` guards
+- `.match()` now exclusively means method-style pattern matching
+- Formatter allows single-line matches for short, simple arms
+
+Status: **APPROVED** — Parser migration part of block-expression-syntax implementation.
+
+### Implementation
+- [ ] **Implement**: Parser — comma-separated match arms in `match expr { }` block syntax
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` — comma-separated arm parsing
+  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori` — update to comma syntax
+- [ ] **Implement**: Parser — `if` guard syntax replacing `.match(condition)`
+  - [ ] **Rust Tests**: `ori_parse/src/tests/` — `if` guard parsing
+  - [ ] **Ori Tests**: `tests/spec/patterns/match.ori` — update guard tests
+- [ ] **Implement**: Formatter — emit commas, support single-line short matches
+  - [ ] **Rust Tests**: `ori_fmt/src/formatter/` — comma emission tests
 
 ---
 
@@ -172,7 +194,7 @@ Status: **IMPLEMENTED** — This proposal formalizes existing behavior.
 
 ## 9.3 Pattern Guards
 
-- [x] **Implement**: Grammar `guard = "." "match" "(" expression ")"` — spec/10-patterns.md § Guards [done] (2026-02-10)
+- [x] **Implement**: Grammar `guard = "if" expression` (was `.match(cond)`, changed by match-arm-comma-separator-proposal) — spec/10-patterns.md § Guards [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — guard parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori` — guard tests included
   - [ ] **LLVM Support**: LLVM codegen for guard expression

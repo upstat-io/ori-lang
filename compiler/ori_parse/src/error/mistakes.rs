@@ -67,6 +67,10 @@ pub fn detect_common_mistake(source_text: &str) -> Option<(&'static str, &'stati
 }
 
 /// Check if a source fragment looks like a common keyword from other languages.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive keyword lookup table for common mistakes"
+)]
 pub fn check_common_keyword_mistake(text: &str) -> Option<(&'static str, &'static str)> {
     match text {
         // OOP keywords

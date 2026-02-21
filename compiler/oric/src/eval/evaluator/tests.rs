@@ -241,7 +241,7 @@ fn test_early_return_still_cleans_up() {
             .define(name, Value::int(999), Mutability::Immutable);
 
         // Early return - scope should still be cleaned up
-        return Some(42);
+        Some(42)
     }
 
     assert_eq!(evaluator.env().depth(), 1);

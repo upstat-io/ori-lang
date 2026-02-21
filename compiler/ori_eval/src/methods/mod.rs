@@ -132,6 +132,9 @@ pub(crate) struct BuiltinMethodNames {
     // Iterator
     pub(crate) iter: Name,
 
+    // Conversion (Into trait)
+    pub(crate) into: Name,
+
     // Traceable trait (Error type)
     pub(crate) trace: Name,
     pub(crate) trace_entries: Name,
@@ -225,6 +228,8 @@ impl BuiltinMethodNames {
             terabytes: interner.intern("terabytes"),
             // Iterator
             iter: interner.intern("iter"),
+            // Conversion
+            into: interner.intern("into"),
             // Traceable
             trace: interner.intern("trace"),
             trace_entries: interner.intern("trace_entries"),

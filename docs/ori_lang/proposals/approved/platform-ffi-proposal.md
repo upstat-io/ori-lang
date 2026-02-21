@@ -373,11 +373,11 @@ extern "js" {
 
 // JsPromise is implicitly resolved at binding sites in async context
 @fetch_text (url: str) -> str uses Suspend, FFI =
-    run(
+    {
         let response = _fetch(url: url),  // JsPromise<JsValue> auto-resolved
         let text = _response_text(resp: response),  // JsPromise<str> auto-resolved
         text
-    )
+    }
 ```
 
 **Semantics:**
@@ -467,11 +467,11 @@ All FFI calls require the `FFI` capability:
     some_c_function()
 
 @manipulate_dom () -> void uses FFI =
-    run(
-        let elem = document_query(selector: "#app"),
-        element_set_text(elem: elem, text: "Hello"),
+    {
+        let elem = document_query(selector: "#app")
+        element_set_text(elem: elem, text: "Hello")
         drop_js_value(handle: elem)
-    )
+    }
 ```
 
 ### Standard Library Hides FFI
@@ -504,11 +504,11 @@ Standard C memory management. Ori's ARC handles Ori objects; C objects follow C 
 
 ```ori
 @use_js_object () -> void uses FFI =
-    run(
-        let elem = document_query(selector: "#app"),
-        element_set_text(elem: elem, text: "Hello"),
+    {
+        let elem = document_query(selector: "#app")
+        element_set_text(elem: elem, text: "Hello")
         drop_js_value(handle: elem)  // Release handle
-    )
+    }
 ```
 
 **With-pattern for automatic cleanup:**
@@ -531,14 +531,14 @@ type SqliteDb = { handle: CPtr }
 
 impl SqliteDb {
     pub @open (path: str) -> Result<SqliteDb, str> uses FFI =
-        run(
-            let handle = CPtr.null(),
-            let result = sqlite3_open(filename: path, db: handle),
+        {
+            let handle = CPtr.null()
+            let result = sqlite3_open(filename: path, db: handle)
             if result == 0 then
                 Ok(SqliteDb { handle: handle })
             else
                 Err("Failed to open database")
-        )
+        }
 
     pub @close (self) -> void uses FFI =
         sqlite3_close(db: self.handle)
@@ -559,13 +559,13 @@ extern "c" from "libc" {
 }
 
 pub @open_file (path: str) -> Result<int, FileError> uses FFI =
-    run(
-        let fd = _open(path: path, flags: 0, mode: 0),
+    {
+        let fd = _open(path: path, flags: 0, mode: 0)
         if fd < 0 then
             Err(errno_to_error())
         else
             Ok(fd)
-    )
+    }
 ```
 
 ### WASM FFI Errors
@@ -744,13 +744,13 @@ extern "js" {
 
 #target(arch: "wasm32")
 @get (url: str) -> Result<str, HttpError> uses Suspend, FFI =
-    run(
+    {
         let resp = _fetch(url: url),  // JsPromise auto-resolved
         if !_response_ok(resp: resp) then
             Err(HttpError.RequestFailed)
         else
             Ok(_response_text(resp: resp))  // JsPromise auto-resolved
-    )
+    }
 
 // User code works on both platforms
 @fetch_data (url: str) -> Result<str, HttpError> uses Suspend =
@@ -902,3 +902,7 @@ Ori uses 64-bit `int` and `float` exclusively for simplicity. At FFI boundaries,
 ### Why unsafe blocks?
 
 Some FFI operations (raw pointer manipulation, unchecked array access) cannot be verified by Ori. An explicit `unsafe` block clearly marks dangerous code, documents that safety is the programmer's responsibility, and allows auditing of safety-critical sections.
+
+## Errata (added 2026-02-20)
+
+> **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.

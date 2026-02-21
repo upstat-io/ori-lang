@@ -158,7 +158,7 @@ fn test_parse_incremental_basic() {
     let interner = StringInterner::new();
 
     // Original source with two functions
-    let source = "@first () -> int = 42\n\n@second () -> int = 100";
+    let source = "@first () -> int = 42;\n\n@second () -> int = 100;";
     let tokens = ori_lexer::lex(source, &interner);
     let old_result = parse(&tokens, &interner);
 
@@ -166,9 +166,9 @@ fn test_parse_incremental_basic() {
     assert_eq!(old_result.module.functions.len(), 2);
 
     // Now modify the first function: change 42 to 99
-    // The source is: "@first () -> int = 42\n\n@second () -> int = 100"
+    // The source is: "@first () -> int = 42;\n\n@second () -> int = 100;"
     //                 ^^^^^^^^^^^^^^^^^^^^ position 19-21 is "42"
-    let new_source = "@first () -> int = 99\n\n@second () -> int = 100";
+    let new_source = "@first () -> int = 99;\n\n@second () -> int = 100;";
     let new_tokens = ori_lexer::lex(new_source, &interner);
 
     // Create a change: replace "42" (2 chars at position 19) with "99" (2 chars)
@@ -188,7 +188,7 @@ fn test_parse_incremental_insert() {
     let interner = StringInterner::new();
 
     // Original source
-    let source = "@add (x: int) -> int = x + 1";
+    let source = "@add (x: int) -> int = x + 1;";
     let tokens = ori_lexer::lex(source, &interner);
     let old_result = parse(&tokens, &interner);
 
@@ -196,7 +196,7 @@ fn test_parse_incremental_insert() {
     assert_eq!(old_result.module.functions.len(), 1);
 
     // Insert a newline and new function at the end
-    let new_source = "@add (x: int) -> int = x + 1\n\n@sub (x: int) -> int = x - 1";
+    let new_source = "@add (x: int) -> int = x + 1;\n\n@sub (x: int) -> int = x - 1;";
     let new_tokens = ori_lexer::lex(new_source, &interner);
 
     // Insert at position 28 (after original source)
@@ -216,7 +216,7 @@ fn test_parse_incremental_fresh_parse_on_overlap() {
     let interner = StringInterner::new();
 
     // Original source with one function
-    let source = "@compute (x: int, y: int) -> int = x + y";
+    let source = "@compute (x: int, y: int) -> int = x + y;";
     let tokens = ori_lexer::lex(source, &interner);
     let old_result = parse(&tokens, &interner);
 
@@ -225,7 +225,7 @@ fn test_parse_incremental_fresh_parse_on_overlap() {
 
     // Modify the function signature (change "y: int" to "y: float")
     // Position of "y: int" is approximately at position 14-20
-    let new_source = "@compute (x: int, y: float) -> int = x + y";
+    let new_source = "@compute (x: int, y: float) -> int = x + y;";
     let new_tokens = ori_lexer::lex(new_source, &interner);
 
     // Change: "int" (3 chars) to "float" (5 chars) at position ~18-21

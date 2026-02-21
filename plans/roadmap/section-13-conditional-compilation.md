@@ -683,10 +683,10 @@ Causes a compile-time error with the given message. Valid only in compile-time e
 
 // Platform-specific file operations
 #target(family: "unix")
-@set_permissions (path: str, mode: int) -> Result<void, Error> uses FileSystem = run(
+@set_permissions (path: str, mode: int) -> Result<void, Error> uses FileSystem = {
     // Unix chmod
-    Unix.chmod(path: path, mode: mode),
-)
+    Unix.chmod(path: path, mode: mode)
+}
 
 #target(os: "windows")
 @set_permissions (path: str, mode: int) -> Result<void, Error> uses FileSystem =

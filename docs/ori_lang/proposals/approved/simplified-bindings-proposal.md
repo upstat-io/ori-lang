@@ -134,15 +134,15 @@ The `$` appears at both definition and usage sites, providing visual distinction
 ### Local Immutable Bindings
 
 ```ori
-@process (input: int) -> int = run(
-    let $base = expensive_calculation(input),
+@process (input: int) -> int = {
+    let $base = expensive_calculation(input)
 
     // ... lots of code ...
 
     $base = 0,  // error: cannot assign to immutable binding '$base'
 
-    $base * 2,
-)
+    $base * 2
+}
 ```
 
 ### Compile-Time Evaluation
@@ -192,10 +192,10 @@ Some bindings are always immutable regardless of `$`:
 - **Loop variables** — `for item in items` — `item` cannot be reassigned
 
 ```ori
-@add (a: int, b: int) -> int = run(
+@add (a: int, b: int) -> int = {
     a = 10,  // error: cannot assign to parameter
-    a + b,
-)
+    a + b
+}
 
 for item in items do
     item = other  // error: cannot assign to loop variable
@@ -216,14 +216,14 @@ let [$head, ..tail] = list // head is immutable, tail is mutable
 Shadowing follows standard rules — a new binding in an inner scope hides the outer binding. Mutability can differ between shadowed bindings:
 
 ```ori
-run(
+{
     let x = 5,          // mutable
-    run(
+    {
         let $x = x * 2,  // immutable, shadows outer x
         $x,              // 10
-    ),
+    }
     x,                   // still 5 (outer binding)
-)
+}
 ```
 
 The `$` prefix must match between definition and usage within the same binding scope.
@@ -261,34 +261,34 @@ pub let $page_size = 20
 // client.ori
 use './config' { $api_base, $timeout }
 
-@fetch_users (page: int) -> Result<[User], Error> uses Http = try(
-    let url = $api_base + "/users?page=" + str(page),
-    let response = timeout(op: Http.get(url), after: $timeout)?,
-    parse_users(response.body),
-)
+@fetch_users (page: int) -> Result<[User], Error> uses Http = try {
+    let url = $api_base + "/users?page=" + str(page)
+    let response = timeout(op: Http.get(url), after: $timeout)?
+    parse_users(response.body)
+}
 ```
 
 ### Mutable Counter
 
 ```ori
-@count_evens (numbers: [int]) -> int = run(
-    let count = 0,
+@count_evens (numbers: [int]) -> int = {
+    let count = 0
     for n in numbers do
-        if n % 2 == 0 then count = count + 1 else (),
-    count,
-)
+        if n % 2 == 0 then count = count + 1 else ()
+    count
+}
 ```
 
 ### Immutable Intermediate Result
 
 ```ori
-@transform (data: Data) -> Result<Output, Error> = run(
+@transform (data: Data) -> Result<Output, Error> = {
     let $validated = validate(data),  // lock this — shouldn't change
 
     // ... processing ...
 
-    Ok(finalize($validated)),
-)
+    Ok(finalize($validated))
+}
 ```
 
 ### Mathematical Constants

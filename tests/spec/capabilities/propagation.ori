@@ -23,14 +23,14 @@ trait Logger {
 type MockHttp = { base_url: str }
 
 impl Http for MockHttp {
-    @get (self, url: str) -> str = self.base_url + url
-    @post (self, url: str, body: str) -> str = self.base_url + url + ":" + body
+    @get (self, url: str) -> str = self.base_url + url;
+    @post (self, url: str, body: str) -> str = self.base_url + url + ":" + body;
 }
 
 type MockLogger = { prefix: str }
 
 impl Logger for MockLogger {
-    @log (self, msg: str) -> void = ()
+    @log (self, msg: str) -> void = ();
 }
 
 // =============================================================================
@@ -38,40 +38,40 @@ impl Logger for MockLogger {
 // =============================================================================
 
 // Function that uses Http capability
-@fetch_data (url: str) -> str uses Http = Http.get(url: url)
+@fetch_data (url: str) -> str uses Http = Http.get(url: url);
 
 // Function that uses multiple capabilities
-@fetch_and_log (url: str) -> str uses Http, Logger = run(
-    Logger.log(msg: "fetching " + url),
-    Http.get(url: url),
-)
+@fetch_and_log (url: str) -> str uses Http, Logger = {
+    Logger.log(msg: "fetching " + url);
+    Http.get(url: url)
+}
 
 // Pure function (no capabilities)
-@pure_transform (s: str) -> str = s + "!"
+@pure_transform (s: str) -> str = s + "!";
 
 // =============================================================================
 // Valid Propagation: Caller Declares Capability
 // =============================================================================
 
 // Caller declares same capability as callee - valid
-@caller_with_http (url: str) -> str uses Http = fetch_data(url: url)
+@caller_with_http (url: str) -> str uses Http = fetch_data(url: url);
 
-@test_caller_with_http tests @caller_with_http () -> void = run(
+@test_caller_with_http tests @caller_with_http () -> void = {
     let result = with Http = MockHttp { base_url: "https://api.com" } in
-        caller_with_http(url: "/users"),
-    assert_eq(actual: result, expected: "https://api.com/users"),
-)
+        caller_with_http(url: "/users");
+    assert_eq(actual: result, expected: "https://api.com/users")
+}
 
 // Caller declares multiple capabilities - valid
 @caller_with_both (url: str) -> str uses Http, Logger =
-    fetch_and_log(url: url)
+    fetch_and_log(url: url);
 
-@test_caller_with_both tests @caller_with_both () -> void = run(
+@test_caller_with_both tests @caller_with_both () -> void = {
     let result = with Http = MockHttp { base_url: "https://test.com" } in
         with Logger = MockLogger { prefix: "" } in
-            caller_with_both(url: "/data"),
-    assert_eq(actual: result, expected: "https://test.com/data"),
-)
+            caller_with_both(url: "/data");
+    assert_eq(actual: result, expected: "https://test.com/data")
+}
 
 // =============================================================================
 // Valid Propagation: Caller Provides via with...in
@@ -80,51 +80,51 @@ impl Logger for MockLogger {
 // Pure caller provides capability for callee - valid
 @pure_caller_with_provide (url: str) -> str =
     with Http = MockHttp { base_url: "mock://" } in
-        fetch_data(url: url)
+        fetch_data(url: url);
 
-@test_pure_caller_with_provide tests @pure_caller_with_provide () -> void = run(
-    let result = pure_caller_with_provide(url: "/test"),
-    assert_eq(actual: result, expected: "mock:///test"),
-)
+@test_pure_caller_with_provide tests @pure_caller_with_provide () -> void = {
+    let result = pure_caller_with_provide(url: "/test");
+    assert_eq(actual: result, expected: "mock:///test")
+}
 
 // Nested with...in providing different capabilities
 @caller_nested_provide (url: str) -> str =
     with Http = MockHttp { base_url: "nested://" } in
         with Logger = MockLogger { prefix: "[LOG]" } in
-            fetch_and_log(url: url)
+            fetch_and_log(url: url);
 
-@test_caller_nested_provide tests @caller_nested_provide () -> void = run(
-    let result = caller_nested_provide(url: "/nested"),
-    assert_eq(actual: result, expected: "nested:///nested"),
-)
+@test_caller_nested_provide tests @caller_nested_provide () -> void = {
+    let result = caller_nested_provide(url: "/nested");
+    assert_eq(actual: result, expected: "nested:///nested")
+}
 
 // =============================================================================
 // Pure Function Calls Don't Require Capabilities
 // =============================================================================
 
 // Calling pure functions never requires capabilities
-@caller_of_pure (s: str) -> str = pure_transform(s: s)
+@caller_of_pure (s: str) -> str = pure_transform(s: s);
 
-@test_caller_of_pure tests @caller_of_pure () -> void = run(
-    let result = caller_of_pure(s: "hello"),
-    assert_eq(actual: result, expected: "hello!"),
-)
+@test_caller_of_pure tests @caller_of_pure () -> void = {
+    let result = caller_of_pure(s: "hello");
+    assert_eq(actual: result, expected: "hello!")
+}
 
 // =============================================================================
 // Tests Using Capabilities
 // =============================================================================
 
 // Test providing capability for function under test
-@test_fetch_data tests @fetch_data () -> void = run(
+@test_fetch_data tests @fetch_data () -> void = {
     let result = with Http = MockHttp { base_url: "https://mock.test" } in
-        fetch_data(url: "/endpoint"),
-    assert_eq(actual: result, expected: "https://mock.test/endpoint"),
-)
+        fetch_data(url: "/endpoint");
+    assert_eq(actual: result, expected: "https://mock.test/endpoint")
+}
 
 // Test providing multiple capabilities
-@test_fetch_and_log tests @fetch_and_log () -> void = run(
+@test_fetch_and_log tests @fetch_and_log () -> void = {
     let result = with Http = MockHttp { base_url: "https://logged.test" } in
         with Logger = MockLogger { prefix: "" } in
-            fetch_and_log(url: "/logged"),
-    assert_eq(actual: result, expected: "https://logged.test/logged"),
-)
+            fetch_and_log(url: "/logged");
+    assert_eq(actual: result, expected: "https://logged.test/logged")
+}

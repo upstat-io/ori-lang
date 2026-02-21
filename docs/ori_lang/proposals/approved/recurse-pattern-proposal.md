@@ -314,10 +314,10 @@ Tree structures naturally use `match` + direct recursion rather than `recurse`:
 ```ori
 type Tree<T> = Leaf(T) | Node(left: Tree<T>, right: Tree<T>)
 
-@sum_tree (tree: Tree<int>) -> int = match(tree,
-    Leaf(v) -> v,
-    Node(l, r) -> sum_tree(tree: l) + sum_tree(tree: r),
-)
+@sum_tree (tree: Tree<int>) -> int = match tree {
+    Leaf(v) -> v
+    Node(l, r) -> sum_tree(tree: l) + sum_tree(tree: r)
+}
 ```
 
 The `recurse` pattern is best suited for numeric/iterative recursion where a single decreasing parameter converges toward a base case. For structural recursion (pattern matching on data structure shape), use `match` with direct function calls.
@@ -328,12 +328,12 @@ The `recurse` pattern is best suited for numeric/iterative recursion where a sin
 @merge_sort<T: Comparable + Sendable> (items: [T]) -> [T] uses Suspend = recurse(
     condition: len(collection: items) <= 1,
     base: items,
-    step: run(
-        let mid = len(collection: items) / 2,
-        let left = self(items.take(count: mid)),
-        let right = self(items.skip(count: mid)),
-        merge(left, right),
-    ),
+    step: {
+        let mid = len(collection: items) / 2
+        let left = self(items.take(count: mid))
+        let right = self(items.skip(count: mid))
+        merge(left, right)
+    },
     parallel: true,
 )
 ```
@@ -341,18 +341,18 @@ The `recurse` pattern is best suited for numeric/iterative recursion where a sin
 ### Dynamic Programming
 
 ```ori
-@longest_common_subsequence (a: str, b: str) -> int = run(
+@longest_common_subsequence (a: str, b: str) -> int = {
     @lcs (i: int, j: int) -> int = recurse(
-        condition: i == 0 || j == 0,
-        base: 0,
+        condition: i == 0 || j == 0
+        base: 0
         step: if a[i - 1] == b[j - 1] then
             1 + self(i - 1, j - 1)
         else
-            max(left: self(i - 1, j), right: self(i, j - 1)),
-        memo: true,
-    ),
-    lcs(i: len(collection: a), j: len(collection: b)),
-)
+            max(left: self(i - 1, j), right: self(i, j - 1))
+        memo: true
+    )
+    lcs(i: len(collection: a), j: len(collection: b))
+}
 ```
 
 ---

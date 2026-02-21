@@ -44,11 +44,10 @@ Currently, all of these require manual `panic()` calls or `print()` statements:
     panic(msg: "TODO: implement new_feature")
 
 // Marking impossible branches
-match(
-    validated_input,
-    Valid(v) -> process(v: v),
-    Invalid(_) -> panic(msg: "unreachable: input was validated"),
-)
+match validated_input {
+    Valid(v) -> process(v: v)
+    Invalid(_) -> panic(msg: "unreachable: input was validated")
+}
 
 // Debugging (disrupts code flow)
 let x = calculate()
@@ -87,12 +86,11 @@ Marks code that hasn't been implemented yet. Panics when executed.
 @parse_json (input: str) -> Result<Json, Error> =
     todo()  // Panics: "not yet implemented at src/parser.ori:15"
 
-@handle_event (event: Event) -> void = match(
-    event,
-    Click(pos) -> handle_click(pos: pos),
+@handle_event (event: Event) -> void = match event {
+    Click(pos) -> handle_click(pos: pos)
     Scroll(delta) -> todo(reason: "scroll handling"),  // "not yet implemented: scroll handling at src/ui.ori:42"
-    KeyPress(key) -> handle_key(key: key),
-)
+    KeyPress(key) -> handle_key(key: key)
+}
 
 // Works in expression position due to Never type
 let value: int = if condition then 42 else todo()
@@ -126,35 +124,33 @@ Marks code that should never execute. Panics if reached (indicates logic error).
 **Examples:**
 
 ```ori
-@safe_divide (a: int, b: int) -> int = run(
+@safe_divide (a: int, b: int) -> int = {
     if b == 0 then
         panic(msg: "division by zero")
-    else run(
+    else {
         // At this point, b is guaranteed non-zero
-        let result = a / b,
+        let result = a / b
         if result * b != a then
             unreachable(reason: "integer division invariant violated")
         else
-            result,
-    ),
-)
+            result
+    }
+}
 
-@process_validated (input: Input) -> Output = run(
+@process_validated (input: Input) -> Output = {
     // Input was validated before this function was called
-    match(
-        input.status,
-        Status.Valid -> compute(input: input),
-        Status.Invalid -> unreachable(reason: "invalid input passed to process_validated"),
-    ),
-)
+    match input.status {
+        Status.Valid -> compute(input: input)
+        Status.Invalid -> unreachable(reason: "invalid input passed to process_validated")
+    }
+}
 
 // Exhaustive match where we know some cases can't happen
-@day_type (day: int) -> str = match(
-    day,
-    1 | 2 | 3 | 4 | 5 -> "weekday",
-    6 | 7 -> "weekend",
-    _ -> unreachable(reason: "day must be 1-7"),
-)
+@day_type (day: int) -> str = match day {
+    1 | 2 | 3 | 4 | 5 -> "weekday"
+    6 | 7 -> "weekend"
+    _ -> unreachable(reason: "day must be 1-7")
+}
 ```
 
 **Panic message format:**
@@ -327,26 +323,24 @@ dbg(value: x + y, label: "sum")  // Prints: [file:line] sum = 30
 ### Incremental Implementation
 
 ```ori
-@process_command (cmd: Command) -> Result<Response, Error> = match(
-    cmd,
-    Command.Help -> Ok(help_text()),
-    Command.Version -> Ok(version_info()),
-    Command.Run(args) -> todo(reason: "run command"),
-    Command.Test(args) -> todo(reason: "test command"),
-)
+@process_command (cmd: Command) -> Result<Response, Error> = match cmd {
+    Command.Help -> Ok(help_text())
+    Command.Version -> Ok(version_info())
+    Command.Run(args) -> todo(reason: "run command")
+    Command.Test(args) -> todo(reason: "test command")
+}
 ```
 
 ### Defensive Programming
 
 ```ori
-@get_user (id: UserId) -> User = run(
-    let user = database.find(id: id),
-    match(
-        user,
-        Some(u) -> u,
-        None -> unreachable(reason: "user id was validated"),
-    ),
-)
+@get_user (id: UserId) -> User = {
+    let user = database.find(id: id)
+    match user {
+        Some(u) -> u
+        None -> unreachable(reason: "user id was validated")
+    }
+}
 ```
 
 ### Debugging a Pipeline
@@ -399,12 +393,11 @@ unreachable(reason: str) -> Never
 Marks code that should never execute. Panics with "unreachable code reached" and location.
 
 ```ori
-@day_type (day: int) -> str = match(
-    day,
-    1 | 2 | 3 | 4 | 5 -> "weekday",
-    6 | 7 -> "weekend",
-    _ -> unreachable(reason: "day must be 1-7"),
-)
+@day_type (day: int) -> str = match day {
+    1 | 2 | 3 | 4 | 5 -> "weekday"
+    6 | 7 -> "weekend"
+    _ -> unreachable(reason: "day must be 1-7")
+}
 ```
 
 ### dbg

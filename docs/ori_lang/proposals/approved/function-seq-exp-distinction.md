@@ -1,9 +1,11 @@
 # Proposal: function_seq and function_exp Pattern Distinction
 
-**Status:** Approved
+**Status:** Approved (syntax superseded)
 **Author:** Eric
 **Created:** 2026-01-22
 **Approved:** 2026-01-22
+
+> **Errata (2026-02-19):** The `function_seq` constructs (`run`, `try`, `match`) now use curly-brace block syntax per `block-expression-syntax.md`. `run()` is removed; `match(expr, ...)` is now `match expr { ... }`; `try(...)` is now `try { ... }`. The conceptual distinction between sequential and named expression patterns remains valid.
 
 ---
 
@@ -50,11 +52,11 @@ Currently, all patterns are loosely grouped together. But they have fundamentall
 
 ```ori
 // function_seq: sequence of expressions, order is meaning
-run(
-    let x = step1(),
-    let y = step2(x),
-    x + y,
-)
+{
+    let x = step1()
+    let y = step2(x)
+    x + y
+}
 
 // function_exp: named expressions, names are meaning
 fold(

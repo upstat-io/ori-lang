@@ -1,19 +1,20 @@
 ---
 section: "15D"
 title: Bindings & Types
-status: not-started
-tier: 5
+status: in-progress
+tier: 1
 goal: Implement binding syntax changes and type system simplifications
+priority_note: "15D.3 escalated from Tier 5 → Tier 1 (2026-02-19). Block syntax + semicolons + $ enforcement complete (2026-02-20). Remaining: mut keyword removal, module-level immutability, scope conflicts."
 sections:
   - id: "15D.1"
-    title: Pre/Post Checks for run Pattern
+    title: Function-Level Contracts (pre/post)
     status: not-started
   - id: "15D.2"
     title: as Conversion Syntax
     status: not-started
   - id: "15D.3"
     title: Simplified Bindings with $ for Immutability
-    status: not-started
+    status: in-progress
   - id: "15D.4"
     title: Remove dyn Keyword for Trait Objects
     status: not-started
@@ -33,86 +34,81 @@ sections:
 
 ---
 
-## 15D.1 Pre/Post Checks for `run` Pattern
+## 15D.1 Function-Level Contracts: `pre()` / `post()`
 
-**Proposal**: `proposals/approved/checks-proposal.md`
+**Proposal**: `proposals/approved/checks-proposal.md` (semantics), `proposals/approved/block-expression-syntax.md` (syntax)
 
-Extend `run` pattern with `pre_check:` and `post_check:` properties for contract-style defensive programming.
+Function-level `pre()` and `post()` contract declarations for defensive programming. Contracts go between the return type and `=`:
 
 ```ori
-@divide (a: int, b: int) -> int = run(
-    pre_check: b != 0,
-    a div b,
-    post_check: r -> r * b <= a,
-)
+@divide (a: int, b: int) -> int
+    pre(b != 0)
+    post(r -> r * b <= a)
+= a div b
 
-// Multiple conditions via multiple properties
-@transfer (from: Account, to: Account, amount: int) -> (Account, Account) = run(
-    pre_check: amount > 0 | "amount must be positive",
-    pre_check: from.balance >= amount | "insufficient funds",
-    // ... body ...,
-    post_check: (f, t) -> f.balance == from.balance - amount,
-    post_check: (f, t) -> t.balance == to.balance + amount,
-)
+// Multiple conditions
+@transfer (from: Account, to: Account, amount: int) -> (Account, Account)
+    pre(amount > 0 | "amount must be positive")
+    pre(from.balance >= amount | "insufficient funds")
+    post((f, t) -> f.balance == from.balance - amount)
+    post((f, t) -> t.balance == to.balance + amount)
+= {
+    // ... body ...
+}
 ```
 
 ### Key Design Decisions
 
-- **Multiple properties, not list syntax**: Use multiple `pre_check:` / `post_check:` properties instead of `[cond1, cond2]` lists
-- **`|` for messages**: Custom messages use `condition | "message"` syntax (parser disambiguates by context)
-- **Scope constraints**: `pre_check:` can only access outer scope; `post_check:` can access body bindings
-- **Void body**: Compile error if `post_check:` used with void body
+- **Function-level placement**: Contracts go on the declaration between return type and `=`
+- **Multiple declarations**: Use multiple `pre()` / `post()` declarations (not list syntax)
+- **`|` for messages**: Custom messages use `condition | "message"` syntax
+- **Scope constraints**: `pre()` can only access function parameters and module-level bindings; `post()` can access the result via lambda parameter
+- **Void return**: Compile error if `post()` used on a function returning `void`
 - **Check modes deferred**: `check_mode:` (enforce/observe/ignore) deferred to future proposal
 
 ### Implementation
 
-- [ ] **Implement**: Parser: Add `pre_check:` and `post_check:` to run pattern
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — check property parsing
+- [ ] **Implement**: Parser: Parse `pre()` and `post()` on function declarations
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — contract parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/checks.ori`
-  - [ ] **LLVM Support**: LLVM codegen for pre_check and post_check parsing
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check/post_check parsing codegen
-
-- [ ] **Implement**: Parser: Enforce position (pre_check first, post_check last)
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — position enforcement
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/mispositioned_checks.ori`
-  - [ ] **LLVM Support**: LLVM codegen for check position enforcement
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — check position enforcement codegen
+  - [ ] **LLVM Support**: LLVM codegen for contract parsing
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract parsing codegen
 
 - [ ] **Implement**: Parser: Support `| "message"` custom message syntax
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — message parsing
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — message parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/check_messages.ori`
-  - [ ] **LLVM Support**: LLVM codegen for custom check messages
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom check messages codegen
+  - [ ] **LLVM Support**: LLVM codegen for custom contract messages
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom contract messages codegen
 
-- [ ] **Implement**: Type checker: Validate pre_check is `bool`
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — pre_check type validation
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_check_not_bool.ori`
-  - [ ] **LLVM Support**: LLVM codegen for pre_check type validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check type validation codegen
+- [ ] **Implement**: Type checker: Validate `pre()` condition is `bool`
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — pre type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_not_bool.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pre type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre type validation codegen
 
-- [ ] **Implement**: Type checker: Validate post_check is `T -> bool` lambda
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — post_check type validation
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_check_not_lambda.ori`
-  - [ ] **LLVM Support**: LLVM codegen for post_check type validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post_check type validation codegen
+- [ ] **Implement**: Type checker: Validate `post()` is `T -> bool` lambda
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — post type validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_not_lambda.ori`
+  - [ ] **LLVM Support**: LLVM codegen for post type validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post type validation codegen
 
-- [ ] **Implement**: Type checker: Error when post_check used with void body
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/pattern.rs` — void body error
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_check_void_body.ori`
-  - [ ] **LLVM Support**: LLVM codegen for void body error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — void body error codegen
+- [ ] **Implement**: Type checker: Error when `post()` used on void-returning function
+  - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — void return error
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/post_void_return.ori`
+  - [ ] **LLVM Support**: LLVM codegen for void return error
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — void return error codegen
 
-- [ ] **Implement**: Scope checker: pre_check can only access outer scope
-  - [ ] **Rust Tests**: `oric/src/resolve/scope.rs` — pre_check scope validation
-  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_check_scope.ori`
-  - [ ] **LLVM Support**: LLVM codegen for pre_check scope validation
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre_check scope validation codegen
+- [ ] **Implement**: Scope checker: `pre()` can only access parameters and module-level bindings
+  - [ ] **Rust Tests**: `oric/src/resolve/scope.rs` — pre scope validation
+  - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_scope.ori`
+  - [ ] **LLVM Support**: LLVM codegen for pre scope validation
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre scope validation codegen
 
-- [ ] **Implement**: Codegen: Desugar to conditional checks and panics
-  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — check desugaring
+- [ ] **Implement**: Codegen: Desugar to conditional checks and panics at function entry/exit
+  - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — contract desugaring
   - [ ] **Ori Tests**: `tests/spec/patterns/checks_desugaring.ori`
-  - [ ] **LLVM Support**: LLVM codegen for check desugaring
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — check desugaring codegen
+  - [ ] **LLVM Support**: LLVM codegen for contract desugaring
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract desugaring codegen
 
 - [ ] **Implement**: Codegen: Embed source text for default error messages
   - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — source text embedding
@@ -228,15 +224,15 @@ let $timeout = 30s // module-level constant (let and $ required)
 
 ### Parser
 
-- [ ] **Implement**: Update `let_expr` to accept `$` prefix in binding pattern
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — immutable binding parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori`
+- [x] **Implement**: Update `let_expr` to accept `$` prefix in binding pattern (2026-02-20)
+  - [x] **Rust Tests**: `ori_parse/src/tests/parser.rs` — block let binding with `$` prefix
+  - [x] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori`
   - [ ] **LLVM Support**: LLVM codegen for immutable binding parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable binding parsing codegen
 
-- [ ] **Implement**: Remove `mut` from `let_expr` grammar
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — mut removal
-  - [ ] **Ori Tests**: `tests/compile-fail/let_mut_removed.ori`
+- [x] **Implement**: Remove `mut` from `let_expr` grammar
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — mut removal
+  - [x] **Ori Tests**: All 151 `let mut` occurrences migrated to `let` across 25 test files + AOT tests
   - [ ] **LLVM Support**: LLVM codegen for mut removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mut removal codegen
 
@@ -252,19 +248,28 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **LLVM Support**: LLVM codegen for const function removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — const function removal codegen
 
-- [ ] **Implement**: Support `$` prefix in destructuring patterns
-  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — destructure immutable parsing
-  - [ ] **Ori Tests**: `tests/spec/expressions/destructure_immutable.ori`
+- [x] **Implement**: Support `$` prefix in destructuring patterns (2026-02-20)
+  - [x] **Rust Tests**: `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern` handles `$` for Name, Tuple, Struct, List
+  - [x] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori` — tuple, struct, list destructuring with `$`
   - [ ] **LLVM Support**: LLVM codegen for destructure immutable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — destructure immutable codegen
+- [x] **Fix**: List rest binding `..rest` tracks `$` mutability (2026-02-20)
+  - [x] IR: `BindingPattern::List.rest` changed from `Option<Name>` to `Option<(Name, bool)>` (`ori_ir/src/ast/patterns/binding.rs:31`)
+  - [x] IR: `CanBindingPattern::List.rest` changed to `Option<(Name, bool)>` (`ori_ir/src/canon/patterns.rs:32`)
+  - [x] Parser: `parse_binding_pattern` handles `$` before rest identifier (`ori_parse/src/grammar/expr/primary.rs:1386`)
+  - [x] Type checker: `bind_pattern()` uses `bind_with_mutability()` for rest (`ori_types/src/infer/expr/sequences.rs:489`)
+  - [x] Evaluator: `bind_can_pattern()` uses per-binding `rest_mutable` (`ori_eval/src/interpreter/can_eval.rs:758`)
+  - [x] Canon: lowering passes through `(Name, bool)` tuple (`ori_canon/src/lower/patterns.rs:261`)
+  - [x] Formatter: emits `$` prefix on immutable rest bindings (`ori_fmt/src/formatter/patterns.rs:183`)
+  - [x] Grammar: `grammar.ebnf` updated to allow `[ "$" ]` on rest identifier (line 581)
 
 ### Semantic Analysis
 
-- [ ] **Implement**: Track `$` modifier separately from identifier name
-  - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — binding modifier tracking
-  - [ ] **Ori Tests**: `tests/spec/expressions/binding_modifiers.ori`
-  - [ ] **LLVM Support**: LLVM codegen for binding modifier tracking
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — binding modifier tracking codegen
+- [x] **Implement**: Track `$` modifier separately from identifier name (2026-02-20)
+  - [x] **Rust Tests**: `ori_types/src/infer/env/mod.rs` — `TypeEnvInner::mutability` FxHashMap tracks per-binding mutability
+  - [x] **Ori Tests**: `tests/spec/expressions/mutable_vs_immutable.ori` — verifies `$` bindings preserve immutability
+  - [x] **LLVM Support**: N/A — mutability is a type-checker concern, not codegen
+  - [x] **LLVM Rust Tests**: N/A — mutability is a type-checker concern, not codegen
 
 - [ ] **Implement**: Prevent `$x` and `x` coexisting in same scope
   - [ ] **Rust Tests**: `oric/src/resolve/binding.rs` — same-name conflict detection
@@ -278,11 +283,11 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **LLVM Support**: LLVM codegen for module binding immutability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — module binding immutability codegen
 
-- [ ] **Implement**: Enforce `$`-prefixed bindings cannot be reassigned
-  - [ ] **Rust Tests**: `oric/src/typeck/checker/assignment.rs` — immutable assignment error
-  - [ ] **Ori Tests**: `tests/compile-fail/assign_to_immutable.ori`
-  - [ ] **LLVM Support**: LLVM codegen for immutable assignment error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable assignment error codegen
+- [x] **Implement**: Enforce `$`-prefixed bindings cannot be reassigned (2026-02-20)
+  - [x] **Rust Tests**: `ori_types/src/infer/expr/operators.rs` — immutability check in `infer_assign`
+  - [x] **Ori Tests**: `tests/compile-fail/assign_to_immutable.ori`, `assign_to_immutable_in_loop.ori`, `assign_to_immutable_destructured.ori`
+  - [x] **LLVM Support**: N/A — compile-time type error (E2039) prevents codegen
+  - [x] **LLVM Rust Tests**: N/A — compile-time type error prevents codegen
 
 ### Imports
 
@@ -308,11 +313,11 @@ let $timeout = 30s // module-level constant (let and $ required)
 
 ### Error Messages
 
-- [ ] **Implement**: Clear error for reassignment to immutable binding
-  - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — immutable reassign error
-  - [ ] **Ori Tests**: `tests/compile-fail/immutable_reassign_message.ori`
-  - [ ] **LLVM Support**: LLVM codegen for immutable reassign error
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable reassign error codegen
+- [x] **Implement**: Clear error for reassignment to immutable binding (2026-02-20)
+  - [x] **Rust Tests**: `ori_types/src/type_error/check_error/mod.rs` — `AssignToImmutable` variant + formatting
+  - [x] **Ori Tests**: `tests/compile-fail/assign_to_immutable.ori` (verifies "cannot assign to immutable binding" message)
+  - [x] **LLVM Support**: N/A — compile-time type error prevents codegen
+  - [x] **LLVM Rust Tests**: N/A — compile-time type error prevents codegen
 
 - [ ] **Implement**: Clear error for module-level mutable binding
   - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — module mutable error

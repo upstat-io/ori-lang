@@ -132,12 +132,12 @@ Tasks in `parallel` can use `is_cancelled()` to check for timeout-triggered canc
 ```ori
 parallel(
     tasks: [
-        () -> run(
-            for item in large_list do run(
-                if is_cancelled() then break,
-                process(item),
-            ),
-        ),
+        () -> {
+            for item in large_list do {
+                if is_cancelled() then break
+                process(item)
+            }
+        },
     ],
     timeout: Some(5s),
 )
@@ -242,28 +242,28 @@ Tasks in `parallel` observe the same memory model as nursery tasks:
 ### Aggregating Results
 
 ```ori
-@parallel_sum (batches: [[int]]) -> int uses Suspend = run(
+@parallel_sum (batches: [[int]]) -> int uses Suspend = {
     let results = parallel(
-        tasks: batches.map(batch -> () -> batch.fold(0, (a, b) -> a + b)),
-    ),
+        tasks: batches.map(batch -> () -> batch.fold(0, (a, b) -> a + b))
+    )
     results
         .filter(r -> r.is_ok())
         .map(r -> r.unwrap())
-        .fold(0, (a, b) -> a + b),
-)
+        .fold(0, (a, b) -> a + b)
+}
 ```
 
 ### Handling Partial Failures
 
 ```ori
-@best_effort_fetch (urls: [str]) -> [Response] uses Suspend = run(
+@best_effort_fetch (urls: [str]) -> [Response] uses Suspend = {
     let results = parallel(
-        tasks: urls.map(url -> () -> fetch(url)),
-        timeout: Some(10s),
-    ),
+        tasks: urls.map(url -> () -> fetch(url))
+        timeout: Some(10s)
+    )
     // Keep only successful responses
-    results.filter(r -> r.is_ok()).map(r -> r.unwrap()).collect(),
-)
+    results.filter(r -> r.is_ok()).map(r -> r.unwrap()).collect()
+}
 ```
 
 ---

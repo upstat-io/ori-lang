@@ -1,12 +1,16 @@
 //! Operator inference — binary, unary, cast, and assignment operators.
 
-use ori_ir::{BinaryOp, ExprArena, ExprId, Span, UnaryOp};
+use ori_ir::{BinaryOp, ExprArena, ExprId, ExprKind, Span, UnaryOp};
 
 use super::super::InferEngine;
 use super::{infer_expr, resolve_and_check_parsed_type};
 use crate::{ContextKind, Expected, ExpectedOrigin, Idx, Tag, TypeCheckError};
 
 /// Infer the type of a binary operation.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive BinaryOp dispatch with trait-based type checking for each operator"
+)]
 pub(crate) fn infer_binary(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -306,6 +310,10 @@ pub(crate) fn infer_binary(
 }
 
 /// Infer the type of a unary operation.
+#[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive UnaryOp dispatch with type-specific error reporting"
+)]
 pub(crate) fn infer_unary(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
@@ -580,8 +588,15 @@ pub(crate) fn infer_assign(
     arena: &ExprArena,
     target: ExprId,
     value: ExprId,
-    _span: Span,
+    span: Span,
 ) -> Idx {
+    // Check if target is an immutable binding (let $x = ...)
+    if let ExprKind::Ident(name) = arena.get_expr(target).kind {
+        if engine.env().is_mutable(name) == Some(false) {
+            engine.push_error(TypeCheckError::assign_to_immutable(span, name));
+        }
+    }
+
     let target_ty = infer_expr(engine, arena, target);
     let value_ty = infer_expr(engine, arena, value);
 

@@ -5,5 +5,5 @@
 trait Counter {
     @count (self) -> int
 
-    @is_empty (self) -> bool = self.count() == 0
+    @is_empty (self) -> bool = self.count() == 0;
 }

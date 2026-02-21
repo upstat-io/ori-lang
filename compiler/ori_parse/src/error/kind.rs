@@ -217,6 +217,10 @@ impl ParseErrorKind {
     ///
     /// Uses first-person phrasing ("I found...", "I was expecting...")
     /// inspired by Elm's error messages.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ParseErrorKind → user message dispatch"
+    )]
     pub fn empathetic_message(&self) -> String {
         match self {
             Self::UnexpectedToken {
@@ -402,7 +406,7 @@ impl ParseErrorKind {
             Self::UnexpectedToken {
                 found: TokenKind::Semicolon,
                 ..
-            } => Some("Ori doesn't use semicolons. Remove the `;` \u{2014} expressions flow naturally to the next line."),
+            } => Some("Semicolons separate statements inside block expressions `{ ... }` and terminate top-level items."),
 
             // === Return keyword ===
             Self::UnexpectedToken {
@@ -413,16 +417,6 @@ impl ParseErrorKind {
                 keyword: TokenKind::Return,
                 ..
             } => Some("Ori has no `return` keyword. The last expression in a block is automatically its value."),
-
-            // === Mutability ===
-            Self::UnexpectedToken {
-                found: TokenKind::Mut,
-                ..
-            }
-            | Self::UnsupportedKeyword {
-                keyword: TokenKind::Mut,
-                ..
-            } => Some("In Ori, variables are mutable by default. Use `$name` (dollar prefix) to create an immutable binding."),
 
             // === Trailing operators ===
             Self::TrailingOperator {
@@ -549,6 +543,10 @@ impl ParseErrorKind {
     }
 
     /// Generate the primary error message.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ParseErrorKind message dispatch"
+    )]
     pub fn message(&self) -> String {
         match self {
             Self::UnexpectedToken {
@@ -679,6 +677,10 @@ impl ParseErrorKind {
     #[allow(
         dead_code,
         reason = "infrastructure for ParseErrorKind rich diagnostic migration"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive ParseErrorKind → diagnostic dispatch"
     )]
     pub(crate) fn details(&self, error_span: Span) -> ParseErrorDetails {
         match self {

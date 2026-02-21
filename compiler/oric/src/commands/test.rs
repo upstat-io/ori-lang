@@ -1,7 +1,7 @@
 //! The `test` command: discover and run Ori spec tests, report results.
 
 use oric::ir::StringInterner;
-use oric::test::{CoverageReport, TestRunner, TestRunnerConfig, TestSummary};
+use oric::test::{CoverageReport, FileSummary, TestRunner, TestRunnerConfig, TestSummary};
 use oric::TestOutcome;
 use std::path::Path;
 
@@ -87,91 +87,76 @@ fn print_coverage_report(report: &CoverageReport, interner: &StringInterner) {
 
 /// Print a summary of test results, with optional verbose output.
 fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose: bool) {
-    // Print file-by-file results
     for file in &summary.files {
         if file.total() == 0 && file.errors.is_empty() {
             continue;
         }
 
-        // Print file errors (parse/type/LLVM errors) and blocked tests
         if !file.errors.is_empty() {
-            // Skip LLVM compile errors in non-verbose mode
-            if file.llvm_compile_error && !verbose {
-                continue;
-            }
-
-            println!("\n{}", file.path.display());
-            if file.llvm_compile_error {
-                // Show the compilation error, then list blocked tests
-                for error in &file.errors {
-                    println!("  ERROR: {error}");
-                }
-                let blocked = file
-                    .results
-                    .iter()
-                    .filter(|r| r.outcome.is_llvm_compile_fail())
-                    .count();
-                println!("  ({blocked} tests blocked)");
-            } else {
-                // Show which tests were blocked (real failures)
-                for result in &file.results {
-                    if result.outcome.is_failed() {
-                        let name = result.name_str(interner);
-                        println!("  FAIL: {name} - blocked by type errors");
-                    }
-                }
-                // Then show the actual errors
-                for error in &file.errors {
-                    println!("    ERROR: {error}");
-                }
-            }
+            print_file_errors(file, interner, verbose);
             continue;
         }
 
-        if verbose || file.has_failures() {
-            println!("\n{}", file.path.display());
-        }
-
-        for result in &file.results {
-            let name = result.name_str(interner);
-            let status = match &result.outcome {
-                TestOutcome::Passed => {
-                    if verbose {
-                        format!("  PASS: {name} ({:.2?})", result.duration)
-                    } else {
-                        continue;
-                    }
-                }
-                TestOutcome::Failed(msg) => {
-                    format!("  FAIL: {name} - {msg}")
-                }
-                TestOutcome::Skipped(reason) => {
-                    if verbose {
-                        format!("  SKIP: {name} - {reason}")
-                    } else {
-                        continue;
-                    }
-                }
-                TestOutcome::SkippedUnchanged => {
-                    if verbose {
-                        format!("  SKIP: {name} (unchanged)")
-                    } else {
-                        continue;
-                    }
-                }
-                TestOutcome::LlvmCompileFail(reason) => {
-                    if verbose {
-                        format!("  LLVM COMPILE FAIL: {name} - {reason}")
-                    } else {
-                        continue;
-                    }
-                }
-            };
-            println!("{status}");
-        }
+        print_file_results(file, interner, verbose);
     }
 
-    // Print summary
+    print_summary_stats(summary);
+}
+
+/// Print errors for a file that had parse/type/LLVM compilation failures.
+fn print_file_errors(file: &FileSummary, interner: &StringInterner, verbose: bool) {
+    if file.llvm_compile_error && !verbose {
+        return;
+    }
+
+    println!("\n{}", file.path.display());
+    if file.llvm_compile_error {
+        for error in &file.errors {
+            println!("  ERROR: {error}");
+        }
+        let blocked = file
+            .results
+            .iter()
+            .filter(|r| r.outcome.is_llvm_compile_fail())
+            .count();
+        println!("  ({blocked} tests blocked)");
+    } else {
+        for result in &file.results {
+            if result.outcome.is_failed() {
+                let name = result.name_str(interner);
+                println!("  FAIL: {name} - blocked by type errors");
+            }
+        }
+        for error in &file.errors {
+            println!("    ERROR: {error}");
+        }
+    }
+}
+
+/// Print individual test results for a file with no compilation errors.
+fn print_file_results(file: &FileSummary, interner: &StringInterner, verbose: bool) {
+    if verbose || file.has_failures() {
+        println!("\n{}", file.path.display());
+    }
+
+    for result in &file.results {
+        let name = result.name_str(interner);
+        let status = match &result.outcome {
+            TestOutcome::Passed if verbose => format!("  PASS: {name} ({:.2?})", result.duration),
+            TestOutcome::Failed(msg) => format!("  FAIL: {name} - {msg}"),
+            TestOutcome::Skipped(reason) if verbose => format!("  SKIP: {name} - {reason}"),
+            TestOutcome::SkippedUnchanged if verbose => format!("  SKIP: {name} (unchanged)"),
+            TestOutcome::LlvmCompileFail(reason) if verbose => {
+                format!("  LLVM COMPILE FAIL: {name} - {reason}")
+            }
+            _ => continue,
+        };
+        println!("{status}");
+    }
+}
+
+/// Print aggregate summary statistics across all files.
+fn print_summary_stats(summary: &TestSummary) {
     println!();
     println!("Test Summary:");
 
@@ -192,55 +177,57 @@ fn print_test_summary(summary: &TestSummary, interner: &StringInterner, verbose:
     println!("  {}", parts.join(", "));
 
     if summary.llvm_compile_fail_files > 0 {
-        println!(
-            "  ({} {} could not compile via LLVM)",
-            summary.llvm_compile_fail_files,
-            if summary.llvm_compile_fail_files == 1 {
-                "file"
-            } else {
-                "files"
-            }
-        );
-
-        // Show breakdown of unique error reasons
-        let mut error_counts: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
-        for file in &summary.files {
-            if file.llvm_compile_error {
-                for error in &file.errors {
-                    *error_counts.entry(error.as_str()).or_default() += 1;
-                }
-            }
-        }
-        if !error_counts.is_empty() {
-            let mut sorted: Vec<_> = error_counts.into_iter().collect();
-            sorted.sort_by(|a, b| b.1.cmp(&a.1));
-            println!("  Reasons:");
-            for (error, count) in &sorted {
-                let plural = if *count == 1 { "file" } else { "files" };
-                // Truncate long error messages for readability
-                let display = if error.len() > 80 {
-                    format!("{}...", &error[..77])
-                } else {
-                    (*error).to_string()
-                };
-                println!("    {count} {plural}: {display}");
-            }
-        }
+        print_llvm_error_breakdown(summary);
     }
 
     println!("  Completed in {:.2?}", summary.duration);
 
     if summary.has_failures() {
-        println!();
-        println!("FAILED");
+        println!("\nFAILED");
     } else if summary.total() == 0
         && summary.llvm_compile_fail == 0
         && summary.llvm_compile_fail_files == 0
     {
-        println!();
-        println!("NO TESTS FOUND");
+        println!("\nNO TESTS FOUND");
     } else {
-        println!();
-        println!("OK");
+        println!("\nOK");
+    }
+}
+
+/// Print breakdown of LLVM compilation error reasons.
+fn print_llvm_error_breakdown(summary: &TestSummary) {
+    println!(
+        "  ({} {} could not compile via LLVM)",
+        summary.llvm_compile_fail_files,
+        if summary.llvm_compile_fail_files == 1 {
+            "file"
+        } else {
+            "files"
+        }
+    );
+
+    let mut error_counts: rustc_hash::FxHashMap<&str, usize> = rustc_hash::FxHashMap::default();
+    for file in &summary.files {
+        if file.llvm_compile_error {
+            for error in &file.errors {
+                *error_counts.entry(error.as_str()).or_default() += 1;
+            }
+        }
+    }
+    if error_counts.is_empty() {
+        return;
+    }
+
+    let mut sorted: Vec<_> = error_counts.into_iter().collect();
+    sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    println!("  Reasons:");
+    for (error, count) in &sorted {
+        let plural = if *count == 1 { "file" } else { "files" };
+        let display = if error.len() > 80 {
+            format!("{}...", &error[..77])
+        } else {
+            (*error).to_string()
+        };
+        println!("    {count} {plural}: {display}");
     }
 }

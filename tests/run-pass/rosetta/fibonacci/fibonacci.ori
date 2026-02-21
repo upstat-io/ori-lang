@@ -7,7 +7,7 @@
     base: n,
     step: self(n - 1) + self(n - 2),
     memo: true
-)
+);
 
 // NOTE: fib_parallel removed - requires anonymous record types not yet supported
 // TODO: Enable in Phase 5 (Advanced Features)

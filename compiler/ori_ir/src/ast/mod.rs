@@ -30,9 +30,8 @@ pub use stmt::{Stmt, StmtKind};
 
 // Re-export all range types
 pub use ranges::{
-    ArmRange, CallArgRange, CheckRange, FieldInitRange, GenericParamRange, ListElementRange,
-    MapElementRange, MapEntryRange, NamedExprRange, ParamRange, SeqBindingRange,
-    StructLitFieldRange, TemplatePartRange,
+    ArmRange, CallArgRange, FieldInitRange, GenericParamRange, ListElementRange, MapElementRange,
+    MapEntryRange, NamedExprRange, ParamRange, StructLitFieldRange, TemplatePartRange,
 };
 
 // Re-export collection types
@@ -40,8 +39,8 @@ pub use collections::{CallArg, FieldInit, ListElement, MapElement, MapEntry, Str
 
 // Re-export pattern types
 pub use patterns::{
-    BindingPattern, CheckExpr, FieldBinding, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm,
-    MatchPattern, NamedExpr, SeqBinding,
+    BindingPattern, FieldBinding, FunctionExp, FunctionExpKind, FunctionSeq, MatchArm,
+    MatchPattern, Mutability, NamedExpr,
 };
 
 // Re-export item types

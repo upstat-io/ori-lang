@@ -5,97 +5,97 @@ use std.testing { assert_eq, assert }
 
 // Setup: Result with a traced error
 @fail () -> Result<int, Error> =
-    Err(Error("fail"))
+    Err(Error("fail"));
 
-@traced () -> Result<int, Error> = run(
-    let x = fail()?,
-    Ok(x),
-)
+@traced () -> Result<int, Error> = {
+    let x = fail()?;
+    Ok(x)
+}
 
 // Result.has_trace() delegates
-@test_has tests @has () -> void = run(
-    let r = traced(),
-    assert(cond: r.has_trace()),
-)
+@test_has tests @has () -> void = {
+    let r = traced();
+    assert(cond: r.has_trace())
+}
 
-@has () -> bool = run(
-    let r = traced(),
-    r.has_trace(),
-)
+@has () -> bool = {
+    let r = traced();
+    r.has_trace()
+}
 
 // Result.trace() delegates
-@test_trace tests @trace () -> void = run(
-    let r = traced(),
-    assert(cond: r.trace() != ""),
-)
+@test_trace tests @trace () -> void = {
+    let r = traced();
+    assert(cond: r.trace() != "")
+}
 
-@trace () -> bool = run(
-    let r = traced(),
-    r.trace() != "",
-)
+@trace () -> bool = {
+    let r = traced();
+    r.trace() != ""
+}
 
 // Result.trace_entries() delegates
-@test_entries tests @entries () -> void = run(
-    let r = traced(),
+@test_entries tests @entries () -> void = {
+    let r = traced();
     assert_eq(
         actual: r.trace_entries().len(),
         expected: 1,
-    ),
-)
+    )
+}
 
-@entries () -> int = run(
-    let r = traced(),
-    r.trace_entries().len(),
-)
+@entries () -> int = {
+    let r = traced();
+    r.trace_entries().len()
+}
 
 // Ok has no trace
-@test_ok_has tests @ok_has () -> void = run(
-    let r: Result<int, Error> = Ok(42),
+@test_ok_has tests @ok_has () -> void = {
+    let r: Result<int, Error> = Ok(42);
     assert_eq(
         actual: r.has_trace(),
         expected: false,
-    ),
-)
+    )
+}
 
-@ok_has () -> bool = run(
-    let r: Result<int, Error> = Ok(42),
-    r.has_trace(),
-)
+@ok_has () -> bool = {
+    let r: Result<int, Error> = Ok(42);
+    r.has_trace()
+}
 
-@test_ok_trace tests @ok_trace () -> void = run(
-    let r: Result<int, Error> = Ok(42),
-    assert_eq(actual: r.trace(), expected: ""),
-)
+@test_ok_trace tests @ok_trace () -> void = {
+    let r: Result<int, Error> = Ok(42);
+    assert_eq(actual: r.trace(), expected: "")
+}
 
-@ok_trace () -> str = run(
-    let r: Result<int, Error> = Ok(42),
-    r.trace(),
-)
+@ok_trace () -> str = {
+    let r: Result<int, Error> = Ok(42);
+    r.trace()
+}
 
 @test_ok_entries tests @ok_entries () -> void =
-    run(
-        let r: Result<int, Error> = Ok(42),
+    {
+        let r: Result<int, Error> = Ok(42);
         assert_eq(
             actual: r.trace_entries().len(),
             expected: 0,
-        ),
-    )
+        )
+    }
 
-@ok_entries () -> int = run(
-    let r: Result<int, Error> = Ok(42),
-    r.trace_entries().len(),
-)
+@ok_entries () -> int = {
+    let r: Result<int, Error> = Ok(42);
+    r.trace_entries().len()
+}
 
 // Fresh Err (no ?) has no trace
-@test_fresh tests @fresh () -> void = run(
-    let r = Err(Error("fresh")),
+@test_fresh tests @fresh () -> void = {
+    let r = Err(Error("fresh"));
     assert_eq(
         actual: r.has_trace(),
         expected: false,
-    ),
-)
+    )
+}
 
-@fresh () -> bool = run(
-    let r = Err(Error("fresh")),
-    r.has_trace(),
-)
+@fresh () -> bool = {
+    let r = Err(Error("fresh"));
+    r.has_trace()
+}

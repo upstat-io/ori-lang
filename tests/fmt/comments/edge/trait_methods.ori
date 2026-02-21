@@ -4,4 +4,4 @@ trait Printable {
     @to_str (self) -> str
 }
 
-@main () -> void = ()
+@main () -> void = ();

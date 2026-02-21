@@ -28,13 +28,10 @@ pub struct TypeRegistry {
     types_by_name: BTreeMap<Name, TypeEntry>,     // Deterministic iteration order
     types_by_idx: FxHashMap<Idx, TypeEntry>,       // Fast lookup by type Idx
     variants_by_name: FxHashMap<Name, (Idx, usize)>,  // Variant → (enum Idx, variant index)
-    next_internal_id: u32,   // Starts at FIRST_USER_TYPE
 }
-
-/// First internal ID for user-defined types.
-/// Primitives occupy indices 0-63 in the Pool.
-const FIRST_USER_TYPE: u32 = 1000;
 ```
+
+Type IDs (`Idx`) are assigned by the `Pool` before registration — `TypeRegistry` stores entries under caller-provided indices, it does not allocate IDs itself.
 
 `BTreeMap` is used for `types_by_name` to ensure deterministic iteration order, which matters for error messages and test stability.
 
@@ -75,7 +72,7 @@ pub enum TypeKind {
 }
 ```
 
-**`StructDef`** contains `Vec<FieldDef>` where each field has a name, type `Idx`, span, and visibility.
+**`StructDef`** contains `Vec<FieldDef>` where each field has a name, type `Idx`, span, and visibility. It also carries a `category: ValueCategory` field (defaulting to `Value`), reserved for future inline type support where small structs can be passed by value without heap allocation.
 
 **`VariantDef`** has a name and `VariantFields`:
 
@@ -162,7 +159,21 @@ pub struct TraitEntry {
     pub type_params: Vec<Name>,
     pub methods: FxHashMap<Name, TraitMethodDef>,
     pub assoc_types: FxHashMap<Name, TraitAssocTypeDef>,
+    pub super_traits: Vec<Idx>,
+    pub object_safety_violations: Vec<ObjectSafetyViolation>,
     pub span: Span,
+}
+```
+
+**`super_traits`** lists the trait's supertrait `Idx` values (e.g., `Comparable` has `Eq` as a supertrait). `TraitRegistry::all_super_traits()` performs a transitive BFS walk to collect the full supertrait closure, used for verifying that an impl satisfies all inherited obligations.
+
+**`object_safety_violations`** records why a trait cannot be used as a trait object. The `ObjectSafetyViolation` enum has three variants:
+
+```rust
+pub enum ObjectSafetyViolation {
+    SelfReturn { method: Name, span: Span },   // Method returns Self
+    SelfParam { method: Name, span: Span },     // Method takes Self as non-receiver param
+    GenericMethod { method: Name, span: Span }, // Method has its own type parameters
 }
 ```
 
@@ -220,52 +231,48 @@ impl TraitRegistry {
 
 ## MethodRegistry
 
-The `MethodRegistry` stores compiler-defined methods for built-in types (str, list, map, etc.) and provides unified method lookup.
+The `MethodRegistry` delegates trait-based method lookup to `TraitRegistry`. Built-in method resolution is handled separately by `resolve_builtin_method()` in the `infer/expr/methods.rs` module, which dispatches on type tag and method name. The registry is reserved for future unification of inherent impls and trait impls with built-in methods into a single lookup path.
 
 ```rust
-pub struct MethodRegistry {
-    builtin: FxHashMap<(Tag, Name), BuiltinMethod>,
-    builtin_by_tag: FxHashMap<Tag, Vec<Name>>,
+#[derive(Clone, Debug, Default)]
+pub struct MethodRegistry;
+
+impl MethodRegistry {
+    pub fn lookup_trait_method<'a>(
+        &self,
+        receiver_ty: Idx,
+        method_name: Name,
+        trait_registry: &'a TraitRegistry,
+    ) -> Option<MethodLookup<'a>>;
 }
 ```
 
-Methods are keyed by `(Tag, Name)` — the receiver's type tag and the method name — for O(1) lookup.
+### Built-in Method Resolution
 
-### BuiltinMethod
-
-```rust
-pub struct BuiltinMethod {
-    pub name: Name,
-    pub receiver_tag: Tag,
-    pub doc: &'static str,
-    pub kind: BuiltinMethodKind,
-}
-
-pub enum BuiltinMethodKind {
-    Fixed(Idx),                      // Fixed return type (e.g., len() → int)
-    Element,                         // Returns element type (e.g., first() → T?)
-    Transform(MethodTransform),      // Transforms receiver type
-}
-```
-
-`MethodTransform` covers patterns like:
-- `Identity` — Returns the same type as receiver
-- `WrapOption` — Wraps element in option (e.g., `get()` → `T?`)
-- `MapKey` / `MapValue` — Extracts key or value type from maps
-
-### Method Resolution
-
-The unified resolution chain tries methods in priority order:
+Built-in methods for primitive types (str, list, map, etc.) are resolved via direct function dispatch in `infer/expr/methods.rs`, not through the `MethodRegistry`. The manifest of all built-in methods is the `TYPECK_BUILTIN_METHODS` constant array (sorted by type and method name):
 
 ```rust
-pub enum MethodResolution<'a> {
-    Builtin(&'a BuiltinMethod),
-    Impl(MethodLookup<'a>),
-}
+// Source of truth: ori_types/src/infer/expr/methods.rs
+pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
+    ("Iterator", "all"),
+    ("Iterator", "any"),
+    // ... ~100+ entries, sorted alphabetically by (type, method)
+    ("str", "trim"),
+];
 ```
+
+Per-type resolver functions handle the actual type inference for each method:
+- `resolve_list_method()` — `[T]` methods
+- `resolve_str_method()` — `str` methods
+- `resolve_map_method()` — `{K: V}` methods
+- `resolve_option_method()` — `Option<T>` methods
+- `resolve_result_method()` — `Result<T, E>` methods
+- `resolve_iterator_method()` — `Iterator<T>` methods
+
+### Method Resolution Order
 
 Resolution order:
-1. **Built-in methods** — Checked first via `MethodRegistry` (O(1) lookup by tag + name)
+1. **Built-in methods** — Direct dispatch via `resolve_builtin_method()` (matches on type tag + method name)
 2. **Inherent methods** — `impl Type { ... }` blocks via `TraitRegistry`
 3. **Trait methods** — `impl Trait for Type { ... }` blocks via `TraitRegistry`
 

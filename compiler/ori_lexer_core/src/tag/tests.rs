@@ -3,8 +3,7 @@ use super::*;
 // === RawTag discriminants ===
 
 #[test]
-fn repr_u8_semantic_ranges() {
-    // Identifiers & Literals: 0-15
+fn repr_u8_identifiers_and_literals() {
     assert_eq!(RawTag::Ident as u8, 0);
     assert_eq!(RawTag::Int as u8, 1);
     assert_eq!(RawTag::Float as u8, 2);
@@ -14,14 +13,19 @@ fn repr_u8_semantic_ranges() {
     assert_eq!(RawTag::Duration as u8, 6);
     assert_eq!(RawTag::Size as u8, 7);
     assert_eq!(RawTag::BinInt as u8, 8);
+}
 
-    // Template Literals: 16-20
+#[test]
+fn repr_u8_templates() {
     assert_eq!(RawTag::TemplateHead as u8, 16);
     assert_eq!(RawTag::TemplateMiddle as u8, 17);
     assert_eq!(RawTag::TemplateTail as u8, 18);
     assert_eq!(RawTag::TemplateComplete as u8, 19);
     assert_eq!(RawTag::FormatSpec as u8, 20);
+}
 
+#[test]
+fn repr_u8_operators_delimiters_trivia() {
     // Operators: 32-61
     assert_eq!(RawTag::Plus as u8, 32);
     assert_eq!(RawTag::QuestionQuestion as u8, 61);
@@ -34,13 +38,13 @@ fn repr_u8_semantic_ranges() {
     assert_eq!(RawTag::Whitespace as u8, 112);
     assert_eq!(RawTag::Newline as u8, 113);
     assert_eq!(RawTag::LineComment as u8, 114);
+}
 
-    // Errors: 240-245
+#[test]
+fn repr_u8_errors_and_control() {
     assert_eq!(RawTag::InvalidByte as u8, 240);
     assert_eq!(RawTag::UnterminatedTemplate as u8, 244);
     assert_eq!(RawTag::InteriorNull as u8, 245);
-
-    // Control: 255
     assert_eq!(RawTag::Eof as u8, 255);
 }
 

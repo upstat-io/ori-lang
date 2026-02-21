@@ -21,17 +21,32 @@ The Ori compiler uses a query-based pipeline where each phase is a Salsa query. 
 pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList
 ```
 
-The lexer (built on logos) converts source text into tokens:
+The lexer converts source text into tokens:
 
 ```
 "let x = 42"  ->  [Let, Ident("x"), Eq, Int(42)]
 ```
 
 Key characteristics:
-- DFA-based tokenization via logos crate
+- Two-layer architecture: raw scanner (`ori_lexer_core`) + token cooking (`ori_lexer`)
 - String interning for identifiers
 - Handles duration literals (`100ms`), size literals (`4kb`)
 - No errors accumulated - invalid input becomes `Error` token
+
+**Intermediate queries**: The `tokens()` query is actually the top of a small query chain:
+
+```
+tokens_with_metadata(db, file) → LexOutput  (full lex output including comments/metadata)
+    ↓
+lex_result(db, file) → LexResult            (tokens + errors, without metadata)
+    ↓
+tokens(db, file) → TokenList                (just the token list)
+lex_errors(db, file) → Vec<LexError>        (just the errors)
+```
+
+- `tokens_with_metadata()` calls `lex_with_comments()` and preserves comment/trivia data for the formatter
+- `lex_result()` strips metadata from `tokens_with_metadata()` output
+- `tokens()` and `lex_errors()` extract their respective fields from `lex_result()`
 
 ### 2. Parsing (`parsed` query)
 
@@ -62,11 +77,11 @@ Key characteristics:
 ### 3. Type Checking (`typed` query)
 
 **Input**: `SourceFile` (via `parsed` query)
-**Output**: `TypedModule { expr_types: Vec<Type>, errors: Vec<TypeError> }`
+**Output**: `TypeCheckResult { typed: TypedModule, error_guarantee: Option<ErrorGuaranteed> }`
 
 ```rust
 #[salsa::tracked]
-pub fn typed(db: &dyn Db, file: SourceFile) -> TypedModule
+pub fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult
 ```
 
 Type checking performs Hindley-Milner inference:
@@ -84,21 +99,17 @@ Key characteristics:
 - Pattern type checking
 - Capability checking
 
-### 4. Canonicalization (inside `evaluated` query)
+**Side-channel query**: `typed_pool(db, file) -> Option<Arc<Pool>>` provides access to the type `Pool` produced as a side effect of `typed()`. The Pool can't satisfy Salsa's `Clone + Eq + Hash` requirements, so it is stored in a session-scoped `PoolCache` rather than as a Salsa query output. Callers that need the Pool (error rendering, canonicalization, codegen) should call `typed()` first, then `typed_pool()`.
+
+### 4. Canonicalization (independently cached)
 
 **Input**: `ParseOutput` + `TypeCheckResult` + `Pool`
-**Output**: `CanonResult` (via `SharedCanonResult`)
+**Output**: `SharedCanonResult` (Arc-wrapped `CanonResult`)
 
 Canonicalization transforms the typed AST into sugar-free canonical IR:
 
 ```rust
-let canon_result = ori_canon::lower_module(
-    &parse_result.module,
-    &parse_result.arena,
-    &type_result,
-    &pool,
-    interner,
-);
+let shared_canon = canonicalize_cached(db, file, parse_result, type_result, pool);
 ```
 
 Key operations:
@@ -107,7 +118,7 @@ Key operations:
 - **Constant folding**: Compile-time expressions pre-evaluated into `ConstantPool`
 - **Type attachment**: Every `CanNode` carries its resolved type
 
-This phase is NOT a separate Salsa query -- it runs inside `evaluated()`.
+Canonicalization is NOT a Salsa query, but it is independently cached via `canonicalize_cached()` and `canonicalize_cached_by_path()` in the session-scoped `CanonCache`. The `evaluated()` query calls `canonicalize_cached()`, but so do other consumers: the `check` command (for pattern exhaustiveness), the test runner, and the LLVM backend. The cache is keyed by file path and stores `SharedCanonResult` values, so the canonical IR is computed once and shared across all consumers.
 
 ### 5. Evaluation (`evaluated` query)
 

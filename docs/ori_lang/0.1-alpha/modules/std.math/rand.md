@@ -71,13 +71,13 @@ impl Random for MockRandom {
 ```ori
 @test_dice_roll tests @roll_dice () -> void =
     with Random = MockRandom { int_value: 4, float_value: 0.0, bool_value: false } in
-    run(
-        let result = roll_dice(),
+    {
+        let result = roll_dice()
         assert_eq(
             .actual: result,
             .expected: 4,
-        ),
-    )
+        )
+    }
 ```
 
 ### SeededRandom
@@ -203,14 +203,15 @@ let token = random_bytes(32)  // 32 random bytes
 ```ori
 use std.math.rand { random_choice }
 
-@random_password (length: int) -> str uses Random = run(
-    let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%",
-    let char_list = chars.chars(),
+@random_password (length: int) -> str uses Random = {
+    let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%"
+    let char_list = chars.chars()
+
     collect(
         .range: 0..length,
         .map: _ -> random_choice(char_list) ?? 'a',
-    ).join(""),
-)
+    ).join("")
+}
 ```
 
 ### Weighted random selection
@@ -218,24 +219,24 @@ use std.math.rand { random_choice }
 ```ori
 use std.math.rand { random }
 
-@weighted_choice<T> (items: [(T, float)]) -> Option<T> uses Random = run(
-    let total = items.map((_, w) -> w).sum(),
-    let r = random() * total,
+@weighted_choice<T> (items: [(T, float)]) -> Option<T> uses Random = {
+    let total = items.map((_, w) -> w).sum()
+    let r = random() * total
 
     // Fold with cumulative weight, break when threshold exceeded
     items.fold(
         initial: (0.0, None),
-        f: (state, entry) -> match(state,
-            (_, Some(_)) -> state,  // Already found, skip rest
-            (cumulative, None) -> run(
-                let (item, weight) = entry,
-                let new_cumulative = cumulative + weight,
+        f: (state, entry) -> match state {
+            (_, Some(_)) -> state  // Already found, skip rest
+            (cumulative, None) -> {
+                let (item, weight) = entry
+                let new_cumulative = cumulative + weight
                 if r < new_cumulative then (new_cumulative, Some(item))
-                else (new_cumulative, None),
-            ),
-        ),
-    ).1,  // Extract the Option<T> from tuple
-)
+                else (new_cumulative, None)
+            }
+        },
+    ).1  // Extract the Option<T> from tuple
+}
 ```
 
 ### Simulating dice rolls
@@ -249,10 +250,11 @@ use std.math.rand { random_int }
         .map: _ -> random_int(1, sides),
     )
 
-@roll_with_advantage () -> int uses Random = run(
-    let rolls = roll_dice(2, 20),
-    max(rolls[0], rolls[1]),
-)
+@roll_with_advantage () -> int uses Random = {
+    let rolls = roll_dice(2, 20)
+
+    max(rolls[0], rolls[1])
+}
 ```
 
 ---

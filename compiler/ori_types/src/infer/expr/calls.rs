@@ -214,6 +214,10 @@ pub(crate) fn check_call_capabilities(
 /// 1. Mutable phase: resolve types and create pool entries
 /// 2. Immutable phase: check trait registry and collect violations
 /// 3. Mutable phase: push collected errors
+#[expect(
+    clippy::too_many_lines,
+    reason = "three-phase where clause checking: resolve, collect violations, push errors"
+)]
 pub(crate) fn check_where_clauses(
     engine: &mut InferEngine<'_>,
     func_name: Name,
@@ -288,6 +292,7 @@ pub(crate) fn check_where_clauses(
             return;
         };
         let pool = engine.pool();
+        let well_known = engine.well_known();
 
         let mut errors: Vec<String> = Vec::new();
 
@@ -304,22 +309,34 @@ pub(crate) fn check_where_clauses(
                         continue;
                     };
                     for &(bound_name, bound_idx) in &check.bound_entries {
-                        let bound_str = engine.lookup_name(bound_name).unwrap_or("");
-                        if !trait_registry.has_impl(bound_idx, projected_type)
-                            && !type_satisfies_trait(projected_type, bound_str, pool)
-                        {
-                            errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                        if !trait_registry.has_impl(bound_idx, projected_type) {
+                            let satisfies = if let Some(wk) = well_known {
+                                wk.type_satisfies_trait(projected_type, bound_name, pool)
+                            } else {
+                                let s = engine.lookup_name(bound_name).unwrap_or("");
+                                type_satisfies_trait(projected_type, s, pool)
+                            };
+                            if !satisfies {
+                                let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
+                                errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                            }
                         }
                     }
                 }
             } else {
                 // Direct bound: `where T: Clone`
                 for &(bound_name, bound_idx) in &check.bound_entries {
-                    let bound_str = engine.lookup_name(bound_name).unwrap_or("");
-                    if !trait_registry.has_impl(bound_idx, check.concrete_type)
-                        && !type_satisfies_trait(check.concrete_type, bound_str, pool)
-                    {
-                        errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                    if !trait_registry.has_impl(bound_idx, check.concrete_type) {
+                        let satisfies = if let Some(wk) = well_known {
+                            wk.type_satisfies_trait(check.concrete_type, bound_name, pool)
+                        } else {
+                            let s = engine.lookup_name(bound_name).unwrap_or("");
+                            type_satisfies_trait(check.concrete_type, s, pool)
+                        };
+                        if !satisfies {
+                            let bound_str = engine.lookup_name(bound_name).unwrap_or("?");
+                            errors.push(format!("does not satisfy trait bound `{bound_str}`",));
+                        }
                     }
                 }
             }
@@ -339,6 +356,10 @@ pub(crate) fn check_where_clauses(
 /// Mirrors V1's `primitive_implements_trait()` from `bound_checking.rs`.
 /// Primitive and built-in types have known trait implementations that don't
 /// require explicit `impl` blocks in the trait registry.
+#[expect(
+    clippy::too_many_lines,
+    reason = "per-primitive trait set lookup table"
+)]
 pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
     // Trait sets for each primitive type, matching V1's const arrays.
     const INT_TRAITS: &[&str] = &[
@@ -348,6 +369,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Add",
         "Sub",
         "Mul",
@@ -369,6 +391,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Add",
         "Sub",
         "Mul",
@@ -382,6 +405,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Not",
     ];
     const STR_TRAITS: &[&str] = &[
@@ -391,17 +415,26 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Len",
         "IsEmpty",
         "Add",
     ];
-    const CHAR_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
+    const CHAR_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Printable",
+        "Debug",
+    ];
     const BYTE_TRAITS: &[&str] = &[
         "Eq",
         "Comparable",
         "Clone",
         "Hashable",
         "Printable",
+        "Debug",
         "Add",
         "Sub",
         "Mul",
@@ -414,7 +447,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Shl",
         "Shr",
     ];
-    const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default"];
+    const UNIT_TRAITS: &[&str] = &["Eq", "Clone", "Default", "Debug"];
     const DURATION_TRAITS: &[&str] = &[
         "Eq",
         "Comparable",
@@ -422,6 +455,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Sendable",
         "Add",
         "Sub",
@@ -437,6 +471,7 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Hashable",
         "Default",
         "Printable",
+        "Debug",
         "Sendable",
         "Add",
         "Sub",
@@ -444,7 +479,14 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
         "Div",
         "Rem",
     ];
-    const ORDERING_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
+    const ORDERING_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Printable",
+        "Debug",
+    ];
 
     // Check primitive types by Idx constant
     if ty == Idx::INT {
@@ -487,9 +529,16 @@ pub(crate) fn primitive_satisfies_trait(ty: Idx, trait_name: &str) -> bool {
 /// Tuple, Set, and Range — types that aren't simple Idx constants but can be
 /// identified by their Pool tag.
 pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bool {
-    const COLLECTION_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Len", "IsEmpty"];
-    const WRAPPER_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Default"];
-    const RESULT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable"];
+    const COLLECTION_TRAITS: &[&str] = &["Eq", "Clone", "Hashable", "Printable", "Len", "IsEmpty"];
+    const WRAPPER_TRAITS: &[&str] = &[
+        "Eq",
+        "Comparable",
+        "Clone",
+        "Hashable",
+        "Printable",
+        "Default",
+    ];
+    const RESULT_TRAITS: &[&str] = &["Eq", "Comparable", "Clone", "Hashable", "Printable"];
 
     // First check primitives (no pool access needed)
     if primitive_satisfies_trait(ty, trait_name) {
@@ -506,8 +555,9 @@ pub(crate) fn type_satisfies_trait(ty: Idx, trait_name: &str, pool: &Pool) -> bo
         }
         Tag::Map | Tag::Set => COLLECTION_TRAITS.contains(&trait_name) || trait_name == "Iterable",
         Tag::Option => WRAPPER_TRAITS.contains(&trait_name),
-        Tag::Result | Tag::Tuple => RESULT_TRAITS.contains(&trait_name),
-        Tag::Range => matches!(trait_name, "Len" | "Iterable"),
+        Tag::Result => RESULT_TRAITS.contains(&trait_name),
+        Tag::Tuple => RESULT_TRAITS.contains(&trait_name) || trait_name == "Len",
+        Tag::Range => matches!(trait_name, "Printable" | "Len" | "Iterable"),
         Tag::Str => trait_name == "Iterable",
         Tag::DoubleEndedIterator => trait_name == "Iterator" || trait_name == "DoubleEndedIterator",
         Tag::Iterator => trait_name == "Iterator",
@@ -566,6 +616,10 @@ pub(crate) fn infer_method_call(
     for &arg_id in arena.get_expr_list(args) {
         infer_expr(engine, arena, arg_id);
     }
+
+    // Emit E2036 for unresolved `.into()` calls
+    emit_into_not_implemented(engine, resolved, method, span);
+
     Idx::ERROR
 }
 
@@ -613,6 +667,10 @@ pub(crate) fn infer_method_call_named(
     for arg in arena.get_call_args(args) {
         infer_expr(engine, arena, arg.value);
     }
+
+    // Emit E2036 for unresolved `.into()` calls
+    emit_into_not_implemented(engine, resolved, method, span);
+
     Idx::ERROR
 }
 
@@ -928,4 +986,26 @@ fn resolve_impl_signature(
         params: method_params,
         ret,
     }))
+}
+
+/// Emit E2036 when `.into()` is called on a type with no Into implementation.
+///
+/// Only fires when the method name matches the well-known `into` name.
+/// Non-into methods fall through silently (handled by other error paths).
+fn emit_into_not_implemented(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: Name,
+    span: Span,
+) {
+    let is_into = engine
+        .well_known()
+        .is_some_and(|wk| method == wk.into_method);
+    if is_into {
+        engine.push_error(TypeCheckError::into_not_implemented(
+            span,
+            receiver_ty,
+            None,
+        ));
+    }
 }

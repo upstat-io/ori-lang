@@ -88,11 +88,11 @@ Marks unfinished code. Panics with the message.
 Marks code that should never execute.
 
 ```ori
-match(status,
-    Active -> handle_active(),
-    Inactive -> handle_inactive(),
-    _ -> unreachable(),  // enum is exhaustive
-)
+match status {
+    Active -> handle_active()
+    Inactive -> handle_inactive()
+    _ -> unreachable()  // enum is exhaustive
+}
 ```
 
 ---

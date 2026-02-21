@@ -1,6 +1,6 @@
 // Lambda expression as call target
 // Spec: 16-formatting.md § Parentheses Preservation
 
-@apply_double (x: int) -> int = (y -> y * 2)(x)
+@apply_double (x: int) -> int = (y -> y * 2)(x);
 
-@apply_add (a: int, b: int) -> int = ((x, y) -> x + y)(a, b)
+@apply_add (a: int, b: int) -> int = ((x, y) -> x + y)(a, b);

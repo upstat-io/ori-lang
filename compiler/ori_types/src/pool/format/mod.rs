@@ -19,6 +19,10 @@ impl Pool {
     }
 
     /// Format a type into an existing string buffer.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "exhaustive Tag dispatch for human-readable type formatting"
+    )]
     pub fn format_type_into(&self, idx: Idx, buf: &mut String) {
         match self.tag(idx) {
             // Primitives

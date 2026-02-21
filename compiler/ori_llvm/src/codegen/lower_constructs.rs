@@ -2,6 +2,7 @@
 //!
 //! Handles Ori's unique expression patterns:
 //! - `FunctionExp`: `print(...)`, `panic(...)`, `todo`, `recurse`, etc.
+//! - `FormatWith`: template string format specs (`{value:>10.2f}`)
 //! - `SelfRef`: recursive self-reference
 //! - `Await`: async (stub)
 //! - `WithCapability`: capability provision
@@ -249,6 +250,126 @@ impl<'scx: 'ctx, 'ctx> ExprLowerer<'_, 'scx, 'ctx, '_> {
         tracing::warn!("catch expression missing expr property");
         self.builder.record_codegen_error();
         None
+    }
+
+    // -----------------------------------------------------------------------
+    // FormatWith
+    // -----------------------------------------------------------------------
+
+    /// Lower `CanExpr::FormatWith { expr, spec }`.
+    ///
+    /// Embeds the format spec as a global string constant and dispatches to
+    /// type-specific runtime functions (`ori_format_int`, `ori_format_float`,
+    /// etc.) that parse the spec and apply formatting.
+    pub(crate) fn lower_format_with(
+        &mut self,
+        expr: CanId,
+        spec: Name,
+        _id: CanId,
+    ) -> Option<ValueId> {
+        let inner_ty = self.expr_type(expr);
+        let val = self.lower(expr)?;
+
+        let spec_str = self.resolve_name(spec).to_owned();
+        let str_ty_id = self.resolve_type(Idx::STR);
+
+        // Empty spec on a string: return it directly (no formatting needed)
+        if spec_str.is_empty() && inner_ty == Idx::STR {
+            return Some(val);
+        }
+
+        // Embed spec string as a global constant
+        let spec_len = spec_str.len();
+        let spec_ptr = self.builder.build_global_string_ptr(&spec_str, "fmt.spec");
+        let spec_len_val = self.builder.const_i64(spec_len as i64);
+
+        self.lower_format_dispatch(val, inner_ty, spec_ptr, spec_len_val, str_ty_id)
+    }
+
+    /// Dispatch to the appropriate `ori_format_*` runtime function based on type.
+    fn lower_format_dispatch(
+        &mut self,
+        val: ValueId,
+        ty: Idx,
+        spec_ptr: ValueId,
+        spec_len: ValueId,
+        str_ty_id: super::value_id::LLVMTypeId,
+    ) -> Option<ValueId> {
+        let i64_ty = self.builder.i64_type();
+        let ptr_ty = self.builder.ptr_type();
+
+        match ty {
+            Idx::INT | Idx::DURATION | Idx::SIZE => {
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_int",
+                    &[i64_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder.call(f, &[val, spec_ptr, spec_len], "fmt.int")
+            }
+            Idx::FLOAT => {
+                let f64_ty = self.builder.f64_type();
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_float",
+                    &[f64_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder
+                    .call(f, &[val, spec_ptr, spec_len], "fmt.float")
+            }
+            Idx::BOOL => {
+                let bool_ty = self.builder.bool_type();
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_bool",
+                    &[bool_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder.call(f, &[val, spec_ptr, spec_len], "fmt.bool")
+            }
+            Idx::CHAR => {
+                let i32_ty = self.builder.i32_type();
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_char",
+                    &[i32_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder.call(f, &[val, spec_ptr, spec_len], "fmt.char")
+            }
+            Idx::STR => {
+                // String: pass by pointer (alloca + store pattern)
+                let str_alloca = self.builder.alloca(str_ty_id, "fmt.str.tmp");
+                self.builder.store(val, str_alloca);
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_str",
+                    &[ptr_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder
+                    .call(f, &[str_alloca, spec_ptr, spec_len], "fmt.str")
+            }
+            _ => {
+                // GAP(formattable-aot): User Formattable impls require general
+                // trait method call codegen (§3.16). The evaluator dispatches to
+                // user `format()` methods via `eval_method_call`, but LLVM codegen
+                // cannot yet emit general trait method calls. Emitting placeholder
+                // IR + `record_codegen_error()` prevents binary emission, which is
+                // correct — silently wrong output would be worse than a build error.
+                tracing::warn!(
+                    "FormatWith: user Formattable impls not yet supported in AOT, \
+                     falling back to int coercion for type {:?}",
+                    ty
+                );
+                self.builder.record_codegen_error();
+                let coerced = self.coerce_to_i64(val, ty);
+                let f = self.builder.get_or_declare_function(
+                    "ori_format_int",
+                    &[i64_ty, ptr_ty, i64_ty],
+                    str_ty_id,
+                );
+                self.builder
+                    .call(f, &[coerced, spec_ptr, spec_len], "fmt.coerced")
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

@@ -130,10 +130,10 @@ When `use` returns `Result<T, E>`:
 ```ori
 with(
     acquire: get_conn(),
-    use: c -> run(
+    use: c -> {
         let result = query(c)?,  // Early return on Err
-        Ok(result),
-    ),
+        Ok(result)
+    },
     release: c -> disconnect(c),  // Runs before Err propagates
 )
 ```
@@ -162,10 +162,10 @@ The pattern does not wrap or unwrap the result.
 with(
     acquire: open_file(path),
     use: f -> process(f),
-    release: f -> run(
-        flush(f),
-        close(f),
-    ),
+    release: f -> {
+        flush(f)
+        close(f)
+    },
 )
 ```
 
@@ -205,11 +205,10 @@ The `release` lambda must return `void`. If cleanup can fail, handle within rele
 with(
     acquire: open_file(path),
     use: f -> read_all(f),
-    release: f -> match(
-        close(f),
-        Ok(_) -> (),
-        Err(e) -> log(msg: `close failed: {e}`),
-    ),
+    release: f -> match close(f) {
+        Ok(_) -> ()
+        Err(e) -> log(msg: `close failed: {e}`)
+    },
 )
 ```
 
@@ -235,11 +234,11 @@ let content = with(
 ```ori
 @load (path: str) -> Result<Data, Error> = with(
     acquire: open_file(path),
-    use: f -> run(
+    use: f -> {
         let content = read_all(f)?,  // May return early
-        let data = parse(content)?,
-        Ok(data),
-    ),
+        let data = parse(content)?
+        Ok(data)
+    },
     release: f -> close(f),  // Still runs on early return
 )
 ```
@@ -249,11 +248,11 @@ let content = with(
 ```ori
 with(
     acquire: open_file(path),
-    use: f -> run(
-        let data = process(f),
+    use: f -> {
+        let data = process(f)
         if !valid(data) then panic(msg: "invalid"),  // Panic
-        data,
-    ),
+        data
+    },
     release: f -> close(f),  // Still runs during unwinding
 )
 ```
@@ -269,10 +268,10 @@ with(
     acquire: connect(db_url),
     use: conn -> with(
         acquire: begin_transaction(conn),
-        use: tx -> run(
-            execute(tx, query),
-            commit(tx),
-        ),
+        use: tx -> {
+            execute(tx, query)
+            commit(tx)
+        },
         release: tx -> if !tx.committed then rollback(tx),
     ),
     release: conn -> disconnect(conn),
@@ -286,11 +285,11 @@ Release order is inside-out: inner resources release before outer.
 For independent resources, use `run` with multiple `with`:
 
 ```ori
-run(
-    let result_a = with(acquire: a, use: ..., release: ...),
-    let result_b = with(acquire: b, use: ..., release: ...),
-    combine(result_a, result_b),
-)
+{
+    let result_a = with(acquire: a, use: ..., release: ...)
+    let result_b = with(acquire: b, use: ..., release: ...)
+    combine(result_a, result_b)
+}
 ```
 
 ---
@@ -304,10 +303,10 @@ The `with` pattern works in suspending contexts:
 ```ori
 @fetch_data (url: str) -> Result<Data, Error> uses Suspend = with(
     acquire: connect(url),
-    use: conn -> run(
+    use: conn -> {
         let response = conn.request(method: "GET"),  // Async operation
-        parse(response),
-    ),
+        parse(response)
+    },
     release: conn -> conn.close(),  // Release runs after async use completes
 )
 ```
@@ -356,10 +355,10 @@ If release requires capabilities, they must also be declared:
 @with_logging (path: str) -> Data uses FileSystem, Logger = with(
     acquire: open_file(path),
     use: f -> read_all(f),
-    release: f -> run(
+    release: f -> {
         log(msg: "closing file"),  // Requires Logger
-        close(f),
-    ),
+        close(f)
+    },
 )
 ```
 
@@ -382,11 +381,11 @@ If release requires capabilities, they must also be declared:
 ```ori
 @in_transaction<T> (conn: Connection, op: (Transaction) -> T) -> Result<T, Error> = with(
     acquire: conn.begin()?,
-    use: tx -> run(
-        let result = op(tx),
-        tx.commit()?,
-        Ok(result),
-    ),
+    use: tx -> {
+        let result = op(tx)
+        tx.commit()?
+        Ok(result)
+    },
     release: tx -> if !tx.committed then tx.rollback() else (),
 )
 ```

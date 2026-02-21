@@ -9,6 +9,11 @@ use oric::commands::{
 };
 use oric::test::TestRunnerConfig;
 
+#[expect(
+    clippy::too_many_lines,
+    clippy::cognitive_complexity,
+    reason = "CLI command router with arity guards"
+)]
 fn main() {
     oric::tracing_setup::init();
 

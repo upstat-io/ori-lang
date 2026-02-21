@@ -158,4 +158,48 @@ impl IrBuilder<'_, '_> {
     pub fn fcmp_uno(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
         self.fcmp_impl(FloatPredicate::UNO, lhs, rhs, name)
     }
+
+    // -- Ordering emission helpers --
+
+    /// Emit `icmp lt/gt → select` chain returning Ori `Ordering` (i8).
+    ///
+    /// Returns: 0 (Less), 1 (Equal), 2 (Greater).
+    /// Uses signed comparison when `signed` is true, unsigned otherwise.
+    pub fn emit_icmp_ordering(
+        &mut self,
+        lhs: ValueId,
+        rhs: ValueId,
+        name: &str,
+        signed: bool,
+    ) -> ValueId {
+        let lt = if signed {
+            self.icmp_slt(lhs, rhs, &format!("{name}.lt"))
+        } else {
+            self.icmp_ult(lhs, rhs, &format!("{name}.lt"))
+        };
+        let gt = if signed {
+            self.icmp_sgt(lhs, rhs, &format!("{name}.gt"))
+        } else {
+            self.icmp_ugt(lhs, rhs, &format!("{name}.gt"))
+        };
+        let less = self.const_i8(0);
+        let equal = self.const_i8(1);
+        let greater = self.const_i8(2);
+        let gt_or_eq = self.select(gt, greater, equal, &format!("{name}.gt_or_eq"));
+        self.select(lt, less, gt_or_eq, &format!("{name}.ord"))
+    }
+
+    /// Emit `fcmp olt/ogt → select` chain returning Ori `Ordering` (i8).
+    ///
+    /// Returns: 0 (Less), 1 (Equal), 2 (Greater).
+    /// NaN comparisons produce Equal (both fcmp return false).
+    pub fn emit_fcmp_ordering(&mut self, lhs: ValueId, rhs: ValueId, name: &str) -> ValueId {
+        let lt = self.fcmp_olt(lhs, rhs, &format!("{name}.lt"));
+        let gt = self.fcmp_ogt(lhs, rhs, &format!("{name}.gt"));
+        let less = self.const_i8(0);
+        let equal = self.const_i8(1);
+        let greater = self.const_i8(2);
+        let gt_or_eq = self.select(gt, greater, equal, &format!("{name}.gt_or_eq"));
+        self.select(lt, less, gt_or_eq, &format!("{name}.ord"))
+    }
 }

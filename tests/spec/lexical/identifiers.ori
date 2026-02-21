@@ -8,186 +8,186 @@ use std.testing { assert, assert_eq }
 // Simple Identifiers - Single Letters
 // =============================================================================
 
-@single_letter_lower () -> int = run(
-    let a = 1,
-    let b = 2,
-    let z = 26,
-    a + b + z,
-)
+@single_letter_lower () -> int = {
+    let a = 1;
+    let b = 2;
+    let z = 26;
+    a + b + z
+}
 
-@test_single_letter_lower tests @single_letter_lower () -> void = run(
-    assert_eq(actual: single_letter_lower(), expected: 29),
-)
+@test_single_letter_lower tests @single_letter_lower () -> void = {
+    assert_eq(actual: single_letter_lower(), expected: 29)
+}
 
-@single_letter_upper () -> int = run(
-    let A = 1,
-    let B = 2,
-    let Z = 26,
-    A + B + Z,
-)
+@single_letter_upper () -> int = {
+    let A = 1;
+    let B = 2;
+    let Z = 26;
+    A + B + Z
+}
 
-@test_single_letter_upper tests @single_letter_upper () -> void = run(
-    assert_eq(actual: single_letter_upper(), expected: 29),
-)
+@test_single_letter_upper tests @single_letter_upper () -> void = {
+    assert_eq(actual: single_letter_upper(), expected: 29)
+}
 
 // =============================================================================
 // Simple Identifiers - Multiple Letters
 // =============================================================================
 
-@multi_letter () -> int = run(
-    let abc = 1,
-    let xyz = 2,
-    let myVar = 3,
-    let longIdentifier = 4,
-    abc + xyz + myVar + longIdentifier,
-)
+@multi_letter () -> int = {
+    let abc = 1;
+    let xyz = 2;
+    let myVar = 3;
+    let longIdentifier = 4;
+    abc + xyz + myVar + longIdentifier
+}
 
-@test_multi_letter tests @multi_letter () -> void = run(
-    assert_eq(actual: multi_letter(), expected: 10),
-)
+@test_multi_letter tests @multi_letter () -> void = {
+    assert_eq(actual: multi_letter(), expected: 10)
+}
 
 // =============================================================================
 // Identifiers with Digits
 // =============================================================================
 
-@ident_with_digits () -> int = run(
-    let x1 = 1,
-    let var2 = 2,
-    let abc123xyz = 3,
-    let a1b2c3 = 4,
-    x1 + var2 + abc123xyz + a1b2c3,
-)
+@ident_with_digits () -> int = {
+    let x1 = 1;
+    let var2 = 2;
+    let abc123xyz = 3;
+    let a1b2c3 = 4;
+    x1 + var2 + abc123xyz + a1b2c3
+}
 
-@test_ident_with_digits tests @ident_with_digits () -> void = run(
-    assert_eq(actual: ident_with_digits(), expected: 10),
-)
+@test_ident_with_digits tests @ident_with_digits () -> void = {
+    assert_eq(actual: ident_with_digits(), expected: 10)
+}
 
-@ident_trailing_digits () -> int = run(
-    let foo123 = 1,
-    let bar99 = 2,
-    let test0 = 3,
-    foo123 + bar99 + test0,
-)
+@ident_trailing_digits () -> int = {
+    let foo123 = 1;
+    let bar99 = 2;
+    let test0 = 3;
+    foo123 + bar99 + test0
+}
 
-@test_ident_trailing_digits tests @ident_trailing_digits () -> void = run(
-    assert_eq(actual: ident_trailing_digits(), expected: 6),
-)
+@test_ident_trailing_digits tests @ident_trailing_digits () -> void = {
+    assert_eq(actual: ident_trailing_digits(), expected: 6)
+}
 
 // =============================================================================
 // Identifiers with Underscores
 // =============================================================================
 
-@ident_underscore_middle () -> int = run(
-    let my_var = 1,
-    let foo_bar = 2,
-    let a_b_c = 3,
-    my_var + foo_bar + a_b_c,
-)
+@ident_underscore_middle () -> int = {
+    let my_var = 1;
+    let foo_bar = 2;
+    let a_b_c = 3;
+    my_var + foo_bar + a_b_c
+}
 
-@test_ident_underscore_middle tests @ident_underscore_middle () -> void = run(
-    assert_eq(actual: ident_underscore_middle(), expected: 6),
-)
+@test_ident_underscore_middle tests @ident_underscore_middle () -> void = {
+    assert_eq(actual: ident_underscore_middle(), expected: 6)
+}
 
-@ident_underscore_prefix () -> int = run(
-    let _private = 1,
-    let _x = 2,
-    let __double = 3,
-    _private + _x + __double,
-)
+@ident_underscore_prefix () -> int = {
+    let _private = 1;
+    let _x = 2;
+    let __double = 3;
+    _private + _x + __double
+}
 
-@test_ident_underscore_prefix tests @ident_underscore_prefix () -> void = run(
-    assert_eq(actual: ident_underscore_prefix(), expected: 6),
-)
+@test_ident_underscore_prefix tests @ident_underscore_prefix () -> void = {
+    assert_eq(actual: ident_underscore_prefix(), expected: 6)
+}
 
-@ident_underscore_suffix () -> int = run(
-    let var_ = 1,
-    let test__ = 2,
-    var_ + test__,
-)
+@ident_underscore_suffix () -> int = {
+    let var_ = 1;
+    let test__ = 2;
+    var_ + test__
+}
 
-@test_ident_underscore_suffix tests @ident_underscore_suffix () -> void = run(
-    assert_eq(actual: ident_underscore_suffix(), expected: 3),
-)
+@test_ident_underscore_suffix tests @ident_underscore_suffix () -> void = {
+    assert_eq(actual: ident_underscore_suffix(), expected: 3)
+}
 
-@ident_only_underscores () -> int = run(
-    let _ = 1, // single underscore is wildcard pattern, not used
-    let __ = 2,
-    let ___ = 3,
-    let ____ = 4,
-    __ + ___ + ____,
-)
+@ident_only_underscores () -> int = {
+    let _ = 1; // single underscore is wildcard pattern, not used
+    let __ = 2;
+    let ___ = 3;
+    let ____ = 4;
+    __ + ___ + ____
+}
 
-@test_ident_only_underscores tests @ident_only_underscores () -> void = run(
-    assert_eq(actual: ident_only_underscores(), expected: 9),
-)
+@test_ident_only_underscores tests @ident_only_underscores () -> void = {
+    assert_eq(actual: ident_only_underscores(), expected: 9)
+}
 
 // =============================================================================
 // Case Sensitivity
 // =============================================================================
 
-@case_sensitive () -> int = run(
-    let foo = 1,
-    let Foo = 2,
-    let FOO = 3,
-    let fOO = 4,
-    let fOo = 5,
-    foo + Foo + FOO + fOO + fOo,
-)
+@case_sensitive () -> int = {
+    let foo = 1;
+    let Foo = 2;
+    let FOO = 3;
+    let fOO = 4;
+    let fOo = 5;
+    foo + Foo + FOO + fOO + fOo
+}
 
-@test_case_sensitive tests @case_sensitive () -> void = run(
-    assert_eq(actual: case_sensitive(), expected: 15),
-)
+@test_case_sensitive tests @case_sensitive () -> void = {
+    assert_eq(actual: case_sensitive(), expected: 15)
+}
 
-@case_sensitive_mixed () -> int = run(
-    let myVariable = 1,
-    let MyVariable = 2,
-    let MYVARIABLE = 3,
-    let myvariable = 4,
-    myVariable + MyVariable + MYVARIABLE + myvariable,
-)
+@case_sensitive_mixed () -> int = {
+    let myVariable = 1;
+    let MyVariable = 2;
+    let MYVARIABLE = 3;
+    let myvariable = 4;
+    myVariable + MyVariable + MYVARIABLE + myvariable
+}
 
-@test_case_sensitive_mixed tests @case_sensitive_mixed () -> void = run(
-    assert_eq(actual: case_sensitive_mixed(), expected: 10),
-)
+@test_case_sensitive_mixed tests @case_sensitive_mixed () -> void = {
+    assert_eq(actual: case_sensitive_mixed(), expected: 10)
+}
 
 // =============================================================================
 // Long Identifiers
 // =============================================================================
 
-@long_identifier () -> int = run(
-    let this_is_a_very_long_identifier_name_that_tests_lexer_handling = 42,
-    this_is_a_very_long_identifier_name_that_tests_lexer_handling,
-)
+@long_identifier () -> int = {
+    let this_is_a_very_long_identifier_name_that_tests_lexer_handling = 42;
+    this_is_a_very_long_identifier_name_that_tests_lexer_handling
+}
 
-@test_long_identifier tests @long_identifier () -> void = run(
-    assert_eq(actual: long_identifier(), expected: 42),
-)
+@test_long_identifier tests @long_identifier () -> void = {
+    assert_eq(actual: long_identifier(), expected: 42)
+}
 
-@very_long_identifier () -> int = run(
-    let abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 = 100,
-    abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,
-)
+@very_long_identifier () -> int = {
+    let abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 = 100;
+    abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
+}
 
-@test_very_long_identifier tests @very_long_identifier () -> void = run(
-    assert_eq(actual: very_long_identifier(), expected: 100),
-)
+@test_very_long_identifier tests @very_long_identifier () -> void = {
+    assert_eq(actual: very_long_identifier(), expected: 100)
+}
 
 // =============================================================================
 // Mixed Underscores and Digits
 // =============================================================================
 
-@mixed_underscore_digit () -> int = run(
-    let var_1 = 1,
-    let _var2 = 2,
-    let var_3_ = 3,
-    let _4_var = 4,
-    let a1_b2_c3 = 5,
-    var_1 + _var2 + var_3_ + _4_var + a1_b2_c3,
-)
+@mixed_underscore_digit () -> int = {
+    let var_1 = 1;
+    let _var2 = 2;
+    let var_3_ = 3;
+    let _4_var = 4;
+    let a1_b2_c3 = 5;
+    var_1 + _var2 + var_3_ + _4_var + a1_b2_c3
+}
 
-@test_mixed_underscore_digit tests @mixed_underscore_digit () -> void = run(
-    assert_eq(actual: mixed_underscore_digit(), expected: 15),
-)
+@test_mixed_underscore_digit tests @mixed_underscore_digit () -> void = {
+    assert_eq(actual: mixed_underscore_digit(), expected: 15)
+}
 
 // =============================================================================
 // Identifiers in Different Contexts
@@ -195,187 +195,187 @@ use std.testing { assert, assert_eq }
 
 type IdentStruct = { field_name: int, anotherField: int }
 
-@ident_in_struct () -> int = run(
-    let s = IdentStruct { field_name: 10, anotherField: 20 },
-    s.field_name + s.anotherField,
-)
+@ident_in_struct () -> int = {
+    let s = IdentStruct { field_name: 10, anotherField: 20 };
+    s.field_name + s.anotherField
+}
 
-@test_ident_in_struct tests @ident_in_struct () -> void = run(
-    assert_eq(actual: ident_in_struct(), expected: 30),
-)
+@test_ident_in_struct tests @ident_in_struct () -> void = {
+    assert_eq(actual: ident_in_struct(), expected: 30)
+}
 
-@ident_as_param (my_param: int, anotherParam: int) -> int = my_param + anotherParam
+@ident_as_param (my_param: int, anotherParam: int) -> int = my_param + anotherParam;
 
-@test_ident_as_param tests @ident_as_param () -> void = run(
-    assert_eq(actual: ident_as_param(my_param: 5, anotherParam: 10), expected: 15),
-)
+@test_ident_as_param tests @ident_as_param () -> void = {
+    assert_eq(actual: ident_as_param(my_param: 5, anotherParam: 10), expected: 15)
+}
 
-@ident_in_lambda () -> int = run(
-    let f = my_var -> my_var * 2,
-    f(21),
-)
+@ident_in_lambda () -> int = {
+    let f = my_var -> my_var * 2;
+    f(21)
+}
 
-@test_ident_in_lambda tests @ident_in_lambda () -> void = run(
-    assert_eq(actual: ident_in_lambda(), expected: 42),
-)
+@test_ident_in_lambda tests @ident_in_lambda () -> void = {
+    assert_eq(actual: ident_in_lambda(), expected: 42)
+}
 
 // =============================================================================
 // Identifiers Similar to Keywords (but not keywords)
 // =============================================================================
 
-@ident_keyword_like () -> int = run(
-    let iff = 1, // similar to 'if'
-    let lett = 2, // similar to 'let'
-    let forr = 3, // similar to 'for'
-    let truee = 4, // similar to 'true'
-    let falsee = 5, // similar to 'false'
-    iff + lett + forr + truee + falsee,
-)
+@ident_keyword_like () -> int = {
+    let iff = 1; // similar to 'if'
+    let lett = 2; // similar to 'let'
+    let forr = 3; // similar to 'for'
+    let truee = 4; // similar to 'true'
+    let falsee = 5; // similar to 'false'
+    iff + lett + forr + truee + falsee
+}
 
-@test_ident_keyword_like tests @ident_keyword_like () -> void = run(
-    assert_eq(actual: ident_keyword_like(), expected: 15),
-)
+@test_ident_keyword_like tests @ident_keyword_like () -> void = {
+    assert_eq(actual: ident_keyword_like(), expected: 15)
+}
 
-@ident_keyword_prefix () -> int = run(
-    let ifTrue = 1,
-    let letBinding = 2,
-    let forEach = 3,
-    let trueValue = 4,
-    let falseValue = 5,
-    ifTrue + letBinding + forEach + trueValue + falseValue,
-)
+@ident_keyword_prefix () -> int = {
+    let ifTrue = 1;
+    let letBinding = 2;
+    let forEach = 3;
+    let trueValue = 4;
+    let falseValue = 5;
+    ifTrue + letBinding + forEach + trueValue + falseValue
+}
 
-@test_ident_keyword_prefix tests @ident_keyword_prefix () -> void = run(
-    assert_eq(actual: ident_keyword_prefix(), expected: 15),
-)
+@test_ident_keyword_prefix tests @ident_keyword_prefix () -> void = {
+    assert_eq(actual: ident_keyword_prefix(), expected: 15)
+}
 
-@ident_keyword_suffix () -> int = run(
-    let myIf = 1,
-    let theLet = 2,
-    let nextFor = 3,
-    let isTrue = 4,
-    let isFalse = 5,
-    myIf + theLet + nextFor + isTrue + isFalse,
-)
+@ident_keyword_suffix () -> int = {
+    let myIf = 1;
+    let theLet = 2;
+    let nextFor = 3;
+    let isTrue = 4;
+    let isFalse = 5;
+    myIf + theLet + nextFor + isTrue + isFalse
+}
 
-@test_ident_keyword_suffix tests @ident_keyword_suffix () -> void = run(
-    assert_eq(actual: ident_keyword_suffix(), expected: 15),
-)
+@test_ident_keyword_suffix tests @ident_keyword_suffix () -> void = {
+    assert_eq(actual: ident_keyword_suffix(), expected: 15)
+}
 
 // =============================================================================
 // Single Underscore as Wildcard
 // =============================================================================
 
-@underscore_wildcard () -> int = run(
-    let (x, _) = (1, 2), // underscore discards second value
-    let (_, y) = (3, 4), // underscore discards first value
-    x + y,
-)
+@underscore_wildcard () -> int = {
+    let (x, _) = (1, 2); // underscore discards second value
+    let (_, y) = (3, 4); // underscore discards first value
+    x + y
+}
 
-@test_underscore_wildcard tests @underscore_wildcard () -> void = run(
-    assert_eq(actual: underscore_wildcard(), expected: 5),
-)
+@test_underscore_wildcard tests @underscore_wildcard () -> void = {
+    assert_eq(actual: underscore_wildcard(), expected: 5)
+}
 
 // =============================================================================
 // Shadowing with Same Identifier
 // =============================================================================
 
-@ident_shadowing () -> int = run(
-    let x = 1,
-    let x = x + 1, // shadow with same name
-    let x = x * 2,
-    x,
-)
+@ident_shadowing () -> int = {
+    let x = 1;
+    let x = x + 1; // shadow with same name
+    let x = x * 2;
+    x
+}
 
-@test_ident_shadowing tests @ident_shadowing () -> void = run(
-    assert_eq(actual: ident_shadowing(), expected: 4),
-)
+@test_ident_shadowing tests @ident_shadowing () -> void = {
+    assert_eq(actual: ident_shadowing(), expected: 4)
+}
 
 // =============================================================================
 // Identifiers in Type Context
 // =============================================================================
 
-@ident_type_context () -> int = run(
-    let x: int = 42,
-    let list: [int] = [1, 2, 3],
-    x + list.len(),
-)
+@ident_type_context () -> int = {
+    let x: int = 42;
+    let list: [int] = [1, 2, 3];
+    x + list.len()
+}
 
-@test_ident_type_context tests @ident_type_context () -> void = run(
-    assert_eq(actual: ident_type_context(), expected: 45),
-)
+@test_ident_type_context tests @ident_type_context () -> void = {
+    assert_eq(actual: ident_type_context(), expected: 45)
+}
 
 // =============================================================================
 // Identifiers Starting with Different Letters
 // =============================================================================
 
-@ident_all_start_letters () -> int = run(
-    let apple = 1,
-    let banana = 2,
-    let cherry = 3,
-    let date = 4,
-    let elderberry = 5,
-    let fig = 6,
-    let grape = 7,
-    let honeydew = 8,
-    let imbe = 9,
-    let jackfruit = 10,
-    let kiwi = 11,
-    let lemon = 12,
-    let mango = 13,
-    let nectarine = 14,
-    let orange = 15,
-    let papaya = 16,
-    let quince = 17,
-    let raspberry = 18,
-    let strawberry = 19,
-    let tangerine = 20,
-    let ugni = 21,
-    let vanilla = 22,
-    let watermelon = 23,
-    let ximenia = 24,
-    let yuzu = 25,
-    let zucchini = 26,
+@ident_all_start_letters () -> int = {
+    let apple = 1;
+    let banana = 2;
+    let cherry = 3;
+    let date = 4;
+    let elderberry = 5;
+    let fig = 6;
+    let grape = 7;
+    let honeydew = 8;
+    let imbe = 9;
+    let jackfruit = 10;
+    let kiwi = 11;
+    let lemon = 12;
+    let mango = 13;
+    let nectarine = 14;
+    let orange = 15;
+    let papaya = 16;
+    let quince = 17;
+    let raspberry = 18;
+    let strawberry = 19;
+    let tangerine = 20;
+    let ugni = 21;
+    let vanilla = 22;
+    let watermelon = 23;
+    let ximenia = 24;
+    let yuzu = 25;
+    let zucchini = 26;
     (apple + banana + cherry + date + elderberry + fig + grape + honeydew
     + imbe + jackfruit + kiwi + lemon + mango + nectarine + orange + papaya
     + quince + raspberry + strawberry + tangerine + ugni + vanilla + watermelon
-    + ximenia + yuzu + zucchini),
-)
+    + ximenia + yuzu + zucchini)
+}
 
-@test_ident_all_start_letters tests @ident_all_start_letters () -> void = run(
+@test_ident_all_start_letters tests @ident_all_start_letters () -> void = {
     // Sum of 1 to 26 = 351
-    assert_eq(actual: ident_all_start_letters(), expected: 351),
-)
+    assert_eq(actual: ident_all_start_letters(), expected: 351)
+}
 
 // =============================================================================
 // Function Name Identifiers
 // =============================================================================
 
-@my_function_name () -> int = 42
+@my_function_name () -> int = 42;
 
-@another_Function_123 () -> int = 100
+@another_Function_123 () -> int = 100;
 
-@_private_function () -> int = 7
+@_private_function () -> int = 7;
 
-@test_function_names tests @my_function_name tests @another_Function_123 tests @_private_function () -> void = run(
-    assert_eq(actual: my_function_name(), expected: 42),
-    assert_eq(actual: another_Function_123(), expected: 100),
-    assert_eq(actual: _private_function(), expected: 7),
-)
+@test_function_names tests @my_function_name tests @another_Function_123 tests @_private_function () -> void = {
+    assert_eq(actual: my_function_name(), expected: 42);
+    assert_eq(actual: another_Function_123(), expected: 100);
+    assert_eq(actual: _private_function(), expected: 7)
+}
 
 // =============================================================================
 // Consecutive Digit Identifiers
 // =============================================================================
 
-@ident_consecutive_digits () -> int = run(
-    let var1 = 1,
-    let var2 = 2,
-    let var3 = 3,
-    let var4 = 4,
-    let var5 = 5,
-    var1 + var2 + var3 + var4 + var5,
-)
+@ident_consecutive_digits () -> int = {
+    let var1 = 1;
+    let var2 = 2;
+    let var3 = 3;
+    let var4 = 4;
+    let var5 = 5;
+    var1 + var2 + var3 + var4 + var5
+}
 
-@test_ident_consecutive_digits tests @ident_consecutive_digits () -> void = run(
-    assert_eq(actual: ident_consecutive_digits(), expected: 15),
-)
+@test_ident_consecutive_digits tests @ident_consecutive_digits () -> void = {
+    assert_eq(actual: ident_consecutive_digits(), expected: 15)
+}

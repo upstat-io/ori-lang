@@ -14,10 +14,10 @@ Capabilities are traits representing effects or suspension.
 ## Declaration
 
 ```ori
-@fetch (url: str) -> Result<Response, Error> uses Http = Http.get(url)
+@fetch (url: str) -> Result<Response, Error> uses Http = Http.get(url);
 
 @save (data: str) -> Result<void, Error> uses FileSystem, Async =
-    FileSystem.write(path: "/data.txt", content: data)
+    FileSystem.write(path: "/data.txt", content: data);
 ```
 
 ## Capability Traits
@@ -26,38 +26,38 @@ Capabilities are traits with default implementations:
 
 ```ori
 pub trait Http {
-    @get (url: str) -> Result<Response, Error>
-    @post (url: str, body: str) -> Result<Response, Error>
+    @get (url: str) -> Result<Response, Error>;
+    @post (url: str, body: str) -> Result<Response, Error>;
 }
 
 pub def impl Http {
-    @get (url: str) -> Result<Response, Error> = ...
-    @post (url: str, body: str) -> Result<Response, Error> = ...
+    @get (url: str) -> Result<Response, Error> = ...;
+    @post (url: str, body: str) -> Result<Response, Error> = ...;
 }
 ```
 
 Import the trait to use the default:
 
 ```ori
-use std.net.http { Http }
+use std.net.http { Http };
 
 @fetch () -> Result<str, Error> uses Http =
-    Http.get(url: "https://api.example.com/data")
+    Http.get(url: "https://api.example.com/data");
 ```
 
 Other standard capability traits:
 
 ```ori
 trait FileSystem {
-    @read (path: str) -> Result<str, Error>
-    @write (path: str, content: str) -> Result<void, Error>
+    @read (path: str) -> Result<str, Error>;
+    @write (path: str, content: str) -> Result<void, Error>;
 }
 
 trait Print {
-    @print (msg: str) -> void
-    @println (msg: str) -> void
-    @output () -> str
-    @clear () -> void
+    @print (msg: str) -> void;
+    @println (msg: str) -> void;
+    @output () -> str;
+    @clear () -> void;
 }
 ```
 
@@ -70,8 +70,8 @@ trait Print {
 | Non-blocking, may suspend | Blocking, synchronous |
 
 ```ori
-@fetch_suspending (url: str) -> Result<Data, Error> uses Http, Suspend = ...  // may suspend
-@fetch_sync (url: str) -> Result<Data, Error> uses Http = ...                 // blocks
+@fetch_suspending (url: str) -> Result<Data, Error> uses Http, Suspend = ...;  // may suspend
+@fetch_sync (url: str) -> Result<Data, Error> uses Http = ...;                 // blocks
 ```
 
 No `async` type modifier. No `.await` expression. Return type is final value type.
@@ -119,12 +119,12 @@ def impl Http { ... }
 def impl Cache { ... }
 def impl Logger { ... }
 
-@test_with_mock_http () -> void = run(
-    let mock = MockHttp { ... },
+@test_with_mock_http () -> void = {
+    let mock = MockHttp { ... };
 
     with Http = mock in
         complex_operation(),  // MockHttp + default Cache + default Logger
-)
+}
 ```
 
 Only `Http` is overridden; `Cache` and `Logger` use their `def impl`.
@@ -134,46 +134,122 @@ Only `Http` is overridden; `Cache` and `Logger` use their `def impl`.
 Inner bindings shadow outer bindings within their scope:
 
 ```ori
-with Http = OuterHttp in run(
+with Http = OuterHttp in {
     use_http(),  // OuterHttp
 
     with Http = InnerHttp in
         use_http(),  // InnerHttp (shadows Outer)
 
     use_http(),  // OuterHttp again
-)
+}
 ```
 
 `with` creates a lexical scope — bindings are visible only within:
 
 ```ori
-let result = with Http = mock in fetch()
+let result = with Http = mock in fetch();
 // mock is NOT bound here
 fetch()  // Uses default Http, not mock
 ```
+
+## Stateful Handlers
+
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § EXPRESSIONS (handler_expr)
+>
+> **Proposal:** [stateful-mock-testing-proposal.md](../../../proposals/approved/stateful-mock-testing-proposal.md)
+
+A _stateful handler_ is a `with...in` binding that threads local mutable state through handler operations. The `handler(state: expr) { ... }` construct creates a handler frame with frame-local state, enabling stateful capability mocking while preserving value semantics.
+
+`handler` is a context-sensitive keyword, valid only in the expression position of a `capability_binding`.
+
+### Syntax
+
+```ori
+with Counter = handler(state: 0) {
+    increment: (s) -> (s + 1, s + 1),
+    get: (s) -> (s, s),
+} in {
+    let a = Counter.increment(),  // state: 0 -> 1, returns 1
+    let b = Counter.increment(),  // state: 1 -> 2, returns 2
+    a + b,                        // 3
+}
+```
+
+### Semantics
+
+1. The `state:` initializer determines the initial state value and its type `S`
+2. Each handler operation receives the current state as its first argument, replacing `self`
+3. Each handler operation must return `(S, R)` where `S` is the next state and `R` is the trait method's return type
+4. State is threaded through operations sequentially within the `with...in` scope
+5. The `with...in` expression returns the body's type; handler state is internal
+
+### Type Checking Rules
+
+For a handler operation named `op` implementing trait method `@op (self, p1: T1, ..., pN: TN) -> R`:
+
+- The handler operation receives `(state: S, p1: T1, ..., pN: TN)`
+- The handler operation must return `(S, R)`
+- The state type `S` is inferred from the `state:` initializer
+- All handler operations must use the same state type
+- Every required trait method must have a corresponding handler operation; default trait methods are used if not overridden
+- Handler operations for non-existent trait methods are an error
+
+A stateful handler is not a type and has no `self`. It satisfies the trait's interface for the duration of the `with...in` scope through a distinct dispatch mechanism from `impl` blocks.
+
+### State Composition
+
+Handlers support a single state value. Multiple independent state values are composed into a struct or tuple:
+
+```ori
+with Counter = handler(state: { count: 0, log: [] }) {
+    increment: (s) -> ({ ...s, count: s.count + 1, log: [...s.log, "inc"] }, s.count + 1),
+    get: (s) -> (s, s.count),
+} in ...
+```
+
+### Nested Handlers
+
+Each handler maintains independent state. Cross-handler calls dispatch through normal capability resolution:
+
+```ori
+with Logger = handler(state: []) {
+    log: (s, msg: str) -> ([...s, msg], ()),
+} in
+    with Counter = handler(state: 0) {
+        increment: (s) -> {
+            Logger.log(msg: "increment"),  // invokes outer handler
+            (s + 1, s + 1)
+        },
+    } in ...
+```
+
+### Restrictions
+
+- `def impl` cannot be stateful (stateless by design, no scope for state lifetime)
+- Stateful handlers are available in all `with...in` scopes (not restricted to test code)
 
 ## Capability Variance
 
 A context with more capabilities may call functions requiring fewer:
 
 ```ori
-@needs_http () -> void uses Http = ...
-@needs_both () -> void uses Http, Cache = ...
+@needs_http () -> void uses Http = ...;
+@needs_both () -> void uses Http, Cache = ...;
 
-@caller () -> void uses Http, Cache = run(
+@caller () -> void uses Http, Cache = {
     needs_http(),  // OK: caller has Http
     needs_both(),  // OK: caller has both
-)
+}
 ```
 
 A function requiring more capabilities cannot be called from one with fewer:
 
 ```ori
-@needs_both () -> void uses Http, Cache = ...
+@needs_both () -> void uses Http, Cache = ...;
 
-@caller () -> void uses Http = run(
+@caller () -> void uses Http = {
     needs_both(),  // ERROR: caller lacks Cache
-)
+}
 ```
 
 ## Propagation
@@ -181,13 +257,13 @@ A function requiring more capabilities cannot be called from one with fewer:
 Capabilities propagate: if A calls B with capability C, A must declare or provide C.
 
 ```ori
-@helper () -> str uses Http = Http.get("/").body
+@helper () -> str uses Http = Http.get("/").body;
 
 // Must declare Http
-@caller () -> str uses Http = helper()
+@caller () -> str uses Http = helper();
 
 // Or provide it
-@caller () -> str = with Http = MockHttp {} in helper()
+@caller () -> str = with Http = MockHttp {} in helper();
 ```
 
 ## Standard Capabilities
@@ -206,6 +282,7 @@ Capabilities propagate: if A calls B with capability C, A must declare or provid
 | `Intrinsics` | Low-level SIMD and bit operations | No |
 | `FFI` | Foreign function interface | No |
 | `Suspend` | Suspension marker | Yes |
+| `Unsafe` | Safety bypass marker | No |
 
 ### Cache Capability
 
@@ -213,10 +290,10 @@ The `Cache` capability provides key-value caching with TTL-based expiration:
 
 ```ori
 trait Cache {
-    @get<K: Hashable + Eq, V: Clone> (self, key: K) -> Option<V>
-    @set<K: Hashable + Eq, V: Clone> (self, key: K, value: V, ttl: Duration) -> void
-    @invalidate<K: Hashable + Eq> (self, key: K) -> void
-    @clear (self) -> void
+    @get<K: Hashable + Eq, V: Clone> (self, key: K) -> Option<V>;
+    @set<K: Hashable + Eq, V: Clone> (self, key: K, value: V, ttl: Duration) -> void;
+    @invalidate<K: Hashable + Eq> (self, key: K) -> void;
+    @clear (self) -> void;
 }
 ```
 
@@ -238,8 +315,8 @@ The `Clock` capability provides access to the current time:
 
 ```ori
 trait Clock {
-    @now () -> Instant
-    @local_timezone () -> Timezone
+    @now () -> Instant;
+    @local_timezone () -> Timezone;
 }
 ```
 
@@ -247,23 +324,26 @@ trait Clock {
 
 ```ori
 @log_timestamp (msg: str) -> void uses Clock, Print =
-    print(msg: `[{Clock.now()}] {msg}`)
+    print(msg: `[{Clock.now()}] {msg}`);
 ```
 
-Mock clocks enable deterministic testing:
+Mock clocks enable deterministic testing via _stateful handlers_:
 
 ```ori
-@test_expiry tests @is_expired () -> void = run(
-    let mock = MockClock.new(now: Instant.from_unix_secs(secs: 1700000000)),
-    with Clock = mock in run(
-        assert(!is_expired(token: token)),
-        mock.advance(by: 1h),
-        assert(is_expired(token: token)),
-    ),
-)
+@test_expiry tests @is_expired () -> void = {
+    let start = Instant.from_unix_secs(secs: 1700000000);
+    with Clock = handler(state: start) {
+        now: (s) -> (s, s)
+        advance: (s, by: Duration) -> (s + by, ())
+    } in {
+        assert(!is_expired(token: token));
+        Clock.advance(by: 1h);
+        assert(is_expired(token: token))
+    }
+}
 ```
 
-`MockClock` uses interior mutability for its time state, allowing `advance()` without reassignment.
+The `handler(state: expr) { ... }` construct creates a stateful handler frame with local mutable state threaded through operations. State is frame-local and does not violate value semantics. See [Stateful Handlers](#stateful-handlers) for the full specification.
 
 ### Crypto Capability
 
@@ -271,13 +351,13 @@ The `Crypto` capability provides cryptographic operations:
 
 ```ori
 trait Crypto {
-    @hash (data: [byte], algorithm: HashAlgorithm) -> [byte]
-    @hash_password (password: str) -> str
-    @verify_password (password: str, hash: str) -> bool
-    @generate_key () -> SecretKey
-    @encrypt (key: SecretKey, plaintext: [byte]) -> [byte]
-    @decrypt (key: SecretKey, ciphertext: [byte]) -> Result<[byte], CryptoError>
-    @random_bytes (count: int) -> [byte]
+    @hash (data: [byte], algorithm: HashAlgorithm) -> [byte];
+    @hash_password (password: str) -> str;
+    @verify_password (password: str, hash: str) -> bool;
+    @generate_key () -> SecretKey;
+    @encrypt (key: SecretKey, plaintext: [byte]) -> [byte];
+    @decrypt (key: SecretKey, ciphertext: [byte]) -> Result<[byte], CryptoError>;
+    @random_bytes (count: int) -> [byte];
     // ... additional methods defined in std.crypto
 }
 ```
@@ -298,20 +378,20 @@ The `Intrinsics` capability provides low-level SIMD operations, bit manipulation
 ```ori
 trait Intrinsics {
     // SIMD operations (examples for 4-wide float)
-    @simd_add_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4]
-    @simd_mul_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4]
-    @simd_sum_f32x4 (a: [float, max 4]) -> float
+    @simd_add_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4];
+    @simd_mul_f32x4 (a: [float, max 4], b: [float, max 4]) -> [float, max 4];
+    @simd_sum_f32x4 (a: [float, max 4]) -> float;
     // ... additional widths: f32x8, f32x16, i64x2, i64x4
 
     // Bit operations
-    @count_ones (value: int) -> int
-    @count_leading_zeros (value: int) -> int
-    @count_trailing_zeros (value: int) -> int
-    @rotate_left (value: int, amount: int) -> int
-    @rotate_right (value: int, amount: int) -> int
+    @count_ones (value: int) -> int;
+    @count_leading_zeros (value: int) -> int;
+    @count_trailing_zeros (value: int) -> int;
+    @rotate_left (value: int, amount: int) -> int;
+    @rotate_right (value: int, amount: int) -> int;
 
     // Hardware queries
-    @cpu_has_feature (feature: str) -> bool
+    @cpu_has_feature (feature: str) -> bool;
 }
 ```
 
@@ -340,7 +420,7 @@ Unknown feature strings cause a panic.
 `Print` has a default implementation via `def impl`. Programs may use `print` without declaring `uses Print`:
 
 ```ori
-@main () -> void = print(msg: "Hello, World!")
+@main () -> void = print(msg: "Hello, World!");
 ```
 
 The default is `StdoutPrint` for native execution, `BufferPrint` for WASM.
@@ -357,27 +437,52 @@ When resolving a capability name, the compiler checks in order:
 
 When both an imported `def impl` and a module-local `def impl` exist for the same capability, imported takes precedence.
 
-### Suspend Binding Prohibition
+### Marker Capabilities
 
-`Suspend` is a marker capability — it has no methods and cannot be provided via `with...in`. Attempting to bind `Suspend` is a compile-time error:
+> **Proposal:** [unsafe-semantics-proposal.md](../../../proposals/approved/unsafe-semantics-proposal.md)
+
+A _marker capability_ is a capability with no methods, no bindable implementation, and a specific discharge mechanism. Marker capabilities gate operations or contexts — they track what the code does, not what API it uses.
+
+Shared semantics for all marker capabilities:
+
+- No methods — gates operations, not API surface
+- Cannot be bound via `with...in` (E1203)
+- Propagates through the call chain like any capability
+- Each marker has its own discharge mechanism
+
+| Marker | Purpose | Discharge |
+|--------|---------|-----------|
+| `Suspend` | May suspend execution | Runtime / concurrency patterns |
+| `Unsafe` | Bypasses safety guarantees | `unsafe { }` block |
+
+Attempting to bind a marker capability is a compile-time error:
 
 ```ori
-with Suspend = SomeImpl in  // ERROR: Suspend cannot be bound
+with Suspend = SomeImpl in  // ERROR: marker capability cannot be bound
     suspending_fn()
+
+with Unsafe = something in  // ERROR: marker capability cannot be bound
+    unsafe_fn()
 ```
 
-Suspending context is provided by:
+`Suspend` context is provided by:
 - The runtime for `@main () uses Suspend`
 - Concurrency patterns: `parallel`, `spawn`, `nursery`
+
+`Unsafe` context is provided by:
+- `unsafe { expr }` blocks — programmer assertion of safety
+- Functions declaring `uses Unsafe` (propagates to callers)
+
+See [FFI § Unsafe Expressions](24-ffi.md#unsafe-expressions) for the full specification of unsafe operations.
 
 ## Testing
 
 ```ori
 @test_fetch tests @fetch () -> void =
     with Http = MockHttp { responses: {"/users/1": "{...}"} } in
-    run(
-        assert_ok(result: fetch(url: "/users/1")),
-    )
+    {
+        assert_ok(result: fetch(url: "/users/1"))
+    }
 ```
 
 Mock implementations are synchronous; test does not need `Suspend`.
@@ -399,7 +504,7 @@ capset WebService = Net, Runtime, Database, Suspend
 Capsets may appear in `uses` clauses and other `capset` declarations. Capsets and individual capabilities may be mixed:
 
 ```ori
-@fetch (url: str) -> Result<str, Error> uses Net, Logger, Suspend = ...
+@fetch (url: str) -> Result<str, Error> uses Net, Logger, Suspend = ...;
 ```
 
 After expansion, `uses Net, Logger, Suspend` is equivalent to `uses Http, Dns, Tls, Logger, Suspend`.
@@ -413,7 +518,7 @@ capset Net = Http, Dns
 capset Infra = Net, Logger
 
 // Valid — `uses Infra, Http` expands to `uses Http, Dns, Logger`
-@fn () -> void uses Infra, Http = ...
+@fn () -> void uses Infra, Http = ...;
 ```
 
 ### Restrictions
@@ -452,11 +557,11 @@ Capability variance operates on the expanded set:
 ```ori
 capset Runtime = Clock, Random, Env
 
-@needs_clock () -> void uses Clock = ...
+@needs_clock () -> void uses Clock = ...;
 
-@caller () -> void uses Runtime = run(
+@caller () -> void uses Runtime = {
     needs_clock(),  // Valid — Runtime includes Clock
-)
+}
 ```
 
 ## Purity
@@ -474,7 +579,11 @@ Functions without `uses` are pure: no side effects, cannot suspend, safely paral
 | E1200 | Missing capability (callee requires capability caller lacks) |
 | E1201 | Unbound capability (no `with` or `def impl` available) |
 | E1202 | Type does not implement capability trait |
-| E1203 | `Suspend` capability cannot be explicitly bound |
+| E1203 | Marker capability cannot be explicitly bound (`Suspend`, `Unsafe`) |
+| E1204 | Handler missing required operation (trait method not defined in handler) |
+| E1205 | Handler operation signature mismatch (parameters or return type) |
+| E1206 | Handler state type inconsistency (operations return different state types) |
+| E1207 | Handler operation for non-existent trait method |
 | E1220 | Cyclic capset definition |
 | E1221 | Empty capset |
 | E1222 | Capset name collides with trait name |

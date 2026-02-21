@@ -1,0 +1,26 @@
+// Spec: §3.17 Into Trait
+// Tests for str -> Error built-in Into conversion
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Basic str -> Error conversion
+// =============================================================================
+
+@str_to_error_message () -> str = {
+    let msg = "something went wrong";
+    let e: Error = msg.into();
+    e.message
+}
+
+@test_str_to_error_message tests @str_to_error_message () -> void =
+    assert_eq(actual: str_to_error_message(), expected: "something went wrong");
+
+@str_to_error_empty () -> str = {
+    let msg = "";
+    let e: Error = msg.into();
+    e.message
+}
+
+@test_str_to_error_empty tests @str_to_error_empty () -> void =
+    assert_eq(actual: str_to_error_empty(), expected: "");

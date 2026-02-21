@@ -49,6 +49,9 @@ impl Parser<'_> {
 
         let span = start_span.merge(self.cursor.previous_span());
 
+        // Optional trailing `;`
+        self.eat_optional_semicolon();
+
         ParseOutcome::consumed_ok(ConstDef {
             name,
             ty,

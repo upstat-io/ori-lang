@@ -44,12 +44,17 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         match &type_decl.kind {
             TypeDeclKind::Struct(fields) => {
                 self.format_struct_fields(fields);
+                // Struct bodies end with `}` — no trailing semicolon
             }
             TypeDeclKind::Sum(variants) => {
                 self.format_sum_variants(variants);
+                // Sum types don't end with `}` — need trailing semicolon
+                self.ctx.emit(";");
             }
             TypeDeclKind::Newtype(ty) => {
                 format_parsed_type(ty, self.arena, self.interner, &mut self.ctx);
+                // Newtypes don't end with `}` — need trailing semicolon
+                self.ctx.emit(";");
             }
         }
     }

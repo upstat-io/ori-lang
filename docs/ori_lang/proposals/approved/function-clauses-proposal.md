@@ -29,20 +29,20 @@ Allow functions to be defined with multiple clauses that pattern match on argume
 Currently, functions with pattern-dependent logic require explicit `match`:
 
 ```ori
-@factorial (n: int) -> int = match(n,
-    0 -> 1,
-    _ -> n * factorial(n - 1),
-)
+@factorial (n: int) -> int = match n {
+    0 -> 1
+    _ -> n * factorial(n - 1)
+}
 
-@describe (opt: Option<str>) -> str = match(opt,
-    Some(s) -> `Value: {s}`,
-    None -> "No value",
-)
+@describe (opt: Option<str>) -> str = match opt {
+    Some(s) -> `Value: {s}`
+    None -> "No value"
+}
 
-@len<T> (list: [T]) -> int = match(list,
-    [] -> 0,
-    [_, ..tail] -> 1 + len(tail),
-)
+@len<T> (list: [T]) -> int = match list {
+    [] -> 0
+    [_, ..tail] -> 1 + len(tail)
+}
 ```
 
 This works but:
@@ -369,10 +369,10 @@ Both are valid. Use clauses for clarity, `recurse` for memoization/parallelism.
 Tests target the function name, covering all clauses:
 
 ```ori
-@test_factorial tests @factorial () -> void = run(
-    assert_eq(actual: factorial(0), expected: 1),
-    assert_eq(actual: factorial(5), expected: 120),
-)
+@test_factorial tests @factorial () -> void = {
+    assert_eq(actual: factorial(0), expected: 1)
+    assert_eq(actual: factorial(5), expected: 120)
+}
 ```
 
 ### With Capabilities
@@ -405,10 +405,10 @@ Multiple clauses desugar to a single function with match:
 @factorial (n) -> int = n * factorial(n - 1)
 
 // Desugars to
-@factorial (__arg0: int) -> int = match(__arg0,
-    0 -> 1,
-    n -> n * factorial(n - 1),
-)
+@factorial (__arg0: int) -> int = match __arg0 {
+    0 -> 1
+    n -> n * factorial(n - 1)
+}
 ```
 
 With guards:
@@ -419,10 +419,10 @@ With guards:
 @abs (n) -> int = n
 
 // Desugars to
-@abs (__arg0: int) -> int = match(__arg0,
-    n.match(n < 0) -> -n,
-    n -> n,
-)
+@abs (__arg0: int) -> int = match __arg0 {
+    n.match(n < 0) -> -n
+    n -> n
+}
 ```
 
 ### Exhaustiveness Checking

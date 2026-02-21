@@ -15,89 +15,88 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 // Test 'if', 'then', 'else'
-@keyword_if_then_else () -> int = if true then 1 else 0
+@keyword_if_then_else () -> int = if true then 1 else 0;
 
-@test_keyword_if_then_else tests @keyword_if_then_else () -> void = run(
-    assert_eq(actual: keyword_if_then_else(), expected: 1),
-)
+@test_keyword_if_then_else tests @keyword_if_then_else () -> void = {
+    assert_eq(actual: keyword_if_then_else(), expected: 1)
+}
 
 // Test 'let'
-@keyword_let () -> int = run(
-    let x = 42,
-    x,
-)
+@keyword_let () -> int = {
+    let x = 42;
+    x
+}
 
-@test_keyword_let tests @keyword_let () -> void = run(
-    assert_eq(actual: keyword_let(), expected: 42),
-)
+@test_keyword_let tests @keyword_let () -> void = {
+    assert_eq(actual: keyword_let(), expected: 42)
+}
 
 // Test 'for', 'in', 'do'
-@keyword_for_in_do () -> int = run(
+@keyword_for_in_do () -> int = {
     // for..do is used for side effects; sum with fold instead
-    [1, 2, 3].fold(initial: 0, combine: (a, b) -> a + b),
-)
+    [1, 2, 3].fold(initial: 0, combine: (a, b) -> a + b)
+}
 
-@test_keyword_for_in_do tests @keyword_for_in_do () -> void = run(
-    assert_eq(actual: keyword_for_in_do(), expected: 6),
-)
+@test_keyword_for_in_do tests @keyword_for_in_do () -> void = {
+    assert_eq(actual: keyword_for_in_do(), expected: 6)
+}
 
 // Test 'for', 'in', 'yield'
-@keyword_for_yield () -> [int] = for x in [1, 2, 3] yield x * 2
+@keyword_for_yield () -> [int] = for x in [1, 2, 3] yield x * 2;
 
-@test_keyword_for_yield tests @keyword_for_yield () -> void = run(
-    let result = keyword_for_yield(),
-    assert_eq(actual: result.len(), expected: 3),
-)
+@test_keyword_for_yield tests @keyword_for_yield () -> void = {
+    let result = keyword_for_yield();
+    assert_eq(actual: result.len(), expected: 3)
+}
 
 // Test 'true', 'false'
-@keyword_bool_literals () -> bool = true && !false
+@keyword_bool_literals () -> bool = true && !false;
 
-@test_keyword_bool_literals tests @keyword_bool_literals () -> void = run(
-    assert(cond: keyword_bool_literals()),
-)
+@test_keyword_bool_literals tests @keyword_bool_literals () -> void = {
+    assert(cond: keyword_bool_literals())
+}
 
 // Test 'type'
 type KeywordTestStruct = { value: int }
 
-@keyword_type () -> int = run(
-    let s = KeywordTestStruct { value: 42 },
-    s.value,
-)
+@keyword_type () -> int = {
+    let s = KeywordTestStruct { value: 42 };
+    s.value
+}
 
-@test_keyword_type tests @keyword_type () -> void = run(
-    assert_eq(actual: keyword_type(), expected: 42),
-)
+@test_keyword_type tests @keyword_type () -> void = {
+    assert_eq(actual: keyword_type(), expected: 42)
+}
 
 // Test 'void' as return type
-@keyword_void () -> void = run(
-    let _x = 1,
-    (),
-)
+@keyword_void () -> void = {
+    let _x = 1;
+    ()
+}
 
-@test_keyword_void tests @keyword_void () -> void = run(
-    keyword_void(),
-)
+@test_keyword_void tests @keyword_void () -> void = {
+    keyword_void()
+}
 
 // Test 'loop', 'break' (using break value)
-@keyword_loop_break () -> int = loop(run(
+@keyword_loop_break () -> int = loop {
     // loop with break value
-    break 42,
-))
+    break 42
+}
 
-@test_keyword_loop_break tests @keyword_loop_break () -> void = run(
-    assert_eq(actual: keyword_loop_break(), expected: 42),
-)
+@test_keyword_loop_break tests @keyword_loop_break () -> void = {
+    assert_eq(actual: keyword_loop_break(), expected: 42)
+}
 
 // Test 'match'
-@keyword_match () -> int = match(
-    Some(42),
+@keyword_match () -> int = match Some(42) {
     Some(x) -> x,
-    None -> 0,
-)
+    None -> 0
+}
 
-@test_keyword_match tests @keyword_match () -> void = run(
-    assert_eq(actual: keyword_match(), expected: 42),
-)
+@test_keyword_match tests @keyword_match () -> void = {
+    assert_eq(actual: keyword_match(), expected: 42)
+}
 
 // Test 'trait', 'impl', 'self', 'Self'
 trait KeywordTrait {
@@ -107,154 +106,154 @@ trait KeywordTrait {
 type KeywordImpl = { val: int }
 
 impl KeywordTrait for KeywordImpl {
-    @get_value (self) -> int = self.val
+    @get_value (self) -> int = self.val;
 }
 
-@keyword_trait_impl () -> int = run(
-    let k = KeywordImpl { val: 100 },
-    k.get_value(),
-)
+@keyword_trait_impl () -> int = {
+    let k = KeywordImpl { val: 100 };
+    k.get_value()
+}
 
-@test_keyword_trait_impl tests @keyword_trait_impl () -> void = run(
-    assert_eq(actual: keyword_trait_impl(), expected: 100),
-)
+@test_keyword_trait_impl tests @keyword_trait_impl () -> void = {
+    assert_eq(actual: keyword_trait_impl(), expected: 100)
+}
 
 // Test 'where' clause
-@keyword_where<T> (x: T) -> T where T: Eq = x
+@keyword_where<T> (x: T) -> T where T: Eq = x;
 
-@test_keyword_where tests @keyword_where () -> void = run(
-    assert_eq(actual: keyword_where(x: 42), expected: 42),
-)
+@test_keyword_where tests @keyword_where () -> void = {
+    assert_eq(actual: keyword_where(x: 42), expected: 42)
+}
 
 // Test 'def' impl
 trait KeywordDefTrait {
-    @default_method (self) -> int = 99
+    @default_method (self) -> int = 99;
 }
 
 def impl KeywordDefTrait {
-    @default_method (self) -> int = 99
+    @default_method (self) -> int = 99;
 }
 
-@keyword_def_impl () -> int = 99
+@keyword_def_impl () -> int = 99;
 
-@test_keyword_def_impl tests @keyword_def_impl () -> void = run(
-    assert_eq(actual: keyword_def_impl(), expected: 99),
-)
+@test_keyword_def_impl tests @keyword_def_impl () -> void = {
+    assert_eq(actual: keyword_def_impl(), expected: 99)
+}
 
 // =============================================================================
 // Context-Sensitive Keywords
 // =============================================================================
 
 // Test 'run' as pattern
-@keyword_run () -> int = run(
-    let a = 1,
-    let b = 2,
-    a + b,
-)
+@keyword_run () -> int = {
+    let a = 1;
+    let b = 2;
+    a + b
+}
 
-@test_keyword_run tests @keyword_run () -> void = run(
-    assert_eq(actual: keyword_run(), expected: 3),
-)
+@test_keyword_run tests @keyword_run () -> void = {
+    assert_eq(actual: keyword_run(), expected: 3)
+}
 
 // Test 'try' keyword validates expected syntax
-// (try() pattern not used here - just validating keyword reserved status)
-@keyword_try () -> int = run(
+// (try {} pattern not used here - just validating keyword reserved status)
+@keyword_try () -> int = {
     // 'try' is a reserved pattern keyword
-    let x = 1,
-    let y = 2,
-    x + y,
-)
+    let x = 1;
+    let y = 2;
+    x + y
+}
 
-@test_keyword_try tests @keyword_try () -> void = run(
-    assert_eq(actual: keyword_try(), expected: 3),
-)
+@test_keyword_try tests @keyword_try () -> void = {
+    assert_eq(actual: keyword_try(), expected: 3)
+}
 
 // Test 'by' in range (context-sensitive)
-@keyword_by_in_range () -> [int] = for x in 0..10 by 2 yield x
+@keyword_by_in_range () -> [int] = for x in 0..10 by 2 yield x;
 
-@test_keyword_by_in_range tests @keyword_by_in_range () -> void = run(
-    let result = keyword_by_in_range(),
-    assert_eq(actual: result.len(), expected: 5), // 0, 2, 4, 6, 8
-)
+@test_keyword_by_in_range tests @keyword_by_in_range () -> void = {
+    let result = keyword_by_in_range();
+    assert_eq(actual: result.len(), expected: 5) // 0, 2, 4, 6, 8
+}
 
 // Test 'catch' as pattern (wraps expression to catch panics)
-@keyword_catch_pattern () -> bool = run(
-    let result = catch(expr: 42),
-    result.is_ok(),
-)
+@keyword_catch_pattern () -> bool = {
+    let result = catch(expr: 42);
+    result.is_ok()
+}
 
-@test_keyword_catch_pattern tests @keyword_catch_pattern () -> void = run(
-    assert(cond: keyword_catch_pattern()),
-)
+@test_keyword_catch_pattern tests @keyword_catch_pattern () -> void = {
+    assert(cond: keyword_catch_pattern())
+}
 
 // =============================================================================
 // Built-in Names (Reserved in Call Position)
 // =============================================================================
 
 // Test 'int' as conversion
-@builtin_int_conversion () -> int = int(3.14)
+@builtin_int_conversion () -> int = int(3.14);
 
-@test_builtin_int_conversion tests @builtin_int_conversion () -> void = run(
-    assert_eq(actual: builtin_int_conversion(), expected: 3),
-)
+@test_builtin_int_conversion tests @builtin_int_conversion () -> void = {
+    assert_eq(actual: builtin_int_conversion(), expected: 3)
+}
 
 // Test 'float' as conversion
-@builtin_float_conversion () -> float = float(42)
+@builtin_float_conversion () -> float = float(42);
 
-@test_builtin_float_conversion tests @builtin_float_conversion () -> void = run(
-    assert(cond: builtin_float_conversion() == 42.0),
-)
+@test_builtin_float_conversion tests @builtin_float_conversion () -> void = {
+    assert(cond: builtin_float_conversion() == 42.0)
+}
 
 // Test 'str' as conversion
-@builtin_str_conversion () -> str = str(42)
+@builtin_str_conversion () -> str = str(42);
 
-@test_builtin_str_conversion tests @builtin_str_conversion () -> void = run(
-    assert(cond: builtin_str_conversion() == "42"),
-)
+@test_builtin_str_conversion tests @builtin_str_conversion () -> void = {
+    assert(cond: builtin_str_conversion() == "42")
+}
 
 // Test 'len' method (built-in name)
-@builtin_len () -> int = [1, 2, 3, 4, 5].len()
+@builtin_len () -> int = [1, 2, 3, 4, 5].len();
 
-@test_builtin_len tests @builtin_len () -> void = run(
-    assert_eq(actual: builtin_len(), expected: 5),
-)
+@test_builtin_len tests @builtin_len () -> void = {
+    assert_eq(actual: builtin_len(), expected: 5)
+}
 
 // Test 'is_empty' - use len() == 0
-@builtin_is_empty () -> bool = [].len() == 0
+@builtin_is_empty () -> bool = [].len() == 0;
 
-@test_builtin_is_empty tests @builtin_is_empty () -> void = run(
-    assert(cond: builtin_is_empty()),
-)
+@test_builtin_is_empty tests @builtin_is_empty () -> void = {
+    assert(cond: builtin_is_empty())
+}
 
 // Test 'is_some', 'is_none' methods
-@builtin_option_checks () -> bool = run(
-    let some_val: Option<int> = Some(1),
-    let none_val: Option<int> = None,
-    some_val.is_some() && none_val.is_none(),
-)
+@builtin_option_checks () -> bool = {
+    let some_val: Option<int> = Some(1);
+    let none_val: Option<int> = None;
+    some_val.is_some() && none_val.is_none()
+}
 
-@test_builtin_option_checks tests @builtin_option_checks () -> void = run(
-    assert(cond: builtin_option_checks()),
-)
+@test_builtin_option_checks tests @builtin_option_checks () -> void = {
+    assert(cond: builtin_option_checks())
+}
 
 // Test 'is_ok', 'is_err' methods
-@builtin_result_checks () -> bool = run(
-    let ok_val: Result<int, str> = Ok(1),
-    let err_val: Result<int, str> = Err("error"),
-    ok_val.is_ok() && err_val.is_err(),
-)
+@builtin_result_checks () -> bool = {
+    let ok_val: Result<int, str> = Ok(1);
+    let err_val: Result<int, str> = Err("error");
+    ok_val.is_ok() && err_val.is_err()
+}
 
-@test_builtin_result_checks tests @builtin_result_checks () -> void = run(
-    assert(cond: builtin_result_checks()),
-)
+@test_builtin_result_checks tests @builtin_result_checks () -> void = {
+    assert(cond: builtin_result_checks())
+}
 
 // Test 'print' (just verify it compiles - output is side effect)
-@builtin_print () -> void = print(msg: "test")
+@builtin_print () -> void = print(msg: "test");
 
-@test_builtin_print tests @builtin_print () -> void = run(
+@test_builtin_print tests @builtin_print () -> void = {
     // Just verify it doesn't panic
-    builtin_print(),
-)
+    builtin_print()
+}
 
 // =============================================================================
 // Keywords in Different Syntactic Positions
@@ -266,22 +265,22 @@ def impl KeywordDefTrait {
         if false then 1
         else if true then 2
         else 3
-    else 0
+    else 0;
 
-@test_keyword_nested_if tests @keyword_nested_if () -> void = run(
-    assert_eq(actual: keyword_nested_if(), expected: 2),
-)
+@test_keyword_nested_if tests @keyword_nested_if () -> void = {
+    assert_eq(actual: keyword_nested_if(), expected: 2)
+}
 
 // Multiple keywords in single expression
-@keyword_multiple () -> int = run(
-    let x = if true then 1 else 0,
-    let y = for i in [1, 2, 3] yield i,
-    x + y.len(),
-)
+@keyword_multiple () -> int = {
+    let x = if true then 1 else 0;
+    let y = for i in [1, 2, 3] yield i;
+    x + y.len()
+}
 
-@test_keyword_multiple tests @keyword_multiple () -> void = run(
-    assert_eq(actual: keyword_multiple(), expected: 4),
-)
+@test_keyword_multiple tests @keyword_multiple () -> void = {
+    assert_eq(actual: keyword_multiple(), expected: 4)
+}
 
 // =============================================================================
 // Keywords Not as Identifiers
@@ -290,45 +289,45 @@ def impl KeywordDefTrait {
 // These tests ensure keywords cannot be used as identifiers.
 // The tests below use keywords as parts of larger identifiers (which is valid).
 
-@keyword_prefixed_idents () -> int = run(
-    let ifValue = 1,
-    let letBinding = 2,
-    let forLoop = 3,
-    let whileCondition = 4, // 'while' is not a keyword in Ori
-    let matchResult = 5,
-    ifValue + letBinding + forLoop + whileCondition + matchResult,
-)
+@keyword_prefixed_idents () -> int = {
+    let ifValue = 1;
+    let letBinding = 2;
+    let forLoop = 3;
+    let whileCondition = 4; // 'while' is not a keyword in Ori
+    let matchResult = 5;
+    ifValue + letBinding + forLoop + whileCondition + matchResult
+}
 
-@test_keyword_prefixed_idents tests @keyword_prefixed_idents () -> void = run(
-    assert_eq(actual: keyword_prefixed_idents(), expected: 15),
-)
+@test_keyword_prefixed_idents tests @keyword_prefixed_idents () -> void = {
+    assert_eq(actual: keyword_prefixed_idents(), expected: 15)
+}
 
-@keyword_suffixed_idents () -> int = run(
-    let myIf = 1,
-    let theLet = 2,
-    let nextFor = 3,
-    let newMatch = 4,
-    let oldType = 5,
-    myIf + theLet + nextFor + newMatch + oldType,
-)
+@keyword_suffixed_idents () -> int = {
+    let myIf = 1;
+    let theLet = 2;
+    let nextFor = 3;
+    let newMatch = 4;
+    let oldType = 5;
+    myIf + theLet + nextFor + newMatch + oldType
+}
 
-@test_keyword_suffixed_idents tests @keyword_suffixed_idents () -> void = run(
-    assert_eq(actual: keyword_suffixed_idents(), expected: 15),
-)
+@test_keyword_suffixed_idents tests @keyword_suffixed_idents () -> void = {
+    assert_eq(actual: keyword_suffixed_idents(), expected: 15)
+}
 
 // =============================================================================
 // Chained Keyword Usage
 // =============================================================================
 
-@keyword_chained () -> int = run(
-    let result = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x * 2,
-    result.fold(initial: 0, combine: (a, b) -> a + b),
-)
+@keyword_chained () -> int = {
+    let result = for x in [1, 2, 3, 4, 5] if x % 2 == 0 yield x * 2;
+    result.fold(initial: 0, combine: (a, b) -> a + b)
+}
 
-@test_keyword_chained tests @keyword_chained () -> void = run(
+@test_keyword_chained tests @keyword_chained () -> void = {
     // Even numbers: 2, 4 -> doubled: 4, 8 -> sum: 12
-    assert_eq(actual: keyword_chained(), expected: 12),
-)
+    assert_eq(actual: keyword_chained(), expected: 12)
+}
 
 // =============================================================================
 // self and Self Keywords
@@ -342,45 +341,45 @@ impl SelfTestType {
     @new (v: int) -> Self = SelfTestType { value: v }
 }
 
-@keyword_self_in_method () -> int = run(
-    let t = SelfTestType { value: 21 },
-    let doubled = t.double(),
-    doubled.value,
-)
+@keyword_self_in_method () -> int = {
+    let t = SelfTestType { value: 21 };
+    let doubled = t.double();
+    doubled.value
+}
 
-@test_keyword_self_in_method tests @keyword_self_in_method () -> void = run(
-    assert_eq(actual: keyword_self_in_method(), expected: 42),
-)
+@test_keyword_self_in_method tests @keyword_self_in_method () -> void = {
+    assert_eq(actual: keyword_self_in_method(), expected: 42)
+}
 
-@keyword_Self_in_return () -> int = run(
-    let t = SelfTestType.new(v: 50),
-    t.value,
-)
+@keyword_Self_in_return () -> int = {
+    let t = SelfTestType.new(v: 50);
+    t.value
+}
 
-@test_keyword_Self_in_return tests @keyword_Self_in_return () -> void = run(
-    assert_eq(actual: keyword_Self_in_return(), expected: 50),
-)
+@test_keyword_Self_in_return tests @keyword_Self_in_return () -> void = {
+    assert_eq(actual: keyword_Self_in_return(), expected: 50)
+}
 
 // =============================================================================
 // pub Keyword
 // =============================================================================
 
-pub @keyword_pub_function () -> int = 42
+pub @keyword_pub_function () -> int = 42;
 
-@test_keyword_pub tests @keyword_pub_function () -> void = run(
-    assert_eq(actual: keyword_pub_function(), expected: 42),
-)
+@test_keyword_pub tests @keyword_pub_function () -> void = {
+    assert_eq(actual: keyword_pub_function(), expected: 42)
+}
 
 pub type KeywordPubType = { x: int }
 
-@keyword_pub_type () -> int = run(
-    let p = KeywordPubType { x: 10 },
-    p.x,
-)
+@keyword_pub_type () -> int = {
+    let p = KeywordPubType { x: 10 };
+    p.x
+}
 
-@test_keyword_pub_type tests @keyword_pub_type () -> void = run(
-    assert_eq(actual: keyword_pub_type(), expected: 10),
-)
+@test_keyword_pub_type tests @keyword_pub_type () -> void = {
+    assert_eq(actual: keyword_pub_type(), expected: 10)
+}
 
 // =============================================================================
 // with Keyword (Capability Provision)
@@ -388,13 +387,13 @@ pub type KeywordPubType = { x: int }
 
 // Note: Full capability tests are in the capabilities section.
 // This just verifies 'with' parses as a keyword.
-@keyword_with_syntax () -> int = run(
+@keyword_with_syntax () -> int = {
     // 'with' can be used as identifier outside capability context
-    let result = 42,
-    result,
-)
+    let result = 42;
+    result
+}
 
-@test_keyword_with_syntax tests @keyword_with_syntax () -> void = run(
-    assert_eq(actual: keyword_with_syntax(), expected: 42),
-)
+@test_keyword_with_syntax tests @keyword_with_syntax () -> void = {
+    assert_eq(actual: keyword_with_syntax(), expected: 42)
+}
 

@@ -1,6 +1,6 @@
 // First comment
 // Second comment
-@foo () -> int = 42
+@foo () -> int = 42;
 
 // Another comment
-@bar () -> int = 0
+@bar () -> int = 0;

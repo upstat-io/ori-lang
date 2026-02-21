@@ -7,88 +7,89 @@ use std.testing { assert_eq }
 // Basic Template Literals (no interpolation)
 // =============================================================================
 
-@template_basic () -> str = `hello world`
+@template_basic () -> str = `hello world`;
 
-@test_template_basic tests @template_basic () -> void = run(
-    assert_eq(actual: template_basic(), expected: "hello world"),
-)
+@test_template_basic tests @template_basic () -> void = {
+    assert_eq(actual: template_basic(), expected: "hello world")
+}
 
-@template_empty () -> str = ``
+@template_empty () -> str = ``;
 
-@test_template_empty tests @template_empty () -> void = run(
-    assert_eq(actual: template_empty(), expected: ""),
-)
+@test_template_empty tests @template_empty () -> void = {
+    assert_eq(actual: template_empty(), expected: "")
+}
 
 // =============================================================================
 // Template Literals with Interpolation
 // =============================================================================
 
-@template_single_interp (name: str) -> str = `hello {name}`
+@template_single_interp (name: str) -> str = `hello {name}`;
 
-@test_template_single_interp tests @template_single_interp () -> void = run(
-    assert_eq(actual: template_single_interp(name: "Ori"), expected: "hello Ori"),
-)
+@test_template_single_interp tests @template_single_interp () -> void = {
+    assert_eq(actual: template_single_interp(name: "Ori"), expected: "hello Ori")
+}
 
-@template_two_interp (a: str, b: str) -> str = `{a} {b}`
+@template_two_interp (a: str, b: str) -> str = `{a} {b}`;
 
-@test_template_two_interp tests @template_two_interp () -> void = run(
-    assert_eq(actual: template_two_interp(a: "hello", b: "world"), expected: "hello world"),
-)
+@test_template_two_interp tests @template_two_interp () -> void = {
+    assert_eq(actual: template_two_interp(a: "hello", b: "world"), expected: "hello world")
+}
 
-@template_expr_interp () -> str = `1 + 2 = {1 + 2}`
+@template_expr_interp () -> str = `1 + 2 = {1 + 2}`;
 
-@test_template_expr_interp tests @template_expr_interp () -> void = run(
-    assert_eq(actual: template_expr_interp(), expected: "1 + 2 = 3"),
-)
+@test_template_expr_interp tests @template_expr_interp () -> void = {
+    assert_eq(actual: template_expr_interp(), expected: "1 + 2 = 3")
+}
 
-@template_int_interp () -> str = `value: {42}`
+@template_int_interp () -> str = `value: {42}`;
 
-@test_template_int_interp tests @template_int_interp () -> void = run(
-    assert_eq(actual: template_int_interp(), expected: "value: 42"),
-)
+@test_template_int_interp tests @template_int_interp () -> void = {
+    assert_eq(actual: template_int_interp(), expected: "value: 42")
+}
 
-@template_bool_interp () -> str = `is true: {true}`
+@template_bool_interp () -> str = `is true: {true}`;
 
-@test_template_bool_interp tests @template_bool_interp () -> void = run(
-    assert_eq(actual: template_bool_interp(), expected: "is true: true"),
-)
+@test_template_bool_interp tests @template_bool_interp () -> void = {
+    assert_eq(actual: template_bool_interp(), expected: "is true: true")
+}
 
 // =============================================================================
 // Template Literals with Multiple Interpolations
 // =============================================================================
 
-@template_three_parts (a: int, b: int, c: int) -> str = `{a}, {b}, {c}`
+@template_three_parts (a: int, b: int, c: int) -> str = `{a}, {b}, {c}`;
 
-@test_template_three_parts tests @template_three_parts () -> void = run(
-    assert_eq(actual: template_three_parts(a: 1, b: 2, c: 3), expected: "1, 2, 3"),
-)
+@test_template_three_parts tests @template_three_parts () -> void = {
+    assert_eq(actual: template_three_parts(a: 1, b: 2, c: 3), expected: "1, 2, 3")
+}
 
-@template_text_around (x: int) -> str = `before {x} after`
+@template_text_around (x: int) -> str = `before {x} after`;
 
-@test_template_text_around tests @template_text_around () -> void = run(
-    assert_eq(actual: template_text_around(x: 42), expected: "before 42 after"),
-)
+@test_template_text_around tests @template_text_around () -> void = {
+    assert_eq(actual: template_text_around(x: 42), expected: "before 42 after")
+}
 
 // =============================================================================
 // Template Literals in Expressions
 // =============================================================================
 
-@template_in_let () -> str = run(
-    let name = "world",
-    `hello {name}`,
-)
+@template_in_let () -> str = {
+    let name = "world";
+    `hello {name}`
+}
 
-@test_template_in_let tests @template_in_let () -> void = run(
-    assert_eq(actual: template_in_let(), expected: "hello world"),
-)
+@test_template_in_let tests @template_in_let () -> void = {
+    assert_eq(actual: template_in_let(), expected: "hello world")
+}
 
-@template_nested () -> str =
+@template_nested () -> str = {
     `result: {if true then 1 else 0}`
+}
 
 @test_template_nested tests @template_nested () -> void =
-    run(
+    {
         assert_eq(
             actual: template_nested(),
             expected: "result: 1",
-        ),
-    )
+        )
+    }

@@ -97,7 +97,8 @@ TypedModule { Module, ExprArena, expr_types }
     ▼
 Evaluator {
     interpreter: Interpreter,  // Core eval engine
-    output: EvalOutput,        // Captured output
+    db: &dyn Db,               // Salsa database
+    prelude_loaded: bool,      // Auto-load guard
 }
     │
     │ find and call @main (or evaluate top-level)
@@ -134,6 +135,8 @@ pub struct Interpreter<'a> {
     prop_names: PropNames,
     /// Pre-interned operator trait method names for user-defined operator dispatch.
     op_names: OpNames,
+    /// Pre-interned format-related names for `FormatSpec` value construction.
+    format_names: FormatNames,
     /// Pre-interned builtin method names for Name-based dispatch.
     builtin_method_names: BuiltinMethodNames,
     /// Evaluation mode — determines I/O, recursion, budget policies.
@@ -152,13 +155,17 @@ pub struct Interpreter<'a> {
     print_handler: SharedPrintHandler,
     /// Scope ownership for RAII-style panic-safe scope cleanup.
     scope_ownership: ScopeOwnership,
+    /// Source file path for Traceable trace entries.
+    source_file_path: Option<Arc<String>>,
+    /// Source text for line/column computation in trace entries.
+    source_text: Option<Arc<String>>,
     /// Canonical IR for the current module.
     canon: Option<SharedCanonResult>,
 }
 ```
 
 Key design features:
-- **Pre-interned names**: `TypeNames`, `PrintNames`, `PropNames`, `OpNames`, and `BuiltinMethodNames` are pre-interned at construction for `u32 == u32` comparison instead of string lookup in hot paths
+- **Pre-interned names**: `TypeNames`, `PrintNames`, `PropNames`, `OpNames`, `FormatNames`, and `BuiltinMethodNames` are pre-interned at construction for `u32 == u32` comparison instead of string lookup in hot paths
 - **EvalMode**: Parameterizes behavior for `ori run` (Interpret), `ori test` (TestRun), and compile-time evaluation (ConstEval)
 - **CallStack**: Proper frame tracking replacing the old `call_depth: usize`, with backtrace capture at error sites
 - **ScopeOwnership**: RAII Drop-based scope cleanup for panic safety
@@ -169,12 +176,12 @@ The high-level evaluator wraps `Interpreter` and adds module loading and Salsa i
 
 ```rust
 pub struct Evaluator<'a> {
-    /// Core interpreter
-    pub interpreter: Interpreter<'a>,
-    /// Captured output (stdout/stderr)
-    pub output: EvalOutput,
-    /// Module cache for import resolution
-    module_cache: HashMap<PathBuf, ModuleEvalResult>,
+    /// Core interpreter (restricted to module tree).
+    pub(super) interpreter: Interpreter<'a>,
+    /// Database reference for Salsa-tracked file loading.
+    db: &'a dyn Db,
+    /// Whether the prelude has been auto-loaded.
+    prelude_loaded: bool,
 }
 ```
 
@@ -228,27 +235,48 @@ Runtime values with `Heap<T>` for Arc-based sharing:
 
 ```rust
 pub enum Value {
-    Int(i64),
+    // Primitives (inline)
+    Int(ScalarInt),               // Newtype over i64, checked arithmetic
     Float(f64),
     Bool(bool),
-    Str(Heap<String>),
     Char(char),
     Byte(u8),
+    Void,                         // Unit type
+    Duration(i64),                // Nanoseconds
+    Size(u64),                    // Bytes
+    Ordering(OrderingValue),      // Custom enum (Less/Equal/Greater)
+
+    // Heap types
+    Str(Heap<Cow<'static, str>>), // Cow for zero-copy interned strings
     List(Heap<Vec<Value>>),
-    Map(Heap<BTreeMap<String, Value>>),  // BTreeMap for deterministic iteration
-    Set(Heap<HashSet<Value>>),
-    Function(FunctionValue),
-    Option(Option<Heap<Value>>),
-    Result(Result<Heap<Value>, Heap<Value>>),
-    Struct { name: Name, fields: Heap<HashMap<Name, Value>> },
-    Variant { name: Name, payload: Option<Heap<Vec<Value>>> },
-    ModuleNamespace(Heap<BTreeMap<Name, Value>>),  // BTreeMap for Salsa compatibility
+    Map(Heap<BTreeMap<Value, Value>>),  // BTreeMap for deterministic iteration
+    Set(Heap<BTreeMap<Value, ()>>),     // BTreeMap (NOT HashSet) for deterministic order
+    Tuple(Heap<Vec<Value>>),
     Range(Heap<RangeValue>),
-    Duration { nanoseconds: i64 },
-    Size { bytes: u64 },
-    Ordering(std::cmp::Ordering),
-    Unit,
-    Never,  // Uninhabited type for diverging expressions
+
+    // Algebraic (split variants, NOT Option/Result wrappers)
+    Some(Heap<Value>),
+    None,
+    Ok(Heap<Value>),
+    Err(Heap<Value>),
+
+    // User-defined types
+    Struct(StructValue),
+    Variant { type_name: Name, variant_name: Name, fields: Heap<Vec<Value>> },
+    VariantConstructor { type_name: Name, variant_name: Name, field_count: usize },
+    Newtype { type_name: Name, inner: Heap<Value> },
+    NewtypeConstructor { type_name: Name },
+
+    // Callables
+    Function(FunctionValue),
+    MemoizedFunction(MemoizedFunctionValue),
+    FunctionVal(FunctionValFn, &'static str),  // Built-in type conversions
+
+    // Other
+    Iterator(IteratorValue),
+    ModuleNamespace(Heap<BTreeMap<Name, Value>>),  // BTreeMap for Salsa compatibility
+    Error(Heap<ErrorValue>),
+    TypeRef { type_name: Name },  // For associated function calls
 }
 ```
 
@@ -306,11 +334,11 @@ The `LocalScope<T>` wrapper is `Rc<RefCell<T>>` for single-threaded scope manage
 - `FxHashMap` provides faster hashing for `Name` keys
 
 ```rust
-let x = 1           // Outer scope: x = 1
-run(
-    let x = 2,      // Inner scope: x = 2
-    x + outer_x,    // Can't access outer x directly
-)
+let x = 1;          // Outer scope: x = 1
+{
+    let x = 2;      // Inner scope: x = 2
+    x + outer_x     // Can't access outer x directly
+}
 // x = 1 again
 ```
 
@@ -616,9 +644,9 @@ Consider a scenario where module A imports a function from module B:
 ```
 Module A (arena_a)          Module B (arena_b)
 ┌──────────────────┐        ┌──────────────────┐
-│ @main () = run(  │        │ @helper (x: int) │
-│   helper(42),    │ ──────►│   = x * 2        │
-│ )                │        │                  │
+│ @main () = {     │        │ @helper (x: int) │
+│   helper(42)     │ ──────►│   = x * 2        │
+│ }                │        │                  │
 └──────────────────┘        └──────────────────┘
 ```
 
@@ -665,7 +693,12 @@ All functions are pure and take explicit parameters (no `&self` from Evaluator):
 
 ```rust
 /// Register all functions from a module into the environment.
-pub fn register_module_functions(module: &Module, arena: &SharedArena, env: &mut Environment);
+pub fn register_module_functions(
+    module: &Module,
+    arena: &SharedArena,
+    env: &mut Environment,
+    canon: Option<&SharedCanonResult>,
+);
 
 /// Collect methods from impl blocks into a registry.
 pub fn collect_impl_methods(

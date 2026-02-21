@@ -12,6 +12,10 @@ use super::DispatchCtx;
 
 /// Dispatch operator methods on integer values.
 #[expect(
+    clippy::too_many_lines,
+    reason = "exhaustive integer operator method dispatch"
+)]
+#[expect(
     clippy::needless_pass_by_value,
     reason = "Consistent method dispatch signature"
 )]
@@ -133,6 +137,14 @@ pub fn dispatch_int_method(
         require_args("hash", 0, args.len())?;
         // For integers, use the value itself as its hash (simple but effective)
         Ok(Value::Int(a))
+    // Into trait: int -> float (lossless widening)
+    } else if method == n.into {
+        require_args("into", 0, args.len())?;
+        #[expect(
+            clippy::cast_precision_loss,
+            reason = "int->float is the defined Into conversion"
+        )]
+        Ok(Value::Float(a.raw() as f64))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "int").into())
     }

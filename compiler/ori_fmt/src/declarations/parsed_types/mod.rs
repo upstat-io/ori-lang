@@ -9,7 +9,7 @@ use crate::context::FormatContext;
 use crate::emitter::Emitter;
 
 /// Format a parsed type expression.
-pub(super) fn format_parsed_type<I: StringLookup, E: Emitter>(
+pub(crate) fn format_parsed_type<I: StringLookup, E: Emitter>(
     ty: &ParsedType,
     arena: &ExprArena,
     interner: &I,
@@ -226,18 +226,17 @@ pub(crate) fn format_const_expr<I: StringLookup, E: Emitter>(
     }
 }
 
-/// Convert a [`TypeId`] to its string representation.
-pub(super) fn type_id_to_str(id: TypeId) -> &'static str {
+/// Convert a [`TypeId`] to its string representation for formatting.
+///
+/// Delegates to [`TypeId::name()`] for most primitives, with one intentional
+/// override: UNIT/VOID renders as `"void"` (the Ori keyword in type positions)
+/// rather than `"()"` (the unit value/expression syntax).
+pub(crate) fn type_id_to_str(id: TypeId) -> &'static str {
     match id {
-        TypeId::INT => "int",
-        TypeId::FLOAT => "float",
-        TypeId::BOOL => "bool",
-        TypeId::STR => "str",
-        TypeId::CHAR => "char",
-        TypeId::BYTE => "byte",
+        // void is the Ori keyword for the unit type in type annotations;
+        // TypeId::name() returns "()" which is the value representation.
         TypeId::VOID => "void",
-        TypeId::NEVER => "Never",
-        _ => "unknown",
+        _ => id.name().unwrap_or("unknown"),
     }
 }
 

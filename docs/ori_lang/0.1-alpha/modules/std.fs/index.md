@@ -61,15 +61,15 @@ type MockFileSystem = {
 
 impl FileSystem for MockFileSystem {
     @read (path: str) -> Result<str, FileError> =
-        match(self.files.get(path),
-            Some(content) -> Ok(content),
-            None -> Err(FileError.NotFound(path)),
-        )
+        match self.files.get(path) {
+            Some(content) -> Ok(content)
+            None -> Err(FileError.NotFound(path))
+        }
 
-    @write (path: str, content: str) -> Result<void, FileError> = run(
-        self.files = self.files.insert(path, content),
-        Ok(()),
-    )
+    @write (path: str, content: str) -> Result<void, FileError> = {
+        self.files = self.files.insert(path, content)
+        Ok(())
+    }
 
     @exists (path: str) -> bool = self.files.contains_key(path)
 
@@ -82,10 +82,10 @@ impl FileSystem for MockFileSystem {
     with FileSystem = MockFileSystem {
         files: {"/config.json": "{\"debug\": true}"}
     } in
-    run(
-        let config = load_config("/config.json")?,
-        assert(config.debug),
-    )
+    {
+        let config = load_config("/config.json")?
+        assert(config.debug)
+    }
 ```
 
 ---
@@ -421,11 +421,11 @@ print("Modified: " + str(meta.modified))
 use std.fs { read_file }
 use std.json { parse }
 
-@load_config (path: str) uses FileSystem -> Result<Config, Error> = try(
-    let content = read_file(path)?,
-    let config = parse<Config>(content)?,
-    Ok(config),
-)
+@load_config (path: str) uses FileSystem -> Result<Config, Error> = try {
+    let content = read_file(path)?
+    let config = parse<Config>(content)?
+    Ok(config)
+}
 ```
 
 ### Walking a directory tree
@@ -433,13 +433,14 @@ use std.json { parse }
 ```ori
 use std.fs { read_dir, is_dir, Path }
 
-@walk (dir: str, action: str -> void) uses FileSystem -> Result<void, FileError> = run(
+@walk (dir: str, action: str -> void) uses FileSystem -> Result<void, FileError> = {
     for entry in read_dir(dir)? do
         let path = Path.from(dir).join(entry.name).to_str()
         if is_dir(path) then walk(path, action)?
-        else action(path),
-    Ok(()),
-)
+        else action(path)
+
+    Ok(())
+}
 ```
 
 ---

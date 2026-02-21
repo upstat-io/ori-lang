@@ -1,0 +1,40 @@
+// Spec: Section 3.8 — Collect Trait (type-directed collect to Set)
+// Tests for bidirectional `collect()` inference to `Set<T>`.
+// These tests are currently skipped because type-directed collect to Set
+// is not yet implemented (collect() always returns a list).
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Type-directed collect to Set (not yet implemented)
+// =============================================================================
+
+#skip("type-directed collect to Set not yet implemented")
+@test_collect_to_set () -> void = {
+    assert(cond: true)
+}
+
+#skip("type-directed collect to Set not yet implemented")
+@test_collect_set_dedup () -> void = {
+    assert(cond: true)
+}
+
+#skip("type-directed collect to Set not yet implemented")
+@test_collect_empty_set () -> void = {
+    assert(cond: true)
+}
+
+#skip("type-directed collect to Set not yet implemented")
+@test_filter_collect_set () -> void = {
+    assert(cond: true)
+}
+
+#skip("type-directed collect to Set not yet implemented")
+@test_map_collect_set () -> void = {
+    assert(cond: true)
+}
+
+#skip("type-directed collect to Set not yet implemented")
+@test_range_collect_set () -> void = {
+    assert(cond: true)
+}

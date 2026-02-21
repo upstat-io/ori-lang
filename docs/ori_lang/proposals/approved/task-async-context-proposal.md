@@ -86,14 +86,14 @@ Programs using concurrency patterns (`parallel`, `spawn`, `nursery`) must have `
 
 ```ori
 // Correct: main declares Async
-@main () -> void uses Suspend = run(
-    parallel(tasks: [task_a(), task_b()]),
-)
+@main () -> void uses Suspend = {
+    parallel(tasks: [task_a(), task_b()])
+}
 
 // ERROR: main uses concurrency without Async
-@main () -> void = run(
+@main () -> void = {
     parallel(tasks: [task_a(), task_b()]),  // Error: requires Async capability
-)
+}
 ```
 
 The runtime establishes the async context when `@main uses Suspend` is declared.
@@ -118,15 +118,15 @@ Each task has:
 - **No shared mutable state** — Ori's memory model prevents this
 
 ```ori
-@example () -> void uses Suspend = run(
-    let x = 0,
+@example () -> void uses Suspend = {
+    let x = 0
     parallel(
         tasks: [
-            () -> run(x = 1),  // ERROR: cannot capture mutable binding across task boundary
-            () -> run(x = 2),
-        ],
-    ),
-)
+            () -> {x = 1},  // ERROR: cannot capture mutable binding across task boundary
+            () -> {x = 2}
+        ]
+    )
+}
 ```
 
 ### Async Propagation
@@ -154,14 +154,14 @@ A non-async function called from an async context executes synchronously, blocki
     // Long computation, no suspension points
     heavy_math()
 
-@main () -> void uses Suspend = run(
+@main () -> void uses Suspend = {
     parallel(
         tasks: [
             () -> expensive_sync(),  // This task blocks during computation
             () -> other_work(),       // This task can run concurrently
-        ],
-    ),
-)
+        ]
+    )
+}
 ```
 
 ---
@@ -173,16 +173,16 @@ A non-async function called from an async context executes synchronously, blocki
 Task closures follow Ori's standard capture-by-value semantics. When a value is captured by a task closure, the original binding becomes inaccessible — ownership transfers to the task:
 
 ```ori
-@capture_example () -> void uses Suspend = run(
-    let data = create_data(),
+@capture_example () -> void uses Suspend = {
+    let data = create_data()
     nursery(
-        body: n -> run(
+        body: n -> {
             n.spawn(task: () -> process(data)),  // data captured by value
             // data cannot be used here — ownership transferred to spawned task
             print(msg: data.field),  // ERROR: data is no longer accessible
-        ),
-    ),
-)
+        }
+    )
+}
 ```
 
 This is not a new "move" mechanism — it uses the existing capture-by-value behavior with an additional constraint: bindings captured across task boundaries become inaccessible in the spawning scope to prevent data races.
@@ -192,12 +192,12 @@ This is not a new "move" mechanism — it uses the existing capture-by-value beh
 When spawning a task, captured values must be `Sendable`:
 
 ```ori
-@spawn_example () -> void uses Suspend = run(
+@spawn_example () -> void uses Suspend = {
     let data = create_data(),  // data: Data, where Data: Sendable
     nursery(
         body: n -> n.spawn(task: () -> process(data)),  // OK: data is Sendable
-    ),
-)
+    )
+}
 ```
 
 ### Reference Count Atomicity
@@ -222,11 +222,11 @@ When values cross task boundaries (via spawn or channel send), reference count o
 @inner () -> int uses Suspend = fetch_data()
 
 // Non-async helper in async context
-@async_with_sync () -> int uses Suspend = run(
+@async_with_sync () -> int uses Suspend = {
     let raw = fetch_raw(),   // async call — suspension point
     let parsed = parse(raw),  // sync call — no suspension
     validate(parsed),         // sync call — no suspension
-)
+}
 ```
 
 ### Invalid Patterns
@@ -236,10 +236,10 @@ When values cross task boundaries (via spawn or channel send), reference count o
 @bad_sync () -> int = fetch_data()
 
 // ERROR: capturing mutable binding across task boundary
-@bad_capture () -> void uses Suspend = run(
-    let counter = 0,
-    parallel(tasks: [() -> run(counter = counter + 1)]),
-)
+@bad_capture () -> void uses Suspend = {
+    let counter = 0
+    parallel(tasks: [() -> {counter = counter + 1}])
+}
 
 // ERROR: main uses concurrency without Async
 @bad_main () -> void = parallel(tasks: [task_a()])

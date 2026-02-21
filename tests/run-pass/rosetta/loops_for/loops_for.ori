@@ -3,33 +3,33 @@
 // In Ori, iteration is done via methods like collect, map, and fold
 
 // Print numbers 1 to 5 (collect builds a list from a range)
-@count_to_five () -> [int] = (1..6).collect()
+@count_to_five () -> [int] = (1..6).collect();
 
 // Sum numbers 1 to n using fold
 @sum_to_n (n: int) -> int = (1..(n + 1)).collect().fold(
     initial: 0,
     op: (acc, x) -> acc + x,
-)
+);
 
 // Square each number in a range
-@squares (n: int) -> [int] = (1..(n + 1)).map(transform: x -> x * x)
+@squares (n: int) -> [int] = (1..(n + 1)).map(transform: x -> x * x);
 
 // Classic for-loop pattern: do something n times
 // Returns list of results
-@repeat_n (n: int, value: int) -> [int] = (0..n).map(transform: i -> value)
+@repeat_n (n: int, value: int) -> [int] = (0..n).map(transform: i -> value);
 
 // For-each over a list using map
-@double_all (arr: [int]) -> [int] = arr.map(transform: x -> x * 2)
+@double_all (arr: [int]) -> [int] = arr.map(transform: x -> x * 2);
 
 // For-loop with index access
 @with_indices (arr: [int]) -> [str] = (0..len(collection: arr)).collect().map(
     transform: i -> "Index " + str(i) + ": " + str(arr[i]),
-)
+);
 
-@main () -> void = run(
-    print(msg: "Count 1-5: " + str(count_to_five())),
-    print(msg: "Sum 1-10: " + str(sum_to_n(n: 10))),
-    print(msg: "Squares 1-5: " + str(squares(n: 5))),
-    print(msg: "Repeat 3 five times: " + str(repeat_n(n: 5, value: 3))),
-    print(msg: "Double [1,2,3]: " + str(double_all(arr: [1, 2, 3]))),
-)
+@main () -> void = {
+    print(msg: "Count 1-5: " + str(count_to_five()));
+    print(msg: "Sum 1-10: " + str(sum_to_n(n: 10)));
+    print(msg: "Squares 1-5: " + str(squares(n: 5)));
+    print(msg: "Repeat 3 five times: " + str(repeat_n(n: 5, value: 3)));
+    print(msg: "Double [1,2,3]: " + str(double_all(arr: [1, 2, 3])))
+}

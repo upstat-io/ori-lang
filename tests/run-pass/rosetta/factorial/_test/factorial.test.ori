@@ -3,19 +3,19 @@
 use std.testing { assert, assert_eq, assert_ne }
 use "../factorial" { factorial }
 
-@test_factorial_base tests @factorial () -> void = run(
-    assert(cond: factorial(0) == 1),
+@test_factorial_base tests @factorial () -> void = {
+    assert(cond: factorial(0) == 1);
     assert(cond: factorial(1) == 1)
-)
+}
 
-@test_factorial_small tests @factorial () -> void = run(
-    assert(cond: factorial(2) == 2),
-    assert(cond: factorial(3) == 6),
-    assert(cond: factorial(4) == 24),
+@test_factorial_small tests @factorial () -> void = {
+    assert(cond: factorial(2) == 2);
+    assert(cond: factorial(3) == 6);
+    assert(cond: factorial(4) == 24);
     assert(cond: factorial(5) == 120)
-)
+}
 
-@test_factorial_larger tests @factorial () -> void = run(
-    assert(cond: factorial(10) == 3628800),
+@test_factorial_larger tests @factorial () -> void = {
+    assert(cond: factorial(10) == 3628800);
     assert(cond: factorial(12) == 479001600)
-)
+}

@@ -352,9 +352,14 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         // Feeding malformed IR to LLVM's verifier or JIT can cause
         // heap corruption (SIGABRT) that kills the entire process.
         if codegen_errors > 0 {
-            // NOTE: scx (ManuallyDrop) is intentionally leaked here.
-            // Dropping an LLVM module with invalid IR (type-mismatched
-            // ret void, etc.) can itself trigger heap corruption.
+            // Drop scx to free the LLVM Module while the Context (owned by
+            // self) is still alive. Previously this was leaked (ManuallyDrop
+            // suppressed drop), but that caused the Module's LLVM-internal
+            // pointers to dangle when the Context was freed — accumulating
+            // leaked modules across many files eventually corrupted LLVM's heap.
+            // SAFETY: The Module was created from self.context which is still
+            // alive, so LLVMDisposeModule can safely clean up.
+            drop(ManuallyDrop::into_inner(scx));
             return Err(LLVMEvalError::new(format!(
                 "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT",
             )));
@@ -363,16 +368,16 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         // 10. Debug: print IR if requested
         if std::env::var("ORI_DEBUG_LLVM").is_ok() {
             eprintln!("=== LLVM IR for compiled module ===");
-            eprintln!("{}", scx.llmod.print_to_string().to_string());
+            eprintln!("{}", scx.llmod.print_to_string());
             eprintln!("=== END IR ===");
         }
 
         // 11. Verify IR
         if let Err(msg) = scx.llmod.verify() {
-            // NOTE: scx intentionally leaked — see codegen_errors note above.
+            // Drop scx to free the Module while Context is alive (see codegen_errors note).
+            drop(ManuallyDrop::into_inner(scx));
             return Err(LLVMEvalError::new(format!(
-                "LLVM IR verification failed: {}",
-                msg.to_string()
+                "LLVM IR verification failed: {msg}"
             )));
         }
 
@@ -398,6 +403,72 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 // ---------------------------------------------------------------------------
 // Runtime mappings
 // ---------------------------------------------------------------------------
+
+/// Runtime functions declared in `runtime_decl` that are intentionally NOT
+/// in the JIT mapping table. These are only used in AOT compilation.
+#[cfg(test)]
+pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
+    // Iterator runtime — AOT uses opaque handles; JIT uses native IteratorValue
+    "ori_iter_collect",
+    "ori_iter_count",
+    "ori_iter_drop",
+    "ori_iter_enumerate",
+    "ori_iter_filter",
+    "ori_iter_from_list",
+    "ori_iter_from_range",
+    "ori_iter_map",
+    "ori_iter_next",
+    "ori_iter_skip",
+    "ori_iter_take",
+    // ori_run_main wraps @main with catch_unwind — JIT compiles tests directly
+    "ori_run_main",
+];
+
+/// Names of all runtime functions registered in the JIT mapping table.
+///
+/// Used by sync tests to verify declarations and JIT mappings stay aligned.
+pub(crate) const JIT_MAPPED_RUNTIME_FUNCTIONS: &[&str] = &[
+    "ori_print",
+    "ori_print_int",
+    "ori_print_float",
+    "ori_print_bool",
+    "ori_panic",
+    "ori_panic_cstr",
+    "ori_assert",
+    "ori_assert_eq_int",
+    "ori_assert_eq_bool",
+    "ori_assert_eq_float",
+    "ori_list_alloc_data",
+    "ori_list_free_data",
+    "ori_list_new",
+    "ori_list_free",
+    "ori_list_len",
+    "ori_compare_int",
+    "ori_min_int",
+    "ori_max_int",
+    "ori_str_concat",
+    "ori_str_eq",
+    "ori_str_ne",
+    "ori_str_compare",
+    "ori_str_hash",
+    "ori_str_next_char",
+    "ori_assert_eq_str",
+    "ori_str_from_int",
+    "ori_str_from_bool",
+    "ori_str_from_float",
+    "ori_format_int",
+    "ori_format_float",
+    "ori_format_str",
+    "ori_format_bool",
+    "ori_format_char",
+    "ori_rc_alloc",
+    "ori_rc_inc",
+    "ori_rc_dec",
+    "ori_rc_free",
+    "ori_args_from_argv",
+    "ori_register_panic_handler",
+    "rust_eh_personality",
+];
 
 /// Add runtime function mappings to an execution engine.
 ///
@@ -469,6 +540,11 @@ fn add_runtime_mappings_to_engine(
             "ori_str_compare",
             runtime::ori_str_compare as *const () as usize,
         ),
+        ("ori_str_hash", runtime::ori_str_hash as *const () as usize),
+        (
+            "ori_str_next_char",
+            runtime::ori_str_next_char as *const () as usize,
+        ),
         (
             "ori_assert_eq_str",
             runtime::ori_assert_eq_str as *const () as usize,
@@ -484,6 +560,27 @@ fn add_runtime_mappings_to_engine(
         (
             "ori_str_from_float",
             runtime::ori_str_from_float as *const () as usize,
+        ),
+        // Format functions (§3.16 Formattable trait)
+        (
+            "ori_format_int",
+            runtime::format::ori_format_int as *const () as usize,
+        ),
+        (
+            "ori_format_float",
+            runtime::format::ori_format_float as *const () as usize,
+        ),
+        (
+            "ori_format_str",
+            runtime::format::ori_format_str as *const () as usize,
+        ),
+        (
+            "ori_format_bool",
+            runtime::format::ori_format_bool as *const () as usize,
+        ),
+        (
+            "ori_format_char",
+            runtime::format::ori_format_char as *const () as usize,
         ),
         ("ori_rc_alloc", runtime::ori_rc_alloc as *const () as usize),
         ("ori_rc_inc", runtime::ori_rc_inc as *const () as usize),
@@ -502,6 +599,13 @@ fn add_runtime_mappings_to_engine(
         // so MCJIT's dlsym-based resolution can't find it automatically.
         ("rust_eh_personality", rust_eh_personality_addr()),
     ];
+
+    // Verify the mapping array stays in sync with JIT_MAPPED_RUNTIME_FUNCTIONS.
+    debug_assert_eq!(
+        mappings.len(),
+        JIT_MAPPED_RUNTIME_FUNCTIONS.len(),
+        "JIT mapping array and JIT_MAPPED_RUNTIME_FUNCTIONS constant have different lengths"
+    );
 
     for &(name, addr) in mappings {
         if let Some(func) = module.get_function(name) {

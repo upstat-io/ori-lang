@@ -192,10 +192,10 @@ capset Runtime = Clock, Random, Env
 @needs_clock () -> void uses Clock = ...
 @needs_runtime () -> void uses Runtime = ...
 
-@caller () -> void uses Runtime = run(
+@caller () -> void uses Runtime = {
     needs_clock(),    // OK: Runtime includes Clock
     needs_runtime(),  // OK: same set
-)
+}
 ```
 
 A function `uses Runtime` can call any function whose expanded capability set is a subset.
@@ -422,18 +422,18 @@ use std.capabilities { Net, Observability }
 
 capset ServiceDeps = Net, Observability, Database, Suspend
 
-@handle_get_user (id: int) -> Result<Response, Error> uses ServiceDeps = run(
-    Logger.info(message: `GET /users/{id}`),
-    let user = Database.query(sql: `SELECT * FROM users WHERE id = {id}`)?,
-    Ok(Response.json(body: user)),
-)
+@handle_get_user (id: int) -> Result<Response, Error> uses ServiceDeps = {
+    Logger.info(message: `GET /users/{id}`)
+    let user = Database.query(sql: `SELECT * FROM users WHERE id = {id}`)?
+    Ok(Response.json(body: user))
+}
 
-@handle_create_user (req: Request) -> Result<Response, Error> uses ServiceDeps = run(
-    Logger.info(message: "POST /users"),
-    let body = req.json()?,
-    Database.query(sql: `INSERT INTO users ...`)?,
-    Ok(Response.created()),
-)
+@handle_create_user (req: Request) -> Result<Response, Error> uses ServiceDeps = {
+    Logger.info(message: "POST /users")
+    let body = req.json()?
+    Database.query(sql: `INSERT INTO users ...`)?
+    Ok(Response.created())
+}
 ```
 
 Adding `Metrics` to the service layer requires changing only the capset:
@@ -448,22 +448,22 @@ capset ServiceDeps = Net, Observability, Database, Metrics, Suspend
 ```ori
 capset ServiceDeps = Net, Observability, Database, Suspend
 
-@with_test_service<R> (body: () -> R) -> R = run(
-    let http = MockHttp { responses: {} },
-    let dns = MockDns {},
-    let tls = MockTls {},
-    let logger = MockLogger { messages: [] },
-    let db = MockDatabase { queries: [] },
+@with_test_service<R> (body: () -> R) -> R = {
+    let http = MockHttp { responses: {} }
+    let dns = MockDns {}
+    let tls = MockTls {}
+    let logger = MockLogger { messages: [] }
+    let db = MockDatabase { queries: [] }
 
     with Http = http, Dns = dns, Tls = tls, Logger = logger, Database = db in
-        body(),
-)
+        body()
+}
 
 @test_get_user tests @handle_get_user () -> void =
-    with_test_service(body: () -> void = run(
-        let response = handle_get_user(id: 1)?,
-        assert_eq(actual: response.status, expected: 200),
-    ))
+    with_test_service(body: () -> void = {
+        let response = handle_get_user(id: 1)?
+        assert_eq(actual: response.status, expected: 200)
+    })
 ```
 
 ### Layered Capsets

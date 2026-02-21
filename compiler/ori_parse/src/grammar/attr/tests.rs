@@ -58,7 +58,7 @@ fn test_parse_skip_attribute() {
     let (result, _interner) = parse_with_errors(
         r#"
 #[skip("not implemented")]
-@test_example () -> void = print(msg: "test")
+@test_example () -> void = print(msg: "test");
 "#,
     );
 
@@ -73,7 +73,7 @@ fn test_parse_compile_fail_attribute() {
     let (result, _interner) = parse_with_errors(
         r#"
 #[compile_fail("type error")]
-@test_should_fail () -> void = print(msg: "test")
+@test_should_fail () -> void = print(msg: "test");
 "#,
     );
 
@@ -89,7 +89,7 @@ fn test_parse_fail_attribute() {
     let (result, _interner) = parse_with_errors(
         r#"
 #[fail("assertion failed")]
-@test_expect_failure () -> void = panic(msg: "expected failure")
+@test_expect_failure () -> void = panic(msg: "expected failure");
 "#,
     );
 
@@ -104,7 +104,7 @@ fn test_parse_derive_attribute() {
     let (result, _interner) = parse_with_errors(
         r#"
 #[derive(Eq, Clone)]
-@test_with_derive () -> void = print(msg: "test")
+@test_with_derive () -> void = print(msg: "test");
 "#,
     );
 
@@ -116,7 +116,7 @@ fn test_parse_unknown_attribute() {
     let (result, _interner) = parse_with_errors(
         r#"
 #[unknown("value")]
-@test_unknown () -> void = print(msg: "test")
+@test_unknown () -> void = print(msg: "test");
 "#,
     );
 
@@ -133,7 +133,7 @@ fn test_parse_attribute_missing_paren() {
     let (result, _interner) = parse_with_errors(
         r"
 #[skip]
-@test_bad () -> void = assert(cond: true)
+@test_bad () -> void = assert(cond: true);
 ",
     );
 
@@ -146,7 +146,7 @@ fn test_parse_attribute_missing_string() {
     let (result, _interner) = parse_with_errors(
         r"
 #[skip()]
-@test_bad () -> void = assert(cond: true)
+@test_bad () -> void = assert(cond: true);
 ",
     );
 
@@ -161,7 +161,7 @@ fn test_parse_multiple_attributes() {
         r#"
 #[skip("reason")]
 #[fail("expected")]
-@test_multi () -> void = print(msg: "test")
+@test_multi () -> void = print(msg: "test");
 "#,
     );
 
@@ -176,7 +176,7 @@ fn test_parse_skip_attribute_no_brackets() {
     let (result, _interner) = parse_with_errors(
         r#"
 #skip("not implemented")
-@test_example () -> void = print(msg: "test")
+@test_example () -> void = print(msg: "test");
 "#,
     );
 
@@ -191,7 +191,7 @@ fn test_parse_compile_fail_attribute_no_brackets() {
     let (result, _interner) = parse_with_errors(
         r#"
 #compile_fail("type error")
-@test_should_fail () -> void = print(msg: "test")
+@test_should_fail () -> void = print(msg: "test");
 "#,
     );
 
@@ -207,7 +207,7 @@ fn test_parse_fail_attribute_no_brackets() {
     let (result, _interner) = parse_with_errors(
         r#"
 #fail("assertion failed")
-@test_expect_failure () -> void = panic(msg: "expected failure")
+@test_expect_failure () -> void = panic(msg: "expected failure");
 "#,
     );
 
@@ -234,7 +234,7 @@ fn test_parse_compile_fail_extended_no_brackets() {
     let (result, _interner) = parse_with_errors(
         r#"
 #compile_fail(message: "type mismatch", code: "E2001")
-@test_extended () -> void = print(msg: "test")
+@test_extended () -> void = print(msg: "test");
 "#,
     );
 
@@ -249,28 +249,28 @@ fn test_parse_compile_fail_extended_no_brackets() {
 
 #[test]
 fn test_file_attr_target_parses() {
-    let (result, _) = parse_with_errors("#!target(os: \"linux\")\n@main () -> void = ()");
+    let (result, _) = parse_with_errors("#!target(os: \"linux\")\n@main () -> void = ();");
     assert!(!result.has_errors(), "errors: {:?}", result.errors);
     assert!(result.module.file_attr.is_some());
 }
 
 #[test]
 fn test_file_attr_cfg_parses() {
-    let (result, _) = parse_with_errors("#!cfg(debug)\n@main () -> void = ()");
+    let (result, _) = parse_with_errors("#!cfg(debug)\n@main () -> void = ();");
     assert!(!result.has_errors(), "errors: {:?}", result.errors);
     assert!(result.module.file_attr.is_some());
 }
 
 #[test]
 fn test_file_attr_none_when_absent() {
-    let (result, _) = parse_with_errors("@main () -> void = ()");
+    let (result, _) = parse_with_errors("@main () -> void = ();");
     assert!(!result.has_errors(), "errors: {:?}", result.errors);
     assert!(result.module.file_attr.is_none());
 }
 
 #[test]
 fn test_file_attr_does_not_consume_item_attr() {
-    let (result, _) = parse_with_errors("#skip(\"reason\")\n@test_foo () -> void = ()");
+    let (result, _) = parse_with_errors("#skip(\"reason\")\n@test_foo () -> void = ();");
     assert!(!result.has_errors(), "errors: {:?}", result.errors);
     assert!(
         result.module.file_attr.is_none(),

@@ -6,7 +6,15 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **PRIORITY BLOCKER — Do This First**: Section 10.7 `catch(expr)` pattern must be implemented before other roadmap work. `assert_panics` depends on `catch`, and 16 spec tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) are `#skip`ped until it lands. Without `catch`, panic-related tests cannot verify correct behavior.
+> **~~PRIORITY BLOCKER~~ RESOLVED (2026-02-19)**: Section 10.7 `catch(expr)` — implemented across all interpreter phases. `assert_panics` works via `library/std/testing.ori`. All 16 previously-skipped tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) now pass. LLVM codegen for catch remains simplified (placeholder).
+
+---
+
+> **~~PRIORITY ESCALATION~~ RESOLVED (2026-02-20)**: Section 15D.3 `$` immutability enforcement — block expression syntax (`{ }` with `;`), old `run()`/`match()`/`try()`/`loop()` syntax removed, compile-time immutability enforcement (E2039), all 229+ test files migrated. Remaining 15D.3 items: `mut` keyword removal, `$x`/`x` scope conflicts, module-level immutability.
+
+---
+
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-20)**: `plans/block_unify/` — Block Unification complete. `FunctionSeq::Run` / `SeqBinding` eliminated. Single `ExprKind::Block` + `StmtKind` representation (Gleam pattern). TypeEnv parallel maps merged into single `Binding` struct. Parser block parsing deduplicated via `collect_block_stmts()`. All 5 sections complete, 10,219 tests passing.
 
 ---
 
@@ -89,6 +97,9 @@ default type parameters, default associated types
 inherent impl, trait impl, generic impl
 trait resolution, method resolution, dispatch
 Formattable, format spec, padding, alignment
+with syntax, T with Trait, capability unification
+bound syntax, generic bounds, where clause bounds
+supertrait with, trait Foo with Bar
 ```
 
 ---
@@ -124,6 +135,8 @@ Option, Some, None, optional
 Result, Ok, Err, error handling
 Ordering, Less, Equal, Greater
 List, Map, Set, collections
+with clause, type T with Eq, derive replacement
+capability unification, structural capabilities
 Tuple, tuple type, (T, U)
 Range, range type, iterator
 Function type, (T) -> U, callable
@@ -178,6 +191,7 @@ unreachable, unreachable!
 dbg, debug print, debug output
 repeat, infinite iterator
 compile_error, build error
+embed, has_embed, file embedding, compile-time embedding
 PanicInfo, panic handler, @panic
 drop_early, early destruction
 ```
@@ -455,7 +469,7 @@ overload, operator trait
 ---
 
 ### Section 15D: Bindings & Types
-**File:** `section-15D-bindings-types.md` | **Tier:** 5 | **Status:** Not Started
+**File:** `section-15D-bindings-types.md` | **Tier:** 1 | **Status:** Not Started (escalated from Tier 5)
 
 ```
 let, binding, variable
@@ -513,6 +527,9 @@ const bound, N > 0
 const constraint, where N
 const arithmetic, N + 1
 fixed size, [T, max N]
+const eligibility, Eq + Hashable, capability unification
+associated consts, $rank: int, trait consts
+const functions in types, $product, $len
 ```
 
 ---
@@ -632,7 +649,7 @@ ori publish, registry, cache
 | 15A | Attributes & Comments | 5 | `section-15A-attributes-comments.md` |
 | 15B | Function Syntax | 5 | `section-15B-function-syntax.md` |
 | 15C | Literals & Operators | 5 | `section-15C-literals-operators.md` |
-| 15D | Bindings & Types | 5 | `section-15D-bindings-types.md` |
+| 15D | Bindings & Types | 1 | `section-15D-bindings-types.md` |
 | 16 | Async | 6 | `section-16-async.md` |
 | 17 | Concurrency | 6 | `section-17-concurrency.md` |
 | 18 | Const Generics | 7 | `section-18-const-generics.md` |

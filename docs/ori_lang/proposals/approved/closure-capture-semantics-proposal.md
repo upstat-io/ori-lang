@@ -89,10 +89,10 @@ The captured value itself is immutable within the closure — closures cannot mo
 
 ```ori
 let x = 10
-let f = () -> run(
+let f = () -> {
     x = 20,  // ERROR: cannot mutate captured binding
-    x,
-)
+    x
+}
 ```
 
 ### Rebinding Inside Closure
@@ -101,10 +101,10 @@ A closure can shadow a captured binding with a local one:
 
 ```ori
 let x = 10
-let f = () -> run(
+let f = () -> {
     let x = 20,  // Shadows captured x (new local binding)
     x,           // Returns 20
-)
+}
 f()  // Returns 20
 ```
 
@@ -117,12 +117,12 @@ f()  // Returns 20
 Closures passed to `parallel`, `spawn`, or `nursery` must capture only `Sendable` values:
 
 ```ori
-@spawn_closure () -> void uses Suspend = run(
+@spawn_closure () -> void uses Suspend = {
     let data = create_sendable_data(),  // data: Sendable
     parallel(
         tasks: [() -> process(data)],   // OK: data is Sendable
-    ),
-)
+    )
+}
 ```
 
 ### Non-Sendable Capture Error
@@ -130,12 +130,12 @@ Closures passed to `parallel`, `spawn`, or `nursery` must capture only `Sendable
 ```ori
 type Handle = { fd: FileDescriptor }  // NOT Sendable
 
-@bad_spawn () -> void uses Suspend = run(
+@bad_spawn () -> void uses Suspend = {
     let h = get_handle(),  // h: Handle
     parallel(
         tasks: [() -> use_handle(h)],  // ERROR: Handle is not Sendable
-    ),
-)
+    )
+}
 ```
 
 Error message:
@@ -155,13 +155,13 @@ error[E0700]: closure captures non-Sendable type
 When a closure is passed to a task-spawning pattern (`parallel`, `spawn`, `nursery`), captured values are **moved** into the task. The original binding becomes inaccessible after the capture point:
 
 ```ori
-@move_example () -> void uses Suspend = run(
-    let data = create_data(),
+@move_example () -> void uses Suspend = {
+    let data = create_data()
     parallel(
         tasks: [() -> process(data)],  // data captured and moved
-    ),
+    )
     print(msg: data.field),  // ERROR: data is no longer accessible
-)
+}
 ```
 
 This restriction prevents data races by ensuring no two tasks can observe the same mutable data.
@@ -225,10 +225,10 @@ adder(10)  // 15
 Because closures capture by value, escaping is always safe — the closure owns its captured data:
 
 ```ori
-@safe_escape () -> () -> int = run(
+@safe_escape () -> () -> int = {
     let local = compute_value(),  // local exists in this scope
     () -> local,                  // Closure captures local's value
-)  // local goes out of scope, but closure has its own copy
+}  // local goes out of scope, but closure has its own copy
 
 let f = safe_escape()
 f()  // Safe: closure has its own copy of the value
@@ -309,13 +309,13 @@ This common pattern from other languages doesn't work in Ori due to capture-by-v
 
 ```ori
 // This does NOT create a working counter
-@make_counter () -> () -> int = run(
-    let count = 0,
-    () -> run(
+@make_counter () -> () -> int = {
+    let count = 0
+    () -> {
         count = count + 1,  // ERROR: cannot mutate captured binding
-        count,
-    ),
-)
+        count
+    }
+}
 ```
 
 ### Correct Counter (Using State)

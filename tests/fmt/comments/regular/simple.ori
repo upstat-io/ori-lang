@@ -1,2 +1,2 @@
 // This is a comment
-@foo () -> int = 42
+@foo () -> int = 42;

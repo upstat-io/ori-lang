@@ -147,19 +147,17 @@ impl<T: Debug> Debug for Set<T> {
 }
 
 impl<T: Debug> Debug for Option<T> {
-    @debug (self) -> str = match(
-        self,
-        Some(v) -> "Some(" + v.debug() + ")",
-        None -> "None",
-    )
+    @debug (self) -> str = match self {
+        Some(v) -> "Some(" + v.debug() + ")"
+        None -> "None"
+    }
 }
 
 impl<T: Debug, E: Debug> Debug for Result<T, E> {
-    @debug (self) -> str = match(
-        self,
-        Ok(v) -> "Ok(" + v.debug() + ")",
-        Err(e) -> "Err(" + e.debug() + ")",
-    )
+    @debug (self) -> str = match self {
+        Ok(v) -> "Ok(" + v.debug() + ")"
+        Err(e) -> "Err(" + e.debug() + ")"
+    }
 }
 
 impl<A: Debug, B: Debug> Debug for (A, B) {
@@ -260,12 +258,12 @@ config.debug()
 ### Debug in Error Messages
 
 ```ori
-@process<T: Debug> (value: T) -> Result<Output, str> = run(
+@process<T: Debug> (value: T) -> Result<Output, str> = {
     if !is_valid(value: value) then
         Err("invalid value: " + value.debug())
     else
-        Ok(compute(value: value)),
-)
+        Ok(compute(value: value))
+}
 ```
 
 ### Debug Constraints in Generics
@@ -285,10 +283,10 @@ config.debug()
 The `Debug` trait enables the `dbg` function (separate proposal):
 
 ```ori
-@dbg<T: Debug> (value: T) -> T = run(
-    print(msg: "[" + location() + "] " + value.debug()),
-    value,
-)
+@dbg<T: Debug> (value: T) -> T = {
+    print(msg: "[" + location() + "] " + value.debug())
+    value
+}
 ```
 
 Without `Debug`, `dbg` couldn't show the value's structure.

@@ -43,6 +43,7 @@ pub mod canon;
 mod comment;
 mod derives;
 mod expr_id;
+pub mod format_spec;
 pub mod incremental;
 mod interner;
 mod metadata;
@@ -67,9 +68,6 @@ pub use ast::{
     CapabilityRef,
     // Conditional compilation attribute types
     CfgAttr,
-    // Check types
-    CheckExpr,
-    CheckRange,
     // Constant definition
     ConstDef,
     // Default implementation types
@@ -114,14 +112,12 @@ pub use ast::{
     MatchArm,
     MatchPattern,
     Module,
+    Mutability,
     // function_exp types
     NamedExpr,
     NamedExprRange,
     Param,
     ParamRange,
-    // function_seq types
-    SeqBinding,
-    SeqBindingRange,
     Stmt,
     StmtKind,
     StructField,
@@ -154,7 +150,8 @@ pub use ast::{
 };
 pub use builtin_type::BuiltinType;
 pub use comment::{Comment, CommentKind, CommentList};
-pub use derives::{DerivedMethodInfo, DerivedTrait};
+pub use derives::strategy::{CombineOp, DeriveStrategy, FieldOp, FormatOpen, StructBody, SumBody};
+pub use derives::{DerivedMethodInfo, DerivedMethodShape, DerivedTrait};
 pub use expr_id::{
     BindingPatternId, ExprId, ExprRange, FunctionExpId, FunctionSeqId, MatchPatternId,
     MatchPatternRange, ParsedTypeId, ParsedTypeRange, StmtId, StmtRange,

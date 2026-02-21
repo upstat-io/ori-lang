@@ -13,10 +13,10 @@ This section details the implementation of each LSP feature.
 
 | Feature | Status | LSP Method | Notes |
 |---------|--------|------------|-------|
-| Diagnostics | ⚠️ Partial | `publishDiagnostics` | Lex/parse errors only, no type errors |
+| Diagnostics | ✅ Working | `publishDiagnostics` | Lex, parse, and type errors (via `oric::type_check()`) |
 | Hover | ⚠️ Partial | `textDocument/hover` | Function signatures and type definitions only |
-| Go to Definition | ⚠️ Partial | `textDocument/definition` | No semantic resolution yet |
-| Completions | ⚠️ Partial | `textDocument/completion` | Keywords and snippets only, no semantic completions |
+| Go to Definition | ✅ Working | `textDocument/definition` | Finds definitions within current document |
+| Completions | ⚠️ Partial | `textDocument/completion` | Keywords, snippets, and functions from current document |
 | Formatting | ✅ Working | `textDocument/formatting` | Full document formatting via `ori_fmt` |
 | Find References | ❌ Not Implemented | `textDocument/references` | |
 | Document Symbols | ❌ Not Implemented | `textDocument/documentSymbol` | |
@@ -58,7 +58,7 @@ The following pages describe both the current implementation and planned enhance
 
 | Feature | Current | Planned |
 |---------|---------|---------|
-| [Diagnostics](diagnostics.md) | Lex/parse errors only (no type errors yet) | Type errors, semantic errors, warnings |
+| [Diagnostics](diagnostics.md) | Lex, parse, and type errors | Semantic errors, warnings, SuggestedFix |
 | [Formatting](formatting.md) | Full document format | Selection formatting |
 | [Hover](hover.md) | Function/type signatures | Expression types, doc comments |
 
@@ -119,6 +119,8 @@ pub fn span_to_lsp_range(text: &str, span: Span) -> Range {
 ```
 
 ### Analysis Results
+
+> **Note**: The `AnalysisResult` and `DocumentState` structs below are not yet implemented. The actual `Document` struct is simpler: it stores `text: String`, `module: Option<Module>`, and `diagnostics: Vec<Diagnostic>`. There is no separate `TypeContext`, `parse_errors` list, or lazy analysis cache.
 
 Features share analysis results from the document cache:
 
@@ -261,31 +263,6 @@ pub fn handle_hover(&mut self, params: HoverParams) -> Option<Hover> {
 ```
 
 ## Future Features (Phase 2+)
-
-### Go to Definition
-
-Find where a symbol is defined:
-
-```rust
-pub fn definition(
-    docs: &DocumentManager,
-    params: DefinitionParams,
-) -> Option<Location> {
-    let doc = docs.get(&params.uri)?;
-    let node = doc.ast()?.node_at(params.position)?;
-
-    match node {
-        Node::Identifier(name) => {
-            let def = doc.types()?.definition_of(name)?;
-            Some(Location {
-                uri: def.file.clone(),
-                range: span_to_range(&def.span),
-            })
-        }
-        _ => None,
-    }
-}
-```
 
 ### Find References
 

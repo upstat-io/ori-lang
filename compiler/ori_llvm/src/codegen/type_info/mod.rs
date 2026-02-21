@@ -92,6 +92,8 @@ pub enum TypeInfo {
     Struct { fields: Vec<(Name, Idx)> },
     /// User-defined enum -> {tag, max(variant payloads)}
     Enum { variants: Vec<EnumVariantInfo> },
+    /// `Iterator<T>` -> ptr (opaque heap-allocated iterator handle)
+    Iterator { element: Idx },
     /// `chan<T>` -> ptr (opaque heap-allocated channel)
     Channel { element: Idx },
     /// `(P1, ...) -> R` -> ptr (function pointer or closure pointer)
@@ -193,8 +195,8 @@ impl TypeInfo {
                 scx.type_struct(&fields, false).into()
             }
 
-            // Channel: opaque heap-allocated handle
-            Self::Channel { .. } => scx.type_ptr().into(),
+            // Iterator / Channel: opaque heap-allocated handles
+            Self::Iterator { .. } | Self::Channel { .. } => scx.type_ptr().into(),
 
             // Function: fat-pointer closure { fn_ptr: ptr, env_ptr: ptr }
             // All function-typed values use this two-pointer representation,
@@ -236,6 +238,7 @@ impl TypeInfo {
             | Self::Size
             | Self::Unit
             | Self::Never
+            | Self::Iterator { .. }
             | Self::Channel { .. }
             | Self::Error => Some(8),
 
@@ -307,6 +310,7 @@ impl TypeInfo {
             | Self::List { .. }
             | Self::Map { .. }
             | Self::Set { .. }
+            | Self::Iterator { .. }
             | Self::Channel { .. }
             | Self::Function { .. }
             | Self::Option { .. }
@@ -519,6 +523,7 @@ impl<'tcx> TypeInfoStore<'tcx> {
             | TypeInfo::List { .. }
             | TypeInfo::Map { .. }
             | TypeInfo::Set { .. }
+            | TypeInfo::Iterator { .. }
             | TypeInfo::Channel { .. }
             | TypeInfo::Function { .. } => false,
 
@@ -665,14 +670,10 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 TypeInfo::Error
             }
 
-            // Iterators are interpreter-only for now (Phase 1: no LLVM codegen).
-            Tag::Iterator | Tag::DoubleEndedIterator => {
-                tracing::warn!(
-                    ?idx,
-                    "Iterator type at codegen — not yet implemented in LLVM backend"
-                );
-                TypeInfo::Error
-            }
+            // Iterator: opaque heap-allocated handle (runtime pointer).
+            Tag::Iterator | Tag::DoubleEndedIterator => TypeInfo::Iterator {
+                element: self.pool.iterator_elem(idx),
+            },
 
             // These tags should genuinely never reach codegen.
             Tag::BoundVar
@@ -814,6 +815,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             | TypeInfo::List { .. }
             | TypeInfo::Map { .. }
             | TypeInfo::Set { .. }
+            | TypeInfo::Iterator { .. }
             | TypeInfo::Channel { .. }
             | TypeInfo::Function { .. }
             | TypeInfo::Error => info.storage_type(self.scx),

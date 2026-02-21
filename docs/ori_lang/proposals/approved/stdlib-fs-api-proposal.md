@@ -401,11 +401,11 @@ Usage:
 ```ori
 use std.fs { with_temp_file }
 
-let result = with_temp_file(prefix: "work", action: temp -> run(
-    write(path: temp.to_str(), content: data)?,
-    process_file(temp),
+let result = with_temp_file(prefix: "work", action: temp -> {
+    write(path: temp.to_str(), content: data)?
+    process_file(temp)
     // temp file automatically deleted after this block
-))?
+})?
 ```
 
 ---
@@ -473,18 +473,18 @@ let rel = relative(from: "/home/user", to: "/home/user/project/src")?
 use std.fs { read, exists }
 use std.json { parse_as }
 
-@load_config () -> Result<Config, Error> uses FileSystem = run(
-    let paths = ["config.json", "~/.config/myapp/config.json", "/etc/myapp/config.json"],
-    let config_path = paths.find(p -> exists(path: p)),
+@load_config () -> Result<Config, Error> uses FileSystem = {
+    let paths = ["config.json", "~/.config/myapp/config.json", "/etc/myapp/config.json"]
+    let config_path = paths.find(p -> exists(path: p))
 
-    match(config_path,
-        Some(path) -> run(
-            let content = read(path: path)?,
-            parse_as<Config>(source: content),
-        ),
-        None -> Ok(Config.default()),
-    ),
-)
+    match config_path {
+        Some(path) -> {
+            let content = read(path: path)?
+            parse_as<Config>(source: content)
+        }
+        None -> Ok(Config.default())
+    }
+}
 ```
 
 ### Directory Backup
@@ -492,22 +492,22 @@ use std.json { parse_as }
 ```ori
 use std.fs { walk_dir, copy, create_dir_all, Path }
 
-@backup_dir (source: str, dest: str) -> Result<int, Error> uses FileSystem = run(
-    let files = walk_dir(path: source)?,
-    let source_path = Path.from_str(source),
-    let count = 0,
+@backup_dir (source: str, dest: str) -> Result<int, Error> uses FileSystem = {
+    let files = walk_dir(path: source)?
+    let source_path = Path.from_str(source)
+    let count = 0
 
     for info in files do
-        if info.is_file then run(
-            let rel = info.path.relative_to(base: source_path).unwrap(),
-            let target = Path.from_str(dest).join(other: rel),
-            create_dir_all(path: target.parent().unwrap().to_str())?,
-            copy(from: info.path.to_str(), to: target.to_str())?,
-            count = count + 1,
-        ),
+        if info.is_file then {
+            let rel = info.path.relative_to(base: source_path).unwrap()
+            let target = Path.from_str(dest).join(other: rel)
+            create_dir_all(path: target.parent().unwrap().to_str())?
+            copy(from: info.path.to_str(), to: target.to_str())?
+            count = count + 1
+        }
 
-    Ok(count),
-)
+    Ok(count)
+}
 ```
 
 ### Log File Rotation
@@ -515,24 +515,24 @@ use std.fs { walk_dir, copy, create_dir_all, Path }
 ```ori
 use std.fs { exists, move, remove, info }
 
-@rotate_logs (base_path: str, max_files: int) -> Result<void, Error> uses FileSystem = run(
+@rotate_logs (base_path: str, max_files: int) -> Result<void, Error> uses FileSystem = {
     // Rotate existing logs
-    for i in (max_files - 1)..0 by -1 do run(
-        let current = `{base_path}.{i}`,
-        let next = `{base_path}.{i + 1}`,
+    for i in (max_files - 1)..0 by -1 do {
+        let current = `{base_path}.{i}`
+        let next = `{base_path}.{i + 1}`
         if exists(path: current) then
             if i == max_files - 1 then
                 remove(path: current)?
             else
-                move(from: current, to: next)?,
-    ),
+                move(from: current, to: next)?
+    }
 
     // Rotate current to .1
     if exists(path: base_path) then
-        move(from: base_path, to: `{base_path}.1`)?,
+        move(from: base_path, to: `{base_path}.1`)?
 
-    Ok(()),
-)
+    Ok(())
+}
 ```
 
 ---

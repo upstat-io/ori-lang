@@ -1,20 +1,11 @@
 use super::*;
-use crate::{ExprId, MatchPattern};
+use crate::{ExprId, MatchPattern, StmtRange};
 
 #[test]
 fn test_function_seq_name_all_variants() {
-    // Verify all 4 FunctionSeq variants return correct names
-    let run = FunctionSeq::Run {
-        pre_checks: CheckRange::EMPTY,
-        bindings: SeqBindingRange::EMPTY,
-        result: ExprId::new(0),
-        post_checks: CheckRange::EMPTY,
-        span: Span::new(0, 10),
-    };
-    assert_eq!(run.name(), "run");
-
+    // Verify all 3 FunctionSeq variants return correct names
     let try_seq = FunctionSeq::Try {
-        bindings: SeqBindingRange::EMPTY,
+        stmts: StmtRange::EMPTY,
         result: ExprId::new(0),
         span: Span::new(0, 10),
     };
@@ -44,19 +35,9 @@ fn test_function_seq_name_all_variants() {
 
 #[test]
 fn test_function_seq_span_all_variants() {
-    let run_span = Span::new(0, 10);
-    let run = FunctionSeq::Run {
-        pre_checks: CheckRange::EMPTY,
-        bindings: SeqBindingRange::EMPTY,
-        result: ExprId::new(0),
-        post_checks: CheckRange::EMPTY,
-        span: run_span,
-    };
-    assert_eq!(run.span(), run_span);
-
     let try_span = Span::new(5, 20);
     let try_seq = FunctionSeq::Try {
-        bindings: SeqBindingRange::EMPTY,
+        stmts: StmtRange::EMPTY,
         result: ExprId::new(0),
         span: try_span,
     };
@@ -90,15 +71,13 @@ fn test_function_seq_span_all_variants() {
 fn test_function_seq_spanned_trait() {
     use crate::Spanned;
 
-    let run = FunctionSeq::Run {
-        pre_checks: CheckRange::EMPTY,
-        bindings: SeqBindingRange::EMPTY,
+    let try_seq = FunctionSeq::Try {
+        stmts: StmtRange::EMPTY,
         result: ExprId::new(0),
-        post_checks: CheckRange::EMPTY,
         span: Span::new(100, 200),
     };
 
     // Test that Spanned trait works correctly
-    let spanned: &dyn Spanned = &run;
+    let spanned: &dyn Spanned = &try_seq;
     assert_eq!(spanned.span(), Span::new(100, 200));
 }

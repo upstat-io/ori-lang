@@ -24,7 +24,7 @@ trait Counter {
 
 trait Describable {
     @describe (self) -> str
-    @summarize (self) -> str = "Summary: " + self.describe()
+    @summarize (self) -> str = "Summary: " + self.describe();
 }
 
 // =============================================================================
@@ -45,62 +45,62 @@ type Widget = { name: str, value: int }
 // Inherent impl
 impl Widget {
     @new (name: str, value: int) -> Widget = Widget { name, value }
-    @get_name (self) -> str = self.name
-    @get_value (self) -> int = self.value
+    @get_name (self) -> str = self.name;
+    @get_value (self) -> int = self.value;
 }
 
 // Trait impl
 impl Greeter for Widget {
-    @greet (self) -> str = "Hello from " + self.name
+    @greet (self) -> str = "Hello from " + self.name;
 }
 
 impl Describable for Widget {
-    @describe (self) -> str = "Widget(" + self.name + ", " + str(self.value) + ")"
+    @describe (self) -> str = "Widget(" + self.name + ", " + str(self.value) + ")";
 }
 
 // =============================================================================
 // Tests
 // =============================================================================
 
-@test_inherent_impl tests @get_name () -> void = run(
-    let widget = Widget { name: "test", value: 42 },
+@test_inherent_impl tests @get_name () -> void = {
+    let widget = Widget { name: "test", value: 42 };
     assert_eq(
         actual: widget.get_name(),
         expected: "test",
-    ),
-)
+    )
+}
 
-@test_inherent_impl_value tests @get_value () -> void = run(
-    let widget = Widget { name: "test", value: 42 },
+@test_inherent_impl_value tests @get_value () -> void = {
+    let widget = Widget { name: "test", value: 42 };
     assert_eq(
         actual: widget.get_value(),
         expected: 42,
-    ),
-)
+    )
+}
 
-@test_trait_impl tests @greet () -> void = run(
-    let widget = Widget { name: "Widget1", value: 10 },
+@test_trait_impl tests @greet () -> void = {
+    let widget = Widget { name: "Widget1", value: 10 };
     assert_eq(
         actual: widget.greet(),
         expected: "Hello from Widget1",
-    ),
-)
+    )
+}
 
-@test_describe tests @describe () -> void = run(
-    let widget = Widget { name: "Foo", value: 5 },
+@test_describe tests @describe () -> void = {
+    let widget = Widget { name: "Foo", value: 5 };
     assert_eq(
         actual: widget.describe(),
         expected: "Widget(Foo, 5)",
-    ),
-)
+    )
+}
 
-@test_default_method tests @summarize () -> void = run(
-    let widget = Widget { name: "Bar", value: 7 },
+@test_default_method tests @summarize () -> void = {
+    let widget = Widget { name: "Bar", value: 7 };
     assert_eq(
         actual: widget.summarize(),
         expected: "Summary: Widget(Bar, 7)",
-    ),
-)
+    )
+}
 
 // =============================================================================
 // Extended Trait Tests — Complex Scenarios
@@ -119,47 +119,47 @@ impl Calculator for Number {
     @subtract (self, other: Number) -> Number = Number { value: self.value - other.value }
 }
 
-@test_calc_add tests @calc_add () -> void = run(
-    let a = Number { value: 10 },
-    let b = Number { value: 5 },
-    let result = a.add(other: b),
-    assert_eq(actual: result.value, expected: 15),
-)
+@test_calc_add tests @calc_add () -> void = {
+    let a = Number { value: 10 };
+    let b = Number { value: 5 };
+    let result = a.add(other: b);
+    assert_eq(actual: result.value, expected: 15)
+}
 
-@calc_add () -> int = run(
-    let a = Number { value: 10 },
-    let b = Number { value: 5 },
-    a.add(other: b).value,
-)
+@calc_add () -> int = {
+    let a = Number { value: 10 };
+    let b = Number { value: 5 };
+    a.add(other: b).value
+}
 
-@test_calc_subtract tests @calc_subtract () -> void = run(
-    let a = Number { value: 10 },
-    let b = Number { value: 3 },
-    let result = a.subtract(other: b),
-    assert_eq(actual: result.value, expected: 7),
-)
+@test_calc_subtract tests @calc_subtract () -> void = {
+    let a = Number { value: 10 };
+    let b = Number { value: 3 };
+    let result = a.subtract(other: b);
+    assert_eq(actual: result.value, expected: 7)
+}
 
-@calc_subtract () -> int = run(
-    let a = Number { value: 10 },
-    let b = Number { value: 3 },
-    a.subtract(other: b).value,
-)
+@calc_subtract () -> int = {
+    let a = Number { value: 10 };
+    let b = Number { value: 3 };
+    a.subtract(other: b).value
+}
 
 // Trait method chaining
-@test_method_chain tests @method_chain () -> void = run(
-    let a = Number { value: 10 },
-    let b = Number { value: 3 },
-    let c = Number { value: 2 },
-    let result = a.add(other: b).subtract(other: c),
-    assert_eq(actual: result.value, expected: 11),
-)
+@test_method_chain tests @method_chain () -> void = {
+    let a = Number { value: 10 };
+    let b = Number { value: 3 };
+    let c = Number { value: 2 };
+    let result = a.add(other: b).subtract(other: c);
+    assert_eq(actual: result.value, expected: 11)
+}
 
-@method_chain () -> int = run(
-    let a = Number { value: 10 },
-    let b = Number { value: 3 },
-    let c = Number { value: 2 },
-    a.add(other: b).subtract(other: c).value,
-)
+@method_chain () -> int = {
+    let a = Number { value: 10 };
+    let b = Number { value: 3 };
+    let c = Number { value: 2 };
+    a.add(other: b).subtract(other: c).value
+}
 
 // Multiple traits on same type
 trait Printable {
@@ -167,22 +167,22 @@ trait Printable {
 }
 
 impl Printable for Number {
-    @to_string (self) -> str = "Number(" + str(self.value) + ")"
+    @to_string (self) -> str = "Number(" + str(self.value) + ")";
 }
 
-@test_multiple_traits tests @multiple_traits () -> void = run(
-    let n = Number { value: 42 },
+@test_multiple_traits tests @multiple_traits () -> void = {
+    let n = Number { value: 42 };
     // Can call both Calculator and Printable methods
-    let doubled = n.add(other: n),
-    let s = n.to_string(),
-    assert_eq(actual: doubled.value, expected: 84),
-    assert_eq(actual: s, expected: "Number(42)"),
-)
+    let doubled = n.add(other: n);
+    let s = n.to_string();
+    assert_eq(actual: doubled.value, expected: 84);
+    assert_eq(actual: s, expected: "Number(42)")
+}
 
-@multiple_traits () -> str = run(
-    let n = Number { value: 42 },
-    n.to_string(),
-)
+@multiple_traits () -> str = {
+    let n = Number { value: 42 };
+    n.to_string()
+}
 
 // Instance methods on struct type
 type Point = { x: int, y: int }
@@ -190,80 +190,80 @@ type Point = { x: int, y: int }
 impl Point {
     @new (x: int, y: int) -> Point = Point { x, y }
     @origin () -> Point = Point { x: 0, y: 0 }
-    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y
+    @distance_from_origin (self) -> int = self.x * self.x + self.y * self.y;
 }
 
-@test_point_new tests @point_new () -> void = run(
-    let p = Point.new(x: 3, y: 4),
-    assert_eq(actual: p.x, expected: 3),
-    assert_eq(actual: p.y, expected: 4),
-)
+@test_point_new tests @point_new () -> void = {
+    let p = Point.new(x: 3, y: 4);
+    assert_eq(actual: p.x, expected: 3);
+    assert_eq(actual: p.y, expected: 4)
+}
 
-@point_new () -> int = run(
-    let p = Point.new(x: 3, y: 4),
-    p.x,
-)
+@point_new () -> int = {
+    let p = Point.new(x: 3, y: 4);
+    p.x
+}
 
-@test_point_origin tests @point_origin () -> void = run(
-    let p = Point.origin(),
-    assert_eq(actual: p.x, expected: 0),
-    assert_eq(actual: p.y, expected: 0),
-)
+@test_point_origin tests @point_origin () -> void = {
+    let p = Point.origin();
+    assert_eq(actual: p.x, expected: 0);
+    assert_eq(actual: p.y, expected: 0)
+}
 
-@point_origin () -> int = run(
-    let p = Point.origin(),
-    p.x,
-)
+@point_origin () -> int = {
+    let p = Point.origin();
+    p.x
+}
 
-@test_point_distance tests @point_distance () -> void = run(
-    let p = Point { x: 3, y: 4 },
+@test_point_distance tests @point_distance () -> void = {
+    let p = Point { x: 3, y: 4 };
     // 3*3 + 4*4 = 9 + 16 = 25
-    assert_eq(actual: p.distance_from_origin(), expected: 25),
-)
+    assert_eq(actual: p.distance_from_origin(), expected: 25)
+}
 
-@point_distance () -> int = run(
-    let p = Point { x: 3, y: 4 },
-    p.distance_from_origin(),
-)
+@point_distance () -> int = {
+    let p = Point { x: 3, y: 4 };
+    p.distance_from_origin()
+}
 
 // Default method that calls other methods
 trait Shape {
     @area (self) -> int
     @perimeter (self) -> int
-    @is_large (self) -> bool = self.area() > 100
+    @is_large (self) -> bool = self.area() > 100;
 }
 
 type Rectangle = { width: int, height: int }
 
 impl Shape for Rectangle {
-    @area (self) -> int = self.width * self.height
-    @perimeter (self) -> int = 2 * (self.width + self.height)
+    @area (self) -> int = self.width * self.height;
+    @perimeter (self) -> int = 2 * (self.width + self.height);
 }
 
-@test_rect_area tests @rect_area () -> void = run(
-    let r = Rectangle { width: 10, height: 5 },
-    assert_eq(actual: r.area(), expected: 50),
-)
+@test_rect_area tests @rect_area () -> void = {
+    let r = Rectangle { width: 10, height: 5 };
+    assert_eq(actual: r.area(), expected: 50)
+}
 
-@rect_area () -> int = Rectangle { width: 10, height: 5 }.area()
+@rect_area () -> int = Rectangle { width: 10, height: 5 }.area();
 
-@test_rect_perimeter tests @rect_perimeter () -> void = run(
-    let r = Rectangle { width: 10, height: 5 },
-    assert_eq(actual: r.perimeter(), expected: 30),
-)
+@test_rect_perimeter tests @rect_perimeter () -> void = {
+    let r = Rectangle { width: 10, height: 5 };
+    assert_eq(actual: r.perimeter(), expected: 30)
+}
 
-@rect_perimeter () -> int = Rectangle { width: 10, height: 5 }.perimeter()
+@rect_perimeter () -> int = Rectangle { width: 10, height: 5 }.perimeter();
 
-@test_rect_is_large_false tests @rect_is_large_false () -> void = run(
-    let small = Rectangle { width: 5, height: 5 },
-    assert(cond: !small.is_large()),
-)
+@test_rect_is_large_false tests @rect_is_large_false () -> void = {
+    let small = Rectangle { width: 5, height: 5 };
+    assert(cond: !small.is_large())
+}
 
-@rect_is_large_false () -> bool = Rectangle { width: 5, height: 5 }.is_large()
+@rect_is_large_false () -> bool = Rectangle { width: 5, height: 5 }.is_large();
 
-@test_rect_is_large_true tests @rect_is_large_true () -> void = run(
-    let large = Rectangle { width: 15, height: 10 },
-    assert(cond: large.is_large()),
-)
+@test_rect_is_large_true tests @rect_is_large_true () -> void = {
+    let large = Rectangle { width: 15, height: 10 };
+    assert(cond: large.is_large())
+}
 
-@rect_is_large_true () -> bool = Rectangle { width: 15, height: 10 }.is_large()
+@rect_is_large_true () -> bool = Rectangle { width: 15, height: 10 }.is_large();

@@ -1,0 +1,54 @@
+// Spec: §3.16 Formattable Trait — Blanket Formatting
+// Tests format width/alignment on compound types without explicit Formattable impl.
+// The blanket path applies display_value() + alignment for non-primitive types.
+
+use std.testing { assert_eq }
+
+// =============================================================================
+// Option Blanket Formatting
+// =============================================================================
+
+@test_option_blanket tests @option_blanket () -> void = {
+    let opt = Some(42);
+    assert_eq(actual: `{opt:>15}`, expected: "       Some(42)");
+    let none_val: Option<int> = None;
+    assert_eq(actual: `{none_val:>10}`, expected: "      None")
+}
+
+@option_blanket () -> str = {
+    let opt = Some(99);
+    `{opt:>15}`
+}
+
+// =============================================================================
+// Tuple Blanket Formatting
+// =============================================================================
+
+@test_tuple_blanket tests @tuple_blanket () -> void = {
+    let t = (1, 2, 3);
+    assert_eq(actual: `{t:>15}`, expected: "      (1, 2, 3)");
+    assert_eq(actual: `{t:*<15}`, expected: "(1, 2, 3)******");
+    assert_eq(actual: `{t:^15}`, expected: "   (1, 2, 3)   ")
+}
+
+@tuple_blanket () -> str = {
+    let t = (1, 2);
+    `{t:>10}`
+}
+
+// =============================================================================
+// List Blanket Formatting
+// =============================================================================
+
+@test_list_blanket tests @list_blanket () -> void = {
+    let list = [1, 2, 3];
+    assert_eq(actual: `{list:>15}`, expected: "      [1, 2, 3]");
+    assert_eq(actual: `{list:.<15}`, expected: "[1, 2, 3]......")
+}
+
+@list_blanket () -> str = {
+    let list = [10, 20];
+    `{list:>15}`
+}
+
+@main () -> void = print(msg: "Blanket formatting tests");

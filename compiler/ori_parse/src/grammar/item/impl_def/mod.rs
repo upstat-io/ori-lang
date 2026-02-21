@@ -137,6 +137,8 @@ impl Parser<'_> {
 
         let end_span = self.arena.get_expr(body).span;
 
+        self.eat_optional_item_semicolon();
+
         Ok(ImplMethod {
             name,
             params,
@@ -162,6 +164,8 @@ impl Parser<'_> {
         let ty = self.parse_type_required().into_result()?;
 
         let end_span = self.cursor.current_span();
+
+        self.eat_optional_semicolon();
 
         Ok(ImplAssocType {
             name,

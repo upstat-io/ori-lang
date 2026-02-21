@@ -1,4 +1,4 @@
 // Chained if-else-if
 // Spec: 06-expressions.md § Conditionals
 
-@grade (score: int) -> str = if score >= 90 then "A" else if score >= 80 then "B" else if score >= 70 then "C" else "F"
+@grade (score: int) -> str = if score >= 90 then "A" else if score >= 80 then "B" else if score >= 70 then "C" else "F";

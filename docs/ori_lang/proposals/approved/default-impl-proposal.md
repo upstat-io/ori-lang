@@ -43,10 +43,10 @@ use std.net.http { Http, StdHttp }
 
 @main () -> void =
     with Http = StdHttp {} in
-        run(
-            let user = fetch_user(id: 1)?,
-            print(msg: `Got user: {user.name}`),
-        )
+        {
+            let user = fetch_user(id: 1)?
+            print(msg: `Got user: {user.name}`)
+        }
 ```
 
 Issues:
@@ -63,10 +63,10 @@ Issues:
 use std.net.http { Http }
 
 @main () -> void =
-    run(
+    {
         let user = fetch_user(id: 1)?,  // Http "just works"
-        print(msg: `Got user: {user.name}`),
-    )
+        print(msg: `Got user: {user.name}`)
+    }
 ```
 
 - No `StdHttp` type to know about
@@ -191,16 +191,16 @@ pub def impl Http {
 use std.net.http { Http, Response }
 
 @fetch_user (id: int) -> Result<User, Error> uses Http =
-    run(
-        let response = Http.get(url: `https://api.example.com/users/{id}`)?,
-        parse_user(json: response.body),
-    )
+    {
+        let response = Http.get(url: `https://api.example.com/users/{id}`)?
+        parse_user(json: response.body)
+    }
 
 @main () -> void =
-    run(
-        let user = fetch_user(id: 1)?,
-        print(msg: `Got user: {user.name}`),
-    )
+    {
+        let user = fetch_user(id: 1)?
+        print(msg: `Got user: {user.name}`)
+    }
 ```
 
 No `with...in` needed. `Http` is automatically bound to the default from `std.net.http`.
@@ -226,10 +226,10 @@ impl Http for MockHttp {
 @test_fetch_user tests @fetch_user () -> void =
     with Http = MockHttp { responses: {
         "https://api.example.com/users/1": `{"id": 1, "name": "Alice"}`,
-    }} in run(
-        let result = fetch_user(id: 1),
-        assert_ok(result: result),
-    )
+    }} in {
+        let result = fetch_user(id: 1)
+        assert_ok(result: result)
+    }
 ```
 
 The mock overrides the default via `with...in`.
@@ -253,10 +253,10 @@ impl Http for ConfiguredHttp {
 
 @main () -> void =
     with Http = ConfiguredHttp { timeout: 5s, base_url: "https://api.example.com" } in
-        run(
-            let user = fetch_user(id: 1)?,
-            print(msg: `Got user: {user.name}`),
-        )
+        {
+            let user = fetch_user(id: 1)?
+            print(msg: `Got user: {user.name}`)
+        }
 ```
 
 ### Multiple Capabilities in One Module

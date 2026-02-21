@@ -14,8 +14,8 @@ fn parse_source(source: &str) -> (ParseOutput, SharedInterner) {
 fn test_register_module_functions() {
     let (result, interner) = parse_source(
         r"
-        @add (a: int, b: int) -> int = a + b
-        @main () -> void = print(msg: str(add(a: 1, b: 2)))
+        @add (a: int, b: int) -> int = a + b;
+        @main () -> void = print(msg: str(add(a: 1, b: 2)));
     ",
     );
 
@@ -83,7 +83,7 @@ fn test_collect_impl_methods() {
         type Point = { x: int, y: int }
 
         impl Point {
-            @sum (self) -> int = self.x + self.y
+            @sum (self) -> int = self.x + self.y;
         }
     ",
     );
@@ -114,7 +114,7 @@ fn test_collect_impl_methods_with_config() {
         type Point = { x: int, y: int }
 
         impl Point {
-            @sum (self) -> int = self.x + self.y
+            @sum (self) -> int = self.x + self.y;
         }
     ",
     );
@@ -143,7 +143,7 @@ fn test_collect_extend_methods() {
     let (result, interner) = parse_source(
         r"
         extend [T] {
-            @double (self) -> [T] = self + self
+            @double (self) -> [T] = self + self;
         }
     ",
     );
@@ -165,7 +165,7 @@ fn test_collect_extend_methods_with_config() {
     let (result, interner) = parse_source(
         r"
         extend [T] {
-            @double (self) -> [T] = self + self
+            @double (self) -> [T] = self + self;
         }
     ",
     );
@@ -194,8 +194,8 @@ fn test_collect_def_impl_methods() {
     let (result, interner) = parse_source(
         r"
         def impl Http {
-            @get (url: str) -> str = url
-            @post (url: str, body: str) -> str = body
+            @get (url: str) -> str = url;
+            @post (url: str, body: str) -> str = body;
         }
     ",
     );
@@ -220,7 +220,7 @@ fn test_collect_def_impl_methods_with_config() {
     let (result, interner) = parse_source(
         r"
         pub def impl Http {
-            @get (url: str) -> str = url
+            @get (url: str) -> str = url;
         }
     ",
     );

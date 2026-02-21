@@ -83,6 +83,17 @@ Memory savings:
 - "foo" appears 100 times → stored once
 - Name is 4 bytes vs String's ~24 bytes
 
+### SharedInterner
+
+`SharedInterner` is an `Arc`-wrapped `StringInterner` that enables sharing the interner across database instances and threads. It is `Clone`-cheap (reference-counted pointer) and the underlying `StringInterner` uses per-shard `RwLock`s for concurrent access:
+
+```rust
+#[derive(Clone)]
+pub struct SharedInterner(Arc<StringInterner>);
+```
+
+The `CompilerDb` exposes its interner as a `SharedInterner`, and test harnesses clone it to create isolated databases that share the same interned string pool.
+
 ## Arc for Shared Values
 
 Runtime values use Arc for sharing:
@@ -214,29 +225,32 @@ Benefits:
 
 ## MethodKey
 
-Type-safe key for method registry lookups:
+Type-safe key for method registry lookups. Fields are interned `Name` values (not `String`), making `MethodKey` `Copy` and enabling zero-allocation comparisons:
 
 ```rust
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub struct MethodKey {
-    pub type_name: String,
-    pub method_name: String,
+    pub type_name: Name,
+    pub method_name: Name,
 }
 
 impl MethodKey {
-    pub fn new(type_name: impl Into<String>, method_name: impl Into<String>) -> Self;
-    pub fn from_strs(type_name: &str, method_name: &str) -> Self;
-}
-
-impl Display for MethodKey {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}::{}", self.type_name, self.method_name)
-    }
+    pub const fn new(type_name: Name, method_name: Name) -> Self;
 }
 ```
 
+Because `Name` is an opaque interned index, `MethodKey` does not implement `Display` directly. A `MethodKeyDisplay` helper resolves the names through the interner for formatting:
+
+```rust
+impl MethodKey {
+    pub fn display<'a>(&self, interner: &'a SharedInterner) -> MethodKeyDisplay<'a>;
+}
+
+// Displays as "Point::distance"
+```
+
 Benefits:
-- Type-safe method lookups (vs tuple of strings)
+- `Copy` type with zero-allocation lookups (vs tuple of strings)
 - Better error messages (`Point::distance` instead of `("Point", "distance")`)
 - Hashable for use in registries
 
@@ -254,6 +268,32 @@ pub struct TokenList {
 Better than `Vec<Token>` because:
 - TokenKind often accessed without span
 - Better memory locality for iteration
+
+## Session-Scoped Side-Caches
+
+Three caches store data **outside** Salsa's dependency graph because their values cannot satisfy Salsa's `Clone + Eq + Hash` requirements:
+
+```rust
+/// Stores type-checking Pool results per file.
+pub struct PoolCache(Arc<RwLock<HashMap<PathBuf, Arc<Pool>>>>);
+
+/// Stores canonicalized results per file.
+pub struct CanonCache(Arc<RwLock<HashMap<PathBuf, SharedCanonResult>>>);
+
+/// Stores resolved imports per file.
+pub struct ImportsCache(Arc<RwLock<HashMap<PathBuf, Arc<ResolvedImports>>>>);
+```
+
+These caches exist on `CompilerDb` and are keyed by file path. The `typed()` Salsa query populates `PoolCache` and `CanonCache` after type checking, while `ImportsCache` is populated during import resolution.
+
+**Invalidation is explicit**: `invalidate_file_caches()` must be called before re-type-checking a file to clear stale entries. Any future code path that triggers re-type-checking MUST also call `invalidate_file_caches()` — failing to do so will cause silent correctness bugs from stale cache reads.
+
+```rust
+// In the typed() query (simplified):
+invalidate_file_caches(db, &path);  // Clear stale entries
+let type_result = type_check(...);
+db.pool_cache().store(&path, pool);  // Write new Pool
+```
 
 ## Module Caching
 

@@ -98,6 +98,7 @@ pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
         }
         (Value::Set(a), Value::Set(b)) => eval_set_binary(a, b, op),
         (Value::Struct(a), Value::Struct(b)) => eval_struct_binary(a, b, op),
+        (Value::Variant { .. }, Value::Variant { .. }) => eval_variant_binary(&left, &right, op),
         _ => Err(binary_type_mismatch(left.type_name(), right.type_name()).into()),
     }
 }
@@ -456,5 +457,33 @@ fn eval_struct_binary(
             Ok(Value::Bool(!equal))
         }
         _ => Err(invalid_binary_op_for("struct", op).into()),
+    }
+}
+
+/// Binary operations on sum type variants.
+///
+/// Variants are equal when they share the same type, variant name, and payloads.
+fn eval_variant_binary(a: &Value, b: &Value, op: BinaryOp) -> EvalResult {
+    let (
+        Value::Variant {
+            type_name: t1,
+            variant_name: v1,
+            fields: f1,
+        },
+        Value::Variant {
+            type_name: t2,
+            variant_name: v2,
+            fields: f2,
+        },
+    ) = (a, b)
+    else {
+        unreachable!("eval_variant_binary called with non-variant values")
+    };
+
+    let equal = t1 == t2 && v1 == v2 && f1 == f2;
+    match op {
+        BinaryOp::Eq => Ok(Value::Bool(equal)),
+        BinaryOp::NotEq => Ok(Value::Bool(!equal)),
+        _ => Err(invalid_binary_op_for("variant", op).into()),
     }
 }

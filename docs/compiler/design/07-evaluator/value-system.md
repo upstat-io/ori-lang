@@ -13,9 +13,10 @@ The Value enum represents runtime values in the Ori evaluator.
 
 ```
 compiler/ori_patterns/src/value/
-├── mod.rs        # Value enum and factory methods (~569 lines)
-├── heap.rs       # Heap<T> wrapper for Arc enforcement (~147 lines)
-└── composite.rs  # FunctionValue, StructValue, RangeValue
+├── mod.rs            # Value enum, OrderingValue, factory methods
+├── heap.rs           # Heap<T> wrapper for Arc enforcement
+└── composite/        # Composite value types
+    └── mod.rs        # FunctionValue, StructValue, RangeValue
 ```
 
 ## Heap<T> Wrapper
@@ -45,26 +46,25 @@ This design ensures:
 ```rust
 pub enum Value {
     // Primitives (inline, no heap allocation)
-    Int(i64),
+    Int(ScalarInt),       // Newtype over i64; prevents unchecked arithmetic
     Float(f64),
     Bool(bool),
     Char(char),
     Byte(u8),
-    Unit,
-    Duration { nanoseconds: i64 },  // Signed for negative durations
-    Size { bytes: u64 },            // Unsigned (cannot be negative)
-    Ordering(std::cmp::Ordering),   // Less | Equal | Greater
-    Never,                          // Uninhabited (diverging expressions)
+    Void,                 // Unit type (NOT "Unit" — Ori uses "Void")
+    Duration(i64),        // Nanoseconds, signed for negative durations
+    Size(u64),            // Bytes, unsigned (cannot be negative)
+    Ordering(OrderingValue),  // Custom enum: Less | Equal | Greater
 
     // Heap Types (use Heap<T> for enforced Arc usage)
-    Str(Heap<String>),
+    Str(Heap<Cow<'static, str>>),  // Cow::Borrowed for interned, Cow::Owned for runtime
     List(Heap<Vec<Value>>),
-    Map(Heap<BTreeMap<String, Value>>),  // BTreeMap for deterministic iteration
-    Set(Heap<HashSet<Value>>),
+    Map(Heap<BTreeMap<Value, Value>>),  // BTreeMap for deterministic iteration
+    Set(Heap<BTreeMap<Value, ()>>),     // BTreeMap (NOT HashSet) for deterministic order
     Tuple(Heap<Vec<Value>>),
     Range(Heap<RangeValue>),
 
-    // Algebraic Types
+    // Algebraic Types (split variants, NOT Option/Result wrappers)
     Some(Heap<Value>),
     None,
     Ok(Heap<Value>),
@@ -94,16 +94,18 @@ pub enum Value {
     Function(FunctionValue),
     MemoizedFunction(MemoizedFunctionValue),  // For recurse with memo: true
     FunctionVal(FunctionValFn, &'static str),  // Type conversions: int(), str()
-    Range(RangeValue),
+
+    // Iterator
+    Iterator(IteratorValue),
 
     // Module System
-    ModuleNamespace(Heap<HashMap<Name, Value>>),  // For module aliases
+    ModuleNamespace(Heap<BTreeMap<Name, Value>>),  // BTreeMap for deterministic Salsa compat
+
+    // Error Recovery
+    Error(Heap<ErrorValue>),
 
     // Type References (for associated function calls)
     TypeRef { type_name: Name },  // e.g., Point in Point.origin()
-
-    // Error Recovery
-    Error(String),
 }
 ```
 
@@ -118,7 +120,7 @@ let list = Value::list(vec![Value::Int(1), Value::Int(2)]);
 let opt = Value::some(Value::Int(42));
 let ok = Value::ok(Value::Int(42));
 let err = Value::err(Value::string("failed"));
-let map = Value::map(HashMap::new());
+let map = Value::map(BTreeMap::new());
 let tuple = Value::tuple(vec![Value::Int(1), Value::Bool(true)]);
 
 // Prevented at compile time
@@ -132,7 +134,7 @@ Available factory methods:
 | `Value::int(n)` | `Value::Int` | Create integer from `i64` (wraps in ScalarInt) |
 | `Value::string(s)` | `Value::Str` | Create string from `impl Into<String>` |
 | `Value::list(vec)` | `Value::List` | Create list from `Vec<Value>` |
-| `Value::map(map)` | `Value::Map` | Create map from `HashMap<String, Value>` |
+| `Value::map(map)` | `Value::Map` | Create map from `BTreeMap<String, Value>` |
 | `Value::tuple(vec)` | `Value::Tuple` | Create tuple from `Vec<Value>` |
 | `Value::some(v)` | `Value::Some` | Wrap value in Some |
 | `Value::ok(v)` | `Value::Ok` | Wrap value in Ok |
@@ -141,6 +143,9 @@ Available factory methods:
 | `Value::variant_constructor(type_name, variant_name, field_count)` | `Value::VariantConstructor` | Create variant constructor |
 | `Value::newtype(type_name, inner)` | `Value::Newtype` | Create newtype wrapper |
 | `Value::newtype_constructor(type_name)` | `Value::NewtypeConstructor` | Create newtype constructor |
+| `Value::iterator(state)` | `Value::Iterator` | Create iterator from `IteratorValue` state |
+| `Value::error(msg)` | `Value::Error` | Create error from message string |
+| `Value::error_from(ev)` | `Value::Error` | Create error from existing `ErrorValue` |
 | `Value::module_namespace(members)` | `Value::ModuleNamespace` | Create module namespace for qualified access |
 
 ## Primitives
@@ -148,15 +153,28 @@ Available factory methods:
 Primitives are stored inline (no heap allocation):
 
 ```rust
-Value::Int(42)
+Value::int(42)                        // wraps in ScalarInt
 Value::Float(3.14)
 Value::Bool(true)
 Value::Char('λ')
 Value::Byte(0xFF)
-Value::Void
-Value::Duration(5000)  // 5 seconds
-Value::Size(1024)      // 1kb
+Value::Void                           // Unit value
+Value::Duration(5_000_000_000)        // 5 seconds (nanoseconds)
+Value::Size(1024)                     // 1kb (bytes)
+Value::Ordering(OrderingValue::Less)  // Custom OrderingValue enum
 ```
+
+### ScalarInt
+
+`Value::Int` wraps `ScalarInt`, a `#[repr(transparent)]` newtype over `i64` that intentionally does not implement `Add`, `Sub`, `Mul`, `Div`, `Rem`, or `Neg`. All arithmetic goes through checked methods (`checked_add`, `checked_mul`, etc.) that return `Option<ScalarInt>`, making integer overflow impossible to miss. Bitwise traits (`BitAnd`, `BitOr`, `BitXor`, `Not`) are implemented because they cannot overflow. This mirrors the approach used by the Rust compiler's `ScalarInt`.
+
+### String Values (Cow wrapper)
+
+`Value::Str` uses `Heap<Cow<'static, str>>` to enable zero-copy for interned string literals. When the evaluator creates a string from an interned `Name` (e.g., `CanExpr::Str(name)`), it uses `Cow::Borrowed` pointing directly at the interner's storage. Runtime-created strings (concatenation, formatting) use `Cow::Owned`. The `Value::string_static()` factory creates borrowed strings; `Value::string()` creates owned strings.
+
+### Duration and Size
+
+`Duration(i64)` stores nanoseconds as `i64` (signed, supporting negative durations). `Size(u64)` stores bytes as `u64` (unsigned, cannot be negative). Both are newtype tuple variants (not named-field structs) with no heap allocation. Unit conversion happens at construction time from `CanExpr::Duration { value, unit }` and `CanExpr::Size { value, unit }`.
 
 ## User-Defined Sum Types (Variants)
 
@@ -259,7 +277,7 @@ fn dispatch_newtype_method(receiver: Value, method: &str, args: Vec<Value>) -> E
 Module namespaces represent imported modules accessed via alias. They enable qualified access like `http.get(...)`.
 
 ```rust
-Value::ModuleNamespace(Heap<HashMap<Name, Value>>)
+Value::ModuleNamespace(Heap<BTreeMap<Name, Value>>)
 ```
 
 Created when processing module alias imports:
@@ -287,7 +305,7 @@ Factory method:
 
 ```rust
 impl Value {
-    pub fn module_namespace(members: HashMap<Name, Value>) -> Self {
+    pub fn module_namespace(members: BTreeMap<Name, Value>) -> Self {
         Value::ModuleNamespace(Heap::new(members))
     }
 }
@@ -349,17 +367,26 @@ pub struct FunctionValue {
     /// Parameter names.
     pub params: Vec<Name>,
 
-    /// Body expression.
-    pub body: ExprId,
+    /// Canonical body expression. The evaluator dispatches on `CanExpr`
+    /// from the canonical arena instead of `ExprKind` from `ExprArena`.
+    pub can_body: CanId,
 
     /// Captured environment (frozen at creation).
-    /// Uses Arc for efficient sharing between multiple functions.
-    captures: Arc<HashMap<Name, Value>>,
+    /// No `RwLock` needed since captures are immutable after creation.
+    captures: Arc<FxHashMap<Name, Value>>,
 
-    /// Arena for expression resolution.
-    /// Required for thread safety - the body ExprId must be resolved
-    /// against this arena, not whatever arena happens to be in scope.
+    /// Arena for expression resolution (needed for `create_function_interpreter`).
     arena: SharedArena,
+
+    /// Canonical IR for this function's body.
+    /// When set, `can_body` indexes into this result's `CanArena`.
+    /// Functions created from canonicalized modules have this; lambdas
+    /// inherit it from their enclosing function.
+    canon: Option<SharedCanonResult>,
+
+    /// Default expressions for each parameter.
+    /// `can_defaults[i]` is `Some(can_id)` if parameter `i` has a default value.
+    can_defaults: Vec<Option<CanId>>,
 
     /// Required capabilities (from `uses` clause).
     capabilities: Vec<Name>,
@@ -370,20 +397,27 @@ pub struct FunctionValue {
 
 ```rust
 impl FunctionValue {
-    /// Create a function with owned captures (clones the HashMap).
-    pub fn new(params, body, captures: HashMap<Name, Value>, arena) -> Self;
+    /// Create a function value. Body is NOT passed at construction time;
+    /// `can_body` starts as `CanId::INVALID` and is set via `set_canon()`.
+    pub fn new(params: Vec<Name>, captures: FxHashMap<Name, Value>, arena: SharedArena) -> Self;
 
     /// Create a function with capabilities.
-    pub fn with_capabilities(params, body, captures, arena, capabilities) -> Self;
+    pub fn with_capabilities(params, captures, arena, capabilities) -> Self;
 
     /// Create a function with shared captures (avoids cloning).
     /// Use when multiple functions should share the same captures
     /// (e.g., module functions for mutual recursion).
-    pub fn with_shared_captures(params, body, captures: Arc<HashMap<Name, Value>>, arena, capabilities) -> Self;
+    pub fn with_shared_captures(params, captures: Arc<FxHashMap<Name, Value>>, arena, capabilities) -> Self;
+
+    /// Set the canonical body and arena post-construction.
+    pub fn set_canon(&mut self, can_body: CanId, canon: SharedCanonResult);
+
+    /// Set canonical default expressions for parameters.
+    pub fn set_can_defaults(&mut self, can_defaults: Vec<Option<CanId>>);
 }
 ```
 
-The `with_shared_captures` constructor is used during module loading to avoid cloning the captures HashMap for each function in a module.
+Note that `FunctionValue::new()` does not take a body parameter. The canonical body is set post-construction via `set_canon()` once canonicalization completes. The `with_shared_captures` constructor is used during module loading to avoid cloning the captures HashMap for each function in a module.
 
 ## Struct Values
 
@@ -405,7 +439,8 @@ pub struct StructValue {
 ```rust
 pub struct RangeValue {
     pub start: i64,
-    pub end: i64,
+    pub end: Option<i64>,  // None for unbounded ranges
+    pub step: i64,         // Step size (default 1)
     pub inclusive: bool,
 }
 
@@ -477,7 +512,7 @@ pub(super) fn get_value_type_name(&self, value: &Value) -> String {
 ```
 
 Truthiness rules:
-- `Bool(false)`, `Int(0)`, empty string, empty list, `None`, `Err`, `Void` → falsy
+- `Bool(false)`, `Int(0)`, empty string, empty list, `None`, `Err(_)`, `Void` → falsy
 - Everything else → truthy
 
 ## Equality and Hashing

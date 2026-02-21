@@ -230,7 +230,7 @@ mod tests {
         let module = context.create_module("test");
         let config = DebugInfoConfig::new(DebugLevel::Full);
 
-        let source = "@add (a: int, b: int) -> int = a + b";
+        let source = "@add (a: int, b: int) -> int = a + b;";
         let path = Path::new("/src/math.ori");
 
         let ctx = DebugContext::new(&module, &context, config, path, source)

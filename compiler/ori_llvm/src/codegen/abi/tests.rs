@@ -86,6 +86,32 @@ fn large_tuple_exceeds_threshold() {
     assert_eq!(abi_size(tup, &store), 32);
 }
 
+#[test]
+fn mixed_alignment_tuple_ignores_padding() {
+    // Documents the known limitation: abi_size_inner sums field sizes
+    // without alignment padding. A tuple (byte, int, byte) computes as
+    // 10 bytes here, but LLVM would lay it out as 24 bytes with padding.
+    //
+    // This is currently safe because all types that reach this path
+    // are uniform-alignment (all-i64, all-ptr), so padding is zero.
+    // When mixed-alignment user structs are supported, this will need
+    // to query LLVM's TargetData for actual layout size.
+    let mut pool = Pool::new();
+    let tup = pool.tuple(&[Idx::BYTE, Idx::INT, Idx::BYTE]);
+    let store = TypeInfoStore::new(&pool);
+
+    // Without padding: 1 + 8 + 1 = 10 (under-counts vs LLVM's 24)
+    assert_eq!(abi_size(tup, &store), 10);
+
+    // This causes Direct classification (≤16) when LLVM layout would be
+    // Indirect (24 > 16). Acceptable for now — see FIXME in abi_size_inner.
+    assert_eq!(
+        compute_param_passing(tup, &store),
+        ParamPassing::Direct,
+        "known limitation: mixed-alignment tuple classified as Direct due to padding-unaware size"
+    );
+}
+
 // -- Param passing tests --
 
 #[test]

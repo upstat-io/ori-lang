@@ -180,19 +180,19 @@ if a then (if b then x else y) else z
 ### In Run Pattern
 
 ```ori
-run(
-    let value = compute(),
-    if value > threshold then Ok(value) else Err("too low"),
-)
+{
+    let value = compute()
+    if value > threshold then Ok(value) else Err("too low")
+}
 ```
 
 ### In Match Arms
 
 ```ori
-match(option,
-    Some(x) -> if x > 0 then x else 0,
-    None -> 0,
-)
+match option {
+    Some(x) -> if x > 0 then x else 0
+    None -> 0
+}
 ```
 
 ---
