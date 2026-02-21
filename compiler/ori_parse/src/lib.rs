@@ -240,7 +240,30 @@ impl<'a> Parser<'a> {
     where
         F: FnOnce(&mut Self) -> ParseOutcome<T>,
     {
+        tracing::debug!(context = context.label(), "entering parse context");
         f(self).with_error_context(context)
+    }
+
+    /// Attach error context to a `Result`-returning parser function.
+    ///
+    /// Like [`in_error_context`](Self::in_error_context) but for functions that
+    /// return `Result<T, ParseError>` (e.g., postfix operations called via `?`).
+    #[inline]
+    pub(crate) fn in_error_context_result<T, F>(
+        &mut self,
+        context: error::ErrorContext,
+        f: F,
+    ) -> Result<T, ParseError>
+    where
+        F: FnOnce(&mut Self) -> Result<T, ParseError>,
+    {
+        tracing::debug!(context = context.label(), "entering parse context");
+        f(self).map_err(|mut e| {
+            if e.context.is_none() {
+                e.context = Some(format!("while parsing {}", context.description()));
+            }
+            e
+        })
     }
 
     // --- Token Capture ---
