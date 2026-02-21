@@ -167,7 +167,6 @@ ori_fmt/src/
 │   ├── chained_else_if.rs# ChainedElseIfRule
 │   ├── nested_for.rs     # NestedForRule
 │   ├── parentheses.rs    # ParenthesesRule
-│   ├── run_rule.rs       # RunRule
 │   ├── loop_rule.rs      # LoopRule
 │   └── tests.rs
 ├── formatter/         # Layer 5: Orchestration

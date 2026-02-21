@@ -32,14 +32,20 @@ Client                              Server
   "capabilities": {
     "textDocumentSync": {
       "openClose": true,
-      "change": 2,
+      "change": 1,
       "save": { "includeText": false }
     },
     "documentFormattingProvider": true,
-    "hoverProvider": true
+    "hoverProvider": true,
+    "definitionProvider": true,
+    "completionProvider": {
+      "triggerCharacters": [".", "@", "$"]  // Advertised but not context-aware — see note below
+    }
   }
 }
 ```
+
+> **Note on trigger characters**: The server advertises `[".", "@", "$"]` as completion trigger characters, but the current completion implementation ignores position context. Completions return the same keyword/snippet/function list regardless of which trigger character was typed or where the cursor is.
 
 ### Shutdown
 
@@ -55,7 +61,7 @@ Client                              Server
 
 ## Text Document Synchronization
 
-The server uses **incremental sync** (`TextDocumentSyncKind.Incremental = 2`) for efficiency.
+The server uses **full sync** (`TextDocumentSyncKind.Full = 1`). On each change, the client sends the entire document text. This is simpler than incremental sync and sufficient for current document sizes.
 
 ### Document Open
 
@@ -85,9 +91,9 @@ interface DidChangeTextDocumentParams {
 ```
 
 On change:
-1. Apply incremental changes to stored document
+1. Replace stored document text with full content from client
 2. Debounce diagnostic updates (50-100ms)
-3. Run diagnostics
+3. Run diagnostics (lex, parse, type check)
 4. Publish diagnostics to client
 
 ### Document Close
@@ -177,10 +183,9 @@ Severity mapping:
 | Warning | `DiagnosticSeverity.Warning` (2) |
 | Hint | `DiagnosticSeverity.Hint` (4) |
 
-## Future Methods (Phase 2+)
-
 ### `textDocument/definition`
 
+**Request:**
 ```typescript
 interface DefinitionParams {
   textDocument: { uri: string };
@@ -188,6 +193,13 @@ interface DefinitionParams {
 }
 // Response: Location | Location[] | LocationLink[]
 ```
+
+Implementation:
+1. Find AST node at position
+2. Search module for matching definition (function, type, variable)
+3. Return location of the definition
+
+## Future Methods (Phase 2+)
 
 ### `textDocument/references`
 

@@ -7,7 +7,7 @@ section: "Layers"
 
 # Layer 4: Breaking Rules
 
-The rules layer contains eight Ori-specific breaking rules for constructs that don't fit simple packing strategies. Each rule encapsulates a formatting decision for a particular pattern.
+The rules layer contains seven Ori-specific breaking rules (plus shared helper functions in `seq_helpers.rs`) for constructs that don't fit simple packing strategies. Each rule encapsulates a formatting decision for a particular pattern.
 
 ## Architecture
 
@@ -19,18 +19,19 @@ Expression ──▶ Rule Detection ──▶ Rule-Specific Formatting
 MethodChainRule  ShortBodyRule  BooleanBreakRule  ...
 ```
 
-## The Eight Rules
+## The Seven Rules
 
-| Rule | Purpose | Key Decision |
-|------|---------|--------------|
-| `MethodChainRule` | Method chains | All elements break together |
-| `ShortBodyRule` | For/loop bodies | ~20 char threshold for yield/do |
-| `BooleanBreakRule` | Boolean expressions | 3+ `\|\|` clauses break with leading `\|\|` |
-| `ChainedElseIfRule` | If-else chains | Kotlin style (first `if` with assignment) |
-| `NestedForRule` | Nested for expressions | Rust-style indentation |
-| `ParenthesesRule` | Parentheses | Preserve user parens, add when needed |
-| `BlockRule` | Block expressions (`{ }`) | Top-level stacked, nested width-based |
-| `LoopRule` | loop() expressions | Complex body breaks |
+| Rule | File | Purpose | Key Decision |
+|------|------|---------|--------------|
+| `MethodChainRule` | `method_chain.rs` | Method chains | All elements break together |
+| `ShortBodyRule` | `short_body.rs` | For/loop bodies | ~20 char threshold for yield/do |
+| `BooleanBreakRule` | `boolean_break.rs` | Boolean expressions | 3+ `\|\|` clauses break with leading `\|\|` |
+| `ChainedElseIfRule` | `chained_else_if.rs` | If-else chains | Kotlin style (first `if` with assignment) |
+| `NestedForRule` | `nested_for.rs` | Nested for expressions | Rust-style indentation |
+| `ParenthesesRule` | `parentheses.rs` | Parentheses | Preserve user parens, add when needed |
+| `LoopRule` | `loop_rule.rs` | loop() expressions | Complex body breaks |
+
+Additionally, `seq_helpers.rs` provides shared helper functions for sequence-based constructs (try, match, generic `FunctionSeq`).
 
 ---
 
@@ -294,42 +295,9 @@ The AST does not track whether parentheses were explicitly written by the user. 
 
 ---
 
-## BlockRule
+## Block Formatting
 
-**Principle**: Top-level blocks always stack. Nested blocks use width-based decisions.
-
-```ori
-// Top-level block (always stacked):
-@main () -> void = {
-    let x = compute();
-    let y = process(x);
-    x + y
-}
-
-// Nested block (can inline if fits):
-let result = if condition
-    then { a; b }
-    else { c; d }
-```
-
-### Implementation
-
-```rust
-pub struct BlockRule;
-
-pub enum BlockContext {
-    TopLevel,  // Function body level
-    Nested,    // Inside another expression
-}
-
-pub fn is_block(arena: &ExprArena, expr_id: ExprId) -> bool {
-    matches!(&arena.get_expr(expr_id).kind, ExprKind::Block { .. })
-}
-
-pub fn is_try(arena: &ExprArena, expr_id: ExprId) -> bool {
-    // Check for try { ... } pattern
-}
-```
+Block formatting (top-level stacked, nested width-based) is handled by the main formatter pipeline rather than a dedicated rule struct. The `seq_helpers.rs` module provides shared logic for block-like constructs including try, match, and generic `FunctionSeq`.
 
 ---
 
@@ -405,12 +373,23 @@ pub fn is_simple_conditional_body(arena: &ExprArena, body: ExprId) -> bool {
 
 7. **Integrate with formatter**: Update orchestration layer to use the rule.
 
-## Implementation Status
+## Integration Status
 
-Not all rules are fully integrated into the formatter pipeline:
+Of the seven rules, only `ParenthesesRule` is fully integrated into the formatter rendering pipeline. The remaining six have detection and decision infrastructure (structs, collection functions, predicates) defined in `rules/` with unit tests, but their functions are not invoked from the formatter's rendering modules (`formatter/*.rs`). These constructs fall through to generic expression formatting.
 
-- **`MethodChainRule`**: Infrastructure defined (`collect_method_chain()`, `is_method_chain()`) but **not yet invoked** by the emitter. Method chains currently fall through to generic expression formatting.
-- **Incremental formatting**: Implemented in `ori_fmt/src/incremental.rs` with declaration-level granularity. Supports LSP format-on-type and large-file partial formatting. Covered by tests in `ori_fmt/tests/incremental_tests.rs`. Current limitation: changes to imports or constants trigger a full reformat.
+| Rule | Status | Notes |
+|------|--------|-------|
+| `ParenthesesRule` | **Integrated** | `needs_parens()` called from `formatter/helpers.rs` for `Receiver`, `CallTarget`, and `IteratorSource` positions |
+| `MethodChainRule` | Infrastructure only | `collect_method_chain()`, `is_method_chain()` defined but not invoked by the formatter |
+| `ShortBodyRule` | Infrastructure only | `suggest_break_point()`, `is_short_body()`, `is_always_short()` defined but not invoked by the formatter |
+| `BooleanBreakRule` | Infrastructure only | `collect_or_clauses()`, `is_or_expression()` defined but not invoked by the formatter |
+| `ChainedElseIfRule` | Infrastructure only | `collect_if_chain()` defined but not invoked by the formatter |
+| `NestedForRule` | Infrastructure only | `collect_for_chain()`, `is_for_expression()` defined but not invoked by the formatter |
+| `LoopRule` | Infrastructure only | `is_loop()`, `get_loop_body()`, `is_simple_conditional_body()` defined but not invoked by the formatter |
+
+The `seq_helpers` module (`is_try`, `is_match_seq`, `is_function_seq`, `get_function_seq`) provides shared query functions used within the rules layer's own tests but is also not called from the formatter rendering modules.
+
+**Incremental formatting** is implemented in `ori_fmt/src/incremental.rs` with declaration-level granularity. It supports LSP format-on-type and large-file partial formatting. Current limitation: changes to imports or constants trigger a full reformat.
 
 ## Spec Reference
 

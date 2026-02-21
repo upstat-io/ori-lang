@@ -7,19 +7,19 @@ section: "Integration"
 
 # Playground Integration
 
-> **Status: Not Yet Implemented.** The WASM LSP described below is planned. The current playground uses direct WASM bindings for runtime evaluation and formatting without LSP.
+> **Status: Not Yet Implemented.** The Playground currently uses a **separate runtime WASM module** at `website/playground-wasm/` with direct JavaScript calls to `run_ori()` and `format_ori()`. It does **not** use an LSP server. The LSP-powered Playground features described below (Monaco providers for diagnostics, hover, and completion via a WASM LSP module) are planned but not implemented.
 
 Integrating the LSP server with the browser-based Ori Playground.
 
 ## Existing Infrastructure
 
-The Playground already has WASM infrastructure at `playground/wasm/`:
+The Playground has a runtime WASM module at `website/playground-wasm/`:
 
 ```
-playground/wasm/
+website/playground-wasm/
 ├── Cargo.toml          # WASM crate config
 ├── src/
-│   └── lib.rs          # run_ori() function
+│   └── lib.rs          # run_ori(), format_ori() exports
 └── pkg/                # wasm-pack output
 ```
 
@@ -28,31 +28,31 @@ The existing `run_ori()` function:
 - Returns JSON with output/errors
 - Used for the "Run" button
 
-## LSP Addition
+## Planned: LSP Addition
 
-Add LSP functionality alongside existing runtime:
+Add LSP functionality alongside the existing runtime WASM module:
 
 ```
-playground/
-├── wasm/               # Existing runtime WASM
+website/
+├── playground-wasm/    # Existing runtime WASM (run_ori, format_ori)
 │   └── ...
-├── wasm-lsp/           # NEW: LSP WASM module
+├── playground-lsp/     # PLANNED: LSP WASM module
 │   ├── Cargo.toml
 │   └── src/
 │       └── lib.rs
-└── web/                # Web frontend
+└── src/                # Web frontend
     └── ...
 ```
 
 Alternative: Single WASM module with both:
 
 ```
-playground/wasm/
+website/playground-wasm/
 ├── Cargo.toml
 └── src/
     ├── lib.rs          # Re-exports
     ├── runtime.rs      # run_ori() - existing
-    └── lsp.rs          # LSP server - NEW
+    └── lsp.rs          # LSP server - PLANNED
 ```
 
 ## Architecture

@@ -9,6 +9,17 @@ section: "Pattern System"
 
 The `PatternDefinition` trait defines the interface for all patterns in Ori.
 
+## Focused Trait Design
+
+The implementation uses a decomposed trait hierarchy for separation of concerns:
+
+- **`PatternDefinition`** -- The root trait that all patterns implement. Provides the full interface: `name()`, `required_props()`, `optional_props()`, `optional_args()`, `scoped_bindings()`, `allows_arbitrary_props()`, `evaluate()`, `can_fuse_with()`, `fuse_with()`. Most methods have default implementations.
+- **`PatternCore`** -- Minimal interface: `name()`, `required_props()`, `evaluate()`. Has a **blanket impl** from `PatternDefinition`, so any type implementing `PatternDefinition` automatically implements `PatternCore`.
+- **`PatternFusable`** -- Opt-in fusion support: `can_fuse_with()`, `fuse_with()`. Requires `PatternCore`. Only patterns that support fusion implement this.
+- **`PatternVariadic`** -- Opt-in arbitrary properties: `allows_arbitrary_props()` (always returns `true`). Requires `PatternCore`. For patterns like `parallel` that accept dynamic task properties.
+
+`PatternDefinition` is the primary trait that patterns implement. `PatternCore` is derived automatically via blanket impl. `PatternFusable` and `PatternVariadic` are opt-in specialized traits for patterns that need those capabilities.
+
 ## Trait Definition
 
 ```rust
@@ -66,36 +77,9 @@ pub trait PatternDefinition: Send + Sync {
 
 ## Context Types
 
-### TypeCheckContext
+### Type Checking for Patterns
 
-Provides access to property types during type checking:
-
-```rust
-pub struct TypeCheckContext<'a> {
-    pub interner: &'a StringInterner,
-    pub props: &'a HashMap<Name, Type>,
-    // ...
-}
-
-impl TypeCheckContext<'_> {
-    /// Get the type of a required property.
-    pub fn get_prop_type(&self, name: &str) -> Option<Type>;
-
-    /// Get the type of a required property, returning Error on failure.
-    pub fn require_prop_type(&self, name: &str) -> Type;
-
-    /// Create a fresh type variable.
-    pub fn fresh_var(&mut self) -> Type;
-
-    /// Extract return type from function property.
-    pub fn get_function_return_type(&self, prop: &str) -> Type;
-
-    /// Type constructors
-    pub fn list_of(&self, elem: Type) -> Type;
-    pub fn option_of(&self, inner: Type) -> Type;
-    pub fn result_of(&self, ok: Type, err: Type) -> Type;
-}
-```
+Type checking for patterns happens in `ori_types/src/infer/expr/sequences.rs`, specifically `infer_function_exp()`. There is no `TypeCheckContext` struct in `ori_patterns` — type inference is handled by the `InferEngine` in the type checker, which resolves pattern property types based on the `FunctionExpKind` and its associated type signature.
 
 ### EvalContext
 
@@ -103,9 +87,10 @@ Provides access to property expressions during evaluation:
 
 ```rust
 pub struct EvalContext<'a> {
-    pub props: &'a HashMap<Name, ExprId>,
+    pub interner: &'a StringInterner,
+    pub arena: &'a ExprArena,
+    pub props: &'a [NamedExpr],  // Properties as named expression slice
     pub span: Span,
-    // ...
 }
 
 impl EvalContext<'_> {
@@ -250,17 +235,18 @@ impl PatternDefinition for TimeoutPattern {
     }
 
     fn required_props(&self) -> &'static [&'static str] {
-        &["op", "after"]
+        &["operation", "after"]
     }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
-        let duration = ctx.eval_prop("after", exec)?.as_duration()?;
+        // Validate that .after is present, but don't use it in the interpreter
+        let _ = ctx.get_prop("after")?;
 
-        // Evaluate with timeout
-        match exec.eval_with_timeout(ctx.get_prop("op").unwrap(), duration) {
+        // In the interpreter, run the operation without actual timeout enforcement.
+        // Actual timeout behavior is implemented in the compiled output.
+        match ctx.eval_prop("operation", exec) {
             Ok(value) => Ok(Value::ok(value)),
-            Err(EvalError::Timeout) => Ok(Value::err("TimeoutError")),
-            Err(e) => Err(e),
+            Err(e) => Ok(Value::err(Value::string(e.into_eval_error().message))),
         }
     }
 }

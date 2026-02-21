@@ -12,8 +12,12 @@ Pattern fusion is an optimization that combines multiple sequential patterns int
 ## Location
 
 ```
-compiler/ori_patterns/src/fusion.rs
+compiler/ori_patterns/src/fusion/mod.rs
 ```
+
+## Status
+
+The fusion infrastructure (data structures, chain detection, hint generation) exists in `ori_patterns`, but the fusible combinations it references (`map`, `filter`, `fold`, `find`) are collection/iterator methods, not `FunctionExpKind` patterns. These methods are dispatched through `ori_eval`'s method dispatch system, not through the `PatternRegistry`. The fusion code is infrastructure for potential future optimization of pattern pipelines, not currently connected to active pattern evaluation.
 
 ## Motivation
 

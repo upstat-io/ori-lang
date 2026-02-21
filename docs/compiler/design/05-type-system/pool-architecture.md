@@ -19,8 +19,10 @@ compiler/ori_types/src/
 ├── flags.rs         # TypeFlags bitfield
 └── pool/
     ├── mod.rs       # Pool struct, queries, variable state
-    ├── construct.rs # Type construction (interning + dedup)
-    └── format.rs    # Human-readable formatting
+    ├── construct/   # Type construction (directory)
+    │   └── mod.rs       # Interning + dedup
+    └── format/      # Human-readable formatting (directory)
+        └── mod.rs       # Type display for diagnostics
 ```
 
 ## Design Rationale
@@ -113,7 +115,7 @@ extra[offset+3] = 2        (Idx::BOOL, return type)
 
 ## Initialization
 
-`Pool::new()` pre-interns the 12 primitive types at fixed indices 0–11, then pads to index 64. This guarantees that primitive `Idx` values are stable constants:
+`Pool::new()` pre-allocates with capacity hints (256 for items/flags/hashes, 1024 for extra) and pre-interns the 12 primitive types at fixed indices 0–11, then pads to index 64. This guarantees that primitive `Idx` values are stable constants:
 
 ```rust
 impl Pool {
@@ -131,7 +133,7 @@ impl Pool {
 
 ## Type Construction
 
-Type construction methods live in `pool/construct.rs`. Every method:
+Type construction methods live in `pool/construct/mod.rs`. Every method:
 
 1. Computes the hash for the type
 2. Checks the intern map for an existing entry
@@ -143,11 +145,12 @@ Type construction methods live in `pool/construct.rs`. Every method:
 Single-child types store the child `Idx` directly in the data field:
 
 ```rust
-pub fn list(&mut self, elem: Idx) -> Idx    // [T]
-pub fn option(&mut self, inner: Idx) -> Idx  // T?
-pub fn set(&mut self, elem: Idx) -> Idx      // set<T>
-pub fn channel(&mut self, elem: Idx) -> Idx  // channel<T>
-pub fn range(&mut self, elem: Idx) -> Idx    // range<T>
+pub fn list(&mut self, elem: Idx) -> Idx       // [T]
+pub fn option(&mut self, inner: Idx) -> Idx     // T?
+pub fn set(&mut self, elem: Idx) -> Idx         // set<T>
+pub fn channel(&mut self, elem: Idx) -> Idx     // channel<T>
+pub fn range(&mut self, elem: Idx) -> Idx       // range<T>
+pub fn borrowed(&mut self, inner: Idx, lifetime: LifetimeId) -> Idx  // &T (future reference types)
 ```
 
 ### Two-Child Containers
@@ -182,6 +185,17 @@ pub fn fresh_var(&mut self) -> Idx
 pub fn fresh_var_with_rank(&mut self, rank: Rank) -> Idx
 pub fn fresh_named_var(&mut self, name: Name) -> Idx
 pub fn rigid_var(&mut self, name: Name) -> Idx  // From type annotation
+```
+
+### Named and Applied Types
+
+Named types represent unresolved type references from the parser. Applied types add generic arguments:
+
+```rust
+pub fn named(&mut self, name: Name) -> Idx                   // Unresolved type name (e.g., Point)
+pub fn applied(&mut self, name: Name, args: &[Idx]) -> Idx   // Generic type ref (e.g., Option<int>)
+pub fn struct_type(&mut self, name: Name, fields: &[(Name, Idx)]) -> Idx  // Concrete struct
+pub fn enum_type(&mut self, name: Name, variants: &[EnumVariant]) -> Idx  // Concrete enum
 ```
 
 ### Schemes
@@ -295,7 +309,7 @@ This mapping allows codegen and later phases to resolve types without accessing 
 
 ## Type Formatting
 
-`pool/format.rs` converts types to human-readable strings for error messages:
+`pool/format/mod.rs` converts types to human-readable strings for error messages:
 
 ```rust
 pub fn format_type(&self, idx: Idx) -> String

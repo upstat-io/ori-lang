@@ -188,9 +188,9 @@ fn check_exhaustiveness(
 
 Missing variants are reported with their names and field wildcards (e.g., `"Rect(_, _)"`).
 
-#### Scope Limitations
+#### Nested Enum Tracking
 
-Nested enum switches (non-empty `ScrutineePath`) are not checked because the scrutinee type at nested paths requires per-Switch type tracking, which is deferred to a future phase.
+The exhaustiveness checker tracks scrutinee types at nested paths via `path_types: FxHashMap<Vec<PathInstruction>, Idx>`. When walking an `EnumTag` switch edge, the checker resolves the type at the current path, extracts variant field types, and inserts child path types for each field. The `walk` function passes this map through recursion, enabling exhaustiveness checking at arbitrary nesting depth — not just the root switch. Path entries are cleaned up after each edge to avoid context leaking between sibling branches.
 
 ### Integration
 

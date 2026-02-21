@@ -7,7 +7,7 @@ section: "Architecture"
 
 # Architecture Overview
 
-> **Note**: The crate is located at `tools/ori-lsp/`, not `compiler/ori_lsp/`. Type checking integration is not yet connected — the current implementation only runs lexer and parser phases for diagnostics.
+> **Note**: The crate is located at `tools/ori-lsp/`, not `compiler/ori_lsp/`.
 
 The LSP server uses `tower-lsp` for async protocol handling with `DashMap` for concurrent document storage.
 
@@ -261,12 +261,13 @@ async fn parse_document(&self, uri: &Url, text: &str) -> (Option<Module>, Vec<Di
         }
     };
 
-    // Type checking phase — NOT YET CONNECTED
-    // The code below shows the planned integration; currently only
-    // lex and parse errors are reported.
-    // if let Err(diag) = oric::type_check(module.clone()) {
-    //     diagnostics.push(diagnostic_to_lsp(&diag, text));
-    // }
+    // Type checking phase
+    match oric::type_check(module.clone()) {
+        Ok(_) => {}
+        Err(diag) => {
+            diagnostics.push(diagnostic_to_lsp(&diag, text));
+        }
+    }
 
     (Some(module), diagnostics)
 }

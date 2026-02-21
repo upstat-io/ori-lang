@@ -60,6 +60,19 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 - `run` / `try` — sequential blocks always stack
 - `match` — arms always stack (scrutinee on first line)
 
+### Breaking Rules (Layer 4)
+
+The formatter implements 7 named breaking rules (plus shared helper functions) for constructs that need special treatment beyond simple packing:
+
+1. **`MethodChainRule`** — All chain elements break together (`.method()` on own lines)
+2. **`ShortBodyRule`** — ~20 char threshold for yield/do bodies
+3. **`BooleanBreakRule`** — 3+ `||` clauses break with leading `||`
+4. **`ChainedElseIfRule`** — Kotlin-style (first `if` with assignment)
+5. **`NestedForRule`** — Rust-style indentation for nested `for`
+6. **`ParenthesesRule`** — Preserve user parens, add when needed for clarity
+7. **`FunctionSeq helpers`** — Query functions for try, match, generic `FunctionSeq`
+8. **`LoopRule`** — Complex body (try/match/for) forces break
+
 ## Documentation Sections
 
 ### Algorithm
@@ -93,6 +106,10 @@ Exceptions exist only for constructs that are *always* stacked regardless of wid
 - [Implementation Overview](04-implementation/) — Implementation approach
 - [Tooling Integration](04-implementation/#tooling-integration) — Crates, LSP, Playground, editors
 - [AST Integration](04-implementation/ast-integration.md) — Working with the Ori AST
+
+### Incremental Formatting
+
+The formatter supports incremental formatting via `incremental/mod.rs`. When only a portion of a file has changed, `format_incremental()` can format only the affected regions rather than the entire file, returning `FormattedRegion` results that can be applied with `apply_regions()`. This is used by the LSP server for efficient format-on-change.
 
 ### Appendices
 

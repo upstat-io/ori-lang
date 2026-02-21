@@ -173,24 +173,24 @@ An expression has a different type than expected in the given context.
 
 ## Lexer Errors (E0xxx)
 
-### E0001: Invalid Character
+### E0001: Unterminated String
 
 ```
-error[E0001]: invalid character '@#' in source
- --> src/mainsi:5:10
-  |
-5 |     let x@# = 1
-  |          ^^ invalid character
-```
-
-### E0002: Unterminated String
-
-```
-error[E0002]: unterminated string literal
+error[E0001]: unterminated string literal
  --> src/mainsi:3:10
   |
 3 |     let s = "hello
   |             ^ string literal never closed
+```
+
+### E0002: Invalid Character
+
+```
+error[E0002]: invalid character '@#' in source
+ --> src/mainsi:5:10
+  |
+5 |     let x@# = 1
+  |          ^^ invalid character
 ```
 
 ### E0003: Invalid Escape
@@ -274,28 +274,28 @@ error[E2001]: type mismatch
   |            expected due to this annotation
 ```
 
-### E2002: Undefined Variable
+### E2002: Unknown Type
 
 ```
-error[E2002]: cannot find value `foo` in this scope
+error[E2002]: unknown type `Foo`
+ --> src/mainsi:3:15
+  |
+3 |     @process (x: Foo) -> int = 42
+  |                  ^^^ not found in this scope
+  |
+  = help: did you mean `float`?
+```
+
+### E2003: Unknown Identifier
+
+```
+error[E2003]: unknown identifier `foo`
  --> src/mainsi:5:10
   |
 5 |     let x = foo + 1
   |             ^^^ not found in this scope
   |
   = help: did you mean `for`?
-```
-
-### E2003: Missing Capability
-
-```
-error[E2003]: missing capability `Http`
- --> src/mainsi:8:5
-  |
-8 |     http_get(url)
-  |     ^^^^^^^^^^^^^ requires `uses Http`
-  |
-  = help: add `uses Http` to function signature
 ```
 
 ### E2004: Infinite Type

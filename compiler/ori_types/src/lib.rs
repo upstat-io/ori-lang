@@ -21,6 +21,7 @@ mod lifetime;
 mod output;
 mod pool;
 mod registry;
+pub mod reporting;
 mod tag;
 mod type_error;
 mod unify;
@@ -68,6 +69,7 @@ pub use registry::{
     Visibility,
     WhereConstraint,
 };
+pub use reporting::{render_type_errors, TypeErrorRenderer};
 pub use tag::Tag;
 pub use type_error::{
     diff_types, edit_distance, find_closest_field, suggest_field_typo, ArityMismatchKind,

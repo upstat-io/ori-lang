@@ -27,17 +27,25 @@ In `compiler/ori_ir/src/ast/patterns/exp.rs`:
 /// Kind of function_exp pattern.
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub enum FunctionExpKind {
+    // Compiler patterns (require special syntax or static analysis)
     Recurse,
     Parallel,
     Spawn,
     Timeout,
     Cache,
     With,
+    // Fundamental built-ins (I/O, control flow, error recovery)
     Print,
     Panic,
     Catch,
+    // Developer convenience (diverge with diagnostics)
     Todo,
     Unreachable,
+    // Channel constructors (parsed from identifier, not lexer keywords)
+    Channel,
+    ChannelIn,
+    ChannelOut,
+    ChannelAll,
     Take,  // <-- Add new variant
 }
 ```
@@ -49,8 +57,7 @@ Create a new file in `compiler/ori_patterns/src/`:
 ```rust
 // take.rs
 
-use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, TypeCheckContext};
-use ori_types::Type;
+use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, Value};
 
 /// take(over: items, count: n) - Take first n items
 pub struct TakePattern;
@@ -99,7 +106,7 @@ pub use take::TakePattern;
 
 ## Step 4: Register in Registry
 
-Update `compiler/ori_patterns/src/registry.rs`:
+Update `compiler/ori_patterns/src/registry/mod.rs`:
 
 ```rust
 // Add variant to Pattern enum
@@ -132,7 +139,7 @@ impl PatternRegistry {
 
 ## Step 5: Update Parser
 
-In `compiler/ori_parse/src/expr.rs`, add the pattern name to the function_exp parser:
+In `compiler/ori_parse/src/grammar/expr/patterns.rs`, add the pattern name to the function_exp parser:
 
 ```rust
 fn parse_function_exp(&mut self) -> Option<FunctionExpKind> {
@@ -285,7 +292,7 @@ Before submitting:
 
 1. **Forgetting to update all locations** - Pattern needs changes in `ori_ir`, `ori_patterns`, `ori_parse`
 2. **Wrong trait signature** - Use `required_props()` not `arguments()`
-3. **Not using context types** - Use `TypeCheckContext`/`EvalContext`, not raw checker/evaluator
+3. **Not using context types** - Use `EvalContext`/`PatternExecutor`, not raw evaluator
 4. **Missing parser update** - Pattern won't parse without adding to parser
 5. **Thread safety** - All patterns must be `Send + Sync` (ZSTs are automatically)
 

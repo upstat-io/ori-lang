@@ -7,7 +7,7 @@ section: "Canonicalization"
 
 # Desugaring
 
-The desugaring step eliminates 7 syntactic sugar variants from the AST, producing canonical expressions that backends never need to handle. This is a mechanical, type-preserving transformation — no semantic analysis occurs.
+Desugaring is **integrated into `lower_expr()`**, not a separate pass. When the lowerer encounters a sugar variant in the AST, it calls the corresponding `desugar_*` method inline, producing canonical expressions directly. This eliminates 7 syntactic sugar variants from the AST in a single traversal alongside all other lowering work. The transformation is mechanical and type-preserving — no semantic analysis occurs.
 
 ## Sugar Variants Eliminated
 

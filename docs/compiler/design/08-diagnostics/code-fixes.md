@@ -7,7 +7,7 @@ section: "Diagnostics"
 
 # Code Fixes
 
-Code fixes are automatic repair suggestions that can be applied to resolve errors.
+Code fixes are automatic repair suggestions that can be applied to resolve errors. The framework (`CodeFix` trait, `FixRegistry`) is fully designed and implemented, but **no production fixes are currently registered**. The examples below illustrate how fixes are structured for future implementation.
 
 ## Location
 
@@ -22,15 +22,25 @@ Code fixes are represented as `Suggestion` with `Substitution` components:
 
 ```rust
 /// A structured suggestion with substitutions and applicability.
+///
+/// Supports two forms:
+/// - **Text-only**: A human-readable message with no code substitutions.
+///   Created via `text()`, `did_you_mean()`, `wrap_in()`.
+/// - **Span-bearing**: A message with exact code substitutions for `ori fix`.
+///   Created via `new()`, `machine_applicable()`, `maybe_incorrect()`, etc.
 pub struct Suggestion {
     /// Human-readable message describing the fix.
     pub message: String,
 
-    /// The text substitutions to make.
+    /// The text substitutions to make (empty for text-only suggestions).
     pub substitutions: Vec<Substitution>,
 
     /// How confident we are in this suggestion.
     pub applicability: Applicability,
+
+    /// Priority (lower = more likely to be relevant).
+    /// 0 = most likely, 1 = likely, 2 = possible, 3 = unlikely.
+    pub priority: u8,
 }
 
 /// A text substitution for a code fix.
@@ -83,8 +93,28 @@ impl Suggestion {
         snippet: impl Into<String>,
     ) -> Self;
 
+    /// Create a text-only suggestion (no code substitution).
+    pub fn text(message: impl Into<String>, priority: u8) -> Self;
+
+    /// Create a text-only suggestion with a single code replacement.
+    pub fn text_with_replacement(
+        message: impl Into<String>,
+        priority: u8,
+        span: Span,
+        new_text: impl Into<String>,
+    ) -> Self;
+
+    /// Create a "did you mean" suggestion (priority 0).
+    pub fn did_you_mean(suggestion: impl Into<String>) -> Self;
+
+    /// Create a suggestion to wrap in something (priority 1).
+    pub fn wrap_in(wrapper: &str, example: &str) -> Self;
+
     /// Add another substitution to this suggestion.
     pub fn with_substitution(self, span: Span, snippet: impl Into<String>) -> Self;
+
+    /// Check if this is a text-only suggestion (no code substitutions).
+    pub fn is_text_only(&self) -> bool;
 }
 ```
 
@@ -93,6 +123,24 @@ impl Suggestion {
 ### Using Diagnostic Builder
 
 The easiest way to add fixes is through the `Diagnostic` builder:
+
+```rust
+impl Diagnostic {
+    /// Add a plain text suggestion (human-readable, no code substitution).
+    pub fn with_suggestion(self, suggestion: impl Into<String>) -> Self;
+
+    /// Add a structured suggestion with applicability information (for `ori fix`).
+    pub fn with_structured_suggestion(self, suggestion: Suggestion) -> Self;
+
+    /// Add a machine-applicable fix (safe to auto-apply).
+    pub fn with_fix(self, message: impl Into<String>, span: Span, snippet: impl Into<String>) -> Self;
+
+    /// Add a suggestion that might be incorrect.
+    pub fn with_maybe_fix(self, message: impl Into<String>, span: Span, snippet: impl Into<String>) -> Self;
+}
+```
+
+Examples:
 
 ```rust
 // Machine-applicable fix (safe to auto-apply)
@@ -104,6 +152,16 @@ Diagnostic::error(ErrorCode::E1001)
 Diagnostic::error(ErrorCode::E2001)
     .with_message("type mismatch")
     .with_maybe_fix("convert to int", span, "int(x)")
+
+// Plain text suggestion
+Diagnostic::error(ErrorCode::E2003)
+    .with_message("unknown identifier `pritn`")
+    .with_suggestion("did you mean `print`?")
+
+// Structured suggestion with explicit applicability
+Diagnostic::error(ErrorCode::E2003)
+    .with_message("unknown identifier `pritn`")
+    .with_structured_suggestion(Suggestion::did_you_mean("print"))
 ```
 
 ### Typo Correction

@@ -28,7 +28,7 @@ compiler/ori_parse/src/
     │   ├── mod.rs              # Entry point, Pratt parser for binary operators
     │   ├── operators.rs        # Binding power table, operator matching
     │   ├── patterns.rs         # Block expressions and control flow parsing
-    │   ├── postfix.rs          # Call, method call, field, index, await, try
+    │   ├── postfix.rs          # Call, method call, field, index, try, cast
     │   └── primary.rs          # Literals, identifiers, lambdas, let bindings
     ├── item/               # Top-level declarations
     │   ├── mod.rs              # Re-exports
@@ -80,18 +80,19 @@ pub struct Cursor<'a> {
 pub struct ParseContext(u16);
 
 impl ParseContext {
-    const IN_PATTERN: Self = Self(0b0000_0001);
-    const IN_TYPE: Self = Self(0b0000_0010);
-    const NO_STRUCT_LIT: Self = Self(0b0000_0100);
-    const CONST_EXPR: Self = Self(0b0000_1000);
-    const IN_LOOP: Self = Self(0b0001_0000);
-    const ALLOW_YIELD: Self = Self(0b0010_0000);
-    const IN_FUNCTION: Self = Self(0b0100_0000);
-    const IN_INDEX: Self = Self(0b1000_0000);
+    const IN_PATTERN: Self = Self(0b0_0000_0001);
+    const IN_TYPE: Self = Self(0b0_0000_0010);
+    const NO_STRUCT_LIT: Self = Self(0b0_0000_0100);
+    const CONST_EXPR: Self = Self(0b0_0000_1000);
+    const IN_LOOP: Self = Self(0b0_0001_0000);
+    const ALLOW_YIELD: Self = Self(0b0_0010_0000);
+    const IN_FUNCTION: Self = Self(0b0_0100_0000);
+    const IN_INDEX: Self = Self(0b0_1000_0000);
+    const PIPE_IS_SEPARATOR: Self = Self(0b1_0000_0000);
 }
 ```
 
-Context flags affect how tokens are interpreted. For example, `NO_STRUCT_LIT` prevents struct literal syntax inside `if` conditions to avoid `if Point { x: 0, ... }` ambiguity. `IN_TYPE` changes how `>` is parsed (closes a generic parameter list rather than comparison).
+Context flags affect how tokens are interpreted. For example, `NO_STRUCT_LIT` prevents struct literal syntax inside `if` conditions to avoid `if Point { x: 0, ... }` ambiguity. `IN_TYPE` changes how `>` is parsed (closes a generic parameter list rather than comparison). `PIPE_IS_SEPARATOR` makes `|` act as a message separator (not bitwise OR) in `pre_check:` / `post_check:` clauses, where `|` introduces a message string.
 
 ## Parsing Flow
 
@@ -171,19 +172,20 @@ Binary operator precedence uses a Pratt binding power table. Higher values bind 
 | 11 | `+` `-` | Left | (21, 22) |
 | 12 | `*` `/` `%` `div` | Left | (23, 24) |
 | 13 | Unary `-` `!` `~` | Right | — |
-| 14 | `.` `[]` `()` `?` `.await` `as` | Left | — |
+| 14 | `.` `[]` `()` `?` `as` | Left | — |
 
 **Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary).
 
 ## Salsa Integration
 
-Parsing is a Salsa query with automatic caching:
+The Salsa query that drives parsing lives in the `oric` crate (`compiler/oric/src/query/mod.rs`), not in `ori_parse`. The parser itself is pure logic with no Salsa dependency — it takes a `TokenList` and returns a `ParseOutput`. The `oric` crate wraps this in a tracked query for incremental caching:
 
 ```rust
+// In oric (compiler/oric/src/query/mod.rs), NOT in ori_parse:
 #[salsa::tracked]
-pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseResult {
-    let tokens = tokens(db, file);
-    parse(db, tokens)
+pub fn parsed(db: &dyn Db, file: SourceFile) -> ParseOutput {
+    let toks = tokens(db, file);
+    parser::parse(&toks, db.interner())
 }
 ```
 

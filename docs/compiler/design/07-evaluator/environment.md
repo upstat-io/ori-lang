@@ -92,11 +92,13 @@ impl Scope {
         None
     }
 
-    /// Assign to a mutable variable
-    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), String> {
+    /// Assign to a mutable variable.
+    /// Returns `AssignError::Immutable` if the variable is immutable,
+    /// or `AssignError::Undefined` if the variable is not found.
+    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
         if let Some(binding) = self.bindings.get_mut(&name) {
             if !binding.mutability.is_mutable() {
-                return Err("cannot assign to immutable variable".to_string());
+                return Err(AssignError::Immutable);
             }
             binding.value = value;
             return Ok(());
@@ -104,8 +106,17 @@ impl Scope {
         if let Some(parent) = &self.parent {
             return parent.borrow_mut().assign(name, value);
         }
-        Err("undefined variable".to_string())
+        Err(AssignError::Undefined)
     }
+}
+
+/// Error type for variable assignment failures.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AssignError {
+    /// Variable exists but is immutable.
+    Immutable,
+    /// Variable not found in any scope.
+    Undefined,
 }
 ```
 
@@ -132,41 +143,57 @@ impl Environment {
         // For closures - start with captured environment
         self.scopes.push(captured);
     }
-
-    pub fn pop_scope(&mut self) -> Scope {
-        self.scopes.pop().expect("cannot pop global scope")
-    }
 }
 ```
 
 ### Variable Access
 
+The `Environment` delegates to the current scope (top of the stack) for all variable operations. The `Scope` handles parent-chain traversal for lookups and assignments:
+
 ```rust
 impl Environment {
-    pub fn bind(&mut self, name: Name, value: Value) {
-        let scope = self.scopes.last_mut().expect("no scope");
-        scope.bindings.insert(name, value);
+    /// Define a variable in the current scope.
+    pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
+        self.scopes.last()
+            .unwrap_or(&self.global)
+            .borrow_mut()
+            .define(name, value, mutability);
     }
 
-    pub fn get(&self, name: Name) -> Option<&Value> {
-        // Search from innermost to outermost
-        for scope in self.scopes.iter().rev() {
-            if let Some(value) = scope.bindings.get(&name) {
-                return Some(value);
-            }
-        }
-        None
+    /// Look up a variable (delegates to current scope's parent chain).
+    pub fn lookup(&self, name: Name) -> Option<Value> {
+        self.scopes.last()
+            .unwrap_or(&self.global)
+            .borrow()
+            .lookup(name)
     }
 
-    pub fn set(&mut self, name: Name, value: Value) -> Result<(), EvalError> {
-        // Find and update existing binding
-        for scope in self.scopes.iter_mut().rev() {
-            if scope.bindings.contains_key(&name) {
-                scope.bindings.insert(name, value);
-                return Ok(());
-            }
+    /// Assign to a mutable variable. Returns `AssignError` on failure.
+    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
+        self.scopes.last()
+            .unwrap_or(&self.global)
+            .borrow_mut()
+            .assign(name, value)
+    }
+
+    /// Define a global variable (immutable).
+    pub fn define_global(&mut self, name: Name, value: Value) {
+        self.global.borrow_mut().define(name, value, Mutability::Immutable);
+    }
+
+    /// Get the current scope depth.
+    pub fn depth(&self) -> usize {
+        self.scopes.len()
+    }
+
+    /// Create a child environment that shares the global scope
+    /// but has its own local scope stack.
+    pub fn child(&self) -> Self {
+        let global = self.global.clone();
+        Environment {
+            scopes: vec![global.clone()],
+            global,
         }
-        Err(EvalError::UndefinedVariable(name))
     }
 }
 ```
@@ -198,7 +225,7 @@ fn eval_let(&mut self, name: Name, value: ExprId, body: ExprId) -> Result<Value,
     let value = self.eval_expr(value)?;
 
     self.env.push_scope();
-    self.env.bind(name, value);  // May shadow outer binding
+    self.env.define(name, value, Mutability::Immutable);  // May shadow outer binding
 
     let result = self.eval_expr(body);
 
@@ -219,26 +246,26 @@ double(5)  // 10
 
 ```rust
 fn eval_lambda(&mut self, params: &[Name], body: ExprId) -> Result<Value, EvalError> {
-    // Capture current environment
-    let captured = self.env.capture_scope();
+    // Capture current environment as a flat map of all visible bindings
+    let captured = self.env.capture();
 
-    Ok(Value::Function(FunctionValue {
-        params: params.to_vec(),
-        body,
-        captured_env: captured,
-    }))
+    Ok(Value::Function(FunctionValue::new(
+        params.to_vec(),
+        captured,
+        self.arena.clone(),
+    )))
 }
 
 impl Environment {
-    pub fn capture_scope(&self) -> Scope {
-        // Clone all visible bindings
-        let mut bindings = HashMap::new();
-        for scope in &self.scopes {
-            for (name, value) in &scope.bindings {
-                bindings.insert(*name, value.clone());
-            }
-        }
-        Scope { bindings, kind: ScopeKind::Lambda }
+    /// Capture all visible bindings as a flat `FxHashMap<Name, Value>`.
+    /// Returns a map of all visible bindings that can be used
+    /// when the closure is called later.
+    pub fn capture(&self) -> FxHashMap<Name, Value> {
+        // Collects bindings from all scopes, innermost-first
+        // (inner bindings shadow outer ones via entry API)
+        let mut captures = FxHashMap::default();
+        // ... recursive collection from scope chain
+        captures
     }
 }
 ```
@@ -260,7 +287,7 @@ let x = 0;
 ```rust
 fn eval_assign(&mut self, name: Name, value: ExprId) -> Result<Value, EvalError> {
     let value = self.eval_expr(value)?;
-    self.env.set(name, value)?;
+    self.env.assign(name, value)?;
     Ok(Value::Void)
 }
 ```
@@ -276,7 +303,7 @@ fn call_function(&mut self, func: &FunctionValue, args: Vec<Value>) -> Result<Va
 
     // Bind parameters
     for (param, arg) in func.params.iter().zip(args) {
-        self.env.bind(*param, arg);
+        self.env.define(*param, arg, Mutability::Immutable);
     }
 
     let result = self.eval_expr(func.body);
@@ -296,7 +323,7 @@ fn eval_for(&mut self, var: Name, iter: ExprId, body: ExprId) -> Result<Value, E
 
     for item in items.iter() {
         self.env.push_scope();
-        self.env.bind(var, item.clone());
+        self.env.define(var, item.clone(), Mutability::Immutable);
         self.eval_expr(body)?;
         self.env.pop_scope();
     }
@@ -313,7 +340,7 @@ Print environment state:
 impl Environment {
     pub fn debug_print(&self) {
         for (i, scope) in self.scopes.iter().enumerate() {
-            eprintln!("Scope {} ({:?}):", i, scope.kind);
+            eprintln!("Scope {}:", i);
             for (name, value) in &scope.bindings {
                 eprintln!("  {} = {:?}", name, value);
             }

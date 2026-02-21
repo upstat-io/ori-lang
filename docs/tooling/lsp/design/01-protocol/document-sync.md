@@ -7,7 +7,7 @@ section: "Protocol"
 
 # Document Synchronization
 
-> **Status: Simplified Implementation.** The current implementation uses a `DashMap<Url, Document>` with full-document re-parse on each change, rather than the FileSystemProxy, incremental sync, and caching strategies described below. Those patterns represent the planned design.
+> **Status: Simplified Implementation.** The current implementation is a simple `DashMap<Url, Document>` with full-document re-parse on each change. The `FileSystemProxy`, `DiagnosticTracker`, debouncing, incremental sync, and cache management described below are all planned but not implemented. The actual `did_change` handler replaces the stored text and re-runs `oric::type_check()` synchronously.
 
 How the LSP server maintains document state and synchronizes with clients.
 

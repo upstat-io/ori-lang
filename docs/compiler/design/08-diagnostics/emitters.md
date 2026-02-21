@@ -48,12 +48,40 @@ error[E2001]: type mismatch
    = help: consider using `int()` to convert
 ```
 
-### Implementation
+### ColorMode
+
+The `ColorMode` enum controls color output:
 
 ```rust
-pub struct TerminalEmitter {
-    writer: Box<dyn Write>,
+pub enum ColorMode {
+    /// Automatically detect based on terminal capabilities.
+    Auto,
+    /// Always use colors.
+    Always,
+    /// Never use colors.
+    Never,
+}
+
+impl ColorMode {
+    /// Resolve to a boolean based on terminal detection.
+    pub fn should_use_colors(self, is_tty: bool) -> bool;
+}
+```
+
+### Implementation
+
+The `TerminalEmitter` is generic over `W: Write` and borrows source text for zero-copy snippet rendering. When source text is provided via `with_source()`, it builds a `LineOffsetTable` for O(log L) line/column lookups. Without source text, it falls back to byte-offset output.
+
+```rust
+pub struct TerminalEmitter<'src, W: Write> {
+    writer: W,
     colors: bool,
+    /// Source text for rendering snippets (borrowed, not cloned).
+    source: Option<&'src str>,
+    /// File path displayed in `-->` location headers.
+    file_path: Option<String>,
+    /// Pre-computed line offset table for O(log L) lookups.
+    line_table: Option<LineOffsetTable>,
 }
 
 impl DiagnosticEmitter for TerminalEmitter {
@@ -96,16 +124,17 @@ impl DiagnosticEmitter for TerminalEmitter {
 
 ### Color Scheme
 
+Colors are defined as module constants in a `colors` submodule, not as a method on `TerminalEmitter`:
+
 ```rust
-impl TerminalEmitter {
-    fn severity_color(&self, severity: Severity) -> &'static str {
-        match severity {
-            Severity::Error => "\x1b[1;31m",   // Bold red
-            Severity::Warning => "\x1b[1;33m", // Bold yellow
-            Severity::Note => "\x1b[1;36m",    // Bold cyan
-            Severity::Help => "\x1b[1;32m",    // Bold green
-        }
-    }
+mod colors {
+    pub const ERROR: &str = "\x1b[1;31m";     // Bold red
+    pub const WARNING: &str = "\x1b[1;33m";   // Bold yellow
+    pub const NOTE: &str = "\x1b[1;36m";      // Bold cyan
+    pub const HELP: &str = "\x1b[1;32m";      // Bold green
+    pub const BOLD: &str = "\x1b[1m";
+    pub const SECONDARY: &str = "\x1b[1;34m"; // Bold blue
+    pub const RESET: &str = "\x1b[0m";
 }
 ```
 
