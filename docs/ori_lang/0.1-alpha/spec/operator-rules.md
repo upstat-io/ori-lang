@@ -47,11 +47,56 @@ MAINTENANCE
 
 ---
 
+## Pipe `|>`
+
+```
+assoc=left
+prec=16 (lowest binary)
+
+TYPE RULES
+──────────
+    e1 : T    f : (P: T, ...) -> U    [P is single unspecified param of f]
+    ─────────────────────────────────────────────────────────────────────    PIPE-FILL
+                             e1 |> f(...) : U
+
+    e1 : T    method : (self: T, ...) -> U
+    ──────────────────────────────────────    PIPE-METHOD
+              e1 |> .method(...) : U
+
+    e1 : T    g : (T) -> U
+    ────────────────────────    PIPE-LAMBDA
+         e1 |> g : U
+
+UNSPECIFIED PARAMETER
+─────────────────────
+A parameter is "unspecified" when:
+  (a) not provided in the call arguments, AND
+  (b) has no default value
+
+Parameters with defaults are treated as filled for pipe resolution.
+
+COMPILE ERRORS
+──────────────
+Zero unspecified params  => "all parameters already specified; nothing for pipe to fill"
+2+ unspecified params    => "ambiguous pipe target; specify all parameters except one"
+
+DESUGARING
+──────────
+e1 |> f(a: v)            => { let $__pipe = e1; f(<unspecified>: __pipe, a: v) }
+e1 |> .method(a: v)      => { let $__pipe = e1; __pipe.method(a: v) }
+e1 |> (x -> expr)        => { let $__pipe = e1; (x -> expr)(__pipe) }
+e1 |> f(a: v)?           => { let $__pipe = e1; f(<unspecified>: __pipe, a: v)? }
+
+LEFT-TO-RIGHT: a |> f |> g |> h = h(g(f(a)))
+```
+
+---
+
 ## Coalesce `??`
 
 ```
 assoc=right
-prec=15 (lowest binary)
+prec=15
 
 TYPE RULES
 ──────────

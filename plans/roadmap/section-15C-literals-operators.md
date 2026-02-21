@@ -3,7 +3,7 @@ section: "15C"
 title: Literals & Operators
 status: not-started
 tier: 5
-goal: Implement string interpolation, spread operator, and range step syntax
+goal: Implement string interpolation, spread operator, range step syntax, and pipe operator
 sections:
   - id: "15C.1"
     title: String Interpolation
@@ -36,13 +36,16 @@ sections:
     title: Power Operator
     status: not-started
   - id: "15C.11"
+    title: Pipe Operator
+    status: not-started
+  - id: "15C.12"
     title: Section Completion Checklist
     status: not-started
 ---
 
 # Section 15C: Literals & Operators
 
-**Goal**: Implement string interpolation, spread operator, and range step syntax
+**Goal**: Implement string interpolation, spread operator, range step syntax, and pipe operator
 
 > **Source**: `docs/ori_lang/proposals/approved/`
 
@@ -731,7 +734,84 @@ Add `**` as a right-associative binary operator for exponentiation. Desugars to 
 
 ---
 
-## 15C.11 Section Completion Checklist
+## 15C.11 Pipe Operator (`|>`)
+
+**Proposal**: `proposals/approved/pipe-operator-proposal.md`
+
+Add `|>` for left-to-right function composition with implicit fill. The piped value fills the single parameter that has no default and is not provided in the call. Method calls on the piped value use `.method()` syntax. Lambda pipe steps (`|> (x -> expr)`) handle expression-level operations.
+
+```ori
+data
+    |> filter(predicate: x -> x > 0)
+    |> map(transform: x -> x * 2)
+    |> sum
+```
+
+### Lexer
+
+- [ ] **Implement**: Add `PipeArrow` raw token tag to `ori_lexer_core/src/tag/mod.rs`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
+- [ ] **Implement**: Update raw scanner to recognize `|>` (disambiguate from `|`)
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — pipe token scanning
+- [ ] **Implement**: Map `PipeArrow` → `TokenKind::Pipe` in cooker
+  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — pipe token cooking
+
+### IR
+
+- [ ] **Implement**: Add `Pipe` expression variant to `ExprKind` (LHS expression + pipe step)
+  - Pipe step variants: function call (implicit fill), method call (`.method`), lambda
+  - [ ] **Rust Tests**: `ori_ir/src/ast/tests.rs` — Pipe expression AST node
+
+### Parser
+
+- [ ] **Implement**: Parse `|>` at precedence 16 (below `??` at 15); produce `Pipe` AST node
+  - Grammar: `pipe_expr = coalesce_expr { "|>" pipe_step } .`
+  - Pipe step: `.method()` | `postfix_expr [call_args]` | `lambda`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — pipe expression parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/basic.ori` — simple pipe chains
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/method_call.ori` — `.method()` on piped value
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/lambda.ori` — lambda pipe steps
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/precedence.ori` — `a + b |> f` = `(a + b) |> f`
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/nested.ori` — `a |> f(x: b |> g)`
+
+### Type Checker
+
+- [ ] **Implement**: Resolve implicit fill — identify single unspecified param (no default, not in call)
+  - Desugar to let-binding + ordinary function call
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — pipe implicit fill resolution
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/implicit_fill.ori` — fills correct param
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/defaults.ori` — params with defaults excluded
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/punning.ori` — `x |> f(weight:, bias:)`
+
+- [ ] **Implement**: Error diagnostics for pipe
+  - Zero unspecified: "all parameters already specified; nothing for pipe to fill"
+  - Multiple unspecified: "ambiguous pipe target; specify all parameters except one"
+  - [ ] **Ori Tests**: `tests/compile-fail/pipe_all_specified.ori`
+  - [ ] **Ori Tests**: `tests/compile-fail/pipe_ambiguous.ori`
+  - [ ] **Ori Tests**: `tests/compile-fail/pipe_zero_params.ori`
+
+- [ ] **Implement**: Desugar `.method()` pipe steps to `__pipe.method(args)` call
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/method_desugar.ori`
+
+- [ ] **Implement**: Desugar lambda pipe steps to `(lambda)(__pipe)` call
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/lambda_desugar.ori`
+
+- [ ] **Implement**: Handle `?` on pipe steps — applies to desugared call result
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/error_propagation.ori`
+
+### Formatter
+
+- [ ] **Implement**: Format pipe chains with line-break-per-step, indented under first operand
+  - [ ] **Rust Tests**: `ori_fmt/src/formatter/tests.rs` — pipe chain formatting
+
+### LLVM
+
+- [ ] **LLVM Support**: No changes needed — type checker desugars before reaching LLVM codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/pipe.rs` — verify desugared form compiles correctly
+
+---
+
+## 15C.12 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated

@@ -98,6 +98,7 @@ max      print    panic
 | 13 | `&&` | Left |
 | 14 | `\|\|` | Left |
 | 15 | `??` | Right |
+| 16 | `\|>` | Left |
 
 ## Delimiters
 

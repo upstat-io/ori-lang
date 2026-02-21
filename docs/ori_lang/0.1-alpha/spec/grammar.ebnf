@@ -77,7 +77,7 @@ comp_op   = "==" | "!=" | "<" | ">" | "<=" | ">=" .
 logic_op  = "&&" | "||" | "!" .
 bit_op    = "&" | "|" | "^" | "~" | "<<" | ">>" .
 unary_op  = "!" | "-" | "~" .
-other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" .
+other_op  = ".." | "..=" | "??" | "?" | "->" | "=>" | "|>" .
 
 // --- Delimiters ---
 
@@ -416,9 +416,13 @@ power_expr = postfix_expr [ "**" power_expr ] .  /* right-associative */
 
 // --- Binary Expressions ---
 // See: 09-expressions.md § Binary Expressions
-// Precedence (lowest to highest): ??, ||, &&, |, ^, &, ==, cmp, range, shift, add, mul, unary, power
+// Precedence (lowest to highest): |>, ??, ||, &&, |, ^, &, ==, cmp, range, shift, add, mul, unary, power
 
-binary_expr   = coalesce_expr .
+binary_expr   = pipe_expr .
+pipe_expr     = coalesce_expr { "|>" pipe_step } .
+pipe_step     = "." member_name [ call_args ]    /* method on piped value */
+              | postfix_expr [ call_args ]        /* function call with implicit fill */
+              | lambda .                          /* expression-level operation */
 coalesce_expr = or_expr [ "??" coalesce_expr ] .  /* right-associative */
 or_expr       = and_expr { "||" and_expr } .
 and_expr      = bit_or_expr { "&&" bit_or_expr } .
