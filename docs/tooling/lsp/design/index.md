@@ -18,15 +18,14 @@ The LSP server is implemented at `tools/ori-lsp/` using:
 - **`tokio`** for async runtime
 
 **Current Features:**
-- ⚠️ Partial — Diagnostics (lex/parse errors only, no type errors yet)
+- ✅ Diagnostics (lex, parse, and type errors via `oric::type_check()`)
+- ✅ Go to Definition (`textDocument/definition`)
 - ⚠️ Partial — Hover (function signatures and type definitions only)
-- ⚠️ Partial — Completions (keywords and snippets only, no semantic completions)
+- ⚠️ Partial — Completions (keywords, snippets, and functions from current document)
 - ✅ Formatting (full document formatting via `ori_fmt`)
 
 **Not Yet Implemented:**
-- ⚠ Type checking integration (diagnostics are lex/parse only)
-- ⚠ Go to Definition (semantic resolution)
-- ⚠ WASM compilation for browser playground
+- ⚠ WASM compilation for browser playground (the Playground currently uses a separate runtime WASM module at `website/playground-wasm/`, not the LSP server compiled to WASM)
 - ⚠ Find References
 - ⚠ Document Symbols
 - ⚠ Code Actions
@@ -71,24 +70,25 @@ flowchart TD
     Server --> oric["oric crate<br/>(lexer, parser, type_check, format)"]
 
     LSP --> Native["Native binary<br/>(VS Code, Neovim)"]
-    LSP -.-> WASM["WASM module<br/>(Planned)"]
+    LSP -.-> WASM["WASM module<br/>(Planned — NOT the Playground WASM)"]
 ```
 
 ## Feature Roadmap
 
 ### Phase 1: Foundation
 
-| Feature | LSP Method | Priority |
-|---------|------------|----------|
-| Formatting | `textDocument/formatting` | P0 |
-| Diagnostics | `textDocument/publishDiagnostics` | P0 |
-| Hover | `textDocument/hover` | P0 |
+| Feature | LSP Method | Priority | Status |
+|---------|------------|----------|--------|
+| Formatting | `textDocument/formatting` | P0 | ✅ Implemented |
+| Diagnostics | `textDocument/publishDiagnostics` | P0 | ✅ Implemented (lex, parse, type errors) |
+| Hover | `textDocument/hover` | P0 | ⚠️ Partial |
+| Go to Definition | `textDocument/definition` | P0 | ✅ Implemented |
+| Completions | `textDocument/completion` | P0 | ⚠️ Partial (keywords, snippets, document functions) |
 
 ### Phase 2: Navigation
 
 | Feature | LSP Method | Priority |
 |---------|------------|----------|
-| Go to Definition | `textDocument/definition` | P1 |
 | Find References | `textDocument/references` | P1 |
 | Document Symbols | `textDocument/documentSymbol` | P1 |
 

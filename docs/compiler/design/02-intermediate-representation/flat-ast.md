@@ -82,6 +82,10 @@ Benefits:
 - ExprId is Copy, cheap to pass around
 - Easy to serialize (just a Vec)
 
+### Expression Lists
+
+Variable-length expression lists (call arguments, list elements, block statements) use `ExprRange` instead of `Vec<ExprId>`. `ExprRange { start: u32, len: u16 }` is a compact 8-byte range pointing into a flattened side-table vector in the arena. The `start` field indexes into the side table, and `len` caps at `u16::MAX` (65,535 elements per list). This avoids per-node heap allocation for lists and keeps `ExprKind` at a fixed 24 bytes.
+
 ## Building the AST
 
 During parsing, expressions are allocated into the arena:

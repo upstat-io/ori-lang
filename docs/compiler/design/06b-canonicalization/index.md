@@ -32,7 +32,7 @@ The `Lowerer` performs four transformations in a single pass over the AST:
 | **Constant Folding** | `const_fold` | Pre-evaluates compile-time-known expressions |
 | **Type Attachment** | (inline) | Annotates every `CanNode` with its resolved type |
 
-After lowering, **exhaustiveness checking** (`exhaustiveness`) walks the compiled decision trees to detect non-exhaustive matches and redundant arms.
+After lowering, **exhaustiveness checking** (`exhaustiveness`) walks the compiled decision trees to detect non-exhaustive matches and redundant arms. A separate **validation** pass (`validate`) performs debug-mode integrity checks on the canonical IR.
 
 ## Canonical IR vs AST
 

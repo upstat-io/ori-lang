@@ -20,16 +20,24 @@ compiler/ori_types/src/
 ├── flags.rs                  # TypeFlags — pre-computed bitflags for O(1) queries
 ├── pool/                     # Unified type storage (SoA layout)
 │   ├── mod.rs                    # Pool struct, queries, variable state management
-│   ├── construct.rs              # Type construction methods (interning + dedup)
-│   └── format.rs                 # Human-readable type formatting for diagnostics
+│   ├── construct/                # Type construction (directory)
+│   │   └── mod.rs                    # Type construction methods (interning + dedup)
+│   └── format/                   # Type formatting (directory)
+│       └── mod.rs                    # Human-readable type formatting for diagnostics
 ├── unify/                    # Unification engine
 │   ├── mod.rs                    # UnifyEngine — link-based union-find
-│   ├── rank.rs                   # Rank system for let-polymorphism
-│   └── error.rs                  # UnifyError, UnifyContext
+│   ├── rank/                     # Rank system (directory)
+│   │   └── mod.rs                    # Rank system for let-polymorphism
+│   └── error/                    # Unification errors (directory)
+│       └── mod.rs                    # UnifyError, UnifyContext
 ├── infer/                    # Inference engine
 │   ├── mod.rs                    # InferEngine — orchestrates inference
-│   ├── expr.rs                   # infer_expr() — per-expression inference dispatch
-│   └── env.rs                    # TypeEnv — Rc-based scope chain
+│   ├── expr/                     # Expression inference (directory, 13+ files)
+│   │   ├── mod.rs                    # infer_expr() dispatch
+│   │   ├── calls.rs, methods.rs, operators.rs, ...
+│   │   └── identifiers.rs, structs.rs, collections.rs, ...
+│   └── env/                      # Type environment (directory)
+│       └── mod.rs                    # TypeEnv — Rc-based scope chain
 ├── check/                    # Module-level type checker
 │   ├── mod.rs                    # ModuleChecker — multi-pass orchestration
 │   ├── signatures.rs             # Pass 1: function signature collection
@@ -71,8 +79,8 @@ The type system is organized into four layers:
 ├─────────────────────────────────────────────────────┤
 │ Registries (Semantic Information)                    │
 │ ├─ TypeRegistry  (structs, enums, aliases)          │
-│ ├─ TraitRegistry (traits, implementations)          │
-│ └─ MethodRegistry (unified method lookup)           │
+│ ├─ TraitRegistry (traits, impls, super_traits)      │
+│ └─ MethodRegistry (trait method lookup delegation)   │
 ├─────────────────────────────────────────────────────┤
 │ InferEngine (Hindley-Milner Inference)              │
 │ ├─ UnifyEngine   (union-find with path compression) │
@@ -189,21 +197,48 @@ The `ModuleChecker` orchestrates multi-pass type checking for a module:
 
 ```rust
 pub struct ModuleChecker<'a> {
+    // === Immutable Context ===
     arena: &'a ExprArena,
     interner: &'a StringInterner,
 
-    pool: Pool,                             // Type storage
+    // === Type Storage ===
+    pool: Pool,
+
+    // === Name Cache ===
+    well_known: WellKnownNames,             // Pre-interned type names for O(1) resolution
+
+    // === Registries ===
     types: TypeRegistry,                    // User-defined types
     traits: TraitRegistry,                  // Traits & impls
     methods: MethodRegistry,                // Method resolution
 
-    import_env: TypeEnv,                    // Imported functions
+    // === Import State ===
+    import_env: TypeEnv,                    // Imported function bindings
+    module_aliases: FxHashMap<Name, Vec<FunctionSig>>,  // Qualified access (e.g., http.get)
+
+    // === Function Signatures ===
     signatures: FxHashMap<Name, FunctionSig>,
     base_env: Option<TypeEnv>,              // Frozen after Pass 1
 
+    // === Expression Types ===
     expr_types: Vec<Idx>,                   // Output: type per expression
+
+    // === Scope Context ===
+    current_function: Option<Idx>,          // Current function's type (for `recurse`)
+    current_impl_self: Option<Idx>,         // Current impl's Self type
+    current_capabilities: FxHashSet<Name>,  // `uses` clause capabilities
+    provided_capabilities: FxHashSet<Name>, // `with...in` capabilities
+    const_types: FxHashMap<Name, Idx>,      // Module-level constant types
+
+    // === Diagnostics ===
     errors: Vec<TypeCheckError>,            // Accumulated errors
+    warnings: Vec<TypeCheckWarning>,        // Accumulated warnings
+
+    // === Pattern Resolutions ===
     pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
+
+    // === Impl Method Signatures ===
+    impl_sigs: Vec<(Name, FunctionSig)>,    // Impl method signatures for codegen
 }
 ```
 
@@ -263,11 +298,11 @@ if cond then t else e
 
 Method calls resolve through a three-level dispatch:
 
-1. **Built-in methods** — Compiler-defined methods on primitive/container types (via `MethodRegistry`)
+1. **Built-in methods** — Compiler-defined methods on primitive/container types (via `resolve_builtin_method()`)
 2. **Inherent methods** — `impl Type { ... }` blocks
 3. **Trait methods** — `impl Trait for Type { ... }` blocks
 
-The `MethodRegistry` stores built-in methods keyed by `(Tag, Name)` for O(1) lookup. Each built-in method declares its return type relationship to the receiver:
+The `MethodRegistry` delegates trait-based method lookup to `TraitRegistry`. Built-in method resolution is handled separately by `resolve_builtin_method()` in `infer/expr/methods.rs`, which dispatches on type tag and method name. Each built-in method declares its return type relationship to the receiver:
 
 ```rust
 pub enum BuiltinMethodKind {

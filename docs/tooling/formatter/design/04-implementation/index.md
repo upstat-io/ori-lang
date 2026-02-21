@@ -62,7 +62,6 @@ compiler/ori_fmt/
 │   │   ├── chained_else_if.rs
 │   │   ├── nested_for.rs
 │   │   ├── parentheses.rs
-│   │   ├── run_rule.rs
 │   │   ├── loop_rule.rs
 │   │   └── tests.rs
 │   ├── formatter/          # Layer 5: Orchestration

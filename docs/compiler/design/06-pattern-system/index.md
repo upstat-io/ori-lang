@@ -27,9 +27,12 @@ Data transformation moved to stdlib because `items.map(transform: fn)` is just a
 ```
 compiler/ori_patterns/src/
 ├── lib.rs              # Core interfaces and re-exports
-├── registry.rs         # Pattern registration
-├── signature.rs        # Pattern signatures
-├── errors.rs           # Pattern errors
+├── registry/           # Pattern registration
+│   └── mod.rs
+├── signature/          # Pattern signatures
+│   └── mod.rs
+├── errors/             # Pattern errors
+│   └── mod.rs
 ├── builtins/           # Built-in patterns
 │   ├── mod.rs              # Re-exports
 │   ├── print.rs            # PrintPattern implementation
@@ -37,12 +40,25 @@ compiler/ori_patterns/src/
 │   ├── catch.rs            # CatchPattern implementation
 │   ├── todo.rs             # TodoPattern implementation (returns Never)
 │   └── unreachable.rs      # UnreachablePattern implementation (returns Never)
-├── recurse.rs          # recurse pattern
-├── parallel.rs         # parallel pattern
-├── spawn.rs            # spawn pattern
-├── timeout.rs          # timeout pattern
-├── cache.rs            # cache pattern
-├── with_pattern.rs     # with pattern (RAII resource management)
+├── recurse/            # recurse pattern
+│   └── mod.rs
+├── parallel/           # parallel pattern
+│   └── mod.rs
+├── spawn/              # spawn pattern
+│   └── mod.rs
+├── timeout/            # timeout pattern
+│   └── mod.rs
+├── cache/              # cache pattern
+│   └── mod.rs
+├── with_pattern/       # with pattern (RAII resource management)
+│   └── mod.rs
+├── channel.rs          # channel pattern (message passing, stub)
+├── fusion/             # Pattern fusion infrastructure
+│   └── mod.rs
+├── method_key/         # Method key types
+│   └── mod.rs
+├── user_methods/       # User-defined method support
+│   └── mod.rs
 └── value/              # Runtime value system
     ├── mod.rs              # Value enum and factory methods
     ├── heap.rs             # Heap<T> wrapper for Arc enforcement
@@ -120,6 +136,7 @@ pub enum Pattern {
     Catch(CatchPattern),
     Todo(TodoPattern),
     Unreachable(UnreachablePattern),
+    Channel(ChannelPattern),
 }
 
 pub struct PatternRegistry {
@@ -142,6 +159,10 @@ impl PatternRegistry {
             FunctionExpKind::Catch => Pattern::Catch(CatchPattern),
             FunctionExpKind::Todo => Pattern::Todo(TodoPattern),
             FunctionExpKind::Unreachable => Pattern::Unreachable(UnreachablePattern),
+            FunctionExpKind::Channel
+            | FunctionExpKind::ChannelIn
+            | FunctionExpKind::ChannelOut
+            | FunctionExpKind::ChannelAll => Pattern::Channel(ChannelPattern),
         }
     }
 }

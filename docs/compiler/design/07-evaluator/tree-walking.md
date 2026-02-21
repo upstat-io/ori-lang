@@ -35,440 +35,138 @@ The `CanExpr` type is `Copy` (24 bytes), so the kind is copied out of the arena 
 dispatching. This releases the immutable borrow on `self.canon`, allowing recursive
 `self.eval_can()` calls in each arm.
 
-## Expression Evaluation
+## Canonical Expression Dispatch
+
+The `eval_can_inner()` method handles all `CanExpr` variants exhaustively (no `_ =>` catch-all). Currently 48 variants. The kind is copied out of the arena before dispatching to release the immutable borrow:
+
+```rust
+fn eval_can_inner(&mut self, can_id: CanId) -> EvalResult {
+    let kind = *self.canon_ref().arena.kind(can_id);
+
+    match kind {
+        // Literals — direct value construction
+        CanExpr::Int(n) => Ok(Value::int(n)),
+        CanExpr::Float(bits) => Ok(Value::Float(f64::from_bits(bits))),
+        CanExpr::Bool(b) => Ok(Value::Bool(b)),
+        CanExpr::Str(name) => Ok(Value::string_static(self.interner.lookup_static(name))),
+        CanExpr::Char(c) => Ok(Value::Char(c)),
+        CanExpr::Duration { value, unit } => { /* nanosecond conversion */ }
+        CanExpr::Size { value, unit } => { /* byte conversion */ }
+        CanExpr::Unit => Ok(Value::Void),
+
+        // Compile-time constant (from ConstantPool)
+        CanExpr::Constant(id) => Ok(const_to_value(self.canon_ref().constants.get(id), self.interner)),
+
+        // Identifiers — environment lookup, then type ref fallback
+        CanExpr::Ident(name) => { /* env.lookup(name), then TypeRef fallback */ }
+        CanExpr::Const(name) => { /* constant reference: $name */ }
+        CanExpr::TypeRef(name) => { /* resolved at canonicalization time */ }
+        CanExpr::FunctionRef(name) => { /* function reference: @name */ }
+        CanExpr::FunctionExp { kind, props } => { /* print, panic, todo, etc. */ }
+
+        // Binary/Unary/Cast — dual dispatch (primitives direct, user types via traits)
+        CanExpr::Binary { left, op, right } => self.eval_can_binary(can_id, left, op, right),
+        CanExpr::Unary { op, operand } => { /* evaluate_unary dispatch */ }
+        CanExpr::Cast { expr, target, fallible } => { /* type cast: as / as? */ }
+
+        // Control flow
+        CanExpr::If { cond, then, else_ } => { /* eval cond, branch */ }
+        CanExpr::Block(range) => { /* eval statements, return last */ }
+        CanExpr::Loop { body } => { /* loop with break value */ }
+        CanExpr::For { binding, iter, body, yields } => { /* iterator-based loop */ }
+        CanExpr::While { cond, body } => { /* condition-checked loop */ }
+
+        // Pattern matching via decision trees
+        CanExpr::Match { scrutinee, tree_id } => self.eval_can_match(can_id, scrutinee, tree_id),
+
+        // Let bindings with pattern destructuring
+        CanExpr::Let { pattern, value, .. } => { /* bind_can_pattern */ }
+
+        // Calls and methods
+        CanExpr::Call { func, args } => { /* eval func, eval args, dispatch */ }
+        CanExpr::MethodCall { receiver, method, args } => { /* method dispatch chain */ }
+
+        // Collections
+        CanExpr::List(range) => { /* eval elements into Vec */ }
+        CanExpr::Map(entries) => { /* eval key-value pairs */ }
+        CanExpr::Tuple(range) => { /* eval elements into tuple */ }
+
+        // Error handling
+        CanExpr::Try(expr) => { /* error propagation: expr? */ }
+        CanExpr::Unsafe(expr) => { /* transparent — evaluates inner expression */ }
+        CanExpr::WithCapability { capability, provider, body } => { /* with Cap = x in body */ }
+        CanExpr::FormatWith { expr, spec } => { /* format value with spec string */ }
+
+        // ... remaining variants (StructLit, FieldAccess, Index, Lambda, etc.)
+    }
+}
+```
 
 ### Literals
 
-```rust
-fn eval_literal(&self, lit: &Literal) -> Result<Value, EvalError> {
-    Ok(match lit {
-        Literal::Int(n) => Value::Int(*n),
-        Literal::Float(f) => Value::Float(*f),
-        Literal::String(s) => Value::String(Arc::new(s.clone())),
-        Literal::Bool(b) => Value::Bool(*b),
-        Literal::Char(c) => Value::Char(*c),
-        Literal::Duration(d) => Value::Duration(*d),
-        Literal::Size(s) => Value::Size(*s),
-    })
-}
-```
+Literal values in canonical IR are already desugared — no `Literal` enum wrapper. Each literal type is a direct `CanExpr` variant with the value inline:
 
-### Identifiers
+- `CanExpr::Int(i64)` → `Value::int(n)` (uses factory for small-int optimization)
+- `CanExpr::Float(u64)` → `Value::Float(f64::from_bits(bits))`
+- `CanExpr::Str(Name)` → `Value::string_static(interned_str)` (zero-copy from interner)
+- `CanExpr::Constant(ConstId)` → looked up in `ConstantPool` (pre-folded at compile time)
 
-Identifier evaluation first checks the environment, then checks for type names with associated functions:
+### Identifiers and Type References
 
-```rust
-fn eval_ident(
-    name: Name,
-    env: &Environment,
-    interner: &StringInterner,
-    user_registry: Option<&UserMethodRegistry>,
-) -> EvalResult {
-    // First check environment
-    if let Some(val) = env.lookup(name) {
-        return Ok(val);
-    }
+Two identifier variants exist in canonical IR:
 
-    let name_str = interner.lookup(name);
-
-    // Check user-defined types with associated functions
-    if let Some(registry) = user_registry {
-        if registry.has_any_methods_for_type(name) {
-            return Ok(Value::TypeRef { type_name: name });
-        }
-    }
-
-    // Check built-in types with associated functions
-    if is_builtin_type_with_associated_functions(name_str) {
-        return Ok(Value::TypeRef { type_name: name });
-    }
-
-    Err(undefined_variable(name_str))
-}
-```
-
-This enables associated function calls like `Point.origin()` where `Point` evaluates to a `TypeRef` value.
+- `CanExpr::Ident(name)` — Standard identifier. Checks the environment first, then falls back to `TypeRef` for user-defined types with associated functions (e.g., `Point.origin()`).
+- `CanExpr::TypeRef(name)` — Resolved during canonicalization. Eliminates name resolution from the evaluator (phase boundary discipline). Still checks the environment first for variable shadowing.
 
 ### Binary Operations
 
 Binary operators use a dual-dispatch strategy:
 - **Primitive types** (int, float, bool, str, Duration, Size, etc.) use direct evaluation via `evaluate_binary` for performance
 - **User-defined types** dispatch through operator trait methods (`Add::add`, `Sub::subtract`, `Mul::multiply`, etc.)
-
-This enables user-defined types to implement operator traits while keeping primitive operations efficient.
-
-```rust
-fn eval_binary(
-    &mut self,
-    left: ExprId,
-    op: BinaryOp,
-    right: ExprId,
-) -> Result<Value, EvalError> {
-    // Short-circuit for && and ||
-    if op == BinaryOp::And {
-        let left_val = self.eval_expr(left)?;
-        if !left_val.as_bool()? {
-            return Ok(Value::Bool(false));
-        }
-        return self.eval_expr(right);
-    }
-
-    if op == BinaryOp::Or {
-        let left_val = self.eval_expr(left)?;
-        if left_val.as_bool()? {
-            return Ok(Value::Bool(true));
-        }
-        return self.eval_expr(right);
-    }
-
-    // Comparison operators use direct evaluation (Eq/Comparable traits)
-    if is_comparison_op(op) {
-        let left_val = self.eval_expr(left)?;
-        let right_val = self.eval_expr(right)?;
-        return apply_binary_op(&left_val, op, &right_val, self.interner);
-    }
-
-    let left_val = self.eval_expr(left)?;
-    let right_val = self.eval_expr(right)?;
-
-    // Primitive types use direct evaluation for performance
-    if is_primitive_value(&left_val) {
-        return apply_binary_op(&left_val, op, &right_val, self.interner);
-    }
-
-    // User-defined types dispatch through operator trait methods
-    if let Some(method_name) = binary_op_to_method(op) {
-        return self.call_method(&left_val, method_name, &[right_val]);
-    }
-
-    // Fallback for any remaining operators
-    apply_binary_op(&left_val, op, &right_val, self.interner)
-}
-
-/// Returns true for primitive values that use direct operator evaluation.
-fn is_primitive_value(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Int(_) | Value::Float(_) | Value::Bool(_) | Value::Str(_)
-            | Value::Char(_) | Value::Byte(_) | Value::Duration(_) | Value::Size(_)
-            | Value::List(_) | Value::Tuple(_) | Value::Map(_)
-            | Value::Some(_) | Value::None | Value::Ok(_) | Value::Err(_) | Value::Range(_)
-    )
-}
-
-/// Maps binary operators to their trait method names.
-/// Note: Division uses "divide" (not "div") because `div` is a reserved
-/// keyword for floor division in Ori.
-fn binary_op_to_method(op: BinaryOp) -> Option<&'static str> {
-    match op {
-        BinaryOp::Add => Some("add"),
-        BinaryOp::Sub => Some("sub"),
-        BinaryOp::Mul => Some("mul"),
-        BinaryOp::Div => Some("divide"),  // "divide" not "div" (keyword)
-        BinaryOp::Mod => Some("rem"),
-        BinaryOp::FloorDiv => Some("floor_div"),
-        BinaryOp::BitAnd => Some("bit_and"),
-        BinaryOp::BitOr => Some("bit_or"),
-        BinaryOp::BitXor => Some("bit_xor"),
-        BinaryOp::Shl => Some("shl"),
-        BinaryOp::Shr => Some("shr"),
-        _ => None, // Comparison and logical operators handled separately
-    }
-}
-```
+- **Short-circuit**: `&&` and `||` evaluate left operand first; skip right if result is determined
 
 ### Method Calls and Associated Functions
 
-Method calls dispatch based on the receiver type. For `TypeRef` receivers (associated function calls), the receiver is not passed as an argument:
+Method calls dispatch based on the receiver type:
 
-```rust
-fn eval_method_call(
-    &mut self,
-    receiver: Value,
-    method: Name,
-    args: Vec<Value>,
-) -> EvalResult {
-    // Associated functions: receiver is a type name
-    if let Value::TypeRef { type_name } = &receiver {
-        // Check user-defined associated functions first
-        if let Some(method_def) = self.user_registry.lookup(*type_name, method) {
-            return self.eval_associated_function(method_def, &args);  // No receiver
-        }
-
-        // Fall back to built-in associated functions (Duration, Size)
-        return self.eval_builtin_associated(type_name, method, &args);
-    }
-
-    // Instance methods: receiver is passed as first argument
-    self.eval_instance_method(receiver, method, args)
-}
-
-fn eval_associated_function(
-    &mut self,
-    method: &UserMethod,
-    args: &[Value],
-) -> EvalResult {
-    // Associated functions don't have 'self', so params == args
-    if method.params.len() != args.len() {
-        return Err(wrong_function_args(method.params.len(), args.len()));
-    }
-
-    let mut call_env = self.env.child();
-    call_env.push_scope();
-
-    // Bind parameters directly (no self binding)
-    for (param, arg) in method.params.iter().zip(args.iter()) {
-        call_env.define(*param, arg.clone(), Mutability::Immutable);
-    }
-
-    self.eval_with_env(method.body, call_env)
-}
-```
+- **`TypeRef` receivers** (associated function calls): `Point.origin()` — receiver is not passed as argument, dispatches to user-defined or built-in associated functions
+- **Instance methods**: receiver is evaluated and passed as first argument through the method dispatch chain (built-in → collection → trait impl → user method)
 
 ### Function Calls
 
-```rust
-fn eval_call(
-    &mut self,
-    func: ExprId,
-    args: &[ExprId],
-) -> Result<Value, EvalError> {
-    let func_val = self.eval_expr(func)?;
-    let arg_vals: Vec<Value> = args
-        .iter()
-        .map(|&arg| self.eval_expr(arg))
-        collect::<Result<_, _>>()?;
-
-    match func_val {
-        Value::Function(f) => self.call_function(&f, arg_vals),
-        Value::Builtin(b) => self.call_builtin(&b, arg_vals),
-        _ => Err(EvalError::NotCallable(func_val)),
-    }
-}
-
-fn call_function(
-    &mut self,
-    func: &FunctionValue,
-    args: Vec<Value>,
-) -> Result<Value, EvalError> {
-    // Create new scope with captured environment
-    self.env.push_scope_with(func.captured_env.clone());
-
-    // Bind parameters
-    for (param, arg) in func.params.iter().zip(args) {
-        self.env.bind(*param, arg);
-    }
-
-    // Evaluate body
-    let result = self.eval_expr(func.body);
-
-    self.env.pop_scope();
-    result
-}
-```
+Function call evaluation:
+1. Evaluate the callee expression to get a `Value::Function(FunctionValue)` or `Value::Builtin`
+2. Evaluate all argument expressions (canonical IR — no named args, already reordered by desugaring)
+3. Create a child interpreter with cloned call stack + pushed frame
+4. Bind parameters in the child's environment
+5. Evaluate the function body via `eval_can(body_can_id)`
 
 ### Let Bindings and Pattern Destructuring
 
-Let bindings support destructuring patterns:
-
-```rust
-fn eval_let(
-    &mut self,
-    pattern: &BindingPattern,
-    init: ExprId,
-) -> Result<Value, EvalError> {
-    let value = self.eval_expr(init)?;
-    self.bind_pattern(pattern, &value)?;
-    Ok(value)
-}
-
-fn bind_pattern(
-    &mut self,
-    pattern: &BindingPattern,
-    value: &Value,
-) -> Result<(), EvalError> {
-    match pattern {
-        // Simple binding: let x = value
-        BindingPattern::Name(name) => {
-            self.env.bind(*name, value.clone());
-        }
-
-        // Wildcard: let _ = value (discard)
-        BindingPattern::Wildcard => {}
-
-        // Tuple: let (a, b) = pair
-        BindingPattern::Tuple(patterns) => {
-            let values = value.as_tuple()?;
-            for (pat, val) in patterns.iter().zip(values) {
-                self.bind_pattern(pat, val)?;
-            }
-        }
-
-        // Struct: let { x, y } = point
-        BindingPattern::Struct { fields } => {
-            let struct_val = value.as_struct()?;
-            for (field_name, inner_pattern) in fields {
-                let field_val = struct_val.get(field_name)?;
-                if let Some(inner) = inner_pattern {
-                    // Rename: let { x: px } = point
-                    self.bind_pattern(inner, field_val)?;
-                } else {
-                    // Shorthand: let { x } = point
-                    self.env.bind(*field_name, field_val.clone());
-                }
-            }
-        }
-
-        // List: let [a, b, ..rest] = items
-        BindingPattern::List { elements, rest } => {
-            let list = value.as_list()?;
-            for (i, pat) in elements.iter().enumerate() {
-                self.bind_pattern(pat, &list[i])?;
-            }
-            if let Some(rest_name) = rest {
-                let rest_list = list[elements.len()..].to_vec();
-                self.env.bind(*rest_name, Value::List(Arc::new(rest_list)));
-            }
-        }
-    }
-    Ok(())
-}
-```
+`CanExpr::Let { pattern, value, .. }` evaluates the initializer via `eval_can(value)`, then binds via `bind_can_pattern()`. The canonical binding pattern (`CanBindingPattern`) supports Name, Wildcard, Tuple, Struct, and List destructuring.
 
 ### Control Flow
 
-```rust
-fn eval_if(
-    &mut self,
-    cond: ExprId,
-    then: ExprId,
-    else_: Option<ExprId>,
-) -> Result<Value, EvalError> {
-    let cond_val = self.eval_expr(cond)?;
+- **If**: `CanExpr::If { cond, then, else_ }` — evaluates condition, branches. Missing `else_` yields `Value::Void`.
+- **For loops**: `CanExpr::For { binding, iter, body, yields }` — creates an iterator, binds each element, evaluates body. `yields: true` collects results into a list.
+- **While loops**: `CanExpr::While { cond, body }` — condition-checked loop with `break`/`continue` support via `ControlAction`.
+- **Loop**: `CanExpr::Loop { body }` — infinite loop, exited via `break(value)`.
 
-    if cond_val.as_bool()? {
-        self.eval_expr(then)
-    } else if let Some(else_expr) = else_ {
-        self.eval_expr(else_expr)
-    } else {
-        Ok(Value::Void)
-    }
-}
+### Match Expressions (Decision Trees)
 
-fn eval_for(
-    &mut self,
-    var: Name,
-    iter: ExprId,
-    body: ExprId,
-    is_yield: bool,
-) -> Result<Value, EvalError> {
-    let iter_val = self.eval_expr(iter)?;
-    let items = iter_val.as_iterable()?;
+Match expressions use **compiled decision trees** (Maranget 2008 algorithm), not sequential arm testing. The `CanExpr::Match { scrutinee, tree_id }` variant references a `DecisionTree` from the `DecisionTreePool`.
 
-    if is_yield {
-        // for..yield collects results
-        let mut results = Vec::new();
-        for item in items {
-            self.env.push_scope();
-            self.env.bind(var, item);
-            results.push(self.eval_expr(body)?);
-            self.env.pop_scope();
-        }
-        Ok(Value::List(Arc::new(results)))
-    } else {
-        // for..do executes for side effects
-        for item in items {
-            self.env.push_scope();
-            self.env.bind(var, item);
-            self.eval_expr(body)?;
-            self.env.pop_scope();
-        }
-        Ok(Value::Void)
-    }
-}
-```
-
-### Match Expressions
-
-```rust
-fn eval_match(
-    &mut self,
-    scrutinee: ExprId,
-    arms: &[MatchArm],
-) -> Result<Value, EvalError> {
-    let value = self.eval_expr(scrutinee)?;
-
-    for arm in arms {
-        if let Some(bindings) = self.match_pattern(&arm.pattern, &value)? {
-            self.env.push_scope();
-            for (name, val) in bindings {
-                self.env.bind(name, val);
-            }
-
-            // Check guard if present
-            if let Some(guard) = arm.guard {
-                let guard_val = self.eval_expr(guard)?;
-                if !guard_val.as_bool()? {
-                    self.env.pop_scope();
-                    continue;
-                }
-            }
-
-            let result = self.eval_expr(arm.body);
-            self.env.pop_scope();
-            return result;
-        }
-    }
-
-    Err(EvalError::NonExhaustiveMatch { value, span: self.current_span() })
-}
-```
+Decision tree evaluation (`exec/decision_tree.rs`) walks the tree:
+- **Leaf** — Binds captured variables and evaluates the arm body
+- **Guard** — Evaluates a guard expression; on failure, falls through to `on_fail`
+- **Switch** — Tests the scrutinee at a path (e.g., enum tag, bool value, list length) and follows the matching edge
+- **Fail** — Non-exhaustive match error (should be caught by exhaustiveness checking)
 
 ### Pattern Matching for Variants
-
-The `try_match` function handles variant patterns with any number of fields:
-
-```rust
-fn try_match(
-    pattern: &MatchPattern,
-    value: &Value,
-) -> Result<Option<Vec<(Name, Value)>>, EvalError> {
-    match (pattern, value) {
-        // Unit variant: pattern matches if names match and no inner patterns
-        (MatchPattern::Variant { name, inner }, Value::Variant { name: vn, fields })
-            if name == vn && inner.is_empty() && fields.is_empty() =>
-        {
-            Ok(Some(vec![]))
-        }
-
-        // Multi-field variant: match each inner pattern against corresponding field
-        (MatchPattern::Variant { name, inner }, Value::Variant { name: vn, fields })
-            if name == vn && inner.len() == fields.len() =>
-        {
-            let mut all_bindings = Vec::new();
-            for (pat, val) in inner.iter().zip(fields.iter()) {
-                match try_match(pat, val)? {
-                    Some(bindings) => all_bindings.extend(bindings),
-                    None => return Ok(None),
-                }
-            }
-            Ok(Some(all_bindings))
-        }
-
-        // ... other pattern cases
-    }
-}
-```
-
-**Key Design Decision:** The AST uses `Vec<MatchPattern>` for variant inner patterns (not `Option<Box<MatchPattern>>`), enabling:
-- Unit variants: `None` → `inner: []`
-- Single-field: `Some(x)` → `inner: [Binding("x")]`
-- Multi-field: `Click(x, y)` → `inner: [Binding("x"), Binding("y")]`
 
 **Variant vs Binding Disambiguation:** Uppercase pattern names are treated as variant constructors, lowercase as bindings:
 - `Some` → variant pattern (matches `Value::Variant { name: "Some", ... }`)
 - `x` → binding pattern (binds value to `x`)
-```
 
 ## Advantages of Tree-Walking
 

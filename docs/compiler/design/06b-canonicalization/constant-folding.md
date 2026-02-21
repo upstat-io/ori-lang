@@ -7,7 +7,7 @@ section: "Canonicalization"
 
 # Constant Folding
 
-The constant folding step evaluates compile-time-known expressions during canonicalization and replaces them with `CanExpr::Constant(ConstantId)` references into the `ConstantPool`.
+Constant folding is an **inline transformation** during `lower_expr()`, not a separate pass. After the lowerer constructs a `Binary`, `Unary`, or `If` node, it immediately calls `try_fold()` to attempt compile-time evaluation. If `try_fold()` succeeds, the node is replaced with a `CanExpr::Constant(ConstantId)` reference into the `ConstantPool`. This means folding happens opportunistically as expressions are lowered, with zero additional traversal cost.
 
 ## ConstantPool
 

@@ -32,6 +32,6 @@ pub mod codegen;
 #[cfg(feature = "llvm")]
 pub use codegen::{emit_codegen_error, report_codegen_error, CodegenProblem};
 
-pub use eval::eval_error_to_diagnostic;
+pub use eval::snapshot_to_diagnostic;
 pub use lex::LexProblem;
 pub use semantic::SemanticProblem;

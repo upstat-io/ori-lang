@@ -13,16 +13,12 @@ The Ori test system provides test discovery, parallel execution, and coverage tr
 
 ```
 compiler/oric/src/test/
-├── mod.rs            # Module exports
-├── runner.rs         # Test execution
-├── discovery.rs      # Test finding
-├── result.rs         # Test result types
-└── error_matching.rs # ExpectedError matching for compile_fail tests
-
-compiler/oric/src/testing/
-├── mod.rs     # Testing utilities
-├── harness.rs # Test harness
-└── mocks.rs   # Mock implementations
+├── mod.rs                    # Module exports
+├── runner/mod.rs             # Test execution
+├── discovery/mod.rs          # Test finding
+├── result/mod.rs             # Test result types
+├── change_detection/mod.rs   # Incremental test execution (TestRunCache, FunctionChangeMap)
+└── error_matching.rs         # ExpectedError matching for compile_fail tests
 ```
 
 ## Design Goals
@@ -31,6 +27,7 @@ compiler/oric/src/testing/
 2. **Parallel execution** - Tests run concurrently
 3. **Targeted tests** - Tests declare what they test
 4. **Fast feedback** - Quick test discovery and execution
+5. **Effect-driven prioritization** - Effectful tests run first, pure tests last
 
 ## Test Types
 
@@ -178,9 +175,12 @@ Each test produces one of four outcomes:
 | `Passed` | Test passed (including matched `compile_fail` expectations) | No |
 | `Failed(String)` | Test failed with error message | Yes |
 | `Skipped(String)` | Test skipped with reason (via `#[skip]`) | No |
+| `SkippedUnchanged` | Test skipped because all targets are unchanged since last run | No |
 | `LlvmCompileFail(String)` | LLVM compilation of file failed — test could not run | No (tracked separately) |
 
 `LlvmCompileFail` is distinct from `Failed`: it indicates the LLVM backend could not compile the file, not that the test logic is wrong. These are tracked separately in the summary and displayed as LLVM compilation issues rather than test failures.
+
+`SkippedUnchanged` is used by incremental test execution — when all of a test's targets are unchanged since the last run (tracked via `TestRunCache` in the `change_detection` module), the test is skipped without re-executing.
 
 ## Test Runner Architecture
 

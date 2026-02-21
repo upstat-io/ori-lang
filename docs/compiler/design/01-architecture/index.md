@@ -57,7 +57,6 @@ compiler/
 │   └── src/
 │       ├── lib.rs            # Parser struct, parse() entry point
 │       ├── error.rs          # Parse error types
-│       ├── stack.rs          # Stack safety (stacker integration)
 │       └── grammar/          # Grammar modules (expr, item, type, etc.)
 ├── ori_types/                # Type system + type checking (Pool, InferEngine, registries)
 │   └── src/
@@ -81,29 +80,37 @@ compiler/
 ├── ori_eval/                 # Core interpreter (tree-walking evaluator)
 │   └── src/
 │       ├── lib.rs            # Module exports, re-exports from ori_patterns
-│       ├── environment.rs    # Environment, Scope, LocalScope
+│       ├── environment/      # Environment, Scope, LocalScope
 │       ├── errors.rs         # EvalError factories
 │       ├── operators.rs      # Binary operator dispatch
 │       ├── unary_operators.rs # Unary operator dispatch
-│       ├── methods.rs        # Built-in method dispatch, EVAL_BUILTIN_METHODS constant
+│       ├── methods/          # Built-in method dispatch, EVAL_BUILTIN_METHODS constant
 │       ├── function_val.rs   # Type conversion functions (int, float, str, byte)
+│       ├── method_key.rs     # Method dispatch key types
 │       ├── user_methods.rs   # UserMethodRegistry
-│       ├── print_handler.rs  # Print output capture
+│       ├── print_handler/    # Print output capture
 │       ├── shared.rs         # SharedRegistry, SharedMutableRegistry
-│       ├── stack.rs          # Stack safety (stacker)
+│       ├── derives/          # Derived trait method evaluation
+│       ├── diagnostics/      # Evaluator diagnostic utilities
+│       ├── eval_mode/        # Evaluation mode configuration
+│       ├── module_registration/ # Module-level registration logic
 │       ├── exec/             # Expression execution
 │       │   ├── expr.rs       # Expression evaluation
-│       │   ├── call.rs       # Function call evaluation
+│       │   ├── call/         # Function call evaluation
 │       │   ├── control.rs    # Control flow (if, for, loop)
-│       │   └── decision_tree.rs # Decision tree evaluation (compiled patterns)
+│       │   └── decision_tree/ # Decision tree evaluation (compiled patterns)
 │       └── interpreter/      # Core interpreter
 │           ├── mod.rs        # Interpreter struct
 │           ├── builder.rs    # InterpreterBuilder
-│           ├── scope_guard.rs # RAII scope management
+│           ├── can_eval.rs   # Canonical IR evaluation dispatch
+│           ├── scope_guard/  # RAII scope management
 │           ├── function_call.rs # User function calls
-│           ├── function_seq.rs  # Block expression evaluation (blocks, try, match)
-│           ├── method_dispatch.rs # Method resolution
+│           ├── format.rs     # Value formatting utilities (+ format/ subdir)
+│           ├── interned_names.rs # Pre-interned name constants
 │           ├── derived_methods.rs # Derived trait methods
+│           ├── method_dispatch/ # Method resolution
+│           │   ├── mod.rs    # Dispatch orchestration
+│           │   └── iterator/ # Iterator method dispatch
 │           └── resolvers/    # Method resolution chain
 │               ├── mod.rs    # MethodDispatcher, MethodResolver trait
 │               ├── user_registry.rs  # User methods
@@ -208,27 +215,28 @@ compiler/
 ### Crate Dependencies
 
 ```
-ori_ir (base)
-    ├── ori_diagnostic
-    ├── ori_lexer_core → ori_lexer
-    ├── ori_types
-    ├── ori_parse
-    └── ori_patterns ──→ ori_types
-            │
-            └── ori_eval ──→ ori_patterns
-                    │
-                    └── ori_canon ──→ ori_types, ori_ir, ori_patterns
-                    │
-                    └── ori_arc ──→ ori_ir, ori_types, ori_canon
-                    │
-                    └── oric ──→ ALL (orchestrator)
+ori_ir (base — no compiler crate dependencies)
+    ├── ori_diagnostic ──→ ori_ir
+    ├── ori_lexer_core → ori_lexer ──→ ori_ir
+    ├── ori_parse ──→ ori_ir, ori_lexer
+    ├── ori_types ──→ ori_ir, ori_diagnostic
+    ├── ori_patterns ──→ ori_ir (NOT ori_types — values are type-agnostic)
+    ├── ori_eval ──→ ori_ir, ori_patterns (NOT ori_types — evaluator is untyped)
+    ├── ori_arc ──→ ori_ir, ori_types
+    ├── ori_canon ──→ ori_ir, ori_types, ori_arc (NOT ori_patterns)
+    └── oric ──→ ALL (orchestrator)
 
-ori_llvm (in workspace)
+ori_llvm (excluded from main workspace — build with `cargo bl`/`cargo blr`)
     └── depends on: ori_ir, ori_types, ori_parse, ori_patterns, ori_arc, ori_rt
 ```
 
+**Key dependency invariants:**
+- `ori_patterns` depends only on `ori_ir`, not `ori_types` — the Value system and pattern evaluation are type-agnostic
+- `ori_eval` depends on `ori_patterns` (for Value types and pattern dispatch), not directly on `ori_types`
+- `ori_canon` depends on `ori_arc` (for decision tree types), not on `ori_patterns`
+
 **Layered architecture:**
-- `ori_ir`: Core IR types, canonical IR definitions (no dependencies)
+- `ori_ir`: Core IR types, canonical IR definitions (no compiler crate dependencies)
 - `ori_lexer_core`: Low-level byte scanner, raw tokenization
 - `ori_lexer`: Token cooking, string interning (wraps `ori_lexer_core`)
 - `ori_types`: Type system, type checking (Pool, InferEngine, registries)
@@ -240,7 +248,7 @@ ori_llvm (in workspace)
 - `ori_stack`: Stack safety utilities (stacker integration)
 - `ori_rt`: Runtime library for AOT-compiled binaries
 - `oric`: CLI orchestrator with Salsa queries, type checker, high-level Evaluator wrapper
-- `ori_llvm`: LLVM backend for native code generation (in workspace)
+- `ori_llvm`: LLVM backend for native code generation (excluded from main workspace)
 
 Pure functions live in library crates; Salsa queries live in `oric`.
 
@@ -255,6 +263,7 @@ Every major computation is a Salsa query. This provides:
 - **Early cutoff** - If output unchanged, dependents skip recomputation
 
 ```rust
+// Primary pipeline queries:
 #[salsa::tracked]
 pub fn tokens(db: &dyn Db, file: SourceFile) -> TokenList { ... }
 
@@ -268,6 +277,8 @@ pub fn typed(db: &dyn Db, file: SourceFile) -> TypedModule { ... }
 pub fn evaluated(db: &dyn Db, file: SourceFile) -> EvalResult { ... }
 ```
 
+These four are the main pipeline, but intermediate queries exist at each stage. For example, lexing has a chain of queries — `tokens_with_metadata()` (full lex output with comments), `lex_result()` (tokens + errors), `tokens()` (just token list), `lex_errors()` (just errors) — plus utility queries like `line_count()`, `non_empty_line_count()`, and `first_line()`. See [Compilation Pipeline](pipeline.md) for the full query graph.
+
 ### Query Characteristics
 
 | Query | Input | Output | Caching |
@@ -278,6 +289,14 @@ pub fn evaluated(db: &dyn Db, file: SourceFile) -> EvalResult { ... }
 | `evaluated` | `SourceFile` | `EvalResult` | Re-run on any code change |
 
 **Early Cutoff**: If a query's output is identical to its cached result, Salsa skips recomputation of all dependent queries. For example, whitespace-only changes to a file may produce identical tokens, avoiding re-parsing.
+
+**Session-scoped side-caches**: Some data cannot satisfy Salsa's `Clone + Eq + Hash` requirements (e.g., the type `Pool`, which contains interned types and inference state). These are stored in session-scoped caches on the Salsa database:
+
+- **`PoolCache`** — Caches `Arc<Pool>` per file path, keyed by `PathBuf`. Populated by `typed()`, consumed by canonicalization and error rendering.
+- **`CanonCache`** — Caches `SharedCanonResult` per file path. Populated by `canonicalize_cached()`, consumed by `evaluated()`, the test runner, and the `check` command.
+- **`ImportsCache`** — Caches `Arc<ResolvedImports>` per file path. Populated during module loading, reused across evaluation of imported modules.
+
+All three are `Arc<RwLock<HashMap<PathBuf, _>>>` and live on the `CompilerDb`.
 
 ### Flat Data Structures
 
@@ -375,9 +394,10 @@ All patterns are zero-sized types (ZSTs) wrapped in a `Pattern` enum, providing:
 | `ExprId` | `ori_ir` | Index into ExprArena |
 | `Name` | `ori_ir` | Interned string identifier |
 | `TypeId` | `ori_ir` | Interned type identifier (flat u32 index) |
-| `Type` | `ori_types` | External type representation (uses Box) |
-| `TypeData` | `ori_types` | Internal type representation (uses TypeId) |
-| `TypeInterner` | `ori_types` | Sharded type interning for O(1) equality |
+| `Idx` | `ori_types` | Universal type handle (u32 index into Pool) |
+| `Tag` | `ori_types` | Type kind discriminant (u8) for tag-driven dispatch |
+| `Pool` | `ori_types` | Unified type storage (items + extra + flags + hashes) |
+| `TypeFlags` | `ori_types` | Pre-computed type metadata (bitflags) |
 | `Value` | `ori_patterns` | Runtime values (re-exported via `ori_eval`) |
 | `Interpreter` | `ori_eval` | Core tree-walking interpreter |
 | `Environment` | `ori_eval` | Variable scoping (scope stack) |
@@ -421,7 +441,8 @@ To avoid code duplication, `oric` re-exports from source crates rather than main
 | `oric::ir` | `ori_ir` |
 | `oric::parser` | `ori_parse` |
 | `oric::diagnostic` | `ori_diagnostic` |
-| `oric::types` | `ori_types` |
+
+Note: `ori_types` is accessed via `oric::typeck`, which orchestrates type checking by delegating to `ori_types`. There is no separate `oric::types` re-export module.
 
 This pattern ensures:
 - Single source of truth for each type
@@ -444,7 +465,7 @@ When files exceed limits, extract submodules:
 
 ## LLVM Backend
 
-The `ori_llvm` crate provides native code generation via LLVM 17. It is now **part of the main workspace** for unified builds.
+The `ori_llvm` crate provides native code generation via LLVM 17. It is **excluded from the main workspace** (along with `ori_rt`) because it requires LLVM 17 to be installed. Build both with `cargo bl` (debug) or `cargo blr` (release).
 
 **Key components:**
 - `IrBuilder`: Main LLVM IR construction, codegen orchestrator

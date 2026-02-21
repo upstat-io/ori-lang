@@ -83,7 +83,7 @@ max      print    panic
 
 | Prec | Operators | Assoc |
 |------|-----------|-------|
-| 1 | `.` `[]` `()` `?` | Left |
+| 1 | `.` `[]` `()` `?` `as` `as?` | Left |
 | 2 | `!` `-` `~` (unary) | Right |
 | 3 | `*` `/` `%` `div` | Left |
 | 4 | `+` `-` | Left |
@@ -96,7 +96,7 @@ max      print    panic
 | 11 | `\|` | Left |
 | 12 | `&&` | Left |
 | 13 | `\|\|` | Left |
-| 14 | `??` | Left |
+| 14 | `??` | Right |
 
 ## Delimiters
 

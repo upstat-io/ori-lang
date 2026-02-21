@@ -40,54 +40,41 @@ use ori_patterns::recursion_limit_exceeded;
 
 ### Struct Fields
 
-Fields can be added only for specific targets:
+The interpreter uses a unified `CallStack` struct that replaces the old `call_depth`/`max_call_depth` pattern. The `CallStack` stores `CallFrame` entries (function name + call site span) and an `Option<usize>` depth limit. Platform differences are handled at the limit level: `EvalMode::max_recursion_depth()` returns `None` on native (stacker grows the stack) and `Some(200)` on WASM.
 
 ```rust
 pub struct Interpreter<'a> {
     // Common fields...
-    pub(crate) call_depth: usize,
-
-    // WASM-only field
-    #[cfg(target_arch = "wasm32")]
-    pub(crate) max_call_depth: usize,
+    pub(crate) call_stack: CallStack,
 }
 ```
 
 ### Method Implementations
 
-When methods differ significantly, use separate implementations:
+The recursion limit check is unified across platforms. Rather than separate `#[cfg]` implementations, the interpreter delegates to `EvalMode::max_recursion_depth()`, which uses `#[cfg]` internally to return the appropriate limit:
 
 ```rust
 impl Interpreter<'_> {
-    #[cfg(target_arch = "wasm32")]
     pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
-        if self.call_depth >= self.max_call_depth {
-            Err(recursion_limit_exceeded(self.max_call_depth))
-        } else {
-            Ok(())
+        if let Some(max_depth) = self.mode.max_recursion_depth() {
+            if self.call_stack.depth() >= max_depth {
+                return Err(recursion_limit_exceeded(max_depth));
+            }
         }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[expect(clippy::unused_self, clippy::unnecessary_wraps,
-        reason = "API parity with WASM version")]
-    pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
-        Ok(())  // No-op on native
+        Ok(())
     }
 }
 ```
 
 ### Builder Methods
 
-Methods that only make sense for certain targets:
+The `InterpreterBuilder` accepts a `CallStack` via its `.call_stack()` method, which is platform-independent. The caller constructs the `CallStack` with the appropriate depth limit:
 
 ```rust
 impl InterpreterBuilder<'_> {
-    /// Only available on WASM builds
-    #[cfg(target_arch = "wasm32")]
     #[must_use]
-    pub fn max_call_depth(mut self, limit: usize) -> Self {
-        self.max_call_depth = limit;
+    pub fn call_stack(mut self, call_stack: CallStack) -> Self {
+        self.call_stack = call_stack;
         self
     }
 }
@@ -115,18 +102,23 @@ This allows the interpreter to call `ensure_sufficient_stack(|| ...)` without ca
 
 ## Best Practices
 
-### 1. Maintain API Parity
+### 1. Prefer Unified Code with cfg-Gated Data
 
-When a method exists on one platform, provide a compatible (possibly no-op) version on the other:
+When possible, write a single implementation that branches on data rather than duplicating implementations with `#[cfg]`. The `check_recursion_limit()` pattern demonstrates this: one method body, with the platform difference pushed into the limit value (`Option<usize>` from `EvalMode::max_recursion_depth()`).
+
+For cases where the implementation truly diverges, provide API parity across platforms:
 
 ```rust
-// WASM: actual implementation
-#[cfg(target_arch = "wasm32")]
-fn check_recursion_limit(&self) -> Result<(), EvalError> { ... }
-
-// Native: no-op with same signature
+// Platform-divergent: ensure_sufficient_stack (fundamentally different behavior)
 #[cfg(not(target_arch = "wasm32"))]
-fn check_recursion_limit(&self) -> Result<(), EvalError> { Ok(()) }
+pub fn ensure_sufficient_stack<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(RED_ZONE, STACK_PER_RECURSION, f)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn ensure_sufficient_stack<R>(f: impl FnOnce() -> R) -> R {
+    f()  // No-op on WASM — same signature, different behavior
+}
 ```
 
 ### 2. Document Platform Differences
@@ -180,25 +172,29 @@ wasm-pack build --target web
 The `ori_llvm` crate uses target detection for linker selection and sysroot discovery:
 
 ```rust
-// In ori_llvm/src/aot/syslib.rs
-#[cfg(target_arch = "x86_64")]
-fn default_lib_dirs() -> Vec<PathBuf> { /* x86_64 paths */ }
-
-#[cfg(target_arch = "aarch64")]
-fn default_lib_dirs() -> Vec<PathBuf> { /* aarch64 paths */ }
-
-#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-fn default_lib_dirs() -> Vec<PathBuf> { vec![] }
+// In ori_llvm/src/aot/syslib/mod.rs
+fn detect_library_paths(
+    target: &TargetTripleComponents,
+    sysroot: Option<&PathBuf>,
+) -> Vec<PathBuf> { /* target-aware path detection */ }
 ```
 
-Platform-specific linker drivers are selected based on target triple, not host architecture:
+Linker selection uses `LinkerFlavor::for_target()`, an enum-based dispatch that selects the appropriate `LinkerImpl` variant (no trait objects):
 
 ```rust
-pub fn driver_for_target(triple: &str) -> Box<dyn LinkerDriver> {
-    match triple {
-        t if t.contains("windows-msvc") => Box::new(MsvcLinker::new()),
-        t if t.contains("wasm32") => Box::new(WasmLinker::new()),
-        _ => Box::new(GccLinker::new()),
+pub enum LinkerFlavor { Gcc, Lld, Msvc, WasmLd }
+
+impl LinkerFlavor {
+    pub fn for_target(target: &TargetTripleComponents) -> Self {
+        if target.is_wasm() { Self::WasmLd }
+        else if target.is_windows() && target.env.as_deref() == Some("msvc") { Self::Msvc }
+        else { Self::Gcc }
     }
+}
+
+pub enum LinkerImpl {
+    Gcc(GccLinker),
+    Msvc(MsvcLinker),
+    Wasm(WasmLinker),
 }
 ```

@@ -9,8 +9,9 @@ section: "Architecture"
 
 > **Status: NOT IMPLEMENTED**
 >
-> This document describes the planned design for WASM compilation.
-> WASM support is not yet implemented.
+> This document describes a planned LSP WASM build that does not exist. The LSP server has not been compiled to WASM.
+>
+> The Playground currently uses a **separate runtime WASM module** at `website/playground-wasm/` with `run_ori()` and `format_ori()` exports. That module provides direct evaluation and formatting via JavaScript calls -- it is not an LSP server and does not implement the LSP protocol.
 
 Compiling the LSP server to WebAssembly for browser-based Playground integration.
 

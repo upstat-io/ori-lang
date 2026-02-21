@@ -9,40 +9,20 @@ section: "Diagnostics"
 
 Problems are categorized by compiler phase and converted to diagnostics for display.
 
-## Problem Enum
+## Problem Type Organization
 
-The `Problem` enum uses a **three-tier hierarchy** for organization by compiler phase:
+There is no unified `Problem` enum. Each compiler phase defines its own problem type independently, and each type implements its own `into_diagnostic()` method:
 
-```rust
-/// Unified problem enum for all compilation phases.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub enum Problem {
-    /// Lex-time problems (tokenization errors, confusables, cross-language habits).
-    Lex(LexProblem),
+| Problem Type | Location | Error Codes | Conversion |
+|---|---|---|---|
+| `LexProblem` | `oric/src/problem/lex.rs` | E0xxx | `into_diagnostic()` |
+| `SemanticProblem` | `oric/src/problem/semantic/mod.rs` | E2xxx, E3xxx | `into_diagnostic(&interner)` |
+| `EvalError` | `ori_patterns` | E6xxx | `eval_error_to_diagnostic()` in `oric/src/problem/eval/mod.rs` |
+| `CodegenProblem` | `oric/src/problem/codegen/mod.rs` | E4xxx, E5xxx | `into_diagnostic()` (behind `llvm` feature) |
 
-    /// Parse-time problems (syntax errors).
-    Parse(ParseProblem),
+Parse errors are rendered directly by `ori_parse::ParseError::to_queued_diagnostic()` and do not flow through the `oric` problem module.
 
-    /// Semantic analysis problems.
-    Semantic(SemanticProblem),
-}
-
-impl Problem {
-    pub fn span(&self) -> Span {
-        match self {
-            Problem::Lex(p) => p.span(),
-            Problem::Parse(p) => p.span(),
-            Problem::Semantic(p) => p.span(),
-        }
-    }
-
-    pub fn is_lex(&self) -> bool { matches!(self, Problem::Lex(_)) }
-    pub fn is_parse(&self) -> bool { matches!(self, Problem::Parse(_)) }
-    pub fn is_semantic(&self) -> bool { matches!(self, Problem::Semantic(_)) }
-}
-```
-
-**Note:** Type checking errors are **not** part of this enum. They use `TypeCheckError` directly from `ori_types`, allowing the type checker to use its own structured error variants.
+Type checking errors use `TypeCheckError` from `ori_types` directly, rendered by `TypeErrorRenderer` in `oric/src/reporting/typeck/` for Pool-aware type name resolution.
 
 ### LexProblem (E0xxx)
 
@@ -60,29 +40,6 @@ pub enum LexProblem {
         span: Span,
         found: char,
         suggested: char,
-    },
-    // ...
-}
-```
-
-### ParseProblem (E1xxx)
-
-```rust
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub enum ParseProblem {
-    UnexpectedToken {
-        span: Span,
-        expected: String,
-        found: String,
-    },
-    ExpectedExpression {
-        span: Span,
-        found: String,
-    },
-    UnclosedDelimiter {
-        found_span: Span,
-        open_span: Span,
-        delimiter: char,
     },
     // ...
 }
@@ -112,13 +69,24 @@ pub enum SemanticProblem {
         span: Span,
         covered_by_span: Span,
     },
-    // ...
+    MissingTest {
+        span: Span,
+        func_name: Name,
+    },
+    // ... additional variants for capabilities, break/continue, etc.
 }
 ```
 
+Many `SemanticProblem` variants have full `into_diagnostic()` implementations, including `UnknownIdentifier`, `DuplicateDefinition`, `ImmutableMutation`, `BreakOutsideLoop`, `ContinueOutsideLoop`, and others. Currently produced in production code:
+- `MissingTest` -- emitted by `check_test_coverage()` during test coverage analysis
+
+The `NonExhaustiveMatch` and `RedundantPattern` variants have `into_diagnostic()` implementations but are not currently produced — pattern problems are converted directly to diagnostics via `pattern_problem_to_diagnostic()` without going through `SemanticProblem`. Most other variants serve as defensive infrastructure for a future dedicated semantic analysis pass.
+
+Some variants like `UnknownIdentifier` and `DuplicateDefinition` overlap with the type checker's own `TypeCheckError` type, which handles these cases in the current implementation.
+
 ### Pattern Problems
 
-Pattern problems originate from the `PatternProblem` type in `ori_ir::canon` (produced by `ori_canon::exhaustiveness`). The `check` command converts them to `SemanticProblem` variants for unified diagnostic emission:
+Pattern problems originate from the `PatternProblem` type in `ori_ir::canon` (produced by `ori_canon::exhaustiveness`). The `check` command converts them directly to diagnostics via `pattern_problem_to_diagnostic()`. The corresponding `SemanticProblem` variants exist for future unification:
 
 | PatternProblem | SemanticProblem | Severity |
 |---------------|-----------------|----------|
@@ -143,27 +111,46 @@ error: redundant pattern
   |     ^ this arm is unreachable
 ```
 
+### EvalError (E6xxx)
+
+Runtime/eval errors originate as `EvalError` (from `ori_patterns`) and are converted to diagnostics in `oric/src/problem/eval/mod.rs` via `eval_error_to_diagnostic()`. The `EvalErrorKind` enum maps to E6xxx error codes:
+
+| Range | Category | Examples |
+|-------|----------|----------|
+| E6001-E6009 | Arithmetic | Division by zero, overflow |
+| E6010-E6019 | Type/operator | Type mismatch, invalid binary op |
+| E6020-E6029 | Access | Undefined variable/function/field/method, index out of bounds |
+| E6030-E6039 | Function calls | Arity mismatch, stack overflow, not callable |
+| E6040-E6049 | Pattern/match | Non-exhaustive match |
+| E6050-E6059 | Assertion/test | Assertion failed, panic called |
+| E6060-E6069 | Capability | Missing capability |
+| E6070-E6079 | Const-eval | Budget exceeded |
+| E6080-E6089 | Not-implemented | Feature not yet available |
+| E6099 | Custom | Uncategorized runtime error |
+
+The conversion adds primary span labels, context notes, backtrace information, and actionable suggestions for fixable errors. `snapshot_to_diagnostic()` provides an enriched variant that resolves backtrace spans to `file:line:col` using `LineOffsetTable`.
+
 ## Problem to Diagnostic Conversion
 
-Problems are converted to diagnostics via the `Render` trait, which requires a `&StringInterner` parameter to resolve interned `Name` values:
+Problem types implement `into_diagnostic()` methods directly rather than through a shared trait. Each problem type converts itself to a `Diagnostic`:
 
 ```rust
-pub trait Render {
-    fn render(&self, interner: &StringInterner) -> Diagnostic;
-}
-
-impl Render for Problem {
-    fn render(&self, interner: &StringInterner) -> Diagnostic {
+impl SemanticProblem {
+    pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
         match self {
-            Problem::Lex(p) => p.render(interner),
-            Problem::Parse(p) => p.render(interner),
-            Problem::Semantic(p) => p.render(interner),
+            SemanticProblem::UnknownIdentifier { span, name, .. } => { ... }
+            SemanticProblem::NonExhaustiveMatch { span, missing_patterns } => { ... }
+            // ...
         }
     }
 }
+
+impl LexProblem {
+    pub fn into_diagnostic(&self) -> Diagnostic { ... }
+}
 ```
 
-Each problem category has its own `Render` implementation in `oric/src/reporting/`.
+Each problem type lives in `oric/src/problem/` and handles its own rendering. Type errors use `TypeErrorRenderer` in `oric/src/reporting/typeck/` for Pool-aware type name resolution.
 
 ## Error Code Documentation
 
@@ -245,20 +232,17 @@ help: consider using `map` instead of `for..yield`
 
 ## Related Information
 
-Link to related locations:
+Related context is communicated through **secondary labels** rather than a separate `RelatedInfo` type. Secondary labels attach messages to additional source spans:
 
 ```rust
-pub struct RelatedInfo {
-    pub message: String,
-    pub span: Span,
-}
-
-// Example: "expected due to this annotation"
-diagnostic.related.push(RelatedInfo {
-    message: "expected due to this annotation".into(),
-    span: type_annotation_span,
-});
+// Example: "expected due to this annotation" as a secondary label
+Diagnostic::error(ErrorCode::E2001)
+    .with_message("type mismatch")
+    .with_label(Label::primary(expr_span, "expected int, found str"))
+    .with_label(Label::secondary(annotation_span, "expected due to this annotation"))
 ```
+
+**Note:** There is no `RelatedInfo` struct in the implementation. All related context uses `Label::secondary()` on the `Diagnostic` type.
 
 ## Labels
 

@@ -72,24 +72,29 @@ pub struct Interpreter<'a> {
 
 ### Depth Check
 
-The depth limit is checked inside `CallStack::push()` — no separate check method needed:
+The depth limit is checked by `Interpreter::check_recursion_limit()` before pushing a frame:
 
 ```rust
-impl CallStack {
-    /// Push a call frame, checking the depth limit.
-    ///
-    /// Returns `Err(EvalError)` with `StackOverflow` kind if the limit
-    /// is exceeded. The frame is NOT pushed on overflow.
-    pub fn push(&mut self, frame: CallFrame) -> Result<(), EvalError> {
-        if let Some(max) = self.max_depth {
-            if self.frames.len() >= max {
-                return Err(ori_patterns::recursion_limit_exceeded(max));
+impl Interpreter<'_> {
+    /// Check if the recursion limit has been reached.
+    /// Called before push() at every function/method call site.
+    pub(crate) fn check_recursion_limit(&self) -> Result<(), EvalError> {
+        if let Some(max_depth) = self.mode.max_recursion_depth() {
+            if self.call_stack.depth() >= max_depth {
+                return Err(recursion_limit_exceeded(max_depth));
             }
         }
-        self.frames.push(frame);
         Ok(())
     }
 }
+```
+
+`CallStack::push()` also contains a limit check, but it serves as an **invariant assertion** rather than a separate defensive check. In the actual call path, `push()` is called via `.expect()` after `check_recursion_limit()` has already passed:
+
+```rust
+// In function_call.rs — check_recursion_limit() has already passed
+child_stack.push(CallFrame { name, call_span: None })
+    .expect("check_recursion_limit passed but CallStack::push failed");
 ```
 
 ### Depth Limit Source of Truth
@@ -194,52 +199,55 @@ Here's the exact Rust call stack for a single Ori function call (e.g., `fib(n - 
 Rust Call Stack (per Ori function call)
 ═══════════════════════════════════════
 
-1. eval(&mut self, expr_id)                     // Entry point
+1. eval_can(&mut self, can_id)                  // Entry point (canonical IR)
    └─ ensure_sufficient_stack(|| ...)           // Stack guard (native only)
       │
-2.    └─ eval_inner(&mut self, expr_id)         // Main dispatch
-         │  match expr.kind {
-         │      ExprKind::Call { func, args } => {
+2.    └─ eval_can_inner(&mut self, can_id)      // Main dispatch
+         │  match can_expr {
+         │      CanExpr::Call { func, args } => {
          │
-3.       │      let func_val = self.eval(*func)?       // Eval function ref
+3.       │      let func_val = self.eval_can(*func)?   // Eval function ref
 4.       │      let arg_vals = self.eval_expr_list()?  // Eval arguments
          │
 5.       └───── self.eval_call(&func_val, &arg_vals)   // Dispatch call
                 │
                 │  // Inside eval_call for Value::Function:
-6.              │  child_stack = self.call_stack.clone()
-7.              │  child_stack.push(CallFrame { name, call_span })?  // Depth check here
-8.              │  check_arg_count(f, args)?
-9.              │  let mut call_env = self.env.child()
-10.             │  call_env.push_scope()
-11.             │  bind_captures(&mut call_env, f)
-12.             │  bind_parameters(&mut call_env, f, args)
+6.              │  check_recursion_limit()?             // Depth check (before push)
+7.              │  child_stack = self.call_stack.clone()
+8.              │  child_stack.push(CallFrame { name, call_span }).expect(...)  // Invariant assertion
+9.              │  check_arg_count(f, args)?
+10.             │  let mut call_env = self.env.child()
+11.             │  call_env.push_scope()
+12.             │  bind_captures(&mut call_env, f)
+13.             │  bind_parameters(&mut call_env, f, args)
                 │
-13.             └─ create_function_interpreter(...)     // Build child
+14.             └─ create_function_interpreter(...)     // Build child
                    │  InterpreterBuilder::new(...)
                    │      .env(call_env)
                    │      .call_stack(child_stack)
                    │      .build()
                    │
-14.                └─ call_interpreter.eval(f.body)     // RECURSE
+15.                └─ call_interpreter.eval_can(f.body) // RECURSE
 ```
+
+`check_recursion_limit()` is the authoritative depth check, called before `push()`. The `push()` method contains a redundant limit check that serves as an invariant assertion (called via `.expect()`, not `?`). The code explicitly documents: "check_recursion_limit() passed, so depth < max_depth. push() cannot fail here."
 
 ### Frame Count Analysis
 
 | Frame | Function | File |
 |-------|----------|------|
-| 1 | `eval` | `interpreter/mod.rs:287` |
+| 1 | `eval_can` | `interpreter/can_eval.rs` |
 | 2 | `ensure_sufficient_stack` closure | `ori_stack` |
-| 3 | `eval_inner` | `interpreter/mod.rs:314` |
-| 4 | `eval_call` | `interpreter/function_call.rs:12` |
-| 5 | `create_function_interpreter` | `interpreter/mod.rs:968` |
-| 6 | `InterpreterBuilder::build` | `interpreter/builder.rs:146` |
-| 7 | `eval` (recursive) | Back to frame 1 |
+| 3 | `eval_can_inner` | `interpreter/can_eval.rs` |
+| 4 | `eval_call` | `interpreter/function_call.rs:28` |
+| 5 | `create_function_interpreter` | `interpreter/mod.rs` |
+| 6 | `InterpreterBuilder::build` | `interpreter/builder.rs` |
+| 7 | `eval_can` (recursive) | Back to frame 1 |
 
 **Minimum: 6-7 frames per Ori call**
 
 Additional frames from:
-- Argument evaluation: +2-3 frames per argument (`eval` → `eval_inner`)
+- Argument evaluation: +2-3 frames per argument (`eval_can` → `eval_can_inner`)
 - Helper functions: `bind_captures`, `bind_parameters`, `check_arg_count`
 - Method calls add `eval_user_method` or `eval_associated_function`
 

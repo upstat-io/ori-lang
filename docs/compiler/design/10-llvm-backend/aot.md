@@ -109,6 +109,9 @@ mangler.mangle_generic("", "identity", &["int"])  // "_ori_identity$Gint"
 
 // Associated function
 mangler.mangle_associated_function("Option", "some")  // "_ori_Option$A$some"
+
+// Impl method (type_name.method_name)
+mangler.mangle_method("", "Point", "distance")  // "_ori_Point$distance"
 ```
 
 ### Demangling
@@ -175,13 +178,14 @@ The `--runtime-path` CLI flag provides explicit override for custom deployments.
 | Category | Functions |
 |----------|-----------|
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
-| Reference Counting | `ori_rc_new`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count`, `ori_rc_data` |
-| Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float` |
-| Collections | `ori_list_new`, `ori_list_free`, `ori_list_len` |
-| Panic | `ori_panic`, `ori_panic_cstr` |
-| Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str` |
+| Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count` |
+| Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float`, `ori_str_compare`, `ori_str_hash`, `ori_str_next_char` |
+| Collections | `ori_list_new`, `ori_list_free`, `ori_list_len`, `ori_list_alloc_data`, `ori_list_free_data` |
+| Panic | `ori_panic`, `ori_panic_cstr`, `ori_register_panic_handler` |
+| Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`, `ori_assert_eq_float` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
 | I/O | `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool` |
+| Entry | `ori_run_main`, `ori_args_from_argv` |
 
 ### Runtime Data Structures
 
@@ -436,7 +440,7 @@ ori build --jobs=auto main.ori # Auto-detect core count
 | `target.rs` | Target triple parsing, CPU/feature detection |
 | `object.rs` | Object file emission (ELF/Mach-O/COFF/WASM) |
 | `mangle.rs` | Symbol mangling (`Mangler`) and demangling |
-| `debug.rs` | DWARF/CodeView debug info generation |
+| `debug/` | DWARF/CodeView debug info generation (7 files: builder, builder_scope, config, context, line_map, mod, tests) |
 | `passes.rs` | LLVM new pass manager optimization pipeline |
 | `runtime.rs` | Runtime library discovery (`RuntimeConfig`) |
 | `syslib.rs` | System library detection |
@@ -454,13 +458,16 @@ ori build --jobs=auto main.ori # Auto-detect core count
 
 ### Incremental Compilation (`aot/incremental/`)
 
-| File | Purpose |
-|------|---------|
+| Directory | Purpose |
+|-----------|---------|
 | `mod.rs` | Incremental compilation coordination |
-| `cache.rs` | Object file caching |
-| `hash.rs` | Content hashing for cache keys |
-| `deps.rs` | Dependency graph tracking |
-| `parallel.rs` | Parallel job scheduling |
+| `arc_cache/` | ARC-aware object caching (mod, tests) |
+| `cache/` | Object file caching (mod, tests) |
+| `deps/` | Dependency graph tracking (mod, tests) |
+| `function_deps/` | Per-function dependency tracking (mod, tests) |
+| `function_hash/` | Per-function content hashing (mod, tests) |
+| `hash/` | Content hashing for cache keys (mod, tests) |
+| `parallel/` | Parallel job scheduling (mod, tests) |
 
 ### Runtime Library (`ori_rt/`)
 

@@ -12,20 +12,27 @@ The ARC (Automatic Reference Counting) system (`ori_arc` crate) transforms canon
 ## Pipeline Position
 
 ```text
-Canonicalize → [ARC Pipeline] → LLVM Codegen
-                    │
-                    ├─ 1. Lower (CanExpr → ARC IR)
-                    ├─ 2. Borrow Inference
-                    ├─ 3. Ownership Derivation
-                    ├─ 4. Liveness Analysis
-                    ├─ 5. RC Insertion
-                    ├─ 6. Reset/Reuse Detection
-                    ├─ 7. Reuse Expansion
-                    ├─ 8. RC Elimination
-                    └─ 9. FBIP Diagnostics (optional)
+Canonicalize → Lower (CanExpr → ARC IR) → [Batch Pipeline] → LLVM Codegen
+                                                │
+                         ┌──────────────────────┤
+                         │ infer_borrows()       │  (global, per-module)
+                         │ apply_borrows()       │
+                         └──────────────────────┤
+                         ┌──────────────────────┤
+                         │ Per-function pipeline │  (run_arc_pipeline)
+                         │  1. infer_derived_ownership()  — per-variable ownership
+                         │  2. DominatorTree::build()     — dominator tree
+                         │  3. compute_refined_liveness() — liveness + aliasing
+                         │  4. insert_rc_ops_with_ownership() — RC insertion
+                         │  5. detect_reset_reuse_cfg()   — reset/reuse detection
+                         │  6. expand_reset_reuse()       — reuse expansion
+                         │  7. eliminate_rc_ops_dataflow() — RC elimination
+                         └──────────────────────┘
 ```
 
-Consumers use `run_arc_pipeline_all()` for batch processing (applies borrows, then runs per-function pipeline) or `run_arc_pipeline()` for a single function — never manual pass sequencing.
+Lowering (`lower_function_can`) converts `CanExpr` into ARC IR before the pipeline runs — it is not a pipeline step itself. Borrow inference (`infer_borrows`) is a separate **global** pass that analyzes all functions in a module simultaneously via fixed-point iteration, producing `AnnotatedSig` results that `apply_borrows` writes back to function parameters. The per-function pipeline then runs on each function independently.
+
+Consumers use `run_arc_pipeline_all()` for batch processing (infers borrows, applies them, then runs the per-function pipeline on each function) or `run_arc_pipeline()` for a single function — never manual pass sequencing.
 
 ## ARC IR
 
@@ -72,12 +79,20 @@ The `ArcClassifier` caches classification results and detects cycles.
 
 ## Pass Descriptions
 
-### Borrow Inference
+### Borrow Inference (Global)
 
-Determines whether function parameters are **borrowed** (callee doesn't retain) or **owned** (must increment on call).
+Determines whether function parameters are **borrowed** (callee doesn't retain) or **owned** (must increment on call). This is a **per-module global** pass (`infer_borrows`) that analyzes all functions simultaneously — it runs once before the per-function pipeline, not inside it.
 
 - **Algorithm**: Fixed-point iteration — initialize all non-scalar params as Borrowed, promote to Owned when ownership-requiring patterns are found
 - **Convergence**: Monotonic (Borrowed → Owned only), guaranteed in ≤N iterations
+
+### Derived Ownership (Per-Function)
+
+Extends borrow/own tracking from parameters to **all local variables** (`infer_derived_ownership`). Each variable is classified as Owned (has sole reference, must dec) or Borrowed (alias, skip RC). This feeds into RC insertion to avoid redundant inc/dec on borrowed locals.
+
+### Dominator Tree (Per-Function)
+
+`DominatorTree::build()` constructs the dominator tree over the function's CFG. Reset/reuse detection uses dominance to verify that a dec dominates the candidate construct — without dominance, the reuse would be unsound on some control-flow paths.
 
 ### Liveness Analysis
 

@@ -69,9 +69,17 @@ Example:
 ## Stage 2: Parsing
 
 **Input**: TokenList
-**Output**: ParseOutput { module: Module, arena: ExprArena, errors }
+**Output**: ParseOutput { module, arena, errors, warnings, metadata }
 
 ```rust
+pub struct ParseOutput {
+    pub module: Module,
+    pub arena: SharedArena,
+    pub errors: Vec<ParseError>,
+    pub warnings: Vec<ParseWarning>,    // Non-fatal warnings (e.g., detached doc comments)
+    pub metadata: ModuleExtra,          // Comments, blank lines, trivia for lossless formatting
+}
+
 pub struct Module {
     functions: Vec<Function>,
     types: Vec<TypeDef>,
@@ -173,11 +181,13 @@ ExprArena[ExprId(1)] = Literal(Int(42))
 
 ```rust
 pub struct CanonResult {
-    arena: CanArena,        // Canonical expressions indexed by CanId
-    decision_trees: Vec<DecisionTree>,  // Compiled pattern match trees
-    constant_pool: ConstantPool,        // Pre-evaluated constants
-    roots: Vec<CanonRoot>,  // Named function/test entry points
-    // ...
+    arena: CanArena,                    // Canonical expressions indexed by CanId
+    constants: ConstantPool,            // Pre-evaluated constants
+    decision_trees: DecisionTreePool,   // Compiled pattern match trees
+    root: CanId,                        // Root expression (entry point for single-expression lowering)
+    roots: Vec<CanonRoot>,              // Named function/test entry points
+    method_roots: Vec<MethodRoot>,      // Method roots for impl/extend/def_impl blocks
+    problems: Vec<PatternProblem>,      // Pattern problems detected during exhaustiveness checking
 }
 ```
 
@@ -203,8 +213,7 @@ match x {
    }
 ```
 
-This phase runs inside `evaluated()`, not as a separate Salsa query. The `CanonResult` is
-wrapped in `SharedCanonResult` (Arc) for sharing across the evaluator and test runner.
+Canonicalization is not a Salsa query. Results are cached in the session-scoped `CanonCache` via `canonicalize_cached()`. The `CanonResult` is wrapped in `SharedCanonResult` — a newtype around `Arc<CanonResult>` — for zero-copy sharing across all consumers (evaluator, test runner, `check` command, LLVM backend). `SharedCanonResult` implements `Deref<Target = CanonResult>`, so callers access the inner data transparently.
 
 ## Stage 4: Evaluation
 
@@ -213,8 +222,9 @@ wrapped in `SharedCanonResult` (Arc) for sharing across the evaluator and test r
 
 ```rust
 pub struct ModuleEvalResult {
-    value: Value,
-    output: EvalOutput,
+    pub result: Option<EvalOutput>,
+    pub error: Option<String>,
+    pub eval_error: Option<EvalErrorSnapshot>,
 }
 
 pub enum Value {
@@ -232,6 +242,13 @@ pub struct EvalOutput {
     stderr: String,
 }
 ```
+
+`ModuleEvalResult` uses a two-tier error design to satisfy Salsa's `Clone + Eq + Hash` requirements while preserving rich error context:
+
+- **`error: Option<String>`** — Universal "did it fail?" field. Set for any failure kind (lex, parse, type, or runtime). Simple string for Salsa compatibility.
+- **`eval_error: Option<EvalErrorSnapshot>`** — Structured error snapshot, populated **only** for runtime eval errors. Preserves the `ErrorCode`, span, backtrace, and notes that the plain `error` field discards. Pre-runtime failures (lex, parse, type errors) leave this as `None`.
+
+This separation allows Salsa to efficiently compare and cache results (via the simple `error` string) while still providing rich diagnostics (via `EvalErrorSnapshot`) when needed for error rendering.
 
 Data transformations:
 1. CanExpr nodes -> Runtime Values (via `eval_can(CanId)`)

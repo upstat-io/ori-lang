@@ -91,13 +91,9 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 name = "ori-playground-wasm"
 version = "0.1.0-alpha.9"
 dependencies = [
- "ori_canon",
+ "ori_compiler",
+ "ori_diagnostic",
  "ori_eval",
- "ori_fmt",
- "ori_ir",
- "ori_lexer",
- "ori_parse",
- "ori_types",
  "serde",
  "serde_json",
  "wasm-bindgen",
@@ -123,6 +119,21 @@ dependencies = [
  "ori_types",
  "rustc-hash",
  "tracing",
+]
+
+[[package]]
+name = "ori_compiler"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "ori_canon",
+ "ori_diagnostic",
+ "ori_eval",
+ "ori_fmt",
+ "ori_ir",
+ "ori_lexer",
+ "ori_parse",
+ "ori_patterns",
+ "ori_types",
 ]
 
 [[package]]
@@ -190,6 +201,7 @@ dependencies = [
 name = "ori_patterns"
 version = "0.1.0-alpha.9"
 dependencies = [
+ "ori_diagnostic",
  "ori_ir",
  "rustc-hash",
  "tracing",

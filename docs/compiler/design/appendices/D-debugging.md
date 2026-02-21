@@ -23,6 +23,7 @@ Setup: `compiler/oric/src/tracing_setup.rs`, initialized in `main()`.
 | `ORI_LOG` | Filter string (`RUST_LOG` syntax) | `ORI_LOG=debug` |
 | `ORI_LOG_TREE` | Enable hierarchical tree output | `ORI_LOG_TREE=1` |
 | `RUST_LOG` | Fallback if `ORI_LOG` not set | `RUST_LOG=debug` |
+| `ORI_DEBUG_LLVM` | Print LLVM IR to stderr before JIT compilation | `ORI_DEBUG_LLVM=1` |
 
 When neither `ORI_LOG` nor `RUST_LOG` is set, only warnings and above are shown.
 This ensures zero noise in normal usage.

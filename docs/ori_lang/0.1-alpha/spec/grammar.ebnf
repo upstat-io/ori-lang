@@ -59,9 +59,10 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 //           false, for, if, impl, in, let, loop, match, pub, self, Self, suspend,
 //           tests, then, trait, true, type, unsafe, use, uses, void, where, with, yield
 // Reserved (future, 5): asm, inline, static, union, view
-// Context-sensitive (patterns, 17): cache, catch, collect, filter, find, fold, handler, map,
-//           nursery, parallel, recurse, retry, run, spawn, timeout, try, validate
-// Context-sensitive (pattern args, 7): body, default, expr, on_error, over, pre_check, post_check
+// Context-sensitive (patterns, 9): cache, catch, handler, nursery, parallel, recurse, spawn,
+//           timeout, try
+// Context-sensitive (pattern args, 10): body, buffer, default, expr, map, on_error, over,
+//           pre, post, state
 // Context-sensitive (imports, 2): from (extern blocks), without (import items, before "def")
 // Context-sensitive (other, 3): args (@main params), by (after range), max (fixed-capacity lists)
 // Context-sensitive (embed, 2): embed (file embedding), has_embed (file existence check)
@@ -152,7 +153,7 @@ size_unit    = "b" | "kb" | "mb" | "gb" | "tb" .
 // See: 02-source-code.md, 12-modules.md
 // ============================================================================
 
-source_file = [ file_attribute ] { import | extension_import } { declaration } .
+source_file = [ file_attribute ] { import | reexport | extension_import } { declaration } .
 
 // File-level attribute (conditional compilation)
 // See: 24-conditional-compilation.md § File-Level Conditions
@@ -174,7 +175,7 @@ reexport = "pub" "use" import_path import_list ";" .
 // See: 12-modules.md § Extensions
 
 extension_def    = "extend" [ generics ] type [ where_clause ] "{" { method } "}" .
-extension_import = "extension" import_path "{" extension_item { "," extension_item } "}" .
+extension_import = [ "pub" ] "extension" import_path "{" extension_item { "," extension_item } "}" .
 extension_item   = identifier "." identifier .
 
 // --- FFI (Foreign Function Interface) ---
@@ -192,7 +193,7 @@ c_variadic    = "," "..." .  /* C-style variadic - only valid in extern "c" bloc
 // See: 08-declarations.md
 // ============================================================================
 
-declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | test | constant_decl | extern_block | capset_decl ) .
+declaration = { attribute } [ "pub" ] ( function | type_def | trait_def | impl_block | extension_def | test | constant_decl | extern_block | capset_decl ) .
 
 // --- Attributes ---
 // See: 08-declarations.md § Attributes, 24-conditional-compilation.md
@@ -321,7 +322,7 @@ fixed_list_type = "[" type "," "max" const_expr "]" .
 map_type      = "{" type ":" type "}" .
 tuple_type    = "(" type { "," type } ")" | "()" .
 function_type = "(" [ type { "," type } ] ")" "->" type .
-const_expr    = integer_literal | "$" identifier | const_expr binary_op const_expr .
+/* const_expr is defined in § CONSTANT EXPRESSIONS below */
 
 
 // ============================================================================
@@ -350,7 +351,7 @@ primary       = literal | identifier | "self" | "Self"
 // is the block's value. A block where every expression has ";" returns void.
 
 block_expr  = "{" { statement } [ expression ] "}" .
-statement   = ( let_expr | expression ) ";" .
+statement   = ( let_expr | assignment | expression ) ";" .
 
 // --- Unsafe Expression ---
 // See: spec/24-ffi.md § Unsafe Blocks
@@ -409,10 +410,10 @@ unary_expr = [ "!" | "-" | "~" ] postfix_expr .
 
 // --- Binary Expressions ---
 // See: 09-expressions.md § Binary Expressions
-// Precedence (lowest to highest): ||, &&, |, ^, &, ==, cmp, range, shift, add, mul
+// Precedence (lowest to highest): ??, ||, &&, |, ^, &, ==, cmp, range, shift, add, mul
 
 binary_expr   = coalesce_expr .
-coalesce_expr = or_expr { "??" or_expr } .
+coalesce_expr = or_expr [ "??" coalesce_expr ] .  /* right-associative */
 or_expr       = and_expr { "||" and_expr } .
 and_expr      = bit_or_expr { "&&" bit_or_expr } .
 bit_or_expr   = bit_xor_expr { "|" bit_xor_expr } .
@@ -429,7 +430,7 @@ mul_expr      = unary_expr { ( "*" | "/" | "%" | "div" ) unary_expr } .
 // See: 09-expressions.md § With Expression, 14-capabilities.md § Providing Capabilities
 
 with_expr           = "with" capability_binding { "," capability_binding } "in" expression .
-capability_binding  = identifier "=" expression .
+capability_binding  = identifier "=" ( handler_expr | expression ) .
 
 // --- Handler Expression (Stateful Effect Handlers) ---
 // See: 14-capabilities.md § Stateful Handlers, proposals/approved/stateful-mock-testing-proposal.md
@@ -447,7 +448,7 @@ assignment        = assignment_target "=" expression
                   | assignment_target compound_op expression .
 assignment_target = identifier { "[" expression "]" | "." identifier } .
 compound_op       = "+=" | "-=" | "*=" | "/=" | "%=" .
-binding           = let_expr | assignment .  /* used in run/try patterns */
+binding           = let_expr | assignment .  /* convenience grouping; not currently referenced */
 
 // --- Conditional ---
 // See: 09-expressions.md § Conditional
@@ -459,7 +460,8 @@ if_expr = "if" expression "then" expression
 // --- For Expression ---
 // See: 09-expressions.md § For Expression, 19-control-flow.md § Labeled Loops
 
-for_expr = "for" [ label ] binding_pattern "in" expression [ "if" expression ] ( "do" | "yield" ) expression .
+for_expr       = "for" [ label ] binding_pattern "in" expression [ "if" expression ] { for_clause } ( "do" | "yield" ) expression .
+for_clause     = "for" binding_pattern "in" expression [ "if" expression ] .
 
 // --- Loop Expression ---
 // See: 09-expressions.md § Loop Expression, 19-control-flow.md § Labeled Loops
@@ -588,9 +590,8 @@ field_binding   = [ "$" ] identifier [ ":" binding_pattern ] .
 // ============================================================================
 
 const_expr = literal
-           | const_expr arith_op const_expr
-           | const_expr comp_op const_expr
-           | const_expr logic_op const_expr
+           | "$" identifier
+           | const_expr ( arith_op | comp_op | "&&" | "||" | "&" | "|" | "^" | "<<" | ">>" ) const_expr
            | unary_op const_expr
            | "(" const_expr ")" .
 

@@ -1,7 +1,8 @@
 use super::*;
-use crate::ir::{Name, Span};
 use ori_diagnostic::ErrorCode;
-use ori_types::{ArityMismatchKind, ContextKind, TypeProblem};
+use ori_ir::{Name, Span, StringInterner};
+
+use crate::{ArityMismatchKind, ContextKind, TypeProblem};
 
 /// Create a test `Pool` and `StringInterner`.
 fn test_env() -> (Pool, StringInterner) {
@@ -170,7 +171,7 @@ fn text_suggestions_go_to_suggestions() {
         Span::new(0, 10),
         Idx::INT,
         Idx::FLOAT,
-        vec![ori_types::TypeProblem::IntFloat {
+        vec![TypeProblem::IntFloat {
             expected: "int",
             found: "float",
         }],

@@ -27,7 +27,7 @@ compiler/
 │       │   ├── mod.rs                    # ErrorDocs registry
 │       │   ├── E0001.md                  # Error documentation files
 │       │   ├── E0002.md
-│       │   └── ...                       # (35+ error codes documented)
+│       │   └── ...                       # (64 error codes documented, 117 defined)
 │       ├── emitter/
 │       │   ├── mod.rs                    # Emitter trait, trailing_comma() helper
 │       │   ├── terminal.rs               # Terminal output
@@ -38,21 +38,22 @@ compiler/
 │           └── registry.rs               # Fix registry
 └── oric/src/
     ├── problem/                  # Problem types (specific to compiler phases)
-    │   ├── mod.rs                    # Problem enum (Lex, Parse, Semantic variants)
+    │   ├── mod.rs                    # Module re-exports (LexProblem, SemanticProblem, eval_error_to_diagnostic)
     │   ├── lex.rs                    # LexProblem enum
-    │   └── semantic.rs               # SemanticProblem enum, DefinitionKind
-    └── reporting/                # Diagnostic rendering (Problem → Diagnostic)
-        ├── mod.rs                    # Render trait, render_all, Report type
-        ├── lex.rs                    # LexProblem rendering
-        ├── parse.rs                  # ParseProblem rendering
-        └── semantic.rs               # SemanticProblem rendering
+    │   ├── eval/                    # EvalError → Diagnostic (E6xxx codes)
+    │   │   └── mod.rs                   # eval_error_to_diagnostic(), snapshot_to_diagnostic()
+    │   └── semantic/                # SemanticProblem enum, DefinitionKind
+    │       └── mod.rs
+    └── reporting/                # Diagnostic rendering (requires extra context)
+        ├── mod.rs                    # Module organization, re-exports
+        └── typeck/                   # Type error rendering
+            └── mod.rs                    # TypeErrorRenderer (Pool-aware type name resolution)
 
-**Note:** The `problem/` and `reporting/` modules have an intentional 1:1 coupling.
-Each problem variant in `problem/mod.rs` has a corresponding `Render` implementation
-in `reporting/`. This separation keeps "what went wrong" (Problem) distinct from
-"how to display it" (Diagnostic), while the 1:1 mapping ensures every problem
-gets a tailored error message. Adding a new problem type requires adding its
-renderer in the corresponding reporting module.
+**Note:** Problem types implement their own `into_diagnostic()` methods directly
+(in `problem/lex.rs`, `problem/semantic/`, `problem/codegen/`). The `reporting/`
+module is reserved for rendering that requires additional context beyond what the
+problem type carries -- currently `TypeErrorRenderer`, which needs `Pool` access
+to resolve type indices into human-readable names.
 ```
 
 The `ori_diagnostic` crate is organized into focused submodules: `error_code.rs` (ErrorCode enum), `diagnostic.rs` (Diagnostic, Label, Severity, Applicability, Suggestion types), and `guarantee.rs` (ErrorGuaranteed). The `lib.rs` re-exports all public types. It depends only on `ori_ir` (for `Span`).
@@ -95,6 +96,19 @@ fn type_check(&mut self) -> Result<TypedModule, ErrorGuaranteed> {
 }
 ```
 
+### DiagnosticSeverity
+
+`DiagnosticSeverity` controls soft error suppression in the queue. After a hard error, soft errors (e.g., inference failures caused by the hard error) are suppressed to reduce noise:
+
+```rust
+pub enum DiagnosticSeverity {
+    /// Hard error - always reported, not suppressed by other errors.
+    Hard,
+    /// Soft error - can be suppressed after a hard error to reduce noise.
+    Soft,
+}
+```
+
 ### DiagnosticQueue Methods
 
 ```rust
@@ -104,6 +118,30 @@ impl DiagnosticQueue {
 
     /// Emit error with position computed from source.
     pub fn emit_error_with_source(&mut self, diag: Diagnostic, source: &str) -> ErrorGuaranteed;
+
+    /// Add a diagnostic with explicit severity level.
+    pub fn add_with_severity(
+        &mut self, diag: Diagnostic, line: u32, column: u32,
+        severity: DiagnosticSeverity,
+    ) -> bool;
+
+    /// Add a diagnostic with position computed from source and explicit severity.
+    pub fn add_with_source_and_severity(
+        &mut self, diag: Diagnostic, source: &str,
+        severity: DiagnosticSeverity,
+    ) -> bool;
+
+    /// Check if the error limit has been reached.
+    pub fn limit_reached(&self) -> bool;
+
+    /// Get the number of errors collected.
+    pub fn error_count(&self) -> usize;
+
+    /// Check if any hard errors have been recorded.
+    pub fn has_hard_error(&self) -> bool;
+
+    /// Get diagnostics without clearing the queue.
+    pub fn peek(&self) -> impl Iterator<Item = &Diagnostic>;
 
     /// Check if any errors were emitted.
     pub fn has_errors(&self) -> Option<ErrorGuaranteed>;
@@ -116,7 +154,7 @@ impl DiagnosticQueue {
 
 ```rust
 #[salsa::tracked]
-fn typed(db: &dyn Db, file: SourceFile) -> Result<TypedModule, ErrorGuaranteed>
+fn typed(db: &dyn Db, file: SourceFile) -> TypeCheckResult
 ```
 
 ## Error Code Ranges
@@ -126,16 +164,19 @@ fn typed(db: &dyn Db, file: SourceFile) -> Result<TypedModule, ErrorGuaranteed>
 | E0xxx | Lexer | E0001: Invalid character, E0002: Unterminated string |
 | E1xxx | Parser | E1001: Unexpected token, E1002: Expected expression |
 | E2xxx | Type checker | E2001: Type mismatch, E2002: Undefined variable, E2003: Missing capability |
-| E3xxx | Patterns | E3001: Unknown pattern, E3002: Missing required argument |
+| E3xxx | Patterns | E3001: Unknown pattern, E3002: Non-exhaustive match, E3003: Redundant arm |
+| E4xxx | ARC analysis | E4001–E4003: ARC pipeline errors |
+| E5xxx | Codegen/LLVM | E5001–E5009: LLVM code generation errors |
+| E6xxx | Runtime/Eval | E6001: Division by zero, E6020: Undefined variable, E6030: Arity mismatch |
 | E9xxx | Internal | E9001: Internal compiler error, E9002: Too many errors |
 
 ### Error Code Design
 
 Error codes follow the `EXXXX` format where:
-- First digit indicates the compiler phase (0=lexer, 1=parser, 2=type, 3=pattern, 9=internal)
+- First digit indicates the compiler phase (0=lexer, 1=parser, 2=type, 3=pattern, 4=ARC, 5=codegen, 6=runtime, 9=internal)
 - Remaining digits are sequential within that phase
 - Codes are stable across versions for tooling compatibility
-- The `E` prefix distinguishes errors from warnings (future: `W` prefix)
+- The `E` prefix denotes errors; `W` prefix denotes warnings (W1001 for parser warnings, W2001 for type checker warnings)
 
 ## DiagnosticQueue
 
@@ -200,54 +241,59 @@ let typed = type_check_with_config(&parse_result, interner, source, config);
 
 ## Diagnostic Rendering
 
-The rendering system converts structured `Problem` types into user-facing `Diagnostic` messages. This separates "what went wrong" (Problem) from "how to display it" (Diagnostic).
+The rendering system converts structured problem types into user-facing `Diagnostic` messages. This separates "what went wrong" (problem type) from "how to display it" (Diagnostic).
 
-### Render Trait
+### `into_diagnostic()` Pattern
 
-The `Render` trait provides the conversion interface:
+Problem types implement `into_diagnostic()` methods directly rather than through a shared `Render` trait. Each problem type converts itself to a `Diagnostic`:
 
 ```rust
-pub trait Render {
-    fn render(&self, interner: &StringInterner) -> Diagnostic;
-}
-
-impl Render for Problem {
-    fn render(&self, interner: &StringInterner) -> Diagnostic {
+impl SemanticProblem {
+    pub fn into_diagnostic(&self, interner: &StringInterner) -> Diagnostic {
         match self {
-            Problem::Lex(p) => p.render(interner),
-            Problem::Parse(p) => p.render(interner),
-            Problem::Semantic(p) => p.render(interner),
+            SemanticProblem::UnknownIdentifier { span, name, .. } => { ... }
+            SemanticProblem::NonExhaustiveMatch { span, missing_patterns } => { ... }
+            // ...
         }
     }
+}
+
+impl LexProblem {
+    pub fn into_diagnostic(&self) -> Diagnostic { ... }
 }
 ```
 
 ### Module Organization
 
-Each problem category has its own rendering module:
+The rendering system is organized as follows:
 
-| Module | Problem Type | Error Codes |
-|--------|--------------|-------------|
-| `lex.rs` | `LexProblem` | E0xxx (lexer errors) |
-| `parse.rs` | `ParseProblem` | E1xxx (parser errors) |
-| `semantic.rs` | `SemanticProblem` | E2xxx (name resolution, duplicates) |
+| Location | Problem Type | Error Codes |
+|----------|--------------|-------------|
+| `oric/src/problem/lex.rs` | `LexProblem` | E0xxx (lexer errors) |
+| `oric/src/problem/semantic/` | `SemanticProblem` | E3xxx (name resolution, test coverage, exhaustiveness) |
+| `oric/src/reporting/typeck/` | `TypeCheckError` | E2xxx (type mismatches, inference) |
+| `oric/src/problem/codegen/` | `CodegenProblem` | E4xxx (ARC analysis, codegen) |
 
-**Note:** Type errors (E2xxx type mismatches, inference) are handled through `TypeCheckError` in `ori_typeck`, not through the Problem rendering system
+**Note:** Parse errors are rendered directly by `ori_parse::ParseError::to_queued_diagnostic()` and do not flow through the `oric` reporting module.
 
-This separation follows the Single Responsibility Principle—each module focuses on rendering one category of problems with domain-specific context and suggestions.
+Type errors use `TypeErrorRenderer` in `oric/src/reporting/typeck/` for Pool-aware type name rendering. This renderer takes a `Pool` and `StringInterner` to resolve type indices into human-readable names.
 
-### Helper Functions
+This separation follows the Single Responsibility Principle -- each problem type handles its own conversion to diagnostics with domain-specific context and suggestions.
+
+### EvalError Conversion
+
+Runtime errors from the evaluator are converted to diagnostics in `oric/src/problem/eval/mod.rs`:
 
 ```rust
-/// Render all problems to diagnostics.
-pub fn render_all(problems: &[Problem]) -> Vec<Diagnostic>;
+/// Convert an `EvalError` into a `Diagnostic` with E6xxx codes.
+pub fn eval_error_to_diagnostic(err: &EvalError) -> Diagnostic;
 
-/// Process type errors through the diagnostic queue.
-pub fn process_type_errors(
-    errors: Vec<TypeCheckError>,
+/// Convert an `EvalErrorSnapshot` into a `Diagnostic` with enriched file/line info.
+pub fn snapshot_to_diagnostic(
+    snapshot: &EvalErrorSnapshot,
     source: &str,
-    config: Option<DiagnosticConfig>,
-) -> Vec<Diagnostic>;
+    file_path: &str,
+) -> Diagnostic;
 ```
 
 ## Diagnostic Structure
@@ -297,6 +343,50 @@ pub enum Severity {
 }
 ```
 
+### SourceInfo and Cross-File Labels
+
+The `SourceInfo` struct provides file path and content for labels that reference code in a different file (e.g., showing where an imported function is defined):
+
+```rust
+pub struct SourceInfo {
+    /// The file path relative to the project root.
+    pub path: String,
+    /// The source content (or relevant portion).
+    pub content: String,
+}
+```
+
+The `Diagnostic` builder provides methods for cross-file labels:
+
+```rust
+impl Diagnostic {
+    /// Add a primary label referencing a different file.
+    pub fn with_cross_file_label(
+        self, span: Span, message: impl Into<String>, source_info: SourceInfo,
+    ) -> Self;
+
+    /// Add a secondary label referencing a different file.
+    pub fn with_cross_file_secondary_label(
+        self, span: Span, message: impl Into<String>, source_info: SourceInfo,
+    ) -> Self;
+}
+```
+
+Cross-file labels are rendered with `::: path` notation to distinguish them from same-file labels:
+
+```
+error[E2001]: type mismatch
+  --> src/main.ori:10:5
+   |
+10 |     let x: int = get_name()
+   |                  ^^^^^^^^^^ expected `int`, found `str`
+   |
+  ::: src/lib.ori:25:1
+   |
+25 | @get_name () -> str
+   | ------------------- return type defined here
+```
+
 ## Structured Suggestions
 
 Structured suggestions enable `ori fix` to auto-apply fixes:
@@ -321,11 +411,32 @@ pub struct Suggestion {
     pub message: String,
     pub substitutions: Vec<Substitution>,
     pub applicability: Applicability,
+    /// Priority (lower = more likely to be relevant).
+    /// 0 = most likely, 1 = likely, 2 = possible, 3 = unlikely.
+    pub priority: u8,
 }
 
 pub struct Substitution {
     pub span: Span,
     pub snippet: String,
+}
+```
+
+The `Diagnostic` builder provides convenience methods for adding suggestions:
+
+```rust
+impl Diagnostic {
+    /// Add a plain text suggestion (human-readable, no code substitution).
+    pub fn with_suggestion(self, suggestion: impl Into<String>) -> Self;
+
+    /// Add a structured suggestion with applicability information (for `ori fix`).
+    pub fn with_structured_suggestion(self, suggestion: Suggestion) -> Self;
+
+    /// Add a machine-applicable fix (safe to auto-apply).
+    pub fn with_fix(self, message: impl Into<String>, span: Span, snippet: impl Into<String>) -> Self;
+
+    /// Add a suggestion that might be incorrect.
+    pub fn with_maybe_fix(self, message: impl Into<String>, span: Span, snippet: impl Into<String>) -> Self;
 }
 ```
 
@@ -444,33 +555,19 @@ assert_eq!(table.offset_to_line_col(source, 6), (2, 1));  // 'l' in line2
 
 These utilities are used by `DiagnosticQueue` for position-based deduplication and sorting.
 
-### Problem
+### Problem Types
 
-The `Problem` enum uses a three-tier hierarchy (Lex, Parse, Semantic). Type checking errors use `TypeCheckError` directly from `ori_types`:
+There is no unified `Problem` enum. Each compiler phase defines its own problem type:
 
-```rust
-pub enum Problem {
-    /// Lex-time problems (tokenization errors, confusables, cross-language habits).
-    Lex(LexProblem),
+- **`LexProblem`** (`oric/src/problem/lex.rs`) -- Lex-time warnings (detached doc comments, confusables). Implements `into_diagnostic()` directly.
+- **`SemanticProblem`** (`oric/src/problem/semantic/mod.rs`) -- Semantic analysis errors (name resolution, duplicates, pattern exhaustiveness). Implements `into_diagnostic(&interner)`.
+- **`EvalError`** (`ori_patterns`) -- Runtime/eval errors. Converted via `eval_error_to_diagnostic()` in `oric/src/problem/eval/mod.rs` using E6xxx codes.
 
-    /// Parse-time problems (syntax errors).
-    Parse(ParseProblem),
+Parse errors are handled separately: `ori_parse::ParseError::to_queued_diagnostic()` converts parse errors directly to queued diagnostics without flowing through the `oric` problem module.
 
-    /// Semantic analysis problems (name resolution, duplicates).
-    Semantic(SemanticProblem),
-}
+Type checking errors use `TypeCheckError` from `ori_types` directly, rendered by `TypeErrorRenderer` in `oric/src/reporting/typeck/` for Pool-aware type name resolution.
 
-impl Problem {
-    pub fn span(&self) -> Span;
-    pub fn is_lex(&self) -> bool;
-    pub fn is_parse(&self) -> bool;
-    pub fn is_semantic(&self) -> bool;
-}
-```
-
-**Note:** Type checking errors use `TypeCheckError` from `ori_types` directly, rather than being wrapped in this enum. This allows the type checker to use structured error variants while other phases use this unified type.
-
-Each category (LexProblem, ParseProblem, SemanticProblem) is a separate enum with category-specific variants. See [Problem Types](problem-types.md) for details.
+See [Problem Types](problem-types.md) for details.
 
 ## Diagnostic Derive Macros (Planned)
 

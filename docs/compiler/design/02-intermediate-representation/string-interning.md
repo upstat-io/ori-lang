@@ -33,55 +33,52 @@ assert_eq!(name1, name2);  // O(1) comparison
 pub struct Name(pub u32);
 
 impl Name {
+    pub const EMPTY: Name = Name(0);  // Pre-interned empty string ""
+
     pub fn index(self) -> usize {
         self.0 as usize
     }
 }
 ```
 
-`Name` is just a 32-bit index. It's:
+`Name` is just a 32-bit index. `Name::EMPTY` is the pre-interned empty string, used as the default value. It's:
 - `Copy` - Cheap to pass around
 - `Eq, Hash` - Can be used in collections
 - 4 bytes (vs ~24 bytes for String on 64-bit)
 
-### Interner
+### StringInterner
+
+The interner uses a 16-shard concurrent design with per-shard `RwLock` for thread-safe access:
 
 ```rust
-#[derive(Clone, Debug, Default)]
-pub struct Interner {
-    /// All interned strings
-    strings: Vec<String>,
-
-    /// Map from string to Name
-    lookup: HashMap<String, Name>,
+pub struct StringInterner {
+    shards: [RwLock<InternShard>; 16],  // 16 lock-striped shards
+    total_count: AtomicUsize,            // O(1) len()
 }
 
-impl Interner {
-    pub fn new() -> Self {
-        Self::default()
-    }
+struct InternShard {
+    map: FxHashMap<&'static str, u32>,   // Lookup by string
+    strings: Vec<&'static str>,          // Reverse lookup by local index
+}
+```
 
-    /// Intern a string, returning its Name
-    pub fn intern(&mut self, s: &str) -> Name {
-        if let Some(&name) = self.lookup.get(s) {
-            return name;
-        }
+Strings are leaked via `Box::leak()` for `'static` lifetime, enabling zero-copy storage as both map keys and values.
 
-        let name = Name(self.strings.len() as u32);
-        self.strings.push(s.to_string());
-        self.lookup.insert(s.to_string(), name);
-        name
-    }
+**Name encoding**: `Name(u32)` packs a shard index (bits 31-28) and local index (bits 27-0), giving 16 shards of up to ~268M strings each.
 
-    /// Resolve Name back to string
-    pub fn resolve(&self, name: Name) -> &str {
-        &self.strings[name.index()]
-    }
+```rust
+impl StringInterner {
+    /// Intern a string (thread-safe, may allocate)
+    pub fn intern(&self, s: &str) -> Name { ... }
 
-    /// Check if string is interned
-    pub fn get(&self, s: &str) -> Option<Name> {
-        self.lookup.get(s).copied()
-    }
+    /// Fallible version with overflow detection
+    pub fn try_intern(&self, s: &str) -> Result<Name, InternError> { ... }
+
+    /// Resolve Name back to &str
+    pub fn lookup(&self, name: Name) -> &str { ... }
+
+    /// Resolve to &'static str (zero-copy)
+    pub fn lookup_static(&self, name: Name) -> &'static str { ... }
 }
 ```
 
@@ -195,47 +192,30 @@ Names can be used in HashMaps without hashing strings:
 
 Name is `Copy + Eq + Hash`, perfect for Salsa queries.
 
+## Fallible Interning and Overflow
+
+The `try_intern()` and `try_intern_owned()` methods return `Result<Name, InternError>` instead of panicking on overflow. `InternError::ShardOverflow` is produced when a shard's local index exceeds `u32` capacity. The infallible `intern()` and `intern_owned()` methods unwrap internally and are appropriate for normal compilation where overflow is not expected.
+
+`intern_owned()` accepts a `String` directly, avoiding a re-allocation when the caller already has an owned string (e.g., string literal processing in the lexer).
+
 ## Thread Safety
 
-The current `Interner` is not thread-safe. For parallel compilation:
+The `StringInterner` is thread-safe by design. Each shard is protected by its own `RwLock`, so concurrent reads to different shards never contend. The hash-based shard selection distributes identifiers evenly across shards.
+
+`SharedInterner(Arc<StringInterner>)` is a newtype wrapper for cross-thread sharing. The test runner shares a single `SharedInterner` across all parallel test threads, avoiding per-file re-interning of common identifiers. `SharedInterner` dereferences to `StringInterner`, so all methods are available transparently.
+
+## Pre-Interned Identifiers
+
+The `StringInterner::new()` constructor pre-interns ~60 keywords and common identifiers via a private `pre_intern_keywords()` method:
 
 ```rust
-// Option 1: Mutex-protected
-struct SharedInterner {
-    inner: Mutex<Interner>,
-}
-
-// Option 2: Concurrent hashmap
-struct ConcurrentInterner {
-    strings: DashMap<String, Name>,
-    reverse: Vec<RwLock<String>>,
-}
+// Pre-interned at construction time (predictable Name values):
+// Keywords: if, else, let, fn, match, impl, trait, use, pub, self, type, ...
+// Built-in types: int, float, bool, str, char, byte, Never, Option, Result, ...
+// Common identifiers: main, print, len, compare, panic, assert, assert_eq, ...
 ```
 
-Currently, the compiler is single-threaded during lexing/parsing, so this isn't needed yet.
-
-## Common Identifiers
-
-Frequently used identifiers are pre-interned:
-
-```rust
-impl Interner {
-    pub fn with_keywords() -> Self {
-        let mut interner = Self::new();
-
-        // Pre-intern keywords
-        interner.intern("if");
-        interner.intern("else");
-        interner.intern("let");
-        interner.intern("fn");
-        // ...
-
-        interner
-    }
-}
-```
-
-This ensures keywords have predictable Names (useful for fast keyword checking).
+This ensures keywords have predictable `Name` values, enabling fast keyword checking during lexing without string comparison.
 
 ## Debugging
 
@@ -247,7 +227,7 @@ When debugging, resolve Names back to strings:
 fn debug_expr(interner: &Interner, expr: &Expr) {
     match &expr.kind {
         ExprKind::Ident(name) => {
-            println!("Ident: {}", interner.resolve(*name));
+            println!("Ident: {}", interner.lookup(*name));
         }
         // ...
     }
@@ -259,7 +239,7 @@ fn debug_expr(interner: &Interner, expr: &Expr) {
 ```rust
 impl Name {
     pub fn display<'a>(&self, interner: &'a Interner) -> impl Display + 'a {
-        interner.resolve(*self)
+        interner.lookup(*self)
     }
 }
 ```
