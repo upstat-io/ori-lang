@@ -15,9 +15,12 @@
 //! Tier 2:  CanExpr  →  ARC IR  →  ArcIrEmitter  →  LLVM IR  (with RC)
 //! ```
 
+mod drop_gen;
+
 use ori_arc::ir::{
     ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp,
 };
+use ori_arc::ArcClassification;
 use ori_ir::{BinaryOp, Name, StringInterner, UnaryOp};
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -44,9 +47,15 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
     /// String interner for `Name` → `&str`.
     interner: &'a StringInterner,
-    /// Type pool for structural queries (used by future type-dependent emission).
-    #[expect(dead_code, reason = "Reserved for future type-dependent IR emission")]
+    /// Type pool for structural queries (used by drop function generation).
     pool: &'a Pool,
+    /// ARC type classifier for drop function generation.
+    /// `None` when ARC codegen is disabled (Tier 1 path).
+    classifier: Option<&'a dyn ArcClassification>,
+    /// Cache: type `Idx` → already-generated drop function `FunctionId`.
+    /// Avoids regenerating drop functions for the same type and handles
+    /// recursive types (entry inserted before body generation).
+    drop_fn_cache: FxHashMap<Idx, FunctionId>,
     /// The LLVM function being compiled.
     current_function: FunctionId,
     /// Declared functions: `Name` → (`FunctionId`, ABI).
@@ -76,6 +85,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
         interner: &'a StringInterner,
         pool: &'a Pool,
+        classifier: Option<&'a dyn ArcClassification>,
         current_function: FunctionId,
         functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
         method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
@@ -87,6 +97,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             type_resolver,
             interner,
             pool,
+            classifier,
+            drop_fn_cache: FxHashMap::default(),
             current_function,
             functions,
             method_functions,
@@ -131,6 +143,46 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.block_map[b.index()]
     }
 
+    /// Get or generate the drop function for a type.
+    ///
+    /// Returns a function pointer `ValueId` suitable for passing to
+    /// `ori_rc_dec`. Returns null for scalar types or when no classifier
+    /// is available (no drop needed).
+    ///
+    /// Drop functions are cached per type. For recursive types, the
+    /// `FunctionId` is cached **before** body generation to break cycles.
+    fn get_or_generate_drop_fn(&mut self, ty: Idx) -> ValueId {
+        // Fast path: already generated
+        if let Some(&func_id) = self.drop_fn_cache.get(&ty) {
+            return self.builder.get_function_ptr(func_id);
+        }
+
+        // No classifier → no drop analysis possible
+        let Some(classifier) = self.classifier else {
+            return self.builder.const_null_ptr();
+        };
+
+        // Compute what drop operations this type needs
+        let Some(drop_info) = ori_arc::compute_drop_info(ty, classifier, self.pool) else {
+            return self.builder.const_null_ptr();
+        };
+
+        // Save current builder position (we're about to create a new function)
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        // Generate the drop function (handles declaration, caching, and body)
+        let func_id = drop_gen::generate_drop_fn(self, ty, &drop_info);
+
+        // Restore builder position
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        self.builder.get_function_ptr(func_id)
+    }
+
     // -----------------------------------------------------------------------
     // Top-level emission
     // -----------------------------------------------------------------------
@@ -163,6 +215,31 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             self.def_var(param.var, llvm_param);
         }
 
+        // Pre-scan: find blocks that are unwind destinations of Invoke terminators.
+        // These blocks must start with a `landingpad` instruction per LLVM requirements.
+        let mut unwind_blocks = rustc_hash::FxHashSet::default();
+        for block in &func.blocks {
+            if let ArcTerminator::Invoke { unwind, .. } = &block.terminator {
+                unwind_blocks.insert(unwind.index());
+            }
+        }
+
+        // Set personality function on the LLVM function if any invokes exist.
+        // Required for any function containing `invoke`/`landingpad`.
+        let personality_id = if unwind_blocks.is_empty() {
+            None
+        } else {
+            self.builder
+                .scx()
+                .llmod
+                .get_function("rust_eh_personality")
+                .map(|f| {
+                    let pid = self.builder.intern_function(f);
+                    self.builder.set_personality(self.current_function, pid);
+                    pid
+                })
+        };
+
         // Position at entry block
         let entry = self.block(func.entry);
         self.builder.position_at_end(entry);
@@ -183,13 +260,31 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             phi_nodes.push(block_phis);
         }
 
-        // Emit each block's body and terminator
+        // Emit each block's body and terminator.
+        // For unwind blocks: emit `landingpad cleanup` as the first instruction,
+        // then any cleanup instructions, then `resume` at the terminator.
+        let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
         for block in &func.blocks {
             self.builder.position_at_end(self.block(block.id));
+
+            // Unwind blocks must start with a landingpad instruction
+            if unwind_blocks.contains(&block.id.index()) {
+                if let Some(pid) = personality_id {
+                    let lp = self.builder.landingpad(pid, true, "lp");
+                    landingpad_values.insert(block.id.index(), lp);
+                }
+            }
+
             for instr in &block.body {
                 self.emit_instr(instr, func);
             }
-            self.emit_terminator(&block.terminator, block.id, &phi_nodes, abi);
+            self.emit_terminator(
+                &block.terminator,
+                block.id,
+                &phi_nodes,
+                abi,
+                &landingpad_values,
+            );
         }
 
         // Patch phi incoming values
@@ -208,9 +303,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     fn emit_terminator(
         &mut self,
         term: &ArcTerminator,
-        _current_block: ori_arc::ir::ArcBlockId,
+        current_block: ori_arc::ir::ArcBlockId,
         _phi_nodes: &[Vec<(ArcVarId, ValueId)>],
         abi: &FunctionAbi,
+        landingpad_values: &FxHashMap<usize, ValueId>,
     ) {
         match term {
             ArcTerminator::Return { value } => {
@@ -285,11 +381,19 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             } => self.emit_invoke(*dst, *func, args, *normal, *unwind),
 
             ArcTerminator::Resume => {
-                // Re-raise the caught exception.
-                // The landing pad value should be in scope from the unwind block.
-                // For now, emit unreachable — full resume requires tracking the
-                // landingpad value through the unwind block's instructions.
-                self.builder.unreachable();
+                // Re-raise the caught exception using the landingpad token
+                // captured at the start of this unwind block.
+                if let Some(&lp_val) = landingpad_values.get(&current_block.index()) {
+                    self.builder.resume(lp_val);
+                } else {
+                    // No landingpad for this block — should not happen if ARC IR
+                    // is well-formed, but emit unreachable as a safety fallback.
+                    tracing::warn!(
+                        block = current_block.index(),
+                        "ARC Resume without landingpad — emitting unreachable"
+                    );
+                    self.builder.unreachable();
+                }
             }
 
             ArcTerminator::Unreachable => {
@@ -532,13 +636,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
             ArcInstr::RcDec { var } => {
                 let val = self.var(*var);
-                let rc_dec_name = "ori_rc_dec";
-                if let Some(llvm_func) = self.builder.scx().llmod.get_function(rc_dec_name) {
+                let ty = func.var_type(*var);
+                let drop_fn_ptr = self.get_or_generate_drop_fn(ty);
+                if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
                     let func_id = self.builder.intern_function(llvm_func);
-                    // Drop function: for now, pass null (trivial drop).
-                    // Full drop function lookup from DropInfo is wired in C.4.
-                    let null_drop = self.builder.const_null_ptr();
-                    self.builder.call(func_id, &[val, null_drop], "");
+                    self.builder.call(func_id, &[val, drop_fn_ptr], "");
                 }
             }
 
@@ -684,6 +786,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// For primitive types, emits direct LLVM instructions. For non-primitive
     /// types, dispatches to the corresponding operator trait method
     /// (e.g., `+` → `Add.add()`).
+    // SYNC: also update ExprLowerer::lower_binary_op in lower_operators.rs
     fn emit_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId, lhs_ty: Idx) -> ValueId {
         // Trait dispatch for non-primitive types (user-defined operator impls)
         if !lhs_ty.is_primitive() {
@@ -696,9 +799,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             self.type_info.get(lhs_ty),
             super::type_info::TypeInfo::Float
         );
+        let is_str = matches!(self.type_info.get(lhs_ty), super::type_info::TypeInfo::Str);
 
         match op {
             BinaryOp::Add if is_float => self.builder.fadd(lhs, rhs, "add"),
+            BinaryOp::Add if is_str => self.emit_str_runtime_call("ori_str_concat", lhs, rhs, true),
             BinaryOp::Add => self.builder.add(lhs, rhs, "add"),
             BinaryOp::Sub if is_float => self.builder.fsub(lhs, rhs, "sub"),
             BinaryOp::Sub => self.builder.sub(lhs, rhs, "sub"),
@@ -709,8 +814,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             BinaryOp::Mod if is_float => self.builder.frem(lhs, rhs, "rem"),
             BinaryOp::Mod => self.builder.srem(lhs, rhs, "rem"),
             BinaryOp::Eq if is_float => self.builder.fcmp_oeq(lhs, rhs, "eq"),
+            BinaryOp::Eq if is_str => self.emit_str_runtime_call("ori_str_eq", lhs, rhs, false),
             BinaryOp::Eq => self.builder.icmp_eq(lhs, rhs, "eq"),
             BinaryOp::NotEq if is_float => self.builder.fcmp_one(lhs, rhs, "ne"),
+            BinaryOp::NotEq if is_str => self.emit_str_runtime_call("ori_str_ne", lhs, rhs, false),
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::Lt if is_float => self.builder.fcmp_olt(lhs, rhs, "lt"),
             BinaryOp::Lt => self.builder.icmp_slt(lhs, rhs, "lt"),
@@ -1023,4 +1130,54 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.builder.call(func_id, &full_args, name);
         Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
     }
+
+    // -----------------------------------------------------------------------
+    // String runtime call helpers
+    // -----------------------------------------------------------------------
+
+    /// Call a string runtime function: `ori_str_concat`, `ori_str_eq`, `ori_str_ne`.
+    ///
+    /// String values are `{ i64, ptr }` structs passed by pointer to the runtime.
+    /// `returns_str` controls the return type: `true` → `{ i64, ptr }`, `false` → `i1`.
+    // SYNC: also update ExprLowerer::lower_str_concat / lower_str_eq / lower_str_ne in lower_operators.rs
+    fn emit_str_runtime_call(
+        &mut self,
+        func_name: &str,
+        lhs: ValueId,
+        rhs: ValueId,
+        returns_str: bool,
+    ) -> ValueId {
+        let Some(llvm_func) = self.builder.scx().llmod.get_function(func_name) else {
+            tracing::warn!(func_name, "ArcIrEmitter: string runtime function not found");
+            return self.builder.const_i64(0);
+        };
+        let func_id = self.builder.intern_function(llvm_func);
+
+        // Alloca + store both operands (runtime takes pointers to string structs)
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        let lhs_ptr = self
+            .builder
+            .create_entry_alloca(self.current_function, "str_op.lhs", str_ty);
+        self.builder.store(lhs, lhs_ptr);
+        let rhs_ptr = self
+            .builder
+            .create_entry_alloca(self.current_function, "str_op.rhs", str_ty);
+        self.builder.store(rhs, rhs_ptr);
+
+        let result = self.builder.call(func_id, &[lhs_ptr, rhs_ptr], func_name);
+
+        if returns_str {
+            // ori_str_concat returns { i64, ptr } — load it from the alloca
+            result.unwrap_or_else(|| {
+                tracing::warn!("ArcIrEmitter: string runtime call returned no value");
+                self.builder.const_i64(0)
+            })
+        } else {
+            // ori_str_eq / ori_str_ne return i1 (bool)
+            result.unwrap_or_else(|| self.builder.const_bool(false))
+        }
+    }
 }
+
+#[cfg(test)]
+mod tests;
