@@ -9,13 +9,13 @@ sections:
     status: complete
   - id: "1.2"
     title: Drop Function Generation
-    status: not-started
+    status: complete
   - id: "1.3"
     title: IsShared Inline Check
-    status: not-started
+    status: complete
   - id: "1.4"
     title: Reuse Emission
-    status: not-started
+    status: complete
   - id: "1.5"
     title: PartialApply Closure Environment
     status: not-started
@@ -62,19 +62,19 @@ Replace non-atomic `*rc_ptr += 1` / `*rc_ptr -= 1` in `ori_rt` with atomic opera
 
 Wire `DropInfo`/`DropKind` from `ori_arc::drop` into `arc_emitter.rs` for `RcDec`. Currently `RcDec` passes `null` as `drop_fn`.
 
-- [ ] Generate per-type LLVM IR drop functions, cached by mangled name (`_ori_drop$TypeName`)
+- [x] Generate per-type LLVM IR drop functions, cached by mangled name (`_ori_drop$TypeName`)
   - `DropKind::Trivial` -> direct `ori_rc_free` call (no field cleanup needed)
   - `DropKind::Fields` -> GEP per field + recursive `RcDec` for ref-typed fields + `ori_rc_free`
   - `DropKind::Enum` -> switch on tag + per-variant field Dec + `ori_rc_free`
   - `DropKind::Collection` -> iteration loop calling `RcDec` per element + `ori_rc_free`
   - `DropKind::Map` -> key/value iteration loop + `ori_rc_free`
   - `DropKind::ClosureEnv` -> same as Fields (GEP per captured variable + recursive Dec)
-- [ ] Wire generated drop function pointer into `RcDec` emission in `emit_instr`
-- [ ] Mark generated drop functions as `nounwind` in LLVM IR — `ori_rc_dec`'s `call_drop_fn` aborts if a drop function unwinds
-- [ ] Add drop function cache to `ArcIrEmitter` (`FxHashMap<MangledTypeName, FunctionId>`)
-- [ ] Add tests: struct with ref-typed fields verifies recursive Dec
-- [ ] Add tests: enum with mixed scalar/ref variants verifies tag dispatch
-- [ ] Add tests: nested containers (list of lists) verify iteration + recursive Dec
+- [x] Wire generated drop function pointer into `RcDec` emission in `emit_instr`
+- [x] Mark generated drop functions as `nounwind` in LLVM IR — `ori_rc_dec`'s `call_drop_fn` aborts if a drop function unwinds
+- [x] Add drop function cache to `ArcIrEmitter` (`FxHashMap<MangledTypeName, FunctionId>`)
+- [x] Add tests: struct with ref-typed fields verifies recursive Dec
+- [x] Add tests: enum with mixed scalar/ref variants verifies tag dispatch
+- [x] Add tests: nested containers (list of lists) verify iteration + recursive Dec
 
 ---
 
@@ -82,15 +82,15 @@ Wire `DropInfo`/`DropKind` from `ori_arc::drop` into `arc_emitter.rs` for `RcDec
 
 Replace the `const_bool(false)` stub with a real refcount check. This is the gate for reset/reuse correctness.
 
-- [ ] Emit inline 3-instruction sequence:
+- [x] Emit inline 3-instruction sequence:
   ```
   %rc_ptr = getelementptr i8, ptr %data_ptr, i64 -8
   %rc_val = load i64, ptr %rc_ptr
   %is_shared = icmp sgt i64 %rc_val, 1
   ```
-- [ ] Verify this is inlined (not a function call) to avoid per-check overhead
-- [ ] Add tests: unique object returns `false`, shared object returns `true`
-- [ ] Add tests: object becomes unique after last sharer decrements
+- [x] Verify this is inlined (not a function call) to avoid per-check overhead
+- [x] Add tests: unique object returns `false`, shared object returns `true`
+- [x] Add tests: object becomes unique after last sharer decrements
 
 ---
 
@@ -98,13 +98,13 @@ Replace the `const_bool(false)` stub with a real refcount check. This is the gat
 
 Complete the `Reuse` instruction emission. On fast path (after `IsShared` returns false), mutate in-place; on slow path (shared), fall back to `RcDec` + fresh `Construct`.
 
-- [ ] Fast path: emit `Set` instructions for field mutation via GEP + store
-- [ ] Fast path: emit `SetTag` for variant changes (enum reuse across variants)
-- [ ] Slow path: emit `RcDec` of old value + `Construct` of new value (current behavior)
-- [ ] Wire fast/slow paths via `br i1 %is_shared, label %slow, label %fast`
-- [ ] Add tests: reuse of same-type struct (fast path taken)
-- [ ] Add tests: reuse of enum across variants (tag change + field mutation)
-- [ ] Add tests: shared object falls through to slow path correctly
+- [x] Fast path: emit `Set` instructions for field mutation via GEP + store
+- [x] Fast path: emit `SetTag` for variant changes (enum reuse across variants)
+- [x] Slow path: emit `RcDec` of old value + `Construct` of new value (current behavior)
+- [x] Wire fast/slow paths via `br i1 %is_shared, label %slow, label %fast`
+- [x] Add tests: reuse of same-type struct (fast path taken)
+- [x] Add tests: reuse of enum across variants (tag change + field mutation)
+- [x] Add tests: shared object falls through to slow path correctly
 
 ---
 

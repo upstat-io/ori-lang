@@ -644,12 +644,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 }
             }
 
-            ArcInstr::IsShared { dst, var: _ } => {
-                // Test if refcount > 1: load rc at ptr-8, compare > 1
-                // For now, emit `false` (assume unique) — proper inline RC check
-                // requires knowing the header layout.
-                let val = self.builder.const_bool(false);
-                self.def_var(*dst, val);
+            ArcInstr::IsShared { dst, var } => {
+                // Inline refcount check: data_ptr - 8 = strong_count (i64).
+                // Shared when strong_count > 1 (more than one owner).
+                let data_ptr = self.var(*var);
+                let i8_ty = self.builder.i8_type();
+                let neg8 = self.builder.const_i64(-8);
+                let rc_ptr = self.builder.gep(i8_ty, data_ptr, &[neg8], "rc_ptr");
+                let i64_ty = self.builder.i64_type();
+                let rc_val = self.builder.load(i64_ty, rc_ptr, "rc_val");
+                let one = self.builder.const_i64(1);
+                let is_shared = self.builder.icmp_sgt(rc_val, one, "is_shared");
+                self.def_var(*dst, is_shared);
             }
 
             ArcInstr::Reset { var, token } => {
@@ -667,36 +673,45 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 ctor,
                 args,
             } => {
-                // Reuse: construct using token's memory if available.
-                // After expansion by Section 09, this is the "fast path" —
-                // the token's memory is already allocated.
-                // For the initial scaffold, just construct normally.
+                // Defensive fallback: after expand_reuse, Reuse instructions are
+                // eliminated — the fast path uses Set/SetTag and the slow path uses
+                // Construct. If Reuse appears (e.g., expansion was skipped), fall
+                // back to fresh construction.
+                tracing::debug!("ArcIrEmitter: Reuse instruction not expanded — using Construct");
                 let val = self.emit_construct(*ty, ctor, args);
                 self.def_var(*dst, val);
-                // Token is consumed but not needed for the basic path.
                 let _ = token;
             }
 
             ArcInstr::Set { base, field, value } => {
-                // In-place field update (only valid when uniquely owned)
+                // In-place field update (only valid when uniquely owned).
+                // After expand_reuse, this only appears in the fast path for
+                // heap-allocated RC'd objects (pointer-typed base).
                 let base_val = self.var(*base);
                 let new_val = self.var(*value);
+                let base_ty = func.var_type(*base);
+                let llvm_ty = self.resolve_type(base_ty);
 
-                // insert_value for value-typed structs
-                let updated =
+                // GEP + store for heap-allocated RC'd objects.
+                // The base is a pointer to the struct data on the heap.
+                let field_ptr =
                     self.builder
-                        .insert_value(base_val, new_val, *field, &format!("set.{field}"));
-                // Re-bind the base variable to the updated value
-                self.def_var(*base, updated);
+                        .struct_gep(llvm_ty, base_val, *field, &format!("set.{field}.ptr"));
+                self.builder.store(new_val, field_ptr);
+                // base pointer unchanged — mutation is in-place
             }
 
             ArcInstr::SetTag { base, tag } => {
-                // In-place tag update for enum variants
-                // The tag is typically field 0 of the enum representation
+                // In-place tag update for enum variants.
+                // Tag is field 0 of the enum representation: { i8 tag, ... }
                 let base_val = self.var(*base);
+                let base_ty = func.var_type(*base);
+                let llvm_ty = self.resolve_type(base_ty);
+
+                let tag_ptr = self.builder.struct_gep(llvm_ty, base_val, 0, "set.tag.ptr");
                 let tag_val = self.builder.const_i64(*tag as i64);
-                let updated = self.builder.insert_value(base_val, tag_val, 0, "set.tag");
-                self.def_var(*base, updated);
+                self.builder.store(tag_val, tag_ptr);
+                // base pointer unchanged — mutation is in-place
             }
         }
     }

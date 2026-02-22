@@ -642,3 +642,354 @@ fn multiple_drop_fns_for_different_types() {
 
     drop(em);
 }
+
+// ─── IsShared inline check tests ───
+
+#[test]
+fn is_shared_emits_gep_load_icmp() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_is_shared"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    // Declare a function: (ptr) -> i1
+    let ptr_ty = builder.ptr_type();
+    let bool_ty = builder.bool_type();
+    let host = builder.declare_function("test_fn", &[ptr_ty], bool_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        Some(&cl as &dyn ArcClassification),
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    // Build a minimal ArcFunction: param v0 (ptr), IsShared dst=v1 var=v0, Return v1
+    let arc_func = ArcFunction {
+        name: interner.intern("test_fn"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::BOOL,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::IsShared {
+                dst: ArcVarId::new(1),
+                var: ArcVarId::new(0),
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(1),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::STR, Idx::BOOL],
+        spans: vec![vec![None]],
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("data"),
+            ty: Idx::STR,
+            passing: ParamPassing::Direct,
+        }],
+        return_abi: ReturnAbi {
+            ty: Idx::BOOL,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Verify the 3-instruction inline sequence:
+    // 1. GEP i8 with -8 offset to reach refcount header
+    assert!(
+        ir.contains("getelementptr") && ir.contains("i8") && ir.contains("-8"),
+        "Expected GEP i8 with -8 offset for RC header:\n{ir}"
+    );
+    // 2. Load i64 refcount
+    assert!(
+        ir.contains("load i64"),
+        "Expected i64 load for refcount:\n{ir}"
+    );
+    // 3. icmp sgt for > 1 comparison
+    assert!(
+        ir.contains("icmp sgt i64"),
+        "Expected signed greater-than comparison:\n{ir}"
+    );
+
+    drop(em);
+}
+
+// ─── Set / SetTag (reuse fast path) tests ───
+
+#[test]
+fn set_emits_struct_gep_and_store() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // Create a struct type with 2 int fields
+    let struct_ty = pool.struct_type(
+        ori_ir::Name::from_raw(200),
+        &[
+            (ori_ir::Name::from_raw(201), Idx::INT),
+            (ori_ir::Name::from_raw(202), Idx::INT),
+        ],
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_set"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let i64_ty = builder.i64_type();
+    let host = builder.declare_function("test_set_fn", &[ptr_ty, i64_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        Some(&cl as &dyn ArcClassification),
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    // ArcFunction: v0 (struct ptr), v1 (int), then Set v0.field(1) = v1, return v0
+    let arc_func = ArcFunction {
+        name: interner.intern("test_set_fn"),
+        params: vec![
+            ArcParam {
+                var: ArcVarId::new(0),
+                ty: struct_ty,
+                ownership: Ownership::Owned,
+            },
+            ArcParam {
+                var: ArcVarId::new(1),
+                ty: Idx::INT,
+                ownership: Ownership::Owned,
+            },
+        ],
+        return_type: struct_ty,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::Set {
+                base: ArcVarId::new(0),
+                field: 1,
+                value: ArcVarId::new(1),
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![struct_ty, Idx::INT],
+        spans: vec![vec![None]],
+    };
+
+    let abi = FunctionAbi {
+        params: vec![
+            ParamAbi {
+                name: interner.intern("base"),
+                ty: struct_ty,
+                passing: ParamPassing::Direct,
+            },
+            ParamAbi {
+                name: interner.intern("val"),
+                ty: Idx::INT,
+                passing: ParamPassing::Direct,
+            },
+        ],
+        return_abi: ReturnAbi {
+            ty: struct_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Verify GEP-based field access (struct_gep for field 1)
+    assert!(
+        ir.contains("getelementptr inbounds"),
+        "Expected struct GEP for in-place field set:\n{ir}"
+    );
+    // Verify store instruction
+    assert!(
+        ir.contains("store"),
+        "Expected store for in-place field mutation:\n{ir}"
+    );
+    // Should NOT contain insert_value (old value-level approach)
+    assert!(
+        !ir.contains("insertvalue"),
+        "Set should use GEP+store, not insertvalue:\n{ir}"
+    );
+
+    drop(em);
+}
+
+#[test]
+fn set_tag_emits_gep_and_store() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    // Create an enum type
+    let enum_ty = pool.enum_type(
+        ori_ir::Name::from_raw(210),
+        &[
+            ori_types::EnumVariant {
+                name: ori_ir::Name::from_raw(211),
+                field_types: vec![Idx::INT],
+            },
+            ori_types::EnumVariant {
+                name: ori_ir::Name::from_raw(212),
+                field_types: vec![Idx::FLOAT],
+            },
+        ],
+    );
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_set_tag"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_function("test_tag_fn", &[ptr_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        Some(&cl as &dyn ArcClassification),
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    // ArcFunction: v0 (enum ptr), then SetTag v0 tag=1, return v0
+    let arc_func = ArcFunction {
+        name: interner.intern("test_tag_fn"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: enum_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: enum_ty,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::SetTag {
+                base: ArcVarId::new(0),
+                tag: 1,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![enum_ty],
+        spans: vec![vec![None]],
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("obj"),
+            ty: enum_ty,
+            passing: ParamPassing::Direct,
+        }],
+        return_abi: ReturnAbi {
+            ty: enum_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Verify GEP to tag field (field 0)
+    assert!(
+        ir.contains("getelementptr inbounds"),
+        "Expected struct GEP for tag field:\n{ir}"
+    );
+    // Verify store of the tag value
+    assert!(
+        ir.contains("store"),
+        "Expected store for tag mutation:\n{ir}"
+    );
+
+    drop(em);
+}
