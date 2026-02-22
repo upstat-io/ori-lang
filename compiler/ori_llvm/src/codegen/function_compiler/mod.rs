@@ -355,7 +355,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Step 2: Run full ARC pipeline (insert → detect → expand → eliminate)
-        ori_arc::run_arc_pipeline(&mut arc_func, classifier, self.annotated_sigs);
+        ori_arc::run_arc_pipeline(
+            &mut arc_func,
+            classifier,
+            self.annotated_sigs,
+            self.interner,
+        );
 
         trace!(
             name = name_str,
@@ -420,7 +425,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.functions.insert(lambda_name, (func_id, abi.clone()));
 
         // Run full ARC pipeline on the lambda
-        ori_arc::run_arc_pipeline(lambda, classifier, self.annotated_sigs);
+        ori_arc::run_arc_pipeline(lambda, classifier, self.annotated_sigs, self.interner);
 
         // Emit LLVM IR from the lambda's ARC IR
         self.builder.set_current_function(func_id);
@@ -618,7 +623,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             }
 
             // Run ARC pipeline
-            ori_arc::run_arc_pipeline(&mut arc_func, self.arc_classifier, self.annotated_sigs);
+            ori_arc::run_arc_pipeline(
+                &mut arc_func,
+                self.arc_classifier,
+                self.annotated_sigs,
+                self.interner,
+            );
 
             // Emit via ArcIrEmitter
             let mut emitter = ArcIrEmitter::new(
@@ -1117,6 +1127,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.method_functions
             .insert((type_name, method_name), (func_id, abi.clone()));
         self.type_idx_to_name.insert(type_idx, type_name);
+        // Unqualified fallback — last-writer-wins when two types derive the
+        // same trait, but the lookup chain in emit_invoke/emit_apply tries
+        // type-qualified `lookup_method_by_receiver` first, so collisions
+        // resolve correctly when receiver type info is available.
         self.functions.insert(method_name, (func_id, abi.clone()));
 
         (func_id, self_value, other_vals)

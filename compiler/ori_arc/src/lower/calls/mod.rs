@@ -94,6 +94,16 @@ impl ArcLowerer<'_> {
                     args = arg_vars.len(),
                     "call: direct (Ident)"
                 );
+                // Inline tag-check builtins: canonicalization desugars
+                // `r.is_err()` to `is_err(r)` — a direct Call. These are
+                // compiled inline (tag extraction + compare) and don't
+                // participate in Perceus ownership.
+                if arg_vars.len() == 1 {
+                    let arg_ty = self.expr_type(arg_ids[0]);
+                    if let Some(var) = self.emit_tag_check(name, arg_vars[0], arg_ty, span) {
+                        return var;
+                    }
+                }
                 self.emit_call_or_invoke(ty, name, arg_vars, span)
             }
             _ => {
@@ -129,6 +139,17 @@ impl ArcLowerer<'_> {
         let receiver_kind = *self.arena.kind(receiver);
         let is_type_qualified = matches!(receiver_kind, CanExpr::TypeRef(_));
 
+        // Inline lowering for tag-check builtins (is_err, is_ok, is_some,
+        // is_none). These are compiled inline by LLVM codegen and don't go
+        // through the ARC pipeline, so emitting them as Invoke would cause
+        // the Perceus algorithm to transfer ownership to a callee that never
+        // Dec's the receiver. Lower as Project + PrimOp instead.
+        if !is_type_qualified {
+            if let Some(var) = self.try_lower_tag_check(receiver, method, span) {
+                return var;
+            }
+        }
+
         let arg_ids: Vec<_> = self.arena.get_expr_list(args).to_vec();
 
         let mut all_args = if is_type_qualified {
@@ -151,6 +172,69 @@ impl ArcLowerer<'_> {
             "method_call: dispatch"
         );
         self.emit_call_or_invoke(ty, method, all_args, span)
+    }
+
+    /// Emit an inline tag comparison for a Result/Option type.
+    ///
+    /// Returns `Some(bool_var)` if `method` is a recognized tag-check
+    /// builtin (`is_err`, `is_ok`, `is_some`, `is_none`) on a matching type.
+    /// The receiver must already be lowered to an `ArcVarId`.
+    ///
+    /// These builtins are lowered as `Project(tag) == constant` instead
+    /// of an Invoke, because they're compiled inline by LLVM codegen and
+    /// don't participate in Perceus ownership.
+    fn emit_tag_check(
+        &mut self,
+        method: Name,
+        recv_var: ArcVarId,
+        recv_ty: Idx,
+        span: Span,
+    ) -> Option<ArcVarId> {
+        let method_str = self.name_str(method);
+        let resolved = self.pool.resolve_fully(recv_ty);
+        let tag = self.pool.tag(resolved);
+
+        // Result: Ok=0, Err=1. Option: Some=0, None=1.
+        let target_tag = match (method_str, tag) {
+            ("is_ok", Tag::Result) | ("is_some", Tag::Option) => 0,
+            ("is_err", Tag::Result) | ("is_none", Tag::Option) => 1,
+            _ => return None,
+        };
+
+        let tag_var = self.builder.emit_project(Idx::INT, recv_var, 0, Some(span));
+        let tag_const = self.builder.emit_let(
+            Idx::INT,
+            crate::ir::ArcValue::Literal(crate::ir::LitValue::Int(target_tag)),
+            None,
+        );
+        Some(self.builder.emit_let(
+            Idx::BOOL,
+            crate::ir::ArcValue::PrimOp {
+                op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Eq),
+                args: vec![tag_var, tag_const],
+            },
+            Some(span),
+        ))
+    }
+
+    /// Try to lower a tag-check method call inline.
+    ///
+    /// Handles the method call path where the receiver hasn't been
+    /// lowered yet. Delegates to [`emit_tag_check`] after lowering.
+    fn try_lower_tag_check(
+        &mut self,
+        receiver: CanId,
+        method: Name,
+        span: Span,
+    ) -> Option<ArcVarId> {
+        // Quick pre-check: bail early for non-tag-check methods.
+        let s = self.name_str(method);
+        if !matches!(s, "is_ok" | "is_err" | "is_some" | "is_none") {
+            return None;
+        }
+        let recv_var = self.lower_expr(receiver);
+        let recv_ty = self.expr_type(receiver);
+        self.emit_tag_check(method, recv_var, recv_ty, span)
     }
 
     // Lambda

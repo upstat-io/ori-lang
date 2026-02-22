@@ -61,6 +61,9 @@ struct RcContext<'a> {
     /// If a `PartialApply` dst is in `block_live_out`, the closure escapes
     /// the block and borrowed captures must be Inc'd.
     block_live_out: Option<&'a FxHashSet<ArcVarId>>,
+    /// String interner for checking external callee names.
+    /// When `Some`, enables external invoke detection in `process_terminator_uses`.
+    interner: Option<&'a ori_ir::StringInterner>,
 }
 
 /// Insert `RcInc`/`RcDec` operations into an ARC IR function.
@@ -125,6 +128,7 @@ pub(crate) fn insert_rc_ops(
                 borrows: &per_block_borrows[block_idx],
                 sigs: None,
                 block_live_out: None,
+                interner: None,
             };
             process_block_rc(
                 &ctx,
@@ -183,6 +187,7 @@ pub fn insert_rc_ops_with_ownership(
     liveness: &BlockLiveness,
     ownership: &[DerivedOwnership],
     sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
+    interner: &ori_ir::StringInterner,
 ) {
     debug_assert!(
         !func
@@ -232,6 +237,7 @@ pub fn insert_rc_ops_with_ownership(
                 borrows: &global_borrows,
                 sigs: Some(sigs),
                 block_live_out: Some(&liveness.live_out[block_idx]),
+                interner: Some(interner),
             };
             process_block_rc(
                 &ctx,
@@ -299,6 +305,29 @@ fn process_block_rc(
             }
         }
 
+        // Borrowing uses: emit Dec for last-use RC-typed args.
+        //
+        // PrimOps and external calls BORROW their args (read without consuming).
+        // In the Perceus model, only consuming uses (Invoke, Apply, Construct,
+        // PartialApply) transfer ownership. Borrowing uses leave the caller
+        // responsible for freeing the value.
+        //
+        // At this point in the backward walk, `live` reflects variables needed
+        // by later instructions (in forward order). Args NOT in `live` are at
+        // their last use. In the reversed body, these Decs appear BEFORE the
+        // instruction → AFTER the borrowing use in forward order.
+        //
+        // Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — primitive ops are
+        // non-consuming; Dec inserted at last borrowing use.
+        if is_borrowing_instr(instr, ctx) {
+            for &arg in &instr.used_vars() {
+                if needs_rc_trackable(arg, ctx) && !live.contains(&arg) {
+                    new_body.push(ArcInstr::RcDec { var: arg });
+                    new_spans.push(None);
+                }
+            }
+        }
+
         new_body.push(instr.clone());
         new_spans.push(span);
 
@@ -350,6 +379,18 @@ fn process_block_rc(
 ///
 /// For `Return`, the returned variable is treated as an owned position
 /// for borrowed-derived vars (transfer to caller requires Inc).
+///
+/// **Borrowing Invoke args**: An Invoke arg is treated as borrowing (not
+/// consuming) when:
+/// - The callee is external (C runtime `ori_*` — borrows all args), OR
+/// - The callee's `AnnotatedSig` marks the corresponding param as `Borrowed`
+///
+/// Borrowing args: add to `live` (keep alive through call) but no `RcInc`.
+/// The companion post-pass [`insert_external_invoke_cleanup`] handles the
+/// `RcDec` for args whose last use is a borrowing Invoke position.
+///
+/// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — caller checks callee param
+/// ownership to decide Inc/Dec at call sites.
 fn process_terminator_uses(
     terminator: &ArcTerminator,
     live: &mut FxHashSet<ArcVarId>,
@@ -360,7 +401,39 @@ fn process_terminator_uses(
     // Determine which terminator positions are "owned" for borrowed-derived vars.
     let is_return = matches!(terminator, ArcTerminator::Return { .. });
 
-    for var in terminator.used_vars() {
+    // Build per-arg borrowing info for Invoke terminators.
+    // An arg is "borrowing at call site" if:
+    //  - The callee is external (all args borrowed), OR
+    //  - The callee's AnnotatedSig has Borrowed ownership for that param position.
+    let invoke_borrowed_args = match terminator {
+        ArcTerminator::Invoke {
+            func: callee, args, ..
+        } => {
+            if let (Some(sigs), Some(interner)) = (ctx.sigs, ctx.interner) {
+                if is_external_callee(*callee, sigs, interner) {
+                    // External: all args borrowed
+                    vec![true; args.len()]
+                } else if let Some(sig) = sigs.get(callee) {
+                    // Ori function: check per-param ownership
+                    args.iter()
+                        .enumerate()
+                        .map(|(i, _)| {
+                            sig.params
+                                .get(i)
+                                .is_some_and(|p| p.ownership == Ownership::Borrowed)
+                        })
+                        .collect()
+                } else {
+                    vec![false; args.len()]
+                }
+            } else {
+                vec![false; args.len()]
+            }
+        }
+        _ => Vec::new(),
+    };
+
+    for (pos, var) in terminator.used_vars().into_iter().enumerate() {
         if !ctx.classifier.needs_rc(ctx.func.var_type(var)) {
             continue;
         }
@@ -385,7 +458,15 @@ fn process_terminator_uses(
             continue;
         }
 
-        // Normal (non-borrowed) var.
+        // Borrowing Invoke arg: add to live (keeps value alive through the
+        // call) but never Inc (callee borrows, doesn't consume).
+        // The post-pass inserts Dec for last-use args.
+        if invoke_borrowed_args.get(pos).copied().unwrap_or(false) {
+            live.insert(var);
+            continue;
+        }
+
+        // Normal (non-borrowed) var — standard Perceus ownership transfer.
         if live.contains(&var) {
             new_body.push(ArcInstr::RcInc { var, count: 1 });
             new_spans.push(None);
@@ -406,6 +487,10 @@ fn process_terminator_uses(
 /// "Owned positions" are instruction slots where the value will be stored
 /// on the heap: `Construct` args, `PartialApply` args, `Apply`/`ApplyIndirect`
 /// args (conservative for unknown callees).
+///
+/// **External Apply handling**: Like external Invoke, C runtime `Apply` calls
+/// borrow their args. Args are added to `live` (kept alive through the call)
+/// but never get `RcInc` (external callee doesn't consume/Dec).
 fn process_instruction_uses(
     instr: &ArcInstr,
     live: &mut FxHashSet<ArcVarId>,
@@ -413,6 +498,9 @@ fn process_instruction_uses(
     new_spans: &mut Vec<Option<ori_ir::Span>>,
     ctx: &RcContext<'_>,
 ) {
+    // Borrowing uses: PrimOps and external calls don't consume their args.
+    let is_borrowing = is_borrowing_instr(instr, ctx);
+
     // Collect unique vars and count occurrences to handle duplicate args.
     // For example, `Apply { args: [x, x] }` should emit exactly 1 Inc
     // (x appears twice, but one use is "free" and the second is Inc).
@@ -432,10 +520,22 @@ fn process_instruction_uses(
 
         // Borrowed-derived vars: only emit Inc if in an owned position.
         if ctx.borrows.contains(&var) {
-            if instr.is_owned_position(pos) && !is_borrowed_capture(instr, pos, ctx) {
+            if !is_borrowing
+                && instr.is_owned_position(pos)
+                && !is_borrowed_capture(instr, pos, ctx)
+            {
                 new_body.push(ArcInstr::RcInc { var, count: 1 });
                 new_spans.push(None);
             }
+            continue;
+        }
+
+        // Borrowing uses (PrimOp, external Apply): add to live (keeps value
+        // alive through the operation) but never Inc (operation borrows,
+        // doesn't consume). The backward walk emits Dec for last-use args
+        // (see process_block_rc's `is_borrowing_instr` check).
+        if is_borrowing {
+            live.insert(var);
             continue;
         }
 
@@ -731,6 +831,174 @@ fn redirect_edges(terminator: &mut ArcTerminator, old_target: ArcBlockId, new_ta
         }
         ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {}
     }
+}
+
+/// Insert `RcDec` for last-use args passed to borrowing `Invoke` positions.
+///
+/// Companion to the per-arg borrowing detection in [`process_terminator_uses`].
+/// Together they implement correct RC at Invoke call sites:
+///
+/// 1. `process_terminator_uses` identifies per-arg borrowing:
+///    - ALL args to external C runtime functions (`ori_*`)
+///    - Args to Ori functions where the callee param is `Borrowed`
+///
+///    These args are added to `live` (kept alive) but skip `RcInc`.
+///
+/// 2. This post-pass inserts `RcDec` for borrowing args whose **last use**
+///    is the Invoke — i.e., args NOT in `live_out` of the invoking block.
+///    Args that ARE in `live_out` are still needed later and will be Dec'd
+///    at their actual last-use point by the normal Perceus logic.
+///
+/// Uses the **original** (pre-RC-insertion) liveness data, which correctly
+/// reflects user-code liveness without RC op interference.
+///
+/// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — caller inserts Dec for
+/// args passed to borrowed positions at call sites.
+#[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
+pub fn insert_external_invoke_cleanup(
+    func: &mut ArcFunction,
+    classifier: &dyn ArcClassification,
+    sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
+    interner: &ori_ir::StringInterner,
+    liveness: &BlockLiveness,
+) {
+    // Collect: normal_block → [last-use RC-typed borrowing args from Invoke]
+    let mut cleanups: FxHashMap<ArcBlockId, Vec<ArcVarId>> = FxHashMap::default();
+
+    for block in &func.blocks {
+        if let ArcTerminator::Invoke {
+            func: callee,
+            args,
+            normal,
+            ..
+        } = &block.terminator
+        {
+            let block_live_out = &liveness.live_out[block.id.index()];
+
+            // Build per-arg borrowing flags (same logic as process_terminator_uses)
+            let borrowed_flags: Vec<bool> = if is_external_callee(*callee, sigs, interner) {
+                // External: all args are borrowed
+                vec![true; args.len()]
+            } else if let Some(sig) = sigs.get(callee) {
+                // Ori function: per-param ownership
+                args.iter()
+                    .enumerate()
+                    .map(|(i, _)| {
+                        sig.params
+                            .get(i)
+                            .is_some_and(|p| p.ownership == Ownership::Borrowed)
+                    })
+                    .collect()
+            } else {
+                continue;
+            };
+
+            let last_use_args: Vec<ArcVarId> = args
+                .iter()
+                .enumerate()
+                .filter(|&(i, &arg)| {
+                    borrowed_flags.get(i).copied().unwrap_or(false)
+                        && classifier.needs_rc(func.var_type(arg))
+                        && !block_live_out.contains(&arg)
+                })
+                .map(|(_, &arg)| arg)
+                .collect();
+
+            if !last_use_args.is_empty() {
+                cleanups.entry(*normal).or_default().extend(last_use_args);
+            }
+        }
+    }
+
+    if cleanups.is_empty() {
+        return;
+    }
+
+    tracing::debug!(
+        function = func.name.raw(),
+        count = cleanups.values().map(Vec::len).sum::<usize>(),
+        "inserting invoke borrowed-arg cleanup RcDecs"
+    );
+
+    // Prepend RcDec at the START of each normal successor block.
+    for (block_id, vars) in cleanups {
+        let block_idx = block_id.index();
+        for (i, var) in vars.into_iter().enumerate() {
+            func.blocks[block_idx]
+                .body
+                .insert(i, ArcInstr::RcDec { var });
+            func.spans[block_idx].insert(i, None);
+        }
+    }
+}
+
+/// Determine if a callee is an external/runtime function that doesn't
+/// participate in Perceus ownership.
+///
+/// A callee is external if:
+/// 1. It's NOT in the borrow-inference `sigs` map (known Ori function), AND
+/// 2. Its interned name starts with `ori_` (C runtime convention).
+///
+/// User functions missing from `sigs` (derived methods, default trait methods)
+/// still go through the ARC pipeline and handle their own Dec.
+/// Check if an instruction has BORROWING semantics (reads args without consuming).
+///
+/// In the Perceus ownership model, consuming operations (function calls,
+/// constructors, partial application) transfer ownership of their args to the
+/// callee/constructor. Borrowing operations (primitive ops, external runtime
+/// calls) just read their args — the caller retains ownership and must
+/// free the value when it's no longer needed.
+///
+/// This distinction drives two behaviors in RC insertion:
+/// 1. **No `RcInc`** for borrowing uses even at multi-use points (the operation
+///    doesn't hold a reference, so no extra RC needed).
+/// 2. **`RcDec` after** the borrowing operation if the arg is at its last use
+///    (the caller must free since the operation didn't consume).
+///
+/// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — projections and primitives
+/// are non-consuming; Koka Perceus §3.2 notes same distinction.
+fn is_borrowing_instr(instr: &ArcInstr, ctx: &RcContext<'_>) -> bool {
+    match instr {
+        // PrimOp: arithmetic, comparison, logical, string ops — all borrow.
+        ArcInstr::Let {
+            value: crate::ir::ArcValue::PrimOp { .. },
+            ..
+        } => true,
+
+        // Project with scalar result: the parent is borrowed, not consumed.
+        //
+        // When extracting a scalar field (e.g., tag from Result), the parent
+        // still owns its RC fields and must be Dec'd separately. In contrast,
+        // projecting an RC field transfers ownership from parent to field
+        // (consuming semantics) — no separate Dec needed for the parent.
+        //
+        // Follows Lean 4 `src/Lean/Compiler/IR/RC.lean`:
+        // `proj i x` borrows x; if the result is an object, Inc it.
+        ArcInstr::Project { dst, .. } => ctx.classifier.is_scalar(ctx.func.var_type(*dst)),
+
+        // External Apply: C runtime functions borrow args without Perceus ownership.
+        ArcInstr::Apply { func: callee, .. } => match (ctx.sigs, ctx.interner) {
+            (Some(sigs), Some(interner)) => is_external_callee(*callee, sigs, interner),
+            _ => false,
+        },
+
+        _ => false,
+    }
+}
+
+fn is_external_callee(
+    callee: ori_ir::Name,
+    sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
+    interner: &ori_ir::StringInterner,
+) -> bool {
+    if sigs.contains_key(&callee) {
+        return false;
+    }
+    // Use try_lookup to handle test code with Name::from_raw() that
+    // isn't in the interner.
+    interner
+        .try_lookup(callee)
+        .is_some_and(|name_str| name_str.starts_with("ori_"))
 }
 
 #[cfg(test)]

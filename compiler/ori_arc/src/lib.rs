@@ -78,7 +78,7 @@ pub use liveness::{
 pub use lower::{lower_function_can, ArcProblem};
 pub use ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
 pub use rc_elim::eliminate_rc_ops_dataflow;
-pub use rc_insert::insert_rc_ops_with_ownership;
+pub use rc_insert::{insert_external_invoke_cleanup, insert_rc_ops_with_ownership};
 pub use reset_reuse::detect_reset_reuse_cfg;
 
 /// Run the full ARC optimization pipeline on a single function.
@@ -95,11 +95,15 @@ pub fn run_arc_pipeline(
     func: &mut ArcFunction,
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, AnnotatedSig>,
+    interner: &ori_ir::StringInterner,
 ) {
     let ownership = borrow::infer_derived_ownership(func, sigs);
     let dom_tree = graph::DominatorTree::build(func);
     let (refined, liveness) = liveness::compute_refined_liveness(func, classifier);
-    rc_insert::insert_rc_ops_with_ownership(func, classifier, &liveness, &ownership, sigs);
+    rc_insert::insert_rc_ops_with_ownership(
+        func, classifier, &liveness, &ownership, sigs, interner,
+    );
+    rc_insert::insert_external_invoke_cleanup(func, classifier, sigs, interner, &liveness);
     reset_reuse::detect_reset_reuse_cfg(func, classifier, &dom_tree, &refined);
     expand_reuse::expand_reset_reuse(func, classifier);
     rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
@@ -118,10 +122,11 @@ pub fn run_arc_pipeline_all(
     functions: &mut [ArcFunction],
     classifier: &dyn ArcClassification,
     sigs: &FxHashMap<Name, AnnotatedSig>,
+    interner: &ori_ir::StringInterner,
 ) {
     borrow::apply_borrows(functions, sigs);
     for func in functions {
-        run_arc_pipeline(func, classifier, sigs);
+        run_arc_pipeline(func, classifier, sigs, interner);
     }
 }
 

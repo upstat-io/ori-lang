@@ -14,7 +14,8 @@ use crate::{
 /// Run the full ARC pipeline via the public orchestration function.
 fn run_full_pipeline(func: &mut ArcFunction, classifier: &dyn crate::ArcClassification) {
     let sigs = FxHashMap::default();
-    crate::run_arc_pipeline(func, classifier, &sigs);
+    let interner = ori_ir::StringInterner::new();
+    crate::run_arc_pipeline(func, classifier, &sigs, &interner);
 }
 
 /// Verifies the correct pipeline order: expand BEFORE eliminate.

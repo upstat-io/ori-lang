@@ -470,11 +470,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
         let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
 
-        // Try compiled function (ABI-aware), then method_functions, then runtime.
+        // Try compiled function (ABI-aware), then type-qualified method dispatch,
+        // then unqualified fallback, then runtime.
         // Scope the immutable borrow to extract ABI data before mutable use.
         let resolved = self
             .functions
             .get(&callee)
+            .or_else(|| self.lookup_method_by_receiver(callee, arc_args, arc_func))
             .or_else(|| self.lookup_method_by_unqualified_name(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
@@ -541,10 +543,30 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
+    /// Look up a method function using the first arg's type as a receiver.
+    ///
+    /// Derived methods (e.g., `compare`, `eq`, `clone`) in ARC IR use unqualified
+    /// names. When two types derive the same trait, the unqualified lookup is
+    /// ambiguous. This method uses the first arg's type index to resolve the
+    /// correct type-qualified entry in `method_functions`.
+    fn lookup_method_by_receiver(
+        &self,
+        name: Name,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> Option<&(FunctionId, FunctionAbi)> {
+        let &first_arg = args.first()?;
+        let receiver_ty = func.var_type(first_arg);
+        let type_name = self.type_idx_to_name.get(&receiver_ty)?;
+        self.method_functions.get(&(*type_name, name))
+    }
+
     /// Look up a method function by unqualified name (e.g., "clone").
     ///
     /// Derive methods in ARC IR use unqualified names like "clone". This
     /// searches `method_functions` for any type that has this method.
+    /// Falls back to linear scan — prefer [`Self::lookup_method_by_receiver`]
+    /// when receiver type information is available.
     fn lookup_method_by_unqualified_name(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
         self.method_functions
             .iter()
@@ -594,10 +616,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
 
-        // Scope the immutable borrow to extract ABI data before mutable use.
+        // Try compiled function, then type-qualified method dispatch,
+        // then unqualified fallback, then runtime.
         let resolved = self
             .functions
             .get(&callee)
+            .or_else(|| self.lookup_method_by_receiver(callee, args, func))
             .or_else(|| self.lookup_method_by_unqualified_name(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
@@ -1200,8 +1224,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
                             self.builder.position_at_end(skip);
                         }
-                    } else {
-                        // Extract data pointer(s) from aggregate types
+                    } else if !val.is_none() {
+                        // Extract data pointer(s) from aggregate types.
+                        // Note: for Result/Enum types, extract_rc_data_ptrs
+                        // returns an empty vec — the ARC pipeline handles
+                        // result fields individually via Project instructions.
                         let data_ptrs = self.extract_rc_data_ptrs(val, ty);
                         for data_ptr in data_ptrs {
                             for _ in 0..*count {
@@ -1215,7 +1242,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             ArcInstr::RcDec { var } => {
                 let val = self.var(*var);
                 let ty = func.var_type(*var);
-                if self.pool.tag(ty) == Tag::Function {
+                let resolved = self.pool.resolve_fully(ty);
+                let pool_tag = self.pool.tag(resolved);
+                if pool_tag == Tag::Function {
                     // Closure: extract env_ptr (field 1), load drop_fn from env
                     if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_dec.env") {
                         let is_null = self.builder.is_null_ptr(env_ptr, "rc_dec.null");
@@ -1239,8 +1268,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
                         self.builder.position_at_end(skip);
                     }
+                } else if matches!(pool_tag, Tag::Result | Tag::Enum) {
+                    // Enum-like types (Result, Enum): tag-based inline cleanup.
+                    // These types are stack-allocated (no RC header) but may
+                    // contain RC-typed fields in their variants. We switch on
+                    // the tag at runtime and Dec appropriate variant fields.
+                    self.emit_inline_enum_dec(val, resolved, pool_tag);
                 } else {
-                    // Extract data pointer(s) from aggregate types
+                    // Self-RC types (Str, List, etc.) and compound types
+                    // (Tuple, Struct): extract data pointer(s) and call
+                    // ori_rc_dec for each.
                     let data_ptrs = self.extract_rc_data_ptrs(val, ty);
                     let drop_fn_ptr = self.get_or_generate_drop_fn(ty);
                     if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
@@ -2019,6 +2056,294 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
         }
         ptrs
+    }
+
+    // -----------------------------------------------------------------------
+    // Inline enum/result RcDec
+    // -----------------------------------------------------------------------
+
+    /// Emit inline tag-based cleanup for enum-like types (Result, Enum).
+    ///
+    /// These types are stack-allocated (no RC header) but may contain
+    /// RC-typed fields in their variants. We store the value to a
+    /// temporary alloca, load the tag, switch on it, and Dec the
+    /// appropriate variant's RC fields.
+    ///
+    /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
+    fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
+        let Some(classifier) = self.classifier else {
+            return;
+        };
+
+        // Collect per-variant RC field info
+        let variant_rc_fields: Vec<Vec<(u32, Idx)>> = match pool_tag {
+            Tag::Result => {
+                let ok_ty = self.pool.result_ok(resolved_ty);
+                let err_ty = self.pool.result_err(resolved_ty);
+                let ok_fields = if classifier.needs_rc(ok_ty) {
+                    vec![(0_u32, ok_ty)]
+                } else {
+                    vec![]
+                };
+                let err_fields = if classifier.needs_rc(err_ty) {
+                    vec![(0_u32, err_ty)]
+                } else {
+                    vec![]
+                };
+                vec![ok_fields, err_fields]
+            }
+            Tag::Enum => {
+                let variants = self.pool.enum_variants(resolved_ty);
+                variants
+                    .iter()
+                    .map(|(_, field_tys)| {
+                        field_tys
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, ty)| classifier.needs_rc(**ty))
+                            .map(|(i, ty)| {
+                                #[expect(
+                                    clippy::cast_possible_truncation,
+                                    reason = "variant field index fits u32"
+                                )]
+                                (i as u32, *ty)
+                            })
+                            .collect()
+                    })
+                    .collect()
+            }
+            _ => return,
+        };
+
+        // If no variant has RC fields, nothing to clean up
+        if variant_rc_fields.iter().all(Vec::is_empty) {
+            return;
+        }
+
+        // Store value to alloca so we can use GEP for field access
+        let enum_llvm_ty = self.resolve_type(resolved_ty);
+        let alloca = self.builder.alloca(enum_llvm_ty, "rc_dec.enum");
+        self.builder.store(val, alloca);
+
+        // Load tag (i64 at field 0)
+        let i64_ty = self.builder.i64_type();
+        let tag_ptr = self
+            .builder
+            .struct_gep(enum_llvm_ty, alloca, 0, "rc_dec.tag.ptr");
+        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_dec.tag");
+
+        // Convergence block
+        let done_block = self
+            .builder
+            .append_block(self.current_function, "rc_dec.done");
+
+        // Build switch cases for variants with RC fields
+        let mut cases = Vec::new();
+        for (i, fields) in variant_rc_fields.iter().enumerate() {
+            if fields.is_empty() {
+                continue;
+            }
+            let block = self
+                .builder
+                .append_block(self.current_function, &format!("rc_dec.v{i}"));
+            let tag_const = self.builder.const_i64(i as i64);
+            cases.push((tag_const, block, fields.as_slice()));
+        }
+
+        let switch_cases: Vec<_> = cases.iter().map(|(tag, block, _)| (*tag, *block)).collect();
+        self.builder.switch(tag_val, done_block, &switch_cases);
+
+        // Emit per-variant cleanup
+        for &(_, block, fields) in &cases {
+            self.builder.position_at_end(block);
+
+            for &(field_index, field_type) in fields {
+                let field_llvm_ty = self.resolve_type(field_type);
+                // Result: typed payload fields at struct index 1+
+                // General Enum: payload is [M x i64] at struct field 1
+                let field_val = if pool_tag == Tag::Result {
+                    let struct_idx = 1 + field_index;
+                    let field_ptr = self.builder.struct_gep(
+                        enum_llvm_ty,
+                        alloca,
+                        struct_idx,
+                        "rc_dec.payload.ptr",
+                    );
+                    self.builder
+                        .load(field_llvm_ty, field_ptr, "rc_dec.payload")
+                } else {
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
+                    // TODO: compute proper byte offsets for multi-field variants
+                    let field_ptr = self.builder.struct_gep(
+                        field_llvm_ty,
+                        payload_ptr,
+                        field_index,
+                        "rc_dec.field.ptr",
+                    );
+                    self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field")
+                };
+
+                // Recursively extract data ptrs and Dec them
+                let data_ptrs = self.extract_rc_data_ptrs(field_val, field_type);
+                if !data_ptrs.is_empty() {
+                    let drop_fn_ptr = self.get_or_generate_drop_fn(field_type);
+                    if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
+                        let func_id = self.builder.intern_function(llvm_func);
+                        for data_ptr in data_ptrs {
+                            self.builder.call(func_id, &[data_ptr, drop_fn_ptr], "");
+                        }
+                    }
+                }
+            }
+
+            self.builder.br(done_block);
+        }
+
+        self.builder.position_at_end(done_block);
+    }
+
+    /// Emit inline tag-based Inc for enum-like types (Result, Enum).
+    ///
+    /// Symmetric to [`emit_inline_enum_dec`]: stores the value to a
+    /// temporary alloca, loads the tag, switches on it, and Inc's the
+    /// appropriate variant's RC fields.
+    #[expect(
+        dead_code,
+        reason = "call site temporarily disabled during Idx::ERROR fix testing"
+    )]
+    fn emit_inline_enum_inc(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag, count: u32) {
+        let Some(classifier) = self.classifier else {
+            return;
+        };
+
+        // Collect per-variant RC field info (same logic as emit_inline_enum_dec)
+        let variant_rc_fields: Vec<Vec<(u32, Idx)>> = match pool_tag {
+            Tag::Result => {
+                let ok_ty = self.pool.result_ok(resolved_ty);
+                let err_ty = self.pool.result_err(resolved_ty);
+                let ok_fields = if classifier.needs_rc(ok_ty) {
+                    vec![(0_u32, ok_ty)]
+                } else {
+                    vec![]
+                };
+                let err_fields = if classifier.needs_rc(err_ty) {
+                    vec![(0_u32, err_ty)]
+                } else {
+                    vec![]
+                };
+                vec![ok_fields, err_fields]
+            }
+            Tag::Enum => {
+                let variants = self.pool.enum_variants(resolved_ty);
+                variants
+                    .iter()
+                    .map(|(_, field_tys)| {
+                        field_tys
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, ty)| classifier.needs_rc(**ty))
+                            .map(|(i, ty)| {
+                                #[expect(
+                                    clippy::cast_possible_truncation,
+                                    reason = "variant field index fits u32"
+                                )]
+                                (i as u32, *ty)
+                            })
+                            .collect()
+                    })
+                    .collect()
+            }
+            _ => return,
+        };
+
+        // If no variant has RC fields, nothing to Inc
+        if variant_rc_fields.iter().all(Vec::is_empty) {
+            return;
+        }
+
+        // Store value to alloca so we can use GEP for field access
+        let enum_llvm_ty = self.resolve_type(resolved_ty);
+        let alloca = self.builder.alloca(enum_llvm_ty, "rc_inc.enum");
+        self.builder.store(val, alloca);
+
+        // Load tag (i64 at field 0)
+        let i64_ty = self.builder.i64_type();
+        let tag_ptr = self
+            .builder
+            .struct_gep(enum_llvm_ty, alloca, 0, "rc_inc.tag.ptr");
+        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_inc.tag");
+
+        // Convergence block
+        let done_block = self
+            .builder
+            .append_block(self.current_function, "rc_inc.done");
+
+        // Build switch cases for variants with RC fields
+        let mut cases = Vec::new();
+        #[expect(clippy::cast_possible_wrap, reason = "variant index fits i64")]
+        for (i, fields) in variant_rc_fields.iter().enumerate() {
+            if fields.is_empty() {
+                continue;
+            }
+            let block = self
+                .builder
+                .append_block(self.current_function, &format!("rc_inc.v{i}"));
+            let tag_const = self.builder.const_i64(i as i64);
+            cases.push((tag_const, block, fields.as_slice()));
+        }
+
+        let switch_cases: Vec<_> = cases.iter().map(|(tag, block, _)| (*tag, *block)).collect();
+        self.builder.switch(tag_val, done_block, &switch_cases);
+
+        // Emit per-variant Inc
+        for &(_, block, fields) in &cases {
+            self.builder.position_at_end(block);
+
+            for &(field_index, field_type) in fields {
+                let field_llvm_ty = self.resolve_type(field_type);
+                let field_val = if pool_tag == Tag::Result {
+                    let struct_idx = 1 + field_index;
+                    let field_ptr = self.builder.struct_gep(
+                        enum_llvm_ty,
+                        alloca,
+                        struct_idx,
+                        "rc_inc.payload.ptr",
+                    );
+                    self.builder
+                        .load(field_llvm_ty, field_ptr, "rc_inc.payload")
+                } else {
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
+                    let field_ptr = self.builder.struct_gep(
+                        field_llvm_ty,
+                        payload_ptr,
+                        field_index,
+                        "rc_inc.field.ptr",
+                    );
+                    self.builder.load(field_llvm_ty, field_ptr, "rc_inc.field")
+                };
+
+                // Recursively extract data ptrs and Inc them
+                let data_ptrs = self.extract_rc_data_ptrs(field_val, field_type);
+                if !data_ptrs.is_empty() {
+                    if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_inc") {
+                        let func_id = self.builder.intern_function(llvm_func);
+                        for data_ptr in data_ptrs {
+                            for _ in 0..count {
+                                self.builder.call(func_id, &[data_ptr], "");
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.builder.br(done_block);
+        }
+
+        self.builder.position_at_end(done_block);
     }
 
     // -----------------------------------------------------------------------
