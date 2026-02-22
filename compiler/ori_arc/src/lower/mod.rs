@@ -21,6 +21,7 @@
 
 mod calls;
 mod collections;
+mod constructs;
 mod control_flow;
 mod expr;
 mod patterns;
@@ -176,6 +177,11 @@ impl ArcIrBuilder {
         var
     }
 
+    /// Get the type of a variable.
+    pub fn var_type(&self, var: ArcVarId) -> Idx {
+        self.var_types[var.index()]
+    }
+
     // Instruction emission
 
     /// Emit a `Let` instruction binding a value to a fresh variable.
@@ -241,6 +247,26 @@ impl ArcIrBuilder {
             dst,
             ty,
             ctor,
+            args,
+        });
+        block.spans.push(span);
+        dst
+    }
+
+    /// Emit a `PartialApply` instruction (closure creation with captures).
+    pub fn emit_partial_apply(
+        &mut self,
+        ty: Idx,
+        func: Name,
+        args: Vec<ArcVarId>,
+        span: Option<Span>,
+    ) -> ArcVarId {
+        let dst = self.fresh_var(ty);
+        let block = &mut self.blocks[self.current_block.index()];
+        block.body.push(ArcInstr::PartialApply {
+            dst,
+            ty,
+            func,
             args,
         });
         block.spans.push(span);
@@ -495,6 +521,13 @@ pub fn lower_function_can(
     pool: &Pool,
     problems: &mut Vec<ArcProblem>,
 ) -> (ArcFunction, Vec<ArcFunction>) {
+    let fn_name = interner.lookup(name);
+    tracing::debug!(
+        name = fn_name,
+        params = params.len(),
+        "lower_function_can: enter"
+    );
+
     let mut builder = ArcIrBuilder::new();
     let mut scope = ArcScope::new();
 
@@ -508,6 +541,11 @@ pub fn lower_function_can(
             ty: param_ty,
             ownership: Ownership::Owned, // Refined by borrow inference (06.2).
         });
+        tracing::trace!(
+            param = interner.lookup(param_name),
+            var = var.raw(),
+            "lower_function_can: bind param"
+        );
     }
 
     let entry = builder.entry_block();
@@ -524,6 +562,7 @@ pub fn lower_function_can(
         loop_ctx: None,
         problems,
         lambdas: &mut lambdas,
+        hash_length: None,
     };
 
     let result_var = lowerer.lower_expr(body);
@@ -534,6 +573,14 @@ pub fn lower_function_can(
     }
 
     let func = builder.finish(name, arc_params, return_type, entry);
+    tracing::debug!(
+        name = fn_name,
+        blocks = func.blocks.len(),
+        vars = func.var_types.len(),
+        lambdas = lambdas.len(),
+        problems = problems.len(),
+        "lower_function_can: done"
+    );
     (func, lambdas)
 }
 

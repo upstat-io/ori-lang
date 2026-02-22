@@ -17,5 +17,7 @@ set -e
 # if the most recent binary lacks LLVM support, all AOT tests fail with E5004.
 echo "Building LLVM-enabled ori binary..."
 cargo build -p oric -p ori_rt --features llvm -q
+echo "Running ori_rt tests..."
+cargo test --manifest-path compiler/ori_rt/Cargo.toml "$@"
 echo "Running LLVM tests..."
 cargo test --manifest-path compiler/ori_llvm/Cargo.toml "$@"

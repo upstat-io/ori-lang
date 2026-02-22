@@ -542,6 +542,27 @@ impl Pool {
             .collect()
     }
 
+    /// Look up an existing tuple type without creating it.
+    ///
+    /// Returns `Some(idx)` if the tuple `(elems...)` was previously interned
+    /// (e.g. by the type checker), `None` otherwise.
+    pub fn find_tuple(&self, elems: &[Idx]) -> Option<Idx> {
+        if elems.is_empty() {
+            return Some(Idx::UNIT);
+        }
+        let mut extra = Vec::with_capacity(elems.len() + 1);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "element count fits u32 — pool layout uses u32 words"
+        )]
+        extra.push(elems.len() as u32);
+        for &e in elems {
+            extra.push(e.raw());
+        }
+        let hash = Self::compute_hash(Tag::Tuple, 0, &extra);
+        self.intern_map.get(&hash).copied()
+    }
+
     /// Get map key type.
     ///
     /// # Panics

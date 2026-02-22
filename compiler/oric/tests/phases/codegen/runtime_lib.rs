@@ -178,13 +178,8 @@ fn test_ori_str_concat() {
     let text = unsafe { result.as_str() };
     assert_eq!(text, "hello world");
 
-    // Free the result (it was heap-allocated)
-    unsafe {
-        let _ = Box::from_raw(std::slice::from_raw_parts_mut(
-            result.data as *mut u8,
-            result.len as usize,
-        ));
-    }
+    // Free the result (allocated via ori_rc_alloc with 8-byte RC header)
+    ori_rc_dec(result.data as *mut u8, None);
 }
 
 #[test]

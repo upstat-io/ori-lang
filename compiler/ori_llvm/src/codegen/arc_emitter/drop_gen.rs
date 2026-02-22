@@ -140,13 +140,13 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         variants: &[Vec<(u32, Idx)>],
     ) {
         let enum_llvm_ty = self.resolve_type(ty);
-        let i8_ty = self.builder.i8_type();
+        let i64_ty = self.builder.i64_type();
 
-        // Load tag (i8 at field 0 for all enum-like types)
+        // Load tag (i64 at field 0 for all enum-like types)
         let tag_ptr = self
             .builder
             .struct_gep(enum_llvm_ty, data_ptr, 0, "tag.ptr");
-        let tag_val = self.builder.load(i8_ty, tag_ptr, "tag");
+        let tag_val = self.builder.load(i64_ty, tag_ptr, "tag");
 
         // Convergence block: rc_free + ret
         let drop_done = self.builder.append_block(func_id, "drop.done");
@@ -156,16 +156,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let mut case_blocks = Vec::new();
         let mut case_fields: Vec<&[(u32, Idx)]> = Vec::new();
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "variant count bounded by enum definition, well within i8 range"
-        )]
         for (i, variant_fields) in variants.iter().enumerate() {
             if variant_fields.is_empty() {
                 continue;
             }
             let block = self.builder.append_block(func_id, &format!("variant.{i}"));
-            let tag_const = self.builder.const_i8(i as i8);
+            let tag_const = self.builder.const_i64(i as i64);
             case_tags.push(tag_const);
             case_blocks.push(block);
             case_fields.push(variant_fields.as_slice());
@@ -419,7 +415,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let done = self.builder.icmp_sge(i_phi, len, &format!("{prefix}.done"));
         self.builder.cond_br(done, loop_done, loop_body);
 
-        // loop.body: load element, dec, increment, loop back
+        // loop.body: load element, extract data ptr(s), dec, increment, loop back
         self.builder.position_at_end(loop_body);
         let elem_ptr =
             self.builder
@@ -427,7 +423,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_val = self
             .builder
             .load(elem_llvm_ty, elem_ptr, &format!("{prefix}.val"));
-        self.emit_drop_rc_dec_with_fn(elem_val, elem_drop_fn);
+        let data_ptrs = self.extract_rc_data_ptrs(elem_val, element_type);
+        for ptr in data_ptrs {
+            self.emit_drop_rc_dec_with_fn(ptr, elem_drop_fn);
+        }
         let i_next = self.builder.add(i_phi, one, &format!("{prefix}.i.next"));
         self.builder.br(loop_header);
 
@@ -443,10 +442,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Runtime call helpers
     // -------------------------------------------------------------------
 
-    /// Emit `ori_rc_dec(val, drop_fn)` for a child field.
+    /// Emit `ori_rc_dec` for a child field value.
+    ///
+    /// Extracts embedded data pointer(s) from aggregate types (Str, List, etc.)
+    /// before calling `ori_rc_dec`, since the runtime expects raw pointers.
     fn emit_drop_rc_dec(&mut self, val: ValueId, field_type: Idx) {
+        let data_ptrs = self.extract_rc_data_ptrs(val, field_type);
+        if data_ptrs.is_empty() {
+            return;
+        }
         let drop_fn = self.get_or_generate_drop_fn(field_type);
-        self.emit_drop_rc_dec_with_fn(val, drop_fn);
+        for ptr in data_ptrs {
+            self.emit_drop_rc_dec_with_fn(ptr, drop_fn);
+        }
     }
 
     /// Emit `ori_rc_dec(val, drop_fn_ptr)` with a pre-computed drop function.
@@ -528,14 +536,10 @@ fn resolve_pool_tag(ty: Idx, pool: &Pool) -> Tag {
     tag
 }
 
-/// Resolve a type through Named/Applied/Alias to its concrete tag.
+/// Resolve a type through Var chains and Named/Applied/Alias to its concrete tag.
 fn resolve_type_through_aliases(ty: Idx, pool: &Pool) -> (Idx, Tag) {
-    let tag = pool.tag(ty);
-    match tag {
-        Tag::Named | Tag::Applied | Tag::Alias => match pool.resolve(ty) {
-            Some(resolved) => resolve_type_through_aliases(resolved, pool),
-            None => (ty, tag),
-        },
-        _ => (ty, tag),
-    }
+    // Use resolve_fully to handle both type variables (VarState::Link)
+    // and named type aliases in one pass.
+    let resolved = pool.resolve_fully(ty);
+    (resolved, pool.tag(resolved))
 }

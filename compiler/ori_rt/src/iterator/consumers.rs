@@ -154,8 +154,10 @@ pub extern "C" fn ori_iter_all(
 
 /// Find the first element satisfying the predicate, consuming the iterator.
 ///
-/// Writes an `Option<T>` to `out_ptr`: `{ i8 tag, T payload }`.
-/// Tag = 1 (Some) if found, 0 (None) if no match.
+/// Writes an `Option<T>` to `out_ptr`: `{ i64 tag, T payload }`.
+/// Uses ARC enum convention: Some=0 (first variant), None=1 (second variant).
+///
+/// Layout matches LLVM codegen's `{i64, T}` enum representation.
 #[no_mangle]
 pub extern "C" fn ori_iter_find(
     iter: *mut u8,
@@ -172,13 +174,13 @@ pub extern "C" fn ori_iter_find(
     }
 
     if iter.is_null() {
-        // Write None: tag = 0
-        unsafe { out_ptr.write(0) };
+        // Write None: i64 tag = 1 (ARC convention: None is second variant)
+        unsafe { out_ptr.cast::<i64>().write(1) };
         return;
     }
 
     let state = unsafe { &mut *iter.cast::<IterState>() };
-    // Element goes at offset 8 (after i8 tag, aligned to 8 bytes for i64 payload)
+    // Payload at offset 8 (after i64 tag)
     let payload_ptr = unsafe { out_ptr.add(8) };
     let mut elem_buf = [0u8; MAX_ELEM_SIZE];
 
@@ -195,9 +197,9 @@ pub extern "C" fn ori_iter_find(
         }
     };
 
-    // Write tag
+    // Write i64 tag: ARC enum convention — Some=0, None=1
     unsafe {
-        out_ptr.write(u8::from(found));
+        out_ptr.cast::<i64>().write(i64::from(!found));
     }
 
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });

@@ -37,6 +37,8 @@ fn runtime_functions_declared() {
         "ori_list_new",
         "ori_list_free",
         "ori_list_len",
+        "ori_list_push",
+        "ori_list_take",
         // Comparison
         "ori_compare_int",
         "ori_min_int",
@@ -63,6 +65,8 @@ fn runtime_functions_declared() {
         "ori_rc_inc",
         "ori_rc_dec",
         "ori_rc_free",
+        "ori_rc_live_count",
+        "ori_rc_reset_live_count",
         // Args
         "ori_args_from_argv",
         "ori_register_panic_handler",

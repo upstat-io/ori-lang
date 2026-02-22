@@ -18,7 +18,7 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **ACTIVE REROUTE**: `plans/arc_optimization/` — ARC Optimization. Closes 5 stubs in `arc_emitter.rs` (IsShared, Reuse, RcDec drop, PartialApply, non-atomic refcounts), adds Swift-inspired RC identity normalization + known-safe elimination, Koka-inspired `@fbip` enforcement. 3 sections: codegen completeness, optimization enhancements, verification. Design reference: `plans/dpr_arc-optimization_02212026.md`.
+> **ACTIVE REROUTE**: `plans/aot_codegen_pipeline/` — AOT Codegen Pipeline (supersedes `plans/arc_optimization/` and `plans/arc_codegen_unification/`). 11 sections: emission layer typing, lowerer gaps, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation, cross-block RC elimination, Salsa borrow inference, FBIP enforcement, legacy cleanup (~11K deletion), comprehensive verification. Design reference: `plans/dpr_aot-codegen-pipeline_02222026.md`.
 
 ---
 
