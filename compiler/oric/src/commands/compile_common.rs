@@ -512,7 +512,6 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             Some(&classifier),
             None, // Debug info wiring deferred to AOT pipeline integration
         );
-
         // Declare imports first so they're visible to function bodies
         fc.declare_imports(&import_sigs);
         fc.declare_all(&parse_result.module.functions, &function_sigs);

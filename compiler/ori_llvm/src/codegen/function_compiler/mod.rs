@@ -452,6 +452,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.type_resolver,
             self.interner,
             self.pool,
+            Some(classifier as &dyn ori_arc::ArcClassification),
             func_id,
             &self.functions,
             &self.method_functions,
