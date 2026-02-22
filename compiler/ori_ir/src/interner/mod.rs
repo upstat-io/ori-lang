@@ -225,6 +225,18 @@ impl StringInterner {
         guard.strings[name.local()]
     }
 
+    /// Try to look up the string for a Name, returning `None` if the name
+    /// is not in this interner (e.g., created via `Name::from_raw()` in tests).
+    pub fn try_lookup(&self, name: Name) -> Option<&str> {
+        let shard_idx = name.shard();
+        if shard_idx >= self.shards.len() {
+            return None;
+        }
+        let shard = &self.shards[shard_idx];
+        let guard = shard.read();
+        guard.strings.get(name.local()).copied()
+    }
+
     /// Look up the string for a Name, returning a `'static` reference.
     ///
     /// This is safe because all interned strings are leaked (never deallocated).

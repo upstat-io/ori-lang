@@ -1,4 +1,4 @@
-use ori_ir::Name;
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
 
 use rustc_hash::FxHashMap;
@@ -12,7 +12,7 @@ use crate::test_helpers::{
 };
 use crate::ArcClassifier;
 
-use super::{insert_rc_ops, insert_rc_ops_with_ownership};
+use super::{insert_external_invoke_cleanup, insert_rc_ops, insert_rc_ops_with_ownership};
 
 // Helpers
 
@@ -1253,7 +1253,15 @@ fn run_rc_insert_enhanced(mut func: ArcFunction) -> ArcFunction {
     let liveness = compute_liveness(&func, &classifier);
     let sigs = FxHashMap::default();
     let ownership = infer_derived_ownership(&func, &sigs);
-    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs);
+    let interner = StringInterner::new();
+    insert_rc_ops_with_ownership(
+        &mut func,
+        &classifier,
+        &liveness,
+        &ownership,
+        &sigs,
+        &interner,
+    );
     func
 }
 
@@ -1266,7 +1274,15 @@ fn run_rc_insert_enhanced_with_sigs(
     let classifier = ArcClassifier::new(&pool);
     let liveness = compute_liveness(&func, &classifier);
     let ownership = infer_derived_ownership(&func, sigs);
-    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, sigs);
+    let interner = StringInterner::new();
+    insert_rc_ops_with_ownership(
+        &mut func,
+        &classifier,
+        &liveness,
+        &ownership,
+        sigs,
+        &interner,
+    );
     func
 }
 
@@ -1612,5 +1628,271 @@ fn closure_escaping_borrowed_still_inc() {
         count_inc(&result, 0, v(1)),
         1,
         "escaping closure must Inc borrowed capture even at Borrowed position"
+    );
+}
+
+// External invoke cleanup tests
+
+/// External invoke — `fn(x: str) { ori_print(x) }`.
+/// Runtime functions borrow args without Dec — caller must Dec after invoke.
+#[test]
+fn external_invoke_args_get_dec() {
+    // Block 0: invoke ori_print(v0:str) → normal=b(1), unwind=b(2)
+    // Block 1: return unit
+    // Block 2: unreachable (unwind landing)
+    let interner = StringInterner::new();
+    let external_fn = interner.intern("ori_print");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: external_fn,
+                    args: vec![v(0)],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    // Run RC insertion (with interner, so Perceus skips Inc for external invoke args).
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = FxHashMap::default();
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(
+        &mut func,
+        &classifier,
+        &liveness,
+        &ownership,
+        &sigs,
+        &interner,
+    );
+
+    // Post-pass: insert Dec for last-use args to external invokes.
+    insert_external_invoke_cleanup(&mut func, &classifier, &sigs, &interner, &liveness);
+
+    // Block 1 (normal successor) should have RcDec for v0 (the str arg).
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        1,
+        "external invoke's RC-typed arg must get RcDec in normal successor"
+    );
+}
+
+/// External invoke with scalar arg — no cleanup needed.
+#[test]
+fn external_invoke_scalar_arg_no_dec() {
+    let interner = StringInterner::new();
+    let external_fn = interner.intern("ori_print_int");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: external_fn,
+                    args: vec![v(0)],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::INT, Idx::UNIT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = FxHashMap::default();
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(
+        &mut func,
+        &classifier,
+        &liveness,
+        &ownership,
+        &sigs,
+        &interner,
+    );
+    insert_external_invoke_cleanup(&mut func, &classifier, &sigs, &interner, &liveness);
+
+    // v0 is int (scalar) → no cleanup needed.
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        0,
+        "scalar args should not get external invoke cleanup"
+    );
+}
+
+/// Internal invoke — function IS in sigs → no cleanup (callee handles Dec).
+#[test]
+fn internal_invoke_no_cleanup() {
+    let interner = StringInterner::new();
+    let internal_fn = interner.intern("user_function");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: internal_fn,
+                    args: vec![v(0)],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    // Register internal_fn in sigs → it's a known Ori function.
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        internal_fn,
+        crate::ownership::AnnotatedSig {
+            params: vec![crate::ownership::AnnotatedParam {
+                name: internal_fn,
+                ty: Idx::STR,
+                ownership: crate::ownership::Ownership::Owned,
+            }],
+            return_type: Idx::UNIT,
+        },
+    );
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(
+        &mut func,
+        &classifier,
+        &liveness,
+        &ownership,
+        &sigs,
+        &interner,
+    );
+    insert_external_invoke_cleanup(&mut func, &classifier, &sigs, &interner, &liveness);
+
+    // Internal function is in sigs → callee handles Dec → no cleanup.
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        0,
+        "internal invoke should not get external cleanup"
+    );
+}
+
+/// User function NOT in sigs but without ori_ prefix → no cleanup.
+/// Covers derived trait methods, default trait methods, etc.
+#[test]
+fn user_function_not_in_sigs_no_cleanup() {
+    let interner = StringInterner::new();
+    let user_fn = interner.intern("compare");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: user_fn,
+                    args: vec![v(0)],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = FxHashMap::default(); // empty — "compare" is NOT in sigs
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(
+        &mut func,
+        &classifier,
+        &liveness,
+        &ownership,
+        &sigs,
+        &interner,
+    );
+    insert_external_invoke_cleanup(&mut func, &classifier, &sigs, &interner, &liveness);
+
+    // "compare" has no ori_ prefix → treated as user function → no cleanup.
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        0,
+        "user function without ori_ prefix should not get external cleanup"
     );
 }
