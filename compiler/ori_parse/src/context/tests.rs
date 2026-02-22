@@ -1,10 +1,10 @@
 use super::*;
 
-/// Flag inventory: every ParseContext flag must have a corresponding accessor
+/// Flag inventory: every `ParseContext` flag must have a corresponding accessor
 /// and must be used in production code. If you add a new flag, add it here.
 /// If a flag becomes unused, this test reminds you to remove it.
 ///
-/// This prevents dead flags (like CONST_EXPR was) from accumulating.
+/// This prevents dead flags (like `CONST_EXPR` was) from accumulating.
 #[test]
 fn parse_context_flag_inventory() {
     // All flags and their accessor results on a context with that flag set.
@@ -119,8 +119,7 @@ fn parse_context_flags_are_distinct() {
 
         assert_ne!(
             union, without_a,
-            "removing flag {} doesn't change the union — it shares bits with another flag",
-            i
+            "removing flag {i} doesn't change the union — it shares bits with another flag",
         );
     }
 }

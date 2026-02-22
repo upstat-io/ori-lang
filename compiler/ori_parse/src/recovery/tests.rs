@@ -140,9 +140,9 @@ fn stmt_boundary_covers_all_declaration_starters() {
     }
 }
 
-/// Reverse completeness: STMT_BOUNDARY must not contain stale tokens.
+/// Reverse completeness: `STMT_BOUNDARY` must not contain stale tokens.
 /// If a declaration kind is removed from the parser, its token must be removed
-/// from STMT_BOUNDARY too.
+/// from `STMT_BOUNDARY` too.
 #[test]
 fn stmt_boundary_has_no_stale_entries() {
     // The complete set of tokens that should be in STMT_BOUNDARY.

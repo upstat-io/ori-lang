@@ -1,4 +1,4 @@
-//! Tests for ori_rt core functions (memory, refcounting, panic).
+//! Tests for `ori_rt` core functions (memory, refcounting, panic).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -123,7 +123,7 @@ fn concurrent_increments_are_correct() {
     }
 
     // Initial 1 + (num_threads * incs_per_thread) increments
-    let expected = 1 + (num_threads * incs_per_thread) as i64;
+    let expected = 1 + i64::from(num_threads * incs_per_thread);
     assert_eq!(ori_rc_count(ptr), expected);
 
     // Clean up: decrement back to zero
@@ -169,7 +169,7 @@ fn concurrent_inc_and_dec_are_correct() {
 
     // 4 threads increment (4 * 1000 = 4000), 4 threads decrement (4 * 1000 = 4000)
     // Net change = 0, so count should still be 1 + extra_refs
-    let expected = 1 + extra_refs as i64;
+    let expected = 1 + i64::from(extra_refs);
     assert_eq!(ori_rc_count(ptr), expected);
 
     // Clean up

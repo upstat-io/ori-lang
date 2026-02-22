@@ -149,6 +149,11 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     let rc_free = builder.declare_extern_function("ori_rc_free", &[ptr_ty, i64_ty, i64_ty], void);
     builder.add_nounwind_attribute(rc_free);
 
+    // ori_rc_live_count() -> i64
+    // Returns live RC allocation count (allocs minus frees) for leak detection.
+    let rc_live = builder.declare_extern_function("ori_rc_live_count", &[], Some(i64_ty));
+    builder.add_nounwind_attribute(rc_live);
+
     // -- Args conversion --
     // ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList { i64, i64, ptr }
     let list_ty = builder.register_type(
