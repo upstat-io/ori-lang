@@ -96,6 +96,23 @@ enum IterState {
         second: Box<IterState>,
         first_done: bool,
     },
+
+    /// Iterates over a UTF-8 string, yielding Unicode codepoints (i32/char).
+    Str {
+        data: *const u8,
+        len: i64,
+        byte_offset: i64,
+    },
+
+    /// Iterates over a map's key-value pairs, yielding `(key, value)` tuples.
+    Map {
+        keys: *const u8,
+        vals: *const u8,
+        len: i64,
+        pos: i64,
+        key_size: i64,
+        val_size: i64,
+    },
 }
 
 /// Trampoline signature for map: `(env, in_ptr, out_ptr) -> void`
@@ -165,6 +182,19 @@ impl IterState {
                 second,
                 first_done,
             } => Self::next_chained(first, second, first_done, elem_size, out_ptr),
+            Self::Str {
+                data,
+                len,
+                byte_offset,
+            } => Self::next_str(*data, *len, byte_offset, out_ptr),
+            Self::Map {
+                keys,
+                vals,
+                len,
+                pos,
+                key_size,
+                val_size,
+            } => Self::next_map(*keys, *vals, *len, pos, *key_size, *val_size, out_ptr),
         }
     }
 
@@ -344,6 +374,55 @@ impl IterState {
         }
         second.next(out_ptr, elem_size)
     }
+
+    /// Str: decode the next UTF-8 codepoint and write it as i32.
+    ///
+    /// Output is a single `i32` (4 bytes) — the Unicode scalar value.
+    unsafe fn next_str(data: *const u8, len: i64, byte_offset: &mut i64, out_ptr: *mut u8) -> bool {
+        if data.is_null() || *byte_offset >= len {
+            return false;
+        }
+        let result = crate::ori_str_next_char(data, len, *byte_offset);
+        if result.codepoint < 0 {
+            *byte_offset = len;
+            return false;
+        }
+        let cp = result.codepoint;
+        ptr::copy_nonoverlapping(
+            std::ptr::from_ref::<i32>(&cp).cast::<u8>(),
+            out_ptr,
+            size_of::<i32>(),
+        );
+        *byte_offset = result.next_offset;
+        true
+    }
+
+    /// Map: yield the next `(key, value)` pair.
+    ///
+    /// Output layout: `[key_bytes | value_bytes]` (concatenated).
+    unsafe fn next_map(
+        keys: *const u8,
+        vals: *const u8,
+        len: i64,
+        pos: &mut i64,
+        key_size: i64,
+        val_size: i64,
+        out_ptr: *mut u8,
+    ) -> bool {
+        if *pos >= len {
+            return false;
+        }
+        let k_off = (*pos * key_size) as usize;
+        let v_off = (*pos * val_size) as usize;
+        ptr::copy_nonoverlapping(keys.add(k_off), out_ptr, key_size as usize);
+        ptr::copy_nonoverlapping(
+            vals.add(v_off),
+            out_ptr.add(key_size as usize),
+            val_size as usize,
+        );
+        *pos += 1;
+        true
+    }
 }
 
 // ── Extern C API — Constructors ─────────────────────────────────────────
@@ -375,6 +454,44 @@ pub extern "C" fn ori_iter_from_range(start: i64, end: i64, step: i64, inclusive
         end,
         step: if step == 0 { 1 } else { step },
         inclusive,
+    };
+    Box::into_raw(Box::new(state)).cast()
+}
+
+/// Create an iterator over a UTF-8 string, yielding Unicode codepoints.
+///
+/// `data` points to the string's UTF-8 byte data. `len` is the byte length.
+/// Each element yielded is an `i32` (4 bytes) containing a Unicode scalar value.
+#[no_mangle]
+pub extern "C" fn ori_iter_from_str(data: *const u8, len: i64) -> *mut u8 {
+    let state = IterState::Str {
+        data,
+        len,
+        byte_offset: 0,
+    };
+    Box::into_raw(Box::new(state)).cast()
+}
+
+/// Create an iterator over a map's key-value pairs.
+///
+/// `keys` and `vals` point to the map's contiguous key/value buffers.
+/// `len` is the number of entries. `key_size`/`val_size` are bytes per key/value.
+/// Each element yielded is `[key_bytes | val_bytes]` (concatenated).
+#[no_mangle]
+pub extern "C" fn ori_iter_from_map(
+    keys: *const u8,
+    vals: *const u8,
+    len: i64,
+    key_size: i64,
+    val_size: i64,
+) -> *mut u8 {
+    let state = IterState::Map {
+        keys,
+        vals,
+        len,
+        pos: 0,
+        key_size,
+        val_size,
     };
     Box::into_raw(Box::new(state)).cast()
 }

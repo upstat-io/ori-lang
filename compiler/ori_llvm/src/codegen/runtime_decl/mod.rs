@@ -63,11 +63,29 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_assert_eq_str", &[ptr_ty, ptr_ty], void);
 
     // -- List functions --
+    // List type: { i64 len, i64 cap, ptr data }
+    let list_ty = builder.register_type(
+        builder
+            .scx()
+            .type_struct(
+                &[
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_ptr().into(),
+                ],
+                false,
+            )
+            .into(),
+    );
     builder.declare_extern_function("ori_list_alloc_data", &[i64_ty, i64_ty], Some(ptr_ty));
     builder.declare_extern_function("ori_list_free_data", &[ptr_ty, i64_ty, i64_ty], void);
     builder.declare_extern_function("ori_list_new", &[i64_ty, i64_ty], Some(ptr_ty));
     builder.declare_extern_function("ori_list_free", &[ptr_ty, i64_ty], void);
     builder.declare_extern_function("ori_list_len", &[ptr_ty], Some(i64_ty));
+    // ori_list_push(list_ptr, elem_ptr, elem_size) -> void
+    builder.declare_extern_function("ori_list_push", &[ptr_ty, ptr_ty, i64_ty], void);
+    // ori_list_take(list_ptr, out_ptr) -> void  (sret pattern: writes {len, cap, data} to out_ptr)
+    builder.declare_extern_function("ori_list_take", &[ptr_ty, ptr_ty], void);
 
     // -- Comparison functions --
     builder.declare_extern_function("ori_compare_int", &[i64_ty, i64_ty], Some(i32_ty));
@@ -103,6 +121,7 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     );
 
     // -- Type conversion functions --
+    builder.declare_extern_function("ori_str_from_raw", &[ptr_ty, i64_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_int", &[i64_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_bool", &[bool_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_float", &[f64_ty], Some(str_ty));
@@ -154,21 +173,13 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     let rc_live = builder.declare_extern_function("ori_rc_live_count", &[], Some(i64_ty));
     builder.add_nounwind_attribute(rc_live);
 
+    // ori_rc_reset_live_count()
+    // Resets the live RC allocation counter to zero. Used by JIT test runners.
+    let rc_reset = builder.declare_extern_function("ori_rc_reset_live_count", &[], void);
+    builder.add_nounwind_attribute(rc_reset);
+
     // -- Args conversion --
     // ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList { i64, i64, ptr }
-    let list_ty = builder.register_type(
-        builder
-            .scx()
-            .type_struct(
-                &[
-                    builder.scx().type_i64().into(),
-                    builder.scx().type_i64().into(),
-                    builder.scx().type_ptr().into(),
-                ],
-                false,
-            )
-            .into(),
-    );
     builder.declare_extern_function("ori_args_from_argv", &[i32_ty, ptr_ty], Some(list_ty));
 
     // -- Iterator functions --
@@ -181,6 +192,14 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function(
         "ori_iter_from_range",
         &[i64_ty, i64_ty, i64_ty, bool_ty],
+        Some(ptr_ty),
+    );
+    // ori_iter_from_str(data, len) -> ptr
+    builder.declare_extern_function("ori_iter_from_str", &[ptr_ty, i64_ty], Some(ptr_ty));
+    // ori_iter_from_map(keys, vals, len, key_size, val_size) -> ptr
+    builder.declare_extern_function(
+        "ori_iter_from_map",
+        &[ptr_ty, ptr_ty, i64_ty, i64_ty, i64_ty],
         Some(ptr_ty),
     );
 

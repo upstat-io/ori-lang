@@ -88,7 +88,7 @@ Bottom type (uninhabited); coerces to any `T`
 
 ## Operators (precedence high→low)
 
-1. `.` `[]` `()` `?` — 2. `**` (right) — 3. `!` `-` `~` — 4. `*` `/` `%` `div` `@` — 5. `+` `-` — 6. `<<` `>>` — 7. `..` `..=` `by` — 8. `<` `>` `<=` `>=` — 9. `==` `!=` — 10. `&` — 11. `^` — 12. `|` — 13. `&&` — 14. `||` — 15. `??` — 16. `|>` (pipe)
+1. `.` `[]` `()` `?` `as` `as?` — 2. `**` (right) — 3. `!` `-` `~` — 4. `*` `/` `%` `div` `@` — 5. `+` `-` — 6. `<<` `>>` — 7. `..` `..=` `by` — 8. `<` `>` `<=` `>=` — 9. `==` `!=` — 10. `&` — 11. `^` — 12. `|` — 13. `&&` — 14. `||` — 15. `??` — 16. `|>` (pipe)
 
 **Unary**: `!` (Not), `-` (Neg), `~` (BitNot) | **Bitwise**: `&`/`|`/`^` (BitAnd/Or/Xor), `<<`/`>>` (Shl/Shr)
 **Shift overflow**: negative count panics; count ≥ bit width panics; `1 << 63` panics
@@ -180,20 +180,20 @@ Bottom type (uninhabited); coerces to any `T`
 
 ## Keywords
 
-**Reserved**: `as borrowed break continue def div do else extend extension extern false for if impl in let loop match out owned pre post pub self Self suspend tests then trait true try type unsafe use uses void where with yield`
+**Reserved (34)**: `as break continue def div do else extend extension extern false for if impl in let loop match pub self Self suspend tests then trait true type unsafe use uses void where with yield`
 **Reserved (future)**: `asm inline static union view` (reserved for future low-level features)
-**Context-sensitive**: `args body by cache catch collect default embed expr filter find fold from handler has_embed map max nursery on_error over parallel recurse retry spawn timeout validate without`
-**Built-in names**: `int float str byte len is_empty is_some is_none is_ok is_err assert assert_eq assert_ne assert_some assert_none assert_ok assert_err assert_panics assert_panics_with compare min max print panic todo unreachable dbg compile_error embed has_embed`
+**Context-sensitive**: `args body buffer by cache catch default embed expr from handler has_embed map max nursery on_error over parallel pre post recurse spawn state timeout try without`
+**Built-in names**: `int float str byte bool len is_empty is_some is_none is_ok is_err assert assert_eq assert_ne assert_some assert_none assert_ok assert_err assert_panics assert_panics_with compare min max print panic todo unreachable dbg compile_error embed has_embed`
 
 ## Prelude
 
 **Types**: `Option<T>` (`Some`/`None`), `Result<T, E>` (`Ok`/`Err`), `Error`, `TraceEntry`, `Ordering`, `PanicInfo`, `CancellationError`, `CancellationReason`, `FormatSpec`, `Alignment`, `Sign`, `FormatType`
-**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Formattable`, `Debug`, `Clone`, `Default`, `Drop`, `Len`, `IsEmpty`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`, `Index`, `IndexSet`
+**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Formattable`, `Debug`, `Clone`, `Default`, `Drop`, `Len`, `IsEmpty`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`, `Index`, `Sendable`
 
-**Built-ins**: `print(msg:)`, `len(collection:)`, `is_empty(collection:)`, `is_some/is_none(option:)`, `is_ok/is_err(result:)`, `assert(condition:)`, `assert_eq(actual:, expected:)`, `assert_ne(actual:, unexpected:)`, `assert_some/none/ok/err(...)`, `assert_panics(f:)`, `assert_panics_with(f:, msg:)`, `panic(msg:)`→`Never`, `todo()`/`todo(reason:)`→`Never`, `unreachable()`/`unreachable(reason:)`→`Never`, `dbg(value:)`/`dbg(value:, label:)`→`T`, `compare(left:, right:)`→`Ordering`, `min/max(left:, right:)`, `hash_combine(seed:, value:)`→`int`, `repeat(value:)`→iter, `is_cancelled()`→`bool`, `compile_error(msg:)`, `drop_early(value:)`, `embed(path)`→type-driven (`str`/`[byte]`), `has_embed(path)`→`bool`
+**Built-ins**: `print(msg:)`, `len(collection:)`, `is_empty(collection:)`, `is_some/is_none(option:)`, `is_ok/is_err(result:)`, `assert(condition:)`, `assert_eq(actual:, expected:)`, `assert_ne(actual:, unexpected:)`, `assert_some/none/ok/err(...)`, `assert_panics(expr:)`, `assert_panics_with(expr:, message:)`, `panic(msg:)`→`Never`, `todo()`/`todo(reason:)`→`Never`, `unreachable()`/`unreachable(reason:)`→`Never`, `dbg(value:)`/`dbg(value:, label:)`→`T`, `compare(left:, right:)`→`Ordering`, `min/max(left:, right:)`, `hash_combine(seed:, value:)`→`int`, `repeat(value:)`→iter (`T: Clone`), `is_cancelled()`→`bool`, `compile_error(msg:)`, `drop_early(value:)`, `embed(path)`→type-driven (`str`/`[byte]`), `has_embed(path)`→`bool`
 
-**Option**: `.map(transform:)`, `.unwrap_or(default:)`, `.ok_or(error:)`, `.and_then(transform:)`, `.filter(predicate:)`
-**Result**: `.map(transform:)`, `.map_err(transform:)`, `.unwrap_or(default:)`, `.ok()`, `.err()`, `.and_then(transform:)`, `.context(msg:)`, `.trace()`→`str`, `.trace_entries()`→`[TraceEntry]`, `.has_trace()`
+**Option**: `.map(transform:)`, `.unwrap_or(default:)`, `.ok_or(err:)`, `.and_then(then:)`, `.filter(predicate:)`
+**Result**: `.map(transform:)`, `.map_err(transform:)`, `.unwrap_or(default:)`, `.ok()`, `.err()`, `.and_then(then:)`, `.context(msg:)`, `.trace()`→`str`, `.trace_entries()`→`[TraceEntry]`, `.has_trace()`
 **Error**: `.trace()`, `.trace_entries()`, `.has_trace()`
 **Ordering**: `Less | Equal | Greater` — `.is_less/equal/greater()`, `.is_less_or_equal/greater_or_equal()`, `.reverse()`, `.then(other:)`, `.then_with(f:)`; default `Equal`; order `Less < Equal < Greater`; impls Eq, Comparable, Clone, Debug, Printable, Hashable, Default
 
@@ -215,5 +215,9 @@ Bottom type (uninhabited); coerces to any `T`
 **Eq**: `@equals (self, other: Self) -> bool` — reflexive/symmetric/transitive; derives `==`/`!=`
 **Comparable**: `trait: Eq { @compare (self, other: Self) -> Ordering }` — total order; derives `<`/`<=`/`>`/`>=`; NaN > all; `None < Some`; `Ok < Err`
 **Hashable**: `trait: Eq { @hash (self) -> int }` — `a == b` ⇒ same hash; +0.0/-0.0 same; use `hash_combine`
-**Operator traits**: `Add`/`Sub`/`Mul`/`Div`/`FloorDiv`/`Rem<Rhs = Self>` — binary; `MatMul<Rhs = Self>` — matrix multiply (`@`); `Neg`/`Not`/`BitNot` — unary; `BitAnd`/`BitOr`/`BitXor<Rhs = Self>`, `Shl`/`Shr<Rhs = int>` — bitwise; all default `type Output = Self`
-**Operator methods**: `add`/`subtract`/`multiply`/`divide`/`floor_divide`/`remainder` — arithmetic; `matrix_multiply` — matmul (`@`); `negate`/`not`/`bit_not` — unary; `bit_and`/`bit_or`/`bit_xor`/`shift_left`/`shift_right` — bitwise
+**Operator traits**: `Add`/`Sub`/`Mul`/`Div`/`FloorDiv`/`Rem`/`Pow<Rhs = Self>` — binary; `MatMul<Rhs = Self>` — matrix multiply (`@`); `Neg`/`Not`/`BitNot` — unary; `BitAnd`/`BitOr`/`BitXor<Rhs = Self>`, `Shl`/`Shr<Rhs = int>` — bitwise; `As<T>`/`TryAs<T>` — conversion (`as`/`as?`); all default `type Output = Self`
+**Operator methods**: `add`/`subtract`/`multiply`/`divide`/`floor_divide`/`remainder`/`power` — arithmetic; `matrix_multiply` — matmul (`@`); `negate`/`not`/`bit_not` — unary; `bit_and`/`bit_or`/`bit_xor`/`shift_left`/`shift_right` — bitwise; `as`/`try_as` — conversion
+**Sendable**: marker trait, auto-derived by compiler; all fields must be `Sendable`, no interior mutability, no non-Sendable captures; required for channel types `T: Sendable`; cannot be implemented manually
+**List methods**: `.map(transform:)`, `.filter(predicate:)`, `.fold(initial:, op:)`, `.find(where:)`, `.any(predicate:)`, `.all(predicate:)`, `.first()`, `.last()`, `.take(n:)`, `.skip(n:)`, `.reverse()`, `.sort()` (`T: Comparable`), `.contains(value:)` (`T: Eq`)
+**String methods**: `.split(sep:)`, `.trim()`, `.upper()`, `.lower()`, `.starts_with(prefix:)`, `.ends_with(suffix:)`, `.contains(substr:)`
+**Reflect** (opt-in via `#derive(Reflect)`): `@type_info`→`TypeInfo`, `@field_count`→`int`, `@field_by_index`/`@field_by_name`→`Option<Unknown>`; `Unknown` for type-erased downcasting; all primitives impl; read-only, no method reflection

@@ -9,10 +9,7 @@
 //! 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
 //! 2. `IrBuilder` for ID-based instruction emission
 //! 3. `FunctionCompiler` for two-pass declare-then-define compilation
-//! 4. `ExprLowerer` for AST → LLVM IR lowering
-//!
-//! The legacy `ModuleCompiler` → `CodegenCx` → `Builder` path is still
-//! available via `LLVMEvaluator` for backward compatibility during migration.
+//! 4. `ArcIrEmitter` for ARC IR → LLVM IR lowering (with RC lifecycle)
 
 use std::mem::ManuallyDrop;
 
@@ -129,6 +126,9 @@ impl CompiledTestModule<'_> {
         // Reset panic state before running
         runtime::reset_panic_state();
 
+        // Snapshot live RC count before test for leak detection
+        let live_before = runtime::ori_rc_live_count();
+
         // Look up the wrapper function name
         let wrapper_name = self.test_wrappers.get(&test_name).ok_or_else(|| {
             LLVMEvalError::new(format!("Test wrapper not found for test: {test_name:?}"))
@@ -167,10 +167,19 @@ impl CompiledTestModule<'_> {
         // Check if panic occurred (safety net — assertions now longjmp in JIT mode)
         if runtime::did_panic() {
             let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
-            Err(LLVMEvalError::new(msg))
-        } else {
-            Ok(LLVMValue::Void)
+            return Err(LLVMEvalError::new(msg));
         }
+
+        // Check for ARC leaks: compare live count after test to snapshot before
+        let live_after = runtime::ori_rc_live_count();
+        let leaked = live_after - live_before;
+        if leaked > 0 {
+            return Err(LLVMEvalError::new(format!(
+                "ARC leak: {leaked} allocation(s) not freed"
+            )));
+        }
+
+        Ok(LLVMValue::Void)
     }
 }
 
@@ -273,6 +282,97 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // 5. Register user-defined types
             type_registration::register_user_types(&resolver, user_types);
 
+            // 5b. ARC pipeline: classify types + run borrow inference
+            let classifier = ori_arc::ArcClassifier::new(self.pool);
+            let annotated_sigs = {
+                let mut arc_functions = Vec::new();
+                let mut arc_problems = Vec::new();
+
+                // Lower module functions
+                for (func, sig) in module.functions.iter().zip(function_sigs.iter()) {
+                    if sig.is_generic() {
+                        continue;
+                    }
+                    let params: Vec<(Name, ori_types::Idx)> = sig
+                        .param_names
+                        .iter()
+                        .zip(sig.param_types.iter())
+                        .map(|(&n, &t)| (n, t))
+                        .collect();
+                    let body_id = canon.root_for(func.name).unwrap_or(canon.root);
+                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
+                        func.name,
+                        &params,
+                        sig.return_type,
+                        body_id,
+                        canon,
+                        interner,
+                        self.pool,
+                        &mut arc_problems,
+                    );
+                    arc_functions.push(arc_fn);
+                    arc_functions.extend(lambdas);
+                }
+
+                // Lower imported functions
+                for imp_fn in imported_functions {
+                    if imp_fn.sig.is_generic() {
+                        continue;
+                    }
+                    let params: Vec<(Name, ori_types::Idx)> = imp_fn
+                        .sig
+                        .param_names
+                        .iter()
+                        .zip(imp_fn.sig.param_types.iter())
+                        .map(|(&n, &t)| (n, t))
+                        .collect();
+                    let body_id = imp_fn
+                        .canon
+                        .root_for(imp_fn.function.name)
+                        .unwrap_or(imp_fn.canon.root);
+                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
+                        imp_fn.function.name,
+                        &params,
+                        imp_fn.sig.return_type,
+                        body_id,
+                        imp_fn.canon,
+                        interner,
+                        self.pool,
+                        &mut arc_problems,
+                    );
+                    arc_functions.push(arc_fn);
+                    arc_functions.extend(lambdas);
+                }
+
+                // Lower impl method functions
+                for (name, sig) in impl_sigs {
+                    if sig.is_generic() {
+                        continue;
+                    }
+                    let params: Vec<(Name, ori_types::Idx)> = sig
+                        .param_names
+                        .iter()
+                        .zip(sig.param_types.iter())
+                        .map(|(&n, &t)| (n, t))
+                        .collect();
+                    let body_id = canon.root_for(*name).unwrap_or(canon.root);
+                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
+                        *name,
+                        &params,
+                        sig.return_type,
+                        body_id,
+                        canon,
+                        interner,
+                        self.pool,
+                        &mut arc_problems,
+                    );
+                    arc_functions.push(arc_fn);
+                    arc_functions.extend(lambdas);
+                }
+
+                ori_arc::infer_borrows(&arc_functions, &classifier)
+            };
+
             // 6. Two-pass function compilation
             debug!("declaring functions (phase 1)");
             let mut fc = FunctionCompiler::new(
@@ -282,8 +382,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 interner,
                 self.pool,
                 "",
-                None,
-                None,
+                &annotated_sigs,
+                &classifier,
                 None, // No debug info for JIT
             );
             fc.declare_all(&module.functions, function_sigs);
@@ -421,14 +521,20 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_iter_fold",
     "ori_iter_for_each",
     "ori_iter_from_list",
+    "ori_iter_from_map",
     "ori_iter_from_range",
+    "ori_iter_from_str",
     "ori_iter_map",
     "ori_iter_next",
     "ori_iter_skip",
     "ori_iter_take",
     "ori_iter_zip",
+    // List building — AOT for-yield uses heap OriList; JIT uses native Vec
+    "ori_list_push",
+    "ori_list_take",
     // RC leak detection — AOT test infrastructure only
     "ori_rc_live_count",
+    "ori_rc_reset_live_count",
     // ori_run_main wraps @main with catch_unwind — JIT compiles tests directly
     "ori_run_main",
 ];
@@ -462,6 +568,7 @@ pub(crate) const JIT_MAPPED_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_str_hash",
     "ori_str_next_char",
     "ori_assert_eq_str",
+    "ori_str_from_raw",
     "ori_str_from_int",
     "ori_str_from_bool",
     "ori_str_from_float",
@@ -557,6 +664,10 @@ fn add_runtime_mappings_to_engine(
         (
             "ori_assert_eq_str",
             runtime::ori_assert_eq_str as *const () as usize,
+        ),
+        (
+            "ori_str_from_raw",
+            runtime::ori_str_from_raw as *const () as usize,
         ),
         (
             "ori_str_from_int",

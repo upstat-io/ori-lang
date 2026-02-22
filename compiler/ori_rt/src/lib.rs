@@ -60,6 +60,7 @@ use std::panic;
 #[cfg(not(feature = "single-threaded"))]
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::OnceLock;
 
 /// Ori panic payload for stack unwinding (AOT mode).
 ///
@@ -93,15 +94,32 @@ impl OriStr {
         std::str::from_utf8_unchecked(slice)
     }
 
-    /// Create an `OriStr` from an owned `String`, leaking the allocation.
+    /// Create an `OriStr` from an owned `String` using RC-managed allocation.
     ///
-    /// The caller (LLVM-generated code) owns the returned pointer.
+    /// The string data is copied into an `ori_rc_alloc` buffer so that the
+    /// ARC pipeline's `RcInc`/`RcDec` operations work correctly (they expect
+    /// a refcount header at `data_ptr - 8`).
     #[must_use]
     pub fn from_owned(s: String) -> Self {
-        let len = s.len() as i64;
-        let data = s.into_boxed_str();
-        let ptr = Box::into_raw(data) as *const u8;
-        Self { len, data: ptr }
+        let bytes = s.into_bytes();
+        let len = bytes.len() as i64;
+        if bytes.is_empty() {
+            return Self {
+                len: 0,
+                data: std::ptr::null(),
+            };
+        }
+        let data = ori_rc_alloc(bytes.len(), 1);
+        if !data.is_null() {
+            // SAFETY: ori_rc_alloc returned a valid pointer of at least `bytes.len()` bytes.
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len());
+            }
+        }
+        Self {
+            len,
+            data: data as *const u8,
+        }
     }
 }
 
@@ -535,6 +553,15 @@ pub extern "C" fn ori_rc_live_count() -> i64 {
     RC_LIVE_COUNT.load(Ordering::Relaxed)
 }
 
+/// Reset the live RC allocation counter to zero.
+///
+/// Used by JIT test runners where multiple tests execute in the same process.
+/// Each test can start with a fresh counter by calling this before execution.
+#[no_mangle]
+pub extern "C" fn ori_rc_reset_live_count() {
+    RC_LIVE_COUNT.store(0, Ordering::Relaxed);
+}
+
 /// Get the current reference count (for testing and debugging).
 ///
 /// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
@@ -837,6 +864,78 @@ pub extern "C" fn ori_list_len(list: *const OriList) -> i64 {
     unsafe { (*list).len }
 }
 
+/// Push an element onto a heap-allocated list, growing capacity if needed.
+///
+/// `list` is a pointer to a heap-allocated `OriList` (from `ori_list_new`).
+/// `elem_ptr` points to the raw element bytes to copy.
+/// `elem_size` is the byte size of each element.
+#[no_mangle]
+pub extern "C" fn ori_list_push(list: *mut u8, elem_ptr: *const u8, elem_size: i64) {
+    if list.is_null() || elem_ptr.is_null() {
+        return;
+    }
+    let list = unsafe { &mut *list.cast::<OriList>() };
+    let es = elem_size.max(1) as usize;
+
+    // Grow if needed
+    if list.len >= list.cap {
+        let new_cap = if list.cap <= 0 {
+            8
+        } else {
+            list.cap as usize * 2
+        };
+        let old_total = list.cap.max(0) as usize * es;
+        let new_total = new_cap * es;
+        let new_data = if list.data.is_null() {
+            crate::ori_alloc(new_total, 8)
+        } else {
+            crate::ori_realloc(list.data, old_total, new_total, 8)
+        };
+        list.data = new_data;
+        list.cap = new_cap as i64;
+    }
+
+    // Copy element bytes into the data buffer
+    unsafe {
+        std::ptr::copy_nonoverlapping(elem_ptr, list.data.add(list.len as usize * es), es);
+    }
+    list.len += 1;
+}
+
+/// Extract the `OriList` contents and free the heap wrapper.
+///
+/// Writes `{len, cap, data}` to `out_ptr` (sret pattern — avoids ABI
+/// mismatch for >16 byte struct returns). The data buffer ownership
+/// transfers to the caller; only the `OriList` wrapper is freed.
+#[no_mangle]
+pub extern "C" fn ori_list_take(list: *mut u8, out_ptr: *mut u8) {
+    if out_ptr.is_null() {
+        return;
+    }
+    if list.is_null() {
+        unsafe {
+            out_ptr.cast::<i64>().write(0); // len
+            out_ptr.cast::<i64>().add(1).write(0); // cap
+            out_ptr
+                .add(16)
+                .cast::<*mut u8>()
+                .write(std::ptr::null_mut()); // data
+        }
+        return;
+    }
+    let boxed = unsafe { Box::from_raw(list.cast::<OriList>()) };
+    let len = boxed.len;
+    let cap = boxed.cap;
+    let data = boxed.data;
+    // Box::drop frees the OriList struct; data buffer is NOT freed
+    drop(boxed);
+    unsafe {
+        out_ptr.cast::<i64>().write(len);
+        out_ptr.cast::<i64>().add(1).write(cap);
+        out_ptr.add(16).cast::<*mut u8>().write(data);
+    }
+}
+
 /// Concatenate two strings.
 ///
 /// Returns a new `OriStr` with the concatenated result.
@@ -854,12 +953,7 @@ pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
         unsafe { (*b).as_str() }
     };
 
-    let result = format!("{a_str}{b_str}");
-    let len = result.len() as i64;
-    let data = result.into_boxed_str();
-    let ptr = Box::into_raw(data) as *const u8;
-
-    OriStr { len, data: ptr }
+    OriStr::from_owned(format!("{a_str}{b_str}"))
 }
 
 /// Compare two strings for equality.
@@ -941,11 +1035,33 @@ pub extern "C" fn ori_str_hash(s: *const OriStr) -> i64 {
 /// Convert an integer to a string.
 #[no_mangle]
 pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {
-    let result = n.to_string();
-    let len = result.len() as i64;
-    let data = result.into_boxed_str();
-    let ptr = Box::into_raw(data) as *const u8;
-    OriStr { len, data: ptr }
+    OriStr::from_owned(n.to_string())
+}
+
+/// Create an `OriStr` from a raw pointer + length (e.g., string literals).
+///
+/// Copies the data into an RC-managed heap allocation so the resulting
+/// string can safely participate in ARC `RcInc`/`RcDec` operations.
+#[no_mangle]
+pub extern "C" fn ori_str_from_raw(src: *const u8, len: i64) -> OriStr {
+    if src.is_null() || len <= 0 {
+        return OriStr {
+            len: 0,
+            data: std::ptr::null(),
+        };
+    }
+    let size = len as usize;
+    let data = ori_rc_alloc(size, 1);
+    if !data.is_null() {
+        // SAFETY: src is valid for `size` bytes; data is freshly allocated with at least `size` bytes.
+        unsafe {
+            std::ptr::copy_nonoverlapping(src, data, size);
+        }
+    }
+    OriStr {
+        len,
+        data: data as *const u8,
+    }
 }
 
 /// Convert a boolean to a string.
@@ -962,11 +1078,7 @@ pub extern "C" fn ori_str_from_bool(b: bool) -> OriStr {
 /// Convert a float to a string.
 #[no_mangle]
 pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {
-    let result = f.to_string();
-    let len = result.len() as i64;
-    let data = result.into_boxed_str();
-    let ptr = Box::into_raw(data) as *const u8;
-    OriStr { len, data: ptr }
+    OriStr::from_owned(f.to_string())
 }
 
 /// Compare two integers (for sorting, etc.)
@@ -1238,7 +1350,10 @@ pub extern "C" fn ori_str_next_char(data: *const u8, len: i64, byte_offset: i64)
 /// `main_fn` is a function pointer to the user's compiled `@main` (void → void
 /// or void → int variant).
 ///
-/// Returns 0 on success, 1 on panic.
+/// Exit codes:
+/// - **0**: success
+/// - **1**: panic
+/// - **2**: RC leak detected (only when `ORI_CHECK_LEAKS=1`)
 #[no_mangle]
 pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
     let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
@@ -1246,7 +1361,17 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
     }));
 
     match result {
-        Ok(()) => 0,
+        Ok(()) => {
+            // Check for RC leaks when enabled
+            if check_leaks_enabled() {
+                let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+                if live != 0 {
+                    eprintln!("ori: {live} RC allocation(s) not freed (memory leak)");
+                    return 2;
+                }
+            }
+            0
+        }
         Err(payload) => {
             // Check if this is our structured OriPanic
             if payload.downcast_ref::<OriPanic>().is_some() {
@@ -1259,6 +1384,19 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
             }
         }
     }
+}
+
+/// Check whether ARC leak detection is enabled via environment variable.
+///
+/// Caches the result in a `OnceLock` to avoid repeated `getenv` syscalls.
+/// Enabled by `ORI_CHECK_LEAKS=1` or `ORI_CHECK_LEAKS=true`.
+fn check_leaks_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("ORI_CHECK_LEAKS")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(test)]

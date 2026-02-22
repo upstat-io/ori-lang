@@ -25,7 +25,7 @@ Both built with `cargo build -p ori_rt`.
 ## Type Representations
 - `str` → `{ len: i64, data: *const u8 }`
 - `[T]` → `{ len: i64, cap: i64, data: *mut u8 }`
-- `Option<T>` → `{ tag: i8, value: T }`
+- `Option<T>` → `{ tag: i64, value: T }`
 
 ## Functions
 

@@ -1,20 +1,16 @@
-//! ARC IR → LLVM IR emitter (Tier 2 codegen).
+//! ARC IR → LLVM IR emitter.
 //!
 //! Translates `ArcFunction` basic blocks and instructions directly to LLVM IR,
 //! including RC operations (`ori_rc_inc`, `ori_rc_dec`) and structured cleanup
 //! via `invoke`/`landingpad`.
 //!
-//! This runs **alongside** Tier 1 (`ExprLowerer`), not replacing it.
-//! Tier 1 compiles `CanExpr` → LLVM IR without RC. Tier 2 compiles
-//! `CanExpr` → ARC IR → LLVM IR with RC lifecycle.
-//!
 //! # Architecture
 //!
 //! ```text
-//! Tier 1:  CanExpr  →  ExprLowerer  →  LLVM IR  (no RC)
-//! Tier 2:  CanExpr  →  ARC IR  →  ArcIrEmitter  →  LLVM IR  (with RC)
+//! CanExpr  →  ARC IR  →  ArcIrEmitter  →  LLVM IR  (with RC)
 //! ```
 
+mod builtins;
 mod drop_gen;
 
 use ori_arc::ir::{
@@ -22,10 +18,10 @@ use ori_arc::ir::{
 };
 use ori_arc::ArcClassification;
 use ori_ir::{BinaryOp, Name, StringInterner, UnaryOp};
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
 use rustc_hash::FxHashMap;
 
-use super::abi::{FunctionAbi, ReturnPassing};
+use super::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
@@ -64,6 +60,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
     /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
     type_idx_to_name: &'a FxHashMap<Idx, Name>,
+    /// Counter for unique `PartialApply` wrapper/drop function names.
+    partial_apply_counter: u32,
     /// ARC variable → LLVM value mapping.
     var_map: Vec<Option<ValueId>>,
     /// ARC block → LLVM block mapping.
@@ -103,6 +101,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             functions,
             method_functions,
             type_idx_to_name,
+            partial_apply_counter: 0,
             var_map: Vec::new(),
             block_map: Vec::new(),
             phi_incoming: Vec::new(),
@@ -206,13 +205,46 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // Resize var_map to hold all variables
         self.var_map.resize(func.var_types.len(), None);
 
-        // Bind function parameters
+        // Bind function parameters (respecting ABI passing modes).
+        // Reference and Indirect params arrive as pointers — load the actual
+        // value so ARC IR sees the struct, not the pointer.
         let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
+        let needs_loads = abi.params.iter().any(|p| {
+            matches!(
+                p.passing,
+                ParamPassing::Indirect { .. } | ParamPassing::Reference
+            )
+        });
+        if needs_loads {
+            // Position at entry block for load instructions
+            self.builder.position_at_end(self.block_map[0]);
+        }
+        let mut llvm_param_idx = sret_offset;
         for (i, param) in func.params.iter().enumerate() {
-            let llvm_param = self
-                .builder
-                .get_param(self.current_function, i as u32 + sret_offset);
-            self.def_var(param.var, llvm_param);
+            let passing = &abi.params[i].passing;
+            match passing {
+                ParamPassing::Direct => {
+                    let llvm_param = self
+                        .builder
+                        .get_param(self.current_function, llvm_param_idx);
+                    self.def_var(param.var, llvm_param);
+                    llvm_param_idx += 1;
+                }
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    let ptr_param = self
+                        .builder
+                        .get_param(self.current_function, llvm_param_idx);
+                    let ty = self.resolve_type(param.ty);
+                    let loaded = self.builder.load(ty, ptr_param, "param.load");
+                    self.def_var(param.var, loaded);
+                    llvm_param_idx += 1;
+                }
+                ParamPassing::Void => {
+                    // No physical LLVM param — bind to a zero/unit constant
+                    let zero = self.builder.const_i64(0);
+                    self.def_var(param.var, zero);
+                }
+            }
         }
 
         // Pre-scan: find blocks that are unwind destinations of Invoke terminators.
@@ -284,6 +316,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 &phi_nodes,
                 abi,
                 &landingpad_values,
+                func,
             );
         }
 
@@ -307,7 +340,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         _phi_nodes: &[Vec<(ArcVarId, ValueId)>],
         abi: &FunctionAbi,
         landingpad_values: &FxHashMap<usize, ValueId>,
+        arc_func: &ArcFunction,
     ) {
+        tracing::trace!(?term, block = current_block.index(), "emit_terminator");
         match term {
             ArcTerminator::Return { value } => {
                 let val = self.var(*value);
@@ -378,7 +413,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 args,
                 normal,
                 unwind,
-            } => self.emit_invoke(*dst, *func, args, *normal, *unwind),
+            } => self.emit_invoke(*dst, *func, args, *normal, *unwind, arc_func),
 
             ArcTerminator::Resume => {
                 // Re-raise the caught exception using the landingpad token
@@ -406,23 +441,51 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     fn emit_invoke(
         &mut self,
         dst: ArcVarId,
-        func: Name,
-        args: &[ArcVarId],
+        callee: Name,
+        arc_args: &[ArcVarId],
         normal: ori_arc::ir::ArcBlockId,
         unwind: ori_arc::ir::ArcBlockId,
+        arc_func: &ArcFunction,
     ) {
-        let func_name_str = self.interner.lookup(func);
+        let func_name_str = self.interner.lookup(callee);
         let normal_block = self.block(normal);
         let unwind_block = self.block(unwind);
-        let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
 
-        if let Some(&(func_id, ref func_abi)) = self.functions.get(&func) {
-            let result = match &func_abi.return_abi.passing {
+        // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
+        if let Some(val) = self.try_emit_format_call(func_name_str, arc_args, arc_func) {
+            self.builder.br(normal_block);
+            self.builder.position_at_end(normal_block);
+            self.def_var(dst, val);
+            return;
+        }
+
+        // Intercept hash_combine free function.
+        if func_name_str == "hash_combine" && arc_args.len() >= 2 {
+            let val = self.emit_hash_combine(self.var(arc_args[0]), self.var(arc_args[1]));
+            self.builder.br(normal_block);
+            self.builder.position_at_end(normal_block);
+            self.def_var(dst, val);
+            return;
+        }
+
+        let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
+
+        // Try compiled function (ABI-aware), then method_functions, then runtime.
+        // Scope the immutable borrow to extract ABI data before mutable use.
+        let resolved = self
+            .functions
+            .get(&callee)
+            .or_else(|| self.lookup_method_by_unqualified_name(callee))
+            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
+
+        if let Some((func_id, params, ret_abi)) = resolved {
+            let passed_args = self.apply_param_passing(&arg_vals, &params);
+            let result = match &ret_abi.passing {
                 ReturnPassing::Sret { .. } => {
-                    let ret_ty = self.resolve_type(func_abi.return_abi.ty);
+                    let ret_ty = self.resolve_type(ret_abi.ty);
                     let sret_alloca = self.builder.alloca(ret_ty, "sret.tmp");
                     let mut full_args = vec![sret_alloca];
-                    full_args.extend_from_slice(&arg_vals);
+                    full_args.extend_from_slice(&passed_args);
                     self.builder
                         .invoke(func_id, &full_args, normal_block, unwind_block, "invoke");
                     self.builder.position_at_end(normal_block);
@@ -430,17 +493,38 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 }
                 ReturnPassing::Direct | ReturnPassing::Void => {
                     self.builder
-                        .invoke(func_id, &arg_vals, normal_block, unwind_block, "invoke")
+                        .invoke(func_id, &passed_args, normal_block, unwind_block, "invoke")
                 }
             };
             if let Some(val) = result {
                 self.def_var(dst, val);
             }
+        } else if let Some(val) = self.try_emit_builtin_method(callee, arc_args, arc_func) {
+            // Builtin method handled inline — branch to normal block
+            // (the current block needs a terminator since we skipped invoke)
+            self.builder.br(normal_block);
+            self.builder.position_at_end(normal_block);
+            self.def_var(dst, val);
         } else if let Some(llvm_func) = self.builder.scx().llmod.get_function(func_name_str) {
+            // Runtime function fallback with aggregate coercion
+            let is_list_push = func_name_str == "ori_list_push";
+            let coerced_args: Vec<ValueId> = arc_args
+                .iter()
+                .zip(arg_vals.iter())
+                .enumerate()
+                .map(|(i, (arc_var, &val))| {
+                    let arg_ty = arc_func.var_type(*arc_var);
+                    if is_list_push && i == 1 {
+                        self.coerce_any_to_ptr(val, arg_ty)
+                    } else {
+                        self.coerce_aggregate_to_ptr(val, arg_ty)
+                    }
+                })
+                .collect();
             let func_id = self.builder.intern_function(llvm_func);
             if let Some(val) =
                 self.builder
-                    .invoke(func_id, &arg_vals, normal_block, unwind_block, "invoke")
+                    .invoke(func_id, &coerced_args, normal_block, unwind_block, "invoke")
             {
                 self.def_var(dst, val);
             }
@@ -449,28 +533,110 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 name = func_name_str,
                 "ArcIrEmitter: unresolved function in invoke"
             );
+            // Emit a branch to the normal block so the IR stays well-formed
+            // (every block must have a terminator).
+            self.builder.br(normal_block);
+            self.builder.position_at_end(normal_block);
+            self.builder.record_codegen_error();
         }
     }
 
+    /// Look up a method function by unqualified name (e.g., "clone").
+    ///
+    /// Derive methods in ARC IR use unqualified names like "clone". This
+    /// searches `method_functions` for any type that has this method.
+    fn lookup_method_by_unqualified_name(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
+        self.method_functions
+            .iter()
+            .find(|&((_, method_name), _)| *method_name == name)
+            .map(|(_, v)| v)
+    }
+
     /// Emit an `Apply` instruction (ABI-aware direct call).
-    fn emit_apply(&mut self, dst: ArcVarId, callee: Name, args: &[ArcVarId]) {
-        let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
+    fn emit_apply(&mut self, dst: ArcVarId, callee: Name, args: &[ArcVarId], func: &ArcFunction) {
         let callee_name_str = self.interner.lookup(callee);
 
-        let result = if let Some(&(func_id, ref abi)) = self.functions.get(&callee) {
-            let passed_args = self.apply_param_passing(&arg_vals, &abi.params);
-            match &abi.return_abi.passing {
+        // Internal protocol: __iter_next(iter, elem_ty_marker).
+        // args[0] = iterator pointer, args[1] = zero marker carrying elem_ty.
+        // Result type is INT (no RC management); actual element type comes
+        // from the marker argument.
+        if callee_name_str == "__iter_next" && args.len() >= 2 {
+            let iter_ptr = self.var(args[0]);
+            let elem_ty = func.var_type(args[1]);
+            if let Some(val) = self.emit_iter_next(iter_ptr, elem_ty) {
+                self.def_var(dst, val);
+            }
+            return;
+        }
+
+        // ori_list_take uses explicit sret pattern: void(list_ptr, out_ptr).
+        // The ARC IR emits Apply "ori_list_take"(list_ptr) expecting a struct return.
+        // We handle the sret plumbing here: alloca result struct, call, load.
+        if callee_name_str == "ori_list_take" && !args.is_empty() {
+            if let Some(val) = self.emit_list_take(args[0], func) {
+                self.def_var(dst, val);
+            }
+            return;
+        }
+
+        // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
+        if let Some(val) = self.try_emit_format_call(callee_name_str, args, func) {
+            self.def_var(dst, val);
+            return;
+        }
+
+        // Intercept hash_combine free function: emit inline boost hash_combine.
+        if callee_name_str == "hash_combine" && args.len() >= 2 {
+            let val = self.emit_hash_combine(self.var(args[0]), self.var(args[1]));
+            self.def_var(dst, val);
+            return;
+        }
+
+        let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
+
+        // Scope the immutable borrow to extract ABI data before mutable use.
+        let resolved = self
+            .functions
+            .get(&callee)
+            .or_else(|| self.lookup_method_by_unqualified_name(callee))
+            .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
+
+        let result = if let Some((func_id, params, ret_abi)) = resolved {
+            let passed_args = self.apply_param_passing(&arg_vals, &params);
+            match &ret_abi.passing {
                 ReturnPassing::Sret { .. } => {
-                    let ret_ty = self.resolve_type(abi.return_abi.ty);
+                    let ret_ty = self.resolve_type(ret_abi.ty);
                     self.call_with_sret(func_id, &passed_args, ret_ty, "call")
                 }
                 ReturnPassing::Direct | ReturnPassing::Void => {
                     self.builder.call(func_id, &passed_args, "call")
                 }
             }
+        } else if let Some(val) = self.try_emit_builtin_method(callee, args, func) {
+            Some(val)
         } else if let Some(llvm_func) = self.builder.scx().llmod.get_function(callee_name_str) {
+            // Runtime function fallback: coerce aggregate args to pointers.
+            // Runtime functions (ori_print, ori_str_*, etc.) take ptr params,
+            // but ARC IR passes aggregate structs (Str, List, etc.) by value.
+            let is_list_push = callee_name_str == "ori_list_push";
+            let coerced_args: Vec<ValueId> = args
+                .iter()
+                .zip(arg_vals.iter())
+                .enumerate()
+                .map(|(i, (arc_var, &val))| {
+                    let arg_ty = func.var_type(*arc_var);
+                    if is_list_push && i == 1 {
+                        // ori_list_push(list_ptr, elem_ptr, elem_size):
+                        // arg[1] is the element value that must be coerced
+                        // to a pointer regardless of its type (even scalars).
+                        self.coerce_any_to_ptr(val, arg_ty)
+                    } else {
+                        self.coerce_aggregate_to_ptr(val, arg_ty)
+                    }
+                })
+                .collect();
             let func_id = self.builder.intern_function(llvm_func);
-            self.builder.call(func_id, &arg_vals, "call")
+            self.builder.call(func_id, &coerced_args, "call")
         } else {
             tracing::warn!(
                 name = callee_name_str,
@@ -495,6 +661,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         func: &ArcFunction,
     ) {
         let closure_val = self.var(closure);
+        tracing::trace!(
+            ?ty,
+            tag = ?self.pool.tag(ty),
+            closure_var = closure.raw(),
+            args = args.len(),
+            "emit_apply_indirect"
+        );
         let fn_ptr = self.builder.extract_value(closure_val, 0, "closure.fn_ptr");
         let env_ptr = self
             .builder
@@ -516,35 +689,387 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
 
             let ret_ty = self.resolve_type(ty);
+            tracing::trace!(
+                ?ty,
+                resolved_llvm_ty = ?self.builder.arena.get_type(ret_ty),
+                "emit_apply_indirect: resolved return type"
+            );
             if let Some(val) =
                 self.builder
                     .call_indirect(ret_ty, &param_types, fn_ptr, &arg_vals, "icall")
             {
                 self.def_var(dst, val);
             }
+        } else {
+            tracing::error!(
+                closure_var = closure.raw(),
+                "emit_apply_indirect: extract_value failed — fn_ptr or env_ptr is None"
+            );
         }
     }
 
-    /// Emit a `PartialApply` instruction (closure creation stub).
-    fn emit_partial_apply(&mut self, dst: ArcVarId, callee: Name, args: &[ArcVarId]) {
-        // Full closure compilation requires generating a wrapper function
-        // and packing captures into an env struct.
+    /// Emit a `PartialApply` instruction (closure creation).
+    ///
+    /// Generates a wrapper function that bridges the closure calling convention
+    /// `(env_ptr, user_args...)` to the lambda's flat calling convention
+    /// `(captures..., user_args...)`. If there are captures, allocates an
+    /// RC-tracked environment struct to hold them.
+    ///
+    /// The resulting fat-pointer closure is `{ wrapper_fn_ptr, env_ptr }`.
+    fn emit_partial_apply(
+        &mut self,
+        dst: ArcVarId,
+        _ty: Idx,
+        callee: Name,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) {
         let callee_name_str = self.interner.lookup(callee);
         tracing::debug!(
             name = callee_name_str,
-            args = args.len(),
-            "ArcIrEmitter: PartialApply — closure creation (stub)"
+            captures = args.len(),
+            "ArcIrEmitter: PartialApply — closure creation"
         );
 
+        // Look up the callee (lambda function), already compiled and registered
+        let Some(&(callee_func_id, ref callee_abi)) = self.functions.get(&callee) else {
+            tracing::warn!(
+                name = callee_name_str,
+                "emit_partial_apply: callee not found"
+            );
+            let closure_ty = self.builder.closure_type();
+            let null_ptr = self.builder.const_null_ptr();
+            let closure =
+                self.builder
+                    .build_struct(closure_ty, &[null_ptr, null_ptr], "partial_apply");
+            self.def_var(dst, closure);
+            return;
+        };
+        let callee_abi = callee_abi.clone();
+        let num_captures = args.len();
+
+        // Capture types (from ARC IR variable types)
+        let capture_types: Vec<Idx> = args.iter().map(|&v| func.var_type(v)).collect();
+
+        // Remaining user params (the closure awaits these)
+        let remaining_params: Vec<super::abi::ParamAbi> =
+            callee_abi.params[num_captures..].to_vec();
+
+        // == Allocate and pack the environment ==
+        let env_ptr = if capture_types.is_empty() {
+            self.builder.const_null_ptr()
+        } else {
+            self.build_closure_env(args, &capture_types)
+        };
+
+        // == Generate wrapper function ==
+        let wrapper_fn_ptr = self.generate_closure_wrapper(
+            callee_func_id,
+            &callee_abi,
+            &capture_types,
+            &remaining_params,
+        );
+
+        // == Build fat-pointer closure { wrapper_fn_ptr, env_ptr } ==
         let closure_ty = self.builder.closure_type();
-        let null_ptr = self.builder.const_null_ptr();
-        let closure = self
-            .builder
-            .build_struct(closure_ty, &[null_ptr, null_ptr], "partial_apply");
+        let closure =
+            self.builder
+                .build_struct(closure_ty, &[wrapper_fn_ptr, env_ptr], "partial_apply");
         self.def_var(dst, closure);
     }
 
+    /// Allocate and pack a closure environment struct.
+    ///
+    /// Layout: `{ ptr drop_fn, cap_0_ty, cap_1_ty, ... }`
+    /// Allocated via `ori_rc_alloc` (RC-tracked heap memory).
+    fn build_closure_env(&mut self, capture_vars: &[ArcVarId], capture_types: &[Idx]) -> ValueId {
+        // Build env struct type: { drop_fn: ptr, cap_0, cap_1, ... }
+        let ptr_llvm = self.builder.scx().type_ptr().into();
+        let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> = vec![ptr_llvm];
+        for &cap_ty in capture_types {
+            env_fields.push(self.type_resolver.resolve(cap_ty));
+        }
+        let env_struct = self.builder.scx().type_struct(&env_fields, false);
+        let env_struct_ty_id = self.builder.register_type(env_struct.into());
+
+        // Compute size via LLVM's target layout
+        let env_size = env_struct
+            .size_of()
+            .and_then(inkwell::values::IntValue::get_zero_extended_constant)
+            .unwrap_or(24);
+
+        // Allocate via ori_rc_alloc(size, align=8)
+        let size_val = self.builder.const_i64(env_size as i64);
+        let align_val = self.builder.const_i64(8);
+        let i64_ty = self.builder.i64_type();
+        let ptr_ty = self.builder.ptr_type();
+        let rc_alloc_func =
+            self.builder
+                .get_or_declare_function("ori_rc_alloc", &[i64_ty, i64_ty], ptr_ty);
+        let data_ptr = self
+            .builder
+            .call(rc_alloc_func, &[size_val, align_val], "env.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+
+        // Generate drop function for this environment
+        let drop_fn_id = self.generate_env_drop_fn(env_struct_ty_id, capture_types, env_size);
+        let drop_fn_ptr = self.builder.get_function_ptr(drop_fn_id);
+
+        // Store drop_fn at field 0
+        let drop_field = self
+            .builder
+            .struct_gep(env_struct_ty_id, data_ptr, 0, "env.drop_fn");
+        self.builder.store(drop_fn_ptr, drop_field);
+
+        // Store each capture at fields 1..N
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "capture count bounded by lambda arity, well within u32 range"
+        )]
+        for (i, &cap_var) in capture_vars.iter().enumerate() {
+            let cap_val = self.var(cap_var);
+            let field_ptr = self.builder.struct_gep(
+                env_struct_ty_id,
+                data_ptr,
+                (i + 1) as u32,
+                &format!("env.cap.{i}"),
+            );
+            self.builder.store(cap_val, field_ptr);
+        }
+
+        data_ptr
+    }
+
+    /// Generate a drop function for a closure environment.
+    ///
+    /// The drop function RC-decrements each captured variable that is
+    /// reference-counted, then frees the environment via `ori_rc_free`.
+    fn generate_env_drop_fn(
+        &mut self,
+        env_struct_ty_id: LLVMTypeId,
+        capture_types: &[Idx],
+        env_size: u64,
+    ) -> FunctionId {
+        let partial_id = self.partial_apply_counter;
+        self.partial_apply_counter += 1;
+        let func_name = format!("_ori_partial_{partial_id}_drop");
+
+        // Save builder position
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        // Declare: void @_ori_partial_N_drop(ptr %data)
+        let ptr_ty = self.builder.ptr_type();
+        let func_id = self.builder.declare_void_function(&func_name, &[ptr_ty]);
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        self.builder.add_cold_attribute(func_id);
+
+        // Generate body
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let data_ptr = self.builder.get_param(func_id, 0);
+
+        // RC dec each captured variable that needs it
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "capture count bounded by lambda arity, well within u32 range"
+        )]
+        for (i, &cap_ty) in capture_types.iter().enumerate() {
+            // Check if this capture type needs RC management
+            let needs_rc = self.classifier.is_some_and(|cls| cls.needs_rc(cap_ty));
+            if needs_rc {
+                let field_ty = self.resolve_type(cap_ty);
+                let field_ptr = self.builder.struct_gep(
+                    env_struct_ty_id,
+                    data_ptr,
+                    (i + 1) as u32, // +1: field 0 is drop_fn
+                    &format!("cap.{i}.ptr"),
+                );
+                let field_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
+                let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
+                let drop_fn = self.get_or_generate_drop_fn(cap_ty);
+                if let Some(rc_dec) = self.builder.scx().llmod.get_function("ori_rc_dec") {
+                    let rc_dec_id = self.builder.intern_function(rc_dec);
+                    for data_ptr_val in data_ptrs {
+                        self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
+                    }
+                }
+            }
+        }
+
+        // Free the env struct
+        let size_val = self.builder.const_i64(env_size as i64);
+        let align_val = self.builder.const_i64(8);
+        if let Some(rc_free) = self.builder.scx().llmod.get_function("ori_rc_free") {
+            let rc_free_id = self.builder.intern_function(rc_free);
+            self.builder
+                .call(rc_free_id, &[data_ptr, size_val, align_val], "");
+        }
+        self.builder.ret_void();
+
+        // Restore builder position
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        func_id
+    }
+
+    /// Generate a wrapper function for a closure.
+    ///
+    /// The wrapper bridges the closure calling convention `(env_ptr, user_args...)`
+    /// to the lambda's flat calling convention `(captures..., user_args...)`.
+    ///
+    /// ```text
+    /// define ccc ret_type @_ori_partial_N(ptr %env, <user_param_types...>) {
+    ///   %cap.0 = gep env_struct, %env, 0, 1 → load
+    ///   ...
+    ///   %result = call fastcc ret_type @callee(%cap.0, ..., %user_param_0, ...)
+    ///   ret ret_type %result
+    /// }
+    /// ```
+    fn generate_closure_wrapper(
+        &mut self,
+        callee_func_id: FunctionId,
+        callee_abi: &FunctionAbi,
+        capture_types: &[Idx],
+        remaining_params: &[super::abi::ParamAbi],
+    ) -> ValueId {
+        let partial_id = self.partial_apply_counter;
+        self.partial_apply_counter += 1;
+        let wrapper_name = format!("_ori_partial_{partial_id}");
+
+        // Save builder position
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        // Build wrapper parameter types: ptr %env + remaining user params
+        let ptr_ty = self.builder.ptr_type();
+        let mut wrapper_param_types = Vec::with_capacity(1 + remaining_params.len());
+        wrapper_param_types.push(ptr_ty); // env_ptr
+        for param in remaining_params {
+            match &param.passing {
+                super::abi::ParamPassing::Direct => {
+                    let ty = self.resolve_type(param.ty);
+                    wrapper_param_types.push(ty);
+                }
+                super::abi::ParamPassing::Indirect { .. } | super::abi::ParamPassing::Reference => {
+                    wrapper_param_types.push(ptr_ty);
+                }
+                super::abi::ParamPassing::Void => {}
+            }
+        }
+
+        // Determine return type
+        let ret_ty = self.resolve_type(callee_abi.return_abi.ty);
+        let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
+        let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
+
+        // Declare wrapper function
+        let wrapper_func_id = if is_void || has_sret {
+            self.builder
+                .declare_void_function(&wrapper_name, &wrapper_param_types)
+        } else {
+            self.builder
+                .declare_function(&wrapper_name, &wrapper_param_types, ret_ty)
+        };
+        self.builder.set_ccc(wrapper_func_id);
+
+        // Generate wrapper body
+        let entry = self.builder.append_block(wrapper_func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(wrapper_func_id);
+
+        let env_ptr_val = self.builder.get_param(wrapper_func_id, 0);
+
+        // Build env struct type for GEP (same layout as build_closure_env)
+        let ptr_llvm = self.builder.scx().type_ptr().into();
+        let mut env_fields: Vec<inkwell::types::BasicTypeEnum<'_>> = vec![ptr_llvm];
+        for &cap_ty in capture_types {
+            env_fields.push(self.type_resolver.resolve(cap_ty));
+        }
+        let env_struct = self.builder.scx().type_struct(&env_fields, false);
+        let env_struct_ty_id = self.builder.register_type(env_struct.into());
+
+        // Unpack captures from env struct (fields 1..N)
+        let mut callee_args = Vec::with_capacity(callee_abi.params.len());
+
+        // Handle sret: if callee uses sret, allocate a temp and pass it first
+        let sret_alloca = if has_sret {
+            let alloca = self.builder.alloca(ret_ty, "sret.tmp");
+            callee_args.push(alloca);
+            Some(alloca)
+        } else {
+            None
+        };
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "capture count bounded by lambda arity, well within u32 range"
+        )]
+        for (i, &cap_ty) in capture_types.iter().enumerate() {
+            let field_ty = self.resolve_type(cap_ty);
+            let field_ptr = self.builder.struct_gep(
+                env_struct_ty_id,
+                env_ptr_val,
+                (i + 1) as u32,
+                &format!("cap.{i}.ptr"),
+            );
+            let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
+            callee_args.push(cap_val);
+        }
+
+        // Forward remaining user params (wrapper params 1..N)
+        let mut wrapper_param_idx: u32 = 1; // 0 = env_ptr
+        for param in remaining_params {
+            if param.passing != super::abi::ParamPassing::Void {
+                let user_val = self.builder.get_param(wrapper_func_id, wrapper_param_idx);
+                callee_args.push(user_val);
+                wrapper_param_idx += 1;
+            }
+        }
+
+        // Call the actual lambda function
+        let result = self.builder.call(callee_func_id, &callee_args, "result");
+
+        // Emit return
+        if has_sret {
+            if let Some(alloca) = sret_alloca {
+                // Load from sret alloca and return... but wrapper is void for sret.
+                // Actually, the wrapper itself is called indirectly via ccc.
+                // ApplyIndirect doesn't use sret — it uses direct returns.
+                // So the wrapper must load from sret and return directly.
+                let loaded = self.builder.load(ret_ty, alloca, "sret.load");
+                self.builder.ret(loaded);
+            }
+        } else if is_void {
+            self.builder.ret_void();
+        } else if let Some(val) = result {
+            self.builder.ret(val);
+        } else {
+            let zero = self.builder.const_i64(0);
+            self.builder.ret(zero);
+        }
+
+        // Restore builder position
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        self.builder.get_function_ptr(wrapper_func_id)
+    }
+
     /// Emit a `Project` instruction (field extraction).
+    ///
+    /// For tagged union payload fields (Result, Enum), the LLVM storage type
+    /// may differ from the expected type (e.g., `int` payload stored in a
+    /// `{i64, ptr}` slot of `Result<int, str>`). These use alloca + GEP + load
+    /// for type-safe extraction through pointer reinterpretation.
     fn emit_project(
         &mut self,
         dst: ArcVarId,
@@ -555,6 +1080,32 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ) {
         let val = self.var(value);
         let result_ty = self.resolve_type(ty);
+
+        // For enum/Result payload fields (index > 0), the storage type may
+        // differ from the variant's actual type. Use alloca + GEP + load to
+        // reinterpret the bytes correctly through pointer casting.
+        if field > 0 {
+            let val_ty = func.var_type(value);
+            let val_type_info = self.type_info.get(val_ty);
+            if matches!(
+                val_type_info,
+                super::type_info::TypeInfo::Result { .. } | super::type_info::TypeInfo::Enum { .. }
+            ) {
+                let llvm_val_ty = self.resolve_type(val_ty);
+                let alloca = self.builder.alloca(llvm_val_ty, "proj.alloca");
+                self.builder.store(val, alloca);
+                let gep = self.builder.struct_gep(
+                    llvm_val_ty,
+                    alloca,
+                    field,
+                    &format!("proj.{field}.gep"),
+                );
+                let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
+                self.def_var(dst, loaded);
+                return;
+            }
+        }
+
         if let Some(extracted) = self
             .builder
             .extract_value(val, field, &format!("proj.{field}"))
@@ -578,6 +1129,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// Emit a single `ArcInstr` as LLVM IR.
     fn emit_instr(&mut self, instr: &ArcInstr, func: &ArcFunction) {
+        tracing::trace!(?instr, "emit_instr");
         match instr {
             ArcInstr::Let { dst, ty, value } => {
                 let val = self.emit_value(value, *ty, func);
@@ -589,7 +1141,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 ty: _,
                 func: callee,
                 args,
-            } => self.emit_apply(*dst, *callee, args),
+            } => self.emit_apply(*dst, *callee, args, func),
 
             ArcInstr::ApplyIndirect {
                 dst,
@@ -600,10 +1152,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
             ArcInstr::PartialApply {
                 dst,
-                ty: _,
+                ty,
                 func: callee,
                 args,
-            } => self.emit_partial_apply(*dst, *callee, args),
+            } => self.emit_partial_apply(*dst, *ty, *callee, args, func),
 
             ArcInstr::Project {
                 dst,
@@ -625,11 +1177,37 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             // RC operations
             ArcInstr::RcInc { var, count } => {
                 let val = self.var(*var);
-                let rc_inc_name = "ori_rc_inc";
-                if let Some(llvm_func) = self.builder.scx().llmod.get_function(rc_inc_name) {
+                let ty = func.var_type(*var);
+                if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_inc") {
                     let func_id = self.builder.intern_function(llvm_func);
-                    for _ in 0..*count {
-                        self.builder.call(func_id, &[val], "");
+                    if self.pool.tag(ty) == Tag::Function {
+                        // Closure: extract env_ptr (field 1) and inc that
+                        if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_inc.env") {
+                            let is_null = self.builder.is_null_ptr(env_ptr, "rc_inc.null");
+                            let do_inc = self
+                                .builder
+                                .append_block(self.current_function, "rc_inc.do");
+                            let skip = self
+                                .builder
+                                .append_block(self.current_function, "rc_inc.skip");
+                            self.builder.cond_br(is_null, skip, do_inc);
+
+                            self.builder.position_at_end(do_inc);
+                            for _ in 0..*count {
+                                self.builder.call(func_id, &[env_ptr], "");
+                            }
+                            self.builder.br(skip);
+
+                            self.builder.position_at_end(skip);
+                        }
+                    } else {
+                        // Extract data pointer(s) from aggregate types
+                        let data_ptrs = self.extract_rc_data_ptrs(val, ty);
+                        for data_ptr in data_ptrs {
+                            for _ in 0..*count {
+                                self.builder.call(func_id, &[data_ptr], "");
+                            }
+                        }
                     }
                 }
             }
@@ -637,10 +1215,40 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             ArcInstr::RcDec { var } => {
                 let val = self.var(*var);
                 let ty = func.var_type(*var);
-                let drop_fn_ptr = self.get_or_generate_drop_fn(ty);
-                if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
-                    let func_id = self.builder.intern_function(llvm_func);
-                    self.builder.call(func_id, &[val, drop_fn_ptr], "");
+                if self.pool.tag(ty) == Tag::Function {
+                    // Closure: extract env_ptr (field 1), load drop_fn from env
+                    if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_dec.env") {
+                        let is_null = self.builder.is_null_ptr(env_ptr, "rc_dec.null");
+                        let do_dec = self
+                            .builder
+                            .append_block(self.current_function, "rc_dec.do");
+                        let skip = self
+                            .builder
+                            .append_block(self.current_function, "rc_dec.skip");
+                        self.builder.cond_br(is_null, skip, do_dec);
+
+                        self.builder.position_at_end(do_dec);
+                        let ptr_ty = self.builder.ptr_type();
+                        let drop_fn = self.builder.load(ptr_ty, env_ptr, "rc_dec.drop_fn");
+                        if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec")
+                        {
+                            let func_id = self.builder.intern_function(llvm_func);
+                            self.builder.call(func_id, &[env_ptr, drop_fn], "");
+                        }
+                        self.builder.br(skip);
+
+                        self.builder.position_at_end(skip);
+                    }
+                } else {
+                    // Extract data pointer(s) from aggregate types
+                    let data_ptrs = self.extract_rc_data_ptrs(val, ty);
+                    let drop_fn_ptr = self.get_or_generate_drop_fn(ty);
+                    if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
+                        let func_id = self.builder.intern_function(llvm_func);
+                        for data_ptr in data_ptrs {
+                            self.builder.call(func_id, &[data_ptr, drop_fn_ptr], "");
+                        }
+                    }
                 }
             }
 
@@ -744,22 +1352,47 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             LitValue::Unit => self.builder.const_i64(0),
             LitValue::String(name) => {
                 let s = self.interner.lookup(*name);
+                // Use ori_str_from_raw to create an RC-managed heap copy of
+                // the string literal. This ensures the data pointer has a
+                // valid RC header for ARC RcInc/RcDec operations.
                 let global = self.builder.build_global_string_ptr(s, "str");
                 let len = self.builder.const_i64(s.len() as i64);
-                // Ori string: { i64 len, ptr data }
-                let str_ty = self.builder.register_type(
+                if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_str_from_raw") {
+                    let func_id = self.builder.intern_function(llvm_func);
                     self.builder
-                        .scx()
-                        .type_struct(
-                            &[
-                                self.builder.scx().type_i64().into(),
-                                self.builder.scx().type_ptr().into(),
-                            ],
-                            false,
-                        )
-                        .into(),
-                );
-                self.builder.build_struct(str_ty, &[len, global], "str.val")
+                        .call(func_id, &[global, len], "str.val")
+                        .unwrap_or_else(|| {
+                            // Fallback: build inline struct (no RC safety)
+                            let str_ty = self.builder.register_type(
+                                self.builder
+                                    .scx()
+                                    .type_struct(
+                                        &[
+                                            self.builder.scx().type_i64().into(),
+                                            self.builder.scx().type_ptr().into(),
+                                        ],
+                                        false,
+                                    )
+                                    .into(),
+                            );
+                            self.builder.build_struct(str_ty, &[len, global], "str.val")
+                        })
+                } else {
+                    // No runtime: build inline struct (JIT or tests)
+                    let str_ty = self.builder.register_type(
+                        self.builder
+                            .scx()
+                            .type_struct(
+                                &[
+                                    self.builder.scx().type_i64().into(),
+                                    self.builder.scx().type_ptr().into(),
+                                ],
+                                false,
+                            )
+                            .into(),
+                    );
+                    self.builder.build_struct(str_ty, &[len, global], "str.val")
+                }
             }
             LitValue::Duration { value, unit } => {
                 let nanos = unit.to_nanos(*value);
@@ -801,7 +1434,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// For primitive types, emits direct LLVM instructions. For non-primitive
     /// types, dispatches to the corresponding operator trait method
     /// (e.g., `+` → `Add.add()`).
-    // SYNC: also update ExprLowerer::lower_binary_op in lower_operators.rs
     fn emit_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId, lhs_ty: Idx) -> ValueId {
         // Trait dispatch for non-primitive types (user-defined operator impls)
         if !lhs_ty.is_primitive() {
@@ -850,8 +1482,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             BinaryOp::Shl => self.builder.shl(lhs, rhs, "shl"),
             BinaryOp::Shr => self.builder.ashr(lhs, rhs, "shr"),
             BinaryOp::FloorDiv => self.builder.sdiv(lhs, rhs, "floordiv"),
-            BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::Coalesce | BinaryOp::MatMul => {
-                // Range/coalesce/matmul ops are desugared or trait-dispatched before reaching ARC IR
+            BinaryOp::Coalesce => {
+                // opt ?? default → extract tag, if Some(0) return payload else default
+                // Result: same pattern — Ok(0) return payload else default
+                let tag = self
+                    .builder
+                    .extract_value(lhs, 0, "coal.tag")
+                    .unwrap_or(lhs);
+                let payload = self
+                    .builder
+                    .extract_value(lhs, 1, "coal.val")
+                    .unwrap_or(lhs);
+                let zero = self.builder.const_i64(0);
+                let is_some = self.builder.icmp_eq(tag, zero, "is_some");
+                self.builder.select(is_some, payload, rhs, "coal")
+            }
+            BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
+                // Range/matmul ops are desugared or trait-dispatched before reaching ARC IR
                 tracing::warn!(?op, "ArcIrEmitter: desugared op in binary expression");
                 self.builder.const_i64(0)
             }
@@ -900,7 +1547,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// Maps the operator to its trait method name (e.g., `+` → `"add"`),
     /// looks up the compiled method function, and emits a method call.
-    // SYNC: also update ExprLowerer::lower_binary_op_via_trait in lower_operators.rs
     fn emit_binary_op_via_trait(
         &mut self,
         op: BinaryOp,
@@ -941,7 +1587,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// Maps the operator to its trait method name (e.g., `-` → `"negate"`),
     /// looks up the compiled method function, and emits a method call.
-    // SYNC: also update ExprLowerer::lower_unary_op_via_trait in lower_operators.rs
     fn emit_unary_op_via_trait(
         &mut self,
         op: UnaryOp,
@@ -991,13 +1636,21 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                // Enum: { tag, fields... }
-                // Build tag + fields as a struct
+                // Enum variants may have payloads smaller than the storage slot
+                // (e.g., Ok(int) in Result<int, str> where slot is {i64, ptr}).
+                // Use alloca + GEP + store to handle type mismatches safely.
+                // mem2reg eliminates the alloca in optimization.
                 let tag_val = self.builder.const_i64(i64::from(*variant));
-                let mut fields = Vec::with_capacity(1 + arg_vals.len());
-                fields.push(tag_val);
-                fields.extend_from_slice(&arg_vals);
-                self.builder.build_struct(llvm_ty, &fields, "variant")
+                let alloca = self.builder.alloca(llvm_ty, "variant");
+                let tag_gep = self.builder.struct_gep(llvm_ty, alloca, 0, "variant.tag");
+                self.builder.store(tag_val, tag_gep);
+                for (i, &val) in arg_vals.iter().enumerate() {
+                    let gep =
+                        self.builder
+                            .struct_gep(llvm_ty, alloca, (i + 1) as u32, "variant.field");
+                    self.builder.store(val, gep);
+                }
+                self.builder.load(llvm_ty, alloca, "variant")
             }
 
             CtorKind::ListLiteral => {
@@ -1039,10 +1692,104 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "list")
             }
 
-            CtorKind::MapLiteral | CtorKind::SetLiteral => {
-                // Map/set construction — stub for now
-                tracing::debug!("ArcIrEmitter: map/set literal construction (stub)");
-                self.builder.const_null_ptr()
+            CtorKind::MapLiteral => {
+                // Map literal: args are [key0, val0, key1, val1, ...]
+                let count = arg_vals.len() / 2;
+                let type_info = self.type_info.get(ty);
+                let (key_idx, val_idx) = match &type_info {
+                    super::type_info::TypeInfo::Map { key, value } => (*key, *value),
+                    _ => (Idx::INT, Idx::INT),
+                };
+                let key_llvm_ty = self.resolve_type(key_idx);
+                let val_llvm_ty = self.resolve_type(val_idx);
+                let key_size = self.type_info.get(key_idx).size().unwrap_or(8);
+                let val_size = self.type_info.get(val_idx).size().unwrap_or(8);
+
+                let count_val = self.builder.const_i64(count as i64);
+                let key_esize = self.builder.const_i64(key_size as i64);
+                let val_esize = self.builder.const_i64(val_size as i64);
+
+                let alloc_fn = self
+                    .builder
+                    .scx()
+                    .llmod
+                    .get_function("ori_list_alloc_data")
+                    .map(|f| self.builder.intern_function(f));
+
+                let keys_ptr = if let Some(fid) = alloc_fn {
+                    self.builder
+                        .call(fid, &[count_val, key_esize], "map.keys")
+                        .unwrap_or_else(|| self.builder.const_null_ptr())
+                } else {
+                    self.builder.const_null_ptr()
+                };
+
+                let vals_ptr = if let Some(fid) = alloc_fn {
+                    self.builder
+                        .call(fid, &[count_val, val_esize], "map.vals")
+                        .unwrap_or_else(|| self.builder.const_null_ptr())
+                } else {
+                    self.builder.const_null_ptr()
+                };
+
+                // Store keys and values into their respective arrays
+                for i in 0..count {
+                    let idx = self.builder.const_i64(i as i64);
+                    let key_ptr = self
+                        .builder
+                        .gep(key_llvm_ty, keys_ptr, &[idx], "map.key_ptr");
+                    self.builder.store(arg_vals[i * 2], key_ptr);
+
+                    let val_ptr = self
+                        .builder
+                        .gep(val_llvm_ty, vals_ptr, &[idx], "map.val_ptr");
+                    self.builder.store(arg_vals[i * 2 + 1], val_ptr);
+                }
+
+                // Build map struct: {i64 count, i64 cap, ptr keys, ptr vals}
+                self.builder.build_struct(
+                    llvm_ty,
+                    &[count_val, count_val, keys_ptr, vals_ptr],
+                    "map",
+                )
+            }
+
+            CtorKind::SetLiteral => {
+                // Set literal: same layout as list {i64 len, i64 cap, ptr data}
+                let count = arg_vals.len();
+                let type_info = self.type_info.get(ty);
+                let elem_idx = match &type_info {
+                    super::type_info::TypeInfo::Set { element } => *element,
+                    _ => Idx::INT,
+                };
+                let elem_llvm_ty = self.resolve_type(elem_idx);
+                let elem_size = self.type_info.get(elem_idx).size().unwrap_or(8);
+
+                let cap_val = self.builder.const_i64(count as i64);
+                let esize_val = self.builder.const_i64(elem_size as i64);
+
+                let data_ptr = if let Some(alloc_fn) =
+                    self.builder.scx().llmod.get_function("ori_list_alloc_data")
+                {
+                    let func_id = self.builder.intern_function(alloc_fn);
+                    self.builder
+                        .call(func_id, &[cap_val, esize_val], "set.data")
+                        .unwrap_or_else(|| self.builder.const_null_ptr())
+                } else {
+                    self.builder.const_null_ptr()
+                };
+
+                for (i, &val) in arg_vals.iter().enumerate() {
+                    let idx = self.builder.const_i64(i as i64);
+                    let elem_ptr = self
+                        .builder
+                        .gep(elem_llvm_ty, data_ptr, &[idx], "set.elem_ptr");
+                    self.builder.store(val, elem_ptr);
+                }
+
+                // Build set struct: {i64 len, i64 cap, ptr data}
+                self.builder
+                    .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "set")
             }
 
             CtorKind::Closure { func } => {
@@ -1081,11 +1828,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// Apply parameter passing modes to argument values.
     ///
-    /// Mirrors `ExprLowerer::apply_param_passing` — handles all `ParamPassing`
-    /// variants: `Indirect`/`Reference` (alloca+store+pass ptr), `Direct`
-    /// (pass through), `Void` (skip).
-    ///
-    // SYNC: also update ExprLowerer::apply_param_passing in lower_calls.rs
+    /// Apply param passing: `Indirect`/`Reference` (alloca+store+pass ptr),
+    /// `Direct` (pass through), `Void` (skip).
     fn apply_param_passing(
         &mut self,
         args: &[ValueId],
@@ -1147,6 +1891,288 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     // -----------------------------------------------------------------------
+    // RC data pointer extraction
+    // -----------------------------------------------------------------------
+
+    /// Extract the RC-managed data pointer(s) from a value based on its type.
+    ///
+    /// `ori_rc_inc`/`ori_rc_dec` take raw pointers to RC-allocated heap data.
+    /// When a value is an inline aggregate (List, Str, Map, Set, structs with
+    /// RC fields), we extract the embedded data pointer(s). For compound types
+    /// (struct, tuple, option, result, enum) that contain RC fields, we
+    /// recursively extract from each RC'd field.
+    ///
+    /// | Type   | Layout                         | Data Ptr Field(s)  |
+    /// |--------|--------------------------------|--------------------|
+    /// | List   | `{i64, i64, ptr}`              | field 2            |
+    /// | Set    | `{i64, i64, ptr}`              | field 2            |
+    /// | Str    | `{i64, ptr}`                   | field 1            |
+    /// | Map    | `{i64, i64, ptr, ptr}`         | field 2, field 3   |
+    /// | Struct | `{field0, field1, ...}`         | recurse per field  |
+    /// | Tuple  | `{elem0, elem1, ...}`          | recurse per elem   |
+    /// | Option | `{i64 tag, T payload}`         | recurse into inner |
+    /// | Result | `{i64 tag, payload}`           | recurse into ok/err|
+    /// | Enum   | `{i64 tag, payload}`           | recurse into fields|
+    /// | Other  | already a ptr                  | use directly        |
+    fn extract_rc_data_ptrs(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
+        // Resolve type variables and Named/Applied/Alias to get the concrete tag.
+        // The type checker may leave unresolved Var indices in compound types
+        // (e.g., Option<Var(96)> where Var(96) → int via VarState::Link).
+        let resolved = self.pool.resolve_fully(ty);
+        let tag = self.pool.tag(resolved);
+        match tag {
+            Tag::List | Tag::Set => {
+                // {i64 len, i64 cap, ptr data} — data at field 2
+                if let Some(ptr) = self.builder.extract_value(val, 2, "rc.data_ptr") {
+                    vec![ptr]
+                } else {
+                    vec![val]
+                }
+            }
+            Tag::Str => {
+                // {i64 len, ptr data} — data at field 1
+                if let Some(ptr) = self.builder.extract_value(val, 1, "rc.data_ptr") {
+                    vec![ptr]
+                } else {
+                    vec![val]
+                }
+            }
+            Tag::Map => {
+                // {i64 len, i64 cap, ptr keys, ptr vals} — keys at 2, vals at 3
+                let mut ptrs = Vec::with_capacity(2);
+                if let Some(keys) = self.builder.extract_value(val, 2, "rc.keys_ptr") {
+                    ptrs.push(keys);
+                }
+                if let Some(vals) = self.builder.extract_value(val, 3, "rc.vals_ptr") {
+                    ptrs.push(vals);
+                }
+                if ptrs.is_empty() {
+                    vec![val]
+                } else {
+                    ptrs
+                }
+            }
+            Tag::Struct => self.extract_rc_from_struct_fields(val, resolved),
+            Tag::Tuple => self.extract_rc_from_tuple_elems(val, resolved),
+            Tag::Option => {
+                // {i8 tag, T payload} — recurse into inner type at field 1
+                let inner = self.pool.option_inner(resolved);
+                if self.classifier.is_some_and(|c| c.needs_rc(inner)) {
+                    if let Some(field) = self.builder.extract_value(val, 1, "rc.opt_inner") {
+                        return self.extract_rc_data_ptrs(field, inner);
+                    }
+                }
+                vec![] // scalar option — no RC needed
+            }
+            Tag::Result => {
+                // Result has two possible types; we can't statically know which
+                // is active. Skip RC here — the ARC pipeline should handle
+                // result fields individually.
+                vec![]
+            }
+            Tag::Enum => {
+                // Enum variant tag + payload — can't statically know which
+                // variant is active. Skip RC at the aggregate level.
+                vec![]
+            }
+            _ => vec![val],
+        }
+    }
+
+    /// Extract RC data pointers from a struct's fields.
+    fn extract_rc_from_struct_fields(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
+        let fields = self.pool.struct_fields(ty);
+        let mut ptrs = Vec::new();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "field count bounded by struct definition, well within u32 range"
+        )]
+        for (i, (_, field_ty)) in fields.into_iter().enumerate() {
+            if self.classifier.is_some_and(|c| c.needs_rc(field_ty)) {
+                if let Some(field_val) =
+                    self.builder
+                        .extract_value(val, i as u32, &format!("rc.field.{i}"))
+                {
+                    ptrs.extend(self.extract_rc_data_ptrs(field_val, field_ty));
+                }
+            }
+        }
+        ptrs
+    }
+
+    /// Extract RC data pointers from a tuple's elements.
+    fn extract_rc_from_tuple_elems(&mut self, val: ValueId, ty: Idx) -> Vec<ValueId> {
+        let elems = self.pool.tuple_elems(ty);
+        let mut ptrs = Vec::new();
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "element count bounded by tuple arity, well within u32 range"
+        )]
+        for (i, elem_ty) in elems.into_iter().enumerate() {
+            if self.classifier.is_some_and(|c| c.needs_rc(elem_ty)) {
+                if let Some(elem_val) =
+                    self.builder
+                        .extract_value(val, i as u32, &format!("rc.elem.{i}"))
+                {
+                    ptrs.extend(self.extract_rc_data_ptrs(elem_val, elem_ty));
+                }
+            }
+        }
+        ptrs
+    }
+
+    // -----------------------------------------------------------------------
+    // List take (sret helper for for-yield finalization)
+    // -----------------------------------------------------------------------
+
+    /// Emit `ori_list_take(list_ptr, out_ptr)` with manual sret handling.
+    ///
+    /// `ori_list_take` uses an explicit sret pattern: `void(ptr list, ptr out)`.
+    /// We alloca a `{i64, i64, ptr}` result, call the function, then load.
+    fn emit_list_take(&mut self, list_var: ArcVarId, _func: &ArcFunction) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_list_take")?;
+        let func_id = self.builder.intern_function(llvm_func);
+        let list_ptr = self.var(list_var);
+
+        // Alloca {i64, i64, ptr} for the result
+        let list_struct_ty = self.builder.register_type(
+            self.builder
+                .scx()
+                .type_struct(
+                    &[
+                        self.builder.scx().type_i64().into(),
+                        self.builder.scx().type_i64().into(),
+                        self.builder.scx().type_ptr().into(),
+                    ],
+                    false,
+                )
+                .into(),
+        );
+        let out_alloca = self.builder.create_entry_alloca(
+            self.current_function,
+            "list_take.out",
+            list_struct_ty,
+        );
+
+        // Call ori_list_take(list_ptr, out_alloca) — void return
+        self.builder
+            .call(func_id, &[list_ptr, out_alloca], "list_take");
+
+        // Load the result struct from the alloca
+        Some(
+            self.builder
+                .load(list_struct_ty, out_alloca, "list_take.val"),
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // Aggregate-to-pointer coercion
+    // -----------------------------------------------------------------------
+
+    /// Coerce an aggregate value to a pointer for runtime function calls.
+    ///
+    /// Runtime functions like `ori_print` expect `ptr` arguments (pointers to
+    /// structs), but ARC IR passes aggregate values directly. When we detect
+    /// that a call arg is an aggregate but the callee expects `ptr`, we
+    /// alloca+store+pass the pointer.
+    fn coerce_aggregate_to_ptr(&mut self, val: ValueId, ty: Idx) -> ValueId {
+        let tag = self.pool.tag(ty);
+        match tag {
+            Tag::Str | Tag::List | Tag::Set | Tag::Map => {
+                let llvm_ty = self.resolve_type(ty);
+                let alloca =
+                    self.builder
+                        .create_entry_alloca(self.current_function, "rt_arg", llvm_ty);
+                self.builder.store(val, alloca);
+                alloca
+            }
+            _ => val,
+        }
+    }
+
+    /// Coerce any value (including scalars) to a pointer via alloca+store.
+    ///
+    /// Unlike `coerce_aggregate_to_ptr` which only handles struct types,
+    /// this works for ALL types. Used by `ori_list_push` which needs a
+    /// `*const u8` pointer to any element's bytes.
+    fn coerce_any_to_ptr(&mut self, val: ValueId, ty: Idx) -> ValueId {
+        let llvm_ty = self.resolve_type(ty);
+        let alloca = self
+            .builder
+            .create_entry_alloca(self.current_function, "elem_arg", llvm_ty);
+        self.builder.store(val, alloca);
+        alloca
+    }
+
+    // -----------------------------------------------------------------------
+    // String runtime call helpers
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // hash_combine (free function)
+    // -----------------------------------------------------------------------
+
+    /// Emit `hash_combine(a, b)` inline using the boost `hash_combine` pattern.
+    ///
+    /// `a ^ (b + 0x9e3779b9 + (a << 6) + (a >> 2))`
+    pub(crate) fn emit_hash_combine(&mut self, a: ValueId, b: ValueId) -> ValueId {
+        let magic = self.builder.const_i64(0x9e37_79b9_i64);
+        let six = self.builder.const_i64(6);
+        let two = self.builder.const_i64(2);
+
+        let a_shl6 = self.builder.shl(a, six, "hc.shl");
+        let a_shr2 = self.builder.ashr(a, two, "hc.shr");
+        let sum1 = self.builder.add(b, magic, "hc.sum1");
+        let sum2 = self.builder.add(sum1, a_shl6, "hc.sum2");
+        let sum3 = self.builder.add(sum2, a_shr2, "hc.sum3");
+        self.builder.xor(a, sum3, "hc.result")
+    }
+
+    // -----------------------------------------------------------------------
+    // Format call decomposition
+    // -----------------------------------------------------------------------
+
+    /// Intercept `ori_format_*` calls and decompose the string spec argument.
+    ///
+    /// ARC IR emits `Apply("ori_format_int", [val, spec_str])` with 2 args.
+    /// Runtime expects `ori_format_int(val, spec_ptr, spec_len)` — 3 args.
+    /// The `spec_str` is `{i64 len, ptr data}` that needs decomposition.
+    fn try_emit_format_call(
+        &mut self,
+        callee_name: &str,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> Option<ValueId> {
+        if !callee_name.starts_with("ori_format_") || args.len() < 2 {
+            return None;
+        }
+
+        let llvm_func = self.builder.scx().llmod.get_function(callee_name)?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        // args[0] = the value to format
+        let value = self.var(args[0]);
+        // args[1] = spec string {i64 len, ptr data}
+        let spec_str = self.var(args[1]);
+
+        // For ori_format_str, the value arg is also a string struct — coerce to ptr.
+        let value_arg = if callee_name == "ori_format_str" {
+            let val_ty = func.var_type(args[0]);
+            self.coerce_aggregate_to_ptr(value, val_ty)
+        } else {
+            value
+        };
+
+        // Decompose spec string: extract len (field 0) and data (field 1)
+        let spec_len = self.builder.extract_value(spec_str, 0, "fmt.spec_len")?;
+        let spec_ptr = self.builder.extract_value(spec_str, 1, "fmt.spec_ptr")?;
+
+        // Call runtime: ori_format_*(value, spec_ptr, spec_len)
+        self.builder
+            .call(func_id, &[value_arg, spec_ptr, spec_len], "fmt")
+    }
+
+    // -----------------------------------------------------------------------
     // String runtime call helpers
     // -----------------------------------------------------------------------
 
@@ -1154,7 +2180,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// String values are `{ i64, ptr }` structs passed by pointer to the runtime.
     /// `returns_str` controls the return type: `true` → `{ i64, ptr }`, `false` → `i1`.
-    // SYNC: also update ExprLowerer::lower_str_concat / lower_str_eq / lower_str_ne in lower_operators.rs
     fn emit_str_runtime_call(
         &mut self,
         func_name: &str,

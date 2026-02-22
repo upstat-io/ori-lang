@@ -27,16 +27,18 @@ Debug and release can differ due to FastISel behavior (see below). Never conside
 
 **Two-pass compilation:**
 1. **Declare**: Walk functions → compute `FunctionAbi` → declare with calling conventions/attributes
-2. **Define**: Walk again → create `ExprLowerer` → bind parameters → lower body
+2. **Define**: Walk again → lower through ARC pipeline (CanExpr → ARC IR → `ArcIrEmitter` → LLVM IR)
 
 **Pipeline**: `declare_all()` → `define_all()` → `compile_tests()` → `compile_impls()` → `compile_derives()` → `generate_main_wrapper()`
+
+**ARC codegen is the only path.** All functions (JIT and AOT) go through `CanExpr → ARC IR → ArcIrEmitter → LLVM IR` with full RC lifecycle management.
 
 ## Key Abstractions
 
 | Abstraction | Purpose |
 |-------------|---------|
 | `FunctionCompiler` | Two-pass declare/define orchestrator |
-| `ExprLowerer` | Per-function expression lowering |
+| `ArcIrEmitter` | ARC IR → LLVM IR emission (with RC) |
 | `IrBuilder` | ID-based inkwell wrapper, hides `'ctx` lifetime |
 | `FunctionAbi` | Parameter/return passing modes (Direct/Indirect/Sret/Void) |
 | `ValueArena` | Opaque IDs (`ValueId`, `BlockId`, `FunctionId`) |
@@ -92,13 +94,12 @@ Verify at multiple points: per-function (`fn_val.verify(true)`), pre-optimizatio
 
 | File | Purpose |
 |------|---------|
-| `codegen/mod.rs` | Codegen entry, `FunctionCompiler` |
+| `codegen/mod.rs` | Codegen entry |
 | `codegen/function_compiler/` | Two-pass declare/define |
 | `codegen/ir_builder/` | ID-based instruction emission |
-| `codegen/expr_lowerer.rs` | Expression lowering |
+| `codegen/arc_emitter/` | ARC IR → LLVM IR emission |
 | `codegen/derive_codegen/` | Derived trait IR generation |
 | `codegen/abi/` | ABI computation |
-| `codegen/scope/` | Scope management |
 | `aot/` | AOT pipeline (linking, mangling, target) |
 | `evaluator.rs` | JIT execution + IR verification |
 | `runtime.rs` | Runtime function declarations |

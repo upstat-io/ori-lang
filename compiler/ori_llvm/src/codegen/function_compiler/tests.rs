@@ -2,6 +2,7 @@ use super::*;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::context::SimpleCx;
 use inkwell::context::Context;
+use ori_arc::{AnnotatedSig, ArcClassifier};
 use ori_ir::canon::CanId;
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -62,6 +63,8 @@ fn declare_simple_function() {
         false,
     );
 
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -69,8 +72,8 @@ fn declare_simple_function() {
         &interner,
         &pool,
         "",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -97,6 +100,8 @@ fn declare_void_function() {
     let func_name = interner.intern("do_thing");
     let sig = make_sig(func_name, vec![], vec![], Idx::UNIT, false);
 
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -104,8 +109,8 @@ fn declare_void_function() {
         &interner,
         &pool,
         "",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -128,6 +133,8 @@ fn declare_sret_function() {
     let func_name = interner.intern("get_list");
     let sig = make_sig(func_name, vec![], vec![], list_int, false);
 
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -135,8 +142,8 @@ fn declare_sret_function() {
         &interner,
         &pool,
         "",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -168,6 +175,8 @@ fn declare_main_uses_c_calling_convention() {
     let func_name = interner.intern("main");
     let sig = make_sig(func_name, vec![], vec![], Idx::UNIT, true);
 
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -175,8 +184,8 @@ fn declare_main_uses_c_calling_convention() {
         &interner,
         &pool,
         "",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);
@@ -230,6 +239,8 @@ fn generic_functions_are_skipped() {
         visibility: ori_ir::Visibility::Private,
     };
 
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -237,8 +248,8 @@ fn generic_functions_are_skipped() {
         &interner,
         &pool,
         "",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
     fc.declare_all(&[func], &[sig]);
@@ -284,6 +295,8 @@ fn function_map_returns_all_declared() {
         false,
     );
 
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -291,8 +304,8 @@ fn function_map_returns_all_declared() {
         &interner,
         &pool,
         "",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
     fc.declare_function(add_name, &sig_add, Span::DUMMY);
@@ -401,6 +414,8 @@ fn compile_impls_populates_method_functions_map() {
         problems: vec![],
     };
 
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -408,8 +423,8 @@ fn compile_impls_populates_method_functions_map() {
         &interner,
         &pool,
         "",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
 
@@ -491,6 +506,8 @@ fn module_path_appears_in_mangled_name() {
     let sig = make_sig(func_name, vec![a_name], vec![Idx::INT], Idx::INT, false);
 
     // Use "math" as module path
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
     let mut fc = FunctionCompiler::new(
         &mut builder,
         &store,
@@ -498,8 +515,8 @@ fn module_path_appears_in_mangled_name() {
         &interner,
         &pool,
         "math",
-        None,
-        None,
+        &annotated_sigs,
+        &classifier,
         None,
     );
     fc.declare_function(func_name, &sig, Span::DUMMY);

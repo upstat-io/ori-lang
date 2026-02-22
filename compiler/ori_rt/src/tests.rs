@@ -21,10 +21,12 @@ fn rc_inc_increments_count() {
     assert_eq!(ori_rc_count(ptr), 2);
     ori_rc_inc(ptr);
     assert_eq!(ori_rc_count(ptr), 3);
-    // Clean up: dec back to 0 without drop fn
+    // Clean up: dec back to 0, then free the allocation.
+    // Using None for drop_fn since we handle cleanup explicitly.
     ori_rc_dec(ptr, None);
     ori_rc_dec(ptr, None);
     ori_rc_dec(ptr, None);
+    ori_rc_free(ptr, 16, 8);
 }
 
 #[test]
@@ -40,8 +42,9 @@ fn rc_dec_decrements_count() {
     ori_rc_dec(ptr, None);
     assert_eq!(ori_rc_count(ptr), 1);
 
-    // Final dec will trigger drop (but we pass None, so just leaks)
-    // Don't read count after this — memory may be freed
+    // Final dec reaches 0 (no drop_fn), then free explicitly.
+    ori_rc_dec(ptr, None);
+    ori_rc_free(ptr, 16, 8);
 }
 
 #[test]
@@ -57,9 +60,13 @@ fn rc_null_pointer_is_noop() {
 /// Global counter for tracking drop function calls.
 static DROP_CALL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-/// Test drop function that increments the global counter.
-extern "C" fn test_drop_fn(_data_ptr: *mut u8) {
+/// Test drop function that increments the global counter and frees the allocation.
+///
+/// Real drop functions always call `ori_rc_free` as their final step.
+/// Test drop functions must do the same to keep `RC_LIVE_COUNT` accurate.
+extern "C" fn test_drop_fn(data_ptr: *mut u8) {
     DROP_CALL_COUNT.fetch_add(1, Ordering::SeqCst);
+    ori_rc_free(data_ptr, 16, 8);
 }
 
 #[test]
@@ -126,10 +133,11 @@ fn concurrent_increments_are_correct() {
     let expected = 1 + i64::from(num_threads * incs_per_thread);
     assert_eq!(ori_rc_count(ptr), expected);
 
-    // Clean up: decrement back to zero
+    // Clean up: decrement back to zero, then free.
     for _ in 0..expected {
         ori_rc_dec(ptr, None);
     }
+    ori_rc_free(ptr, 16, 8);
 }
 
 #[test]
@@ -172,17 +180,63 @@ fn concurrent_inc_and_dec_are_correct() {
     let expected = 1 + i64::from(extra_refs);
     assert_eq!(ori_rc_count(ptr), expected);
 
-    // Clean up
+    // Clean up: decrement back to zero, then free.
     for _ in 0..expected {
         ori_rc_dec(ptr, None);
     }
+    ori_rc_free(ptr, 16, 8);
 }
 
 /// Global counter for concurrent drop tracking.
 static CONCURRENT_DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-extern "C" fn concurrent_test_drop_fn(_data_ptr: *mut u8) {
+extern "C" fn concurrent_test_drop_fn(data_ptr: *mut u8) {
     CONCURRENT_DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+    ori_rc_free(data_ptr, 16, 8);
+}
+
+// ── Leak detection (RC_LIVE_COUNT) ────────────────────────────────────
+
+#[test]
+fn rc_live_count_tracks_alloc_and_free() {
+    let before = ori_rc_live_count();
+
+    let ptr = ori_rc_alloc(16, 8);
+    assert_eq!(ori_rc_live_count(), before + 1);
+
+    ori_rc_free(ptr, 16, 8);
+    assert_eq!(ori_rc_live_count(), before);
+}
+
+#[test]
+fn rc_live_count_nonzero_after_alloc_without_free() {
+    let before = ori_rc_live_count();
+
+    let ptr = ori_rc_alloc(16, 8);
+    assert!(
+        ori_rc_live_count() > before,
+        "live count should increase after allocation"
+    );
+
+    // Clean up so we don't pollute other tests
+    ori_rc_free(ptr, 16, 8);
+}
+
+#[test]
+fn rc_reset_live_count_zeroes_counter() {
+    // Allocate without freeing
+    let _ptr = ori_rc_alloc(16, 8);
+
+    ori_rc_reset_live_count();
+    assert_eq!(
+        ori_rc_live_count(),
+        0,
+        "live count should be zero after reset"
+    );
+
+    // Note: the allocation is now leaked — this is intentional for testing
+    // the reset mechanism. The leaked memory is small and the test process
+    // exits shortly after.
 }
 
 #[test]
