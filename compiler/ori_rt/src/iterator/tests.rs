@@ -311,13 +311,14 @@ fn find_found() {
     let data: [i64; 5] = [1, 2, 3, 4, 5];
     let iter = ori_iter_from_list(data.as_ptr().cast(), 5, 8);
 
-    // Option<i64> = { i8 tag, [7 padding], i64 payload } = 16 bytes
+    // Option<i64> = { i64 tag, i64 payload } = 16 bytes
+    // ARC enum convention: Some=0, None=1
     let mut out = [0u8; 16];
     ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
 
-    let tag = out[0];
+    let tag = unsafe { out.as_ptr().cast::<i64>().read() };
     let payload = unsafe { out.as_ptr().add(8).cast::<i64>().read() };
-    assert_eq!(tag, 1); // Some
+    assert_eq!(tag, 0); // Some (ARC: first variant = 0)
     assert_eq!(payload, 4); // first > 3
 }
 
@@ -326,10 +327,12 @@ fn find_not_found() {
     let data: [i64; 3] = [1, 2, 3];
     let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
 
+    // ARC enum convention: Some=0, None=1
     let mut out = [0u8; 16];
     ori_iter_find(iter, gt_3, ptr::null_mut(), 8, out.as_mut_ptr());
 
-    assert_eq!(out[0], 0); // None
+    let tag = unsafe { out.as_ptr().cast::<i64>().read() };
+    assert_eq!(tag, 1); // None (ARC: second variant = 1)
 }
 
 // ── For Each consumer ──────────────────────────────────────────────────

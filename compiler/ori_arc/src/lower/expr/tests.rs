@@ -4,7 +4,6 @@ use ori_types::Idx;
 use ori_types::Pool;
 
 use crate::ir::{ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
-use crate::lower::ArcProblem;
 
 use super::super::lower_function_can;
 
@@ -210,7 +209,7 @@ fn lower_unary_op() {
 }
 
 #[test]
-fn lower_unsupported_expr_produces_problem() {
+fn lower_await_is_transparent() {
     let mut arena = CanArena::with_capacity(100);
     let inner = arena.push(CanNode::new(
         ori_ir::canon::CanExpr::Unit,
@@ -236,7 +235,7 @@ fn lower_unsupported_expr_produces_problem() {
     let interner = StringInterner::new();
     let pool = Pool::new();
     let mut problems = Vec::new();
-    let (_func, _) = lower_function_can(
+    let (func, _) = lower_function_can(
         Name::from_raw(1),
         &[],
         Idx::UNIT,
@@ -247,11 +246,10 @@ fn lower_unsupported_expr_produces_problem() {
         &mut problems,
     );
 
-    assert_eq!(problems.len(), 1);
-    assert!(matches!(
-        &problems[0],
-        ArcProblem::UnsupportedExpr { kind: "Await", .. }
-    ));
+    // Await is now transparent — just evaluates inner expression, no problems
+    assert_eq!(problems.len(), 0);
+    // The function should have lowered the inner unit expression
+    assert!(!func.blocks.is_empty());
 }
 
 #[test]

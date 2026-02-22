@@ -37,7 +37,14 @@ impl ArcLowerer<'_> {
             } => {
                 // Per-binding mutability: use the flag from the pattern itself
                 // to support `let ($x, y) = ...` with mixed mutability.
-                if pat_mutable.is_mutable() {
+                let is_mut = pat_mutable.is_mutable();
+                tracing::trace!(
+                    name = self.name_str(*name),
+                    var = value.raw(),
+                    mutable = is_mut,
+                    "pattern: bind name"
+                );
+                if is_mut {
                     self.scope.bind_mutable(*name, value);
                 } else {
                     self.scope.bind(*name, value);

@@ -334,8 +334,8 @@ pub fn compile_to_llvm<'ctx>(
             interner,
             pool,
             "",
-            Some(&annotated_sigs),
-            Some(&classifier),
+            &annotated_sigs,
+            &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
         );
         fc.declare_all(&parse_result.module.functions, &function_sigs);
@@ -508,8 +508,8 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             interner,
             pool,
             module_name,
-            Some(&annotated_sigs),
-            Some(&classifier),
+            &annotated_sigs,
+            &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
         );
         // Declare imports first so they're visible to function bodies

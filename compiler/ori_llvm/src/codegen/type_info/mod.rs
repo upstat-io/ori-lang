@@ -86,7 +86,7 @@ pub enum TypeInfo {
     Option { inner: Idx },
     /// `result[T, E]` -> {i8 tag, max(T, E) payload}
     Result { ok: Idx, err: Idx },
-    /// `range` -> {i64 start, i64 end, i1 inclusive}
+    /// `range` -> {i64 start, i64 end, i64 step, i64 inclusive}
     Range,
     /// User-defined struct -> {field1, field2, ...}
     Struct { fields: Vec<(Name, Idx)> },
@@ -155,12 +155,17 @@ impl TypeInfo {
                 )
                 .into(),
 
+            // Range layout: {i64 start, i64 end, i64 step, i64 inclusive}
+            // ARC IR constructs ranges as 4-element tuples with i64 fields.
+            // The inclusive flag is stored as i64 (0/1) and truncated to i1
+            // only when calling ori_iter_from_range.
             Self::Range => scx
                 .type_struct(
                     &[
                         scx.type_i64().into(),
                         scx.type_i64().into(),
-                        scx.type_i1().into(),
+                        scx.type_i64().into(),
+                        scx.type_i64().into(),
                     ],
                     false,
                 )
@@ -175,12 +180,12 @@ impl TypeInfo {
                 // the store here, use i64 as a uniform payload representation.
                 // The actual payload coercion happens at emit time.
                 let _ = inner;
-                scx.type_struct(&[scx.type_i8().into(), scx.type_i64().into()], false)
+                scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
                     .into()
             }
             Self::Result { ok, err } => {
                 let _ = (ok, err);
-                scx.type_struct(&[scx.type_i8().into(), scx.type_i64().into()], false)
+                scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
                     .into()
             }
 
@@ -213,8 +218,8 @@ impl TypeInfo {
                 scx.type_struct(&field_types, false).into()
             }
             Self::Enum { .. } => {
-                // Default: {i8 tag, i64 payload} — real layout computed by store
-                scx.type_struct(&[scx.type_i8().into(), scx.type_i64().into()], false)
+                // Default: {i64 tag, i64 payload} — real layout computed by store
+                scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
                     .into()
             }
 
@@ -251,17 +256,17 @@ impl TypeInfo {
             // 16-byte types:
             // Function: fat-pointer closure { ptr, ptr }
             // Str: {i64, ptr}
-            // Option/Result: {i8, i64} — LLVM pads to 16 bytes
+            // Option/Result: {i64, T} — uniform i64 tag + payload = 16 bytes
             Self::Function { .. } | Self::Str | Self::Option { .. } | Self::Result { .. } => {
                 Some(16)
             }
 
             // List/Set: {i64, i64, ptr} = 24 bytes
-            // Range: {i64, i64, i1} — LLVM pads to 24 bytes (8+8+8 with alignment)
-            Self::List { .. } | Self::Set { .. } | Self::Range => Some(24),
+            Self::List { .. } | Self::Set { .. } => Some(24),
 
+            // Range: {i64 start, i64 end, i64 step, i64 inclusive} = 32 bytes
             // Map: {i64, i64, ptr, ptr} = 32 bytes
-            Self::Map { .. } => Some(32),
+            Self::Range | Self::Map { .. } => Some(32),
 
             // Dynamic-size types: depend on element/field types
             Self::Tuple { .. } | Self::Struct { .. } | Self::Enum { .. } => None,
@@ -826,7 +831,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 let payload = self.resolve(*inner);
                 self.resolving.borrow_mut().remove(&idx);
                 self.scx
-                    .type_struct(&[self.scx.type_i8().into(), payload], false)
+                    .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
             }
             TypeInfo::Result { ok, err } => {
@@ -839,7 +844,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
                 let err_size = Self::type_store_size(err_ty);
                 let payload = if ok_size >= err_size { ok_ty } else { err_ty };
                 self.scx
-                    .type_struct(&[self.scx.type_i8().into(), payload], false)
+                    .type_struct(&[self.scx.type_i64().into(), payload], false)
                     .into()
             }
 
@@ -933,7 +938,7 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         }
 
         // Phase 3: Fill enum body.
-        let tag_ty = self.scx.type_i8();
+        let tag_ty = self.scx.type_i64();
         if max_payload_bytes == 0 {
             // All-unit enum: just a tag.
             self.scx

@@ -82,6 +82,19 @@ impl IrBuilder<'_, '_> {
         self.icmp_impl(IntPredicate::UGE, lhs, rhs, name)
     }
 
+    // -- Pointer comparisons --
+
+    /// Check whether a pointer value is null.
+    ///
+    /// Converts `ptr → i64` then `icmp eq i64 %val, 0`. Works for any pointer,
+    /// including opaque `ptr` types in LLVM 15+.
+    pub fn is_null_ptr(&mut self, ptr: ValueId, name: &str) -> ValueId {
+        let i64_ty = self.i64_type();
+        let as_int = self.ptr_to_int(ptr, i64_ty, &format!("{name}.p2i"));
+        let zero = self.const_i64(0);
+        self.icmp_eq(as_int, zero, name)
+    }
+
     // -- Float comparisons --
 
     /// Generic float comparison.

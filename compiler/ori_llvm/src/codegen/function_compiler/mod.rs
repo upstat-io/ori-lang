@@ -6,8 +6,8 @@
 //!    `ori_types::FunctionSig`, declare LLVM functions with correct types,
 //!    calling conventions, and attributes (sret, noalias).
 //!
-//! 2. **Phase 2 (define)**: Walk all functions again, create `ExprLowerer`
-//!    for each, bind parameters to scope, lower body expression, emit return.
+//! 2. **Phase 2 (define)**: Walk all functions again, lower through the ARC
+//!    pipeline (`CanExpr` → ARC IR → `ArcIrEmitter` → LLVM IR).
 //!
 //! This replaces `ModuleCompiler::compile_function_with_sig()` and
 //! `compile_test()` with ABI-driven compilation that gets calling conventions
@@ -22,17 +22,15 @@ use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::{FxHashMap, FxHashSet};
 use tracing::{debug, trace, warn};
 
-use crate::aot::debug::{DebugContext, DebugLevel};
+use crate::aot::debug::DebugContext;
 use crate::aot::mangle::Mangler;
 
 use super::abi::{
-    compute_function_abi, compute_function_abi_with_ownership, CallConv, FunctionAbi, ParamPassing,
-    ReturnPassing,
+    compute_function_abi_with_ownership, compute_param_passing, compute_return_passing, CallConv,
+    FunctionAbi, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing,
 };
 use super::arc_emitter::ArcIrEmitter;
-use super::expr_lowerer::ExprLowerer;
 use super::ir_builder::IrBuilder;
-use super::scope::Scope;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
@@ -64,24 +62,20 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
     /// Maps receiver type `Idx` → type `Name` for method dispatch.
     ///
-    /// Used by `ExprLowerer` to resolve `expr_type(receiver)` to a type name
+    /// Used by `ArcIrEmitter` to resolve `expr_type(receiver)` to a type name
     /// for lookup in `method_functions`. Populated by `compile_impls` using
     /// `FunctionSig.param_types[0]` (the self parameter type).
     type_idx_to_name: FxHashMap<Idx, Name>,
     /// Module-wide lambda counter for unique lambda function names.
     lambda_counter: Cell<u32>,
     /// Borrow inference results: function `Name` → annotated signature.
-    /// When present, `Ownership::Borrowed` + non-Scalar parameters use
+    /// `Ownership::Borrowed` + non-Scalar parameters use
     /// `ParamPassing::Reference` (pointer, no RC at call site).
-    annotated_sigs: Option<&'a FxHashMap<Name, AnnotatedSig>>,
+    annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
     /// Type classifier for ARC analysis (scalar vs ref classification).
-    /// Required when `annotated_sigs` is present.
-    arc_classifier: Option<&'a ArcClassifier<'tcx>>,
+    arc_classifier: &'a ArcClassifier<'tcx>,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
-    /// When `true`, use Tier 2 ARC codegen path (ARC IR → LLVM IR with RC).
-    /// When `false` (default), use Tier 1 (`ExprLowerer` → LLVM IR, no RC).
-    use_arc_codegen: bool,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -91,10 +85,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// `"math"` or `"data/utils"` for nested modules. All LLVM symbols
     /// are mangled (e.g., `add` → `_ori_add`, `math.add` → `_ori_math$add`).
     ///
-    /// `annotated_sigs` and `arc_classifier` enable borrow-aware ABI:
-    /// when present, `Borrowed` + non-Scalar parameters use `Reference`
-    /// passing (pointer, no RC at call site). Pass `None` for both to
-    /// use standard size-based passing.
+    /// `annotated_sigs` and `arc_classifier` drive borrow-aware ABI:
+    /// `Borrowed` + non-Scalar parameters use `Reference` passing
+    /// (pointer, no RC at call site).
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
@@ -102,8 +95,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         interner: &'a StringInterner,
         pool: &'tcx Pool,
         module_path: &'a str,
-        annotated_sigs: Option<&'a FxHashMap<Name, AnnotatedSig>>,
-        arc_classifier: Option<&'a ArcClassifier<'tcx>>,
+        annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
+        arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
         Self {
@@ -121,18 +114,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             annotated_sigs,
             arc_classifier,
             debug_context,
-            use_arc_codegen: false,
         }
-    }
-
-    /// Enable Tier 2 ARC codegen for all functions compiled through this instance.
-    ///
-    /// Requires `arc_classifier` to be set (passed in constructor). When enabled,
-    /// `define_function_body` runs the full ARC pipeline (lower → borrow → liveness
-    /// → RC insert → detect/expand reuse → RC eliminate → `ArcIrEmitter`) instead
-    /// of the Tier 1 `ExprLowerer` path.
-    pub fn set_arc_codegen(&mut self, enabled: bool) {
-        self.use_arc_codegen = enabled;
     }
 
     // -----------------------------------------------------------------------
@@ -234,13 +216,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     ) {
         let name_str = self.interner.lookup(name);
 
-        let abi = match (self.annotated_sigs, self.arc_classifier) {
-            (Some(sigs), Some(classifier)) => {
-                let annotated = sigs.get(&name);
-                compute_function_abi_with_ownership(sig, self.type_info, annotated, classifier)
-            }
-            _ => compute_function_abi(sig, self.type_info),
-        };
+        let abi = compute_function_abi_with_ownership(
+            sig,
+            self.type_info,
+            self.annotated_sigs.get(&name),
+            self.arc_classifier,
+        );
 
         debug!(
             name = name_str,
@@ -272,8 +253,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Define all module function bodies.
     ///
     /// Must be called after `declare_all()`. For each non-generic function,
-    /// creates an `ExprLowerer`, binds parameters, lowers the body, and emits
-    /// the return instruction.
+    /// lowers through the ARC pipeline and emits the return instruction.
     pub fn define_all(
         &mut self,
         module_functions: &[Function],
@@ -302,11 +282,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    /// Define a single function body.
+    /// Define a single function body via the ARC codegen pipeline.
     ///
-    /// Dispatches to Tier 1 (`ExprLowerer`) or Tier 2 (`ArcIrEmitter`) based
-    /// on `use_arc_codegen`. Both paths produce correct LLVM IR; Tier 2 adds
-    /// RC lifecycle operations (`ori_rc_inc`/`ori_rc_dec`).
+    /// Runs: lower → borrow annotate → ARC pipeline → `ArcIrEmitter`.
     fn define_function_body(
         &mut self,
         name: Name,
@@ -315,73 +293,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         body: CanId,
         canon: &CanonResult,
     ) {
-        if self.use_arc_codegen {
-            if let Some(classifier) = self.arc_classifier {
-                self.define_function_body_arc(name, func_id, abi, body, canon, classifier);
-                return;
-            }
-            // Fall through to Tier 1 if no classifier available
-            warn!("ARC codegen requested but no classifier — falling back to Tier 1");
-        }
-        self.define_function_body_tier1(name, func_id, abi, body, canon);
+        self.define_function_body_arc(name, func_id, abi, body, canon, self.arc_classifier);
     }
 
-    /// Tier 1: `ExprLowerer`-based codegen (no RC operations).
-    fn define_function_body_tier1(
-        &mut self,
-        name: Name,
-        func_id: FunctionId,
-        abi: &FunctionAbi,
-        body: CanId,
-        canon: &CanonResult,
-    ) {
-        let name_str = self.interner.lookup(name);
-        debug!(name = name_str, tier = 1, "defining function body");
-
-        self.enter_debug_scope(func_id);
-
-        // Create entry block
-        let entry_block = self.builder.append_block(func_id, "entry");
-        self.builder.position_at_end(entry_block);
-        self.builder.set_current_function(func_id);
-
-        // Bind parameters to scope
-        let scope = self.bind_parameters(func_id, abi);
-
-        // Lower the body expression
-        let mut lowerer = ExprLowerer::new(
-            self.builder,
-            self.type_info,
-            self.type_resolver,
-            scope,
-            canon,
-            self.interner,
-            self.pool,
-            func_id,
-            &self.functions,
-            &self.method_functions,
-            &self.type_idx_to_name,
-            &self.lambda_counter,
-            self.module_path,
-            self.debug_context,
-        );
-
-        let result = lowerer.lower(body);
-
-        // Check if the block is already terminated (e.g., by panic, break, unreachable)
-        if let Some(block) = self.builder.current_block() {
-            if self.builder.block_has_terminator(block) {
-                self.exit_debug_scope();
-                return;
-            }
-        }
-
-        // Emit return instruction based on ABI
-        self.emit_return(func_id, abi, result, name_str);
-        self.exit_debug_scope();
-    }
-
-    /// Tier 2: ARC IR → LLVM IR codegen (with RC lifecycle).
+    /// ARC IR → LLVM IR codegen (with RC lifecycle).
     ///
     /// Runs the full ARC pipeline: lower → liveness → RC insert → detect/expand
     /// reuse → RC eliminate → `ArcIrEmitter`. The emitter handles block creation,
@@ -407,7 +322,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         // Step 1: Lower canonical IR → ARC IR
         let mut problems = Vec::new();
-        let (mut arc_func, _lambdas) = lower_function_can(
+        let (mut arc_func, lambdas) = lower_function_can(
             name,
             &params,
             return_type,
@@ -426,18 +341,21 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
         // Without this, RC insertion generates unnecessary RcInc/RcDec for
         // params that borrow inference determined should be Borrowed.
-        if let Some(sigs) = self.annotated_sigs {
-            if let Some(sig) = sigs.get(&name) {
-                for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
-                    param.ownership = annotated.ownership;
-                }
+        if let Some(sig) = self.annotated_sigs.get(&name) {
+            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
+                param.ownership = annotated.ownership;
             }
         }
 
+        // Step 1.6: Compile lambda ArcFunctions (closures).
+        // Each lambda is compiled as a separate LLVM function, registered in
+        // self.functions so that emit_partial_apply can look it up by Name.
+        for mut lambda in lambdas {
+            self.compile_lambda_arc(&mut lambda, classifier);
+        }
+
         // Step 2: Run full ARC pipeline (insert → detect → expand → eliminate)
-        let empty_sigs = FxHashMap::default();
-        let sigs = self.annotated_sigs.unwrap_or(&empty_sigs);
-        ori_arc::run_arc_pipeline(&mut arc_func, classifier, sigs);
+        ori_arc::run_arc_pipeline(&mut arc_func, classifier, self.annotated_sigs);
 
         trace!(
             name = name_str,
@@ -461,6 +379,90 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         emitter.emit_function(&arc_func, abi);
 
         self.exit_debug_scope();
+    }
+
+    /// Compile a lambda `ArcFunction` as a standalone LLVM function.
+    ///
+    /// The lambda takes `(captures..., user_params...)` as a flat parameter list.
+    /// A wrapper function bridging `(env_ptr, user_params...)` → flat call is
+    /// generated later by `emit_partial_apply` in the ARC emitter.
+    ///
+    /// Registers the lambda in `self.functions` so the emitter can look it up.
+    fn compile_lambda_arc(
+        &mut self,
+        lambda: &mut ori_arc::ArcFunction,
+        classifier: &ArcClassifier,
+    ) {
+        let lambda_name = lambda.name;
+        let lambda_name_str = self.interner.lookup(lambda_name);
+
+        // Compute ABI from the lambda's ArcParam types
+        let abi = self.compute_arc_function_abi(lambda);
+
+        // Generate unique mangled symbol name
+        let counter = self.lambda_counter.get();
+        self.lambda_counter.set(counter + 1);
+        let symbol = self
+            .mangler
+            .mangle_function(self.module_path, &format!("__lambda_{counter}"));
+
+        debug!(
+            name = lambda_name_str,
+            symbol,
+            params = abi.params.len(),
+            "declaring lambda function (ARC)"
+        );
+
+        // Declare LLVM function
+        let func_id = self.declare_function_llvm(&symbol, &abi);
+
+        // Register so emit_partial_apply can find it by Name
+        self.functions.insert(lambda_name, (func_id, abi.clone()));
+
+        // Run full ARC pipeline on the lambda
+        ori_arc::run_arc_pipeline(lambda, classifier, self.annotated_sigs);
+
+        // Emit LLVM IR from the lambda's ARC IR
+        self.builder.set_current_function(func_id);
+        let mut emitter = ArcIrEmitter::new(
+            self.builder,
+            self.type_info,
+            self.type_resolver,
+            self.interner,
+            self.pool,
+            Some(classifier as &dyn ori_arc::ArcClassification),
+            func_id,
+            &self.functions,
+            &self.method_functions,
+            &self.type_idx_to_name,
+        );
+        emitter.emit_function(lambda, &abi);
+    }
+
+    /// Compute a `FunctionAbi` from an `ArcFunction`'s parameter and return types.
+    ///
+    /// Used for lambda functions where no `FunctionSig` exists.
+    fn compute_arc_function_abi(&self, func: &ori_arc::ArcFunction) -> FunctionAbi {
+        let params: Vec<ParamAbi> = func
+            .params
+            .iter()
+            .map(|p| ParamAbi {
+                name: self.interner.intern(&format!("v{}", p.var.raw())),
+                ty: p.ty,
+                passing: compute_param_passing(p.ty, self.type_info),
+            })
+            .collect();
+
+        let return_abi = ReturnAbi {
+            ty: func.return_type,
+            passing: compute_return_passing(func.return_type, self.type_info),
+        };
+
+        FunctionAbi {
+            params,
+            return_abi,
+            call_conv: CallConv::Fast,
+        }
     }
 
     /// Enter debug scope for the function being compiled.
@@ -550,56 +552,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         values
     }
 
-    /// Bind function parameters to a `Scope`, accounting for sret offset.
-    ///
-    /// Uses [`Self::load_param_values`] to load raw values, then names them
-    /// and binds to the scope. `Reference` parameters are received as pointers
-    /// and loaded on entry, so downstream code sees values (not pointers).
-    fn bind_parameters(&mut self, func_id: FunctionId, abi: &FunctionAbi) -> Scope {
-        let values = self.load_param_values(func_id, abi);
-        let mut scope = Scope::new();
-        let emit_debug = self
-            .debug_context
-            .is_some_and(|dc| dc.level() == DebugLevel::Full);
-
-        let mut val_iter = values.into_iter();
-        let mut dwarf_arg_no: u32 = 1;
-
-        for param in &abi.params {
-            if param.passing == ParamPassing::Void {
-                dwarf_arg_no += 1;
-            } else {
-                let val = val_iter
-                    .next()
-                    .expect("load_param_values: one value per non-Void param");
-                let name_str = self.interner.lookup(param.name);
-                self.builder.set_value_name(val, name_str);
-                scope.bind_immutable(param.name, val);
-
-                if emit_debug {
-                    self.emit_param_debug(val, name_str, dwarf_arg_no, param.ty);
-                }
-                dwarf_arg_no += 1;
-            }
-        }
-
-        scope
-    }
-
-    /// Emit `DW_TAG_formal_parameter` debug info for a single parameter.
-    fn emit_param_debug(&mut self, val: ValueId, name: &str, arg_no: u32, ty: Idx) {
-        let dc = self.debug_context.expect("checked by caller");
-        let Some(di_ty) = dc.resolve_debug_type(ty, self.pool) else {
-            return;
-        };
-        let Some(block_id) = self.builder.current_block() else {
-            return;
-        };
-        let block = self.builder.raw_block(block_id);
-        let raw_val = self.builder.raw_value(val);
-        dc.emit_param_debug_info(raw_val, name, arg_no, di_ty, block);
-    }
-
     // -----------------------------------------------------------------------
     // Tests and Impls
     // -----------------------------------------------------------------------
@@ -607,6 +559,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Compile test definitions as void → void wrapper functions.
     ///
     /// Returns a map of `test_name → wrapper_function_name` for the JIT to call.
+    /// Each test is compiled through the full ARC pipeline.
     pub fn compile_tests(
         &mut self,
         tests: &[&TestDef],
@@ -622,43 +575,65 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
             debug!(name = test_name_str, wrapper = %wrapper_name, "compiling test");
 
-            // Look up the canonical body for this test
             let body = canon.root_for(test.name).unwrap_or(canon.root);
 
             // Declare void → void wrapper
             let func_id = self.builder.declare_void_function(&wrapper_name, &[]);
             self.builder.set_fastcc(func_id);
-
-            // Define body
-            let entry_block = self.builder.append_block(func_id, "entry");
-            self.builder.position_at_end(entry_block);
             self.builder.set_current_function(func_id);
 
-            let mut lowerer = ExprLowerer::new(
-                self.builder,
-                self.type_info,
-                self.type_resolver,
-                Scope::new(),
+            // Build void → void ABI
+            let abi = FunctionAbi {
+                params: vec![],
+                return_abi: ReturnAbi {
+                    ty: Idx::UNIT,
+                    passing: ReturnPassing::Void,
+                },
+                call_conv: CallConv::Fast,
+            };
+
+            // Lower through ARC pipeline
+            let mut problems = Vec::new();
+            let (mut arc_func, lambdas) = lower_function_can(
+                test.name,
+                &[],
+                Idx::UNIT,
+                body,
                 canon,
                 self.interner,
                 self.pool,
+                &mut problems,
+            );
+
+            // Apply borrow annotations
+            if let Some(sig) = self.annotated_sigs.get(&test.name) {
+                for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
+                    param.ownership = annotated.ownership;
+                }
+            }
+
+            // Compile lambdas
+            for mut lambda in lambdas {
+                self.compile_lambda_arc(&mut lambda, self.arc_classifier);
+            }
+
+            // Run ARC pipeline
+            ori_arc::run_arc_pipeline(&mut arc_func, self.arc_classifier, self.annotated_sigs);
+
+            // Emit via ArcIrEmitter
+            let mut emitter = ArcIrEmitter::new(
+                self.builder,
+                self.type_info,
+                self.type_resolver,
+                self.interner,
+                self.pool,
+                Some(self.arc_classifier as &dyn ori_arc::ArcClassification),
                 func_id,
                 &self.functions,
                 &self.method_functions,
                 &self.type_idx_to_name,
-                &self.lambda_counter,
-                self.module_path,
-                self.debug_context,
             );
-
-            lowerer.lower(body);
-
-            // Ensure terminator
-            if let Some(block) = self.builder.current_block() {
-                if !self.builder.block_has_terminator(block) {
-                    self.builder.ret_void();
-                }
-            }
+            emitter.emit_function(&arc_func, &abi);
 
             test_wrappers.insert(test.name, wrapper_name);
         }
