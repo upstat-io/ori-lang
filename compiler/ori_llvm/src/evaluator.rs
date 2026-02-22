@@ -427,6 +427,8 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_iter_skip",
     "ori_iter_take",
     "ori_iter_zip",
+    // RC leak detection — AOT test infrastructure only
+    "ori_rc_live_count",
     // ori_run_main wraps @main with catch_unwind — JIT compiles tests directly
     "ori_run_main",
 ];

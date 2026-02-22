@@ -152,6 +152,12 @@ pub struct OriResult<T> {
 // 1. Decrementing reference counts of RC'd child fields
 // 2. Calling ori_rc_free(data_ptr, size, align) to release memory
 
+/// Live RC allocation counter for debugging and testing.
+///
+/// Incremented by `ori_rc_alloc`, decremented by `ori_rc_free`.
+/// Read by `ori_rc_live_count` to verify all allocations were freed.
+static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
+
 // ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
 
 /// Buffer for `setjmp`/`longjmp` JIT error recovery.
@@ -373,6 +379,8 @@ pub extern "C" fn ori_rc_alloc(size: usize, align: usize) -> *mut u8 {
         base.cast::<i64>().write(1);
     }
 
+    RC_LIVE_COUNT.fetch_add(1, Ordering::Relaxed);
+
     // Return data pointer (8 bytes past the strong_count)
     // SAFETY: base is valid for total_size bytes, so base + 8 is valid
     unsafe { base.add(8) }
@@ -514,6 +522,17 @@ pub extern "C" fn ori_rc_free(data_ptr: *mut u8, size: usize, align: usize) {
     let align = align.max(8);
 
     ori_free(base, total_size, align);
+
+    RC_LIVE_COUNT.fetch_sub(1, Ordering::Relaxed);
+}
+
+/// Get the number of live RC allocations (for testing and debugging).
+///
+/// Returns the number of `ori_rc_alloc` calls minus `ori_rc_free` calls.
+/// Should be 0 at program exit if all memory was properly freed.
+#[no_mangle]
+pub extern "C" fn ori_rc_live_count() -> i64 {
+    RC_LIVE_COUNT.load(Ordering::Relaxed)
 }
 
 /// Get the current reference count (for testing and debugging).
