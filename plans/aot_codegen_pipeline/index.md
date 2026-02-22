@@ -17,12 +17,17 @@
 **File:** `section-01-emission-layer-typing.md` | **Status:** Not Started
 
 ```
-ValueRepr, EmittedValue, OperandValue, value representation
+ValueRepr, EmittedValue, OperandValue, RcStrategy, value representation
 scalar, rc pointer, aggregate, fat value, pair, zero sized
+HeapPointer, FatPointer, Closure, AggregateFields, InlineEnum
+InlineEnum asymmetry, Inc no-op, Dec tag-switch, stack-allocated enum
+ValueId::NONE, undefined variable guard, Option None payload
+emit_inline_enum_inc (deleted), emit_inline_enum_dec
 type info lookup, TypeInfo query, load confusion, store confusion
-Rust OperandValue pattern, Lean type-indexed phases
-var_map, emit_instr, emit_terminator, emit_apply
-arc_emitter/mod.rs, ir/mod.rs, ArcClassifier
+Pool query elimination, information contract chain
+Rust OperandValue pattern, Lean type-indexed phases, Lean isPointer flag
+var_map, emit_instr, emit_terminator, emit_apply, emit_rc_op
+arc_emitter/mod.rs, ir/mod.rs, ArcClassifier, rc_insert/mod.rs
 ```
 
 ---
@@ -33,6 +38,11 @@ arc_emitter/mod.rs, ir/mod.rs, ArcClassifier
 ```
 CanExpr, lower_function_can, UnsupportedExpr
 FunctionExp, FunctionRef, HashLength, FormatWith, Await, WithCapability
+Idx::ERROR, lower_try, result_err, TryOperator
+err payload type, i64 truncation, pool.result_err()
+builtin tag-check lowering, emit_call_or_invoke interception
+canonical IR desugars r.is_err() to is_err(r), CanExpr::Ident not MethodCall
+Project + PrimOp::Binary(Eq) tag check, builder.var_type()
 lower_exp_panic, lower_exp_unreachable, lower_exp_todo
 print, println, format, format_with
 lower/expr/mod.rs, lower/constructs.rs
@@ -62,7 +72,21 @@ lookup miss, silent fallback, all-Owned
 tracing::warn, debug_assert
 method index, O(1) dispatch, linear scan
 lookup_method_by_unqualified_name, method_functions
-function_compiler/mod.rs, arc_emitter/mod.rs
+ArgOwnership, call-site ownership, borrowing vs consuming
+external callee, ori_* runtime, is_external_callee
+builtin method borrowing, is_err, is_ok, unwrap, is_some, is_none
+try_emit_builtin_method, BUILTIN_BORROWING_METHODS
+emit_call_or_invoke tag-check interception, canonical IR method desugaring
+annotated_sigs synthetic entries, builtin receiver borrow
+emit_call_or_invoke, is_nounwind_call, Invoke vs PrimOp inline
+lower_call not lower_method_call, builder.var_type() receiver lookup
+Project borrowing, is_borrowing_instr, scalar projection
+Lean 4 proj borrows x, is_scalar(dst), cross-block liveness
+lower_try tag extraction, malloc unaligned tcache chunk, heap corruption
+compute_refined_liveness, cross-block Dec placement, per-path Dec at last use
+insert_external_invoke_cleanup, is_borrowing_instr
+Perceus ownership transfer, caller-side RcDec
+function_compiler/mod.rs, arc_emitter/mod.rs, rc_insert/mod.rs
 ```
 
 ---

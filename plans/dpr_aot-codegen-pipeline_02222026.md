@@ -321,7 +321,17 @@ impl RcIdentityMap {
 
 ## The Bottom Line
 
-**The architecture is fundamentally sound.** The pain is not structural -- it comes from two fixable gaps: the emission layer lacks value-representation typing (causing repeated `TypeInfo` lookups and potential load/store confusion), and the method dispatch system lacks compile-time sync enforcement (causing fragile name-based lookups). The ARC analysis pipeline (`ori_arc`) is well-designed, well-tested, and follows established patterns from Lean 4 and Swift. The improvements proposed here are incremental enrichments to an already-working system, not a redesign. The inherently hard problems (global liveness analysis, type classification correctness, recursive drop generation, closure representation) are handled correctly today -- the remaining work is completeness and polish, not architectural repair.
+**The architecture is fundamentally sound, but the ARC IR → LLVM boundary has a design flaw.** The ARC IR is well-designed for *analysis* (the pass pipeline is clean) but under-specified for *emission*. Specifically:
+
+1. **RC instructions carry no strategy metadata.** `RcInc { var }` and `RcDec { var }` force the emitter to re-derive the cleanup strategy (closure vs enum vs heap vs fat pointer) by querying the Pool — 24+ queries in `arc_emitter/mod.rs`. A misclassification (treating `Result<int, str>` as a heap pointer) silently corrupts memory, as discovered during the 2026-02-22 debugging session.
+
+2. **Call sites carry no per-argument ownership.** The distinction between borrowing (callee reads without consuming, caller must Dec) and consuming (callee takes ownership) was re-derived at RC insertion time by checking callee names against the interner. This caused RC leaks for external runtime calls.
+
+3. **RcInc/RcDec are asymmetric on inline enum types.** `RcInc` on `Result<int, str>` was a no-op (extract_rc_data_ptrs returns empty for stack aggregates) while `RcDec` ran tag-based inline cleanup. This meant Perceus's balanced Inc/Dec pairs were unbalanced at the LLVM level.
+
+The fix is an **information contract chain**: `ValueRepr` (per variable) → `RcStrategy` (per RC instruction) → `ArgOwnership` (per call-site argument) → `EmittedValue` (per LLVM value). Each stage enriches the IR for the next. The implementation plan is in `plans/aot_codegen_pipeline/`, Sections 01 and 04.
+
+The ARC analysis pipeline (`ori_arc`) is well-designed, well-tested, and follows established patterns from Lean 4 and Swift. The improvements are enrichments to the IR's emission-facing metadata, not a redesign of the analysis passes.
 
 ## References
 

@@ -107,6 +107,17 @@ For each submodule, add a `register()` function that populates the table:
 
 - [ ] Replace the match cascade in `try_emit_builtin_method()` with `self.builtin_table.lookup(type_name, method_name)`
 
+- [ ] **Cross-reference with Section 04.4**: When migrating builtins to the table, also register their borrowing semantics. Each `BuiltinEntry` should declare whether the receiver is borrowed:
+  ```rust
+  struct BuiltinEntry {
+      type_name: &'static str,
+      method_name: &'static str,
+      emit: BuiltinEmitFn,
+      receiver_borrowed: bool,  // NEW — feeds into annotated_sigs
+  }
+  ```
+  This ensures the BuiltinTable is the single source of truth for both codegen dispatch AND ownership annotation — no manual sync between Section 04.4's sigs and Section 05's dispatch.
+
 **Migration strategy:** Do this incrementally — one submodule at a time. After each, run `./llvm-test.sh` to verify no regression. The existing emit functions become the registered handlers; only the dispatch mechanism changes.
 
 ---
