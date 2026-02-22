@@ -263,18 +263,45 @@ impl ArcLowerer<'_> {
         self.builder.terminate_jump(merge_block, vec![ok_payload]);
 
         self.builder.position_at(err_block);
-        let err_payload = self.builder.emit_project(Idx::ERROR, scrut, 1, Some(span));
-        let result_name = self.interner.intern("Result");
-        let wrapped_err = self.builder.emit_construct(
-            inner_ty,
-            CtorKind::EnumVariant {
-                enum_name: result_name,
-                variant: 1,
-            },
-            vec![err_payload],
-            Some(span),
-        );
-        self.builder.terminate_return(wrapped_err);
+        let resolved = self.pool.resolve_fully(inner_ty);
+        let tag = self.pool.tag(resolved);
+
+        match tag {
+            Tag::Result => {
+                // Result<T, E>: extract Err payload, re-wrap, early return.
+                let err_ty = self.pool.resolve_fully(self.pool.result_err(resolved));
+                let err_payload = self.builder.emit_project(err_ty, scrut, 1, Some(span));
+                let result_name = self.interner.intern("Result");
+                let wrapped_err = self.builder.emit_construct(
+                    inner_ty,
+                    CtorKind::EnumVariant {
+                        enum_name: result_name,
+                        variant: 1,
+                    },
+                    vec![err_payload],
+                    Some(span),
+                );
+                self.builder.terminate_return(wrapped_err);
+            }
+            Tag::Option => {
+                // Option<T>: construct None (variant 1, no payload), early return.
+                let option_name = self.interner.intern("Option");
+                let none = self.builder.emit_construct(
+                    inner_ty,
+                    CtorKind::EnumVariant {
+                        enum_name: option_name,
+                        variant: 1,
+                    },
+                    vec![],
+                    Some(span),
+                );
+                self.builder.terminate_return(none);
+            }
+            other => {
+                tracing::warn!(?other, "lower_try: unexpected type tag for ? operator");
+                self.builder.terminate_return(scrut);
+            }
+        }
 
         self.builder.position_at(merge_block);
         self.builder.add_block_param(merge_block, ty)
