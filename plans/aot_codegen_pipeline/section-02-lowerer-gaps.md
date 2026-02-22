@@ -41,10 +41,14 @@ sections:
 | `FormatWith` | May need work | Type-dispatched `Apply` to `ori_format_*` |
 | `Await` | Simple | Passthrough to inner expression |
 | `WithCapability` | Simple | Passthrough to body expression |
+| `TryOperator` | **Fixed** (uncommitted) | `lower/collections/mod.rs:266` — `Idx::ERROR` used as Err payload type instead of `pool.result_err(inner_ty)`. Fix applied in working tree. |
 
 ---
 
 ## 02.2 Implement Missing Lowerings
+
+**Already fixed (uncommitted):**
+- [ ] **`TryOperator` / `lower_try()`** — `Idx::ERROR` sentinel was used as the Err variant's projection type, causing the payload to be loaded as `i64` instead of the actual error type (e.g., `str = {i64, ptr}`). Fix: replaced with `pool.result_err(resolved_result)` at `lower/collections/mod.rs:267-268`. **Must be committed.**
 
 For each gap found in 02.1:
 
@@ -62,6 +66,8 @@ For each gap found in 02.1:
 - [ ] **`WithCapability`** — passthrough: lower the body expression (capability tracking is a type-system concern, transparent at codegen)
 
 - [ ] **Any other gaps** found during the audit in 02.1
+
+- [ ] **Builtin tag-check lowering** (**cross-reference Section 04.4, option a**) — The canonical IR desugars `r.is_err()` to `is_err(r)` as a direct `Call` with `CanExpr::Ident`, so these go through `lower_call()` → `emit_call_or_invoke()`, NOT through `lower_method_call()`. The preferred fix (Section 04.4 option a) is to intercept in `emit_call_or_invoke()` and emit `Project(tag) + PrimOp::Binary(Eq)` instead of `Invoke` for known tag-check builtins (is_err, is_ok, is_some, is_none). No new `PrimOp` variants needed — reuses existing `PrimOp::Binary(BinaryOp::Eq)`. Receiver type looked up via `builder.var_type(receiver_var)`. See Section 04.4 for the full analysis of why this matters (ARC leak root cause).
 
 ---
 
