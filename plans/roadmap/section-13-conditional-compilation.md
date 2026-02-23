@@ -142,6 +142,7 @@ sections:
 
 - [ ] **LLVM Support**: LLVM codegen for target attribute
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — target attribute codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -182,6 +183,7 @@ sections:
 
 - [ ] **LLVM Support**: LLVM codegen for OR conditions
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — OR conditions codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -226,6 +228,7 @@ sections:
 
 - [ ] **LLVM Support**: LLVM codegen for negation
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — negation codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -276,6 +279,7 @@ sections:
 
 - [ ] **LLVM Support**: LLVM codegen for cfg attribute
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — cfg attribute codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -347,6 +351,7 @@ Feature names must be valid Ori identifiers:
 
 - [ ] **LLVM Support**: LLVM codegen for feature flags
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — feature flags codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -392,6 +397,7 @@ The `#!` prefix indicates a file-level condition. It must appear before any decl
 
 - [ ] **LLVM Support**: LLVM codegen for file-level conditions
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — file-level conditions codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -453,6 +459,7 @@ Branches conditioned on compile-time constants are eliminated and not type-check
 
 - [ ] **LLVM Support**: LLVM codegen for compile-time constants
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — compile-time constants codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -527,6 +534,7 @@ dependencies = ["winapi"]
 
 - [ ] **LLVM Support**: LLVM codegen for build configuration
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conditional_tests.rs` — build configuration codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

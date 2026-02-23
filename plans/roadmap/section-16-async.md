@@ -49,12 +49,14 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/async/declaration.ori`
   - [ ] **LLVM Support**: LLVM codegen for async capability declaration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — async capability declaration codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Sync vs async distinction — spec/14-capabilities.md § Async Capability, design/10-async/index.md § Sync vs Async
   - [ ] **Rust Tests**: `oric/src/typeck/checker/capabilities.rs` — sync/async distinction
   - [ ] **Ori Tests**: `tests/spec/async/sync_async.ori`
   - [ ] **LLVM Support**: LLVM codegen for sync/async distinction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — sync/async distinction codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -65,12 +67,14 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/async/structured.ori`
   - [ ] **LLVM Support**: LLVM codegen for structured concurrency
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — structured concurrency codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: No shared mutable state — design/10-async/index.md § No Shared Mutable State
   - [ ] **Rust Tests**: `oric/src/typeck/checker/mutability.rs` — shared state detection
   - [ ] **Ori Tests**: `tests/spec/async/no_shared_state.ori`
   - [ ] **LLVM Support**: LLVM codegen for no shared mutable state enforcement
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — no shared mutable state codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -81,18 +85,21 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/async/parallel.ori`
   - [ ] **LLVM Support**: LLVM codegen for parallel pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — parallel pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `timeout` pattern — spec/10-patterns.md § timeout, design/02-syntax/04-patterns-reference.md § timeout
   - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — timeout pattern async
   - [ ] **Ori Tests**: `tests/spec/async/timeout.ori`
   - [ ] **LLVM Support**: LLVM codegen for timeout pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — timeout pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Channels — spec/06-types.md § Channel
   - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — channel implementation
   - [ ] **Ori Tests**: `tests/spec/async/channels.ori`
   - [ ] **LLVM Support**: LLVM codegen for channels
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — channels codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -107,24 +114,28 @@ Implements error trace preservation across task boundaries in async code.
   - [ ] **Ori Tests**: `tests/spec/async/trace_boundary.ori`
   - [ ] **LLVM Support**: LLVM codegen for task boundary marker
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — task boundary marker codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Trace preservation across parallel tasks — spec/20-errors-and-panics.md § Trace from Parallel Tasks
   - [ ] **Rust Tests**: `oric/src/eval/exec/async.rs` — parallel trace tests
   - [ ] **Ori Tests**: `tests/spec/async/parallel_traces.ori`
   - [ ] **LLVM Support**: LLVM codegen for parallel trace preservation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — parallel trace codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Trace preservation across nursery tasks — spec/20-errors-and-panics.md § Async Error Traces
   - [ ] **Rust Tests**: `oric/src/eval/exec/nursery.rs` — nursery trace tests
   - [ ] **Ori Tests**: `tests/spec/async/nursery_traces.ori`
   - [ ] **LLVM Support**: LLVM codegen for nursery trace preservation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — nursery trace codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Catch and panic trace interaction — spec/20-errors-and-panics.md § Catch and Panic Traces
   - [ ] **Rust Tests**: `oric/src/eval/exec/catch.rs` — catch trace tests
   - [ ] **Ori Tests**: `tests/spec/errors/catch_traces.ori`
   - [ ] **LLVM Support**: LLVM codegen for catch trace interaction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_tests.rs` — catch trace codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

@@ -67,18 +67,21 @@ Foundational definitions for tasks, async contexts, and suspension points that t
   - [ ] **Ori Tests**: `tests/spec/concurrency/task_isolation.ori`
   - [ ] **LLVM Support**: LLVM task representation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/task_tests.rs` — task codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Async context tracking
   - [ ] **Rust Tests**: `oric/src/typeck/concurrency/async_context.rs` — async context validation
   - [ ] **Ori Tests**: `tests/spec/concurrency/async_context.ori`
   - [ ] **LLVM Support**: LLVM async runtime integration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — async context codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Suspension point tracking
   - [ ] **Rust Tests**: `oric/src/typeck/concurrency/suspension.rs` — suspension point analysis
   - [ ] **Ori Tests**: `tests/spec/concurrency/suspension_points.ori`
   - [ ] **LLVM Support**: LLVM suspension codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/async_tests.rs` — suspension codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: @main uses Async requirement for concurrency patterns
   - [ ] **Rust Tests**: `oric/src/typeck/concurrency/main_async.rs` — main async check
@@ -96,6 +99,7 @@ Foundational definitions for tasks, async contexts, and suspension points that t
   - [ ] **Ori Tests**: `tests/spec/closures/capture_timing.ori`
   - [ ] **LLVM Support**: LLVM closure capture codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/closure_tests.rs` — capture codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Closure type inference and coercion — proposals/approved/closure-capture-semantics-proposal.md
   - [ ] **Rust Tests**: `oric/src/typeck/closure/types.rs` — closure type tests
@@ -113,11 +117,13 @@ Foundational definitions for tasks, async contexts, and suspension points that t
   - [ ] **Ori Tests**: `tests/compile-fail/use_after_capture.ori`
   - [ ] **LLVM Support**: LLVM capture codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/task_tests.rs` — capture codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Atomic reference counting for cross-task values
   - [ ] **Rust Tests**: `oric/src/runtime/refcount.rs` — atomic refcount
   - [ ] **LLVM Support**: LLVM atomic refcount intrinsics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/memory_tests.rs` — atomic refcount codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -151,22 +157,26 @@ Interior mutability does not exist in user-defined Ori types. Only runtime-provi
   - [ ] **Ori Tests**: `tests/spec/concurrency/sendable.ori`
   - [ ] **LLVM Support**: LLVM codegen for Sendable marker trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sendable_tests.rs` — Sendable trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Auto-implementation for primitives
   - [ ] **Ori Tests**: `tests/spec/concurrency/sendable_primitives.ori`
   - [ ] **LLVM Support**: LLVM codegen for Sendable auto-impl primitives
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sendable_tests.rs` — Sendable primitives codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Auto-implementation for compound types
   - [ ] **Ori Tests**: `tests/spec/concurrency/sendable_compound.ori`
   - [ ] **LLVM Support**: LLVM codegen for Sendable auto-impl compound types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sendable_tests.rs` — Sendable compound codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Closure capture analysis for Sendable
   - [ ] **Rust Tests**: `oric/src/typeck/sendable/closures.rs` — closure capture analysis
   - [ ] **Ori Tests**: `tests/spec/concurrency/sendable_closures.ori`
   - [ ] **LLVM Support**: LLVM codegen for closure Sendable analysis
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sendable_tests.rs` — closure Sendable codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Compiler error for non-Sendable in channel context
   - [ ] **Rust Tests**: `oric/src/typeck/sendable/errors.rs` — non-Sendable errors
@@ -208,30 +218,35 @@ impl<T: Sendable> Iterable for Consumer<T> { ... }
   - [ ] **Ori Tests**: `tests/spec/concurrency/producer.ori`
   - [ ] **LLVM Support**: LLVM codegen for Producer type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — Producer codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Consumer<T>` type
   - [ ] **Rust Tests**: `oric/src/types/channel.rs` — Consumer type
   - [ ] **Ori Tests**: `tests/spec/concurrency/consumer.ori`
   - [ ] **LLVM Support**: LLVM codegen for Consumer type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — Consumer codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `CloneableProducer<T>` type (implements Clone)
   - [ ] **Rust Tests**: `oric/src/types/channel.rs` — CloneableProducer type
   - [ ] **Ori Tests**: `tests/spec/concurrency/cloneable_producer.ori`
   - [ ] **LLVM Support**: LLVM codegen for CloneableProducer
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — CloneableProducer codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `CloneableConsumer<T>` type (implements Clone)
   - [ ] **Rust Tests**: `oric/src/types/channel.rs` — CloneableConsumer type
   - [ ] **Ori Tests**: `tests/spec/concurrency/cloneable_consumer.ori`
   - [ ] **LLVM Support**: LLVM codegen for CloneableConsumer
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — CloneableConsumer codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Consumer implements Iterable
   - [ ] **Rust Tests**: `oric/src/types/channel.rs` — Consumer Iterable impl
   - [ ] **Ori Tests**: `tests/spec/concurrency/consumer_iterable.ori`
   - [ ] **LLVM Support**: LLVM codegen for Consumer iteration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — Consumer iteration codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -260,24 +275,28 @@ Four constructors for different concurrency patterns.
   - [ ] **Ori Tests**: `tests/spec/concurrency/channel_exclusive.ori`
   - [ ] **LLVM Support**: LLVM codegen for exclusive channel
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — exclusive channel codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `channel_in<T>()` — fan-in channel
   - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — fan-in channel
   - [ ] **Ori Tests**: `tests/spec/concurrency/channel_fan_in.ori`
   - [ ] **LLVM Support**: LLVM codegen for fan-in channel
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — fan-in channel codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `channel_out<T>()` — fan-out channel
   - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — fan-out channel
   - [ ] **Ori Tests**: `tests/spec/concurrency/channel_fan_out.ori`
   - [ ] **LLVM Support**: LLVM codegen for fan-out channel
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — fan-out channel codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `channel_all<T>()` — broadcast channel
   - [ ] **Rust Tests**: `oric/src/eval/channel.rs` — broadcast channel
   - [ ] **Ori Tests**: `tests/spec/concurrency/channel_broadcast.ori`
   - [ ] **LLVM Support**: LLVM codegen for broadcast channel
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — broadcast channel codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Deprecate old `Channel<T>` type
   - [ ] **Rust Tests**: `oric/src/typeck/deprecated.rs` — Channel deprecation warning
@@ -304,6 +323,7 @@ Values are consumed when sent, preventing data races.
   - [ ] **Ori Tests**: `tests/spec/concurrency/ownership_transfer.ori`
   - [ ] **LLVM Support**: LLVM codegen for ownership transfer
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — ownership codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Compiler error for use-after-send
   - [ ] **Rust Tests**: `oric/src/typeck/ownership.rs` — use-after-send error
@@ -314,6 +334,7 @@ Values are consumed when sent, preventing data races.
   - [ ] **Ori Tests**: `tests/spec/concurrency/send_clone.ori`
   - [ ] **LLVM Support**: LLVM codegen for clone before send
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/concurrency_tests.rs` — send clone codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -338,44 +359,52 @@ type NurseryErrorMode = CancelRemaining | CollectAll | FailFast
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_basic.ori`
   - [ ] **LLVM Support**: LLVM codegen for nursery pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — nursery codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Nursery` type with `spawn` method
   - [ ] **Rust Tests**: `oric/src/types/nursery.rs` — Nursery type
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_spawn.ori`
   - [ ] **LLVM Support**: LLVM codegen for Nursery type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — Nursery type codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `NurseryErrorMode` sum type
   - [ ] **Rust Tests**: `oric/src/types/nursery.rs` — NurseryErrorMode type
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_error_modes.ori`
   - [ ] **LLVM Support**: LLVM codegen for NurseryErrorMode
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — NurseryErrorMode codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `CancelRemaining` error handling
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_cancel_remaining.ori`
   - [ ] **LLVM Support**: LLVM codegen for CancelRemaining
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — CancelRemaining codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `CollectAll` error handling
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_collect_all.ori`
   - [ ] **LLVM Support**: LLVM codegen for CollectAll
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — CollectAll codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `FailFast` error handling
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_fail_fast.ori`
   - [ ] **LLVM Support**: LLVM codegen for FailFast
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — FailFast codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Timeout support
   - [ ] **Rust Tests**: `oric/src/eval/nursery.rs` — timeout handling
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_timeout.ori`
   - [ ] **LLVM Support**: LLVM codegen for nursery timeout
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — timeout codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Return type `[Result<T, E>]`
   - [ ] **Ori Tests**: `tests/spec/concurrency/nursery_results.ori`
   - [ ] **LLVM Support**: LLVM codegen for nursery results
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — results codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -392,36 +421,42 @@ Specifies execution guarantees for the `parallel` pattern: task ordering, concur
   - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_start_order.ori`
   - [ ] **LLVM Support**: LLVM codegen for ordered start
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — start order codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Result order guarantee (results match input order)
   - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — result order verification
   - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_result_order.ori`
   - [ ] **LLVM Support**: LLVM codegen for result ordering
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — result order codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `max_concurrent: Option<int>` parameter
   - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — concurrency limit
   - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_max_concurrent.ori`
   - [ ] **LLVM Support**: LLVM codegen for concurrency limit
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — max_concurrent codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `timeout: Option<Duration>` parameter
   - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — timeout handling
   - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_timeout.ori`
   - [ ] **LLVM Support**: LLVM codegen for parallel timeout
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — timeout codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Resource exhaustion error handling
   - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — resource exhaustion
   - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_resource_exhaustion.ori`
   - [ ] **LLVM Support**: LLVM codegen for resource exhaustion
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — resource exhaustion codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Empty task list handling (returns `[]` immediately)
   - [ ] **Rust Tests**: `oric/src/eval/parallel.rs` — empty list
   - [ ] **Ori Tests**: `tests/spec/concurrency/parallel_empty.ori`
   - [ ] **LLVM Support**: LLVM codegen for empty parallel
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/parallel_tests.rs` — empty codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -442,48 +477,56 @@ Specifies cooperative cancellation model, checkpoints, error mode behaviors, and
   - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_cooperative.ori`
   - [ ] **LLVM Support**: LLVM codegen for cancellation state
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — cancellation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Cancellation checkpoints (suspension, loop iteration, pattern entry)
   - [ ] **Rust Tests**: `oric/src/eval/cancellation.rs` — checkpoint detection
   - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_checkpoints.ori`
   - [ ] **LLVM Support**: LLVM codegen for checkpoint insertion
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — checkpoint codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `CancellationError` type
   - [ ] **Rust Tests**: `oric/src/types/cancellation.rs` — CancellationError type
   - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_error.ori`
   - [ ] **LLVM Support**: LLVM codegen for CancellationError
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — CancellationError codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `CancellationReason` sum type (Timeout, SiblingFailed, NurseryExited, ExplicitCancel, ResourceExhausted)
   - [ ] **Rust Tests**: `oric/src/types/cancellation.rs` — CancellationReason type
   - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_reason.ori`
   - [ ] **LLVM Support**: LLVM codegen for CancellationReason
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — CancellationReason codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `is_cancelled()` built-in function
   - [ ] **Rust Tests**: `oric/src/eval/builtins.rs` — is_cancelled
   - [ ] **Ori Tests**: `tests/spec/concurrency/is_cancelled.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_cancelled
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — is_cancelled codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Automatic loop cancellation checking in async contexts
   - [ ] **Rust Tests**: `oric/src/eval/loops.rs` — automatic cancellation check
   - [ ] **Ori Tests**: `tests/spec/concurrency/loop_cancellation.ori`
   - [ ] **LLVM Support**: LLVM codegen for loop cancellation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — loop cancellation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Destructor execution guarantee during cancellation
   - [ ] **Rust Tests**: `oric/src/eval/cancellation.rs` — destructor guarantee
   - [ ] **Ori Tests**: `tests/spec/concurrency/cancellation_cleanup.ori`
   - [ ] **LLVM Support**: LLVM codegen for cancellation unwinding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/cancellation_tests.rs` — cleanup codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Nested nursery cancellation propagation
   - [ ] **Rust Tests**: `oric/src/eval/nursery.rs` — nested cancellation
   - [ ] **Ori Tests**: `tests/spec/concurrency/nested_nursery_cancellation.ori`
   - [ ] **LLVM Support**: LLVM codegen for nested cancellation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/nursery_tests.rs` — nested cancellation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -500,24 +543,28 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
   - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_semantics.ori`
   - [ ] **LLVM Support**: LLVM codegen for timeout with cancellation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — timeout codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Cooperative cancellation on timeout expiry
   - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — cancellation tests
   - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_cancellation.ori`
   - [ ] **LLVM Support**: LLVM timeout cancellation codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — cancellation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Cancellation checkpoints (suspending calls, loops, pattern entry)
   - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — checkpoint tests
   - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_checkpoints.ori`
   - [ ] **LLVM Support**: LLVM checkpoint insertion for timeout
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — checkpoint codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Nested timeout support (inner can be shorter than outer)
   - [ ] **Rust Tests**: `oric/src/patterns/timeout.rs` — nested timeout tests
   - [ ] **Ori Tests**: `tests/spec/concurrency/timeout_nested.ori`
   - [ ] **LLVM Support**: LLVM nested timeout codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/timeout_tests.rs` — nested codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error E1010 — `timeout` requires `Suspend` capability
   - [ ] **Rust Tests**: `oric/src/typeck/checker/timeout.rs` — capability error
@@ -530,30 +577,35 @@ Formalizes semantics for `timeout` and `spawn` patterns including cancellation b
   - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_semantics.ori`
   - [ ] **LLVM Support**: LLVM codegen for spawn
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — spawn codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Fire-and-forget semantics (errors silently discarded)
   - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — error discard tests
   - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_fire_forget.ori`
   - [ ] **LLVM Support**: LLVM spawn error handling codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — fire-forget codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Task escapes spawning scope (outlive spawning function)
   - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — task lifetime tests
   - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_lifetime.ori`
   - [ ] **LLVM Support**: LLVM unscoped task codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — lifetime codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `max_concurrent: Option<int>` parameter (default None = unlimited)
   - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — concurrency limit tests
   - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_max_concurrent.ori`
   - [ ] **LLVM Support**: LLVM spawn concurrency limit codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — max_concurrent codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Resource exhaustion handling (task dropped, no error)
   - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — resource exhaustion tests
   - [ ] **Ori Tests**: `tests/spec/concurrency/spawn_resource_exhaustion.ori`
   - [ ] **LLVM Support**: LLVM resource exhaustion codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spawn_tests.rs` — exhaustion codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Tasks cancelled on program exit
   - [ ] **Rust Tests**: `oric/src/patterns/spawn.rs` — exit cancellation tests
