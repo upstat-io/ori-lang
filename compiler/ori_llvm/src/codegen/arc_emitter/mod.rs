@@ -497,7 +497,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 let llvm_cases: Vec<(ValueId, BlockId)> = cases
                     .iter()
                     .map(|&(tag, block_id)| {
-                        let tag_val = self.builder.const_i64(tag as i64);
+                        let tag_val = self.builder.const_int_matching(scrut_val, tag);
                         (tag_val, self.block(block_id))
                     })
                     .collect();
@@ -1521,11 +1521,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// For primitive types, emits direct LLVM instructions. For non-primitive
     /// types, dispatches to the corresponding operator trait method
-    /// (e.g., `+` → `Add.add()`).
+    /// (e.g., `+` → `Add.add()`, `==` → `Eq.equals()`, `<` → `Comparable.compare()`).
     fn emit_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId, lhs_ty: Idx) -> ValueId {
         // Trait dispatch for non-primitive types (user-defined operator impls)
         if !lhs_ty.is_primitive() {
+            // Arithmetic operators (Add, Sub, Mul, etc.)
             if let Some(result) = self.emit_binary_op_via_trait(op, lhs, rhs, lhs_ty) {
+                return result;
+            }
+            // Comparison operators (==, !=, <, >, <=, >=)
+            if let Some(result) = self.emit_comparison_via_trait(op, lhs, rhs, lhs_ty) {
                 return result;
             }
         }
@@ -1669,6 +1674,107 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 self.builder.call(func_id, &passed_args, "op_trait")
             }
         }
+    }
+
+    /// Dispatch comparison operators to Eq/Comparable trait methods.
+    ///
+    /// Comparison operators are not in `trait_method_name()` because they use
+    /// a different dispatch model than arithmetic operators:
+    /// - `==`/`!=` → `Eq.equals(self, other) -> bool`
+    /// - `<`/`>`/`<=`/`>=` → `Comparable.compare(self, other) -> Ordering`
+    ///   then check the i8 result against ordering constants.
+    fn emit_comparison_via_trait(
+        &mut self,
+        op: BinaryOp,
+        lhs: ValueId,
+        rhs: ValueId,
+        lhs_ty: Idx,
+    ) -> Option<ValueId> {
+        // Map comparison operators to their trait method and post-processing.
+        // Note: Eq.method_name() is "eq" (not "equals") per DerivedTrait definition.
+        let (method_name, negate) = match op {
+            BinaryOp::Eq => ("eq", false),
+            BinaryOp::NotEq => ("eq", true),
+            BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => {
+                return self.emit_ordering_comparison(op, lhs, rhs, lhs_ty);
+            }
+            _ => return None,
+        };
+
+        let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
+        let interned_method = self.interner.intern(method_name);
+        let (func_id, params, ret_passing) = {
+            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            (*fid, abi.params.clone(), abi.return_abi.passing.clone())
+        };
+
+        let raw_args = [lhs, rhs];
+        let passed_args = self.apply_param_passing(&raw_args, &params);
+
+        let result = match &ret_passing {
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.builder.call(func_id, &passed_args, "eq_trait")
+            }
+            ReturnPassing::Sret { .. } => {
+                // equals() returns bool — should always be Direct
+                self.builder.call(func_id, &passed_args, "eq_trait")
+            }
+        }?;
+
+        if negate {
+            Some(self.builder.not(result, "neq"))
+        } else {
+            Some(result)
+        }
+    }
+
+    /// Emit `<`, `>`, `<=`, `>=` via `Comparable.compare()` + ordering check.
+    ///
+    /// `compare(self, other)` returns `Ordering` (i8): 0=Less, 1=Equal, 2=Greater.
+    fn emit_ordering_comparison(
+        &mut self,
+        op: BinaryOp,
+        lhs: ValueId,
+        rhs: ValueId,
+        lhs_ty: Idx,
+    ) -> Option<ValueId> {
+        let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
+        let interned_method = self.interner.intern("compare");
+        let (func_id, params, ret_passing, ret_ty_idx) = {
+            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            (
+                *fid,
+                abi.params.clone(),
+                abi.return_abi.passing.clone(),
+                abi.return_abi.ty,
+            )
+        };
+
+        let raw_args = [lhs, rhs];
+        let passed_args = self.apply_param_passing(&raw_args, &params);
+
+        let ordering = match &ret_passing {
+            ReturnPassing::Sret { .. } => {
+                let ret_ty = self.resolve_type(ret_ty_idx);
+                self.call_with_sret(func_id, &passed_args, ret_ty, "cmp_trait")?
+            }
+            ReturnPassing::Direct | ReturnPassing::Void => {
+                self.builder.call(func_id, &passed_args, "cmp_trait")?
+            }
+        };
+
+        // Ordering is i8: 0=Less, 1=Equal, 2=Greater
+        // Map comparison operators to equality/inequality checks on the ordering value.
+        let less = self.builder.const_i8(0);
+        let greater = self.builder.const_i8(2);
+        let result = match op {
+            BinaryOp::Lt => self.builder.icmp_eq(ordering, less, "lt"),
+            BinaryOp::Gt => self.builder.icmp_eq(ordering, greater, "gt"),
+            BinaryOp::LtEq => self.builder.icmp_ne(ordering, greater, "le"),
+            BinaryOp::GtEq => self.builder.icmp_ne(ordering, less, "ge"),
+            _ => unreachable!("only Lt/Gt/LtEq/GtEq reach here"),
+        };
+        Some(result)
     }
 
     /// Dispatch a unary operator to a trait method for non-primitive types.
