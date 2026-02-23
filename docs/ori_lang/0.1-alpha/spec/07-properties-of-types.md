@@ -415,6 +415,53 @@ The `Len` trait is distinct from `Iterator.count()`:
 
 Iterators do _not_ implement `Len`. To count iterator elements, use `.count()`.
 
+## IsEmpty Trait
+
+The `IsEmpty` trait provides emptiness checking for collections and sequences.
+
+```ori
+trait IsEmpty {
+    @is_empty (self) -> bool
+}
+```
+
+### Semantic Requirements
+
+Implementations _must_ satisfy:
+
+- **Consistency**: `is_empty()` returns `true` if and only if the collection contains no elements
+- **Deterministic**: `x.is_empty()` returns the same value for unchanged `x`
+- **Relationship to Len**: If a type implements both `Len` and `IsEmpty`, then `x.is_empty() == (x.len() == 0)` _must_ hold
+
+### Standard Implementations
+
+All built-in _Iterable_ types implement `IsEmpty`:
+
+| Type | Implements `IsEmpty` | Condition |
+|------|---------------------|-----------|
+| `[T]` | Yes | `true` if no elements |
+| `str` | Yes | `true` if zero bytes |
+| `{K: V}` | Yes | `true` if no entries |
+| `Set<T>` | Yes | `true` if no elements |
+| `[T, max N]` | Yes | `true` if length is 0 |
+| `Range<int>` | Yes | `true` if `start >= end` |
+
+### Types That Do Not Implement IsEmpty
+
+| Type | Reason |
+|------|--------|
+| Tuples `(T₁, T₂, ...)` | Fixed-size at compile time; never empty |
+| `Option<T>` | Not a collection; use `is_none()` or pattern matching |
+| `Range<float>` | Not iterable |
+
+### Relationship to Iterable
+
+`IsEmpty` is independent of `Iterable`. While all built-in `Iterable` types implement `IsEmpty`, a type _may_ implement `IsEmpty` without implementing `Iterable` (e.g., types where emptiness can be checked without iteration).
+
+### Derivation
+
+`IsEmpty` cannot be derived. Types _must_ implement it explicitly or be built-in.
+
 ## Comparable Trait
 
 The `Comparable` trait provides total ordering for values.

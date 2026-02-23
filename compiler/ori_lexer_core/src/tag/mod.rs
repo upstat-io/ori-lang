@@ -13,6 +13,7 @@
 //! | 0-15    | Identifiers & Literals|
 //! | 16-20   | Template Literals     |
 //! | 32-61   | Operators             |
+//! | 62-73   | Compound Assignment   |
 //! | 80-95   | Delimiters            |
 //! | 112-114 | Trivia                |
 //! | 240-245 | Errors                |
@@ -136,6 +137,32 @@ pub enum RawTag {
     /// `??`
     QuestionQuestion = 61,
 
+    // Compound assignment operators (62-73)
+    /// `+=`
+    PlusEq = 62,
+    /// `-=`
+    MinusEq = 63,
+    /// `*=`
+    StarEq = 64,
+    /// `/=`
+    SlashEq = 65,
+    /// `%=`
+    PercentEq = 66,
+    /// `@=`
+    AtEq = 67,
+    /// `&=`
+    AmpersandEq = 68,
+    /// `|=`
+    PipeEq = 69,
+    /// `^=`
+    CaretEq = 70,
+    /// `<<=`
+    ShlEq = 71,
+    /// `&&=`
+    AmpersandAmpersandEq = 72,
+    /// `||=`
+    PipePipeEq = 73,
+
     // === Delimiters (80-95) ===
     /// `(`
     LeftParen = 80,
@@ -243,6 +270,19 @@ impl RawTag {
             Self::ColonColon => Some("::"),
             Self::Shl => Some("<<"),
             Self::QuestionQuestion => Some("??"),
+            // Compound assignment
+            Self::PlusEq => Some("+="),
+            Self::MinusEq => Some("-="),
+            Self::StarEq => Some("*="),
+            Self::SlashEq => Some("/="),
+            Self::PercentEq => Some("%="),
+            Self::AtEq => Some("@="),
+            Self::AmpersandEq => Some("&="),
+            Self::PipeEq => Some("|="),
+            Self::CaretEq => Some("^="),
+            Self::ShlEq => Some("<<="),
+            Self::AmpersandAmpersandEq => Some("&&="),
+            Self::PipePipeEq => Some("||="),
             Self::LeftParen => Some("("),
             Self::RightParen => Some(")"),
             Self::LeftBracket => Some("["),
@@ -312,6 +352,19 @@ impl RawTag {
             Self::ColonColon => "`::`",
             Self::Shl => "`<<`",
             Self::QuestionQuestion => "`??`",
+            // Compound assignment
+            Self::PlusEq => "`+=`",
+            Self::MinusEq => "`-=`",
+            Self::StarEq => "`*=`",
+            Self::SlashEq => "`/=`",
+            Self::PercentEq => "`%=`",
+            Self::AtEq => "`@=`",
+            Self::AmpersandEq => "`&=`",
+            Self::PipeEq => "`|=`",
+            Self::CaretEq => "`^=`",
+            Self::ShlEq => "`<<=`",
+            Self::AmpersandAmpersandEq => "`&&=`",
+            Self::PipePipeEq => "`||=`",
             Self::LeftParen => "`(`",
             Self::RightParen => "`)`",
             Self::LeftBracket => "`[`",

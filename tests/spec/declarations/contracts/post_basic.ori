@@ -1,0 +1,40 @@
+// Spec: 10-patterns.md § Function-Level Contracts
+// Tests that `post()` contract syntax parses correctly on function declarations.
+//
+// Note: Contract runtime enforcement is not yet implemented.
+// These tests verify that the parser accepts the syntax and the
+// type checker handles functions with contracts without errors.
+
+use std.testing { assert_eq }
+
+// Basic post-condition with single parameter
+@abs (n: int) -> int
+    post(r -> r >= 0)
+= if n < 0 then -n else n;
+
+@test_abs tests @abs () -> void = {
+    assert_eq(abs(5), 5);
+    assert_eq(abs(-5), 5);
+    assert_eq(abs(0), 0);
+}
+
+// Post-condition with custom message
+@double (n: int) -> int
+    post(r -> r == n * 2 | "result must be double the input")
+= n * 2;
+
+@test_double tests @double () -> void = {
+    assert_eq(double(5), 10);
+    assert_eq(double(0), 0);
+    assert_eq(double(-3), -6);
+}
+
+// Post-condition with tuple destructuring
+@swap (a: int, b: int) -> (int, int)
+    post((x, y) -> x == b && y == a)
+= (b, a);
+
+@test_swap tests @swap () -> void = {
+    assert_eq(swap(1, 2), (2, 1));
+    assert_eq(swap(0, 0), (0, 0));
+}

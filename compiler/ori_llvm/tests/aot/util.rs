@@ -504,12 +504,17 @@ pub fn compile_and_run(source: &str) -> i32 {
 }
 
 /// Assert that a program compiles and runs with exit code 0.
+///
+/// Automatically enables ARC leak detection (`ORI_CHECK_LEAKS=1`) in the
+/// child process. Exit codes: 0=success, 1=panic, 2=leak detected.
 pub fn assert_aot_success(source: &str, test_name: &str) {
-    let exit_code = compile_and_run(source);
-    assert_eq!(
-        exit_code, 0,
-        "{test_name} failed with exit code {exit_code}"
-    );
+    let (exit_code, _, stderr) = compile_and_run_capture(source);
+    match exit_code {
+        0 => {} // success
+        2 => panic!("{test_name} leaked memory:\n{stderr}"),
+        -1 => panic!("{test_name} compilation failed:\n{stderr}"),
+        code => panic!("{test_name} failed with exit code {code}:\n{stderr}"),
+    }
 }
 
 /// Compile and run an Ori program, capturing stdout output.
@@ -541,6 +546,7 @@ pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
     }
 
     let run_result = Command::new(&binary_path)
+        .env("ORI_CHECK_LEAKS", "1")
         .output()
         .expect("Failed to execute binary");
 

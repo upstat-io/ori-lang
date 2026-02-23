@@ -34,11 +34,11 @@
 //! - Lean 4: `src/Lean/Compiler/IR/ResetReuse.lean`
 //! - Koka: Perceus paper §4 (reuse analysis)
 
-use ori_types::Idx;
+use ori_types::{Idx, Pool};
 use rustc_hash::FxHashSet;
 
 use crate::graph::DominatorTree;
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, ValueRepr};
 use crate::liveness::RefinedLiveness;
 use crate::ArcClassification;
 
@@ -51,7 +51,12 @@ use crate::ArcClassification;
 ///
 /// * `func` — the ARC IR function to transform (mutated in place).
 /// * `classifier` — type classifier for `needs_rc()` checks.
-pub(crate) fn detect_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcClassification) {
+/// * `pool` — type pool for computing [`ValueRepr`] of token variables.
+pub(crate) fn detect_reset_reuse(
+    func: &mut ArcFunction,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+) {
     // Precondition: detection creates Reset/Reuse — none should exist yet.
     debug_assert!(
         !func
@@ -70,7 +75,7 @@ pub(crate) fn detect_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcCla
     let num_blocks = func.blocks.len();
 
     for block_idx in 0..num_blocks {
-        detect_in_block(func, block_idx, classifier);
+        detect_in_block(func, block_idx, classifier, pool);
     }
 }
 
@@ -79,7 +84,12 @@ pub(crate) fn detect_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcCla
 /// Uses a forward scan. When we find an `RcDec`, we look ahead for a
 /// matching `Construct`. If found and constraints are satisfied, replace
 /// both instructions.
-fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn ArcClassification) {
+fn detect_in_block(
+    func: &mut ArcFunction,
+    block_idx: usize,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+) {
     // Track which RcDec indices have been paired, so we don't pair twice.
     let mut paired_decs: FxHashSet<usize> = FxHashSet::default();
     // Track which Construct indices have been paired.
@@ -100,7 +110,7 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
 
         // Look for RcDec instructions.
         let dec_var = match &body[i] {
-            ArcInstr::RcDec { var } => *var,
+            ArcInstr::RcDec { var, .. } => *var,
             _ => continue,
         };
 
@@ -146,11 +156,12 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
         }
     }
 
-    // Phase 2: Allocate fresh token variables (body borrow is released).
+    // Phase 2: Allocate fresh token variables with correct repr (body borrow is released).
     let pairs: Vec<(usize, usize, ArcVarId)> = matched
         .into_iter()
         .map(|(dec_idx, construct_idx, dec_ty)| {
-            let token = func.fresh_var(dec_ty);
+            let repr = repr_for_type(classifier, pool, dec_ty);
+            let token = func.fresh_var_repr(dec_ty, repr);
             (dec_idx, construct_idx, token)
         })
         .collect();
@@ -172,7 +183,7 @@ fn detect_in_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn Ar
         };
 
         let dec_var = match &body[dec_idx] {
-            ArcInstr::RcDec { var } => *var,
+            ArcInstr::RcDec { var, .. } => *var,
             _ => unreachable!("paired dec index must be an RcDec"),
         };
 
@@ -226,9 +237,10 @@ pub fn detect_reset_reuse_cfg(
     classifier: &dyn ArcClassification,
     dom_tree: &DominatorTree,
     refined: &[RefinedLiveness],
+    pool: &Pool,
 ) {
     // Step 1: Run intra-block detection first (fast path).
-    detect_reset_reuse(func, classifier);
+    detect_reset_reuse(func, classifier, pool);
 
     // Step 2: Collect unpaired RcDec instructions.
     // After intra-block detection, remaining RcDec instructions are candidates
@@ -236,7 +248,7 @@ pub fn detect_reset_reuse_cfg(
     let mut unpaired_decs: Vec<(usize, usize, ArcVarId, Idx)> = Vec::new();
     for (block_idx, block) in func.blocks.iter().enumerate() {
         for (instr_idx, instr) in block.body.iter().enumerate() {
-            if let ArcInstr::RcDec { var } = instr {
+            if let ArcInstr::RcDec { var, .. } = instr {
                 let ty = func.var_type(*var);
                 if classifier.needs_rc(ty) {
                     unpaired_decs.push((block_idx, instr_idx, *var, ty));
@@ -322,7 +334,9 @@ pub fn detect_reset_reuse_cfg(
 
     // Step 4: Apply cross-block replacements.
     for m in matches {
-        let token = func.fresh_var(func.var_type(m.dec_var));
+        let dec_ty = func.var_type(m.dec_var);
+        let repr = repr_for_type(classifier, pool, dec_ty);
+        let token = func.fresh_var_repr(dec_ty, repr);
 
         // Extract Construct details.
         let (dst, ty, ctor, args) = match &func.blocks[m.construct_block].body[m.construct_instr] {
@@ -350,6 +364,12 @@ pub fn detect_reset_reuse_cfg(
             args,
         };
     }
+}
+
+/// Compute [`ValueRepr`] for a type from classifier + pool.
+fn repr_for_type(classifier: &dyn ArcClassification, pool: &Pool, ty: Idx) -> ValueRepr {
+    let class = classifier.arc_class(ty);
+    ValueRepr::from_arc_class(class, pool, ty)
 }
 
 /// A matched cross-block RcDec/Construct pair.

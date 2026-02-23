@@ -18,6 +18,10 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
+> **ACTIVE REROUTE**: `plans/aot_codegen_pipeline/` — AOT Codegen Pipeline (supersedes `plans/arc_optimization/` and `plans/arc_codegen_unification/`). 11 sections: emission layer typing, lowerer gaps, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation, cross-block RC elimination, Salsa borrow inference, FBIP enforcement, legacy cleanup (~11K deletion), comprehensive verification. Design reference: `plans/dpr_aot-codegen-pipeline_02222026.md`.
+
+---
+
 ## How to Use
 
 1. **Search this file** (Ctrl+F / Cmd+F) for keywords related to what you're looking for
@@ -88,6 +92,7 @@ trait bounds, where clause, constraints
 derive, #derive, Eq, Clone, Hashable, Debug, Default, Printable
 operator traits, Add, Sub, Mul, Div, Neg, Rem
 BitAnd, BitOr, BitXor, Shl, Shr, BitNot
+MatMul, matrix multiplication, @ operator
 Comparable, Ordering, compare, less, greater, equal
 Iterator, DoubleEndedIterator, Iterable, Collect
 Into, conversion trait, type conversion

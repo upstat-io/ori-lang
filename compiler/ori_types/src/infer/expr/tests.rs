@@ -1827,13 +1827,13 @@ fn test_infer_function_exp_catch() {
 }
 
 #[test]
-fn test_infer_function_exp_timeout() {
+fn test_infer_function_exp_timeout_rejected() {
     let mut pool = Pool::new();
     let mut engine = InferEngine::new(&mut pool);
     let mut arena = ExprArena::new();
 
-    // timeout(duration: ..., task: 42)
-    let duration = alloc(&mut arena, ExprKind::Int(1000)); // milliseconds
+    // timeout is a post-0.1 concurrency feature — rejected at type checking (E2040)
+    let duration = alloc(&mut arena, ExprKind::Int(1000));
     let task = alloc(&mut arena, ExprKind::Int(42));
 
     let props = arena.alloc_named_exprs([
@@ -1860,13 +1860,9 @@ fn test_infer_function_exp_timeout() {
 
     let ty = infer_expr(&mut engine, &arena, expr_id);
 
-    // timeout returns Option<T>
-    assert_eq!(
-        engine.pool().tag(ty),
-        Tag::Option,
-        "timeout should return Option"
-    );
-    assert!(!engine.has_errors());
+    // Post-0.1 concurrency features return ERROR and emit E2040
+    assert_eq!(ty, Idx::ERROR, "timeout should return error type");
+    assert!(engine.has_errors(), "should emit unsupported feature error");
 }
 
 // ========================================================================

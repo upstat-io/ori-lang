@@ -77,6 +77,11 @@ impl<'pool> ArcClassifier<'pool> {
             return ArcClass::Scalar;
         }
 
+        // Resolve type variables: follow VarState::Link chains from inference.
+        // The type checker unifies variables but may leave the original Var index
+        // in compound types (e.g., Option<Var(96)> where Var(96) → int).
+        let idx = self.pool.resolve_fully(idx);
+
         // Fast path: pre-interned primitives (indices 0-11) can be classified
         // by raw index without any hash map lookup.
         if idx.is_primitive() {

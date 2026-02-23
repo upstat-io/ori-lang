@@ -92,7 +92,7 @@ impl ParseContext {
 }
 ```
 
-Context flags affect how tokens are interpreted. For example, `NO_STRUCT_LIT` prevents struct literal syntax inside `if` conditions to avoid `if Point { x: 0, ... }` ambiguity. `IN_TYPE` changes how `>` is parsed (closes a generic parameter list rather than comparison). `PIPE_IS_SEPARATOR` makes `|` act as a message separator (not bitwise OR) in `pre_check:` / `post_check:` clauses, where `|` introduces a message string.
+Context flags affect how tokens are interpreted. For example, `NO_STRUCT_LIT` prevents struct literal syntax inside `if` conditions to avoid `if Point { x: 0, ... }` ambiguity. `IN_TYPE` changes how `>` is parsed (closes a generic parameter list rather than comparison). `PIPE_IS_SEPARATOR` makes `|` act as a message separator (not bitwise OR) in `pre()` / `post()` contracts, where `|` introduces a message string.
 
 ## Parsing Flow
 

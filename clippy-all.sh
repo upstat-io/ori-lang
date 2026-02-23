@@ -22,7 +22,7 @@ wait $CL_PID || CL_EXIT=$?
 echo ""
 echo "=== Running clippy on runtime library ==="
 RT_EXIT=0
-cargo clippy --manifest-path compiler/ori_rt/Cargo.toml --all-targets || RT_EXIT=$?
+cargo clippy --manifest-path compiler/ori_rt/Cargo.toml --all-targets -- -D warnings || RT_EXIT=$?
 
 # NOTE: ori-lsp is excluded — its code is outdated (references removed oric APIs).
 # Add to clippy-all.sh once ori-lsp is updated to the new compiler.

@@ -329,6 +329,10 @@ Confirm null coalescing operator section with precedence clarification.
 
 ---
 
+## Errata (added 2026-02-21)
+
+> **Precedence renumbered by power-operator-proposal**: The `**` (power) operator was inserted at precedence level 2, shifting all subsequent levels by +1. `??` (coalesce) moved from level 14 to level 15. The relative ordering is unchanged.
+
 ## Summary
 
 | Item | Type | Purpose |

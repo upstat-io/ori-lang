@@ -131,3 +131,163 @@ fn test_block_body_with_optional_semicolon() {
     );
     assert_eq!(output.module.functions.len(), 1);
 }
+
+// --- Contract parsing tests ---
+
+#[test]
+fn test_pre_contract_basic() {
+    let output = parse_module("@f (x: int) -> int pre(x > 0) = x;");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    assert_eq!(output.module.functions.len(), 1);
+    let func = &output.module.functions[0];
+    assert_eq!(func.pre_contracts.len(), 1);
+    assert!(func.pre_contracts[0].message.is_none());
+    assert!(func.post_contracts.is_empty());
+}
+
+#[test]
+fn test_pre_contract_with_message() {
+    let output = parse_module(r#"@f (x: int) -> int pre(x > 0 | "x must be positive") = x;"#);
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert_eq!(func.pre_contracts.len(), 1);
+    assert!(func.pre_contracts[0].message.is_some());
+}
+
+#[test]
+fn test_post_contract_basic() {
+    let output = parse_module("@f (x: int) -> int post(r -> r >= 0) = x;");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert!(func.pre_contracts.is_empty());
+    assert_eq!(func.post_contracts.len(), 1);
+    assert_eq!(func.post_contracts[0].params.len(), 1);
+    assert!(func.post_contracts[0].message.is_none());
+}
+
+#[test]
+fn test_post_contract_tuple_params() {
+    let output = parse_module("@f (x: int) -> (int, int) post((a, b) -> a + b == x) = (x, 0);");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert_eq!(func.post_contracts.len(), 1);
+    assert_eq!(func.post_contracts[0].params.len(), 2);
+}
+
+#[test]
+fn test_post_contract_with_message() {
+    let output =
+        parse_module(r#"@f (x: int) -> int post(r -> r > 0 | "result must be positive") = x;"#);
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert_eq!(func.post_contracts.len(), 1);
+    assert!(func.post_contracts[0].message.is_some());
+}
+
+#[test]
+fn test_multiple_pre_contracts() {
+    let output = parse_module(
+        r#"@f (a: int, b: int) -> int pre(a > 0 | "a positive") pre(b > 0 | "b positive") = a + b;"#,
+    );
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert_eq!(func.pre_contracts.len(), 2);
+}
+
+#[test]
+fn test_pre_and_post_contracts() {
+    let output =
+        parse_module("@f (a: int, b: int) -> int pre(b != 0) post(r -> r * b <= a) = a div b;");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert_eq!(func.pre_contracts.len(), 1);
+    assert_eq!(func.post_contracts.len(), 1);
+}
+
+#[test]
+fn test_contracts_with_newlines() {
+    let source = "\
+@divide (a: int, b: int) -> int
+    pre(b != 0)
+    post(r -> r * b <= a)
+= a div b;";
+    let output = parse_module(source);
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert_eq!(func.pre_contracts.len(), 1);
+    assert_eq!(func.post_contracts.len(), 1);
+}
+
+#[test]
+fn test_contracts_with_guard_and_where() {
+    let source = "@f <T> (x: T) -> T where T: Eq if x != x pre(true) = x;";
+    let output = parse_module(source);
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert!(!func.where_clauses.is_empty());
+    assert!(func.guard.is_some());
+    assert_eq!(func.pre_contracts.len(), 1);
+}
+
+#[test]
+fn test_no_contracts_still_works() {
+    // Regression: functions without contracts should still parse cleanly
+    let output = parse_module("@f (x: int) -> int = x;");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    let func = &output.module.functions[0];
+    assert!(func.pre_contracts.is_empty());
+    assert!(func.post_contracts.is_empty());
+}
+
+#[test]
+fn test_pre_used_as_identifier_elsewhere() {
+    // `pre` is not a keyword — it can be used as a variable name in the body
+    let output = parse_module("@f () -> int = { let pre = 42; pre };");
+    assert!(
+        output.errors.is_empty(),
+        "Parse errors: {:?}",
+        output.errors
+    );
+    assert_eq!(output.module.functions.len(), 1);
+    assert!(output.module.functions[0].pre_contracts.is_empty());
+}

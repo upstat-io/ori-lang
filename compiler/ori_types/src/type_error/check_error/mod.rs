@@ -610,6 +610,9 @@ impl TypeCheckError {
                     format_name(*name)
                 )
             }
+            TypeErrorKind::UnsupportedFeature { feature } => {
+                format!("`{feature}` is not yet supported")
+            }
         }
     }
 
@@ -837,6 +840,9 @@ impl TypeCheckError {
             TypeErrorKind::AssignToImmutable { .. } => {
                 "cannot assign to immutable binding".to_string()
             }
+            TypeErrorKind::UnsupportedFeature { feature } => {
+                format!("`{feature}` is not yet supported")
+            }
         }
     }
 
@@ -946,6 +952,9 @@ impl TypeCheckError {
 
             // E2039: Cannot assign to immutable binding
             TypeErrorKind::AssignToImmutable { .. } => ErrorCode::E2039,
+
+            // E2040: Feature not yet supported
+            TypeErrorKind::UnsupportedFeature { .. } => ErrorCode::E2040,
         }
     }
 
@@ -1635,6 +1644,19 @@ impl TypeCheckError {
         }
     }
 
+    /// Create an "unsupported feature" error (E2040).
+    ///
+    /// Emitted for language features that exist in the grammar but are not yet
+    /// implemented (e.g., concurrency primitives like `parallel`, `spawn`).
+    pub fn unsupported_feature(span: Span, feature: &'static str) -> Self {
+        Self {
+            span,
+            kind: TypeErrorKind::UnsupportedFeature { feature },
+            context: ErrorContext::default(),
+            suggestions: vec![],
+        }
+    }
+
     /// Create a "format type mismatch" error (E2035).
     ///
     /// Emitted when a format type (e.g., `x`, `b`) is used with an
@@ -1967,6 +1989,12 @@ pub enum TypeErrorKind {
     AssignToImmutable {
         /// The name of the immutable binding.
         name: Name,
+    },
+
+    /// Feature not yet supported (E2040).
+    UnsupportedFeature {
+        /// Human-readable feature name (e.g., "parallel", "spawn").
+        feature: &'static str,
     },
 }
 

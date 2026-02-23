@@ -402,19 +402,21 @@ Operators are listed from highest to lowest precedence:
 | Level | Operators | Associativity | Description |
 |-------|-----------|---------------|-------------|
 | 1 | `.` `[]` `()` `?` `as` `as?` | Left | Postfix |
-| 2 | `!` `-` `~` | Right | Unary |
-| 3 | `*` `/` `%` `div` | Left | Multiplicative |
-| 4 | `+` `-` | Left | Additive |
-| 5 | `<<` `>>` | Left | Shift |
-| 6 | `..` `..=` `by` | Left | Range |
-| 7 | `<` `>` `<=` `>=` | Left | Relational |
-| 8 | `==` `!=` | Left | Equality |
-| 9 | `&` | Left | Bitwise AND |
-| 10 | `^` | Left | Bitwise XOR |
-| 11 | `\|` | Left | Bitwise OR |
-| 12 | `&&` | Left | Logical AND |
-| 13 | `\|\|` | Left | Logical OR |
-| 14 | `??` | Right | Coalesce |
+| 2 | `**` | Right | Power |
+| 3 | `!` `-` `~` | Right | Unary |
+| 4 | `*` `/` `%` `div` `@` | Left | Multiplicative |
+| 5 | `+` `-` | Left | Additive |
+| 6 | `<<` `>>` | Left | Shift |
+| 7 | `..` `..=` `by` | Left | Range |
+| 8 | `<` `>` `<=` `>=` | Left | Relational |
+| 9 | `==` `!=` | Left | Equality |
+| 10 | `&` | Left | Bitwise AND |
+| 11 | `^` | Left | Bitwise XOR |
+| 12 | `\|` | Left | Bitwise OR |
+| 13 | `&&` | Left | Logical AND |
+| 14 | `\|\|` | Left | Logical OR |
+| 15 | `??` | Right | Coalesce |
+| 16 | `\|>` | Left | Pipe |
 
 Parentheses override precedence:
 
@@ -437,6 +439,8 @@ Operators are desugared to trait method calls. User-defined types can implement 
 | `a / b` | `Div` | `a.divide(rhs: b)` |
 | `a div b` | `FloorDiv` | `a.floor_divide(rhs: b)` |
 | `a % b` | `Rem` | `a.remainder(rhs: b)` |
+| `a ** b` | `Pow` | `a.power(rhs: b)` |
+| `a @ b` | `MatMul` | `a.matrix_multiply(rhs: b)` |
 
 ### Unary Operators
 
@@ -892,6 +896,100 @@ Elements evaluate left-to-right:
 
 ```
 
+## Pipe Operator
+
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § `pipe_expr`, `pipe_step`
+
+The _pipe operator_ `|>` enables left-to-right function composition. The left operand is evaluated and passed as an argument to the right operand.
+
+```ori
+data
+    |> filter(predicate: x -> x > 0)
+    |> map(transform: x -> x * 2)
+    |> sum
+```
+
+### Implicit Fill
+
+When the right side of `|>` is a function call, the piped value fills the single _unspecified parameter_. A parameter is unspecified when it is both (a) not provided in the call arguments and (b) has no default value.
+
+```ori
+// max_pool2d has params: (input: Tensor, kernel_size: int) -> Tensor
+x |> max_pool2d(kernel_size: 2)
+// Fills: max_pool2d(input: x, kernel_size: 2)
+```
+
+It is a compile-time error if:
+- Zero parameters are unspecified (all provided or defaulted): "nothing for pipe to fill"
+- Two or more parameters are unspecified: "ambiguous pipe target; specify all parameters except one"
+
+### Method Calls on the Piped Value
+
+A leading `.` calls a method on the piped value itself, rather than passing it as a function argument:
+
+```ori
+x |> .flatten(start_dim: 1)    // x.flatten(start_dim: 1)
+x |> .sort()                   // x.sort()
+```
+
+Without the dot, the pipe step is a free function call with implicit fill:
+
+```ori
+x |> sort          // free function: sort(<piped>: x)
+x |> .sort()       // method: x.sort()
+```
+
+### Lambda Pipe Steps
+
+A lambda receives the piped value as its parameter:
+
+```ori
+x |> (a -> a @ weight + bias)
+x |> (a -> a ** 2)
+```
+
+### Error Propagation
+
+The `?` operator on a pipe step applies to the result of the desugared call:
+
+```ori
+data |> parse_csv?
+// Desugars to: parse_csv(input: data)?
+```
+
+### Desugaring
+
+Each pipe step desugars to a let-binding and an ordinary call:
+
+```ori
+expr |> func(arg: val)
+// Desugars to:
+{
+    let $__pipe = expr;
+    func(<unspecified>: __pipe, arg: val)
+}
+
+expr |> .method(arg: val)
+// Desugars to:
+{
+    let $__pipe = expr;
+    __pipe.method(arg: val)
+}
+```
+
+The type checker resolves implicit fill by inspecting the function signature. The evaluator and codegen see only the desugared form.
+
+### Precedence and Associativity
+
+`|>` has the lowest precedence of all binary operators (level 16, below `??` at 15). It is left-associative.
+
+```ori
+a + b |> process       // (a + b) |> process
+a |> f |> g |> h       // ((a |> f) |> g) |> h — equivalent to h(g(f(a)))
+```
+
+---
+
 ## Spread Operator
 
 > **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § EXPRESSIONS (list_element, map_element, struct_element)
@@ -968,6 +1066,24 @@ The right side evaluates before assignment:
 ```ori
 x = compute();  // compute() evaluated, then assigned to x
 ```
+
+### Compound Assignment
+
+> **Grammar:** See [grammar.ebnf](grammar.ebnf) § `compound_op`
+> **Rules:** See [operator-rules.md](operator-rules.md) § Compound Assignment
+
+A _compound assignment_ `x op= y` desugars to `x = x op y` at parse time. The left-hand side must be a mutable binding. Compound assignment is a statement, not an expression.
+
+```ori
+x += 1;              // desugars to: x = x + 1
+point.x *= scale;    // desugars to: point.x = point.x * scale
+flags |= MASK;       // desugars to: flags = flags | MASK
+passed &&= check();  // desugars to: passed = passed && check()
+```
+
+Supported operators: `+=`, `-=`, `*=`, `/=`, `%=`, `**=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`.
+
+The `&&=` and `||=` forms preserve short-circuit evaluation: `x &&= expr` does not evaluate `expr` when `x` is `false`.
 
 ### Short-Circuit Evaluation
 

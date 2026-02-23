@@ -18,6 +18,9 @@ sections:
     title: Positional Lambdas for Single-Parameter Functions
     status: not-started
   - id: "15B.5"
+    title: Argument Punning (Call Arguments)
+    status: not-started
+  - id: "15B.6"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -51,7 +54,7 @@ print(msg: "Hello")  // named required everywhere
 - All functions require named arguments (built-ins, user-defined, methods)
 - Only function variable calls allow positional: `let f = x -> x + 1; f(5)`
 - Type conversions use `as` syntax (see 15D), not function calls
-- No shorthand syntax (`foo(x)` meaning `foo(x: x)` is NOT supported)
+- No positional shorthand (`foo(x)` meaning `foo(x: x)` is NOT supported — but see 15B.5 for `foo(x:)` punning with trailing colon)
 
 ### Implementation
 
@@ -465,7 +468,57 @@ error[E2011]: named arguments required for direct function calls
 
 ---
 
-## 15B.5 Section Completion Checklist
+## 15B.5 Argument Punning (Call Arguments)
+
+**Proposal**: `proposals/approved/argument-punning-proposal.md`
+
+Allow omitting the value in a named function argument when the argument name matches the variable name: `f(x:)` for `f(x: x)`. Parser-only desugaring — type checker, evaluator, and LLVM see the expanded form.
+
+```ori
+// Before:
+conv2d(input: input, weight: weight, bias: bias, stride: 2)
+
+// After:
+conv2d(input:, weight:, bias:, stride: 2)
+```
+
+### Parser
+
+- [ ] **Implement**: In call argument parsing, when `name:` followed by `,` or `)`, create synthetic `Expr::Ident`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/postfix/tests.rs` — punned call arg parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/argument_punning.ori`
+
+- [ ] **Implement**: Mixed punned and explicit arguments parse correctly
+  - [ ] **Ori Tests**: `tests/spec/expressions/argument_punning_mixed.ori`
+
+- [ ] **Implement**: `f(x)` positional unchanged (no regression)
+  - [ ] **Ori Tests**: `tests/spec/expressions/positional_arg_regression.ori`
+
+### Error Messages
+
+- [ ] **Implement**: `f(x:)` when `x` not in scope produces "cannot find value `x`"
+  - [ ] **Ori Tests**: `tests/compile-fail/punning_not_in_scope.ori`
+
+- [ ] **Implement**: `f(x:)` when function has no param `x` produces existing "unknown parameter" error
+  - [ ] **Ori Tests**: `tests/compile-fail/punning_unknown_param.ori`
+
+### Formatter
+
+- [ ] **Implement**: Detect `name == value_ident` in call args and emit `name:` form
+  - [ ] **Rust Tests**: `ori_fmt/src/formatter/` — call arg punning canonicalization
+
+- [ ] **Implement**: Preserve `f(x: other)` — no punning when names differ
+  - [ ] **Rust Tests**: `ori_fmt/src/formatter/` — non-punning preservation
+
+### Documentation
+
+- [ ] **Implement**: Update spec `09-expressions.md` with call argument punning
+- [ ] **Implement**: Update `grammar.ebnf` with optional expression in `named_arg`
+- [ ] **Implement**: Update `.claude/rules/ori-syntax.md` with punning syntax
+
+---
+
+## 15B.6 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated

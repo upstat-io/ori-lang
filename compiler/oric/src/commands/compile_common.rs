@@ -167,6 +167,7 @@ fn run_borrow_inference(
             interner,
             pool,
             &mut arc_problems,
+            sig.is_fbip,
         );
         arc_functions.push(arc_fn);
         arc_functions.extend(lambdas);
@@ -180,7 +181,8 @@ fn run_borrow_inference(
         emit_codegen_diagnostics(acc);
     }
 
-    let sigs = ori_arc::infer_borrows(&arc_functions, classifier);
+    let borrowing_builtins = ori_llvm::codegen::arc_emitter::borrowing_builtin_names(interner);
+    let sigs = ori_arc::infer_borrows(&arc_functions, classifier, &borrowing_builtins);
     (sigs, arc_functions)
 }
 
@@ -213,7 +215,9 @@ pub fn run_arc_pipeline_cached(
         if let Some(cached) = cache.get(&key) {
             if let Ok(arc_functions) = cached.to_arc_functions() {
                 tracing::debug!("ARC IR cache hit — skipping ARC analysis");
-                return ori_arc::infer_borrows(&arc_functions, classifier);
+                let borrowing_builtins =
+                    ori_llvm::codegen::arc_emitter::borrowing_builtin_names(interner);
+                return ori_arc::infer_borrows(&arc_functions, classifier, &borrowing_builtins);
             }
             tracing::debug!("ARC IR cache corrupt — re-analyzing");
         }
@@ -312,19 +316,27 @@ pub fn compile_to_llvm<'ctx>(
         // 2. Register user-defined types
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
-        // 3. Run ARC borrow inference pipeline (uses same code path as multi-file)
+        // 3. Run ARC borrow inference pipeline (with session-scoped caching)
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let annotated_sigs = run_arc_pipeline_cached(
-            parse_result,
-            &function_sigs,
-            canon,
-            interner,
-            pool,
-            &classifier,
-            None, // No cache for single-file path
-            None, // No module hash
-        );
+        let source_key = std::path::Path::new(source_path);
+        let annotated_sigs = if let Some(cached) = db.borrow_sig_cache().get(source_key) {
+            tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
+            (*cached).clone()
+        } else {
+            let sigs = run_arc_pipeline_cached(
+                parse_result,
+                &function_sigs,
+                canon,
+                interner,
+                pool,
+                &classifier,
+                None, // No ARC IR cache for single-file path
+                None, // No module hash
+            );
+            db.borrow_sig_cache().store(source_key, sigs.clone());
+            sigs
+        };
 
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
@@ -334,8 +346,8 @@ pub fn compile_to_llvm<'ctx>(
             interner,
             pool,
             "",
-            Some(&annotated_sigs),
-            Some(&classifier),
+            &annotated_sigs,
+            &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
         );
         fc.declare_all(&parse_result.module.functions, &function_sigs);
@@ -476,6 +488,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                     is_public: false,
                     is_test: false,
                     is_main: false,
+                    is_fbip: false,
                     type_param_bounds: vec![],
                     where_clauses: vec![],
                     generic_param_mapping: vec![],
@@ -486,19 +499,27 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             })
             .collect();
 
-        // 4. Run ARC borrow inference pipeline (with optional caching)
+        // 4. Run ARC borrow inference pipeline (with session-scoped + ARC IR caching)
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let annotated_sigs = run_arc_pipeline_cached(
-            parse_result,
-            &function_sigs,
-            canon,
-            interner,
-            pool,
-            &classifier,
-            arc_cache,
-            module_hash,
-        );
+        let source_key = std::path::Path::new(source_path);
+        let annotated_sigs = if let Some(cached) = db.borrow_sig_cache().get(source_key) {
+            tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
+            (*cached).clone()
+        } else {
+            let sigs = run_arc_pipeline_cached(
+                parse_result,
+                &function_sigs,
+                canon,
+                interner,
+                pool,
+                &classifier,
+                arc_cache,
+                module_hash,
+            );
+            db.borrow_sig_cache().store(source_key, sigs.clone());
+            sigs
+        };
 
         // 5. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
@@ -508,11 +529,10 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             interner,
             pool,
             module_name,
-            Some(&annotated_sigs),
-            Some(&classifier),
+            &annotated_sigs,
+            &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
         );
-
         // Declare imports first so they're visible to function bodies
         fc.declare_imports(&import_sigs);
         fc.declare_all(&parse_result.module.functions, &function_sigs);

@@ -1,7 +1,7 @@
 //! LLVM Backend for Ori
 //!
 //! This crate provides native code generation via LLVM, using the V2 codegen
-//! architecture: `TypeInfoStore` → `IrBuilder` → `FunctionCompiler` → `ExprLowerer`.
+//! architecture: `TypeInfoStore` → `IrBuilder` → `FunctionCompiler` → `ArcIrEmitter`.
 //!
 //! # Debug Environment Variables
 //!
@@ -17,7 +17,6 @@
 //! - [`SimpleCx`](context::SimpleCx): Minimal LLVM context (module + types)
 //! - [`IrBuilder`](codegen::IrBuilder): ID-based LLVM instruction builder
 //! - [`FunctionCompiler`](codegen::function_compiler::FunctionCompiler): Two-pass compilation
-//! - [`ExprLowerer`](codegen::ExprLowerer): AST → LLVM IR lowering
 //! - [`TypeInfoStore`](codegen::TypeInfoStore): Type information cache
 //! - [`LLVMEvaluator`](evaluator::LLVMEvaluator): JIT evaluation
 

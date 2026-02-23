@@ -6,6 +6,7 @@ use ori_types::Idx;
 use crate::Ownership;
 
 use super::*;
+use crate::ir::ArgOwnership;
 
 // ID newtypes
 
@@ -212,6 +213,7 @@ fn instr_apply() {
         ty: Idx::INT,
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Owned],
     };
     assert!(matches!(instr, ArcInstr::Apply { .. }));
 }
@@ -252,9 +254,11 @@ fn instr_rc_ops() {
     let inc = ArcInstr::RcInc {
         var: ArcVarId::new(0),
         count: 2,
+        strategy: RcStrategy::HeapPointer,
     };
     let dec = ArcInstr::RcDec {
         var: ArcVarId::new(0),
+        strategy: RcStrategy::HeapPointer,
     };
     assert!(matches!(inc, ArcInstr::RcInc { count: 2, .. }));
     assert!(matches!(dec, ArcInstr::RcDec { .. }));
@@ -415,7 +419,9 @@ fn arc_function_var_type_single() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT],
+        var_reprs: Vec::new(),
         spans: vec![vec![]],
+        is_fbip: false,
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
 }
@@ -451,7 +457,9 @@ fn arc_function_var_type_multiple() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT, Idx::STR, Idx::BOOL],
+        var_reprs: Vec::new(),
         spans: vec![vec![None]],
+        is_fbip: false,
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
     assert_eq!(func.var_type(ArcVarId::new(1)), Idx::STR);
@@ -477,6 +485,7 @@ fn defined_var_apply() {
         ty: Idx::STR,
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0)],
+        arg_ownership: vec![ArgOwnership::Owned],
     };
     assert_eq!(instr.defined_var(), Some(ArcVarId::new(3)));
 }
@@ -549,6 +558,7 @@ fn defined_var_rc_inc_is_none() {
     let instr = ArcInstr::RcInc {
         var: ArcVarId::new(0),
         count: 1,
+        strategy: RcStrategy::HeapPointer,
     };
     assert_eq!(instr.defined_var(), None);
 }
@@ -557,6 +567,7 @@ fn defined_var_rc_inc_is_none() {
 fn defined_var_rc_dec_is_none() {
     let instr = ArcInstr::RcDec {
         var: ArcVarId::new(0),
+        strategy: RcStrategy::HeapPointer,
     };
     assert_eq!(instr.defined_var(), None);
 }
@@ -625,6 +636,7 @@ fn used_vars_apply() {
         ty: Idx::INT,
         func: Name::from_raw(10),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![ArgOwnership::Owned; 2],
     };
     assert_eq!(
         instr.used_vars().as_slice(),
@@ -676,6 +688,7 @@ fn used_vars_rc_inc() {
     let instr = ArcInstr::RcInc {
         var: ArcVarId::new(3),
         count: 2,
+        strategy: RcStrategy::HeapPointer,
     };
     assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(3)]);
 }
@@ -684,6 +697,7 @@ fn used_vars_rc_inc() {
 fn used_vars_rc_dec() {
     let instr = ArcInstr::RcDec {
         var: ArcVarId::new(7),
+        strategy: RcStrategy::HeapPointer,
     };
     assert_eq!(instr.used_vars().as_slice(), [ArcVarId::new(7)]);
 }
@@ -806,6 +820,7 @@ fn terminator_used_vars_invoke() {
         ty: Idx::INT,
         func: Name::from_raw(1),
         args: vec![ArcVarId::new(0), ArcVarId::new(1)],
+        arg_ownership: vec![ArgOwnership::Owned; 2],
         normal: ArcBlockId::new(1),
         unwind: ArcBlockId::new(2),
     };
@@ -853,7 +868,9 @@ fn fresh_var_sequential_ids() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT],
+        var_reprs: Vec::new(),
         spans: vec![vec![]],
+        is_fbip: false,
     };
 
     let v1 = func.fresh_var(Idx::STR);
@@ -893,7 +910,9 @@ fn test_arc_ir_roundtrip() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT, Idx::INT],
+        var_reprs: Vec::new(),
         spans: vec![vec![Some(ori_ir::Span::new(10, 20))]],
+        is_fbip: false,
     };
 
     let bytes = bincode::serialize(&func).unwrap_or_else(|e| panic!("serialize failed: {e}"));
@@ -943,6 +962,7 @@ fn test_arc_ir_all_instr_variants() {
             ty: Idx::STR,
             func: Name::from_raw(10),
             args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
         },
         ArcInstr::ApplyIndirect {
             dst: ArcVarId::new(4),
@@ -971,9 +991,11 @@ fn test_arc_ir_all_instr_variants() {
         ArcInstr::RcInc {
             var: ArcVarId::new(0),
             count: 3,
+            strategy: RcStrategy::HeapPointer,
         },
         ArcInstr::RcDec {
             var: ArcVarId::new(0),
+            strategy: RcStrategy::HeapPointer,
         },
         ArcInstr::IsShared {
             dst: ArcVarId::new(8),
@@ -1036,6 +1058,7 @@ fn test_arc_ir_all_instr_variants() {
             ty: Idx::INT,
             func: Name::from_raw(10),
             args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
             normal: ArcBlockId::new(1),
             unwind: ArcBlockId::new(2),
         },
@@ -1071,7 +1094,9 @@ fn next_block_id_and_push() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![],
+        var_reprs: Vec::new(),
         spans: vec![vec![]],
+        is_fbip: false,
     };
 
     assert_eq!(func.next_block_id(), ArcBlockId::new(1));

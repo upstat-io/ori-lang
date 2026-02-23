@@ -16,14 +16,17 @@
 /// | 76-99   | Punctuation        |
 /// | 100-120 | Operators          |
 /// | 121-127 | Special            |
+/// | 128-139 | Compound assignment|
 ///
 /// This enum serves as the single source of truth for discriminant values.
 /// `TAG_*` constants and `discriminant_index()` both derive from these values.
 ///
 /// # Invariant
 ///
-/// All discriminants must be < 128 to fit within the parser's `OPER_TABLE[128]`
-/// and `POSTFIX_BITSET` (2 × u64 = 128 bits).
+/// All discriminants must be < 256. The parser's `OPER_TABLE[128]` and
+/// `POSTFIX_BITSET` only cover indices 0-127 (with early-return guards for
+/// higher values). Compound assignment tokens (128+) are handled outside
+/// those tables via `compound_assign_op()`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum TokenTag {
@@ -170,18 +173,34 @@ pub enum TokenTag {
     Error = 122,
     Eof = 127,
     // 123-126: reserved for future special tokens
+
+    // === Compound Assignment (128-139) ===
+    PlusEq = 128,     // +=
+    MinusEq = 129,    // -=
+    StarEq = 130,     // *=
+    SlashEq = 131,    // /=
+    PercentEq = 132,  // %=
+    AtEq = 133,       // @=
+    AmpEq = 134,      // &=
+    PipeEq = 135,     // |=
+    CaretEq = 136,    // ^=
+    ShlEq = 137,      // <<=
+    AmpAmpEq = 138,   // &&=
+    PipePipeEq = 139, // ||=
 }
 
-// Compile-time assertion: all TokenTag values fit in 7 bits (< 128).
-// This is required for TokenSet (u128 bitset), OPER_TABLE[128], and POSTFIX_BITSET.
-const _: () = assert!(TokenTag::MAX_DISCRIMINANT <= 127);
+// TokenTag is repr(u8), so all discriminants fit in 0..255 by construction.
+// TokenSet uses [u128; 2] (256 bits) to cover the full range.
+// OPER_TABLE[128] and POSTFIX_BITSET only cover 0-127 with early-return
+// guards for higher values — compound assignment tokens (128+) are handled
+// outside those tables via compound_assign_op().
 
 impl TokenTag {
     /// Maximum discriminant value across all variants.
     ///
-    /// Must be < 128 for `TokenSet` (u128 bitset), `OPER_TABLE[128]`,
-    /// and `POSTFIX_BITSET`. Update this when adding new variants.
-    pub const MAX_DISCRIMINANT: u8 = Self::Eof as u8;
+    /// Must be < 256 for `TokenSet` ([u128; 2] bitset = 256 bits).
+    /// Update this when adding variants with higher discriminants.
+    pub const MAX_DISCRIMINANT: u8 = Self::PipePipeEq as u8;
 
     /// Get a human-readable name for this tag.
     #[expect(clippy::too_many_lines, reason = "exhaustive TokenTag → name dispatch")]
@@ -307,6 +326,19 @@ impl TokenTag {
             Self::Newline => "newline",
             Self::Error => "error",
             Self::Eof => "end of file",
+            // Compound assignment
+            Self::PlusEq => "+=",
+            Self::MinusEq => "-=",
+            Self::StarEq => "*=",
+            Self::SlashEq => "/=",
+            Self::PercentEq => "%=",
+            Self::AtEq => "@=",
+            Self::AmpEq => "&=",
+            Self::PipeEq => "|=",
+            Self::CaretEq => "^=",
+            Self::ShlEq => "<<=",
+            Self::AmpAmpEq => "&&=",
+            Self::PipePipeEq => "||=",
         }
     }
 }

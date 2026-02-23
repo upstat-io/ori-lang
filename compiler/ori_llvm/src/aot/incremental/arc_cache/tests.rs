@@ -29,7 +29,9 @@ fn sample_arc_function() -> ArcFunction {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT, Idx::INT],
+        var_reprs: Vec::new(),
         spans: vec![vec![None]],
+        is_fbip: false,
     }
 }
 

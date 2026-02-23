@@ -7,7 +7,7 @@ use super::{
     check_match_pattern, infer_expr, infer_match, lookup_struct_field_types, pattern_first_name,
     resolve_and_check_parsed_type,
 };
-use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag};
+use crate::{ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, Tag, TypeCheckError};
 
 /// Infer type for a `function_seq` expression (try, match, for).
 ///
@@ -439,44 +439,25 @@ pub(crate) fn infer_function_exp(
             super::infer_recurse(engine, arena, props)
         }
 
-        // Concurrency patterns
-        FunctionExpKind::Parallel => {
-            // parallel(tasks: [expr]) -> [T]
-            // Returns list of results from parallel execution
-            super::infer_parallel(engine, arena, props)
-        }
-
-        FunctionExpKind::Spawn => {
-            // spawn(task: expr) -> Task<T>
-            // Returns a handle to the spawned task
-            super::infer_spawn(engine, arena, props)
-        }
-
-        FunctionExpKind::Timeout => {
-            // timeout(duration: Duration, task: expr) -> Option<T>
-            // Returns Some(result) or None if timeout
-            super::infer_timeout(engine, arena, props)
-        }
-
         FunctionExpKind::Cache => {
             // cache(key: expr, op: expr, ttl: Duration) -> T
             super::infer_cache(engine, arena, props)
         }
 
-        FunctionExpKind::With => {
-            // with(acquire: expr, action: expr, release: expr) -> T
-            super::infer_with(engine, arena, props)
-        }
-
-        // Channel constructors — stub: infer props, return fresh type var
-        FunctionExpKind::Channel
+        // Post-0.1-alpha concurrency — rejected at type checking (E2040)
+        FunctionExpKind::Parallel
+        | FunctionExpKind::Spawn
+        | FunctionExpKind::Timeout
+        | FunctionExpKind::With
+        | FunctionExpKind::Channel
         | FunctionExpKind::ChannelIn
         | FunctionExpKind::ChannelOut
         | FunctionExpKind::ChannelAll => {
-            for prop in props {
-                infer_expr(engine, arena, prop.value);
-            }
-            engine.fresh_var()
+            engine.push_error(TypeCheckError::unsupported_feature(
+                func_exp.span,
+                func_exp.kind.name(),
+            ));
+            Idx::ERROR
         }
     }
 }

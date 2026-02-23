@@ -23,6 +23,9 @@ sections:
     title: Exhaustiveness Checking
     status: not-started
   - id: "9.5"
+    title: Named Variant Pattern Fields (Argument Punning)
+    status: not-started
+  - id: "9.6"
     title: Section Completion Checklist
     status: not-started
 ---
@@ -292,7 +295,79 @@ Pattern matrix decomposition algorithm (Maranget's algorithm) for exhaustiveness
 
 ---
 
-## 9.5 Section Completion Checklist
+## 9.5 Named Variant Pattern Fields (Argument Punning)
+
+**Proposal**: `proposals/approved/argument-punning-proposal.md`
+
+Allow named field syntax in variant patterns, with punning when the binding variable matches the field name: `Circle(radius:)` for `Circle(radius: radius)`.
+
+```ori
+type Shape = Circle(radius: float) | Rectangle(width: float, height: float)
+
+// Before (positional only):
+match shape {
+    Circle(r) -> r * r * 3.14
+    Rectangle(w, h) -> w * h
+}
+
+// After (named + punned):
+match shape {
+    Circle(radius:) -> radius * radius * 3.14
+    Rectangle(width:, height:) -> width * height
+}
+```
+
+### Parser
+
+- [ ] **Implement**: Support `name:` and `name: pattern` in variant pattern fields
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern/tests.rs` — named variant field parsing
+  - [ ] **Ori Tests**: `tests/spec/patterns/variant_punning.ori`
+
+- [ ] **Implement**: Mixed named and positional fields in same variant pattern
+  - [ ] **Ori Tests**: `tests/spec/patterns/variant_punning_mixed.ori`
+
+- [ ] **Implement**: Positional variant patterns unchanged (no regression)
+  - [ ] **Ori Tests**: `tests/spec/patterns/variant_positional_regression.ori`
+
+### IR
+
+- [ ] **Implement**: Extend variant pattern representation to support named fields
+  - [ ] **Rust Tests**: `ori_ir/src/ast/pattern/tests.rs` — named variant field IR
+
+### Type Checker
+
+- [ ] **Implement**: Validate named fields match variant definition
+  - [ ] **Rust Tests**: `ori_types/src/check/` — variant field name validation
+  - [ ] **Ori Tests**: `tests/compile-fail/variant_punning_unknown_field.ori`
+
+- [ ] **Implement**: Named fields can appear in any order
+  - [ ] **Ori Tests**: `tests/spec/patterns/variant_punning_reorder.ori`
+
+### Evaluator
+
+- [ ] **Implement**: Match named variant fields by name (reorder to definition order)
+  - [ ] **Rust Tests**: `ori_eval/src/interpreter/` — named variant field matching
+  - [ ] **Ori Tests**: `tests/spec/patterns/variant_punning.ori`
+
+### LLVM
+
+- [ ] **Implement**: LLVM codegen for named variant field patterns
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — named variant field codegen
+
+### Formatter
+
+- [ ] **Implement**: Detect `name: name` in variant patterns and emit `name:` form
+  - [ ] **Rust Tests**: `ori_fmt/src/formatter/` — variant pattern punning canonicalization
+
+### Documentation
+
+- [ ] **Implement**: Update spec `10-patterns.md` with named variant field patterns
+- [ ] **Implement**: Update `grammar.ebnf` with `variant_field` production
+- [ ] **Implement**: Update `.claude/rules/ori-syntax.md` with pattern punning syntax
+
+---
+
+## 9.6 Section Completion Checklist
 
 - [ ] All items above have all three checkboxes marked `[ ]`
 - [ ] Spec updated: `spec/10-patterns.md` reflects implementation

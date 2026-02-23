@@ -216,6 +216,21 @@ pub static SPACE_RULES: &[SpaceRule] = &[
     // Space around assignment: x = 1
     SpaceRule::new("BeforeEq", Any, Exact(Eq), SpaceAction::Space).with_priority(40),
     SpaceRule::new("AfterEq", Exact(Eq), Any, SpaceAction::Space).with_priority(40),
+    // Space around compound assignment: x += 1
+    SpaceRule::new(
+        "BeforeCompoundAssign",
+        Any,
+        Exact(CompoundAssign),
+        SpaceAction::Space,
+    )
+    .with_priority(40),
+    SpaceRule::new(
+        "AfterCompoundAssign",
+        Exact(CompoundAssign),
+        Any,
+        SpaceAction::Space,
+    )
+    .with_priority(40),
     // Space around arrow: (x) -> y
     SpaceRule::new("BeforeArrow", Any, Exact(Arrow), SpaceAction::Space).with_priority(40),
     SpaceRule::new("AfterArrow", Exact(Arrow), Any, SpaceAction::Space).with_priority(40),
