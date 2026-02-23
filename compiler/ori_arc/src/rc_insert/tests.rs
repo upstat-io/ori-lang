@@ -1,10 +1,12 @@
-use ori_ir::Name;
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::borrow::infer_derived_ownership;
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+use crate::ir::{
+    ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, CtorKind, LitValue,
+};
 use crate::liveness::compute_liveness;
 use crate::test_helpers::{
     b, borrowed_param, count_block_rc_ops as count_rc_ops, count_dec, count_inc, make_func,
@@ -12,7 +14,10 @@ use crate::test_helpers::{
 };
 use crate::ArcClassifier;
 
-use super::{insert_rc_ops, insert_rc_ops_with_ownership};
+use super::{
+    annotate_arg_ownership, insert_external_invoke_cleanup, insert_rc_ops,
+    insert_rc_ops_with_ownership,
+};
 
 // Helpers
 
@@ -100,6 +105,7 @@ fn multiple_uses_get_inc() {
                 ty: Idx::UNIT,
                 func: Name::from_raw(99),
                 args: vec![v(0), v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 2],
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -127,6 +133,7 @@ fn borrowed_param_no_ops() {
                 ty: Idx::INT,
                 func: Name::from_raw(99),
                 args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -299,6 +306,7 @@ fn diamond_branch() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(3),
@@ -374,6 +382,7 @@ fn loop_variable() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -537,6 +546,7 @@ fn early_exit_cleanup() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0), v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 2],
                 }],
                 terminator: ArcTerminator::Return { value: v(3) },
             },
@@ -623,6 +633,7 @@ fn break_from_loop_cleanup() {
                     ty: Idx::UNIT,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -657,6 +668,7 @@ fn duplicate_in_single_instr() {
                 ty: Idx::STR,
                 func: Name::from_raw(99),
                 args: vec![v(0), v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 2],
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -737,6 +749,7 @@ fn switch_asymmetric_cleanup() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0), v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 2],
                 }],
                 terminator: ArcTerminator::Return { value: v(3) },
             },
@@ -827,6 +840,7 @@ fn edge_cleanup_multiple_vars() {
                     ty: Idx::UNIT,
                     func: Name::from_raw(99),
                     args: vec![v(0), v(1), v(2)],
+                    arg_ownership: vec![ArgOwnership::Owned; 3],
                 }],
                 terminator: ArcTerminator::Return { value: v(5) },
             },
@@ -1005,6 +1019,7 @@ fn invoke_unwind_cleanup() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -1089,6 +1104,7 @@ fn invoke_unwind_cleanup_multiple_vars() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![],
+                    arg_ownership: vec![],
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -1102,6 +1118,7 @@ fn invoke_unwind_cleanup_multiple_vars() {
                     ty: Idx::UNIT,
                     func: Name::from_raw(98),
                     args: vec![v(0), v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 2],
                 }],
                 terminator: ArcTerminator::Return { value: v(2) },
             },
@@ -1161,6 +1178,7 @@ fn invoke_unused_dst_gets_dec_in_normal() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![],
+                    arg_ownership: vec![],
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -1230,6 +1248,7 @@ fn no_edge_cleanup_symmetric() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 }],
                 terminator: ArcTerminator::Return { value: v(2) },
             },
@@ -1253,7 +1272,7 @@ fn run_rc_insert_enhanced(mut func: ArcFunction) -> ArcFunction {
     let liveness = compute_liveness(&func, &classifier);
     let sigs = FxHashMap::default();
     let ownership = infer_derived_ownership(&func, &sigs);
-    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs);
+    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs, &pool);
     func
 }
 
@@ -1266,7 +1285,7 @@ fn run_rc_insert_enhanced_with_sigs(
     let classifier = ArcClassifier::new(&pool);
     let liveness = compute_liveness(&func, &classifier);
     let ownership = infer_derived_ownership(&func, sigs);
-    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, sigs);
+    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, sigs, &pool);
     func
 }
 
@@ -1376,6 +1395,7 @@ fn enhanced_cross_block_borrow_inc() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 }],
                 terminator: ArcTerminator::Return { value: v(3) },
             },
@@ -1612,5 +1632,684 @@ fn closure_escaping_borrowed_still_inc() {
         count_inc(&result, 0, v(1)),
         1,
         "escaping closure must Inc borrowed capture even at Borrowed position"
+    );
+}
+
+// External invoke cleanup tests
+
+/// External invoke — `fn(x: str) { ori_print(x) }`.
+/// Runtime functions borrow args without Dec — caller must Dec after invoke.
+#[test]
+fn external_invoke_args_get_dec() {
+    // Block 0: invoke ori_print(v0:str) → normal=b(1), unwind=b(2)
+    // Block 1: return unit
+    // Block 2: unreachable (unwind landing)
+    let interner = StringInterner::new();
+    let external_fn = interner.intern("ori_print");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: external_fn,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    // Pre-pass: annotate arg ownership from sigs/interner for external callees.
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = FxHashMap::default();
+    annotate_arg_ownership(&mut func, &sigs, &interner, &FxHashSet::default());
+
+    // Run RC insertion.
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs, &pool);
+
+    // Post-pass: insert Dec for last-use args to external invokes.
+    insert_external_invoke_cleanup(&mut func, &classifier, &liveness, &pool);
+
+    // Block 1 (normal successor) should have RcDec for v0 (the str arg).
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        1,
+        "external invoke's RC-typed arg must get RcDec in normal successor"
+    );
+}
+
+/// External invoke with scalar arg — no cleanup needed.
+#[test]
+fn external_invoke_scalar_arg_no_dec() {
+    let interner = StringInterner::new();
+    let external_fn = interner.intern("ori_print_int");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::INT)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: external_fn,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::INT, Idx::UNIT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = FxHashMap::default();
+    annotate_arg_ownership(&mut func, &sigs, &interner, &FxHashSet::default());
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs, &pool);
+    insert_external_invoke_cleanup(&mut func, &classifier, &liveness, &pool);
+
+    // v0 is int (scalar) → no cleanup needed.
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        0,
+        "scalar args should not get external invoke cleanup"
+    );
+}
+
+/// Internal invoke — function IS in sigs → no cleanup (callee handles Dec).
+#[test]
+fn internal_invoke_no_cleanup() {
+    let interner = StringInterner::new();
+    let internal_fn = interner.intern("user_function");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: internal_fn,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    // Register internal_fn in sigs → it's a known Ori function.
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let mut sigs = FxHashMap::default();
+    sigs.insert(
+        internal_fn,
+        crate::ownership::AnnotatedSig {
+            params: vec![crate::ownership::AnnotatedParam {
+                name: internal_fn,
+                ty: Idx::STR,
+                ownership: crate::ownership::Ownership::Owned,
+            }],
+            return_type: Idx::UNIT,
+        },
+    );
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs, &pool);
+    insert_external_invoke_cleanup(&mut func, &classifier, &liveness, &pool);
+
+    // Internal function is in sigs → callee handles Dec → no cleanup.
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        0,
+        "internal invoke should not get external cleanup"
+    );
+}
+
+/// User function NOT in sigs but without ori_ prefix → no cleanup.
+/// Covers derived trait methods, default trait methods, etc.
+#[test]
+fn user_function_not_in_sigs_no_cleanup() {
+    let interner = StringInterner::new();
+    let user_fn = interner.intern("compare");
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: user_fn,
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Unreachable,
+            },
+        ],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = FxHashMap::default(); // empty — "compare" is NOT in sigs
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let liveness = compute_liveness(&func, &classifier);
+    insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs, &pool);
+    insert_external_invoke_cleanup(&mut func, &classifier, &liveness, &pool);
+
+    // "compare" has no ori_ prefix → treated as user function → no cleanup.
+    assert_eq!(
+        count_dec(&func, 1, v(0)),
+        0,
+        "user function without ori_ prefix should not get external cleanup"
+    );
+}
+
+// --- Cross-block borrowing projection tests (Section 04.5) ---
+
+/// Try operator (`?`) pattern: scalar tag Project borrows scrut across the
+/// branch, consuming non-scalar Project on the error path transfers ownership.
+///
+/// Models `Result<int, str>`:
+/// ```text
+/// B0 (entry):
+///   v0 = param(Result)           [owned, needs RC]
+///   v1 = Project(v0, field=0)    [ty=INT → scalar → borrowing]
+///   v2 = Literal(true)
+///   Branch(v2, B1, B2)
+///
+/// B1 (ok):
+///   v3 = Project(v0, field=1)    [ty=INT → scalar → borrowing]
+///   Return v3
+///
+/// B2 (err):
+///   v4 = Project(v0, field=1)    [ty=STR → non-scalar → consuming]
+///   v5 = Construct Err(v4)
+///   Return v5
+/// ```
+///
+/// Expected:
+/// - B0: v0 live-out to both successors → no Dec
+/// - B1: v0's last use is the borrowing Project → Dec(v0)
+/// - B2: non-scalar Project consumes v0 → no Dec(v0)
+#[test]
+fn try_operator_pattern_result_int_str() {
+    let func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![
+            // B0: tag extraction + branch
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::INT,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(2),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            // B1 (ok): scalar payload extraction — borrowing
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    value: v(0),
+                    field: 1,
+                }],
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+            // B2 (err): non-scalar payload extraction — consuming
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(4),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 1,
+                    },
+                    ArcInstr::Construct {
+                        dst: v(5),
+                        ty: Idx::STR,
+                        ctor: CtorKind::EnumVariant {
+                            enum_name: Name::from_raw(50),
+                            variant: 1,
+                        },
+                        args: vec![v(4)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(5) },
+            },
+        ],
+        vec![Idx::STR, Idx::INT, Idx::BOOL, Idx::INT, Idx::STR, Idx::STR],
+    );
+
+    let result = run_rc_insert(func);
+
+    // B0: v0 is live-out (both successors use it) → no Dec.
+    assert_eq!(
+        count_dec(&result, 0, v(0)),
+        0,
+        "scrut must NOT be Dec'd at branch — still live-out"
+    );
+
+    // B1 (ok): scalar Project borrows v0, last use on this path → Dec.
+    assert_eq!(
+        count_dec(&result, 1, v(0)),
+        1,
+        "scrut must be Dec'd in ok block after last borrowing use"
+    );
+
+    // B2 (err): non-scalar Project consumes v0 (ownership → v4) → no Dec.
+    assert_eq!(
+        count_dec(&result, 2, v(0)),
+        0,
+        "scrut must NOT be Dec'd in err block — consuming Project transfers ownership"
+    );
+}
+
+/// Cross-block liveness with borrowing projections on both paths.
+///
+/// When BOTH successors use only scalar (borrowing) projections, the
+/// scrutinee must be Dec'd at the last use in EACH successor separately.
+///
+/// ```text
+/// B0:
+///   v0 = param(str-like)         [owned, needs RC]
+///   v1 = Project(v0, field=0)    [ty=INT → borrowing]
+///   v2 = Literal(true)
+///   Branch(v2, B1, B2)
+///
+/// B1: v3 = Project(v0, field=1) [ty=INT → borrowing]; Return v3
+/// B2: v4 = Project(v0, field=2) [ty=INT → borrowing]; Return v4
+/// ```
+#[test]
+fn borrowing_projection_cross_block_liveness() {
+    let func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::INT,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(1),
+                        ty: Idx::INT,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(2),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(2),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: v(3),
+                    ty: Idx::INT,
+                    value: v(0),
+                    field: 1,
+                }],
+                terminator: ArcTerminator::Return { value: v(3) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: v(4),
+                    ty: Idx::INT,
+                    value: v(0),
+                    field: 2,
+                }],
+                terminator: ArcTerminator::Return { value: v(4) },
+            },
+        ],
+        vec![Idx::STR, Idx::INT, Idx::BOOL, Idx::INT, Idx::INT],
+    );
+
+    let result = run_rc_insert(func);
+
+    // B0: v0 live-out → no Dec.
+    assert_eq!(
+        count_dec(&result, 0, v(0)),
+        0,
+        "v0 in live_out(B0) — no Dec at branch"
+    );
+
+    // B1: borrowing Project is last use → Dec(v0).
+    assert_eq!(
+        count_dec(&result, 1, v(0)),
+        1,
+        "v0 must be Dec'd at last borrowing use in B1"
+    );
+
+    // B2: borrowing Project is last use → Dec(v0).
+    assert_eq!(
+        count_dec(&result, 2, v(0)),
+        1,
+        "v0 must be Dec'd at last borrowing use in B2"
+    );
+}
+
+/// Chained `?` — two sequential try patterns with no leaks.
+///
+/// ```text
+/// B0:
+///   v0 = param(Result1)  v1 = param(Result2)
+///   v2 = Project(v0, 0) [scalar→borrow]  v3 = Literal(true)
+///   Branch(v3, B1, B2)
+///
+/// B1 (first ok):
+///   v4 = Project(v0, 1) [scalar→borrow]  ← Dec(v0) here
+///   v5 = Project(v1, 0) [scalar→borrow]  v6 = Literal(true)
+///   Branch(v6, B3, B4)
+///
+/// B2 (first err):
+///   v7 = Project(v0, 1) [non-scalar→consume]
+///   v8 = Construct Err(v7)
+///   Return v8                              ← Dec(v1) here (stranded)
+///
+/// B3 (second ok):
+///   v9 = Project(v1, 1) [scalar→borrow]   ← Dec(v1) here
+///   Return v9
+///
+/// B4 (second err):
+///   v10 = Project(v1, 1) [non-scalar→consume]
+///   v11 = Construct Err(v10)
+///   Return v11
+/// ```
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "integration test with complex multi-block CFG"
+)]
+fn chained_try_no_leak() {
+    let func = make_func(
+        vec![owned_param(0, Idx::STR), owned_param(1, Idx::STR)],
+        Idx::STR,
+        vec![
+            // B0: first tag extraction + branch
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(2),
+                        ty: Idx::INT,
+                        value: v(0),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(3),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(3),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            // B1 (first ok): extract first payload, then try second
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(4),
+                        ty: Idx::INT,
+                        value: v(0),
+                        field: 1,
+                    },
+                    ArcInstr::Project {
+                        dst: v(5),
+                        ty: Idx::INT,
+                        value: v(1),
+                        field: 0,
+                    },
+                    ArcInstr::Let {
+                        dst: v(6),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(6),
+                    then_block: b(3),
+                    else_block: b(4),
+                },
+            },
+            // B2 (first err): consume first, strand second
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(7),
+                        ty: Idx::STR,
+                        value: v(0),
+                        field: 1,
+                    },
+                    ArcInstr::Construct {
+                        dst: v(8),
+                        ty: Idx::STR,
+                        ctor: CtorKind::EnumVariant {
+                            enum_name: Name::from_raw(50),
+                            variant: 1,
+                        },
+                        args: vec![v(7)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(8) },
+            },
+            // B3 (second ok): extract second payload (scalar → borrowing)
+            ArcBlock {
+                id: b(3),
+                params: vec![],
+                body: vec![ArcInstr::Project {
+                    dst: v(9),
+                    ty: Idx::INT,
+                    value: v(1),
+                    field: 1,
+                }],
+                terminator: ArcTerminator::Return { value: v(9) },
+            },
+            // B4 (second err): consume second
+            ArcBlock {
+                id: b(4),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Project {
+                        dst: v(10),
+                        ty: Idx::STR,
+                        value: v(1),
+                        field: 1,
+                    },
+                    ArcInstr::Construct {
+                        dst: v(11),
+                        ty: Idx::STR,
+                        ctor: CtorKind::EnumVariant {
+                            enum_name: Name::from_raw(50),
+                            variant: 1,
+                        },
+                        args: vec![v(10)],
+                    },
+                ],
+                terminator: ArcTerminator::Return { value: v(11) },
+            },
+        ],
+        vec![
+            Idx::STR,  // v0: first Result
+            Idx::STR,  // v1: second Result
+            Idx::INT,  // v2: first tag
+            Idx::BOOL, // v3: branch cond
+            Idx::INT,  // v4: first ok payload
+            Idx::INT,  // v5: second tag
+            Idx::BOOL, // v6: branch cond
+            Idx::STR,  // v7: first err payload
+            Idx::STR,  // v8: Construct result
+            Idx::INT,  // v9: second ok payload
+            Idx::STR,  // v10: second err payload
+            Idx::STR,  // v11: Construct result
+        ],
+    );
+
+    let result = run_rc_insert(func);
+
+    // --- First Result (v0) ---
+
+    // B0: v0 live-out (used in B1, B2) → no Dec.
+    assert_eq!(
+        count_dec(&result, 0, v(0)),
+        0,
+        "first scrut live-out from B0"
+    );
+    // B1: scalar Project borrows v0, last use → Dec.
+    assert_eq!(
+        count_dec(&result, 1, v(0)),
+        1,
+        "first scrut Dec'd at last borrowing use in B1"
+    );
+    // B2: non-scalar Project consumes v0 → no Dec.
+    assert_eq!(
+        count_dec(&result, 2, v(0)),
+        0,
+        "first scrut consumed by non-scalar Project in B2"
+    );
+
+    // --- Second Result (v1) ---
+
+    // B0: v1 live-out (used in B1, and transitively in B3/B4 via B1) → no Dec.
+    assert_eq!(
+        count_dec(&result, 0, v(1)),
+        0,
+        "second scrut live-out from B0"
+    );
+    // B1: v1 live-out (used in B3, B4) → no Dec.
+    assert_eq!(
+        count_dec(&result, 1, v(1)),
+        0,
+        "second scrut live-out from B1"
+    );
+    // B2: v1 stranded (not used in B2) → edge cleanup Dec.
+    assert_eq!(
+        count_dec(&result, 2, v(1)),
+        1,
+        "second scrut stranded in B2 — edge cleanup Dec"
+    );
+    // B3: scalar Project borrows v1, last use → Dec.
+    assert_eq!(
+        count_dec(&result, 3, v(1)),
+        1,
+        "second scrut Dec'd at last borrowing use in B3"
+    );
+    // B4: non-scalar Project consumes v1 → no Dec.
+    assert_eq!(
+        count_dec(&result, 4, v(1)),
+        0,
+        "second scrut consumed by non-scalar Project in B4"
     );
 }

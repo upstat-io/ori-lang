@@ -40,6 +40,10 @@ pub enum ErrorContext {
     MatchExpression,
     /// Parsing a for loop.
     ForLoop,
+    /// Parsing a for pattern (`for(over:, match:, default:)`).
+    ForPattern,
+    /// Parsing a try expression.
+    TryExpression,
     /// Parsing a while loop.
     WhileLoop,
     /// Parsing a block expression.
@@ -110,6 +114,8 @@ impl ErrorContext {
             Self::IfExpression => "an if expression",
             Self::MatchExpression => "a match expression",
             Self::ForLoop => "a for loop",
+            Self::ForPattern => "a for pattern",
+            Self::TryExpression => "a try expression",
             Self::WhileLoop => "a while loop",
             Self::Block => "a block",
             Self::Closure => "a closure",
@@ -159,6 +165,8 @@ impl ErrorContext {
             Self::IfExpression => "if expression",
             Self::MatchExpression => "match expression",
             Self::ForLoop => "for loop",
+            Self::ForPattern => "for pattern",
+            Self::TryExpression => "try expression",
             Self::WhileLoop => "while loop",
             Self::Block => "block",
             Self::Closure => "closure",

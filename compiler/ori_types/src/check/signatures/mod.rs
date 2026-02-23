@@ -260,6 +260,7 @@ fn infer_function_signature_with_arena(
         is_public: func.visibility == IrVisibility::Public,
         is_test: false,
         is_main,
+        is_fbip: func.is_fbip,
         type_param_bounds,
         where_clauses,
         generic_param_mapping,
@@ -319,6 +320,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         is_public: false,         // Tests are never public
         is_test: true,
         is_main: false,
+        is_fbip: false, // Tests can't be fbip
         type_param_bounds: Vec::new(),
         where_clauses: Vec::new(),
         generic_param_mapping: Vec::new(),

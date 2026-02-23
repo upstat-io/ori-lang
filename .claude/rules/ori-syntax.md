@@ -88,11 +88,13 @@ Bottom type (uninhabited); coerces to any `T`
 
 ## Operators (precedence high→low)
 
-1. `.` `[]` `()` `?` — 2. `!` `-` `~` — 3. `*` `/` `%` `div` — 4. `+` `-` — 5. `<<` `>>` — 6. `..` `..=` `by` — 7. `<` `>` `<=` `>=` — 8. `==` `!=` — 9. `&` — 10. `^` — 11. `|` — 12. `&&` — 13. `||` — 14. `??`
+1. `.` `[]` `()` `?` `as` `as?` — 2. `**` (right) — 3. `!` `-` `~` — 4. `*` `/` `%` `div` `@` — 5. `+` `-` — 6. `<<` `>>` — 7. `..` `..=` `by` — 8. `<` `>` `<=` `>=` — 9. `==` `!=` — 10. `&` — 11. `^` — 12. `|` — 13. `&&` — 14. `||` — 15. `??` — 16. `|>` (pipe)
 
 **Unary**: `!` (Not), `-` (Neg), `~` (BitNot) | **Bitwise**: `&`/`|`/`^` (BitAnd/Or/Xor), `<<`/`>>` (Shl/Shr)
 **Shift overflow**: negative count panics; count ≥ bit width panics; `1 << 63` panics
 **Operator traits**: desugar to trait methods; user types implement for operator support
+**Compound assignment**: `x op= y` desugars to `x = x op y` (parser-level) | `+=` `-=` `*=` `/=` `%=` `**=` `@=` `&=` `|=` `^=` `<<=` `>>=` `&&=` `||=` | statement, not expression | target must be mutable (no `$`) | `&&=`/`||=` preserve short-circuit
+**Pipe**: `x |> f(a: v)` fills single unspecified param | `x |> .method()` calls method on piped value | `x |> (a -> expr)` lambda fallback | prec 16 (lowest) | left-assoc | desugars to let-binding + call in type checker | "unspecified" = no value AND no default
 
 ## Expressions
 
@@ -101,6 +103,7 @@ Bottom type (uninhabited); coerces to any `T`
 **Indexing**: `list[0]`, `list[# - 1]` (`#`=length, panics OOB) | `map["k"]` → `Option<V>`
 **Index/Field Assignment**: `list[i] = x` → `list = list.updated(key: i, value: x)` | `state.field = x` → `state = { ...state, field: x }` | mixed chains: `state.items[i] = x`, `list[i].name = x` | compound: `list[i] += 1` | root must be mutable (non-`$`)
 **Access**: `v.field`, `v.0` (tuple), `v.method(arg: v)` — named args required except: fn variables, single-param with inline lambda
+**Argument Punning**: `f(x:)` = `f(x: x)` when variable matches param name | `f(x:, y: 42)` mixed | trailing `:` distinguishes from positional `f(x)`
 **Lambdas**: `x -> x + 1` | `(a, b) -> a + b` | `() -> 42` | `(x: int) -> int = x * 2` — capture by value
 **Ranges**: `0..10` excl | `0..=10` incl | `0..10 by 2` | descending: `10..0 by -1` | infinite: `0..`, `0.. by -1` | int only
 **Blocks**: `{ let $x = 1; x + 2 }` — `;` terminates statements, last expression (no `;`) is value | all `;` = void block | `ori fmt` enforces blank line before result | empty `{ }` = empty map
@@ -121,7 +124,7 @@ Bottom type (uninhabited); coerces to any `T`
 **function_exp**: `recurse(condition:, base:, step:, memo:, parallel:)` | `parallel(tasks:, max_concurrent:, timeout:)` → `[Result]` | `spawn(tasks:, max_concurrent:)` → `void` | `timeout(op:, after:)` | `cache(key:, op:, ttl:)` | `with(acquire:, action:, release:)` | `for(over:, match:, default:)` | `catch(expr:)` → `Result<T, str>` | `nursery(body:, on_error:, timeout:)`
 **Channels**: `channel<T>(buffer:)` → `(Producer, Consumer)` | `channel_in` | `channel_out` | `channel_all`
 **Conversions**: `42 as float` infallible | `"42" as? int` fallible → `Option`
-**Match patterns**: literal | `x` | `_` | `Some(x)` | `{ x, y }` | `[a, ..rest]` | `1..10` | `A | B` | `x @ pat` | `x if guard`
+**Match patterns**: literal | `x` | `_` | `Some(x)` | `{ x, y }` | `[a, ..rest]` | `1..10` | `A | B` | `x @ pat` | `x if guard` | variant punning: `Circle(radius:)` = `Circle(radius: radius)`, `Some(value:)` = `Some(value: value)`
 **Exhaustiveness**: match exhaustive; guards need `_`; `let` patterns irrefutable
 
 ## Imports
@@ -142,6 +145,18 @@ Bottom type (uninhabited); coerces to any `T`
 **Layout**: `#repr("c")` C-compatible | `#repr("packed")` no padding | `#repr("transparent")` same as single field | `#repr("aligned", N)` minimum alignment (power of two) | struct types only; newtypes implicitly transparent
 **Unsafe**: `unsafe { ptr_read(...) }` | **Capability**: `uses Unsafe` (marker, like `Suspend` — cannot be bound via `with...in`)
 **Async WASM**: `JsPromise<T>` implicitly resolved at binding sites | **Compile Error**: `compile_error("msg")`
+
+### Deep FFI (opt-in annotations on extern blocks)
+
+**Error Protocols**: `extern "c" from "lib" #error(errno) { ... }` — block-level; `#error(none)` per-function opt-out
+**Error Variants**: `#error(errno | nonzero | null | negative | success: N | none)` — auto-generates `Result<T, FfiError>`
+**FfiError**: `use std.ffi { FfiError }` — `{ code: int, message: str, source: str }`
+**Out Params**: `@f (name: str, db: out CPtr) -> c_int` — `out` params folded into return type
+**Ownership**: `owned` / `borrowed` on params/returns | str returns default to `borrowed` (copy, don't free)
+**Free**: `#free(fn)` on block or per-function — auto-generates `Drop` impl for `owned CPtr`
+**[byte] Elision**: `[byte]` in extern generates adjacent `(ptr, len)` C args | `mut [byte]` generates `(ptr, &len)`
+**Parametric FFI**: `uses FFI("sqlite3")` per-library | `uses FFI` shorthand for all | each `from "lib"` is distinct capability
+**Mocking**: `with FFI("lib") = handler { fn: (...) -> T = ..., } in { ... }` — handler-based mock; stateless is sugar for `handler(state: ())`
 
 ## Capabilities
 
@@ -165,20 +180,20 @@ Bottom type (uninhabited); coerces to any `T`
 
 ## Keywords
 
-**Reserved**: `as break continue def div do else extend extension extern false for if impl in let loop match pre post pub self Self suspend tests then trait true try type unsafe use uses void where with yield`
+**Reserved (34)**: `as break continue def div do else extend extension extern false for if impl in let loop match pub self Self suspend tests then trait true type unsafe use uses void where with yield`
 **Reserved (future)**: `asm inline static union view` (reserved for future low-level features)
-**Context-sensitive**: `args body by cache catch collect default embed expr filter find fold from handler has_embed map max nursery on_error over parallel recurse retry spawn timeout validate without`
-**Built-in names**: `int float str byte len is_empty is_some is_none is_ok is_err assert assert_eq assert_ne assert_some assert_none assert_ok assert_err assert_panics assert_panics_with compare min max print panic todo unreachable dbg compile_error embed has_embed`
+**Context-sensitive**: `args body buffer by cache catch default embed expr from handler has_embed map max nursery on_error over parallel pre post recurse spawn state timeout try without`
+**Built-in names**: `int float str byte bool len is_empty is_some is_none is_ok is_err assert assert_eq assert_ne assert_some assert_none assert_ok assert_err assert_panics assert_panics_with compare min max print panic todo unreachable dbg compile_error embed has_embed`
 
 ## Prelude
 
 **Types**: `Option<T>` (`Some`/`None`), `Result<T, E>` (`Ok`/`Err`), `Error`, `TraceEntry`, `Ordering`, `PanicInfo`, `CancellationError`, `CancellationReason`, `FormatSpec`, `Alignment`, `Sign`, `FormatType`
-**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Formattable`, `Debug`, `Clone`, `Default`, `Drop`, `Len`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`, `Index`, `IndexSet`
+**Traits**: `Eq`, `Comparable`, `Hashable`, `Printable`, `Formattable`, `Debug`, `Clone`, `Default`, `Drop`, `Len`, `IsEmpty`, `Iterator`, `DoubleEndedIterator`, `Iterable`, `Collect`, `Into`, `Traceable`, `Index`, `Sendable`
 
-**Built-ins**: `print(msg:)`, `len(collection:)`, `is_empty(collection:)`, `is_some/is_none(option:)`, `is_ok/is_err(result:)`, `assert(condition:)`, `assert_eq(actual:, expected:)`, `assert_ne(actual:, unexpected:)`, `assert_some/none/ok/err(...)`, `assert_panics(f:)`, `assert_panics_with(f:, msg:)`, `panic(msg:)`→`Never`, `todo()`/`todo(reason:)`→`Never`, `unreachable()`/`unreachable(reason:)`→`Never`, `dbg(value:)`/`dbg(value:, label:)`→`T`, `compare(left:, right:)`→`Ordering`, `min/max(left:, right:)`, `hash_combine(seed:, value:)`→`int`, `repeat(value:)`→iter, `is_cancelled()`→`bool`, `compile_error(msg:)`, `drop_early(value:)`, `embed(path)`→type-driven (`str`/`[byte]`), `has_embed(path)`→`bool`
+**Built-ins**: `print(msg:)`, `len(collection:)`, `is_empty(collection:)`, `is_some/is_none(option:)`, `is_ok/is_err(result:)`, `assert(condition:)`, `assert_eq(actual:, expected:)`, `assert_ne(actual:, unexpected:)`, `assert_some/none/ok/err(...)`, `assert_panics(expr:)`, `assert_panics_with(expr:, message:)`, `panic(msg:)`→`Never`, `todo()`/`todo(reason:)`→`Never`, `unreachable()`/`unreachable(reason:)`→`Never`, `dbg(value:)`/`dbg(value:, label:)`→`T`, `compare(left:, right:)`→`Ordering`, `min/max(left:, right:)`, `hash_combine(seed:, value:)`→`int`, `repeat(value:)`→iter (`T: Clone`), `is_cancelled()`→`bool`, `compile_error(msg:)`, `drop_early(value:)`, `embed(path)`→type-driven (`str`/`[byte]`), `has_embed(path)`→`bool`
 
-**Option**: `.map(transform:)`, `.unwrap_or(default:)`, `.ok_or(error:)`, `.and_then(transform:)`, `.filter(predicate:)`
-**Result**: `.map(transform:)`, `.map_err(transform:)`, `.unwrap_or(default:)`, `.ok()`, `.err()`, `.and_then(transform:)`, `.context(msg:)`, `.trace()`→`str`, `.trace_entries()`→`[TraceEntry]`, `.has_trace()`
+**Option**: `.map(transform:)`, `.unwrap_or(default:)`, `.ok_or(err:)`, `.and_then(then:)`, `.filter(predicate:)`
+**Result**: `.map(transform:)`, `.map_err(transform:)`, `.unwrap_or(default:)`, `.ok()`, `.err()`, `.and_then(then:)`, `.context(msg:)`, `.trace()`→`str`, `.trace_entries()`→`[TraceEntry]`, `.has_trace()`
 **Error**: `.trace()`, `.trace_entries()`, `.has_trace()`
 **Ordering**: `Less | Equal | Greater` — `.is_less/equal/greater()`, `.is_less_or_equal/greater_or_equal()`, `.reverse()`, `.then(other:)`, `.then_with(f:)`; default `Equal`; order `Less < Equal < Greater`; impls Eq, Comparable, Clone, Debug, Printable, Hashable, Default
 
@@ -200,5 +215,9 @@ Bottom type (uninhabited); coerces to any `T`
 **Eq**: `@equals (self, other: Self) -> bool` — reflexive/symmetric/transitive; derives `==`/`!=`
 **Comparable**: `trait: Eq { @compare (self, other: Self) -> Ordering }` — total order; derives `<`/`<=`/`>`/`>=`; NaN > all; `None < Some`; `Ok < Err`
 **Hashable**: `trait: Eq { @hash (self) -> int }` — `a == b` ⇒ same hash; +0.0/-0.0 same; use `hash_combine`
-**Operator traits**: `Add`/`Sub`/`Mul`/`Div`/`FloorDiv`/`Rem<Rhs = Self>` — binary; `Neg`/`Not`/`BitNot` — unary; `BitAnd`/`BitOr`/`BitXor<Rhs = Self>`, `Shl`/`Shr<Rhs = int>` — bitwise; all default `type Output = Self`
-**Operator methods**: `add`/`subtract`/`multiply`/`divide`/`floor_divide`/`remainder` — arithmetic; `negate`/`not`/`bit_not` — unary; `bit_and`/`bit_or`/`bit_xor`/`shift_left`/`shift_right` — bitwise
+**Operator traits**: `Add`/`Sub`/`Mul`/`Div`/`FloorDiv`/`Rem`/`Pow<Rhs = Self>` — binary; `MatMul<Rhs = Self>` — matrix multiply (`@`); `Neg`/`Not`/`BitNot` — unary; `BitAnd`/`BitOr`/`BitXor<Rhs = Self>`, `Shl`/`Shr<Rhs = int>` — bitwise; `As<T>`/`TryAs<T>` — conversion (`as`/`as?`); all default `type Output = Self`
+**Operator methods**: `add`/`subtract`/`multiply`/`divide`/`floor_divide`/`remainder`/`power` — arithmetic; `matrix_multiply` — matmul (`@`); `negate`/`not`/`bit_not` — unary; `bit_and`/`bit_or`/`bit_xor`/`shift_left`/`shift_right` — bitwise; `as`/`try_as` — conversion
+**Sendable**: marker trait, auto-derived by compiler; all fields must be `Sendable`, no interior mutability, no non-Sendable captures; required for channel types `T: Sendable`; cannot be implemented manually
+**List methods**: `.map(transform:)`, `.filter(predicate:)`, `.fold(initial:, op:)`, `.find(where:)`, `.any(predicate:)`, `.all(predicate:)`, `.first()`, `.last()`, `.take(n:)`, `.skip(n:)`, `.reverse()`, `.sort()` (`T: Comparable`), `.contains(value:)` (`T: Eq`)
+**String methods**: `.split(sep:)`, `.trim()`, `.upper()`, `.lower()`, `.starts_with(prefix:)`, `.ends_with(suffix:)`, `.contains(substr:)`
+**Reflect** (opt-in via `#derive(Reflect)`): `@type_info`→`TypeInfo`, `@field_count`→`int`, `@field_by_index`/`@field_by_name`→`Option<Unknown>`; `Unknown` for type-erased downcasting; all primitives impl; read-only, no method reflection

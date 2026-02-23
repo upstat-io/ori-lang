@@ -1,7 +1,10 @@
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+use crate::ir::{
+    ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, CtorKind, LitValue,
+    RcStrategy,
+};
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::ArcClassifier;
 
@@ -12,7 +15,7 @@ use super::detect_reset_reuse;
 fn run_detect(mut func: ArcFunction) -> ArcFunction {
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    detect_reset_reuse(&mut func, &classifier);
+    detect_reset_reuse(&mut func, &classifier, &pool);
     func
 }
 
@@ -30,7 +33,10 @@ fn basic_pair() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Construct {
                     dst: v(1),
                     ty: Idx::STR,
@@ -75,7 +81,10 @@ fn different_type_no_reuse() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Construct {
                     dst: v(1),
                     ty: Idx::INT, // Different type (and scalar — won't match STR)
@@ -116,12 +125,16 @@ fn aliased_no_reuse() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Apply {
                     dst: v(1),
                     ty: Idx::INT,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 },
                 ArcInstr::Construct {
                     dst: v(2),
@@ -156,7 +169,10 @@ fn intervening_ok() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Let {
                     dst: v(1),
                     ty: Idx::INT,
@@ -203,7 +219,10 @@ fn first_construct_wins() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Construct {
                     dst: v(1),
                     ty: Idx::STR,
@@ -247,14 +266,20 @@ fn multiple_pairs() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Construct {
                     dst: v(2),
                     ty: Idx::STR,
                     ctor: CtorKind::Struct(Name::from_raw(10)),
                     args: vec![],
                 },
-                ArcInstr::RcDec { var: v(1) },
+                ArcInstr::RcDec {
+                    var: v(1),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Construct {
                     dst: v(3),
                     ty: Idx::STR,
@@ -309,7 +334,10 @@ fn fresh_token_id() {
                     ty: Idx::INT,
                     value: ArcValue::Literal(LitValue::Int(0)),
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Construct {
                     dst: v(2),
                     ty: Idx::STR,
@@ -349,7 +377,7 @@ fn run_detect_cfg(mut func: ArcFunction) -> ArcFunction {
     let classifier = ArcClassifier::new(&pool);
     let dom = DominatorTree::build(&func);
     let (refined, _) = compute_refined_liveness(&func, &classifier);
-    detect_reset_reuse_cfg(&mut func, &classifier, &dom, &refined);
+    detect_reset_reuse_cfg(&mut func, &classifier, &dom, &refined, &pool);
     func
 }
 
@@ -381,8 +409,12 @@ fn cross_block_basic() {
                         ty: Idx::STR,
                         func: Name::from_raw(99),
                         args: vec![v(0)],
+                        arg_ownership: vec![ArgOwnership::Owned; 1],
                     },
-                    ArcInstr::RcDec { var: v(0) },
+                    ArcInstr::RcDec {
+                        var: v(0),
+                        strategy: RcStrategy::HeapPointer,
+                    },
                 ],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -453,7 +485,10 @@ fn cross_block_aliasing_prevents() {
             ArcBlock {
                 id: b(0),
                 params: vec![],
-                body: vec![ArcInstr::RcDec { var: v(0) }],
+                body: vec![ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
                     args: vec![],
@@ -468,6 +503,7 @@ fn cross_block_aliasing_prevents() {
                         ty: Idx::STR,
                         func: Name::from_raw(99),
                         args: vec![v(0)],
+                        arg_ownership: vec![ArgOwnership::Owned; 1],
                     },
                     ArcInstr::Construct {
                         dst: v(2),
@@ -504,7 +540,10 @@ fn cross_block_preserves_intra_block() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Construct {
                     dst: v(1),
                     ty: Idx::STR,

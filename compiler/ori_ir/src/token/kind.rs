@@ -148,6 +148,20 @@ pub enum TokenKind {
     Caret,    // ^
     Div,      // div (floor division keyword)
 
+    // Compound assignment operators
+    PlusEq,     // +=
+    MinusEq,    // -=
+    StarEq,     // *=
+    SlashEq,    // /=
+    PercentEq,  // %=
+    AtEq,       // @=
+    AmpEq,      // &=
+    PipeEq,     // |=
+    CaretEq,    // ^=
+    ShlEq,      // <<=
+    AmpAmpEq,   // &&=
+    PipePipeEq, // ||=
+
     Newline,
     Eof,
 
@@ -314,6 +328,20 @@ impl TokenKind {
     pub const TAG_ERROR: u8 = TokenTag::Error as u8;
     pub const TAG_EOF: u8 = TokenTag::Eof as u8;
 
+    // Compound assignment (128-139)
+    pub const TAG_PLUS_EQ: u8 = TokenTag::PlusEq as u8;
+    pub const TAG_MINUS_EQ: u8 = TokenTag::MinusEq as u8;
+    pub const TAG_STAR_EQ: u8 = TokenTag::StarEq as u8;
+    pub const TAG_SLASH_EQ: u8 = TokenTag::SlashEq as u8;
+    pub const TAG_PERCENT_EQ: u8 = TokenTag::PercentEq as u8;
+    pub const TAG_AT_EQ: u8 = TokenTag::AtEq as u8;
+    pub const TAG_AMP_EQ: u8 = TokenTag::AmpEq as u8;
+    pub const TAG_PIPE_EQ: u8 = TokenTag::PipeEq as u8;
+    pub const TAG_CARET_EQ: u8 = TokenTag::CaretEq as u8;
+    pub const TAG_SHL_EQ: u8 = TokenTag::ShlEq as u8;
+    pub const TAG_AMPAMP_EQ: u8 = TokenTag::AmpAmpEq as u8;
+    pub const TAG_PIPEPIPE_EQ: u8 = TokenTag::PipePipeEq as u8;
+
     /// Get a unique index for this token's discriminant (0-115).
     ///
     /// This is used for O(1) bitset membership testing in `TokenSet`.
@@ -468,6 +496,20 @@ impl TokenKind {
             Self::Newline => TokenTag::Newline as u8,
             Self::Error => TokenTag::Error as u8,
             Self::Eof => TokenTag::Eof as u8,
+
+            // Compound assignment (128-139)
+            Self::PlusEq => TokenTag::PlusEq as u8,
+            Self::MinusEq => TokenTag::MinusEq as u8,
+            Self::StarEq => TokenTag::StarEq as u8,
+            Self::SlashEq => TokenTag::SlashEq as u8,
+            Self::PercentEq => TokenTag::PercentEq as u8,
+            Self::AtEq => TokenTag::AtEq as u8,
+            Self::AmpEq => TokenTag::AmpEq as u8,
+            Self::PipeEq => TokenTag::PipeEq as u8,
+            Self::CaretEq => TokenTag::CaretEq as u8,
+            Self::ShlEq => TokenTag::ShlEq as u8,
+            Self::AmpAmpEq => TokenTag::AmpAmpEq as u8,
+            Self::PipePipeEq => TokenTag::PipePipeEq as u8,
         }
     }
 
@@ -756,6 +798,19 @@ impl TokenKind {
             TokenKind::TemplateTail(_) => "template tail",
             TokenKind::TemplateFull(_) => "template literal",
             TokenKind::FormatSpec(_) => "format spec",
+            // Compound assignment
+            TokenKind::PlusEq => "+=",
+            TokenKind::MinusEq => "-=",
+            TokenKind::StarEq => "*=",
+            TokenKind::SlashEq => "/=",
+            TokenKind::PercentEq => "%=",
+            TokenKind::AtEq => "@=",
+            TokenKind::AmpEq => "&=",
+            TokenKind::PipeEq => "|=",
+            TokenKind::CaretEq => "^=",
+            TokenKind::ShlEq => "<<=",
+            TokenKind::AmpAmpEq => "&&=",
+            TokenKind::PipePipeEq => "||=",
         }
     }
 
@@ -914,8 +969,22 @@ impl TokenKind {
             119 => Some("^"),
             120 => Some("div"),
 
-            // Special (121-127): Newline, Error, Eof
-            // These are internal tokens — exclude from expected lists.
+            // Special (121-127): Newline, Error, Eof — internal, excluded
+
+            // Compound assignment (128-139)
+            128 => Some("+="),
+            129 => Some("-="),
+            130 => Some("*="),
+            131 => Some("/="),
+            132 => Some("%="),
+            133 => Some("@="),
+            134 => Some("&="),
+            135 => Some("|="),
+            136 => Some("^="),
+            137 => Some("<<="),
+            138 => Some("&&="),
+            139 => Some("||="),
+
             _ => None,
         }
     }

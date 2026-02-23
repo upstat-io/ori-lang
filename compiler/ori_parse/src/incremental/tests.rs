@@ -31,9 +31,12 @@ fn test_collect_declarations_sorted() {
         capabilities: Vec::new(),
         where_clauses: Vec::new(),
         guard: None,
+        pre_contracts: Vec::new(),
+        post_contracts: Vec::new(),
         body: ExprId::INVALID,
         span: Span::new(50, 80),
         visibility: ori_ir::Visibility::Private,
+        is_fbip: false,
     });
 
     let decls = collect_declarations(&module);
@@ -55,9 +58,12 @@ fn test_syntax_cursor_find_at() {
         capabilities: Vec::new(),
         where_clauses: Vec::new(),
         guard: None,
+        pre_contracts: Vec::new(),
+        post_contracts: Vec::new(),
         body: ExprId::INVALID,
         span: Span::new(0, 50),
         visibility: ori_ir::Visibility::Private,
+        is_fbip: false,
     });
 
     module.functions.push(Function {
@@ -68,9 +74,12 @@ fn test_syntax_cursor_find_at() {
         capabilities: Vec::new(),
         where_clauses: Vec::new(),
         guard: None,
+        pre_contracts: Vec::new(),
+        post_contracts: Vec::new(),
         body: ExprId::INVALID,
         span: Span::new(100, 150),
         visibility: ori_ir::Visibility::Private,
+        is_fbip: false,
     });
 
     let arena = ExprArena::new();
@@ -117,9 +126,12 @@ fn test_cursor_stats() {
             capabilities: Vec::new(),
             where_clauses: Vec::new(),
             guard: None,
+            pre_contracts: Vec::new(),
+            post_contracts: Vec::new(),
             body: ExprId::INVALID,
             span: Span::new(start, end),
             visibility: ori_ir::Visibility::Private,
+            is_fbip: false,
         });
     }
 

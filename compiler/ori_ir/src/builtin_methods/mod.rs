@@ -74,16 +74,26 @@ pub struct MethodDef {
     pub returns: ReturnSpec,
     /// The trait this method belongs to, if any.
     pub trait_name: Option<&'static str>,
+    /// Whether this method borrows its receiver (reads without consuming).
+    ///
+    /// When `true`, the ARC pipeline treats the receiver as borrowed — no
+    /// `RcDec` at the call site, no ownership transfer. When `false`, the
+    /// receiver is consumed (ownership transferred to the callee).
+    ///
+    /// This is the single source of truth for builtin method ownership,
+    /// consumed by `ori_arc` borrow inference and `ori_llvm` codegen.
+    pub receiver_borrows: bool,
 }
 
 impl MethodDef {
     /// Create a new method definition.
-    const fn new(
+    pub const fn new(
         receiver: BuiltinType,
         name: &'static str,
         params: &'static [ParamSpec],
         returns: ReturnSpec,
         trait_name: Option<&'static str>,
+        receiver_borrows: bool,
     ) -> Self {
         Self {
             receiver,
@@ -91,10 +101,12 @@ impl MethodDef {
             params,
             returns,
             trait_name,
+            receiver_borrows,
         }
     }
 
     /// Create a trait method with one Self parameter returning Ordering.
+    /// Receiver is borrowed (reads fields for comparison).
     const fn comparable(receiver: BuiltinType) -> Self {
         Self::new(
             receiver,
@@ -102,10 +114,12 @@ impl MethodDef {
             &[ParamSpec::SelfType],
             ReturnSpec::Type(BuiltinType::Ordering),
             Some("Comparable"),
+            true,
         )
     }
 
     /// Create an Eq trait method.
+    /// Receiver is borrowed (reads fields for equality check).
     const fn eq_trait(receiver: BuiltinType) -> Self {
         Self::new(
             receiver,
@@ -113,15 +127,25 @@ impl MethodDef {
             &[ParamSpec::SelfType],
             ReturnSpec::Type(BuiltinType::Bool),
             Some("Eq"),
+            true,
         )
     }
 
     /// Create a Clone trait method.
+    /// Receiver is borrowed (reads to produce a copy).
     const fn clone_trait(receiver: BuiltinType) -> Self {
-        Self::new(receiver, "clone", &[], ReturnSpec::SelfType, Some("Clone"))
+        Self::new(
+            receiver,
+            "clone",
+            &[],
+            ReturnSpec::SelfType,
+            Some("Clone"),
+            true,
+        )
     }
 
     /// Create a Hashable trait method.
+    /// Receiver is borrowed (reads fields for hashing).
     const fn hash_trait(receiver: BuiltinType) -> Self {
         Self::new(
             receiver,
@@ -129,10 +153,12 @@ impl MethodDef {
             &[],
             ReturnSpec::Type(BuiltinType::Int),
             Some("Hashable"),
+            true,
         )
     }
 
     /// Create a Printable trait method.
+    /// Receiver is borrowed (reads to format).
     const fn to_str_trait(receiver: BuiltinType) -> Self {
         Self::new(
             receiver,
@@ -140,10 +166,12 @@ impl MethodDef {
             &[],
             ReturnSpec::Type(BuiltinType::Str),
             Some("Printable"),
+            true,
         )
     }
 
     /// Create a Debug trait method.
+    /// Receiver is borrowed (reads to format).
     const fn debug_trait(receiver: BuiltinType) -> Self {
         Self::new(
             receiver,
@@ -151,6 +179,7 @@ impl MethodDef {
             &[],
             ReturnSpec::Type(BuiltinType::Str),
             Some("Debug"),
+            true,
         )
     }
 }
@@ -167,13 +196,21 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::hash_trait(BuiltinType::Int),
     MethodDef::to_str_trait(BuiltinType::Int),
     MethodDef::debug_trait(BuiltinType::Int),
-    MethodDef::new(BuiltinType::Int, "abs", &[], ReturnSpec::SelfType, None),
+    MethodDef::new(
+        BuiltinType::Int,
+        "abs",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
     MethodDef::new(
         BuiltinType::Int,
         "min",
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -181,6 +218,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
     // Operator methods
     MethodDef::new(
@@ -189,6 +227,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Add"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -196,6 +235,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Sub"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -203,6 +243,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Mul"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -210,6 +251,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Div"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -217,6 +259,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("FloorDiv"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -224,6 +267,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Rem"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -231,6 +275,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::SelfType,
         Some("Neg"),
+        true,
     ),
     // Bitwise
     MethodDef::new(
@@ -239,6 +284,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("BitAnd"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -246,6 +292,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("BitOr"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -253,6 +300,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("BitXor"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -260,6 +308,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::SelfType,
         Some("BitNot"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -267,6 +316,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Shl"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Int,
@@ -274,6 +324,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Shr"),
+        true,
     ),
     // float methods
     MethodDef::comparable(BuiltinType::Float),
@@ -281,17 +332,53 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
     MethodDef::clone_trait(BuiltinType::Float),
     MethodDef::to_str_trait(BuiltinType::Float),
     MethodDef::debug_trait(BuiltinType::Float),
-    MethodDef::new(BuiltinType::Float, "abs", &[], ReturnSpec::SelfType, None),
-    MethodDef::new(BuiltinType::Float, "floor", &[], ReturnSpec::SelfType, None),
-    MethodDef::new(BuiltinType::Float, "ceil", &[], ReturnSpec::SelfType, None),
-    MethodDef::new(BuiltinType::Float, "round", &[], ReturnSpec::SelfType, None),
-    MethodDef::new(BuiltinType::Float, "sqrt", &[], ReturnSpec::SelfType, None),
+    MethodDef::new(
+        BuiltinType::Float,
+        "abs",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
+    MethodDef::new(
+        BuiltinType::Float,
+        "floor",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
+    MethodDef::new(
+        BuiltinType::Float,
+        "ceil",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
+    MethodDef::new(
+        BuiltinType::Float,
+        "round",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
+    MethodDef::new(
+        BuiltinType::Float,
+        "sqrt",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
     MethodDef::new(
         BuiltinType::Float,
         "min",
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Float,
@@ -299,6 +386,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
     // Operator methods
     MethodDef::new(
@@ -307,6 +395,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Add"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Float,
@@ -314,6 +403,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Sub"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Float,
@@ -321,6 +411,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Mul"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Float,
@@ -328,6 +419,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Div"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Float,
@@ -335,6 +427,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::SelfType,
         Some("Neg"),
+        true,
     ),
     // bool methods
     MethodDef::comparable(BuiltinType::Bool),
@@ -349,6 +442,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Bool),
         Some("Not"),
+        true,
     ),
     // char methods
     MethodDef::comparable(BuiltinType::Char),
@@ -376,6 +470,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Str,
@@ -383,6 +478,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Str,
@@ -390,6 +486,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Str],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Str,
@@ -397,6 +494,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Str],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Str,
@@ -404,6 +502,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Str],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Str,
@@ -411,6 +510,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Str,
@@ -418,15 +518,31 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
-    MethodDef::new(BuiltinType::Str, "trim", &[], ReturnSpec::SelfType, None),
-    MethodDef::new(BuiltinType::Str, "escape", &[], ReturnSpec::SelfType, None),
+    MethodDef::new(
+        BuiltinType::Str,
+        "trim",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
+    MethodDef::new(
+        BuiltinType::Str,
+        "escape",
+        &[],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
     MethodDef::new(
         BuiltinType::Str,
         "add",
         &[ParamSpec::Str],
         ReturnSpec::SelfType,
         Some("Add"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Str,
@@ -434,6 +550,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Str],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
     // Duration methods
     MethodDef::comparable(BuiltinType::Duration),
@@ -448,6 +565,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -455,6 +573,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -462,6 +581,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -469,6 +589,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -476,6 +597,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -483,6 +605,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     // Operator methods
     MethodDef::new(
@@ -491,6 +614,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Add"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -498,6 +622,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Sub"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -505,6 +630,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Int],
         ReturnSpec::SelfType,
         Some("Mul"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -512,6 +638,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Int],
         ReturnSpec::SelfType,
         Some("Div"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -519,6 +646,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Rem"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Duration,
@@ -526,6 +654,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::SelfType,
         Some("Neg"),
+        true,
     ),
     // Size methods
     MethodDef::comparable(BuiltinType::Size),
@@ -540,6 +669,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -547,6 +677,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -554,6 +685,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -561,6 +693,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -568,6 +701,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Int),
         None,
+        true,
     ),
     // Operator methods
     MethodDef::new(
@@ -576,6 +710,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Add"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -583,6 +718,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Sub"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -590,6 +726,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Int],
         ReturnSpec::SelfType,
         Some("Mul"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -597,6 +734,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::Int],
         ReturnSpec::SelfType,
         Some("Div"),
+        true,
     ),
     MethodDef::new(
         BuiltinType::Size,
@@ -604,6 +742,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         Some("Rem"),
+        true,
     ),
     // Ordering methods
     MethodDef::comparable(BuiltinType::Ordering),
@@ -618,6 +757,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Ordering,
@@ -625,6 +765,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Ordering,
@@ -632,6 +773,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Ordering,
@@ -639,6 +781,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Ordering,
@@ -646,6 +789,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::Type(BuiltinType::Bool),
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Ordering,
@@ -653,6 +797,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
     MethodDef::new(
         BuiltinType::Ordering,
@@ -660,6 +805,7 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         &[ParamSpec::SelfType],
         ReturnSpec::SelfType,
         None,
+        true,
     ),
 ];
 
@@ -671,6 +817,26 @@ pub fn find_method(receiver: BuiltinType, name: &str) -> Option<&'static MethodD
     BUILTIN_METHODS
         .iter()
         .find(|m| m.receiver == receiver && m.name == name)
+}
+
+/// All builtin method names whose receiver is borrowed.
+///
+/// Used by `ori_arc` borrow inference to build the `borrowing_builtins` set.
+/// Yields deduplicated names (multiple types may share a method name like
+/// `"clone"`, but the iterator yields it once per `MethodDef`).
+pub fn borrowing_method_names() -> impl Iterator<Item = &'static str> {
+    BUILTIN_METHODS
+        .iter()
+        .filter(|m| m.receiver_borrows)
+        .map(|m| m.name)
+}
+
+/// Check if a specific method borrows its receiver.
+///
+/// Returns `None` if the method doesn't exist in the registry.
+#[must_use]
+pub fn method_borrows_receiver(receiver: BuiltinType, name: &str) -> Option<bool> {
+    find_method(receiver, name).map(|m| m.receiver_borrows)
 }
 
 /// Get all methods for a given receiver type.

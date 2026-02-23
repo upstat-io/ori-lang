@@ -148,6 +148,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Map Size to i64 (bytes)
   - [ ] Duration arithmetic operations (add, sub, mul, div, mod)
   - [ ] Size arithmetic operations (add, sub, mul, div, mod)
+  - [ ] Size cross-unit normalization — `512kb + 512kb == 1mb` equality fails in AOT (`test_op_size_arithmetic`)
   - [ ] Mixed-type arithmetic (Duration * int, int * Duration, Duration / Duration → int)
   - [ ] Size unary negation compile error
   - [ ] Overflow panic semantics for Duration
@@ -243,6 +244,11 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] String indexing with Unicode handling (`str[i]` → single-codepoint `str`)
   - [ ] String interpolation: `` `Hello {name}` ``
   - [ ] All escape sequences: `\n`, `\t`, `\r`, `\0`, `\\`, `\"`
+  - [ ] `str.concat()` return type tracking — result not tracked as str, downstream comparison uses icmp (`test_str_concat_basic`)
+  - [ ] `str.to_str()` identity return type tracking — same icmp issue (`test_str_to_str_identity`)
+  - [ ] String ordering (`<`, `>`, `<=`, `>=`) — uses icmp instead of compare runtime call (`test_str_compare_less`)
+  - [ ] String methods not in builtin table: `contains`, `starts_with`, `ends_with`, `trim`, `to_uppercase`, `to_lowercase`, `replace`, `split`, `repeat`, `chars` (`test_str_contains` et al.)
+  - [ ] Struct update (`...spread`) with string fields — GEP on non-pointer value causes segfault (`test_struct_update_with_string`)
 
 ---
 
@@ -268,6 +274,7 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Unary operators → `.negate()`, `.not()`, `.bit_not()`
   - [ ] Bitwise operators → `.bit_and()`, `.bit_or()`, `.bit_xor()`, `.shift_left()`, `.shift_right()`
   - [ ] Comparison operators → `.equals()`, `.compare()`
+  - [ ] Tuple `==` equality — compiles but returns wrong result; comparison codegen incorrect (`test_tuple_equality`, `test_tuple_equality_triple`)
   - [ ] Handle generic operator traits with type parameters (e.g., `Mul<int>`)
   - [ ] **Files**: `ori_llvm/src/operators.rs` — add trait dispatch logic
   - [ ] **Tests**: `tests/spec/traits/operators/user_defined.ori` (currently skipped)
@@ -311,6 +318,8 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `continue value` substitution in yield
   - [ ] `break value` final element addition
   - [ ] `{K: V}` collection from `(K, V)` tuples
+  - [ ] Bool comparison stored in struct field during for-yield always produces false (`test_depth_combined_struct_iter_match`)
+  - [ ] Mutation of outer variables inside match arms within for-do body — ArcIrEmitter: variable not yet defined (`test_depth_combined_match_closure_result`)
 
 - [ ] **Implement**: Try expression and error propagation
   - [ ] `?` operator on Result: unwrap or early return
@@ -373,6 +382,10 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `pre(cond) post(r -> cond)` function-level contract declarations
   - [ ] `try { let x = f()? \n Ok(x) }` error propagation
   - [ ] `match v { P -> e, _ -> d }` pattern matching
+
+- [ ] **Fix**: Block scope variable isolation
+  - [ ] Inner block `let x` leaks to outer scope — shadow bindings overwrite outer variables instead of creating block-local scope (`test_scope_shadow_in_nested_block`, `test_scope_shadow_in_nested_block_2`)
+  - [ ] `let x` in for-do body overwrites outer `x` (`test_scope_for_loop_shadow`)
 
 - [ ] **Implement**: Recurse pattern
   - [ ] `recurse(condition:, base:, step:)` basic recursion
@@ -516,25 +529,34 @@ When implementing these features, ensure they also work across module boundaries
 - `proposals/approved/fixed-capacity-list-proposal.md`
 
 - [ ] **Implement**: List operations
-  - [ ] `.push(element:)` - append to end, grow if needed
-  - [ ] `.pop()` → `Option<T>` - remove and return last element
+  - [ ] `.push(element:)` - append to end, grow if needed (`test_coll_list_push`)
+  - [ ] `.pop()` → `Option<T>` - remove and return last element (`test_coll_list_pop`)
+  - [ ] `.first()` → `Option<T>` - return first element (`test_coll_list_first`)
+  - [ ] `.last()` → `Option<T>` - return last element (`test_coll_list_last`)
   - [ ] `.insert(at:, element:)` - insert at index, shift elements
   - [ ] `.remove(at:)` → `T` - remove at index, shift elements
   - [ ] `.get(index:)` → `Option<T>` - safe indexed access
-  - [ ] `list[index]` → `T` - direct access (panics if out of bounds)
+  - [ ] `list[index]` → `T` - direct access (panics if out of bounds) (`test_coll_list_index`)
   - [ ] `list[# - 1]` - length-relative indexing
+  - [ ] `.reverse()` - return reversed list (`test_coll_list_reverse`)
+  - [ ] `.contains(element:)` → `bool` (`test_coll_list_contains`)
+  - [ ] `.concat(other:)` — produces wrong result (`test_aot_list_concat`)
   - [ ] Capacity management: grow by 2x when full
   - [ ] List iteration: `for x in list do ...`
+  - [ ] List-of-tuples iteration — heap corruption when iterating `[(1, 10), (2, 20)]` (`test_tuple_in_loop`)
   - [ ] **Rust Tests**: `ori_llvm/src/collections/list_tests.rs`
 
 - [ ] **Implement**: Map operations
   - [ ] Map literal: `{key: value}`, `{"string": value}`
   - [ ] Computed keys: `{[expr]: value}` where expr is evaluated
-  - [ ] `.get(key:)` → `Option<V>` - lookup by key
+  - [ ] `.get(key:)` → `Option<V>` - lookup by key (`test_coll_map_get`)
   - [ ] `map[key]` → `Option<V>` - subscript access
-  - [ ] `.insert(key:, value:)` - insert or update
-  - [ ] `.remove(key:)` → `Option<V>` - remove and return
-  - [ ] `.contains_key(key:)` → `bool`
+  - [ ] `.insert(key:, value:)` - insert or update (`test_coll_map_insert`)
+  - [ ] `.remove(key:)` → `Option<V>` - remove and return (`test_coll_map_remove`)
+  - [ ] `.is_empty()` → `bool` (`test_aot_map_is_empty`)
+  - [ ] `.contains_key(key:)` → `bool` (`test_coll_map_contains_key`)
+  - [ ] `.keys()` → `[K]` - return list of keys (`test_coll_map_keys`)
+  - [ ] `.values()` → `[V]` - return list of values (`test_coll_map_values`)
   - [ ] Map iteration: yields `(K, V)` tuples
   - [ ] Spread in literals: `{...base, key: value}`
   - [ ] **Rust Tests**: `ori_llvm/src/collections/map_tests.rs`
@@ -600,6 +622,12 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Function reference as value
   - [ ] Higher-order function codegen
   - [ ] Passing functions to other functions
+  - [ ] Named function → closure coercion (named fns are `i64` function pointers, closure params expect `{ ptr, ptr }` struct) — `test_hof_apply_identity`, `test_hof_apply_named_function`, `test_hof_named_fn_as_arg`
+
+- [ ] **Fix**: Closure ABI issues
+  - [ ] `(int) -> bool` as function parameter — bool return ABI unresolved in closure-typed params (`test_hof_bool_lambda`)
+  - [ ] Zero-arg closure capturing 3+ strings causes heap corruption — `malloc(): corrupted top size` (`test_depth_closure_capturing_multiple_strings`)
+  - [ ] `.map(r -> r.score)` closure accessing struct field produces invalid LLVM IR (`test_stress_combined_struct_closure_iteration`)
 
 ---
 
@@ -640,6 +668,11 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] `.ok_or(error:)`, `.ok()`, `.err()`
   - [ ] `.context(msg:)` for Result
   - [ ] `.trace()`, `.trace_entries()`, `.has_trace()`
+
+- [ ] **Fix**: Conversion method return type tracking
+  - [ ] `int.f()` result type not tracked as float — `icmp` used instead of `fcmp` for comparison (`test_conv_int_f_shorthand`)
+  - [ ] `int.byte()` — byte type not fully supported in AOT pipeline (`test_conv_int_to_byte_truncates`)
+  - [ ] `int.byte().to_int()` — type tracking lost through conversion chain (`test_conv_int_to_byte`, `test_conv_int_to_byte_max`, `test_conv_int_to_byte_to_int`)
 
 ---
 
@@ -1009,6 +1042,44 @@ ori_llvm/src/
 - [ ] Optimization passes
 - [ ] Debug info generation
 - [ ] 80+% test coverage (currently ~68%)
+
+**Verified AOT Gaps** (from Section 11.1 verification, updated 2026-02-23):
+
+*Resolved:*
+- [x] Derive Eq struct codegen: `emit_comparison_via_trait` now dispatches to derived `eq` method for non-primitive types instead of falling through to scalar `icmp` <!-- test: test_aot_derive_eq_struct (un-ignored), test_aot_derive_eq_struct_not_equal, test_aot_derive_eq_struct_with_strings -->
+- [x] Derive Comparable struct codegen: `emit_ordering_comparison` now dispatches to derived `compare` method and checks Ordering result (0=Less, 1=Equal, 2=Greater) for `<`/`>`/`<=`/`>=` <!-- test: test_aot_derive_comparable_struct -->
+- [x] ARC enum basic drop and string-payload drop: `test_arc_enum_basic_drop` and `test_arc_enum_with_string_payload` un-ignored and passing
+
+*Open:*
+- [ ] List mutation methods not in AOT builtin table: `.push()`, `.first()`, `.last()`, `.is_empty()`, `.concat()` <!-- test: test_aot_list_push, test_aot_list_first_last, test_aot_list_empty_operations, test_aot_list_concat -->
+- [ ] Map methods not in AOT builtin table: `.is_empty()`, `.get()`, `.insert()`, `.remove()`, `.keys()`, `.values()` <!-- test: test_aot_map_is_empty -->
+- [ ] `list[index]` subscript not resolved in AOT <!-- test: test_aot_list_index -->
+- [ ] Closure-returning-closure type inference: `let f = (n: int) -> (int) -> int = { (x: int) -> int = ... }` infers `()` return instead of `(int) -> int` <!-- test: test_aot_closure_capturing_closure, section: 02 -->
+- [ ] Enum variant constructors not declared as LLVM functions <!-- test: test_aot_enum_variant_constructors -->
+- [ ] Generic monomorphization not in ARC pipeline <!-- test: test_aot_generic_identity, test_aot_generic_pair -->
+- [ ] `catch(expr:)` not yet lowered through ARC pipeline <!-- test: test_aot_catch_basic, test_aot_catch_no_panic, test_aot_catch_nested -->
+- [ ] String interpolation produces wrong result <!-- test: test_aot_string_interpolation -->
+
+Cross-references to existing items:
+- Generic monomorphization → § 21.7 (**CRITICAL** — blocks 2,472+ test call sites)
+- Enum variant constructors → § 21.2 (blocks enums, recursive types)
+- `catch(expr:)` → § 21.5 (blocks panic recovery in AOT)
+- String interpolation → § 21.3
+
+**New AOT tests added** (2026-02-23, 13 tests, all passing):
+derive_eq_struct (un-ignored), derive_eq_struct_not_equal, derive_eq_struct_with_strings,
+derive_comparable_struct (4 comparisons: <, >, <=, >=), panic_basic, option_unwrap_some,
+result_unwrap_ok, struct_with_list_and_string, nested_struct_with_strings,
+for_yield_with_filter, for_yield_transform
+
+**New AOT test files added** (2026-02-23, Section 11.1 verification — 5 files, 117 tests total):
+- `error_handling.rs` — 21 tests (21 pass, 0 ignore): Result/Option basics, `?` operator, chaining, deep chains
+- `higher_order.rs` — 27 tests (23 pass, 4 ignore): HOF apply, composition, closures with captures, nested closures, fold
+- `tuples.rs` — 29 tests (23 pass, 6 ignore): construction, destructuring, field access, as param/return, nested, strings, closures
+- `structs.rs` — 29 tests (28 pass, 1 ignore): construction, string fields, update syntax, nested, as param/return, closures, derived Eq
+- `recursion.rs` — 22 tests (22 pass, 0 ignore): factorial, fibonacci, tail-recursive, mutual, with Result/Option/match, depth tests
+
+**Total AOT test counts** (2026-02-23): 850 passed, 0 failed, 70 ignored
 
 **Exit Criteria**: Feature parity with interpreter for all language constructs
 

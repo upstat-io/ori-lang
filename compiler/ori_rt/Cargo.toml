@@ -13,6 +13,13 @@ repository = "https://github.com/upstat-io/ori-lang"
 [lib]
 crate-type = ["rlib", "staticlib"]
 
+[features]
+## Use non-atomic refcount operations for programs that don't use task
+## parallelism. Saves the overhead of atomic `fetch_add`/`fetch_sub` (minimal
+## on x86, more significant on ARM). Only safe when the program is guaranteed
+## to be single-threaded.
+single-threaded = []
+
 [dependencies]
 # No dependencies - pure runtime functions
 

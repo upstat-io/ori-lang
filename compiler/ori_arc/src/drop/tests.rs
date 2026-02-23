@@ -2,7 +2,9 @@ use ori_ir::Name;
 use ori_types::{EnumVariant, Idx, Pool};
 use pretty_assertions::assert_eq;
 
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
+};
 use crate::{ArcClassifier, Ownership};
 
 use super::*;
@@ -557,16 +559,20 @@ fn collect_deduplicates_types() {
             body: vec![
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
+                    strategy: RcStrategy::HeapPointer,
                 },
             ],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR],
+        var_reprs: Vec::new(),
         spans: vec![vec![None, None]],
+        is_fbip: false,
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -602,16 +608,20 @@ fn collect_multiple_types() {
             body: vec![
                 ArcInstr::RcDec {
                     var: ArcVarId::new(0),
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::RcDec {
                     var: ArcVarId::new(1),
+                    strategy: RcStrategy::HeapPointer,
                 },
             ],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, list_str],
+        var_reprs: Vec::new(),
         spans: vec![vec![None, None]],
+        is_fbip: false,
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -649,12 +659,15 @@ fn collect_skips_scalar_rc_dec() {
             params: vec![],
             body: vec![ArcInstr::RcDec {
                 var: ArcVarId::new(0),
+                strategy: RcStrategy::HeapPointer,
             }],
             terminator: ArcTerminator::Unreachable,
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::INT],
+        var_reprs: Vec::new(),
         spans: vec![vec![None]],
+        is_fbip: false,
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);

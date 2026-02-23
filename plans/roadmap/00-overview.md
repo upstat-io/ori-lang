@@ -6,6 +6,8 @@
 
 > **ACTIVE REROUTE — Block Unification Refactor**: All roadmap work is suspended until `plans/block_unify/` is complete. See `plans/block_unify/00-overview.md` for the full plan. This reroute was added because the block-syntax migration (commit `4e0c1611`) revealed a fundamental duality: `FunctionSeq::Run` + `SeqBinding` and `ExprKind::Block` + `StmtKind` are two parallel representations of sequential code, creating 27 dispatch sites across 7 crates. Adopting the Gleam pattern (one block type, one statement type) eliminates ~13 redundant dispatch sites and prevents future block-like constructs from doubling the maintenance burden. Remove this block when all 5 block_unify sections are complete.
 
+> **ACTIVE REROUTE — AOT Codegen Pipeline**: ARC and AOT codegen roadmap items (Section 21A LLVM Backend, Section 21B AOT Compilation, Section 17 atomic refcounts) are rerouted to `plans/aot_codegen_pipeline/`. See `plans/aot_codegen_pipeline/00-overview.md` for the full plan, `plans/dpr_aot-codegen-pipeline_02222026.md` for the design pattern review. Supersedes both `plans/arc_optimization/` and `plans/arc_codegen_unification/`. 11 sections: emission layer typing (Rust OperandValue pattern), lowerer gap closure, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation (Swift), cross-block RC elimination (Swift), Salsa-integrated borrow inference, FBIP enforcement (Koka), legacy cleanup (~11K line deletion), comprehensive verification (dual-execution + memory safety). Remove this block when all 11 aot_codegen_pipeline sections are complete.
+
 ## Source Plans
 
 This roadmap consolidates:

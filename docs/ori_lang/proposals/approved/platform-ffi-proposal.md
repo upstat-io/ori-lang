@@ -906,3 +906,13 @@ Some FFI operations (raw pointer manipulation, unchecked array access) cannot be
 ## Errata (added 2026-02-20)
 
 > **Superseded by [unsafe-semantics-proposal](unsafe-semantics-proposal.md)**: Examples in this proposal use the `unsafe(expr)` parenthesized form, which has been removed. The approved syntax is `unsafe { expr }` (block-only form). See the unsafe semantics proposal for the full specification.
+
+## Errata (added 2026-02-21)
+
+> **Extended by [deep-ffi-proposal](deep-ffi-proposal.md)**: Two aspects of this proposal are superseded:
+>
+> 1. **Error handling**: The manual `errno_to_error()` pattern (§ Error Handling, Native FFI Errors) is replaced by declarative error protocols (`#error(errno)`, `#error(nonzero)`, etc.) that automate `Result` wrapping. Manual wrapping remains supported but is no longer the recommended pattern.
+>
+> 2. **Memory management**: The statement "C objects follow C conventions" (§ Memory Management, Native) is extended by Deep FFI's `owned`/`borrowed` annotations and `#free` attribute, which integrate C resource lifecycle with Ori's ARC and Drop system. Unannotated CPtr returns still follow C conventions for backward compatibility, but Deep FFI phases enforcement from optional to warning to error.
+>
+> 3. **FFI capability**: `FFI` is now a parametric capability — `FFI("sqlite3")`, `FFI("libc")`, etc. — with each extern block's `from "..."` clause defining a distinct capability namespace. Unparameterized `uses FFI` remains valid as shorthand for all FFI capabilities.

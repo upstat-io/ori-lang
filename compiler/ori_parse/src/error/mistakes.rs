@@ -34,20 +34,20 @@ pub fn detect_common_mistake(source_text: &str) -> Option<(&'static str, &'stati
         // C/Java increment/decrement
         "++" => Some((
             "increment operator",
-            "Ori doesn't have `++`. Use `x = x + 1` or a compound assignment pattern.",
+            "Ori doesn't have `++`. Use `x += 1` instead.",
         )),
         "--" => Some((
             "decrement operator",
-            "Ori doesn't have `--`. Use `x = x - 1` or a compound assignment pattern.",
+            "Ori doesn't have `--`. Use `x -= 1` instead.",
         )),
 
         // Pascal/SQL not-equals
         "<>" => Some(("not-equals", "Ori uses `!=` for inequality, not `<>`.")),
 
-        // Assignment operators from other languages
-        "+=" | "-=" | "*=" | "/=" | "%=" | "&&=" | "||=" | "??=" => Some((
-            "compound assignment",
-            "Ori doesn't have compound assignment operators. Use `x = x + y` instead of `x += y`.",
+        // Nullish coalescing assignment (excluded from spec)
+        "??=" => Some((
+            "nullish coalescing assignment",
+            "Ori doesn't have `??=`. Use `x = x ?? default` instead.",
         )),
 
         // Spread/rest from JavaScript

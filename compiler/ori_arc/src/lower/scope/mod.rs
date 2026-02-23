@@ -103,9 +103,22 @@ pub(crate) fn merge_mutable_vars(
         if changed {
             let ty = var_types.get(&name).copied().unwrap_or(Idx::UNIT);
             let merge_var = builder.add_block_param(merge_block, ty);
+            tracing::trace!(
+                pre_var = pre_var.raw(),
+                merge_var = merge_var.raw(),
+                merge_bb = merge_block.index(),
+                "merge: mutable var diverged"
+            );
             rebindings.push((name, merge_var));
         }
     }
+
+    tracing::debug!(
+        merge_bb = merge_block.index(),
+        branches = branch_scopes.len(),
+        rebindings = rebindings.len(),
+        "merge: mutable vars"
+    );
 
     rebindings
 }

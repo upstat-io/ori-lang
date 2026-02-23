@@ -22,8 +22,9 @@ pub(crate) struct LoopContext {
     pub exit_block: crate::ir::ArcBlockId,
     /// Block to jump to on `continue`.
     pub continue_block: crate::ir::ArcBlockId,
-    /// Mutable variable types for SSA merge at loop header.
-    pub mutable_var_types: rustc_hash::FxHashMap<Name, Idx>,
+    /// Mutable variable names in block-parameter order for SSA merge.
+    /// MUST be `Vec` (not `HashMap`) — order must match `add_block_param` order.
+    pub mutable_vars: Vec<Name>,
 }
 
 // ArcLowerer
@@ -42,9 +43,21 @@ pub struct ArcLowerer<'a> {
     pub(crate) loop_ctx: Option<LoopContext>,
     pub(crate) problems: &'a mut Vec<ArcProblem>,
     pub(crate) lambdas: &'a mut Vec<ArcFunction>,
+    /// Resolved `#` (hash length) value for the current index expression.
+    ///
+    /// Set by `lower_index` before lowering the index sub-expression,
+    /// so that `CanExpr::HashLength` resolves to the collection's length.
+    /// Mirrors the interpreter's `eval_can_with_hash_length`.
+    pub(crate) hash_length: Option<ArcVarId>,
 }
 
 impl ArcLowerer<'_> {
+    /// Resolve an interned `Name` to its string for diagnostic/tracing output.
+    #[inline]
+    pub(crate) fn name_str(&self, name: Name) -> &str {
+        self.interner.lookup(name)
+    }
+
     /// Get the type of a canonical expression by its ID.
     #[inline]
     pub(crate) fn expr_type(&self, id: CanId) -> Idx {
@@ -76,6 +89,11 @@ impl ArcLowerer<'_> {
         let kind = *self.arena.kind(id);
         let span = self.arena.span(id);
         let ty = self.expr_type(id);
+        tracing::trace!(
+            id = id.raw(),
+            bb = self.builder.current_block().index(),
+            "lower_expr"
+        );
 
         match kind {
             // Literals
@@ -109,9 +127,22 @@ impl ArcLowerer<'_> {
                 ArcValue::Literal(LitValue::Size { value, unit }),
                 Some(span),
             ),
-            CanExpr::Unit | CanExpr::HashLength | CanExpr::FunctionRef(_) => {
+            CanExpr::Unit => {
                 self.builder
                     .emit_let(ty, ArcValue::Literal(LitValue::Unit), Some(span))
+            }
+            CanExpr::HashLength => {
+                if let Some(len) = self.hash_length {
+                    self.builder.emit_let(ty, ArcValue::Var(len), Some(span))
+                } else {
+                    tracing::warn!("HashLength (#) used outside index expression");
+                    self.emit_unit()
+                }
+            }
+            CanExpr::FunctionRef(name) => {
+                // Zero-capture closure: PartialApply with empty captures
+                self.builder
+                    .emit_partial_apply(ty, name, vec![], Some(span))
             }
 
             // Compile-time constants
@@ -149,9 +180,9 @@ impl ArcLowerer<'_> {
                 iter,
                 guard,
                 body,
-                is_yield: _,
+                is_yield,
                 ..
-            } => self.lower_for(binding, iter, guard, body, ty),
+            } => self.lower_for(binding, iter, guard, body, ty, is_yield),
             CanExpr::Break { value, .. } => self.lower_break(value),
             CanExpr::Continue { value, .. } => self.lower_continue(value),
             CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
@@ -173,7 +204,10 @@ impl ArcLowerer<'_> {
                 step,
                 inclusive,
             } => self.lower_range(start, end, step, inclusive, ty, span),
-            CanExpr::Unsafe(inner) => self.lower_expr(inner),
+            // Transparent wrappers (sync runtime — just evaluate inner expression)
+            CanExpr::Unsafe(inner) | CanExpr::Await(inner) => self.lower_expr(inner),
+            CanExpr::WithCapability { body, .. } => self.lower_expr(body),
+
             CanExpr::Try(inner) => self.lower_try(inner, ty, span),
             CanExpr::Cast {
                 expr,
@@ -191,36 +225,10 @@ impl ArcLowerer<'_> {
             CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
 
             // Special forms
-            CanExpr::FunctionExp { kind: _, props: _ } => {
-                self.problems.push(ArcProblem::UnsupportedExpr {
-                    kind: "FunctionExp",
-                    span,
-                });
-                self.emit_unit()
-            }
+            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, span),
 
-            // Unsupported (post-0.1-alpha)
-            CanExpr::Await(_) => {
-                self.problems.push(ArcProblem::UnsupportedExpr {
-                    kind: "Await",
-                    span,
-                });
-                self.emit_unit()
-            }
-            CanExpr::WithCapability { .. } => {
-                self.problems.push(ArcProblem::UnsupportedExpr {
-                    kind: "WithCapability",
-                    span,
-                });
-                self.emit_unit()
-            }
-
-            // Formatting — FormatWith consumes expr and produces a string.
-            // For ARC analysis, treat like a function call that consumes the value.
-            CanExpr::FormatWith { expr, .. } => {
-                let _inner = self.lower_expr(expr);
-                self.emit_unit()
-            }
+            // Formatting — dispatches to type-specific ori_format_* runtime functions
+            CanExpr::FormatWith { expr, spec } => self.lower_format_with(expr, spec, ty, span),
 
             // Error recovery
             CanExpr::Error => self.emit_unit(),

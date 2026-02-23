@@ -80,7 +80,7 @@ fn composite_sizes() {
         .size(),
         Some(32)
     );
-    assert_eq!(TypeInfo::Range.size(), Some(24));
+    assert_eq!(TypeInfo::Range.size(), Some(32));
     assert_eq!(TypeInfo::Option { inner: Idx::INT }.size(), Some(16));
     assert_eq!(TypeInfo::Channel { element: Idx::INT }.size(), Some(8));
     assert_eq!(

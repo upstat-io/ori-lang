@@ -3,7 +3,7 @@ section: "15C"
 title: Literals & Operators
 status: not-started
 tier: 5
-goal: Implement string interpolation, spread operator, and range step syntax
+goal: Implement string interpolation, spread operator, range step syntax, and pipe operator
 sections:
   - id: "15C.1"
     title: String Interpolation
@@ -27,13 +27,25 @@ sections:
     title: Null Coalesce Operator
     status: not-started
   - id: "15C.8"
+    title: Compound Assignment Operators
+    status: not-started
+  - id: "15C.9"
+    title: MatMul Operator
+    status: not-started
+  - id: "15C.10"
+    title: Power Operator
+    status: not-started
+  - id: "15C.11"
+    title: Pipe Operator
+    status: not-started
+  - id: "15C.12"
     title: Section Completion Checklist
     status: not-started
 ---
 
 # Section 15C: Literals & Operators
 
-**Goal**: Implement string interpolation, spread operator, and range step syntax
+**Goal**: Implement string interpolation, spread operator, range step syntax, and pipe operator
 
 > **Source**: `docs/ori_lang/proposals/approved/`
 
@@ -558,7 +570,248 @@ let count = get_count() ?? 0
 
 ---
 
-## 15C.8 Section Completion Checklist
+## 15C.8 Compound Assignment Operators
+
+**Proposal**: `proposals/approved/compound-assignment-proposal.md`
+
+Add compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `&&=`, `||=`) that desugar to `x = x op y` at the parser level.
+
+```ori
+let sum = 0;
+for item in items {
+    sum += item.value;
+}
+```
+
+### Lexer
+
+- [ ] **Implement**: Add 13 new raw token tags to `ori_lexer_core/src/tag/mod.rs`
+  - `PlusEq`, `MinusEq`, `StarEq`, `SlashEq`, `PercentEq`, `AtEq`, `AmpEq`, `PipeEq`, `CaretEq`, `ShlEq`, `ShrEq`, `AmpAmpEq`, `PipePipeEq`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — scanning tests
+
+- [ ] **Implement**: Update raw scanner to scan compound assignment tokens
+  - Two-char: `+=`, `-=`, `*=`, `/=`, `%=`, `@=`, `&=`, `|=`, `^=`
+  - Three-char: `<<=`, `>>=`, `&&=`, `||=`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — replace `no_compound_assignment` test
+
+- [ ] **Implement**: Map raw tags to `TokenKind` in cooker
+  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — compound assignment cooking
+
+### Parser
+
+- [ ] **Implement**: Parse compound assignment and desugar to `Assign { target, value: Binary/And/Or }`
+  - Trait-based ops: map `PlusEq` → `BinaryOp::Add`, etc.
+  - Logical ops: map `AmpAmpEq` → `ExprKind::And`, `PipePipeEq` → `ExprKind::Or`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — compound assignment parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/basic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/field_access.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/subscript.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/compound_assignment/logical.ori`
+
+- [ ] **Implement**: Remove compound assignment from "common mistake" detection
+  - Remove `+=`, `-=`, `*=`, `/=`, `%=` from `mistakes.rs`
+  - Remove `&&=`, `||=` from `mistakes.rs`
+  - Keep `??=` as mistake (still unsupported)
+  - [ ] **Rust Tests**: `ori_parse/src/error/tests.rs` — update detection tests
+
+### Error Messages
+
+- [ ] **Implement**: Error for compound assignment on immutable binding (`$`)
+  - Message: "cannot use compound assignment on immutable binding `$y`. Remove `$` for mutability: `let y = ...`"
+  - [ ] **Ori Tests**: `tests/compile-fail/compound_assign_immutable.ori`
+
+- [ ] **Implement**: Error for compound assignment as expression
+  - Message: "compound assignment is a statement, not an expression"
+  - [ ] **Ori Tests**: `tests/compile-fail/compound_assign_as_expression.ori`
+
+### LLVM Support
+
+- [ ] **LLVM Support**: No changes needed — parser desugars before reaching LLVM codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/compound_assign_tests.rs` — verify desugared form compiles correctly
+
+---
+
+## 15C.9 MatMul Operator (`@`)
+
+**Proposal**: `proposals/approved/matmul-operator-proposal.md`
+
+Add `@` as a binary operator for matrix multiplication. Desugars to `MatMul` trait method `matrix_multiply()`. Same precedence as `*`/`/`/`%`/`div` (level 4, multiplicative). The `@` token is disambiguated by syntactic context (item position = function declaration, expression position = matmul, pattern position = at-binding).
+
+### IR
+
+- [ ] **Implement**: Add `MatMul` variant to `BinaryOp` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
+  - [ ] **Rust Tests**: `ori_ir/src/ast/tests.rs`
+
+### Parser
+
+- [ ] **Implement**: Add `TokenKind::At` to multiplicative precedence level in expression parser
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — matmul parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/matmul/basic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/matmul/precedence.ori`
+
+### Evaluator
+
+- [ ] **Implement**: Add `BinaryOp::MatMul` error arms to primitive type handlers (no primitive implements `MatMul`)
+  - [ ] **Rust Tests**: `ori_eval/src/tests/` — matmul error on primitives
+
+### Standard Library
+
+- [ ] **Implement**: Add `MatMul` trait definition to `library/std/prelude.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/matmul_trait.ori`
+
+### LLVM
+
+- [ ] **LLVM Support**: Falls through via trait dispatch — no special-casing needed
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/operators.rs` — matmul trait dispatch
+
+---
+
+## 15C.10 Power Operator (`**`)
+
+**Proposal**: `proposals/approved/power-operator-proposal.md`
+
+Add `**` as a right-associative binary operator for exponentiation. Desugars to `Pow` trait method `power()`. Binds tighter than unary `-` (precedence level 2): `-x ** 2 = -(x ** 2)`. Compound assignment `**=` included.
+
+### Lexer
+
+- [ ] **Implement**: Add `StarStar` and `StarStarEq` raw token tags to `ori_lexer_core/src/tag/mod.rs`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
+- [ ] **Implement**: Update raw scanner to recognize `**` and `**=` (longest-match: `*` → peek `*` → peek `=`)
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — power token scanning
+- [ ] **Implement**: Map `StarStar` → `TokenKind::Pow` and `StarStarEq` → compound assignment in cooker
+  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — power token cooking
+
+### IR
+
+- [ ] **Implement**: Add `Pow` variant to `BinaryOp` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
+  - [ ] **Rust Tests**: `ori_ir/src/ast/tests.rs` — BinaryOp::Pow methods
+
+### Parser
+
+- [ ] **Implement**: Add `parse_power_expr()` between `parse_unary_expr()` and `parse_postfix_expr()` — right-associative
+  - `unary_expr` calls `power_expr`; `power_expr` calls `postfix_expr`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — power expression parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/power/basic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/right_assoc.ori` — `2 ** 3 ** 2 = 512`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/unary_minus.ori` — `-2 ** 2 = -4`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/precedence.ori` — `a * b ** 2 = a * (b ** 2)`
+- [ ] **Implement**: Parse `**=` compound assignment (desugar to `x = x ** y`)
+  - [ ] **Ori Tests**: `tests/spec/operators/power/compound_assign.ori`
+
+### Type Checker
+
+- [ ] **Implement**: Falls through via `BinaryOp::trait_name()` returning `"Pow"` — no special-casing
+  - [ ] **Ori Tests**: `tests/compile-fail/power_no_impl.ori` — "type `str` does not implement `Pow`"
+
+### Evaluator
+
+- [ ] **Implement**: Built-in `int ** int` dispatch (binary exponentiation, panic on negative exponent)
+  - [ ] **Rust Tests**: `ori_eval/src/tests/` — int power evaluation
+  - [ ] **Ori Tests**: `tests/spec/operators/power/int_power.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/negative_exponent_panic.ori`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/zero_pow_zero.ori` — `0 ** 0 = 1`
+- [ ] **Implement**: Built-in `float ** float` dispatch (delegates to libm `pow()`)
+  - [ ] **Rust Tests**: `ori_eval/src/tests/` — float power evaluation
+  - [ ] **Ori Tests**: `tests/spec/operators/power/float_power.ori`
+- [ ] **Implement**: Mixed-type dispatch: `float ** int`, `int ** float` → `float`
+  - [ ] **Ori Tests**: `tests/spec/operators/power/mixed_types.ori`
+- [ ] **Implement**: Overflow follows standard overflow behavior (panic in debug)
+  - [ ] **Ori Tests**: `tests/spec/operators/power/overflow.ori`
+
+### Standard Library
+
+- [ ] **Implement**: Add `Pow` trait definition to `library/std/prelude.ori`
+  - Trait: `trait Pow<Rhs = Self> { type Output = Self; @power (self, rhs: Rhs) -> Self.Output }`
+  - Built-in impls: `Pow for int`, `Pow for float`, `Pow<int> for float`, `Pow<float> for int`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/pow_trait.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/pow_user_defined.ori`
+
+### LLVM
+
+- [ ] **LLVM Support**: Primitive impls via `llvm.pow` intrinsic; user types via trait dispatch
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/operators.rs` — power operator codegen
+
+---
+
+## 15C.11 Pipe Operator (`|>`)
+
+**Proposal**: `proposals/approved/pipe-operator-proposal.md`
+
+Add `|>` for left-to-right function composition with implicit fill. The piped value fills the single parameter that has no default and is not provided in the call. Method calls on the piped value use `.method()` syntax. Lambda pipe steps (`|> (x -> expr)`) handle expression-level operations.
+
+```ori
+data
+    |> filter(predicate: x -> x > 0)
+    |> map(transform: x -> x * 2)
+    |> sum
+```
+
+### Lexer
+
+- [ ] **Implement**: Add `PipeArrow` raw token tag to `ori_lexer_core/src/tag/mod.rs`
+  - [ ] **Rust Tests**: `ori_lexer_core/src/tag/tests.rs` — lexeme and display tests
+- [ ] **Implement**: Update raw scanner to recognize `|>` (disambiguate from `|`)
+  - [ ] **Rust Tests**: `ori_lexer_core/src/raw_scanner/tests.rs` — pipe token scanning
+- [ ] **Implement**: Map `PipeArrow` → `TokenKind::Pipe` in cooker
+  - [ ] **Rust Tests**: `ori_lexer/src/cooker/tests.rs` — pipe token cooking
+
+### IR
+
+- [ ] **Implement**: Add `Pipe` expression variant to `ExprKind` (LHS expression + pipe step)
+  - Pipe step variants: function call (implicit fill), method call (`.method`), lambda
+  - [ ] **Rust Tests**: `ori_ir/src/ast/tests.rs` — Pipe expression AST node
+
+### Parser
+
+- [ ] **Implement**: Parse `|>` at precedence 16 (below `??` at 15); produce `Pipe` AST node
+  - Grammar: `pipe_expr = coalesce_expr { "|>" pipe_step } .`
+  - Pipe step: `.method()` | `postfix_expr [call_args]` | `lambda`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/tests.rs` — pipe expression parsing
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/basic.ori` — simple pipe chains
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/method_call.ori` — `.method()` on piped value
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/lambda.ori` — lambda pipe steps
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/precedence.ori` — `a + b |> f` = `(a + b) |> f`
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/nested.ori` — `a |> f(x: b |> g)`
+
+### Type Checker
+
+- [ ] **Implement**: Resolve implicit fill — identify single unspecified param (no default, not in call)
+  - Desugar to let-binding + ordinary function call
+  - [ ] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — pipe implicit fill resolution
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/implicit_fill.ori` — fills correct param
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/defaults.ori` — params with defaults excluded
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/punning.ori` — `x |> f(weight:, bias:)`
+
+- [ ] **Implement**: Error diagnostics for pipe
+  - Zero unspecified: "all parameters already specified; nothing for pipe to fill"
+  - Multiple unspecified: "ambiguous pipe target; specify all parameters except one"
+  - [ ] **Ori Tests**: `tests/compile-fail/pipe_all_specified.ori`
+  - [ ] **Ori Tests**: `tests/compile-fail/pipe_ambiguous.ori`
+  - [ ] **Ori Tests**: `tests/compile-fail/pipe_zero_params.ori`
+
+- [ ] **Implement**: Desugar `.method()` pipe steps to `__pipe.method(args)` call
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/method_desugar.ori`
+
+- [ ] **Implement**: Desugar lambda pipe steps to `(lambda)(__pipe)` call
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/lambda_desugar.ori`
+
+- [ ] **Implement**: Handle `?` on pipe steps — applies to desugared call result
+  - [ ] **Ori Tests**: `tests/spec/expressions/pipe/error_propagation.ori`
+
+### Formatter
+
+- [ ] **Implement**: Format pipe chains with line-break-per-step, indented under first operand
+  - [ ] **Rust Tests**: `ori_fmt/src/formatter/tests.rs` — pipe chain formatting
+
+### LLVM
+
+- [ ] **LLVM Support**: No changes needed — type checker desugars before reaching LLVM codegen
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/pipe.rs` — verify desugared form compiles correctly
+
+---
+
+## 15C.12 Section Completion Checklist
 
 - [ ] All implementation items have checkboxes marked `[ ]`
 - [ ] All spec docs updated

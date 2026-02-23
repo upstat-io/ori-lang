@@ -55,6 +55,8 @@ pub struct ParsedAttrs {
     pub target: Option<TargetAttr>,
     /// Config conditional compilation for `#cfg(debug)`.
     pub cfg: Option<CfgAttr>,
+    /// FBIP enforcement annotation: `#fbip`.
+    pub is_fbip: bool,
 
     /// Token range covering all attributes (for formatters/IDE).
     ///
@@ -97,6 +99,7 @@ impl ParsedAttrs {
             && self.repr.is_none()
             && self.target.is_none()
             && self.cfg.is_none()
+            && !self.is_fbip
     }
 
     /// Returns true if any tokens were captured for attributes.
@@ -116,6 +119,7 @@ enum AttrKind {
     Repr,
     Target,
     Cfg,
+    Fbip,
     Unknown,
 }
 
@@ -129,6 +133,7 @@ impl AttrKind {
             AttrKind::Repr => "repr",
             AttrKind::Target => "target",
             AttrKind::Cfg => "cfg",
+            AttrKind::Fbip => "fbip",
             AttrKind::Unknown => "unknown",
         }
     }
@@ -178,6 +183,13 @@ impl Parser<'_> {
                 AttrKind::Cfg => {
                     self.parse_cfg_attr(&mut attrs, errors, uses_brackets);
                 }
+                AttrKind::Fbip => {
+                    // #fbip is a bare flag — no arguments.
+                    attrs.is_fbip = true;
+                    if uses_brackets {
+                        self.finish_attr_bracket(uses_brackets, errors);
+                    }
+                }
                 _ => {
                     self.parse_string_attr(attr_kind, &mut attrs, errors, uses_brackets);
                 }
@@ -205,6 +217,7 @@ impl Parser<'_> {
                     "repr" => AttrKind::Repr,
                     "target" => AttrKind::Target,
                     "cfg" => AttrKind::Cfg,
+                    "fbip" => AttrKind::Fbip,
                     s => {
                         errors.push(ParseError::new(
                             ErrorCode::E1006,
@@ -304,6 +317,7 @@ impl Parser<'_> {
                 | AttrKind::Repr
                 | AttrKind::Target
                 | AttrKind::Cfg
+                | AttrKind::Fbip
                 | AttrKind::Unknown => {}
             }
         }

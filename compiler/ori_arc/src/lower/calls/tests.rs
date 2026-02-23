@@ -54,6 +54,7 @@ fn lower_call_expr(
         interner,
         &pool,
         &mut problems,
+        false,
     );
     assert!(problems.is_empty());
     func
@@ -208,6 +209,7 @@ fn lower_method_call_user_defined() {
         &interner,
         &pool,
         &mut problems,
+        false,
     );
 
     assert!(problems.is_empty());

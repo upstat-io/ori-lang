@@ -1,0 +1,412 @@
+// Spec: 09-expressions.md § Compound Assignment
+// Tests for compound assignment operators: +=, -=, *=, /=, %=, &=, |=, ^=, <<=, >>=, &&=, ||=
+// Each desugars at parse time: `x op= y` -> `x = x op y`
+
+use std.testing { assert_eq, assert }
+
+// =============================================================================
+// Addition Assignment (+=)
+// =============================================================================
+
+@test_add_assign_basic tests @add_assign_basic () -> void = {
+    assert_eq(actual: add_assign_basic(), expected: 15)
+}
+
+@add_assign_basic () -> int = {
+    let x = 10;
+    x += 5;
+    x
+}
+
+@test_add_assign_chain tests @add_assign_chain () -> void = {
+    assert_eq(actual: add_assign_chain(), expected: 6)
+}
+
+@add_assign_chain () -> int = {
+    let x = 0;
+    x += 1;
+    x += 2;
+    x += 3;
+    x
+}
+
+@test_add_assign_negative tests @add_assign_negative () -> void = {
+    assert_eq(actual: add_assign_negative(), expected: 7)
+}
+
+@add_assign_negative () -> int = {
+    let x = 10;
+    x += -3;
+    x
+}
+
+@test_add_assign_string tests @add_assign_string () -> void = {
+    assert_eq(actual: add_assign_string(), expected: "hello world")
+}
+
+@add_assign_string () -> str = {
+    let s = "hello";
+    s += " world";
+    s
+}
+
+// =============================================================================
+// Subtraction Assignment (-=)
+// =============================================================================
+
+@test_sub_assign_basic tests @sub_assign_basic () -> void = {
+    assert_eq(actual: sub_assign_basic(), expected: 5)
+}
+
+@sub_assign_basic () -> int = {
+    let x = 10;
+    x -= 5;
+    x
+}
+
+@test_sub_assign_to_negative tests @sub_assign_to_negative () -> void = {
+    assert_eq(actual: sub_assign_to_negative(), expected: -3)
+}
+
+@sub_assign_to_negative () -> int = {
+    let x = 2;
+    x -= 5;
+    x
+}
+
+// =============================================================================
+// Multiplication Assignment (*=)
+// =============================================================================
+
+@test_mul_assign_basic tests @mul_assign_basic () -> void = {
+    assert_eq(actual: mul_assign_basic(), expected: 30)
+}
+
+@mul_assign_basic () -> int = {
+    let x = 5;
+    x *= 6;
+    x
+}
+
+@test_mul_assign_chain tests @mul_assign_chain () -> void = {
+    assert_eq(actual: mul_assign_chain(), expected: 24)
+}
+
+@mul_assign_chain () -> int = {
+    let x = 1;
+    x *= 2;
+    x *= 3;
+    x *= 4;
+    x
+}
+
+// =============================================================================
+// Division Assignment (/=)
+// =============================================================================
+
+@test_div_assign_basic tests @div_assign_basic () -> void = {
+    assert_eq(actual: div_assign_basic(), expected: 5)
+}
+
+@div_assign_basic () -> int = {
+    let x = 20;
+    x /= 4;
+    x
+}
+
+@test_div_assign_truncate tests @div_assign_truncate () -> void = {
+    assert_eq(actual: div_assign_truncate(), expected: 3)
+}
+
+@div_assign_truncate () -> int = {
+    let x = 10;
+    x /= 3;
+    x
+}
+
+// =============================================================================
+// Modulo Assignment (%=)
+// =============================================================================
+
+@test_mod_assign_basic tests @mod_assign_basic () -> void = {
+    assert_eq(actual: mod_assign_basic(), expected: 1)
+}
+
+@mod_assign_basic () -> int = {
+    let x = 10;
+    x %= 3;
+    x
+}
+
+@test_mod_assign_exact tests @mod_assign_exact () -> void = {
+    assert_eq(actual: mod_assign_exact(), expected: 0)
+}
+
+@mod_assign_exact () -> int = {
+    let x = 12;
+    x %= 4;
+    x
+}
+
+// =============================================================================
+// Bitwise AND Assignment (&=)
+// =============================================================================
+
+@test_bitand_assign_basic tests @bitand_assign_basic () -> void = {
+    assert_eq(actual: bitand_assign_basic(), expected: 8)
+}
+
+@bitand_assign_basic () -> int = {
+    let x = 0b1100;
+    x &= 0b1010;
+    x
+}
+
+@test_bitand_assign_mask tests @bitand_assign_mask () -> void = {
+    assert_eq(actual: bitand_assign_mask(), expected: 255)
+}
+
+@bitand_assign_mask () -> int = {
+    let x = 0xFF_FF;
+    x &= 0xFF;
+    x
+}
+
+// =============================================================================
+// Bitwise OR Assignment (|=)
+// =============================================================================
+
+@test_bitor_assign_basic tests @bitor_assign_basic () -> void = {
+    assert_eq(actual: bitor_assign_basic(), expected: 14)
+}
+
+@bitor_assign_basic () -> int = {
+    let x = 0b1100;
+    x |= 0b1010;
+    x
+}
+
+@test_bitor_assign_set_bits tests @bitor_assign_set_bits () -> void = {
+    assert_eq(actual: bitor_assign_set_bits(), expected: 7)
+}
+
+@bitor_assign_set_bits () -> int = {
+    let flags = 0;
+    flags |= 1;
+    flags |= 2;
+    flags |= 4;
+    flags
+}
+
+// =============================================================================
+// Bitwise XOR Assignment (^=)
+// =============================================================================
+
+@test_bitxor_assign_basic tests @bitxor_assign_basic () -> void = {
+    assert_eq(actual: bitxor_assign_basic(), expected: 6)
+}
+
+@bitxor_assign_basic () -> int = {
+    let x = 0b1100;
+    x ^= 0b1010;
+    x
+}
+
+@test_bitxor_assign_toggle tests @bitxor_assign_toggle () -> void = {
+    assert_eq(actual: bitxor_assign_toggle(), expected: 42)
+}
+
+@bitxor_assign_toggle () -> int = {
+    let x = 42;
+    x ^= 0xFF;
+    x ^= 0xFF;
+    x
+}
+
+// =============================================================================
+// Shift Left Assignment (<<=)
+// =============================================================================
+
+@test_shl_assign_basic tests @shl_assign_basic () -> void = {
+    assert_eq(actual: shl_assign_basic(), expected: 8)
+}
+
+@shl_assign_basic () -> int = {
+    let x = 1;
+    x <<= 3;
+    x
+}
+
+@test_shl_assign_chain tests @shl_assign_chain () -> void = {
+    assert_eq(actual: shl_assign_chain(), expected: 32)
+}
+
+@shl_assign_chain () -> int = {
+    let x = 1;
+    x <<= 2;
+    x <<= 3;
+    x
+}
+
+// =============================================================================
+// Shift Right Assignment (>>=)
+// =============================================================================
+
+@test_shr_assign_basic tests @shr_assign_basic () -> void = {
+    assert_eq(actual: shr_assign_basic(), expected: 4)
+}
+
+@shr_assign_basic () -> int = {
+    let x = 32;
+    x >>= 3;
+    x
+}
+
+@test_shr_assign_chain tests @shr_assign_chain () -> void = {
+    assert_eq(actual: shr_assign_chain(), expected: 1)
+}
+
+@shr_assign_chain () -> int = {
+    let x = 64;
+    x >>= 3;
+    x >>= 3;
+    x
+}
+
+// =============================================================================
+// Logical AND Assignment (&&=)
+// =============================================================================
+
+@test_and_assign_true tests @and_assign_true () -> void = {
+    assert_eq(actual: and_assign_true(), expected: true)
+}
+
+@and_assign_true () -> bool = {
+    let x = true;
+    x &&= true;
+    x
+}
+
+@test_and_assign_false tests @and_assign_false () -> void = {
+    assert_eq(actual: and_assign_false(), expected: false)
+}
+
+@and_assign_false () -> bool = {
+    let x = true;
+    x &&= false;
+    x
+}
+
+@test_and_assign_short_circuit tests @and_assign_short_circuit () -> void = {
+    assert_eq(actual: and_assign_short_circuit(), expected: false)
+}
+
+@and_assign_short_circuit () -> bool = {
+    let x = false;
+    x &&= true;
+    x
+}
+
+// =============================================================================
+// Logical OR Assignment (||=)
+// =============================================================================
+
+@test_or_assign_true tests @or_assign_true () -> void = {
+    assert_eq(actual: or_assign_true(), expected: true)
+}
+
+@or_assign_true () -> bool = {
+    let x = false;
+    x ||= true;
+    x
+}
+
+@test_or_assign_false tests @or_assign_false () -> void = {
+    assert_eq(actual: or_assign_false(), expected: false)
+}
+
+@or_assign_false () -> bool = {
+    let x = false;
+    x ||= false;
+    x
+}
+
+@test_or_assign_short_circuit tests @or_assign_short_circuit () -> void = {
+    assert_eq(actual: or_assign_short_circuit(), expected: true)
+}
+
+@or_assign_short_circuit () -> bool = {
+    let x = true;
+    x ||= false;
+    x
+}
+
+// =============================================================================
+// Mixed: Compound Assignment in Loops
+// =============================================================================
+
+@test_compound_in_loop tests @compound_in_loop () -> void = {
+    assert_eq(actual: compound_in_loop(), expected: 55)
+}
+
+@compound_in_loop () -> int = {
+    let sum = 0;
+    for i in 1..=10 do {
+        sum += i
+    };
+    sum
+}
+
+@test_compound_accumulate tests @compound_accumulate () -> void = {
+    assert_eq(actual: compound_accumulate(), expected: 3628800)
+}
+
+@compound_accumulate () -> int = {
+    let product = 1;
+    for i in 1..=10 do {
+        product *= i
+    };
+    product
+}
+
+// =============================================================================
+// Mixed: Multiple Different Compound Operators
+// =============================================================================
+
+@test_mixed_compound tests @mixed_compound () -> void = {
+    assert_eq(actual: mixed_compound(), expected: 8)
+}
+
+@mixed_compound () -> int = {
+    let x = 10;
+    x += 5;
+    x -= 3;
+    x *= 2;
+    x /= 3;
+    x
+}
+
+// =============================================================================
+// Compound Assignment with Expressions on RHS
+// =============================================================================
+
+@test_compound_expr_rhs tests @compound_expr_rhs () -> void = {
+    assert_eq(actual: compound_expr_rhs(), expected: 16)
+}
+
+@compound_expr_rhs () -> int = {
+    let x = 10;
+    x += 2 * 3;
+    x
+}
+
+@test_compound_nested_rhs tests @compound_nested_rhs () -> void = {
+    assert_eq(actual: compound_nested_rhs(), expected: 7)
+}
+
+@compound_nested_rhs () -> int = {
+    let x = 10;
+    let y = 3;
+    x -= y;
+    x
+}

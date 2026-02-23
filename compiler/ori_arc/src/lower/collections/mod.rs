@@ -154,6 +154,9 @@ impl ArcLowerer<'_> {
     }
 
     /// Lower an index expression to ARC IR.
+    ///
+    /// Sets `hash_length` before lowering the index sub-expression so that
+    /// `CanExpr::HashLength` (`#`) resolves to the collection's length.
     pub(crate) fn lower_index(
         &mut self,
         receiver: CanId,
@@ -162,7 +165,21 @@ impl ArcLowerer<'_> {
         span: Span,
     ) -> ArcVarId {
         let recv = self.lower_expr(receiver);
+
+        // For list/string receivers, extract length for `#` resolution.
+        // Set hash_length so `#` resolves to collection length in the index expression.
+        let old_hash = self.hash_length.take();
+        let recv_ty = self.expr_type(receiver);
+        if recv_ty == Idx::STR || self.pool.tag(recv_ty) == Tag::List {
+            // Emit a Project to extract the length field (field 0 for both
+            // str {len, data} and list {len, cap, data})
+            let len_var = self.builder.emit_project(Idx::INT, recv, 0, Some(span));
+            self.hash_length = Some(len_var);
+        }
+
         let idx_var = self.lower_expr(index);
+        self.hash_length = old_hash;
+
         let index_fn = self.interner.intern("__index");
         self.builder
             .emit_apply(ty, index_fn, vec![recv, idx_var], Some(span))
@@ -171,16 +188,21 @@ impl ArcLowerer<'_> {
     // Range
 
     /// Lower a range expression to ARC IR.
+    ///
+    /// Produces a 4-element tuple: `{start, end, step, inclusive}`.
+    /// The inclusive flag is stored as an i64 (0 or 1) to keep the
+    /// Range representation uniform. The emitter truncates to i1 for
+    /// the runtime call.
     pub(crate) fn lower_range(
         &mut self,
         start: CanId,
         end: CanId,
         step: CanId,
-        _inclusive: bool,
+        inclusive: bool,
         ty: Idx,
         span: Span,
     ) -> ArcVarId {
-        let mut args = Vec::with_capacity(3);
+        let mut args = Vec::with_capacity(4);
         args.push(if start.is_valid() {
             self.lower_expr(start)
         } else {
@@ -199,6 +221,12 @@ impl ArcLowerer<'_> {
             self.builder
                 .emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(1)), None)
         });
+        // Inclusive flag as i64 (0=exclusive, 1=inclusive)
+        args.push(self.builder.emit_let(
+            Idx::INT,
+            ArcValue::Literal(LitValue::Int(i64::from(inclusive))),
+            None,
+        ));
         self.builder
             .emit_construct(ty, CtorKind::Tuple, args, Some(span))
     }
@@ -235,18 +263,45 @@ impl ArcLowerer<'_> {
         self.builder.terminate_jump(merge_block, vec![ok_payload]);
 
         self.builder.position_at(err_block);
-        let err_payload = self.builder.emit_project(Idx::ERROR, scrut, 1, Some(span));
-        let result_name = self.interner.intern("Result");
-        let wrapped_err = self.builder.emit_construct(
-            inner_ty,
-            CtorKind::EnumVariant {
-                enum_name: result_name,
-                variant: 1,
-            },
-            vec![err_payload],
-            Some(span),
-        );
-        self.builder.terminate_return(wrapped_err);
+        let resolved = self.pool.resolve_fully(inner_ty);
+        let tag = self.pool.tag(resolved);
+
+        match tag {
+            Tag::Result => {
+                // Result<T, E>: extract Err payload, re-wrap, early return.
+                let err_ty = self.pool.resolve_fully(self.pool.result_err(resolved));
+                let err_payload = self.builder.emit_project(err_ty, scrut, 1, Some(span));
+                let result_name = self.interner.intern("Result");
+                let wrapped_err = self.builder.emit_construct(
+                    inner_ty,
+                    CtorKind::EnumVariant {
+                        enum_name: result_name,
+                        variant: 1,
+                    },
+                    vec![err_payload],
+                    Some(span),
+                );
+                self.builder.terminate_return(wrapped_err);
+            }
+            Tag::Option => {
+                // Option<T>: construct None (variant 1, no payload), early return.
+                let option_name = self.interner.intern("Option");
+                let none = self.builder.emit_construct(
+                    inner_ty,
+                    CtorKind::EnumVariant {
+                        enum_name: option_name,
+                        variant: 1,
+                    },
+                    vec![],
+                    Some(span),
+                );
+                self.builder.terminate_return(none);
+            }
+            other => {
+                tracing::warn!(?other, "lower_try: unexpected type tag for ? operator");
+                self.builder.terminate_return(scrut);
+            }
+        }
 
         self.builder.position_at(merge_block);
         self.builder.add_block_param(merge_block, ty)

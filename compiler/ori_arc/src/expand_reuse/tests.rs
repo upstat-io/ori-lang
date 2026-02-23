@@ -1,7 +1,10 @@
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+use crate::ir::{
+    ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, CtorKind, LitValue,
+    RcStrategy,
+};
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::ArcClassifier;
 
@@ -10,7 +13,7 @@ use super::expand_reset_reuse;
 fn run_expand(mut func: ArcFunction) -> ArcFunction {
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
-    expand_reset_reuse(&mut func, &classifier);
+    expand_reset_reuse(&mut func, &classifier, None);
     func
 }
 
@@ -149,6 +152,7 @@ fn self_set_eliminated() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
                 },
                 ArcInstr::Reset {
                     var: v(0),
@@ -227,6 +231,7 @@ fn proj_inc_erasure() {
                 ArcInstr::RcInc {
                     var: v(2),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::Let {
                     dst: v(4),
@@ -323,7 +328,7 @@ fn slow_path_dec_construct() {
 
     // Slow path should start with RcDec{v0}.
     assert!(
-        matches!(&slow_block.body[0], ArcInstr::RcDec { var } if *var == v(0)),
+        matches!(&slow_block.body[0], ArcInstr::RcDec { var, .. } if *var == v(0)),
         "slow path should start with RcDec, got {:?}",
         slow_block.body[0]
     );
@@ -419,6 +424,7 @@ fn suffix_creates_merge_block() {
                     ty: Idx::INT,
                     func: Name::from_raw(99),
                     args: vec![v(1)], // uses reuse_dst
+                    arg_ownership: vec![ArgOwnership::Owned],
                 },
             ],
             terminator: ArcTerminator::Return { value: v(3) },
@@ -624,7 +630,7 @@ fn fast_path_dec_unclaimed_field() {
     let has_dec = fast_block
         .body
         .iter()
-        .any(|i| matches!(i, ArcInstr::RcDec { var } if *var == v(1)));
+        .any(|i| matches!(i, ArcInstr::RcDec { var, .. } if *var == v(1)));
     assert!(
         has_dec,
         "fast path should dec unclaimed old field v1, body: {:?}",
