@@ -146,6 +146,7 @@ SpreadExpr       = '...' Expression ;
 
 - [ ] **LLVM Support**: LLVM codegen for homogeneous variadics
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — homogeneous variadics codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/functions/variadic.ori`
   - [ ] Basic variadic function
@@ -192,6 +193,7 @@ max()          // Error: max requires at least 1 argument
 
 - [ ] **LLVM Support**: LLVM codegen for minimum argument validation
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — minimum argument count codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/functions/variadic_min.ori`
   - [ ] Minimum 1 with required param
@@ -238,6 +240,7 @@ print_any(1, "hello", true)     // OK: all Printable
 
 - [ ] **LLVM Support**: LLVM codegen for trait bounds on variadics
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — variadic trait bounds codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/functions/variadic_bounds.ori`
   - [ ] Generic variadic
@@ -292,6 +295,7 @@ unsafe { printf("Number: %d, String: %s\n".as_c_str(), 42, "hello".as_c_str()) }
 
 - [ ] **LLVM Support**: LLVM codegen for C variadic interop
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/variadic_tests.rs` — C variadic interop codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/c_variadics.ori`
   - [ ] printf call
