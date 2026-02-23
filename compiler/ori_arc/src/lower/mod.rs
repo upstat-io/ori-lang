@@ -21,6 +21,7 @@
 
 mod calls;
 mod collections;
+mod constructs;
 mod control_flow;
 mod expr;
 mod patterns;
@@ -30,9 +31,10 @@ use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Pool};
 
+use crate::classify::ArcClassifier;
 use crate::ir::{
-    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
-    CtorKind,
+    self, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcValue, ArcVarId,
+    ArgOwnership, CtorKind,
 };
 use crate::Ownership;
 
@@ -48,12 +50,17 @@ pub use self::scope::ArcScope;
 /// `ArcFunction` even when problems occur.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ArcProblem {
-    /// An expression kind that is not yet supported for lowering.
-    UnsupportedExpr { kind: &'static str, span: Span },
     /// A pattern kind that is not yet supported for lowering.
     UnsupportedPattern { kind: &'static str, span: Span },
     /// An internal error (invariant violation) during lowering.
     InternalError { message: String, span: Span },
+    /// Function annotated `#fbip` has missed reuse opportunities.
+    FbipViolation {
+        func_name: String,
+        missed_count: usize,
+        achieved_count: usize,
+        span: Span,
+    },
 }
 
 // BlockBuilder
@@ -176,6 +183,11 @@ impl ArcIrBuilder {
         var
     }
 
+    /// Get the type of a variable.
+    pub fn var_type(&self, var: ArcVarId) -> Idx {
+        self.var_types[var.index()]
+    }
+
     // Instruction emission
 
     /// Emit a `Let` instruction binding a value to a fresh variable.
@@ -197,11 +209,13 @@ impl ArcIrBuilder {
     ) -> ArcVarId {
         let dst = self.fresh_var(ty);
         let block = &mut self.blocks[self.current_block.index()];
+        let arg_count = args.len();
         block.body.push(ArcInstr::Apply {
             dst,
             ty,
             func,
             args,
+            arg_ownership: vec![ArgOwnership::Owned; arg_count],
         });
         block.spans.push(span);
         dst
@@ -241,6 +255,26 @@ impl ArcIrBuilder {
             dst,
             ty,
             ctor,
+            args,
+        });
+        block.spans.push(span);
+        dst
+    }
+
+    /// Emit a `PartialApply` instruction (closure creation with captures).
+    pub fn emit_partial_apply(
+        &mut self,
+        ty: Idx,
+        func: Name,
+        args: Vec<ArcVarId>,
+        span: Option<Span>,
+    ) -> ArcVarId {
+        let dst = self.fresh_var(ty);
+        let block = &mut self.blocks[self.current_block.index()];
+        block.body.push(ArcInstr::PartialApply {
+            dst,
+            ty,
+            func,
             args,
         });
         block.spans.push(span);
@@ -391,11 +425,13 @@ impl ArcIrBuilder {
             "block {} already terminated",
             self.current_block.raw()
         );
+        let arg_count = args.len();
         block.terminator = Some(ArcTerminator::Invoke {
             dst,
             ty,
             func,
             args,
+            arg_ownership: vec![ArgOwnership::Owned; arg_count],
             normal,
             unwind,
         });
@@ -435,6 +471,7 @@ impl ArcIrBuilder {
         params: Vec<ArcParam>,
         return_type: Idx,
         entry: ArcBlockId,
+        is_fbip: bool,
     ) -> ArcFunction {
         let mut blocks = Vec::with_capacity(self.blocks.len());
         let mut spans = Vec::with_capacity(self.blocks.len());
@@ -469,7 +506,9 @@ impl ArcIrBuilder {
             blocks,
             entry,
             var_types: self.var_types,
+            var_reprs: Vec::new(),
             spans,
+            is_fbip,
         }
     }
 }
@@ -494,7 +533,15 @@ pub fn lower_function_can(
     interner: &StringInterner,
     pool: &Pool,
     problems: &mut Vec<ArcProblem>,
+    is_fbip: bool,
 ) -> (ArcFunction, Vec<ArcFunction>) {
+    let fn_name = interner.lookup(name);
+    tracing::debug!(
+        name = fn_name,
+        params = params.len(),
+        "lower_function_can: enter"
+    );
+
     let mut builder = ArcIrBuilder::new();
     let mut scope = ArcScope::new();
 
@@ -508,6 +555,11 @@ pub fn lower_function_can(
             ty: param_ty,
             ownership: Ownership::Owned, // Refined by borrow inference (06.2).
         });
+        tracing::trace!(
+            param = interner.lookup(param_name),
+            var = var.raw(),
+            "lower_function_can: bind param"
+        );
     }
 
     let entry = builder.entry_block();
@@ -524,6 +576,7 @@ pub fn lower_function_can(
         loop_ctx: None,
         problems,
         lambdas: &mut lambdas,
+        hash_length: None,
     };
 
     let result_var = lowerer.lower_expr(body);
@@ -533,7 +586,27 @@ pub fn lower_function_can(
         lowerer.builder.terminate_return(result_var);
     }
 
-    let func = builder.finish(name, arc_params, return_type, entry);
+    let mut func = builder.finish(name, arc_params, return_type, entry, is_fbip);
+
+    // Pre-populate value representations so every variable has a correct
+    // repr from the moment it exists. `run_arc_pipeline` will re-compute
+    // (same values) as a consistency check.
+    let classifier = ArcClassifier::new(pool);
+    func.var_reprs = ir::compute_var_reprs(&func, &classifier, pool);
+
+    // Lambda bodies also get pre-populated reprs.
+    for lambda in &mut lambdas {
+        lambda.var_reprs = ir::compute_var_reprs(lambda, &classifier, pool);
+    }
+
+    tracing::debug!(
+        name = fn_name,
+        blocks = func.blocks.len(),
+        vars = func.var_types.len(),
+        lambdas = lambdas.len(),
+        problems = problems.len(),
+        "lower_function_can: done"
+    );
     (func, lambdas)
 }
 

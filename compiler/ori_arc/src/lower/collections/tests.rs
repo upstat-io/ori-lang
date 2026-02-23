@@ -47,6 +47,7 @@ fn lower_tuple() {
         &interner,
         &pool,
         &mut problems,
+        false,
     );
 
     assert!(problems.is_empty());
@@ -92,6 +93,7 @@ fn lower_none() {
         &interner,
         &pool,
         &mut problems,
+        false,
     );
 
     assert!(problems.is_empty());

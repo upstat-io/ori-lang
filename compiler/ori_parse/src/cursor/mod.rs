@@ -289,11 +289,33 @@ impl<'a> Cursor<'a> {
             && self.next_is_adjacent()
     }
 
+    /// Check if looking at `>` `>` `=` all adjacent (no whitespace).
+    /// Used for detecting `>>=` compound assignment in expression context.
+    pub fn is_shift_right_assign(&self) -> bool {
+        self.current_tag() == TokenKind::TAG_GT
+            && self.pos + 2 < self.tags.len()
+            && self.tags[self.pos + 1] == TokenKind::TAG_GT
+            && self.tags[self.pos + 2] == TokenKind::TAG_EQ
+            && self.next_is_adjacent()
+            && self.flags[self.pos + 2].is_adjacent()
+    }
+
     /// Consume two adjacent tokens as a compound operator.
     /// Returns the combined span.
     /// Panics if not at the expected tokens.
     pub fn consume_compound(&mut self) -> Span {
         let start = self.current_span();
+        self.advance();
+        let end = self.current_span();
+        self.advance();
+        start.merge(end)
+    }
+
+    /// Consume three adjacent tokens as a compound operator.
+    /// Returns the combined span.
+    pub fn consume_triple(&mut self) -> Span {
+        let start = self.current_span();
+        self.advance();
         self.advance();
         let end = self.current_span();
         self.advance();

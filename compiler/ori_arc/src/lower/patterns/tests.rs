@@ -65,6 +65,7 @@ fn bind_name_pattern() {
         &interner,
         &pool,
         &mut problems,
+        false,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");

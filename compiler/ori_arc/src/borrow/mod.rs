@@ -34,11 +34,11 @@
 //! after the tail call, which would break the tail call optimization (the
 //! caller's stack frame must not exist after the tail call).
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
 
-use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
+use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use crate::ownership::{AnnotatedParam, AnnotatedSig, DerivedOwnership, Ownership};
 use crate::ArcClassification;
 
@@ -53,9 +53,18 @@ use crate::ArcClassification;
 ///
 /// * `functions` — ARC IR functions to analyze (typically one module's worth).
 /// * `classifier` — type classifier for determining scalar vs ref types.
+/// * `borrowing_builtins` — method names whose receiver is always borrowed
+///   (e.g., `len`, `is_empty`). These are builtin methods compiled inline by
+///   the LLVM emitter — they don't appear as user functions and are not in the
+///   sigs map, but their args must NOT be forced to Owned.
+#[allow(
+    clippy::implicit_hasher,
+    reason = "FxHashSet is the concrete type used throughout"
+)]
 pub fn infer_borrows(
     functions: &[ArcFunction],
     classifier: &dyn ArcClassification,
+    borrowing_builtins: &FxHashSet<Name>,
 ) -> FxHashMap<Name, AnnotatedSig> {
     let mut sigs = initialize_all_borrowed(functions, classifier);
 
@@ -63,7 +72,7 @@ pub fn infer_borrows(
     while changed {
         changed = false;
         for func in functions {
-            if update_ownership(func, &mut sigs) {
+            if update_ownership(func, &mut sigs, borrowing_builtins) {
                 changed = true;
             }
         }
@@ -142,8 +151,17 @@ fn param_index(var: ArcVarId, func: &ArcFunction) -> Option<usize> {
 /// - It is a function parameter with `Ownership::Owned`, OR
 /// - It is any non-parameter local variable (locals always own their values
 ///   from the point of definition).
-fn is_owned_var(var: ArcVarId, func: &ArcFunction, sig: &AnnotatedSig) -> bool {
-    match param_index(var, func) {
+///
+/// Resolves alias chains before checking, so `v1 = Var(v0)` where `v0` is
+/// a Borrowed param will correctly report `v1` as not owned.
+fn is_owned_var(
+    var: ArcVarId,
+    func: &ArcFunction,
+    sig: &AnnotatedSig,
+    aliases: &FxHashMap<ArcVarId, ArcVarId>,
+) -> bool {
+    let resolved = resolve_alias(var, aliases);
+    match param_index(resolved, func) {
         Some(pidx) => sig.params[pidx].ownership == Ownership::Owned,
         None => true, // Local variables are always owned.
     }
@@ -161,18 +179,72 @@ fn mark_owned(sig: &mut AnnotatedSig, pidx: usize) -> bool {
 
 /// Try to mark a variable as Owned if it is a Borrowed parameter.
 /// Returns `true` if a parameter was promoted.
-fn try_mark_param_owned(var: ArcVarId, func: &ArcFunction, sig: &mut AnnotatedSig) -> bool {
-    if let Some(pidx) = param_index(var, func) {
+///
+/// Resolves alias chains: if `var` is a `Let { value: Var(x) }` alias
+/// of a parameter, the parameter is promoted. This prevents cases where
+/// a parameter is aliased then consumed (e.g., `v1 = v0; Construct([v1])`)
+/// from incorrectly leaving the param as Borrowed.
+fn try_mark_param_owned(
+    var: ArcVarId,
+    func: &ArcFunction,
+    sig: &mut AnnotatedSig,
+    aliases: &FxHashMap<ArcVarId, ArcVarId>,
+) -> bool {
+    let resolved = resolve_alias(var, aliases);
+    if let Some(pidx) = param_index(resolved, func) {
         mark_owned(sig, pidx)
     } else {
         false
     }
 }
 
+/// Build a mapping from alias variables to their source.
+///
+/// For each `Let { dst, value: Var(src) }`, records `dst → src`. This allows
+/// ownership promotion to trace through alias chains like `v1 = v0` where `v0`
+/// is a parameter and `v1` is consumed by a Construct or returned.
+fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
+    let mut aliases = FxHashMap::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            if let ArcInstr::Let {
+                dst,
+                value: ArcValue::Var(src),
+                ..
+            } = instr
+            {
+                aliases.insert(*dst, *src);
+            }
+        }
+    }
+    aliases
+}
+
+/// Resolve an alias chain to the root variable.
+///
+/// Follows `Let { value: Var(x) }` chains: `v2 → v1 → v0 (param)`.
+/// Terminates at the first non-alias variable or after a safety limit.
+fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcVarId {
+    let mut current = var;
+    let mut steps = 0u32;
+    while let Some(&src) = aliases.get(&current) {
+        current = src;
+        steps += 1;
+        if steps > 64 {
+            break;
+        }
+    }
+    current
+}
+
 /// Single pass over one function, checking all parameter uses.
 ///
 /// Returns `true` if any parameter's ownership changed.
-fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>) -> bool {
+fn update_ownership(
+    func: &ArcFunction,
+    sigs: &mut FxHashMap<Name, AnnotatedSig>,
+    borrowing_builtins: &FxHashSet<Name>,
+) -> bool {
     let mut changed = false;
 
     // Clone this function's sig to avoid simultaneous &/&mut borrow of `sigs`.
@@ -181,6 +253,11 @@ fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>
         Some(sig) => sig.clone(),
         None => return false,
     };
+
+    // Build alias map: `Let { dst, value: Var(src) }` → `dst → src`.
+    // This allows ownership promotion to trace through alias chains like
+    // `v1 = v0; Construct([v1])` where v0 is a param.
+    let aliases = build_alias_map(func);
 
     for block in &func.blocks {
         // Scan instructions
@@ -196,36 +273,37 @@ fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>
                             if i < callee_sig.params.len()
                                 && callee_sig.params[i].ownership == Ownership::Owned
                             {
-                                changed |= try_mark_param_owned(arg, func, &mut my_sig);
+                                changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
                             }
                         }
-                    } else {
-                        // Unknown callee (external/runtime) — all args must be owned.
+                    } else if !borrowing_builtins.contains(callee) {
+                        // Unknown callee (not a borrowing builtin) — all args must be owned.
                         for &arg in args {
-                            changed |= try_mark_param_owned(arg, func, &mut my_sig);
+                            changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
                         }
                     }
+                    // Borrowing builtins: all args stay Borrowed (no action needed).
                 }
 
                 ArcInstr::ApplyIndirect { closure, args, .. } => {
                     // Unknown callee — all arguments and closure must be owned.
-                    changed |= try_mark_param_owned(*closure, func, &mut my_sig);
+                    changed |= try_mark_param_owned(*closure, func, &mut my_sig, &aliases);
                     for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig);
+                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
                     }
                 }
 
                 ArcInstr::PartialApply { args, .. } => {
                     // All captured args stored in closure env — must be owned.
                     for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig);
+                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
                     }
                 }
 
                 ArcInstr::Construct { args, .. } => {
                     // Args stored into a data structure — must be owned.
                     for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig);
+                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
                     }
                 }
 
@@ -233,14 +311,14 @@ fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>
                     // Bidirectional propagation: if the projected result is
                     // owned, the source must also be owned (prevents
                     // use-after-free on the projected field).
-                    if is_owned_var(*dst, func, &my_sig) {
-                        changed |= try_mark_param_owned(*value, func, &mut my_sig);
+                    if is_owned_var(*dst, func, &my_sig, &aliases) {
+                        changed |= try_mark_param_owned(*value, func, &mut my_sig, &aliases);
                     }
                 }
 
                 ArcInstr::Let { value, .. } => {
-                    // Let { dst, value: Var(x) } is an alias — no ownership
-                    // transfer implied. RC insertion handles liveness.
+                    // Let { dst, value: Var(x) } is an alias — ownership
+                    // propagation through aliases is handled by the alias map.
                     // PrimOp and Literal are scalar — no RC concern.
                     let _ = value;
                 }
@@ -261,12 +339,12 @@ fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>
         match &block.terminator {
             ArcTerminator::Return { value } => {
                 // Returning a parameter transfers ownership to the caller.
-                changed |= try_mark_param_owned(*value, func, &mut my_sig);
+                changed |= try_mark_param_owned(*value, func, &mut my_sig, &aliases);
 
                 // Tail call preservation: if this return immediately follows
                 // an Apply whose result is the returned value, check whether
                 // any arguments need ownership promotion.
-                changed |= check_tail_call(block, *value, func, &mut my_sig, sigs);
+                changed |= check_tail_call(block, *value, func, &mut my_sig, sigs, &aliases);
             }
 
             ArcTerminator::Jump { args, .. } => {
@@ -290,14 +368,15 @@ fn update_ownership(func: &ArcFunction, sigs: &mut FxHashMap<Name, AnnotatedSig>
                         if i < callee_sig.params.len()
                             && callee_sig.params[i].ownership == Ownership::Owned
                         {
-                            changed |= try_mark_param_owned(arg, func, &mut my_sig);
+                            changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
                         }
                     }
-                } else {
+                } else if !borrowing_builtins.contains(callee) {
                     for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig);
+                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
                     }
                 }
+                // Borrowing builtins: all args stay Borrowed (no action needed).
             }
         }
     }
@@ -322,6 +401,7 @@ fn check_tail_call(
     func: &ArcFunction,
     my_sig: &mut AnnotatedSig,
     sigs: &FxHashMap<Name, AnnotatedSig>,
+    aliases: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> bool {
     let mut changed = false;
 
@@ -343,7 +423,7 @@ fn check_tail_call(
                 {
                     // If arg is a param that's currently Borrowed, promote it.
                     // This preserves the tail call: no Dec needed after the call.
-                    changed |= try_mark_param_owned(arg, func, my_sig);
+                    changed |= try_mark_param_owned(arg, func, my_sig, aliases);
                 }
             }
         }

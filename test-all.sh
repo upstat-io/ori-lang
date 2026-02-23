@@ -4,11 +4,12 @@
 #
 # This script runs:
 # 1. Rust unit tests (workspace crates)
-# 2. Rust unit tests (LLVM crates: ori_llvm, ori_rt)
-# 3. AOT integration tests (compile-and-run through ori build)
-# 4. WASM playground build check
-# 5. Ori language spec tests (interpreter backend)
-# 6. Ori language spec tests (LLVM backend)
+# 2. Runtime library tests (ori_rt — not in workspace)
+# 3. Rust unit tests (ori_llvm — not in workspace)
+# 4. AOT integration tests (compile-and-run through ori build)
+# 5. WASM playground build check
+# 6. Ori language spec tests (interpreter backend)
+# 7. Ori language spec tests (LLVM backend)
 #
 # By default, runs tests in parallel for faster execution.
 # Use -s or --sequential for sequential execution.
@@ -39,6 +40,7 @@ NC='\033[0m' # No Color
 
 # Temp files for capturing output
 RUST_OUTPUT=$(mktemp)
+RUST_RT_OUTPUT=$(mktemp)
 RUST_LLVM_OUTPUT=$(mktemp)
 AOT_OUTPUT=$(mktemp)
 WASM_OUTPUT=$(mktemp)
@@ -47,12 +49,13 @@ ORI_LLVM_OUTPUT=$(mktemp)
 
 # Cleanup temp files on exit
 cleanup() {
-    rm -f "$RUST_OUTPUT" "$RUST_LLVM_OUTPUT" "$AOT_OUTPUT" "$WASM_OUTPUT" "$ORI_INTERP_OUTPUT" "$ORI_LLVM_OUTPUT"
+    rm -f "$RUST_OUTPUT" "$RUST_RT_OUTPUT" "$RUST_LLVM_OUTPUT" "$AOT_OUTPUT" "$WASM_OUTPUT" "$ORI_INTERP_OUTPUT" "$ORI_LLVM_OUTPUT"
 }
 trap cleanup EXIT
 
 # Track failures
 RUST_EXIT=0
+RUST_RT_EXIT=0
 RUST_LLVM_EXIT=0
 AOT_EXIT=0
 WASM_EXIT=0
@@ -72,9 +75,20 @@ run_rust_workspace() {
     fi
 }
 
+run_rust_rt() {
+    echo "=== Running runtime library tests (ori_rt) ==="
+    if cargo test --manifest-path compiler/ori_rt/Cargo.toml 2>&1 > "$RUST_RT_OUTPUT"; then
+        echo "  ✓ Runtime library tests passed"
+        return 0
+    else
+        echo "  ✗ Runtime library tests FAILED"
+        return 1
+    fi
+}
+
 run_rust_llvm() {
-    echo "=== Running Rust unit tests (LLVM crates) ==="
-    # Run lib unit tests + doc-tests (AOT integration tests run separately below)
+    echo "=== Running Rust unit tests (ori_llvm) ==="
+    # Run ori_llvm lib unit tests + doc-tests (AOT integration tests run separately below)
     if cargo test --manifest-path compiler/ori_llvm/Cargo.toml --lib 2>&1 > "$RUST_LLVM_OUTPUT" && \
        cargo test --manifest-path compiler/ori_llvm/Cargo.toml --doc 2>&1 >> "$RUST_LLVM_OUTPUT"; then
         echo "  ✓ Rust LLVM tests passed"
@@ -220,10 +234,14 @@ if [[ $PARALLEL -eq 1 ]]; then
     echo ""
 
     # Phase 3: All remaining tests in parallel (no cargo lock contention)
+    # - run_rust_rt: uses --manifest-path (ori_rt unit tests)
     # - run_rust_llvm: uses --manifest-path --lib (ori_llvm unit tests)
     # - run_aot: uses --manifest-path --test aot (AOT integration tests)
     # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
     # - run_ori_llvm: direct binary (./target/release/ori), no cargo
+    run_rust_rt &
+    RUST_RT_PID=$!
+
     run_rust_llvm &
     RUST_LLVM_PID=$!
 
@@ -236,6 +254,7 @@ if [[ $PARALLEL -eq 1 ]]; then
     run_ori_llvm &
     ORI_LLVM_PID=$!
 
+    wait $RUST_RT_PID || RUST_RT_EXIT=1
     wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
     wait $AOT_PID || AOT_EXIT=1
     ORI_INTERP_EXIT=0
@@ -252,6 +271,8 @@ else
     echo ""
     echo "=== Building LLVM release binary ==="
     cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
+    echo ""
+    run_rust_rt || RUST_RT_EXIT=1
     echo ""
     run_rust_llvm || RUST_LLVM_EXIT=1
     echo ""
@@ -274,6 +295,9 @@ if [[ $VERBOSE -eq 1 ]]; then
     echo "--- Rust workspace tests ---"
     cat "$RUST_OUTPUT"
     echo ""
+    echo "--- Runtime library tests ---"
+    cat "$RUST_RT_OUTPUT"
+    echo ""
     echo "--- Rust LLVM tests ---"
     cat "$RUST_LLVM_OUTPUT"
     echo ""
@@ -294,6 +318,11 @@ else
         echo ""
         echo -e "${RED}--- Rust workspace test failures ---${NC}"
         cat "$RUST_OUTPUT"
+    fi
+    if [[ $RUST_RT_EXIT -ne 0 ]]; then
+        echo ""
+        echo -e "${RED}--- Runtime library test failures ---${NC}"
+        cat "$RUST_RT_OUTPUT"
     fi
     if [[ $RUST_LLVM_EXIT -ne 0 ]]; then
         echo ""
@@ -324,6 +353,7 @@ fi
 
 # Parse all results
 parse_rust_results "$RUST_OUTPUT" "RUST"
+parse_rust_results "$RUST_RT_OUTPUT" "RUST_RT"
 parse_rust_results "$RUST_LLVM_OUTPUT" "RUST_LLVM"
 parse_rust_results "$AOT_OUTPUT" "AOT"
 parse_ori_results "$ORI_INTERP_OUTPUT" "ORI_INTERP"
@@ -347,7 +377,8 @@ echo ""
 printf "%-30s %8s %8s %8s %8s\n" "Test Suite" "Passed" "Failed" "Skipped" "LCFail"
 printf "%-30s %8s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------" "--------"
 printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED" "-"
-printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (LLVM)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" "-"
+printf "%-30s %8d %8d %8d %8s\n" "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED" "-"
+printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED" "-"
 printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
 printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
@@ -359,16 +390,16 @@ fi
 printf "%-30s %8s %8s %8s %8s\n" "------------------------------" "--------" "--------" "--------" "--------"
 
 # Calculate totals
-TOTAL_PASSED=$((RUST_PASSED + RUST_LLVM_PASSED + AOT_PASSED + ORI_INTERP_PASSED + ORI_LLVM_PASSED))
-TOTAL_FAILED=$((RUST_FAILED + RUST_LLVM_FAILED + AOT_FAILED + ORI_INTERP_FAILED + ORI_LLVM_FAILED))
-TOTAL_SKIPPED=$((RUST_IGNORED + RUST_LLVM_IGNORED + AOT_IGNORED + ORI_INTERP_SKIPPED + ORI_LLVM_SKIPPED))
+TOTAL_PASSED=$((RUST_PASSED + RUST_RT_PASSED + RUST_LLVM_PASSED + AOT_PASSED + ORI_INTERP_PASSED + ORI_LLVM_PASSED))
+TOTAL_FAILED=$((RUST_FAILED + RUST_RT_FAILED + RUST_LLVM_FAILED + AOT_FAILED + ORI_INTERP_FAILED + ORI_LLVM_FAILED))
+TOTAL_SKIPPED=$((RUST_IGNORED + RUST_RT_IGNORED + RUST_LLVM_IGNORED + AOT_IGNORED + ORI_INTERP_SKIPPED + ORI_LLVM_SKIPPED))
 TOTAL_LCFAIL=$((${ORI_LLVM_LCFAIL:-0}))
 
 printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
 echo ""
 
 # Final status
-ANY_FAILED=$((RUST_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT + ORI_LLVM_EXIT))
+ANY_FAILED=$((RUST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT + ORI_LLVM_EXIT))
 
 if [ "$ANY_FAILED" -eq 0 ]; then
     echo -e "${GREEN}${BOLD}=== All tests passed ===${NC}"

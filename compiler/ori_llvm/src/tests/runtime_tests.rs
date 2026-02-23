@@ -149,7 +149,10 @@ fn test_ori_assert_passes() {
 #[test]
 fn test_ori_assert_fails() {
     runtime::reset_panic_state();
-    runtime::ori_assert(false);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime::ori_assert(false);
+    }));
+    assert!(result.is_err(), "ori_assert(false) should panic");
     assert!(runtime::did_panic());
 }
 
@@ -161,7 +164,10 @@ fn test_ori_assert_eq_int_passes() {
 #[test]
 fn test_ori_assert_eq_int_fails_different() {
     runtime::reset_panic_state();
-    runtime::ori_assert_eq_int(1, 2);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime::ori_assert_eq_int(1, 2);
+    }));
+    assert!(result.is_err(), "ori_assert_eq_int(1, 2) should panic");
     assert!(runtime::did_panic());
 }
 
@@ -174,7 +180,13 @@ fn test_ori_assert_eq_bool_passes() {
 #[test]
 fn test_ori_assert_eq_bool_fails() {
     runtime::reset_panic_state();
-    runtime::ori_assert_eq_bool(true, false);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime::ori_assert_eq_bool(true, false);
+    }));
+    assert!(
+        result.is_err(),
+        "ori_assert_eq_bool(true, false) should panic"
+    );
     assert!(runtime::did_panic());
 }
 
@@ -190,7 +202,13 @@ fn test_ori_assert_eq_str_fails() {
     runtime::reset_panic_state();
     let s1 = make_ori_str(b"hello");
     let s2 = make_ori_str(b"world");
-    runtime::ori_assert_eq_str(&raw const s1, &raw const s2);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime::ori_assert_eq_str(&raw const s1, &raw const s2);
+    }));
+    assert!(
+        result.is_err(),
+        "ori_assert_eq_str should panic on mismatch"
+    );
     assert!(runtime::did_panic());
 }
 

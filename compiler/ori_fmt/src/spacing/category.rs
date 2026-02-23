@@ -250,6 +250,8 @@ pub enum TokenCategory {
     Eof,
     /// Error token
     Error,
+    /// Compound assignment operator (`+=`, `-=`, `*=`, etc.)
+    CompoundAssign,
 }
 
 impl TokenCategory {
@@ -489,6 +491,19 @@ impl From<&TokenKind> for TokenCategory {
             TokenKind::Div => TokenCategory::Div,
             TokenKind::Newline => TokenCategory::Newline,
             TokenKind::Eof => TokenCategory::Eof,
+            // Compound assignment operators
+            TokenKind::PlusEq
+            | TokenKind::MinusEq
+            | TokenKind::StarEq
+            | TokenKind::SlashEq
+            | TokenKind::PercentEq
+            | TokenKind::AtEq
+            | TokenKind::AmpEq
+            | TokenKind::PipeEq
+            | TokenKind::CaretEq
+            | TokenKind::ShlEq
+            | TokenKind::AmpAmpEq
+            | TokenKind::PipePipeEq => TokenCategory::CompoundAssign,
             // Return is recognized but invalid - treat as error for spacing
             TokenKind::Return | TokenKind::Error => TokenCategory::Error,
         }

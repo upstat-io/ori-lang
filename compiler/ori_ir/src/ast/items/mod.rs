@@ -10,8 +10,8 @@ mod types;
 
 pub use extern_def::{ExternBlock, ExternItem, ExternParam};
 pub use function::{
-    CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module, Param, TargetAttr,
-    TestDef,
+    CapabilityRef, CfgAttr, ConstDef, ExpectedError, FileAttr, Function, Module, Param,
+    PostContract, PreContract, TargetAttr, TestDef,
 };
 pub use imports::{
     ExtensionImport, ExtensionImportItem, ImportErrorKind, ImportPath, UseDef, UseItem,

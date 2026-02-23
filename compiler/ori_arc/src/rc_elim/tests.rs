@@ -1,7 +1,10 @@
 use ori_ir::Name;
 use ori_types::Idx;
 
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, CtorKind, LitValue};
+use crate::ir::{
+    ArcBlock, ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, CtorKind, LitValue,
+    RcStrategy,
+};
 use crate::test_helpers::{
     b, count_block_rc_ops as count_rc_ops, count_dec, count_inc, make_func, owned_param, v,
 };
@@ -30,8 +33,12 @@ fn adjacent_inc_dec_eliminated() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -58,6 +65,7 @@ fn non_adjacent_pair_no_use_eliminated() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 // Unrelated instruction — doesn't use v(0).
                 ArcInstr::Let {
@@ -65,7 +73,10 @@ fn non_adjacent_pair_no_use_eliminated() {
                     ty: Idx::INT,
                     value: ArcValue::Literal(LitValue::Int(42)),
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -93,6 +104,7 @@ fn intervening_use_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 // Uses v(0) — prevents elimination.
                 ArcInstr::Apply {
@@ -100,8 +112,12 @@ fn intervening_use_prevents_elimination() {
                     ty: Idx::UNIT,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -127,10 +143,14 @@ fn dec_before_inc_not_eliminated() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
@@ -160,13 +180,21 @@ fn multiple_independent_pairs() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::RcInc {
                     var: v(1),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(1) },
+                ArcInstr::RcDec {
+                    var: v(1),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Let {
                     dst: v(2),
                     ty: Idx::UNIT,
@@ -198,13 +226,21 @@ fn interleaved_vars_both_eliminated() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::RcInc {
                     var: v(1),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
-                ArcInstr::RcDec { var: v(1) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcDec {
+                    var: v(1),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Let {
                     dst: v(2),
                     ty: Idx::UNIT,
@@ -238,13 +274,21 @@ fn nested_pairs_cascading() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -291,6 +335,7 @@ fn only_inc_no_elimination() {
             body: vec![ArcInstr::RcInc {
                 var: v(0),
                 count: 1,
+                strategy: RcStrategy::HeapPointer,
             }],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -313,7 +358,10 @@ fn only_dec_no_elimination() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Let {
                     dst: v(1),
                     ty: Idx::UNIT,
@@ -344,8 +392,12 @@ fn batched_inc_not_matched() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 2,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -377,8 +429,12 @@ fn multi_block_independent() {
                     ArcInstr::RcInc {
                         var: v(0),
                         count: 1,
+                        strategy: RcStrategy::HeapPointer,
                     },
-                    ArcInstr::RcDec { var: v(0) },
+                    ArcInstr::RcDec {
+                        var: v(0),
+                        strategy: RcStrategy::HeapPointer,
+                    },
                 ],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -393,14 +449,19 @@ fn multi_block_independent() {
                     ArcInstr::RcInc {
                         var: v(0),
                         count: 1,
+                        strategy: RcStrategy::HeapPointer,
                     },
                     ArcInstr::Apply {
                         dst: v(1),
                         ty: Idx::UNIT,
                         func: Name::from_raw(99),
                         args: vec![v(0)],
+                        arg_ownership: vec![ArgOwnership::Owned; 1],
                     },
-                    ArcInstr::RcDec { var: v(0) },
+                    ArcInstr::RcDec {
+                        var: v(0),
+                        strategy: RcStrategy::HeapPointer,
+                    },
                 ],
                 terminator: ArcTerminator::Return { value: v(0) },
             },
@@ -437,13 +498,17 @@ fn non_rc_instructions_preserved() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::Let {
                     dst: v(2),
                     ty: Idx::INT,
                     value: ArcValue::Literal(LitValue::Int(2)),
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Let {
                     dst: v(3),
                     ty: Idx::INT,
@@ -481,6 +546,7 @@ fn construct_use_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::Construct {
                     dst: v(1),
@@ -488,7 +554,10 @@ fn construct_use_prevents_elimination() {
                     ctor: CtorKind::ListLiteral,
                     args: vec![v(0)],
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::Let {
                     dst: v(2),
                     ty: Idx::UNIT,
@@ -519,6 +588,7 @@ fn project_use_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::Project {
                     dst: v(1),
@@ -526,7 +596,10 @@ fn project_use_prevents_elimination() {
                     value: v(0),
                     field: 0,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -554,20 +627,29 @@ fn partial_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 // NOT eliminable: Inc(y), use(y), Dec(y).
                 ArcInstr::RcInc {
                     var: v(1),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::Apply {
                     dst: v(2),
                     ty: Idx::UNIT,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 },
-                ArcInstr::RcDec { var: v(1) },
+                ArcInstr::RcDec {
+                    var: v(1),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(2) },
         }],
@@ -599,13 +681,17 @@ fn reuse_pattern_different_var_eliminated() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 // IsShared uses v(1), not v(0) — doesn't block elimination.
                 ArcInstr::IsShared {
                     dst: v(2),
                     var: v(1),
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -631,12 +717,16 @@ fn is_shared_same_var_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::IsShared {
                     dst: v(1),
                     var: v(0),
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -663,13 +753,21 @@ fn sequential_same_var_pairs() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -724,8 +822,12 @@ fn spans_preserved_after_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -756,13 +858,17 @@ fn set_instruction_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::Set {
                     base: v(0),
                     field: 0,
                     value: v(1),
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -787,9 +893,13 @@ fn set_tag_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::SetTag { base: v(0), tag: 1 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -816,6 +926,7 @@ fn apply_indirect_closure_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::ApplyIndirect {
                     dst: v(1),
@@ -823,7 +934,10 @@ fn apply_indirect_closure_prevents_elimination() {
                     closure: v(0),
                     args: vec![],
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -848,6 +962,7 @@ fn apply_indirect_arg_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::ApplyIndirect {
                     dst: v(2),
@@ -855,7 +970,10 @@ fn apply_indirect_arg_prevents_elimination() {
                     closure: v(1),
                     args: vec![v(0)],
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(2) },
         }],
@@ -882,6 +1000,7 @@ fn partial_apply_prevents_elimination() {
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::PartialApply {
                     dst: v(1),
@@ -889,7 +1008,10 @@ fn partial_apply_prevents_elimination() {
                     func: Name::from_raw(99),
                     args: vec![v(0)],
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -941,6 +1063,7 @@ fn cross_block_edge_pair_eliminated() {
                 body: vec![ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -950,7 +1073,10 @@ fn cross_block_edge_pair_eliminated() {
             ArcBlock {
                 id: b(1),
                 params: vec![],
-                body: vec![ArcInstr::RcDec { var: v(0) }],
+                body: vec![ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }],
                 terminator: ArcTerminator::Return { value: v(0) },
             },
         ],
@@ -976,6 +1102,7 @@ fn cross_block_terminator_uses_var_not_eliminated() {
             body: vec![ArcInstr::RcInc {
                 var: v(0),
                 count: 1,
+                strategy: RcStrategy::HeapPointer,
             }],
             // Return uses v(0) — blocks cross-block elimination.
             terminator: ArcTerminator::Return { value: v(0) },
@@ -1021,6 +1148,7 @@ fn cross_block_diamond_not_eliminated() {
                 body: vec![ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(3),
@@ -1041,7 +1169,10 @@ fn cross_block_diamond_not_eliminated() {
             ArcBlock {
                 id: b(3),
                 params: vec![],
-                body: vec![ArcInstr::RcDec { var: v(0) }],
+                body: vec![ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }],
                 terminator: ArcTerminator::Return { value: v(0) },
             },
         ],
@@ -1078,6 +1209,7 @@ fn cross_block_with_intervening_unrelated_instr() {
                     ArcInstr::RcInc {
                         var: v(0),
                         count: 1,
+                        strategy: RcStrategy::HeapPointer,
                     },
                 ],
                 terminator: ArcTerminator::Jump {
@@ -1088,7 +1220,10 @@ fn cross_block_with_intervening_unrelated_instr() {
             ArcBlock {
                 id: b(1),
                 params: vec![],
-                body: vec![ArcInstr::RcDec { var: v(0) }],
+                body: vec![ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }],
                 terminator: ArcTerminator::Return { value: v(0) },
             },
         ],
@@ -1119,6 +1254,7 @@ fn cross_block_use_after_inc_in_pred_not_eliminated() {
                     ArcInstr::RcInc {
                         var: v(0),
                         count: 1,
+                        strategy: RcStrategy::HeapPointer,
                     },
                     // Uses v(0) AFTER the Inc — blocks cross-block elimination.
                     ArcInstr::Apply {
@@ -1126,6 +1262,7 @@ fn cross_block_use_after_inc_in_pred_not_eliminated() {
                         ty: Idx::UNIT,
                         func: Name::from_raw(99),
                         args: vec![v(0)],
+                        arg_ownership: vec![ArgOwnership::Owned; 1],
                     },
                 ],
                 terminator: ArcTerminator::Jump {
@@ -1136,7 +1273,10 @@ fn cross_block_use_after_inc_in_pred_not_eliminated() {
             ArcBlock {
                 id: b(1),
                 params: vec![],
-                body: vec![ArcInstr::RcDec { var: v(0) }],
+                body: vec![ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }],
                 terminator: ArcTerminator::Return { value: v(0) },
             },
         ],
@@ -1158,10 +1298,14 @@ fn cross_block_self_loop_not_eliminated() {
             id: b(0),
             params: vec![],
             body: vec![
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
                 ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
             ],
             terminator: ArcTerminator::Jump {
@@ -1179,7 +1323,294 @@ fn cross_block_self_loop_not_eliminated() {
     assert_eq!(eliminated, 0);
 }
 
-// ── Dataflow-enhanced elimination tests ──────────────────────
+// Known-safe guarding pair elimination
+
+/// Outer `Inc(x)/Dec(x)` pair brackets inner `Inc(x)/Dec(x)` with a
+/// use of `x` between the inner pair. Normal elimination can't remove
+/// the inner pair (intervening use), but guarding eliminates it.
+#[test]
+fn guarding_eliminates_inner_pair_with_use() {
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                // Outer Inc
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                // Inner Inc
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                // Use of x — prevents normal elimination of inner pair.
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: Name::from_raw(99),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                },
+                // Inner Dec
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+                // Outer Dec
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    let eliminated = eliminate_rc_ops(&mut func);
+
+    // Inner pair eliminated (guarding), outer pair remains.
+    assert_eq!(eliminated, 1, "only inner pair should be eliminated");
+    assert_eq!(count_inc(&func, 0, v(0)), 1, "outer Inc remains");
+    assert_eq!(count_dec(&func, 0, v(0)), 1, "outer Dec remains");
+}
+
+/// Three levels of nesting: outer guards middle, middle guards inner.
+/// Both inner levels are eliminated.
+#[test]
+fn guarding_three_levels_nested() {
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }, // outer
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }, // middle
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                }, // inner
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: Name::from_raw(99),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }, // inner dec
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }, // middle dec
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }, // outer dec
+            ],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    let eliminated = eliminate_rc_ops(&mut func);
+
+    // Inner + middle pairs eliminated, outer remains.
+    assert_eq!(eliminated, 2, "two inner levels eliminated");
+    assert_eq!(count_inc(&func, 0, v(0)), 1, "outer Inc remains");
+    assert_eq!(count_dec(&func, 0, v(0)), 1, "outer Dec remains");
+}
+
+/// `Inc(x)/Dec(x)` brackets `Inc(y)/use(y)/Dec(y)` — guarding on `x`
+/// does NOT eliminate `y`'s inner pair (different variable).
+#[test]
+fn guarding_different_vars_no_elimination() {
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR), owned_param(1, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcInc {
+                    var: v(1),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                // Uses BOTH v(0) and v(1) — prevents normal elimination
+                // of both pairs.
+                ArcInstr::Apply {
+                    dst: v(2),
+                    ty: Idx::UNIT,
+                    func: Name::from_raw(99),
+                    args: vec![v(0), v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 2],
+                },
+                ArcInstr::RcDec {
+                    var: v(1),
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::UNIT],
+    );
+
+    let eliminated = eliminate_rc_ops(&mut func);
+
+    // Both pairs have intervening uses. Guarding doesn't help because
+    // v(1) isn't guarded by v(0) (different variable).
+    assert_eq!(eliminated, 0);
+    assert_eq!(count_inc(&func, 0, v(0)), 1);
+    assert_eq!(count_dec(&func, 0, v(0)), 1);
+    assert_eq!(count_inc(&func, 0, v(1)), 1);
+    assert_eq!(count_dec(&func, 0, v(1)), 1);
+}
+
+/// Only an outer pair, no inner pair → nothing eliminated by guarding.
+#[test]
+fn guarding_no_inner_pair() {
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: Name::from_raw(99),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    let eliminated = eliminate_rc_ops(&mut func);
+
+    // Only one pair with a use between → not eliminable.
+    assert_eq!(eliminated, 0);
+}
+
+/// Two sequential guarded pairs on the same variable, each with their
+/// own outer guard.
+#[test]
+fn guarding_two_sequential_guarded_regions() {
+    let mut func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                // First guarded region
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    func: Name::from_raw(99),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+                // Second guarded region
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcInc {
+                    var: v(0),
+                    count: 1,
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::Apply {
+                    dst: v(2),
+                    ty: Idx::UNIT,
+                    func: Name::from_raw(99),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR, Idx::UNIT, Idx::UNIT],
+    );
+
+    let eliminated = eliminate_rc_ops(&mut func);
+
+    // Two inner pairs eliminated, two outer pairs remain.
+    assert_eq!(eliminated, 2, "both inner pairs eliminated");
+    assert_eq!(count_inc(&func, 0, v(0)), 2, "two outer Incs remain");
+    assert_eq!(count_dec(&func, 0, v(0)), 2, "two outer Decs remain");
+}
+
+// Dataflow-enhanced elimination tests
 
 use crate::ownership::DerivedOwnership;
 
@@ -1210,14 +1641,19 @@ fn dataflow_borrowed_eliminates_inc() {
                 ArcInstr::RcInc {
                     var: v(1),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 },
                 ArcInstr::Apply {
                     dst: v(2),
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
                 },
-                ArcInstr::RcDec { var: v(1) },
+                ArcInstr::RcDec {
+                    var: v(1),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(0) },
         }],
@@ -1274,6 +1710,7 @@ fn dataflow_diamond_join() {
                 body: vec![ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(3),
@@ -1286,6 +1723,7 @@ fn dataflow_diamond_join() {
                 body: vec![ArcInstr::RcInc {
                     var: v(0),
                     count: 1,
+                    strategy: RcStrategy::HeapPointer,
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(3),
@@ -1295,7 +1733,10 @@ fn dataflow_diamond_join() {
             ArcBlock {
                 id: b(3),
                 params: vec![],
-                body: vec![ArcInstr::RcDec { var: v(0) }],
+                body: vec![ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }],
                 terminator: ArcTerminator::Return { value: v(0) },
             },
         ],

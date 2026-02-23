@@ -141,7 +141,10 @@ fn test_ori_assert_eq_int_pass() {
 #[test]
 fn test_ori_assert_eq_int_fail() {
     reset_panic_state();
-    ori_assert_eq_int(42, 43);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ori_assert_eq_int(42, 43);
+    }));
+    assert!(result.is_err(), "ori_assert_eq_int(42, 43) should panic");
     assert!(did_panic());
 }
 
@@ -175,13 +178,8 @@ fn test_ori_str_concat() {
     let text = unsafe { result.as_str() };
     assert_eq!(text, "hello world");
 
-    // Free the result (it was heap-allocated)
-    unsafe {
-        let _ = Box::from_raw(std::slice::from_raw_parts_mut(
-            result.data as *mut u8,
-            result.len as usize,
-        ));
-    }
+    // Free the result (allocated via ori_rc_alloc with 8-byte RC header)
+    ori_rc_dec(result.data as *mut u8, None);
 }
 
 #[test]

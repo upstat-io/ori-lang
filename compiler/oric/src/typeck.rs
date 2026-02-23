@@ -329,6 +329,7 @@ fn dummy_sig(name: Name) -> FunctionSig {
         is_public: false,
         is_test: false,
         is_main: false,
+        is_fbip: false,
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],

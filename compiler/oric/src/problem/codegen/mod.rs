@@ -18,18 +18,23 @@ use ori_diagnostic::{Diagnostic, ErrorCode};
 
 /// Problem encountered during codegen (ARC analysis or LLVM backend).
 ///
-/// Variants map to error codes E4001–E4003 (ARC) and E5001–E5009 (LLVM).
+/// Variants map to error codes E4002–E4003 (ARC) and E5001–E5009 (LLVM).
 #[derive(Clone, Debug)]
 pub enum CodegenProblem {
     // ── ARC Analysis (E4xxx) ────────────────────────────────────────
-    /// An expression kind not yet supported for ARC IR lowering.
-    ArcUnsupportedExpr { kind: &'static str, span: Span },
-
     /// A pattern kind not yet supported for ARC IR lowering.
     ArcUnsupportedPattern { kind: &'static str, span: Span },
 
     /// An internal error (invariant violation) during ARC lowering.
     ArcInternalError { message: String, span: Span },
+
+    /// Function annotated `#fbip` has missed reuse opportunities.
+    ArcFbipViolation {
+        func_name: String,
+        missed_count: usize,
+        achieved_count: usize,
+        span: Span,
+    },
 
     // ── LLVM Verification (E5001) ───────────────────────────────────
     /// LLVM module verification failed — indicates a compiler bug.
@@ -89,15 +94,6 @@ impl CodegenProblem {
     pub fn into_diagnostic(self) -> Diagnostic {
         match self {
             // ── ARC (E4xxx) ─────────────────────────────────────
-            Self::ArcUnsupportedExpr { kind, span } => Diagnostic::warning(ErrorCode::E4001)
-                .with_message(format!(
-                    "expression kind '{kind}' is not yet supported in ARC IR lowering"
-                ))
-                .with_label(span, "this expression")
-                .with_note(
-                    "ARC analysis will skip this expression; RC operations may not be optimized",
-                ),
-
             Self::ArcUnsupportedPattern { kind, span } => Diagnostic::warning(ErrorCode::E4002)
                 .with_message(format!(
                     "pattern kind '{kind}' is not yet supported in ARC IR lowering"
@@ -114,6 +110,32 @@ impl CodegenProblem {
                     "this is likely a compiler bug — please report it at \
                          https://github.com/oriproject/ori/issues",
                 ),
+
+            Self::ArcFbipViolation {
+                func_name,
+                missed_count,
+                achieved_count,
+                span,
+            } => Diagnostic::error(ErrorCode::E4004)
+                .with_message(format!(
+                    "#fbip function '{func_name}' has {missed_count} missed reuse \
+                     {opportunities}",
+                    opportunities = if missed_count == 1 {
+                        "opportunity"
+                    } else {
+                        "opportunities"
+                    }
+                ))
+                .with_label(span, "this function is annotated #fbip")
+                .with_note(format!(
+                    "{achieved_count} reuse {achieved} achieved, {missed_count} missed",
+                    achieved = if achieved_count == 1 {
+                        "opportunity"
+                    } else {
+                        "opportunities"
+                    }
+                ))
+                .with_suggestion("remove #fbip or restructure to enable constructor reuse"),
 
             // ── Verification (E5001) ────────────────────────────
             Self::VerificationFailed { message } => Diagnostic::error(ErrorCode::E5001)
@@ -199,12 +221,9 @@ impl CodegenProblem {
 
     /// Returns `true` if this is an error (vs. a warning).
     ///
-    /// ARC unsupported expr/pattern are warnings; everything else is an error.
+    /// ARC unsupported pattern is a warning; everything else is an error.
     pub fn is_error(&self) -> bool {
-        !matches!(
-            self,
-            Self::ArcUnsupportedExpr { .. } | Self::ArcUnsupportedPattern { .. }
-        )
+        !matches!(self, Self::ArcUnsupportedPattern { .. })
     }
 }
 
@@ -213,15 +232,23 @@ impl CodegenProblem {
 impl From<ori_arc::ArcProblem> for CodegenProblem {
     fn from(problem: ori_arc::ArcProblem) -> Self {
         match problem {
-            ori_arc::ArcProblem::UnsupportedExpr { kind, span } => {
-                Self::ArcUnsupportedExpr { kind, span }
-            }
             ori_arc::ArcProblem::UnsupportedPattern { kind, span } => {
                 Self::ArcUnsupportedPattern { kind, span }
             }
             ori_arc::ArcProblem::InternalError { message, span } => {
                 Self::ArcInternalError { message, span }
             }
+            ori_arc::ArcProblem::FbipViolation {
+                func_name,
+                missed_count,
+                achieved_count,
+                span,
+            } => Self::ArcFbipViolation {
+                func_name,
+                missed_count,
+                achieved_count,
+                span,
+            },
         }
     }
 }

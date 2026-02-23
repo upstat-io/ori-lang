@@ -22,6 +22,7 @@ pub enum BinaryOp {
     Div,
     Mod,
     FloorDiv,
+    MatMul,
 
     // Comparison
     Eq,
@@ -61,6 +62,7 @@ impl BinaryOp {
             Self::Div => "/",
             Self::Mod => "%",
             Self::FloorDiv => "div",
+            Self::MatMul => "@",
             // Comparison
             Self::Eq => "==",
             Self::NotEq => "!=",
@@ -105,7 +107,7 @@ impl BinaryOp {
     pub const fn precedence(self) -> u8 {
         match self {
             // Multiplicative (highest binary precedence)
-            Self::Mul | Self::Div | Self::Mod | Self::FloorDiv => 3,
+            Self::Mul | Self::Div | Self::Mod | Self::FloorDiv | Self::MatMul => 3,
             // Additive
             Self::Add | Self::Sub => 4,
             // Shift
@@ -153,6 +155,7 @@ impl BinaryOp {
             Self::BitXor => Some("bit_xor"),
             Self::Shl => Some("shift_left"),
             Self::Shr => Some("shift_right"),
+            Self::MatMul => Some("mat_mul"),
             _ => None,
         }
     }
@@ -178,6 +181,7 @@ impl BinaryOp {
             Self::BitXor => Some("BitXor"),
             Self::Shl => Some("Shl"),
             Self::Shr => Some("Shr"),
+            Self::MatMul => Some("MatMul"),
             _ => None,
         }
     }

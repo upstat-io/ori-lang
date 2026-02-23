@@ -77,6 +77,7 @@ fn binary_op_str(op: BinaryOp) -> &'static str {
         BinaryOp::Range => "..",
         BinaryOp::RangeInclusive => "..=",
         BinaryOp::Coalesce => "??",
+        BinaryOp::MatMul => "@",
     }
 }
 

@@ -195,7 +195,7 @@ pub fn collect_drop_infos(
     for func in functions {
         for block in &func.blocks {
             for instr in &block.body {
-                if let ArcInstr::RcDec { var } = instr {
+                if let ArcInstr::RcDec { var, .. } = instr {
                     let ty = func.var_type(*var);
                     if classifier.needs_rc(ty) && seen.insert(ty) {
                         if let Some(info) = compute_drop_info(ty, classifier, pool) {

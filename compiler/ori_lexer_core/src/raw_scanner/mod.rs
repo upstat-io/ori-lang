@@ -75,11 +75,11 @@ impl<'a> RawScanner<'a> {
             b'\'' => self.char_literal(start),
             b'`' => self.template_literal(start),
             b'/' => self.slash_or_comment(start),
-            b'+' => self.single(start, RawTag::Plus),
+            b'+' => self.plus(start),
             b'-' => self.minus_or_arrow(start),
-            b'*' => self.single(start, RawTag::Star),
-            b'%' => self.single(start, RawTag::Percent),
-            b'^' => self.single(start, RawTag::Caret),
+            b'*' => self.star(start),
+            b'%' => self.percent(start),
+            b'^' => self.caret(start),
             b'~' => self.single(start, RawTag::Tilde),
             b'=' => self.equal(start),
             b'!' => self.bang(start),
@@ -98,7 +98,7 @@ impl<'a> RawScanner<'a> {
             b',' => self.single(start, RawTag::Comma),
             b':' => self.colon(start),
             b';' => self.single(start, RawTag::Semicolon),
-            b'@' => self.single(start, RawTag::At),
+            b'@' => self.at(start),
             b'$' => self.single(start, RawTag::Dollar),
             b'#' => self.hash(start),
             b'\\' => self.single(start, RawTag::Backslash),
@@ -169,19 +169,27 @@ impl<'a> RawScanner<'a> {
 
     fn slash_or_comment(&mut self, start: u32) -> RawToken {
         self.cursor.advance(); // consume first '/'
-        if self.cursor.current() == b'/' {
-            self.cursor.advance(); // consume second '/'
-                                   // SIMD-accelerated scan to end of line
-            self.cursor.eat_until_newline_or_eof();
-            RawToken {
-                tag: RawTag::LineComment,
-                len: self.cursor.pos() - start,
+        match self.cursor.current() {
+            b'/' => {
+                self.cursor.advance(); // consume second '/'
+                                       // SIMD-accelerated scan to end of line
+                self.cursor.eat_until_newline_or_eof();
+                RawToken {
+                    tag: RawTag::LineComment,
+                    len: self.cursor.pos() - start,
+                }
             }
-        } else {
-            RawToken {
+            b'=' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::SlashEq,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            _ => RawToken {
                 tag: RawTag::Slash,
                 len: self.cursor.pos() - start,
-            }
+            },
         }
     }
 
@@ -229,17 +237,105 @@ impl<'a> RawScanner<'a> {
         }
     }
 
-    fn minus_or_arrow(&mut self, start: u32) -> RawToken {
-        self.cursor.advance(); // consume '-'
-        if self.cursor.current() == b'>' {
+    fn plus(&mut self, start: u32) -> RawToken {
+        self.cursor.advance(); // consume '+'
+        if self.cursor.current() == b'=' {
             self.cursor.advance();
             RawToken {
-                tag: RawTag::Arrow,
+                tag: RawTag::PlusEq,
                 len: self.cursor.pos() - start,
             }
         } else {
             RawToken {
+                tag: RawTag::Plus,
+                len: self.cursor.pos() - start,
+            }
+        }
+    }
+
+    fn minus_or_arrow(&mut self, start: u32) -> RawToken {
+        self.cursor.advance(); // consume '-'
+        match self.cursor.current() {
+            b'>' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::Arrow,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            b'=' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::MinusEq,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            _ => RawToken {
                 tag: RawTag::Minus,
+                len: self.cursor.pos() - start,
+            },
+        }
+    }
+
+    fn star(&mut self, start: u32) -> RawToken {
+        self.cursor.advance(); // consume '*'
+        if self.cursor.current() == b'=' {
+            self.cursor.advance();
+            RawToken {
+                tag: RawTag::StarEq,
+                len: self.cursor.pos() - start,
+            }
+        } else {
+            RawToken {
+                tag: RawTag::Star,
+                len: self.cursor.pos() - start,
+            }
+        }
+    }
+
+    fn percent(&mut self, start: u32) -> RawToken {
+        self.cursor.advance(); // consume '%'
+        if self.cursor.current() == b'=' {
+            self.cursor.advance();
+            RawToken {
+                tag: RawTag::PercentEq,
+                len: self.cursor.pos() - start,
+            }
+        } else {
+            RawToken {
+                tag: RawTag::Percent,
+                len: self.cursor.pos() - start,
+            }
+        }
+    }
+
+    fn caret(&mut self, start: u32) -> RawToken {
+        self.cursor.advance(); // consume '^'
+        if self.cursor.current() == b'=' {
+            self.cursor.advance();
+            RawToken {
+                tag: RawTag::CaretEq,
+                len: self.cursor.pos() - start,
+            }
+        } else {
+            RawToken {
+                tag: RawTag::Caret,
+                len: self.cursor.pos() - start,
+            }
+        }
+    }
+
+    fn at(&mut self, start: u32) -> RawToken {
+        self.cursor.advance(); // consume '@'
+        if self.cursor.current() == b'=' {
+            self.cursor.advance();
+            RawToken {
+                tag: RawTag::AtEq,
+                len: self.cursor.pos() - start,
+            }
+        } else {
+            RawToken {
+                tag: RawTag::At,
                 len: self.cursor.pos() - start,
             }
         }
@@ -297,9 +393,18 @@ impl<'a> RawScanner<'a> {
             }
             b'<' => {
                 self.cursor.advance();
-                RawToken {
-                    tag: RawTag::Shl,
-                    len: self.cursor.pos() - start,
+                // Check for <<= (shift-left-assign)
+                if self.cursor.current() == b'=' {
+                    self.cursor.advance();
+                    RawToken {
+                        tag: RawTag::ShlEq,
+                        len: self.cursor.pos() - start,
+                    }
+                } else {
+                    RawToken {
+                        tag: RawTag::Shl,
+                        len: self.cursor.pos() - start,
+                    }
                 }
             }
             _ => RawToken {
@@ -357,33 +462,67 @@ impl<'a> RawScanner<'a> {
 
     fn pipe(&mut self, start: u32) -> RawToken {
         self.cursor.advance(); // consume '|'
-        if self.cursor.current() == b'|' {
-            self.cursor.advance();
-            RawToken {
-                tag: RawTag::PipePipe,
-                len: self.cursor.pos() - start,
+        match self.cursor.current() {
+            b'|' => {
+                self.cursor.advance();
+                // Check for ||=
+                if self.cursor.current() == b'=' {
+                    self.cursor.advance();
+                    RawToken {
+                        tag: RawTag::PipePipeEq,
+                        len: self.cursor.pos() - start,
+                    }
+                } else {
+                    RawToken {
+                        tag: RawTag::PipePipe,
+                        len: self.cursor.pos() - start,
+                    }
+                }
             }
-        } else {
-            RawToken {
+            b'=' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::PipeEq,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            _ => RawToken {
                 tag: RawTag::Pipe,
                 len: self.cursor.pos() - start,
-            }
+            },
         }
     }
 
     fn ampersand(&mut self, start: u32) -> RawToken {
         self.cursor.advance(); // consume '&'
-        if self.cursor.current() == b'&' {
-            self.cursor.advance();
-            RawToken {
-                tag: RawTag::AmpersandAmpersand,
-                len: self.cursor.pos() - start,
+        match self.cursor.current() {
+            b'&' => {
+                self.cursor.advance();
+                // Check for &&=
+                if self.cursor.current() == b'=' {
+                    self.cursor.advance();
+                    RawToken {
+                        tag: RawTag::AmpersandAmpersandEq,
+                        len: self.cursor.pos() - start,
+                    }
+                } else {
+                    RawToken {
+                        tag: RawTag::AmpersandAmpersand,
+                        len: self.cursor.pos() - start,
+                    }
+                }
             }
-        } else {
-            RawToken {
+            b'=' => {
+                self.cursor.advance();
+                RawToken {
+                    tag: RawTag::AmpersandEq,
+                    len: self.cursor.pos() - start,
+                }
+            }
+            _ => RawToken {
                 tag: RawTag::Ampersand,
                 len: self.cursor.pos() - start,
-            }
+            },
         }
     }
 

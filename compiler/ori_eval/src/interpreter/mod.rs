@@ -614,6 +614,7 @@ fn binary_op_to_method(op: BinaryOp, names: OpNames) -> Option<Name> {
         BinaryOp::BitXor => Some(names.bit_xor),
         BinaryOp::Shl => Some(names.shift_left),
         BinaryOp::Shr => Some(names.shift_right),
+        BinaryOp::MatMul => Some(names.mat_mul),
         // Comparison, logical, range, and null-coalescing operators
         // use direct evaluation (no trait method)
         BinaryOp::Eq

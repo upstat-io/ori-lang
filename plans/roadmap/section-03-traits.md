@@ -167,6 +167,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Spec**: Add `Len Trait` section to `07-properties-of-types.md` [done] (2026-02-18)
 
 ### 3.0.2 IsEmpty Trait
+**Proposal**: `proposals/approved/is-empty-trait-proposal.md` (approved 2026-02-21)
 
 - [x] **Implemented**: Trait bound `IsEmpty` recognized for `[T]`, `str`, `{K: V}`, `Set<T>` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_is_empty_bound_satisfied_by_*`
@@ -175,6 +176,13 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string method tests
   - [x] **LLVM Support**: LLVM codegen for `.is_empty()` — inline IR in `lower_calls.rs`
   - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_empty()` on lists (2 tests) and strings (2 tests) [done] (2026-02-13)
+- [ ] **Implement**: Add `Range<int>` and `[T, max N]` to IsEmpty trait bound recognition
+  - [ ] **Rust Tests**: `ori_types` — `test_is_empty_bound_satisfied_by_range`, `test_is_empty_bound_satisfied_by_fixed_list`
+  - [ ] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — range and fixed-size list is_empty tests
+- [ ] **Implement**: Update prelude `is_empty()` to use `<T: IsEmpty>` bound (generic function)
+  - [ ] **Implement**: Add `IsEmpty` trait definition to `library/std/prelude.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — generic is_empty tests (str, map via `<T: IsEmpty>` bound)
+- [ ] **Spec**: Add `IsEmpty Trait` section to `07-properties-of-types.md`
 
 ### 3.0.3 Option Methods
 
@@ -432,7 +440,8 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
 
 ## 3.6 Section Completion Checklist
 
-- [x] Core library traits (3.0): Len, IsEmpty, Option, Result, Comparable, Eq — all complete [done] (2026-02-10)
+- [ ] Core library traits (3.0): Len, IsEmpty, Option, Result, Comparable, Eq — mostly complete [done] (2026-02-10)
+  - **Remaining**: IsEmpty — add Range<int>/[T, max N] support, generic prelude function, spec section (approved 2026-02-21)
   - [x] **Gap**: Clone/Hashable/Default/Printable methods NOT callable on primitives — FIXED: V2 type checker resolvers return correct types for clone/hash/equals on primitives [done] (2026-02-15). Clone also works on compound types (collections, wrappers, tuples). hash/equals on compound types reverted (phase boundary leak — evaluator/LLVM not implemented); tracked under 3.14.
 - [x] Trait declarations (3.1): Parse, required methods, default methods, self, Self, inheritance — all complete [done] (2026-02-10)
   - [x] **Gap**: Static methods `Type.method()` — FIXED, was stale TODO [done] (2026-02-13)
@@ -548,8 +557,8 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
 - [x] **Implement**: Iterator Phase 2 methods — consumers (fold, count, find, any, all, for_each, collect) and lazy adapters (map, filter, take, skip) (2026-02-15)
   - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 10 adapter variant unit tests (2026-02-15)
   - [x] **Ori Tests**: `tests/spec/traits/iterator/methods.ori` — 31 spec test assertions (2026-02-15)
-  - [ ] **LLVM Support**: LLVM codegen for all iterator methods
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs`
+  - [x] **LLVM Support**: LLVM codegen for all iterator methods (2026-02-21) — Phase 1: map, filter, take, skip, enumerate, collect, count; Phase 2: fold, find, any, all, for_each, zip, chain
+  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/iterators.rs` — 25 AOT tests (2026-02-21)
   - [x] **Phase 2C/2D**: enumerate, zip, chain, flatten, flat_map, cycle (2026-02-15)
   - [x] **Remaining**: DoubleEndedIterator — next_back() implemented (2026-02-16)
 
@@ -1548,6 +1557,46 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
 
 - [x] **Update Spec**: `09-expressions.md` — Operator Traits section [done] (verified 2026-02-15, already present at line 403 with full trait/method/desugaring tables)
 - [x] **Update**: `CLAUDE.md` — operator traits in prelude and operators section [done] (verified 2026-02-15, already in ori-syntax.md lines 93 and 191)
+
+### 3.21.1 MatMul Operator (`@`)
+
+**Proposal**: `proposals/approved/matmul-operator-proposal.md`
+
+Add `@` as a binary operator for matrix multiplication at multiplicative precedence (level 3), desugaring to the `MatMul` trait method `matrix_multiply()`. Follows Python PEP 465 convention for ML/scientific computing adoption. The `@` token is disambiguated by parser context (item position = function sigil, expression position = matmul operator, pattern position = binding).
+
+#### Dependencies
+
+- [x] Operator Traits (3.21) — trait dispatch infrastructure [done]
+
+#### Implementation
+
+- [ ] **Implement**: Add `MatMul` variant to `BinaryOp` in IR
+  - [ ] `BinaryOp::MatMul` + arms in `as_symbol()`, `precedence()`, `trait_method_name()`, `trait_name()`
+  - [ ] **Files**: `ori_ir/src/ast/operators.rs`
+  - [ ] **Rust Tests**: `ori_ir/src/ast/operators/tests.rs`
+
+- [ ] **Implement**: Parser — add `TokenKind::At` to multiplicative precedence level
+  - [ ] Add entry to `OPER_TABLE` in `grammar/expr/operators.rs`
+  - [ ] **Files**: `ori_parse/src/grammar/expr/operators.rs`
+  - [ ] **Rust Tests**: `ori_parse/src/grammar/expr/operators/tests.rs` — matmul parsing
+  - [ ] **Ori Tests**: `tests/spec/operators/matmul.ori` — precedence, associativity, disambiguation
+
+- [ ] **Implement**: Evaluator — add `BinaryOp::MatMul` error arms to primitive type handlers
+  - [ ] ~17 match arms returning "type does not implement MatMul" for all primitive handlers
+  - [ ] **Files**: `ori_eval/src/operators.rs`
+
+- [ ] **Implement**: Define `MatMul` trait in prelude
+  - [ ] `trait MatMul<Rhs = Self> { type Output = Self; @matrix_multiply (self, rhs: Rhs) -> Self.Output }`
+  - [ ] **Files**: `library/std/prelude.ori`
+  - [ ] **Ori Tests**: `tests/spec/traits/operators/matmul.ori` — user-defined MatMul impl
+
+- [ ] **Implement**: LLVM codegen support
+  - [ ] Falls through via trait dispatch — verify no special-casing needed
+  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — matmul codegen test
+
+- [ ] **Update Spec**: `operator-rules.md` — add `@` to multiplicative group and trait dispatch table
+- [ ] **Update Spec**: `grammar.ebnf` — add `"@"` to `mul_expr` production
+- [ ] **Update**: `.claude/rules/ori-syntax.md` — document `@` operator and `MatMul` trait
 
 ---
 

@@ -118,7 +118,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
 
     /// Whether any codegen errors have been recorded.
     ///
-    /// Used by `ExprLowerer::lower()` to bail out early and avoid
+    /// Used by `ArcIrEmitter` to bail out early and avoid
     /// cascading type mismatches that corrupt LLVM's internal state.
     pub fn has_codegen_errors(&self) -> bool {
         self.codegen_errors.get() > 0

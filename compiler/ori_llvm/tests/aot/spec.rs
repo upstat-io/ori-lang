@@ -940,3 +940,1265 @@ fn test_aot_try_chained_first_fails() {
         "try_chained_first_fails",
     );
 }
+
+// String Escape Sequences
+
+#[test]
+fn test_aot_string_escape_tab() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "hello\tworld";
+    if s.length() == 11 then 0 else 1
+}
+"#,
+        "string_escape_tab",
+    );
+}
+
+#[test]
+fn test_aot_string_escape_backslash() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "a\\b";
+    if s.length() == 3 then 0 else 1
+}
+"#,
+        "string_escape_backslash",
+    );
+}
+
+#[test]
+fn test_aot_string_escape_quote() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "say \"hi\"";
+    if s.length() == 8 then 0 else 1
+}
+"#,
+        "string_escape_quote",
+    );
+}
+
+#[test]
+fn test_aot_string_escape_newline() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "line1\nline2";
+    if s.length() == 11 then 0 else 1
+}
+"#,
+        "string_escape_newline",
+    );
+}
+
+// Unit / Void
+
+#[test]
+fn test_aot_unit_return() {
+    assert_aot_success(
+        r#"
+@do_nothing () -> void = ();
+
+@main () -> int = {
+    do_nothing();
+    0
+}
+"#,
+        "unit_return",
+    );
+}
+
+#[test]
+fn test_aot_unit_in_conditional() {
+    assert_aot_success(
+        r#"
+@side_effect (x: int) -> void = ();
+
+@main () -> int = {
+    if true then side_effect(x: 1) else side_effect(x: 2);
+    0
+}
+"#,
+        "unit_in_conditional",
+    );
+}
+
+// Match Expressions
+
+#[test]
+fn test_aot_match_int_literal() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = match 42 {
+        0 -> 1,
+        42 -> 0,
+        _ -> 2,
+    };
+    x
+}
+"#,
+        "match_int_literal",
+    );
+}
+
+#[test]
+fn test_aot_match_wildcard() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = match 99 {
+        0 -> 1,
+        1 -> 2,
+        _ -> 0,
+    };
+    x
+}
+"#,
+        "match_wildcard",
+    );
+}
+
+#[test]
+fn test_aot_match_nested_with_if() {
+    assert_aot_success(
+        r#"
+@classify (n: int) -> int =
+    match n {
+        0 -> 0,
+        1 -> 1,
+        _ -> if n > 10 then 3 else 2,
+    };
+
+@main () -> int = {
+    let a = classify(n: 0);
+    let b = classify(n: 1);
+    let c = classify(n: 5);
+    let d = classify(n: 20);
+    if a == 0 && b == 1 && c == 2 && d == 3 then 0 else 1
+}
+"#,
+        "match_nested_with_if",
+    );
+}
+
+#[test]
+fn test_aot_match_bool() {
+    assert_aot_success(
+        r#"
+@to_int (b: bool) -> int = match b {
+    true -> 1,
+    false -> 0,
+};
+
+@main () -> int = {
+    let a = to_int(b: true);
+    let b = to_int(b: false);
+    if a == 1 && b == 0 then 0 else 1
+}
+"#,
+        "match_bool",
+    );
+}
+
+#[test]
+fn test_aot_match_expression_valued() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = match 3 {
+        1 -> 10,
+        2 -> 20,
+        3 -> 30,
+        _ -> 0,
+    };
+    if result == 30 then 0 else 1
+}
+"#,
+        "match_expression_valued",
+    );
+}
+
+// Mutual Recursion
+
+#[test]
+fn test_aot_mutual_recursion() {
+    assert_aot_success(
+        r#"
+@is_even (n: int) -> bool = if n == 0 then true else is_odd(n: n - 1);
+@is_odd (n: int) -> bool = if n == 0 then false else is_even(n: n - 1);
+
+@main () -> int = {
+    let e = is_even(n: 10);
+    let o = is_odd(n: 7);
+    if e && o then 0 else 1
+}
+"#,
+        "mutual_recursion",
+    );
+}
+
+#[test]
+fn test_aot_mutual_recursion_deeper() {
+    assert_aot_success(
+        r#"
+@is_even (n: int) -> bool = if n == 0 then true else is_odd(n: n - 1);
+@is_odd (n: int) -> bool = if n == 0 then false else is_even(n: n - 1);
+
+@main () -> int = {
+    let e50 = is_even(n: 50);
+    let o49 = is_odd(n: 49);
+    let e51 = is_even(n: 51);
+    if e50 && o49 && !e51 then 0 else 1
+}
+"#,
+        "mutual_recursion_deeper",
+    );
+}
+
+// Nested Control Flow
+
+#[test]
+fn test_aot_nested_match_in_if() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 5;
+    let result = if x > 0 then {
+        match x {
+            1 -> 10,
+            5 -> 50,
+            _ -> 0,
+        }
+    } else -1;
+    if result == 50 then 0 else 1
+}
+"#,
+        "nested_match_in_if",
+    );
+}
+
+#[test]
+fn test_aot_nested_if_in_match() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 3;
+    let result = match x {
+        1 -> if true then 10 else 11,
+        2 -> if false then 20 else 21,
+        _ -> if x > 2 then 30 else 31,
+    };
+    if result == 30 then 0 else 1
+}
+"#,
+        "nested_if_in_match",
+    );
+}
+
+#[test]
+fn test_aot_loop_with_match() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let i = 0;
+    let sum = 0;
+    loop {
+        if i >= 5 then break;
+        let contribution = match i {
+            0 -> 1,
+            1 -> 2,
+            2 -> 4,
+            _ -> 8,
+        };
+        sum = sum + contribution;
+        i = i + 1
+    };
+    if sum == 23 then 0 else 1
+}
+"#,
+        "loop_with_match",
+    );
+}
+
+// Deep Recursion (stress)
+
+#[test]
+fn test_aot_deep_recursion() {
+    assert_aot_success(
+        r#"
+@count_down (n: int) -> int = if n == 0 then 0 else count_down(n: n - 1);
+
+@main () -> int = {
+    let result = count_down(n: 1000);
+    if result == 0 then 0 else 1
+}
+"#,
+        "deep_recursion",
+    );
+}
+
+// =========================================================================
+// Match: char patterns
+// =========================================================================
+
+#[test]
+fn test_aot_match_char() {
+    assert_aot_success(
+        r#"
+@classify (c: char) -> int = match c {
+    'a' -> 1,
+    'b' -> 2,
+    'z' -> 26,
+    _ -> 0,
+};
+
+@main () -> int = {
+    let a = classify(c: 'a');
+    let b = classify(c: 'b');
+    let z = classify(c: 'z');
+    let other = classify(c: 'x');
+    if a == 1 && b == 2 && z == 26 && other == 0 then 0 else 1
+}
+"#,
+        "match_char",
+    );
+}
+
+// =========================================================================
+// Bitwise operators
+// =========================================================================
+
+#[test]
+fn test_aot_bitwise_and_or_xor() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = 0xFF & 0x0F;
+    let b = 0x0F | 0xF0;
+    let c = 0xFF ^ 0x0F;
+    if a == 15 && b == 255 && c == 240 then 0 else 1
+}
+"#,
+        "bitwise_and_or_xor",
+    );
+}
+
+#[test]
+fn test_aot_bitwise_shift() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = 1 << 4;
+    let b = 256 >> 3;
+    if a == 16 && b == 32 then 0 else 1
+}
+"#,
+        "bitwise_shift",
+    );
+}
+
+#[test]
+fn test_aot_bitwise_not() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = ~0;
+    if a == -1 then 0 else 1
+}
+"#,
+        "bitwise_not",
+    );
+}
+
+// =========================================================================
+// String operations
+// =========================================================================
+
+#[test]
+fn test_aot_string_equality() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = "hello";
+    let b = "hello";
+    let c = "world";
+    if a == b && a != c then 0 else 1
+}
+"#,
+        "string_equality",
+    );
+}
+
+#[test]
+fn test_aot_string_length() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let s = "hello";
+    let empty = "";
+    if s.length() == 5 && empty.length() == 0 then 0 else 1
+}
+"#,
+        "string_length",
+    );
+}
+
+#[test]
+fn test_aot_string_concat() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = "hello ";
+    let b = "world";
+    let c = a + b;
+    if c == "hello world" then 0 else 1
+}
+"#,
+        "string_concat",
+    );
+}
+
+// =========================================================================
+// Tuples
+// =========================================================================
+
+#[test]
+fn test_aot_tuple_construction_destructure() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let t = (10, 20);
+    let (a, b) = t;
+    if a == 10 && b == 20 then 0 else 1
+}
+"#,
+        "tuple_construct_destruct",
+    );
+}
+
+#[test]
+fn test_aot_tuple_field_access() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let t = (10, 20, 30);
+    if t.0 == 10 && t.1 == 20 && t.2 == 30 then 0 else 1
+}
+"#,
+        "tuple_field_access",
+    );
+}
+
+#[test]
+fn test_aot_tuple_from_function() {
+    assert_aot_success(
+        r#"
+@pair (a: int, b: int) -> (int, int) = (a, b);
+
+@main () -> int = {
+    let p = pair(a: 3, b: 7);
+    let (x, y) = p;
+    if x == 3 && y == 7 then 0 else 1
+}
+"#,
+        "tuple_from_function",
+    );
+}
+
+// =========================================================================
+// Structs
+// =========================================================================
+
+#[test]
+fn test_aot_struct_construction() {
+    assert_aot_success(
+        r#"
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let p = Point { x: 3, y: 4 };
+    if p.x == 3 && p.y == 4 then 0 else 1
+}
+"#,
+        "struct_construction",
+    );
+}
+
+#[test]
+fn test_aot_struct_update() {
+    assert_aot_success(
+        r#"
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let p = Point { x: 3, y: 4 };
+    let p2 = Point { ...p, x: 10 };
+    if p2.x == 10 && p2.y == 4 then 0 else 1
+}
+"#,
+        "struct_update",
+    );
+}
+
+#[test]
+fn test_aot_struct_as_parameter() {
+    assert_aot_success(
+        r#"
+type Point = { x: int, y: int };
+
+@sum_fields (p: Point) -> int = p.x + p.y;
+
+@main () -> int = {
+    let p = Point { x: 10, y: 20 };
+    if sum_fields(p: p) == 30 then 0 else 1
+}
+"#,
+        "struct_as_parameter",
+    );
+}
+
+// =========================================================================
+// Closures and higher-order functions
+// =========================================================================
+
+#[test]
+fn test_aot_closure_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = 10;
+    let add_x = (n: int) -> int = n + x;
+    let result = add_x(n: 32);
+    if result == 42 then 0 else 1
+}
+"#,
+        "closure_capture",
+    );
+}
+
+#[test]
+fn test_aot_higher_order_function() {
+    assert_aot_success(
+        r#"
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+    let double = (n: int) -> int = n * 2;
+    let result = apply(f: double, x: 21);
+    if result == 42 then 0 else 1
+}
+"#,
+        "higher_order_function",
+    );
+}
+
+#[test]
+fn test_aot_function_returning_closure() {
+    assert_aot_success(
+        r#"
+@make_adder (n: int) -> (int) -> int = (x: int) -> int = x + n;
+
+@main () -> int = {
+    let add5 = make_adder(n: 5);
+    let result = add5(x: 37);
+    if result == 42 then 0 else 1
+}
+"#,
+        "function_returning_closure",
+    );
+}
+
+#[test]
+fn test_aot_closure_composition() {
+    assert_aot_success(
+        r#"
+@apply_both (f: (int) -> int, g: (int) -> int, x: int) -> int = g(f(x));
+
+@main () -> int = {
+    let double = (n: int) -> int = n * 2;
+    let inc = (n: int) -> int = n + 1;
+    let result = apply_both(f: double, g: inc, x: 20);
+    if result == 41 then 0 else 1
+}
+"#,
+        "closure_composition",
+    );
+}
+
+// =========================================================================
+// For-in loops
+// =========================================================================
+
+#[test]
+fn test_aot_for_in_range() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 1..=10 do {
+        sum = sum + i;
+    };
+    if sum == 55 then 0 else 1
+}
+"#,
+        "for_in_range",
+    );
+}
+
+#[test]
+fn test_aot_for_in_list() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let count = 0;
+    for i in [1, 2, 3, 4, 5] do {
+        count = count + 1;
+    };
+    if count == 5 then 0 else 1
+}
+"#,
+        "for_in_list",
+    );
+}
+
+// =========================================================================
+// Collections: list
+// =========================================================================
+
+#[test]
+fn test_aot_list_literal_length() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    if xs.length() == 5 then 0 else 1
+}
+"#,
+        "list_literal_length",
+    );
+}
+
+#[test]
+fn test_aot_list_map_collect() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let doubled = xs.iter().map(x -> x * 2).collect();
+    if doubled.length() == 3 then 0 else 1
+}
+"#,
+        "list_map_collect",
+    );
+}
+
+// =========================================================================
+// Known AOT gaps (ignored until codegen supports them)
+// =========================================================================
+
+#[test]
+#[ignore = "AOT gap: enum variant constructors not declared as LLVM functions"]
+fn test_aot_enum_construction() {
+    assert_aot_success(
+        r#"
+type Shape = Circle(radius: int) | Square(side: int);
+
+@area (s: Shape) -> int = match s {
+    Circle(r) -> r * r,
+    Square(s) -> s * s,
+};
+
+@main () -> int = {
+    let c = Circle(radius: 5);
+    let s = Square(side: 3);
+    if area(s: c) == 25 && area(s: s) == 9 then 0 else 1
+}
+"#,
+        "enum_construction",
+    );
+}
+
+#[test]
+fn test_aot_derive_eq_struct() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Point = { x: int, y: int };
+
+@main () -> int = {
+    let a = Point { x: 1, y: 2 };
+    let b = Point { x: 1, y: 2 };
+    let c = Point { x: 3, y: 4 };
+    if a == b && a != c then 0 else 1
+}
+"#,
+        "derive_eq_struct",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: list __index builtin not resolved"]
+fn test_aot_list_index() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    if xs[0] == 10 && xs[1] == 20 && xs[2] == 30 then 0 else 1
+}
+"#,
+        "list_index",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: string interpolation produces wrong result"]
+fn test_aot_string_interpolation() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let name = "world";
+    let greeting = `hello ${name}`;
+    if greeting == "hello world" then 0 else 1
+}
+"#,
+        "string_interpolation",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — While-like loops (loop + conditional break)
+// =========================================================================
+
+#[test]
+fn test_aot_while_pattern_basic() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let i = 0;
+    loop {
+        if i >= 10 then break;
+        i = i + 1
+    };
+    if i == 10 then 0 else 1
+}
+"#,
+        "while_pattern_basic",
+    );
+}
+
+#[test]
+fn test_aot_while_pattern_with_accumulator() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let n = 10;
+    let result = 0;
+    loop {
+        if n == 0 then break;
+        result = result + n;
+        n = n - 1
+    };
+    if result == 55 then 0 else 1
+}
+"#,
+        "while_pattern_accumulator",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — catch(expr:) panic recovery
+// =========================================================================
+
+#[test]
+#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
+fn test_aot_catch_success() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = catch(expr: 42);
+    if result.is_ok() then {
+        let v = result.unwrap();
+        if v == 42 then 0 else 1
+    } else 1
+}
+"#,
+        "catch_success",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
+fn test_aot_catch_panic() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = catch(expr: panic(msg: "test error"));
+    if result.is_err() then 0 else 1
+}
+"#,
+        "catch_panic",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
+fn test_aot_catch_div_by_zero() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = catch(expr: 1 / 0);
+    if result.is_err() then 0 else 1
+}
+"#,
+        "catch_div_by_zero",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Generic functions
+// =========================================================================
+
+#[test]
+#[ignore = "AOT gap: generic function resolution not yet in ARC pipeline"]
+fn test_aot_generic_identity() {
+    assert_aot_success(
+        r#"
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let a = identity(x: 42);
+    let b = identity(x: true);
+    if a == 42 && b then 0 else 1
+}
+"#,
+        "generic_identity",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: generic function resolution not yet in ARC pipeline"]
+fn test_aot_generic_pair() {
+    assert_aot_success(
+        r#"
+@make_pair <A, B> (a: A, b: B) -> (A, B) = (a, b);
+
+@main () -> int = {
+    let p = make_pair(a: 1, b: true);
+    let (x, y) = p;
+    if x == 1 && y then 0 else 1
+}
+"#,
+        "generic_pair",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Map collection operations
+// =========================================================================
+
+#[test]
+fn test_aot_map_literal_length() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"a": 1, "b": 2, "c": 3};
+    if m.length() == 3 then 0 else 1
+}
+"#,
+        "map_literal_length",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: map.is_empty() method not yet in AOT builtin table"]
+fn test_aot_map_is_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"key": 42};
+    let empty: {str: int} = {};
+    if !m.is_empty() && empty.is_empty() then 0 else 1
+}
+"#,
+        "map_is_empty",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — List operations
+// =========================================================================
+
+#[test]
+#[ignore = "AOT gap: list.push() method not yet in AOT builtin table"]
+fn test_aot_list_push() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let ys = xs.push(4);
+    if ys.length() == 4 then 0 else 1
+}
+"#,
+        "list_push",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: list.concat() produces wrong result"]
+fn test_aot_list_concat() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [1, 2];
+    let b = [3, 4];
+    let c = a.concat(b);
+    if c.length() == 4 then 0 else 1
+}
+"#,
+        "list_concat",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: list.first()/last() methods not yet in AOT builtin table"]
+fn test_aot_list_first_last() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let f = xs.first();
+    let l = xs.last();
+    if f.is_some() && l.is_some() then {
+        let fv = f.unwrap();
+        let lv = l.unwrap();
+        if fv == 10 && lv == 30 then 0 else 1
+    } else 1
+}
+"#,
+        "list_first_last",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: list.is_empty()/first()/last() methods not yet in AOT builtin table"]
+fn test_aot_list_empty_operations() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let empty: [int] = [];
+    let ok1 = empty.is_empty();
+    let ok2 = empty.first().is_none();
+    let ok3 = empty.last().is_none();
+    if ok1 && ok2 && ok3 then 0 else 1
+}
+"#,
+        "list_empty_operations",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Struct with RC fields (ARC stress)
+// =========================================================================
+
+#[test]
+fn test_aot_struct_with_list_field() {
+    assert_aot_success(
+        r#"
+type Container = { items: [int], label: str }
+
+@main () -> int = {
+    let c = Container { items: [1, 2, 3], label: "test" };
+    if c.items.length() == 3 then 0 else 1
+}
+"#,
+        "struct_with_list_field",
+    );
+}
+
+#[test]
+fn test_aot_list_of_strings() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = ["hello", "world", "foo"];
+    let count = 0;
+    for s in xs do count = count + s.length();
+    if count == 13 then 0 else 1
+}
+"#,
+        "list_of_strings",
+    );
+}
+
+#[test]
+fn test_aot_struct_with_string_fields_shared() {
+    assert_aot_success(
+        r#"
+type Person = { name: str, role: str }
+
+@greet (p: Person) -> str = p.name + " (" + p.role + ")";
+
+@main () -> int = {
+    let p = Person { name: "Alice", role: "dev" };
+    let g = greet(p: p);
+    if g.length() > 0 then 0 else 1
+}
+"#,
+        "struct_string_fields_shared",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Closures: zero capture, multiple capture, nested
+// =========================================================================
+
+#[test]
+fn test_aot_closure_zero_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let add = (a: int, b: int) -> int = a + b;
+    if add(a: 3, b: 4) == 7 then 0 else 1
+}
+"#,
+        "closure_zero_capture",
+    );
+}
+
+#[test]
+#[ignore = "Type inference bug: closure-returning-closure infers () return instead of (int) -> int"]
+fn test_aot_closure_capturing_closure() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let base = 10;
+    let make_adder = (n: int) -> (int) -> int = {
+        (x: int) -> int = base + n + x
+    };
+    let add15 = make_adder(n: 5);
+    if add15(x: 2) == 17 then 0 else 1
+}
+"#,
+        "closure_capturing_closure",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Enumerate iterator (produces tuples)
+// =========================================================================
+
+#[test]
+fn test_aot_iter_enumerate() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let c = [10, 20, 30].iter().enumerate().count();
+    if c == 3 then 0 else 1
+}
+"#,
+        "iter_enumerate",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Deep nesting stress
+// =========================================================================
+
+#[test]
+fn test_aot_match_inside_loop_inside_if() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    if true then {
+        let i = 0;
+        loop {
+            if i >= 5 then break;
+            let contribution = match i % 3 {
+                0 -> 1,
+                1 -> 2,
+                _ -> 3,
+            };
+            sum = sum + contribution;
+            i = i + 1
+        }
+    } else ();
+    if sum == 9 then 0 else 1
+}
+"#,
+        "match_inside_loop_inside_if",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Comparison operators on structs (via trait dispatch)
+// =========================================================================
+
+#[test]
+fn test_aot_derive_eq_struct_not_equal() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Vec2 = { x: int, y: int };
+
+@main () -> int = {
+    let a = Vec2 { x: 1, y: 2 };
+    let b = Vec2 { x: 3, y: 4 };
+    if a != b then 0 else 1
+}
+"#,
+        "derive_eq_struct_neq",
+    );
+}
+
+#[test]
+fn test_aot_derive_eq_struct_with_strings() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Named = { name: str, value: int };
+
+@main () -> int = {
+    let a = Named { name: "hello", value: 42 };
+    let b = Named { name: "hello", value: 42 };
+    let c = Named { name: "world", value: 42 };
+    if a == b && a != c then 0 else 1
+}
+"#,
+        "derive_eq_struct_strings",
+    );
+}
+
+#[test]
+fn test_aot_derive_comparable_struct() {
+    assert_aot_success(
+        r#"
+#derive(Eq, Comparable)
+type Score = { points: int, bonus: int };
+
+@main () -> int = {
+    let a = Score { points: 10, bonus: 5 };
+    let b = Score { points: 20, bonus: 3 };
+    let c = Score { points: 10, bonus: 5 };
+    if a < b && b > a && a <= c && a >= c then 0 else 1
+}
+"#,
+        "derive_comparable_struct",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — Panic and error handling (non-catch)
+// =========================================================================
+
+#[test]
+fn test_aot_panic_basic() {
+    let source = r#"
+@main () -> int = {
+    let x = 42;
+    if x == 42 then 0 else panic(message: "unreachable")
+}
+"#;
+    // Should succeed (panic branch not taken)
+    assert_aot_success(source, "panic_basic");
+}
+
+#[test]
+fn test_aot_option_unwrap_some() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = Some(42);
+    let val = x.unwrap();
+    if val == 42 then 0 else 1
+}
+"#,
+        "option_unwrap_some",
+    );
+}
+
+#[test]
+fn test_aot_result_unwrap_ok() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x: Result<int, str> = Ok(42);
+    let val = x.unwrap();
+    if val == 42 then 0 else 1
+}
+"#,
+        "result_unwrap_ok",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — ARC: collections of RC'd values (more patterns)
+// =========================================================================
+
+#[test]
+fn test_aot_struct_with_list_and_string() {
+    assert_aot_success(
+        r#"
+type Config = { name: str, values: [int] };
+
+@main () -> int = {
+    let c = Config { name: "test", values: [1, 2, 3] };
+    if c.name.length() == 4 then 0 else 1
+}
+"#,
+        "struct_with_list_and_string",
+    );
+}
+
+#[test]
+fn test_aot_nested_struct_with_strings() {
+    assert_aot_success(
+        r#"
+type Inner = { label: str };
+type Outer = { inner: Inner, count: int };
+
+@main () -> int = {
+    let o = Outer { inner: Inner { label: "ok" }, count: 5 };
+    if o.count == 5 then 0 else 1
+}
+"#,
+        "nested_struct_with_strings",
+    );
+}
+
+// =========================================================================
+// Section 11.1 — For-yield with complex expressions
+// =========================================================================
+
+#[test]
+fn test_aot_for_yield_with_filter() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let evens = for x in 0..10 if x % 2 == 0 yield x;
+    let count = evens.iter().count();
+    if count == 5 then 0 else 1
+}
+"#,
+        "for_yield_with_filter",
+    );
+}
+
+#[test]
+fn test_aot_for_yield_transform() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let squares = for x in 1..=5 yield x * x;
+    let sum = squares.iter().fold(start: 0, f: (acc: int, x: int) -> int = acc + x);
+    if sum == 55 then 0 else 1
+}
+"#,
+        "for_yield_transform",
+    );
+}

@@ -2,19 +2,25 @@ use ori_types::{Idx, Pool};
 
 use ori_ir::Name;
 
-use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, CtorKind};
+use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArgOwnership, CtorKind};
 use crate::ownership::Ownership;
 use crate::test_helpers::{b, count_rc_ops, make_func, v};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     compute_liveness, compute_refined_liveness, expand_reset_reuse, ArcClassifier, DominatorTree,
 };
 
 /// Run the full ARC pipeline via the public orchestration function.
-fn run_full_pipeline(func: &mut ArcFunction, classifier: &dyn crate::ArcClassification) {
+fn run_full_pipeline(
+    func: &mut ArcFunction,
+    classifier: &dyn crate::ArcClassification,
+    pool: &Pool,
+) {
     let sigs = FxHashMap::default();
-    crate::run_arc_pipeline(func, classifier, &sigs);
+    let interner = ori_ir::StringInterner::new();
+    crate::annotate_arg_ownership(func, &sigs, &interner, &FxHashSet::default());
+    crate::run_arc_pipeline(func, classifier, &sigs, pool, &interner);
 }
 
 /// Verifies the correct pipeline order: expand BEFORE eliminate.
@@ -60,6 +66,7 @@ fn pipeline_order_expand_before_eliminate() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
                 },
                 ArcInstr::Reset {
                     var: v(0),
@@ -95,7 +102,7 @@ fn pipeline_order_expand_before_eliminate() {
         let liveness = compute_liveness(&func_correct, &classifier);
         crate::rc_insert::insert_rc_ops(&mut func_correct, &classifier, &liveness);
         // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
-        expand_reset_reuse(&mut func_correct, &classifier);
+        expand_reset_reuse(&mut func_correct, &classifier, None);
         crate::rc_elim::eliminate_rc_ops(&mut func_correct);
     }
 
@@ -126,7 +133,7 @@ fn pipeline_order_expand_before_eliminate() {
     crate::rc_insert::insert_rc_ops(&mut func_wrong, &classifier, &liveness);
     crate::rc_elim::eliminate_rc_ops(&mut func_wrong); // wrong: runs too early
                                                        // detect_reset_reuse skipped: IR already contains Reset/Reuse from setup
-    expand_reset_reuse(&mut func_wrong, &classifier);
+    expand_reset_reuse(&mut func_wrong, &classifier, None);
 
     // Wrong order should have MORE remaining RC ops (expand generated
     // new ones that eliminate already ran and couldn't clean up)
@@ -162,7 +169,7 @@ fn pipeline_no_reuse_pattern() {
     let classifier = ArcClassifier::new(&pool);
 
     let mut func = func;
-    run_full_pipeline(&mut func, &classifier);
+    run_full_pipeline(&mut func, &classifier, &pool);
 
     // Should still have exactly 1 block (no expansion needed)
     assert_eq!(func.blocks.len(), 1);
@@ -219,6 +226,7 @@ fn full_pipeline_on_reuse_pattern() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
                 },
                 ArcInstr::Construct {
                     dst: v(4),
@@ -242,7 +250,7 @@ fn full_pipeline_on_reuse_pattern() {
     let classifier = ArcClassifier::new(&pool);
 
     let mut func = func;
-    run_full_pipeline(&mut func, &classifier);
+    run_full_pipeline(&mut func, &classifier, &pool);
 
     // No unexpanded Reset/Reuse should remain
     let has_unexpanded = func
