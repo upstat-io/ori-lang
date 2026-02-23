@@ -171,7 +171,7 @@ JIT, evaluator, wire, ArcClassifier
 ---
 
 ### Section 11: Comprehensive Verification
-**File:** `section-11-verification.md` | **Status:** Not Started
+**File:** `section-11-verification.md` | **Status:** In Progress
 
 ```
 verification, testing, AOT test matrix

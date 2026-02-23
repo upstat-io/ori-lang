@@ -121,7 +121,6 @@ type Point = { x: int, y: int }
 // ─── Enum drop ───
 
 #[test]
-#[ignore = "LLVM codegen: enum variant constructors not yet implemented"]
 fn test_arc_enum_basic_drop() {
     assert_aot_success(
         r#"
@@ -138,7 +137,6 @@ type Shape = Circle(radius: int) | Rectangle(width: int, height: int);
 }
 
 #[test]
-#[ignore = "LLVM codegen: enum variant constructors not yet implemented"]
 fn test_arc_enum_with_string_payload() {
     assert_aot_success(
         r#"
