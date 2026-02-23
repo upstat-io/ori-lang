@@ -425,7 +425,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Calls `ori_str_compare` then checks the i8 result against the
     /// expected Ordering tag (Less=0, Equal=1, Greater=2).
-    fn emit_str_cmp_predicate(
+    pub(in crate::codegen::arc_emitter) fn emit_str_cmp_predicate(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,
@@ -455,7 +455,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
 /// Comparison predicate kind for code reuse.
 #[derive(Clone, Copy)]
-enum CmpPredicate {
+pub(in crate::codegen::arc_emitter) enum CmpPredicate {
     Less,
     Greater,
     LessOrEqual,
