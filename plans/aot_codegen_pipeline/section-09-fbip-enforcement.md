@@ -1,148 +1,119 @@
 ---
 section: "09"
 title: "FBIP Enforcement"
-status: not-started
-goal: "Promote @fbip from informational analysis to enforced compile-time annotation"
+status: complete
+goal: "Promote #fbip from informational analysis to enforced compile-time annotation"
 inspired_by:
   - "Koka CheckFBIP (Core/CheckFBIP.hs)"
 sections:
   - id: "09.1"
-    title: "Define @fbip annotation"
-    status: not-started
+    title: "Define #fbip annotation"
+    status: complete
   - id: "09.2"
     title: "Wire enforcement into pipeline"
-    status: not-started
+    status: complete
   - id: "09.3"
     title: "Diagnostics"
-    status: not-started
+    status: complete
   - id: "09.4"
     title: "Tests"
-    status: not-started
+    status: complete
 ---
 
 # Section 09: FBIP Enforcement
 
-**Status:** Not Started
-**Goal:** Functions annotated `@fbip` are verified to be "functional but in-place" — all constructor reuse opportunities are realized.
+**Status:** Complete
+**Goal:** Functions annotated `#fbip` are verified to be "functional but in-place" — all constructor reuse opportunities are realized.
 
-**Context:** Ori already has `analyze_fbip` in `ori_arc/src/fbip/mod.rs` (237 lines) which detects missed reuse opportunities. Currently this is purely informational (debug-level tracing). The Koka compiler's `CheckFBIP.hs` enforces FBIP as a compile error — if a function is annotated as FBIP but has missed reuses, compilation fails. This gives developers a way to guarantee zero-allocation performance for critical code paths.
+**Context:** Ori already has `analyze_fbip` in `ori_arc/src/fbip/mod.rs` which detects missed reuse opportunities. Previously this was purely informational. The Koka compiler's `CheckFBIP.hs` enforces FBIP as a compile error — if a function is annotated as FBIP but has missed reuses, compilation fails. This gives developers a way to guarantee zero-allocation performance for critical code paths.
 
 ---
 
-## 09.1 Define `@fbip` Annotation
+## 09.1 Define `#fbip` Annotation
 
-**Files:** `compiler/ori_ir/src/`, `compiler/ori_parse/src/`, `compiler/ori_types/src/`
+**Files:** `compiler/ori_parse/src/grammar/attr/mod.rs`, `compiler/ori_ir/src/ast/items/function.rs`, `compiler/ori_types/src/output/mod.rs`, `compiler/ori_types/src/check/signatures/mod.rs`
 
-- [ ] Add `Fbip` to the function annotation system:
-  - Parse `@fbip` attribute on function declarations
-  - Store in the `FunctionSig` or `CanFunction` metadata
-  - Propagate through canonicalization to `CanExpr`
+- [x] Add `Fbip` variant to `AttrKind` enum
+- [x] Add `is_fbip: bool` to `ParsedAttrs` — bare flag, no arguments
+- [x] Parse both `#fbip` and `#[fbip]` syntax (follows existing `#skip`/`#derive` pattern)
+- [x] Add `is_fbip: bool` to `Function` AST node
+- [x] Add `is_fbip: bool` to `FunctionSig` (crosses Salsa boundary)
+- [x] Propagate through `infer_function_signature_with_arena()`
 
-- [ ] Decide on syntax:
-  ```ori
-  @fbip
-  fn transform(tree: Tree) -> Tree {
-      match tree {
-          Leaf(x) => Leaf(x + 1)
-          Node(l, r) => Node(transform(l), transform(r))
-      }
-  }
-  ```
+Syntax:
+```ori
+#fbip
+@transform (tree: Tree) -> Tree = match tree {
+    Leaf(x) => Leaf(x + 1),
+    Node(l, r) => Node(transform(l), transform(r)),
+};
+```
 
-- [ ] The annotation is a promise by the developer: "this function should allocate zero new heap memory beyond what reset/reuse provides."
+The annotation is a promise by the developer: "this function should allocate zero new heap memory beyond what reset/reuse provides."
 
 ---
 
 ## 09.2 Wire Enforcement into Pipeline
 
-**File:** `compiler/ori_arc/src/fbip/mod.rs`
+**Files:** `compiler/ori_arc/src/ir/mod.rs`, `compiler/ori_arc/src/lower/mod.rs`, `compiler/ori_arc/src/fbip/mod.rs`, `compiler/ori_arc/src/lib.rs`, `compiler/ori_llvm/src/codegen/function_compiler/mod.rs`
 
-- [ ] Modify `analyze_fbip` to return a result:
-  ```rust
-  pub struct FbipResult {
-      /// Missed reuse opportunities that prevent FBIP compliance.
-      pub missed_reuses: Vec<MissedReuse>,
-      /// Whether the function is FBIP-compliant.
-      pub is_compliant: bool,
-  }
-
-  pub struct MissedReuse {
-      /// The constructor that could have been reused but wasn't.
-      pub ctor: CtorInfo,
-      /// Why reuse wasn't possible.
-      pub reason: MissedReuseReason,
-      /// Source span for the diagnostic.
-      pub span: Span,
-  }
-
-  pub enum MissedReuseReason {
-      /// Value escapes to a different context.
-      ValueEscapes,
-      /// Multiple uses prevent in-place reuse.
-      MultipleUses,
-      /// Type mismatch (different constructor shapes).
-      TypeMismatch,
-      /// Cross-function: callee doesn't return reusable token.
-      CalleeNotFbip,
-  }
-  ```
-
-- [ ] In `run_arc_pipeline`, after `analyze_fbip`:
-  ```rust
-  let fbip_result = analyze_fbip(&func, &classifier);
-  if is_fbip_annotated && !fbip_result.is_compliant {
-      // Emit compile error with detailed missed-reuse diagnostics
-      return Err(fbip_diagnostics(fbip_result));
-  }
-  ```
+- [x] Add `is_fbip: bool` to `ArcFunction` struct
+- [x] Thread `is_fbip` through `ArcIrBuilder::finish()` and `lower_function_can()`
+- [x] Implement `check_fbip_enforcement()` — reuses existing `analyze_fbip()`, wraps result into `ArcProblem::FbipViolation`
+- [x] Integrate at end of `run_arc_pipeline()` (after RC elimination): if `func.is_fbip`, run enforcement
+- [x] Change `run_arc_pipeline()` return type to `Vec<ArcProblem>` to propagate violations
+- [x] Update `run_arc_pipeline_all()` to collect problems from each function
+- [x] Thread `is_fbip` through all callers:
+  - `ori_llvm` function compiler (functions, tests, impl methods)
+  - `ori_llvm` evaluator (JIT path)
+  - `oric` compile_common (AOT path)
+  - All `ori_arc` test files
 
 ---
 
 ## 09.3 Diagnostics
 
-**File:** `compiler/ori_arc/src/fbip/mod.rs` or dedicated diagnostic module
+**Files:** `compiler/ori_diagnostic/src/error_code/mod.rs`, `compiler/oric/src/problem/codegen/mod.rs`
 
-- [ ] Create clear error messages for each `MissedReuseReason`:
-  ```
-  error[E3001]: @fbip function `transform` has missed reuse opportunities
-    --> src/tree.ori:5:9
-    |
-  5 |     Node(l, r) => Node(transform(l), transform(r))
-    |                   ^^^^ constructor `Node` allocated fresh
-    |
-    = help: the matched `Node` at line 4 could be reused, but `r` escapes
-            to the recursive call before `l` is consumed
-    = note: consider reordering to consume `r` first, or remove @fbip
-  ```
-
-- [ ] Include actionable suggestions:
-  - "consider reordering operations to enable reuse"
-  - "callee `f` is not @fbip — add @fbip to `f` or remove from this function"
-  - "value is used multiple times — introduce a clone before the second use"
+- [x] Add error code `E4004` — "FBIP enforcement violation"
+- [x] Add `FbipViolation` variant to `ArcProblem` (with `func_name: String`, `missed_count`, `achieved_count`, `span`)
+- [x] Add `ArcFbipViolation` variant to `CodegenProblem`
+- [x] Implement `into_diagnostic()` with:
+  - Error message: `"#fbip function '{name}' has {n} missed reuse opportunity(ies)"`
+  - Label on function span: `"this function is annotated #fbip"`
+  - Note: count of achieved vs missed reuses
+  - Suggestion: `"remove #fbip or restructure to enable constructor reuse"`
 
 ---
 
 ## 09.4 Tests
 
-- [ ] Positive test: `@fbip` function with perfect reuse → compiles successfully
-- [ ] Negative test: `@fbip` function with missed reuse → compile error with correct diagnostic
-- [ ] Spec test in `tests/spec/annotations/fbip/`:
-  - `fbip_tree_transform.ori` — successful FBIP tree transformation
-  - `fbip_violation.ori` — expected error for non-compliant function
-- [ ] Verify non-annotated functions are unaffected (no change in behavior)
-- [ ] Run `./test-all.sh`
+- [x] Parser tests (`ori_parse/src/grammar/attr/tests.rs`):
+  - `test_parse_fbip_attribute` — `#fbip` parses correctly
+  - `test_parse_fbip_attribute_with_brackets` — `#[fbip]` also works
+  - `test_parse_no_fbip_attribute` — function without `#fbip` has `is_fbip: false`
+- [x] FBIP enforcement tests (`ori_arc/src/fbip/tests.rs`):
+  - `enforcement_compliant_no_violation` — Reset/Reuse pair → no violation
+  - `enforcement_violation_missed_reuse` — unpaired RcDec + Construct → FbipViolation returned
+  - `enforcement_scalar_only_no_violation` — scalar-only function → no violation
+- [x] Codegen diagnostic test (`oric/src/problem/codegen/tests.rs`):
+  - `test_arc_fbip_violation_from` — E4004 code, correct message formatting
+- [x] Error code bookkeeping updated (COUNT 118→119, MAX_UNDOCUMENTED 54→55)
+- [x] Non-annotated functions unaffected (enforcement gated on `func.is_fbip`)
+- [x] `cargo t` — 4,518+ Rust tests pass, 0 failures
+- [x] `cargo bl` — LLVM build compiles
+- [x] `./test-all.sh` — no new failures
 
 ---
 
 ## 09.5 Completion Checklist
 
-- [ ] `@fbip` annotation parsed and propagated
-- [ ] `analyze_fbip` returns structured `FbipResult`
-- [ ] Pipeline enforces FBIP on annotated functions
-- [ ] Diagnostic messages with source spans and actionable suggestions
-- [ ] Positive and negative tests
-- [ ] Spec tests
-- [ ] Non-annotated functions unaffected
-- [ ] `./test-all.sh` passes
+- [x] `#fbip` annotation parsed and propagated (parser → AST → FunctionSig → ArcFunction)
+- [x] `check_fbip_enforcement()` reuses existing `analyze_fbip()` analysis
+- [x] Pipeline enforces FBIP on annotated functions (end of `run_arc_pipeline`)
+- [x] Diagnostic messages with source spans and actionable suggestions (E4004)
+- [x] Positive and negative unit tests (7 FBIP tests + 3 parser tests + 1 diagnostic test)
+- [x] Non-annotated functions unaffected
+- [x] `./test-all.sh` passes
 
-**Exit Criteria:** `@fbip fn f(...) = ...` compiles only if `f` achieves full constructor reuse. Violations produce clear diagnostics explaining what reuse was missed and why.
+**Exit Criteria:** `#fbip @f (...) = ...` compiles only if `f` achieves full constructor reuse. Violations produce E4004 diagnostics explaining what reuse was missed and why.

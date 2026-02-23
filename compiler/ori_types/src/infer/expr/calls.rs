@@ -583,9 +583,12 @@ pub(crate) fn infer_method_call(
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
         ReceiverDispatch::Return(ty) => {
-            for &arg_id in arena.get_expr_list(args) {
-                infer_expr(engine, arena, arg_id);
-            }
+            let arg_types: Vec<Idx> = arena
+                .get_expr_list(args)
+                .iter()
+                .map(|&arg_id| infer_expr(engine, arena, arg_id))
+                .collect();
+            unify_higher_order_constraints(engine, method, ty, &arg_types);
             return ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
@@ -634,9 +637,12 @@ pub(crate) fn infer_method_call_named(
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
         ReceiverDispatch::Return(ty) => {
-            for arg in arena.get_call_args(args) {
-                infer_expr(engine, arena, arg.value);
-            }
+            let arg_types: Vec<Idx> = arena
+                .get_call_args(args)
+                .iter()
+                .map(|arg| infer_expr(engine, arena, arg.value))
+                .collect();
+            unify_higher_order_constraints(engine, method, ty, &arg_types);
             return ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
@@ -682,6 +688,79 @@ enum ReceiverDispatch {
     Return(Idx),
     /// No builtin found. Proceed to impl lookup with this resolved receiver.
     Continue { resolved: Idx },
+}
+
+/// Unify fresh type variables in builtin method return types with constraints
+/// from closure arguments.
+///
+/// Higher-order iterator adapters (`map`, `flat_map`, `fold`) create fresh
+/// type variables in their return types. After the closure arguments are
+/// inferred, this function unifies those variables with the closure's return
+/// type so they resolve to concrete types before codegen.
+fn unify_higher_order_constraints(
+    engine: &mut InferEngine<'_>,
+    method: Name,
+    ret_ty: Idx,
+    arg_types: &[Idx],
+) {
+    let Some(method_str) = engine.lookup_name(method) else {
+        return;
+    };
+
+    match method_str {
+        "map" => {
+            // ret_ty is Iterator<var> or DEI<var>.
+            // arg_types[0] is the closure (T) -> U. Unify var with U.
+            let Some(&closure_ty) = arg_types.first() else {
+                return;
+            };
+            let resolved_ret = engine.resolve(ret_ty);
+            if !engine.pool().tag(resolved_ret).is_iterator() {
+                return;
+            }
+            let elem_var = engine.pool().iterator_elem(resolved_ret);
+            let resolved_closure = engine.resolve(closure_ty);
+            if engine.pool().tag(resolved_closure) == Tag::Function {
+                let closure_ret = engine.pool().function_return(resolved_closure);
+                let _ = engine.unify().unify(elem_var, closure_ret);
+            }
+        }
+        "flat_map" => {
+            // ret_ty is Iterator<var>.
+            // arg_types[0] is closure (T) -> Iterator<U>. Unify var with U.
+            let Some(&closure_ty) = arg_types.first() else {
+                return;
+            };
+            let resolved_ret = engine.resolve(ret_ty);
+            if !engine.pool().tag(resolved_ret).is_iterator() {
+                return;
+            }
+            let elem_var = engine.pool().iterator_elem(resolved_ret);
+            let resolved_closure = engine.resolve(closure_ty);
+            if engine.pool().tag(resolved_closure) == Tag::Function {
+                let closure_ret = engine.pool().function_return(resolved_closure);
+                let resolved_inner = engine.resolve(closure_ret);
+                if engine.pool().tag(resolved_inner).is_iterator() {
+                    let inner_elem = engine.pool().iterator_elem(resolved_inner);
+                    let _ = engine.unify().unify(elem_var, inner_elem);
+                }
+            }
+        }
+        "fold" | "rfold" => {
+            // ret_ty is a fresh var. Unify with initial value and closure return.
+            if let Some(&init_ty) = arg_types.first() {
+                let _ = engine.unify().unify(ret_ty, init_ty);
+            }
+            if let Some(&closure_ty) = arg_types.get(1) {
+                let resolved_closure = engine.resolve(closure_ty);
+                if engine.pool().tag(resolved_closure) == Tag::Function {
+                    let closure_ret = engine.pool().function_return(resolved_closure);
+                    let _ = engine.unify().unify(ret_ty, closure_ret);
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Resolve the receiver type and try builtin method dispatch.

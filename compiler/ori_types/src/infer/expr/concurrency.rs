@@ -1,10 +1,10 @@
-//! Concurrency expression inference — catch, recurse, parallel, spawn, timeout, cache, with.
+//! Expression inference — catch, recurse, cache.
 
 use ori_ir::ExprArena;
 
 use super::super::InferEngine;
 use super::infer_expr;
-use crate::{Idx, Tag};
+use crate::Idx;
 
 /// Infer type for `catch(expr: expression)`.
 ///
@@ -66,69 +66,6 @@ pub(crate) fn infer_recurse(
     base_ty.unwrap_or_else(|| engine.fresh_var())
 }
 
-/// Infer type for `parallel(tasks: [expr])`.
-pub(crate) fn infer_parallel(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    props: &[ori_ir::NamedExpr],
-) -> Idx {
-    // Parallel takes a list of tasks and returns a list of results
-    // For now, return [?a] with fresh variable
-    for prop in props {
-        let ty = infer_expr(engine, arena, prop.value);
-        // If it's a list, extract element type and wrap result
-        let resolved = engine.resolve(ty);
-        if engine.pool().tag(resolved) == Tag::List {
-            let elem_ty = engine.pool().list_elem(resolved);
-            return engine.pool_mut().list(elem_ty);
-        }
-    }
-
-    let result_ty = engine.fresh_var();
-    engine.pool_mut().list(result_ty)
-}
-
-/// Infer type for `spawn(task: expr)`.
-pub(crate) fn infer_spawn(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    props: &[ori_ir::NamedExpr],
-) -> Idx {
-    // Spawn returns a handle to the task
-    // For now, return the task's result type wrapped in a fresh type
-    // (Would need a Task<T> type in the pool)
-    for prop in props {
-        let _ = infer_expr(engine, arena, prop.value);
-    }
-    // TODO: Return proper Task<T> type when Task is added
-    engine.fresh_var()
-}
-
-/// Infer type for `timeout(duration: Duration, task: expr)`.
-pub(crate) fn infer_timeout(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    props: &[ori_ir::NamedExpr],
-) -> Idx {
-    // Returns Option<T> where T is the task result
-    let mut task_ty = None;
-
-    for prop in props {
-        let ty = infer_expr(engine, arena, prop.value);
-        // Skip duration, capture task type (first non-duration property)
-        if task_ty.is_none() {
-            let resolved = engine.resolve(ty);
-            if engine.pool().tag(resolved) != Tag::Duration {
-                task_ty = Some(ty);
-            }
-        }
-        // If we already have a task type, just evaluate for type checking
-    }
-
-    let inner = task_ty.unwrap_or_else(|| engine.fresh_var());
-    engine.pool_mut().option(inner)
-}
-
 /// Infer type for `cache(key: expr, op: expr, ttl: Duration)`.
 pub(crate) fn infer_cache(
     engine: &mut InferEngine<'_>,
@@ -147,24 +84,4 @@ pub(crate) fn infer_cache(
     }
 
     op_ty.unwrap_or_else(|| engine.fresh_var())
-}
-
-/// Infer type for `with(acquire: expr, action: expr, release: expr)`.
-///
-/// Returns the `action` expression's type.
-pub(crate) fn infer_with(
-    engine: &mut InferEngine<'_>,
-    arena: &ExprArena,
-    props: &[ori_ir::NamedExpr],
-) -> Idx {
-    let mut action_ty = None;
-
-    for prop in props {
-        let ty = infer_expr(engine, arena, prop.value);
-        if engine.lookup_name(prop.name) == Some("action") {
-            action_ty = Some(ty);
-        }
-    }
-
-    action_ty.unwrap_or_else(|| engine.fresh_var())
 }

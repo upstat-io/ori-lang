@@ -301,7 +301,7 @@ impl RcIdentityMap {
 
 ### Phase 2: Architectural Fixes (reduce ongoing pain)
 
-- [ ] **Add `ValueRepr` to ARC IR instructions.** Add the `repr: ValueRepr` field to value-producing `ArcInstr` variants. Compute it in `lower_function_can` from `ArcClassifier` and `Pool` tag. Update all ARC passes to propagate (but not depend on) `repr`. (~200 lines across `ir/mod.rs`, `lower/expr/mod.rs`, pipeline passes)
+- [x] **Add `ValueRepr` to ARC IR (Section 01.1 — done).** Parallel array `var_reprs: Vec<ValueRepr>` in `ArcFunction`, computed via `compute_var_reprs()` at pipeline start. Four variants: Scalar, RcPointer, Aggregate, FatValue. Used parallel-array approach (matching `var_types`) instead of per-instruction fields to avoid ~40 match arm edits. Files: `ir/repr.rs` (new), `ir/mod.rs`, `lib.rs`, `lower/mod.rs`, callers. 16 unit tests.
 
 - [ ] **Add `EmittedValue` enum to `ArcIrEmitter`.** Replace `var_map: Vec<Option<ValueId>>` with `Vec<Option<EmittedValue>>`. Update `emit_instr` to produce tagged values and all consumers (`emit_terminator`, `emit_apply`, `emit_invoke`) to destructure them. The `ValueRepr` from the ARC IR drives the initial tagging. (~300 lines refactoring in `arc_emitter/mod.rs`)
 

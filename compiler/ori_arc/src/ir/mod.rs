@@ -17,12 +17,36 @@
 //! Values are named via [`ArcVarId`] (SSA-like). Control flow uses
 //! [`ArcBlockId`] references between blocks.
 
+mod repr;
+
+pub use repr::{compute_var_reprs, RcStrategy, ValueRepr};
+
 use smallvec::{smallvec, SmallVec};
 
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::Idx;
 
 use crate::Ownership;
+
+// Call-site argument ownership
+
+/// Per-argument ownership at a call site.
+///
+/// Embedded directly in [`ArcInstr::Apply`] and [`ArcTerminator::Invoke`]
+/// so downstream passes can read ownership without querying external data
+/// (annotated signatures, string interner). Populated by
+/// [`compute_arg_ownership`](crate::rc_insert) during RC insertion.
+///
+/// Mirrors the two-state semantics of [`Ownership`] but scoped to a
+/// specific call instruction rather than a function signature.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "cache", derive(serde::Serialize, serde::Deserialize))]
+pub enum ArgOwnership {
+    /// Callee consumes: ownership transfers. Caller emits `RcInc` if live-after.
+    Owned,
+    /// Callee borrows: reads without consuming. Caller must `RcDec` at last use.
+    Borrowed,
+}
 
 // ID newtypes
 
@@ -198,6 +222,10 @@ pub enum ArcInstr {
         ty: Idx,
         func: Name,
         args: Vec<ArcVarId>,
+        /// Per-argument ownership at this call site.
+        /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
+        /// Defaults to all `Owned`; populated by RC insertion.
+        arg_ownership: Vec<ArgOwnership>,
     },
 
     /// Indirect call through a closure: `let dst: ty = closure(args...)`.
@@ -236,11 +264,17 @@ pub enum ArcInstr {
 
     // RC operations (inserted by Section 07)
     /// Increment reference count. `count` allows batched increments
-    /// when a value is passed to multiple owned parameters.
-    RcInc { var: ArcVarId, count: u32 },
+    /// when a value is passed to multiple owned parameters. `strategy`
+    /// tells the emitter how to perform the increment (no Pool queries).
+    RcInc {
+        var: ArcVarId,
+        count: u32,
+        strategy: RcStrategy,
+    },
 
-    /// Decrement reference count and free if zero.
-    RcDec { var: ArcVarId },
+    /// Decrement reference count and free if zero. `strategy` tells
+    /// the emitter the cleanup approach (no Pool queries).
+    RcDec { var: ArcVarId, strategy: RcStrategy },
 
     // Reuse operations (inserted by Section 09)
     /// Test whether a value's reference count is 1 (uniquely owned).
@@ -339,7 +373,7 @@ impl ArcInstr {
             ArcInstr::Project { value, .. } => smallvec![*value],
 
             ArcInstr::RcInc { var, .. }
-            | ArcInstr::RcDec { var }
+            | ArcInstr::RcDec { var, .. }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => smallvec![*var],
 
@@ -381,7 +415,7 @@ impl ArcInstr {
             ArcInstr::Project { value, .. } => *value == target,
 
             ArcInstr::RcInc { var, .. }
-            | ArcInstr::RcDec { var }
+            | ArcInstr::RcDec { var, .. }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => *var == target,
 
@@ -401,14 +435,25 @@ impl ArcInstr {
     /// `RcInc` to transfer ownership. Positions are indices into `used_vars()`.
     ///
     /// Owned positions:
-    /// - `Construct`, `PartialApply`, `Apply`: all args (`0..args.len()`)
+    /// - `Construct`, `PartialApply`: all args (`0..args.len()`)
+    /// - `Apply`: args where `arg_ownership[pos] == Owned` (respects borrow inference)
     /// - `ApplyIndirect`: closure + all args (`0..=args.len()`)
     /// - Everything else: no owned positions (read-only uses)
     pub fn is_owned_position(&self, pos: usize) -> bool {
         match self {
-            ArcInstr::Construct { args, .. }
-            | ArcInstr::PartialApply { args, .. }
-            | ArcInstr::Apply { args, .. } => pos < args.len(),
+            ArcInstr::Construct { args, .. } | ArcInstr::PartialApply { args, .. } => {
+                pos < args.len()
+            }
+            ArcInstr::Apply {
+                args,
+                arg_ownership,
+                ..
+            } => {
+                pos < args.len()
+                    && arg_ownership
+                        .get(pos)
+                        .is_none_or(|o| *o == ArgOwnership::Owned)
+            }
             ArcInstr::ApplyIndirect { args, .. } => pos <= args.len(),
             _ => false,
         }
@@ -445,7 +490,7 @@ impl ArcInstr {
             }
             ArcInstr::Project { value, .. } => sub(value, old, new),
             ArcInstr::RcInc { var, .. }
-            | ArcInstr::RcDec { var }
+            | ArcInstr::RcDec { var, .. }
             | ArcInstr::IsShared { var, .. }
             | ArcInstr::Reset { var, .. } => sub(var, old, new),
             ArcInstr::Set { base, value, .. } => {
@@ -500,6 +545,10 @@ pub enum ArcTerminator {
         ty: Idx,
         func: Name,
         args: Vec<ArcVarId>,
+        /// Per-argument ownership at this call site.
+        /// Parallel to `args`: `arg_ownership[i]` describes `args[i]`.
+        /// Defaults to all `Owned`; populated by RC insertion.
+        arg_ownership: Vec<ArgOwnership>,
         normal: ArcBlockId,
         unwind: ArcBlockId,
     },
@@ -618,6 +667,15 @@ pub struct ArcFunction {
     pub entry: ArcBlockId,
     /// Type of each variable, indexed by `ArcVarId::index()`.
     pub var_types: Vec<Idx>,
+    /// Machine-level representation of each variable, indexed by `ArcVarId::index()`.
+    ///
+    /// Computed by [`compute_var_reprs`] at the start of the ARC pipeline.
+    /// Empty until then (lowering produces an empty vec; the pipeline fills it).
+    ///
+    /// Skipped during cache serialization — derived from `var_types` + Pool,
+    /// not an independent data source.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub var_reprs: Vec<ValueRepr>,
     /// Source spans for instructions, indexed by `[block_index][instr_index]`.
     /// `None` for synthetic instructions (e.g., inserted RC operations).
     ///
@@ -625,6 +683,12 @@ pub struct ArcFunction {
     /// for cached codegen. Deserialized functions get empty span vectors.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub spans: Vec<Vec<Option<Span>>>,
+    /// Whether this function is annotated `#fbip` for constructor-reuse enforcement.
+    ///
+    /// When true, the pipeline checks that all constructor allocations are
+    /// reused in-place. Missed reuse produces an `ArcProblem::FbipViolation`.
+    #[cfg_attr(feature = "cache", serde(default))]
+    pub is_fbip: bool,
 }
 
 impl ArcFunction {
@@ -644,6 +708,25 @@ impl ArcFunction {
         self.var_types[var.index()]
     }
 
+    /// Look up the machine representation of a variable.
+    ///
+    /// Only valid after [`compute_var_reprs`] has been called (i.e., during
+    /// or after the ARC pipeline). Returns `None` if `var_reprs` is empty
+    /// (pre-pipeline).
+    #[inline]
+    pub fn var_repr(&self, var: ArcVarId) -> Option<ValueRepr> {
+        if self.var_reprs.is_empty() {
+            return None;
+        }
+        debug_assert!(
+            var.index() < self.var_reprs.len(),
+            "ArcVarId {} out of bounds for var_reprs (have {} entries)",
+            var.raw(),
+            self.var_reprs.len(),
+        );
+        Some(self.var_reprs[var.index()])
+    }
+
     /// Allocate a fresh variable with the given type.
     ///
     /// Returns a new [`ArcVarId`] that does not collide with any existing
@@ -657,6 +740,27 @@ impl ArcFunction {
         let id = u32::try_from(self.var_types.len())
             .unwrap_or_else(|_| panic!("variable count exceeds u32::MAX"));
         self.var_types.push(ty);
+        // Keep var_reprs in sync if it has been populated.
+        // Uses Scalar as a placeholder — callers that know the correct repr
+        // should use `fresh_var_repr` instead.
+        if !self.var_reprs.is_empty() {
+            self.var_reprs.push(ValueRepr::Scalar);
+        }
+        ArcVarId::new(id)
+    }
+
+    /// Allocate a fresh variable with an explicit [`ValueRepr`].
+    ///
+    /// Like [`fresh_var`](Self::fresh_var), but stores the provided `repr`
+    /// instead of a `Scalar` placeholder. Used by ARC passes that create
+    /// variables of known representation (e.g., reuse tokens, merge params).
+    pub fn fresh_var_repr(&mut self, ty: Idx, repr: ValueRepr) -> ArcVarId {
+        let id = u32::try_from(self.var_types.len())
+            .unwrap_or_else(|_| panic!("variable count exceeds u32::MAX"));
+        self.var_types.push(ty);
+        if !self.var_reprs.is_empty() {
+            self.var_reprs.push(repr);
+        }
         ArcVarId::new(id)
     }
 

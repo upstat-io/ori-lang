@@ -287,3 +287,46 @@ fn test_file_attr_invalid_kind_reports_error() {
         .iter()
         .any(|e| e.message.contains("not valid as a file-level attribute")));
 }
+
+// FBIP attribute tests
+
+#[test]
+fn test_parse_fbip_attribute() {
+    let (result, _interner) = parse_with_errors(
+        r"
+#fbip
+@swap (x: str, y: str) -> (str, str) = (y, x);
+",
+    );
+
+    assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    assert_eq!(result.module.functions.len(), 1);
+    assert!(result.module.functions[0].is_fbip);
+}
+
+#[test]
+fn test_parse_fbip_attribute_with_brackets() {
+    let (result, _interner) = parse_with_errors(
+        r"
+#[fbip]
+@swap (x: str, y: str) -> (str, str) = (y, x);
+",
+    );
+
+    assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    assert_eq!(result.module.functions.len(), 1);
+    assert!(result.module.functions[0].is_fbip);
+}
+
+#[test]
+fn test_parse_no_fbip_attribute() {
+    let (result, _interner) = parse_with_errors(
+        r"
+@id (x: int) -> int = x;
+",
+    );
+
+    assert!(!result.has_errors(), "errors: {:?}", result.errors);
+    assert_eq!(result.module.functions.len(), 1);
+    assert!(!result.module.functions[0].is_fbip);
+}

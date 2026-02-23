@@ -14,7 +14,7 @@
 ## Keyword Clusters by Section
 
 ### Section 01: Emission Layer Typing
-**File:** `section-01-emission-layer-typing.md` | **Status:** Not Started
+**File:** `section-01-emission-layer-typing.md` | **Status:** Complete
 
 ```
 ValueRepr, EmittedValue, OperandValue, RcStrategy, value representation
@@ -64,7 +64,7 @@ arc_emitter/mod.rs, drop_gen.rs
 ---
 
 ### Section 04: Borrow Inference Hardening
-**File:** `section-04-borrow-hardening.md` | **Status:** Not Started
+**File:** `section-04-borrow-hardening.md` | **Status:** Complete
 
 ```
 borrow inference, AnnotatedSig, annotated_sigs
@@ -92,34 +92,37 @@ function_compiler/mod.rs, arc_emitter/mod.rs, rc_insert/mod.rs
 ---
 
 ### Section 05: Builtin Method Architecture
-**File:** `section-05-builtin-architecture.md` | **Status:** Not Started
+**File:** `section-05-builtin-architecture.md` | **Status:** Complete
 
 ```
-builtin method, inline codegen, dispatch table
-BuiltinTable, BuiltinEntry, try_emit_builtin_method
-TYPECK_BUILTIN_METHODS, consistency, sync test
+builtin method, inline codegen, dispatch table, declare_builtins! macro
+BuiltinTable, BuiltinRegistration, BuiltinCtx, try_emit_builtin_method
+TYPECK_BUILTIN_METHODS, consistency, sync test, coverage threshold
+ARC_PIPELINE_METHODS, CODEGEN_ALIASES, TRAIT_DISPATCH_METHODS
+receiver_borrowed, compile-time sync, LazyLock singleton
 builtins/mod.rs, builtins/collections.rs, builtins/primitives.rs
 builtins/iterator.rs, builtins/traits.rs, builtins/compound_traits.rs
-builtins/option_result.rs, builtins/trampolines.rs
+builtins/option_result.rs, builtins/trampolines.rs, builtins/tests.rs
 ```
 
 ---
 
 ### Section 06: RC Identity Propagation
-**File:** `section-06-rc-identity.md` | **Status:** Not Started
+**File:** `section-06-rc-identity.md` | **Status:** Complete
 
 ```
 RC identity, RCIdentityFunctionInfo, root normalization
 DerivedOwnership, BorrowedFrom, projection chain
-RcInc, RcDec, canonical root
-rc_identity.rs, rc_elim, eliminate_rc_ops
-Swift ARC optimizer, identity map
+RcInc, RcDec, canonical root, RcIdentityMap
+rc_identity/mod.rs, rc_elim, eliminate_rc_ops, propagate_rc_identity
+Swift ARC optimizer, identity map, root_strategy, ValueRepr
+strategy fixup, RcStrategy::from_var, split borrows, var_reprs
 ```
 
 ---
 
 ### Section 07: Cross-Block RC Elimination
-**File:** `section-07-cross-block-elim.md` | **Status:** Not Started
+**File:** `section-07-cross-block-elim.md` | **Status:** Complete
 
 ```
 cross-block elimination, multi-block, single-predecessor
@@ -132,19 +135,19 @@ rc_elim/mod.rs, Swift ARCSequenceOpts
 ---
 
 ### Section 08: Salsa-Integrated Borrow Inference
-**File:** `section-08-salsa-integration.md` | **Status:** Not Started
+**File:** `section-08-salsa-integration.md` | **Status:** Complete
 
 ```
-Salsa, incremental, memoization, query
-infer_borrows, AnnotatedSig, dependent query
+Salsa, incremental, memoization, query, side-cache
+infer_borrows, AnnotatedSig, BorrowSigCache, dependent query
 invalidation, recompilation, callee signature
-oric, database, query/mod.rs
+oric, database, db/mod.rs, compile_common.rs
 ```
 
 ---
 
 ### Section 09: FBIP Enforcement
-**File:** `section-09-fbip-enforcement.md` | **Status:** Not Started
+**File:** `section-09-fbip-enforcement.md` | **Status:** Complete
 
 ```
 FBIP, functional but in-place, Koka Perceus
@@ -156,7 +159,7 @@ fbip/mod.rs, CheckFBIP
 ---
 
 ### Section 10: Legacy Cleanup & Unification
-**File:** `section-10-legacy-cleanup.md` | **Status:** Not Started
+**File:** `section-10-legacy-cleanup.md` | **Status:** Complete
 
 ```
 Tier 1, ExprLowerer, use_arc_codegen, feature flag
@@ -179,6 +182,21 @@ arc.rs, aot tests, llvm-test.sh
 
 ---
 
+### Section 12: Per-Function Salsa Borrow Inference
+**File:** `section-12-per-function-salsa-borrow.md` | **Status:** Not Started
+
+```
+Salsa, per-function, incremental, SCC, strongly connected component
+Tarjan, call graph, topological order, cycle recovery
+infer_borrow_scc, infer_borrow_single, infer_borrow_fixed_point
+BorrowSigResult, ArcModuleInput, CombinedSigs, CallGraph
+early cutoff, signature stability, warm compile, watch-mode
+whole-program to per-function migration, feature flag salsa-borrow
+borrow/mod.rs, graph/call_graph.rs, graph/scc.rs, query/arc_queries.rs
+```
+
+---
+
 ## Quick Reference
 
 | ID | Title | File |
@@ -194,3 +212,4 @@ arc.rs, aot tests, llvm-test.sh
 | 09 | FBIP Enforcement | `section-09-fbip-enforcement.md` |
 | 10 | Legacy Cleanup & Unification | `section-10-legacy-cleanup.md` |
 | 11 | Comprehensive Verification | `section-11-verification.md` |
+| 12 | Per-Function Salsa Borrow Inference | `section-12-per-function-salsa-borrow.md` |

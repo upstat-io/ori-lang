@@ -1,9 +1,63 @@
 //! Collection type builtin methods.
 //!
-//! Handles `length`/`len`, `concat`, `iter` for List, Str, Map, Set, Range.
+//! Handles `length`/`len`, `is_empty`, `concat`, `iter` for List, Str, Map, Set, Range.
+
+declare_builtins! { emitter, ctx;
+    // str
+    ("str", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("str", "length", borrow: true) => emitter.emit_str_length(ctx.arg_vals[0]),
+    ("str", "len", borrow: true) => emitter.emit_str_length(ctx.arg_vals[0]),
+    ("str", "is_empty", borrow: true) => emitter.emit_str_is_empty(ctx.arg_vals[0]),
+    ("str", "concat", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            Some(emitter.emit_str_runtime_call("ori_str_concat", ctx.arg_vals[0], ctx.arg_vals[1], true))
+        } else {
+            None
+        }
+    },
+    ("str", "to_str", borrow: true) => Some(ctx.arg_vals[0]),
+    ("str", "iter", borrow: true) => emitter.emit_str_iter(ctx.arg_vals[0]),
+    // list
+    ("list", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("list", "length", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
+    ("list", "len", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
+    ("list", "is_empty", borrow: true) => emitter.emit_list_is_empty(ctx.arg_vals[0]),
+    ("list", "iter", borrow: true) => {
+        if let TypeInfo::List { element } = ctx.type_info {
+            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
+        } else {
+            None
+        }
+    },
+    // map
+    ("map", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("map", "length", borrow: true) => emitter.emit_map_length(ctx.arg_vals[0]),
+    ("map", "len", borrow: true) => emitter.emit_map_length(ctx.arg_vals[0]),
+    ("map", "iter", borrow: true) => {
+        if let TypeInfo::Map { key, value } = ctx.type_info {
+            emitter.emit_map_iter(ctx.arg_vals[0], *key, *value)
+        } else {
+            None
+        }
+    },
+    // Set
+    ("Set", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("Set", "length", borrow: true) => emitter.emit_set_length(ctx.arg_vals[0]),
+    ("Set", "len", borrow: true) => emitter.emit_set_length(ctx.arg_vals[0]),
+    ("Set", "iter", borrow: true) => {
+        if let TypeInfo::Set { element } = ctx.type_info {
+            emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
+        } else {
+            None
+        }
+    },
+    // range
+    ("range", "iter", borrow: true) => emitter.emit_range_iter(ctx.arg_vals[0]),
+}
 
 use ori_types::Idx;
 
+use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
 use super::super::ArcIrEmitter;
