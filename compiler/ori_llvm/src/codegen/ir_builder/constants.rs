@@ -42,6 +42,17 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_value(v.into())
     }
 
+    /// Create an integer constant matching the type of an existing value.
+    ///
+    /// Used by switch emission to ensure case constants have the same LLVM
+    /// integer type as the scrutinee (e.g. `i1` for bools, `i32` for chars).
+    pub fn const_int_matching(&mut self, reference: ValueId, val: u64) -> ValueId {
+        let ref_val = self.arena.get_value(reference);
+        let int_type = ref_val.into_int_value().get_type();
+        let v = int_type.const_int(val, false);
+        self.arena.push_value(v.into())
+    }
+
     /// Create a null pointer constant.
     #[inline]
     pub fn const_null_ptr(&mut self) -> ValueId {

@@ -233,4 +233,4 @@ These bugs were discovered during the debugging session. They affect multiple se
 | 08 | Salsa-Integrated Borrow Inference | `section-08-salsa-integration.md` | Not Started |
 | 09 | FBIP Enforcement | `section-09-fbip-enforcement.md` | Not Started |
 | 10 | Legacy Cleanup & Unification | `section-10-legacy-cleanup.md` | Not Started |
-| 11 | Comprehensive Verification | `section-11-verification.md` | Not Started |
+| 11 | Comprehensive Verification | `section-11-verification.md` | In Progress |
