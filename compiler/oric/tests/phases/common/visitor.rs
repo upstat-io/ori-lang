@@ -167,6 +167,7 @@ fn test_visit_function() {
         body,
         span: Span::new(0, 22),
         visibility: Visibility::Private,
+        is_fbip: false,
     };
 
     let mut counter = ExprCounter { count: 0 };
@@ -195,6 +196,7 @@ fn test_visit_module() {
         body: body1,
         span: Span::new(0, 5),
         visibility: Visibility::Private,
+        is_fbip: false,
     };
 
     let func2 = Function {
@@ -210,6 +212,7 @@ fn test_visit_module() {
         body: body2,
         span: Span::new(10, 15),
         visibility: Visibility::Public,
+        is_fbip: false,
     };
 
     let module = Module {

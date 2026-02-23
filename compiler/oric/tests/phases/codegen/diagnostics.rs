@@ -14,21 +14,6 @@ use oric::problem::codegen::{CodegenDiagnostics, CodegenProblem};
 // ── ARC Problem conversions (E4xxx) ─────────────────────────────────
 
 #[test]
-fn from_arc_unsupported_expr() {
-    let arc = ori_arc::ArcProblem::UnsupportedExpr {
-        kind: "Await",
-        span: Span::new(10, 20),
-    };
-    let problem: CodegenProblem = arc.into();
-    let diag = problem.into_diagnostic();
-
-    assert_eq!(diag.code, ErrorCode::E4001);
-    assert_eq!(diag.severity, Severity::Warning);
-    assert!(diag.message.contains("Await"));
-    assert!(!diag.labels.is_empty());
-}
-
-#[test]
 fn from_arc_unsupported_pattern() {
     let arc = ori_arc::ArcProblem::UnsupportedPattern {
         kind: "Guard",
@@ -59,10 +44,6 @@ fn from_arc_internal_error() {
 
 #[test]
 fn arc_unsupported_is_warning_not_error() {
-    let expr = CodegenProblem::ArcUnsupportedExpr {
-        kind: "Match",
-        span: Span::new(0, 5),
-    };
     let pattern = CodegenProblem::ArcUnsupportedPattern {
         kind: "Rest",
         span: Span::new(0, 5),
@@ -72,7 +53,6 @@ fn arc_unsupported_is_warning_not_error() {
         span: Span::new(0, 5),
     };
 
-    assert!(!expr.is_error());
     assert!(!pattern.is_error());
     assert!(internal.is_error());
 }
@@ -353,10 +333,6 @@ fn diagnostics_accumulator_empty() {
 #[test]
 fn diagnostics_accumulator_warnings_only() {
     let mut acc = CodegenDiagnostics::new();
-    acc.push(CodegenProblem::ArcUnsupportedExpr {
-        kind: "Await",
-        span: Span::new(0, 5),
-    });
     acc.push(CodegenProblem::ArcUnsupportedPattern {
         kind: "Guard",
         span: Span::new(10, 15),
@@ -365,15 +341,15 @@ fn diagnostics_accumulator_warnings_only() {
     assert!(!acc.is_empty());
     assert!(!acc.has_errors()); // Only warnings
     let diags = acc.into_diagnostics();
-    assert_eq!(diags.len(), 2);
+    assert_eq!(diags.len(), 1);
     assert!(diags.iter().all(|d| d.severity == Severity::Warning));
 }
 
 #[test]
 fn diagnostics_accumulator_with_errors() {
     let mut acc = CodegenDiagnostics::new();
-    acc.push(CodegenProblem::ArcUnsupportedExpr {
-        kind: "Await",
+    acc.push(CodegenProblem::ArcUnsupportedPattern {
+        kind: "Guard",
         span: Span::new(0, 5),
     });
     acc.push(CodegenProblem::VerificationFailed {
@@ -391,8 +367,8 @@ fn diagnostics_accumulator_with_errors() {
 fn diagnostics_accumulator_add_arc_problems() {
     let mut acc = CodegenDiagnostics::new();
     let arc_problems = vec![
-        ori_arc::ArcProblem::UnsupportedExpr {
-            kind: "Await",
+        ori_arc::ArcProblem::UnsupportedPattern {
+            kind: "Guard",
             span: Span::new(0, 5),
         },
         ori_arc::ArcProblem::InternalError {
@@ -405,7 +381,7 @@ fn diagnostics_accumulator_add_arc_problems() {
     assert!(acc.has_errors()); // InternalError is an error
     let diags = acc.into_diagnostics();
     assert_eq!(diags.len(), 2);
-    assert_eq!(diags[0].code, ErrorCode::E4001);
+    assert_eq!(diags[0].code, ErrorCode::E4002);
     assert_eq!(diags[1].code, ErrorCode::E4003);
 }
 

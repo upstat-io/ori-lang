@@ -12,9 +12,12 @@
 
 mod builtins;
 mod drop_gen;
+mod rc_ops;
+
+pub use builtins::borrowing_builtin_names;
 
 use ori_arc::ir::{
-    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp,
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp, ValueRepr,
 };
 use ori_arc::ArcClassification;
 use ori_ir::{BinaryOp, Name, StringInterner, UnaryOp};
@@ -25,6 +28,87 @@ use super::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
+
+// ---------------------------------------------------------------------------
+// EmittedValue
+// ---------------------------------------------------------------------------
+
+/// Tagged LLVM value carrying its memory representation.
+///
+/// Wraps [`ValueId`] with variant information derived from the ARC IR's
+/// [`ValueRepr`]. This prevents the "did I load this already?" and
+/// "is this a pointer or a scalar?" class of bugs by making the value's
+/// representation explicit at the type level.
+///
+/// Inspired by Rust's `OperandValue` in `rustc_codegen_llvm`.
+#[derive(Clone, Copy, Debug)]
+enum EmittedValue {
+    /// Register scalar: i64, f64, i1, i8, i32.
+    Immediate(ValueId),
+    /// Pointer to heap-allocated RC'd memory (list, map, set, etc.).
+    RcPointer(ValueId),
+    /// Stack aggregate: struct, tuple, enum by value, fat value (str, closure).
+    Aggregate(ValueId),
+    /// Two-word split: {first, second} — str={len,ptr}, closure={fn,env}.
+    /// The `second` component is typically the RC-managed pointer.
+    /// Used by Section 01.3 when RC operations need direct component access.
+    #[allow(dead_code, reason = "reserved for Section 01.3 RcStrategy split")]
+    Pair { first: ValueId, second: ValueId },
+    /// No runtime representation (unit, never).
+    /// Used when ZST values are tracked through the pipeline.
+    #[allow(dead_code, reason = "reserved for Section 01.3 ZST propagation")]
+    ZeroSized,
+}
+
+impl EmittedValue {
+    /// Extract the single underlying [`ValueId`].
+    ///
+    /// # Panics
+    /// Panics on `Pair` (two values) and `ZeroSized` (no value).
+    /// For those variants, destructure the enum directly.
+    fn into_raw(self) -> ValueId {
+        match self {
+            Self::Immediate(v) | Self::RcPointer(v) | Self::Aggregate(v) => v,
+            Self::Pair { .. } => {
+                panic!("EmittedValue::Pair has no single ValueId — destructure instead")
+            }
+            Self::ZeroSized => panic!("EmittedValue::ZeroSized has no ValueId"),
+        }
+    }
+
+    /// Get the RC-trackable data pointer, if this value is reference-counted.
+    ///
+    /// - `RcPointer` → the pointer itself
+    /// - `Pair` → the second component (typically the RC-managed pointer)
+    /// - Others → `None`
+    #[allow(dead_code, reason = "used by Section 01.3 RC strategy dispatch")]
+    fn rc_data_ptr(self) -> Option<ValueId> {
+        match self {
+            Self::RcPointer(v) => Some(v),
+            Self::Pair { second, .. } => Some(second),
+            _ => None,
+        }
+    }
+
+    /// True if this value contains a reference-counted component.
+    #[allow(dead_code, reason = "used by Section 01.3 RC strategy dispatch")]
+    fn is_rc_managed(self) -> bool {
+        matches!(self, Self::RcPointer(_) | Self::Pair { .. })
+    }
+
+    /// Bridge from an ARC IR [`ValueRepr`] to an emitted value.
+    ///
+    /// Maps single-valued representations directly. `FatValue` is stored
+    /// as `Aggregate` (the two components remain packed in a single LLVM
+    /// struct value); use `Pair` only when the components are split.
+    fn from_repr(repr: ValueRepr, value: ValueId) -> Self {
+        match repr {
+            ValueRepr::Scalar => Self::Immediate(value),
+            ValueRepr::RcPointer => Self::RcPointer(value),
+            ValueRepr::Aggregate | ValueRepr::FatValue => Self::Aggregate(value),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // ArcIrEmitter
@@ -46,8 +130,7 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Type pool for structural queries (used by drop function generation).
     pool: &'a Pool,
     /// ARC type classifier for drop function generation.
-    /// `None` when ARC codegen is disabled (Tier 1 path).
-    classifier: Option<&'a dyn ArcClassification>,
+    classifier: &'a dyn ArcClassification,
     /// Cache: type `Idx` → already-generated drop function `FunctionId`.
     /// Avoids regenerating drop functions for the same type and handles
     /// recursive types (entry inserted before body generation).
@@ -62,8 +145,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     type_idx_to_name: &'a FxHashMap<Idx, Name>,
     /// Counter for unique `PartialApply` wrapper/drop function names.
     partial_apply_counter: u32,
-    /// ARC variable → LLVM value mapping.
-    var_map: Vec<Option<ValueId>>,
+    /// ARC variable → typed LLVM value mapping.
+    var_map: Vec<Option<EmittedValue>>,
     /// ARC block → LLVM block mapping.
     block_map: Vec<BlockId>,
     /// Deferred phi incoming values: `block_index` → `[(param_index, value, source_block)]`.
@@ -83,7 +166,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         type_resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
         interner: &'a StringInterner,
         pool: &'a Pool,
-        classifier: Option<&'a dyn ArcClassification>,
+        classifier: &'a dyn ArcClassification,
         current_function: FunctionId,
         functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
         method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
@@ -114,27 +197,48 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.builder.register_type(llvm_ty)
     }
 
-    /// Look up the LLVM value for an ARC variable.
+    /// Look up the raw LLVM value for an ARC variable.
     ///
-    /// Returns `ValueId::NONE` and logs a warning if the variable is not yet
-    /// defined — this is an internal invariant violation but should not crash
-    /// the compiler. The malformed IR will be caught by `codegen_error_count`.
+    /// Returns the underlying `ValueId`, suitable for consumers that don't
+    /// need representation info. For typed access, use [`var_emitted`](Self::var_emitted).
+    ///
+    /// # Panics
+    /// Panics if the stored value is `Pair` or `ZeroSized`. Use `var_emitted()`
+    /// for variables that may hold those variants.
+    ///
+    /// Returns `ValueId::NONE` and logs an error if the variable is not yet defined.
     fn var(&self, v: ArcVarId) -> ValueId {
+        self.var_emitted(v).into_raw()
+    }
+
+    /// Look up the typed emitted value for an ARC variable.
+    ///
+    /// Returns the full [`EmittedValue`] including representation info.
+    /// Prefer this over [`var`](Self::var) when the consumer needs to
+    /// distinguish between value kinds (e.g., RC operations).
+    fn var_emitted(&self, v: ArcVarId) -> EmittedValue {
         if let Some(Some(val)) = self.var_map.get(v.index()) {
             *val
         } else {
             tracing::error!(var = v.raw(), "ArcIrEmitter: variable not yet defined");
-            ValueId::NONE
+            EmittedValue::Immediate(ValueId::NONE)
         }
     }
 
-    /// Bind an ARC variable to an LLVM value.
-    fn def_var(&mut self, v: ArcVarId, val: ValueId) {
+    /// Bind an ARC variable to a typed LLVM value.
+    fn def_var(&mut self, v: ArcVarId, val: EmittedValue) {
         let idx = v.index();
         if idx >= self.var_map.len() {
             self.var_map.resize(idx + 1, None);
         }
         self.var_map[idx] = Some(val);
+    }
+
+    /// Bind an ARC variable to a raw LLVM value, inferring its [`EmittedValue`]
+    /// variant from the variable's [`ValueRepr`] in the ARC function.
+    fn def_var_repr(&mut self, v: ArcVarId, val: ValueId, func: &ArcFunction) {
+        let repr = func.var_repr(v).unwrap_or(ValueRepr::Scalar);
+        self.def_var(v, EmittedValue::from_repr(repr, val));
     }
 
     /// Look up the LLVM block for an ARC block.
@@ -156,13 +260,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             return self.builder.get_function_ptr(func_id);
         }
 
-        // No classifier → no drop analysis possible
-        let Some(classifier) = self.classifier else {
-            return self.builder.const_null_ptr();
-        };
-
         // Compute what drop operations this type needs
-        let Some(drop_info) = ori_arc::compute_drop_info(ty, classifier, self.pool) else {
+        let Some(drop_info) = ori_arc::compute_drop_info(ty, self.classifier, self.pool) else {
             return self.builder.const_null_ptr();
         };
 
@@ -227,7 +326,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     let llvm_param = self
                         .builder
                         .get_param(self.current_function, llvm_param_idx);
-                    self.def_var(param.var, llvm_param);
+                    self.def_var_repr(param.var, llvm_param, func);
                     llvm_param_idx += 1;
                 }
                 ParamPassing::Indirect { .. } | ParamPassing::Reference => {
@@ -236,13 +335,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                         .get_param(self.current_function, llvm_param_idx);
                     let ty = self.resolve_type(param.ty);
                     let loaded = self.builder.load(ty, ptr_param, "param.load");
-                    self.def_var(param.var, loaded);
+                    self.def_var_repr(param.var, loaded, func);
                     llvm_param_idx += 1;
                 }
                 ParamPassing::Void => {
                     // No physical LLVM param — bind to a zero/unit constant
                     let zero = self.builder.const_i64(0);
-                    self.def_var(param.var, zero);
+                    self.def_var(param.var, EmittedValue::Immediate(zero));
                 }
             }
         }
@@ -285,7 +384,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 for &(var, ty) in &block.params {
                     let llvm_ty = self.resolve_type(ty);
                     let phi_val = self.builder.phi(llvm_ty, &format!("v{}", var.raw()));
-                    self.def_var(var, phi_val);
+                    self.def_var_repr(var, phi_val, func);
                     block_phis.push((var, phi_val));
                 }
             }
@@ -411,6 +510,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 ty: _,
                 func,
                 args,
+                arg_ownership: _,
                 normal,
                 unwind,
             } => self.emit_invoke(*dst, *func, args, *normal, *unwind, arc_func),
@@ -455,7 +555,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         if let Some(val) = self.try_emit_format_call(func_name_str, arc_args, arc_func) {
             self.builder.br(normal_block);
             self.builder.position_at_end(normal_block);
-            self.def_var(dst, val);
+            self.def_var_repr(dst, val, arc_func);
             return;
         }
 
@@ -464,7 +564,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             let val = self.emit_hash_combine(self.var(arc_args[0]), self.var(arc_args[1]));
             self.builder.br(normal_block);
             self.builder.position_at_end(normal_block);
-            self.def_var(dst, val);
+            self.def_var_repr(dst, val, arc_func);
             return;
         }
 
@@ -477,7 +577,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             .functions
             .get(&callee)
             .or_else(|| self.lookup_method_by_receiver(callee, arc_args, arc_func))
-            .or_else(|| self.lookup_method_by_unqualified_name(callee))
+            .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
         if let Some((func_id, params, ret_abi)) = resolved {
@@ -499,14 +599,20 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 }
             };
             if let Some(val) = result {
-                self.def_var(dst, val);
+                self.def_var_repr(dst, val, arc_func);
+            } else {
+                // Void-returning invoke: ARC IR still expects dst to be defined
+                // (uniform SSA — every Invoke produces a variable). Bind to a
+                // unit constant so successor blocks can reference it.
+                let unit = self.builder.const_i64(0);
+                self.def_var(dst, EmittedValue::Immediate(unit));
             }
         } else if let Some(val) = self.try_emit_builtin_method(callee, arc_args, arc_func) {
             // Builtin method handled inline — branch to normal block
             // (the current block needs a terminator since we skipped invoke)
             self.builder.br(normal_block);
             self.builder.position_at_end(normal_block);
-            self.def_var(dst, val);
+            self.def_var_repr(dst, val, arc_func);
         } else if let Some(llvm_func) = self.builder.scx().llmod.get_function(func_name_str) {
             // Runtime function fallback with aggregate coercion
             let is_list_push = func_name_str == "ori_list_push";
@@ -528,7 +634,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 self.builder
                     .invoke(func_id, &coerced_args, normal_block, unwind_block, "invoke")
             {
-                self.def_var(dst, val);
+                self.def_var_repr(dst, val, arc_func);
+            } else {
+                // Void-returning runtime function: bind dst to unit constant
+                let unit = self.builder.const_i64(0);
+                self.def_var(dst, EmittedValue::Immediate(unit));
             }
         } else {
             tracing::warn!(
@@ -539,6 +649,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             // (every block must have a terminator).
             self.builder.br(normal_block);
             self.builder.position_at_end(normal_block);
+            // Bind dst to unit constant so successor blocks don't crash
+            let unit = self.builder.const_i64(0);
+            self.def_var(dst, EmittedValue::Immediate(unit));
             self.builder.record_codegen_error();
         }
     }
@@ -561,17 +674,32 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.method_functions.get(&(*type_name, name))
     }
 
-    /// Look up a method function by unqualified name (e.g., "clone").
+    /// Diagnostic fallback for method lookup when both `functions` and
+    /// `lookup_method_by_receiver` miss.
     ///
-    /// Derive methods in ARC IR use unqualified names like "clone". This
-    /// searches `method_functions` for any type that has this method.
-    /// Falls back to linear scan — prefer [`Self::lookup_method_by_receiver`]
-    /// when receiver type information is available.
-    fn lookup_method_by_unqualified_name(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
-        self.method_functions
+    /// This should never succeed — all method registrations go through both
+    /// `functions` (unqualified) and `method_functions` (type-qualified).
+    /// If this path is reached and finds something, it indicates a registration
+    /// gap that should be fixed at the source.
+    fn lookup_method_fallback(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
+        let result = self
+            .method_functions
             .iter()
             .find(|&((_, method_name), _)| *method_name == name)
-            .map(|(_, v)| v)
+            .map(|(_, v)| v);
+        if result.is_some() {
+            tracing::error!(
+                method = %self.interner.lookup(name),
+                "method resolved only via linear scan fallback — \
+                 registration gap in functions/type_idx_to_name"
+            );
+            debug_assert!(
+                false,
+                "method '{}' resolved via linear scan fallback — fix registration",
+                self.interner.lookup(name)
+            );
+        }
+        result
     }
 
     /// Emit an `Apply` instruction (ABI-aware direct call).
@@ -586,7 +714,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             let iter_ptr = self.var(args[0]);
             let elem_ty = func.var_type(args[1]);
             if let Some(val) = self.emit_iter_next(iter_ptr, elem_ty) {
-                self.def_var(dst, val);
+                self.def_var_repr(dst, val, func);
             }
             return;
         }
@@ -596,21 +724,21 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // We handle the sret plumbing here: alloca result struct, call, load.
         if callee_name_str == "ori_list_take" && !args.is_empty() {
             if let Some(val) = self.emit_list_take(args[0], func) {
-                self.def_var(dst, val);
+                self.def_var_repr(dst, val, func);
             }
             return;
         }
 
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
         if let Some(val) = self.try_emit_format_call(callee_name_str, args, func) {
-            self.def_var(dst, val);
+            self.def_var_repr(dst, val, func);
             return;
         }
 
         // Intercept hash_combine free function: emit inline boost hash_combine.
         if callee_name_str == "hash_combine" && args.len() >= 2 {
             let val = self.emit_hash_combine(self.var(args[0]), self.var(args[1]));
-            self.def_var(dst, val);
+            self.def_var_repr(dst, val, func);
             return;
         }
 
@@ -622,7 +750,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             .functions
             .get(&callee)
             .or_else(|| self.lookup_method_by_receiver(callee, args, func))
-            .or_else(|| self.lookup_method_by_unqualified_name(callee))
+            .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
         let result = if let Some((func_id, params, ret_abi)) = resolved {
@@ -671,7 +799,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         };
 
         if let Some(val) = result {
-            self.def_var(dst, val);
+            self.def_var_repr(dst, val, func);
         }
     }
 
@@ -722,7 +850,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 self.builder
                     .call_indirect(ret_ty, &param_types, fn_ptr, &arg_vals, "icall")
             {
-                self.def_var(dst, val);
+                self.def_var_repr(dst, val, func);
             }
         } else {
             tracing::error!(
@@ -766,7 +894,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             let closure =
                 self.builder
                     .build_struct(closure_ty, &[null_ptr, null_ptr], "partial_apply");
-            self.def_var(dst, closure);
+            self.def_var(dst, EmittedValue::Aggregate(closure));
             return;
         };
         let callee_abi = callee_abi.clone();
@@ -799,7 +927,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let closure =
             self.builder
                 .build_struct(closure_ty, &[wrapper_fn_ptr, env_ptr], "partial_apply");
-        self.def_var(dst, closure);
+        self.def_var(dst, EmittedValue::Aggregate(closure));
     }
 
     /// Allocate and pack a closure environment struct.
@@ -903,7 +1031,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         )]
         for (i, &cap_ty) in capture_types.iter().enumerate() {
             // Check if this capture type needs RC management
-            let needs_rc = self.classifier.is_some_and(|cls| cls.needs_rc(cap_ty));
+            let needs_rc = self.classifier.needs_rc(cap_ty);
             if needs_rc {
                 let field_ty = self.resolve_type(cap_ty);
                 let field_ptr = self.builder.struct_gep(
@@ -1125,7 +1253,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     &format!("proj.{field}.gep"),
                 );
                 let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
-                self.def_var(dst, loaded);
+                self.def_var_repr(dst, loaded, func);
                 return;
             }
         }
@@ -1134,7 +1262,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             .builder
             .extract_value(val, field, &format!("proj.{field}"))
         {
-            self.def_var(dst, extracted);
+            self.def_var_repr(dst, extracted, func);
         } else {
             // Fallback: GEP-based field access for heap-allocated types
             let val_ty = func.var_type(value);
@@ -1143,7 +1271,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 self.builder
                     .struct_gep(llvm_val_ty, val, field, &format!("proj.{field}.gep"));
             let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
-            self.def_var(dst, loaded);
+            self.def_var_repr(dst, loaded, func);
         }
     }
 
@@ -1157,7 +1285,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         match instr {
             ArcInstr::Let { dst, ty, value } => {
                 let val = self.emit_value(value, *ty, func);
-                self.def_var(*dst, val);
+                self.def_var_repr(*dst, val, func);
             }
 
             ArcInstr::Apply {
@@ -1165,6 +1293,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 ty: _,
                 func: callee,
                 args,
+                arg_ownership: _,
             } => self.emit_apply(*dst, *callee, args, func),
 
             ArcInstr::ApplyIndirect {
@@ -1195,98 +1324,20 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 args,
             } => {
                 let val = self.emit_construct(*ty, ctor, args);
-                self.def_var(*dst, val);
+                self.def_var_repr(*dst, val, func);
             }
 
-            // RC operations
-            ArcInstr::RcInc { var, count } => {
-                let val = self.var(*var);
-                let ty = func.var_type(*var);
-                if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_inc") {
-                    let func_id = self.builder.intern_function(llvm_func);
-                    if self.pool.tag(ty) == Tag::Function {
-                        // Closure: extract env_ptr (field 1) and inc that
-                        if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_inc.env") {
-                            let is_null = self.builder.is_null_ptr(env_ptr, "rc_inc.null");
-                            let do_inc = self
-                                .builder
-                                .append_block(self.current_function, "rc_inc.do");
-                            let skip = self
-                                .builder
-                                .append_block(self.current_function, "rc_inc.skip");
-                            self.builder.cond_br(is_null, skip, do_inc);
-
-                            self.builder.position_at_end(do_inc);
-                            for _ in 0..*count {
-                                self.builder.call(func_id, &[env_ptr], "");
-                            }
-                            self.builder.br(skip);
-
-                            self.builder.position_at_end(skip);
-                        }
-                    } else if !val.is_none() {
-                        // Extract data pointer(s) from aggregate types.
-                        // Note: for Result/Enum types, extract_rc_data_ptrs
-                        // returns an empty vec — the ARC pipeline handles
-                        // result fields individually via Project instructions.
-                        let data_ptrs = self.extract_rc_data_ptrs(val, ty);
-                        for data_ptr in data_ptrs {
-                            for _ in 0..*count {
-                                self.builder.call(func_id, &[data_ptr], "");
-                            }
-                        }
-                    }
-                }
+            // RC operations — dispatched by strategy (no Pool queries)
+            ArcInstr::RcInc {
+                var,
+                count,
+                strategy,
+            } => {
+                self.emit_rc_inc(*var, *count, *strategy, func);
             }
 
-            ArcInstr::RcDec { var } => {
-                let val = self.var(*var);
-                let ty = func.var_type(*var);
-                let resolved = self.pool.resolve_fully(ty);
-                let pool_tag = self.pool.tag(resolved);
-                if pool_tag == Tag::Function {
-                    // Closure: extract env_ptr (field 1), load drop_fn from env
-                    if let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_dec.env") {
-                        let is_null = self.builder.is_null_ptr(env_ptr, "rc_dec.null");
-                        let do_dec = self
-                            .builder
-                            .append_block(self.current_function, "rc_dec.do");
-                        let skip = self
-                            .builder
-                            .append_block(self.current_function, "rc_dec.skip");
-                        self.builder.cond_br(is_null, skip, do_dec);
-
-                        self.builder.position_at_end(do_dec);
-                        let ptr_ty = self.builder.ptr_type();
-                        let drop_fn = self.builder.load(ptr_ty, env_ptr, "rc_dec.drop_fn");
-                        if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec")
-                        {
-                            let func_id = self.builder.intern_function(llvm_func);
-                            self.builder.call(func_id, &[env_ptr, drop_fn], "");
-                        }
-                        self.builder.br(skip);
-
-                        self.builder.position_at_end(skip);
-                    }
-                } else if matches!(pool_tag, Tag::Result | Tag::Enum) {
-                    // Enum-like types (Result, Enum): tag-based inline cleanup.
-                    // These types are stack-allocated (no RC header) but may
-                    // contain RC-typed fields in their variants. We switch on
-                    // the tag at runtime and Dec appropriate variant fields.
-                    self.emit_inline_enum_dec(val, resolved, pool_tag);
-                } else {
-                    // Self-RC types (Str, List, etc.) and compound types
-                    // (Tuple, Struct): extract data pointer(s) and call
-                    // ori_rc_dec for each.
-                    let data_ptrs = self.extract_rc_data_ptrs(val, ty);
-                    let drop_fn_ptr = self.get_or_generate_drop_fn(ty);
-                    if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
-                        let func_id = self.builder.intern_function(llvm_func);
-                        for data_ptr in data_ptrs {
-                            self.builder.call(func_id, &[data_ptr, drop_fn_ptr], "");
-                        }
-                    }
-                }
+            ArcInstr::RcDec { var, strategy } => {
+                self.emit_rc_dec(*var, *strategy, func);
             }
 
             ArcInstr::IsShared { dst, var } => {
@@ -1300,15 +1351,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 let rc_val = self.builder.load(i64_ty, rc_ptr, "rc_val");
                 let one = self.builder.const_i64(1);
                 let is_shared = self.builder.icmp_sgt(rc_val, one, "is_shared");
-                self.def_var(*dst, is_shared);
+                self.def_var(*dst, EmittedValue::Immediate(is_shared));
             }
 
             ArcInstr::Reset { var, token } => {
                 // Reset marks a value for potential reuse. After expansion by
                 // Section 09, this becomes IsShared + conditional.
                 // The token IS the variable (reuse its memory if unique).
-                let val = self.var(*var);
-                self.def_var(*token, val);
+                let emitted = self.var_emitted(*var);
+                self.def_var(*token, emitted);
             }
 
             ArcInstr::Reuse {
@@ -1324,7 +1375,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 // back to fresh construction.
                 tracing::debug!("ArcIrEmitter: Reuse instruction not expanded — using Construct");
                 let val = self.emit_construct(*ty, ctor, args);
-                self.def_var(*dst, val);
+                self.def_var_repr(*dst, val, func);
                 let _ = token;
             }
 
@@ -1829,32 +1880,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "set")
             }
 
-            CtorKind::Closure { func } => {
-                // Closure: { fn_ptr, env_ptr }
-                let callee_name_str = self.interner.lookup(*func);
-                let fn_ptr = if let Some(llvm_func) =
-                    self.builder.scx().llmod.get_function(callee_name_str)
-                {
-                    let fid = self.builder.intern_function(llvm_func);
-                    self.builder.get_function_ptr(fid)
-                } else if let Some(&(func_id, _)) = self.functions.get(func) {
-                    self.builder.get_function_ptr(func_id)
-                } else {
-                    self.builder.const_null_ptr()
-                };
-
-                // Environment pointer: pack captured args into an alloca
-                // TODO: proper env packing with RC-tracked allocation
-                let env_ptr = if arg_vals.is_empty() {
-                    self.builder.const_null_ptr()
-                } else {
-                    let ptr_ty = self.builder.ptr_type();
-                    self.builder.alloca(ptr_ty, "env")
-                };
-
-                let closure_ty = self.builder.closure_type();
-                self.builder
-                    .build_struct(closure_ty, &[fn_ptr, env_ptr], "closure")
+            CtorKind::Closure { .. } => {
+                // Closures are always emitted via `PartialApply` in ARC IR,
+                // which calls `emit_partial_apply()` → `build_closure_env()`.
+                // `Construct { ctor: Closure }` is never produced by the lowerer.
+                unreachable!("closures use PartialApply, not Construct")
             }
         }
     }
@@ -1994,7 +2024,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             Tag::Option => {
                 // {i8 tag, T payload} — recurse into inner type at field 1
                 let inner = self.pool.option_inner(resolved);
-                if self.classifier.is_some_and(|c| c.needs_rc(inner)) {
+                if self.classifier.needs_rc(inner) {
                     if let Some(field) = self.builder.extract_value(val, 1, "rc.opt_inner") {
                         return self.extract_rc_data_ptrs(field, inner);
                     }
@@ -2025,7 +2055,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             reason = "field count bounded by struct definition, well within u32 range"
         )]
         for (i, (_, field_ty)) in fields.into_iter().enumerate() {
-            if self.classifier.is_some_and(|c| c.needs_rc(field_ty)) {
+            if self.classifier.needs_rc(field_ty) {
                 if let Some(field_val) =
                     self.builder
                         .extract_value(val, i as u32, &format!("rc.field.{i}"))
@@ -2046,7 +2076,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             reason = "element count bounded by tuple arity, well within u32 range"
         )]
         for (i, elem_ty) in elems.into_iter().enumerate() {
-            if self.classifier.is_some_and(|c| c.needs_rc(elem_ty)) {
+            if self.classifier.needs_rc(elem_ty) {
                 if let Some(elem_val) =
                     self.builder
                         .extract_value(val, i as u32, &format!("rc.elem.{i}"))
@@ -2071,21 +2101,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// For `Result<int, str>`: tag 0 (Ok) → nothing; tag 1 (Err) → Dec str.
     fn emit_inline_enum_dec(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag) {
-        let Some(classifier) = self.classifier else {
-            return;
-        };
-
         // Collect per-variant RC field info
         let variant_rc_fields: Vec<Vec<(u32, Idx)>> = match pool_tag {
             Tag::Result => {
                 let ok_ty = self.pool.result_ok(resolved_ty);
                 let err_ty = self.pool.result_err(resolved_ty);
-                let ok_fields = if classifier.needs_rc(ok_ty) {
+                let ok_fields = if self.classifier.needs_rc(ok_ty) {
                     vec![(0_u32, ok_ty)]
                 } else {
                     vec![]
                 };
-                let err_fields = if classifier.needs_rc(err_ty) {
+                let err_fields = if self.classifier.needs_rc(err_ty) {
                     vec![(0_u32, err_ty)]
                 } else {
                     vec![]
@@ -2100,7 +2126,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                         field_tys
                             .iter()
                             .enumerate()
-                            .filter(|(_, ty)| classifier.needs_rc(**ty))
+                            .filter(|(_, ty)| self.classifier.needs_rc(**ty))
                             .map(|(i, ty)| {
                                 #[expect(
                                     clippy::cast_possible_truncation,
@@ -2185,159 +2211,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field")
                 };
 
-                // Recursively extract data ptrs and Dec them
-                let data_ptrs = self.extract_rc_data_ptrs(field_val, field_type);
-                if !data_ptrs.is_empty() {
-                    let drop_fn_ptr = self.get_or_generate_drop_fn(field_type);
-                    if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
-                        let func_id = self.builder.intern_function(llvm_func);
-                        for data_ptr in data_ptrs {
-                            self.builder.call(func_id, &[data_ptr, drop_fn_ptr], "");
-                        }
-                    }
-                }
-            }
-
-            self.builder.br(done_block);
-        }
-
-        self.builder.position_at_end(done_block);
-    }
-
-    /// Emit inline tag-based Inc for enum-like types (Result, Enum).
-    ///
-    /// Symmetric to [`emit_inline_enum_dec`]: stores the value to a
-    /// temporary alloca, loads the tag, switches on it, and Inc's the
-    /// appropriate variant's RC fields.
-    #[expect(
-        dead_code,
-        reason = "call site temporarily disabled during Idx::ERROR fix testing"
-    )]
-    fn emit_inline_enum_inc(&mut self, val: ValueId, resolved_ty: Idx, pool_tag: Tag, count: u32) {
-        let Some(classifier) = self.classifier else {
-            return;
-        };
-
-        // Collect per-variant RC field info (same logic as emit_inline_enum_dec)
-        let variant_rc_fields: Vec<Vec<(u32, Idx)>> = match pool_tag {
-            Tag::Result => {
-                let ok_ty = self.pool.result_ok(resolved_ty);
-                let err_ty = self.pool.result_err(resolved_ty);
-                let ok_fields = if classifier.needs_rc(ok_ty) {
-                    vec![(0_u32, ok_ty)]
-                } else {
-                    vec![]
-                };
-                let err_fields = if classifier.needs_rc(err_ty) {
-                    vec![(0_u32, err_ty)]
-                } else {
-                    vec![]
-                };
-                vec![ok_fields, err_fields]
-            }
-            Tag::Enum => {
-                let variants = self.pool.enum_variants(resolved_ty);
-                variants
-                    .iter()
-                    .map(|(_, field_tys)| {
-                        field_tys
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, ty)| classifier.needs_rc(**ty))
-                            .map(|(i, ty)| {
-                                #[expect(
-                                    clippy::cast_possible_truncation,
-                                    reason = "variant field index fits u32"
-                                )]
-                                (i as u32, *ty)
-                            })
-                            .collect()
-                    })
-                    .collect()
-            }
-            _ => return,
-        };
-
-        // If no variant has RC fields, nothing to Inc
-        if variant_rc_fields.iter().all(Vec::is_empty) {
-            return;
-        }
-
-        // Store value to alloca so we can use GEP for field access
-        let enum_llvm_ty = self.resolve_type(resolved_ty);
-        let alloca = self.builder.alloca(enum_llvm_ty, "rc_inc.enum");
-        self.builder.store(val, alloca);
-
-        // Load tag (i64 at field 0)
-        let i64_ty = self.builder.i64_type();
-        let tag_ptr = self
-            .builder
-            .struct_gep(enum_llvm_ty, alloca, 0, "rc_inc.tag.ptr");
-        let tag_val = self.builder.load(i64_ty, tag_ptr, "rc_inc.tag");
-
-        // Convergence block
-        let done_block = self
-            .builder
-            .append_block(self.current_function, "rc_inc.done");
-
-        // Build switch cases for variants with RC fields
-        let mut cases = Vec::new();
-        #[expect(clippy::cast_possible_wrap, reason = "variant index fits i64")]
-        for (i, fields) in variant_rc_fields.iter().enumerate() {
-            if fields.is_empty() {
-                continue;
-            }
-            let block = self
-                .builder
-                .append_block(self.current_function, &format!("rc_inc.v{i}"));
-            let tag_const = self.builder.const_i64(i as i64);
-            cases.push((tag_const, block, fields.as_slice()));
-        }
-
-        let switch_cases: Vec<_> = cases.iter().map(|(tag, block, _)| (*tag, *block)).collect();
-        self.builder.switch(tag_val, done_block, &switch_cases);
-
-        // Emit per-variant Inc
-        for &(_, block, fields) in &cases {
-            self.builder.position_at_end(block);
-
-            for &(field_index, field_type) in fields {
-                let field_llvm_ty = self.resolve_type(field_type);
-                let field_val = if pool_tag == Tag::Result {
-                    let struct_idx = 1 + field_index;
-                    let field_ptr = self.builder.struct_gep(
-                        enum_llvm_ty,
-                        alloca,
-                        struct_idx,
-                        "rc_inc.payload.ptr",
-                    );
-                    self.builder
-                        .load(field_llvm_ty, field_ptr, "rc_inc.payload")
-                } else {
-                    let payload_ptr =
-                        self.builder
-                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_inc.payload");
-                    let field_ptr = self.builder.struct_gep(
-                        field_llvm_ty,
-                        payload_ptr,
-                        field_index,
-                        "rc_inc.field.ptr",
-                    );
-                    self.builder.load(field_llvm_ty, field_ptr, "rc_inc.field")
-                };
-
-                // Recursively extract data ptrs and Inc them
-                let data_ptrs = self.extract_rc_data_ptrs(field_val, field_type);
-                if !data_ptrs.is_empty() {
-                    if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_inc") {
-                        let func_id = self.builder.intern_function(llvm_func);
-                        for data_ptr in data_ptrs {
-                            for _ in 0..count {
-                                self.builder.call(func_id, &[data_ptr], "");
-                            }
-                        }
-                    }
-                }
+                // Dec the field's RC via per-type dispatch (no extract_rc_data_ptrs)
+                self.dec_value_rc(field_val, field_type);
             }
 
             self.builder.br(done_block);

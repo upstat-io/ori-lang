@@ -14,6 +14,9 @@
 //!   store result to out_ptr
 //! ```
 
+// No method registrations — trampolines are helper functions, not method handlers.
+declare_builtins! { _emitter, _ctx; }
+
 use ori_types::Idx;
 
 use crate::codegen::value_id::{FunctionId, ValueId};

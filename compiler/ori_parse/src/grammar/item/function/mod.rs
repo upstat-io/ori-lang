@@ -162,6 +162,7 @@ impl Parser<'_> {
                 body,
                 span,
                 visibility,
+                is_fbip: attrs.is_fbip,
             }))
         }
     }

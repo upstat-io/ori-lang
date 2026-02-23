@@ -144,6 +144,7 @@ define_error_codes! {
     E2037, "Multiple Into implementations apply";
     E2038, "Type does not implement Printable";
     E2039, "Cannot assign to immutable binding";
+    E2040, "Feature not yet supported";
 
     // Pattern Errors (E3xxx)
     E3001, "Unknown pattern";
@@ -154,6 +155,7 @@ define_error_codes! {
     E4001, "Unsupported expression in ARC IR lowering";
     E4002, "Unsupported pattern in ARC IR lowering";
     E4003, "ARC internal error";
+    E4004, "FBIP enforcement violation";
 
     // Codegen / LLVM Errors (E5xxx)
     E5001, "LLVM module verification failed";

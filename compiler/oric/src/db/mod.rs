@@ -133,6 +133,53 @@ impl ImportsCache {
     }
 }
 
+/// Session-scoped cache for ARC borrow inference signatures.
+///
+/// `FxHashMap<Name, AnnotatedSig>` doesn't satisfy Salsa's `Eq + Hash`
+/// requirements. This cache stores borrow signatures as a side-channel:
+/// the compilation pipeline caches sigs after running `run_arc_pipeline_cached`,
+/// and subsequent compilations of the same file skip borrow inference entirely.
+///
+/// Keyed by file path (same as `PoolCache`). Invalidation is explicit:
+/// `invalidate_file_caches()` cannot clear this (it uses `&dyn Db` which
+/// doesn't expose the borrow sig cache), so callers invalidate directly
+/// when re-running the pipeline.
+///
+/// Only available when the `llvm` feature is enabled (`ori_arc` dependency).
+#[cfg(feature = "llvm")]
+#[derive(Clone, Default)]
+pub struct BorrowSigCache(
+    Arc<RwLock<HashMap<PathBuf, Arc<rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>>>>>,
+);
+
+#[cfg(feature = "llvm")]
+impl BorrowSigCache {
+    /// Store borrow signatures for the given file path.
+    pub fn store(
+        &self,
+        path: &Path,
+        sigs: rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
+    ) {
+        self.0.write().insert(path.to_path_buf(), Arc::new(sigs));
+    }
+
+    /// Retrieve cached borrow signatures for the given file path.
+    pub fn get(
+        &self,
+        path: &Path,
+    ) -> Option<Arc<rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>>> {
+        self.0.read().get(path).cloned()
+    }
+
+    /// Remove cached borrow signatures for the given file path.
+    ///
+    /// Called before re-running borrow inference for a file whose source
+    /// has changed.
+    pub fn invalidate(&self, path: &Path) {
+        self.0.write().remove(path);
+    }
+}
+
 /// Main database trait that extends Salsa's Database.
 ///
 /// All code that needs database access should use `&dyn Db`.
@@ -220,6 +267,18 @@ pub struct CompilerDb {
     /// Stores `Arc<ResolvedImports>` by file path. Avoids re-resolving
     /// imports when multiple consumers need the same file's imports.
     imports_cache: ImportsCache,
+
+    /// Session-scoped borrow inference signature cache.
+    ///
+    /// Stores `Arc<FxHashMap<Name, AnnotatedSig>>` by file path. Avoids
+    /// re-running borrow inference when the same file is compiled multiple
+    /// times within a session, or when future watch-mode recompiles files
+    /// whose borrow signatures haven't changed.
+    ///
+    /// Not on the `Db` trait because `ori_arc` is behind the `llvm` feature.
+    /// Access via `CompilerDb::borrow_sig_cache()` directly.
+    #[cfg(feature = "llvm")]
+    borrow_sig_cache: BorrowSigCache,
 }
 
 impl Default for CompilerDb {
@@ -232,6 +291,8 @@ impl Default for CompilerDb {
             pool_cache: PoolCache::default(),
             canon_cache: CanonCache::default(),
             imports_cache: ImportsCache::default(),
+            #[cfg(feature = "llvm")]
+            borrow_sig_cache: BorrowSigCache::default(),
         }
     }
 }
@@ -255,12 +316,22 @@ impl CompilerDb {
             pool_cache: PoolCache::default(),
             canon_cache: CanonCache::default(),
             imports_cache: ImportsCache::default(),
+            #[cfg(feature = "llvm")]
+            borrow_sig_cache: BorrowSigCache::default(),
         }
     }
 
     /// Get the shared interner for use across databases.
     pub fn shared_interner(&self) -> SharedInterner {
         self.interner.clone()
+    }
+
+    /// Access the session-scoped borrow inference signature cache.
+    ///
+    /// Not on the `Db` trait because `ori_arc` is behind the `llvm` feature.
+    #[cfg(feature = "llvm")]
+    pub fn borrow_sig_cache(&self) -> &BorrowSigCache {
+        &self.borrow_sig_cache
     }
 
     /// Enable logging of Salsa events (for testing).

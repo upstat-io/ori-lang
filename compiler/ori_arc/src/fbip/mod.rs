@@ -152,7 +152,7 @@ pub fn analyze_fbip(
             .collect();
 
         for instr in &block.body {
-            if let ArcInstr::RcDec { var } = instr {
+            if let ArcInstr::RcDec { var, .. } = instr {
                 if !is_shared_vars.contains(var) && classifier.needs_rc(func.var_type(*var)) {
                     unpaired_decs.push((block.id, *var, func.var_type(*var)));
                 }
@@ -230,6 +230,37 @@ pub fn analyze_fbip(
         achieved,
         missed,
         is_fbip,
+    }
+}
+
+/// Check FBIP enforcement for a post-pipeline ARC function.
+///
+/// Returns an `ArcProblem::FbipViolation` if the function has missed reuse
+/// opportunities. Only called for functions annotated `#fbip`.
+///
+/// Rebuilds dominator tree and refined liveness from the post-pipeline IR
+/// state, then delegates to [`analyze_fbip`].
+pub fn check_fbip_enforcement(
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+    func_name: &str,
+    func_span: Span,
+) -> Option<crate::lower::ArcProblem> {
+    let dom_tree = DominatorTree::build(func);
+    let (refined, _liveness) = crate::liveness::compute_refined_liveness(func, classifier);
+
+    let report = analyze_fbip(func, classifier, &dom_tree, &refined);
+
+    if report.missed.is_empty() {
+        // Fully compliant (or nothing to reuse) — no violation.
+        None
+    } else {
+        Some(crate::lower::ArcProblem::FbipViolation {
+            func_name: func_name.to_string(),
+            missed_count: report.missed.len(),
+            achieved_count: report.achieved.len(),
+            span: func_span,
+        })
     }
 }
 

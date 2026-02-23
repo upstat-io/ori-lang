@@ -76,6 +76,10 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     arc_classifier: &'a ArcClassifier<'tcx>,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
+    /// Builtin method names whose receiver is borrowed (e.g., `len`, `is_empty`).
+    /// Passed to `annotate_arg_ownership` so inline-compiled builtins get
+    /// borrowing semantics instead of the default all-Owned.
+    borrowing_builtins: rustc_hash::FxHashSet<Name>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -99,6 +103,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
+        let borrowing_builtins = crate::codegen::arc_emitter::borrowing_builtin_names(interner);
         Self {
             builder,
             type_info,
@@ -114,6 +119,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             annotated_sigs,
             arc_classifier,
             debug_context,
+            borrowing_builtins,
         }
     }
 
@@ -260,6 +266,24 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         function_sigs: &[FunctionSig],
         canon: &CanonResult,
     ) {
+        // Verify all non-generic functions have borrow inference entries.
+        // A miss indicates a pipeline bug — the function was compiled without
+        // being analyzed by `infer_borrows`, so it falls back to all-Owned.
+        #[cfg(debug_assertions)]
+        {
+            let missing: Vec<_> = module_functions
+                .iter()
+                .zip(function_sigs.iter())
+                .filter(|(_, sig)| !sig.is_generic())
+                .filter(|(func, _)| !self.annotated_sigs.contains_key(&func.name))
+                .map(|(func, _)| self.interner.lookup(func.name))
+                .collect::<Vec<_>>();
+            debug_assert!(
+                missing.is_empty(),
+                "functions missing borrow sigs: {missing:?}"
+            );
+        }
+
         for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
             if sig.is_generic() {
                 continue;
@@ -278,7 +302,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
             // Look up the canonical body for this function
             let body = canon.root_for(func.name).unwrap_or(canon.root);
-            self.define_function_body(func.name, func_id, &abi, body, canon);
+            self.define_function_body(func.name, func_id, &abi, body, canon, sig.is_fbip);
         }
     }
 
@@ -292,8 +316,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         abi: &FunctionAbi,
         body: CanId,
         canon: &CanonResult,
+        is_fbip: bool,
     ) {
-        self.define_function_body_arc(name, func_id, abi, body, canon, self.arc_classifier);
+        self.define_function_body_arc(
+            name,
+            func_id,
+            abi,
+            body,
+            canon,
+            self.arc_classifier,
+            is_fbip,
+        );
     }
 
     /// ARC IR → LLVM IR codegen (with RC lifecycle).
@@ -309,6 +342,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         body: CanId,
         canon: &CanonResult,
         classifier: &ArcClassifier,
+        is_fbip: bool,
     ) {
         let name_str = self.interner.lookup(name);
         debug!(name = name_str, tier = 2, "defining function body (ARC)");
@@ -331,6 +365,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.interner,
             self.pool,
             &mut problems,
+            is_fbip,
         );
 
         for problem in &problems {
@@ -345,6 +380,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
                 param.ownership = annotated.ownership;
             }
+        } else if !arc_func.params.is_empty() {
+            warn!(
+                func = name_str,
+                params = arc_func.params.len(),
+                "borrow signature missing — compiling with all-Owned params"
+            );
         }
 
         // Step 1.6: Compile lambda ArcFunctions (closures).
@@ -354,13 +395,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.compile_lambda_arc(&mut lambda, classifier);
         }
 
-        // Step 2: Run full ARC pipeline (insert → detect → expand → eliminate)
-        ori_arc::run_arc_pipeline(
+        // Step 2: Annotate arg ownership, then run full ARC pipeline
+        ori_arc::annotate_arg_ownership(
+            &mut arc_func,
+            self.annotated_sigs,
+            self.interner,
+            &self.borrowing_builtins,
+        );
+        let arc_problems = ori_arc::run_arc_pipeline(
             &mut arc_func,
             classifier,
             self.annotated_sigs,
+            self.pool,
             self.interner,
         );
+        for problem in &arc_problems {
+            debug!(?problem, "ARC pipeline problem");
+        }
 
         trace!(
             name = name_str,
@@ -375,7 +426,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.type_resolver,
             self.interner,
             self.pool,
-            Some(classifier as &dyn ori_arc::ArcClassification),
+            classifier as &dyn ori_arc::ArcClassification,
             func_id,
             &self.functions,
             &self.method_functions,
@@ -425,7 +476,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.functions.insert(lambda_name, (func_id, abi.clone()));
 
         // Run full ARC pipeline on the lambda
-        ori_arc::run_arc_pipeline(lambda, classifier, self.annotated_sigs, self.interner);
+        ori_arc::annotate_arg_ownership(
+            lambda,
+            self.annotated_sigs,
+            self.interner,
+            &self.borrowing_builtins,
+        );
+        let arc_problems = ori_arc::run_arc_pipeline(
+            lambda,
+            classifier,
+            self.annotated_sigs,
+            self.pool,
+            self.interner,
+        );
+        for problem in &arc_problems {
+            debug!(?problem, "ARC pipeline problem (lambda)");
+        }
 
         // Emit LLVM IR from the lambda's ARC IR
         self.builder.set_current_function(func_id);
@@ -435,7 +501,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.type_resolver,
             self.interner,
             self.pool,
-            Some(classifier as &dyn ori_arc::ArcClassification),
+            classifier as &dyn ori_arc::ArcClassification,
             func_id,
             &self.functions,
             &self.method_functions,
@@ -582,9 +648,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
             let body = canon.root_for(test.name).unwrap_or(canon.root);
 
-            // Declare void → void wrapper
+            // Declare void → void wrapper.
+            // Test wrappers use C calling convention because they are called
+            // directly from Rust (JIT: `extern "C" fn()` in evaluator.rs).
+            // Using `fastcc` here would cause a calling convention mismatch
+            // that corrupts the stack frame, especially with invoke/landingpad.
             let func_id = self.builder.declare_void_function(&wrapper_name, &[]);
-            self.builder.set_fastcc(func_id);
+            self.builder.set_ccc(func_id);
             self.builder.set_current_function(func_id);
 
             // Build void → void ABI
@@ -594,7 +664,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                     ty: Idx::UNIT,
                     passing: ReturnPassing::Void,
                 },
-                call_conv: CallConv::Fast,
+                call_conv: CallConv::C,
             };
 
             // Lower through ARC pipeline
@@ -608,6 +678,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.interner,
                 self.pool,
                 &mut problems,
+                false, // tests are never #fbip
             );
 
             // Apply borrow annotations
@@ -623,12 +694,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             }
 
             // Run ARC pipeline
-            ori_arc::run_arc_pipeline(
+            ori_arc::annotate_arg_ownership(
+                &mut arc_func,
+                self.annotated_sigs,
+                self.interner,
+                &self.borrowing_builtins,
+            );
+            let arc_problems = ori_arc::run_arc_pipeline(
                 &mut arc_func,
                 self.arc_classifier,
                 self.annotated_sigs,
+                self.pool,
                 self.interner,
             );
+            for problem in &arc_problems {
+                debug!(?problem, "ARC pipeline problem (test)");
+            }
 
             // Emit via ArcIrEmitter
             let mut emitter = ArcIrEmitter::new(
@@ -637,7 +718,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.type_resolver,
                 self.interner,
                 self.pool,
-                Some(self.arc_classifier as &dyn ori_arc::ArcClassification),
+                self.arc_classifier as &dyn ori_arc::ArcClassification,
                 func_id,
                 &self.functions,
                 &self.method_functions,
@@ -781,6 +862,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             if let Some(&self_type_idx) = sig.param_types.first() {
                 self.type_idx_to_name.insert(self_type_idx, tnn);
             }
+
+            // Verify round-trip: what we registered is immediately retrievable.
+            debug_assert!(
+                self.method_functions.contains_key(&(tnn, method_name)),
+                "method_functions registration failed for {}.{}",
+                self.interner.lookup(tnn),
+                self.interner.lookup(method_name),
+            );
+            if let Some(&self_type_idx) = sig.param_types.first() {
+                debug_assert!(
+                    self.type_idx_to_name.contains_key(&self_type_idx),
+                    "type_idx_to_name registration failed for '{}' (Idx {:?})",
+                    self.interner.lookup(tnn),
+                    self_type_idx,
+                );
+            }
         }
 
         // Look up the canonical body for this impl method
@@ -789,7 +886,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             .or_else(|| canon.root_for(method_name))
             .unwrap_or(canon.root);
 
-        self.define_function_body(method_name, func_id, &abi, body, canon);
+        self.define_function_body(method_name, func_id, &abi, body, canon, sig.is_fbip);
     }
 
     /// Declare external imported functions (for multi-module AOT compilation).
@@ -1127,11 +1224,25 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.method_functions
             .insert((type_name, method_name), (func_id, abi.clone()));
         self.type_idx_to_name.insert(type_idx, type_name);
-        // Unqualified fallback — last-writer-wins when two types derive the
-        // same trait, but the lookup chain in emit_invoke/emit_apply tries
-        // type-qualified `lookup_method_by_receiver` first, so collisions
-        // resolve correctly when receiver type info is available.
+        // Unqualified entry — last-writer-wins when two types derive the same
+        // trait, but emit_invoke/emit_apply tries type-qualified
+        // `lookup_method_by_receiver` first, so collisions resolve correctly.
         self.functions.insert(method_name, (func_id, abi.clone()));
+
+        // Verify round-trip: registrations are immediately retrievable.
+        debug_assert!(
+            self.method_functions
+                .contains_key(&(type_name, method_name)),
+            "derive: method_functions registration failed for {}.{}",
+            self.interner.lookup(type_name),
+            self.interner.lookup(method_name),
+        );
+        debug_assert!(
+            self.type_idx_to_name.contains_key(&type_idx),
+            "derive: type_idx_to_name registration failed for '{}' (Idx {:?})",
+            self.interner.lookup(type_name),
+            type_idx,
+        );
 
         (func_id, self_value, other_vals)
     }

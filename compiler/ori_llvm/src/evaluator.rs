@@ -309,6 +309,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         interner,
                         self.pool,
                         &mut arc_problems,
+                        false,
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
@@ -339,6 +340,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         interner,
                         self.pool,
                         &mut arc_problems,
+                        false,
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
@@ -365,12 +367,15 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         interner,
                         self.pool,
                         &mut arc_problems,
+                        false,
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
                 }
 
-                ori_arc::infer_borrows(&arc_functions, &classifier)
+                let borrowing_builtins =
+                    crate::codegen::arc_emitter::borrowing_builtin_names(interner);
+                ori_arc::infer_borrows(&arc_functions, &classifier, &borrowing_builtins)
             };
 
             // 6. Two-pass function compilation

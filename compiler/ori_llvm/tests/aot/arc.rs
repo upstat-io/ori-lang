@@ -369,3 +369,51 @@ fn test_arc_lambda_passed_to_function() {
         "arc_lambda_passed_to_function",
     );
 }
+
+#[test]
+fn test_arc_lambda_returned_from_function() {
+    assert_aot_success(
+        r#"
+@make_adder (base: int) -> (int) -> int = {
+    (n: int) -> base + n
+};
+
+@main () -> int = {
+    let add10 = make_adder(10);
+    if add10(5) == 15 then 0 else 1
+}
+"#,
+        "arc_lambda_returned_from_function",
+    );
+}
+
+#[test]
+fn test_arc_lambda_nested_capture() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = 100;
+    let outer = (b: int) -> {
+        let inner = (c: int) -> a + b + c;
+        inner(3)
+    };
+    if outer(20) == 123 then 0 else 1
+}
+"#,
+        "arc_lambda_nested_capture",
+    );
+}
+
+#[test]
+fn test_arc_lambda_capture_bool() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let flag = true;
+    let check = (x: int) -> if flag then x else 0;
+    if check(42) == 42 then 0 else 1
+}
+"#,
+        "arc_lambda_capture_bool",
+    );
+}

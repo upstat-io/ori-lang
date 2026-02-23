@@ -11,7 +11,6 @@ use ori_types::Idx;
 use crate::ir::{ArcValue, ArcVarId, LitValue};
 
 use super::expr::ArcLowerer;
-use super::ArcProblem;
 
 impl ArcLowerer<'_> {
     // FunctionExp dispatch
@@ -19,8 +18,8 @@ impl ArcLowerer<'_> {
     /// Lower `CanExpr::FunctionExp { kind, props }` to ARC IR.
     ///
     /// Routes to type-specific lowering based on `FunctionExpKind`.
-    /// Deferred variants (Parallel, Spawn, Timeout, With, Channel*)
-    /// are reported as `ArcProblem::UnsupportedExpr`.
+    /// Post-0.1 concurrency variants (Parallel, Spawn, Timeout, With, Channel*)
+    /// are rejected at the type checker (E2040) and never reach here.
     pub(crate) fn lower_function_exp(
         &mut self,
         kind: FunctionExpKind,
@@ -35,7 +34,7 @@ impl ArcLowerer<'_> {
             FunctionExpKind::Recurse => self.lower_exp_recurse(props, span),
             FunctionExpKind::Cache => self.lower_exp_cache(props, span),
             FunctionExpKind::Catch => self.lower_exp_catch(props, span),
-            // Post-0.1-alpha — report as unsupported
+            // Post-0.1-alpha — rejected by type checker (E2040), never reaches lowerer
             FunctionExpKind::Parallel
             | FunctionExpKind::Spawn
             | FunctionExpKind::Timeout
@@ -44,11 +43,10 @@ impl ArcLowerer<'_> {
             | FunctionExpKind::ChannelIn
             | FunctionExpKind::ChannelOut
             | FunctionExpKind::ChannelAll => {
-                self.problems.push(ArcProblem::UnsupportedExpr {
-                    kind: kind.name(),
-                    span,
-                });
-                self.emit_unit()
+                unreachable!(
+                    "post-0.1 concurrency feature `{}` should be rejected by type checker (E2040)",
+                    kind.name()
+                )
             }
         }
     }

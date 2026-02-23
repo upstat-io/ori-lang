@@ -2,17 +2,17 @@ use super::*;
 use ori_diagnostic::Severity;
 
 #[test]
-fn test_arc_problem_from() {
-    let problem = ori_arc::ArcProblem::UnsupportedExpr {
-        kind: "Await",
+fn test_arc_unsupported_pattern_from() {
+    let problem = ori_arc::ArcProblem::UnsupportedPattern {
+        kind: "Guard",
         span: Span::new(10, 20),
     };
     let codegen: CodegenProblem = problem.into();
     assert!(!codegen.is_error()); // warnings, not errors
     let diag = codegen.into_diagnostic();
-    assert_eq!(diag.code, ErrorCode::E4001);
+    assert_eq!(diag.code, ErrorCode::E4002);
     assert_eq!(diag.severity, Severity::Warning);
-    assert!(diag.message.contains("Await"));
+    assert!(diag.message.contains("Guard"));
 }
 
 #[test]
@@ -26,6 +26,23 @@ fn test_arc_internal_error_is_error() {
     let diag = codegen.into_diagnostic();
     assert_eq!(diag.code, ErrorCode::E4003);
     assert!(diag.message.contains("internal error"));
+}
+
+#[test]
+fn test_arc_fbip_violation_from() {
+    let problem = ori_arc::ArcProblem::FbipViolation {
+        func_name: "swap".into(),
+        missed_count: 2,
+        achieved_count: 1,
+        span: Span::new(5, 30),
+    };
+    let codegen: CodegenProblem = problem.into();
+    assert!(codegen.is_error()); // FBIP violations are errors
+    let diag = codegen.into_diagnostic();
+    assert_eq!(diag.code, ErrorCode::E4004);
+    assert!(diag.message.contains("swap"));
+    assert!(diag.message.contains("2"));
+    assert!(diag.notes.iter().any(|n| n.contains("1 reuse")));
 }
 
 #[test]
@@ -80,8 +97,8 @@ fn test_codegen_diagnostics_accumulator() {
     assert!(acc.is_empty());
     assert!(!acc.has_errors());
 
-    acc.push(CodegenProblem::ArcUnsupportedExpr {
-        kind: "Await",
+    acc.push(CodegenProblem::ArcUnsupportedPattern {
+        kind: "Guard",
         span: Span::new(0, 5),
     });
     assert!(!acc.has_errors()); // Only warnings so far
@@ -93,7 +110,7 @@ fn test_codegen_diagnostics_accumulator() {
 
     let diags = acc.into_diagnostics();
     assert_eq!(diags.len(), 2);
-    assert_eq!(diags[0].code, ErrorCode::E4001);
+    assert_eq!(diags[0].code, ErrorCode::E4002);
     assert_eq!(diags[1].code, ErrorCode::E5001);
 }
 

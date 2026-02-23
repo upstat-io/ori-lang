@@ -1042,6 +1042,7 @@ impl<'old> AstCopier<'old> {
             body: self.copy_expr(func.body, new_arena),
             span: self.adjust_span(func.span),
             visibility: func.visibility,
+            is_fbip: func.is_fbip,
         }
     }
 

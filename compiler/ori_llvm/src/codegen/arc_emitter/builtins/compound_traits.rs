@@ -11,6 +11,145 @@
 //! - **Tuple**:  `{A, B, ...}`         — flat struct of resolved element types
 //! - **List**:   `{i64 len, i64 cap, ptr data}` — element-wise iteration
 
+declare_builtins! { emitter, ctx;
+    // list structural trait methods
+    ("list", "equals", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            emitter.emit_element_equals(ctx.arg_vals[0], ctx.arg_vals[1], ctx.receiver_ty)
+        } else {
+            None
+        }
+    },
+    ("list", "is_equal", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            emitter.emit_element_equals(ctx.arg_vals[0], ctx.arg_vals[1], ctx.receiver_ty)
+        } else {
+            None
+        }
+    },
+    ("list", "compare", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            emitter.emit_element_compare(ctx.arg_vals[0], ctx.arg_vals[1], ctx.receiver_ty)
+        } else {
+            None
+        }
+    },
+    ("list", "hash", borrow: true) => emitter.emit_element_hash(ctx.arg_vals[0], ctx.receiver_ty),
+    // Option structural trait methods
+    ("Option", "equals", borrow: true) => {
+        if let TypeInfo::Option { inner } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_option_equals(ctx.arg_vals[0], ctx.arg_vals[1], *inner)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Option", "is_equal", borrow: true) => {
+        if let TypeInfo::Option { inner } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_option_equals(ctx.arg_vals[0], ctx.arg_vals[1], *inner)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Option", "compare", borrow: true) => {
+        if let TypeInfo::Option { inner } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_option_compare(ctx.arg_vals[0], ctx.arg_vals[1], *inner)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Option", "hash", borrow: true) => {
+        if let TypeInfo::Option { inner } = ctx.type_info {
+            emitter.emit_option_hash(ctx.arg_vals[0], *inner)
+        } else {
+            None
+        }
+    },
+    // Result structural trait methods
+    ("Result", "equals", borrow: true) => {
+        if let TypeInfo::Result { ok, err } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_result_equals(ctx.arg_vals[0], ctx.arg_vals[1], *ok, *err)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Result", "is_equal", borrow: true) => {
+        if let TypeInfo::Result { ok, err } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_result_equals(ctx.arg_vals[0], ctx.arg_vals[1], *ok, *err)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Result", "compare", borrow: true) => {
+        if let TypeInfo::Result { ok, err } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_result_compare(ctx.arg_vals[0], ctx.arg_vals[1], *ok, *err)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Result", "hash", borrow: true) => {
+        if let TypeInfo::Result { ok, err } = ctx.type_info {
+            emitter.emit_result_hash(ctx.arg_vals[0], *ok, *err)
+        } else {
+            None
+        }
+    },
+    // tuple structural trait methods
+    ("tuple", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("tuple", "equals", borrow: true) => {
+        if let TypeInfo::Tuple { elements } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_tuple_equals(ctx.arg_vals[0], ctx.arg_vals[1], elements)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("tuple", "compare", borrow: true) => {
+        if let TypeInfo::Tuple { elements } = ctx.type_info {
+            if ctx.arg_vals.len() >= 2 {
+                emitter.emit_tuple_compare(ctx.arg_vals[0], ctx.arg_vals[1], elements)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("tuple", "hash", borrow: true) => {
+        if let TypeInfo::Tuple { elements } = ctx.type_info {
+            emitter.emit_tuple_hash(ctx.arg_vals[0], elements)
+        } else {
+            None
+        }
+    },
+}
+
 use ori_types::Idx;
 
 use crate::codegen::type_info::TypeInfo;

@@ -297,7 +297,7 @@ pub fn compute_refined_liveness(
         // Walk instructions backward.
         for instr in block.body.iter().rev() {
             match instr {
-                crate::ir::ArcInstr::RcDec { var } => {
+                crate::ir::ArcInstr::RcDec { var, .. } => {
                     // RcDec is a "drop" use — only promotes to drop_set
                     // if not already in use_set.
                     if !use_set.contains(var) {

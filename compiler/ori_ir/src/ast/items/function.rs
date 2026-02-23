@@ -133,16 +133,22 @@ pub struct Function {
     pub body: ExprId,
     pub span: Span,
     pub visibility: Visibility,
+    /// Whether this function is annotated `#fbip` for constructor-reuse enforcement.
+    pub is_fbip: bool,
 }
 
 impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, guard: {:?}, pre: {}, post: {}, visibility: {:?} }}",
+            "Function {{ name: {:?}, generics: {:?}, params: {:?}, ret: {:?}, uses: {:?}, where: {:?}, guard: {:?}, pre: {}, post: {}, visibility: {:?}",
             self.name, self.generics, self.params, self.return_ty, self.capabilities, self.where_clauses, self.guard,
             self.pre_contracts.len(), self.post_contracts.len(), self.visibility
-        )
+        )?;
+        if self.is_fbip {
+            write!(f, ", fbip: true")?;
+        }
+        write!(f, " }}")
     }
 }
 
