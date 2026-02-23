@@ -29,7 +29,6 @@ fn test_conv_int_to_float() {
 }
 
 #[test]
-#[ignore = "AOT gap: int.f() result type not tracked as float — icmp used instead of fcmp for comparison"]
 fn test_conv_int_f_shorthand() {
     assert_aot_success(
         r#"
@@ -297,7 +296,6 @@ fn test_conv_byte_to_int_max() {
 // ─── int.byte ───
 
 #[test]
-#[ignore = "AOT gap: int.byte() chained with byte.to_int() — type tracking lost through conversion chain"]
 fn test_conv_int_to_byte() {
     assert_aot_success(
         r#"
@@ -313,7 +311,6 @@ fn test_conv_int_to_byte() {
 }
 
 #[test]
-#[ignore = "AOT gap: int.byte() truncation — byte type not fully supported in AOT pipeline"]
 fn test_conv_int_to_byte_truncates() {
     assert_aot_success(
         r#"
@@ -330,7 +327,6 @@ fn test_conv_int_to_byte_truncates() {
 }
 
 #[test]
-#[ignore = "AOT gap: int.byte() chained with byte.to_int() — type tracking lost through conversion chain"]
 fn test_conv_int_to_byte_max() {
     assert_aot_success(
         r#"
@@ -542,7 +538,6 @@ fn test_conv_int_to_float_to_int() {
 }
 
 #[test]
-#[ignore = "AOT gap: int.byte() chained with byte.to_int() — type tracking lost through conversion chain"]
 fn test_conv_int_to_byte_to_int() {
     assert_aot_success(
         r#"

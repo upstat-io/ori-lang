@@ -41,19 +41,11 @@ const TRAIT_DISPATCH_METHODS: &[&str] = &[
 /// reached through paths other than `resolve_builtin_method()`:
 ///
 /// - `__iter_next`: Low-level iteration protocol (ARC lowering)
-/// - `byte`: Short alias for `to_byte` (constructor lowering: `byte(10)` → `10.byte()`)
-/// - `f`: Short alias for `to_float` (constructor lowering)
-/// - `concat`: String concatenation (interpolation lowering: `` `{x}` `` → concat chain)
-/// - `to_str`: Identity on str (generic `to_str` path in format/interpolation)
-/// - `to_int`: Identity conversions (Ordering → int, int → int in generic paths)
+/// - `to_int`: Identity conversion (int → int in generic paths)
 const ARC_PIPELINE_METHODS: &[(&str, &str)] = &[
     ("Iterator", "__iter_next"),
     ("Ordering", "to_int"),
-    ("int", "byte"),
-    ("int", "f"),
     ("int", "to_int"),
-    ("str", "concat"),
-    ("str", "to_str"),
 ];
 
 /// Every `BuiltinTable` entry must be backed by a TYPECK entry, a known
