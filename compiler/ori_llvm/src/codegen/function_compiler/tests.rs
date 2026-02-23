@@ -28,6 +28,7 @@ fn make_sig(
         is_public: false,
         is_test: false,
         is_main,
+        is_fbip: false,
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
@@ -217,6 +218,7 @@ fn generic_functions_are_skipped() {
         is_public: false,
         is_test: false,
         is_main: false,
+        is_fbip: false,
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
@@ -237,6 +239,7 @@ fn generic_functions_are_skipped() {
         body: ori_ir::ExprId::INVALID,
         span: ori_ir::Span::new(0, 0),
         visibility: ori_ir::Visibility::Private,
+        is_fbip: false,
     };
 
     let classifier = ArcClassifier::new(&pool);

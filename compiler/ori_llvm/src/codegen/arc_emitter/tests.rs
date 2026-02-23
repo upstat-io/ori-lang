@@ -60,7 +60,7 @@ fn drop_fn_trivial_generates_rc_free() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -118,7 +118,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -168,7 +168,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -219,7 +219,7 @@ fn drop_fn_collection_generates_loop() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -277,7 +277,7 @@ fn drop_fn_map_generates_key_value_dec() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -338,7 +338,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -389,7 +389,7 @@ fn get_or_generate_returns_null_for_scalars() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -438,7 +438,7 @@ fn get_or_generate_caches_across_calls() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -467,12 +467,12 @@ fn get_or_generate_caches_across_calls() {
 }
 
 #[test]
-fn get_or_generate_returns_null_without_classifier() {
+fn get_or_generate_returns_null_for_scalar_type() {
     let pool = Pool::new();
     let ctx = Context::create();
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
-    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_no_cl"));
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_scalar"));
     let resolver = TypeLayoutResolver::new(&store, &scx);
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
@@ -487,6 +487,7 @@ fn get_or_generate_returns_null_without_classifier() {
     let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
         FxHashMap::default();
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -494,19 +495,20 @@ fn get_or_generate_returns_null_without_classifier() {
         &resolver,
         &interner,
         &pool,
-        None, // no classifier
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
         &names,
     );
 
-    let drop_fn = em.get_or_generate_drop_fn(Idx::STR);
+    // Scalar types (like int) don't need drop — should return null pointer
+    let drop_fn = em.get_or_generate_drop_fn(Idx::INT);
 
     let ir = scx.llmod.print_to_string().to_string();
     assert!(
-        !ir.contains(&format!("\"_ori_drop${}\"", Idx::STR.raw())),
-        "No drop w/o classifier:\n{ir}"
+        !ir.contains(&format!("\"_ori_drop${}\"", Idx::INT.raw())),
+        "Scalar types should not generate drop functions:\n{ir}"
     );
     assert_ne!(drop_fn, crate::codegen::value_id::ValueId::NONE);
 
@@ -542,7 +544,7 @@ fn drop_fn_uses_c_calling_convention() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -599,7 +601,7 @@ fn multiple_drop_fns_for_different_types() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -683,7 +685,7 @@ fn is_shared_emits_gep_load_icmp() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -712,7 +714,9 @@ fn is_shared_emits_gep_load_icmp() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::BOOL],
+        var_reprs: Vec::new(),
         spans: vec![vec![None]],
+        is_fbip: false,
     };
 
     let abi = FunctionAbi {
@@ -799,7 +803,7 @@ fn set_emits_struct_gep_and_store() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -836,7 +840,9 @@ fn set_emits_struct_gep_and_store() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![struct_ty, Idx::INT],
+        var_reprs: Vec::new(),
         spans: vec![vec![None]],
+        is_fbip: false,
     };
 
     let abi = FunctionAbi {
@@ -879,7 +885,7 @@ fn set_emits_struct_gep_and_store() {
     );
 
     drop(em);
-}
+} // set_emits_struct_gep_and_store
 
 #[test]
 fn set_tag_emits_gep_and_store() {
@@ -932,7 +938,7 @@ fn set_tag_emits_gep_and_store() {
         &resolver,
         &interner,
         &pool,
-        Some(&cl as &dyn ArcClassification),
+        &cl as &dyn ArcClassification,
         host,
         &functions,
         &methods,
@@ -961,7 +967,9 @@ fn set_tag_emits_gep_and_store() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![enum_ty],
+        var_reprs: Vec::new(),
         spans: vec![vec![None]],
+        is_fbip: false,
     };
 
     let abi = FunctionAbi {
@@ -989,6 +997,656 @@ fn set_tag_emits_gep_and_store() {
     assert!(
         ir.contains("store"),
         "Expected store for tag mutation:\n{ir}"
+    );
+
+    drop(em);
+} // set_tag_emits_gep_and_store
+
+// ─── EmittedValue helper method tests ───
+
+#[test]
+fn emitted_value_into_raw_single_variants() {
+    let ctx = Context::create();
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ev_raw"));
+    let mut builder = IrBuilder::new(&scx);
+
+    let v1 = builder.const_i64(1);
+    let v2 = builder.const_i64(2);
+    let v3 = builder.const_i64(3);
+
+    assert_eq!(super::EmittedValue::Immediate(v1).into_raw(), v1);
+    assert_eq!(super::EmittedValue::RcPointer(v2).into_raw(), v2);
+    assert_eq!(super::EmittedValue::Aggregate(v3).into_raw(), v3);
+}
+
+#[test]
+#[should_panic(expected = "Pair has no single ValueId")]
+fn emitted_value_into_raw_panics_on_pair() {
+    use crate::codegen::value_id::ValueId;
+
+    super::EmittedValue::Pair {
+        first: ValueId::NONE,
+        second: ValueId::NONE,
+    }
+    .into_raw();
+}
+
+#[test]
+#[should_panic(expected = "ZeroSized has no ValueId")]
+fn emitted_value_into_raw_panics_on_zero_sized() {
+    super::EmittedValue::ZeroSized.into_raw();
+}
+
+#[test]
+fn emitted_value_rc_data_ptr() {
+    let ctx = Context::create();
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ev_rc"));
+    let mut builder = IrBuilder::new(&scx);
+
+    let v1 = builder.const_i64(10);
+    let v2 = builder.const_i64(20);
+    let v3 = builder.const_i64(30);
+
+    // RcPointer returns the pointer itself
+    assert_eq!(super::EmittedValue::RcPointer(v1).rc_data_ptr(), Some(v1));
+
+    // Pair returns the second component (the RC-managed pointer)
+    assert_eq!(
+        super::EmittedValue::Pair {
+            first: v2,
+            second: v3
+        }
+        .rc_data_ptr(),
+        Some(v3)
+    );
+
+    // Non-RC variants return None
+    assert_eq!(super::EmittedValue::Immediate(v1).rc_data_ptr(), None);
+    assert_eq!(super::EmittedValue::Aggregate(v2).rc_data_ptr(), None);
+    assert_eq!(super::EmittedValue::ZeroSized.rc_data_ptr(), None);
+}
+
+#[test]
+fn emitted_value_is_rc_managed() {
+    let ctx = Context::create();
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ev_managed"));
+    let mut builder = IrBuilder::new(&scx);
+    let v = builder.const_i64(0);
+
+    assert!(super::EmittedValue::RcPointer(v).is_rc_managed());
+    assert!(super::EmittedValue::Pair {
+        first: v,
+        second: v
+    }
+    .is_rc_managed());
+    assert!(!super::EmittedValue::Immediate(v).is_rc_managed());
+    assert!(!super::EmittedValue::Aggregate(v).is_rc_managed());
+    assert!(!super::EmittedValue::ZeroSized.is_rc_managed());
+}
+
+#[test]
+fn emitted_value_from_repr() {
+    use ori_arc::ir::ValueRepr;
+
+    let ctx = Context::create();
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ev_repr"));
+    let mut builder = IrBuilder::new(&scx);
+    let v = builder.const_i64(42);
+
+    // Scalar → Immediate
+    assert!(matches!(
+        super::EmittedValue::from_repr(ValueRepr::Scalar, v),
+        super::EmittedValue::Immediate(_)
+    ));
+
+    // RcPointer → RcPointer
+    assert!(matches!(
+        super::EmittedValue::from_repr(ValueRepr::RcPointer, v),
+        super::EmittedValue::RcPointer(_)
+    ));
+
+    // Aggregate → Aggregate
+    assert!(matches!(
+        super::EmittedValue::from_repr(ValueRepr::Aggregate, v),
+        super::EmittedValue::Aggregate(_)
+    ));
+
+    // FatValue → Aggregate (fat values packed as single LLVM struct)
+    assert!(matches!(
+        super::EmittedValue::from_repr(ValueRepr::FatValue, v),
+        super::EmittedValue::Aggregate(_)
+    ));
+}
+
+// ─── RC strategy dispatch tests ───
+
+/// Verify `FatPointer` `RcDec` extracts `data_ptr` at field 1 and calls `ori_rc_dec`.
+#[test]
+fn rc_dec_fat_pointer_extracts_data_ptr() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fat_dec"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    // Str LLVM type: {i64, ptr}
+    let str_llvm = scx.type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false);
+    let str_param_ty = builder.register_type(str_llvm.into());
+    let str_ret_ty = builder.register_type(str_llvm.into());
+    let host = builder.declare_function("test_fat_dec", &[str_param_ty], str_ret_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_fat_dec"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::STR,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::RcDec {
+                var: ArcVarId::new(0),
+                strategy: RcStrategy::FatPointer,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::STR],
+        var_reprs: Vec::new(),
+        spans: vec![vec![None]],
+        is_fbip: false,
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("s"),
+            ty: Idx::STR,
+            passing: ParamPassing::Direct,
+        }],
+        return_abi: ReturnAbi {
+            ty: Idx::STR,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // FatPointer Dec extracts data_ptr at field 1
+    assert!(
+        ir.contains("rc_dec.fat_data"),
+        "Expected extractvalue for str data_ptr:\n{ir}"
+    );
+    // Calls ori_rc_dec on the extracted data ptr
+    assert!(ir.contains("ori_rc_dec"), "Expected ori_rc_dec call:\n{ir}");
+
+    drop(em);
+}
+
+/// Verify Closure `RcDec` extracts `env_ptr`, null-checks, and calls `ori_rc_dec`.
+#[test]
+fn rc_dec_closure_null_checks_env() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    let fn_ty = pool.function(&[Idx::INT], Idx::INT);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_clos_dec"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    // Closure LLVM type: {ptr, ptr}
+    let closure_llvm_ty = builder.closure_type();
+    let closure_ret_ty = builder.closure_type();
+    let host = builder.declare_function("test_clos_dec", &[closure_llvm_ty], closure_ret_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_clos_dec"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: fn_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: fn_ty,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::RcDec {
+                var: ArcVarId::new(0),
+                strategy: RcStrategy::Closure,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![fn_ty],
+        var_reprs: Vec::new(),
+        spans: vec![vec![None]],
+        is_fbip: false,
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("f"),
+            ty: fn_ty,
+            passing: ParamPassing::Direct,
+        }],
+        return_abi: ReturnAbi {
+            ty: fn_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // Closure Dec extracts env_ptr at field 1
+    assert!(
+        ir.contains("rc_dec.env"),
+        "Expected extractvalue for closure env_ptr:\n{ir}"
+    );
+    // Null-checks the env_ptr (zero-capture closures have null env)
+    assert!(
+        ir.contains("rc_dec.null"),
+        "Expected null check on env_ptr:\n{ir}"
+    );
+    // Branches: rc_dec.do (non-null) and rc_dec.skip (null)
+    assert!(
+        ir.contains("rc_dec.do") && ir.contains("rc_dec.skip"),
+        "Expected branch blocks for null check:\n{ir}"
+    );
+    // Calls ori_rc_dec in the do branch
+    assert!(ir.contains("ori_rc_dec"), "Expected ori_rc_dec call:\n{ir}");
+
+    drop(em);
+}
+
+/// Verify `InlineEnum` `RcInc` is a no-op (no `ori_rc_inc` call generated).
+#[test]
+fn rc_inc_inline_enum_is_noop() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    let result_ty = pool.result(Idx::INT, Idx::STR);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum_inc"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    // Result LLVM type: {i64, {i64, ptr}} — tag + max(ok, err) payload
+    let payload = scx.type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false);
+    let result_llvm = scx.type_struct(&[scx.type_i64().into(), payload.into()], false);
+    let result_param_ty = builder.register_type(result_llvm.into());
+    let result_ret_ty = builder.register_type(result_llvm.into());
+    let host = builder.declare_function("test_enum_inc", &[result_param_ty], result_ret_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_enum_inc"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: result_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: result_ty,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::RcInc {
+                var: ArcVarId::new(0),
+                count: 1,
+                strategy: RcStrategy::InlineEnum,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![result_ty],
+        var_reprs: Vec::new(),
+        spans: vec![vec![None]],
+        is_fbip: false,
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("r"),
+            ty: result_ty,
+            passing: ParamPassing::Direct,
+        }],
+        return_abi: ReturnAbi {
+            ty: result_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // InlineEnum Inc is intentionally a no-op — no *call* to ori_rc_inc should appear.
+    // (The module still has a `declare void @ori_rc_inc(ptr)` from declare_runtime.)
+    assert!(
+        !ir.contains("call void @ori_rc_inc"),
+        "InlineEnum RcInc should be no-op but found call to ori_rc_inc:\n{ir}"
+    );
+
+    drop(em);
+}
+
+/// Verify `InlineEnum` `RcDec` generates a tag-switch with per-variant cleanup.
+#[test]
+fn rc_dec_inline_enum_tag_switches() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let mut pool = Pool::new();
+    let result_ty = pool.result(Idx::INT, Idx::STR);
+
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum_dec"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    // Result LLVM type: {i64, {i64, ptr}} — tag + max(ok, err) payload
+    let payload = scx.type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false);
+    let result_llvm = scx.type_struct(&[scx.type_i64().into(), payload.into()], false);
+    let result_param_ty = builder.register_type(result_llvm.into());
+    let result_ret_ty = builder.register_type(result_llvm.into());
+    let host = builder.declare_function("test_enum_dec", &[result_param_ty], result_ret_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    let arc_func = ArcFunction {
+        name: interner.intern("test_enum_dec"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: result_ty,
+            ownership: Ownership::Owned,
+        }],
+        return_type: result_ty,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::RcDec {
+                var: ArcVarId::new(0),
+                strategy: RcStrategy::InlineEnum,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![result_ty],
+        var_reprs: Vec::new(),
+        spans: vec![vec![None]],
+        is_fbip: false,
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("r"),
+            ty: result_ty,
+            passing: ParamPassing::Direct,
+        }],
+        return_abi: ReturnAbi {
+            ty: result_ty,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // InlineEnum Dec stores to alloca for GEP access
+    assert!(
+        ir.contains("rc_dec.enum"),
+        "Expected alloca for enum value:\n{ir}"
+    );
+    // Loads tag from field 0
+    assert!(ir.contains("rc_dec.tag"), "Expected tag load:\n{ir}");
+    // Switch on tag for per-variant cleanup
+    assert!(
+        ir.contains("switch"),
+        "Expected switch instruction for tag dispatch:\n{ir}"
+    );
+    // Convergence block
+    assert!(
+        ir.contains("rc_dec.done"),
+        "Expected convergence block:\n{ir}"
+    );
+    // Err variant (tag 1) has str which needs ori_rc_dec
+    assert!(
+        ir.contains("ori_rc_dec"),
+        "Expected ori_rc_dec for RC'd err variant:\n{ir}"
+    );
+
+    drop(em);
+}
+
+/// Verify `HeapPointer` `RcDec` calls `ori_rc_dec` with a drop function.
+#[test]
+fn rc_dec_heap_pointer_calls_ori_rc_dec() {
+    use ori_arc::ir::{
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, RcStrategy,
+    };
+    use ori_arc::Ownership;
+
+    use crate::codegen::abi::{CallConv, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing};
+
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_heap_dec"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    declare_runtime(&mut builder);
+
+    let ptr_ty = builder.ptr_type();
+    let host = builder.declare_function("test_heap_dec", &[ptr_ty], ptr_ty);
+    let entry = builder.append_block(host, "entry");
+    builder.set_current_function(host);
+    builder.position_at_end(entry);
+
+    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
+    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
+        FxHashMap::default();
+    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
+    let cl = TestClassifier;
+
+    let mut em = super::ArcIrEmitter::new(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &cl as &dyn ArcClassification,
+        host,
+        &functions,
+        &methods,
+        &names,
+    );
+
+    // Use Idx::STR as the type — TestClassifier marks it as DefiniteRef.
+    // HeapPointer handler falls through to default path (treats value as the RC ptr).
+    let arc_func = ArcFunction {
+        name: interner.intern("test_heap_dec"),
+        params: vec![ArcParam {
+            var: ArcVarId::new(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::STR,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::RcDec {
+                var: ArcVarId::new(0),
+                strategy: RcStrategy::HeapPointer,
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::STR],
+        var_reprs: Vec::new(),
+        spans: vec![vec![None]],
+        is_fbip: false,
+    };
+
+    let abi = FunctionAbi {
+        params: vec![ParamAbi {
+            name: interner.intern("data"),
+            ty: Idx::STR,
+            passing: ParamPassing::Direct,
+        }],
+        return_abi: ReturnAbi {
+            ty: Idx::STR,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    };
+    em.emit_function(&arc_func, &abi);
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // HeapPointer Dec calls ori_rc_dec with a drop function
+    assert!(ir.contains("ori_rc_dec"), "Expected ori_rc_dec call:\n{ir}");
+    // Drop function should be generated for the str type
+    let name = format!("\"_ori_drop${}\"", Idx::STR.raw());
+    assert!(
+        ir.contains(&name),
+        "Expected drop function for str type:\n{ir}"
     );
 
     drop(em);

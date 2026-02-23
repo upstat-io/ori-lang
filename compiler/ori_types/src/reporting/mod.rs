@@ -265,6 +265,9 @@ impl<'a> TypeErrorRenderer<'a> {
                     self.format_name(*name)
                 )
             }
+            TypeErrorKind::UnsupportedFeature { feature } => {
+                format!("`{feature}` is not yet supported")
+            }
         }
     }
 

@@ -39,7 +39,13 @@ fn builder_emit_let_and_return() {
     builder.terminate_return(v);
     assert!(builder.is_terminated());
 
-    let func = builder.finish(Name::from_raw(1), vec![], Idx::INT, ArcBlockId::new(0));
+    let func = builder.finish(
+        Name::from_raw(1),
+        vec![],
+        Idx::INT,
+        ArcBlockId::new(0),
+        false,
+    );
     assert_eq!(func.blocks.len(), 1);
     assert_eq!(func.blocks[0].body.len(), 1);
     assert!(matches!(
@@ -55,7 +61,13 @@ fn builder_block_params() {
     let param_var = builder.add_block_param(bb1, Idx::INT);
     assert_eq!(param_var.raw(), 0);
 
-    let func = builder.finish(Name::from_raw(1), vec![], Idx::UNIT, ArcBlockId::new(0));
+    let func = builder.finish(
+        Name::from_raw(1),
+        vec![],
+        Idx::UNIT,
+        ArcBlockId::new(0),
+        false,
+    );
     assert_eq!(func.blocks[1].params.len(), 1);
     assert_eq!(func.blocks[1].params[0].1, Idx::INT);
 }
@@ -120,7 +132,13 @@ fn builder_finish_adds_unreachable_to_unterminated() {
     let mut builder = ArcIrBuilder::new();
     builder.emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(1)), None);
     // Don't terminate — finish should add Unreachable.
-    let func = builder.finish(Name::from_raw(1), vec![], Idx::INT, ArcBlockId::new(0));
+    let func = builder.finish(
+        Name::from_raw(1),
+        vec![],
+        Idx::INT,
+        ArcBlockId::new(0),
+        false,
+    );
     assert!(matches!(
         func.blocks[0].terminator,
         ArcTerminator::Unreachable
@@ -154,7 +172,13 @@ fn builder_multi_block_function() {
     let result = builder.add_block_param(merge_bb, Idx::INT);
     builder.terminate_return(result);
 
-    let func = builder.finish(Name::from_raw(1), vec![], Idx::INT, ArcBlockId::new(0));
+    let func = builder.finish(
+        Name::from_raw(1),
+        vec![],
+        Idx::INT,
+        ArcBlockId::new(0),
+        false,
+    );
     assert_eq!(func.blocks.len(), 4);
     assert_eq!(func.blocks[3].params.len(), 1); // merge block has 1 param
 }
@@ -168,7 +192,13 @@ fn builder_spans_tracked_per_instruction() {
     builder.emit_let(Idx::INT, ArcValue::Literal(LitValue::Int(2)), span2);
     builder.terminate_return(v);
 
-    let func = builder.finish(Name::from_raw(1), vec![], Idx::INT, ArcBlockId::new(0));
+    let func = builder.finish(
+        Name::from_raw(1),
+        vec![],
+        Idx::INT,
+        ArcBlockId::new(0),
+        false,
+    );
     assert_eq!(func.spans[0].len(), 2);
     assert_eq!(func.spans[0][0], span1);
     assert_eq!(func.spans[0][1], span2);

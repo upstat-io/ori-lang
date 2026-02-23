@@ -50,7 +50,9 @@ pub(crate) fn make_func_named(
         blocks,
         entry: ArcBlockId::new(0),
         var_types,
+        var_reprs: Vec::new(),
         spans: span_vecs,
+        is_fbip: false,
     }
 }
 
@@ -104,6 +106,6 @@ pub(crate) fn count_dec(func: &ArcFunction, block_idx: usize, var: ArcVarId) -> 
     func.blocks[block_idx]
         .body
         .iter()
-        .filter(|i| matches!(i, ArcInstr::RcDec { var: v } if *v == var))
+        .filter(|i| matches!(i, ArcInstr::RcDec { var: v, .. } if *v == var))
         .count()
 }

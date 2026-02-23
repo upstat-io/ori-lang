@@ -1,7 +1,9 @@
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 
-use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, LitValue, PrimOp};
+use crate::ir::{
+    ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, LitValue, PrimOp, RcStrategy,
+};
 use crate::test_helpers::{b, make_func, owned_param as param, v};
 use crate::ArcClassifier;
 
@@ -246,6 +248,7 @@ fn loop_back_edge() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
                 }],
                 terminator: ArcTerminator::Jump {
                     target: b(1),
@@ -372,6 +375,7 @@ fn multiple_uses_same_var() {
                 ty: Idx::STR,
                 func: Name::from_raw(99),
                 args: vec![v(0), v(0)], // same var twice
+                arg_ownership: vec![ArgOwnership::Owned; 2],
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -437,6 +441,7 @@ fn invoke_dst_not_live_in_unwind() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -509,6 +514,7 @@ fn invoke_live_var_propagates_to_unwind() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
                     normal: b(1),
                     unwind: b(2),
                 },
@@ -689,6 +695,7 @@ fn refined_used_var_is_live_for_use() {
                 ty: Idx::STR,
                 func: Name::from_raw(99),
                 args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
             }],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -729,7 +736,10 @@ fn refined_only_dec_is_live_for_drop() {
                     ty: Idx::INT,
                     value: ArcValue::Literal(LitValue::Int(42)),
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(1) },
         }],
@@ -770,8 +780,12 @@ fn refined_use_then_dec_is_live_for_use() {
                     ty: Idx::STR,
                     func: Name::from_raw(99),
                     args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
                 },
-                ArcInstr::RcDec { var: v(0) },
+                ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                },
             ],
             terminator: ArcTerminator::Return { value: v(1) },
         }],

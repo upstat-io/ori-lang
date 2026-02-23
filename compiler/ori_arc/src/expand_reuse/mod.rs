@@ -26,8 +26,23 @@
 
 use rustc_hash::FxHashMap;
 
-use crate::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind};
+use crate::ir::{
+    ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId, CtorKind, RcStrategy,
+    ValueRepr,
+};
 use crate::ArcClassification;
+
+/// Compute [`RcStrategy`] for a variable, falling back to `HeapPointer`
+/// when Pool or `var_reprs` are unavailable.
+fn rc_strategy(func: &ArcFunction, pool: Option<&ori_types::Pool>, var: ArcVarId) -> RcStrategy {
+    let Some(repr) = func.var_repr(var) else {
+        return RcStrategy::HeapPointer;
+    };
+    let Some(pool) = pool else {
+        return RcStrategy::HeapPointer;
+    };
+    RcStrategy::from_var(repr, pool, func.var_type(var))
+}
 
 // Data structures
 
@@ -71,12 +86,16 @@ type ClaimedFields = FxHashMap<u32, ArcVarId>;
 ///
 /// Both paths merge via a continuation block if there are instructions after
 /// the `Reuse`.
-pub fn expand_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcClassification) {
+pub fn expand_reset_reuse(
+    func: &mut ArcFunction,
+    classifier: &dyn ArcClassification,
+    pool: Option<&ori_types::Pool>,
+) {
     // Only process original blocks — newly added blocks are already expanded.
     let original_block_count = func.blocks.len();
 
     for block_idx in 0..original_block_count {
-        try_expand_block(func, block_idx, classifier);
+        try_expand_block(func, block_idx, classifier, pool);
     }
 
     tracing::debug!(
@@ -90,7 +109,12 @@ pub fn expand_reset_reuse(func: &mut ArcFunction, classifier: &dyn ArcClassifica
 // Block expansion
 
 /// Attempt to expand a single block's `Reset`/`Reuse` pair.
-fn try_expand_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn ArcClassification) {
+fn try_expand_block(
+    func: &mut ArcFunction,
+    block_idx: usize,
+    classifier: &dyn ArcClassification,
+    pool: Option<&ori_types::Pool>,
+) {
     let Some(pair) = find_reset_reuse_pair(&func.blocks[block_idx]) else {
         return;
     };
@@ -178,20 +202,21 @@ fn try_expand_block(func: &mut ArcFunction, block_idx: usize, classifier: &dyn A
     };
 
     // 6. Build fast-path block (§09.3 + §09.5 self-set elimination).
-    let fast_block = build_fast_path(func, fast_id, &ctx, classifier);
+    let fast_block = build_fast_path(func, fast_id, &ctx, classifier, pool);
 
     // 7. Build slow-path block (§09.3).
-    let slow_block = build_slow_path(slow_id, &ctx, &suffix);
+    let slow_block = build_slow_path(slow_id, &ctx, &suffix, pool, func);
 
     // 8. Build merge block if needed.
     let merge_block = merge_id.map(|mid| {
         build_merge_block(
             func,
             mid,
-            pair.reuse_dst,
-            pair.reuse_ty,
+            &ctx,
             &suffix,
             &original_terminator,
+            classifier,
+            pool,
         )
     });
 
@@ -292,7 +317,7 @@ fn erase_proj_increments(instrs: &[ArcInstr], proj_map: &ProjMap) -> (Vec<usize>
     for (&(_base, field), &proj_var) in proj_map {
         // Find the RcInc for this projected variable (scan backwards).
         for (idx, instr) in instrs.iter().enumerate().rev() {
-            if let ArcInstr::RcInc { var, count } = instr {
+            if let ArcInstr::RcInc { var, count, .. } = instr {
                 if *var == proj_var {
                     if *count == 1 {
                         // Erase entirely.
@@ -378,6 +403,7 @@ fn build_fast_path(
     block_id: ArcBlockId,
     ctx: &ExpansionContext<'_>,
     classifier: &dyn ArcClassification,
+    pool: Option<&ori_types::Pool>,
 ) -> ArcBlock {
     let mut body = Vec::new();
 
@@ -397,7 +423,10 @@ fn build_fast_path(
             if let Some(&old_val) = ctx.proj_map.get(&(ctx.pair.reset_var, field)) {
                 let old_ty = func.var_type(old_val);
                 if classifier.needs_rc(old_ty) {
-                    body.push(ArcInstr::RcDec { var: old_val });
+                    body.push(ArcInstr::RcDec {
+                        var: old_val,
+                        strategy: rc_strategy(func, pool, old_val),
+                    });
                 }
             }
         }
@@ -448,12 +477,15 @@ fn build_slow_path(
     block_id: ArcBlockId,
     ctx: &ExpansionContext<'_>,
     suffix: &[ArcInstr],
+    pool: Option<&ori_types::Pool>,
+    func: &ArcFunction,
 ) -> ArcBlock {
     let mut body = Vec::new();
 
     // Dec the shared original.
     body.push(ArcInstr::RcDec {
         var: ctx.pair.reset_var,
+        strategy: rc_strategy(func, pool, ctx.pair.reset_var),
     });
 
     // Restore erased incs for claimed fields (§09.4).
@@ -461,6 +493,7 @@ fn build_slow_path(
         body.push(ArcInstr::RcInc {
             var: proj_var,
             count: 1,
+            strategy: rc_strategy(func, pool, proj_var),
         });
     }
 
@@ -504,13 +537,23 @@ fn build_slow_path(
 fn build_merge_block(
     func: &mut ArcFunction,
     block_id: ArcBlockId,
-    reuse_dst: ArcVarId,
-    reuse_ty: ori_types::Idx,
+    ctx: &ExpansionContext<'_>,
     suffix: &[ArcInstr],
     original_terminator: &ArcTerminator,
+    classifier: &dyn ArcClassification,
+    pool: Option<&ori_types::Pool>,
 ) -> ArcBlock {
+    let reuse_dst = ctx.pair.reuse_dst;
+    let reuse_ty = ctx.pair.reuse_ty;
+
     // The merge parameter receives either reset_var (fast) or reuse_dst (slow).
-    let merge_param = func.fresh_var(reuse_ty);
+    // Compute its repr from the reused type so downstream passes see the correct
+    // representation (not a Scalar placeholder).
+    let repr = match pool {
+        Some(p) => ValueRepr::from_arc_class(classifier.arc_class(reuse_ty), p, reuse_ty),
+        None => ValueRepr::Scalar,
+    };
+    let merge_param = func.fresh_var_repr(reuse_ty, repr);
 
     // Clone suffix and substitute reuse_dst → merge_param.
     let mut body: Vec<ArcInstr> = suffix.to_vec();

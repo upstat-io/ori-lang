@@ -172,6 +172,10 @@ pub struct ConstParamInfo {
 /// Generics are represented as type variables in the `type_params` field.
 /// When calling a generic function, fresh variables are instantiated for
 /// each type parameter.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "flags represent independent orthogonal properties"
+)]
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct FunctionSig {
     /// Function name.
@@ -204,6 +208,9 @@ pub struct FunctionSig {
 
     /// Whether this is the main entry point.
     pub is_main: bool,
+
+    /// Whether this function is annotated `#fbip` for constructor-reuse enforcement.
+    pub is_fbip: bool,
 
     /// Trait bounds for each generic type parameter (parallel to `type_params`).
     ///
@@ -263,6 +270,7 @@ impl FunctionSig {
             is_public: false,
             is_test: false,
             is_main: false,
+            is_fbip: false,
             type_param_bounds: Vec::new(),
             where_clauses: Vec::new(),
             generic_param_mapping: Vec::new(),
@@ -294,6 +302,7 @@ impl FunctionSig {
             is_public: false,
             is_test: false,
             is_main: false,
+            is_fbip: false,
             type_param_bounds: Vec::new(),
             where_clauses: Vec::new(),
             generic_param_mapping: Vec::new(),

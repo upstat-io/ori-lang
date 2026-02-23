@@ -273,6 +273,46 @@ impl TypeInfo {
         }
     }
 
+    /// The type name matching `TYPECK_BUILTIN_METHODS` convention.
+    ///
+    /// Returns `Some("int")` for `TypeInfo::Int`, `Some("Option")` for
+    /// `TypeInfo::Option { .. }`, etc. Returns `None` for types without
+    /// builtin methods (Unit, Never, user-defined structs/enums).
+    ///
+    /// Naming convention follows `TYPECK_BUILTIN_METHODS`: lowercase for
+    /// primitive syntax types (`int`, `str`, `list`, `map`, `range`, `tuple`),
+    /// `PascalCase` for named/standard types (`Option`, `Result`, `Set`,
+    /// `Iterator`, `Channel`, `Duration`, `Size`, `Ordering`).
+    pub fn builtin_type_name(&self) -> Option<&'static str> {
+        match self {
+            Self::Int => Some("int"),
+            Self::Float => Some("float"),
+            Self::Bool => Some("bool"),
+            Self::Char => Some("char"),
+            Self::Byte => Some("byte"),
+            Self::Str => Some("str"),
+            Self::Duration => Some("Duration"),
+            Self::Size => Some("Size"),
+            Self::Ordering => Some("Ordering"),
+            Self::List { .. } => Some("list"),
+            Self::Map { .. } => Some("map"),
+            Self::Set { .. } => Some("Set"),
+            Self::Tuple { .. } => Some("tuple"),
+            Self::Option { .. } => Some("Option"),
+            Self::Result { .. } => Some("Result"),
+            Self::Range => Some("range"),
+            Self::Iterator { .. } => Some("Iterator"),
+            Self::Channel { .. } => Some("Channel"),
+            Self::Error => Some("error"),
+            // No builtin methods for these types
+            Self::Unit
+            | Self::Never
+            | Self::Struct { .. }
+            | Self::Enum { .. }
+            | Self::Function { .. } => None,
+        }
+    }
+
     /// Alignment in bytes.
     ///
     /// Returns the required alignment for this type. On x86-64, all types

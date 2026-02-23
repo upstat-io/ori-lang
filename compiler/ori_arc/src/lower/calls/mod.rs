@@ -329,7 +329,7 @@ impl ArcLowerer<'_> {
         // Step 4: Assign unique name (after inner lambdas are pushed, so index is unique)
         let lambda_idx = self.lambdas.len();
         let lambda_name = self.interner.intern(&format!("__lambda_{lambda_idx}"));
-        let lambda_func = lambda_builder.finish(lambda_name, lambda_params, body_ty, entry);
+        let lambda_func = lambda_builder.finish(lambda_name, lambda_params, body_ty, entry, false);
         self.lambdas.push(lambda_func);
 
         // Step 5: Emit PartialApply with the outer capture variable IDs
