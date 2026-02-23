@@ -157,7 +157,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Implemented**: `.len()` method works on all collection types [done] (2026-02-10)
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string/range method tests
   - [x] **LLVM Support**: LLVM codegen for `.len()` — inline IR via field extraction in `lower_calls.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.len()` on lists (3 tests) and strings (2 tests) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `.len()` on lists (3 tests) and strings (2 tests) [done] (2026-02-13)
 - [x] **Implement**: Add tuple `Len` bound recognition — `(T₁, T₂, ...)` (approved in proposal) [done] (2026-02-18)
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_len_satisfied_by_tuple`, `test_len_satisfied_by_triple_tuple`, `test_len_satisfied_by_single_tuple`, `test_len_not_satisfied_by_result`
   - [x] **Ori Tests**: `tests/spec/traits/core/len.ori` — 3 tuple len tests (pair, triple, single)
@@ -175,7 +175,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Implemented**: `.is_empty()` method works on all collection types [done] (2026-02-10)
   - [x] **Tests**: `ori_eval/src/methods.rs` — list/string method tests
   - [x] **LLVM Support**: LLVM codegen for `.is_empty()` — inline IR in `lower_calls.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_empty()` on lists (2 tests) and strings (2 tests) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_empty()` on lists (2 tests) and strings (2 tests) [done] (2026-02-13)
 - [ ] **Implement**: Add `Range<int>` and `[T, max N]` to IsEmpty trait bound recognition
   - [ ] **Rust Tests**: `ori_types` — `test_is_empty_bound_satisfied_by_range`, `test_is_empty_bound_satisfied_by_fixed_list`
   - [ ] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — range and fixed-size list is_empty tests
@@ -190,7 +190,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `option_methods` module
   - [x] **Ori Tests**: `tests/spec/traits/core/option.ori` — 16 tests (all pass)
   - [x] **LLVM Support**: LLVM codegen for Option — tag-based dispatch in `lower_calls.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_some()` (2), `.is_none()` (2), `.unwrap()` (1), `.unwrap_or()` (2) all pass [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_some()` (2), `.is_none()` (2), `.unwrap()` (1), `.unwrap_or()` (2) all pass [done] (2026-02-13)
 - [x] **Type checking**: `infer_builtin_method()` handles Option methods [done] (2026-02-10)
 
 ### 3.0.4 Result Methods
@@ -199,7 +199,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — `result_methods` module
   - [x] **Ori Tests**: `tests/spec/traits/core/result.ori` — 14 tests (all pass)
   - [x] **LLVM Support**: LLVM codegen for Result — tag-based dispatch in `lower_calls.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_ok()` (2), `.is_err()` (2), `.unwrap()` (1) all pass [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `.is_ok()` (2), `.is_err()` (2), `.unwrap()` (1) all pass [done] (2026-02-13)
 - [x] **Type checking**: `infer_builtin_method()` handles Result methods [done] (2026-02-10)
 
 ### 3.0.5 Comparable Trait
@@ -210,7 +210,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
 - [x] **Type checking**: All comparable types have `.compare(other:)` returning `Ordering` [done] (2026-02-10)
   - [x] **Type Checking**: `ori_typeck/src/infer/builtin_methods/` — numeric.rs, string.rs, list.rs, option.rs, result.rs, units.rs, ordering.rs
   - [x] **LLVM Support**: LLVM codegen for `.compare()` — inline arithmetic/comparison in `lower_calls.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 7 tests passing: `.compare()` + Ordering methods (is_less, is_equal, is_greater, reverse, is_less_or_equal, is_greater_or_equal) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — 7 tests passing: `.compare()` + Ordering methods (is_less, is_equal, is_greater, reverse, is_less_or_equal, is_greater_or_equal) [done] (2026-02-13)
 
 ### 3.0.6 Eq Trait
 
@@ -218,7 +218,7 @@ This approach follows the "Lean Core, Rich Libraries" principle — the runtime 
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — `test_eq_bound_satisfied_by_*`
   - [x] **Ori Tests**: `tests/spec/traits/core/eq.ori` — 23 tests (all pass)
   - [x] **LLVM Support**: LLVM codegen for `==`/`!=` on all primitives [done]
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `==`/`!=` for int, bool, str (3 tests) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `==`/`!=` for int, bool, str (3 tests) [done] (2026-02-13)
 
 ### Additional Traits
 
@@ -246,7 +246,7 @@ The following traits are also recognized in trait bounds:
   - **Note**: Added default trait method dispatch in `module_loading.rs:collect_impl_methods()`
   - [x] **LLVM Support**: LLVM codegen for default trait method dispatch [done] (2026-02-13)
     - Fixed at 3 levels: method registration (register_impl), body type checking (check_impl_block), LLVM codegen (compile_impls)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_trait_default_method` passing [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_trait_default_method` passing [done] (2026-02-13)
 
 - [x] **Implement**: Associated types — spec/08-declarations.md § Associated Types [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — associated type parsing
@@ -275,13 +275,13 @@ The following traits are also recognized in trait bounds:
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (Widget.get_name(), Widget.get_value(), Point.distance_from_origin())
   - [x] **Run test**: All pass
   - [x] **LLVM Support**: LLVM codegen — type-qualified method dispatch (`_ori_Type$method` mangling)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — inherent impl (3 tests: method, params, field access), impl_method_field_access (1 test) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — inherent impl (3 tests: method, params, field access), impl_method_field_access (1 test) [done] (2026-02-13)
 
 - [x] **Implement**: Trait impl `impl Trait for Type { ... }` — spec/08-declarations.md § Trait Implementations [done] (2026-02-10)
   - [x] **Write test**: `tests/spec/traits/declaration.ori` (Widget.greet(), Widget.describe(), Widget.summarize())
   - [x] **Run test**: All pass
   - [x] **LLVM Support**: LLVM codegen — trait method dispatch (`_ori_Type$$Trait$method` mangling)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — trait impl (2 tests: single method, multiple methods) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — trait impl (2 tests: single method, multiple methods) [done] (2026-02-13)
 
 - [x] **Implement**: Generic impl `impl<T: Bound> Trait for Container<T>` — spec/08-declarations.md § Generic Implementations [done] (2026-02-10)
   - [x] **Rust Tests**: Parser tests in `ori_parse/src/grammar/item.rs`
@@ -301,7 +301,7 @@ The following traits are also recognized in trait bounds:
   - [x] **Rust Tests**: Covered by existing tests in `typeck/infer/call.rs`
   - [x] **Ori Tests**: `tests/spec/traits/declaration.ori`, `tests/spec/traits/generic_impl.ori`, `tests/spec/traits/method_call_test.ori`
   - [x] **LLVM Support**: 4-tier dispatch: built-in → type-qualified → bare-name → LLVM module lookup
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — method resolution (1 test: inherent takes priority over trait impl) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — method resolution (1 test: inherent takes priority over trait impl) [done] (2026-02-13)
 
 - [x] **Implement**: User-defined impl method dispatch in evaluator [done] (2026-02-10)
   - Created `UserMethodRegistry` to store impl method definitions
@@ -311,7 +311,7 @@ The following traits are also recognized in trait bounds:
   - [x] **Write test**: Rust unit tests in `eval/evaluator.rs` (4 tests covering dispatch, self access, args, fallback)
   - [x] **Run test**: All pass
   - [x] **LLVM Support**: LLVM codegen for user-defined impl method dispatch — `compile_impls()` in `function_compiler.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — user method dispatch covered by inherent impl and trait impl tests [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — user method dispatch covered by inherent impl and trait impl tests [done] (2026-02-13)
 
 - [x] **Implement**: Coherence checking — spec/08-declarations.md § Coherence [done] (2026-02-10)
   - `register_impl` returns `Result<(), CoherenceError>` and checks for conflicts
@@ -409,31 +409,31 @@ Tests at `tests/spec/traits/derive/all_derives.ori` (7 tests pass).
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `test_process_struct_derives`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` + `tests/spec/traits/derive/eq.ori` — 3+13 tests (all pass)
   - [x] **LLVM Support**: Synthetic LLVM IR for derived Eq — field-by-field `icmp eq` with short-circuit AND [done] (2026-02-13)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 4 AOT tests (basic, strings, mixed types, single field) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 4 AOT tests (basic, strings, mixed types, single field) [done] (2026-02-13)
 
 - [x] **Implement**: Auto-implement `Clone` — spec/08-declarations.md § Attributes [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `test_process_multiple_derives`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` — `.clone()` on derived Point (passes)
   - [x] **LLVM Support**: Synthetic LLVM IR for derived Clone — identity return for value types [done] (2026-02-13)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 2 AOT tests (basic, large struct sret) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 2 AOT tests (basic, large struct sret) [done] (2026-02-13)
 
 - [x] **Implement**: Auto-implement `Hashable` — spec/08-declarations.md § Attributes [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` — `.hash()` on derived Point (passes)
   - [x] **LLVM Support**: Synthetic LLVM IR for derived Hashable — FNV-1a in pure LLVM IR [done] (2026-02-13)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 2 AOT tests (equal values, different values) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 2 AOT tests (equal values, different values) [done] (2026-02-13)
 
 - [x] **Implement**: Auto-implement `Printable` — spec/08-declarations.md § Attributes [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs`
   - [x] **Ori Tests**: `tests/spec/traits/derive/all_derives.ori` — `.to_string()` on derived Point (passes)
   - [x] **LLVM Support**: Synthetic LLVM IR for derived Printable — runtime str concat via `ori_str_*` [done] (2026-02-13)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 1 AOT test (basic non-empty check) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 1 AOT test (basic non-empty check) [done] (2026-02-13)
 
 - [x] **Implement**: Auto-implement `Default` — spec/08-declarations.md § Attributes [done] (2026-02-14)
   - [x] **Rust Tests**: `oric/src/typeck/derives/mod.rs` — `create_derived_method_def` handles Default
   - [x] **Ori Tests**: `tests/spec/traits/derive/default.ori` — 6 tests (basic, multi-type, single field, float, eq integration, nested) [done] (2026-02-14)
   - [x] **LLVM Support**: LLVM codegen for derived Default — `const_zero` produces correct zero-init structs [done] (2026-02-14)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 3 AOT tests (basic, mixed types, eq integration) [done] (2026-02-15)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 3 AOT tests (basic, mixed types, eq integration) [done] (2026-02-15)
     - **Fixed**: Static method dispatch bug in LLVM codegen — `TypeRef` receivers now handled as static calls (no self param)
 
 ---
@@ -476,31 +476,31 @@ Formalizes the `Clone` trait that enables explicit value duplication. The trait 
 - [x] **Implement**: Formal `Clone` trait definition in type system
   - [x] **Ori Tests**: `tests/spec/traits/clone/definition.ori` — derived Clone on structs (6 tests)
   - [x] **LLVM Support**: LLVM codegen for Clone trait (identity for value types, derive for structs)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — Clone definition codegen (derive_clone_basic, derive_clone_large_struct)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — Clone definition codegen (derive_clone_basic, derive_clone_large_struct)
   - Note: Type checker V2 `resolve_*_method` returns correct types for `clone` on all primitives and compound types. Static method dispatch fix enabled `Type.default()` calls in LLVM codegen. `hash`/`equals` resolved for primitives only (compound types deferred to 3.14 — evaluator/LLVM codegen not yet implemented).
 
 - [x] **Implement**: Clone implementations for all primitives (int, float, bool, str, char, byte, Duration, Size)
   - [x] **Ori Tests**: `tests/spec/traits/clone/primitives.ori` — all 8 primitive types (13 tests)
   - [x] **LLVM Support**: LLVM codegen for primitive clone methods (identity operation)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — primitive clone codegen (clone_int, clone_float, clone_bool, clone_str)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — primitive clone codegen (clone_int, clone_float, clone_bool, clone_str)
 
 - [x] **Implement**: Clone implementations for collections ([T], {K: V}, Set<T>) with element-wise cloning [done] (2026-02-15)
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_clone_satisfied_by_list`, `test_clone_satisfied_by_map`, `test_clone_satisfied_by_set`
   - [x] **Ori Tests**: `tests/spec/traits/clone/collections.ori` — list clone (3 tests)
   - [x] **LLVM Support**: LLVM codegen for collection clone — identity (ARC shares data) in `lower_list_method()`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_list_int`, `test_aot_clone_list_empty`
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_list_int`, `test_aot_clone_list_empty`
 
 - [x] **Implement**: Clone implementations for Option<T> and Result<T, E> [done] (2026-02-15)
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_clone_satisfied_by_option`, `test_clone_satisfied_by_result`
   - [x] **Ori Tests**: `tests/spec/traits/clone/wrappers.ori` — Option Some/None, Result Ok/Err (4 tests)
   - [x] **LLVM Support**: LLVM codegen for Option/Result clone — identity (value types) in `lower_option_method()`, `lower_result_method()`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_option_some`, `test_aot_clone_option_none`, `test_aot_clone_result_ok`, `test_aot_clone_result_err`
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_option_some`, `test_aot_clone_option_none`, `test_aot_clone_result_ok`, `test_aot_clone_result_err`
 
 - [x] **Implement**: Clone implementations for tuples (all arities) [done] (2026-02-15)
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `test_clone_satisfied_by_tuple`, `test_clone_satisfied_by_tuple_triple`
   - [x] **Ori Tests**: `tests/spec/traits/clone/tuples.ori` — pair and triple clone (2 tests)
   - [x] **LLVM Support**: LLVM codegen for tuple clone — identity (value type) via `TypeInfo::Tuple` match in `lower_builtin_method()`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_tuple_pair`, `test_aot_clone_tuple_triple`
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_clone_tuple_pair`, `test_aot_clone_tuple_triple`
 
 - [x] **Update Spec**: `06-types.md` — add Clone trait section (already present at § Clone Trait, lines 924–970+)
 - [x] **Update Spec**: `12-modules.md` — update prelude traits description (Clone listed in prelude traits table, line 269/279)
@@ -558,7 +558,7 @@ Formalizes iteration with four core traits: `Iterator`, `DoubleEndedIterator`, `
   - [x] **Rust Tests**: `ori_patterns/src/value/iterator/tests.rs` — 10 adapter variant unit tests (2026-02-15)
   - [x] **Ori Tests**: `tests/spec/traits/iterator/methods.ori` — 31 spec test assertions (2026-02-15)
   - [x] **LLVM Support**: LLVM codegen for all iterator methods (2026-02-21) — Phase 1: map, filter, take, skip, enumerate, collect, count; Phase 2: fold, find, any, all, for_each, zip, chain
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/iterators.rs` — 25 AOT tests (2026-02-21)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — 25 AOT tests (2026-02-21)
   - [x] **Phase 2C/2D**: enumerate, zip, chain, flatten, flat_map, cycle (2026-02-15)
   - [x] **Remaining**: DoubleEndedIterator — next_back() implemented (2026-02-16)
 
@@ -921,7 +921,7 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [x] **Rust Tests**: Existing coverage in ori_types registration, ori_eval dispatch, ori_llvm derive_codegen
   - [x] **Ori Tests**: `tests/spec/traits/printable/definition.ori` — 8 tests (int, float, bool, str, char, Ordering, generic bound, interpolation)
   - [x] **LLVM Support**: LLVM codegen for Printable trait methods — existing in derive_codegen.rs
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — derive_printable_basic test passing
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — derive_printable_basic test passing
 
 - [x] **Implement**: Printable derivation with `Point(1, 2)` format (type name + values) [done] (2026-02-17)
   - Fixed: eval_derived_to_str() and compile_derive_printable() now produce spec-compliant compact format
@@ -929,14 +929,14 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [x] **Rust Tests**: Existing coverage in ori_eval/derives, ori_llvm/derive_codegen
   - [x] **Ori Tests**: `tests/spec/traits/printable/derive.ori` — 7 tests (basic, single field, mixed types, nested, many fields, printable-vs-debug, interpolation)
   - [x] **LLVM Support**: LLVM codegen for Printable derivation — compile_derive_printable() updated
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — derive_printable_basic test passing
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — derive_printable_basic test passing
 
 - [x] **Implement**: `Default` trait formal definition in type system (2026-02-17)
   - Pre-existing: trait defined in prelude.ori, type checker registration in ori_types, evaluator dispatch, LLVM codegen
   - [x] **Rust Tests**: Existing coverage in ori_types registration, ori_eval derived_methods, ori_ir derives tests
   - [x] **Ori Tests**: `tests/spec/traits/default/definition.ori` — 10 tests (int, float, bool, str defaults via struct fields, Duration/Size defaults, nested structs, deep nesting, idempotency) (2026-02-17)
   - [x] **LLVM Support**: LLVM codegen for Default trait — compile_derive_default() in derive_codegen.rs
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 tests (basic, mixed_types, eq_integration, str_field, nested) (2026-02-17)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 5 tests (basic, mixed_types, eq_integration, str_field, nested) (2026-02-17)
 
 - [x] **Implement**: Default derivation for structs only (error on sum types) (2026-02-17)
   - Pre-existing: derive processing in ori_eval, LLVM codegen in derive_codegen.rs
@@ -945,7 +945,7 @@ Formalizes three core traits: `Printable`, `Default`, and `Traceable`. The `Iter
   - [x] **Ori Tests**: `tests/spec/traits/default/derive.ori` — 7 tests (basic struct, single field, mixed fields, nested, eq integration, modify, multi-derive) (2026-02-17)
   - [x] **Ori Compile-Fail Tests**: `tests/compile-fail/default_sum_type.ori` — E2028 error (2026-02-17)
   - [x] **LLVM Support**: LLVM codegen for Default derivation — compile_derive_default() working
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 tests passing (2026-02-17)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 5 tests passing (2026-02-17)
 
 - [x] **Implement**: `Traceable` trait formal definition in type system (2026-02-17)
   - Traceable trait with 4 methods (with_trace, trace, trace_entries, has_trace) in prelude.ori
@@ -1006,54 +1006,54 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for all primitives
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — all primitive compare() tests (58 tests)
   - [x] **LLVM Support**: Primitive compare already in LLVM — `ori_llvm/tests/aot/traits.rs` (7 tests)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — compare/is_less/is_equal/is_greater/reverse/is_less_or_equal/is_greater_or_equal
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — compare/is_less/is_equal/is_greater/reverse/is_less_or_equal/is_greater_or_equal
 
 - [x] **Implement**: Comparable implementations for lists ([T]) (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — dispatch_list_method with compare() via `compare_lists()`
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for list
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — list compare() tests (6 tests incl. empty, length diff)
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_collection_methods.rs` — `emit_list_compare()` lexicographic loop with phi-merge (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_list_compare`, `test_aot_list_compare_empty` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_list_compare`, `test_aot_list_compare_empty` (2026-02-18)
 
 - [x] **Implement**: Comparable implementations for tuples (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/compare.rs` — lexicographic via `compare_lists()` (same logic)
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for tuple
   - [x] **Ori Tests**: `tests/spec/traits/core/tuple_compare.ori` — 6 tests (lexicographic ordering, field priority, tiebreakers)
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — `emit_tuple_compare()` lexicographic with phi-merge (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_tuple_compare` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_tuple_compare` (2026-02-18)
 
 - [x] **Implement**: Comparable implementation for Option<T> (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/variants.rs` — dispatch_option_method via `compare_option_values()` (None < Some)
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for Option
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Option compare() tests (4 tests: None-None, None-Some, Some-Some)
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — `emit_option_compare()` with tag/payload branching (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_option_compare` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_option_compare` (2026-02-18)
 
 - [x] **Implement**: Comparable implementation for Result<T, E> (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/variants.rs` — dispatch_result_method via `compare_result_values()` (Ok < Err)
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for Result
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Result compare() tests (3 tests: Ok-Ok, Ok-Err, Err-Err)
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — `emit_result_compare()` with tag/payload branching (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_result_compare` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_result_compare` (2026-02-18)
 
 - [x] **Implement**: Float IEEE 754 total ordering (NaN handling) (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/numeric.rs` — uses `total_cmp()` for IEEE 754 ordering
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — float comparison tests
   - [x] **LLVM Support**: Primitive float compare in LLVM (existing)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — float compare tests
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — float compare tests
 
 - [x] **Implement**: Comparable implementation for Ordering (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/ordering.rs` — dispatch_ordering_method with compare() (Less<Equal<Greater)
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — compare() returns Ordering for Ordering
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — Ordering compare() tests (3 tests)
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — ordering compare via `emit_icmp_ordering` (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_ordering_compare` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_ordering_compare` (2026-02-18)
 
 - [x] **Implement**: Comparison operator derivation (`<`, `<=`, `>`, `>=` via Ordering methods) (2026-02-15)
   - [x] Completed as part of operator traits (3.21) — operators desugared to Comparable trait calls
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — operator tests
   - [x] **LLVM Support**: Operators compile via trait call desugaring
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — is_less/is_greater/etc.
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — is_less/is_greater/etc.
 
 - [x] **Implement**: Formal `Hashable` trait definition in type system (2026-02-17)
   - [x] Trait defined in `library/std/prelude.ori`: `pub trait Hashable: Eq { @hash (self) -> int }`
@@ -1066,27 +1066,27 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — hash() returns int for all primitives
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — primitive hash consistency tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — bool/float/char/byte/ordering/str hash + `ori_str_hash` runtime (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_bool_hash`, `test_aot_float_hash`, `test_aot_char_hash`, `test_aot_str_hash` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_bool_hash`, `test_aot_float_hash`, `test_aot_char_hash`, `test_aot_str_hash` (2026-02-18)
 
 - [x] **Implement**: Hashable implementations for collections ([T], {K: V}, Set<T>, tuples) (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — list/map/set hash(); `compare.rs` — tuple hash via `hash_value()`
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — hash() returns int for all collections
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — collection hash tests (order-independent for map/set)
   - [x] **LLVM Support**: List hash in `lower_collection_methods.rs` — `emit_list_hash()` fold loop with hash_combine; tuple hash in `lower_builtin_methods.rs` (2026-02-18). Map/set hash pending AOT collection infrastructure.
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_list_hash`, `test_aot_list_hash_empty`, `test_aot_tuple_hash` (2026-02-18). Map/set hash tests pending AOT collection infrastructure.
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_list_hash`, `test_aot_list_hash_empty`, `test_aot_tuple_hash` (2026-02-18). Map/set hash tests pending AOT collection infrastructure.
 
 - [x] **Implement**: Hashable implementations for Option<T> and Result<T, E> (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/variants.rs` — Option hash (None→0, Some→hash_combine(1,hash)); Result hash (Ok→hash_combine(2,hash), Err→hash_combine(3,hash))
   - [x] **Type Checker**: `ori_types/src/infer/expr/methods.rs` — hash() returns int for Option/Result
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — Option/Result hash tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — `emit_option_hash()`, `emit_result_hash()` with tag-based branching (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_option_hash`, `test_aot_result_hash` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_option_hash`, `test_aot_result_hash` (2026-02-18)
 
 - [x] **Implement**: Float hashing consistency (+0.0 == -0.0, NaN == NaN for hash) (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/methods/compare.rs` — `hash_float()` normalizes ±0.0 and NaN
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — float hash consistency tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — `normalize_float_for_hash()` (±0.0 → +0.0, NaN → canonical) (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_float_hash` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_float_hash` (2026-02-18)
 
 - [x] **Implement**: `hash_combine` function in prelude (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/function_val.rs` — `function_val_hash_combine()` using boost hash combine algorithm
@@ -1094,7 +1094,7 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] **Type Checker**: `ori_types/src/infer/expr/identifiers.rs` — type signature `(int, int) -> int`
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — hash_combine tests (3 tests)
   - [x] **LLVM Support**: `ori_llvm/src/codegen/lower_builtin_methods.rs` — `lower_builtin_hash_combine()` + `emit_hash_combine()` (Boost algorithm) (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_hash_combine` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — `test_aot_hash_combine` (2026-02-18)
 
 - [x] **Implement**: `#[derive(Comparable)]` for user-defined types — evaluator only (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/interpreter/derived_methods.rs` — `eval_derived_compare()` with lexicographic field comparison
@@ -1102,13 +1102,13 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] **IR Tests**: `ori_ir/src/derives/tests.rs` — from_name/method_name tests
   - [x] **Ori Tests**: `tests/spec/traits/derive/comparable.ori` — 6 tests (basic, lexicographic, single-field)
   - [x] **LLVM Support**: `ori_llvm/src/codegen/derive_codegen/mod.rs` — `compile_derived_compare()` with lexicographic field comparison (2026-02-18)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_derive_comparable_basic`, `comparable_first_field_wins`, `comparable_single_field`, `comparable_with_strings` (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — `test_aot_derive_comparable_basic`, `comparable_first_field_wins`, `comparable_single_field`, `comparable_with_strings` (2026-02-18)
 
 - [x] **Implement**: `#[derive(Hashable)]` for user-defined types — all phases (2026-02-17)
   - [x] **Evaluator**: `ori_eval/src/interpreter/derived_methods.rs` — `eval_derived_hash()` with field hash combination
   - [x] **IR**: `ori_ir/src/derives/mod.rs` — `DerivedTrait::Hashable` + `method_name()` returns "hash"
   - [x] **LLVM Support**: `ori_llvm/src/codegen/derive_codegen/mod.rs` — FNV-1a hash in pure LLVM IR
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 2 tests (equal values, different values)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 2 tests (equal values, different values)
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_hash.ori` — hash consistency + struct hash tests
 
 - [x] **Implement**: Error messages (E2029-E2031, remapped from E0940-E0942) (2026-02-18)
@@ -1128,7 +1128,7 @@ Formalizes the `Comparable` and `Hashable` traits with complete definitions, mat
   - [x] Type checker: `ori_types/src/infer/expr/methods.rs` — `equals` registered for all compound types
   - [x] **Ori Tests**: `tests/spec/traits/core/compound_equals.ori` — 12 tests (list, map, Option, Result, tuple)
   - [x] LLVM codegen: List equals in `lower_collection_methods.rs` — `emit_list_equals()` length check + element-wise loop; Option/Result/Tuple in `lower_builtin_methods.rs` (2026-02-18). Map/set equals pending AOT collection infrastructure.
-  - [x] **LLVM Rust Tests**: `test_aot_list_equals`, `test_aot_list_equals_empty`, `test_aot_option_equals`, `test_aot_result_equals`, `test_aot_tuple_equals` (2026-02-18). Map/set equals tests pending AOT collection infrastructure.
+  - [x] **AOT Tests**: `test_aot_list_equals`, `test_aot_list_equals_empty`, `test_aot_option_equals`, `test_aot_result_equals`, `test_aot_tuple_equals` (2026-02-18). Map/set equals tests pending AOT collection infrastructure.
 
 ---
 
@@ -1143,52 +1143,52 @@ Formalizes the `#derive` attribute semantics: derivable traits list, derivation 
 - [x] **Implement**: Eq derivation for structs — field-wise equality (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/eq.ori` — 22 struct tests
   - [x] **LLVM Support**: LLVM codegen for Eq struct derivation (pre-existing)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 Eq struct AOT tests
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 5 Eq struct AOT tests
 
 - [x] **Implement**: Eq derivation for sum types — variant matching (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/eq_sum.ori` — 15 sum type tests
   - [ ] **LLVM Support**: LLVM codegen for Eq sum type derivation
-  - [ ] **LLVM Rust Tests**: AOT tests for Eq sum type derive codegen
+  - [ ] **AOT Tests**: AOT tests for Eq sum type derive codegen
 
 - [x] **Implement**: Hashable derivation — combined field hashes via `hash_combine` (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/hashable.ori` — 11 tests
   - [x] **LLVM Support**: LLVM codegen for Hashable derivation (pre-existing)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 4 Hashable AOT tests
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 4 Hashable AOT tests
 
 - [x] **Implement**: Comparable derivation — lexicographic field comparison (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/comparable_sum.ori` — 10 tests
   - [x] **LLVM Support**: LLVM codegen for Comparable derivation (pre-existing)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 4 Comparable AOT tests
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 4 Comparable AOT tests
 
 - [x] **Implement**: Clone derivation — field-wise clone (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/clone.ori` — 8 tests
   - [x] **LLVM Support**: LLVM codegen for Clone derivation (pre-existing)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 6 Clone AOT tests
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 6 Clone AOT tests
 
 - [x] **Implement**: Default derivation for structs only (2026-02-18)
   - [x] **Ori Compile-Fail Tests**: `tests/compile-fail/default_sum_type.ori` (pre-existing)
   - [x] **LLVM Support**: LLVM codegen for Default derivation (pre-existing)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 5 Default AOT tests
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 5 Default AOT tests
 
 - [x] **Implement**: Debug derivation — structural representation with type name (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/debug.ori` — 5 tests
   - [ ] **LLVM Support**: LLVM codegen for Debug derivation (deferred — interpreter-only)
-  - [ ] **LLVM Rust Tests**: AOT tests for Debug derive codegen
+  - [ ] **AOT Tests**: AOT tests for Debug derive codegen
 
 - [x] **Implement**: Printable derivation — human-readable format `TypeName(field1, field2)` (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/printable.ori` — 6 tests
   - [x] **LLVM Support**: LLVM codegen for Printable derivation (pre-existing)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/derives.rs` — 1 Printable AOT test
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/derives.rs` — 1 Printable AOT test
 
 - [x] **Implement**: Generic type conditional derivation — bounded impls (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/generic.ori` — 5 tests (Eq + Clone on Pair<T>)
   - [ ] **LLVM Support**: LLVM codegen for generic conditional derivation
-  - [ ] **LLVM Rust Tests**: AOT tests for generic derive codegen
+  - [ ] **AOT Tests**: AOT tests for generic derive codegen
 
 - [x] **Implement**: Recursive type derivation (2026-02-18)
   - [x] **Ori Tests**: `tests/spec/traits/derive/recursive.ori` — 8 tests (Eq + Clone + Printable on Tree)
   - [ ] **LLVM Support**: LLVM codegen for recursive type derivation
-  - [ ] **LLVM Rust Tests**: AOT tests for recursive derive codegen
+  - [ ] **AOT Tests**: AOT tests for recursive derive codegen
 
 - [x] **Implement**: Error messages for derive validation (2026-02-18)
   - [x] E2032: Field type does not implement trait required by derive (was E0880)
@@ -1230,7 +1230,7 @@ Formalizes the `Formattable` trait and format specification syntax for customize
   - [x] Parser in `ori_ir/src/format_spec.rs` — handles `[[fill]align][sign][#][0][width][.precision][type]`
   - [x] Validation in type checker with E2034/E2035 errors
   - [x] **LLVM Support**: LLVM codegen for FormatWith expressions (`ori_llvm/src/codegen/lower_constructs.rs`)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/formattable.rs` — 17 AOT tests (2026-02-18)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/formattable.rs` — 17 AOT tests (2026-02-18)
 
 - [x] **Implement**: Blanket `Formattable` implementation for `Printable` types (2026-02-18)
   - [x] Evaluator fallback via `display_value()` + alignment in `ori_eval/src/interpreter/format.rs`
@@ -1240,19 +1240,19 @@ Formalizes the `Formattable` trait and format specification syntax for customize
   - [x] Evaluator: `ori_eval/src/interpreter/format.rs` — full int formatting
   - [x] **Ori Tests**: `tests/spec/traits/formattable/int.ori`
   - [x] **LLVM Support**: `ori_rt/src/format.rs` — `ori_format_int` runtime function
-  - [x] **LLVM Rust Tests**: AOT tests cover hex, binary, octal, sign, zero-pad, width/align
+  - [x] **AOT Tests**: AOT tests cover hex, binary, octal, sign, zero-pad, width/align
 
 - [x] **Implement**: `Formattable` for `float` with scientific, fixed, percentage format types (pre-existing, LLVM 2026-02-18)
   - [x] Evaluator: `ori_eval/src/interpreter/format.rs` — full float formatting
   - [x] **Ori Tests**: `tests/spec/traits/formattable/float.ori`
   - [x] **LLVM Support**: `ori_rt/src/format.rs` — `ori_format_float` runtime function
-  - [x] **LLVM Rust Tests**: AOT tests cover fixed, precision, percent, sign
+  - [x] **AOT Tests**: AOT tests cover fixed, precision, percent, sign
 
 - [x] **Implement**: `Formattable` for `str` with width, alignment, precision (pre-existing, LLVM 2026-02-18)
   - [x] Evaluator: `ori_eval/src/interpreter/format.rs` — full str formatting
   - [x] **Ori Tests**: `tests/spec/traits/formattable/definition.ori`
   - [x] **LLVM Support**: `ori_rt/src/format.rs` — `ori_format_str` runtime function
-  - [x] **LLVM Rust Tests**: AOT tests cover width, fill, precision
+  - [x] **AOT Tests**: AOT tests cover width, fill, precision
 
 - [x] **Implement**: Sign specifiers (`+`, `-`, ` `) for numeric formatting (pre-existing)
   - [x] Covered in int.ori and float.ori tests
@@ -1305,19 +1305,19 @@ Formalizes the `Into` trait for semantic, lossless type conversions. Defines tra
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_str_resolves_to_error`
   - [x] **Ori Tests**: `tests/spec/traits/into/str_to_error.ori`
   - [ ] **LLVM Support**: LLVM codegen for str→Error conversion <!-- blocked: Error type has no LLVM representation (TypeInfo::Error is a sentinel) -->
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — str→Error AOT
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — str→Error AOT
 
 - [x] **Implement**: Into implementation for int→float (numeric widening)
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_int_resolves_to_float`
   - [x] **Ori Tests**: `tests/spec/traits/into/int_to_float.ori`
   - [x] **LLVM Support**: LLVM codegen for int→float conversion (sitofp)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 3 AOT tests (basic, negative, zero)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — 3 AOT tests (basic, negative, zero)
 
 - [x] **Implement**: Into implementation for Set<T>→[T] (with T: Eq + Hashable constraint)
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_set_resolves_to_list`, `into_set_preserves_element_type`
   - [x] **Ori Tests**: `tests/spec/traits/into/set_to_list.ori`
   - [x] **LLVM Support**: LLVM codegen for Set→List conversion (identity — same layout)
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — Set→List AOT <!-- blocked: Set literal construction not yet in AOT -->
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — Set→List AOT <!-- blocked: Set literal construction not yet in AOT -->
 
 - [x] **Implement**: Custom Into implementations for user types
   - [x] **Rust Tests**: `ori_types/src/infer/expr/tests.rs` — `into_not_on_named_types_via_builtins` (verifies trait registry dispatch path)
@@ -1521,7 +1521,7 @@ Defines traits for arithmetic, bitwise, and unary operators that user-defined ty
   - [x] **Files**: `ori_eval/src/methods.rs` — operator methods for primitives
   - [x] **Ori Tests**: `tests/spec/traits/operators/user_defined.ori` — 16 tests (Add, Sub, Neg, Mul, Div, Rem, FloorDiv, BitAnd, BitOr, BitXor, Shl, Shr, BitNot, Not, chaining, double negation)
   - [x] **LLVM Support**: LLVM codegen for operator trait dispatch — Tier 1 (`lower_operators.rs`) and Tier 2 (`arc_emitter.rs`) [done] (2026-02-15)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — 7 AOT tests (add, sub, neg, mul_mixed, chained, bitwise, not) [done] (2026-02-15)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — 7 AOT tests (add, sub, neg, mul_mixed, chained, bitwise, not) [done] (2026-02-15)
 
 - [x] **Implement**: Built-in operator implementations for primitives (NOT trait-based, direct evaluator dispatch) [done] (2026-02-10)
   - [x] `int`: Add, Sub, Mul, Div, FloorDiv, Rem, Neg, BitAnd, BitOr, BitXor, Shl, Shr, BitNot
@@ -1592,7 +1592,7 @@ Add `@` as a binary operator for matrix multiplication at multiplicative precede
 
 - [ ] **Implement**: LLVM codegen support
   - [ ] Falls through via trait dispatch — verify no special-casing needed
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/traits.rs` — matmul codegen test
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/traits.rs` — matmul codegen test
 
 - [ ] **Update Spec**: `operator-rules.md` — add `@` to multiplicative group and trait dispatch table
 - [ ] **Update Spec**: `grammar.ebnf` — add `"@"` to `mul_expr` production

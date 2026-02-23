@@ -58,6 +58,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/validate.ori`
   - [ ] **LLVM Support**: LLVM codegen for validate
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/validate_tests.rs` — validate codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 > **Syntax**: `use std.validate { validate }`
 >
@@ -76,18 +77,21 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/resilience.ori`
   - [ ] **LLVM Support**: LLVM codegen for retry
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/resilience_tests.rs` — retry codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `exponential(base: Duration) -> BackoffStrategy` — modules/std.resilience/index.md § exponential
   - [ ] **Rust Tests**: `library/std/resilience.rs` — exponential backoff tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/resilience.ori`
   - [ ] **LLVM Support**: LLVM codegen for exponential backoff
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/resilience_tests.rs` — exponential backoff codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `linear(delay: Duration) -> BackoffStrategy` — modules/std.resilience/index.md § linear
   - [ ] **Rust Tests**: `library/std/resilience.rs` — linear backoff tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/resilience.ori`
   - [ ] **LLVM Support**: LLVM codegen for linear backoff
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/resilience_tests.rs` — linear backoff codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -106,24 +110,28 @@ Clamps result to type bounds on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_saturating.ori`
   - [ ] **LLVM Support**: LLVM codegen for saturating_add
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — saturating_add codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `saturating_sub(a: int, b: int) -> int`
   - [ ] **Rust Tests**: `library/std/math.rs` — saturating_sub tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_saturating.ori`
   - [ ] **LLVM Support**: LLVM codegen for saturating_sub
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — saturating_sub codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `saturating_mul(a: int, b: int) -> int`
   - [ ] **Rust Tests**: `library/std/math.rs` — saturating_mul tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_saturating.ori`
   - [ ] **LLVM Support**: LLVM codegen for saturating_mul
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — saturating_mul codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Byte variants (`saturating_add(a: byte, b: byte) -> byte`, etc.)
   - [ ] **Rust Tests**: `library/std/math.rs` — byte saturating tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_saturating.ori`
   - [ ] **LLVM Support**: LLVM codegen for byte saturating arithmetic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — byte saturating codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.3.2 Wrapping Arithmetic
 
@@ -134,24 +142,28 @@ Wraps around on overflow (modular arithmetic):
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_wrapping.ori`
   - [ ] **LLVM Support**: LLVM codegen for wrapping_add
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — wrapping_add codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `wrapping_sub(a: int, b: int) -> int`
   - [ ] **Rust Tests**: `library/std/math.rs` — wrapping_sub tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_wrapping.ori`
   - [ ] **LLVM Support**: LLVM codegen for wrapping_sub
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — wrapping_sub codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `wrapping_mul(a: int, b: int) -> int`
   - [ ] **Rust Tests**: `library/std/math.rs` — wrapping_mul tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_wrapping.ori`
   - [ ] **LLVM Support**: LLVM codegen for wrapping_mul
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — wrapping_mul codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Byte variants (`wrapping_add(a: byte, b: byte) -> byte`, etc.)
   - [ ] **Rust Tests**: `library/std/math.rs` — byte wrapping tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_wrapping.ori`
   - [ ] **LLVM Support**: LLVM codegen for byte wrapping arithmetic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — byte wrapping codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.3.3 Checked Arithmetic
 
@@ -162,24 +174,28 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_checked.ori`
   - [ ] **LLVM Support**: LLVM codegen for checked_add
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — checked_add codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `checked_sub(a: int, b: int) -> Option<int>`
   - [ ] **Rust Tests**: `library/std/math.rs` — checked_sub tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_checked.ori`
   - [ ] **LLVM Support**: LLVM codegen for checked_sub
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — checked_sub codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `checked_mul(a: int, b: int) -> Option<int>`
   - [ ] **Rust Tests**: `library/std/math.rs` — checked_mul tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_checked.ori`
   - [ ] **LLVM Support**: LLVM codegen for checked_mul
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — checked_mul codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Byte variants (`checked_add(a: byte, b: byte) -> Option<byte>`, etc.)
   - [ ] **Rust Tests**: `library/std/math.rs` — byte checked tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/math_checked.ori`
   - [ ] **LLVM Support**: LLVM codegen for byte checked arithmetic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — byte checked codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.3.4 Type Bounds Constants
 
@@ -188,12 +204,14 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/type_bounds.ori`
   - [ ] **LLVM Support**: LLVM codegen for int.min/max constants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — int constants codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `byte.min`, `byte.max` constants
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — byte constants tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/type_bounds.ori`
   - [ ] **LLVM Support**: LLVM codegen for byte.min/max constants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — byte constants codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.3.5 Default Overflow Behavior
 
@@ -205,6 +223,7 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/overflow_panic.ori`
   - [ ] **LLVM Support**: LLVM codegen for overflow panic behavior
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — overflow panic codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Compile-time constant overflow is a compile error
   - [ ] `$big = int.max + 1` → ERROR: constant overflow
@@ -212,6 +231,7 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/compile-fail/constant_overflow.ori`
   - [ ] **LLVM Support**: LLVM codegen for compile-time overflow errors
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/math_tests.rs` — constant overflow codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -224,48 +244,56 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_eq codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_ne(actual, unexpected)` — modules/std.testing/index.md
   - [ ] **Rust Tests**: `library/std/testing.rs` — assert_ne tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_ne
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_ne codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_some(option)` — modules/std.testing/index.md
   - [ ] **Rust Tests**: `library/std/testing.rs` — assert_some tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_some
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_some codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_none(option)` — modules/std.testing/index.md
   - [ ] **Rust Tests**: `library/std/testing.rs` — assert_none tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_none
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_none codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_ok(result)` — modules/std.testing/index.md
   - [ ] **Rust Tests**: `library/std/testing.rs` — assert_ok tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_ok
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_ok codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_err(result)` — modules/std.testing/index.md
   - [ ] **Rust Tests**: `library/std/testing.rs` — assert_err tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_err
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_err codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_panics(expr)` — modules/std.testing/index.md
   - [ ] **Rust Tests**: `library/std/testing.rs` — assert_panics tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_panics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_panics codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_panics_with(expr, message)` — modules/std.testing/index.md
   - [ ] **Rust Tests**: `library/std/testing.rs` — assert_panics_with tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/testing.ori`
   - [ ] **LLVM Support**: LLVM codegen for std.testing assert_panics_with
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_tests.rs` — assert_panics_with codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -281,6 +309,7 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/todo.ori`
   - [ ] **LLVM Support**: LLVM codegen for todo
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — todo codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `unreachable()` and `unreachable(reason: str)` → `Never`
   - Panics with "unreachable code reached" and location
@@ -288,6 +317,7 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/unreachable.ori`
   - [ ] **LLVM Support**: LLVM codegen for unreachable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — unreachable codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `dbg(value: T)` and `dbg(value: T, label: str)` → `T`
   - Requires `T: Debug`
@@ -297,12 +327,14 @@ Returns `Option<T>` — `None` on overflow:
   - [ ] **Ori Tests**: `tests/spec/stdlib/dbg.ori`
   - [ ] **LLVM Support**: LLVM codegen for dbg
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — dbg codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Location capture for `todo`, `unreachable`, `dbg`
   - Compiler passes call-site location implicitly
   - [ ] **Rust Tests**: `oric/src/eval/location.rs`
   - [ ] **LLVM Support**: LLVM codegen for location capture
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — location capture codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -322,6 +354,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/instant.ori`
   - [ ] **LLVM Support**: LLVM codegen for Instant
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Instant codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `DateTime` type — date and time in a specific timezone
   - `now()`, `now_utc()`, `from_instant()`, `from_parts()`
@@ -332,6 +365,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/datetime.ori`
   - [ ] **LLVM Support**: LLVM codegen for DateTime
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — DateTime codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Date` type — date only (no time component)
   - `today()`, `new()`
@@ -341,6 +375,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/date.ori`
   - [ ] **LLVM Support**: LLVM codegen for Date
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Date codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Time` type — time of day only (no date component)
   - `now()`, `new()`, `midnight()`, `noon()`
@@ -349,6 +384,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/time.ori`
   - [ ] **LLVM Support**: LLVM codegen for Time
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Time codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Timezone` type — timezone info (opaque)
   - `utc()`, `local()`, `from_name()`, `from_offset()`, `fixed()`
@@ -357,6 +393,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/timezone.ori`
   - [ ] **LLVM Support**: LLVM codegen for Timezone
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Timezone codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Weekday` sum type — `Monday | Tuesday | ... | Sunday`
   - `is_weekend()`, `next()`, `prev()`, `all()`
@@ -364,6 +401,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/weekday.ori`
   - [ ] **LLVM Support**: LLVM codegen for Weekday
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Weekday codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.6.2 Duration Extension Methods
 
@@ -375,6 +413,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for Duration construction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration construction codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Duration extraction methods
   - `to_nanos()`, `to_micros()`, `to_millis()`, `to_secs()`, `to_mins()`, `to_hours()`
@@ -382,6 +421,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for Duration extraction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration extraction codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Duration component methods
   - `hours_part()`, `minutes_part()`, `seconds_part()`
@@ -389,6 +429,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for Duration components
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration components codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Duration arithmetic and checks
   - `add()`, `sub()`, `mul()`, `div()`
@@ -397,6 +438,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for Duration arithmetic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — Duration arithmetic codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.6.3 Formatting
 
@@ -406,18 +448,21 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/format.ori`
   - [ ] **LLVM Support**: LLVM codegen for format
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — format codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `format_date(d, pattern)` — Date-only formatting
   - [ ] **Rust Tests**: `library/std/time/format.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/format.ori`
   - [ ] **LLVM Support**: LLVM codegen for format_date
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — format_date codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `format_time(t, pattern)` — Time-only formatting
   - [ ] **Rust Tests**: `library/std/time/format.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/format.ori`
   - [ ] **LLVM Support**: LLVM codegen for format_time
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — format_time codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: ISO 8601 formatting
   - `to_iso8601(dt)`, `to_iso8601_date(d)`, `to_iso8601_time(t)`
@@ -425,6 +470,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/iso8601.ori`
   - [ ] **LLVM Support**: LLVM codegen for ISO 8601 formatting
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — ISO 8601 formatting codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.6.4 Parsing
 
@@ -434,18 +480,21 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/parse.ori`
   - [ ] **LLVM Support**: LLVM codegen for parse
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — parse codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `parse_date(source, pattern)` — Date-only parsing
   - [ ] **Rust Tests**: `library/std/time/parse.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/parse.ori`
   - [ ] **LLVM Support**: LLVM codegen for parse_date
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — parse_date codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `parse_time(source, pattern)` — Time-only parsing
   - [ ] **Rust Tests**: `library/std/time/parse.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/parse.ori`
   - [ ] **LLVM Support**: LLVM codegen for parse_time
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — parse_time codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: ISO 8601 parsing
   - `from_iso8601(source)`, `from_iso8601_date(source)`
@@ -453,6 +502,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/iso8601.ori`
   - [ ] **LLVM Support**: LLVM codegen for ISO 8601 parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — ISO 8601 parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.6.5 Error Type
 
@@ -462,6 +512,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/stdlib/time/error.ori`
   - [ ] **LLVM Support**: LLVM codegen for TimeError
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/time_tests.rs` — TimeError codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.6.6 Clock Capability
 
@@ -471,6 +522,7 @@ Date/time types, formatting, parsing, arithmetic, and timezone handling.
   - [ ] **Ori Tests**: `tests/spec/capabilities/clock.ori`
   - [ ] **LLVM Support**: LLVM codegen for Clock capability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — Clock codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Document**: Stateful clock mocking via handlers (replaces MockClock)
   - MockClock is no longer a runtime-provided type with interior mutability
@@ -496,6 +548,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/value.ori`
   - [ ] **LLVM Support**: LLVM codegen for JsonValue
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonValue codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `JsonError` and `JsonErrorKind` types
   - `ParseError | TypeError | MissingField | UnknownField | ValueError`
@@ -504,6 +557,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/error.ori`
   - [ ] **LLVM Support**: LLVM codegen for JsonError
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonError codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Json` trait
   - `@to_json (self) -> JsonValue`
@@ -512,6 +566,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/trait.ori`
   - [ ] **LLVM Support**: LLVM codegen for Json trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — Json trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.7.2 Parsing API
 
@@ -520,12 +575,14 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/parse.ori`
   - [ ] **LLVM Support**: LLVM codegen for parse
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — parse codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `parse_as<T: Json>(source: str) -> Result<T, JsonError>`
   - [ ] **Rust Tests**: `library/std/json/parse.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/parse.ori`
   - [ ] **LLVM Support**: LLVM codegen for parse_as
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — parse_as codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.7.3 Serialization API
 
@@ -534,24 +591,28 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
   - [ ] **LLVM Support**: LLVM codegen for stringify
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — stringify codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `stringify_pretty(value: JsonValue, indent: int = 2) -> str`
   - [ ] **Rust Tests**: `library/std/json/stringify.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
   - [ ] **LLVM Support**: LLVM codegen for stringify_pretty
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — stringify_pretty codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `to_json_string<T: Json>(value: T) -> str`
   - [ ] **Rust Tests**: `library/std/json/stringify.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
   - [ ] **LLVM Support**: LLVM codegen for to_json_string
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — to_json_string codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `to_json_string_pretty<T: Json>(value: T, indent: int = 2) -> str`
   - [ ] **Rust Tests**: `library/std/json/stringify.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/stringify.ori`
   - [ ] **LLVM Support**: LLVM codegen for to_json_string_pretty
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — to_json_string_pretty codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.7.4 JsonValue Methods
 
@@ -561,6 +622,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/value_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for type check methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — type check methods codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Safe extraction methods
   - `as_bool()`, `as_number()`, `as_int()`, `as_string()`, `as_array()`, `as_object()`
@@ -569,6 +631,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/value_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for extraction methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — extraction methods codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Indexing methods
   - `get(key: str)` for objects, `get_index(index: int)` for arrays
@@ -576,6 +639,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/value_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for indexing methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — indexing methods codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Path access method
   - `at(path: str)` — dot notation with array index support (`"users[0].name"`)
@@ -583,6 +647,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/path_access.ori`
   - [ ] **LLVM Support**: LLVM codegen for path access
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — path access codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.7.5 Derive Macro
 
@@ -592,6 +657,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_struct.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive(Json) structs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — derive(Json) struct codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `#derive(Json)` for sum types
   - Simple variants serialize as strings, payload variants as objects
@@ -600,6 +666,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_enum.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive(Json) enums
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — derive(Json) enum codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Field attributes for `#derive(Json)`
   - `#json(rename: "name")` — different JSON field name
@@ -610,6 +677,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/derive_attrs.ori`
   - [ ] **LLVM Support**: LLVM codegen for field attributes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — field attributes codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.7.6 Standard Type Implementations
 
@@ -619,6 +687,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/impls_primitive.ori`
   - [ ] **LLVM Support**: LLVM codegen for primitive Json impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — primitive impls codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Collection Json implementations
   - `[T]` (array), `{str: V}` (object), `Set<T>` (array), `Option<T>` (null or value), `(A, B)` (array)
@@ -627,6 +696,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/impls_collection.ori`
   - [ ] **LLVM Support**: LLVM codegen for collection Json impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — collection impls codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Built-in type Json implementations
   - `Duration` → ISO 8601 duration string (`"PT1H30M"`)
@@ -635,6 +705,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/impls_builtin.ori`
   - [ ] **LLVM Support**: LLVM codegen for built-in Json impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — built-in impls codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.7.7 Streaming API
 
@@ -645,6 +716,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/streaming.ori`
   - [ ] **LLVM Support**: LLVM codegen for JsonParser
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonParser codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `JsonEvent` sum type
   - `StartObject | EndObject | StartArray | EndArray | Key(str) | Value(JsonValue)`
@@ -652,6 +724,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/streaming.ori`
   - [ ] **LLVM Support**: LLVM codegen for JsonEvent
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — JsonEvent codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.7.8 FFI Implementation
 
@@ -666,6 +739,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/ffi_native.ori`
   - [ ] **LLVM Support**: LLVM codegen for yyjson FFI
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — yyjson FFI codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: WASM FFI (JavaScript JSON API)
   - `extern "js"` bindings for `JSON.parse`, `JSON.stringify`
@@ -684,6 +758,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/pure_parser.ori`
   - [ ] **LLVM Support**: LLVM codegen for pure Ori parser
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — pure parser codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Pure Ori fallback serializer
   - `stringify_pure` and `escape_string`
@@ -691,6 +766,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/pure_stringify.ori`
   - [ ] **LLVM Support**: LLVM codegen for pure Ori serializer
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — pure serializer codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Streaming parser FFI
   - Native: yyjson tree walking with `StackFrame` state machine
@@ -699,6 +775,7 @@ JSON parsing, serialization, and manipulation.
   - [ ] **Ori Tests**: `tests/spec/stdlib/json/streaming_ffi.ori`
   - [ ] **LLVM Support**: LLVM codegen for streaming parser FFI
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/json_tests.rs` — streaming FFI codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -720,6 +797,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path.ori`
   - [ ] **LLVM Support**: LLVM codegen for Path
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — Path codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `FileInfo` type — file metadata
   - Fields: `path`, `size`, `is_file`, `is_dir`, `is_symlink`, `modified` (Instant), `created` (Option<Instant>), `readonly`
@@ -727,6 +805,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
   - [ ] **LLVM Support**: LLVM codegen for FileInfo
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileInfo codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `FileError` and `FileErrorKind` types
   - `NotFound | PermissionDenied | AlreadyExists | NotAFile | NotADirectory | DirectoryNotEmpty | IoError | InvalidPath`
@@ -734,6 +813,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/error.ori`
   - [ ] **LLVM Support**: LLVM codegen for FileError
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileError codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `WriteMode` sum type
   - `Create` (error if exists), `Append` (create or append), `Truncate` (create or overwrite)
@@ -741,6 +821,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write_mode.ori`
   - [ ] **LLVM Support**: LLVM codegen for WriteMode
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — WriteMode codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Permissions` type
   - Fields: `readable`, `writable`, `executable`
@@ -748,6 +829,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
   - [ ] **LLVM Support**: LLVM codegen for Permissions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — Permissions codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.2 Reading Files
 
@@ -756,18 +838,21 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/read.ori`
   - [ ] **LLVM Support**: LLVM codegen for read
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — read codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `read_bytes(path: str) -> Result<[byte], FileError> uses FileSystem`
   - [ ] **Rust Tests**: `library/std/fs/read.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/read.ori`
   - [ ] **LLVM Support**: LLVM codegen for read_bytes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — read_bytes codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `read_lines(path: str) -> Result<[str], FileError> uses FileSystem`
   - [ ] **Rust Tests**: `library/std/fs/read.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/read.ori`
   - [ ] **LLVM Support**: LLVM codegen for read_lines
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — read_lines codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `FileReader` type for streaming reads
   - `open_read(path: str)`, `read_chunk()`, `read_line()`, `close()`
@@ -776,6 +861,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/reader.ori`
   - [ ] **LLVM Support**: LLVM codegen for FileReader
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileReader codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.3 Writing Files
 
@@ -784,12 +870,14 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write.ori`
   - [ ] **LLVM Support**: LLVM codegen for write
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — write codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `write_bytes(path: str, content: [byte]) -> Result<void, FileError> uses FileSystem`
   - [ ] **Rust Tests**: `library/std/fs/write.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write.ori`
   - [ ] **LLVM Support**: LLVM codegen for write_bytes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — write_bytes codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `write_with(path, content, mode, create_dirs)` with options
   - Default `mode: Truncate`, `create_dirs: false`
@@ -797,6 +885,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/write.ori`
   - [ ] **LLVM Support**: LLVM codegen for write_with
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — write_with codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `FileWriter` type for streaming writes
   - `open_write(path, mode)`, `write_chunk()`, `write_str()`, `write_line()`, `flush()`, `close()`
@@ -804,6 +893,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/writer.ori`
   - [ ] **LLVM Support**: LLVM codegen for FileWriter
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — FileWriter codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.4 Directory Operations
 
@@ -812,36 +902,42 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
   - [ ] **LLVM Support**: LLVM codegen for list_dir
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — list_dir codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `list_dir_info(path: str) -> Result<[FileInfo], FileError> uses FileSystem`
   - [ ] **Rust Tests**: `library/std/fs/dir.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
   - [ ] **LLVM Support**: LLVM codegen for list_dir_info
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — list_dir_info codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `walk_dir(path: str) -> Result<[FileInfo], FileError> uses FileSystem`
   - [ ] **Rust Tests**: `library/std/fs/dir.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/walk.ori`
   - [ ] **LLVM Support**: LLVM codegen for walk_dir
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — walk_dir codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `walk_dir_with(path, max_depth, follow_symlinks)` with options
   - [ ] **Rust Tests**: `library/std/fs/dir.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/walk.ori`
   - [ ] **LLVM Support**: LLVM codegen for walk_dir_with
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — walk_dir_with codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `create_dir(path: str)` and `create_dir_all(path: str)`
   - [ ] **Rust Tests**: `library/std/fs/dir.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
   - [ ] **LLVM Support**: LLVM codegen for create_dir/create_dir_all
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — create_dir codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `remove_dir(path: str)` and `remove_dir_all(path: str)`
   - [ ] **Rust Tests**: `library/std/fs/dir.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/dir.ori`
   - [ ] **LLVM Support**: LLVM codegen for remove_dir/remove_dir_all
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — remove_dir codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.5 File Operations
 
@@ -850,18 +946,21 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/ops.ori`
   - [ ] **LLVM Support**: LLVM codegen for copy/copy_with
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — copy codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `move(from: str, to: str)` and `rename(from: str, to: str)` (alias)
   - [ ] **Rust Tests**: `library/std/fs/ops.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/ops.ori`
   - [ ] **LLVM Support**: LLVM codegen for move/rename
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — move codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `remove(path: str) -> Result<void, FileError> uses FileSystem`
   - [ ] **Rust Tests**: `library/std/fs/ops.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/ops.ori`
   - [ ] **LLVM Support**: LLVM codegen for remove
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — remove codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.6 File Info Functions
 
@@ -870,6 +969,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
   - [ ] **LLVM Support**: LLVM codegen for info
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — info codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `exists(path: str) -> bool uses FileSystem`
   - Returns `false` on permission denied (simpler API)
@@ -877,12 +977,14 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
   - [ ] **LLVM Support**: LLVM codegen for exists
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — exists codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `is_file(path: str) -> bool` and `is_dir(path: str) -> bool`
   - [ ] **Rust Tests**: `library/std/fs/info.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/info.ori`
   - [ ] **LLVM Support**: LLVM codegen for is_file/is_dir
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — is_file/is_dir codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.7 Glob Patterns
 
@@ -892,6 +994,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/glob.ori`
   - [ ] **LLVM Support**: LLVM codegen for glob
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — glob codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.8 Temporary Files
 
@@ -900,12 +1003,14 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/temp.ori`
   - [ ] **LLVM Support**: LLVM codegen for temp_dir
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — temp_dir codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `create_temp_file(prefix: str)` and `create_temp_dir(prefix: str)`
   - [ ] **Rust Tests**: `library/std/fs/temp.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/temp.ori`
   - [ ] **LLVM Support**: LLVM codegen for create_temp_file/create_temp_dir
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — temp file codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `with_temp_file<T>(prefix, action)` and `with_temp_dir<T>(prefix, action)`
   - Auto-cleanup scoped temp files
@@ -913,6 +1018,7 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/temp.ori`
   - [ ] **LLVM Support**: LLVM codegen for with_temp_file/with_temp_dir
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — scoped temp codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.9 Permissions
 
@@ -921,18 +1027,21 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
   - [ ] **LLVM Support**: LLVM codegen for get_permissions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — get_permissions codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `set_permissions(path: str, permissions: Permissions)`
   - [ ] **Rust Tests**: `library/std/fs/permissions.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
   - [ ] **LLVM Support**: LLVM codegen for set_permissions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — set_permissions codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `set_readonly(path: str, readonly: bool)`
   - [ ] **Rust Tests**: `library/std/fs/permissions.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/permissions.ori`
   - [ ] **LLVM Support**: LLVM codegen for set_readonly
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — set_readonly codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.8.10 Path Utilities
 
@@ -941,18 +1050,21 @@ File system operations including reading, writing, directory manipulation, and f
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path_utils.ori`
   - [ ] **LLVM Support**: LLVM codegen for cwd/set_cwd
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — cwd codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `canonicalize(path: str)` and `resolve(path: str)`
   - [ ] **Rust Tests**: `library/std/fs/path_utils.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path_utils.ori`
   - [ ] **LLVM Support**: LLVM codegen for canonicalize/resolve
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — canonicalize codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `relative(from: str, to: str) -> Result<Path, FileError>`
   - [ ] **Rust Tests**: `library/std/fs/path_utils.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/fs/path_utils.ori`
   - [ ] **LLVM Support**: LLVM codegen for relative
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fs_tests.rs` — relative codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -973,6 +1085,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hash.ori`
   - [ ] **LLVM Support**: LLVM codegen for HashAlgorithm
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — HashAlgorithm codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `SecretKey` type — symmetric key with auto-zeroization
   - Fields: `bytes: [byte]`
@@ -981,6 +1094,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
   - [ ] **LLVM Support**: LLVM codegen for SecretKey
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — SecretKey codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `CryptoError` and `CryptoErrorKind` types
   - `DecryptionFailed | InvalidKey | InvalidSignature | KeyDerivationFailed | RandomGenerationFailed | KeyExchangeFailed`
@@ -988,6 +1102,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/error.ori`
   - [ ] **LLVM Support**: LLVM codegen for CryptoError
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — CryptoError codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.2 Signing Key Types
 
@@ -997,6 +1112,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
   - [ ] **LLVM Support**: LLVM codegen for SigningAlgorithm
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — SigningAlgorithm codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `SigningKeyPair`, `SigningPublicKey`, `SigningPrivateKey` types
   - Private key with auto-zeroization on drop
@@ -1004,6 +1120,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
   - [ ] **LLVM Support**: LLVM codegen for signing key types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — signing key types codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.3 Encryption Key Types
 
@@ -1013,6 +1130,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
   - [ ] **LLVM Support**: LLVM codegen for EncryptionAlgorithm
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — EncryptionAlgorithm codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `EncryptionKeyPair`, `EncryptionPublicKey`, `EncryptionPrivateKey` types
   - Private key with auto-zeroization on drop
@@ -1020,6 +1138,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
   - [ ] **LLVM Support**: LLVM codegen for encryption key types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — encryption key types codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.4 Key Exchange Types
 
@@ -1029,6 +1148,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
   - [ ] **LLVM Support**: LLVM codegen for KeyExchangeAlgorithm
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — KeyExchangeAlgorithm codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `KeyExchangeKeyPair`, `KeyExchangePublicKey`, `KeyExchangePrivateKey` types
   - Private key with auto-zeroization on drop
@@ -1036,6 +1156,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
   - [ ] **LLVM Support**: LLVM codegen for key exchange types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — key exchange types codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.5 Hashing API
 
@@ -1044,12 +1165,14 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hash.ori`
   - [ ] **LLVM Support**: LLVM codegen for hash
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hash codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `hash_hex(data: str, algorithm: HashAlgorithm = Sha256) -> str uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/hash.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hash.ori`
   - [ ] **LLVM Support**: LLVM codegen for hash_hex
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hash_hex codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `hash_password(password: str) -> str uses Crypto`
   - Uses Argon2id with secure defaults
@@ -1057,12 +1180,14 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/password.ori`
   - [ ] **LLVM Support**: LLVM codegen for hash_password
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hash_password codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `verify_password(password: str, hash: str) -> bool uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/password.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/password.ori`
   - [ ] **LLVM Support**: LLVM codegen for verify_password
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — verify_password codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.6 HMAC API
 
@@ -1071,12 +1196,14 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hmac.ori`
   - [ ] **LLVM Support**: LLVM codegen for hmac
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — hmac codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `verify_hmac(key: [byte], data: [byte], mac: [byte], algorithm: HashAlgorithm = Sha256) -> bool uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/hmac.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/hmac.ori`
   - [ ] **LLVM Support**: LLVM codegen for verify_hmac
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — verify_hmac codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.7 Symmetric Encryption API
 
@@ -1085,6 +1212,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
   - [ ] **LLVM Support**: LLVM codegen for generate_key
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_key codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `encrypt(key: SecretKey, plaintext: [byte]) -> [byte] uses Crypto`
   - Uses XSalsa20-Poly1305 with random nonce (prepended to ciphertext)
@@ -1092,18 +1220,21 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
   - [ ] **LLVM Support**: LLVM codegen for encrypt
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — encrypt codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `decrypt(key: SecretKey, ciphertext: [byte]) -> Result<[byte], CryptoError> uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric.ori`
   - [ ] **LLVM Support**: LLVM codegen for decrypt
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — decrypt codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `encrypt_with_nonce(key, nonce, plaintext, aad)` and `decrypt_with_nonce(key, nonce, ciphertext, aad)`
   - [ ] **Rust Tests**: `library/std/crypto/symmetric.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/symmetric_nonce.ori`
   - [ ] **LLVM Support**: LLVM codegen for encrypt/decrypt with nonce
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — nonce API codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.8 Asymmetric Encryption API
 
@@ -1112,18 +1243,21 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
   - [ ] **LLVM Support**: LLVM codegen for generate_encryption_keypair
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_encryption_keypair codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `encrypt_for(recipient: EncryptionPublicKey, plaintext: [byte]) -> [byte] uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/encryption.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
   - [ ] **LLVM Support**: LLVM codegen for encrypt_for
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — encrypt_for codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `decrypt_with(key: EncryptionPrivateKey, ciphertext: [byte]) -> Result<[byte], CryptoError> uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/encryption.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/encryption.ori`
   - [ ] **LLVM Support**: LLVM codegen for decrypt_with
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — decrypt_with codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.9 Digital Signatures API
 
@@ -1132,18 +1266,21 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
   - [ ] **LLVM Support**: LLVM codegen for generate_signing_keypair
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_signing_keypair codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `sign(key: SigningPrivateKey, data: [byte]) -> [byte] uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/signing.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
   - [ ] **LLVM Support**: LLVM codegen for sign
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — sign codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `verify_signature(key: SigningPublicKey, data: [byte], signature: [byte]) -> bool uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/signing.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/signing.ori`
   - [ ] **LLVM Support**: LLVM codegen for verify_signature
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — verify_signature codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.10 Key Exchange API
 
@@ -1152,12 +1289,14 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
   - [ ] **LLVM Support**: LLVM codegen for generate_key_exchange_keypair
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — generate_key_exchange_keypair codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `derive_shared_secret(my_private: KeyExchangePrivateKey, their_public: KeyExchangePublicKey) -> [byte] uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/key_exchange.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/key_exchange.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive_shared_secret
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — derive_shared_secret codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.11 Secure Random API
 
@@ -1166,18 +1305,21 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/random.ori`
   - [ ] **LLVM Support**: LLVM codegen for random_bytes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — random_bytes codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `random_int(min: int, max: int) -> int uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/random.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/random.ori`
   - [ ] **LLVM Support**: LLVM codegen for random_int
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — random_int codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `random_uuid() -> str uses Crypto`
   - [ ] **Rust Tests**: `library/std/crypto/random.rs`
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/random.ori`
   - [ ] **LLVM Support**: LLVM codegen for random_uuid
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — random_uuid codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.12 Key Derivation API
 
@@ -1186,6 +1328,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/kdf.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive_key
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — derive_key codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `stretch_key(input_key: [byte], info: [byte] = [], length: int = 32) -> [byte] uses Crypto`
   - Uses HKDF for key derivation
@@ -1193,6 +1336,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/kdf.ori`
   - [ ] **LLVM Support**: LLVM codegen for stretch_key
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — stretch_key codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.13 Key Serialization
 
@@ -1201,6 +1345,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/serialization.ori`
   - [ ] **LLVM Support**: LLVM codegen for SecretKey serialization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — SecretKey serialization codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Public/private key PEM serialization
   - `to_pem()`, `from_pem()`, `to_encrypted_pem()`, `from_encrypted_pem()`
@@ -1208,6 +1353,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/serialization.ori`
   - [ ] **LLVM Support**: LLVM codegen for PEM serialization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — PEM serialization codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Public/private key byte serialization
   - `to_bytes()`, `from_bytes()` for all key types
@@ -1215,6 +1361,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/serialization.ori`
   - [ ] **LLVM Support**: LLVM codegen for byte serialization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — byte serialization codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.14 Utilities
 
@@ -1224,6 +1371,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/util.ori`
   - [ ] **LLVM Support**: LLVM codegen for constant_time_eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — constant_time_eq codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.15 Crypto Capability
 
@@ -1233,6 +1381,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/capabilities/crypto.ori`
   - [ ] **LLVM Support**: LLVM codegen for Crypto capability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — Crypto codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `MockCrypto` for testing
   - Deterministic random, predictable outputs for test verification
@@ -1240,6 +1389,7 @@ Cryptographic primitives including hashing, encryption, signatures, key exchange
   - [ ] **Ori Tests**: `tests/spec/stdlib/crypto/mock.ori`
   - [ ] **LLVM Support**: LLVM codegen for MockCrypto
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/crypto_tests.rs` — MockCrypto codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.9.16 Algorithm Deprecation
 
@@ -1291,6 +1441,7 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
   - [ ] **Ori Tests**: `tests/spec/stdlib/duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for Duration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/duration_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.10.4 Size Library Implementation
 
@@ -1309,6 +1460,7 @@ Move Duration and Size from compiler built-ins to pure Ori library types using o
   - [ ] **Ori Tests**: `tests/spec/stdlib/size.ori`
   - [ ] **LLVM Support**: LLVM codegen for Size
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/size_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 7D.10.5 Compiler Cleanup
 

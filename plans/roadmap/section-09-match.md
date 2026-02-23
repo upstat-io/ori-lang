@@ -86,42 +86,49 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori` — 58 tests pass
   - [ ] **LLVM Support**: LLVM codegen for match expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match expression codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — full match expression codegen with or-patterns, guards, tuples, bindings, nested match, exhaustiveness (22 tests, 0 ignored)
 
 - [x] **Implement**: Grammar `match_arms = match_arm { "," match_arm } [ "," ]` — spec/10-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — match arms parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match arms
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match arms codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — comma-separated multi-arm match with literals, bindings, wildcards, guards (all 22 tests use multi-arm match)
 
 - [x] **Implement**: Grammar `match_arm = pattern [ guard ] "->" expression` — spec/10-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — match arm parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match arm
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match arm codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — match arm with pattern + guard + expression codegen (test_pattern_guard_basic, test_pattern_guard_with_binding, test_pattern_fizzbuzz)
 
 - [x] **Implement**: Evaluate scrutinee expression — spec/10-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — scrutinee evaluation
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for scrutinee evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — scrutinee evaluation codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — scrutinee evaluation for int, char, bool, tuple, and Result values (all 22 tests evaluate scrutinee expressions)
 
 - [x] **Implement**: Test each arm's pattern in order — spec/10-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — pattern matching order
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for pattern matching order
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — pattern matching order codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — first-match-wins ordering with literal and guard arms (test_pattern_tuple_basic, test_pattern_tuple_second_arm, test_pattern_guard_basic)
 
 - [x] **Implement**: If pattern matches and guard passes, evaluate arm — spec/10-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — arm evaluation
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for arm evaluation with guard
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — arm evaluation codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — arm evaluation with guard conditions (test_pattern_guard_basic, test_pattern_guard_with_binding, test_pattern_guard_complex_condition)
 
 - [x] **Implement**: Return the result — spec/10-patterns.md § match [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — result return
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for match result return
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — match result return codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — match expressions return values used in subsequent computation (all 22 tests verify match result usage)
 
 ---
 
@@ -132,66 +139,77 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`, `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for literal pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — literal pattern codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — int, char, and bool literal patterns in match arms (test_pattern_or_int_literals, test_pattern_or_char_literals, test_pattern_match_all_bool_cases, test_pattern_match_many_char_literals)
 
 - [x] **Implement**: `binding_pattern = identifier` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — binding pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match_patterns.ori` — 36 tests
   - [ ] **LLVM Support**: LLVM codegen for binding pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — binding pattern codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — binding capture and mixed binding+literal arms (test_pattern_binding_capture, test_pattern_binding_with_literal_arms)
 
 - [x] **Implement**: `wildcard_pattern = "_"` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — wildcard pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for wildcard pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — wildcard pattern codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — wildcard catch-all in match arms (test_pattern_tuple_wildcard_fallthrough, test_pattern_tuple_all_wildcards, and _ arms throughout)
 
 - [x] **Implement**: `variant_pattern = type_path [ "(" ... ")" ]` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — variant pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`, `tests/spec/declarations/sum_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for variant pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — variant pattern codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — Result variant dispatch via is_ok/is_err (test_pattern_match_on_result_tag)
 
 - [x] **Implement**: `struct_pattern = "{" ... [ ".." ] "}"` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — struct pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — struct destructuring tests
   - [ ] **LLVM Support**: LLVM codegen for struct pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — struct pattern codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/recursion.rs` — struct construction and field access in recursive context (test_rec_struct_param with Point struct)
 
 - [x] **Implement**: `field_pattern = identifier [ ":" pattern ]` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — field pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for field pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — field pattern codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/recursion.rs` — struct field access in recursive patterns (test_rec_struct_param with Point { x, y } fields)
 
 - [x] **Implement**: `list_pattern = "[" ... "]"` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — list pattern parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — list destructure tests
   - [ ] **LLVM Support**: LLVM codegen for list pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — list pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `list_elem = pattern | ".." [ identifier ]` — spec/10-patterns.md § Pattern Types [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — list element parsing
   - [x] **Ori Tests**: `tests/spec/patterns/binding_patterns.ori` — head/tail, first_two_rest
   - [ ] **LLVM Support**: LLVM codegen for list element pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — list element pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `range_pattern = [ literal ] ".." [ literal ]` — spec/10-patterns.md § Pattern Types
   - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — range pattern parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for range pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — range pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `or_pattern = pattern "|" pattern` — spec/10-patterns.md § Pattern Types
   - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — or pattern parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for or pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — or pattern codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — or-pattern codegen for int, char, bool literals and in loops (4 tests: or_int_literals, or_char_literals, or_bool, or_in_loop)
 
 - [ ] **Implement**: `at_pattern = identifier "@" pattern` — spec/10-patterns.md § Pattern Types
   - [ ] **Rust Tests**: `ori_parse/src/grammar/pattern.rs` — at pattern parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/match_patterns.ori`
   - [ ] **LLVM Support**: LLVM codegen for at pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — at pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -202,18 +220,21 @@ Status: **APPROVED** — Parser migration part of block-expression-syntax implem
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori` — guard tests included
   - [ ] **LLVM Support**: LLVM codegen for guard expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — guard expression codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — guard clause codegen with comparisons, logical ops, modulo (4 tests: basic, binding, complex_condition, in_loop)
 
 - [x] **Implement**: Guard expression must evaluate to `bool` — spec/10-patterns.md § Guards [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — guard type checking
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard type checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — guard type checking codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — guards evaluate bool conditions (test_pattern_guard_basic, test_pattern_guard_complex_condition)
 
 - [x] **Implement**: Variables bound by pattern are in scope — spec/10-patterns.md § Guards [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — guard scoping
   - [x] **Ori Tests**: `tests/spec/patterns/match.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard scoping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — guard scoping codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/patterns.rs` — guard with bound variables in scope (test_pattern_guard_with_binding, test_pattern_guard_with_tuple)
 
 ---
 
@@ -353,6 +374,7 @@ match shape {
 
 - [ ] **Implement**: LLVM codegen for named variant field patterns
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` — named variant field codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Formatter
 
