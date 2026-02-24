@@ -480,7 +480,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // sret pattern for Option<T> result
         // Option layout: {i64 tag, T payload} — matches TypeLayoutResolver
         let i64_llvm = self.builder.scx().type_i64().into();
-        let opt_struct = self.builder.scx().type_struct(&[i64_llvm, i64_llvm], false);
+        let payload_llvm = self.type_resolver.resolve(elem_ty);
+        let opt_struct = self
+            .builder
+            .scx()
+            .type_struct(&[i64_llvm, payload_llvm], false);
         let opt_struct_ty = self.builder.register_type(opt_struct.into());
 
         let out_ptr =

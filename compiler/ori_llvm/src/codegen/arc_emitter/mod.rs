@@ -475,6 +475,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             ArcTerminator::Jump { target, args } => {
                 // Record phi incoming values for the target block's parameters
                 let target_idx = target.index();
+                debug_assert_eq!(
+                    args.len(),
+                    arc_func.blocks[target_idx].params.len(),
+                    "Jump arg count must match target block param count (block {target_idx})"
+                );
                 if !args.is_empty() {
                     let Some(source_block) = self.builder.current_block() else {
                         tracing::error!("ARC jump: no current block — skipping phi incoming");

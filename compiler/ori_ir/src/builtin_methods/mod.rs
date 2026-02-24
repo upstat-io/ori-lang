@@ -552,6 +552,22 @@ pub static BUILTIN_METHODS: &[MethodDef] = &[
         None,
         true,
     ),
+    MethodDef::new(
+        BuiltinType::Str,
+        "replace",
+        &[ParamSpec::Str, ParamSpec::Str],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
+    MethodDef::new(
+        BuiltinType::Str,
+        "repeat",
+        &[ParamSpec::Int],
+        ReturnSpec::SelfType,
+        None,
+        true,
+    ),
     // Duration methods
     MethodDef::comparable(BuiltinType::Duration),
     MethodDef::eq_trait(BuiltinType::Duration),

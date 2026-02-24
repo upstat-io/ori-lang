@@ -78,6 +78,8 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Result", "trace"),
     ("Result", "trace_entries"),
     ("Result", "unwrap"),
+    ("Result", "unwrap_err"),
+    ("Result", "unwrap_or"),
     // Set - methods and traits
     ("Set", "debug"),
     ("Set", "equals"),
@@ -216,6 +218,8 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "is_empty"),
     ("str", "iter"),
     ("str", "len"),
+    ("str", "repeat"),
+    ("str", "replace"),
     ("str", "starts_with"),
     ("str", "to_lowercase"),
     ("str", "to_str"),
