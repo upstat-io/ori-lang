@@ -563,6 +563,9 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_rc_reset_live_count",
     // ori_run_main wraps @main with catch_unwind — JIT compiles tests directly
     "ori_run_main",
+    // catch(expr:) — AOT uses invoke/landingpad; JIT catches via ControlAction::Error
+    "ori_catch_cleanup",
+    "ori_catch_recover",
 ];
 
 /// Names of all runtime functions registered in the JIT mapping table.

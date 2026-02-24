@@ -1715,7 +1715,6 @@ type Point = { x: int, y: int };
 }
 
 #[test]
-#[ignore = "AOT gap: recursive enum match loads boxed child as i64 instead of following RC pointer"]
 fn test_aot_recursive_enum_tree() {
     assert_aot_success(
         r#"
@@ -1734,6 +1733,54 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 }
 "#,
         "recursive_enum_tree",
+    );
+}
+
+/// Deeper recursive enum: 3 levels of nesting.
+#[test]
+fn test_aot_recursive_enum_tree_deep() {
+    assert_aot_success(
+        r#"
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r)
+}
+
+@main () -> int = {
+    let a = Leaf(value: 1);
+    let b = Leaf(value: 2);
+    let c = Leaf(value: 3);
+    let d = Leaf(value: 4);
+    let left = Node(left: a, right: b);
+    let right = Node(left: c, right: d);
+    let root = Node(left: left, right: right);
+    if tree_sum(t: root) == 10 then 0 else 1
+}
+"#,
+        "recursive_enum_tree_deep",
+    );
+}
+
+/// Recursive enum with a single-field variant (linked list).
+#[test]
+fn test_aot_recursive_enum_linked_list() {
+    assert_aot_success(
+        r#"
+type List = Nil | Cons(head: int, tail: List);
+
+@list_sum (l: List) -> int = match l {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(l: t)
+}
+
+@main () -> int = {
+    let list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    if list_sum(l: list) == 6 then 0 else 1
+}
+"#,
+        "recursive_enum_linked_list",
     );
 }
 

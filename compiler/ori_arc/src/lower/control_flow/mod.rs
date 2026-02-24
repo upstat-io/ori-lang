@@ -1023,13 +1023,16 @@ impl ArcLowerer<'_> {
         // O(1) Arc clone instead of deep-cloning the recursive tree structure.
         let tree = self.canon.decision_trees.get_shared(tree_id);
 
+        let scrut_ty = self.builder.var_type(scrut_var);
         let mut ctx = crate::decision_tree::emit::EmitContext {
             root_scrutinee: scrut_var,
+            root_scrutinee_ty: scrut_ty,
             merge_block,
             arm_bodies: arm_ids,
             span,
             pre_scope: pre_scope.clone(),
             mutable_var_names,
+            variant_stack: Vec::new(),
         };
 
         crate::decision_tree::emit::emit_tree(self, &tree, &mut ctx);

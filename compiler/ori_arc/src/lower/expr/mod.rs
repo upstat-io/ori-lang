@@ -255,7 +255,7 @@ impl ArcLowerer<'_> {
             CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
 
             // Special forms
-            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, span),
+            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, ty, span),
 
             // Formatting — dispatches to type-specific ori_format_* runtime functions
             CanExpr::FormatWith { expr, spec } => self.lower_format_with(expr, spec, ty, span),

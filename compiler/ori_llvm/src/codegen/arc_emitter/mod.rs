@@ -30,6 +30,24 @@ use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
 // ---------------------------------------------------------------------------
+// Recursive enum detection
+// ---------------------------------------------------------------------------
+
+/// Check if a field type creates a direct recursive reference within an enum.
+///
+/// Returns `true` when the resolved field type is the same Pool index as the
+/// resolved enum type — meaning the field must be RC-boxed when stored in the
+/// enum payload. Layout: stored as an 8-byte RC pointer instead of inline.
+///
+/// Only handles direct self-recursion (e.g., `type Tree = Node(Tree, Tree)`).
+/// Mutual recursion (`type A = X(B)`, `type B = Y(A)`) is not yet supported.
+fn is_boxed_enum_field(pool: &Pool, enum_type: Idx, field_type: Idx) -> bool {
+    let enum_resolved = pool.resolve_fully(enum_type);
+    let field_resolved = pool.resolve_fully(field_type);
+    pool.tag(enum_resolved) == Tag::Enum && enum_resolved == field_resolved
+}
+
+// ---------------------------------------------------------------------------
 // EmittedValue
 // ---------------------------------------------------------------------------
 
@@ -195,6 +213,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     fn resolve_type(&mut self, idx: Idx) -> LLVMTypeId {
         let llvm_ty = self.type_resolver.resolve(idx);
         self.builder.register_type(llvm_ty)
+    }
+
+    /// Allocate a heap cell via `ori_rc_alloc(size, align)`.
+    ///
+    /// Returns a `ptr` to the RC-managed allocation. Used for boxing
+    /// recursive enum fields that must be stored as pointers in the payload.
+    fn rc_alloc(&mut self, size: u64, align: u64) -> ValueId {
+        let size_val = self.builder.const_i64(size as i64);
+        let align_val = self.builder.const_i64(align as i64);
+        let i64_ty = self.builder.i64_type();
+        let ptr_ty = self.builder.ptr_type();
+        let rc_alloc_func =
+            self.builder
+                .get_or_declare_function("ori_rc_alloc", &[i64_ty, i64_ty], ptr_ty);
+        self.builder
+            .call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
+            .unwrap_or_else(|| self.builder.const_null_ptr())
     }
 
     /// Compute the store size in bytes for a type index.
@@ -404,8 +439,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Emit each block's body and terminator.
-        // For unwind blocks: emit `landingpad cleanup` as the first instruction,
-        // then any cleanup instructions, then `resume` at the terminator.
+        // Unwind blocks start with a landing pad. Two flavors:
+        // - **Cleanup** (terminator = Resume): `landingpad cleanup`, RC cleanup, resume
+        // - **Catch** (terminator = Jump): `landingpad catch null`, free exception via
+        //   `ori_catch_cleanup`, then jump to catch handler. Used by `catch(expr:)`.
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
         for block in &func.blocks {
             self.builder.position_at_end(self.block(block.id));
@@ -413,8 +450,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             // Unwind blocks must start with a landingpad instruction
             if unwind_blocks.contains(&block.id.index()) {
                 if let Some(pid) = personality_id {
-                    let lp = self.builder.landingpad(pid, true, "lp");
-                    landingpad_values.insert(block.id.index(), lp);
+                    let is_catch = !matches!(block.terminator, ArcTerminator::Resume);
+                    if is_catch {
+                        // Catch-all landing pad: catches the exception
+                        let lp = self.builder.landingpad_catch_all(pid, "lp.catch");
+                        landingpad_values.insert(block.id.index(), lp);
+
+                        // Extract exception pointer and free via _Unwind_DeleteException
+                        let exc_ptr = self.builder.extract_value(lp, 0, "exc.ptr");
+                        if let Some(exc_ptr) = exc_ptr {
+                            self.emit_catch_cleanup(exc_ptr);
+                        }
+                    } else {
+                        // Cleanup landing pad: do RC cleanup, then re-raise
+                        let lp = self.builder.landingpad(pid, true, "lp");
+                        landingpad_values.insert(block.id.index(), lp);
+                    }
                 }
             }
 
@@ -1298,10 +1349,24 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                         &[slot_idx],
                         &format!("proj.{field}.gep"),
                     );
-                    let loaded = self
-                        .builder
-                        .load(result_ty, slot_ptr, &format!("proj.{field}"));
-                    self.def_var_repr(dst, loaded, func);
+
+                    if is_boxed_enum_field(self.pool, val_ty, ty) {
+                        // Recursive field: stored as RC pointer in the payload.
+                        // Load the pointer, then load the struct from the heap.
+                        let ptr_ty = self.builder.ptr_type();
+                        let rc_ptr =
+                            self.builder
+                                .load(ptr_ty, slot_ptr, &format!("proj.{field}.ptr"));
+                        let loaded = self
+                            .builder
+                            .load(result_ty, rc_ptr, &format!("proj.{field}"));
+                        self.def_var_repr(dst, loaded, func);
+                    } else {
+                        let loaded =
+                            self.builder
+                                .load(result_ty, slot_ptr, &format!("proj.{field}"));
+                        self.def_var_repr(dst, loaded, func);
+                    }
                 } else {
                     // Result: payload is a typed field at struct index 1.
                     let gep = self.builder.struct_gep(
@@ -1967,12 +2032,35 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                         self.builder
                             .struct_gep(llvm_ty, alloca, 1, "variant.payload");
                     let i64_ty = self.builder.i64_type();
+
+                    // Look up variant field types for recursive field detection.
+                    let resolved_enum = self.pool.resolve_fully(ty);
+                    let variant_field_types = if self.pool.tag(resolved_enum) == Tag::Enum {
+                        let all_variants = self.pool.enum_variants(resolved_enum);
+                        all_variants
+                            .get(*variant as usize)
+                            .map(|(_, fields)| fields.clone())
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+
                     for (i, &val) in arg_vals.iter().enumerate() {
                         let idx = self.builder.const_i64(i as i64);
                         let slot = self
                             .builder
                             .gep(i64_ty, payload_ptr, &[idx], "variant.field");
-                        self.builder.store(val, slot);
+
+                        let field_ty = variant_field_types.get(i).copied();
+                        if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
+                            // Recursive field: RC-allocate and store pointer.
+                            let size = self.element_store_size(ty);
+                            let rc_ptr = self.rc_alloc(size, 8);
+                            self.builder.store(val, rc_ptr);
+                            self.builder.store(rc_ptr, slot);
+                        } else {
+                            self.builder.store(val, slot);
+                        }
                     }
                 }
                 self.builder.load(llvm_ty, alloca, "variant")
@@ -2421,10 +2509,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             self.builder.position_at_end(block);
 
             for &(field_index, field_type) in fields {
-                let field_llvm_ty = self.resolve_type(field_type);
                 // Result: typed payload fields at struct index 1+
                 // General Enum: payload is [M x i64] at struct field 1
-                let field_val = if pool_tag == Tag::Result {
+                if pool_tag == Tag::Result {
+                    let field_llvm_ty = self.resolve_type(field_type);
                     let struct_idx = 1 + field_index;
                     let field_ptr = self.builder.struct_gep(
                         enum_llvm_ty,
@@ -2432,24 +2520,37 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                         struct_idx,
                         "rc_dec.payload.ptr",
                     );
-                    self.builder
-                        .load(field_llvm_ty, field_ptr, "rc_dec.payload")
-                } else {
+                    let field_val = self
+                        .builder
+                        .load(field_llvm_ty, field_ptr, "rc_dec.payload");
+                    self.dec_value_rc(field_val, field_type);
+                } else if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
+                    // Recursive field: stored as RC pointer in the payload.
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
-                    // Each field occupies one i64-aligned slot (8 bytes).
-                    // Use i64-stride GEP to index into the payload array.
                     let i64_ty = self.builder.i64_type();
                     let idx = self.builder.const_i64(i64::from(field_index));
                     let field_ptr =
                         self.builder
                             .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
-                    self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field")
-                };
-
-                // Dec the field's RC via per-type dispatch (no extract_rc_data_ptrs)
-                self.dec_value_rc(field_val, field_type);
+                    let ptr_ty = self.builder.ptr_type();
+                    let rc_ptr = self.builder.load(ptr_ty, field_ptr, "rc_dec.field.rc");
+                    let drop_fn = self.get_or_generate_drop_fn(field_type);
+                    self.call_rc_dec_all(&[rc_ptr], drop_fn);
+                } else {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
+                    let i64_ty = self.builder.i64_type();
+                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let field_ptr =
+                        self.builder
+                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
+                    let field_val = self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field");
+                    self.dec_value_rc(field_val, field_type);
+                }
             }
 
             self.builder.br(done_block);
@@ -2505,6 +2606,29 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     // -----------------------------------------------------------------------
     // Aggregate-to-pointer coercion
     // -----------------------------------------------------------------------
+
+    // Catch(expr:) EH helpers
+
+    /// Emit `ori_catch_cleanup(exc_ptr)` to free a caught Rust exception.
+    ///
+    /// Calls `_Unwind_DeleteException` via the runtime wrapper, which invokes
+    /// the cleanup callback in the Itanium ABI `_Unwind_Exception` header.
+    /// This properly frees the Rust-allocated panic payload without requiring
+    /// C++ EH ABI functions (`__cxa_begin_catch`/`__cxa_end_catch`), which
+    /// are incompatible with Rust's panic infrastructure.
+    ///
+    /// Called in catch-style unwind blocks right after the landing pad,
+    /// before any RC cleanup or catch handler logic.
+    fn emit_catch_cleanup(&mut self, exc_ptr: ValueId) {
+        let cleanup_fn = self.builder.scx().llmod.get_function("ori_catch_cleanup");
+
+        if let Some(func) = cleanup_fn {
+            let func_id = self.builder.intern_function(func);
+            self.builder.call(func_id, &[exc_ptr], "");
+        } else {
+            tracing::warn!("ori_catch_cleanup not declared — caught exception will leak");
+        }
+    }
 
     /// Coerce an aggregate value to a pointer for runtime function calls.
     ///
