@@ -163,14 +163,14 @@ fn hash_expr(arena: &CanArena, kind: &CanExpr, state: &mut FxHasher) {
         }
         CanExpr::For {
             label,
-            binding,
+            pattern,
             iter,
             guard,
             body,
             is_yield,
         } => {
             label.raw().hash(state);
-            binding.raw().hash(state);
+            pattern.raw().hash(state);
             is_yield.hash(state);
             hash_node(arena, iter, state);
             hash_node(arena, guard, state);

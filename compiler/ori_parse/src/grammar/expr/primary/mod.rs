@@ -67,8 +67,13 @@ impl Parser<'_> {
             return self.parse_match_expr();
         }
         if self.cursor.check(&TokenKind::For) && self.cursor.next_is_lparen() {
-            self.cursor.advance();
-            return self.parse_for_pattern();
+            // Distinguish old `for(over:, match:, default:)` from `for (pattern) in ...`.
+            // Peek past `for (` — if the first content is `ident:`, route to old syntax.
+            if self.cursor.is_named_arg_at(2) {
+                self.cursor.advance();
+                return self.parse_for_pattern();
+            }
+            return self.parse_for_loop();
         }
         if self.cursor.check(&TokenKind::For) {
             return self.parse_for_loop();

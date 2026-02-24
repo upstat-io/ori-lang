@@ -206,13 +206,13 @@ impl ArcLowerer<'_> {
             } => self.lower_match(scrutinee, decision_tree, arms, ty, span),
             CanExpr::Loop { body, .. } => self.lower_loop(body, ty),
             CanExpr::For {
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
                 is_yield,
                 ..
-            } => self.lower_for(binding, iter, guard, body, ty, is_yield),
+            } => self.lower_for(pattern, iter, guard, body, ty, is_yield),
             CanExpr::Break { value, .. } => self.lower_break(value),
             CanExpr::Continue { value, .. } => self.lower_continue(value),
             CanExpr::Assign { target, value } => self.lower_assign(target, value, span),

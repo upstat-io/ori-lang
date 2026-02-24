@@ -1,0 +1,176 @@
+// Spec: 10-patterns.md § Binding Patterns in For Loops
+// Tests for tuple destructuring directly in `for` loop patterns:
+//   for (a, b) in pairs do ...
+//   for (a, b) in pairs yield ...
+
+use std.testing { assert, assert_eq }
+
+// =============================================================================
+// Basic Tuple Destructuring in for...do
+// =============================================================================
+
+@test_for_do_pair tests @for_do_pair () -> void = {
+    let pairs = [(1, "a"), (2, "b"), (3, "c")];
+    let sum = 0;
+    for (n, _) in pairs do sum = sum + n;
+    assert_eq(actual: sum, expected: 6)
+}
+
+@for_do_pair () -> int = {
+    let pairs = [(1, "a"), (2, "b")];
+    let sum = 0;
+    for (n, _) in pairs do sum = sum + n;
+    sum
+}
+
+@test_for_do_pair_both tests @for_do_pair_both () -> void = {
+    let pairs = [(10, 1), (20, 2), (30, 3)];
+    let sum = 0;
+    for (a, b) in pairs do sum = sum + a + b;
+    assert_eq(actual: sum, expected: 66)
+}
+
+@for_do_pair_both () -> int = {
+    let pairs = [(10, 1), (20, 2)];
+    let sum = 0;
+    for (a, b) in pairs do sum = sum + a + b;
+    sum
+}
+
+// =============================================================================
+// Tuple Destructuring in for...yield
+// =============================================================================
+
+@test_for_yield_pair tests @for_yield_pair () -> void = {
+    let result = for_yield_pair();
+    assert_eq(actual: result, expected: [1, 2, 3])
+}
+
+@for_yield_pair () -> [int] = {
+    let pairs = [(1, "a"), (2, "b"), (3, "c")];
+    for (n, _) in pairs yield n
+}
+
+@test_for_yield_transform tests @for_yield_transform () -> void = {
+    let result = for_yield_transform();
+    assert_eq(actual: result, expected: [11, 22, 33])
+}
+
+@for_yield_transform () -> [int] = {
+    let pairs = [(10, 1), (20, 2), (30, 3)];
+    for (a, b) in pairs yield a + b
+}
+
+// =============================================================================
+// Tuple Destructuring with Guard
+// =============================================================================
+
+@test_for_yield_guard tests @for_yield_guard () -> void = {
+    let result = for_yield_guard();
+    assert_eq(actual: result, expected: [20, 30])
+}
+
+@for_yield_guard () -> [int] = {
+    let pairs = [(10, false), (20, true), (30, true)];
+    for (n, keep) in pairs if keep yield n
+}
+
+// =============================================================================
+// Wildcard Pattern in for
+// =============================================================================
+
+@test_for_wildcard tests @for_wildcard () -> void = {
+    let count = 0;
+    for _ in [1, 2, 3] do count = count + 1;
+    assert_eq(actual: count, expected: 3)
+}
+
+@for_wildcard () -> int = {
+    let count = 0;
+    for _ in ["a", "b", "c", "d"] do count = count + 1;
+    count
+}
+
+// =============================================================================
+// Empty List (destructuring pattern, zero iterations)
+// =============================================================================
+
+@test_for_destruct_empty tests @for_destruct_empty () -> void = {
+    let pairs: [(int, int)] = [];
+    let sum = 0;
+    for (a, b) in pairs do sum = sum + a + b;
+    assert_eq(actual: sum, expected: 0)
+}
+
+@for_destruct_empty () -> int = {
+    let pairs: [(int, int)] = [];
+    let sum = 0;
+    for (a, b) in pairs do sum = sum + a + b;
+    sum
+}
+
+@test_for_yield_empty tests @for_yield_empty () -> void = {
+    let pairs: [(int, str)] = [];
+    let result = for (n, _) in pairs yield n;
+    assert_eq(actual: result, expected: [])
+}
+
+@for_yield_empty () -> [int] = {
+    let pairs: [(int, str)] = [];
+    for (n, _) in pairs yield n
+}
+
+// =============================================================================
+// Single Element (destructuring pattern, one iteration)
+// =============================================================================
+
+@test_for_destruct_single tests @for_destruct_single () -> void = {
+    let pairs = [(42, "answer")];
+    let result = 0;
+    for (n, _) in pairs do result = n;
+    assert_eq(actual: result, expected: 42)
+}
+
+@for_destruct_single () -> int = {
+    let pairs = [(42, "answer")];
+    let result = 0;
+    for (n, _) in pairs do result = n;
+    result
+}
+
+// =============================================================================
+// Mixed Types in Tuple
+// =============================================================================
+
+@test_for_mixed_types tests @for_mixed_types () -> void = {
+    let items = [(1, true), (2, false), (3, true)];
+    let sum = 0;
+    for (n, b) in items do {
+        if b then sum = sum + n
+    };
+    assert_eq(actual: sum, expected: 4)
+}
+
+@for_mixed_types () -> int = {
+    let items = [(1, true), (2, false), (3, true)];
+    let sum = 0;
+    for (n, b) in items do {
+        if b then sum = sum + n
+    };
+    sum
+}
+
+// =============================================================================
+// Yield with String Concatenation from Destructured Parts
+// =============================================================================
+
+@test_for_yield_strings tests @for_yield_strings () -> void = {
+    let pairs = [(1, "one"), (2, "two")];
+    let result = for (n, s) in pairs yield s;
+    assert_eq(actual: result, expected: ["one", "two"])
+}
+
+@for_yield_strings () -> [str] = {
+    let pairs = [(1, "one"), (2, "two")];
+    for (_, s) in pairs yield s
+}

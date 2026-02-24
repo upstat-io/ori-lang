@@ -352,10 +352,32 @@ impl<'a> Cursor<'a> {
     /// Check if looking at named argument pattern: identifier followed by colon.
     /// Used to distinguish `name: value` (named arg) from `value` (positional).
     pub fn is_named_arg_start(&self) -> bool {
-        let is_ident = matches!(self.current_kind(), TokenKind::Ident(_))
-            || self.soft_keyword_to_name().is_some()
-            || self.keyword_as_name().is_some();
-        is_ident && self.next_is_colon()
+        self.is_named_arg_at(0)
+    }
+
+    /// Check if offset `n` from current position starts a named argument (`ident:` pattern).
+    ///
+    /// Used by multi-token lookahead (e.g. `for (` dispatch) to distinguish
+    /// `for(over: ...)` (named-property syntax) from `for (k, v) in ...` (binding pattern).
+    pub fn is_named_arg_at(&self, n: usize) -> bool {
+        let kind = self.peek_kind_at(n);
+        let is_ident = matches!(kind, TokenKind::Ident(_))
+            || matches!(
+                kind,
+                TokenKind::Print
+                    | TokenKind::Panic
+                    | TokenKind::By
+                    | TokenKind::Run
+                    | TokenKind::Try
+                    | TokenKind::With
+                    | TokenKind::Where
+                    | TokenKind::Match
+                    | TokenKind::For
+                    | TokenKind::In
+                    | TokenKind::If
+                    | TokenKind::Type
+            );
+        is_ident && matches!(self.peek_kind_at(n + 1), TokenKind::Colon)
     }
 
     /// Check if current token is a context-sensitive keyword that can be used as an identifier.

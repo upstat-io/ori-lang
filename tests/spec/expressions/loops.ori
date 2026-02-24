@@ -123,20 +123,14 @@ use std.testing { assert, assert_eq }
 @test_for_tuple_destructure tests @for_tuple_destructure () -> void = {
     let pairs = [(1, "a"), (2, "b"), (3, "c")];
     let sum = 0;
-    for pair in pairs do {
-        let (n, s) = pair;
-        sum = sum + n
-    };
+    for (n, _) in pairs do sum = sum + n;
     assert_eq(actual: sum, expected: 6)
 }
 
 @for_tuple_destructure () -> int = {
     let pairs = [(1, "a"), (2, "b")];
     let sum = 0;
-    for pair in pairs do {
-        let (n, s) = pair;
-        sum = sum + n
-    };
+    for (n, _) in pairs do sum = sum + n;
     sum
 }
 
