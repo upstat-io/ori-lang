@@ -1715,6 +1715,48 @@ type Point = { x: int, y: int };
 }
 
 #[test]
+#[ignore = "AOT gap: recursive enum match loads boxed child as i64 instead of following RC pointer"]
+fn test_aot_recursive_enum_tree() {
+    assert_aot_success(
+        r#"
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r)
+}
+
+@main () -> int = {
+    let leaf1 = Leaf(value: 5);
+    let leaf2 = Leaf(value: 10);
+    let tree = Node(left: leaf1, right: leaf2);
+    if tree_sum(t: tree) == 15 then 0 else 1
+}
+"#,
+        "recursive_enum_tree",
+    );
+}
+
+#[test]
+#[ignore = "AOT gap: derive Eq on enum compares whole struct instead of extracting tag"]
+fn test_aot_derive_eq_enum() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Color = Red | Green | Blue;
+
+@main () -> int = {
+    let a = Red;
+    let b = Red;
+    let c = Blue;
+    if a == b && a != c then 0 else 1
+}
+"#,
+        "derive_eq_enum",
+    );
+}
+
+#[test]
 #[ignore = "AOT gap: list __index builtin not resolved"]
 fn test_aot_list_index() {
     assert_aot_success(
