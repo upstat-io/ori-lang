@@ -1,0 +1,8 @@
+{
+  "expected_output": "Ori v1",
+  "output_match": "contains",
+  "hints": [
+    "Use `let language = \"Ori\"` to create a string variable",
+    "Use `let version = 1` to create an integer variable"
+  ]
+}

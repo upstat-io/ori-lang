@@ -197,6 +197,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.builder.register_type(llvm_ty)
     }
 
+    /// Compute the store size in bytes for a type index.
+    ///
+    /// Uses `TypeInfo::size()` for well-known types (primitives, str=16, list=24, etc.).
+    /// Falls back to `TypeLayoutResolver::type_store_size()` for compound types
+    /// (struct, tuple, enum) where the size depends on field layout.
+    pub(crate) fn element_store_size(&self, ty: Idx) -> u64 {
+        self.type_info.get(ty).size().unwrap_or_else(|| {
+            let llvm_ty = self.type_resolver.resolve(ty);
+            TypeLayoutResolver::type_store_size(llvm_ty)
+        })
+    }
+
     /// Look up the raw LLVM value for an ARC variable.
     ///
     /// Returns the underlying `ValueId`, suitable for consumers that don't
@@ -944,11 +956,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let env_struct = self.builder.scx().type_struct(&env_fields, false);
         let env_struct_ty_id = self.builder.register_type(env_struct.into());
 
-        // Compute size via LLVM's target layout
+        // Compute size via LLVM's target layout, falling back to
+        // summing field sizes for compound captures (str, tuple, struct).
         let env_size = env_struct
             .size_of()
             .and_then(inkwell::values::IntValue::get_zero_extended_constant)
-            .unwrap_or(24);
+            .unwrap_or_else(|| TypeLayoutResolver::type_store_size(env_struct.into()));
 
         // Allocate via ori_rc_alloc(size, align=8)
         let size_val = self.builder.const_i64(env_size as i64);
@@ -1921,7 +1934,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     _ => ori_types::Idx::INT,
                 };
                 let elem_llvm_ty = self.resolve_type(elem_idx);
-                let elem_size = self.type_info.get(elem_idx).size().unwrap_or(8);
+                let elem_size = self.element_store_size(elem_idx);
 
                 let cap_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);
@@ -1961,8 +1974,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 };
                 let key_llvm_ty = self.resolve_type(key_idx);
                 let val_llvm_ty = self.resolve_type(val_idx);
-                let key_size = self.type_info.get(key_idx).size().unwrap_or(8);
-                let val_size = self.type_info.get(val_idx).size().unwrap_or(8);
+                let key_size = self.element_store_size(key_idx);
+                let val_size = self.element_store_size(val_idx);
 
                 let count_val = self.builder.const_i64(count as i64);
                 let key_esize = self.builder.const_i64(key_size as i64);
@@ -2022,7 +2035,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     _ => Idx::INT,
                 };
                 let elem_llvm_ty = self.resolve_type(elem_idx);
-                let elem_size = self.type_info.get(elem_idx).size().unwrap_or(8);
+                let elem_size = self.element_store_size(elem_idx);
 
                 let cap_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);

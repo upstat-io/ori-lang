@@ -1,0 +1,203 @@
+{
+  "chapters": [
+    {
+      "slug": "01-basics",
+      "title": "Basics",
+      "lessons": [
+        {
+          "slug": "01-basics/01-hello-world",
+          "title": "Hello World",
+          "order": 1
+        },
+        {
+          "slug": "01-basics/02-variables",
+          "title": "Variables",
+          "order": 2
+        },
+        {
+          "slug": "01-basics/03-types",
+          "title": "Types",
+          "order": 3
+        },
+        {
+          "slug": "01-basics/04-expressions",
+          "title": "Expressions",
+          "order": 4
+        },
+        {
+          "slug": "01-basics/05-if-else",
+          "title": "If / Else",
+          "order": 5
+        }
+      ]
+    },
+    {
+      "slug": "02-functions",
+      "title": "Functions",
+      "lessons": [
+        {
+          "slug": "02-functions/01-defining-functions",
+          "title": "Defining Functions",
+          "order": 1
+        },
+        {
+          "slug": "02-functions/02-named-arguments",
+          "title": "Named Arguments",
+          "order": 2
+        },
+        {
+          "slug": "02-functions/03-lambdas",
+          "title": "Lambdas",
+          "order": 3
+        }
+      ]
+    }
+  ],
+  "lessons": {
+    "01-basics/01-hello-world": {
+      "slug": "01-basics/01-hello-world",
+      "title": "Hello World",
+      "chapter": "Basics",
+      "order": 1,
+      "description": "Write your first Ori program",
+      "contentHtml": "<h1>Hello World</h1>\n<p>Every Ori program starts with a <code>@main</code> function — this is the entry point, just like <code>main</code> in C or Rust.</p>\n<p>The <code>print</code> function writes text to the output. In Ori, function arguments are <strong>named</strong> — you write <code>msg:</code> before the value:</p>\n<pre><code class=\"language-ori\">print(msg: &quot;Hello, World!&quot;)\n</code></pre>\n<h2>Your task</h2>\n<p>Change the message so that it prints <strong>&quot;Hello, Ori!&quot;</strong> instead of &quot;Hello, World!&quot;.</p>\n<p>Then click <strong>Run</strong> (or press <code>Ctrl+Enter</code>) to check your answer.</p>\n",
+      "starterCode": "@main () -> void = {\n    print(msg: \"Hello, World!\");\n}\n",
+      "solutionCode": "@main () -> void = {\n    print(msg: \"Hello, Ori!\");\n}\n",
+      "validation": {
+        "expectedOutput": "Hello, Ori!",
+        "outputMatch": "contains",
+        "hints": [
+          "Try changing the string inside the quotes to say \"Hello, Ori!\""
+        ]
+      }
+    },
+    "01-basics/02-variables": {
+      "slug": "01-basics/02-variables",
+      "title": "Variables",
+      "chapter": "Basics",
+      "order": 2,
+      "description": "Bind values with let and $",
+      "contentHtml": "<h1>Variables</h1>\n<p>In Ori, you create variables with <code>let</code>. By default, variables are <strong>mutable</strong> — you can reassign them:</p>\n<pre><code class=\"language-ori\">let name = &quot;Ori&quot;;\nlet age = 1;\nage = age + 1;\n</code></pre>\n<p>To make a variable <strong>immutable</strong>, prefix the name with <code>$</code>:</p>\n<pre><code class=\"language-ori\">let $name = &quot;Ori&quot;;\n// name = &quot;other&quot;;  // compile error! $ means immutable\n</code></pre>\n<p>Ori infers the type automatically, but you can be explicit:</p>\n<pre><code class=\"language-ori\">let $name: str = &quot;Ori&quot;;\n</code></pre>\n<p>Note that statements end with <code>;</code> — the last expression in a block (the block&#39;s value) does not.</p>\n<h2>Your task</h2>\n<ol>\n<li>Create a variable <code>language</code> with the value <code>&quot;Ori&quot;</code></li>\n<li>Create a variable <code>version</code> with the value <code>1</code></li>\n<li>Print both using string concatenation (<code>+</code> joins strings, <code>str()</code> converts numbers)</li>\n</ol>\n",
+      "starterCode": "@main () -> void = {\n    // Create your variables here\n\n    print(msg: language + \" v\" + str(version));\n}\n",
+      "solutionCode": "@main () -> void = {\n    let $language = \"Ori\";\n    let $version = 1;\n\n    print(msg: language + \" v\" + str(version));\n}\n",
+      "validation": {
+        "expectedOutput": "Ori v1",
+        "outputMatch": "contains",
+        "hints": [
+          "Use `let language = \"Ori\"` to create a string variable",
+          "Use `let version = 1` to create an integer variable"
+        ]
+      }
+    },
+    "01-basics/03-types": {
+      "slug": "01-basics/03-types",
+      "title": "Types",
+      "chapter": "Basics",
+      "order": 3,
+      "description": "Explore Ori's basic types",
+      "contentHtml": "<h1>Basic Types</h1>\n<p>Ori has four primitive types:</p>\n<table>\n<thead>\n<tr>\n<th>Type</th>\n<th>Description</th>\n<th>Example</th>\n</tr>\n</thead>\n<tbody><tr>\n<td><code>int</code></td>\n<td>Integer numbers</td>\n<td><code>42</code>, <code>-7</code>, <code>0</code></td>\n</tr>\n<tr>\n<td><code>float</code></td>\n<td>Floating point</td>\n<td><code>3.14</code>, <code>-0.5</code></td>\n</tr>\n<tr>\n<td><code>bool</code></td>\n<td>Boolean</td>\n<td><code>true</code>, <code>false</code></td>\n</tr>\n<tr>\n<td><code>str</code></td>\n<td>Text strings</td>\n<td><code>&quot;hello&quot;</code></td>\n</tr>\n</tbody></table>\n<p>You can convert between types using built-in functions:</p>\n<ul>\n<li><code>str(42)</code> converts an integer to <code>&quot;42&quot;</code></li>\n<li><code>str(3.14)</code> converts a float to <code>&quot;3.14&quot;</code></li>\n<li><code>str(true)</code> converts a bool to <code>&quot;true&quot;</code></li>\n</ul>\n<h2>Your task</h2>\n<p>Create one variable of each type and print them all on separate lines. The output should be:</p>\n<pre><code>42\n3.14\ntrue\nhello\n</code></pre>\n",
+      "starterCode": "@main () -> void = {\n    // Create one variable of each type: int, float, bool, str\n\n    // Print each one on its own line\n}\n",
+      "solutionCode": "@main () -> void = {\n    let $a = 42;\n    let $b = 3.14;\n    let $c = true;\n    let $d = \"hello\";\n\n    print(msg: str(a));\n    print(msg: str(b));\n    print(msg: str(c));\n    print(msg: d);\n}\n",
+      "validation": {
+        "expectedOutput": "42\n3.14\ntrue\nhello",
+        "outputMatch": "exact",
+        "hints": [
+          "Use `str()` to convert non-string values before printing",
+          "Each `print()` call outputs on a new line"
+        ]
+      }
+    },
+    "01-basics/04-expressions": {
+      "slug": "01-basics/04-expressions",
+      "title": "Expressions",
+      "chapter": "Basics",
+      "order": 4,
+      "description": "Everything in Ori is an expression",
+      "contentHtml": "<h1>Everything Is an Expression</h1>\n<p>Ori is <strong>expression-based</strong> — every construct produces a value. There is no <code>return</code> keyword. The last expression in a block becomes its value:</p>\n<pre><code class=\"language-ori\">let $result = {\n    let $a = 10;\n    let $b = 20;\n    a + b\n};\n// result is 30\n</code></pre>\n<p>Notice that <code>let</code> statements end with <code>;</code>, but the last expression (<code>a + b</code>) does <strong>not</strong> — that&#39;s the block&#39;s value. The outer <code>let $result = { ... };</code> also ends with <code>;</code> because it&#39;s a statement.</p>\n<p>This applies everywhere — <code>if/else</code>, blocks, even function bodies.</p>\n<h2>Your task</h2>\n<p>Create a block that computes the area of a rectangle with width 7 and height 3. Store the result in a variable called <code>area</code> and print it.</p>\n",
+      "starterCode": "@main () -> void = {\n    let $area = {\n        // Compute width * height here\n    };\n\n    print(msg: \"Area: \" + str(area));\n}\n",
+      "solutionCode": "@main () -> void = {\n    let $area = {\n        let $width = 7;\n        let $height = 3;\n        width * height\n    };\n\n    print(msg: \"Area: \" + str(area));\n}\n",
+      "validation": {
+        "expectedOutput": "Area: 21",
+        "outputMatch": "contains",
+        "hints": [
+          "The last expression in a block becomes its value",
+          "Try: let width = 7; let height = 3; width * height"
+        ]
+      }
+    },
+    "01-basics/05-if-else": {
+      "slug": "01-basics/05-if-else",
+      "title": "If / Else",
+      "chapter": "Basics",
+      "order": 5,
+      "description": "Conditional expressions with if/then/else",
+      "contentHtml": "<h1>Conditional Expressions</h1>\n<p>In Ori, <code>if</code> is an <strong>expression</strong> — it produces a value. The syntax uses <code>then</code> and <code>else</code> keywords:</p>\n<pre><code class=\"language-ori\">let $status = if score &gt;= 60 then &quot;pass&quot; else &quot;fail&quot;;\n</code></pre>\n<p>For multi-line bodies, use blocks:</p>\n<pre><code class=\"language-ori\">let $message = if temperature &gt; 30 then {\n    &quot;It&#39;s hot!&quot;\n} else {\n    &quot;It&#39;s comfortable.&quot;\n};\n</code></pre>\n<p>Since <code>if</code> is an expression, you can use it anywhere a value is expected — in assignments, function arguments, or even inside other expressions.</p>\n<h2>Your task</h2>\n<p>Write a function <code>@classify</code> that takes an <code>age: int</code> and returns a string:</p>\n<ul>\n<li>If age &lt; 13, return <code>&quot;child&quot;</code></li>\n<li>If age &lt; 18, return <code>&quot;teenager&quot;</code></li>\n<li>Otherwise, return <code>&quot;adult&quot;</code></li>\n</ul>\n<p>The <code>@main</code> function will test it with three values.</p>\n",
+      "starterCode": "// Define the classify function here\n@classify (age: int) -> str = \"todo\";\n\n@main () -> void = {\n    print(msg: classify(age: 8));\n    print(msg: classify(age: 15));\n    print(msg: classify(age: 25));\n}\n",
+      "solutionCode": "@classify (age: int) -> str =\n    if age < 13 then \"child\"\n    else if age < 18 then \"teenager\"\n    else \"adult\";\n\n@main () -> void = {\n    print(msg: classify(age: 8));\n    print(msg: classify(age: 15));\n    print(msg: classify(age: 25));\n}\n",
+      "validation": {
+        "expectedOutput": "child\nteenager\nadult",
+        "outputMatch": "exact",
+        "hints": [
+          "Use `if age < 13 then \"child\" else if age < 18 then \"teenager\" else \"adult\"`",
+          "Remember: if/else is an expression, so the function body IS the if expression"
+        ]
+      }
+    },
+    "02-functions/01-defining-functions": {
+      "slug": "02-functions/01-defining-functions",
+      "title": "Defining Functions",
+      "chapter": "Functions",
+      "order": 1,
+      "description": "Create reusable functions with @",
+      "contentHtml": "<h1>Defining Functions</h1>\n<p>Functions in Ori are declared with the <code>@</code> prefix. The body is an expression — the last expression becomes the return value (there is no <code>return</code> keyword):</p>\n<pre><code class=\"language-ori\">@greet (name: str) -&gt; str = &quot;Hello, &quot; + name + &quot;!&quot;;\n</code></pre>\n<p>For multi-line functions, use a block. Blocks don&#39;t need a trailing <code>;</code>:</p>\n<pre><code class=\"language-ori\">@add (a: int, b: int) -&gt; int = {\n    let $sum = a + b;\n    sum\n}\n</code></pre>\n<p>Note: <code>let</code> statements end with <code>;</code>, but the last expression in a block (the return value) does <strong>not</strong>.</p>\n<h2>Your task</h2>\n<p>Write a function <code>@square</code> that takes <code>n: int</code> and returns <code>n * n</code>. Then write <code>@sum_of_squares</code> that takes <code>a: int</code> and <code>b: int</code> and returns the sum of their squares.</p>\n",
+      "starterCode": "// Define square and sum_of_squares here\n\n@main () -> void = {\n    print(msg: \"3 squared = \" + str(square(n: 3)));\n    print(msg: \"3^2 + 4^2 = \" + str(sum_of_squares(a: 3, b: 4)));\n}\n",
+      "solutionCode": "@square (n: int) -> int = n * n;\n\n@sum_of_squares (a: int, b: int) -> int = square(n: a) + square(n: b);\n\n@main () -> void = {\n    print(msg: \"3 squared = \" + str(square(n: 3)));\n    print(msg: \"3^2 + 4^2 = \" + str(sum_of_squares(a: 3, b: 4)));\n}\n",
+      "validation": {
+        "expectedOutput": "3 squared = 9\n3^2 + 4^2 = 25",
+        "outputMatch": "exact",
+        "hints": [
+          "Define @square (n: int) -> int = n * n",
+          "Call square inside sum_of_squares: square(n: a) + square(n: b)"
+        ]
+      }
+    },
+    "02-functions/02-named-arguments": {
+      "slug": "02-functions/02-named-arguments",
+      "title": "Named Arguments",
+      "chapter": "Functions",
+      "order": 2,
+      "description": "All function arguments are named at the call site",
+      "contentHtml": "<h1>Named Arguments</h1>\n<p>In Ori, <strong>all arguments are named at the call site</strong>. This makes function calls self-documenting:</p>\n<pre><code class=\"language-ori\">@create_user (name: str, age: int) -&gt; str =\n    name + &quot; (age &quot; + str(age) + &quot;)&quot;;\n\n// Calling: every argument is labeled\ncreate_user(name: &quot;Alice&quot;, age: 30);\n</code></pre>\n<p>This eliminates confusion about argument order and makes code more readable. You can also call arguments in any order:</p>\n<pre><code class=\"language-ori\">create_user(age: 30, name: &quot;Alice&quot;);  // same result\n</code></pre>\n<h2>Your task</h2>\n<p>Write a function <code>@format_date</code> that takes <code>year: int</code>, <code>month: int</code>, and <code>day: int</code> and returns a string in the format <code>&quot;YYYY-MM-DD&quot;</code>. Use <code>str()</code> to convert numbers.</p>\n<p>For simplicity, don&#39;t worry about zero-padding single digits.</p>\n",
+      "starterCode": "// Define format_date here\n\n@main () -> void = {\n    let $date = format_date(year: 2026, month: 2, day: 23);\n    print(msg: date);\n}\n",
+      "solutionCode": "@format_date (year: int, month: int, day: int) -> str =\n    str(year) + \"-\" + str(month) + \"-\" + str(day);\n\n@main () -> void = {\n    let $date = format_date(year: 2026, month: 2, day: 23);\n    print(msg: date);\n}\n",
+      "validation": {
+        "expectedOutput": "2026-2-23",
+        "outputMatch": "contains",
+        "hints": [
+          "Concatenate with +: str(year) + \"-\" + str(month) + \"-\" + str(day)",
+          "Remember to use str() to convert int values to strings"
+        ]
+      }
+    },
+    "02-functions/03-lambdas": {
+      "slug": "02-functions/03-lambdas",
+      "title": "Lambdas",
+      "chapter": "Functions",
+      "order": 3,
+      "description": "Anonymous functions with the arrow syntax",
+      "contentHtml": "<h1>Lambdas</h1>\n<p>Lambdas (anonymous functions) use the arrow syntax <code>-&gt;</code>:</p>\n<pre><code class=\"language-ori\">// Single parameter\nx -&gt; x * 2\n\n// Multiple parameters\n(a, b) -&gt; a + b\n</code></pre>\n<p>Lambdas are commonly used with list operations like <code>map</code>, <code>filter</code>, and <code>fold</code>:</p>\n<pre><code class=\"language-ori\">let $numbers = [1, 2, 3, 4, 5];\nlet $doubled = numbers.map(transform: x -&gt; x * 2);\n// doubled is [2, 4, 6, 8, 10]\n</code></pre>\n<h2>Your task</h2>\n<p>Starting with the list <code>[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]</code>:</p>\n<ol>\n<li>Use <code>.filter</code> to keep only even numbers (hint: <code>x % 2 == 0</code>)</li>\n<li>Use <code>.map</code> to square each remaining number</li>\n<li>Use <code>.fold</code> to sum all the values</li>\n</ol>\n<p>Print the final result. (The answer should be <code>220</code>.)</p>\n",
+      "starterCode": "@main () -> void = {\n    let $numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];\n\n    // Filter even numbers, square them, then sum\n    let $result = numbers;\n\n    print(msg: str(result));\n}\n",
+      "solutionCode": "@main () -> void = {\n    let $numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];\n\n    let $result = numbers\n        .filter(predicate: x -> x % 2 == 0)\n        .map(transform: x -> x * x)\n        .fold(initial: 0, combine: (acc, x) -> acc + x);\n\n    print(msg: str(result));\n}\n",
+      "validation": {
+        "expectedOutput": "220",
+        "outputMatch": "contains",
+        "hints": [
+          "Chain methods: numbers.filter(...).map(...).fold(...)",
+          "Filter: .filter(predicate: x -> x % 2 == 0)",
+          "Map: .map(transform: x -> x * x)",
+          "Fold: .fold(initial: 0, combine: (acc, x) -> acc + x)"
+        ]
+      }
+    }
+  }
+}

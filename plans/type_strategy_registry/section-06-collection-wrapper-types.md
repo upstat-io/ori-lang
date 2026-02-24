@@ -159,9 +159,11 @@ pub enum ReturnSpec {
 
     // === Higher-order ===
     /// Return type depends on closure argument. The type checker resolves
-    /// this via `unify_higher_order_constraints`. The registry records the
-    /// *shape* (which closure arg, what kind of transformation).
-    ClosureDriven(ClosureFlow),
+    /// this via `unify_higher_order_constraints` in calls.rs. The registry
+    /// uses `Fresh` to signal "type checker must infer via unification."
+    /// Closure type inference logic stays in ori_types — it's behavioral,
+    /// not declarative data.
+    Fresh,
 
     // === Composite ===
     /// `(int, Element)` -- e.g., List.enumerate()
@@ -187,43 +189,17 @@ pub enum TypeProjection {
     Fixed(TypeTag),
 }
 
-/// Describes how a higher-order method's return type flows from its closure.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum ClosureFlow {
-    /// Closure output becomes element of same container kind.
-    /// `list.map(f: (T) -> U) -> [U]`, `iter.map(f: (T) -> U) -> Iterator<U>`
-    MapLike,
-    /// Closure output is unwrapped one level.
-    /// `list.flat_map(f: (T) -> [U]) -> [U]`
-    FlatMapLike,
-    /// Closure output becomes the return type directly.
-    /// `list.fold(init, f: (A, T) -> A) -> A`
-    FoldLike,
-    /// Closure is a predicate; return type matches receiver.
-    /// `list.filter(f: (T) -> bool) -> [T]`
-    FilterLike,
-    /// Closure is a predicate; return type is Option<Element>.
-    /// `list.find(f: (T) -> bool) -> Option<T>`
-    FindLike,
-    /// Closure is a predicate; return type is bool.
-    /// `list.any(f: (T) -> bool) -> bool`
-    PredicateLike,
-    /// Closure is a consumer; return type is void.
-    /// `list.for_each(f: (T) -> void) -> void`
-    ConsumerLike,
-    /// Closure output becomes element of partitioned result.
-    /// `list.partition(f: (T) -> bool) -> ([T], [T])`
-    PartitionLike,
-    /// Accumulator: like fold but return type matches initial value.
-    /// `list.reduce(f: (T, T) -> T) -> Option<T>`
-    ReduceLike,
-}
+// NOTE: ClosureFlow was removed from the plan. Higher-order method type inference
+// (how closure arguments constrain return types) is behavioral logic that belongs
+// in the type checker's `unify_higher_order_constraints()`, not declarative data
+// in the registry. Methods like map, flat_map, fold use `ReturnSpec::Fresh` to
+// signal "the type checker must infer the return type via unification."
 ```
 
 ### Design Rationale
 
-1. **No type pool dependency.** `ReturnSpec`, `TypeProjection`, `ClosureFlow` are
-   all plain enums -- `Copy + const`-constructible. The registry never allocates or
+1. **No type pool dependency.** `ReturnSpec` and `TypeProjection` are
+   plain enums -- `Copy + const`-constructible. The registry never allocates or
    touches `Idx`.
 
 2. **Sufficient for the type checker.** `ori_types` maps each `ReturnSpec` variant
@@ -237,10 +213,11 @@ pub enum ClosureFlow {
    vs owned). LLVM cares about operator strategies. Neither needs to resolve generic
    return types.
 
-5. **`ClosureFlow` captures the higher-order patterns** without encoding actual type
-   algebra. The type checker's `unify_higher_order_constraints()` (in `calls.rs` lines
-   700-764) already handles map/flat_map/fold unification. The registry just labels
-   which pattern applies.
+5. **Higher-order method inference stays in the type checker.** The type checker's
+   `unify_higher_order_constraints()` (in `calls.rs` lines 700-764) handles
+   map/flat_map/fold unification. The registry uses `ReturnSpec::Fresh` to signal
+   "type checker must infer this." This keeps inference logic out of the pure-data
+   registry.
 
 ---
 
@@ -655,10 +632,10 @@ and `TypeProjection::Err` in the data model.
 would be indistinguishable.
 
 `Result.map_err()` is particularly interesting: it transforms the **error** type while
-preserving the **ok** type. This is the inverse of `Result.map()`. The `ClosureFlow`
-for `map_err` needs to know it operates on the err-type, not the ok-type. We may
-need `ClosureFlow::MapErrLike` or a field indicating which projection the closure
-transforms.
+preserving the **ok** type. This is the inverse of `Result.map()`. The registry
+declares `map_err` with `ReturnSpec::Fresh` and the type checker's existing
+`unify_higher_order_constraints` handles the inference (which type parameter
+the closure transforms).
 
 ---
 
@@ -764,7 +741,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 | `ori_types/src/infer/expr/methods.rs` | `resolve_set_method` (574-587) | Replaced by registry lookup |
 | `ori_types/src/infer/expr/methods.rs` | `resolve_range_method` (689-707) | Replaced by registry lookup |
 | `ori_types/src/infer/expr/methods.rs` | `resolve_tuple_method` (868-877) | Replaced by registry lookup |
-| `ori_types/src/infer/expr/calls.rs` | `unify_higher_order_constraints` (700-764) | Reads `ClosureFlow` from registry |
+| `ori_types/src/infer/expr/calls.rs` | `unify_higher_order_constraints` (700-764) | Stays in type checker (inference logic, not registry data) |
 | `ori_eval/src/methods/helpers/mod.rs` | `EVAL_BUILTIN_METHODS` (collection entries) | Replaced by registry enumeration |
 | `oric/src/eval/tests/methods/consistency.rs` | `COLLECTION_TYPES` (13-25) | **Eliminated** |
 | `oric/src/eval/tests/methods/consistency.rs` | `TYPECK_METHODS_NOT_IN_EVAL` (374-633, collection portion) | **Eliminated** |
@@ -778,7 +755,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Add `MemoryStrategy::Structural` variant
 - [ ] Add `TypeProjection` enum (Element, Key, Value, Ok, Err, Fixed)
 - [ ] Extend `ReturnSpec` with generic projections (OptionOf, ListOf, IteratorOf, etc.)
-- [ ] Add `ClosureFlow` enum for higher-order method patterns
+- [ ] Add `ReturnSpec::Fresh` variant for higher-order methods (closure inference stays in type checker)
 - [ ] Add `MapEntries` and `MapIterator` ReturnSpec variants
 - [ ] Add `ListOfTupleIntElement` ReturnSpec variant
 - [ ] Extend `ParamSpec` with `Element`, `Key`, `Value` for typed generic params
@@ -790,7 +767,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Define `LIST` const with all 50 methods
 - [ ] Verify method names match `TYPECK_BUILTIN_METHODS` entries for `"list"`
 - [ ] Verify trait methods match `EVAL_BUILTIN_METHODS` entries for `"list"`
-- [ ] Document each higher-order method's `ClosureFlow` variant
+- [ ] Document which methods use `ReturnSpec::Fresh` (higher-order inference)
 - [ ] Test: `find_method(TypeTag::List, "len")` returns expected MethodDef
 - [ ] Test: `LIST.methods.len() == 50`
 
@@ -834,7 +811,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Define `RESULT` const with all 17 methods
 - [ ] Set `MemoryStrategy::Structural`
 - [ ] Verify ok/err projection distinction: ok() -> OptionOf(Ok), err() -> OptionOf(Err)
-- [ ] Verify `map_err` uses correct ClosureFlow (transforms err, not ok)
+- [ ] Verify `map_err` uses `ReturnSpec::Fresh` (closure inference in type checker)
 - [ ] Test: `find_method(TypeTag::Result, "ok")` returns `OptionOf(Ok)`
 - [ ] Test: `find_method(TypeTag::Result, "err")` returns `OptionOf(Err)`
 
@@ -881,8 +858,7 @@ can be implemented:
 1. **How does `TypeDef` represent type parameter arity?** A simple `type_params: u8`
    field? Or something richer like `type_params: &[TypeParamDef]` with names?
 
-2. **Where does `ClosureFlow` live?** Is it a field on `MethodDef` (separate from
-   `ReturnSpec`) or embedded within `ReturnSpec::ClosureDriven(ClosureFlow)`?
+2. ~~**Where does `ClosureFlow` live?**~~ **Resolved:** ClosureFlow was removed from scope. Higher-order method inference stays in the type checker. Methods use `ReturnSpec::Fresh`.
 
 3. **How does `ReturnSpec::ResultOf` work?** For `Option.ok_or(E) -> Result<T, E>`,
    we need to construct a Result from the inner type (T) and a fresh/argument type (E).
@@ -895,5 +871,4 @@ can be implemented:
 5. **Variadic tuples:** `type_params: u8` doesn't work for tuples (variable arity).
    Special case with `type_params: TypeParamArity::Variadic`?
 
-6. **`map_err` ClosureFlow:** Does `ClosureFlow` need a field indicating which type
-   parameter the closure transforms? Or do we add `MapErrLike` as a distinct variant?
+6. ~~**`map_err` ClosureFlow**~~ **Resolved:** ClosureFlow removed. `map_err` uses `ReturnSpec::Fresh`; the type checker handles which type parameter the closure transforms.

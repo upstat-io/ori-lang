@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run ALL tests: Rust unit tests and Ori language tests
-# Usage: ./test-all [-v|--verbose] [-s|--sequential]
+# Usage: ./test-all [-v|--verbose] [-s|--sequential] [--json[=<path>]]
 #
 # This script runs:
 # 1. Rust unit tests (workspace crates)
@@ -20,6 +20,8 @@ set -e
 # Check for flags
 VERBOSE=0
 PARALLEL=1
+EMIT_JSON=0
+JSON_PATH=""
 for arg in "$@"; do
     case $arg in
         -v|--verbose)
@@ -27,6 +29,14 @@ for arg in "$@"; do
             ;;
         -s|--sequential)
             PARALLEL=0
+            ;;
+        --json)
+            EMIT_JSON=1
+            JSON_PATH="website/public/test-results.json"
+            ;;
+        --json=*)
+            EMIT_JSON=1
+            JSON_PATH="${arg#--json=}"
             ;;
     esac
 done
@@ -398,8 +408,71 @@ TOTAL_LCFAIL=$((${ORI_LLVM_LCFAIL:-0}))
 printf "${BOLD}%-30s %8d %8d %8d %8d${NC}\n" "TOTAL" "$TOTAL_PASSED" "$TOTAL_FAILED" "$TOTAL_SKIPPED" "$TOTAL_LCFAIL"
 echo ""
 
+# --- Emit JSON if requested ---
+emit_json() {
+    local path="$1"
+    local overall="passed"
+    if [ "$ANY_FAILED" -ne 0 ]; then
+        overall="failed"
+    fi
+
+    # Helper: emit a numeric suite as a JSON object
+    # Args: name passed failed skipped [lcfail]
+    json_suite() {
+        local lcfail="${5:-null}"
+        printf '    { "name": "%s", "passed": %d, "failed": %d, "skipped": %d, "lcfail": %s }' \
+            "$1" "$2" "$3" "$4" "$lcfail"
+    }
+
+    # Helper: emit WASM status-only suite
+    json_wasm_suite() {
+        printf '    { "name": "WASM playground build", "status": "%s", "passed": null, "failed": null, "skipped": null, "lcfail": null }' \
+            "$1"
+    }
+
+    # Helper: emit crashed suite
+    json_crashed_suite() {
+        printf '    { "name": "%s", "status": "crashed", "passed": null, "failed": null, "skipped": null, "lcfail": null }' \
+            "$1"
+    }
+
+    {
+        echo "{"
+        echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+        echo "  \"overall\": \"$overall\","
+        echo "  \"suites\": ["
+        json_suite "Rust unit tests (workspace)" "$RUST_PASSED" "$RUST_FAILED" "$RUST_IGNORED"
+        echo ","
+        json_suite "Runtime library (ori_rt)" "$RUST_RT_PASSED" "$RUST_RT_FAILED" "$RUST_RT_IGNORED"
+        echo ","
+        json_suite "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED" "$RUST_LLVM_FAILED" "$RUST_LLVM_IGNORED"
+        echo ","
+        json_suite "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED"
+        echo ","
+        json_wasm_suite "$WASM_STATUS"
+        echo ","
+        json_suite "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED"
+        echo ","
+        if [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
+            json_crashed_suite "Ori spec (LLVM backend)"
+        else
+            json_suite "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED" "$ORI_LLVM_LCFAIL"
+        fi
+        echo ""
+        echo "  ],"
+        echo "  \"totals\": { \"passed\": $TOTAL_PASSED, \"failed\": $TOTAL_FAILED, \"skipped\": $TOTAL_SKIPPED, \"lcfail\": $TOTAL_LCFAIL }"
+        echo "}"
+    } > "$path"
+
+    echo "Test results written to $path"
+}
+
 # Final status
 ANY_FAILED=$((RUST_EXIT + RUST_RT_EXIT + RUST_LLVM_EXIT + AOT_EXIT + WASM_EXIT + ORI_INTERP_EXIT + ORI_LLVM_EXIT))
+
+if [[ $EMIT_JSON -eq 1 ]]; then
+    emit_json "$JSON_PATH"
+fi
 
 if [ "$ANY_FAILED" -eq 0 ]; then
     echo -e "${GREEN}${BOLD}=== All tests passed ===${NC}"

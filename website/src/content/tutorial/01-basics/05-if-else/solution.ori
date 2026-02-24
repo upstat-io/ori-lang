@@ -1,0 +1,10 @@
+@classify (age: int) -> str =
+    if age < 13 then "child"
+    else if age < 18 then "teenager"
+    else "adult";
+
+@main () -> void = {
+    print(msg: classify(age: 8));
+    print(msg: classify(age: 15));
+    print(msg: classify(age: 25));
+}

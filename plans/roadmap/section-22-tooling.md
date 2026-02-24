@@ -53,61 +53,89 @@ sections:
 
 ## 22.1 Formatter
 
-> **DETAILED PLAN**: `plans/ori_fmt/` — Phased implementation with tracking
 > **CRATE**: `compiler/ori_fmt/` — Width calculation, rendering engine
+> **SPEC**: `docs/ori_lang/0.1-alpha/spec/16-formatting.md` — 100-scenario QA-approved spec
 > **DOCUMENTATION**: `docs/tooling/formatter/` — User guide, integration, troubleshooting, style guide
 
-**Status**: Complete (CLI), Partial (LSP/WASM in 22.2)
+**Status**: Partial
 
-### Core Implementation (Complete)
+### Core Implementation
 
-- [ ] **Implement**: Width calculation engine — `ori_fmt/src/width/`
-  - [ ] **Rust Tests**: `ori_fmt/src/width/tests.rs` — 962 tests passing
+- [x] **Implement**: Width calculation engine — `ori_fmt/src/width/`
+  - [x] **Rust Tests**: `ori_fmt/src/width/tests.rs`
 
-- [ ] **Implement**: Two-pass rendering engine — `ori_fmt/src/formatter/`
-  - [ ] Width-based breaking (100 char limit)
-  - [ ] Always-stacked constructs (run, try, match, parallel, etc.)
-  - [ ] Independent breaking for nested constructs
+- [x] **Implement**: Two-pass rendering engine — `ori_fmt/src/formatter/`
+  - [x] Width-based breaking (100 char limit)
+  - [x] Always-stacked constructs (run, try, match, parallel, etc.)
+  - [x] Independent breaking for nested constructs
 
-- [ ] **Implement**: Declaration formatting — `ori_fmt/src/declarations.rs`
-  - [ ] Functions, types, traits, impls, tests, imports, configs
+- [x] **Implement**: Declaration formatting — `ori_fmt/src/declarations.rs`
+  - [x] Functions, types, traits, impls, tests, imports, configs
 
-- [ ] **Implement**: Expression formatting — `ori_fmt/src/formatter/`
-  - [ ] Calls, chains, conditionals, lambdas, binary ops, bindings
+- [x] **Implement**: Expression formatting — `ori_fmt/src/formatter/`
+  - [x] Calls, conditionals, lambdas, binary ops, bindings
 
-- [ ] **Implement**: Pattern formatting
-  - [ ] run, try, match, for patterns
+- [x] **Implement**: Pattern formatting
+  - [x] run, try, match, for patterns
 
-- [ ] **Implement**: Collection formatting
-  - [ ] Lists, maps, tuples, structs, ranges
+- [x] **Implement**: Collection formatting
+  - [x] Lists, maps, tuples, structs, ranges
 
-- [ ] **Implement**: Comment preservation — `ori_fmt/src/comments.rs`
-  - [ ] Doc comment reordering (Description → Param/Field → Warning → Example)
-  - [ ] @param/@field order matching declaration order
+- [x] **Implement**: Comment preservation — `ori_fmt/src/comments.rs`
+  - [x] Doc comment reordering (Description → Param/Field → Warning → Example)
+  - [x] @param/@field order matching declaration order
 
-### CLI Integration (Complete)
+### Layer 4 Rule Integration (Pending)
 
-- [ ] **Implement**: `ori fmt <file>` — format single file
-- [ ] **Implement**: `ori fmt <directory>` — format all .ori files recursively
-- [ ] **Implement**: `ori fmt .` — format current directory (default)
-- [ ] **Implement**: `ori fmt --check` — check mode (exit 1 if unformatted)
-- [ ] **Implement**: `ori fmt --diff` — show diff instead of modifying
-- [ ] **Implement**: `ori fmt --stdin` — read from stdin, write to stdout
+6 of 7 rules have detection/decision infrastructure in `ori_fmt/src/rules/` but are **not wired into the rendering pipeline**. Only `ParenthesesRule` is integrated.
+
+- [x] **Integrated**: `ParenthesesRule` — `needs_parens()` called from `formatter/helpers.rs`
+- [ ] **Wire up**: `ChainedElseIfRule` — chained `else if` always breaks (spec §16 lines 669-679)
+- [ ] **Wire up**: `MethodChainRule` — all-or-nothing chain breaking
+- [ ] **Wire up**: `BooleanBreakRule` — 3+ `||` clauses break with leading `||`
+- [ ] **Wire up**: `ShortBodyRule` — ~20 char threshold for yield/do bodies
+- [ ] **Wire up**: `NestedForRule` — Rust-style indentation for nested `for`
+- [ ] **Wire up**: `LoopRule` — complex body (block/try/match/for) breaks
+
+### CLI Integration
+
+- [x] **Implement**: `ori fmt <file>` — format single file
+- [x] **Implement**: `ori fmt <directory>` — format all .ori files recursively
+- [x] **Implement**: `ori fmt .` — format current directory (default)
+- [x] **Implement**: `ori fmt --check` — check mode (exit 1 if unformatted)
+- [x] **Implement**: `ori fmt --diff` — show diff instead of modifying
+- [x] **Implement**: `ori fmt --stdin` — read from stdin, write to stdout
 - [ ] **Implement**: `.orifmtignore` file support with glob patterns
 - [ ] **Implement**: `ori fmt --no-ignore` — format everything
-- [ ] **Implement**: Error messages with source snippets and suggestions
+- [x] **Implement**: Error messages with source snippets and suggestions
 
-### Performance (Complete)
+### Performance
 
-- [ ] **Implement**: Incremental formatting — `ori_fmt/src/incremental.rs`
-  - [ ] 13 integration tests, ~30% speedup for large files
-- [ ] **Implement**: Parallel file processing via rayon (2.4x speedup)
-- [ ] **Implement**: Memory-efficient large file handling (10k lines in 2.75ms)
+- [x] **Implement**: Incremental formatting — `ori_fmt/src/incremental.rs`
+- [x] **Implement**: Parallel file processing via rayon
+- [x] **Implement**: Memory-efficient large file handling
 
-### Testing (Complete)
+### User Intent Preservation (Design Needed)
 
-- [ ] **Rust Tests**: 440 total (215 unit, 35 golden, 5 idempotence, 171 property, 13 incremental, 1 doc)
-- [ ] **Golden Tests**: `tests/fmt/` — declarations, expressions, patterns, collections, comments, edge-cases
+When the user deliberately writes a stacked/multi-line layout that happens to fit within 100 chars, the formatter should **not** collapse it to inline. Width should be a lower priority than user intent.
+
+**Approach**: Detect user-intended breaks via span gaps — if there's a newline in the source between two parts of a construct (e.g., between `then "A"` and `else`), treat the construct as "user-stacked" and preserve the broken layout regardless of width. The formatter already has spans on every expression; checking `source[expr1.span.end..keyword.span.start].contains('\n')` would detect this.
+
+**Key scenarios to cover**:
+- Chained `if/else if` that fits on one line but user wrote multi-line
+- Method chains that fit but user broke at each `.`
+- Function calls with args that fit but user put one-per-line
+- Binary expressions that fit but user broke before operators
+- Any construct where "fits" ≠ "readable"
+
+**Not yet designed**: Need to distinguish "user deliberately broke this" from "editor auto-wrapped" or "pasted with random formatting". Idempotence must hold — running `ori fmt` twice must produce the same output.
+
+**QA**: ~400 additional scenarios needed to cover edge cases from the syntax revamp and intent preservation.
+
+### Testing
+
+- [x] **Rust Tests**: unit, golden, idempotence, property, incremental
+- [x] **Golden Tests**: `tests/fmt/` — declarations, expressions, patterns, collections, comments, edge-cases
 
 ---
 

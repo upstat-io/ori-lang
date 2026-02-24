@@ -1,0 +1,8 @@
+@square (n: int) -> int = n * n;
+
+@sum_of_squares (a: int, b: int) -> int = square(n: a) + square(n: b);
+
+@main () -> void = {
+    print(msg: "3 squared = " + str(square(n: 3)));
+    print(msg: "3^2 + 4^2 = " + str(sum_of_squares(a: 3, b: 4)));
+}

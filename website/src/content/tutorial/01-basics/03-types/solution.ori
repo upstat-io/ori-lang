@@ -1,0 +1,11 @@
+@main () -> void = {
+    let $a = 42;
+    let $b = 3.14;
+    let $c = true;
+    let $d = "hello";
+
+    print(msg: str(a));
+    print(msg: str(b));
+    print(msg: str(c));
+    print(msg: d);
+}

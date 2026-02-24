@@ -14,14 +14,15 @@ use ori_ir::{Name, Span};
 use ori_types::Idx;
 
 use crate::ir::{ArcBlockId, ArcValue, ArcVarId, LitValue, PrimOp};
+use crate::lower::scope::ArcScope;
 
 use super::{DecisionTree, PathInstruction, ScrutineePath, TestKind, TestValue};
 
 /// Context for decision tree emission.
 ///
 /// Holds references to the arms' body expressions and the merge block
-/// where all arms converge. Shared body blocks for or-patterns (same
-/// `arm_index`) are tracked in `arm_body_blocks`.
+/// where all arms converge. Also carries SSA merge info for mutable
+/// variables that may be reassigned in arm bodies.
 pub(crate) struct EmitContext {
     /// The root scrutinee variable.
     pub root_scrutinee: ArcVarId,
@@ -31,6 +32,12 @@ pub(crate) struct EmitContext {
     pub arm_bodies: Vec<CanId>,
     /// Span of the match expression.
     pub span: Span,
+    /// Scope snapshot from before the match. Each arm resets to this
+    /// before lowering its body, ensuring arm-to-arm scope isolation.
+    pub pre_scope: ArcScope,
+    /// Mutable variable names to pass as merge block params (in order).
+    /// These serve as SSA phi inputs at the match convergence point.
+    pub mutable_var_names: Vec<Name>,
 }
 
 /// Emit a decision tree as ARC IR basic blocks.
@@ -321,12 +328,19 @@ fn emit_range_chain(
 // Leaf emission
 
 /// Emit a leaf node: bind pattern variables and execute the arm body.
+///
+/// Resets the scope to the pre-match snapshot before lowering the body,
+/// ensuring arm-to-arm isolation. Passes mutable variable values as
+/// jump args for SSA merge at the convergence block.
 fn emit_leaf(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     arm_index: usize,
     bindings: &[(Name, ScrutineePath)],
     ctx: &mut EmitContext,
 ) {
+    // Reset scope to pre-match snapshot for arm isolation.
+    lowerer.scope = ctx.pre_scope.clone();
+
     // Bind pattern variables by resolving paths from root scrutinee.
     bind_pattern_variables(lowerer, bindings, ctx);
 
@@ -334,15 +348,22 @@ fn emit_leaf(
     let body_expr = ctx.arm_bodies[arm_index];
     let body_val = lowerer.lower_expr(body_expr);
     if !lowerer.builder.is_terminated() {
-        lowerer
-            .builder
-            .terminate_jump(ctx.merge_block, vec![body_val]);
+        let mut jump_args = vec![body_val];
+        // Append mutable variable values for SSA merge.
+        for name in &ctx.mutable_var_names {
+            let var = lowerer.scope.lookup(*name).unwrap_or(body_val);
+            jump_args.push(var);
+        }
+        lowerer.builder.terminate_jump(ctx.merge_block, jump_args);
     }
 }
 
 // Guard emission
 
 /// Emit a guard node: bind variables, test guard, branch.
+///
+/// Resets the scope to the pre-match snapshot before lowering, ensuring
+/// arm isolation. Passes mutable variable values in the merge jump.
 fn emit_guard(
     lowerer: &mut crate::lower::ArcLowerer<'_>,
     arm_index: usize,
@@ -351,6 +372,9 @@ fn emit_guard(
     on_fail: &DecisionTree,
     ctx: &mut EmitContext,
 ) {
+    // Reset scope to pre-match snapshot for arm isolation.
+    lowerer.scope = ctx.pre_scope.clone();
+
     // Bind pattern variables.
     bind_pattern_variables(lowerer, bindings, ctx);
 
@@ -368,9 +392,12 @@ fn emit_guard(
     let body_expr = ctx.arm_bodies[arm_index];
     let body_val = lowerer.lower_expr(body_expr);
     if !lowerer.builder.is_terminated() {
-        lowerer
-            .builder
-            .terminate_jump(ctx.merge_block, vec![body_val]);
+        let mut jump_args = vec![body_val];
+        for name in &ctx.mutable_var_names {
+            let var = lowerer.scope.lookup(*name).unwrap_or(body_val);
+            jump_args.push(var);
+        }
+        lowerer.builder.terminate_jump(ctx.merge_block, jump_args);
     }
 
     // Guard failed: continue matching.
