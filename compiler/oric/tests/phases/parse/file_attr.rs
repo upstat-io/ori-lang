@@ -129,7 +129,7 @@ fn test_no_file_attr() {
 
 #[test]
 fn test_no_file_attr_with_item_attrs() {
-    let output = parse_ok("#skip(\"reason\")\n@test_foo () -> void = ();");
+    let output = parse_ok("#skip(\"reason\")\n@test_foo tests _ () -> void = ();");
     assert!(
         output.module.file_attr.is_none(),
         "item-level # should not be parsed as file-level #!"

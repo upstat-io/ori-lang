@@ -1,0 +1,8 @@
+@main () -> void = {
+    let $numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    // Filter even numbers, square them, then sum
+    let $result = numbers;
+
+    print(msg: str(result));
+}

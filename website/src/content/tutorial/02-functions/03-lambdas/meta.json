@@ -1,0 +1,10 @@
+{
+  "expected_output": "220",
+  "output_match": "contains",
+  "hints": [
+    "Chain methods: numbers.filter(...).map(...).fold(...)",
+    "Filter: .filter(predicate: x -> x % 2 == 0)",
+    "Map: .map(transform: x -> x * x)",
+    "Fold: .fold(initial: 0, combine: (acc, x) -> acc + x)"
+  ]
+}

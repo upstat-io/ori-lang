@@ -45,6 +45,11 @@ impl ArcLowerer<'_> {
                     "pattern: bind name"
                 );
                 if is_mut {
+                    // Record this name as let-bound in the current block so
+                    // lower_block's propagation can distinguish shadows from
+                    // reassignments. Reassignments go through lower_assign
+                    // (which does NOT add to block_let_names).
+                    self.block_let_names.insert(*name);
                     self.scope.bind_mutable(*name, value);
                 } else {
                     self.scope.bind(*name, value);

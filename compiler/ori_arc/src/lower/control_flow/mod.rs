@@ -39,6 +39,10 @@ impl ArcLowerer<'_> {
             "block: enter"
         );
 
+        // Save and reset block_let_names for this block's scope.
+        // bind_pattern will populate it with names introduced by `let`.
+        let parent_let_names = std::mem::take(&mut self.block_let_names);
+
         for &stmt_id in &stmt_ids {
             if self.builder.is_terminated() {
                 break;
@@ -55,12 +59,24 @@ impl ArcLowerer<'_> {
         };
 
         // Carry forward mutable var reassignments from the inner scope.
-        // Local `let` bindings die with the block, but `x = expr` on an
-        // outer mutable variable must propagate so loop headers see updates.
+        // Local `let` bindings (shadows) die with the block, but `x = expr`
+        // on an outer mutable variable must propagate so loop headers see
+        // updates. Skip names that were freshly `let`-bound in this block —
+        // those are shadows, not reassignments.
         let inner_scope = self.scope.clone();
         self.scope = parent_scope;
         let mut propagated = 0u32;
         for (name, var) in inner_scope.mutable_bindings() {
+            // Skip names that were introduced by `let` in this block — they
+            // are shadows of outer variables, not reassignments.
+            if self.block_let_names.contains(&name) {
+                tracing::trace!(
+                    name = self.name_str(name),
+                    var = var.raw(),
+                    "block: skipping shadow (let-bound in this block)"
+                );
+                continue;
+            }
             if self.scope.is_mutable(name) {
                 let old = self.scope.lookup(name);
                 if old != Some(var) {
@@ -75,6 +91,10 @@ impl ArcLowerer<'_> {
                 self.scope.bind_mutable(name, var);
             }
         }
+
+        // Restore parent's block_let_names.
+        self.block_let_names = parent_let_names;
+
         tracing::debug!(
             result = result_var.raw(),
             propagated,
@@ -976,6 +996,28 @@ impl ArcLowerer<'_> {
         let merge_block = self.builder.new_block();
         let result_param = self.builder.add_block_param(merge_block, ty);
 
+        // Save pre-match scope and add merge block params for mutable
+        // variables. Each arm resets to this scope before lowering, and
+        // passes its final mutable variable values as jump arguments —
+        // same SSA merge pattern that `lower_if` uses.
+        let pre_scope = self.scope.clone();
+        let mut mutable_var_merge: Vec<(Name, ArcVarId)> = Vec::new();
+        for (name, var) in pre_scope.mutable_bindings() {
+            let var_ty = if (var.index()) < self.builder.var_types.len() {
+                self.builder.var_types[var.index()]
+            } else {
+                Idx::UNIT
+            };
+            let merge_var = self.builder.add_block_param(merge_block, var_ty);
+            mutable_var_merge.push((name, merge_var));
+        }
+        let mutable_var_names: Vec<Name> = mutable_var_merge.iter().map(|(n, _)| *n).collect();
+
+        tracing::debug!(
+            mutable_vars = mutable_var_names.len(),
+            "match: mutable var merge setup"
+        );
+
         // O(1) Arc clone instead of deep-cloning the recursive tree structure.
         let tree = self.canon.decision_trees.get_shared(tree_id);
 
@@ -984,11 +1026,20 @@ impl ArcLowerer<'_> {
             merge_block,
             arm_bodies: arm_ids,
             span,
+            pre_scope: pre_scope.clone(),
+            mutable_var_names,
         };
 
         crate::decision_tree::emit::emit_tree(self, &tree, &mut ctx);
 
+        // Restore pre-match scope and rebind mutable variables from
+        // merge block params (SSA phi outputs).
         self.builder.position_at(merge_block);
+        self.scope = pre_scope;
+        for (name, merge_var) in &mutable_var_merge {
+            self.scope.bind_mutable(*name, *merge_var);
+        }
+
         result_param
     }
 }

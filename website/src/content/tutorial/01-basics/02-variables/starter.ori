@@ -1,0 +1,5 @@
+@main () -> void = {
+    // Create your variables here
+
+    print(msg: language + " v" + str(version));
+}

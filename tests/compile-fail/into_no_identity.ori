@@ -6,7 +6,7 @@ type Point = { x: int, y: int }
 
 // Point has no Into<Point> impl — .into() should fail with E2036
 #[compile_fail("does not implement `Into`")]
-@test_no_identity () -> void = {
+@test_no_identity tests _ () -> void = {
     let p = Point { x: 1, y: 2 };
     let _: Point = p.into();
     ()
@@ -14,7 +14,7 @@ type Point = { x: int, y: int }
 
 // bool has no Into impl at all
 #[compile_fail("does not implement `Into`")]
-@test_bool_no_into () -> void = {
+@test_bool_no_into tests _ () -> void = {
     let b = true;
     let _: bool = b.into();
     ()

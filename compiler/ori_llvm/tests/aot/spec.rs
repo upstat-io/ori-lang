@@ -1815,7 +1815,6 @@ fn test_aot_map_literal_length() {
 }
 
 #[test]
-#[ignore = "AOT gap: map.is_empty() method not yet in AOT builtin table"]
 fn test_aot_map_is_empty() {
     assert_aot_success(
         r#"
@@ -1834,7 +1833,6 @@ fn test_aot_map_is_empty() {
 // =========================================================================
 
 #[test]
-#[ignore = "AOT gap: list.push() method not yet in AOT builtin table"]
 fn test_aot_list_push() {
     assert_aot_success(
         r#"
@@ -1849,7 +1847,7 @@ fn test_aot_list_push() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.concat() produces wrong result"]
+#[ignore = "AOT gap: method call on list.concat() result unresolved (.length() on concat return)"]
 fn test_aot_list_concat() {
     assert_aot_success(
         r#"
@@ -1865,7 +1863,6 @@ fn test_aot_list_concat() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.first()/last() methods not yet in AOT builtin table"]
 fn test_aot_list_first_last() {
     assert_aot_success(
         r#"
@@ -1885,7 +1882,6 @@ fn test_aot_list_first_last() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.is_empty()/first()/last() methods not yet in AOT builtin table"]
 fn test_aot_list_empty_operations() {
     assert_aot_success(
         r#"

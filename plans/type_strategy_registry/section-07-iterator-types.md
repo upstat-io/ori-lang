@@ -2,9 +2,9 @@
 section: "07"
 title: "Iterator & DoubleEndedIterator Type Definitions"
 status: not-started
-goal: "Complete pure-data TypeDef declarations for Iterator<T> and DoubleEndedIterator<T>, including all adapter/consumer methods, DEI-only gating, TypeFlow annotations, and CollectionMethod enum mapping"
+goal: "Complete pure-data TypeDef declarations for Iterator<T> and DoubleEndedIterator<T>, including all adapter/consumer methods, DEI-only gating, and CollectionMethod enum mapping"
 depends_on:
-  - "01"  # Core Data Model (TypeDef, MethodDef, TypeFlow enum)
+  - "01"  # Core Data Model (TypeDef, MethodDef)
   - "02"  # Crate Scaffolding (ori_registry exists, module structure in place)
 files:
   # Registry (new)
@@ -29,11 +29,11 @@ files:
 # Section 07: Iterator & DoubleEndedIterator Type Definitions
 
 **Status:** Not Started
-**Goal:** Declare the complete behavioral specification of `Iterator<T>` and `DoubleEndedIterator<T>` as `const` data in `ori_registry`, including every method's signature, TypeFlow annotation, receiver ownership, DEI-only gating, and double-endedness propagation semantics.
+**Goal:** Declare the complete behavioral specification of `Iterator<T>` and `DoubleEndedIterator<T>` as `const` data in `ori_registry`, including every method's signature, receiver ownership, DEI-only gating, and double-endedness propagation semantics.
 
 **Why this is the most complex section:** Iterator types are unique among builtins because:
 1. They are **generic** (`Iterator<T>`) with type parameters that flow through adapter chains
-2. They have **higher-order methods** whose return types depend on closure argument types (TypeFlow)
+2. They have **higher-order methods** that use `ReturnTag::Fresh` to signal type checker inference for closure-dependent return types
 3. They have a **subtype relationship** (DEI extends Iterator) requiring gating logic
 4. Adapter methods have **double-endedness propagation rules** (some preserve DEI, some downgrade)
 5. The evaluator uses a **separate dispatch enum** (`CollectionMethod`) rather than string-based dispatch
@@ -49,32 +49,32 @@ The complete set of Iterator methods, derived from `resolve_iterator_method()` i
 
 **Adapter methods** (return Iterator or DoubleEndedIterator):
 
-| Method | Signature | Params | Return | TypeFlow | DEI Propagation | Notes |
-|--------|-----------|--------|--------|----------|-----------------|-------|
-| `map` | `(f: (T) -> U) -> Iterator<U>` | 1 closure | Iterator(U) or DEI(U) | `ClosureOutputBecomesElement { closure_param: 0 }` | **Propagates** | Returns DEI if receiver is DEI |
-| `filter` | `(f: (T) -> bool) -> Iterator<T>` | 1 closure | Same as receiver | `Standard` | **Propagates** | Returns exact receiver type |
-| `take` | `(n: int) -> Iterator<T>` | 1 int | Iterator(T) | `Standard` | **Downgrades** | Always returns plain Iterator |
-| `skip` | `(n: int) -> Iterator<T>` | 1 int | Iterator(T) | `Standard` | **Downgrades** | Always returns plain Iterator |
-| `chain` | `(other: Iterator<T>) -> Iterator<T>` | 1 Iterator | Iterator(T) | `Standard` | **Downgrades** | Always returns plain Iterator |
-| `zip` | `(other: Iterator<U>) -> Iterator<(T, U)>` | 1 Iterator | Iterator((T, U)) | `Standard` (element = tuple of both) | **Downgrades** | Fresh var for U |
-| `enumerate` | `() -> Iterator<(int, T)>` | 0 | Iterator((int, T)) | `Standard` | **Downgrades** | Element becomes tuple |
-| `flatten` | `() -> Iterator<U>` | 0 | Iterator(U) | `Standard` (fresh var for U) | **Downgrades** | T must be Iterator<U> |
-| `flat_map` | `(f: (T) -> Iterator<U>) -> Iterator<U>` | 1 closure | Iterator(U) | `ClosureOutputFlatElement { closure_param: 0 }` | **Downgrades** | Desugars to .map(f).flatten() |
-| `cycle` | `() -> Iterator<T>` | 0 | Iterator(T) | `Standard` | **Downgrades** | Infinite iterator |
+| Method | Signature | Params | Return | DEI Propagation | Notes |
+|--------|-----------|--------|--------|-----------------|-------|
+| `map` | `(f: (T) -> U) -> Iterator<U>` | 1 closure | Iterator(U) or DEI(U) | **Propagates** | Returns DEI if receiver is DEI |
+| `filter` | `(f: (T) -> bool) -> Iterator<T>` | 1 closure | Same as receiver | **Propagates** | Returns exact receiver type |
+| `take` | `(n: int) -> Iterator<T>` | 1 int | Iterator(T) | **Downgrades** | Always returns plain Iterator |
+| `skip` | `(n: int) -> Iterator<T>` | 1 int | Iterator(T) | **Downgrades** | Always returns plain Iterator |
+| `chain` | `(other: Iterator<T>) -> Iterator<T>` | 1 Iterator | Iterator(T) | **Downgrades** | Always returns plain Iterator |
+| `zip` | `(other: Iterator<U>) -> Iterator<(T, U)>` | 1 Iterator | Iterator((T, U)) | **Downgrades** | Fresh var for U |
+| `enumerate` | `() -> Iterator<(int, T)>` | 0 | Iterator((int, T)) | **Downgrades** | Element becomes tuple |
+| `flatten` | `() -> Iterator<U>` | 0 | Iterator(U) | **Downgrades** | T must be Iterator<U> |
+| `flat_map` | `(f: (T) -> Iterator<U>) -> Iterator<U>` | 1 closure | Iterator(U) | **Downgrades** | Desugars to .map(f).flatten() |
+| `cycle` | `() -> Iterator<T>` | 0 | Iterator(T) | **Downgrades** | Infinite iterator |
 
 **Consumer methods** (eagerly consume, return non-Iterator):
 
-| Method | Signature | Params | Return | TypeFlow | Notes |
-|--------|-----------|--------|--------|----------|-------|
-| `collect` | `() -> [T]` | 0 | List(T) | `Standard` | Default collection target |
-| `count` | `() -> int` | 0 | Int | `Standard` | Consumes all elements |
-| `any` | `(f: (T) -> bool) -> bool` | 1 closure | Bool | `Standard` | Short-circuits on true |
-| `all` | `(f: (T) -> bool) -> bool` | 1 closure | Bool | `Standard` | Short-circuits on false |
-| `find` | `(f: (T) -> bool) -> Option<T>` | 1 closure | Option(T) | `Standard` | Short-circuits on match |
-| `fold` | `(init: S, f: (S, T) -> S) -> S` | 1 any + 1 closure | S (fresh) | `Accumulator { init_param: 0, closure_param: 1 }` | Return unifies with init + closure return |
-| `for_each` | `(f: (T) -> void) -> void` | 1 closure | Unit | `Standard` | Side-effect consumer |
-| `join` | `(sep: str) -> str` | 1 str | Str | `Standard` | T must implement Printable |
-| `next` | `() -> (Option<T>, Iterator<T>)` | 0 | Tuple(Option(T), receiver_ty) | `Standard` | Functional next — returns updated iter |
+| Method | Signature | Params | Return | Notes |
+|--------|-----------|--------|--------|-------|
+| `collect` | `() -> [T]` | 0 | List(T) | Default collection target |
+| `count` | `() -> int` | 0 | Int | Consumes all elements |
+| `any` | `(f: (T) -> bool) -> bool` | 1 closure | Bool | Short-circuits on true |
+| `all` | `(f: (T) -> bool) -> bool` | 1 closure | Bool | Short-circuits on false |
+| `find` | `(f: (T) -> bool) -> Option<T>` | 1 closure | Option(T) | Short-circuits on match |
+| `fold` | `(init: S, f: (S, T) -> S) -> S` | 1 any + 1 closure | S (fresh) | Return unifies with init + closure return |
+| `for_each` | `(f: (T) -> void) -> void` | 1 closure | Unit | Side-effect consumer |
+| `join` | `(sep: str) -> str` | 1 str | Str | T must implement Printable |
+| `next` | `() -> (Option<T>, Iterator<T>)` | 0 | Tuple(Option(T), receiver_ty) | Functional next — returns updated iter |
 
 **Internal/special methods:**
 
@@ -89,7 +89,7 @@ The complete set of Iterator methods, derived from `resolve_iterator_method()` i
 // ori_registry/src/defs/iterator.rs
 
 use crate::{
-    MethodDef, Ownership, ParamDef, TypeDef, TypeFlow, TypeTag,
+    MethodDef, Ownership, ParamDef, TypeDef, TypeTag,
     ReturnType, GenericParam, DeiPropagation,
 };
 
@@ -114,7 +114,6 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
             ReturnType::ReceiverType,
         ]),
         receiver: Ownership::Borrow,
-        type_flow: TypeFlow::Standard,
         dei_propagation: DeiPropagation::NotApplicable,
         dei_only: false,
         trait_name: None,
@@ -125,7 +124,6 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
         params: &[ParamDef::Closure],
         returns: ReturnType::IteratorOf(ReturnType::FreshVar),
         receiver: Ownership::Borrow,
-        type_flow: TypeFlow::ClosureOutputBecomesElement { closure_param: 0 },
         dei_propagation: DeiPropagation::Propagate,
         dei_only: false,
         trait_name: None,
@@ -135,7 +133,6 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
         params: &[ParamDef::Closure],
         returns: ReturnType::ReceiverType,
         receiver: Ownership::Borrow,
-        type_flow: TypeFlow::Standard,
         dei_propagation: DeiPropagation::Propagate,
         dei_only: false,
         trait_name: None,
@@ -145,7 +142,6 @@ pub const ITERATOR_METHODS: &[MethodDef] = &[
         params: &[ParamDef::Type(TypeTag::Int)],
         returns: ReturnType::IteratorOf(ReturnType::Element),
         receiver: Ownership::Borrow,
-        type_flow: TypeFlow::Standard,
         dei_propagation: DeiPropagation::Downgrade,
         dei_only: false,
         trait_name: None,
@@ -176,13 +172,13 @@ The current `ori_ir` `MethodDef` uses `BuiltinType` which has no `Iterator` vari
 
 From `DEI_ONLY_METHODS` in `methods.rs` line 11:
 
-| Method | Signature | Params | Return | TypeFlow | Notes |
-|--------|-----------|--------|--------|----------|-------|
-| `next_back` | `() -> (Option<T>, DEI<T>)` | 0 | Tuple(Option(T), receiver_ty) | `Standard` | Reverse iteration |
-| `rev` | `() -> DEI<T>` | 0 | receiver_ty | `Standard` | Swaps next/next_back |
-| `last` | `() -> Option<T>` | 0 | Option(T) | `Standard` | Seeks to end via next_back |
-| `rfind` | `(f: (T) -> bool) -> Option<T>` | 1 closure | Option(T) | `Standard` | Reverse find |
-| `rfold` | `(init: S, f: (S, T) -> S) -> S` | 1 any + 1 closure | S (fresh) | `Accumulator { init_param: 0, closure_param: 1 }` | Reverse fold |
+| Method | Signature | Params | Return | Notes |
+|--------|-----------|--------|--------|-------|
+| `next_back` | `() -> (Option<T>, DEI<T>)` | 0 | Tuple(Option(T), receiver_ty) | Reverse iteration |
+| `rev` | `() -> DEI<T>` | 0 | receiver_ty | Swaps next/next_back |
+| `last` | `() -> Option<T>` | 0 | Option(T) | Seeks to end via next_back |
+| `rfind` | `(f: (T) -> bool) -> Option<T>` | 1 closure | Option(T) | Reverse find |
+| `rfold` | `(init: S, f: (S, T) -> S) -> S` | 1 any + 1 closure | S (fresh) | Reverse fold |
 
 ### 07.2.2 Design Decision: Separate TypeDef vs. Flag
 
@@ -270,181 +266,9 @@ The consistency test in Section 14 must verify that every method with `dei_only:
 
 ---
 
-## 07.3 TypeFlow Integration
+## 07.3 CollectionMethod Enum Mapping
 
-This is the most complex wiring task in the entire plan. Currently, `unify_higher_order_constraints()` in `calls.rs` (lines 700-764) hard-codes type unification logic by matching on method name strings `"map"`, `"flat_map"`, `"fold"`, and `"rfold"`. The registry must encode this logic as data.
-
-### 07.3.1 Current Hard-Coded Logic
-
-From `calls.rs` lines 700-764:
-
-```rust
-fn unify_higher_order_constraints(engine, method, ret_ty, arg_types) {
-    match method_str {
-        "map" => {
-            // ret_ty is Iterator<var>. arg_types[0] is closure (T)->U.
-            // Unify var with U (closure return type).
-        }
-        "flat_map" => {
-            // ret_ty is Iterator<var>. arg_types[0] is closure (T)->Iterator<U>.
-            // Unify var with U (inner element of closure return).
-        }
-        "fold" | "rfold" => {
-            // ret_ty is fresh var. arg_types[0] is init value.
-            // arg_types[1] is closure (S,T)->S.
-            // Unify ret_ty with init and with closure return.
-        }
-        _ => {} // No special unification
-    }
-}
-```
-
-This function is called **after** `resolve_builtin_method()` returns a type containing fresh variables, and after all arguments have been inferred. It patches the fresh variables to match concrete types from closures.
-
-### 07.3.2 TypeFlow Enum (Already Designed in Section 01)
-
-From the `builtin_ownership_ssot` plan (Section 01), `TypeFlow` is:
-
-```rust
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum TypeFlow {
-    /// No special unification needed.
-    Standard,
-
-    /// Closure return type becomes output element type.
-    /// Pattern: Container<T>.method((T) -> U) -> Container<U>
-    ClosureOutputBecomesElement { closure_param: u8 },
-
-    /// Closure returns Container; its element becomes output element.
-    /// Pattern: Container<T>.method((T) -> Container<U>) -> Container<U>
-    ClosureOutputFlatElement { closure_param: u8 },
-
-    /// Return type equals init param, constrained by closure return.
-    /// Pattern: Container<T>.method(init: A, (A, T) -> A) -> A
-    Accumulator { init_param: u8, closure_param: u8 },
-}
-```
-
-### 07.3.3 TypeFlow Assignment for Every Iterator Method
-
-| Method | TypeFlow | Rationale |
-|--------|----------|-----------|
-| `next` | `Standard` | No closure parameter |
-| `next_back` | `Standard` | No closure parameter |
-| `map` | `ClosureOutputBecomesElement { closure_param: 0 }` | `(T)->U` maps to `Iterator<U>` |
-| `filter` | `Standard` | Closure returns `bool`, element type unchanged |
-| `take` | `Standard` | No closure parameter |
-| `skip` | `Standard` | No closure parameter |
-| `chain` | `Standard` | No closure parameter |
-| `zip` | `Standard` | Element type is tuple; no closure |
-| `enumerate` | `Standard` | Element type is `(int, T)`; no closure |
-| `flatten` | `Standard` | Fresh var U; no closure to unify with (resolved structurally) |
-| `flat_map` | `ClosureOutputFlatElement { closure_param: 0 }` | `(T)->Iterator<U>` maps to `Iterator<U>` |
-| `cycle` | `Standard` | No closure parameter |
-| `rev` | `Standard` | No closure parameter |
-| `collect` | `Standard` | Returns `[T]`; element type unchanged |
-| `count` | `Standard` | Returns `int`; no type flow |
-| `any` | `Standard` | Closure returns `bool`; result is `bool` |
-| `all` | `Standard` | Closure returns `bool`; result is `bool` |
-| `find` | `Standard` | Closure returns `bool`; result is `Option<T>` |
-| `fold` | `Accumulator { init_param: 0, closure_param: 1 }` | `init: S, (S,T)->S -> S` |
-| `rfold` | `Accumulator { init_param: 0, closure_param: 1 }` | Same pattern as `fold` |
-| `for_each` | `Standard` | Closure returns `void`; result is `void` |
-| `join` | `Standard` | Returns `str`; no type flow |
-| `last` | `Standard` | Returns `Option<T>`; no closure |
-| `rfind` | `Standard` | Closure returns `bool`; result is `Option<T>` |
-
-### 07.3.4 Replacement of unify_higher_order_constraints()
-
-The current `unify_higher_order_constraints()` in `calls.rs` will be replaced with a registry-driven version in Section 09 (Wire Type Checker). The replacement logic:
-
-```rust
-// BEFORE (calls.rs ~700-764): String matching on method names
-fn unify_higher_order_constraints(engine, method, ret_ty, arg_types) {
-    match method_str {
-        "map" => { ... }
-        "flat_map" => { ... }
-        "fold" | "rfold" => { ... }
-        _ => {}
-    }
-}
-
-// AFTER: Registry-driven dispatch
-fn unify_higher_order_constraints(engine, type_tag, method_name, ret_ty, arg_types) {
-    let Some(method_def) = registry::find_method(type_tag, method_name) else { return };
-    match method_def.type_flow {
-        TypeFlow::Standard => {}
-        TypeFlow::ClosureOutputBecomesElement { closure_param } => {
-            let closure_ty = arg_types.get(closure_param as usize)?;
-            let elem_var = engine.pool().iterator_elem(engine.resolve(ret_ty));
-            let closure_ret = engine.pool().function_return(engine.resolve(*closure_ty));
-            engine.unify().unify(elem_var, closure_ret);
-        }
-        TypeFlow::ClosureOutputFlatElement { closure_param } => {
-            let closure_ty = arg_types.get(closure_param as usize)?;
-            let elem_var = engine.pool().iterator_elem(engine.resolve(ret_ty));
-            let closure_ret = engine.pool().function_return(engine.resolve(*closure_ty));
-            let inner_elem = engine.pool().iterator_elem(engine.resolve(closure_ret));
-            engine.unify().unify(elem_var, inner_elem);
-        }
-        TypeFlow::Accumulator { init_param, closure_param } => {
-            if let Some(&init_ty) = arg_types.get(init_param as usize) {
-                engine.unify().unify(ret_ty, init_ty);
-            }
-            if let Some(&closure_ty) = arg_types.get(closure_param as usize) {
-                let closure_ret = engine.pool().function_return(engine.resolve(closure_ty));
-                engine.unify().unify(ret_ty, closure_ret);
-            }
-        }
-    }
-}
-```
-
-### 07.3.5 Tag-to-TypeDef Mapping
-
-`unify_higher_order_constraints()` currently receives a `Name` (method name). After the change, it also needs the receiver's `TypeTag` to look up the `MethodDef` in the registry. This requires a mapping from the pool's `Tag` enum to the registry's `TypeTag`:
-
-```rust
-/// Map a pool Tag to a registry TypeTag for method lookup.
-fn tag_to_registry_type(tag: Tag) -> Option<TypeTag> {
-    match tag {
-        Tag::Iterator | Tag::DoubleEndedIterator => Some(TypeTag::Iterator),
-        Tag::List => Some(TypeTag::List),
-        Tag::Str => Some(TypeTag::Str),
-        Tag::Int => Some(TypeTag::Int),
-        // ... etc
-        _ => None,
-    }
-}
-```
-
-This mapping is defined once in the `ori_types` wiring (Section 09) and used wherever registry lookups are needed.
-
-### 07.3.6 TypeFlow Scope Beyond Iterators
-
-TypeFlow is not Iterator-specific. It applies to any generic type with higher-order methods:
-
-| Type | Method | TypeFlow |
-|------|--------|----------|
-| `Iterator<T>` | `map` | `ClosureOutputBecomesElement { 0 }` |
-| `Iterator<T>` | `flat_map` | `ClosureOutputFlatElement { 0 }` |
-| `Iterator<T>` | `fold` | `Accumulator { 0, 1 }` |
-| `List<T>` | `map` | `ClosureOutputBecomesElement { 0 }` |
-| `List<T>` | `flat_map` | `ClosureOutputFlatElement { 0 }` |
-| `List<T>` | `fold` | `Accumulator { 0, 1 }` |
-| `Option<T>` | `map` | `ClosureOutputBecomesElement { 0 }` |
-| `Option<T>` | `flat_map` | `ClosureOutputFlatElement { 0 }` |
-| `Option<T>` | `and_then` | `ClosureOutputFlatElement { 0 }` |
-| `Result<T,E>` | `map` | `ClosureOutputBecomesElement { 0 }` |
-| `Result<T,E>` | `and_then` | `ClosureOutputFlatElement { 0 }` |
-
-This means TypeFlow on MethodDef is already justified for Section 06 types as well. The Iterator section is where it gets the most exercise (7 methods with non-Standard TypeFlow vs. 2-3 per collection type).
-
----
-
-## 07.4 CollectionMethod Enum Mapping
-
-### 07.4.1 Current CollectionMethod Enum
+### 07.3.1 Current CollectionMethod Enum
 
 The evaluator's `CollectionMethod` enum in `resolvers/mod.rs` has 32 variants:
 
@@ -463,7 +287,7 @@ The evaluator's `CollectionMethod` enum in `resolvers/mod.rs` has 32 variants:
 **Other:**
 - `OrderingThenWith`
 
-### 07.4.2 Registry Entries to CollectionMethod Mapping
+### 07.3.2 Registry Entries to CollectionMethod Mapping
 
 Each registry `MethodDef` for Iterator must map to exactly one `CollectionMethod` variant. This mapping is used by the evaluator wiring (Section 10).
 
@@ -498,13 +322,13 @@ Each registry `MethodDef` for Iterator must map to exactly one `CollectionMethod
 - `__collect_set` -> `IterCollectSet` (type-directed rewrite, not user-callable)
 - `__iter_next` (ARC lowering protocol, not user-callable)
 
-### 07.4.3 Resolver vs. Direct Dispatch
+### 07.3.3 Resolver vs. Direct Dispatch
 
 All Iterator methods go through `CollectionMethodResolver` (priority 1), which means they are resolved by the collection resolver, not by `BuiltinMethodResolver` (priority 2). This is because Iterator methods take closures that need evaluator access to call.
 
 Post-registry, the `CollectionMethodResolver` will still exist but will derive its method name set from the registry instead of from the `MethodNames` struct with 25 pre-interned fields. The resolver's `resolve_iterator_method()` will iterate over `ITERATOR.methods` and match interned names.
 
-### 07.4.4 List/Collection Overlap
+### 07.3.4 List/Collection Overlap
 
 Some method names exist on both `List` and `Iterator`:
 - `map`, `filter`, `fold`, `find`, `any`, `all`, `flat_map`, `flatten`, `enumerate`, `zip`, `take`, `skip`, `join`, `collect`, `count`
@@ -513,9 +337,9 @@ For `List`, these are dispatched as list-specific `CollectionMethod` variants (`
 
 ---
 
-## 07.5 DeiPropagation — Double-Endedness Semantics
+## 07.4 DeiPropagation — Double-Endedness Semantics
 
-### 07.5.1 Propagation Rules
+### 07.4.1 Propagation Rules
 
 When an adapter method is called on a `DoubleEndedIterator<T>`, the return type's double-endedness depends on the method:
 
@@ -528,7 +352,7 @@ When an adapter method is called on a `DoubleEndedIterator<T>`, the return type'
 | **DEI-Only** | `rev` | Returns DEI (only callable on DEI) |
 | **DEI-Only** | `last`, `rfind`, `rfold` | Consumer — returns non-iterator |
 
-### 07.5.2 Registry Encoding
+### 07.4.2 Registry Encoding
 
 ```rust
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -572,9 +396,9 @@ match method_def.dei_propagation {
 
 ---
 
-## 07.6 Cross-Reference & Validation Tables
+## 07.5 Cross-Reference & Validation Tables
 
-### 07.6.1 Complete Method x Phase Matrix
+### 07.5.1 Complete Method x Phase Matrix
 
 This table tracks every iterator method across all compiler phases. Each cell indicates whether the method is implemented in that phase.
 
@@ -607,7 +431,7 @@ This table tracks every iterator method across all compiler phases. Each cell in
 | `join` | Y | Y (IterJoin) | consumer | N | N | Tracked |
 | `last` | Y (DEI) | Y (IterLast) | consumer | N | N | Tracked |
 
-### 07.6.2 LLVM Coverage Gaps
+### 07.5.2 LLVM Coverage Gaps
 
 Methods NOT in `ori_llvm` but in typeck+eval:
 
@@ -626,7 +450,7 @@ Methods NOT in `ori_llvm` but in typeck+eval:
 
 These gaps are pre-existing and tracked. The registry does not create them, but it makes them visible in a single table rather than scattered across allowlists.
 
-### 07.6.3 Methods in typeck but NOT in ITERATOR_METHOD_NAMES (eval)
+### 07.5.3 Methods in typeck but NOT in ITERATOR_METHOD_NAMES (eval)
 
 Comparing `TYPECK_BUILTIN_METHODS` Iterator entries with `ITERATOR_METHOD_NAMES`:
 
@@ -638,7 +462,7 @@ Comparing `TYPECK_BUILTIN_METHODS` Iterator entries with `ITERATOR_METHOD_NAMES`
 
 This is correct behavior, not a gap. The registry will unify this by having a single TypeDef with `dei_only` flags.
 
-### 07.6.4 IteratorValue Variants vs. Methods
+### 07.5.4 IteratorValue Variants vs. Methods
 
 Each IteratorValue variant in `ori_patterns` corresponds to a source type or an adapter method:
 
@@ -665,7 +489,7 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 
 ---
 
-## 07.7 Implementation Steps
+## 07.6 Implementation Steps
 
 ### Step 1: Define MethodDef entries
 
@@ -674,7 +498,6 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 - [ ] Set `receiver: Ownership::Borrow` on all entries
 - [ ] Set `dei_only: bool` on each entry (true for: next_back, rev, last, rfind, rfold)
 - [ ] Set `dei_propagation: DeiPropagation` on each adapter entry
-- [ ] Set `type_flow: TypeFlow` on each entry per the table in 07.3.3
 - [ ] Define `ITERATOR: TypeDef` referencing `ITERATOR_METHODS`
 
 ### Step 2: Define return type specifications
@@ -693,7 +516,7 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 ### Step 3: Verify const-constructibility
 
 - [ ] All `MethodDef` entries must be `const`-constructible
-- [ ] `TypeFlow`, `DeiPropagation`, `Ownership` must derive `Copy, Clone, Debug, Eq, PartialEq`
+- [ ] `DeiPropagation`, `Ownership` must derive `Copy, Clone, Debug, Eq, PartialEq`
 - [ ] `ITERATOR` TypeDef must compile as a `const` or `static`
 - [ ] `cargo c -p ori_registry` must pass
 
@@ -709,31 +532,25 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 - [ ] Test: every method in `TYPECK_BUILTIN_METHODS` for "DoubleEndedIterator" has a registry entry with `dei_only: true`
 - [ ] Test: every method in `ITERATOR_METHOD_NAMES` has a registry entry
 - [ ] Test: `dei_only_methods()` returns exactly {"next_back", "rev", "last", "rfind", "rfold"}
-- [ ] Test: every method with `type_flow != Standard` is one of {map, flat_map, fold, rfold}
 - [ ] Test: every adapter method has a `dei_propagation` that is `Propagate` or `Downgrade`
 - [ ] Test: every consumer method has `dei_propagation == NotApplicable`
 - [ ] Test: `ITERATOR_METHODS` is sorted by name (for binary search / deterministic iteration)
 
 ---
 
-## 07.8 Design Decision Log
+## 07.7 Design Decision Log
 
 ### Decision 1: Single TypeDef with dei_only flag (Option C)
 
 **Chosen over:** Separate TypeDefs (A) or inheritance chain (B).
 **Rationale:** Matches current code structure. No method duplication. No new inheritance mechanism needed. The `dei_only` flag is cheap and directly queryable.
 
-### Decision 2: TypeFlow lives on MethodDef, not as separate registry axis
-
-**Chosen over:** A separate `TypeFlowRegistry` mapping `(TypeTag, method_name) -> TypeFlow`.
-**Rationale:** TypeFlow is an intrinsic property of the method — it describes how its type parameters relate. Separating it would require lookups in two places and risks drift. The `MethodDef` struct already carries signature information; TypeFlow is part of the signature's semantic contract.
-
-### Decision 3: DeiPropagation as explicit field, not derived from return type
+### Decision 2: DeiPropagation as explicit field, not derived from return type
 
 **Chosen over:** Inferring propagation from `ReturnType` variants.
 **Rationale:** The return type alone is ambiguous: `IteratorOf(Element)` could be either propagated or downgraded. The propagation rule depends on the method's semantics (e.g., `take` downgrades because bounded iteration breaks reversibility). Making it an explicit field makes the semantics clear and auditable.
 
-### Decision 4: Internal methods (__iter_next, __collect_set) NOT in registry
+### Decision 3: Internal methods (__iter_next, __collect_set) NOT in registry
 
 **Chosen over:** Including them with an `internal: bool` flag.
 **Rationale:** These are compiler-internal implementation details, not part of the user-facing type. `__iter_next` is the ARC lowering protocol; `__collect_set` is a type-directed rewrite. Neither should appear in diagnostics, documentation, or user-facing method lists. The LLVM backend can handle them through its own dispatch table without registry backing.
@@ -744,11 +561,10 @@ Each IteratorValue variant in `ori_patterns` corresponds to a source type or an 
 
 - [ ] `ori_registry/src/defs/iterator.rs` exists and compiles (`cargo c -p ori_registry`)
 - [ ] `ITERATOR` TypeDef contains exactly 24 user-callable method entries
-- [ ] Every method entry has correct: `receiver`, `params`, `returns`, `type_flow`, `dei_only`, `dei_propagation`
+- [ ] Every method entry has correct: `receiver`, `params`, `returns`, `dei_only`, `dei_propagation`
 - [ ] `dei_only_methods()` returns exactly 5 method names matching `DEI_ONLY_METHODS`
 - [ ] `iterator_method_names()` returns exactly 24 method names matching `ITERATOR_METHOD_NAMES` (including DEI methods)
 - [ ] All validation tests in Step 5 pass
 - [ ] No dependencies added to `ori_registry` (purity maintained)
 - [ ] Return types for all methods are expressible in the `ReturnType` enum without hacks
-- [ ] TypeFlow assignments match the exact unification behavior in current `unify_higher_order_constraints()`
 - [ ] DeiPropagation assignments match the exact branching in current `resolve_iterator_method()`

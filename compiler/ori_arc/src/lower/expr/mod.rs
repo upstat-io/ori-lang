@@ -8,6 +8,7 @@ use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
 use ori_types::Idx;
 use ori_types::Pool;
+use rustc_hash::FxHashSet;
 
 use crate::ir::{ArcFunction, ArcValue, ArcVarId, LitValue, PrimOp};
 
@@ -49,6 +50,15 @@ pub struct ArcLowerer<'a> {
     /// so that `CanExpr::HashLength` resolves to the collection's length.
     /// Mirrors the interpreter's `eval_can_with_hash_length`.
     pub(crate) hash_length: Option<ArcVarId>,
+    /// Names freshly `let`-bound in the current block.
+    ///
+    /// Tracks names introduced by `let` (via `bind_pattern`) to distinguish
+    /// shadows from reassignments during block-exit propagation. A `let x = 20`
+    /// in an inner block creates a shadow that must NOT propagate to the parent
+    /// scope, whereas `x = 20` (reassignment) MUST propagate.
+    ///
+    /// Saved/restored around each `lower_block` so nesting works correctly.
+    pub(crate) block_let_names: FxHashSet<Name>,
 }
 
 impl ArcLowerer<'_> {

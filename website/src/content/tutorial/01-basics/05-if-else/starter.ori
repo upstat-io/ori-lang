@@ -1,0 +1,8 @@
+// Define the classify function here
+@classify (age: int) -> str = "todo";
+
+@main () -> void = {
+    print(msg: classify(age: 8));
+    print(msg: classify(age: 15));
+    print(msg: classify(age: 25));
+}

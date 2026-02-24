@@ -1,0 +1,5 @@
+@main () -> void = {
+    // Create one variable of each type: int, float, bool, str
+
+    // Print each one on its own line
+}

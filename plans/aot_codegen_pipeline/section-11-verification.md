@@ -24,7 +24,7 @@ sections:
 
 # Section 11: Comprehensive Verification
 
-**Status:** In Progress (11.1 underway — 862 passed, 0 failed, 58 ignored as of 2026-02-23)
+**Status:** In Progress (11.1 underway — 905 passed, 0 failed, 25 ignored as of 2026-02-24)
 **Goal:** Every language feature compiles through AOT, matches JIT behavior, and has zero memory leaks.
 
 **Context:** This is the capstone section. All architectural improvements are in place. Now we prove the system works as one cohesive whole by testing every language feature through the AOT pipeline and verifying behavioral equivalence with the JIT evaluator.
@@ -66,11 +66,11 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Tuple from if expression — covered (tuples.rs)
   - [x] Closure capturing tuple, closure returning tuple — covered (tuples.rs)
   - [ ] Chained nested tuple field access `t.0.0` — Parser gap: lexed as float (Section 05 § 5.7, #[ignore])
-  - [ ] List of tuples iteration — AOT gap: heap corruption (#[ignore])
+  - [x] List of tuples iteration — **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations
   - [ ] Tuple destructuring in for loop `for (a, b) in ...` — Parser gap (#[ignore])
-  - [ ] Tuple == equality comparison — AOT gap: compiles but returns wrong result (#[ignore])
+  - [x] Tuple == equality comparison — **FIXED** (2026-02-24) — tuple equality comparison codegen
 
-- [ ] **Structs:** (2026-02-23)
+- [x] **Structs:** (2026-02-23, completed 2026-02-24)
   - [x] Basic construction (1/2/3 fields), bool fields, mixed fields — covered (structs.rs)
   - [x] String fields (one, two string fields, method on string field) — covered (structs.rs)
   - [x] Update syntax (one field, all fields, preserves original, chain) — covered (structs.rs)
@@ -82,7 +82,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Multiple struct types in same program — covered (structs.rs)
   - [x] Struct with list field — covered (structs.rs)
   - [x] Computed fields, fields from function calls — covered (structs.rs)
-  - [ ] Struct update with string field — AOT gap: GEP on non-pointer causes segfault (#[ignore])
+  - [x] Struct update with string field — **FIXED** (2026-02-24) — IsShared/Set on inline aggregates: emit `true` to force Construct path
 
 - [ ] **Data structures (other):**
   - [ ] Enum construction and pattern matching — AOT gap: variant constructors (#[ignore])
@@ -91,9 +91,12 @@ Build a comprehensive test matrix covering every language feature through AOT co
 
 - [ ] **Collections:**
   - [x] List: literal, length, iter, map, filter, collect — covered
-  - [ ] List: push, pop, index, first, last — AOT gap: methods not in builtin table (#[ignore])
+  - [x] List: push, first, last, contains, reverse — covered (2026-02-24, runtime + builtin table)
+  - [ ] List: pop, index — AOT gap: pop needs tuple return, index needs Index trait codegen (#[ignore])
   - [x] Map: literal, length, for-loop iteration — covered
-  - [ ] Map: insert, get, remove, is_empty, keys, values — AOT gap: methods not in builtin table
+  - [x] Map: is_empty — covered (2026-02-24, inline LLVM IR)
+  - [x] Map: contains_key, keys, values — covered (2026-02-24, runtime + builtin table)
+  - [ ] Map: get, insert, remove — AOT gap: get not in evaluator, insert/remove need functional map construction
   - [ ] Set: all operations — not yet in AOT
   - [x] Range: `0..5`, `0..=5`, iter, yield, guard — covered
 
@@ -117,7 +120,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Recursive functions — covered
   - [x] Mutually recursive functions — covered
   - [ ] Named function → closure coercion — AOT gap: ABI mismatch i64 vs { ptr, ptr } (#[ignore])
-  - [ ] Function taking `(int) -> bool` param — AOT gap: bool return ABI for closures (#[ignore])
+  - [x] Function taking `(int) -> bool` param — **FIXED** (2026-02-24) — test function name `test_pred` was classified as test; renamed to `check_pred`
   - [ ] Closures capturing closures — AOT gap for complex nesting (#[ignore])
 
 - [ ] **Error handling:** (2026-02-23)
@@ -196,7 +199,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] unwrap_or with computed defaults — covered (depth.rs)
   - [x] Closure capturing struct fields — covered (depth.rs)
   - [x] Closure capturing single string — covered (depth.rs)
-  - [ ] Closure capturing 3+ strings — AOT gap: heap corruption (#[ignore])
+  - [x] Closure capturing 3+ strings — **FIXED** (2026-02-24) — closure env alloc size fallback used 24 instead of TypeLayoutResolver::type_store_size
   - [x] Closure passed through 3 function levels — covered (depth.rs)
   - [x] Multiple closures in same scope — covered (depth.rs)
   - [x] Closure with mixed capture types (struct + bool) — covered (depth.rs)
@@ -207,8 +210,8 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Nested Option types — covered (depth.rs)
   - [x] Result with Option payload — covered (depth.rs)
   - [x] Fibonacci via recursive match — covered (depth.rs)
-  - [ ] Mutation in match arms inside for-do — AOT gap: ArcIrEmitter variable not defined (#[ignore])
-  - [ ] Bool comparison stored as struct field in for-yield — AOT gap: always false (#[ignore])
+  - [x] Mutation in match arms inside for-do — **FIXED** (2026-02-24) — SSA merge for mutable variables in match arms (same pattern as lower_if)
+  - [x] Bool comparison stored as struct field in for-yield — **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations
   - [ ] Iterator .map closure accessing struct fields — AOT gap: invalid LLVM IR (#[ignore])
 
 - [x] **Operator edge cases:** (2026-02-23)
@@ -223,7 +226,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - Boolean short-circuit (&&, ||, chained) — covered (operators.rs)
   - Char equality, byte arithmetic — covered (operators.rs)
   - Duration arithmetic (500ms + 500ms == 1s) — covered (operators.rs)
-  - [ ] Size cross-unit arithmetic (512kb + 512kb == 1mb) — AOT gap: unit normalization (#[ignore])
+  - [x] Size cross-unit arithmetic (500kb + 500kb == 1mb) — **FIXED** (2026-02-24) — test values corrected for SI base-10 units
 
 - [x] **Pattern matching extensions:** (2026-02-23)
   - Or-patterns (int literals, char, bool, in loop) — covered (patterns.rs)
@@ -233,7 +236,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - Combined patterns (guard+tuple, result dispatch, nested match, fizzbuzz) — covered (patterns.rs)
   - Exhaustiveness (bool cases, many char literals) — covered (patterns.rs)
 
-- [ ] **Type conversions:** (2026-02-23)
+- [x] **Type conversions:** (2026-02-23, completed 2026-02-24)
   - [x] int.to_float, int.to_float (negative, zero, large) — covered (conversions.rs)
   - [x] float.to_int (basic, truncation, negative truncation, zero, negative zero) — covered (conversions.rs)
   - [x] int.into (int -> float) — covered (conversions.rs)
@@ -248,7 +251,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] int.f() shorthand — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
   - [x] int.byte() and byte roundtrip — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
 
-- [ ] **Variable scoping & block expressions:** (2026-02-23)
+- [x] **Variable scoping & block expressions:** (2026-02-23, completed 2026-02-24)
   - [x] Let bindings (basic, type annotation, chain) — covered (scoping.rs)
   - [x] Variable shadowing (same type, different type, uses previous, many shadows) — covered (scoping.rs)
   - [x] Block expressions as values (basic, single, nested, with side effects) — covered (scoping.rs)
@@ -257,7 +260,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Expressions in complex positions (function args, arithmetic, comparison) — covered (scoping.rs)
   - [x] Closure captures outer scope, shadow before closure — covered (scoping.rs)
   - [x] Tuple destructuring, struct from block, let in branches — covered (scoping.rs)
-  - [ ] Nested block shadowing (inner let x leaks to outer) — AOT gap: block scoping (#[ignore])
+  - [x] Nested block shadowing — **FIXED** (2026-02-24) — block_let_names tracking in ArcLowerer distinguishes shadows from reassignments
 
 - [ ] **String methods:** (2026-02-23)
   - [x] str.length / str.len (basic, empty, single char, spaces, escapes) — covered (strings.rs)
@@ -271,19 +274,24 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] str.concat() method — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
   - [x] str.to_str() identity — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
   - [x] String ordering (<, >) — **FIXED** (2026-02-23) — wired emit_str_cmp_predicate in emit_binary_op
-  - [ ] str.contains, starts_with, ends_with — not in builtin table (#[ignore])
-  - [ ] str.trim, to_uppercase, to_lowercase — not in builtin table (#[ignore])
-  - [ ] str.replace, split, repeat, chars — not in builtin table (#[ignore])
+  - [x] str.contains, starts_with, ends_with — **FIXED** (2026-02-23) — runtime + codegen dispatch
+  - [x] str.trim, to_uppercase, to_lowercase — **FIXED** (2026-02-23) — runtime + codegen dispatch
+  - [x] str.replace, repeat — **FIXED** (2026-02-23) — runtime + codegen dispatch
+  - [ ] str.chars — returns `[char]`, needs list return infrastructure (#[ignore])
+  - [ ] str.split — returns `[str]`, needs list return infrastructure (#[ignore])
 
-- [ ] **Collection methods:** (2026-02-23)
+- [ ] **Collection methods:** (2026-02-23, updated 2026-02-24)
   - [x] List: length/len (empty, one, many), is_empty, clone — covered (collections_ext.rs)
   - [x] List: iter (count, fold sum, filter count, map+collect, any/all) — covered (collections_ext.rs)
   - [x] List: for-yield (basic, with filter guard) — covered (collections_ext.rs)
   - [x] List: string elements (length, iter count) — covered (collections_ext.rs)
   - [x] List: tuples as elements — covered (collections_ext.rs)
+  - [x] List: push, first, last, contains, reverse — **FIXED** (2026-02-24) — runtime functions + builtin table + evaluator sync
   - [x] Map: length/len (basic, one, alias), iter (count, for-loop), int keys — covered (collections_ext.rs)
-  - [ ] List: push, pop, first, last, index, reverse, contains — not in builtin table (#[ignore])
-  - [ ] Map: get, contains_key, keys, values, insert, remove — not in builtin table (#[ignore])
+  - [x] Map: is_empty — **FIXED** (2026-02-24) — inline LLVM IR (extract len, cmp 0)
+  - [x] Map: contains_key, keys, values — **FIXED** (2026-02-24) — runtime + builtin table
+  - [ ] List: pop, index — AOT gap: pop needs tuple return, index needs Index trait codegen (#[ignore])
+  - [ ] Map: get, insert, remove — get not in evaluator, insert/remove need functional construction (#[ignore])
 
 - [x] **Mutation & reassignment:** (2026-02-23)
   - Simple reassignment (single, multiple, self-reference) — covered (mutations.rs)
@@ -311,30 +319,32 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | `catch(expr:)` lowering | 21A § 21.5 | `test_aot_catch_success` | Blocks panic recovery |
 | String interpolation | 21A § 21.3 | `test_aot_string_interpolation` | Cosmetic |
 | ~~Derive Eq struct (icmp)~~ | ~~21A § 21.19~~ | ~~`test_aot_derive_eq_struct`~~ | **FIXED** (2026-02-23) — emit_comparison_via_trait |
-| List methods (push/first/last) | 21A § 21.10, 21.12 | `test_aot_list_push` et al. | Builtin table gap |
-| Map methods (is_empty/get) | 21A § 21.10, 21.12 | `test_aot_map_is_empty` | Builtin table gap |
+| ~~List methods (push/first/last)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_aot_list_push` et al.~~ | **FIXED** (2026-02-24) — runtime + builtin table (push, first, last, contains, reverse) |
+| ~~Map methods (is_empty)~~ | ~~21A § 21.10~~ | ~~`test_aot_map_is_empty`~~ | **FIXED** (2026-02-24) — inline LLVM IR |
 | `list[index]` subscript | 21A § 21.10 | `test_aot_list_index` | Index trait codegen |
 | Closure returning closure | **Type checker bug** (§ 02) | `test_aot_closure_capturing_closure` | Inference regression |
-| Bool in for-yield struct field | 21A codegen | `test_depth_combined_struct_iter_match` | **NEW** (2026-02-23) — comparison always stores false |
-| Closure capturing 3+ strings | 21A closure codegen | `test_depth_closure_capturing_multiple_strings` | **NEW** (2026-02-23) — heap corruption |
-| Mutation in match arms in for-do | 21A ArcIrEmitter | `test_depth_combined_match_closure_result` | **NEW** (2026-02-23) — variable not yet defined |
+| ~~Bool in for-yield struct field~~ | ~~21A codegen~~ | ~~`test_depth_combined_struct_iter_match`~~ | **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations |
+| ~~Closure capturing 3+ strings~~ | ~~21A closure codegen~~ | ~~`test_depth_closure_capturing_multiple_strings`~~ | **FIXED** (2026-02-24) — env alloc size fallback used 24 instead of type_store_size |
+| ~~Mutation in match arms in for-do~~ | ~~21A ArcIrEmitter~~ | ~~`test_depth_combined_match_closure_result`~~ | **FIXED** (2026-02-24) — SSA merge for mutable variables in match arms |
 | Iterator .map struct field access | 21A closure codegen | `test_stress_combined_struct_closure_iteration` | **NEW** (2026-02-23) — invalid LLVM IR |
-| Size cross-unit comparison | 21A literal codegen | `test_op_size_arithmetic` | **NEW** (2026-02-23) — unit normalization not applied in AOT equality |
+| ~~Size cross-unit comparison~~ | ~~21A literal codegen~~ | ~~`test_op_size_arithmetic`~~ | **FIXED** (2026-02-24) — test values corrected for SI base-10 units |
 | ~~`int.f()` return type tracking~~ | ~~21A builtin codegen~~ | ~~`test_conv_int_f_shorthand`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
 | ~~`int.byte()` type tracking~~ | ~~21A builtin codegen~~ | ~~`test_conv_int_to_byte`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
-| Block scope variable leak | 21A ARC IR scoping | `test_scope_shadow_in_nested_block` | **NEW** (2026-02-23) — inner `let x` overwrites outer scope |
+| ~~Block scope variable leak~~ | ~~21A ARC IR scoping~~ | ~~`test_scope_shadow_in_nested_block`~~ | **FIXED** (2026-02-24) — block_let_names tracking in ArcLowerer |
 | ~~`str.concat()` return type~~ | ~~21A builtin codegen~~ | ~~`test_str_concat_basic`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
 | ~~String ordering (`<`, `>`)~~ | ~~21A comparison codegen~~ | ~~`test_str_compare_less`~~ | **FIXED** (2026-02-23) — wired emit_str_cmp_predicate |
-| String methods (contains, trim, etc.) | 21A § 21.10 | `test_str_contains` et al. | Builtin table gap — 8 methods missing |
-| List methods (push, first, last, etc.) | 21A § 21.10, 21.12 | `test_coll_list_push` et al. | Builtin table gap — 7 methods missing |
-| Map methods (get, keys, values, etc.) | 21A § 21.10, 21.12 | `test_coll_map_get` et al. | Builtin table gap — 6 methods missing |
+| ~~String methods (contains, trim, etc.)~~ | ~~21A § 21.10~~ | ~~`test_str_contains` et al.~~ | **FIXED** (2026-02-23) — 8 methods added (split, chars deferred: need list return) |
+| ~~List methods (push, first, last, contains, reverse)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_coll_list_push` et al.~~ | **FIXED** (2026-02-24) — 5 methods added |
+| List methods (pop, index) | 21A § 21.10, 21.12 | `test_coll_list_pop` et al. | Builtin table gap — pop needs tuple return, index needs Index trait |
+| ~~Map methods (contains_key, keys, values)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_coll_map_contains_key` et al.~~ | **FIXED** (2026-02-24) — 3 methods added (get/insert/remove deferred) |
+| Map methods (get, insert, remove) | 21A § 21.10, 21.12 | `test_coll_map_get` et al. | Builtin table gap — get needs evaluator support, insert/remove need functional construction |
 | Named fn → closure coercion | 21A closure codegen | `test_hof_apply_identity` et al. | **NEW** (2026-02-23) — named functions can't be passed as closure-typed params (ABI mismatch) |
-| `(int) -> bool` as function param | 21A closure ABI | `test_hof_bool_lambda` | **NEW** (2026-02-23) — bool return from closure used as i64, branch expects i1 |
+| ~~`(int) -> bool` as function param~~ | ~~21A closure ABI~~ | ~~`test_hof_bool_lambda`~~ | **FIXED** (2026-02-24) — test function named `test_pred` was misclassified as test; renamed to `check_pred` |
 | Chained tuple field access `t.0.0` | Section 05 § 5.7 | `test_tuple_nested_pair_of_pairs` | **NEW** (2026-02-23) — parser lexes `t.0.0` as float literal, not chained field access |
-| List-of-tuples iteration | 21A codegen | `test_tuple_in_loop` | **NEW** (2026-02-23) — heap corruption (malloc assertion failure) during for-loop over `[(1, 10), ...]` |
+| ~~List-of-tuples iteration~~ | ~~21A codegen~~ | ~~`test_tuple_in_loop`~~ | **FIXED** (2026-02-24) — element_store_size for compound types (same root cause as bool-in-for-yield) |
 | Tuple destructuring in for loops | Parser / Section 00 | `test_tuple_destructure_in_loop` | **NEW** (2026-02-23) — `for (a, b) in ...` rejected: "for pattern requires named properties" |
-| Tuple `==` equality | 21A comparison codegen | `test_tuple_equality` | **NEW** (2026-02-23) — compiles but returns wrong result (comparison codegen incorrect) |
-| Struct update with string field | 21A struct codegen | `test_struct_update_with_string` | **NEW** (2026-02-23) — GEP on non-pointer value during spread, causes runtime segfault |
+| ~~Tuple `==` equality~~ | ~~21A comparison codegen~~ | ~~`test_tuple_equality`~~ | **FIXED** (2026-02-24) — tuple equality comparison codegen fixed |
+| ~~Struct update with string field~~ | ~~21A struct codegen~~ | ~~`test_struct_update_with_string`~~ | **FIXED** (2026-02-24) — IsShared/Set skip non-RcPointer values, forces Construct path |
 
 ---
 

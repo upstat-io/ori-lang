@@ -1,0 +1,9 @@
+@main () -> void = {
+    let $area = {
+        let $width = 7;
+        let $height = 3;
+        width * height
+    };
+
+    print(msg: "Area: " + str(area));
+}

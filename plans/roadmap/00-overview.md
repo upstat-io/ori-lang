@@ -2,11 +2,13 @@
 
 > **Unified Implementation Plan** — Merges V3 implementation and language gap fixes into a single dependency-ordered roadmap.
 
-> **ACTIVE REROUTE — Trait Architecture Refactor**: All roadmap work is suspended until `plans/trait_arch/` is complete. See `plans/trait_arch/00-overview.md` for the full plan. This reroute was added because 35% of recent work was reactive sync-drift fixes — the trait infrastructure must be restructured before adding more traits. Remove this block when all 7 trait_arch sections are complete.
+> **~~RESOLVED~~ Trait Architecture Refactor**: `plans/trait_arch/` — complete.
 
-> **ACTIVE REROUTE — Block Unification Refactor**: All roadmap work is suspended until `plans/block_unify/` is complete. See `plans/block_unify/00-overview.md` for the full plan. This reroute was added because the block-syntax migration (commit `4e0c1611`) revealed a fundamental duality: `FunctionSeq::Run` + `SeqBinding` and `ExprKind::Block` + `StmtKind` are two parallel representations of sequential code, creating 27 dispatch sites across 7 crates. Adopting the Gleam pattern (one block type, one statement type) eliminates ~13 redundant dispatch sites and prevents future block-like constructs from doubling the maintenance burden. Remove this block when all 5 block_unify sections are complete.
+> **~~RESOLVED~~ Block Unification Refactor**: `plans/block_unify/` — complete (2026-02-20).
 
 > **ACTIVE REROUTE — AOT Codegen Pipeline**: ARC and AOT codegen roadmap items (Section 21A LLVM Backend, Section 21B AOT Compilation, Section 17 atomic refcounts) are rerouted to `plans/aot_codegen_pipeline/`. See `plans/aot_codegen_pipeline/00-overview.md` for the full plan, `plans/dpr_aot-codegen-pipeline_02222026.md` for the design pattern review. Supersedes both `plans/arc_optimization/` and `plans/arc_codegen_unification/`. 11 sections: emission layer typing (Rust OperandValue pattern), lowerer gap closure, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation (Swift), cross-block RC elimination (Swift), Salsa-integrated borrow inference, FBIP enforcement (Koka), legacy cleanup (~11K line deletion), comprehensive verification (dual-execution + memory safety). Remove this block when all 11 aot_codegen_pipeline sections are complete.
+
+> **QUEUED REROUTE — Type Strategy Registry**: `plans/type_strategy_registry/` — Pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections. Activates when AOT Codegen Pipeline reroute completes. See `plans/type_strategy_registry/00-overview.md`.
 
 ## Source Plans
 
