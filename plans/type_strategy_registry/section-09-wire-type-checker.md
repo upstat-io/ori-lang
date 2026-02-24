@@ -26,9 +26,6 @@ subsections:
   - id: "09.5"
     title: "Replace TYPECK_BUILTIN_METHODS"
     status: not-started
-  - id: "09.6"
-    title: "TypeFlow Integration (calls.rs)"
-    status: not-started
   - id: "09.7"
     title: "DEI_ONLY_METHODS Migration"
     status: not-started
@@ -44,7 +41,7 @@ subsections:
 
 ## Overview
 
-This is the most complex wiring section. The type checker (`ori_types`) is the primary consumer of builtin type knowledge in the compiler. It hard-codes method resolution for 20+ types across 18 `resolve_*_method()` functions, maintains a 426-entry `TYPECK_BUILTIN_METHODS` array, hard-codes TypeFlow constraints in `calls.rs`, and uses a 5-entry `DEI_ONLY_METHODS` constant for DoubleEndedIterator gating.
+This is the most complex wiring section. The type checker (`ori_types`) is the primary consumer of builtin type knowledge in the compiler. It hard-codes method resolution for 20+ types across 18 `resolve_*_method()` functions, maintains a 426-entry `TYPECK_BUILTIN_METHODS` array, and uses a 5-entry `DEI_ONLY_METHODS` constant for DoubleEndedIterator gating.
 
 All of this gets replaced by `ori_registry` lookups. The key challenge is that the type checker doesn't just need method *names* -- it needs to construct `Idx` return types in the pool, which requires bridging between the registry's `TypeTag` enum and the pool's `Idx` handles. Two bridge functions (`tag_to_type_tag` and `type_tag_to_idx`) mediate this translation.
 
@@ -66,10 +63,6 @@ Some `resolve_*_method` functions contain logic beyond simple return-type mappin
 - **resolve_named_type_method**: Newtype `.unwrap()` resolution through TypeRegistry.
 
 These cannot be replaced by a simple `find_method().returns -> type_tag_to_idx()` pipeline. The plan preserves this logic as post-lookup refinements that override or augment the registry's static return type.
-
-### TypeFlow becomes a field on MethodDef, not a separate lookup
-
-The `unify_higher_order_constraints` function in `calls.rs` currently matches on string method names (`"map"`, `"flat_map"`, `"fold"/"rfold"`). After migration, `MethodDef` carries a `type_flow: Option<TypeFlow>` field. The lookup becomes `find_method(tag, name).type_flow` -- no more string matching.
 
 ### TYPECK_BUILTIN_METHODS eliminated, not replaced
 
@@ -315,7 +308,7 @@ fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
 ### Design Notes
 
 - **`TypeTag::SelfType`** resolves to the receiver type. For `Clone` trait's `clone()` method on `int`, the return is `TypeTag::SelfType` which resolves to `Idx::INT`. For `list.clone()`, it resolves to the `List<T>` type. This is the most common return type for trait methods.
-- **`TypeTag::FreshVar`** creates a fresh type variable. This is used for higher-order methods like `map`, `flat_map`, `fold` where the return type depends on the closure argument and cannot be statically determined from the registry alone. The `unify_higher_order_constraints` function (09.6) resolves these variables later.
+- **`TypeTag::FreshVar`** creates a fresh type variable. This is used for higher-order methods like `map`, `flat_map`, `fold` where the return type depends on the closure argument and cannot be statically determined from the registry alone. The `unify_higher_order_constraints` function in `calls.rs` resolves these variables later.
 - **`extract_elem`** is the key helper -- it extracts the "primary inner type" from any container. For most containers this is the element type `T`. For `Map<K, V>` it returns `K`. Methods that need `V` (like `map.values()`) use direct pool accessors.
 - **`TypeTag::Channel`/`Range`/`Tuple` as return types**: Currently no method returns these types (a Channel method never returns a new Channel; Range methods return List/Iterator/Int/Bool; Tuple is only used in computed return types like `enumerate`). The `Idx::ERROR` fallback is defensive, not a workaround.
 
@@ -832,231 +825,6 @@ This export must be removed. Any external code referencing it must be migrated t
 
 ---
 
-## 09.6 TypeFlow Integration (calls.rs)
-
-**File:** `compiler/ori_types/src/infer/expr/calls.rs` (lines 700-764)
-
-### Current State
-
-The `unify_higher_order_constraints` function hard-codes method name strings to determine how closure arguments constrain the return type:
-
-```rust
-// BEFORE: compiler/ori_types/src/infer/expr/calls.rs (lines 700-764)
-fn unify_higher_order_constraints(
-    engine: &mut InferEngine<'_>,
-    method: Name,
-    ret_ty: Idx,
-    arg_types: &[Idx],
-) {
-    let Some(method_str) = engine.lookup_name(method) else {
-        return;
-    };
-
-    match method_str {
-        "map" => {
-            // Closure (T) -> U. Unify iterator elem var with U.
-            ...
-        }
-        "flat_map" => {
-            // Closure (T) -> Iterator<U>. Unify elem var with U.
-            ...
-        }
-        "fold" | "rfold" => {
-            // Unify ret_ty with initial value and closure return.
-            ...
-        }
-        _ => {}
-    }
-}
-```
-
-This function matches on 4 string literals. Adding a new higher-order method requires updating this function manually.
-
-### New State
-
-The `MethodDef` in `ori_registry` gains a `type_flow: Option<TypeFlow>` field. The `TypeFlow` enum encodes how closure arguments constrain the return type:
-
-```rust
-// In ori_registry (Section 01/07)
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum TypeFlow {
-    /// Closure return becomes the new element type.
-    /// Used by: map (on Iterator, List, Option, Result)
-    ClosureOutputBecomesElement,
-
-    /// Closure returns Iterator<U>; U becomes the new element type.
-    /// Used by: flat_map
-    ClosureOutputFlatElement,
-
-    /// Return type = initial accumulator = closure return.
-    /// Used by: fold, rfold, reduce
-    Accumulator,
-}
-```
-
-### New Implementation
-
-```rust
-// AFTER: compiler/ori_types/src/infer/expr/calls.rs
-
-use ori_registry::TypeFlow;
-use super::registry_bridge::tag_to_type_tag;
-
-fn unify_higher_order_constraints(
-    engine: &mut InferEngine<'_>,
-    method: Name,
-    ret_ty: Idx,
-    arg_types: &[Idx],
-) {
-    // Look up the method's TypeFlow from the registry
-    let method_str = match engine.lookup_name(method) {
-        Some(s) => s,
-        None => return,
-    };
-
-    // Determine the receiver's TypeTag for registry lookup.
-    // ret_ty is the return type from resolve_builtin_method, which
-    // was already resolved. We need the receiver's tag. Since the
-    // receiver was already resolved before this point, we check if
-    // ret_ty's tag is an iterator (common case for iterator methods)
-    // or fall back to trying all relevant types.
-    let resolved_ret = engine.resolve(ret_ty);
-    let ret_tag = engine.pool().tag(resolved_ret);
-
-    // Try to find the method in the registry with TypeFlow
-    let type_flow = find_type_flow(ret_tag, method_str);
-    let Some(flow) = type_flow else {
-        return;
-    };
-
-    match flow {
-        TypeFlow::ClosureOutputBecomesElement => {
-            let Some(&closure_ty) = arg_types.first() else {
-                return;
-            };
-            if !ret_tag.is_iterator() {
-                return;
-            }
-            let elem_var = engine.pool().iterator_elem(resolved_ret);
-            let resolved_closure = engine.resolve(closure_ty);
-            if engine.pool().tag(resolved_closure) == Tag::Function {
-                let closure_ret = engine.pool().function_return(resolved_closure);
-                let _ = engine.unify().unify(elem_var, closure_ret);
-            }
-        }
-        TypeFlow::ClosureOutputFlatElement => {
-            let Some(&closure_ty) = arg_types.first() else {
-                return;
-            };
-            if !ret_tag.is_iterator() {
-                return;
-            }
-            let elem_var = engine.pool().iterator_elem(resolved_ret);
-            let resolved_closure = engine.resolve(closure_ty);
-            if engine.pool().tag(resolved_closure) == Tag::Function {
-                let closure_ret = engine.pool().function_return(resolved_closure);
-                let resolved_inner = engine.resolve(closure_ret);
-                if engine.pool().tag(resolved_inner).is_iterator() {
-                    let inner_elem = engine.pool().iterator_elem(resolved_inner);
-                    let _ = engine.unify().unify(elem_var, inner_elem);
-                }
-            }
-        }
-        TypeFlow::Accumulator => {
-            if let Some(&init_ty) = arg_types.first() {
-                let _ = engine.unify().unify(ret_ty, init_ty);
-            }
-            if let Some(&closure_ty) = arg_types.get(1) {
-                let resolved_closure = engine.resolve(closure_ty);
-                if engine.pool().tag(resolved_closure) == Tag::Function {
-                    let closure_ret = engine.pool().function_return(resolved_closure);
-                    let _ = engine.unify().unify(ret_ty, closure_ret);
-                }
-            }
-        }
-    }
-}
-
-/// Look up a method's TypeFlow from the registry.
-///
-/// Tries the given tag first. If the tag is an iterator, looks up
-/// both Iterator and DoubleEndedIterator definitions.
-fn find_type_flow(ret_tag: Tag, method_str: &str) -> Option<TypeFlow> {
-    // For iterator return types, the method was called on an iterator
-    let candidates = match ret_tag {
-        Tag::Iterator => &[TypeTag::Iterator, TypeTag::DoubleEndedIterator][..],
-        Tag::DoubleEndedIterator => &[TypeTag::DoubleEndedIterator, TypeTag::Iterator][..],
-        _ => {
-            // For non-iterator return types (e.g., fold returns FreshVar),
-            // try common higher-order method hosts
-            return try_type_flow_for_accumulator(method_str);
-        }
-    };
-
-    for &type_tag in candidates {
-        if let Some(method_def) = ori_registry::find_method(type_tag, method_str) {
-            if let Some(flow) = method_def.type_flow {
-                return Some(flow);
-            }
-        }
-    }
-    None
-}
-
-/// Check if a method name is a known accumulator method.
-///
-/// Accumulator methods (fold, rfold, reduce) have fresh-var return types
-/// that don't carry the receiver's tag. We need to recognize them by name
-/// and check the registry.
-fn try_type_flow_for_accumulator(method_str: &str) -> Option<TypeFlow> {
-    // fold/rfold/reduce can appear on Iterator, DEI, or List
-    for &type_tag in &[TypeTag::Iterator, TypeTag::DoubleEndedIterator, TypeTag::List] {
-        if let Some(method_def) = ori_registry::find_method(type_tag, method_str) {
-            if let Some(flow) = method_def.type_flow {
-                return Some(flow);
-            }
-        }
-    }
-    None
-}
-```
-
-### Methods with TypeFlow
-
-| Type | Method | TypeFlow | Current String Match |
-|------|--------|----------|---------------------|
-| Iterator | `map` | `ClosureOutputBecomesElement` | `"map"` |
-| Iterator | `flat_map` | `ClosureOutputFlatElement` | `"flat_map"` |
-| Iterator | `fold` | `Accumulator` | `"fold"` |
-| DoubleEndedIterator | `map` | `ClosureOutputBecomesElement` | `"map"` |
-| DoubleEndedIterator | `flat_map` | `ClosureOutputFlatElement` | `"flat_map"` |
-| DoubleEndedIterator | `fold` | `Accumulator` | `"fold"` |
-| DoubleEndedIterator | `rfold` | `Accumulator` | `"rfold"` |
-| List | `map` | `ClosureOutputBecomesElement` | N/A (fresh_var today) |
-| List | `flat_map` | `ClosureOutputFlatElement` | N/A |
-| List | `fold` | `Accumulator` | N/A |
-| List | `reduce` | `Accumulator` | N/A |
-| Option | `map` | `ClosureOutputBecomesElement` | N/A |
-| Option | `and_then` | `ClosureOutputFlatElement` | N/A |
-| Result | `map` | `ClosureOutputBecomesElement` | N/A |
-| Result | `and_then` | `ClosureOutputFlatElement` | N/A |
-
-Note: List/Option/Result HO methods currently return `fresh_var()` without TypeFlow unification. The registry provides an opportunity to add proper TypeFlow for these in the future, but this section focuses on preserving current behavior (Iterator/DEI only).
-
-### Tasks
-
-- [ ] Add `type_flow: Option<TypeFlow>` field to `MethodDef` in `ori_registry` (Section 01 dependency)
-- [ ] Set `TypeFlow::ClosureOutputBecomesElement` on Iterator/DEI `map`
-- [ ] Set `TypeFlow::ClosureOutputFlatElement` on Iterator/DEI `flat_map`
-- [ ] Set `TypeFlow::Accumulator` on Iterator/DEI `fold` and DEI `rfold`
-- [ ] Implement new `unify_higher_order_constraints` using registry TypeFlow
-- [ ] Implement `find_type_flow()` and `try_type_flow_for_accumulator()` helpers
-- [ ] Delete old string-matching implementation
-- [ ] Verify `cargo st` passes (closure type inference must still work)
-- [ ] Verify `cargo t -p ori_types` passes
-
----
-
 ## 09.7 DEI_ONLY_METHODS Migration
 
 **File:** `compiler/ori_types/src/infer/expr/methods.rs` (line 11) and `compiler/ori_types/src/infer/expr/calls.rs` (lines 816-831)
@@ -1221,7 +989,6 @@ After each subsection is complete, run the following:
 | 09.3 (replace dispatcher) | `cargo t -p ori_types`, `cargo st` |
 | 09.4 (replace all resolvers) | `cargo t -p ori_types`, `cargo st`, `./test-all.sh` |
 | 09.5 (replace TYPECK_BUILTIN_METHODS) | `cargo c -p ori_types`, `cargo t -p oric` |
-| 09.6 (TypeFlow) | `cargo st tests/spec/traits/iterator/`, `cargo st` |
 | 09.7 (DEI_ONLY_METHODS) | `cargo st tests/spec/traits/iterator/` |
 | 09.8 (WellKnownNames) | `cargo t -p ori_types` (no changes expected) |
 
@@ -1268,7 +1035,6 @@ For each deleted `resolve_*_method` function, verify every match arm is covered:
 - [ ] `#[test] fn type_tag_to_idx_self_type()` -- SelfType returns receiver_ty
 - [ ] `#[test] fn type_tag_to_idx_parameterized()` -- Option/List/Iterator construct correctly in pool
 - [ ] `#[test] fn dei_only_methods_derived()` -- `is_dei_only_method` returns true for exactly the 5 current methods
-- [ ] `#[test] fn type_flow_from_registry()` -- `find_type_flow` returns correct TypeFlow for map/flat_map/fold/rfold
 - [ ] `#[test] fn every_resolved_method_still_resolvable()` -- iterate all entries from the old `TYPECK_BUILTIN_METHODS` (captured as a test constant), verify each resolves via the new path
 
 ### Grep Verification
@@ -1331,12 +1097,6 @@ After full migration, these identifiers must have zero hits outside of test/doc 
 - [ ] Migrate consistency tests
 - [ ] `cargo c -p ori_types` and `cargo t -p oric` pass
 
-### 09.6 TypeFlow Integration
-- [ ] `type_flow` field on MethodDef (coordinate with Section 01)
-- [ ] Set TypeFlow on Iterator/DEI methods in registry
-- [ ] New `unify_higher_order_constraints` using registry
-- [ ] `cargo st` passes
-
 ### 09.7 DEI_ONLY_METHODS
 - [ ] Implement `is_dei_only_method()` from registry
 - [ ] Replace calling site in `calls.rs`
@@ -1363,7 +1123,6 @@ After full migration, these identifiers must have zero hits outside of test/doc 
 - [ ] **`TYPECK_BUILTIN_METHODS` deleted** from `methods.rs` and `lib.rs`
 - [ ] **`DEI_ONLY_METHODS` deleted** from `methods.rs`
 - [ ] **Single registry lookup** in `resolve_builtin_method()` + `resolve_computed_return()`
-- [ ] **`unify_higher_order_constraints`** uses `TypeFlow` from registry, not string matching
 - [ ] **DEI gating** uses `is_dei_only_method()` derived from registry, not constant array
 - [ ] **`WellKnownNames`** unchanged and functional
 - [ ] **`registry_bridge.rs`** contains `tag_to_type_tag()`, `type_tag_to_idx()`, `extract_elem()`
@@ -1372,4 +1131,3 @@ After full migration, these identifiers must have zero hits outside of test/doc 
 - [ ] **`./test-all.sh`** passes
 - [ ] **Grep verification** clean: no references to deleted functions/constants outside comments
 - [ ] **Net line count** in `methods.rs`: reduced by ~400+ lines (from ~878 to ~200-300)
-- [ ] **Net line count** in `calls.rs`: reduced by ~30 lines (unify_higher_order_constraints simplified)

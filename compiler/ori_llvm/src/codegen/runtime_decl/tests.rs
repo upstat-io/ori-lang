@@ -39,6 +39,17 @@ fn runtime_functions_declared() {
         "ori_list_len",
         "ori_list_push",
         "ori_list_take",
+        "ori_list_push_new",
+        "ori_list_first",
+        "ori_list_last",
+        "ori_list_contains_int",
+        "ori_list_contains_str",
+        "ori_list_concat",
+        "ori_list_reverse",
+        // Maps
+        "ori_map_contains_key",
+        "ori_map_keys_to_list",
+        "ori_map_values_to_list",
         // Comparison
         "ori_compare_int",
         "ori_min_int",

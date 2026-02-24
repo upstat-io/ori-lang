@@ -1,0 +1,8 @@
+{
+  "expected_output": "2026-2-23",
+  "output_match": "contains",
+  "hints": [
+    "Concatenate with +: str(year) + \"-\" + str(month) + \"-\" + str(day)",
+    "Remember to use str() to convert int values to strings"
+  ]
+}

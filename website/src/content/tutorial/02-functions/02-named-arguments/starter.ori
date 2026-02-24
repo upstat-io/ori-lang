@@ -1,0 +1,6 @@
+// Define format_date here
+
+@main () -> void = {
+    let $date = format_date(year: 2026, month: 2, day: 23);
+    print(msg: date);
+}

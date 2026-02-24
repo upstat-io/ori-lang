@@ -444,7 +444,6 @@ type Message = { text: str }
 // ─── String methods not in builtin table (expected gaps) ───
 
 #[test]
-#[ignore = "AOT gap: str.contains not in builtin table"]
 fn test_str_contains() {
     assert_aot_success(
         r#"
@@ -458,7 +457,6 @@ fn test_str_contains() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.starts_with not in builtin table"]
 fn test_str_starts_with() {
     assert_aot_success(
         r#"
@@ -472,7 +470,6 @@ fn test_str_starts_with() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.ends_with not in builtin table"]
 fn test_str_ends_with() {
     assert_aot_success(
         r#"
@@ -486,7 +483,6 @@ fn test_str_ends_with() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.trim not in builtin table"]
 fn test_str_trim() {
     assert_aot_success(
         r#"
@@ -500,7 +496,6 @@ fn test_str_trim() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.to_uppercase not in builtin table"]
 fn test_str_to_uppercase() {
     assert_aot_success(
         r#"
@@ -514,7 +509,6 @@ fn test_str_to_uppercase() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.to_lowercase not in builtin table"]
 fn test_str_to_lowercase() {
     assert_aot_success(
         r#"
@@ -528,7 +522,6 @@ fn test_str_to_lowercase() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.replace not in builtin table"]
 fn test_str_replace() {
     assert_aot_success(
         r#"
@@ -558,7 +551,6 @@ fn test_str_split() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.repeat not in builtin table"]
 fn test_str_repeat() {
     assert_aot_success(
         r#"
@@ -573,7 +565,7 @@ fn test_str_repeat() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.chars not in builtin table"]
+#[ignore = "AOT gap: str.chars returns [char], needs list return infrastructure"]
 fn test_str_chars() {
     assert_aot_success(
         r#"

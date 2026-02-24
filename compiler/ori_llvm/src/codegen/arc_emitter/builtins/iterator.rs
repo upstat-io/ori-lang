@@ -120,7 +120,7 @@ declare_builtins! { emitter, ctx;
 use ori_arc::ir::{ArcFunction, ArcVarId};
 use ori_types::Idx;
 
-use crate::codegen::type_info::{TypeInfo, TypeLayoutResolver};
+use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
 use super::super::ArcIrEmitter;
@@ -181,12 +181,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func = self.builder.scx().llmod.get_function("ori_iter_next")?;
         let func_id = self.builder.intern_function(func);
 
-        // Compute element size — use TypeInfo for primitives/known types,
-        // fall back to LLVM type layout for compound types (tuples, structs).
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or_else(|| {
-            let llvm_ty = self.type_resolver.resolve(elem_ty);
-            TypeLayoutResolver::type_store_size(llvm_ty)
-        });
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         // Allocate scratch buffer for the element.
@@ -278,7 +273,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let other = arg_vals[1];
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let func = self.builder.scx().llmod.get_function("ori_iter_zip")?;
         let func_id = self.builder.intern_function(func);
@@ -312,7 +307,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Map, result_ty);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func = self.builder.scx().llmod.get_function("ori_iter_map")?;
@@ -340,7 +335,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func = self.builder.scx().llmod.get_function("ori_iter_filter")?;
@@ -358,7 +353,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func = self.builder.scx().llmod.get_function("ori_iter_collect")?;
         let func_id = self.builder.intern_function(func);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         // sret pattern: allocate output list struct {i64 len, i64 cap, ptr data}
@@ -385,7 +380,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func = self.builder.scx().llmod.get_function("ori_iter_count")?;
         let func_id = self.builder.intern_function(func);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         self.builder
@@ -408,7 +403,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func = self.builder.scx().llmod.get_function("ori_iter_any")?;
@@ -442,7 +437,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func = self.builder.scx().llmod.get_function("ori_iter_all")?;
@@ -476,7 +471,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Predicate, None);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func = self.builder.scx().llmod.get_function("ori_iter_find")?;
@@ -517,7 +512,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::ForEach, None);
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let func = self.builder.scx().llmod.get_function("ori_iter_for_each")?;
@@ -553,9 +548,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (tramp_fn, closure_env) =
             self.build_trampoline(closure, elem_ty, TrampolineKind::Fold, Some(acc_ty));
 
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
-        let acc_size = self.type_info.get(acc_ty).size().unwrap_or(8);
+        let acc_size = self.element_store_size(acc_ty);
         let acc_size_val = self.builder.const_i64(acc_size as i64);
 
         // Store init value to alloca for passing as ptr

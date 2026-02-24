@@ -1,0 +1,8 @@
+{
+  "expected_output": "42\n3.14\ntrue\nhello",
+  "output_match": "exact",
+  "hints": [
+    "Use `str()` to convert non-string values before printing",
+    "Each `print()` call outputs on a new line"
+  ]
+}

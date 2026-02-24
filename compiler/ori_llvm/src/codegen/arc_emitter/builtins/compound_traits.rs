@@ -448,7 +448,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// `Tuple.equals(other) -> bool`
     ///
     /// All fields must be equal (conjunction).
-    pub(super) fn emit_tuple_equals(
+    pub(in crate::codegen::arc_emitter) fn emit_tuple_equals(
         &mut self,
         lhs: ValueId,
         rhs: ValueId,

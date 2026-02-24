@@ -335,7 +335,6 @@ fn test_tuple_from_if_expression() {
 }
 
 #[test]
-#[ignore = "AOT gap: iterating list of tuples causes heap corruption (malloc assertion failure)"]
 fn test_tuple_in_loop() {
     assert_aot_success(
         r#"
@@ -402,7 +401,6 @@ fn test_tuple_returned_from_closure() {
 // ─── Tuple comparison ───
 
 #[test]
-#[ignore = "AOT gap: tuple == compiles but returns wrong result (comparison codegen incorrect)"]
 fn test_tuple_equality() {
     assert_aot_success(
         r#"
@@ -418,7 +416,6 @@ fn test_tuple_equality() {
 }
 
 #[test]
-#[ignore = "AOT gap: tuple == compiles but returns wrong result (comparison codegen incorrect)"]
 fn test_tuple_equality_triple() {
     assert_aot_success(
         r#"

@@ -323,6 +323,67 @@ fn self_type_returns_valid() {
 
 ---
 
+## 14.1b Compile-Time Exhaustiveness Guards (Roc pattern)
+
+**Files:** One `_enforce_exhaustiveness` function per consuming crate.
+
+Inspired by Roc's `_enforce_exhaustiveness` pattern: dead private functions whose sole purpose is to trigger Rust's exhaustive match checker when a new `TypeTag` variant is added. These are **never called** — they exist purely for compile-time enforcement. Zero runtime cost.
+
+### Pattern
+
+Each consuming crate (ori_types, ori_eval, ori_llvm, ori_arc) gets a function like:
+
+```rust
+/// NEVER CALLED. Exists solely so that Rust's exhaustive match checker
+/// forces updates to this crate when a new TypeTag variant is added.
+/// If you see a compile error pointing here, a new TypeTag was added
+/// to ori_registry without updating this crate's handler.
+#[allow(dead_code, unreachable_code)]
+fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
+    match tag {
+        TypeTag::Int => { /* handled in resolve_int_methods() */ }
+        TypeTag::Float => { /* handled in resolve_float_methods() */ }
+        TypeTag::Str => { /* handled in resolve_str_methods() */ }
+        TypeTag::Bool => { /* handled in resolve_bool_methods() */ }
+        TypeTag::Byte => { /* handled in resolve_byte_methods() */ }
+        TypeTag::Char => { /* handled in resolve_char_methods() */ }
+        TypeTag::List => { /* handled in resolve_list_methods() */ }
+        TypeTag::Map => { /* handled in resolve_map_methods() */ }
+        TypeTag::Set => { /* handled in resolve_set_methods() */ }
+        // ... every variant must be listed
+        // Adding a new TypeTag variant without a line here = COMPILE ERROR
+    }
+}
+```
+
+### Where to place them
+
+| Crate | File | What it guards |
+|-------|------|----------------|
+| `ori_types` | `src/infer/expr/methods.rs` | Method resolution handles all types |
+| `ori_eval` | `src/methods/mod.rs` | Method dispatch handles all types |
+| `ori_llvm` | `src/codegen/arc_emitter/builtins/mod.rs` | Builtin codegen handles all types |
+| `ori_arc` | `src/borrow/mod.rs` | Borrow inference handles all types |
+
+### Why this is better than test-time enforcement
+
+- **Compile-time**: Caught during `cargo c`, before any tests run
+- **Zero cost**: Dead code, never emitted in the binary
+- **Precise error**: The compiler points directly at the missing match arm
+- **Roc-validated**: Used in production across `low_level.rs` and `can/builtins.rs`
+
+The test-time enforcement from 14.2 still provides value (verifying that per-method handlers exist within each type), but the compile-time guard catches the coarser "you forgot an entire type" class of errors instantly.
+
+### Checklist
+
+- [ ] `_enforce_exhaustiveness(TypeTag)` in ori_types — covers all TypeTag variants
+- [ ] `_enforce_exhaustiveness(TypeTag)` in ori_eval — covers all TypeTag variants
+- [ ] `_enforce_exhaustiveness(TypeTag)` in ori_llvm — covers all TypeTag variants
+- [ ] `_enforce_exhaustiveness(TypeTag)` in ori_arc — covers all TypeTag variants
+- [ ] Verified: adding a dummy `TypeTag::_Test` variant causes compile errors in all 4 crates
+
+---
+
 ## 14.2 Cross-Phase Enforcement Tests (oric integration)
 
 **File:** `compiler/oric/src/eval/tests/methods/consistency.rs` (complete replacement of existing file)
@@ -603,7 +664,112 @@ fn every_registry_borrowing_method_in_arc_set() {
 }
 ```
 
-### Test 6: Format spec variants synced
+### Test 6: Backend-required methods have all handlers
+
+```rust
+/// For each method with `backend_required: true`, verify that BOTH
+/// the evaluator AND the LLVM backend have handlers.
+///
+/// This is the enforcement test for the `backend_required` flag on
+/// MethodDef. Methods with `backend_required: false` are intentionally
+/// exempt (e.g., `__iter_next` is llvm-only, `__collect_set` is eval-only).
+///
+/// Prior art: Rust's `must_be_overridden` on `IntrinsicDef`.
+#[test]
+fn backend_required_methods_fully_implemented() {
+    use ori_registry::{BUILTIN_TYPES, TypeTag};
+
+    let mut eval_missing = Vec::new();
+    let mut llvm_missing = Vec::new();
+
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            if !method.backend_required {
+                continue;
+            }
+
+            if !ori_eval::can_dispatch_builtin(type_def.tag, method.name) {
+                eval_missing.push((type_def.name, method.name));
+            }
+
+            let table = ori_llvm::codegen::arc_emitter::builtin_table();
+            let has_llvm = table.has(type_def.name, method.name)
+                || ori_llvm::has_runtime_method(type_def.name, method.name);
+            if !has_llvm {
+                llvm_missing.push((type_def.name, method.name));
+            }
+        }
+    }
+
+    let mut msg = String::new();
+    if !eval_missing.is_empty() {
+        msg.push_str(&format!(
+            "backend_required methods missing from evaluator ({}):\n{}\n",
+            eval_missing.len(),
+            eval_missing.iter()
+                .map(|(ty, m)| format!("  {ty}.{m}"))
+                .collect::<Vec<_>>().join("\n"),
+        ));
+    }
+    if !llvm_missing.is_empty() {
+        msg.push_str(&format!(
+            "backend_required methods missing from LLVM ({}):\n{}\n",
+            llvm_missing.len(),
+            llvm_missing.iter()
+                .map(|(ty, m)| format!("  {ty}.{m}"))
+                .collect::<Vec<_>>().join("\n"),
+        ));
+    }
+
+    assert!(msg.is_empty(), "{msg}");
+}
+```
+
+### Test 7: Pure methods are side-effect-free
+
+```rust
+/// Sanity check: methods marked `pure: true` should not be consuming
+/// (Ownership::Owned implies mutation/consumption, which contradicts purity).
+///
+/// Also verifies that at least some methods ARE marked pure (catches
+/// the failure mode of someone defaulting everything to `pure: false`).
+#[test]
+fn pure_method_sanity() {
+    use ori_registry::{BUILTIN_TYPES, Ownership};
+
+    let mut total_methods = 0;
+    let mut pure_count = 0;
+
+    for type_def in BUILTIN_TYPES {
+        for method in type_def.methods {
+            total_methods += 1;
+            if method.pure {
+                pure_count += 1;
+                // Pure methods should not consume their receiver.
+                // If a method takes ownership, it's doing something
+                // non-trivial (moving, consuming) that isn't pure.
+                assert_ne!(
+                    method.receiver, Ownership::Owned,
+                    "Method `{}.{}` is marked pure but has Ownership::Owned receiver. \
+                     Pure methods should borrow, not consume.",
+                    type_def.name, method.name,
+                );
+            }
+        }
+    }
+
+    // Sanity: at least 30% of methods should be pure.
+    // Most getters/accessors (len, is_empty, abs, to_str) are pure.
+    let pure_pct = (pure_count * 100) / total_methods;
+    assert!(
+        pure_pct >= 30,
+        "Only {pure_pct}% ({pure_count}/{total_methods}) methods marked pure. \
+         Expected at least 30%. Check that pure is being set correctly.",
+    );
+}
+```
+
+### Test 8: Format spec variants synced (migrated)
 
 ```rust
 /// Format spec enums (FormatType, Alignment, Sign) must be consistent
@@ -635,7 +801,7 @@ fn format_spec_variants_synced() {
 }
 ```
 
-### Test 7: Well-known generic types consistent
+### Test 9: Well-known generic types consistent (migrated)
 
 ```rust
 /// Well-known generic types must be handled in the centralized
@@ -697,6 +863,8 @@ fn well_known_generic_types_consistent() {
 - [ ] `every_registry_method_has_llvm_handler` -- replaces BuiltinTable sync tests
 - [ ] `every_registry_operator_has_llvm_handler` -- new (would have caught string ordering bug)
 - [ ] `every_registry_borrowing_method_in_arc_set` -- replaces borrowing_builtin_names dependency
+- [ ] `backend_required_methods_fully_implemented` -- new (enforces `backend_required` flag)
+- [ ] `pure_method_sanity` -- new (validates `pure` flag consistency)
 - [ ] `format_spec_variants_synced` -- migrated from old consistency.rs
 - [ ] `well_known_generic_types_consistent` -- migrated and registry-derived
 
@@ -1204,8 +1372,9 @@ These are the exhaustive "done" criteria for the complete Type Strategy Registry
 These guarantees are enforced by Rust's type system. They hold as long as the code compiles.
 
 - [ ] **Adding a field to `TypeDef`** produces a compile error in every consuming phase (ori_types, ori_eval, ori_arc, ori_llvm) because each phase destructures or reads `TypeDef` fields.
+- [ ] **Adding a `TypeTag` variant** produces a compile error in every consuming phase via `_enforce_exhaustiveness()` dead functions (Roc pattern). Caught at `cargo c` time, before any tests run.
 - [ ] **Adding a method to a `TypeDef`** is caught by enforcement tests (not compile errors -- method lists are slices). The `every_registry_method_has_*_handler` tests fail for the new method until all phases implement it.
-- [ ] **`MethodDef` fields are required** (no defaults, no `Option<T>` for essential fields). Omitting a field when constructing a `MethodDef` is a compile error.
+- [ ] **`MethodDef` fields are required** (no defaults, no `Option<T>` for essential fields). Omitting a field when constructing a `MethodDef` is a compile error — including the new `pure` and `backend_required` flags.
 - [ ] **`ori_registry` has zero dependencies.** The `purity_cargo_toml_has_no_dependencies` test enforces this. Adding any dependency is a test failure.
 - [ ] **All `TypeDef` constants are `const`-constructible.** The `purity_type_defs_are_const` test enforces this with `const _:` declarations.
 - [ ] **Core enum types are `Copy`.** The `purity_core_enums_are_copy` test enforces this. Losing `Copy` is a compile error in consuming phases.
@@ -1219,6 +1388,8 @@ These guarantees are enforced by the cross-phase enforcement tests. They hold as
 - [ ] **Every registry method has an LLVM handler.** `every_registry_method_has_llvm_handler` iterates all `BUILTIN_TYPES` methods and verifies ori_llvm handles each one (inline codegen or runtime function).
 - [ ] **Every non-Unsupported operator strategy has an LLVM handler.** `every_registry_operator_has_llvm_handler` iterates all `BUILTIN_TYPES` operator strategies and verifies emit_binary_op/emit_unary_op handles each non-Unsupported entry.
 - [ ] **Every borrowing method is in the ARC borrow set.** `every_registry_borrowing_method_in_arc_set` verifies that `Ownership::Borrow` methods appear in ori_arc's borrow inference set.
+- [ ] **Every backend-required method is in all backends.** `backend_required_methods_fully_implemented` iterates all `BUILTIN_TYPES` methods with `backend_required: true` and verifies both eval and llvm handle them.
+- [ ] **Pure method annotations are consistent.** `pure_method_sanity` verifies that `pure: true` methods don't consume their receiver and that a reasonable percentage of methods are marked pure.
 - [ ] **No duplicate methods within any type.** `no_duplicate_methods` catches copy-paste errors and merge conflicts.
 - [ ] **All TypeTag variants have TypeDefs.** `all_type_tags_present` catches new TypeTag variants without corresponding definitions.
 - [ ] **Methods are sorted.** `methods_sorted_by_name` maintains deterministic iteration order.

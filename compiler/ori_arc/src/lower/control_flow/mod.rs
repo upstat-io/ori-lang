@@ -996,6 +996,28 @@ impl ArcLowerer<'_> {
         let merge_block = self.builder.new_block();
         let result_param = self.builder.add_block_param(merge_block, ty);
 
+        // Save pre-match scope and add merge block params for mutable
+        // variables. Each arm resets to this scope before lowering, and
+        // passes its final mutable variable values as jump arguments —
+        // same SSA merge pattern that `lower_if` uses.
+        let pre_scope = self.scope.clone();
+        let mut mutable_var_merge: Vec<(Name, ArcVarId)> = Vec::new();
+        for (name, var) in pre_scope.mutable_bindings() {
+            let var_ty = if (var.index()) < self.builder.var_types.len() {
+                self.builder.var_types[var.index()]
+            } else {
+                Idx::UNIT
+            };
+            let merge_var = self.builder.add_block_param(merge_block, var_ty);
+            mutable_var_merge.push((name, merge_var));
+        }
+        let mutable_var_names: Vec<Name> = mutable_var_merge.iter().map(|(n, _)| *n).collect();
+
+        tracing::debug!(
+            mutable_vars = mutable_var_names.len(),
+            "match: mutable var merge setup"
+        );
+
         // O(1) Arc clone instead of deep-cloning the recursive tree structure.
         let tree = self.canon.decision_trees.get_shared(tree_id);
 
@@ -1004,11 +1026,20 @@ impl ArcLowerer<'_> {
             merge_block,
             arm_bodies: arm_ids,
             span,
+            pre_scope: pre_scope.clone(),
+            mutable_var_names,
         };
 
         crate::decision_tree::emit::emit_tree(self, &tree, &mut ctx);
 
+        // Restore pre-match scope and rebind mutable variables from
+        // merge block params (SSA phi outputs).
         self.builder.position_at(merge_block);
+        self.scope = pre_scope;
+        for (name, merge_var) in &mutable_var_merge {
+            self.scope.bind_mutable(*name, *merge_var);
+        }
+
         result_param
     }
 }

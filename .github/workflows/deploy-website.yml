@@ -54,20 +54,28 @@ jobs:
           cd website/public
           # Create default if missing
           if [ ! -f test-results.json ]; then
-            echo '{"rust_tests": 0, "ori_tests": 0, "rust_failed": 0, "ori_failed": 0}' > test-results.json
+            echo '{"timestamp":"","overall":"unknown","suites":[],"totals":{"passed":0,"failed":0,"skipped":0,"lcfail":0}}' > test-results.json
           fi
-          # Only merge LLVM results if artifact was actually downloaded;
-          # don't create default zeros that overwrite existing data
+          # Merge LLVM suites into main results if artifact was downloaded
           if [ -f llvm-test-results.json ]; then
-            jq -s '.[0] * .[1]' test-results.json llvm-test-results.json > combined-test-results.json
+            # Concatenate suites arrays and recompute totals + overall
+            jq -s '
+              {
+                timestamp: (if .[1].timestamp > .[0].timestamp then .[1].timestamp else .[0].timestamp end),
+                overall: (if ([.[].suites[].failed // 0] | add) > 0 then "failed" else "passed" end),
+                suites: ([.[].suites] | add),
+                totals: {
+                  passed: ([.[].suites[] | .passed // 0] | add),
+                  failed: ([.[].suites[] | .failed // 0] | add),
+                  skipped: ([.[].suites[] | .skipped // 0] | add),
+                  lcfail: ([.[].suites[] | .lcfail // 0] | add)
+                }
+              }
+            ' test-results.json llvm-test-results.json > combined-test-results.json
             mv combined-test-results.json test-results.json
             rm -f llvm-test-results.json
           else
             echo "LLVM test results artifact not found, preserving existing data"
-            # Add default llvm keys only if they don't already exist
-            if ! jq -e '.llvm_tests' test-results.json > /dev/null 2>&1; then
-              jq '. + {"llvm_tests": 0, "llvm_failed": 0}' test-results.json > tmp.json && mv tmp.json test-results.json
-            fi
           fi
           echo "Test results:"
           cat test-results.json
