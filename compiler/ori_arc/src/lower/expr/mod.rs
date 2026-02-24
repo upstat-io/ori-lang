@@ -6,8 +6,7 @@
 
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
-use ori_types::Idx;
-use ori_types::Pool;
+use ori_types::{Idx, Pool, Tag};
 use rustc_hash::FxHashSet;
 
 use crate::ir::{ArcFunction, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
@@ -291,6 +290,13 @@ impl ArcLowerer<'_> {
                 );
                 self.emit_unit()
             }
+        } else if self.pool.tag(self.pool.resolve_fully(ty)) == Tag::Function {
+            // Named function used as a value — emit zero-capture closure.
+            // This handles `CanExpr::Ident` for top-level functions that weren't
+            // rewritten to `CanExpr::FunctionRef` by the canonicalizer (e.g.,
+            // `apply(f: double, x: 21)` where `double` is a named function).
+            self.builder
+                .emit_partial_apply(ty, name, vec![], Some(span))
         } else {
             tracing::debug!(
                 name = ?name,

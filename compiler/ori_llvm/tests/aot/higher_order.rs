@@ -14,7 +14,6 @@ use crate::util::assert_aot_success;
 // ─── Functions as arguments ───
 
 #[test]
-#[ignore = "AOT gap: named function → closure coercion not implemented (ABI mismatch i64 vs { ptr, ptr })"]
 fn test_hof_apply_identity() {
     assert_aot_success(
         r#"
@@ -30,7 +29,6 @@ fn test_hof_apply_identity() {
 }
 
 #[test]
-#[ignore = "AOT gap: named function → closure coercion not implemented (ABI mismatch i64 vs { ptr, ptr })"]
 fn test_hof_apply_named_function() {
     assert_aot_success(
         r#"
@@ -342,7 +340,6 @@ fn test_hof_nested_closure_deep() {
 // ─── Named functions as values ───
 
 #[test]
-#[ignore = "AOT gap: named function → closure coercion not implemented (ABI mismatch i64 vs { ptr, ptr })"]
 fn test_hof_named_fn_as_arg() {
     assert_aot_success(
         r#"
