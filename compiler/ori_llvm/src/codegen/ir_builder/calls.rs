@@ -245,6 +245,32 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_value(lp_val)
     }
 
+    /// Build a `landingpad catch null` instruction for catch-all exception handling.
+    ///
+    /// Unlike [`landingpad`](Self::landingpad) (cleanup-only), this emits a
+    /// catch-all clause (`catch ptr null`) that tells the unwinder "I handle
+    /// all exceptions." The caught exception must be acknowledged with
+    /// `__cxa_begin_catch` / `__cxa_end_catch` before normal execution resumes.
+    ///
+    /// Used by `catch(expr:)` unwind blocks.
+    pub fn landingpad_catch_all(&mut self, personality: FunctionId, name: &str) -> ValueId {
+        let personality_fn = self.arena.get_function(personality);
+        let i8_ptr_ty = self.scx.ptr_type;
+        let i32_ty = self.scx.llcx.i32_type();
+        let lp_ty = self
+            .scx
+            .llcx
+            .struct_type(&[i8_ptr_ty.into(), i32_ty.into()], false);
+
+        // catch null = catch-all (Itanium ABI: null typeinfo matches everything)
+        let null_clause = i8_ptr_ty.const_null();
+        let lp_val = self
+            .builder
+            .build_landing_pad(lp_ty, personality_fn, &[null_clause.into()], false, name)
+            .expect("landingpad_catch_all");
+        self.arena.push_value(lp_val)
+    }
+
     /// Build a `resume` instruction to re-raise an exception.
     ///
     /// `value` must be the result of a `landingpad` instruction.

@@ -21,6 +21,7 @@ pub mod linking;
 pub mod lto;
 pub mod mutations;
 pub mod operators;
+pub mod panic;
 pub mod patterns;
 pub mod recursion;
 pub mod scoping;

@@ -9,7 +9,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // ─── Result: basic patterns ───
 
@@ -416,4 +416,120 @@ fn test_err_result_int_err() {
 "#,
         "err_result_int_err",
     );
+}
+
+// ─── catch(expr:): panic recovery ───
+
+#[test]
+fn test_catch_panic_returns_err() {
+    // Suppress stderr (ori_panic prints the panic message before unwinding).
+    let (exit_code, _stdout, _stderr) = compile_and_run_capture(
+        r#"
+@might_panic (n: int) -> int =
+    if n < 0 then panic(msg: "negative") else n * 2;
+
+@main () -> int = {
+    let result = catch(expr: might_panic(-1));
+    if result.is_err() then 0 else 1
+}
+"#,
+    );
+    assert_eq!(exit_code, 0, "catch should produce Err on panic");
+}
+
+#[test]
+fn test_catch_success_returns_ok() {
+    assert_aot_success(
+        r#"
+@double (n: int) -> int = n * 2;
+
+@main () -> int = {
+    let result = catch(expr: double(21));
+    if result.is_ok() then 0 else 1
+}
+"#,
+        "catch_success",
+    );
+}
+
+#[test]
+fn test_catch_ok_unwrap_value() {
+    assert_aot_success(
+        r#"
+@double (n: int) -> int = n * 2;
+
+@main () -> int = {
+    let result = catch(expr: double(21));
+    if result.is_ok() && result.unwrap() == 42 then 0 else 1
+}
+"#,
+        "catch_ok_unwrap",
+    );
+}
+
+#[test]
+fn test_catch_simple_expression() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let result = catch(expr: 42);
+    match result {
+        Ok(v) -> if v == 42 then 0 else 1,
+        Err(_) -> 2
+    }
+}
+"#,
+        "catch_simple_expr",
+    );
+}
+
+#[test]
+fn test_catch_panic_explicit() {
+    let (exit_code, _stdout, _stderr) = compile_and_run_capture(
+        r#"
+@always_panics () -> int = panic(msg: "always fails");
+
+@main () -> int = {
+    let result = catch(expr: always_panics());
+    if result.is_err() then 0 else 1
+}
+"#,
+    );
+    assert_eq!(exit_code, 0, "catch should capture explicit panic");
+}
+
+#[test]
+fn test_catch_multiple_independent() {
+    let (exit_code, _stdout, _stderr) = compile_and_run_capture(
+        r#"
+@safe () -> int = 42;
+@dangerous () -> int = panic(msg: "boom");
+
+@main () -> int = {
+    let r1 = catch(expr: safe());
+    let r2 = catch(expr: dangerous());
+    if r1.is_ok() && r2.is_err() then 0 else 1
+}
+"#,
+    );
+    assert_eq!(exit_code, 0, "independent catches should work");
+}
+
+#[test]
+fn test_catch_in_conditional() {
+    let (exit_code, _stdout, _stderr) = compile_and_run_capture(
+        r#"
+@risky (x: int) -> int =
+    if x == 0 then panic(msg: "zero") else 100 / x;
+
+@main () -> int = {
+    let r1 = catch(expr: risky(10));
+    let r2 = catch(expr: risky(0));
+    let ok1 = r1.is_ok() && r1.unwrap() == 10;
+    let ok2 = r2.is_err();
+    if ok1 && ok2 then 0 else 1
+}
+"#,
+    );
+    assert_eq!(exit_code, 0, "catch with conditional panics");
 }

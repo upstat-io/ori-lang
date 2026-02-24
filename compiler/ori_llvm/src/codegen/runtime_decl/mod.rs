@@ -327,6 +327,16 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     // -- Panic handler registration --
     builder.declare_extern_function("ori_register_panic_handler", &[ptr_ty], void);
 
+    // -- Catch recovery --
+    // ori_catch_cleanup(exc_ptr: ptr) -> void
+    // Acknowledges a caught Rust exception. Currently a no-op (see ori_rt docs).
+    // Called from catch(expr:) landing pads before ori_catch_recover.
+    builder.declare_extern_function("ori_catch_cleanup", &[ptr_ty], void);
+
+    // ori_catch_recover() -> OriStr { i64 len, ptr data }
+    // Reads panic message from thread-local and clears panic state.
+    builder.declare_extern_function("ori_catch_recover", &[], Some(str_ty));
+
     // -- EH personality (Itanium ABI) --
     // Required by any function containing invoke/landingpad.
     // We use Rust's personality function (already in libori_rt.a) instead of

@@ -1167,8 +1167,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             "panic_info",
         );
 
-        // Call the user's @panic function
-        self.builder.call(user_panic_id, &[panic_info], "");
+        // The user's @panic function receives PanicInfo via Indirect passing
+        // (struct >16 bytes → passed by pointer). Allocate on the stack and
+        // pass the pointer.
+        let alloca = self.builder.alloca(panic_info_ty_id, "panic_info.ptr");
+        self.builder.store(panic_info, alloca);
+
+        // Call the user's @panic function with pointer to PanicInfo
+        self.builder.call(user_panic_id, &[alloca], "");
 
         // Emit ret void (handler returns normally → runtime proceeds with default)
         self.builder.ret_void();

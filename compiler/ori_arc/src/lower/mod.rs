@@ -133,6 +133,10 @@ pub struct ArcIrBuilder {
     current_block: ArcBlockId,
     next_var: u32,
     var_types: Vec<Idx>,
+    /// When set, `emit_invoke` creates unwind blocks that `Jump` to this
+    /// target instead of `Resume`. Used by `catch(expr:)` lowering to
+    /// redirect panics to a shared catch handler block.
+    catch_unwind_target: Option<ArcBlockId>,
 }
 
 impl Default for ArcIrBuilder {
@@ -150,6 +154,7 @@ impl ArcIrBuilder {
             current_block: ArcBlockId::new(0),
             next_var: 0,
             var_types: Vec::new(),
+            catch_unwind_target: None,
         }
     }
 
@@ -360,14 +365,35 @@ impl ArcIrBuilder {
 
         self.terminate_invoke(dst, ty, func, args, normal, unwind);
 
-        // Unwind block: initially just Resume. The RC insertion pass
-        // (Phase 3C) will add cleanup RcDec instructions before Resume.
+        // Unwind block terminator depends on context:
+        // - Normal code: Resume (re-raise after cleanup)
+        // - Inside catch(expr:): Jump to catch handler (catch after cleanup)
+        // The RC insertion pass (Phase 3C) adds cleanup RcDec instructions
+        // before whichever terminator is present.
         self.position_at(unwind);
-        self.terminate_resume();
+        if let Some(catch_target) = self.catch_unwind_target {
+            self.terminate_jump(catch_target, vec![]);
+        } else {
+            self.terminate_resume();
+        }
 
         // Position at the normal continuation block for subsequent lowering.
         self.position_at(normal);
         dst
+    }
+
+    /// Set the catch unwind target for `catch(expr:)` lowering.
+    ///
+    /// When set, [`emit_invoke`](Self::emit_invoke) creates unwind blocks
+    /// that `Jump` to this target instead of `Resume`. Returns the previous
+    /// target (for nesting).
+    pub fn set_catch_target(&mut self, target: ArcBlockId) -> Option<ArcBlockId> {
+        self.catch_unwind_target.replace(target)
+    }
+
+    /// Clear the catch unwind target. Returns the previous target.
+    pub fn clear_catch_target(&mut self) -> Option<ArcBlockId> {
+        self.catch_unwind_target.take()
     }
 
     // Terminators
