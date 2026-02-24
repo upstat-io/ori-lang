@@ -279,11 +279,13 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("float", "trunc"),
     // int
     ("int", "abs"),
+    ("int", "byte"),
     ("int", "clamp"),
     ("int", "clone"),
     ("int", "compare"),
     ("int", "debug"),
     ("int", "equals"),
+    ("int", "f"),
     ("int", "hash"),
     ("int", "into"),
     ("int", "is_even"),
@@ -381,6 +383,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "chars"),
     ("str", "clone"),
     ("str", "compare"),
+    ("str", "concat"),
     ("str", "contains"),
     ("str", "debug"),
     ("str", "ends_with"),
@@ -393,6 +396,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "iter"),
     ("str", "last_index_of"),
     ("str", "len"),
+    ("str", "length"),
     ("str", "lines"),
     ("str", "pad_end"),
     ("str", "pad_start"),
@@ -407,6 +411,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "to_float"),
     ("str", "to_int"),
     ("str", "to_lowercase"),
+    ("str", "to_str"),
     ("str", "to_uppercase"),
     ("str", "trim"),
     ("str", "trim_end"),
@@ -587,12 +592,12 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
             // str.into() -> Error (wraps string as error message)
             Some(Idx::ERROR)
         }
-        "len" | "byte_len" | "hash" => Some(Idx::INT),
+        "len" | "byte_len" | "hash" | "length" => Some(Idx::INT),
         "iter" => Some(engine.pool_mut().double_ended_iterator(Idx::CHAR)),
         "is_empty" | "starts_with" | "ends_with" | "contains" | "equals" => Some(Idx::BOOL),
         "to_uppercase" | "to_lowercase" | "trim" | "trim_start" | "trim_end" | "replace"
         | "repeat" | "pad_start" | "pad_end" | "slice" | "substring" | "clone" | "debug"
-        | "escape" => Some(Idx::STR),
+        | "escape" | "concat" | "to_str" => Some(Idx::STR),
         "chars" => Some(engine.pool_mut().list(Idx::CHAR)),
         "bytes" => Some(engine.pool_mut().list(Idx::BYTE)),
         "split" | "lines" => Some(engine.pool_mut().list(Idx::STR)),
@@ -608,9 +613,9 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
 fn resolve_int_method(method: &str) -> Option<Idx> {
     match method {
         "abs" | "min" | "max" | "clamp" | "pow" | "signum" | "clone" | "hash" => Some(Idx::INT),
-        "to_float" | "into" => Some(Idx::FLOAT),
+        "to_float" | "into" | "f" => Some(Idx::FLOAT),
         "to_str" | "debug" => Some(Idx::STR),
-        "to_byte" => Some(Idx::BYTE),
+        "to_byte" | "byte" => Some(Idx::BYTE),
         "is_positive" | "is_negative" | "is_zero" | "is_even" | "is_odd" | "equals" => {
             Some(Idx::BOOL)
         }

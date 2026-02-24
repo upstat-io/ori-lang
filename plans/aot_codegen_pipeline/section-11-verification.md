@@ -24,7 +24,7 @@ sections:
 
 # Section 11: Comprehensive Verification
 
-**Status:** In Progress (11.1 underway — 850 passed, 0 failed, 70 ignored as of 2026-02-23)
+**Status:** In Progress (11.1 underway — 862 passed, 0 failed, 58 ignored as of 2026-02-23)
 **Goal:** Every language feature compiles through AOT, matches JIT behavior, and has zero memory leaks.
 
 **Context:** This is the capstone section. All architectural improvements are in place. Now we prove the system works as one cohesive whole by testing every language feature through the AOT pipeline and verifying behavioral equivalence with the JIT evaluator.
@@ -245,8 +245,8 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Ordering.to_int — covered (conversions.rs)
   - [x] Chained conversions (int->float->int roundtrip, bool->int->float) — covered (conversions.rs)
   - [x] Conversions in expressions (comparison, arithmetic, concat) — covered (conversions.rs)
-  - [ ] int.f() shorthand — AOT gap: return type not tracked as float (#[ignore])
-  - [ ] int.byte() and byte roundtrip — AOT gap: byte type not fully tracked (#[ignore])
+  - [x] int.f() shorthand — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
+  - [x] int.byte() and byte roundtrip — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
 
 - [ ] **Variable scoping & block expressions:** (2026-02-23)
   - [x] Let bindings (basic, type annotation, chain) — covered (scoping.rs)
@@ -268,9 +268,9 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] String + operator concat and chain — covered (strings.rs)
   - [x] String in tuples and structs, struct field length — covered (strings.rs)
   - [x] String + to_str concat (int, bool) — covered (strings.rs)
-  - [ ] str.concat() method — AOT gap: return type not tracked (#[ignore])
-  - [ ] str.to_str() identity — AOT gap: return type not tracked (#[ignore])
-  - [ ] String ordering (<, >) — AOT gap: uses icmp instead of compare (#[ignore])
+  - [x] str.concat() method — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
+  - [x] str.to_str() identity — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
+  - [x] String ordering (<, >) — **FIXED** (2026-02-23) — wired emit_str_cmp_predicate in emit_binary_op
   - [ ] str.contains, starts_with, ends_with — not in builtin table (#[ignore])
   - [ ] str.trim, to_uppercase, to_lowercase — not in builtin table (#[ignore])
   - [ ] str.replace, split, repeat, chars — not in builtin table (#[ignore])
@@ -320,11 +320,11 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | Mutation in match arms in for-do | 21A ArcIrEmitter | `test_depth_combined_match_closure_result` | **NEW** (2026-02-23) — variable not yet defined |
 | Iterator .map struct field access | 21A closure codegen | `test_stress_combined_struct_closure_iteration` | **NEW** (2026-02-23) — invalid LLVM IR |
 | Size cross-unit comparison | 21A literal codegen | `test_op_size_arithmetic` | **NEW** (2026-02-23) — unit normalization not applied in AOT equality |
-| `int.f()` return type tracking | 21A builtin codegen | `test_conv_int_f_shorthand` | **NEW** (2026-02-23) — result not tracked as float, icmp used |
-| `int.byte()` type tracking | 21A builtin codegen | `test_conv_int_to_byte` | **NEW** (2026-02-23) — byte type not tracked through chain |
+| ~~`int.f()` return type tracking~~ | ~~21A builtin codegen~~ | ~~`test_conv_int_f_shorthand`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
+| ~~`int.byte()` type tracking~~ | ~~21A builtin codegen~~ | ~~`test_conv_int_to_byte`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
 | Block scope variable leak | 21A ARC IR scoping | `test_scope_shadow_in_nested_block` | **NEW** (2026-02-23) — inner `let x` overwrites outer scope |
-| `str.concat()` return type | 21A builtin codegen | `test_str_concat_basic` | **NEW** (2026-02-23) — return type not tracked as str |
-| String ordering (`<`, `>`) | 21A comparison codegen | `test_str_compare_less` | **NEW** (2026-02-23) — icmp used instead of compare runtime |
+| ~~`str.concat()` return type~~ | ~~21A builtin codegen~~ | ~~`test_str_concat_basic`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
+| ~~String ordering (`<`, `>`)~~ | ~~21A comparison codegen~~ | ~~`test_str_compare_less`~~ | **FIXED** (2026-02-23) — wired emit_str_cmp_predicate |
 | String methods (contains, trim, etc.) | 21A § 21.10 | `test_str_contains` et al. | Builtin table gap — 8 methods missing |
 | List methods (push, first, last, etc.) | 21A § 21.10, 21.12 | `test_coll_list_push` et al. | Builtin table gap — 7 methods missing |
 | Map methods (get, keys, values, etc.) | 21A § 21.10, 21.12 | `test_coll_map_get` et al. | Builtin table gap — 6 methods missing |

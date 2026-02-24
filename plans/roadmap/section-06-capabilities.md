@@ -75,12 +75,14 @@ sections:
   - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` (3 tests)
   - [ ] **LLVM Support**: LLVM codegen for `uses` clause in function signatures
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Multiple capabilities [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/lib.rs` — multiple capabilities parsing
   - [x] **Ori Tests**: `tests/spec/capabilities/declaration.ori` — @save_and_log example
   - [ ] **LLVM Support**: LLVM codegen for multiple capabilities in function signatures
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -91,6 +93,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/capabilities/traits.ori` — 5 tests for capability traits
   - [ ] **LLVM Support**: LLVM codegen for capability trait dispatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -103,6 +106,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/capabilities/async.ori` (test file exists)
   - [ ] **LLVM Support**: LLVM codegen for explicit suspension declaration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Sync vs suspending behavior [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs::test_sync_function_no_suspend_capability`
@@ -131,12 +135,14 @@ sections:
   - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` (17 test annotations)
   - [ ] **LLVM Support**: LLVM codegen for `with...in` capability binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Scoping [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/evaluator/mod.rs` — capability scoping via push_scope/pop_scope
   - [x] **Ori Tests**: `tests/spec/capabilities/providing.ori` — scoping and shadowing tests
   - [ ] **LLVM Support**: LLVM codegen for capability scoping (push/pop)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -149,6 +155,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/with_expr.ori` — 2 tests `#skip("capability provision to called functions not implemented")`
   - [ ] **LLVM Support**: LLVM codegen for runtime capability propagation through calls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Static transitive requirements [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/checker/tests.rs` — 7 tests for capability propagation (E2014)
@@ -189,6 +196,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — MockHttp, MockLogger examples
   - [ ] **LLVM Support**: LLVM codegen for mock capability implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Test example [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/capabilities/propagation.ori` — shows test patterns with `with...in`
@@ -218,6 +226,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/capabilities/unsafe/` — basic tests, E1203 binding error
   - [ ] **LLVM Support**: LLVM codegen for `unsafe { }` blocks (transparent — same as inner expr)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_tests.rs` — unsafe block codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `unsafe { }` block expression (Phases 1-4 of proposal)
   - [ ] Add `ExprKind::Unsafe(ExprId)` to IR
@@ -288,6 +297,7 @@ Introduce `def impl` syntax to declare a default implementation for a trait. Imp
 
 - [ ] **Implement**: LLVM backend support
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_impl_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
   - [ ] Codegen for `def impl` methods
 
 ---
@@ -333,6 +343,7 @@ Specifies how capabilities compose: partial provision, nested binding semantics,
 
 - [ ] **Implement**: LLVM backend support
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/capability_composition_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -378,6 +389,7 @@ Specifies resolution rules for `def impl`: conflict handling, `without def` impo
 
 - [ ] **Implement**: LLVM backend support
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/def_impl_resolution_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -499,6 +511,7 @@ Low-level SIMD, bit manipulation, and hardware feature detection. Atomics deferr
   - [ ] `count_leading_zeros` → `llvm.ctlz.i64`
   - [ ] Runtime CPUID for feature detection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/intrinsics_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -551,6 +564,7 @@ Extend `with...in` to support stateful effect handlers. The `handler(state: expr
   - [ ] Handler frame state allocation
   - [ ] State threading through operation calls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/stateful_handler_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

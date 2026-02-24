@@ -124,12 +124,14 @@ for (name, value) in person.fields() do
   - [ ] Unknown type
   - [ ] **LLVM Support**: LLVM codegen for Reflect trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Stdlib**: Reflect trait in std.reflect
   - [ ] Trait definition with all 5 methods
   - [ ] Export to prelude
   - [ ] **LLVM Support**: LLVM codegen for std.reflect
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Derive**: `#derive(Reflect)` macro
   - [ ] Generate static TypeInfo constant
@@ -138,6 +140,7 @@ for (name, value) in person.fields() do
   - [ ] Conditional derivation for generics (`T: Reflect`)
   - [ ] **LLVM Support**: LLVM codegen for derive macro
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/reflect/basic.ori`
   - [ ] Derive Reflect for struct
@@ -147,6 +150,7 @@ for (name, value) in person.fields() do
   - [ ] Current variant for enums
   - [ ] **LLVM Support**: LLVM codegen for basic tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -198,12 +202,14 @@ type VariantInfo = {
   - [ ] FieldInfo, VariantInfo
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo structure
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Stdlib**: TypeInfo types in std.reflect
   - [ ] All types defined
   - [ ] Export to prelude
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Codegen**: Generate static type metadata
   - [ ] Emit TypeInfo at compile time
@@ -211,6 +217,7 @@ type VariantInfo = {
   - [ ] O(1) access from type_info() method
   - [ ] **LLVM Support**: LLVM codegen for static metadata
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/reflect/type_info.ori`
   - [ ] Struct TypeInfo
@@ -219,6 +226,7 @@ type VariantInfo = {
   - [ ] Generic types
   - [ ] **LLVM Support**: LLVM codegen for TypeInfo tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -263,12 +271,14 @@ match value.downcast<int>() {
   - [ ] Reference counting (ARC-compatible)
   - [ ] **LLVM Support**: LLVM codegen for Unknown type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Stdlib**: Unknown type in std.reflect
   - [ ] All methods implemented
   - [ ] Export to prelude
   - [ ] **LLVM Support**: LLVM codegen for Unknown stdlib
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Codegen**: Type identity
   - [ ] Unique type ID per type (name + module hash)
@@ -276,6 +286,7 @@ match value.downcast<int>() {
   - [ ] ErasedValue internal representation
   - [ ] **LLVM Support**: LLVM codegen for type identity
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/reflect/unknown.ori`
   - [ ] Create Unknown from primitives
@@ -285,6 +296,7 @@ match value.downcast<int>() {
   - [ ] unwrap and unwrap_or
   - [ ] **LLVM Support**: LLVM codegen for Unknown tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -321,17 +333,20 @@ Duration, Size
   - [ ] TypeKind::Primitive for all
   - [ ] **LLVM Support**: LLVM codegen for primitive Reflect
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Stdlib**: Collection Reflect implementations
   - [ ] Lists, maps, sets with conditional bounds
   - [ ] Tuples up to reasonable arity
   - [ ] **LLVM Support**: LLVM codegen for collection Reflect
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Stdlib**: Option/Result Reflect implementations
   - [ ] TypeKind::Enum with variants
   - [ ] **LLVM Support**: LLVM codegen for Option/Result Reflect
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/reflect/stdlib.ori`
   - [ ] Primitive type info
@@ -339,6 +354,7 @@ Duration, Size
   - [ ] Option/Result type info
   - [ ] **LLVM Support**: LLVM codegen for stdlib Reflect tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -366,6 +382,7 @@ for (name, value) in person.fields() do
   - [ ] Returns iterator of (name, Unknown) tuples
   - [ ] **LLVM Support**: LLVM codegen for fields() extension
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/reflect/field_iteration.ori`
   - [ ] Iterate struct fields
@@ -373,6 +390,7 @@ for (name, value) in person.fields() do
   - [ ] Empty iteration for unit types
   - [ ] **LLVM Support**: LLVM codegen for iteration tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -423,12 +441,14 @@ use std.reflect { Reflect, TypeKind }
   - [ ] from_json for Reflect + Default types
   - [ ] **LLVM Support**: LLVM codegen for JSON serialization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Documentation**: Serialization guide
   - [ ] Custom serializers
   - [ ] Performance considerations
   - [ ] **LLVM Support**: LLVM codegen for guide examples
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/reflect/serialization.ori`
   - [ ] Struct to JSON
@@ -436,6 +456,7 @@ use std.reflect { Reflect, TypeKind }
   - [ ] Enum to JSON
   - [ ] **LLVM Support**: LLVM codegen for serialization tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -465,12 +486,14 @@ let n = value.unwrap<int>()
   - [ ] Suggest derive or different type
   - [ ] **LLVM Support**: LLVM codegen for diagnostics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/reflect/errors.ori`
   - [ ] Compile fail for non-Reflect field
   - [ ] Runtime panic message for unwrap failure
   - [ ] **LLVM Support**: LLVM codegen for error tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -507,6 +530,7 @@ type HotPath = {
   - [ ] Compile-time hash map for field_by_name
   - [ ] **LLVM Support**: LLVM codegen for optimized overhead
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Benchmarks**: Reflection performance
   - [ ] Type info access
@@ -514,6 +538,7 @@ type HotPath = {
   - [ ] Serialization throughput
   - [ ] **LLVM Support**: LLVM codegen for benchmarks
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/reflection_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

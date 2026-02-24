@@ -139,7 +139,6 @@ fn test_str_is_empty_space() {
 // ─── concat ───
 
 #[test]
-#[ignore = "AOT gap: str.concat() return type not tracked — comparison uses icmp instead of string eq"]
 fn test_str_concat_basic() {
     assert_aot_success(
         r#"
@@ -155,7 +154,6 @@ fn test_str_concat_basic() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.concat() return type not tracked — comparison uses icmp instead of string eq"]
 fn test_str_concat_empty_left() {
     assert_aot_success(
         r#"
@@ -171,7 +169,6 @@ fn test_str_concat_empty_left() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.concat() return type not tracked — comparison uses icmp instead of string eq"]
 fn test_str_concat_empty_right() {
     assert_aot_success(
         r#"
@@ -202,7 +199,6 @@ fn test_str_concat_chain() {
 // ─── to_str (identity for strings) ───
 
 #[test]
-#[ignore = "AOT gap: str.to_str() return type not tracked as str — comparison falls through to icmp"]
 fn test_str_to_str_identity() {
     assert_aot_success(
         r#"
@@ -325,7 +321,6 @@ fn test_str_compare_not_equal() {
 }
 
 #[test]
-#[ignore = "AOT gap: string ordering comparison (<, >) — icmp used instead of string compare runtime call"]
 fn test_str_compare_less() {
     assert_aot_success(
         r#"
@@ -340,7 +335,6 @@ fn test_str_compare_less() {
 }
 
 #[test]
-#[ignore = "AOT gap: string ordering comparison (<, >) — icmp used instead of string compare runtime call"]
 fn test_str_compare_greater() {
     assert_aot_success(
         r#"
@@ -355,7 +349,6 @@ fn test_str_compare_greater() {
 }
 
 #[test]
-#[ignore = "AOT gap: string ordering comparison (<, >) — icmp used instead of string compare runtime call"]
 fn test_str_compare_prefix() {
     assert_aot_success(
         r#"

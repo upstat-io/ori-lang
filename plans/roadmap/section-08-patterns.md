@@ -82,6 +82,7 @@ The spec formalizes two distinct pattern categories:
   - [x] **Ori Tests**: `tests/spec/patterns/run.ori` — 12 tests pass
   - [ ] **LLVM Support**: LLVM codegen for run pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — run pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Binding `let [ "mut" ] identifier [ ":" type ] "=" expression` — spec/10-patterns.md § run [done] (2026-02-10)
 - [x] **Implement**: Evaluate each binding in order — spec/10-patterns.md § run [done] (2026-02-10)
@@ -97,6 +98,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/try.ori` — 5 tests pass
   - [ ] **LLVM Support**: LLVM codegen for try pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — try pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Binding with `Result<T, E>` gives variable type `T` — spec/10-patterns.md § try
 - [ ] **Implement**: If `Err(e)`, return immediately — spec/10-patterns.md § try
@@ -148,6 +150,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/recurse_memo.ori`
   - [ ] **LLVM Support**: LLVM codegen for memo key hashing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — memo codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Return type constraint `Clone` with memo — recurse-pattern-proposal.md
   - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — memo return constraint
@@ -164,6 +167,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/recurse_parallel.ori`
   - [ ] **LLVM Support**: LLVM codegen for parallel recursion
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — parallel codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Captured values must be `Sendable` with parallel — recurse-pattern-proposal.md
   - [ ] **Rust Tests**: `oric/src/typeck/checker/recurse.rs` — sendable captures
@@ -195,6 +199,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/recurse_tco.ori`
   - [ ] **LLVM Support**: LLVM codegen for TCO
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — TCO codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Stack Limits (from approved proposal)
 
@@ -225,6 +230,7 @@ The spec formalizes two distinct pattern categories:
   - [x] **Ori Tests**: `tests/spec/patterns/parallel.ori` — 5 tests pass
   - [ ] **LLVM Support**: LLVM codegen for parallel pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — parallel pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Returns `[Result<T, E>]` — spec/10-patterns.md § parallel
 - [ ] **Implement**: Optional `.timeout:` (per-task) — spec/10-patterns.md § parallel
@@ -244,6 +250,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 3 tests pass
   - [ ] **LLVM Support**: LLVM codegen for spawn pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — spawn pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Returns `void` — spec/10-patterns.md § spawn
 - [ ] **Implement**: Optional `.max_concurrent:` — spec/10-patterns.md § spawn
@@ -261,6 +268,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/concurrency.ori` — 4 tests pass
   - [ ] **LLVM Support**: LLVM codegen for timeout pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — timeout pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `.after:` property — spec/10-patterns.md § timeout
 - [ ] **Implement**: Return `Result<T, TimeoutError>` — spec/10-patterns.md § timeout
@@ -292,6 +300,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/cache_keys.ori`
   - [ ] **LLVM Support**: LLVM codegen for key hashing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache key codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Value Requirements (from approved proposal)
 
@@ -306,6 +315,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/cache_ttl.ori`
   - [ ] **LLVM Support**: LLVM codegen for cache TTL
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache TTL codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: TTL = 0 means no caching (always recompute) — cache-pattern-proposal.md
   - [ ] **Rust Tests**: `oric/src/patterns/cache.rs` — zero TTL tests
@@ -322,6 +332,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/capabilities/cache.ori`
   - [ ] **LLVM Support**: LLVM codegen for cache capability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — cache capability codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Concurrent Access (from approved proposal)
 
@@ -389,6 +400,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/with_guarantee.ori`
   - [ ] **LLVM Support**: LLVM codegen for unwinding with release
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — with unwinding codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Constraints (from approved proposal)
 
@@ -423,6 +435,7 @@ The spec formalizes two distinct pattern categories:
   - [ ] **Ori Tests**: `tests/spec/patterns/for.ori` — 8 tests pass
   - [ ] **LLVM Support**: LLVM codegen for for pattern
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/pattern_tests.rs` — for pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Optional `.map:` property — spec/10-patterns.md § for
 - [ ] **Implement**: `.match:` property — spec/10-patterns.md § for

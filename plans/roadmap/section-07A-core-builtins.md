@@ -60,24 +60,28 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
   - [ ] **LLVM Support**: LLVM codegen for As trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — As trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `TryAs<T>` trait — fallible conversions returning `Option<T>`
   - [ ] **Rust Tests**: `oric/src/typeck/traits/try_as_trait.rs` — TryAs trait tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/conversions.ori`
   - [ ] **LLVM Support**: LLVM codegen for TryAs trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — TryAs trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `x as T` syntax — desugars to `As<T>.as(self: x)`
   - [ ] **Rust Tests**: `oric/src/eval/as_conversion.rs` — as syntax tests
   - [ ] **Ori Tests**: `tests/spec/expressions/as_conversion.ori`
   - [ ] **LLVM Support**: LLVM codegen for as syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — as syntax codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `x as? T` syntax — desugars to `TryAs<T>.try_as(self: x)`
   - [ ] **Rust Tests**: `oric/src/eval/as_conversion.rs` — as? syntax tests
   - [ ] **Ori Tests**: `tests/spec/expressions/as_conversion.ori`
   - [ ] **LLVM Support**: LLVM codegen for as? syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — as? syntax codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Standard `As` implementations
   - `impl As<float> for int` — widening (infallible)
@@ -88,6 +92,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/as_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard As implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — As implementations codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Standard `TryAs` implementations
   - `impl TryAs<int> for str` — parsing (fallible)
@@ -97,12 +102,14 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/try_as_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard TryAs implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — TryAs implementations codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Compile-time enforcement — `as` only for infallible conversions
   - [ ] **Rust Tests**: `oric/src/typeck/checker/as_conversion.rs` — enforcement tests
   - [ ] **Ori Tests**: `tests/compile-fail/as_fallible.ori`
   - [ ] **LLVM Support**: LLVM codegen for as conversion enforcement
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — as enforcement codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Float truncation methods (not `as`)
   - `float.truncate() -> int` — toward zero
@@ -112,12 +119,14 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/float_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for float truncation methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — float truncation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Remove**: `int()`, `float()`, `str()`, `byte()` function syntax
   - These are replaced by `as`/`as?` syntax
   - No migration period needed if implementing fresh
   - [ ] **LLVM Support**: LLVM codegen removal of legacy conversion functions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/conversion_tests.rs` — verify legacy functions removed
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -127,16 +136,19 @@ sections:
   - [x] **Ori Tests**: Used in hundreds of tests across test suite (`assert(cond: ...)`)
   - [ ] **LLVM Support**: LLVM codegen for assert
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `assert_eq(actual:, expected:)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in hundreds of tests across test suite
   - [ ] **LLVM Support**: LLVM codegen for assert_eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `assert_ne(actual:, expected:)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in module tests (`tests/spec/modules/`)
   - [ ] **LLVM Support**: LLVM codegen for assert_ne
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/assertion_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `assert_some(x)` — spec/11-built-in-functions.md § assert_some
   - [ ] **Ori Tests**: Not verified — not found in test suite
@@ -162,21 +174,25 @@ sections:
   - [x] **Ori Tests**: Used in test suite; LLVM has `_ori_print` runtime function
   - [x] **LLVM Support**: LLVM codegen for print — `_ori_print` in runtime
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/io_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `compare(a, b)` [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — 58 tests for `.compare(other:)`
   - [x] **LLVM Support**: LLVM codegen for compare — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `min(a, b)`, `max(a, b)` [done] (2026-02-10)
   - [x] **Ori Tests**: Prelude functions available, verified in Section 4.6
   - [ ] **LLVM Support**: LLVM codegen for min/max
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `panic(msg)` [done] (2026-02-10)
   - [x] **Ori Tests**: Used in `#fail` test attributes (division by zero, index out of bounds)
   - [x] **LLVM Support**: LLVM codegen for panic — `_ori_panic` in runtime
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -194,6 +210,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/types/float_nan.ori`
   - [ ] **LLVM Support**: LLVM codegen for NaN comparison panic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/float_tests.rs` — NaN comparison panic codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: NaN-producing operations don't panic (only comparisons)
   - `0.0 / 0.0` → NaN (allowed)
@@ -202,6 +219,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/types/float_nan_ops.ori`
   - [ ] **LLVM Support**: LLVM codegen for NaN-producing operations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/float_tests.rs` — NaN operations codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -219,6 +237,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
   - [ ] **LLVM Support**: LLVM codegen for todo
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — todo codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `unreachable()` and `unreachable(reason:)` — Mark impossible code
   - Returns `Never`, panics with "unreachable code reached at file:line"
@@ -227,6 +246,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
   - [ ] **LLVM Support**: LLVM codegen for unreachable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — unreachable codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `dbg(value:)` and `dbg(value:, label:)` — Debug printing
   - Generic: `dbg<T: Debug>(value: T) -> T`
@@ -237,6 +257,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/developer_functions.ori`
   - [ ] **LLVM Support**: LLVM codegen for dbg
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/developer_tests.rs` — dbg codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Compile-time location capture for all three functions
   - Location passed implicitly by compiler, not visible in user signature
@@ -258,6 +279,7 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
   - [ ] **Ori Tests**: `tests/spec/stdlib/repeat.ori`
   - [ ] **LLVM Support**: LLVM codegen for repeat
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — repeat codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Clone requirement enforcement — T must implement Clone
   - [ ] **Rust Tests**: `oric/src/typeck/builtins.rs` — repeat type checking
@@ -279,6 +301,7 @@ Formalizes `repeat`, `compile_error`, `PanicInfo`, and clarifies `??` operator s
   - [ ] **Ori Tests**: `tests/spec/types/panic_info.ori`
   - [ ] **LLVM Support**: LLVM codegen for PanicInfo
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/type_tests.rs` — PanicInfo codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Printable` impl for PanicInfo
   - [ ] **Ori Tests**: `tests/spec/types/panic_info_printable.ori`
@@ -300,6 +323,7 @@ App-wide panic handler function that executes before program termination.
   - [ ] **Ori Tests**: `tests/spec/declarations/panic_handler.ori`
   - [ ] **LLVM Support**: LLVM codegen for @panic function recognition
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — @panic recognition codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Validate signature `(PanicInfo) -> void`
   - [ ] **Rust Tests**: `oric/src/typeck/checker/special_fns.rs` — @panic signature validation
@@ -314,40 +338,47 @@ App-wide panic handler function that executes before program termination.
   - [ ] **Ori Tests**: `tests/spec/declarations/panic_print_stderr.ori`
   - [ ] **LLVM Support**: LLVM codegen for stderr redirection in @panic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — stderr redirection codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Runtime panic hook installation at program start
   - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — hook installation
   - [ ] **LLVM Support**: LLVM codegen for panic hook installation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — hook installation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Construct PanicInfo (message, location, stack_trace, thread_id) on panic
   - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — PanicInfo construction
   - [ ] **Ori Tests**: `tests/spec/runtime/panic_info_construction.ori`
   - [ ] **LLVM Support**: LLVM codegen for PanicInfo construction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — PanicInfo construction codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Re-panic detection — immediate termination if handler panics
   - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — re-panic detection
   - [ ] **Ori Tests**: `tests/spec/runtime/panic_in_handler.ori`
   - [ ] **LLVM Support**: LLVM codegen for re-panic detection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — re-panic detection codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: First panic wins in concurrent context
   - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — concurrent panic handling
   - [ ] **Ori Tests**: `tests/spec/runtime/concurrent_panic.ori`
   - [ ] **LLVM Support**: LLVM codegen for concurrent panic handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — concurrent panic codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Default handler (when no @panic defined) — print to stderr
   - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — default handler
   - [ ] **Ori Tests**: `tests/spec/runtime/default_panic_handler.ori`
   - [ ] **LLVM Support**: LLVM codegen for default handler
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — default handler codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Exit with non-zero code after handler returns
   - [ ] **Rust Tests**: `oric/src/runtime/panic.rs` — exit code
   - [ ] **LLVM Support**: LLVM codegen for exit code handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — exit code codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -364,6 +395,7 @@ Adds `drop_early` function for explicit early resource release.
   - [ ] **Ori Tests**: `tests/spec/stdlib/drop_early.ori`
   - [ ] **LLVM Support**: LLVM codegen for drop_early
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/drop_tests.rs` — drop_early codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: drop_early works for any type (not restricted to T: Drop)
   - Types with Drop: drop method called, then memory reclaimed
@@ -397,6 +429,7 @@ Adds `drop_early` function for explicit early resource release.
   - [ ] **Ori Tests**: `tests/spec/embed/embed_str.ori`, `tests/spec/embed/embed_bytes.ori`
   - [ ] **LLVM Support**: Emit embedded data in `.rodata` section
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/embed_tests.rs` — embed codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `has_embed(path)` — Compile-time file existence check
   - Returns compile-time `bool`
@@ -405,6 +438,7 @@ Adds `drop_early` function for explicit early resource release.
   - [ ] **Ori Tests**: `tests/spec/embed/has_embed.ori`
   - [ ] **LLVM Support**: LLVM codegen for has_embed
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/embed_tests.rs` — has_embed codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: File size limit enforcement (10 MB default)
   - `#embed_limit(size:)` attribute for per-expression override
@@ -428,6 +462,7 @@ Adds `drop_early` function for explicit early resource release.
 
 - [ ] **Implement**: Binary deduplication — multiple references to same file share one copy
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/embed_tests.rs` — deduplication
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

@@ -106,6 +106,7 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
   - [ ] Associated type constraints
   - [ ] **LLVM Support**: LLVM codegen for existential type syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — existential type syntax codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Parser**: Parse impl Trait
   - [ ] In return type position
@@ -113,6 +114,7 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
   - [ ] Associated types
   - [ ] **LLVM Support**: LLVM codegen for parsed impl Trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Existential type handling
   - [ ] Infer concrete type from body
@@ -120,6 +122,7 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
   - [ ] Check trait bounds satisfied
   - [ ] **LLVM Support**: LLVM codegen for existential type handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — existential type handling codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/impl_trait.ori`
   - [ ] Basic impl Trait return
@@ -127,6 +130,7 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
   - [ ] Associated type constraints
   - [ ] **LLVM Support**: LLVM codegen for impl Trait tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -168,6 +172,7 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
   - [ ] Error messages
   - [ ] **LLVM Support**: LLVM codegen for impl Trait inference rules
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — inference rules codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Unify return types
   - [ ] Track expected opaque type
@@ -175,18 +180,21 @@ for x in iter do print(msg: `{x}`)  // Works via Iterator trait
   - [ ] Clear error on mismatch
   - [ ] **LLVM Support**: LLVM codegen for return type unification
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — return type unification codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Diagnostics**: Helpful errors
   - [ ] Show both concrete types
   - [ ] Suggest Box<dyn Trait>
   - [ ] **LLVM Support**: LLVM codegen for impl Trait diagnostics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — diagnostics codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/impl_trait_inference.ori`
   - [ ] Multiple return paths same type
   - [ ] Error on different types
   - [ ] **LLVM Support**: LLVM codegen for impl Trait inference tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl Trait inference tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -220,18 +228,21 @@ trait Mapping {
   - [ ] Multiple constraints
   - [ ] **LLVM Support**: LLVM codegen for associated type syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type syntax codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Validate associated types
   - [ ] Match concrete type's assoc types
   - [ ] Error on mismatch
   - [ ] **LLVM Support**: LLVM codegen for associated type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/impl_trait_assoc.ori`
   - [ ] Iterator with Item
   - [ ] Custom trait with assoc types
   - [ ] **LLVM Support**: LLVM codegen for associated type tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — associated type tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -275,6 +286,7 @@ error: `impl Trait` is only allowed in return position
   - [ ] Not in traits
   - [ ] **LLVM Support**: LLVM codegen for impl Trait limitations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — limitations codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Reject invalid positions
   - [ ] Error on arg position
@@ -282,12 +294,14 @@ error: `impl Trait` is only allowed in return position
   - [ ] Error in trait methods
   - [ ] **LLVM Support**: LLVM codegen for invalid position rejection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — invalid position rejection codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Diagnostics**: Suggest alternatives
   - [ ] Generic parameter
   - [ ] Associated type
   - [ ] **LLVM Support**: LLVM codegen for alternative suggestions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — alternative suggestions codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/compile-fail/types/impl_trait_position.ori`
   - [ ] Arg position error
@@ -295,6 +309,7 @@ error: `impl Trait` is only allowed in return position
   - [ ] Trait method error
   - [ ] **LLVM Support**: LLVM codegen for position error tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — position error tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -335,12 +350,14 @@ error: `impl Trait` is only allowed in return position
   - [ ] When each is appropriate
   - [ ] **LLVM Support**: LLVM codegen for impl vs dyn comparison
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl vs dyn comparison codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Documentation**: Best practices guide
   - [ ] Decision flowchart
   - [ ] Common patterns
   - [ ] **LLVM Support**: LLVM codegen for best practices examples
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — best practices examples codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/impl_vs_dyn.ori`
   - [ ] impl Trait usage
@@ -348,6 +365,7 @@ error: `impl Trait` is only allowed in return position
   - [ ] Conversion between them
   - [ ] **LLVM Support**: LLVM codegen for impl vs dyn tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/impl_trait_tests.rs` — impl vs dyn tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

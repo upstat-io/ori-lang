@@ -73,48 +73,56 @@ Function-level `pre()` and `post()` contract declarations for defensive programm
   - [ ] **Ori Tests**: `tests/spec/patterns/checks.ori`
   - [ ] **LLVM Support**: LLVM codegen for contract parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parser: Support `| "message"` custom message syntax
   - [ ] **Rust Tests**: `ori_parse/src/grammar/function.rs` — message parsing
   - [ ] **Ori Tests**: `tests/spec/patterns/check_messages.ori`
   - [ ] **LLVM Support**: LLVM codegen for custom contract messages
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — custom contract messages codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker: Validate `pre()` condition is `bool`
   - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — pre type validation
   - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_not_bool.ori`
   - [ ] **LLVM Support**: LLVM codegen for pre type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre type validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker: Validate `post()` is `T -> bool` lambda
   - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — post type validation
   - [ ] **Ori Tests**: `tests/compile-fail/checks/post_not_lambda.ori`
   - [ ] **LLVM Support**: LLVM codegen for post type validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — post type validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker: Error when `post()` used on void-returning function
   - [ ] **Rust Tests**: `oric/src/typeck/checker/function.rs` — void return error
   - [ ] **Ori Tests**: `tests/compile-fail/checks/post_void_return.ori`
   - [ ] **LLVM Support**: LLVM codegen for void return error
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — void return error codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Scope checker: `pre()` can only access parameters and module-level bindings
   - [ ] **Rust Tests**: `oric/src/resolve/scope.rs` — pre scope validation
   - [ ] **Ori Tests**: `tests/compile-fail/checks/pre_scope.ori`
   - [ ] **LLVM Support**: LLVM codegen for pre scope validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — pre scope validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Codegen: Desugar to conditional checks and panics at function entry/exit
   - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — contract desugaring
   - [ ] **Ori Tests**: `tests/spec/patterns/checks_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for contract desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — contract desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Codegen: Embed source text for default error messages
   - [ ] **Rust Tests**: `oric/src/desugar/checks.rs` — source text embedding
   - [ ] **Ori Tests**: `tests/spec/patterns/checks_error_messages.ori`
   - [ ] **LLVM Support**: LLVM codegen for source text embedding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — source text embedding codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -141,6 +149,7 @@ let y = value as float
   - [ ] **Ori Tests**: `tests/spec/lexical/as_keyword.ori`
   - [ ] **LLVM Support**: LLVM codegen for as keyword
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as keyword codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Parser
 
@@ -149,12 +158,14 @@ let y = value as float
   - [ ] **Ori Tests**: `tests/spec/expressions/as_syntax.ori`
   - [ ] **LLVM Support**: LLVM codegen for as expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as expression codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse `expression as? Type` as fallible conversion
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — as? expression parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/as_fallible_syntax.ori`
   - [ ] **LLVM Support**: LLVM codegen for as? expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as? expression codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
@@ -163,36 +174,43 @@ let y = value as float
   - [ ] **Ori Tests**: `tests/compile-fail/as_not_implemented.ori`
   - [ ] **LLVM Support**: LLVM codegen for As<T> trait validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — As<T> trait validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Validate `as?` only used with `TryAs<T>` trait implementations
   - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/try_as_not_implemented.ori`
   - [ ] **LLVM Support**: LLVM codegen for TryAs<T> trait validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — TryAs<T> trait validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error when using `as` for fallible conversion (must use `as?`)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/as_expr.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/as_fallible_conversion.ori`
   - [ ] **LLVM Support**: LLVM codegen for fallible conversion error
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — fallible conversion error codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Codegen
 
 - [ ] **Implement**: Desugar `x as T` to `As<T>.as(self: x)`
   - [ ] **LLVM Support**: LLVM codegen for as desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 - [ ] **Implement**: Desugar `x as? T` to `TryAs<T>.try_as(self: x)`
   - [ ] **LLVM Support**: LLVM codegen for as? desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as? desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Migration
 
 - [ ] **Implement**: Remove `int()`, `float()`, `str()`, `byte()` from parser
   - [ ] **LLVM Support**: LLVM codegen for type conversion removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — type conversion removal codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 - [ ] **Implement**: Update error messages to suggest `as` syntax
   - [ ] **LLVM Support**: LLVM codegen for as syntax suggestion
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/as_conversion_tests.rs` — as syntax suggestion codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -221,6 +239,7 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **Ori Tests**: `tests/spec/lexical/mut_not_keyword.ori`
   - [ ] **LLVM Support**: LLVM codegen for mut removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mut removal codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Parser
 
@@ -229,30 +248,35 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [x] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori`
   - [ ] **LLVM Support**: LLVM codegen for immutable binding parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — immutable binding parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Remove `mut` from `let_expr` grammar
   - [x] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — mut removal
   - [x] **Ori Tests**: All 151 `let mut` occurrences migrated to `let` across 25 test files + AOT tests
   - [ ] **LLVM Support**: LLVM codegen for mut removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mut removal codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/mutations.rs` — all 21 tests use `let x` (mutable-by-default) with reassignment, confirming mut removal works end-to-end in AOT
 
 - [ ] **Implement**: Update `constant_decl` to require `let $name = expr`
   - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — constant declaration parsing
   - [ ] **Ori Tests**: `tests/spec/declarations/constants.ori`
   - [ ] **LLVM Support**: LLVM codegen for constant declaration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — constant declaration codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Remove old const function syntax `$name (params) -> Type`
   - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — const function removal
   - [ ] **Ori Tests**: `tests/compile-fail/old_const_function_syntax.ori`
   - [ ] **LLVM Support**: LLVM codegen for const function removal
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — const function removal codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Support `$` prefix in destructuring patterns (2026-02-20)
   - [x] **Rust Tests**: `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern` handles `$` for Name, Tuple, Struct, List
   - [x] **Ori Tests**: `tests/spec/expressions/immutable_bindings.ori` — tuple, struct, list destructuring with `$`
   - [ ] **LLVM Support**: LLVM codegen for destructure immutable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — destructure immutable codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 - [x] **Fix**: List rest binding `..rest` tracks `$` mutability (2026-02-20)
   - [x] IR: `BindingPattern::List.rest` changed from `Option<Name>` to `Option<(Name, bool)>` (`ori_ir/src/ast/patterns/binding.rs:31`)
   - [x] IR: `CanBindingPattern::List.rest` changed to `Option<(Name, bool)>` (`ori_ir/src/canon/patterns.rs:32`)
@@ -276,12 +300,14 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **Ori Tests**: `tests/compile-fail/dollar_and_non_dollar_conflict.ori`
   - [ ] **LLVM Support**: LLVM codegen for same-name conflict detection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — same-name conflict detection codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Enforce module-level bindings require `$` prefix
   - [ ] **Rust Tests**: `oric/src/resolve/module.rs` — module binding immutability
   - [ ] **Ori Tests**: `tests/compile-fail/module_level_mutable.ori`
   - [ ] **LLVM Support**: LLVM codegen for module binding immutability
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — module binding immutability codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Enforce `$`-prefixed bindings cannot be reassigned (2026-02-20)
   - [x] **Rust Tests**: `ori_types/src/infer/expr/operators.rs` — immutability check in `infer_assign`
@@ -296,12 +322,14 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **Ori Tests**: `tests/spec/modules/import_immutable.ori`
   - [ ] **LLVM Support**: LLVM codegen for import with dollar
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — import with dollar codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error when importing `$x` as `x` or vice versa
   - [ ] **Rust Tests**: `oric/src/resolve/import.rs` — import modifier mismatch
   - [ ] **Ori Tests**: `tests/compile-fail/import_dollar_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for import modifier mismatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — import modifier mismatch codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Shadowing
 
@@ -310,6 +338,7 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **Ori Tests**: `tests/spec/expressions/shadow_mutability.ori`
   - [ ] **LLVM Support**: LLVM codegen for shadowing mutability change
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — shadowing mutability change codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Error Messages
 
@@ -324,12 +353,14 @@ let $timeout = 30s // module-level constant (let and $ required)
   - [ ] **Ori Tests**: `tests/compile-fail/module_mutable_message.ori`
   - [ ] **LLVM Support**: LLVM codegen for module mutable error
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — module mutable error codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Migration hint for old `let mut` syntax
   - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — let mut migration hint
   - [ ] **Ori Tests**: `tests/compile-fail/let_mut_migration.ori`
   - [ ] **LLVM Support**: LLVM codegen for let mut migration hint
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — let mut migration hint codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -356,24 +387,28 @@ let items: [Serializable] = ...
   - [ ] **Ori Tests**: `tests/spec/types/trait_objects.ori`
   - [ ] **LLVM Support**: LLVM codegen for trait objects without dyn
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parser recognizes trait name in type position as trait object
   - [ ] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — trait-as-type parsing
   - [ ] **Ori Tests**: `tests/spec/types/trait_objects.ori`
   - [ ] **LLVM Support**: LLVM codegen for trait-as-type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Type checker distinguishes `item: Trait` (trait object) vs `<T: Trait>` (generic bound)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/trait_objects.rs`
   - [ ] **Ori Tests**: `tests/spec/types/trait_vs_bound.ori`
   - [ ] **LLVM Support**: LLVM codegen for trait object vs bound distinction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Object safety validation with clear error messages
   - [ ] **Rust Tests**: `oric/src/typeck/checker/object_safety.rs`
   - [ ] **Ori Tests**: `tests/compile-fail/non_object_safe_trait.ori`
   - [ ] **LLVM Support**: LLVM codegen for object safety validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/trait_object_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error if `dyn` keyword is used (helpful migration message)
   - [ ] **Rust Tests**: `ori_parse/src/grammar/ty.rs` — dyn keyword error
@@ -459,10 +494,13 @@ list[0] += 5                          // compound: list[0] = list[0] + 5
 
 - [ ] **LLVM Support**: LLVM codegen for index assignment desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — index assignment codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 - [ ] **LLVM Support**: LLVM codegen for field assignment desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — field assignment codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 - [ ] **LLVM Support**: LLVM codegen for compound assignment on extended targets
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/` — compound assignment codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
