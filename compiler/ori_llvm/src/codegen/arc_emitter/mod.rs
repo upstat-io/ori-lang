@@ -1560,12 +1560,24 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             BinaryOp::NotEq if is_str => self.emit_str_runtime_call("ori_str_ne", lhs, rhs, false),
             BinaryOp::NotEq => self.builder.icmp_ne(lhs, rhs, "ne"),
             BinaryOp::Lt if is_float => self.builder.fcmp_olt(lhs, rhs, "lt"),
+            BinaryOp::Lt if is_str => self
+                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)
+                .unwrap_or_else(|| self.builder.icmp_slt(lhs, rhs, "lt")),
             BinaryOp::Lt => self.builder.icmp_slt(lhs, rhs, "lt"),
             BinaryOp::Gt if is_float => self.builder.fcmp_ogt(lhs, rhs, "gt"),
+            BinaryOp::Gt if is_str => self
+                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater)
+                .unwrap_or_else(|| self.builder.icmp_sgt(lhs, rhs, "gt")),
             BinaryOp::Gt => self.builder.icmp_sgt(lhs, rhs, "gt"),
             BinaryOp::LtEq if is_float => self.builder.fcmp_ole(lhs, rhs, "le"),
+            BinaryOp::LtEq if is_str => self
+                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual)
+                .unwrap_or_else(|| self.builder.icmp_sle(lhs, rhs, "le")),
             BinaryOp::LtEq => self.builder.icmp_sle(lhs, rhs, "le"),
             BinaryOp::GtEq if is_float => self.builder.fcmp_oge(lhs, rhs, "ge"),
+            BinaryOp::GtEq if is_str => self
+                .emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
+                .unwrap_or_else(|| self.builder.icmp_sge(lhs, rhs, "ge")),
             BinaryOp::GtEq => self.builder.icmp_sge(lhs, rhs, "ge"),
             BinaryOp::And => self.builder.and(lhs, rhs, "and"),
             BinaryOp::Or => self.builder.or(lhs, rhs, "or"),

@@ -220,8 +220,6 @@ const EVAL_METHODS_NOT_IN_TYPECK: &[(&str, &str)] = &[
     ("list", "add"),
     ("list", "concat"),
     ("str", "add"),
-    ("str", "concat"),
-    ("str", "to_str"),
 ];
 
 /// Typeck methods for primitive types not yet in the IR registry.
@@ -330,7 +328,9 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("float", "to_int"),
     ("float", "trunc"),
     // int — typeck has methods not in IR
+    ("int", "byte"),
     ("int", "clamp"),
+    ("int", "f"),
     ("int", "into"),
     ("int", "is_even"),
     ("int", "is_negative"),
@@ -345,10 +345,12 @@ const TYPECK_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "byte_len"),
     ("str", "bytes"),
     ("str", "chars"),
+    ("str", "concat"),
     ("str", "index_of"),
     ("str", "into"),
     ("str", "iter"),
     ("str", "last_index_of"),
+    ("str", "length"),
     ("str", "lines"),
     ("str", "pad_end"),
     ("str", "pad_start"),
@@ -540,7 +542,9 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     // int — methods not in eval direct dispatch
     // (abs, max, min are via method resolvers)
     ("int", "abs"),
+    ("int", "byte"),
     ("int", "clamp"),
+    ("int", "f"),
     ("int", "is_even"),
     ("int", "is_negative"),
     ("int", "is_odd"),
@@ -611,6 +615,7 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("str", "chars"),
     ("str", "index_of"),
     ("str", "last_index_of"),
+    ("str", "length"),
     ("str", "lines"),
     ("str", "pad_end"),
     ("str", "pad_start"),

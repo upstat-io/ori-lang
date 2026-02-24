@@ -1,20 +1,28 @@
 ---
 const currentPath = Astro.url.pathname;
-const navLinks = [
-  { href: '/', label: 'Home', matchPrefix: null },
+
+const learnLinks = [
+  { href: '/tutorial/01-basics/01-hello-world', label: 'Tutorial', matchPrefix: '/tutorial/' },
   { href: '/guide/01-getting-started', label: 'Guide', matchPrefix: '/guide/' },
-  { href: '/docs/spec/index', label: 'Docs', matchPrefix: '/docs/' },
+  { href: '/docs/spec/index', label: 'Compiler Docs', matchPrefix: '/docs/' },
+];
+
+const navLinks = [
   { href: '/playground', label: 'Playground', matchPrefix: '/playground' },
   { href: '/changelog', label: 'Changelog', matchPrefix: '/changelog' },
   { href: '/roadmap', label: 'Roadmap', matchPrefix: '/roadmap' },
 ];
 
-const isActive = (link: typeof navLinks[0]) => {
+const isActive = (link: { href: string; matchPrefix: string | null }) => {
   if (link.matchPrefix === null) {
     return currentPath === link.href;
   }
   return currentPath.startsWith(link.matchPrefix);
 };
+
+const isLearnActive = learnLinks.some(link =>
+  link.matchPrefix ? currentPath.startsWith(link.matchPrefix) : currentPath === link.href
+);
 ---
 
 <header class="site-header">
@@ -42,6 +50,27 @@ const isActive = (link: typeof navLinks[0]) => {
 
     <nav class="nav">
       <div class="nav-links">
+        <!-- Learn dropdown -->
+        <div class="nav-dropdown">
+          <button class:list={['nav-link', 'dropdown-trigger', { active: isLearnActive }]} aria-expanded="false">
+            Learn
+            <svg class="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 5 6 8 9 5" />
+            </svg>
+          </button>
+          <div class="dropdown-menu">
+            {learnLinks.map(link => (
+              <a
+                href={link.href}
+                class:list={['dropdown-item', { active: isActive(link) }]}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        </div>
+
+        <!-- Flat nav links -->
         {navLinks.map(link => (
           <a
             href={link.href}
@@ -77,6 +106,9 @@ const isActive = (link: typeof navLinks[0]) => {
   const toggle = document.querySelector('.menu-toggle');
   const nav = document.querySelector('.nav');
   const header = document.querySelector('.site-header');
+  const dropdownTrigger = document.querySelector('.dropdown-trigger') as HTMLButtonElement | null;
+  const dropdownMenu = document.querySelector('.dropdown-menu');
+  const navDropdown = document.querySelector('.nav-dropdown');
 
   function closeMenu() {
     nav?.classList.remove('open');
@@ -84,21 +116,55 @@ const isActive = (link: typeof navLinks[0]) => {
     header?.classList.remove('menu-open');
   }
 
+  function closeDropdown() {
+    navDropdown?.classList.remove('open');
+    dropdownTrigger?.setAttribute('aria-expanded', 'false');
+  }
+
+  // Mobile menu toggle
   toggle?.addEventListener('click', () => {
     const isOpen = nav?.classList.toggle('open');
     toggle.setAttribute('aria-expanded', String(isOpen));
     header?.classList.toggle('menu-open', isOpen);
   });
 
-  // Close menu when clicking a link
-  nav?.querySelectorAll('.nav-link').forEach(link => {
+  // Dropdown trigger — toggle on click (for mobile & keyboard)
+  dropdownTrigger?.addEventListener('click', (e) => {
+    e.preventDefault();
+    const isOpen = navDropdown?.classList.toggle('open');
+    dropdownTrigger.setAttribute('aria-expanded', String(!!isOpen));
+  });
+
+  // Close menu and dropdown when clicking a nav link
+  nav?.querySelectorAll('.nav-link:not(.dropdown-trigger)').forEach(link => {
+    link.addEventListener('click', () => {
+      closeMenu();
+      closeDropdown();
+    });
+  });
+
+  // Close dropdown when clicking a dropdown item
+  dropdownMenu?.querySelectorAll('.dropdown-item').forEach(link => {
     link.addEventListener('click', closeMenu);
   });
 
-  // Close menu on escape key
+  // Escape key — close dropdown and/or mobile menu
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && nav?.classList.contains('open')) {
-      closeMenu();
+    if (e.key === 'Escape') {
+      if (navDropdown?.classList.contains('open')) {
+        closeDropdown();
+        dropdownTrigger?.focus();
+      }
+      if (nav?.classList.contains('open')) {
+        closeMenu();
+      }
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (navDropdown && !navDropdown.contains(e.target as Node)) {
+      closeDropdown();
     }
   });
 
@@ -196,7 +262,7 @@ const isActive = (link: typeof navLinks[0]) => {
   .nav-links {
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 
   .nav-icons {
@@ -218,12 +284,90 @@ const isActive = (link: typeof navLinks[0]) => {
 
   .nav-link:hover {
     color: var(--color-text-primary);
-    background: var(--color-bg-tertiary);
+    background: rgba(255, 255, 255, 0.1);
   }
 
   .nav-link.active {
     color: var(--color-text-primary);
-    background: var(--color-bg-tertiary);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  /* Dropdown */
+  .nav-dropdown {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .dropdown-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .chevron {
+    width: 12px;
+    height: 12px;
+    transition: transform var(--transition-fast);
+    flex-shrink: 0;
+  }
+
+  .nav-dropdown:hover .chevron,
+  .nav-dropdown.open .chevron {
+    transform: rotate(180deg);
+  }
+
+  .dropdown-menu {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    left: 0;
+    min-width: 180px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity var(--transition-fast), visibility var(--transition-fast), transform var(--transition-fast);
+    z-index: 200;
+  }
+
+  /* Show dropdown on hover (desktop) or when toggled open */
+  .nav-dropdown:hover .dropdown-menu,
+  .nav-dropdown.open .dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
+  .dropdown-item {
+    display: block;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+  }
+
+  .dropdown-item:hover {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .dropdown-item.active {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .nav-discuss,
@@ -272,13 +416,6 @@ const isActive = (link: typeof navLinks[0]) => {
     font-size: var(--text-sm);
   }
 
-  /* Hide Playground earlier for more breathing room */
-  @media (max-width: 900px) {
-    .nav-link[href="/playground"] {
-      display: none;
-    }
-  }
-
   /* Mobile styles */
   @media (max-width: 768px) {
     .menu-toggle {
@@ -314,13 +451,59 @@ const isActive = (link: typeof navLinks[0]) => {
       gap: var(--space-1);
     }
 
-    /* Show Playground again in mobile drawer */
-    .nav-link[href="/playground"] {
-      display: block;
-    }
-
     .nav-link {
       padding: var(--space-3) var(--space-4);
+      font-size: var(--text-base);
+    }
+
+    /* Dropdown — inline expand in mobile drawer */
+    .nav-dropdown {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .dropdown-trigger {
+      padding: var(--space-3) var(--space-4);
+      font-size: var(--text-base);
+      justify-content: space-between;
+    }
+
+    .dropdown-menu {
+      position: static;
+      opacity: 1;
+      visibility: visible;
+      transform: none;
+      box-shadow: none;
+      border: none;
+      background: transparent;
+      padding: 0;
+      min-width: auto;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.2s ease;
+    }
+
+    /* Override desktop hover — only toggle via .open class on mobile */
+    .nav-dropdown:hover .dropdown-menu {
+      max-height: 0;
+      overflow: hidden;
+    }
+
+    .nav-dropdown.open .dropdown-menu {
+      max-height: 200px;
+    }
+
+    .nav-dropdown:hover .chevron {
+      transform: none;
+    }
+
+    .nav-dropdown.open .chevron {
+      transform: rotate(180deg);
+    }
+
+    .dropdown-item {
+      padding: var(--space-2) var(--space-4);
+      padding-left: var(--space-8);
       font-size: var(--text-base);
     }
 

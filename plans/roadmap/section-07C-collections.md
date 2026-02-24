@@ -53,12 +53,14 @@ sections:
   - [x] **Ori Tests**: Used extensively in test suite via `.len()` method
   - [ ] **LLVM Support**: LLVM codegen for len function
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — len function codegen
+  - [ ] **AOT Tests**: No AOT coverage yet (free function form; method form covered in 7C.4)
 
 - [x] **Implement**: `is_empty(x)` — spec/11-built-in-functions.md § is_empty (deprecated, use `.is_empty()`) [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator builtin — is_empty function tests
   - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — 15+ tests
   - [ ] **LLVM Support**: LLVM codegen for is_empty function
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — is_empty function codegen
+  - [ ] **AOT Tests**: No AOT coverage yet (free function form; method form covered in 7C.4)
 
 ---
 
@@ -71,90 +73,105 @@ sections:
   - [x] **Ori Tests**: Used in `tests/spec/types/primitives.ori`, `tests/spec/lexical/keywords.ori`
   - [ ] **LLVM Support**: LLVM codegen for list map
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list map codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_map` (iterator-level `.map()`, 1 test); `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_iter_map_collect_length` (1 test)
 
 - [x] **Implement**: `[T].filter(f: T -> bool) -> [T]` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list filter tests
   - [x] **Ori Tests**: `tests/spec/lexical/operators.ori` — `list.filter(predicate: x -> x % 2 == 0)`
   - [ ] **LLVM Support**: LLVM codegen for list filter
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list filter codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_filter` (iterator-level `.filter()`, 1 test); `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_iter_filter_count` (1 test)
 
 - [x] **Implement**: `[T].fold(initial: U, f: (U, T) -> U) -> U` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list fold tests
   - [x] **Ori Tests**: `tests/spec/lexical/keywords.ori` — `[1,2,3].fold(initial: 0, combine: (a,b) -> a + b)`
   - [ ] **LLVM Support**: LLVM codegen for list fold
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list fold codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_fold_sum`, `test_iter_fold_with_filter` (iterator-level `.fold()`, 2 tests); `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_iter_sum_via_fold` (1 test)
 
 - [ ] **Implement**: `[T].find(f: T -> bool) -> Option<T>` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list find tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list find
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list find codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_find_some`, `test_iter_find_none` (iterator-level `.find()`, 2 tests)
 
 - [ ] **Implement**: `[T].any(f: T -> bool) -> bool` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list any tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list any
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list any codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_any_true`, `test_iter_any_false` (iterator-level `.any()`, 2 tests); `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_iter_any_all` (1 test)
 
 - [ ] **Implement**: `[T].all(f: T -> bool) -> bool` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list all tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list all
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list all codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_all_true`, `test_iter_all_false` (iterator-level `.all()`, 2 tests); `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_iter_any_all` (1 test)
 
 - [ ] **Implement**: `[T].first() -> Option<T>` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list first tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list first
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list first codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_first` (1 test, ignored: `list.first()` not in builtin table)
 
 - [ ] **Implement**: `[T].last() -> Option<T>` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list last tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list last
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list last codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_last` (1 test, ignored: `list.last()` not in builtin table)
 
 - [ ] **Implement**: `[T].take(n: int) -> [T]` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list take tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list take
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list take codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_take` (iterator-level take adapter, 1 test)
 
 - [ ] **Implement**: `[T].skip(n: int) -> [T]` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list skip tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list skip
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list skip codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_skip` (iterator-level skip adapter, 1 test)
 
 - [ ] **Implement**: `[T].reverse() -> [T]` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list reverse tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list reverse
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list reverse codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_reverse` (1 test, ignored: `list.reverse()` not in builtin table)
 
 - [ ] **Implement**: `[T].sort() -> [T]` where `T: Comparable` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list sort tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list sort
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list sort codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `[T].contains(value: T) -> bool` where `T: Eq` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list contains tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list contains
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list contains codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_contains` (1 test, ignored: `list.contains()` not in builtin table)
 
 - [ ] **Implement**: `[T].push(value: T) -> [T]` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list push tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list push
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list push codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_push` (1 test, ignored: `list.push()` not in builtin table)
 
 - [ ] **Implement**: `[T].concat(other: [T]) -> [T]` — modules/prelude.md § List
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — list concat tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/list_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for list concat
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list concat codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -165,30 +182,35 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/range_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for Range.map
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs` — Range.map codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_map` tests map on list iterator; `test_chained_map_filter_take` tests map on range-derived iterator
 
 - [ ] **Implement**: `Range.filter(f: T -> bool) -> [T]` — modules/prelude.md § Range
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Range.filter tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/range_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for Range.filter
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs` — Range.filter codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_filter` tests filter on list iterator; `test_chained_map_filter_take` tests filter on range-derived iterator
 
 - [ ] **Implement**: `Range.fold(initial: U, f: (U, T) -> U) -> U` — modules/prelude.md § Range
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Range.fold tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/range_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for Range.fold
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs` — Range.fold codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_iter_fold_sum`, `test_iter_fold_with_filter` test fold on range-derived iterators via chaining
 
 - [ ] **Implement**: `Range.collect() -> [T]` — modules/prelude.md § Range
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Range.collect tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/range_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for Range.collect
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs` — Range.collect codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_range_iter_collect` (range `.iter().collect()` to list, 1 test)
 
 - [ ] **Implement**: `Range.contains(value: T) -> bool` — modules/prelude.md § Range
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — Range.contains tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/range_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for Range.contains
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs` — Range.contains codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -201,48 +223,56 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/field_access.ori`, `tests/spec/lexical/delimiters.ori`
   - [ ] **LLVM Support**: LLVM codegen for list len method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list len method codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_length_empty` + 2 variants, `test_coll_list_len_alias` (4 tests, 0 ignored)
 
 - [x] **Implement**: `[T].is_empty() -> bool` — modules/prelude.md § List [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — list is_empty tests
   - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — 15+ tests
   - [ ] **LLVM Support**: LLVM codegen for list is_empty method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — list is_empty method codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_list_is_empty_true`, `test_coll_list_is_empty_false` (2 tests, 0 ignored)
 
 - [x] **Implement**: `{K: V}.len() -> int` — modules/prelude.md § Map [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — map len tests
   - [x] **Ori Tests**: `tests/spec/lexical/delimiters.ori` — `map.len()` tests
   - [ ] **LLVM Support**: LLVM codegen for map len method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — map len method codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/collections_ext.rs` — `test_coll_map_length_basic`, `test_coll_map_length_one`, `test_coll_map_len_alias` (3 tests, 0 ignored)
 
 - [ ] **Implement**: `{K: V}.is_empty() -> bool` — modules/prelude.md § Map
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — map is_empty tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/map_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for map is_empty method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — map is_empty method codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `str.len() -> int` — modules/prelude.md § str [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — str len tests
   - [x] **Ori Tests**: `tests/spec/expressions/field_access.ori` — `"hello".len()`
   - [ ] **LLVM Support**: LLVM codegen for str len method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/string_tests.rs` — str len method codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/strings.rs` — `test_str_length_basic` + 4 variants, `test_str_len_alias` (6 tests, 0 ignored)
 
 - [x] **Implement**: `str.is_empty() -> bool` — modules/prelude.md § str [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — str is_empty tests
   - [x] **Ori Tests**: `tests/spec/traits/core/is_empty.ori` — `"".is_empty()`, `!"hello".is_empty()`
   - [ ] **LLVM Support**: LLVM codegen for str is_empty method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/string_tests.rs` — str is_empty method codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/strings.rs` — `test_str_is_empty_true`, `test_str_is_empty_false`, `test_str_is_empty_space` (3 tests, 0 ignored)
 
 - [ ] **Implement**: `Set<T>.len() -> int` — modules/prelude.md § Set
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — set len tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/set_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for set len method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — set len method codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Set<T>.is_empty() -> bool` — modules/prelude.md § Set
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — set is_empty tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/set_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for set is_empty method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — set is_empty method codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -255,18 +285,21 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/comparable.ori`
   - [ ] **LLVM Support**: LLVM codegen for min method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — min method codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `T.max(other: T) -> T` where `T: Comparable` — modules/prelude.md § Comparable
   - [ ] **Rust Tests**: `ori_eval/src/methods.rs` — max method tests
   - [ ] **Ori Tests**: `tests/spec/stdlib/comparable.ori`
   - [ ] **LLVM Support**: LLVM codegen for max method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — max method codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `T.compare(other: T) -> Ordering` where `T: Comparable` — modules/prelude.md § Comparable [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator method dispatch — compare method tests
   - [x] **Ori Tests**: `tests/spec/traits/core/comparable.ori` — 133 test occurrences
   - [ ] **LLVM Support**: LLVM codegen for compare method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/comparison_tests.rs` — compare method codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -287,6 +320,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/traits/iterator.ori`
   - [ ] **LLVM Support**: LLVM codegen for Iterator trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Iterator trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet (formal Iterator trait definition)
 
 - [ ] **Implement**: `Iterable` trait
   ```ori
@@ -299,6 +333,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/traits/iterable.ori`
   - [ ] **LLVM Support**: LLVM codegen for Iterable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Iterable trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet (formal Iterable trait definition)
 
 - [ ] **Implement**: `Collect` trait
   ```ori
@@ -310,6 +345,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/traits/collect.ori`
   - [ ] **LLVM Support**: LLVM codegen for Collect trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Collect trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet (formal Collect trait definition)
 
 - [ ] **Implement**: Standard `Iterable` implementations
   - `impl<T> Iterable for [T]` — list iteration
@@ -321,6 +357,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/iterable_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard Iterable implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Iterable implementations codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — list `.iter()` (2 tests), range `.iter()` (2 tests); `ori_llvm/tests/aot/collections_ext.rs` — map `.iter()` (2 tests), string `.iter()` via `ori_llvm/tests/aot/strings.rs` (3 tests)
 
 - [ ] **Implement**: Standard `Collect` implementations
   - `impl<T> Collect<T> for [T]` — collect to list
@@ -328,12 +365,14 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/collect_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard Collect implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Collect implementations codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_list_iter_collect`, `test_iter_chain_collect` (collect to list via `.iter().collect()`)
 
 - [ ] **Implement**: `for` loop desugaring to `.iter()` and `.next()`
   - [ ] **Rust Tests**: `oric/src/eval/for_loop.rs`
   - [ ] **Ori Tests**: `tests/spec/control/for_iterator.ori`
   - [ ] **LLVM Support**: LLVM codegen for for loop desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — for loop desugaring codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_for_over_iterator`, `test_for_over_range_iterator` (for-loop over `.iter()` on lists and ranges)
 
 - [ ] **Implement**: Iterator extension methods
   - `map`, `filter`, `fold`, `find`, `collect`, `count`
@@ -341,6 +380,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/iterator_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for iterator extension methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — iterator extension methods codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — 25 tests (0 ignored) covering map, filter, take, skip, count, any, all, find, fold, for_each, collect, zip, chain adapters/consumers via built-in iterator pipeline
 
 ---
 
@@ -360,12 +400,14 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/traits/debug.ori`
   - [ ] **LLVM Support**: LLVM codegen for Debug trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs` — Debug trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `#[derive(Debug)]` for structs and sum types
   - [ ] **Rust Tests**: `oric/src/typeck/derives/debug.rs`
   - [ ] **Ori Tests**: `tests/spec/traits/debug_derive.ori`
   - [ ] **LLVM Support**: LLVM codegen for derive(Debug)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs` — derive(Debug) codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Standard `Debug` implementations
   - All primitives: `int`, `float`, `bool`, `str`, `char`, `byte`, `void`
@@ -375,6 +417,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/debug_impls.ori`
   - [ ] **LLVM Support**: LLVM codegen for standard Debug implementations
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs` — Debug implementations codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: String escaping in Debug output
   - `"hello".debug()` → `"\"hello\""`
@@ -382,6 +425,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/stdlib/debug_escaping.ori`
   - [ ] **LLVM Support**: LLVM codegen for Debug string escaping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/debug_tests.rs` — Debug escaping codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

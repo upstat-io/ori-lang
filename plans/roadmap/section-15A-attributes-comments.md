@@ -59,18 +59,21 @@ Change attribute syntax from `#[name(...)]` to `#name(...)`. Attributes are now 
   - [ ] **Ori Tests**: `tests/spec/attributes/simplified_syntax.ori`
   - [ ] **LLVM Support**: LLVM codegen for simplified attribute token
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — simplified attribute token codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — simplified attribute token end-to-end
 
 - [ ] **Implement**: Update parser to parse `#name(...)` syntax
   - [ ] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — simplified attribute parsing
   - [ ] **Ori Tests**: `tests/spec/attributes/simplified_syntax.ori`
   - [ ] **LLVM Support**: LLVM codegen for simplified attribute parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — simplified attribute parsing codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — simplified attribute parsing end-to-end
 
 - [ ] **Implement**: Generalize attributes to all declarations (functions, types, traits, impls, tests, constants)
   - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — generalized attribute parsing
   - [ ] **Ori Tests**: `tests/spec/attributes/any_declaration.ori`
   - [ ] **LLVM Support**: LLVM codegen for generalized attributes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — generalized attribute codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — generalized attribute end-to-end
 
 - [ ] **Implement**: Attribute validation (which attributes valid for which declarations)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/attr.rs` — attribute validation
@@ -83,6 +86,7 @@ Change attribute syntax from `#[name(...)]` to `#name(...)`. Attributes are now 
   - [ ] **Ori Tests**: `tests/spec/attributes/migration.ori`
   - [ ] **LLVM Support**: LLVM codegen for attribute migration compatibility
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/attribute_tests.rs` — attribute migration codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — attribute migration end-to-end
 
 - [ ] **Implement**: Add deprecation warning for bracket syntax
   - [ ] **LLVM Support**: LLVM codegen for deprecation warning
@@ -115,18 +119,21 @@ Formalize the distinction between sequential patterns and named-expression patte
   - [ ] **Ori Tests**: `tests/spec/patterns/function_seq_exp.ori`
   - [ ] **LLVM Support**: LLVM codegen for FunctionSeq and FunctionExp
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — FunctionSeq/FunctionExp codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — FunctionSeq/FunctionExp end-to-end
 
 - [ ] **Implement**: Parser allows positional for type conversions only
   - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — positional arg handling
   - [ ] **Ori Tests**: `tests/spec/expressions/type_conversions.ori`
   - [ ] **LLVM Support**: LLVM codegen for positional type conversions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — positional type conversions codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — positional type conversions end-to-end
 
 - [ ] **Implement**: Parser enforces named args for all other builtins
   - [ ] **Rust Tests**: `ori_parse/src/grammar/call.rs` — named arg enforcement
   - [ ] **Ori Tests**: `tests/spec/expressions/builtin_named_args.ori`
   - [ ] **LLVM Support**: LLVM codegen for named arg enforcement
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/syntax_tests.rs` — named arg enforcement codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — named arg enforcement end-to-end
 
 - [ ] **Implement**: Add clear error message for positional args in builtins
   - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — positional arg error

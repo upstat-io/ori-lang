@@ -91,24 +91,28 @@ Specifies termination guarantees and limits for compile-time constant evaluation
   - [ ] **Ori Tests**: `tests/spec/const/step_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for const evaluation step counting
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Recursion depth limit — stop const evaluation after 1,000 stack frames
   - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
   - [ ] **Ori Tests**: `tests/spec/const/recursion_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for recursion depth tracking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Memory limit — stop const evaluation after 100 MB allocation
   - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
   - [ ] **Ori Tests**: `tests/spec/const/memory_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for memory tracking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Time limit — stop const evaluation after 10 seconds
   - [ ] **Rust Tests**: `ori_typeck/tests/const_eval_limits.rs`
   - [ ] **Ori Tests**: `tests/spec/const/time_limit.ori`
   - [ ] **LLVM Support**: LLVM codegen for time limit enforcement
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Configurable limits via `ori.toml`
   - [ ] **Rust Tests**: `ori_config/tests/const_eval_config.rs`
@@ -119,24 +123,28 @@ Specifies termination guarantees and limits for compile-time constant evaluation
   - [ ] **Ori Tests**: `tests/spec/const/const_limit_attribute.ori`
   - [ ] **LLVM Support**: LLVM codegen for attribute parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Partial evaluation for mixed const/runtime arguments (required behavior)
   - [ ] **Rust Tests**: `ori_typeck/tests/partial_eval.rs`
   - [ ] **Ori Tests**: `tests/spec/const/partial_evaluation.ori`
   - [ ] **LLVM Support**: LLVM codegen for partial const evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Allow local mutable bindings in const functions
   - [ ] **Rust Tests**: `ori_typeck/tests/const_local_mutation.rs`
   - [ ] **Ori Tests**: `tests/spec/const/local_mutation.ori`
   - [ ] **LLVM Support**: LLVM codegen for mutable locals in const
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Allow loop expressions (`for`, `loop`) in const functions
   - [ ] **Rust Tests**: `ori_typeck/tests/const_loops.rs`
   - [ ] **Ori Tests**: `tests/spec/const/const_loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for loops in const
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_eval_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Const evaluation caching (by function + args hash)
   - [ ] **Rust Tests**: `ori_typeck/tests/const_caching.rs`
@@ -193,6 +201,7 @@ ConstType     = 'int' | 'bool' ;
   - [ ] Scope rules
   - [ ] **LLVM Support**: LLVM codegen for const parameter syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter syntax codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Parser**: Parse const parameters
   - [x] `$` sigil in generics — parses `$N: int` [done] (2026-02-13)
@@ -200,6 +209,7 @@ ConstType     = 'int' | 'bool' ;
   - [x] Position (can mix with type params) — `<T, $N: int>` works [done] (2026-02-13)
   - [ ] **LLVM Support**: LLVM codegen for parsed const parameters
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Type checker**: Const parameter validation (body-level)
   - [x] Track const vs type parameters [done] (2026-02-14)
@@ -207,6 +217,7 @@ ConstType     = 'int' | 'bool' ;
   - [ ] Unification with const values (call-site deferred)
   - [ ] **LLVM Support**: LLVM codegen for const parameter validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const parameter validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Test**: `tests/spec/types/const_generics.ori` (body-level)
   - [x] Basic const parameter [done] (2026-02-14)
@@ -214,6 +225,7 @@ ConstType     = 'int' | 'bool' ;
   - [x] Mixed type and const [done] (2026-02-14)
   - [ ] **LLVM Support**: LLVM codegen for const generic tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const generic tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -246,12 +258,14 @@ buffer.push(11)         // PANIC after 10 elements
   - [ ] Capacity limit semantics
   - [ ] **LLVM Support**: LLVM codegen for fixed-capacity list type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Grammar**: Parse fixed-capacity list type — `grammar.ebnf`
   - [ ] `list_type = "[" type "]" | "[" type "," "max" const_expr "]"`
   - [ ] `max` as soft keyword in this context
   - [ ] **LLVM Support**: LLVM codegen for parsed fixed-capacity types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Types**: Fixed-capacity list type representation
   - [ ] `Type::FixedList(elem, capacity)` in type system
@@ -259,6 +273,7 @@ buffer.push(11)         // PANIC after 10 elements
   - [ ] Capacity must be compile-time constant
   - [ ] **LLVM Support**: LLVM codegen for fixed-capacity type representation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Methods**: Fixed-capacity list methods
   - [ ] `.capacity() -> int` — compile-time capacity
@@ -271,12 +286,14 @@ buffer.push(11)         // PANIC after 10 elements
   - [ ] `.to_dynamic() -> [T]` — convert to heap-allocated
   - [ ] **LLVM Support**: LLVM codegen for fixed-capacity methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Methods**: Dynamic list conversion methods
   - [ ] `[T].to_fixed<$N: int>() -> [T, max N]` — panic if too large
   - [ ] `[T].try_to_fixed<$N: int>() -> Option<[T, max N]>`
   - [ ] **LLVM Support**: LLVM codegen for conversion methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Traits**: Trait implementations for `[T, max N]`
   - [ ] `Eq` when `T: Eq`
@@ -291,6 +308,7 @@ buffer.push(11)         // PANIC after 10 elements
   - [ ] `Collect` always (panic if exceeds capacity)
   - [ ] **LLVM Support**: LLVM codegen for trait impls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Memory**: Inline storage representation
   - [ ] Elements stored inline (no separate heap allocation)
@@ -298,6 +316,7 @@ buffer.push(11)         // PANIC after 10 elements
   - [ ] ARC semantics for reference-type elements
   - [ ] **LLVM Support**: LLVM codegen for inline storage
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/fixed_capacity_list.ori`
   - [ ] Basic declaration and operations
@@ -308,6 +327,7 @@ buffer.push(11)         // PANIC after 10 elements
   - [ ] In struct fields
   - [ ] **LLVM Support**: LLVM codegen for tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/fixed_capacity_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -350,24 +370,28 @@ let elem = arr[2]               // Bounds checked at compile time if index const
   - [ ] Operations
   - [ ] **LLVM Support**: LLVM codegen for fixed-size array type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Types**: Array type with const
   - [ ] `Type::FixedArray(elem, ConstValue)`
   - [ ] Distinct from `Type::List(elem)` and `Type::FixedList(elem, capacity)`
   - [ ] **LLVM Support**: LLVM codegen for array type with const
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Parser**: Parse array types
   - [ ] `[T, size expr]` syntax
   - [ ] Const expression for size
   - [ ] **LLVM Support**: LLVM codegen for parsed array types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/fixed_arrays.ori`
   - [ ] Array declaration
   - [ ] Array literal with inferred size
   - [ ] **LLVM Support**: LLVM codegen for fixed array tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -413,6 +437,7 @@ type Buffer<$SIZE: int> = {
   - [ ] Error handling
   - [ ] **LLVM Support**: LLVM codegen for const expression rules
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression rules codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Const evaluator**: Evaluate const expressions
   - [ ] At type checking time
@@ -420,12 +445,14 @@ type Buffer<$SIZE: int> = {
   - [ ] Error on non-const
   - [ ] **LLVM Support**: LLVM codegen for const expression evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression evaluation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Validate const expressions
   - [ ] All operands must be const
   - [ ] Result must be correct type
   - [ ] **LLVM Support**: LLVM codegen for const expression validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/const_expressions.ori`
   - [ ] Arithmetic in types
@@ -433,6 +460,7 @@ type Buffer<$SIZE: int> = {
   - [ ] Conditional const
   - [ ] **LLVM Support**: LLVM codegen for const expression tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const expression tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -490,6 +518,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [x] **Rust Tests**: `ori_parse/src/grammar/item/generics.rs` — 5 where clause tests [done] (2026-02-13)
   - [ ] **LLVM Support**: LLVM codegen for parsed const bounds
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Validate const bounds at compile time
   - [ ] Check at instantiation when concrete values known
@@ -500,6 +529,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] **Rust Tests**: `ori_typeck/tests/const_bounds.rs`
   - [ ] **LLVM Support**: LLVM codegen for const bounds validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Const evaluator**: Overflow handling
   - [ ] Arithmetic overflow during const bound evaluation is compile error (E1033)
@@ -527,6 +557,7 @@ Formalizes const generic bounds (e.g., `where N > 0`), including allowed constra
   - [ ] Bool in bounds (`A || B`)
   - [ ] **LLVM Support**: LLVM codegen for const bounds tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const bounds tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -561,18 +592,21 @@ let custom_buf = create_buffer<8192>()    // 8192
   - [ ] Interaction with inference
   - [ ] **LLVM Support**: LLVM codegen for default const values
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — default const values codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Parser**: Parse default const
   - [ ] `= value` after const param
   - [ ] Must be const expression
   - [ ] **LLVM Support**: LLVM codegen for parsed default const
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — default const parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Type checker**: Apply defaults
   - [ ] When not specified
   - [ ] Before other inference
   - [ ] **LLVM Support**: LLVM codegen for applying const defaults
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const defaults application codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/types/const_defaults.ori`
   - [ ] Type with default
@@ -580,6 +614,7 @@ let custom_buf = create_buffer<8192>()    // 8192
   - [ ] Override default
   - [ ] **LLVM Support**: LLVM codegen for const defaults tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const defaults tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -615,6 +650,7 @@ impl FixedSize for [int, max 5] {
   - [ ] Const bounds on traits
   - [ ] **LLVM Support**: LLVM codegen for const in traits
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const in traits codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Trait system**: Const associated items
   - [ ] Parse `const` in trait
@@ -622,6 +658,7 @@ impl FixedSize for [int, max 5] {
   - [ ] Access via type
   - [ ] **LLVM Support**: LLVM codegen for const associated items
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const associated items codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/traits/const_associated.ori`
   - [ ] Trait with const
@@ -629,6 +666,7 @@ impl FixedSize for [int, max 5] {
   - [ ] Use in generic context
   - [ ] **LLVM Support**: LLVM codegen for const associated tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/const_generic_tests.rs` — const associated tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 

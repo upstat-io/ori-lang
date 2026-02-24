@@ -74,30 +74,36 @@ Two string types:
   - [ ] **Ori Tests**: `tests/spec/lexical/template_strings.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string tokenization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string tokenization codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Handle `{expr}` interpolation boundaries (switch lexer modes)
   - [ ] **LLVM Support**: LLVM codegen for interpolation boundaries
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — interpolation boundaries codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Handle `{{` and `}}` escape for literal braces
   - [ ] **Ori Tests**: `tests/spec/lexical/template_brace_escape.ori`
   - [ ] **LLVM Support**: LLVM codegen for brace escaping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — brace escaping codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Handle `` \` `` escape for literal backtick
   - [ ] **Ori Tests**: `tests/spec/lexical/template_backtick_escape.ori`
   - [ ] **LLVM Support**: LLVM codegen for backtick escaping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — backtick escaping codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Support escapes: `\\`, `\n`, `\t`, `\r`, `\0` in template strings
   - [ ] **Ori Tests**: `tests/spec/lexical/template_escapes.ori`
   - [ ] **LLVM Support**: LLVM codegen for template escapes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template escapes codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Multi-line template strings (preserve whitespace exactly)
   - [ ] **Ori Tests**: `tests/spec/lexical/template_multiline.ori`
   - [ ] **LLVM Support**: LLVM codegen for multiline template strings
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — multiline codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Parser
 
@@ -106,22 +112,26 @@ Two string types:
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse interpolated expressions (full expression grammar inside `{}`)
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation_expressions.ori`
   - [ ] **LLVM Support**: LLVM codegen for interpolated expressions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — interpolated expressions codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse optional format specifiers `{expr:spec}`
   - [ ] **Rust Tests**: `ori_parse/src/grammar/format_spec.rs` — format spec parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/format_specifiers.ori`
   - [ ] **LLVM Support**: LLVM codegen for format specifiers
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format specifiers codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse format spec grammar: `[[fill]align][width][.precision][type]`
   - [ ] **Ori Tests**: `tests/spec/expressions/format_spec_grammar.ori`
   - [ ] **LLVM Support**: LLVM codegen for format spec grammar
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec grammar codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type System
 
@@ -130,6 +140,7 @@ Two string types:
   - [ ] **Ori Tests**: `tests/spec/types/printable_interpolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for Printable constraint
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — Printable constraint codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Validate format spec type compatibility (e.g., `x`/`X`/`b`/`o` only for int)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/format_spec.rs` — format spec type validation
@@ -143,26 +154,31 @@ Two string types:
   - [ ] **Ori Tests**: `tests/spec/traits/formattable.ori`
   - [ ] **LLVM Support**: LLVM codegen for Formattable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — Formattable trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `FormatSpec` type definition
   - [ ] **Ori Tests**: `tests/spec/types/format_spec.ori`
   - [ ] **LLVM Support**: LLVM codegen for FormatSpec type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — FormatSpec type codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Alignment` and `FormatType` sum types
   - [ ] **Ori Tests**: `tests/spec/types/format_enums.ori`
   - [ ] **LLVM Support**: LLVM codegen for format enums
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format enums codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Blanket impl `Formattable for T: Printable`
   - [ ] **Ori Tests**: `tests/spec/traits/formattable_blanket.ori`
   - [ ] **LLVM Support**: LLVM codegen for blanket impl
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — blanket impl codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `apply_format` helper for width/alignment/padding
   - [ ] **Ori Tests**: `tests/spec/stdlib/apply_format.ori`
   - [ ] **LLVM Support**: LLVM codegen for apply_format
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — apply_format codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Codegen
 
@@ -171,12 +187,14 @@ Two string types:
   - [ ] **Ori Tests**: `tests/spec/expressions/interpolation_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for template string desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — template string desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Desugar format specifiers to `format(value, FormatSpec {...})` calls
   - [ ] **Rust Tests**: `oric/src/desugar/format_spec.rs` — format spec desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/format_spec_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for format spec desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/interpolation_tests.rs` — format spec desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -199,6 +217,7 @@ let updated = Point { ...original, x: 10 }
   - [ ] **Ori Tests**: `tests/spec/lexical/spread_token.ori`
   - [ ] **LLVM Support**: LLVM codegen for ellipsis token
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — ellipsis token codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Parser
 
@@ -207,18 +226,21 @@ let updated = Point { ...original, x: 10 }
   - [ ] **Ori Tests**: `tests/spec/expressions/list_spread.ori`
   - [ ] **LLVM Support**: LLVM codegen for list spread
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse `...expression` in map literals
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — map spread parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/map_spread.ori`
   - [ ] **LLVM Support**: LLVM codegen for map spread
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse `...expression` in struct literals
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — struct spread parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/struct_spread.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct spread
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
@@ -253,18 +275,21 @@ let updated = Point { ...original, x: 10 }
   - [ ] **Ori Tests**: `tests/spec/expressions/list_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for list spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — list spread desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Desugar map spread to merge calls
   - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — map spread desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/map_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for map spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — map spread desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Desugar struct spread to explicit field assignments
   - [ ] **Rust Tests**: `oric/src/codegen/spread.rs` — struct spread desugaring
   - [ ] **Ori Tests**: `tests/spec/expressions/struct_spread_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct spread desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — struct spread desugaring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Edge Cases
 
@@ -272,11 +297,13 @@ let updated = Point { ...original, x: 10 }
   - [ ] **Ori Tests**: `tests/spec/expressions/spread_empty.ori`
   - [ ] **LLVM Support**: LLVM codegen for empty spread
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — empty spread codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Spread preserves evaluation order (left-to-right)
   - [ ] **Ori Tests**: `tests/spec/expressions/spread_eval_order.ori`
   - [ ] **LLVM Support**: LLVM codegen for spread evaluation order
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/spread_tests.rs` — spread evaluation order codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error for spread in function call arguments
   - [ ] **Rust Tests**: `oric/src/typeck/checker/call.rs` — spread in call error
@@ -305,6 +332,7 @@ Add a `by` keyword to range expressions for non-unit step values.
   - [ ] **Ori Tests**: `tests/spec/lexical/by_keyword.ori`
   - [ ] **LLVM Support**: LLVM codegen for by keyword
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — by keyword codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Parser
 
@@ -313,6 +341,7 @@ Add a `by` keyword to range expressions for non-unit step values.
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step.ori`
   - [ ] **LLVM Support**: LLVM codegen for range step parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — range step parsing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
@@ -335,24 +364,28 @@ Add a `by` keyword to range expressions for non-unit step values.
   - [ ] **Ori Tests**: `tests/spec/types/range_with_step.ori`
   - [ ] **LLVM Support**: LLVM codegen for Range type extension
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — Range type extension codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Iterator for stepped ranges (ascending and descending)
   - [ ] **Rust Tests**: `oric/src/eval/iter.rs` — stepped range iteration
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_iteration.ori`
   - [ ] **LLVM Support**: LLVM codegen for stepped range iteration
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — stepped range iteration codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Runtime panic for zero step
   - [ ] **Rust Tests**: `oric/src/eval/range.rs` — zero step panic
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_zero_panic.ori`
   - [ ] **LLVM Support**: LLVM codegen for zero step panic
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — zero step panic codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Empty range for mismatched direction (no panic)
   - [ ] **Rust Tests**: `oric/src/eval/range.rs` — direction mismatch
   - [ ] **Ori Tests**: `tests/spec/expressions/range_step_empty.ori`
   - [ ] **LLVM Support**: LLVM codegen for direction mismatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_step_tests.rs` — direction mismatch codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -375,6 +408,7 @@ Formalize map literal key semantics: bare identifiers are literal string keys (l
   - [ ] **Ori Tests**: `tests/spec/lexical/computed_map_key.ori`
   - [ ] **LLVM Support**: LLVM codegen for computed key tokenization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Parser
 
@@ -383,18 +417,21 @@ Formalize map literal key semantics: bare identifiers are literal string keys (l
   - [ ] **Ori Tests**: `tests/spec/expressions/map_literal_keys.ori`
   - [ ] **LLVM Support**: LLVM codegen for bare identifier keys
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse `[expression]` as computed key in map context
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — computed key parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/computed_map_key.ori`
   - [ ] **LLVM Support**: LLVM codegen for computed key parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Allow reserved keywords as bare literal keys
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — keyword-as-key parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/map_keyword_keys.ori`
   - [ ] **LLVM Support**: LLVM codegen for keyword keys
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
@@ -403,6 +440,7 @@ Formalize map literal key semantics: bare identifiers are literal string keys (l
   - [ ] **Ori Tests**: `tests/spec/types/map_key_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for bare key types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Computed keys must match map key type `K` in `{K: V}`
   - [ ] **Rust Tests**: `oric/src/typeck/checker/map_lit.rs` — computed key type checking
@@ -423,12 +461,14 @@ Formalize map literal key semantics: bare identifiers are literal string keys (l
   - [ ] **Ori Tests**: `tests/spec/expressions/map_key_desugar.ori`
   - [ ] **LLVM Support**: LLVM codegen for bare key desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Evaluate computed key expressions at runtime
   - [ ] **Rust Tests**: `oric/src/codegen/map.rs` — computed key evaluation
   - [ ] **Ori Tests**: `tests/spec/expressions/computed_key_eval.ori`
   - [ ] **LLVM Support**: LLVM codegen for computed key evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/computed_map_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -445,6 +485,7 @@ Fix parser discrepancy where `div` operator is in grammar but missing from parse
   - [ ] **Ori Tests**: `tests/spec/operators/div_floor.ori`
   - [ ] **LLVM Support**: LLVM codegen for div operator
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/operator_tests.rs` — div codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Operator Test Infrastructure
 
@@ -489,12 +530,14 @@ let s = 0.25mb      // 250,000 bytes
   - [ ] **Ori Tests**: `tests/spec/lexical/decimal_duration.ori`
   - [ ] **LLVM Support**: LLVM codegen for decimal duration literals
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — decimal duration codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse decimal size literals (`1.5kb`, `0.5mb`, etc.)
   - [ ] **Rust Tests**: `ori_lexer/src/lib.rs` — decimal size tokenization
   - [ ] **Ori Tests**: `tests/spec/lexical/decimal_size.ori`
   - [ ] **LLVM Support**: LLVM codegen for decimal size literals
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — decimal size codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Integer arithmetic conversion (no floats involved)
   - [ ] **Rust Tests**: `ori_lexer/src/convert.rs` — integer-only decimal conversion
@@ -526,6 +569,7 @@ let s = 0.25mb      // 250,000 bytes
   - [ ] **Ori Tests**: `tests/spec/types/size_si_units.ori`
   - [ ] **LLVM Support**: LLVM codegen with SI units
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/literal_tests.rs` — SI unit codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -549,6 +593,7 @@ let count = get_count() ?? 0
   - [ ] **Ori Tests**: `tests/spec/expressions/coalesce.ori`
   - [ ] **LLVM Support**: LLVM codegen for null coalesce operator
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/coalesce_tests.rs` — coalesce codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### Type Checker
 
@@ -629,6 +674,7 @@ for item in items {
 
 - [ ] **LLVM Support**: No changes needed — parser desugars before reaching LLVM codegen
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/compound_assign_tests.rs` — verify desugared form compiles correctly
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -663,7 +709,7 @@ Add `@` as a binary operator for matrix multiplication. Desugars to `MatMul` tra
 ### LLVM
 
 - [ ] **LLVM Support**: Falls through via trait dispatch — no special-casing needed
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/operators.rs` — matmul trait dispatch
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/operators.rs` — matmul trait dispatch
 
 ---
 
@@ -730,7 +776,7 @@ Add `**` as a right-associative binary operator for exponentiation. Desugars to 
 ### LLVM
 
 - [ ] **LLVM Support**: Primitive impls via `llvm.pow` intrinsic; user types via trait dispatch
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/operators.rs` — power operator codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/operators.rs` — power operator codegen
 
 ---
 
@@ -807,7 +853,7 @@ data
 ### LLVM
 
 - [ ] **LLVM Support**: No changes needed — type checker desugars before reaching LLVM codegen
-  - [ ] **LLVM Rust Tests**: `ori_llvm/tests/aot/pipe.rs` — verify desugared form compiles correctly
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/pipe.rs` — verify desugared form compiles correctly
 
 ---
 
