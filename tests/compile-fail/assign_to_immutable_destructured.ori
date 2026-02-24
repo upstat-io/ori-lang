@@ -2,7 +2,7 @@
 // Individual bindings in tuple destructuring can be marked immutable.
 
 #[compile_fail("cannot assign to immutable binding")]
-@test_assign_immutable_destructured () -> void = {
+@test_assign_immutable_destructured tests _ () -> void = {
     let ($a, b) = (1, 2);
     a = 10
 }

@@ -12,13 +12,13 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Valid: boolean condition
-@test_if_bool_condition () -> void = {
+@test_if_bool_condition tests _ () -> void = {
     let result = if true then 1 else 0;
     assert_eq(actual: result, expected: 1)
 }
 
 // Valid: comparison as condition
-@test_if_comparison_condition () -> void = {
+@test_if_comparison_condition tests _ () -> void = {
     let x = 5;
     let result = if x > 3 then "big" else "small";
     assert_eq(actual: result, expected: "big")
@@ -26,14 +26,14 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Invalid: int condition
 #[compile_fail("type mismatch")]
-@test_if_int_condition () -> void = {
+@test_if_int_condition tests _ () -> void = {
     let result = if 1 then "yes" else "no";
     ()
 }
 
 // Invalid: string condition
 #[compile_fail("type mismatch")]
-@test_if_str_condition () -> void = {
+@test_if_str_condition tests _ () -> void = {
     let result = if "true" then 1 else 0;
     ()
 }
@@ -43,27 +43,27 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Valid: same type branches
-@test_if_same_branch_types () -> void = {
+@test_if_same_branch_types tests _ () -> void = {
     let result: int = if true then 1 else 2;
     assert_eq(actual: result, expected: 1)
 }
 
 // Invalid: mismatched branch types
 #[compile_fail("type mismatch")]
-@test_if_mismatched_branches () -> void = {
+@test_if_mismatched_branches tests _ () -> void = {
     let result = if true then 1 else "two";
     ()
 }
 
 // Invalid: mismatched branch types (int vs float)
 #[compile_fail("type mismatch")]
-@test_if_int_float_branches () -> void = {
+@test_if_int_float_branches tests _ () -> void = {
     let result = if true then 1 else 2.0;
     ()
 }
 
 // Valid: nested if with consistent types
-@test_nested_if_consistent () -> void = {
+@test_nested_if_consistent tests _ () -> void = {
     let x = 10;
     let result: str = if x < 5 then "small" else if x < 15 then "medium" else "large";
     assert_eq(actual: result, expected: "medium")
@@ -71,7 +71,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Invalid: nested if with inconsistent types
 #[compile_fail("type mismatch")]
-@test_nested_if_inconsistent () -> void = {
+@test_nested_if_inconsistent tests _ () -> void = {
     let x = 10;
     let result = if x < 5 then 1 else if x < 15 then "medium" else 100;
     ()
@@ -82,7 +82,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Valid: match with same branch types
-@test_match_same_types () -> void = {
+@test_match_same_types tests _ () -> void = {
     let opt = Some(42);
     let result: int = match opt {
         Some(x) -> x,
@@ -93,7 +93,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Invalid: match with mismatched branch types
 #[compile_fail("type mismatch")]
-@test_match_mismatched_types () -> void = {
+@test_match_mismatched_types tests _ () -> void = {
     let opt = Some(42);
     let result = match opt {
         Some(x) -> x,
@@ -103,7 +103,7 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 // Valid: match on Result
-@test_match_result () -> void = {
+@test_match_result tests _ () -> void = {
     let res = Ok(42);
     let result: int = match res {
         Ok(x) -> x,
@@ -114,7 +114,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Invalid: match Result with wrong branch types
 #[compile_fail("type mismatch")]
-@test_match_result_mismatched () -> void = {
+@test_match_result_mismatched tests _ () -> void = {
     let res = Ok(42);
     let result = match res {
         Ok(x) -> x,
@@ -124,7 +124,7 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 // Valid: match on literals
-@test_match_literal () -> void = {
+@test_match_literal tests _ () -> void = {
     let x = 2;
     let result: str = match x {
         1 -> "one",
@@ -136,7 +136,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Invalid: match literal with mismatched pattern type
 #[compile_fail("type mismatch")]
-@test_match_literal_wrong_pattern () -> void = {
+@test_match_literal_wrong_pattern tests _ () -> void = {
     let x = 2;
     let result = match x {
         "one" -> 1,
@@ -151,7 +151,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Valid: run returns last expression type
-@test_run_return_type () -> void = {
+@test_run_return_type tests _ () -> void = {
     let result: int = {
         let a = 1;
         let b = 2;
@@ -162,7 +162,7 @@ use std.testing { assert, assert_eq, assert_ne }
 
 // Invalid: run return type mismatch with context
 #[compile_fail("type mismatch")]
-@test_run_context_mismatch () -> void = {
+@test_run_context_mismatch tests _ () -> void = {
     let result: str = {
         let x = 42;
         x
@@ -178,7 +178,7 @@ use std.testing { assert, assert_eq, assert_ne }
 @succeed (x: int) -> Result<int, str> = Ok(x);
 
 // Valid: try returns Result with correct types
-@test_try_result_type () -> void = {
+@test_try_result_type tests _ () -> void = {
     let result = try {
         let x = succeed(x: 21);
         Ok(x * 2)
@@ -187,7 +187,7 @@ use std.testing { assert, assert_eq, assert_ne }
 }
 
 // Valid: try with Option
-@test_try_option () -> void = {
+@test_try_option tests _ () -> void = {
     let opt = Some(42);
     let result = try {
         let x = opt;
@@ -201,7 +201,7 @@ use std.testing { assert, assert_eq, assert_ne }
 // =============================================================================
 
 // Valid: if with unit expressions
-@test_if_unit () -> void = {
+@test_if_unit tests _ () -> void = {
     let x = true;
     if x then () else ()
 }

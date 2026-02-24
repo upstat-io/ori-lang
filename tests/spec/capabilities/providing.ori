@@ -8,7 +8,7 @@ use std.testing { assert_eq }
 // =============================================================================
 
 // Simple with...in expression
-@test_basic_provision () -> void = {
+@test_basic_provision tests _ () -> void = {
     let result = with Http = "mock_http" in Http;
     assert_eq(
         actual: result,
@@ -19,7 +19,7 @@ use std.testing { assert_eq }
 // With struct provider
 type MockHttp = { base_url: str }
 
-@test_struct_provider () -> void = {
+@test_struct_provider tests _ () -> void = {
     let result = with Http = MockHttp { base_url: "https://api.example.com" } in Http.base_url;
     assert_eq(
         actual: result,
@@ -32,7 +32,7 @@ type MockHttp = { base_url: str }
 // =============================================================================
 
 // Capability is only available in body
-@test_scoping () -> void = {
+@test_scoping tests _ () -> void = {
     let outer = "outer";
     let inner = with Http = "http" in Http;
     assert_eq(actual: outer, expected: "outer");
@@ -44,7 +44,7 @@ type MockHttp = { base_url: str }
 // =============================================================================
 
 // Multiple capabilities via nesting
-@test_nested_provision () -> void = {
+@test_nested_provision tests _ () -> void = {
     let result = with Http = "http" in
         with Cache = "cache" in
             Http + "-" + Cache;
@@ -55,7 +55,7 @@ type MockHttp = { base_url: str }
 }
 
 // Inner shadows outer
-@test_shadowing () -> void = {
+@test_shadowing tests _ () -> void = {
     let result = with Http = "outer" in
         with Http = "inner" in Http;
     assert_eq(
@@ -68,7 +68,7 @@ type MockHttp = { base_url: str }
 // With Expression Returns Body Value
 // =============================================================================
 
-@test_returns_body_value () -> void = {
+@test_returns_body_value tests _ () -> void = {
     let result = with Http = "unused" in 42;
     assert_eq(
         actual: result,
@@ -76,7 +76,7 @@ type MockHttp = { base_url: str }
     )
 }
 
-@test_complex_body () -> void = {
+@test_complex_body tests _ () -> void = {
     let result = with Logger = "log" in {
         let x = 10;
         let y = 20;
@@ -93,12 +93,12 @@ type MockHttp = { base_url: str }
 // =============================================================================
 
 // Test capability with different types
-@test_int_capability () -> void = {
+@test_int_capability tests _ () -> void = {
     let result = with Counter = 42 in Counter + 1;
     assert_eq(actual: result, expected: 43)
 }
 
-@test_bool_capability () -> void = {
+@test_bool_capability tests _ () -> void = {
     let result = with Debug = true in if Debug then "on" else "off";
     assert_eq(actual: result, expected: "on")
 }
@@ -106,27 +106,27 @@ type MockHttp = { base_url: str }
 // Test capability with list value
 type MockDataStore = { data: [int] }
 
-@test_list_capability () -> void = {
+@test_list_capability tests _ () -> void = {
     let store = MockDataStore { data: [1, 2, 3] };
     let result = with DataStore = store in DataStore.data[0];
     assert_eq(actual: result, expected: 1)
 }
 
 // Test capability used in conditional
-@test_capability_in_conditional () -> void = {
+@test_capability_in_conditional tests _ () -> void = {
     let result = with Debug = true in
         if Debug then "debug mode" else "release mode";
     assert_eq(actual: result, expected: "debug mode")
 }
 
 // Test capability with multiple uses in body
-@test_multiple_uses () -> void = {
+@test_multiple_uses tests _ () -> void = {
     let result = with Value = 10 in Value + Value + Value;
     assert_eq(actual: result, expected: 30)
 }
 
 // Test deeply nested capabilities (three levels)
-@test_three_level_nesting () -> void = {
+@test_three_level_nesting tests _ () -> void = {
     let result = with A = 1 in
         with B = 2 in
             with C = 3 in
@@ -135,14 +135,14 @@ type MockDataStore = { data: [int] }
 }
 
 // Test capability with closure that doesn't capture it
-@test_capability_not_in_closure () -> void = {
+@test_capability_not_in_closure tests _ () -> void = {
     let f = (x: int) -> x * 2;
     let result = with Logger = "log" in f(5);
     assert_eq(actual: result, expected: 10)
 }
 
 // Test capability visible in let binding
-@test_capability_in_let () -> void = {
+@test_capability_in_let tests _ () -> void = {
     let result = with X = 100 in {
         let y = X / 10;
         y
@@ -157,7 +157,7 @@ impl Config {
     @get_address (self) -> str = self.name + ":" + str(self.port);
 }
 
-@test_capability_method_call () -> void = {
+@test_capability_method_call tests _ () -> void = {
     let cfg = Config { name: "localhost", port: 8080 };
     let result = with Cfg = cfg in Cfg.get_address();
     assert_eq(actual: result, expected: "localhost:8080")
@@ -166,7 +166,7 @@ impl Config {
 // Test capability preserves through function call
 @uses_cap () -> int uses Value = Value;
 
-@test_capability_through_function () -> void = {
+@test_capability_through_function tests _ () -> void = {
     let result = with Value = 42 in uses_cap();
     assert_eq(actual: result, expected: 42)
 }
