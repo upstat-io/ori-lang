@@ -1,0 +1,7 @@
+// Spec: 05-variables.md § Immutability — loop variables are immutable.
+// Destructured for-loop bindings are also immutable.
+
+#[compile_fail("cannot assign to immutable binding")]
+@test_assign_for_tuple_var tests _ () -> void = {
+    for (a, b) in [(1, 2)] do a = 10
+}

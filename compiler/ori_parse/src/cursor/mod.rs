@@ -361,22 +361,7 @@ impl<'a> Cursor<'a> {
     /// `for(over: ...)` (named-property syntax) from `for (k, v) in ...` (binding pattern).
     pub fn is_named_arg_at(&self, n: usize) -> bool {
         let kind = self.peek_kind_at(n);
-        let is_ident = matches!(kind, TokenKind::Ident(_))
-            || matches!(
-                kind,
-                TokenKind::Print
-                    | TokenKind::Panic
-                    | TokenKind::By
-                    | TokenKind::Run
-                    | TokenKind::Try
-                    | TokenKind::With
-                    | TokenKind::Where
-                    | TokenKind::Match
-                    | TokenKind::For
-                    | TokenKind::In
-                    | TokenKind::If
-                    | TokenKind::Type
-            );
+        let is_ident = matches!(kind, TokenKind::Ident(_)) || is_keyword_usable_as_ident(kind);
         is_ident && matches!(self.peek_kind_at(n + 1), TokenKind::Colon)
     }
 
@@ -629,6 +614,36 @@ impl<'a> Cursor<'a> {
             self.current_span(),
         )
     }
+}
+
+/// Check if a keyword token can be used as an identifier (named arg, field name, etc.).
+///
+/// This is the **single source of truth** for which keywords are valid in identifier
+/// position. It is the union of:
+/// - Soft keywords ([`Cursor::soft_keyword_to_name`]): `print`, `panic`, `by`, `run`, `try`, `with`
+/// - Positional keywords ([`Cursor::keyword_as_name`]): `where`, `match`, `for`, `in`, `if`, `type`
+///
+/// Used by [`Cursor::is_named_arg_at`] for lookahead. Adding a new keyword-as-identifier
+/// requires updating this function (and the corresponding `*_to_name` method above).
+/// A test (`keyword_as_ident_consistency`) enforces this stays in sync.
+fn is_keyword_usable_as_ident(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        // Soft keywords (context-sensitive, always valid as idents)
+        TokenKind::Print
+            | TokenKind::Panic
+            | TokenKind::By
+            | TokenKind::Run
+            | TokenKind::Try
+            | TokenKind::With
+            // Positional keywords (valid as field/arg names)
+            | TokenKind::Where
+            | TokenKind::Match
+            | TokenKind::For
+            | TokenKind::In
+            | TokenKind::If
+            | TokenKind::Type
+    )
 }
 
 #[cfg(test)]
