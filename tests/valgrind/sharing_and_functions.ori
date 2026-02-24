@@ -1,0 +1,42 @@
+// Valgrind test: shared references and multi-function passing.
+// Exercises: diamond sharing, 10-deep function chain, transform pipeline.
+
+type Ctx = { value: int, tag: str }
+type Data = { x: int, label: str }
+
+@step1 (c: Ctx) -> int = step2(c: c);
+@step2 (c: Ctx) -> int = step3(c: c);
+@step3 (c: Ctx) -> int = step4(c: c);
+@step4 (c: Ctx) -> int = step5(c: c);
+@step5 (c: Ctx) -> int = step6(c: c);
+@step6 (c: Ctx) -> int = step7(c: c);
+@step7 (c: Ctx) -> int = step8(c: c);
+@step8 (c: Ctx) -> int = step9(c: c);
+@step9 (c: Ctx) -> int = step10(c: c);
+@step10 (c: Ctx) -> int = c.value;
+
+@add_one (d: Data) -> Data = Data { x: d.x + 1, label: d.label };
+@add_two (d: Data) -> Data = Data { x: d.x + 2, label: d.label };
+@add_three (d: Data) -> Data = Data { x: d.x + 3, label: d.label };
+
+@pipeline (d: Data) -> int = {
+    let d2 = add_one(d: d);
+    let d3 = add_two(d: d2);
+    let d4 = add_three(d: d3);
+    d4.x
+}
+
+@main () -> int = {
+    // 10-deep function chain
+    let c = Ctx { value: 99, tag: "chain" };
+    let chain_result = step1(c: c);
+
+    // Transform pipeline in loop
+    let total = 0;
+    for i in 0..500 do {
+        let d = Data { x: i, label: "pipe" };
+        total = total + pipeline(d: d)
+    };
+
+    if chain_result == 99 && total == 127750 then 0 else 1
+}

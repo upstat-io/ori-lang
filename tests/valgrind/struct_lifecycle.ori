@@ -1,0 +1,33 @@
+// Valgrind test: struct allocation and deallocation lifecycle.
+// Exercises: 1000 struct allocs with string fields, reassignment,
+// nested structs, and function-call passing.
+
+type Item = { id: int, value: str }
+type Inner = { val: int }
+type Outer = { inner: Inner, name: str }
+
+@process (o: Outer) -> int = o.inner.val;
+
+@main () -> int = {
+    // Struct allocation in loop
+    let count = 0;
+    for i in 0..1000 do {
+        let item = Item { id: i, value: "data" };
+        count = count + 1
+    };
+
+    // Nested struct through function
+    let sum = 0;
+    for i in 0..500 do {
+        let o = Outer { inner: Inner { val: i }, name: "test" };
+        sum = sum + process(o: o)
+    };
+
+    // Reassignment (old values must be freed)
+    let h = Item { id: 0, value: "init" };
+    for i in 1..=500 do {
+        h = Item { id: i, value: "updated" }
+    };
+
+    if count == 1000 && sum == 124750 && h.id == 500 then 0 else 1
+}
