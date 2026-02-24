@@ -1,13 +1,28 @@
 //! Tests for `ori_rt` core functions (memory, refcounting, panic).
+//!
+//! All RC tests acquire `RC_TEST_LOCK` because `RC_LIVE_COUNT` is a global
+//! atomic counter modified by `ori_rc_alloc`/`ori_rc_free`. Without
+//! serialization, parallel tests cause TOCTOU races in live-count assertions.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::MutexGuard;
 
 use super::*;
+
+/// Serializes all RC tests to prevent TOCTOU races on `RC_LIVE_COUNT`.
+static RC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn lock_rc() -> MutexGuard<'static, ()> {
+    RC_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 // ── Basic RC lifecycle ──────────────────────────────────────────────────
 
 #[test]
 fn rc_alloc_initializes_count_to_one() {
+    let _g = lock_rc();
     let ptr = ori_rc_alloc(16, 8);
     assert!(!ptr.is_null());
     assert_eq!(ori_rc_count(ptr), 1);
@@ -16,6 +31,7 @@ fn rc_alloc_initializes_count_to_one() {
 
 #[test]
 fn rc_inc_increments_count() {
+    let _g = lock_rc();
     let ptr = ori_rc_alloc(16, 8);
     ori_rc_inc(ptr);
     assert_eq!(ori_rc_count(ptr), 2);
@@ -31,6 +47,7 @@ fn rc_inc_increments_count() {
 
 #[test]
 fn rc_dec_decrements_count() {
+    let _g = lock_rc();
     let ptr = ori_rc_alloc(16, 8);
     ori_rc_inc(ptr);
     ori_rc_inc(ptr);
@@ -49,6 +66,7 @@ fn rc_dec_decrements_count() {
 
 #[test]
 fn rc_null_pointer_is_noop() {
+    let _g = lock_rc();
     // These should not crash
     ori_rc_inc(std::ptr::null_mut());
     ori_rc_dec(std::ptr::null_mut(), None);
@@ -71,6 +89,7 @@ extern "C" fn test_drop_fn(data_ptr: *mut u8) {
 
 #[test]
 fn drop_function_called_once_at_zero() {
+    let _g = lock_rc();
     DROP_CALL_COUNT.store(0, Ordering::SeqCst);
 
     let ptr = ori_rc_alloc(16, 8);
@@ -89,6 +108,7 @@ fn drop_function_called_once_at_zero() {
 
 #[test]
 fn drop_function_not_called_above_zero() {
+    let _g = lock_rc();
     DROP_CALL_COUNT.store(0, Ordering::SeqCst);
 
     let ptr = ori_rc_alloc(16, 8);
@@ -108,6 +128,7 @@ fn drop_function_not_called_above_zero() {
 
 #[test]
 fn concurrent_increments_are_correct() {
+    let _g = lock_rc();
     let ptr = ori_rc_alloc(16, 8);
     let data_ptr = ptr as usize; // Send across threads
 
@@ -142,6 +163,7 @@ fn concurrent_increments_are_correct() {
 
 #[test]
 fn concurrent_inc_and_dec_are_correct() {
+    let _g = lock_rc();
     let ptr = ori_rc_alloc(16, 8);
     let data_ptr = ptr as usize;
 
@@ -199,6 +221,7 @@ extern "C" fn concurrent_test_drop_fn(data_ptr: *mut u8) {
 
 #[test]
 fn rc_live_count_tracks_alloc_and_free() {
+    let _g = lock_rc();
     let before = ori_rc_live_count();
 
     let ptr = ori_rc_alloc(16, 8);
@@ -210,6 +233,7 @@ fn rc_live_count_tracks_alloc_and_free() {
 
 #[test]
 fn rc_live_count_nonzero_after_alloc_without_free() {
+    let _g = lock_rc();
     let before = ori_rc_live_count();
 
     let ptr = ori_rc_alloc(16, 8);
@@ -224,6 +248,8 @@ fn rc_live_count_nonzero_after_alloc_without_free() {
 
 #[test]
 fn rc_reset_live_count_zeroes_counter() {
+    let _g = lock_rc();
+
     // Allocate without freeing
     let _ptr = ori_rc_alloc(16, 8);
 
@@ -241,6 +267,7 @@ fn rc_reset_live_count_zeroes_counter() {
 
 #[test]
 fn concurrent_dec_triggers_drop_exactly_once() {
+    let _g = lock_rc();
     CONCURRENT_DROP_COUNT.store(0, Ordering::SeqCst);
 
     let ptr = ori_rc_alloc(16, 8);
