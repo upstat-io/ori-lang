@@ -176,6 +176,18 @@ pub struct OriResult<T> {
 /// Read by `ori_rc_live_count` to verify all allocations were freed.
 static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 
+/// Maximum allowed reference count.
+///
+/// Matches Rust's `Arc` overflow protection: if a single allocation reaches
+/// this many live references, something is catastrophically wrong (likely an
+/// infinite increment loop). We abort rather than allowing silent wrap-around
+/// to negative counts, which would cause use-after-free.
+///
+/// Value: `isize::MAX` (same as Rust's `Arc`). On 64-bit systems this is
+/// `i64::MAX` (9.2 quintillion) — unreachable in practice, but the check
+/// costs essentially nothing (one compare per `ori_rc_inc`).
+const MAX_REFCOUNT: i64 = isize::MAX as i64;
+
 // ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
 
 /// Buffer for `setjmp`/`longjmp` JIT error recovery.
@@ -424,14 +436,35 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
         #[cfg(not(feature = "single-threaded"))]
         {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
-            (*rc_ptr).fetch_add(1, Ordering::Relaxed);
+            let prev = (*rc_ptr).fetch_add(1, Ordering::Relaxed);
+
+            // Overflow protection: abort if refcount was already at the maximum.
+            // fetch_add returns the *previous* value, so prev == MAX_REFCOUNT
+            // means the new value overflowed. Matches Rust's Arc::clone check.
+            if prev == MAX_REFCOUNT {
+                rc_overflow_abort();
+            }
         }
         #[cfg(feature = "single-threaded")]
         {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            if *rc_ptr == MAX_REFCOUNT {
+                rc_overflow_abort();
+            }
             *rc_ptr += 1;
         }
     }
+}
+
+/// Abort on refcount overflow.
+///
+/// Separate `#[cold]` function keeps the fast path in `ori_rc_inc` small
+/// and avoids polluting the instruction cache with error handling code.
+#[cold]
+#[inline(never)]
+fn rc_overflow_abort() -> ! {
+    eprintln!("ori: refcount overflow — aborting (possible reference cycle or infinite clone)");
+    std::process::abort();
 }
 
 /// Decrement the reference count. If it reaches zero, call the drop function.
