@@ -85,8 +85,8 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Struct update with string field — **FIXED** (2026-02-24) — IsShared/Set on inline aggregates: emit `true` to force Construct path
 
 - [ ] **Data structures (other):**
-  - [ ] Enum construction and pattern matching — AOT gap: variant constructors (#[ignore])
-  - [ ] Recursive types (tree, linked list) — blocked by enum constructors
+  - [x] Enum construction and pattern matching — **FIXED** (2026-02-24) — 4 tests: construction, unit variants, mixed variants, param+return
+  - [ ] Recursive types (tree, linked list) — AOT gap: boxed/RC pointer field dereference in match codegen (#[ignore])
   - [ ] Generic types — AOT gap: generic function resolution (#[ignore])
 
 - [ ] **Collections:**
@@ -143,7 +143,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - Debug — interpreter-only (#[ignore])
   - Derived Eq on structs (==, !=, string fields) — covered (2026-02-23, fixed emit_comparison_via_trait)
   - Derived Comparable on structs (<, >, <=, >=) — covered (2026-02-23, fixed emit_ordering_comparison)
-  - Derived on enums — blocked by enum constructors
+  - Derived on enums — AOT gap: derive codegen compares whole struct, not tag (unit enums) / per-field (payload enums)
   - Operator overloading through traits (arithmetic, bitwise, boolean) — covered
   - Formattable (hex, binary, octal, padding, alignment) — covered (formattable.rs)
 
@@ -345,6 +345,8 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | Tuple destructuring in for loops | Parser / Section 00 | `test_tuple_destructure_in_loop` | **NEW** (2026-02-23) — `for (a, b) in ...` rejected: "for pattern requires named properties" |
 | ~~Tuple `==` equality~~ | ~~21A comparison codegen~~ | ~~`test_tuple_equality`~~ | **FIXED** (2026-02-24) — tuple equality comparison codegen fixed |
 | ~~Struct update with string field~~ | ~~21A struct codegen~~ | ~~`test_struct_update_with_string`~~ | **FIXED** (2026-02-24) — IsShared/Set skip non-RcPointer values, forces Construct path |
+| Recursive enum types (Tree, linked list) | 21A § 21.2 | `test_aot_recursive_enum_tree` | **NEW** (2026-02-24) — match codegen loads boxed child as i64 instead of following RC pointer |
+| Derived traits on enums (Eq) | 21A derive codegen | `test_aot_derive_eq_enum` | **NEW** (2026-02-24) — icmp compares whole struct instead of extracting tag for unit enums |
 
 ---
 
