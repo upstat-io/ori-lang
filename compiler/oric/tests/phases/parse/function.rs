@@ -38,12 +38,12 @@ fn test_function_no_params_with_return_type_parses() {
 
 #[test]
 fn test_free_floating_test_requires_return_type() {
-    parse_err("@test_something () = ();", "expected ->");
+    parse_err("@test_something tests _ () = ();", "expected ->");
 }
 
 #[test]
 fn test_free_floating_test_with_return_type_parses() {
-    let output = parse_ok("@test_something () -> void = ();");
+    let output = parse_ok("@test_something tests _ () -> void = ();");
     assert_eq!(output.module.tests.len(), 1);
 }
 

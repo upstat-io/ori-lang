@@ -51,18 +51,24 @@ fn test_floating_with_underscore() {
 }
 
 #[test]
-fn test_floating_by_name_prefix() {
-    // Regression guard: test_ prefix detection without `tests` keyword
+fn test_prefix_without_tests_keyword_is_regular_function() {
+    // After removing the legacy `test_` prefix convention, a function named
+    // `test_something` without `tests` keyword is a regular function.
     let output = parse_module("@test_something () -> void = ();");
     assert!(
         output.errors.is_empty(),
         "Parse errors: {:?}",
         output.errors
     );
-    assert_eq!(output.module.tests.len(), 1);
-    assert!(
-        output.module.tests[0].targets.is_empty(),
-        "test_ prefix test should have empty targets"
+    assert_eq!(
+        output.module.functions.len(),
+        1,
+        "test_ prefix without `tests` keyword should be a regular function"
+    );
+    assert_eq!(
+        output.module.tests.len(),
+        0,
+        "should not be classified as a test"
     );
 }
 
