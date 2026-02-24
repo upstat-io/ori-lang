@@ -95,6 +95,7 @@ impl ArcLowerer<'_> {
                 }
                 if let Some((rest_name, rest_mut)) = rest {
                     if rest_mut.is_mutable() {
+                        self.block_let_names.insert(*rest_name);
                         self.scope.bind_mutable(*rest_name, value);
                     } else {
                         self.scope.bind(*rest_name, value);
