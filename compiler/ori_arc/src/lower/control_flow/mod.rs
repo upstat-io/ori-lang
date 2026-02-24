@@ -39,6 +39,10 @@ impl ArcLowerer<'_> {
             "block: enter"
         );
 
+        // Save and reset block_let_names for this block's scope.
+        // bind_pattern will populate it with names introduced by `let`.
+        let parent_let_names = std::mem::take(&mut self.block_let_names);
+
         for &stmt_id in &stmt_ids {
             if self.builder.is_terminated() {
                 break;
@@ -55,12 +59,24 @@ impl ArcLowerer<'_> {
         };
 
         // Carry forward mutable var reassignments from the inner scope.
-        // Local `let` bindings die with the block, but `x = expr` on an
-        // outer mutable variable must propagate so loop headers see updates.
+        // Local `let` bindings (shadows) die with the block, but `x = expr`
+        // on an outer mutable variable must propagate so loop headers see
+        // updates. Skip names that were freshly `let`-bound in this block —
+        // those are shadows, not reassignments.
         let inner_scope = self.scope.clone();
         self.scope = parent_scope;
         let mut propagated = 0u32;
         for (name, var) in inner_scope.mutable_bindings() {
+            // Skip names that were introduced by `let` in this block — they
+            // are shadows of outer variables, not reassignments.
+            if self.block_let_names.contains(&name) {
+                tracing::trace!(
+                    name = self.name_str(name),
+                    var = var.raw(),
+                    "block: skipping shadow (let-bound in this block)"
+                );
+                continue;
+            }
             if self.scope.is_mutable(name) {
                 let old = self.scope.lookup(name);
                 if old != Some(var) {
@@ -75,6 +91,10 @@ impl ArcLowerer<'_> {
                 self.scope.bind_mutable(name, var);
             }
         }
+
+        // Restore parent's block_let_names.
+        self.block_let_names = parent_let_names;
+
         tracing::debug!(
             result = result_var.raw(),
             propagated,

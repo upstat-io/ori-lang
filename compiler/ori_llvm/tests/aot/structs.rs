@@ -204,7 +204,6 @@ type Point = { x: int, y: int };
 }
 
 #[test]
-#[ignore = "AOT gap: struct update with string field — GEP on non-pointer value causes segfault"]
 fn test_struct_update_with_string() {
     assert_aot_success(
         r#"

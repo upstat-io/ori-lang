@@ -42,10 +42,13 @@ const TRAIT_DISPATCH_METHODS: &[&str] = &[
 ///
 /// - `__iter_next`: Low-level iteration protocol (ARC lowering)
 /// - `to_int`: Identity conversion (int → int in generic paths)
+/// - `add`/`concat`: List operator desugaring (`list + list` → `list.add`)
 const ARC_PIPELINE_METHODS: &[(&str, &str)] = &[
     ("Iterator", "__iter_next"),
     ("Ordering", "to_int"),
     ("int", "to_int"),
+    ("list", "add"),
+    ("list", "concat"),
 ];
 
 /// Every `BuiltinTable` entry must be backed by a TYPECK entry, a known
