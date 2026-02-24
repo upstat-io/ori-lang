@@ -119,9 +119,9 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Bool-returning closures (local use works) — covered (higher_order.rs)
   - [x] Recursive functions — covered
   - [x] Mutually recursive functions — covered
-  - [ ] Named function → closure coercion — AOT gap: ABI mismatch i64 vs { ptr, ptr } (#[ignore])
+  - [x] Named function → closure coercion — **FIXED** (2026-02-24) — `lower_ident()` now checks `Tag::Function` for unscoped identifiers and emits `PartialApply`
   - [x] Function taking `(int) -> bool` param — **FIXED** (2026-02-24) — test function name `test_pred` was classified as test; renamed to `check_pred`
-  - [ ] Closures capturing closures — AOT gap for complex nesting (#[ignore])
+  - [x] Closures capturing closures — **FIXED** (2026-02-24) — parser `check_type_keyword()` didn't recognize `(` as function type start; replaced with speculative `try_parse_lambda_return_type()`
 
 - [ ] **Error handling:** (2026-02-23)
   - [x] Result basics (Ok/Err construction, is_ok/is_err, unwrap, unwrap_or) — covered (error_handling.rs)
@@ -213,7 +213,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Fibonacci via recursive match — covered (depth.rs)
   - [x] Mutation in match arms inside for-do — **FIXED** (2026-02-24) — SSA merge for mutable variables in match arms (same pattern as lower_if)
   - [x] Bool comparison stored as struct field in for-yield — **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations
-  - [ ] Iterator .map closure accessing struct fields — AOT gap: invalid LLVM IR (#[ignore])
+  - [x] Iterator .map closure accessing struct fields — **FIXED** (2026-02-24) — two bugs: type inference gap (closure param not unified with iterator element) + ARC lowerer field index resolution (pool.resolve vs resolve_fully)
 
 - [x] **Operator edge cases:** (2026-02-23)
   - Integer boundary values (billion-scale, negative large, zero boundary) — covered (operators.rs)
@@ -323,11 +323,11 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | ~~List methods (push/first/last)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_aot_list_push` et al.~~ | **FIXED** (2026-02-24) — runtime + builtin table (push, first, last, contains, reverse) |
 | ~~Map methods (is_empty)~~ | ~~21A § 21.10~~ | ~~`test_aot_map_is_empty`~~ | **FIXED** (2026-02-24) — inline LLVM IR |
 | `list[index]` subscript | 21A § 21.10 | `test_aot_list_index` | Index trait codegen |
-| Closure returning closure | **Type checker bug** (§ 02) | `test_aot_closure_capturing_closure` | Inference regression |
+| ~~Closure returning closure~~ | ~~**Parser bug** (§ 00)~~ | ~~`test_aot_closure_capturing_closure`~~ | **FIXED** (2026-02-24) — parser `check_type_keyword()` missed function type `(int) -> int`; replaced with speculative `try_parse_lambda_return_type()` |
 | ~~Bool in for-yield struct field~~ | ~~21A codegen~~ | ~~`test_depth_combined_struct_iter_match`~~ | **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations |
 | ~~Closure capturing 3+ strings~~ | ~~21A closure codegen~~ | ~~`test_depth_closure_capturing_multiple_strings`~~ | **FIXED** (2026-02-24) — env alloc size fallback used 24 instead of type_store_size |
 | ~~Mutation in match arms in for-do~~ | ~~21A ArcIrEmitter~~ | ~~`test_depth_combined_match_closure_result`~~ | **FIXED** (2026-02-24) — SSA merge for mutable variables in match arms |
-| Iterator .map struct field access | 21A closure codegen | `test_stress_combined_struct_closure_iteration` | **NEW** (2026-02-23) — invalid LLVM IR |
+| ~~Iterator .map struct field access~~ | ~~21A closure codegen~~ | ~~`test_stress_combined_struct_closure_iteration`~~ | **FIXED** (2026-02-24) — type inference gap (closure param not unified with iterator elem) + ARC lowerer resolve_fully |
 | ~~Size cross-unit comparison~~ | ~~21A literal codegen~~ | ~~`test_op_size_arithmetic`~~ | **FIXED** (2026-02-24) — test values corrected for SI base-10 units |
 | ~~`int.f()` return type tracking~~ | ~~21A builtin codegen~~ | ~~`test_conv_int_f_shorthand`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
 | ~~`int.byte()` type tracking~~ | ~~21A builtin codegen~~ | ~~`test_conv_int_to_byte`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
@@ -339,7 +339,7 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | List methods (pop, index) | 21A § 21.10, 21.12 | `test_coll_list_pop` et al. | Builtin table gap — pop needs tuple return, index needs Index trait |
 | ~~Map methods (contains_key, keys, values)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_coll_map_contains_key` et al.~~ | **FIXED** (2026-02-24) — 3 methods added (get/insert/remove deferred) |
 | Map methods (get, insert, remove) | 21A § 21.10, 21.12 | `test_coll_map_get` et al. | Builtin table gap — get needs evaluator support, insert/remove need functional construction |
-| Named fn → closure coercion | 21A closure codegen | `test_hof_apply_identity` et al. | **NEW** (2026-02-23) — named functions can't be passed as closure-typed params (ABI mismatch) |
+| ~~Named fn → closure coercion~~ | ~~21A closure codegen~~ | ~~`test_hof_apply_identity` et al.~~ | **FIXED** (2026-02-24) — `lower_ident()` checks `Tag::Function` for unscoped identifiers, emits `PartialApply` |
 | ~~`(int) -> bool` as function param~~ | ~~21A closure ABI~~ | ~~`test_hof_bool_lambda`~~ | **FIXED** (2026-02-24) — test function named `test_pred` was misclassified as test; renamed to `check_pred` |
 | Chained tuple field access `t.0.0` | Section 05 § 5.7 | `test_tuple_nested_pair_of_pairs` | **NEW** (2026-02-23) — parser lexes `t.0.0` as float literal, not chained field access |
 | ~~List-of-tuples iteration~~ | ~~21A codegen~~ | ~~`test_tuple_in_loop`~~ | **FIXED** (2026-02-24) — element_store_size for compound types (same root cause as bool-in-for-yield) |

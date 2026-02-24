@@ -582,14 +582,17 @@ pub(crate) fn infer_method_call(
     span: Span,
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return(ty) => {
+        ReceiverDispatch::Return {
+            ret_ty,
+            receiver_ty,
+        } => {
             let arg_types: Vec<Idx> = arena
                 .get_expr_list(args)
                 .iter()
                 .map(|&arg_id| infer_expr(engine, arena, arg_id))
                 .collect();
-            unify_higher_order_constraints(engine, method, ty, &arg_types);
-            return ty;
+            unify_higher_order_constraints(engine, method, ret_ty, receiver_ty, &arg_types);
+            return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
     };
@@ -636,14 +639,17 @@ pub(crate) fn infer_method_call_named(
     span: Span,
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return(ty) => {
+        ReceiverDispatch::Return {
+            ret_ty,
+            receiver_ty,
+        } => {
             let arg_types: Vec<Idx> = arena
                 .get_call_args(args)
                 .iter()
                 .map(|arg| infer_expr(engine, arena, arg.value))
                 .collect();
-            unify_higher_order_constraints(engine, method, ty, &arg_types);
-            return ty;
+            unify_higher_order_constraints(engine, method, ret_ty, receiver_ty, &arg_types);
+            return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
     };
@@ -685,7 +691,8 @@ pub(crate) fn infer_method_call_named(
 /// Result of resolving a method receiver and checking builtin dispatch.
 enum ReceiverDispatch {
     /// Return this type. Caller must infer all args first.
-    Return(Idx),
+    /// `receiver_ty` is the resolved receiver, needed for higher-order constraint propagation.
+    Return { ret_ty: Idx, receiver_ty: Idx },
     /// No builtin found. Proceed to impl lookup with this resolved receiver.
     Continue { resolved: Idx },
 }
@@ -697,10 +704,15 @@ enum ReceiverDispatch {
 /// type variables in their return types. After the closure arguments are
 /// inferred, this function unifies those variables with the closure's return
 /// type so they resolve to concrete types before codegen.
+///
+/// Also unifies closure **parameter** types with the source iterator's element
+/// type, ensuring unannotated lambda params (e.g., `r` in `.map(r -> r.score)`)
+/// resolve to the correct type rather than remaining as unresolved type variables.
 fn unify_higher_order_constraints(
     engine: &mut InferEngine<'_>,
     method: Name,
     ret_ty: Idx,
+    receiver_ty: Idx,
     arg_types: &[Idx],
 ) {
     let Some(method_str) = engine.lookup_name(method) else {
@@ -723,6 +735,8 @@ fn unify_higher_order_constraints(
             if engine.pool().tag(resolved_closure) == Tag::Function {
                 let closure_ret = engine.pool().function_return(resolved_closure);
                 let _ = engine.unify().unify(elem_var, closure_ret);
+                // Unify closure param with source iterator element
+                unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
             }
         }
         "flat_map" => {
@@ -744,6 +758,18 @@ fn unify_higher_order_constraints(
                     let inner_elem = engine.pool().iterator_elem(resolved_inner);
                     let _ = engine.unify().unify(elem_var, inner_elem);
                 }
+                // Unify closure param with source iterator element
+                unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
+            }
+        }
+        // filter, any, all, find, for_each: closure (T) -> bool/void
+        "filter" | "any" | "all" | "find" | "for_each" => {
+            let Some(&closure_ty) = arg_types.first() else {
+                return;
+            };
+            let resolved_closure = engine.resolve(closure_ty);
+            if engine.pool().tag(resolved_closure) == Tag::Function {
+                unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
             }
         }
         "fold" | "rfold" => {
@@ -756,10 +782,39 @@ fn unify_higher_order_constraints(
                 if engine.pool().tag(resolved_closure) == Tag::Function {
                     let closure_ret = engine.pool().function_return(resolved_closure);
                     let _ = engine.unify().unify(ret_ty, closure_ret);
+                    // fold/rfold closure is (Acc, T) -> Acc: second param is iterator elem
+                    let resolved_recv = engine.resolve(receiver_ty);
+                    if engine.pool().tag(resolved_recv).is_iterator() {
+                        let source_elem = engine.pool().iterator_elem(resolved_recv);
+                        let params = engine.pool().function_params(resolved_closure);
+                        if let Some(&second_param) = params.get(1) {
+                            let _ = engine.unify().unify(second_param, source_elem);
+                        }
+                    }
                 }
             }
         }
         _ => {}
+    }
+}
+
+/// Unify a closure's first parameter with the source iterator's element type.
+///
+/// For adapters like `.map(r -> r.score)`, ensures that `r` is constrained to
+/// the iterator's element type rather than remaining as an unresolved type variable.
+fn unify_closure_param_with_iterator_elem(
+    engine: &mut InferEngine<'_>,
+    resolved_closure: Idx,
+    receiver_ty: Idx,
+) {
+    let resolved_recv = engine.resolve(receiver_ty);
+    if !engine.pool().tag(resolved_recv).is_iterator() {
+        return;
+    }
+    let source_elem = engine.pool().iterator_elem(resolved_recv);
+    let params = engine.pool().function_params(resolved_closure);
+    if let Some(&first_param) = params.first() {
+        let _ = engine.unify().unify(first_param, source_elem);
     }
 }
 
@@ -784,7 +839,10 @@ fn resolve_receiver_and_builtin(
 
     // Propagate errors silently
     if resolved == Idx::ERROR {
-        return ReceiverDispatch::Return(Idx::ERROR);
+        return ReceiverDispatch::Return {
+            ret_ty: Idx::ERROR,
+            receiver_ty: Idx::ERROR,
+        };
     }
 
     // If receiver is a scheme, instantiate it to get the concrete type
@@ -797,7 +855,10 @@ fn resolve_receiver_and_builtin(
     // For unresolved type variables, defer resolution
     let tag = engine.pool().tag(resolved);
     if tag == Tag::Var {
-        return ReceiverDispatch::Return(engine.pool_mut().fresh_var());
+        return ReceiverDispatch::Return {
+            ret_ty: engine.pool_mut().fresh_var(),
+            receiver_ty: resolved,
+        };
     }
 
     let method_str = engine.lookup_name(method);
@@ -809,7 +870,10 @@ fn resolve_receiver_and_builtin(
             if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
                 check_infinite_iterator_consumed(engine, arena, receiver, name_str, span);
             }
-            return ReceiverDispatch::Return(ret);
+            return ReceiverDispatch::Return {
+                ret_ty: ret,
+                receiver_ty: resolved,
+            };
         }
     }
 
@@ -825,14 +889,20 @@ fn resolve_receiver_and_builtin(
                          or string to get a DoubleEndedIterator)"
                     ),
                 ));
-                return ReceiverDispatch::Return(Idx::ERROR);
+                return ReceiverDispatch::Return {
+                    ret_ty: Idx::ERROR,
+                    receiver_ty: Idx::ERROR,
+                };
             }
         }
     }
 
     // 1c. Reject iteration methods on Range<float>
     if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
-        return ReceiverDispatch::Return(err);
+        return ReceiverDispatch::Return {
+            ret_ty: err,
+            receiver_ty: resolved,
+        };
     }
 
     ReceiverDispatch::Continue { resolved }

@@ -2108,7 +2108,6 @@ fn test_aot_closure_zero_capture() {
 }
 
 #[test]
-#[ignore = "Type inference bug: closure-returning-closure infers () return instead of (int) -> int"]
 fn test_aot_closure_capturing_closure() {
     assert_aot_success(
         r#"

@@ -330,26 +330,19 @@ impl ArcLowerer<'_> {
         reason = "field indices never exceed u32"
     )]
     fn resolve_field_index(&self, recv_ty: Idx, field: Name) -> u32 {
-        let tag = self.pool.tag(recv_ty);
+        // resolve_fully follows VarState::Link chains (from unification),
+        // resolutions hashmap, and Applied→Named fallback. This is needed
+        // when recv_ty is a type variable unified with a struct type (e.g.,
+        // closure params inferred from iterator adapters).
+        let resolved = self.pool.resolve_fully(recv_ty);
+        let tag = self.pool.tag(resolved);
 
         if tag == Tag::Struct {
-            let count = self.pool.struct_field_count(recv_ty);
+            let count = self.pool.struct_field_count(resolved);
             for i in 0..count {
-                let (fname, _) = self.pool.struct_field(recv_ty, i);
+                let (fname, _) = self.pool.struct_field(resolved, i);
                 if fname == field {
                     return i as u32;
-                }
-            }
-        }
-
-        if let Some(resolved) = self.pool.resolve(recv_ty) {
-            if self.pool.tag(resolved) == Tag::Struct {
-                let count = self.pool.struct_field_count(resolved);
-                for i in 0..count {
-                    let (fname, _) = self.pool.struct_field(resolved, i);
-                    if fname == field {
-                        return i as u32;
-                    }
                 }
             }
         }
