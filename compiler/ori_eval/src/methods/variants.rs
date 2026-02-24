@@ -249,10 +249,6 @@ pub fn dispatch_option_method(
 }
 
 /// Dispatch methods on Result values.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
-)]
 pub fn dispatch_result_method(
     receiver: Value,
     method: Name,
@@ -261,10 +257,26 @@ pub fn dispatch_result_method(
 ) -> EvalResult {
     let n = ctx.names;
 
-    if method == n.unwrap {
+    if method == n.unwrap || method == n.unwrap_or {
         match &receiver {
             Value::Ok(v) => Ok((**v).clone()),
-            Value::Err(e) => Err(EvalError::new(format!("called unwrap on Err: {e:?}")).into()),
+            Value::Err(e) => {
+                if method == n.unwrap {
+                    Err(EvalError::new(format!("called unwrap on Err: {e:?}")).into())
+                } else {
+                    require_args("unwrap_or", 1, args.len())?;
+                    match args.into_iter().next() {
+                        Some(default) => Ok(default),
+                        None => unreachable!("require_args verified length is 1"),
+                    }
+                }
+            }
+            _ => unreachable!(),
+        }
+    } else if method == n.unwrap_err {
+        match &receiver {
+            Value::Err(e) => Ok((**e).clone()),
+            Value::Ok(v) => Err(EvalError::new(format!("called unwrap_err on Ok: {v:?}")).into()),
             _ => unreachable!(),
         }
     } else if method == n.is_ok {

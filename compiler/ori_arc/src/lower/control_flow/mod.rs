@@ -12,6 +12,8 @@ use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
 mod for_yield;
+#[cfg(test)]
+pub(crate) use for_yield::pool_type_store_size;
 
 use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
 

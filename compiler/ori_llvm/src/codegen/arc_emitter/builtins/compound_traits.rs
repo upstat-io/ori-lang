@@ -189,10 +189,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let err = *err;
                 self.emit_result_equals(lhs, rhs, ok, err)
             }
-            TypeInfo::Tuple { elements } => {
-                let elems = elements.clone();
-                self.emit_tuple_equals(lhs, rhs, &elems)
-            }
+            TypeInfo::Tuple { elements } => self.emit_tuple_equals(lhs, rhs, elements),
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_equals(lhs, rhs, elem)
@@ -229,10 +226,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let err = *err;
                 self.emit_result_compare(lhs, rhs, ok, err)
             }
-            TypeInfo::Tuple { elements } => {
-                let elems = elements.clone();
-                self.emit_tuple_compare(lhs, rhs, &elems)
-            }
+            TypeInfo::Tuple { elements } => self.emit_tuple_compare(lhs, rhs, elements),
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_compare(lhs, rhs, elem)
@@ -265,10 +259,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let err = *err;
                 self.emit_result_hash(val, ok, err)
             }
-            TypeInfo::Tuple { elements } => {
-                let elems = elements.clone();
-                self.emit_tuple_hash(val, &elems)
-            }
+            TypeInfo::Tuple { elements } => self.emit_tuple_hash(val, elements),
             TypeInfo::List { element } => {
                 let elem = *element;
                 self.emit_list_hash(val, elem)

@@ -174,6 +174,19 @@ pub fn dispatch_string_method(
         let mut hasher = DefaultHasher::new();
         s.hash(&mut hasher);
         Ok(Value::int(hasher.finish().cast_signed()))
+    // replace(pattern, replacement) -> str
+    } else if method == n.replace {
+        require_args("replace", 2, args.len())?;
+        let pattern = require_str_arg("replace", &args, 0)?;
+        let replacement = require_str_arg("replace", &args, 1)?;
+        Ok(Value::string(s.replace(pattern, replacement)))
+    // repeat(count) -> str
+    } else if method == n.repeat {
+        require_args("repeat", 1, args.len())?;
+        let count = require_int_arg("repeat", &args, 0)?;
+        let n_usize = usize::try_from(count)
+            .map_err(|_| ori_patterns::EvalError::new("repeat count must be non-negative"))?;
+        Ok(Value::string(s.repeat(n_usize)))
     // Into trait: str -> Error (wraps string as error message)
     } else if method == n.into {
         require_args("into", 0, args.len())?;
