@@ -1,0 +1,6 @@
+// Define square and sum_of_squares here
+
+@main () -> void = {
+    print(msg: "3 squared = " + str(square(n: 3)));
+    print(msg: "3^2 + 4^2 = " + str(sum_of_squares(a: 3, b: 4)));
+}

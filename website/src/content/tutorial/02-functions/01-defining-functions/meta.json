@@ -1,0 +1,8 @@
+{
+  "expected_output": "3 squared = 9\n3^2 + 4^2 = 25",
+  "output_match": "exact",
+  "hints": [
+    "Define @square (n: int) -> int = n * n",
+    "Call square inside sum_of_squares: square(n: a) + square(n: b)"
+  ]
+}

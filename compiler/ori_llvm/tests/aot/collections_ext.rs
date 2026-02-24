@@ -313,6 +313,34 @@ fn test_coll_map_for_loop_count() {
     );
 }
 
+// ─── Map: is_empty ───
+
+#[test]
+fn test_coll_map_is_empty_true() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m: {str: int} = {};
+    if m.is_empty() then 0 else 1
+}
+"#,
+        "coll_map_is_empty_true",
+    );
+}
+
+#[test]
+fn test_coll_map_is_empty_false() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"a": 1};
+    if !m.is_empty() then 0 else 1
+}
+"#,
+        "coll_map_is_empty_false",
+    );
+}
+
 // ─── Map: int keys ───
 
 #[test]
@@ -346,7 +374,6 @@ fn test_coll_list_of_tuples() {
 // ─── Gap inventory: list methods not in builtin table ───
 
 #[test]
-#[ignore = "AOT gap: list.push() not in builtin table"]
 fn test_coll_list_push() {
     assert_aot_success(
         r#"
@@ -376,7 +403,6 @@ fn test_coll_list_pop() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.first() not in builtin table"]
 fn test_coll_list_first() {
     assert_aot_success(
         r#"
@@ -391,7 +417,6 @@ fn test_coll_list_first() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.last() not in builtin table"]
 fn test_coll_list_last() {
     assert_aot_success(
         r#"
@@ -420,7 +445,6 @@ fn test_coll_list_index() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.reverse() not in builtin table"]
 fn test_coll_list_reverse() {
     assert_aot_success(
         r#"
@@ -435,7 +459,6 @@ fn test_coll_list_reverse() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.contains() not in builtin table"]
 fn test_coll_list_contains() {
     assert_aot_success(
         r#"
@@ -445,6 +468,77 @@ fn test_coll_list_contains() {
 }
 "#,
         "coll_list_contains",
+    );
+}
+
+// ─── Edge cases: list methods ───
+
+#[test]
+fn test_coll_list_first_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs: [int] = [];
+    let f = xs.first();
+    if f.is_none() then 0 else 1
+}
+"#,
+        "coll_list_first_empty",
+    );
+}
+
+#[test]
+fn test_coll_list_last_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs: [int] = [];
+    let l = xs.last();
+    if l.is_none() then 0 else 1
+}
+"#,
+        "coll_list_last_empty",
+    );
+}
+
+#[test]
+fn test_coll_list_contains_missing() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    if !xs.contains(99) then 0 else 1
+}
+"#,
+        "coll_list_contains_missing",
+    );
+}
+
+#[test]
+fn test_coll_list_push_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs: [int] = [];
+    let ys = xs.push(42);
+    if ys.length() == 1 then 0 else 1
+}
+"#,
+        "coll_list_push_empty",
+    );
+}
+
+#[test]
+fn test_coll_list_reverse_single() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [7];
+    let rev = xs.reverse();
+    if rev.length() == 1 then 0 else 1
+}
+"#,
+        "coll_list_reverse_single",
     );
 }
 
@@ -466,7 +560,6 @@ fn test_coll_map_get() {
 }
 
 #[test]
-#[ignore = "AOT gap: map.contains_key() not in builtin table"]
 fn test_coll_map_contains_key() {
     assert_aot_success(
         r#"
@@ -480,7 +573,6 @@ fn test_coll_map_contains_key() {
 }
 
 #[test]
-#[ignore = "AOT gap: map.keys() not in builtin table"]
 fn test_coll_map_keys() {
     assert_aot_success(
         r#"
@@ -495,7 +587,6 @@ fn test_coll_map_keys() {
 }
 
 #[test]
-#[ignore = "AOT gap: map.values() not in builtin table"]
 fn test_coll_map_values() {
     assert_aot_success(
         r#"
@@ -536,5 +627,48 @@ fn test_coll_map_remove() {
 }
 "#,
         "coll_map_remove",
+    );
+}
+
+// ─── Edge cases for map methods ───
+
+#[test]
+fn test_coll_map_contains_key_missing() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"x": 10};
+    if m.contains_key("y") then 1 else 0
+}
+"#,
+        "coll_map_contains_key_missing",
+    );
+}
+
+#[test]
+fn test_coll_map_keys_single() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"only": 42};
+    let ks = m.keys();
+    if ks.length() == 1 then 0 else 1
+}
+"#,
+        "coll_map_keys_single",
+    );
+}
+
+#[test]
+fn test_coll_map_values_sum() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"a": 10, "b": 20, "c": 30};
+    let vs = m.values();
+    if vs.length() == 3 then 0 else 1
+}
+"#,
+        "coll_map_values_sum",
     );
 }

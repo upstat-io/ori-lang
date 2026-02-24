@@ -125,12 +125,12 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 ### Conclusion
 
-**TypeTag is fully sufficient for all 162 entries in BUILTIN_METHODS.** The complex return spec variants (`ElementType`, `OptionElement`, `ListElement`, `InnerType`) are never used in the current `ori_ir` registry. They exist because `ori_ir` anticipated needing them for collection types, but collection types were never added to `BUILTIN_METHODS`. In `ori_registry`, collection types are handled by Sections 06-07, where `TypeFlow` (on `MethodDef` or as a separate field) captures the complex generic return type relationships.
+**TypeTag is fully sufficient for all 162 entries in BUILTIN_METHODS.** The complex return spec variants (`ElementType`, `OptionElement`, `ListElement`, `InnerType`) are never used in the current `ori_ir` registry. They exist because `ori_ir` anticipated needing them for collection types, but collection types were never added to `BUILTIN_METHODS`. In `ori_registry`, collection types are handled by Sections 06-07, where `ReturnTag` variants (e.g., `ReturnTag::Element`, `ReturnTag::Fresh`) capture the structural return type templates, and the type checker's existing inference logic handles closure-dependent return types.
 
-### Decision: TypeTag for return type, TypeFlow for generics
+### Decision: TypeTag for return type, ReturnTag for generics
 
 - **Registry `MethodDef.returns`**: `TypeTag` — sufficient for all primitive and compound type methods.
-- **Generic return type inference**: `TypeFlow` on `MethodDef` (defined in Section 01/07) — captures `ClosureOutputBecomesElement`, `Accumulator`, etc. for iterator/collection methods.
+- **Generic return type templates**: `ReturnTag` variants (e.g., `ReturnTag::Element`, `ReturnTag::Fresh`) on `MethodDef` — declares the structural shape of return types for collection/iterator methods. Higher-order type inference (how closure arguments constrain return types) stays in the type checker's `unify_higher_order_constraints`.
 - **No need for ReturnSpec in ori_registry.** The type is retired.
 
 ### Checklist
@@ -154,13 +154,13 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 | `Str` | `str.contains(s: str)`, `str.starts_with(s: str)`, `str.ends_with(s: str)`, `str.concat(s: str)`, `str.add(s: str)` | `ParamDef { tag: TypeTag::Str, ownership: Ownership::Borrow }` | Yes. Direct mapping. |
 | `Bool` | Not used in current `BUILTIN_METHODS` (zero entries) | `ParamDef { tag: TypeTag::Bool, ... }` | Yes, if ever needed. |
 | `Any` | Not used in current `BUILTIN_METHODS` (zero entries) | Not needed for primitives. For generics, the type checker handles polymorphism separately. | Not needed for this migration. |
-| `Closure` | Not used in current `BUILTIN_METHODS` (zero entries) | Not needed for primitives. Iterator/collection methods (Sections 06-07) handle closures via TypeFlow. | Not needed for this migration. |
+| `Closure` | Not used in current `BUILTIN_METHODS` (zero entries) | Not needed for primitives. Iterator/collection closure inference stays in the type checker. | Not needed for this migration. |
 
 ### Conclusion
 
 **ParamDef with TypeTag is fully sufficient for all 162 entries in BUILTIN_METHODS.** Only three ParamSpec variants are actually used: `SelfType` (most common — trait methods and arithmetic), `Int` (Duration/Size multiplication/division), and `Str` (string comparison/contains methods). All three map directly to `ParamDef` with the corresponding `TypeTag`.
 
-The complex variants (`Any`, `Closure`, `Bool`) are unused in `BUILTIN_METHODS`. In `ori_registry`, collection and iterator methods that need closure parameters handle them via TypeFlow and more expressive ParamDef types (defined in Sections 06-07).
+The complex variants (`Any`, `Closure`, `Bool`) are unused in `BUILTIN_METHODS`. In `ori_registry`, collection and iterator methods that take closures use `ParamDef` variants for parameter declaration; the actual closure type inference stays in the type checker.
 
 ### Decision: ParamDef with TypeTag + Ownership
 

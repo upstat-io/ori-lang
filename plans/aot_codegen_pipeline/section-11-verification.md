@@ -24,7 +24,7 @@ sections:
 
 # Section 11: Comprehensive Verification
 
-**Status:** In Progress (11.1 underway — 900 passed, 0 failed, 30 ignored as of 2026-02-24)
+**Status:** In Progress (11.1 underway — 905 passed, 0 failed, 25 ignored as of 2026-02-24)
 **Goal:** Every language feature compiles through AOT, matches JIT behavior, and has zero memory leaks.
 
 **Context:** This is the capstone section. All architectural improvements are in place. Now we prove the system works as one cohesive whole by testing every language feature through the AOT pipeline and verifying behavioral equivalence with the JIT evaluator.
@@ -66,7 +66,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Tuple from if expression — covered (tuples.rs)
   - [x] Closure capturing tuple, closure returning tuple — covered (tuples.rs)
   - [ ] Chained nested tuple field access `t.0.0` — Parser gap: lexed as float (Section 05 § 5.7, #[ignore])
-  - [ ] List of tuples iteration — AOT gap: heap corruption (#[ignore])
+  - [x] List of tuples iteration — **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations
   - [ ] Tuple destructuring in for loop `for (a, b) in ...` — Parser gap (#[ignore])
   - [x] Tuple == equality comparison — **FIXED** (2026-02-24) — tuple equality comparison codegen
 
@@ -199,7 +199,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] unwrap_or with computed defaults — covered (depth.rs)
   - [x] Closure capturing struct fields — covered (depth.rs)
   - [x] Closure capturing single string — covered (depth.rs)
-  - [ ] Closure capturing 3+ strings — AOT gap: heap corruption (#[ignore])
+  - [x] Closure capturing 3+ strings — **FIXED** (2026-02-24) — closure env alloc size fallback used 24 instead of TypeLayoutResolver::type_store_size
   - [x] Closure passed through 3 function levels — covered (depth.rs)
   - [x] Multiple closures in same scope — covered (depth.rs)
   - [x] Closure with mixed capture types (struct + bool) — covered (depth.rs)
@@ -210,8 +210,8 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Nested Option types — covered (depth.rs)
   - [x] Result with Option payload — covered (depth.rs)
   - [x] Fibonacci via recursive match — covered (depth.rs)
-  - [ ] Mutation in match arms inside for-do — AOT gap: ArcIrEmitter variable not defined (#[ignore])
-  - [ ] Bool comparison stored as struct field in for-yield — AOT gap: always false (#[ignore])
+  - [x] Mutation in match arms inside for-do — **FIXED** (2026-02-24) — SSA merge for mutable variables in match arms (same pattern as lower_if)
+  - [x] Bool comparison stored as struct field in for-yield — **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations
   - [ ] Iterator .map closure accessing struct fields — AOT gap: invalid LLVM IR (#[ignore])
 
 - [x] **Operator edge cases:** (2026-02-23)
@@ -323,9 +323,9 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | ~~Map methods (is_empty)~~ | ~~21A § 21.10~~ | ~~`test_aot_map_is_empty`~~ | **FIXED** (2026-02-24) — inline LLVM IR |
 | `list[index]` subscript | 21A § 21.10 | `test_aot_list_index` | Index trait codegen |
 | Closure returning closure | **Type checker bug** (§ 02) | `test_aot_closure_capturing_closure` | Inference regression |
-| Bool in for-yield struct field | 21A codegen | `test_depth_combined_struct_iter_match` | **NEW** (2026-02-23) — comparison always stores false |
-| Closure capturing 3+ strings | 21A closure codegen | `test_depth_closure_capturing_multiple_strings` | **NEW** (2026-02-23) — heap corruption |
-| Mutation in match arms in for-do | 21A ArcIrEmitter | `test_depth_combined_match_closure_result` | **NEW** (2026-02-23) — variable not yet defined |
+| ~~Bool in for-yield struct field~~ | ~~21A codegen~~ | ~~`test_depth_combined_struct_iter_match`~~ | **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations |
+| ~~Closure capturing 3+ strings~~ | ~~21A closure codegen~~ | ~~`test_depth_closure_capturing_multiple_strings`~~ | **FIXED** (2026-02-24) — env alloc size fallback used 24 instead of type_store_size |
+| ~~Mutation in match arms in for-do~~ | ~~21A ArcIrEmitter~~ | ~~`test_depth_combined_match_closure_result`~~ | **FIXED** (2026-02-24) — SSA merge for mutable variables in match arms |
 | Iterator .map struct field access | 21A closure codegen | `test_stress_combined_struct_closure_iteration` | **NEW** (2026-02-23) — invalid LLVM IR |
 | ~~Size cross-unit comparison~~ | ~~21A literal codegen~~ | ~~`test_op_size_arithmetic`~~ | **FIXED** (2026-02-24) — test values corrected for SI base-10 units |
 | ~~`int.f()` return type tracking~~ | ~~21A builtin codegen~~ | ~~`test_conv_int_f_shorthand`~~ | **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS |
@@ -341,7 +341,7 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | Named fn → closure coercion | 21A closure codegen | `test_hof_apply_identity` et al. | **NEW** (2026-02-23) — named functions can't be passed as closure-typed params (ABI mismatch) |
 | ~~`(int) -> bool` as function param~~ | ~~21A closure ABI~~ | ~~`test_hof_bool_lambda`~~ | **FIXED** (2026-02-24) — test function named `test_pred` was misclassified as test; renamed to `check_pred` |
 | Chained tuple field access `t.0.0` | Section 05 § 5.7 | `test_tuple_nested_pair_of_pairs` | **NEW** (2026-02-23) — parser lexes `t.0.0` as float literal, not chained field access |
-| List-of-tuples iteration | 21A codegen | `test_tuple_in_loop` | **NEW** (2026-02-23) — heap corruption (malloc assertion failure) during for-loop over `[(1, 10), ...]` |
+| ~~List-of-tuples iteration~~ | ~~21A codegen~~ | ~~`test_tuple_in_loop`~~ | **FIXED** (2026-02-24) — element_store_size for compound types (same root cause as bool-in-for-yield) |
 | Tuple destructuring in for loops | Parser / Section 00 | `test_tuple_destructure_in_loop` | **NEW** (2026-02-23) — `for (a, b) in ...` rejected: "for pattern requires named properties" |
 | ~~Tuple `==` equality~~ | ~~21A comparison codegen~~ | ~~`test_tuple_equality`~~ | **FIXED** (2026-02-24) — tuple equality comparison codegen fixed |
 | ~~Struct update with string field~~ | ~~21A struct codegen~~ | ~~`test_struct_update_with_string`~~ | **FIXED** (2026-02-24) — IsShared/Set skip non-RcPointer values, forces Construct path |

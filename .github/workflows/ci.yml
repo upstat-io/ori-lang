@@ -89,16 +89,53 @@ jobs:
           echo "ORI_TESTS=$ORI_TESTS" >> $GITHUB_ENV
           echo "ORI_FAILED=$ORI_FAILED" >> $GITHUB_ENV
 
+      - name: Ori runtime tests
+        id: rt-tests
+        continue-on-error: true
+        run: |
+          cargo test --manifest-path compiler/ori_rt/Cargo.toml 2>&1 | tee rt-test-output.txt
+          RT_TESTS=$(grep -oE '[0-9]+ passed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
+          RT_FAILED=$(grep -oE '[0-9]+ failed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
+          RT_SKIPPED=$(grep -oE '[0-9]+ ignored' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
+          echo "RT_TESTS=$RT_TESTS" >> $GITHUB_ENV
+          echo "RT_FAILED=$RT_FAILED" >> $GITHUB_ENV
+          echo "RT_SKIPPED=$RT_SKIPPED" >> $GITHUB_ENV
+
+      - name: Extract Rust skipped count
+        if: always()
+        run: |
+          RUST_SKIPPED=$(grep -oE '[0-9]+ ignored' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
+          ORI_SKIPPED=$(grep -oE '[0-9]+ skipped' ori-test-output.txt | grep -oE '^[0-9]+' | tail -1 || echo "0")
+          echo "RUST_SKIPPED=$RUST_SKIPPED" >> $GITHUB_ENV
+          echo "ORI_SKIPPED=$ORI_SKIPPED" >> $GITHUB_ENV
+
       - name: Save test results
         if: always()
         run: |
+          RUST_P=${RUST_TESTS:-0}
+          RUST_F=${RUST_FAILED:-0}
+          RUST_S=${RUST_SKIPPED:-0}
+          RT_P=${RT_TESTS:-0}
+          RT_F=${RT_FAILED:-0}
+          RT_S=${RT_SKIPPED:-0}
+          ORI_P=${ORI_TESTS:-0}
+          ORI_F=${ORI_FAILED:-0}
+          ORI_S=${ORI_SKIPPED:-0}
+          TOTAL_P=$((RUST_P + RT_P + ORI_P))
+          TOTAL_F=$((RUST_F + RT_F + ORI_F))
+          TOTAL_S=$((RUST_S + RT_S + ORI_S))
+          OVERALL="passed"
+          if [ "$TOTAL_F" -gt 0 ]; then OVERALL="failed"; fi
           cat > test-results.json << EOF
           {
-            "rust_tests": ${RUST_TESTS:-0},
-            "rust_failed": ${RUST_FAILED:-0},
-            "ori_tests": ${ORI_TESTS:-0},
-            "ori_failed": ${ORI_FAILED:-0},
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "overall": "$OVERALL",
+            "suites": [
+              { "name": "Rust unit tests (workspace)", "passed": $RUST_P, "failed": $RUST_F, "skipped": $RUST_S, "lcfail": null },
+              { "name": "Runtime library (ori_rt)", "passed": $RT_P, "failed": $RT_F, "skipped": $RT_S, "lcfail": null },
+              { "name": "Ori spec (interpreter)", "passed": $ORI_P, "failed": $ORI_F, "skipped": $ORI_S, "lcfail": null }
+            ],
+            "totals": { "passed": $TOTAL_P, "failed": $TOTAL_F, "skipped": $TOTAL_S, "lcfail": 0 }
           }
           EOF
           cat test-results.json
@@ -112,7 +149,7 @@ jobs:
           retention-days: 90
 
       - name: Fail if tests failed
-        if: steps.rust-tests.outcome == 'failure' || steps.ori-tests.outcome == 'failure'
+        if: steps.rust-tests.outcome == 'failure' || steps.ori-tests.outcome == 'failure' || steps.rt-tests.outcome == 'failure'
         run: exit 1
 
   # Cross-platform smoke test - just verify it compiles and basic tests pass
@@ -180,11 +217,18 @@ jobs:
       - name: Save LLVM test results
         if: always()
         run: |
+          LLVM_P=${LLVM_TESTS:-0}
+          LLVM_F=${LLVM_FAILED:-0}
+          OVERALL="passed"
+          if [ "$LLVM_F" -gt 0 ]; then OVERALL="failed"; fi
           cat > llvm-test-results.json << EOF
           {
-            "llvm_tests": ${LLVM_TESTS:-0},
-            "llvm_failed": ${LLVM_FAILED:-0},
-            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "overall": "$OVERALL",
+            "suites": [
+              { "name": "Rust unit tests (ori_llvm)", "passed": $LLVM_P, "failed": $LLVM_F, "skipped": 0, "lcfail": null }
+            ],
+            "totals": { "passed": $LLVM_P, "failed": $LLVM_F, "skipped": 0, "lcfail": 0 }
           }
           EOF
           cat llvm-test-results.json

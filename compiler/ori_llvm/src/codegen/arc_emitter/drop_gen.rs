@@ -467,7 +467,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `ori_rc_free(data_ptr, size, align)` to deallocate an RC object.
     fn emit_drop_rc_free(&mut self, data_ptr: ValueId, ty: Idx) {
-        let size = compute_type_size(self, ty);
+        let size = self.element_store_size(ty);
         let align = u64::from(self.type_info.get(ty).alignment());
 
         let size_val = self.builder.const_i64(size as i64);
@@ -482,7 +482,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `ori_list_free_data(data, cap, elem_size)` to free a collection buffer.
     fn emit_drop_list_free_data(&mut self, data: ValueId, cap: ValueId, element_type: Idx) {
-        let elem_size = compute_type_size(self, element_type);
+        let elem_size = self.element_store_size(element_type);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_list_free_data") {
@@ -495,18 +495,6 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 // ---------------------------------------------------------------------------
 // Free helpers (no &mut self needed)
 // ---------------------------------------------------------------------------
-
-/// Compute the store size of a type in bytes.
-///
-/// Uses `TypeInfo::size()` for well-known types (str=16, list=24, etc.).
-/// Falls back to `TypeLayoutResolver::type_store_size()` for compound types
-/// (struct, tuple, enum) where the size depends on field types.
-fn compute_type_size(emitter: &ArcIrEmitter<'_, '_, '_, '_>, ty: Idx) -> u64 {
-    emitter.type_info.get(ty).size().unwrap_or_else(|| {
-        let llvm_ty = emitter.type_resolver.resolve(ty);
-        TypeLayoutResolver::type_store_size(llvm_ty)
-    })
-}
 
 /// Compute byte offsets for each field within a general enum variant.
 ///

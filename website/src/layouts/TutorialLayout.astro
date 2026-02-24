@@ -1,0 +1,84 @@
+---
+import Header from '../components/common/Header.astro';
+import '../styles/global.css';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = 'Tutorial — Ori',
+  description = 'Learn Ori interactively. Step-by-step lessons with a live code editor — write, run, and validate Ori code in your browser.'
+} = Astro.props;
+
+const canonicalURL = new URL(Astro.url.pathname, 'https://ori-lang.com');
+const ogImage = new URL('/og-image.svg', 'https://ori-lang.com');
+---
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Primary Meta Tags -->
+  <title>{title}</title>
+  <meta name="title" content={title} />
+  <meta name="description" content={description} />
+  <meta name="keywords" content="Ori tutorial, learn Ori, interactive programming, code editor, WASM, programming language" />
+  <meta name="author" content="upstat-io" />
+
+  <!-- Canonical URL -->
+  <link rel="canonical" href={canonicalURL} />
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content={canonicalURL} />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:image" content={ogImage} />
+  <meta property="og:site_name" content="Ori" />
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content={canonicalURL} />
+  <meta name="twitter:title" content={title} />
+  <meta name="twitter:description" content={description} />
+  <meta name="twitter:image" content={ogImage} />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body class="tutorial-body">
+  <Header />
+  <main class="tutorial-main">
+    <slot />
+  </main>
+</body>
+</html>
+
+<style is:global>
+  .tutorial-body {
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tutorial-main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+
+  .tutorial-main > :first-child {
+    flex: 1;
+    width: 100%;
+  }
+</style>

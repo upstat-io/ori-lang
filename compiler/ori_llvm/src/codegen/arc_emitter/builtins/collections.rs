@@ -280,7 +280,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(receiver, 0, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        let key_size = self.type_info.get(key_ty).size().unwrap_or(8);
+        let key_size = self.element_store_size(key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
 
         let list_ty = self.list_struct_type();
@@ -315,7 +315,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(receiver, 0, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        let val_size = self.type_info.get(val_ty).size().unwrap_or(8);
+        let val_size = self.element_store_size(val_ty);
         let val_size_val = self.builder.const_i64(val_size as i64);
 
         let list_ty = self.list_struct_type();
@@ -367,7 +367,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .unwrap_or_else(|| self.builder.const_i64(0));
 
         // Element size
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         self.builder
@@ -457,8 +457,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .extract_value(receiver, 0, "map.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
 
-        let key_size = self.type_info.get(key_ty).size().unwrap_or(8);
-        let val_size = self.type_info.get(val_ty).size().unwrap_or(8);
+        let key_size = self.element_store_size(key_ty);
+        let val_size = self.element_store_size(val_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let val_size_val = self.builder.const_i64(val_size as i64);
 
@@ -597,7 +597,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (data1, len1) = self.extract_list_data_and_len(receiver);
         let (data2, len2) = self.extract_list_data_and_len(other);
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let list_ty = self.list_struct_type();
@@ -629,7 +629,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "push.elem");
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let list_ty = self.list_struct_type();
@@ -672,7 +672,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.intern_function(llvm_func);
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         // Option<T> layout: {i64 tag, T value}
@@ -739,7 +739,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.intern_function(llvm_func);
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
-        let elem_size = self.type_info.get(elem_ty).size().unwrap_or(8);
+        let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
         let list_ty = self.list_struct_type();

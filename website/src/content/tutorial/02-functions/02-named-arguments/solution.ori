@@ -1,0 +1,7 @@
+@format_date (year: int, month: int, day: int) -> str =
+    str(year) + "-" + str(month) + "-" + str(day);
+
+@main () -> void = {
+    let $date = format_date(year: 2026, month: 2, day: 23);
+    print(msg: date);
+}

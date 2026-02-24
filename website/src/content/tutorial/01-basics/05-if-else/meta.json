@@ -1,0 +1,8 @@
+{
+  "expected_output": "child\nteenager\nadult",
+  "output_match": "exact",
+  "hints": [
+    "Use `if age < 13 then \"child\" else if age < 18 then \"teenager\" else \"adult\"`",
+    "Remember: if/else is an expression, so the function body IS the if expression"
+  ]
+}

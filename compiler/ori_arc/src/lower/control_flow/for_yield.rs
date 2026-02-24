@@ -303,8 +303,24 @@ impl ArcLowerer<'_> {
     /// Compute element size in bytes for a given type.
     ///
     /// Used to pass `elem_size` to `ori_list_new` and `ori_list_push`.
+    /// Must match `TypeLayoutResolver::type_store_size()` in `ori_llvm`
+    /// (sum of field sizes, no alignment padding).
     fn compute_elem_size(&self, elem_ty: Idx) -> i64 {
-        let tag = self.pool.tag(elem_ty);
+        Self::type_store_size(elem_ty, self.pool, 0)
+    }
+
+    /// Recursive store-size computation from Pool type information.
+    ///
+    /// Mirrors `TypeLayoutResolver::type_store_size()` in `ori_llvm`: sums
+    /// field sizes without alignment padding. This must stay in sync with
+    /// the LLVM emitter's size computation to avoid buffer over/under-reads.
+    fn type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
+        if depth > 16 {
+            return 8; // Prevent infinite recursion on recursive types
+        }
+        // Resolve Named/Applied/Alias types to their underlying structural type.
+        let ty = pool.resolve_fully(ty);
+        let tag = pool.tag(ty);
         match tag {
             Tag::Bool | Tag::Byte => 1,
             Tag::Char => 4,
@@ -312,7 +328,29 @@ impl ArcLowerer<'_> {
             Tag::Str => 16,             // {i64, ptr}
             Tag::List | Tag::Set => 24, // {i64, i64, ptr}
             Tag::Map => 32,             // {i64, i64, ptr, ptr}
-            _ => 8,                     // Int, Float, pointer-sized default
+            Tag::Struct => pool
+                .struct_fields(ty)
+                .iter()
+                .map(|(_, field_ty)| Self::type_store_size(*field_ty, pool, depth + 1))
+                .sum(),
+            Tag::Tuple => pool
+                .tuple_elems(ty)
+                .iter()
+                .map(|&field_ty| Self::type_store_size(field_ty, pool, depth + 1))
+                .sum(),
+            Tag::Option => {
+                // Option<T> = {i64 tag, T payload}
+                8 + Self::type_store_size(pool.option_inner(ty), pool, depth + 1)
+            }
+            Tag::Result => {
+                // Result<T, E> = {i64 tag, max(T, E) payload}
+                let ok_ty = pool.result_ok(ty);
+                let err_ty = pool.result_err(ty);
+                let ok_size = Self::type_store_size(ok_ty, pool, depth + 1);
+                let err_size = Self::type_store_size(err_ty, pool, depth + 1);
+                8 + ok_size.max(err_size)
+            }
+            _ => 8, // Int, Float, Duration, Size, pointer-sized default
         }
     }
 }

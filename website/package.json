@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "scripts": {
     "dev": "astro dev",
-    "prebuild": "cp ../install.sh public/install.sh && bash scripts/copy-wasm.sh && bash scripts/generate-changelog.sh",
+    "prebuild": "cp ../install.sh public/install.sh && bash scripts/copy-wasm.sh && bash scripts/generate-changelog.sh && node scripts/build-tutorial.mjs",
     "build": "astro build",
     "preview": "astro preview",
     "build:wasm": "cd playground-wasm && wasm-pack build --target web --release --out-dir pkg",
@@ -18,6 +18,8 @@
     "@beoe/rehype-mermaid": "^0.4.2",
     "@mermaid-js/layout-elk": "^0.2.0",
     "astro": "^5.16.15",
+    "gray-matter": "^4.0.3",
+    "marked": "^17.0.3",
     "mermaid": "^11.12.2",
     "playwright": "^1.58.0",
     "svelte": "^5.48.3",
