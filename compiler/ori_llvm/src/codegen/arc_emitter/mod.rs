@@ -582,13 +582,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
         let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
 
-        // Try compiled function (ABI-aware), then type-qualified method dispatch,
-        // then unqualified fallback, then runtime.
-        // Scope the immutable borrow to extract ABI data before mutable use.
+        // Method dispatch chain:
+        // 1. Receiver-based: use first arg's type (instance methods like eq/hash)
+        // 2. Return-type-based: use dst's type (static methods like default)
+        // 3. Unqualified: bare function name (free functions)
+        // 4. Diagnostic fallback: logs warning, returns None
         let resolved = self
-            .functions
-            .get(&callee)
-            .or_else(|| self.lookup_method_by_receiver(callee, arc_args, arc_func))
+            .lookup_method_by_receiver(callee, arc_args, arc_func)
+            .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
+            .or_else(|| self.functions.get(&callee))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
@@ -686,32 +688,45 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.method_functions.get(&(*type_name, name))
     }
 
-    /// Diagnostic fallback for method lookup when both `functions` and
-    /// `lookup_method_by_receiver` miss.
+    /// Look up a static/associated method by its return type.
     ///
-    /// This should never succeed — all method registrations go through both
-    /// `functions` (unqualified) and `method_functions` (type-qualified).
-    /// If this path is reached and finds something, it indicates a registration
-    /// gap that should be fixed at the source.
+    /// Type-qualified calls with no receiver (e.g., `Point.default()`) have an
+    /// empty `args` list in ARC IR, so `lookup_method_by_receiver` fails.
+    /// For factory methods like `default()`, the return type IS the owning type,
+    /// so we can use `func.var_type(dst)` to find the correct type-qualified
+    /// entry in `method_functions`.
+    fn lookup_method_by_return_type(
+        &self,
+        name: Name,
+        dst: ArcVarId,
+        func: &ArcFunction,
+    ) -> Option<&(FunctionId, FunctionAbi)> {
+        let return_ty = func.var_type(dst);
+        let type_name = self.type_idx_to_name.get(&return_ty)?;
+        self.method_functions.get(&(*type_name, name))
+    }
+
+    /// Diagnostic check for method lookup when all typed dispatches miss.
+    ///
+    /// Always returns `None` — this function only logs diagnostics.
+    /// If a method exists in `method_functions` but wasn't found through
+    /// normal dispatch, it means the receiver's type wasn't registered in
+    /// `type_idx_to_name` (e.g., enum types whose derives aren't compiled yet).
+    /// Returning `None` ensures the caller falls through to the "unresolved
+    /// function" error path instead of silently calling the wrong method.
     fn lookup_method_fallback(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
-        let result = self
+        let exists = self
             .method_functions
             .iter()
-            .find(|&((_, method_name), _)| *method_name == name)
-            .map(|(_, v)| v);
-        if result.is_some() {
-            tracing::error!(
+            .any(|((_, method_name), _)| *method_name == name);
+        if exists {
+            tracing::warn!(
                 method = %self.interner.lookup(name),
-                "method resolved only via linear scan fallback — \
-                 registration gap in functions/type_idx_to_name"
-            );
-            debug_assert!(
-                false,
-                "method '{}' resolved via linear scan fallback — fix registration",
-                self.interner.lookup(name)
+                "method exists for another type but receiver type not registered — \
+                 likely missing enum derive codegen"
             );
         }
-        result
+        None
     }
 
     /// Emit an `Apply` instruction (ABI-aware direct call).
@@ -756,12 +771,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
 
-        // Try compiled function, then type-qualified method dispatch,
-        // then unqualified fallback, then runtime.
+        // Method dispatch chain (same as emit_invoke):
+        // 1. Receiver-based: use first arg's type (instance methods)
+        // 2. Return-type-based: use dst's type (static methods like default)
+        // 3. Unqualified: bare function name (free functions)
+        // 4. Diagnostic fallback: logs warning, returns None
         let resolved = self
-            .functions
-            .get(&callee)
-            .or_else(|| self.lookup_method_by_receiver(callee, args, func))
+            .lookup_method_by_receiver(callee, args, func)
+            .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
+            .or_else(|| self.functions.get(&callee))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
@@ -1256,17 +1274,40 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 val_type_info,
                 super::type_info::TypeInfo::Result { .. } | super::type_info::TypeInfo::Enum { .. }
             ) {
+                let is_general_enum =
+                    matches!(val_type_info, super::type_info::TypeInfo::Enum { .. });
                 let llvm_val_ty = self.resolve_type(val_ty);
                 let alloca = self.builder.alloca(llvm_val_ty, "proj.alloca");
                 self.builder.store(val, alloca);
-                let gep = self.builder.struct_gep(
-                    llvm_val_ty,
-                    alloca,
-                    field,
-                    &format!("proj.{field}.gep"),
-                );
-                let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
-                self.def_var_repr(dst, loaded, func);
+                if is_general_enum {
+                    // General enum: payload is [M x i64] at struct field 1.
+                    // Index into the payload array with i64-stride GEP.
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(llvm_val_ty, alloca, 1, "proj.payload");
+                    let i64_ty = self.builder.i64_type();
+                    let slot_idx = self.builder.const_i64(i64::from(field - 1));
+                    let slot_ptr = self.builder.gep(
+                        i64_ty,
+                        payload_ptr,
+                        &[slot_idx],
+                        &format!("proj.{field}.gep"),
+                    );
+                    let loaded = self
+                        .builder
+                        .load(result_ty, slot_ptr, &format!("proj.{field}"));
+                    self.def_var_repr(dst, loaded, func);
+                } else {
+                    // Result: payload is a typed field at struct index 1.
+                    let gep = self.builder.struct_gep(
+                        llvm_val_ty,
+                        alloca,
+                        field,
+                        &format!("proj.{field}.gep"),
+                    );
+                    let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
+                    self.def_var_repr(dst, loaded, func);
+                }
                 return;
             }
         }
@@ -1908,19 +1949,26 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                // Enum variants may have payloads smaller than the storage slot
-                // (e.g., Ok(int) in Result<int, str> where slot is {i64, ptr}).
-                // Use alloca + GEP + store to handle type mismatches safely.
-                // mem2reg eliminates the alloca in optimization.
+                // Enum layout is { i64 tag, [M x i64] payload } where M is
+                // sized for the largest variant. Fields are stored at i64-
+                // aligned slots within the payload array.
+                // Use alloca + GEP + store; mem2reg eliminates the alloca.
                 let tag_val = self.builder.const_i64(i64::from(*variant));
                 let alloca = self.builder.alloca(llvm_ty, "variant");
                 let tag_gep = self.builder.struct_gep(llvm_ty, alloca, 0, "variant.tag");
                 self.builder.store(tag_val, tag_gep);
-                for (i, &val) in arg_vals.iter().enumerate() {
-                    let gep =
+                if !arg_vals.is_empty() {
+                    let payload_ptr =
                         self.builder
-                            .struct_gep(llvm_ty, alloca, (i + 1) as u32, "variant.field");
-                    self.builder.store(val, gep);
+                            .struct_gep(llvm_ty, alloca, 1, "variant.payload");
+                    let i64_ty = self.builder.i64_type();
+                    for (i, &val) in arg_vals.iter().enumerate() {
+                        let idx = self.builder.const_i64(i as i64);
+                        let slot = self
+                            .builder
+                            .gep(i64_ty, payload_ptr, &[idx], "variant.field");
+                        self.builder.store(val, slot);
+                    }
                 }
                 self.builder.load(llvm_ty, alloca, "variant")
             }
@@ -2385,13 +2433,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
-                    // TODO: compute proper byte offsets for multi-field variants
-                    let field_ptr = self.builder.struct_gep(
-                        field_llvm_ty,
-                        payload_ptr,
-                        field_index,
-                        "rc_dec.field.ptr",
-                    );
+                    // Each field occupies one i64-aligned slot (8 bytes).
+                    // Use i64-stride GEP to index into the payload array.
+                    let i64_ty = self.builder.i64_type();
+                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let field_ptr =
+                        self.builder
+                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
                     self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field")
                 };
 

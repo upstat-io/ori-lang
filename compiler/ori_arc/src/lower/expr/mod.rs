@@ -10,10 +10,10 @@ use ori_types::Idx;
 use ori_types::Pool;
 use rustc_hash::FxHashSet;
 
-use crate::ir::{ArcFunction, ArcValue, ArcVarId, LitValue, PrimOp};
+use crate::ir::{ArcFunction, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
 
 use super::scope::ArcScope;
-use super::{ArcIrBuilder, ArcProblem};
+use super::{ArcIrBuilder, ArcProblem, VariantCtors};
 
 // Loop context
 
@@ -59,6 +59,12 @@ pub struct ArcLowerer<'a> {
     ///
     /// Saved/restored around each `lower_block` so nesting works correctly.
     pub(crate) block_let_names: FxHashSet<Name>,
+    /// Reverse lookup from variant name to enum constructor info.
+    ///
+    /// Shared by reference from [`lower_function_can`](super::lower_function_can).
+    /// Used to intercept variant constructor calls and emit `Construct`
+    /// instructions instead of function calls.
+    pub(crate) variant_ctors: &'a VariantCtors,
 }
 
 impl ArcLowerer<'_> {
@@ -150,6 +156,21 @@ impl ArcLowerer<'_> {
                 }
             }
             CanExpr::FunctionRef(name) => {
+                // Unit variant used as value (e.g., `let x = None` or `let c = Red`)
+                if let Some(&(enum_name, variant_idx, field_count)) = self.variant_ctors.get(&name)
+                {
+                    if field_count == 0 {
+                        return self.builder.emit_construct(
+                            ty,
+                            CtorKind::EnumVariant {
+                                enum_name,
+                                variant: variant_idx,
+                            },
+                            vec![],
+                            Some(span),
+                        );
+                    }
+                }
                 // Zero-capture closure: PartialApply with empty captures
                 self.builder
                     .emit_partial_apply(ty, name, vec![], Some(span))
@@ -250,6 +271,26 @@ impl ArcLowerer<'_> {
     fn lower_ident(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
         if let Some(var) = self.scope.lookup(name) {
             self.builder.emit_let(ty, ArcValue::Var(var), Some(span))
+        } else if let Some(&(enum_name, variant_idx, field_count)) = self.variant_ctors.get(&name) {
+            if field_count == 0 {
+                // Unit variant as identifier (e.g., `Red` in `let x = Red`)
+                self.builder.emit_construct(
+                    ty,
+                    CtorKind::EnumVariant {
+                        enum_name,
+                        variant: variant_idx,
+                    },
+                    vec![],
+                    Some(span),
+                )
+            } else {
+                // Tuple variant used as value — fn→closure coercion not yet supported
+                tracing::warn!(
+                    variant = self.name_str(name),
+                    "tuple variant used as first-class value (not yet supported)"
+                );
+                self.emit_unit()
+            }
         } else {
             tracing::debug!(
                 name = ?name,

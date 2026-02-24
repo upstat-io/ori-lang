@@ -29,7 +29,8 @@ pub(crate) mod scope;
 
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
+use rustc_hash::FxHashMap;
 
 use crate::classify::ArcClassifier;
 use crate::ir::{
@@ -40,6 +41,34 @@ use crate::Ownership;
 
 pub use self::expr::ArcLowerer;
 pub use self::scope::ArcScope;
+
+// Variant constructor lookup
+
+/// Maps variant name → `(enum_name, variant_index, field_count)`.
+///
+/// Built once per function from the [`Pool`]'s enum type data, then shared
+/// by reference with the expression lowerer and any inner lambda lowerers.
+pub(crate) type VariantCtors = FxHashMap<Name, (Name, u32, usize)>;
+
+/// Scan the pool for all enum types and build a reverse lookup map
+/// from variant name to its parent enum info.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "pool indices and variant counts never exceed u32"
+)]
+fn build_variant_ctors(pool: &Pool) -> VariantCtors {
+    let mut map = VariantCtors::default();
+    for raw in 0..pool.len() as u32 {
+        let idx = Idx::from_raw(raw);
+        if pool.tag(idx) == Tag::Enum {
+            let enum_name = pool.enum_name(idx);
+            for (vi, (vname, fields)) in pool.enum_variants(idx).into_iter().enumerate() {
+                map.insert(vname, (enum_name, vi as u32, fields.len()));
+            }
+        }
+    }
+    map
+}
 
 // Diagnostics
 
@@ -564,6 +593,7 @@ pub fn lower_function_can(
 
     let entry = builder.entry_block();
     let mut lambdas = Vec::new();
+    let variant_ctors = build_variant_ctors(pool);
 
     // Lower the body expression.
     let mut lowerer = ArcLowerer {
@@ -578,6 +608,7 @@ pub fn lower_function_can(
         lambdas: &mut lambdas,
         hash_length: None,
         block_let_names: rustc_hash::FxHashSet::default(),
+        variant_ctors: &variant_ctors,
     };
 
     let result_var = lowerer.lower_expr(body);
