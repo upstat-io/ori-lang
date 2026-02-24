@@ -1738,7 +1738,6 @@ type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
 }
 
 #[test]
-#[ignore = "AOT gap: derive Eq on enum compares whole struct instead of extracting tag"]
 fn test_aot_derive_eq_enum() {
     assert_aot_success(
         r#"
@@ -1753,6 +1752,33 @@ type Color = Red | Green | Blue;
 }
 "#,
         "derive_eq_enum",
+    );
+}
+
+#[test]
+fn test_aot_derive_eq_enum_all_variants() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Dir = North | South | East | West;
+
+@main () -> int = {
+    let n1 = North;
+    let n2 = North;
+    let s = South;
+    let e = East;
+    let w = West;
+    // Same variant == same variant
+    let ok1 = n1 == n2;
+    // Different variants != each other
+    let ok2 = n1 != s;
+    let ok3 = s != e;
+    let ok4 = e != w;
+    let ok5 = w != n1;
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}
+"#,
+        "derive_eq_enum_all",
     );
 }
 
