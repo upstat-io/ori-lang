@@ -1,16 +1,20 @@
 //! Strategy-driven body implementations for derived method codegen.
 //!
-//! Four functions map to the four `StructBody` variants:
+//! **Struct bodies** — four functions map to the four `StructBody` variants:
 //! - `compile_for_each_field` — Eq, Comparable, Hashable
 //! - `compile_format_fields` — Printable, Debug
 //! - `compile_clone_fields` — Clone
 //! - `compile_default_construct` — Default
 //!
+//! **Enum bodies** — `compile_enum_match_variants` handles `SumBody::MatchVariants`:
+//! - Tag comparison for Eq, Comparable, Hashable
+//! - Clone is identity return (enums are value types in LLVM)
+//!
 //! The common scaffolding (signature, ABI, function declaration) is handled by
 //! `setup_derive_function`; these functions only emit the body logic.
 
-use ori_ir::{CombineOp, DerivedTrait, FieldOp, FormatOpen, Name};
-use ori_types::{FieldDef, Idx};
+use ori_ir::{CombineOp, DerivedTrait, FieldOp, FormatOpen, Name, StructBody};
+use ori_types::{FieldDef, Idx, VariantDef, VariantFields};
 use tracing::warn;
 
 use super::super::function_compiler::FunctionCompiler;
@@ -343,4 +347,123 @@ pub(super) fn compile_default_construct<'a>(
     let result = fc.builder_mut().const_zero(struct_llvm_ty);
 
     emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
+}
+
+// ---------------------------------------------------------------------------
+// Enum MatchVariants: Eq, Comparable, Hashable, Clone
+// ---------------------------------------------------------------------------
+
+/// Generate derived methods for enum types using `SumBody::MatchVariants`.
+///
+/// Dispatches on the `struct_body` strategy:
+/// - `ForEachField`: tag-based Eq, Comparable, Hashable
+/// - `CloneFields`: identity return (enums are value types in LLVM)
+/// - Other strategies: not yet implemented (trace warning)
+///
+/// For unit-only enums (all variants have no payload), tag comparison is
+/// complete and correct. For payload enums, only the tag is compared —
+/// payload comparison is tracked as a separate gap.
+pub(super) fn compile_enum_match_variants<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    trait_kind: DerivedTrait,
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    variants: &[VariantDef],
+    struct_body: &StructBody,
+) {
+    let is_all_unit = variants
+        .iter()
+        .all(|v| matches!(v.fields, VariantFields::Unit));
+    if !is_all_unit {
+        tracing::trace!(
+            name = %type_name_str,
+            derive = %trait_kind.method_name(),
+            "enum derive with payload variants not yet supported — skipping"
+        );
+        return;
+    }
+
+    match *struct_body {
+        StructBody::ForEachField { combine, .. } => {
+            let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+            match combine {
+                CombineOp::AllTrue => emit_enum_all_true(fc, &setup),
+                CombineOp::Lexicographic => emit_enum_lexicographic(fc, &setup),
+                CombineOp::HashCombine => emit_enum_hash_combine(fc, &setup),
+            }
+        }
+        StructBody::CloneFields => {
+            // Clone on enum = identity return (value type in LLVM)
+            let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
+            let self_val = setup.self_val.expect("Clone has self");
+            emit_derive_return(fc, setup.func_id, &setup.abi, Some(self_val));
+        }
+        _ => {
+            tracing::trace!(
+                name = %type_name_str,
+                derive = %trait_kind.method_name(),
+                "enum derive strategy not yet implemented for this struct_body"
+            );
+        }
+    }
+}
+
+/// Enum Eq: compare variant tags (field 0) with `icmp eq`.
+fn emit_enum_all_true<'a>(fc: &mut FunctionCompiler<'_, 'a, 'a, '_>, setup: &DeriveSetup) {
+    let self_val = setup.self_val.expect("AllTrue has self");
+    let other_val = setup.other_val.expect("AllTrue has other");
+
+    let tag_self = fc.builder_mut().extract_value(self_val, 0, "eq.tag.self");
+    let tag_other = fc.builder_mut().extract_value(other_val, 0, "eq.tag.other");
+
+    let result = if let (Some(ts), Some(to)) = (tag_self, tag_other) {
+        fc.builder_mut().icmp_eq(ts, to, "eq.tags")
+    } else {
+        warn!("extract_value failed for enum tag in derive Eq");
+        fc.builder_mut().const_bool(false)
+    };
+    fc.builder_mut().ret(result);
+}
+
+/// Enum Comparable: unsigned ordering of variant tags (field 0).
+///
+/// Returns `Ordering` (Less=0, Equal=1, Greater=2) based on tag values.
+fn emit_enum_lexicographic<'a>(fc: &mut FunctionCompiler<'_, 'a, 'a, '_>, setup: &DeriveSetup) {
+    let self_val = setup.self_val.expect("Lexicographic has self");
+    let other_val = setup.other_val.expect("Lexicographic has other");
+
+    let tag_self = fc.builder_mut().extract_value(self_val, 0, "cmp.tag.self");
+    let tag_other = fc
+        .builder_mut()
+        .extract_value(other_val, 0, "cmp.tag.other");
+
+    let result = if let (Some(ts), Some(to)) = (tag_self, tag_other) {
+        // Unsigned comparison: tag values are 0, 1, 2, ... matching declaration order
+        fc.builder_mut()
+            .emit_icmp_ordering(ts, to, "cmp.tags", false)
+    } else {
+        warn!("extract_value failed for enum tag in derive Comparable");
+        fc.builder_mut().const_i8(1) // Equal fallback
+    };
+    emit_derive_return(fc, setup.func_id, &setup.abi, Some(result));
+}
+
+/// Enum Hashable: FNV-1a hash of the variant tag.
+///
+/// Tags are sign-extended to i64 before XOR into the FNV accumulator.
+fn emit_enum_hash_combine<'a>(fc: &mut FunctionCompiler<'_, 'a, 'a, '_>, setup: &DeriveSetup) {
+    let self_val = setup.self_val.expect("HashCombine has self");
+
+    let mut hash = fc.builder_mut().const_i64(FNV_OFFSET_BASIS as i64);
+    let prime = fc.builder_mut().const_i64(FNV_PRIME as i64);
+
+    if let Some(tag) = fc.builder_mut().extract_value(self_val, 0, "hash.tag") {
+        let i64_ty = fc.builder_mut().i64_type();
+        let tag_i64 = fc.builder_mut().sext(tag, i64_ty, "hash.tag.i64");
+        let xored = fc.builder_mut().xor(hash, tag_i64, "hash.xor.tag");
+        hash = fc.builder_mut().mul(xored, prime, "hash.mul.tag");
+    }
+
+    emit_derive_return(fc, setup.func_id, &setup.abi, Some(hash));
 }
