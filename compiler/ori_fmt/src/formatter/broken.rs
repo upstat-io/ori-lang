@@ -375,7 +375,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(self.interner.lookup(*label));
                 }
                 self.ctx.emit(" ");
-                self.emit_binding_pattern_id(*pattern);
+                self.emit_for_binding_pattern_id(*pattern);
                 self.ctx.emit(" in ");
                 self.format_iter(*iter);
                 if guard.is_present() {

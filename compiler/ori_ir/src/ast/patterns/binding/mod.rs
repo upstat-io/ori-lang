@@ -78,6 +78,42 @@ pub struct FieldBinding {
     pub pattern: Option<BindingPattern>,
 }
 
+impl BindingPattern {
+    /// Recursively force all name bindings to immutable.
+    ///
+    /// Used by the parser after `parse_binding_pattern()` in for-loop position.
+    /// Per spec (§05-variables.md): loop variables are immutable — reassignment
+    /// is an error. Enforcing at the parser level makes all downstream phases
+    /// (type checker, evaluator, ARC lowerer, codegen) agree automatically.
+    pub fn force_immutable(&mut self) {
+        match self {
+            Self::Name { mutable, .. } => *mutable = Mutability::Immutable,
+            Self::Tuple(elements) => {
+                for elem in elements {
+                    elem.force_immutable();
+                }
+            }
+            Self::Struct { fields } => {
+                for field in fields {
+                    field.mutable = Mutability::Immutable;
+                    if let Some(pat) = &mut field.pattern {
+                        pat.force_immutable();
+                    }
+                }
+            }
+            Self::List { elements, rest } => {
+                for elem in elements {
+                    elem.force_immutable();
+                }
+                if let Some((_, mutability)) = rest {
+                    *mutability = Mutability::Immutable;
+                }
+            }
+            Self::Wildcard => {}
+        }
+    }
+}
+
 /// Match pattern for match expressions.
 ///
 /// # Arena Allocation
@@ -151,3 +187,6 @@ impl Spanned for MatchArm {
         self.span
     }
 }
+
+#[cfg(test)]
+mod tests;
