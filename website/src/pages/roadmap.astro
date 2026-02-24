@@ -475,37 +475,60 @@ function countTasks(subsections: Section[]): { done: number; total: number } {
 }
 
 // Load test results from CI
+interface TestSuite {
+  name: string;
+  status?: string;        // "passed" | "failed" | "skipped" | "crashed" (for non-numeric suites like WASM)
+  passed: number | null;
+  failed: number | null;
+  skipped: number | null;
+  lcfail: number | null;  // LLVM compile failures
+}
+
 interface TestResults {
-  rust_tests: number;
-  rust_failed: number;
-  ori_tests: number;
-  ori_failed: number;
-  llvm_tests: number;
-  llvm_failed: number;
   timestamp?: string;
+  overall?: string;
+  suites: TestSuite[];
+  totals: { passed: number; failed: number; skipped: number; lcfail: number };
 }
 
 function loadTestResults(): TestResults {
   const testResultsPath = join(process.cwd(), 'public', 'test-results.json');
-  const defaults: TestResults = {
-    rust_tests: 0,
-    rust_failed: 0,
-    ori_tests: 0,
-    ori_failed: 0,
-    llvm_tests: 0,
-    llvm_failed: 0
-  };
+  const empty: TestResults = { suites: [], totals: { passed: 0, failed: 0, skipped: 0, lcfail: 0 } };
 
   if (!existsSync(testResultsPath)) {
-    return defaults;
+    return empty;
   }
 
   try {
     const content = readFileSync(testResultsPath, 'utf-8');
     const data = JSON.parse(content);
-    return { ...defaults, ...data };
+
+    // New format — has "suites" array
+    if (data.suites && Array.isArray(data.suites)) {
+      return {
+        timestamp: data.timestamp,
+        overall: data.overall,
+        suites: data.suites,
+        totals: data.totals ?? { passed: 0, failed: 0, skipped: 0, lcfail: 0 },
+      };
+    }
+
+    // Legacy format — flat { rust_tests, ori_tests, llvm_tests }
+    const suites: TestSuite[] = [
+      { name: 'Rust Unit Tests', passed: data.rust_tests ?? 0, failed: data.rust_failed ?? 0, skipped: null, lcfail: null },
+      { name: 'Ori Spec Tests', passed: data.ori_tests ?? 0, failed: data.ori_failed ?? 0, skipped: null, lcfail: null },
+      { name: 'LLVM Backend Tests', passed: data.llvm_tests ?? 0, failed: data.llvm_failed ?? 0, skipped: null, lcfail: null },
+    ];
+    const totalPassed = suites.reduce((s, t) => s + (t.passed ?? 0), 0);
+    const totalFailed = suites.reduce((s, t) => s + (t.failed ?? 0), 0);
+    return {
+      timestamp: data.timestamp,
+      overall: totalFailed > 0 ? 'failed' : 'passed',
+      suites,
+      totals: { passed: totalPassed, failed: totalFailed, skipped: 0, lcfail: 0 },
+    };
   } catch {
-    return defaults;
+    return empty;
   }
 }
 
@@ -692,29 +715,66 @@ const testResults = loadTestResults();
             : 'Latest CI run'}
         </span>
       </div>
-      <div class="results-grid">
-        <div class="result-card">
-          <span class="result-value">{testResults.rust_tests.toLocaleString()}</span>
-          <span class="result-label">Rust Unit Tests</span>
-          <span class={`result-status ${testResults.rust_failed === 0 ? 'success' : 'failing'}`}>
-            {testResults.rust_failed === 0 ? 'All Passing' : `${testResults.rust_failed} Failing`}
-          </span>
-        </div>
-        <div class="result-card">
-          <span class="result-value">{testResults.ori_tests.toLocaleString()}</span>
-          <span class="result-label">Ori Spec Tests</span>
-          <span class={`result-status ${testResults.ori_failed === 0 ? 'success' : 'failing'}`}>
-            {testResults.ori_failed === 0 ? 'All Passing' : `${testResults.ori_failed} Failing`}
-          </span>
-        </div>
-        <div class="result-card">
-          <span class="result-value">{testResults.llvm_tests.toLocaleString()}</span>
-          <span class="result-label">LLVM Backend Tests</span>
-          <span class={`result-status ${testResults.llvm_failed === 0 ? 'success' : 'failing'}`}>
-            {testResults.llvm_failed === 0 ? 'All Passing' : `${testResults.llvm_failed} Failing`}
-          </span>
-        </div>
-      </div>
+      {testResults.suites.length > 0 ? (
+        <>
+          <div class="results-grid">
+            {testResults.suites.map((suite) => {
+              const isStatusOnly = suite.passed === null;
+              const isCrashed = suite.status === 'crashed';
+              const hasFailed = (suite.failed ?? 0) > 0;
+              const borderClass = isCrashed ? 'crashed' : hasFailed ? 'has-failures' : '';
+              return (
+                <div class={`result-card ${borderClass}`}>
+                  {isCrashed ? (
+                    <span class="result-value result-value-status">CRASHED</span>
+                  ) : isStatusOnly ? (
+                    <span class="result-value result-value-status">{(suite.status ?? 'unknown').toUpperCase()}</span>
+                  ) : (
+                    <span class="result-value">{(suite.passed ?? 0).toLocaleString()}</span>
+                  )}
+                  <span class="result-label">{suite.name}</span>
+                  <div class="result-details">
+                    {isCrashed ? (
+                      <span class="result-status failing">Crashed</span>
+                    ) : isStatusOnly ? (
+                      <span class={`result-status ${suite.status === 'passed' ? 'success' : suite.status === 'skipped' ? 'muted' : 'failing'}`}>
+                        {suite.status === 'passed' ? 'Passed' : suite.status === 'skipped' ? 'Skipped' : 'Failed'}
+                      </span>
+                    ) : (
+                      <>
+                        <span class={`result-status ${hasFailed ? 'failing' : 'success'}`}>
+                          {hasFailed ? `${suite.failed} Failing` : 'All Passing'}
+                        </span>
+                        {(suite.skipped ?? 0) > 0 && (
+                          <span class="result-status muted">{suite.skipped} Skipped</span>
+                        )}
+                        {(suite.lcfail ?? 0) > 0 && (
+                          <span class="result-status lcfail">{(suite.lcfail ?? 0).toLocaleString()} LC Fail</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div class="results-total">
+            <span class="results-total-label">Total</span>
+            <span class="results-total-value">{testResults.totals.passed.toLocaleString()} passed</span>
+            {testResults.totals.failed > 0 && (
+              <span class="results-total-value failing">{testResults.totals.failed.toLocaleString()} failed</span>
+            )}
+            {testResults.totals.skipped > 0 && (
+              <span class="results-total-value muted">{testResults.totals.skipped.toLocaleString()} skipped</span>
+            )}
+            {testResults.totals.lcfail > 0 && (
+              <span class="results-total-value lcfail">{testResults.totals.lcfail.toLocaleString()} LC fail</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <p class="test-results-subtitle">No test results available yet.</p>
+      )}
     </section>
 
     <section class="proposals-section">
@@ -1760,6 +1820,67 @@ const testResults = loadTestResults();
   .result-status.muted {
     background: var(--color-bg-tertiary);
     color: var(--color-text-muted);
+  }
+
+  .result-status.lcfail {
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--color-warning);
+  }
+
+  .result-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+  }
+
+  .result-value-status {
+    font-size: var(--text-xl);
+  }
+
+  .result-card.crashed {
+    border-color: #ef4444;
+  }
+
+  .result-card.has-failures {
+    border-color: #ef4444;
+  }
+
+  .results-total {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding: var(--space-3) var(--space-5);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+
+  .results-total-label {
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+    font-size: var(--text-sm);
+  }
+
+  .results-total-value {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-success);
+    font-weight: var(--weight-medium);
+  }
+
+  .results-total-value.failing {
+    color: #ef4444;
+  }
+
+  .results-total-value.muted {
+    color: var(--color-text-muted);
+  }
+
+  .results-total-value.lcfail {
+    color: var(--color-warning);
   }
 
   .test-results-subtitle {

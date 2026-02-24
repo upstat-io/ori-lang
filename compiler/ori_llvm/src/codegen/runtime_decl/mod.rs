@@ -86,6 +86,58 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_list_push", &[ptr_ty, ptr_ty, i64_ty], void);
     // ori_list_take(list_ptr, out_ptr) -> void  (sret pattern: writes {len, cap, data} to out_ptr)
     builder.declare_extern_function("ori_list_take", &[ptr_ty, ptr_ty], void);
+    // ori_list_push_new(data, len, elem_ptr, elem_size, out_ptr) -> void
+    // Functional push: creates new list with element appended, writes to out_ptr.
+    builder.declare_extern_function(
+        "ori_list_push_new",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_list_first(data, len, elem_size, out_ptr) -> void
+    // Writes {tag: i64, value: [elem_size]} to out_ptr. tag=0 (None) or tag=1 (Some).
+    builder.declare_extern_function("ori_list_first", &[ptr_ty, i64_ty, i64_ty, ptr_ty], void);
+    // ori_list_last(data, len, elem_size, out_ptr) -> void
+    builder.declare_extern_function("ori_list_last", &[ptr_ty, i64_ty, i64_ty, ptr_ty], void);
+    // ori_list_contains_int(data, len, needle) -> i64 (0 or 1)
+    builder.declare_extern_function(
+        "ori_list_contains_int",
+        &[ptr_ty, i64_ty, i64_ty],
+        Some(i64_ty),
+    );
+    // ori_list_contains_str(data, len, needle_ptr) -> i64 (0 or 1)
+    builder.declare_extern_function(
+        "ori_list_contains_str",
+        &[ptr_ty, i64_ty, ptr_ty],
+        Some(i64_ty),
+    );
+    // ori_list_concat(data1, len1, data2, len2, elem_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_list_concat",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_list_reverse(data, len, elem_size, out_ptr) -> void
+    builder.declare_extern_function("ori_list_reverse", &[ptr_ty, i64_ty, i64_ty, ptr_ty], void);
+
+    // -- Map methods --
+    // ori_map_contains_key(keys, len, needle_ptr) -> i64 (0 or 1)
+    builder.declare_extern_function(
+        "ori_map_contains_key",
+        &[ptr_ty, i64_ty, ptr_ty],
+        Some(i64_ty),
+    );
+    // ori_map_keys_to_list(keys, len, key_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_map_keys_to_list",
+        &[ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_map_values_to_list(vals, len, val_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_map_values_to_list",
+        &[ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
 
     // -- Comparison functions --
     builder.declare_extern_function("ori_compare_int", &[i64_ty, i64_ty], Some(i32_ty));
@@ -125,6 +177,16 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
     builder.declare_extern_function("ori_str_from_int", &[i64_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_bool", &[bool_ty], Some(str_ty));
     builder.declare_extern_function("ori_str_from_float", &[f64_ty], Some(str_ty));
+
+    // -- String methods --
+    builder.declare_extern_function("ori_str_contains", &[ptr_ty, ptr_ty], Some(bool_ty));
+    builder.declare_extern_function("ori_str_starts_with", &[ptr_ty, ptr_ty], Some(bool_ty));
+    builder.declare_extern_function("ori_str_ends_with", &[ptr_ty, ptr_ty], Some(bool_ty));
+    builder.declare_extern_function("ori_str_trim", &[ptr_ty], Some(str_ty));
+    builder.declare_extern_function("ori_str_to_uppercase", &[ptr_ty], Some(str_ty));
+    builder.declare_extern_function("ori_str_to_lowercase", &[ptr_ty], Some(str_ty));
+    builder.declare_extern_function("ori_str_replace", &[ptr_ty, ptr_ty, ptr_ty], Some(str_ty));
+    builder.declare_extern_function("ori_str_repeat", &[ptr_ty, i64_ty], Some(str_ty));
 
     // -- Format functions (§3.16 Formattable trait) --
     // Each takes the value + format spec string (ptr + len) and returns formatted OriStr.

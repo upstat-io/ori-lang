@@ -5,7 +5,7 @@ type Point = { x: int, y: int }
 
 // Binary + without Add impl
 #[compile_fail("cannot apply operator `+`")]
-@test_add_missing () -> void = {
+@test_add_missing tests _ () -> void = {
     let a = Point { x: 1, y: 2 };
     let b = Point { x: 3, y: 4 };
     let _ = a + b;
@@ -14,7 +14,7 @@ type Point = { x: int, y: int }
 
 // Unary - without Neg impl
 #[compile_fail("cannot apply operator `-`")]
-@test_neg_missing () -> void = {
+@test_neg_missing tests _ () -> void = {
     let p = Point { x: 1, y: 2 };
     let _ = -p;
     ()
@@ -22,7 +22,7 @@ type Point = { x: int, y: int }
 
 // Unary ! without Not impl
 #[compile_fail("cannot apply operator `!`")]
-@test_not_missing () -> void = {
+@test_not_missing tests _ () -> void = {
     let p = Point { x: 1, y: 2 };
     let _ = !p;
     ()
@@ -30,7 +30,7 @@ type Point = { x: int, y: int }
 
 // Unary ~ without BitNot impl
 #[compile_fail("cannot apply operator `~`")]
-@test_bitnot_missing () -> void = {
+@test_bitnot_missing tests _ () -> void = {
     let p = Point { x: 1, y: 2 };
     let _ = ~p;
     ()
@@ -38,7 +38,7 @@ type Point = { x: int, y: int }
 
 // Binary & without BitAnd impl
 #[compile_fail("cannot apply operator `&`")]
-@test_bitand_missing () -> void = {
+@test_bitand_missing tests _ () -> void = {
     let a = Point { x: 1, y: 2 };
     let b = Point { x: 3, y: 4 };
     let _ = a & b;

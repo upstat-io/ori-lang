@@ -1,0 +1,8 @@
+{
+  "expected_output": "Area: 21",
+  "output_match": "contains",
+  "hints": [
+    "The last expression in a block becomes its value",
+    "Try: let width = 7; let height = 3; width * height"
+  ]
+}

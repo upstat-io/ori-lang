@@ -4,7 +4,7 @@
 type Point = { x: int, y: int }
 
 #[compile_fail("cannot be used as map key")]
-@test_map_key_not_hashable () -> void = {
+@test_map_key_not_hashable tests _ () -> void = {
     let map: {Point: int} = {};
     ()
 }

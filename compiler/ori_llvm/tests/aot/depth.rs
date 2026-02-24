@@ -351,7 +351,6 @@ fn test_depth_closure_capturing_string() {
 }
 
 #[test]
-#[ignore = "AOT gap: zero-arg closure capturing 3+ strings causes heap corruption (malloc corrupted top size)"]
 fn test_depth_closure_capturing_multiple_strings() {
     assert_aot_success(
         r#"
@@ -580,7 +579,6 @@ fn test_depth_result_with_option_payload() {
 // ─── Complex expressions combining multiple features ───
 
 #[test]
-#[ignore = "AOT gap: mutation of outer variables inside match arms within for-do body (ArcIrEmitter: variable not yet defined)"]
 fn test_depth_combined_match_closure_result() {
     assert_aot_success(
         r#"
@@ -606,7 +604,6 @@ fn test_depth_combined_match_closure_result() {
 }
 
 #[test]
-#[ignore = "AOT gap: bool comparison stored in struct field during for-yield always produces false"]
 fn test_depth_combined_struct_iter_match() {
     assert_aot_success(
         r#"
@@ -649,7 +646,6 @@ fn test_depth_combined_recursion_with_match() {
 }
 
 #[test]
-#[ignore = "AOT gap: mutation of outer variables inside match arms within for-do body (ArcIrEmitter: variable not yet defined)"]
 fn test_depth_combined_all_features() {
     assert_aot_success(
         r#"

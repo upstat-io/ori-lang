@@ -1,0 +1,32 @@
+---
+import TutorialLayout from '../../layouts/TutorialLayout.astro';
+import TutorialShell from '../../components/tutorial/TutorialShell.svelte';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
+export function getStaticPaths() {
+  const manifestPath = resolve('public/tutorial-manifest.json');
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+  } catch {
+    // Manifest not yet built — return empty paths (prebuild will generate it)
+    return [];
+  }
+
+  return Object.values(manifest.lessons).map((lesson: any) => ({
+    params: { slug: lesson.slug },
+    props: { title: lesson.title, description: lesson.description },
+  }));
+}
+
+const { slug } = Astro.params;
+const { title, description } = Astro.props;
+---
+
+<TutorialLayout
+  title={`${title} — Ori Tutorial`}
+  description={description}
+>
+  <TutorialShell client:only="svelte" initialSlug={slug} />
+</TutorialLayout>

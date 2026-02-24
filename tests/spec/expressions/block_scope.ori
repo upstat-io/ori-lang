@@ -7,7 +7,7 @@ use std.testing { assert, assert_eq }
 // Basic block scoping — let bindings are local to their block
 // =============================================================================
 
-@test_let_binding_in_block () -> void = {
+@test_let_binding_in_block tests _ () -> void = {
     let outer = 1;
     let inner_result = {
         let inner = 42;
@@ -17,7 +17,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: outer, expected: 1)
 }
 
-@test_block_returns_last_expression () -> void = {
+@test_block_returns_last_expression tests _ () -> void = {
     let result = {
         let a = 10;
         let b = 20;
@@ -30,14 +30,14 @@ use std.testing { assert, assert_eq }
 // Shadowing — inner blocks shadow outer bindings without mutation
 // =============================================================================
 
-@test_simple_shadow () -> void = {
+@test_simple_shadow tests _ () -> void = {
     let x = 1;
     let y = { let x = 99; x };
     assert_eq(actual: x, expected: 1);
     assert_eq(actual: y, expected: 99)
 }
 
-@test_nested_shadow () -> void = {
+@test_nested_shadow tests _ () -> void = {
     let x = 1;
     let y = {
         let x = 2;
@@ -50,7 +50,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: y, expected: 3)
 }
 
-@test_deep_nesting () -> void = {
+@test_deep_nesting tests _ () -> void = {
     let x = 1;
     let r = {
         let x = 2;
@@ -69,7 +69,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: r, expected: 5)
 }
 
-@test_shadow_with_computation () -> void = {
+@test_shadow_with_computation tests _ () -> void = {
     let x = 10;
     let y = {
         let x = x + 5;
@@ -83,7 +83,7 @@ use std.testing { assert, assert_eq }
 // Multiple bindings in blocks
 // =============================================================================
 
-@test_multiple_lets_in_block () -> void = {
+@test_multiple_lets_in_block tests _ () -> void = {
     let result = {
         let a = 1;
         let b = 2;
@@ -93,7 +93,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 6)
 }
 
-@test_sequential_blocks () -> void = {
+@test_sequential_blocks tests _ () -> void = {
     let x = 1;
     let a = { let x = 10; x };
     let b = { let x = 20; x };
@@ -104,7 +104,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: c, expected: 30)
 }
 
-@test_sibling_blocks_dont_share_scope () -> void = {
+@test_sibling_blocks_dont_share_scope tests _ () -> void = {
     let a = {
         let shared = 100;
         shared
@@ -121,23 +121,23 @@ use std.testing { assert, assert_eq }
 // Block expressions as values in different positions
 // =============================================================================
 
-@test_block_in_if_condition () -> void = {
+@test_block_in_if_condition tests _ () -> void = {
     let x = 5;
     let r = if { let y = x > 3; y } then "big" else "small";
     assert_eq(actual: r, expected: "big")
 }
 
-@test_block_in_arithmetic () -> void = {
+@test_block_in_arithmetic tests _ () -> void = {
     let a = { let x = 3; x } + { let x = 4; x };
     assert_eq(actual: a, expected: 7)
 }
 
-@test_block_as_function_arg () -> void = {
+@test_block_as_function_arg tests _ () -> void = {
     let r = str({ let x = 42; x });
     assert_eq(actual: r, expected: "42")
 }
 
-@test_block_in_list () -> void = {
+@test_block_in_list tests _ () -> void = {
     let xs = [{ let a = 1; a }, { let a = 2; a }, { let a = 3; a }];
     assert_eq(actual: xs, expected: [1, 2, 3])
 }
@@ -146,7 +146,7 @@ use std.testing { assert, assert_eq }
 // Reassignment (mutable) in blocks
 // =============================================================================
 
-@test_mutable_in_block () -> void = {
+@test_mutable_in_block tests _ () -> void = {
     let x = 0;
     let result = {
         let y = 10;
@@ -157,7 +157,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: result, expected: 15)
 }
 
-@test_outer_mutable_not_affected_by_shadow () -> void = {
+@test_outer_mutable_not_affected_by_shadow tests _ () -> void = {
     let x = 1;
     let y = {
         let x = 100;
@@ -172,7 +172,7 @@ use std.testing { assert, assert_eq }
 // Unit blocks (trailing semicolon means void result)
 // =============================================================================
 
-@test_unit_block () -> void = {
+@test_unit_block tests _ () -> void = {
     let x = 5;
     { let y = 10; };
     assert_eq(actual: x, expected: 5)
@@ -182,7 +182,7 @@ use std.testing { assert, assert_eq }
 // Blocks with control flow
 // =============================================================================
 
-@test_block_with_if () -> void = {
+@test_block_with_if tests _ () -> void = {
     let x = 10;
     let r = {
         let x = 5;
@@ -192,7 +192,7 @@ use std.testing { assert, assert_eq }
     assert_eq(actual: r, expected: 10)
 }
 
-@test_block_with_match () -> void = {
+@test_block_with_match tests _ () -> void = {
     let x = 42;
     let r = {
         let x = Some(99);
@@ -209,7 +209,7 @@ use std.testing { assert, assert_eq }
 // Nested blocks with different variable names (no shadowing, just isolation)
 // =============================================================================
 
-@test_isolated_blocks () -> void = {
+@test_isolated_blocks tests _ () -> void = {
     let result = {
         let a = 1;
         let b = {
@@ -226,7 +226,7 @@ use std.testing { assert, assert_eq }
 // Block as last statement (void) vs last expression (value)
 // =============================================================================
 
-@test_block_result_vs_statement () -> void = {
+@test_block_result_vs_statement tests _ () -> void = {
     let a = { 42 };
     assert_eq(actual: a, expected: 42)
 }
@@ -244,14 +244,14 @@ use std.testing { assert, assert_eq }
 // Nested blocks (all produce CanExpr::Block)
 // =============================================================================
 
-@test_nested_block_scoping () -> void = {
+@test_nested_block_scoping tests _ () -> void = {
     let a = { let x = 1; x };
     let b = { let x = 2; x };
     assert_eq(actual: a, expected: 1);
     assert_eq(actual: b, expected: 2)
 }
 
-@test_deeply_nested_block () -> void = {
+@test_deeply_nested_block tests _ () -> void = {
     let x = 1;
     let y = {
         let x = { let x = 99; x };

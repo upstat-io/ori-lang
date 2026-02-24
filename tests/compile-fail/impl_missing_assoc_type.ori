@@ -18,7 +18,7 @@ impl Container for EmptyBox {
 
 // A test to trigger compilation
 #[compile_fail("missing associated type")]
-@test_placeholder () -> void = {
+@test_placeholder tests _ () -> void = {
     let box = EmptyBox { };
     ()
 }

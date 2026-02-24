@@ -936,6 +936,319 @@ pub extern "C" fn ori_list_take(list: *mut u8, out_ptr: *mut u8) {
     }
 }
 
+/// Create a new list with an element appended (functional push).
+///
+/// Allocates a new data buffer, copies all elements from the original,
+/// then copies the new element at the end. Writes the resulting
+/// `{len+1, len+1, new_data}` to `out_ptr` (sret pattern).
+///
+/// The original list data is NOT freed — the caller retains ownership.
+#[no_mangle]
+pub extern "C" fn ori_list_push_new(
+    data: *const u8,
+    len: i64,
+    elem_ptr: *const u8,
+    elem_size: i64,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() || elem_ptr.is_null() {
+        return;
+    }
+    let es = elem_size.max(1) as usize;
+    let old_len = len.max(0) as usize;
+    let new_len = old_len + 1;
+    let new_total = new_len * es;
+
+    let new_data = crate::ori_alloc(new_total, 8);
+
+    // Copy old elements
+    if !data.is_null() && old_len > 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(data, new_data, old_len * es);
+        }
+    }
+
+    // Copy new element at the end
+    unsafe {
+        std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(old_len * es), es);
+    }
+
+    // Write result: {len, cap, data}
+    unsafe {
+        out_ptr.cast::<i64>().write(new_len as i64);
+        out_ptr.cast::<i64>().add(1).write(new_len as i64);
+        out_ptr.add(16).cast::<*mut u8>().write(new_data);
+    }
+}
+
+/// Return the first element of a list, or write a None tag if empty.
+///
+/// Writes `{tag, value}` to `out_ptr` where tag=1 (Some) with element
+/// copied, or tag=0 (None). The value region is `elem_size` bytes.
+#[no_mangle]
+pub extern "C" fn ori_list_first(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let es = elem_size.max(1) as usize;
+    if data.is_null() || len <= 0 {
+        // None: tag = 1 (Ori convention: 0=Some, 1=None)
+        unsafe {
+            out_ptr.cast::<i64>().write(1);
+        }
+        return;
+    }
+    // Some: tag = 0, copy first element
+    unsafe {
+        out_ptr.cast::<i64>().write(0);
+        std::ptr::copy_nonoverlapping(data, out_ptr.add(8), es);
+    }
+}
+
+/// Return the last element of a list, or write a None tag if empty.
+///
+/// Same layout as `ori_list_first`: `{tag: i64, value: [elem_size]}`.
+/// Ori convention: tag 0=Some, 1=None.
+#[no_mangle]
+pub extern "C" fn ori_list_last(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let es = elem_size.max(1) as usize;
+    if data.is_null() || len <= 0 {
+        unsafe {
+            out_ptr.cast::<i64>().write(1);
+        }
+        return;
+    }
+    let last_offset = (len as usize - 1) * es;
+    unsafe {
+        out_ptr.cast::<i64>().write(0);
+        std::ptr::copy_nonoverlapping(data.add(last_offset), out_ptr.add(8), es);
+    }
+}
+
+/// Check whether a list of i64 elements contains a given value.
+///
+/// Returns 1 (true) if found, 0 (false) otherwise.
+#[no_mangle]
+pub extern "C" fn ori_list_contains_int(data: *const u8, len: i64, needle: i64) -> i64 {
+    if data.is_null() || len <= 0 {
+        return 0;
+    }
+    let ptr = data.cast::<i64>();
+    for i in 0..len as usize {
+        if unsafe { *ptr.add(i) } == needle {
+            return 1;
+        }
+    }
+    0
+}
+
+/// Check whether a list of strings contains a given string.
+///
+/// Each string element is `{i64 len, ptr data}` (16 bytes).
+/// Returns 1 (true) if found, 0 (false) otherwise.
+#[no_mangle]
+pub extern "C" fn ori_list_contains_str(data: *const u8, len: i64, needle: *const OriStr) -> i64 {
+    if data.is_null() || len <= 0 || needle.is_null() {
+        return 0;
+    }
+    let needle_str = unsafe { deref_str(needle) };
+    let elem_size = std::mem::size_of::<OriStr>();
+    for i in 0..len as usize {
+        let elem_ptr = unsafe { data.add(i * elem_size).cast::<OriStr>() };
+        let elem_str = unsafe { (*elem_ptr).as_str() };
+        if elem_str == needle_str {
+            return 1;
+        }
+    }
+    0
+}
+
+/// Create a reversed copy of a list.
+///
+/// Allocates new data buffer, copies elements in reverse order.
+/// Writes `{len, len, new_data}` to `out_ptr` (sret pattern).
+#[no_mangle]
+pub extern "C" fn ori_list_reverse(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let es = elem_size.max(1) as usize;
+    let n = len.max(0) as usize;
+
+    if data.is_null() || n == 0 {
+        unsafe {
+            out_ptr.cast::<i64>().write(0);
+            out_ptr.cast::<i64>().add(1).write(0);
+            out_ptr
+                .add(16)
+                .cast::<*mut u8>()
+                .write(std::ptr::null_mut());
+        }
+        return;
+    }
+
+    let total = n * es;
+    let new_data = crate::ori_alloc(total, 8);
+
+    for i in 0..n {
+        let src_offset = (n - 1 - i) * es;
+        let dst_offset = i * es;
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.add(src_offset), new_data.add(dst_offset), es);
+        }
+    }
+
+    unsafe {
+        out_ptr.cast::<i64>().write(n as i64);
+        out_ptr.cast::<i64>().add(1).write(n as i64);
+        out_ptr.add(16).cast::<*mut u8>().write(new_data);
+    }
+}
+
+/// Concatenate two lists, returning a new list.
+///
+/// Allocates new buffer, copies elements from both lists.
+/// Writes `{len1+len2, len1+len2, new_data}` to `out_ptr` (sret pattern).
+#[no_mangle]
+pub extern "C" fn ori_list_concat(
+    data1: *const u8,
+    len1: i64,
+    data2: *const u8,
+    len2: i64,
+    elem_size: i64,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let es = elem_size.max(1) as usize;
+    let n1 = len1.max(0) as usize;
+    let n2 = len2.max(0) as usize;
+    let total_len = n1 + n2;
+
+    if total_len == 0 {
+        unsafe {
+            out_ptr.cast::<i64>().write(0);
+            out_ptr.cast::<i64>().add(1).write(0);
+            out_ptr
+                .add(16)
+                .cast::<*mut u8>()
+                .write(std::ptr::null_mut());
+        }
+        return;
+    }
+
+    let total_bytes = total_len * es;
+    let new_data = crate::ori_alloc(total_bytes, 8);
+
+    unsafe {
+        if !data1.is_null() && n1 > 0 {
+            std::ptr::copy_nonoverlapping(data1, new_data, n1 * es);
+        }
+        if !data2.is_null() && n2 > 0 {
+            std::ptr::copy_nonoverlapping(data2, new_data.add(n1 * es), n2 * es);
+        }
+        out_ptr.cast::<i64>().write(total_len as i64);
+        out_ptr.cast::<i64>().add(1).write(total_len as i64);
+        out_ptr.add(16).cast::<*mut u8>().write(new_data);
+    }
+}
+
+// -----------------------------------------------------------------------
+// Map methods
+// -----------------------------------------------------------------------
+
+/// Check if a map contains a string key.
+///
+/// Map keys are stored as a contiguous array of `OriStr` structs
+/// (`{i64 len, ptr data}`). Linear scan with string comparison.
+/// Returns 1 if found, 0 otherwise.
+#[no_mangle]
+pub extern "C" fn ori_map_contains_key(keys: *const u8, len: i64, needle: *const OriStr) -> i64 {
+    if keys.is_null() || len <= 0 || needle.is_null() {
+        return 0;
+    }
+    let needle_str = unsafe { deref_str(needle) };
+    let key_size = std::mem::size_of::<OriStr>();
+    for i in 0..len as usize {
+        let key_ptr = unsafe { keys.add(i * key_size).cast::<OriStr>() };
+        let key_str = unsafe { (*key_ptr).as_str() };
+        if key_str == needle_str {
+            return 1;
+        }
+    }
+    0
+}
+
+/// Extract map keys as a new list.
+///
+/// Allocates a new buffer and copies all keys. Writes `{len, len, data_ptr}`
+/// to `out_ptr` (sret pattern). The resulting list owns its data buffer.
+#[no_mangle]
+pub extern "C" fn ori_map_keys_to_list(keys: *const u8, len: i64, key_size: i64, out_ptr: *mut u8) {
+    write_array_to_list(keys, len, key_size, out_ptr);
+}
+
+/// Extract map values as a new list.
+///
+/// Allocates a new buffer and copies all values. Writes `{len, len, data_ptr}`
+/// to `out_ptr` (sret pattern). The resulting list owns its data buffer.
+#[no_mangle]
+pub extern "C" fn ori_map_values_to_list(
+    vals: *const u8,
+    len: i64,
+    val_size: i64,
+    out_ptr: *mut u8,
+) {
+    write_array_to_list(vals, len, val_size, out_ptr);
+}
+
+/// Shared helper: copy a contiguous array into a new list struct via sret.
+fn write_array_to_list(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let es = elem_size.max(1) as usize;
+    let n = len.max(0) as usize;
+
+    if data.is_null() || n == 0 {
+        unsafe {
+            out_ptr.cast::<i64>().write(0);
+            out_ptr.cast::<i64>().add(1).write(0);
+            out_ptr
+                .add(16)
+                .cast::<*mut u8>()
+                .write(std::ptr::null_mut());
+        }
+        return;
+    }
+
+    let total = n * es;
+    let new_data = crate::ori_alloc(total, 8);
+    unsafe {
+        std::ptr::copy_nonoverlapping(data, new_data, total);
+        out_ptr.cast::<i64>().write(n as i64);
+        out_ptr.cast::<i64>().add(1).write(n as i64);
+        out_ptr.add(16).cast::<*mut u8>().write(new_data);
+    }
+}
+
+/// Safely dereference an `OriStr` pointer, returning `""` for null.
+///
+/// # Safety
+///
+/// If non-null, `ptr` must point to a valid `OriStr`.
+unsafe fn deref_str<'a>(ptr: *const OriStr) -> &'a str {
+    if ptr.is_null() {
+        ""
+    } else {
+        (*ptr).as_str()
+    }
+}
+
 /// Concatenate two strings.
 ///
 /// Returns a new `OriStr` with the concatenated result.
@@ -1079,6 +1392,68 @@ pub extern "C" fn ori_str_from_bool(b: bool) -> OriStr {
 #[no_mangle]
 pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {
     OriStr::from_owned(f.to_string())
+}
+
+// -- String methods --
+
+/// Check if a string contains a substring.
+#[no_mangle]
+pub extern "C" fn ori_str_contains(s: *const OriStr, needle: *const OriStr) -> bool {
+    let (s, needle) = unsafe { (deref_str(s), deref_str(needle)) };
+    s.contains(needle)
+}
+
+/// Check if a string starts with a prefix.
+#[no_mangle]
+pub extern "C" fn ori_str_starts_with(s: *const OriStr, prefix: *const OriStr) -> bool {
+    let (s, prefix) = unsafe { (deref_str(s), deref_str(prefix)) };
+    s.starts_with(prefix)
+}
+
+/// Check if a string ends with a suffix.
+#[no_mangle]
+pub extern "C" fn ori_str_ends_with(s: *const OriStr, suffix: *const OriStr) -> bool {
+    let (s, suffix) = unsafe { (deref_str(s), deref_str(suffix)) };
+    s.ends_with(suffix)
+}
+
+/// Trim whitespace from both ends of a string.
+#[no_mangle]
+pub extern "C" fn ori_str_trim(s: *const OriStr) -> OriStr {
+    let s = unsafe { deref_str(s) };
+    OriStr::from_owned(s.trim().to_owned())
+}
+
+/// Convert a string to uppercase.
+#[no_mangle]
+pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
+    let s = unsafe { deref_str(s) };
+    OriStr::from_owned(s.to_uppercase())
+}
+
+/// Convert a string to lowercase.
+#[no_mangle]
+pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
+    let s = unsafe { deref_str(s) };
+    OriStr::from_owned(s.to_lowercase())
+}
+
+/// Replace all occurrences of `from` with `to` in a string.
+#[no_mangle]
+pub extern "C" fn ori_str_replace(
+    s: *const OriStr,
+    from: *const OriStr,
+    to: *const OriStr,
+) -> OriStr {
+    let (s, from, to) = unsafe { (deref_str(s), deref_str(from), deref_str(to)) };
+    OriStr::from_owned(s.replace(from, to))
+}
+
+/// Repeat a string `count` times.
+#[no_mangle]
+pub extern "C" fn ori_str_repeat(s: *const OriStr, count: i64) -> OriStr {
+    let s = unsafe { deref_str(s) };
+    OriStr::from_owned(s.repeat(count.max(0) as usize))
 }
 
 /// Compare two integers (for sorting, etc.)

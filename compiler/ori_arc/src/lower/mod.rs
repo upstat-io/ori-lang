@@ -577,6 +577,7 @@ pub fn lower_function_can(
         problems,
         lambdas: &mut lambdas,
         hash_length: None,
+        block_let_names: rustc_hash::FxHashSet::default(),
     };
 
     let result_var = lowerer.lower_expr(body);

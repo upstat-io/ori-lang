@@ -11,10 +11,6 @@ use super::helpers::{
 use super::DispatchCtx;
 
 /// Dispatch methods on list values.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
-)]
 pub fn dispatch_list_method(
     receiver: Value,
     method: Name,
@@ -39,6 +35,17 @@ pub fn dispatch_list_method(
     } else if method == n.contains {
         require_args("contains", 1, args.len())?;
         Ok(Value::Bool(items.contains(&args[0])))
+    } else if method == n.push {
+        require_args("push", 1, args.len())?;
+        let mut result = (*items).clone();
+        let mut args = args;
+        result.push(args.swap_remove(0));
+        Ok(Value::list(result))
+    } else if method == n.reverse {
+        require_args("reverse", 0, args.len())?;
+        let mut result = (*items).clone();
+        result.reverse();
+        Ok(Value::list(result))
     } else if method == n.add || method == n.concat {
         require_args("concat", 1, args.len())?;
         let other = require_list_arg("concat", &args, 0)?;
