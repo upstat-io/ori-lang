@@ -650,7 +650,7 @@ fn multiple_drop_fns_for_different_types() {
 #[test]
 fn is_shared_emits_gep_load_icmp() {
     use ori_arc::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId,
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
     };
     use ori_arc::Ownership;
 
@@ -693,6 +693,8 @@ fn is_shared_emits_gep_load_icmp() {
     );
 
     // Build a minimal ArcFunction: param v0 (ptr), IsShared dst=v1 var=v0, Return v1
+    // v0 must have RcPointer repr — IsShared only emits the GEP/load/icmp
+    // sequence for heap-allocated RC'd values (pointer-typed).
     let arc_func = ArcFunction {
         name: interner.intern("test_fn"),
         params: vec![ArcParam {
@@ -714,7 +716,7 @@ fn is_shared_emits_gep_load_icmp() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![Idx::STR, Idx::BOOL],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
         is_fbip: false,
     };
@@ -760,7 +762,7 @@ fn is_shared_emits_gep_load_icmp() {
 #[test]
 fn set_emits_struct_gep_and_store() {
     use ori_arc::ir::{
-        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId,
+        ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArcVarId, ValueRepr,
     };
     use ori_arc::Ownership;
 
@@ -811,6 +813,7 @@ fn set_emits_struct_gep_and_store() {
     );
 
     // ArcFunction: v0 (struct ptr), v1 (int), then Set v0.field(1) = v1, return v0
+    // v0 must have RcPointer repr — Set uses GEP+store which requires a pointer.
     let arc_func = ArcFunction {
         name: interner.intern("test_set_fn"),
         params: vec![
@@ -840,7 +843,7 @@ fn set_emits_struct_gep_and_store() {
         }],
         entry: ArcBlockId::new(0),
         var_types: vec![struct_ty, Idx::INT],
-        var_reprs: Vec::new(),
+        var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
         is_fbip: false,
     };

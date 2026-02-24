@@ -47,8 +47,10 @@ impl<I: StringLookup> ModuleFormatter<'_, I> {
         self.ctx.emit("@");
         self.ctx.emit(self.interner.lookup(test.name));
 
-        // Targets (only if there are any - free-floating tests have no targets clause)
-        if !test.targets.is_empty() {
+        // Targets: attached tests list specific targets, floating tests use `_`
+        if test.targets.is_empty() {
+            self.ctx.emit(" tests _");
+        } else {
             for target in &test.targets {
                 self.ctx.emit(" tests @");
                 self.ctx.emit(self.interner.lookup(*target));

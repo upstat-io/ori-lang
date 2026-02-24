@@ -6,7 +6,7 @@
 // Note: `$` is a binding modifier — the variable is referenced as `x`, not `$x`.
 
 #[compile_fail("cannot assign to immutable binding")]
-@test_assign_to_immutable () -> void = {
+@test_assign_to_immutable tests _ () -> void = {
     let $x = 5;
     x = 10
 }

@@ -575,7 +575,7 @@ pub struct ParamDef {
 
 3. **`Fresh` variant**: Higher-order methods like `list.map(f)` have return types that depend on the closure argument. The type checker handles this by creating fresh type variables. The registry can't specify the exact return type, so `Fresh` signals "the type checker must infer this via unification". This replaces the pattern `engine.pool_mut().fresh_var()` scattered across `resolve_*_method()` functions.
 
-4. **No `Closure` type in `ParamDef`**: The current `ParamSpec::Closure` in `ori_ir` indicates "this parameter is a closure/function". Rather than a special variant, closure parameters will use `ReturnTag::Fresh` for the parameter type (since the exact closure signature varies). The *existence* of a closure parameter is visible from the method's higher-order nature, which the type checker handles via `TypeFlow` (Section 07).
+4. **No `Closure` type in `ParamDef`**: The current `ParamSpec::Closure` in `ori_ir` indicates "this parameter is a closure/function". Rather than a special variant, closure parameters will use `ReturnTag::Fresh` for the parameter type (since the exact closure signature varies). The *existence* of a closure parameter is visible from the method's higher-order nature, and the type checker's existing unification logic (`unify_higher_order_constraints` in calls.rs) handles inferring closure return types. This inference logic stays in ori_types — it's behavioral, not declarative data.
 
 5. **`ownership` defaults to `Borrow`**: In practice, most method parameters are borrowed (the method reads them but doesn't consume them). The `ownership` field is explicit on every `ParamDef` -- no implicit defaults. This makes the registry completely self-describing.
 
@@ -659,28 +659,64 @@ pub struct MethodDef {
     /// from inherent methods during resolution, and allows the registry
     /// to be queried by trait name.
     pub trait_name: Option<&'static str>,
+
+    /// Whether this method is free of side effects and cannot panic.
+    ///
+    /// `true` = pure (no side effects, no panics) — e.g., `str.length()`,
+    /// `int.abs()`, `list.len()`. The optimizer may reorder, eliminate,
+    /// or memoize calls to pure methods. Pure methods need no `uses`
+    /// capability annotation.
+    ///
+    /// `false` = may have side effects, may panic — e.g., `list.push()`,
+    /// `option.unwrap()`, `channel.send()`.
+    ///
+    /// Prior art: Swift's `"n"` readnone attribute on Builtins.def flows
+    /// from the registry to SIL's `getMemoryBehavior()` for optimization.
+    /// Zig's `eval_to_error` flag on BuiltinFn enables pre-Sema validation.
+    pub pure: bool,
+
+    /// Whether ALL backends (eval + llvm) must implement this method.
+    ///
+    /// `true` = both eval and llvm must have a handler. Section 14
+    /// enforcement tests verify this. Most user-facing methods are
+    /// backend_required.
+    ///
+    /// `false` = may be eval-only, llvm-only, or internal. Examples:
+    /// - `__iter_next` (llvm-only ARC lowering protocol)
+    /// - `__collect_set` (eval-only type-directed rewrite)
+    /// - Methods not yet implemented in LLVM (tracked, not enforced)
+    ///
+    /// Prior art: Rust's `must_be_overridden` flag on `IntrinsicDef`
+    /// forces every codegen backend to implement the intrinsic.
+    pub backend_required: bool,
 }
 ```
 
 ### Design Decisions
 
-1. **No `type_flow` field yet**: The overview mentions future extensibility with `TypeFlow` for higher-order methods. This is deferred to Section 07 (Iterator Types), which will propose whether `TypeFlow` should be a field on `MethodDef` or a separate lookup. For now, `returns: ReturnTag::Fresh` signals that the type checker must infer the return type, and the specific unification logic remains in the type checker (which is the correct location for inference logic).
+1. **No `type_flow` field — intentionally excluded**: Higher-order method type inference (how closure arguments constrain return types) is behavioral logic that belongs in the type checker, not declarative data in the registry. `returns: ReturnTag::Fresh` signals "the type checker must infer this via unification." The specific unification logic (`unify_higher_order_constraints` in calls.rs) stays in ori_types where it can reason about type variables, closure signatures, and unification constraints — none of which are expressible as pure const data.
 
 2. **`trait_name: Option<&'static str>` not `Option<TraitTag>`**: Creating a `TraitTag` enum for all traits would couple the registry to the trait system's evolution. Using a plain string keeps it simple and matches how traits are identified throughout the codebase. The string is `&'static str` so it's const-constructible.
 
-3. **`params` is `&'static [ParamDef]`**: Method parameters are a fixed set known at compile time. Using a static slice avoids heap allocation and is const-constructible. The owning `static` arrays live next to the `MethodDef` const declarations (Sections 03-07).
+3. **`pure: bool` for side-effect annotation**: Inspired by Swift's `"n"` (readnone) attribute on `Builtins.def` and Zig's `eval_to_error` flag on `BuiltinFn`. A single boolean captures the most useful distinction for the optimizer and effect system. More granular effect levels (e.g., "may panic but no IO", "reads memory but doesn't write") can be added later if needed by replacing `bool` with an enum — the consuming phases already handle `pure` as a field, so widening the type is non-breaking. The binary `pure/impure` covers ~90% of the optimization benefit.
 
-4. **No `MethodDef` derives `Copy`**: Because it contains `&'static [ParamDef]` (a fat pointer, 16 bytes) and `Option<&'static str>` (16 bytes), the struct is 56+ bytes. While technically `Copy`-eligible (all fields are `Copy`), we derive `Clone` only to avoid accidental large copies. The registry stores them in `&'static [MethodDef]` slices, so they're always accessed by reference.
+4. **`backend_required: bool` for cross-backend enforcement**: Inspired by Rust's `must_be_overridden` flag on `IntrinsicDef`. Without this, a method can exist in the registry and be implemented in eval but not llvm (or vice versa), with the gap only caught by test-time enforcement in Section 14. The flag makes the expectation explicit: `backend_required: true` means Section 14 tests WILL fail if any backend is missing a handler. `backend_required: false` means the method is intentionally backend-specific (e.g., `__iter_next` is llvm-only).
+
+5. **No mutation strategy on MethodDef — intentionally excluded**: Whether a method can mutate its receiver in-place (vs. clone-then-mutate) is a per-call-site decision, not a per-method property. `list.push(x)` may be in-place at one call site (sole reference) and clone at another (shared reference). Roc validates this: `LowLevel::ListReplaceUnsafe` carries a single enum variant, and each call site gets a separate `UpdateMode` from alias analysis. The registry declares `receiver: Ownership::Borrow` (the semantic contract) — the ARC pass decides the optimization.
+
+6. **`params` is `&'static [ParamDef]`**: Method parameters are a fixed set known at compile time. Using a static slice avoids heap allocation and is const-constructible. The owning `static` arrays live next to the `MethodDef` const declarations (Sections 03-07).
+
+7. **No `MethodDef` derives `Copy`**: Because it contains `&'static [ParamDef]` (a fat pointer, 16 bytes) and `Option<&'static str>` (16 bytes), the struct is 56+ bytes. While technically `Copy`-eligible (all fields are `Copy`), we derive `Clone` only to avoid accidental large copies. The registry stores them in `&'static [MethodDef]` slices, so they're always accessed by reference.
 
     **Update**: On reflection, `MethodDef` IS `Copy`-eligible and at 56 bytes is within reasonable bounds for a `Copy` type (similar to `[u8; 64]`). Since these are always accessed from static data and never moved/cloned in hot paths, adding `Copy` is acceptable and avoids `.clone()` noise. However, not deriving `Copy` also has merit as a lint against accidental copies. **Decision: derive `Copy`**. The struct is pure data, always in static storage, and the standard pattern for registry entries is to pass them by reference (`&MethodDef`) regardless.
 
-5. **Matches but improves on `ori_ir::MethodDef`**: The existing `ori_ir::MethodDef` has `receiver: BuiltinType`, `name`, `params: &'static [ParamSpec]`, `returns: ReturnSpec`, `trait_name: Option<&'static str>`, `receiver_borrows: bool`. The registry's `MethodDef` drops `receiver: BuiltinType` (the owning type is the `TypeDef` that contains this method), replaces `receiver_borrows: bool` with `receiver: Ownership`, and uses the richer `ReturnTag` instead of `ReturnSpec`.
+8. **Matches but improves on `ori_ir::MethodDef`**: The existing `ori_ir::MethodDef` has `receiver: BuiltinType`, `name`, `params: &'static [ParamSpec]`, `returns: ReturnSpec`, `trait_name: Option<&'static str>`, `receiver_borrows: bool`. The registry's `MethodDef` drops `receiver: BuiltinType` (the owning type is the `TypeDef` that contains this method), replaces `receiver_borrows: bool` with `receiver: Ownership`, and uses the richer `ReturnTag` instead of `ReturnSpec`.
 
 ### What It Replaces
 
 | Current Location | Current Form | Registry Form |
 |---|---|---|
-| `ori_ir/builtin_methods/mod.rs` | `MethodDef { receiver, name, params, returns, trait_name, receiver_borrows }` | `MethodDef { name, receiver, params, returns, trait_name }` |
+| `ori_ir/builtin_methods/mod.rs` | `MethodDef { receiver, name, params, returns, trait_name, receiver_borrows }` | `MethodDef { name, receiver, params, returns, trait_name, pure, backend_required }` |
 | `ori_types/infer/expr/methods.rs` | `"to_str" => Some(Idx::STR)` (per method, per type) | `method_def.returns` on the queried `MethodDef` |
 | `ori_types/infer/expr/methods.rs` | `TYPECK_BUILTIN_METHODS` (426 entries: `(type, method)` pairs) | `TypeDef.methods` iteration |
 | `ori_eval/methods/helpers/mod.rs` | `EVAL_BUILTIN_METHODS` | `TypeDef.methods` iteration |

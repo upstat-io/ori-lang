@@ -28,9 +28,14 @@ Use `plans/roadmap/index.md` to find sections by keyword. The index contains sea
 
 ### Step 0: Check for Active Reroute
 
-Before scanning the roadmap, read `plans/roadmap/index.md` and check for an **ACTIVE REROUTE** block. If one exists:
+Before scanning the roadmap, read `plans/roadmap/index.md` and check for reroute blocks. Two states exist:
 
-1. **Read the reroute** — it specifies a plan directory (e.g., `plans/trait_arch/`) that must be completed first
+- **ACTIVE REROUTE** — the current priority; all work goes here
+- **QUEUED REROUTE** — next in line; activates when the ACTIVE reroute completes
+
+**If an ACTIVE REROUTE exists:**
+
+1. **Read the reroute** — it specifies a plan directory (e.g., `plans/aot_codegen_pipeline/`) that must be completed first
 2. **Switch to the rerouted plan** — read its `index.md` and `00-overview.md`
 3. **Run the rerouted plan's scanner** (if it has section files with checkboxes):
    ```bash
@@ -38,9 +43,20 @@ Before scanning the roadmap, read `plans/roadmap/index.md` and check for an **AC
    ```
 4. **Follow the rerouted plan's execution order** — use the plan's recommended section order, not the roadmap's
 5. **Present the rerouted plan status** to the user, making clear this is a reroute from the main roadmap
-6. **When the rerouted plan is complete** — inform the user that the reroute is done and the `ACTIVE REROUTE` block in `plans/roadmap/index.md` should be removed to resume normal roadmap work
+6. **When the rerouted plan is complete** — promote any QUEUED REROUTE (see below), then resume
+
+**When an ACTIVE REROUTE completes (promotion protocol):**
+
+1. Mark the completed reroute as resolved: change `**ACTIVE REROUTE**` to `**~~ACTIVE REROUTE~~ RESOLVED (YYYY-MM-DD)**`
+2. If a `**QUEUED REROUTE**` block exists below it:
+   - Change `**QUEUED REROUTE**` to `**ACTIVE REROUTE**`
+   - Remove the "Activates when..." suffix
+   - Inform the user that the next reroute has been promoted to active
+3. If no queued reroute exists, inform the user that the reroute is done and normal roadmap work resumes
 
 **Do NOT skip the reroute.** The reroute exists because continuing normal roadmap work without completing the rerouted plan would compound the architectural debt.
+
+**Do NOT skip the queue.** If a QUEUED REROUTE exists, it must be completed before resuming normal roadmap work — it was queued because it addresses the same class of architectural debt.
 
 ### Step 1: Run the Scanner
 

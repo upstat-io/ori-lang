@@ -10,31 +10,31 @@ use std.testing { assert, assert_eq }
 // =============================================================================
 
 #skip("type-directed collect to Set not yet implemented")
-@test_collect_to_set () -> void = {
+@test_collect_to_set tests _ () -> void = {
     assert(cond: true)
 }
 
 #skip("type-directed collect to Set not yet implemented")
-@test_collect_set_dedup () -> void = {
+@test_collect_set_dedup tests _ () -> void = {
     assert(cond: true)
 }
 
 #skip("type-directed collect to Set not yet implemented")
-@test_collect_empty_set () -> void = {
+@test_collect_empty_set tests _ () -> void = {
     assert(cond: true)
 }
 
 #skip("type-directed collect to Set not yet implemented")
-@test_filter_collect_set () -> void = {
+@test_filter_collect_set tests _ () -> void = {
     assert(cond: true)
 }
 
 #skip("type-directed collect to Set not yet implemented")
-@test_map_collect_set () -> void = {
+@test_map_collect_set tests _ () -> void = {
     assert(cond: true)
 }
 
 #skip("type-directed collect to Set not yet implemented")
-@test_range_collect_set () -> void = {
+@test_range_collect_set tests _ () -> void = {
     assert(cond: true)
 }

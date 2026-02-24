@@ -537,6 +537,27 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     // List building — AOT for-yield uses heap OriList; JIT uses native Vec
     "ori_list_push",
     "ori_list_take",
+    // List methods — AOT uses runtime calls; JIT uses native Rust dispatch
+    "ori_list_concat",
+    "ori_list_push_new",
+    "ori_list_first",
+    "ori_list_last",
+    "ori_list_contains_int",
+    "ori_list_contains_str",
+    "ori_list_reverse",
+    // Map methods — AOT uses runtime calls; JIT uses native Rust dispatch
+    "ori_map_contains_key",
+    "ori_map_keys_to_list",
+    "ori_map_values_to_list",
+    // String methods — AOT uses runtime calls; JIT uses native Rust dispatch
+    "ori_str_contains",
+    "ori_str_ends_with",
+    "ori_str_repeat",
+    "ori_str_replace",
+    "ori_str_starts_with",
+    "ori_str_to_lowercase",
+    "ori_str_to_uppercase",
+    "ori_str_trim",
     // RC leak detection — AOT test infrastructure only
     "ori_rc_live_count",
     "ori_rc_reset_live_count",

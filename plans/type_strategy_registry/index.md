@@ -129,8 +129,8 @@ DoubleEndedIterator.next_back, DoubleEndedIterator.rev
 DoubleEndedIterator.last, DoubleEndedIterator.rfind, DoubleEndedIterator.rfold
 DEI_ONLY_METHODS, ITERATOR_METHOD_NAMES
 resolve_iterator_method, CollectionMethod, CollectionMethodResolver
-TypeFlow, ClosureOutputBecomesElement, ClosureOutputFlatElement, Accumulator
-higher-order methods, closure parameter, type unification
+DeiPropagation, dei_only, double-ended iterator
+higher-order methods, closure parameter
 ```
 
 ---
@@ -161,7 +161,7 @@ resolve_float_method, resolve_bool_method, resolve_byte_method
 resolve_char_method, resolve_list_method, resolve_option_method
 resolve_result_method, resolve_map_method, resolve_set_method
 TYPECK_BUILTIN_METHODS, type_tag_to_idx, return type
-TypeFlow, unify_higher_order_constraints, calls.rs
+unify_higher_order_constraints (stays in ori_types), calls.rs
 DEI_ONLY_METHODS, well_known_generic_types
 infer/expr/methods.rs, check/well_known/mod.rs
 Tag, Idx, InferEngine, type pool
@@ -224,7 +224,7 @@ emit_str_cmp_predicate, CmpPredicate, ori_str_compare
 ```
 ori_ir, BUILTIN_METHODS, MethodDef, consolidation
 builtin_methods/mod.rs, BuiltinType, ReturnSpec, ParamSpec
-receiver_borrows, type_flow, TypeFlow
+receiver_borrows, ReturnTag, migration
 DerivedTrait, format spec, FormatType, Alignment, Sign
 migration, deprecation, re-export, compatibility
 4-way sync, derived trait sync, format variant sync

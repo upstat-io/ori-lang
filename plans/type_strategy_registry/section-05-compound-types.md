@@ -407,7 +407,7 @@ Ordering supports `==` and `!=` only (no `<`, `>` — that would be circular sin
 
 **Observations:**
 - Ordering has the best coverage of the compound types — nearly all methods are implemented across typeck, eval, and LLVM.
-- `then_with` takes a closure parameter. The IR `BUILTIN_METHODS` currently uses `ParamSpec` which has no `Closure` variant that captures return type. This is noted in `TYPECK_METHODS_NOT_IN_IR`: "Ordering — then_with takes closure, not expressible in IR ParamSpec." The registry needs a richer parameter spec to express this (or a `TypeFlow` annotation).
+- `then_with` takes a closure parameter. The IR `BUILTIN_METHODS` currently uses `ParamSpec` which has no `Closure` variant that captures return type. This is noted in `TYPECK_METHODS_NOT_IN_IR`: "Ordering — then_with takes closure, not expressible in IR ParamSpec." The registry needs a richer parameter spec to express this (e.g., `ParamDef::Closure` or a dedicated closure-aware variant).
 - `then` is in eval and typeck but not LLVM.
 - The LLVM backend handles Ordering methods via `emit_ordering_method()` in `traits.rs`.
 
@@ -428,7 +428,7 @@ pub const ORDERING_VARIANTS: &[VariantSpec] = &[
 - [ ] Define `ORDERING_METHODS: &[MethodDef]` with all 14 methods
 - [ ] Define `ORDERING_OPS: OpDefs` with IntInstr for eq only
 - [ ] Define `ORDERING_VARIANTS` with tag values
-- [ ] Handle `then_with` closure parameter (need `ParamSpec::Closure` or `TypeFlow`)
+- [ ] Handle `then_with` closure parameter (need `ParamDef::Closure` or closure-aware param variant)
 - [ ] Document the no-comparison-operators constraint (no `<`/`>` on Ordering itself)
 - [ ] Unit test: variant count == 3
 - [ ] Unit test: all predicate methods return bool

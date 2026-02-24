@@ -5,7 +5,7 @@
 type Point = { x: int, y: int }
 
 #[compile_fail("cannot derive `Hashable` without `Eq`")]
-@test_hashable_without_eq () -> void = {
+@test_hashable_without_eq tests _ () -> void = {
     let p = Point { x: 1, y: 2 };
     let _ = p.hash();
     ()
