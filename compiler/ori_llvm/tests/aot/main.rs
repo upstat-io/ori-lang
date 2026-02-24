@@ -19,6 +19,7 @@ pub mod higher_order;
 pub mod iterators;
 pub mod linking;
 pub mod lto;
+pub mod memory_stress;
 pub mod mutations;
 pub mod operators;
 pub mod panic;

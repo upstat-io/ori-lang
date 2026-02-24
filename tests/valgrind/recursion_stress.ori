@@ -1,0 +1,15 @@
+// Valgrind test: deep recursion with RC'd values.
+// Exercises: 100 levels of recursion passing shared config struct.
+
+type Config = { base: int, name: str }
+
+@recursive_sum (cfg: Config, n: int, acc: int) -> int =
+    if n == 0 then acc + cfg.base
+    else recursive_sum(cfg: cfg, n: n - 1, acc: acc + n);
+
+@main () -> int = {
+    let cfg = Config { base: 1000, name: "config" };
+    let result = recursive_sum(cfg: cfg, n: 100, acc: 0);
+    // 1000 + sum(1..100) = 1000 + 5050 = 6050
+    if result == 6050 then 0 else 1
+}
