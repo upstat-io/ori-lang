@@ -314,7 +314,7 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 
 | Gap | Roadmap Location | Test | Severity |
 |-----|-----------------|------|----------|
-| Enum variant constructors | 21A § 21.2 | `test_aot_enum_construction` | Blocks enums, recursive types |
+| ~~Enum variant constructors~~ | ~~21A § 21.2~~ | ~~`test_aot_enum_construction`~~ | **FIXED** (2026-02-24) — ARC lowerer intercepts variant names via Pool reverse map; LLVM codegen uses payload array GEP |
 | Generic monomorphization | 21A § 21.7 | `test_aot_generic_identity` | **CRITICAL** — blocks 2,472+ sites |
 | `catch(expr:)` lowering | 21A § 21.5 | `test_aot_catch_success` | Blocks panic recovery |
 | String interpolation | 21A § 21.3 | `test_aot_string_interpolation` | Cosmetic |

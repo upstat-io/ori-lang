@@ -1224,10 +1224,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.method_functions
             .insert((type_name, method_name), (func_id, abi.clone()));
         self.type_idx_to_name.insert(type_idx, type_name);
-        // Unqualified entry — last-writer-wins when two types derive the same
-        // trait, but emit_invoke/emit_apply tries type-qualified
-        // `lookup_method_by_receiver` first, so collisions resolve correctly.
-        self.functions.insert(method_name, (func_id, abi.clone()));
 
         // Verify round-trip: registrations are immediately retrievable.
         debug_assert!(

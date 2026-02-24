@@ -14,7 +14,7 @@ use ori_ir::canon::{CanExpr, CanId, CanParamRange, CanRange};
 use ori_ir::{Name, Span};
 use ori_types::{Idx, Tag};
 
-use crate::ir::{ArcParam, ArcVarId};
+use crate::ir::{ArcParam, ArcVarId, CtorKind};
 use crate::Ownership;
 
 use super::expr::ArcLowerer;
@@ -67,6 +67,23 @@ impl ArcLowerer<'_> {
 
         match func_kind {
             CanExpr::FunctionRef(name) => {
+                // Variant constructor: emit Construct instead of function call
+                if let Some(&(enum_name, variant_idx, _)) = self.variant_ctors.get(&name) {
+                    tracing::trace!(
+                        variant = self.name_str(name),
+                        enum_name = self.name_str(enum_name),
+                        "call: enum variant constructor (FunctionRef)"
+                    );
+                    return self.builder.emit_construct(
+                        ty,
+                        CtorKind::EnumVariant {
+                            enum_name,
+                            variant: variant_idx,
+                        },
+                        arg_vars,
+                        Some(span),
+                    );
+                }
                 tracing::trace!(
                     func = self.name_str(name),
                     args = arg_vars.len(),
@@ -88,6 +105,23 @@ impl ArcLowerer<'_> {
                     .emit_apply_indirect(ty, closure_var, arg_vars, Some(span))
             }
             CanExpr::Ident(name) => {
+                // Variant constructor: emit Construct instead of function call
+                if let Some(&(enum_name, variant_idx, _)) = self.variant_ctors.get(&name) {
+                    tracing::trace!(
+                        variant = self.name_str(name),
+                        enum_name = self.name_str(enum_name),
+                        "call: enum variant constructor (Ident)"
+                    );
+                    return self.builder.emit_construct(
+                        ty,
+                        CtorKind::EnumVariant {
+                            enum_name,
+                            variant: variant_idx,
+                        },
+                        arg_vars,
+                        Some(span),
+                    );
+                }
                 // Not in local scope — top-level function reference.
                 tracing::trace!(
                     func = self.name_str(name),
@@ -318,6 +352,7 @@ impl ArcLowerer<'_> {
                 lambdas: self.lambdas,
                 hash_length: None,
                 block_let_names: rustc_hash::FxHashSet::default(),
+                variant_ctors: self.variant_ctors,
             };
             let result = lambda_lowerer.lower_expr(body);
             if !lambda_lowerer.builder.is_terminated() {

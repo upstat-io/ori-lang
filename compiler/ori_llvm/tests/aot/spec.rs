@@ -1597,12 +1597,9 @@ fn test_aot_list_map_collect() {
     );
 }
 
-// =========================================================================
-// Known AOT gaps (ignored until codegen supports them)
-// =========================================================================
+// Enum variant constructors
 
 #[test]
-#[ignore = "AOT gap: enum variant constructors not declared as LLVM functions"]
 fn test_aot_enum_construction() {
     assert_aot_success(
         r#"
@@ -1622,6 +1619,82 @@ type Shape = Circle(radius: int) | Square(side: int);
         "enum_construction",
     );
 }
+
+#[test]
+fn test_aot_enum_unit_variants() {
+    assert_aot_success(
+        r#"
+type Color = Red | Green | Blue;
+
+@to_int (c: Color) -> int = match c {
+    Red -> 0,
+    Green -> 1,
+    Blue -> 2,
+};
+
+@main () -> int = {
+    let r = Red;
+    let g = Green;
+    let b = Blue;
+    if to_int(c: r) == 0 && to_int(c: g) == 1 && to_int(c: b) == 2 then 0 else 1
+}
+"#,
+        "enum_unit_variants",
+    );
+}
+
+#[test]
+fn test_aot_enum_mixed_variants() {
+    assert_aot_success(
+        r#"
+type Value = Nothing | Single(x: int) | Pair(x: int, y: int);
+
+@sum (v: Value) -> int = match v {
+    Nothing -> 0,
+    Single(x) -> x,
+    Pair(x, y) -> x + y,
+};
+
+@main () -> int = {
+    let a = Nothing;
+    let b = Single(x: 10);
+    let c = Pair(x: 3, y: 7);
+    if sum(v: a) == 0 && sum(v: b) == 10 && sum(v: c) == 10 then 0 else 1
+}
+"#,
+        "enum_mixed_variants",
+    );
+}
+
+#[test]
+fn test_aot_enum_as_param_and_return() {
+    assert_aot_success(
+        r#"
+type Dir = Left | Right;
+
+@flip (d: Dir) -> Dir = match d {
+    Left -> Right,
+    Right -> Left,
+};
+
+@is_left (d: Dir) -> bool = match d {
+    Left -> true,
+    Right -> false,
+};
+
+@main () -> int = {
+    let d = Left;
+    let d2 = flip(d: d);
+    if is_left(d: d) && !is_left(d: d2) then 0 else 1
+}
+"#,
+        "enum_param_return",
+    );
+}
+
+// =========================================================================
+// Known AOT gaps (ignored until codegen supports them)
+// =========================================================================
 
 #[test]
 fn test_aot_derive_eq_struct() {
