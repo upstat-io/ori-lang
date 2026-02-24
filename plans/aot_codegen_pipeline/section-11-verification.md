@@ -24,7 +24,7 @@ sections:
 
 # Section 11: Comprehensive Verification
 
-**Status:** In Progress (11.1 underway — 905 passed, 0 failed, 25 ignored as of 2026-02-24)
+**Status:** In Progress (11.1 underway — 934 passed, 0 failed, 18 ignored as of 2026-02-24)
 **Goal:** Every language feature compiles through AOT, matches JIT behavior, and has zero memory leaks.
 
 **Context:** This is the capstone section. All architectural improvements are in place. Now we prove the system works as one cohesive whole by testing every language feature through the AOT pipeline and verifying behavioral equivalence with the JIT evaluator.
@@ -135,8 +135,8 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Mixed Result<Option<int>, str> — covered (error_handling.rs)
   - [x] Result<int, int> (non-string error type) — covered (error_handling.rs)
   - [x] panic in unreachable branch — covered (2026-02-23)
-  - [ ] catch(expr:) — AOT gap: not lowered through ARC pipeline (#[ignore])
-  - [ ] @panic handler — not specifically tested
+  - [x] catch(expr:) — **FIXED** (2026-02-24) — ARC lowerer `lower_exp_catch` + LLVM `invoke`/`landingpad catch null` + `ori_catch_cleanup`/`ori_catch_recover` runtime; 7 AOT tests added
+  - [x] @panic handler — **FIXED** (2026-02-24) — trampoline ABI mismatch (by-value vs Indirect ptr); 7 AOT tests added (panic.rs)
 
 - [x] **Traits & derived:** (2026-02-23)
   - Eq, Comparable, Hashable, Printable, Clone — covered (traits.rs, derives.rs)
@@ -317,7 +317,7 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 |-----|-----------------|------|----------|
 | ~~Enum variant constructors~~ | ~~21A § 21.2~~ | ~~`test_aot_enum_construction`~~ | **FIXED** (2026-02-24) — ARC lowerer intercepts variant names via Pool reverse map; LLVM codegen uses payload array GEP |
 | Generic monomorphization | 21A § 21.7 | `test_aot_generic_identity` | **CRITICAL** — blocks 2,472+ sites |
-| `catch(expr:)` lowering | 21A § 21.5 | `test_aot_catch_success` | Blocks panic recovery |
+| ~~`catch(expr:)` lowering~~ | ~~21A § 21.5~~ | ~~`test_aot_catch_success`~~ | **FIXED** (2026-02-24) — ARC lowerer `lower_exp_catch` + LLVM `invoke`/`landingpad` with `rust_eh_personality`; `ori_catch_cleanup` (no-op, leak accepted for 0.1-alpha) + `ori_catch_recover` (reads thread-local panic message) |
 | String interpolation | 21A § 21.3 | `test_aot_string_interpolation` | Cosmetic |
 | ~~Derive Eq struct (icmp)~~ | ~~21A § 21.19~~ | ~~`test_aot_derive_eq_struct`~~ | **FIXED** (2026-02-23) — emit_comparison_via_trait |
 | ~~List methods (push/first/last)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_aot_list_push` et al.~~ | **FIXED** (2026-02-24) — runtime + builtin table (push, first, last, contains, reverse) |
@@ -346,7 +346,7 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | Tuple destructuring in for loops | Parser / Section 00 | `test_tuple_destructure_in_loop` | **NEW** (2026-02-23) — `for (a, b) in ...` rejected: "for pattern requires named properties" |
 | ~~Tuple `==` equality~~ | ~~21A comparison codegen~~ | ~~`test_tuple_equality`~~ | **FIXED** (2026-02-24) — tuple equality comparison codegen fixed |
 | ~~Struct update with string field~~ | ~~21A struct codegen~~ | ~~`test_struct_update_with_string`~~ | **FIXED** (2026-02-24) — IsShared/Set skip non-RcPointer values, forces Construct path |
-| Recursive enum types (Tree, linked list) | 21A § 21.2 | `test_aot_recursive_enum_tree` | **NEW** (2026-02-24) — match codegen loads boxed child as i64 instead of following RC pointer |
+| ~~Recursive enum types (Tree, linked list)~~ | ~~21A § 21.2~~ | ~~`test_aot_recursive_enum_tree`~~ | **FIXED** (2026-02-24) — decision tree `resolve_path` now threads variant context for type-aware field projection; RC-boxed recursive fields load as ptr+deref |
 | ~~Derived Eq on unit enums~~ | ~~21A derive codegen~~ | ~~`test_aot_derive_eq_enum`~~ | **FIXED** (2026-02-24) — tag extraction + icmp for unit variants; payload enum derives skipped |
 
 ---

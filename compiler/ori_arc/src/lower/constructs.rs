@@ -8,7 +8,7 @@ use ori_ir::canon::CanNamedExprRange;
 use ori_ir::{FunctionExpKind, Name, Span};
 use ori_types::Idx;
 
-use crate::ir::{ArcValue, ArcVarId, LitValue};
+use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue};
 
 use super::expr::ArcLowerer;
 
@@ -24,6 +24,7 @@ impl ArcLowerer<'_> {
         &mut self,
         kind: FunctionExpKind,
         props: CanNamedExprRange,
+        ty: Idx,
         span: Span,
     ) -> ArcVarId {
         match kind {
@@ -33,7 +34,7 @@ impl ArcLowerer<'_> {
             FunctionExpKind::Unreachable => self.lower_exp_unreachable(span),
             FunctionExpKind::Recurse => self.lower_exp_recurse(props, span),
             FunctionExpKind::Cache => self.lower_exp_cache(props, span),
-            FunctionExpKind::Catch => self.lower_exp_catch(props, span),
+            FunctionExpKind::Catch => self.lower_exp_catch(props, ty, span),
             // Post-0.1-alpha — rejected by type checker (E2040), never reaches lowerer
             FunctionExpKind::Parallel
             | FunctionExpKind::Spawn
@@ -179,9 +180,97 @@ impl ArcLowerer<'_> {
         self.lower_named_prop(props, &["value", "expr"], span)
     }
 
-    /// Lower `catch(expr: expr)` — simplified, just evaluate the expr.
-    fn lower_exp_catch(&mut self, props: CanNamedExprRange, span: Span) -> ArcVarId {
-        self.lower_named_prop(props, &["expr", "value"], span)
+    /// Lower `catch(expr: E)` — wraps the expression in panic-catching logic.
+    ///
+    /// Semantics: evaluate `E`. If it succeeds, return `Ok(result)`.
+    /// If it panics, catch the panic and return `Err(message)`.
+    ///
+    /// ARC IR structure:
+    /// ```text
+    ///   [current block]
+    ///     ... lower body expression (Apply → Invoke when catch target set) ...
+    ///     Ok(result) → Jump(merge, [ok_var])
+    ///
+    ///   [catch_handler]
+    ///     msg = Apply ori_catch_recover()
+    ///     err = Construct Err(msg)
+    ///     Jump(merge, [err_var])
+    ///
+    ///   [merge]
+    ///     merge_param: Result<T, str>  ← block parameter
+    /// ```
+    fn lower_exp_catch(
+        &mut self,
+        props: CanNamedExprRange,
+        result_ty: Idx,
+        span: Span,
+    ) -> ArcVarId {
+        let named_exprs = self.arena.get_named_exprs(props);
+        let expr_name = self.interner.intern("expr");
+        let value_name = self.interner.intern("value");
+
+        let expr_can_id = named_exprs
+            .iter()
+            .find(|ne| ne.name == expr_name || ne.name == value_name)
+            .map(|ne| ne.value);
+
+        let Some(body_id) = expr_can_id else {
+            return self.emit_unit();
+        };
+
+        // Create blocks: catch handler and merge point
+        let catch_handler = self.builder.new_block();
+        let merge_block = self.builder.new_block();
+        let merge_param = self.builder.add_block_param(merge_block, result_ty);
+
+        // Set catch target — all Invoke calls inside the body will unwind here
+        let prev_target = self.builder.set_catch_target(catch_handler);
+
+        // Lower the body expression (panicking calls become Invoke → catch_handler)
+        let body_result = self.lower_expr(body_id);
+
+        // Restore previous catch target
+        if let Some(prev) = prev_target {
+            self.builder.set_catch_target(prev);
+        } else {
+            self.builder.clear_catch_target();
+        }
+
+        // Normal path: wrap result in Ok and jump to merge
+        let result_name = self.interner.intern("Result");
+        let ok_var = self.builder.emit_construct(
+            result_ty,
+            CtorKind::EnumVariant {
+                enum_name: result_name,
+                variant: 0,
+            },
+            vec![body_result],
+            Some(span),
+        );
+        if !self.builder.is_terminated() {
+            self.builder.terminate_jump(merge_block, vec![ok_var]);
+        }
+
+        // Catch handler: recover panic message, wrap in Err
+        self.builder.position_at(catch_handler);
+        let recover_fn = self.interner.intern("ori_catch_recover");
+        let msg_var = self
+            .builder
+            .emit_apply(Idx::STR, recover_fn, vec![], Some(span));
+        let err_var = self.builder.emit_construct(
+            result_ty,
+            CtorKind::EnumVariant {
+                enum_name: result_name,
+                variant: 1,
+            },
+            vec![msg_var],
+            Some(span),
+        );
+        self.builder.terminate_jump(merge_block, vec![err_var]);
+
+        // Continue from merge block
+        self.builder.position_at(merge_block);
+        merge_param
     }
 
     /// Helper: find and lower the first matching named prop.

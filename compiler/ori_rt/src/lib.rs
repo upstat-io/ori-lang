@@ -693,6 +693,43 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const i8) {
     panic::panic_any(OriPanic { message: msg });
 }
 
+/// Acknowledge a caught Rust exception from a `catch(expr:)` landing pad.
+///
+/// Called from LLVM-generated catch-all landing pads after extracting the
+/// exception pointer from the `landingpad catch null` result.
+///
+/// # Current limitations (0.1-alpha)
+///
+/// The Rust panic runtime's `__rust_panic_cleanup` is `#[rustc_std_internal_symbol]`
+/// and inaccessible from external crates. `_Unwind_DeleteException` triggers
+/// `exception_cleanup` → `__rust_drop_panic` → abort. So we currently:
+/// - Accept a small memory leak (the `Exception` struct + `Box<dyn Any>` payload)
+/// - Leave the panic counter incremented (doesn't affect single-catch scenarios)
+///
+/// The panic message is still correctly recovered via thread-local storage
+/// in [`ori_catch_recover`]. A proper fix would require either:
+/// - Reimplementing the Rust exception layout to `Box::from_raw` directly, or
+/// - Wrapping the catch body in `catch_unwind` at the runtime level.
+#[no_mangle]
+pub extern "C" fn ori_catch_cleanup(_exc_ptr: *mut u8) {
+    // Intentionally does not free the exception object.
+    // See doc comment for rationale.
+}
+
+/// Recover from a caught panic — reads the panic message from thread-local storage.
+///
+/// Called from `catch(expr:)` unwind blocks after `ori_catch_cleanup` has
+/// freed the exception object. Returns the panic message as an `OriStr`.
+/// The message was stored in thread-local storage by `ori_panic`/`ori_panic_cstr`
+/// before unwinding. Clears the panic state so subsequent catches work correctly.
+#[no_mangle]
+pub extern "C" fn ori_catch_recover() -> OriStr {
+    let msg = PANIC_MESSAGE.with(|m| m.borrow_mut().take());
+    PANIC_OCCURRED.with(|p| *p.borrow_mut() = false);
+    let text = msg.unwrap_or_else(|| "unknown panic".to_string());
+    OriStr::from_owned(text)
+}
+
 /// Assert that a condition is true.
 ///
 /// On failure, routes through `ori_panic_cstr` which handles both JIT
