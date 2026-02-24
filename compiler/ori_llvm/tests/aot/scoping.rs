@@ -105,7 +105,6 @@ fn test_scope_shadow_uses_previous() {
 }
 
 #[test]
-#[ignore = "AOT gap: inner block shadow leaks to outer scope — let x inside block overwrites outer x"]
 fn test_scope_shadow_in_nested_block() {
     assert_aot_success(
         r#"
@@ -124,7 +123,6 @@ fn test_scope_shadow_in_nested_block() {
 }
 
 #[test]
-#[ignore = "AOT gap: inner block shadow leaks to outer scope — nested let x overwrites outer x"]
 fn test_scope_shadow_three_levels() {
     assert_aot_success(
         r#"
@@ -395,7 +393,6 @@ fn test_scope_expression_in_comparison() {
 // ─── Scope interaction with control flow ───
 
 #[test]
-#[ignore = "AOT gap: inner block shadow leaks to outer scope — let x in for-do body overwrites outer x"]
 fn test_scope_shadow_in_loop() {
     assert_aot_success(
         r#"

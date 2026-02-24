@@ -569,14 +569,14 @@ fn test_op_duration_arithmetic() {
 }
 
 #[test]
-#[ignore = "AOT gap: cross-unit size comparison (512kb+512kb==1mb) — unit normalization not applied during AOT equality"]
 fn test_op_size_arithmetic() {
     assert_aot_success(
         r#"
 @main () -> int = {
-    let a = 512kb;
-    let b = 512kb;
+    let a = 500kb;
+    let b = 500kb;
     let c = a + b;
+    // 500kb = 500,000 bytes (SI), 1mb = 1,000,000 bytes (SI)
     if c == 1mb then 0 else 1
 }
 "#,

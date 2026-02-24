@@ -317,6 +317,7 @@ impl ArcLowerer<'_> {
                 problems: &mut lambda_problems,
                 lambdas: self.lambdas,
                 hash_length: None,
+                block_let_names: rustc_hash::FxHashSet::default(),
             };
             let result = lambda_lowerer.lower_expr(body);
             if !lambda_lowerer.builder.is_terminated() {

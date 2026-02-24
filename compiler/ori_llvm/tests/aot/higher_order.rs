@@ -467,16 +467,15 @@ fn test_hof_closure_capture_from_function() {
 // ─── Lambda returning bool ───
 
 #[test]
-#[ignore = "AOT gap: function taking (int) -> bool param unresolved — bool ABI for closure returns"]
 fn test_hof_bool_lambda() {
     assert_aot_success(
         r#"
-@test_pred (p: (int) -> bool, x: int) -> bool = p(x);
+@check_pred (p: (int) -> bool, x: int) -> bool = p(x);
 
 @main () -> int = {
     let is_positive = (n: int) -> n > 0;
-    let r1 = test_pred(p: is_positive, x: 5);
-    let r2 = test_pred(p: is_positive, x: -3);
+    let r1 = check_pred(p: is_positive, x: 5);
+    let r2 = check_pred(p: is_positive, x: -3);
     if r1 && !r2 then 0 else 1
 }
 "#,
