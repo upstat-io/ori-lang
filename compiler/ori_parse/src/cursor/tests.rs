@@ -1,5 +1,46 @@
 use super::*;
 
+/// All keywords that are usable as identifiers (the canonical list).
+///
+/// This array must match `is_keyword_usable_as_ident`. Tests below verify
+/// that `soft_keyword_to_name` and `keyword_as_name` together cover exactly
+/// this set. Adding a keyword here requires updating the corresponding
+/// `*_to_name` method and `is_keyword_usable_as_ident`.
+const KEYWORD_AS_IDENT_TOKENS: &[TokenKind] = &[
+    // Soft keywords
+    TokenKind::Print,
+    TokenKind::Panic,
+    TokenKind::By,
+    TokenKind::Run,
+    TokenKind::Try,
+    TokenKind::With,
+    // Positional keywords
+    TokenKind::Where,
+    TokenKind::Match,
+    TokenKind::For,
+    TokenKind::In,
+    TokenKind::If,
+    TokenKind::Type,
+];
+
+/// Non-identifier keywords that must NOT be accepted as identifiers.
+const NON_IDENT_KEYWORDS: &[TokenKind] = &[
+    TokenKind::Let,
+    TokenKind::Else,
+    TokenKind::Then,
+    TokenKind::Do,
+    TokenKind::Yield,
+    TokenKind::Loop,
+    TokenKind::Break,
+    TokenKind::Continue,
+    TokenKind::Return,
+    TokenKind::Trait,
+    TokenKind::Impl,
+    TokenKind::Pub,
+    TokenKind::Use,
+    TokenKind::Void,
+];
+
 /// Owns the token list and interner so `Cursor` can borrow them
 /// without `Box::leak`.
 struct TestCtx {
@@ -227,4 +268,58 @@ fn test_eof_flags() {
     // EOF follows a newline
     assert!(cursor.is_at_end());
     assert!(cursor.has_newline_before());
+}
+
+// Keyword-as-identifier consistency
+
+#[test]
+fn keyword_as_ident_consistency_positive() {
+    // Every token in the canonical list must be accepted by is_keyword_usable_as_ident.
+    for kind in KEYWORD_AS_IDENT_TOKENS {
+        assert!(
+            is_keyword_usable_as_ident(kind),
+            "{kind:?} should be usable as ident but is_keyword_usable_as_ident returned false"
+        );
+    }
+}
+
+#[test]
+fn keyword_as_ident_consistency_negative() {
+    // Non-identifier keywords must NOT be accepted.
+    for kind in NON_IDENT_KEYWORDS {
+        assert!(
+            !is_keyword_usable_as_ident(kind),
+            "{kind:?} should NOT be usable as ident but is_keyword_usable_as_ident returned true"
+        );
+    }
+}
+
+#[test]
+fn soft_keyword_covers_canonical_subset() {
+    // soft_keyword_to_name must accept exactly the soft-keyword subset.
+    let soft_keywords = &KEYWORD_AS_IDENT_TOKENS[..6]; // Print, Panic, By, Run, Try, With
+    let ctx = TestCtx::new("print panic by run try with");
+    let mut cursor = ctx.cursor();
+    for expected in soft_keywords {
+        assert!(
+            cursor.soft_keyword_to_name().is_some(),
+            "soft_keyword_to_name should accept {expected:?}"
+        );
+        cursor.advance();
+    }
+}
+
+#[test]
+fn keyword_as_name_covers_canonical_subset() {
+    // keyword_as_name must accept exactly the positional-keyword subset.
+    let positional = &KEYWORD_AS_IDENT_TOKENS[6..]; // Where, Match, For, In, If, Type
+    let ctx = TestCtx::new("where match for in if type");
+    let mut cursor = ctx.cursor();
+    for expected in positional {
+        assert!(
+            cursor.keyword_as_name().is_some(),
+            "keyword_as_name should accept {expected:?}"
+        );
+        cursor.advance();
+    }
 }

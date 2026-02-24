@@ -226,7 +226,10 @@ impl Parser<'_> {
         let label = self.parse_optional_label();
 
         // Parse binding pattern (name, wildcard, tuple, struct, list)
-        let pattern = committed!(self.parse_binding_pattern());
+        let mut pattern = committed!(self.parse_binding_pattern());
+        // Per spec (§05-variables.md): for-loop variables are immutable.
+        // Enforce at the parser level so all downstream phases agree.
+        pattern.force_immutable();
         let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
         // Expect `in` keyword

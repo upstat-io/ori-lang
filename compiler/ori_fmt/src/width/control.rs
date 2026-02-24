@@ -6,7 +6,7 @@
 //! - Loops: `for binding in iter do/yield body`
 //! - Blocks: `{ stmts; result }`
 
-use super::{binding_pattern_width, WidthCalculator, ALWAYS_STACKED};
+use super::{for_binding_pattern_width, WidthCalculator, ALWAYS_STACKED};
 use ori_ir::{BindingPatternId, ExprId, ExprKind, Name, StmtRange, StringLookup};
 
 /// Check if an expression needs parentheses when used as a receiver.
@@ -112,7 +112,7 @@ pub(super) fn for_width<I: StringLookup>(
 ) -> usize {
     let lw = label_width(calc, label);
     let pat = calc.arena.get_binding_pattern(pattern);
-    let pattern_w = binding_pattern_width(pat, calc.interner);
+    let pattern_w = for_binding_pattern_width(pat, calc.interner);
     let iter_w = calc.width(iter);
     let body_w = calc.width(body);
     if iter_w == ALWAYS_STACKED || body_w == ALWAYS_STACKED {
