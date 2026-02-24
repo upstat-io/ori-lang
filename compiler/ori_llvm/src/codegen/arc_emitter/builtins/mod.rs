@@ -82,6 +82,8 @@ mod primitives;
 mod traits;
 mod trampolines;
 
+pub(super) use traits::CmpPredicate;
+
 use std::sync::LazyLock;
 
 use ori_arc::ir::{ArcFunction, ArcVarId};

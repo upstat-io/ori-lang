@@ -88,18 +88,21 @@ sections:
   - [x] **Ori Tests**: All spec tests use this syntax (900+ tests across the test suite)
   - [ ] **LLVM Support**: LLVM codegen for test declaration syntax
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test declaration codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Semantics — spec/13-testing.md § Test Declaration [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — test semantics
   - [x] **Ori Tests**: All spec tests execute with correct semantics
   - [ ] **LLVM Support**: LLVM codegen for test semantics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test semantics codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Multiple targets `@test tests @a tests @b` — spec/13-testing.md § Multiple Targets [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — multiple targets parsing
   - [x] **Ori Tests**: `tests/spec/source/file_structure.ori` — test_multi tests @multi_a @multi_b @multi_c; `tests/spec/lexical/comments.ori`
   - [ ] **LLVM Support**: LLVM codegen for multiple test targets
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — multiple targets codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Explicit free-floating tests `tests _` — proposals/approved/incremental-test-execution-proposal.md  <!-- unblocks:0.9.1 -->
   - [ ] Parser accepts `_` as target in `tests _`
@@ -108,6 +111,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/testing/free_floating.ori`
   - [ ] **LLVM Support**: LLVM codegen for free-floating tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — free-floating tests codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -124,6 +128,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori`, `tests/spec/expressions/loops.ori` — #skip used to skip unimplemented features
   - [ ] **LLVM Support**: LLVM codegen for skip attribute
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — skip attribute codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Constraints — spec/13-testing.md § Test Attributes
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test_attributes.rs` — constraint validation
@@ -136,6 +141,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/testing/attributes.ori`
   - [ ] **LLVM Support**: LLVM codegen for test attribute semantics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test attribute semantics codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -152,6 +158,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/testing/body.ori`
   - [ ] **LLVM Support**: LLVM codegen for test body structure
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test body codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -190,6 +197,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/testing/private.ori`
   - [ ] **LLVM Support**: LLVM codegen for private item imports
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — private item imports codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Migration**: Move existing Ori spec tests to `_test/` directories
   - [ ] Audit `tests/spec/` for any tests defined alongside source
@@ -206,12 +214,14 @@ sections:
   - [x] **Ori Tests**: 900+ tests pass across the full test suite
   - [ ] **LLVM Support**: LLVM codegen for test execution
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test execution codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Test isolation and parallelization — spec/13-testing.md § Test Isolation
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — isolation and parallelization
   - [ ] **Ori Tests**: `tests/spec/testing/isolation.ori`
   - [ ] **LLVM Support**: LLVM codegen for test isolation and parallelization
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test isolation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Coverage enforcement — spec/13-testing.md § Coverage Enforcement
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test_coverage.rs` — coverage enforcement
@@ -280,18 +290,21 @@ When a function changes, run tests for that function AND tests for all functions
   - [ ] **Ori Tests**: `tests/spec/testing/mode_direct.ori`
   - [ ] **LLVM Support**: LLVM codegen for direct mode
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — direct mode codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `--closure` mode (default, changed + callers)
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — closure mode
   - [ ] **Ori Tests**: `tests/spec/testing/mode_closure.ori`
   - [ ] **LLVM Support**: LLVM codegen for closure mode
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — closure mode codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `--full` mode (all tests)
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — full mode
   - [ ] **Ori Tests**: `tests/spec/testing/mode_full.ori`
   - [ ] **LLVM Support**: LLVM codegen for full mode
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — full mode codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 14.9.4 Change Detection
 
@@ -324,12 +337,14 @@ Free-floating tests (without `tests @target`) are integration tests:
   - [ ] **Ori Tests**: `tests/spec/testing/test_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for test type distinction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test type distinction codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Free-floating tests skip closure mode
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — integration test handling
   - [ ] **Ori Tests**: `tests/spec/testing/integration_tests.ori`
   - [ ] **LLVM Support**: LLVM codegen for free-floating test handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — free-floating test handling codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -346,6 +361,7 @@ Go provides `t.TempDir()` for test isolation. Ori should have similar support.
   - [ ] **Ori Tests**: `tests/spec/testing/tempdir.ori`
   - [ ] **LLVM Support**: LLVM codegen for test_tempdir
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test_tempdir codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 14.10.2 Environment Test Support
 
@@ -356,6 +372,7 @@ Go provides `t.Setenv()` for test-scoped environment variables. Ori should suppo
   - [ ] **Ori Tests**: `tests/spec/testing/setenv.ori`
   - [ ] **LLVM Support**: LLVM codegen for test_setenv
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test_setenv codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 14.10.3 Test Cleanup Hooks
 
@@ -366,6 +383,7 @@ Go provides `t.Cleanup()` for registering cleanup functions. Ori can leverage ca
   - [ ] **Ori Tests**: `tests/spec/testing/cleanup.ori`
   - [ ] **LLVM Support**: LLVM codegen for cleanup hooks
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — cleanup hooks codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 14.10.4 Helper Function Support
 
@@ -376,6 +394,7 @@ Go provides `t.Helper()` to mark functions as test helpers (improves stack trace
   - [ ] **Ori Tests**: `tests/spec/testing/helper.ori`
   - [ ] **LLVM Support**: LLVM codegen for test_helper attribute
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — test_helper attribute codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -395,6 +414,7 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] **Ori Tests**: `tests/spec/testing/incremental_basic.ori`
   - [ ] **LLVM Support**: LLVM codegen for incremental test execution
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — incremental test execution codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Non-blocking test failures (default)
   - [ ] Test failures reported but don't block compilation
@@ -403,6 +423,7 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] **Ori Tests**: `tests/spec/testing/non_blocking.ori`
   - [ ] **LLVM Support**: LLVM codegen for non-blocking test failures
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — non-blocking test failures codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 14.11.2 CLI Integration
 
@@ -419,6 +440,7 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] **Ori Tests**: `tests/spec/testing/cli_check.ori`
   - [ ] **LLVM Support**: LLVM codegen for ori check command
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — ori check codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `--no-test` flag skips test execution
   - [ ] **Rust Tests**: `oric/src/cli/check.rs` — no-test flag
@@ -431,12 +453,14 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] **Ori Tests**: `tests/spec/testing/cli_strict.ori`
   - [ ] **LLVM Support**: LLVM codegen for --strict flag
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — strict flag codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `--only-targeted` flag for `ori test`
   - [ ] **Rust Tests**: `oric/src/cli/test.rs` — only-targeted flag
   - [ ] **Ori Tests**: `tests/spec/testing/cli_only_targeted.ori`
   - [ ] **LLVM Support**: LLVM codegen for --only-targeted flag
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — only-targeted flag codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 14.11.3 Test Result Caching
 
@@ -458,6 +482,7 @@ During compilation, targeted tests whose targets (or transitive dependencies) ha
   - [ ] **Ori Tests**: `tests/spec/testing/slow_warning.ori`
   - [ ] **LLVM Support**: LLVM codegen for slow test warning
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/testing_framework_tests.rs` — slow test warning codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 Example warning:
 ```

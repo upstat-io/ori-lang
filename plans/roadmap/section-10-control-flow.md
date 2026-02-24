@@ -60,12 +60,14 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/conditionals.ori` — 19 tests
   - [ ] **LLVM Support**: LLVM codegen for if expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — if expression codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_if_else_value`, `test_scope_if_else_computed`, `test_scope_nested_if_expression`, `test_scope_if_block_branches`, `test_scope_if_else_string_value`, `test_scope_let_each_branch` (if-then-else as expression in value position)
 
 - [x] **Implement**: Else-if chains (grammar convenience) — spec/09-expressions.md § Conditional [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — chained if parsing
   - [x] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for chained conditions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — chained conditions codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_nested_if_expression` (else-if chain with 4 branches: `x > 20`, `x > 10`, `x > 0`, else)
 
 - [x] **Implement**: Condition must be `bool` — spec/09-expressions.md § Conditional [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — condition type checking
@@ -78,6 +80,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for branch type unification
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — branch type unification codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_if_else_value`, `test_scope_if_else_computed`, `test_scope_if_block_branches`, `test_scope_if_else_string_value`, `test_scope_let_each_branch` (if-else branches producing same type: int, string, block values)
 
 - [ ] **Implement**: Without else: then-branch must be `void` or `Never` — spec/09-expressions.md § Conditional
   - [ ] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — void branch validation
@@ -90,6 +93,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/conditionals.ori`
   - [ ] **LLVM Support**: LLVM codegen for diverging branches
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — Never coercion codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Struct literal restriction in condition — spec/09-expressions.md § Conditional
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — struct literal exclusion
@@ -111,24 +115,28 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — 29 tests
   - [ ] **LLVM Support**: LLVM codegen for for-do expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-do codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_sum`, `test_for_range_inclusive`, `test_for_range_empty`, `test_for_list_sum`, `test_for_list_empty`, `test_for_str_count_chars`, `test_for_str_empty`, `test_for_option_some`, `test_for_option_none`, `test_for_map_sum`, `test_for_map_entries` (for-do over Range, List, Str, Option, Map including empty iterables)
 
 - [x] **Implement**: Bind loop variable — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — loop variable binding
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for loop variable binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — loop variable binding codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_sum`, `test_for_range_with_guard`, `test_for_list_sum`, `test_for_list_with_guard`, `test_for_str_count_chars`, `test_for_str_char_values`, `test_for_option_some`, `test_for_map_sum` (loop variable bound and used in body/guard across Range, List, Str, Option, Map)
 
 - [x] **Implement**: Execute body for side effects — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — body execution
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for loop body execution
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop body execution codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_sum`, `test_for_list_sum`, `test_for_str_count_chars`, `test_for_map_sum`, `test_for_map_entries` (loop body executes for side effects across all iterable types), `ori_llvm/tests/aot/mutations.rs` — `test_mut_loop_counter`, `test_mut_loop_accumulator`, `test_mut_loop_product`, `test_mut_loop_conditional_accumulator` (loop body with accumulation patterns)
 
 - [x] **Implement**: Result type `void` — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — for-do type
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for for-do void type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-do void type codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_sum`, `test_for_list_sum`, `test_for_str_count_chars`, `test_for_option_some`, `test_for_option_none`, `test_for_map_sum` (for-do expressions used for side effects, result discarded)
 
 **Collection building (yield):**
 
@@ -137,18 +145,21 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for for-yield expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-yield codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_yield`, `test_for_list_yield`, `test_for_str_yield`, `test_for_option_yield_some`, `test_for_option_yield_none`, `test_for_map_yield`, `test_for_list_with_guard` (for-yield over Range, List, Str, Option, Map)
 
 - [x] **Implement**: Collect results into list — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — yield collection
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for yield collection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — yield collection codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_yield`, `test_for_list_yield`, `test_for_str_yield`, `test_for_option_yield_some`, `test_for_option_yield_none`, `test_for_map_yield` (yield collects results into list across all iterable types)
 
 - [x] **Implement**: Result type `[T]` — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — for-yield type
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for for-yield list type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-yield list type codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_yield`, `test_for_list_yield`, `test_for_str_yield`, `test_for_option_yield_some`, `test_for_option_yield_none`, `test_for_map_yield` (yield produces list, verified via `.length()`)
 
 **With guards:**
 
@@ -157,12 +168,14 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — for_do_with_guard, for_yield_with_guard tests
   - [ ] **LLVM Support**: LLVM codegen for for-guard expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — for-guard codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_with_guard`, `test_for_list_with_guard` (for-if-do and for-if-yield guard parsing and execution)
 
 - [x] **Implement**: Only yield when guard true — spec/09-expressions.md § For Expressions [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — guard filtering
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — guard_all_filtered, guard_transform tests
   - [ ] **LLVM Support**: LLVM codegen for guard filtering
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — guard filtering codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/for_loops.rs` — `test_for_range_with_guard` (range guard filtering), `test_for_list_with_guard` (list guard filtering with yield)
 
 **For-yield comprehensions** (proposals/approved/for-yield-comprehensions-proposal.md):
 
@@ -173,6 +186,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
   - [ ] **LLVM Support**: LLVM codegen for type-directed collection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — comprehension type inference
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Collect into any `Collect<T>` type — proposals/approved/for-yield-comprehensions-proposal.md § Collect Target
   - [ ] Support `Set<T>` collection
@@ -182,6 +196,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
   - [ ] **LLVM Support**: LLVM codegen for multi-target collection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — multi-target collection codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Nested `for` clauses — proposals/approved/for-yield-comprehensions-proposal.md § Nested Comprehensions
   - [ ] Parse `for x in xs for y in ys yield expr`
@@ -191,6 +206,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
   - [ ] **LLVM Support**: LLVM codegen for nested comprehensions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — nested comprehensions codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Break/continue in yield context — proposals/approved/for-yield-comprehensions-proposal.md § Break and Continue
   - [ ] `continue` skips current element
@@ -201,6 +217,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/comprehensions.ori`
   - [ ] **LLVM Support**: LLVM codegen for yield break/continue
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — yield break/continue codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -213,30 +230,35 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_with_break, loop_break_value, loop_int tests
   - [ ] **LLVM Support**: LLVM codegen for loop expression
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop expression codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/mutations.rs` — `test_mut_loop_break`, `test_mut_while_pattern` (loop expression with break and mutation)
 
 - [x] **Implement**: Loop until `break` — spec/19-control-flow.md § Break [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — break handling
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_with_break test
   - [ ] **LLVM Support**: LLVM codegen for break handling
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break handling codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/mutations.rs` — `test_mut_loop_break` (loop until break), `test_mut_while_pattern` (Collatz loop with conditional break)
 
 - [x] **Implement**: Body is a block expression `loop { ... }` — proposals/approved/loop-expression-proposal.md § Body [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — loop body parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — all loop tests use `loop { ... }`
   - [ ] **LLVM Support**: LLVM codegen for loop body
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — loop body codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/mutations.rs` — `test_mut_loop_break`, `test_mut_while_pattern` (loop body with mutation, conditionals, and break)
 
 - [x] **Implement**: Parse `break` with optional value — spec/19-control-flow.md § Break [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — break parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_break_value, loop_conditional_break tests
   - [ ] **LLVM Support**: LLVM codegen for break with value
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break with value codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/mutations.rs` — `test_mut_loop_break` (break without value), `test_mut_while_pattern` (conditional break in loop)
 
 - [x] **Implement**: Parse `continue` — spec/19-control-flow.md § Continue [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — continue parsing
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_continue test
   - [ ] **LLVM Support**: LLVM codegen for continue
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — continue codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `continue value` error in loop — proposals/approved/loop-expression-proposal.md § Continue With Value
   - [ ] Error E0861 when continue has value in loop context
@@ -251,12 +273,14 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_break_value, loop_int tests
   - [ ] **LLVM Support**: LLVM codegen for break type inference
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break type inference codegen
+  - [ ] **AOT Tests**: No AOT coverage yet (loop break-with-value returning typed result not directly tested)
 
 - [x] **Implement**: Type `void` for break without value — proposals/approved/loop-expression-proposal.md § Break Without Value [done] (2026-02-10)
   - [x] **Rust Tests**: Type checker — void loop type
   - [x] **Ori Tests**: `tests/spec/expressions/loops.ori` — loop_with_break (void function)
   - [ ] **LLVM Support**: LLVM codegen for void loop
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — void loop codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/mutations.rs` — `test_mut_loop_break` (loop with break, no value — void result type)
 
 - [ ] **Implement**: Type `Never` for infinite loops — proposals/approved/loop-expression-proposal.md § Infinite Loop Type
   - [ ] Loop with no break has type Never
@@ -265,6 +289,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for Never loop
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — Never loop codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Multiple break paths type unification — proposals/approved/loop-expression-proposal.md § Multiple Break Paths
   - [ ] All breaks must have compatible types
@@ -273,6 +298,7 @@ sections:
   - [ ] **Ori Tests**: `tests/compile-fail/loop_break_type_mismatch.ori`
   - [ ] **LLVM Support**: LLVM codegen for break unification
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — break unification codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 **Labeled loops:**
 
@@ -281,18 +307,21 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for labeled loop
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — labeled loop codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse `for:name x in items` — spec/19-control-flow.md § Labeled Loops
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — labeled for parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for labeled for
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — labeled for codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Parse `break:name` and `continue:name` — spec/19-control-flow.md § Label Reference
   - [ ] **Rust Tests**: `ori_parse/src/grammar/expr.rs` — label reference parsing
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for label references
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — label references codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 **Labeled loop semantics** (proposals/approved/labeled-loops-proposal.md):
 
@@ -303,6 +332,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/labeled_loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for label scope
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — label scope codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: No label shadowing — proposals/approved/labeled-loops-proposal.md § No Shadowing
   - [ ] Error if label already in scope
@@ -319,6 +349,7 @@ sections:
   - [ ] **Ori Tests**: `tests/compile-fail/labeled_break_type.ori`
   - [ ] **LLVM Support**: LLVM codegen for typed break
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — typed break codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `continue:label value` in for-yield — proposals/approved/labeled-loops-proposal.md § Continue With Value in For-Yield
   - [ ] Value type must match target loop's yield element type
@@ -328,6 +359,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/labeled_loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for continue value
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/control_flow_tests.rs` — continue value codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `continue:label value` error in for-do — proposals/approved/labeled-loops-proposal.md § Continue With Value in For-Do
   - [ ] Error E0873 when continue has value in for-do context
@@ -354,24 +386,28 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
   - [ ] **LLVM Support**: LLVM codegen for ? operator
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — ? operator codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_option_some`, `test_err_try_option_none` (postfix `?` operator on both Result and Option)
 
 - [ ] **Implement**: On `Result<T, E>`: unwrap `Ok` or return `Err` — spec/19-control-flow.md § On Result
   - [ ] **Rust Tests**: `oric/src/eval/exec/postfix.rs` — Result propagation
   - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result propagation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Result propagation codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_result_ok`, `test_err_try_result_err`, `test_err_try_result_chain`, `test_err_try_result_early_exit`, `test_err_deep_try_chain` (`?` on Result unwrapping Ok, propagating Err, chaining, and early exit)
 
 - [ ] **Implement**: On `Option<T>`: unwrap `Some` or return `None` — spec/19-control-flow.md § On Option
   - [ ] **Rust Tests**: `oric/src/eval/exec/postfix.rs` — Option propagation
   - [ ] **Ori Tests**: `tests/spec/expressions/postfix.ori`
   - [ ] **LLVM Support**: LLVM codegen for Option propagation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Option propagation codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/error_handling.rs` — `test_err_try_option_some`, `test_err_try_option_none` (`?` on Option with Some and None paths)
 
 - [ ] **Implement**: Only valid in functions returning `Result`/`Option` — spec/19-control-flow.md § Error Propagation
   - [ ] **Rust Tests**: `oric/src/typeck/checker/propagation.rs` — context validation
   - [ ] **Ori Tests**: `tests/compile-fail/invalid_propagation.ori`
   - [ ] **LLVM Support**: LLVM codegen for propagation context validation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — context validation codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 **Error Return Traces** (proposals/approved/error-return-traces-proposal.md):
 
@@ -382,6 +418,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/errors/trace_collection.ori`
   - [ ] **LLVM Support**: LLVM codegen for trace collection
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — trace collection codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `TraceEntry` type — proposals/approved/error-return-traces-proposal.md § Error Type Enhancement
   - [ ] Fields: `function: str`, `file: str`, `line: int`, `column: int`
@@ -389,6 +426,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/errors/trace_entry.ori`
   - [ ] **LLVM Support**: LLVM codegen for TraceEntry type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — TraceEntry type codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Error trace methods — proposals/approved/error-return-traces-proposal.md § Accessing Traces
   - [ ] `Error.trace() -> str` — formatted trace string
@@ -398,6 +436,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/errors/trace_methods.ori`
   - [ ] **LLVM Support**: LLVM codegen for Error trace methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Error trace methods codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Printable` for Error includes trace — proposals/approved/error-return-traces-proposal.md § Printing Errors
   - [ ] `str(error)` includes trace in output
@@ -405,6 +444,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/errors/trace_printing.ori`
   - [ ] **LLVM Support**: LLVM codegen for Error printing with trace
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Error printing codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Result.context()` method — proposals/approved/error-return-traces-proposal.md § Result Methods
   - [ ] `.context(msg: str)` adds context while preserving trace
@@ -412,6 +452,7 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/errors/context_method.ori`
   - [ ] **LLVM Support**: LLVM codegen for Result.context method
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Result.context codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `Traceable` trait for built-in Error type — implemented in §3.13 (2026-02-17)
   - [x] `@with_trace(self, entry: TraceEntry) -> Self` — push trace entry
@@ -421,6 +462,7 @@ sections:
   - Note: Custom error types implementing Traceable is deferred (requires user-defined trait impls)
   - [ ] **LLVM Support**: LLVM codegen for Traceable trait
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_propagation_tests.rs` — Traceable trait codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -431,36 +473,42 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — 17 tests (let_inferred, let_string, etc.)
   - [ ] **LLVM Support**: LLVM codegen for let binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — let binding codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_let_basic`, `test_scope_let_type_annotation`, `test_scope_let_chain`, `test_scope_block_as_value`, `test_scope_block_single_expression`, `test_scope_block_with_side_effects` (basic let bindings, chaining, and block-expression values)
 
 - [x] **Implement**: Parse `let mut x = expr` — spec/09-expressions.md § Mutable Bindings [done] (2026-02-10)
   - [x] **Rust Tests**: Parser and evaluator — mutable binding
   - [x] **Ori Tests**: `tests/spec/expressions/mutation.ori` — 15 tests (mutable_basic, mutable_loop, etc.)
   - [ ] **LLVM Support**: LLVM codegen for mutable binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — mutable binding codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/mutations.rs` — `test_mut_simple_reassign`, `test_mut_reassign_multiple`, `test_mut_reassign_self_reference`, `test_mut_loop_counter`, `test_mut_loop_accumulator`, `test_mut_if_reassign`, `test_mut_if_else_reassign`, `test_mut_reassign_string`, `test_mut_reassign_bool`, `test_mut_swap_values`, `test_mut_fibonacci` (21 tests covering mutable bindings in all contexts)
 
 - [x] **Implement**: Parse `let x: Type = expr` — spec/09-expressions.md § Let Bindings [done] (2026-02-10)
   - [x] **Rust Tests**: Parser and type checker — typed binding
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — let_annotated_int, let_annotated_str, etc.
   - [ ] **LLVM Support**: LLVM codegen for typed binding
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — typed binding codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_let_type_annotation` (int, float, bool type-annotated let bindings)
 
 - [x] **Implement**: Parse struct destructuring `let { x, y } = val` — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — struct destructure parsing
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — struct_destructure_shorthand, struct_destructure_rename
   - [ ] **LLVM Support**: LLVM codegen for struct destructuring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — struct destructuring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Parse tuple destructuring `let (a, b) = val` — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — tuple destructure parsing
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — tuple_destructure test
   - [ ] **LLVM Support**: LLVM codegen for tuple destructuring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — tuple destructuring codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_tuple_destructure` (tuple destructuring in let binding)
 
 - [x] **Implement**: Parse list destructuring `let [head, ..tail] = val` — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser — list destructure parsing
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — list_destructure_basic, list_destructure_head, list_destructure_with_rest
   - [ ] **LLVM Support**: LLVM codegen for list destructuring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/binding_tests.rs` — list destructuring codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -471,24 +519,28 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori` — 3 tests (let_bindings_in_run, nested_run_shadowing, run_returns_last_expression)
   - [ ] **LLVM Support**: LLVM codegen for lexical scoping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — lexical scoping codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_let_basic`, `test_scope_let_chain`, `test_scope_block_as_value`, `test_scope_nested_blocks_as_values`, `test_scope_shadow_in_nested_block` [ignored], `test_scope_shadow_three_levels` [ignored], `test_scope_shadow_in_loop` [ignored] (lexical scoping with blocks, nesting, and control flow)
 
 - [x] **Implement**: No hoisting — spec/17-blocks-and-scope.md § No Hoisting [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — no hoisting tests
   - [x] **Ori Tests**: `tests/spec/expressions/block_scope.ori` — sequential binding verified
   - [ ] **LLVM Support**: LLVM codegen for no hoisting
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — no hoisting codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_let_chain` (sequential let bindings depend on previous values, verifying no hoisting)
 
 - [x] **Implement**: Shadowing — spec/17-blocks-and-scope.md § Shadowing [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — shadowing tests
   - [x] **Ori Tests**: `tests/spec/expressions/bindings.ori` — let_shadow, let_shadow_different_type; `mutation.ori` — shadow_mutability
   - [ ] **LLVM Support**: LLVM codegen for shadowing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — shadowing codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_shadow_same_type`, `test_scope_shadow_different_type`, `test_scope_shadow_uses_previous`, `test_scope_shadow_in_nested_block` [ignored], `test_scope_shadow_three_levels` [ignored], `test_scope_many_lets_same_name`, `test_scope_string_shadow` (same-type, cross-type, self-referential, and nested-block shadowing)
 
 - [x] **Implement**: Lambda capture by value — spec/17-blocks-and-scope.md § Lambda Capture [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — capture tests
   - [x] **Ori Tests**: `tests/spec/expressions/lambdas.ori` — 29 tests (closure_capture, closure_capture_multiple, closure_nested)
   - [ ] **LLVM Support**: LLVM codegen for lambda capture by value
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/scope_tests.rs` — lambda capture codegen
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/scoping.rs` — `test_scope_closure_captures_outer`, `test_scope_shadow_before_closure` (closure capture by value), `ori_llvm/tests/aot/higher_order.rs` — `test_hof_closure_capture_computation`, `test_hof_closure_capture_in_loop`, `test_hof_closure_bool_capture`, `test_hof_two_closures_same_capture`, `test_hof_nested_closure_deep`, `test_hof_make_adder`, `test_hof_make_multiplier`, `test_hof_make_predicate` (closure captures and returns)
 
 ---
 
@@ -499,24 +551,28 @@ sections:
   - [ ] **Ori Tests**: `tests/spec/expressions/panics.ori`
   - [ ] **LLVM Support**: LLVM codegen for implicit panics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — implicit panics codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `panic(message)` function — spec/20-errors-and-panics.md § Explicit Panic [done] (2026-02-10)
   - [x] **Rust Tests**: Evaluator — panic function
   - [x] **Ori Tests**: `tests/spec/expressions/coalesce.ori` — panic in short-circuit tests; `operators_bitwise.ori` — assert_panics tests
   - [ ] **LLVM Support**: LLVM codegen for panic function
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — panic function codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `catch(expr)` pattern — spec/20-errors-and-panics.md § Catching Panics [done] (2026-02-19)
   - [x] **Rust Tests**: `ori_patterns/src/builtins/catch/tests.rs` — catch_success, catch_error, name, required_props; `ori_types/src/infer/expr/tests.rs` — catch type inference
   - [x] **Ori Tests**: `tests/spec/patterns/catch.ori` — 7 tests: success, panic, message, div_zero, ok_value, string, nested
   - [ ] **LLVM Support**: LLVM codegen for catch pattern (simplified placeholder exists)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — catch pattern codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `PanicInfo` type — spec/20-errors-and-panics.md § PanicInfo
   - [ ] **Rust Tests**: `ori_ir/src/types/panic.rs` — PanicInfo type tests
   - [ ] **Ori Tests**: `tests/spec/patterns/catch.ori`
   - [ ] **LLVM Support**: LLVM codegen for PanicInfo type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/panic_tests.rs` — PanicInfo type codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -529,6 +585,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/expressions/index_access.ori` — hash_last, hash_second_last, hash_first, hash_middle, hash_arithmetic (35 total tests)
   - [ ] **LLVM Support**: LLVM codegen for hash length in index (placeholder exists, needs real impl)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` — hash length codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 **Implementation Notes:**
 - Added `IN_INDEX` context flag to `ParseContext`

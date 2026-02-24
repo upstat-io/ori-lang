@@ -56,49 +56,49 @@ sections:
   - [x] **Rust Tests**: Type pool pre-interned at index 0; type checker handles int
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — 162 tests (all pass)
   - [x] **LLVM Support**: `TypeInfo::Int` → i64 via `storage_type()` + `lower_int()` in `lower_literals.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 12 AOT tests using int
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 12 AOT tests using int
 
 - [x] **Implement**: `float` type — spec/06-types.md § float [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 1; type checker handles float
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — float literal, negative, scientific, annotated, arithmetic, comparison tests
   - [x] **LLVM Support**: `TypeInfo::Float` → f64 via `storage_type()` + `lower_float()` in `lower_literals.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, arithmetic, comparison, negation) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, arithmetic, comparison, negation) [done] (2026-02-13)
 
 - [x] **Implement**: `bool` type — spec/06-types.md § bool [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 2; type checker handles bool
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — bool literal, logic, short-circuit tests
   - [x] **LLVM Support**: `TypeInfo::Bool` → i1 via `storage_type()` + `lower_bool()` in `lower_literals.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 7 AOT tests using bool
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 7 AOT tests using bool
 
 - [x] **Implement**: `str` type — spec/06-types.md § str [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 3; type checker handles str
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — str literal, equality, concatenation tests
   - [x] **LLVM Support**: `TypeInfo::Str` → {i64 len, ptr data} via `storage_type()` + `lower_string()` in `lower_literals.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 1 AOT test (print_string)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 1 AOT test (print_string)
 
 - [x] **Implement**: `char` type — spec/06-types.md § char [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 4; type checker handles char
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — char literal, equality tests
   - [x] **LLVM Support**: `TypeInfo::Char` → i32 via `storage_type()` + `lower_char()` in `lower_literals.rs`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (literals, comparison) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (literals, comparison) [done] (2026-02-13)
 
 - [x] **Implement**: `byte` type — spec/06-types.md § byte [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 5; type checker handles byte
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — byte conversion, equality tests
   - [x] **LLVM Support**: `TypeInfo::Byte` → i8 via `storage_type()`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 1 AOT test (basics, equality, boundary values); fixed byte codegen bug (i64→i8 store mismatch) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 1 AOT test (basics, equality, boundary values); fixed byte codegen bug (i64→i8 store mismatch) [done] (2026-02-13)
 
 - [x] **Implement**: `void` type — spec/06-types.md § void [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 6 (Unit); type checker handles void
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — void function return tests
   - [x] **LLVM Support**: `TypeInfo::Unit` → i64 via `storage_type()` + `lower_unit()` (LLVM void cannot be stored)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 5 AOT tests using void return
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 5 AOT tests using void return
 
 - [x] **Implement**: `Never` type — spec/06-types.md § Never [done] (2026-02-10)
   - [x] **Rust Tests**: Type pool pre-interned at index 7; type checker handles Never
   - [x] **Ori Tests**: `tests/spec/types/never.ori` — 21 tests (all pass)
   - [x] **LLVM Support**: `TypeInfo::Never` → i64 via `storage_type()`
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (panic coercion, multi-type conditional branches) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (panic coercion, multi-type conditional branches) [done] (2026-02-13)
 
 **Note**: Also fixed parser bug where type keywords (`int`, `float`, etc.) couldn't be used as builtin conversion function calls.
 
@@ -116,13 +116,13 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 10+ duration tests (units, decimal, many digits)
   - [x] **Ori Tests**: `tests/spec/lexical/duration_literals.ori` — 70+ tests
   - [x] **LLVM Support**: `lower_duration()` in `lower_literals.rs` — Duration → i64 (nanosecond precision)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, negative, arithmetic, comparison) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 4 AOT tests (literals, negative, arithmetic, comparison) [done] (2026-02-13)
 
 - [x] **Implement**: Size literal tokenization with all units (b, kb, mb, gb, tb) [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — 5+ size tests
   - [x] **Ori Tests**: `tests/spec/lexical/size_literals.ori` — 70+ tests
   - [x] **LLVM Support**: `lower_size()` in `lower_literals.rs` — Size → i64 (bytes)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 3 AOT tests (literals, arithmetic, comparison) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 3 AOT tests (literals, arithmetic, comparison) [done] (2026-02-13)
 
 - [x] **Implement**: Error for floating-point prefix on duration/size literals [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/tests/phases/parse/lexer.rs` — float_duration/size error token tests
@@ -144,13 +144,13 @@ Formalize Duration and Size primitive types with literal syntax, arithmetic, and
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Duration arithmetic tests
   - [x] **Verified**: `1s + 500ms == 1500ms`, `2s * 3 == 6s`, `-(1s) == -1s` (via `ori parse`/`cargo st`)
   - [x] **LLVM Support**: Duration codegen exists (i64 arithmetic on nanosecond values)
-  - [x] **LLVM Rust Tests**: Covered by `test_aot_duration_arithmetic` in `spec.rs` [done] (2026-02-13)
+  - [x] **AOT Tests**: Covered by `test_aot_duration_arithmetic` in `spec.rs` [done] (2026-02-13)
 
 - [x] **Implement**: Size arithmetic (+, -, *, /, %) [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/primitives.ori` — Size arithmetic tests
   - [x] **Verified**: `1kb + 500b == 1500b`, `2kb * 3 == 6kb` (via `cargo st`)
   - [x] **LLVM Support**: Size codegen exists (i64 arithmetic on byte values)
-  - [x] **LLVM Rust Tests**: Covered by `test_aot_size_arithmetic` in `spec.rs` [done] (2026-02-13)
+  - [x] **AOT Tests**: Covered by `test_aot_size_arithmetic` in `spec.rs` [done] (2026-02-13)
 
 - [x] **Implement**: Compile error for unary negation on Size [done] (2026-02-10)
   - [x] **Verified**: `-(1kb)` → E2001 "cannot negate `Size`: Size values must be non-negative"
@@ -228,7 +228,7 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
 - [x] **Implement**: Never coerces to any type T in assignment contexts [done] (2026-02-10)
   - [x] **Ori Tests**: `tests/spec/types/never.ori` — 21 tests (all pass)
   - [x] **LLVM Support**: Never coercion works in AOT — conditional branches with panic() produce correct values [done] (2026-02-13)
-  - [x] **LLVM Rust Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (panic coercion, multi-type conditional branches) [done] (2026-02-13)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/spec.rs` — 2 AOT tests (panic coercion, multi-type conditional branches) [done] (2026-02-13)
 
 - [x] **Implement**: Never coerces in conditional branches [done] (2026-02-10)
   - [x] **Verified**: `if true then 42 else panic(msg: "unreachable")` returns int correctly
@@ -257,7 +257,7 @@ Formalize the Never type as the bottom type with coercion rules, type inference 
   - [x] **Bug Fix**: `ControlAction::Propagate` was not caught at function call boundaries — `?` errors leaked through all call frames instead of becoming the function's return value. Fixed in `function_call.rs` with `catch_propagation()`.
   - [x] **Ori Tests**: `tests/spec/control_flow/never_propagation.ori` — 14 tests (Result and Option propagation, chaining, nested calls, conditional branches, multiple ? in same expression)
   - [x] **LLVM Support**: Fixed — `TypeInfoStore` now follows `Pool::resolve_fully()` for `Tag::Var` type variables; `Result::unwrap()` coerces payload to ok type [done] (2026-02-13)
-  - [x] **LLVM Rust Tests**: 11 AOT tests in `ori_llvm/tests/aot/spec.rs` — Result/Option constructors, `?` operator (ok unwrap, err propagation, chained), method dispatch (is_ok/is_err/unwrap)
+  - [x] **AOT Tests**: 11 AOT tests in `ori_llvm/tests/aot/spec.rs` — Result/Option constructors, `?` operator (ok unwrap, err propagation, chained), method dispatch (is_ok/is_err/unwrap)
 
 - [x] **Implement**: Infinite loop (no break) has type Never [done] (2026-02-13)
   - [x] **Fix**: `infer_loop()` returned `Idx::UNIT` for unresolved break type; now returns `Idx::NEVER`. A `break` (even without value) unifies with Unit, so unresolved truly means no break exists.

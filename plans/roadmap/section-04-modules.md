@@ -65,6 +65,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` (10 tests, pub/private functions, types, config vars)
   - [ ] **LLVM Support**: LLVM codegen for module loading — multi_file.rs infrastructure exists, no dedicated tests
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — module loading codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Module corresponds to file — spec/12-modules.md § Module Structure [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/module/import.rs` — file mapping tests
@@ -187,6 +188,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/modules/_test/module_alias.test.ori` (11 tests: `math.add()`, `math.multiply()`, etc.)
   - [ ] **LLVM Support**: LLVM codegen for qualified access dispatch — multi_file.rs has module-qualified mangling (`_ori_<module>$<function>`)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — qualified access codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Runtime evaluation complete; type checker needs ModuleNamespace support
 
 ---
@@ -210,18 +212,21 @@ sections:
   - [x] **Ori Tests**: Option/Result used throughout `tests/spec/`, Ordering verified in `tests/spec/types/ordering/`
   - [ ] **LLVM Support**: LLVM codegen for prelude type representations — Option/Result have inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude type codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Built-in functions: `print`, `panic`, `int`, `float`, `str`, `byte` — spec/12-modules.md § Prelude [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/evaluator/` — `register_prelude()` tests
   - [x] **Ori Tests**: Built-ins used throughout test suite
   - [x] **LLVM Support**: LLVM codegen for built-in functions — `print` via `_ori_print`, `panic` via `_ori_panic`, conversions via inline IR
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in function codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Built-in methods: `.len()`, `.is_empty()`, `.is_some()`, etc. — Lean Core [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_eval/src/methods.rs` — method dispatch tests
   - [x] **Ori Tests**: `tests/spec/traits/core/` — len (14 tests), comparable (58 tests); `tests/spec/types/` — option, result tests
   - [x] **LLVM Support**: LLVM codegen for built-in methods — inline IR in `lower_calls.rs` (len, is_empty, is_some, is_none, unwrap, unwrap_or, is_ok, is_err, compare)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — built-in method codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Auto-import prelude from `library/std/prelude.ori` — spec/12-modules.md § Prelude [done] (2026-02-10)
   - [x] `Evaluator::load_prelude()` auto-loads prelude before any module
@@ -230,6 +235,7 @@ sections:
   - [x] **Ori Tests**: All test files use `use std.testing { assert_eq }` which depends on prelude
   - [ ] **LLVM Support**: LLVM codegen for prelude auto-loading
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude loading codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Prelude functions auto-available [done] (2026-02-10)
   - [x] `assert`, `assert_eq`, `assert_ne`, `assert_some`, `assert_none`, `assert_ok`, `assert_err`
@@ -238,6 +244,7 @@ sections:
   - [x] `compare`, `min`, `max`
   - [ ] **LLVM Support**: LLVM codegen for prelude functions — partial (print, panic, len, compare have IR; assert_* not yet)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/module_tests.rs` — prelude function codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Trait definitions in prelude (Eq, Comparable, etc.) parse but need Section 3 for full integration
 
 ---
@@ -360,6 +367,7 @@ pub let $VERSION = "1.0.0"
   - [ ] **Ori Tests**: `tests/spec/declarations/constants_eval.ori`
   - [ ] **LLVM Support**: LLVM codegen for module constants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/constant_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Register constants in module namespace
   - [ ] **Rust Tests**: `ori_eval/src/interpreter/module_loading.rs` — constant registration
@@ -488,6 +496,7 @@ Extension methods add methods to existing types without modifying their definiti
 - [ ] **Implement**: Extension method codegen — Extension methods in LLVM backend
   - [ ] Same codegen as regular methods
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/extension_tests.rs`
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 **Note on Type Definitions:**
 - Full prelude with user-defined Option, Result, etc. requires Section 5 (Type Declarations)

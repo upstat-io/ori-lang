@@ -121,6 +121,7 @@ extern "js" from "./utils.js" {
 
 - [ ] **LLVM Support**: LLVM codegen for extern blocks
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — extern blocks codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/extern_blocks.ori`
   - [ ] Basic extern function declaration
@@ -182,6 +183,7 @@ extern "c" from "foo" {
 
 - [ ] **LLVM Support**: LLVM codegen for C ABI types
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — C ABI types codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/c_types.ori`
   - [ ] All primitive C types
@@ -247,6 +249,7 @@ type CacheAligned = { value: int }
 
 - [ ] **LLVM Support**: LLVM codegen for #repr structs
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — #repr struct codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/repr.ori`
   - [ ] `#repr("c")` struct
@@ -302,6 +305,7 @@ Inside `unsafe`:
 
 - [ ] **LLVM Support**: LLVM codegen for unsafe blocks
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — unsafe blocks codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/unsafe_blocks.ori`
   - [ ] Basic unsafe block
@@ -355,6 +359,7 @@ Inside `unsafe`:
 
 - [ ] **LLVM Support**: LLVM codegen for FFI capability
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — FFI capability codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/ffi_capability.ori`
   - [ ] Function requiring FFI
@@ -400,6 +405,7 @@ qsort(base: data, nmemb: len, size: 4, compar: compare_ints)
 
 - [ ] **LLVM Support**: LLVM codegen for callbacks
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — callbacks codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/callbacks.ori`
   - [ ] Simple callback
@@ -447,6 +453,7 @@ libraries = ["msvcrt"]
 
 - [ ] **LLVM Support**: LLVM codegen for link directives
 - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — linking codegen
+- [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Test**: `tests/spec/ffi/linking.ori`
   - [ ] Link to libc
@@ -591,6 +598,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
   - [ ] **Codegen**: Read errno after C calls when `#error(errno)` active
   - [ ] **LLVM Support**: LLVM codegen for errno reading
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — errno codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 11.11.2 Ownership Annotations (Phase 2)
 
@@ -608,6 +616,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
   - [ ] **Codegen**: Emit cleanup call on scope exit
   - [ ] **LLVM Support**: LLVM codegen for auto-Drop
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — ownership codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 - [ ] **Implement**: `str` return defaults to borrowed (copy, don't free)
   - [ ] **Ori Tests**: `tests/spec/ffi/str_return_borrowed.ori`
 - [ ] **Implement**: Compiler warnings for unannotated CPtr returns
@@ -623,6 +632,7 @@ Deep FFI layers five opt-in abstractions on top of the base FFI syntax: error pr
 - [ ] **Implement**: `bool` ↔ `c_int` conversion
   - [ ] **LLVM Support**: LLVM codegen for marshalling extensions
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ffi_tests.rs` — marshalling codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ### 11.11.4 Capability-Gated Testability (Phase 4)
 

@@ -147,12 +147,14 @@ greet(name: "Alice")  // "Hello, Alice!"
   - [ ] **Ori Tests**: `tests/spec/declarations/default_params.ori`
   - [ ] **LLVM Support**: LLVM codegen for default parameter parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default parameter parsing codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — default parameter parsing end-to-end
 
 - [ ] **Implement**: Parse default expressions with correct precedence
   - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — default expression precedence
   - [ ] **Ori Tests**: `tests/spec/declarations/default_params_precedence.ori`
   - [ ] **LLVM Support**: LLVM codegen for default expression precedence
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default expression precedence codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — default expression precedence end-to-end
 
 ### Type Checker
 
@@ -193,6 +195,7 @@ greet(name: "Alice")  // "Hello, Alice!"
   - [ ] **Ori Tests**: `tests/spec/expressions/omit_default_params.ori`
   - [ ] **LLVM Support**: LLVM codegen for optional param omission
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — optional param omission codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — optional param omission end-to-end
 
 - [ ] **Implement**: Clear error message when required param missing
   - [ ] **Rust Tests**: `ori_diagnostic/src/problem.rs` — missing param error
@@ -207,18 +210,21 @@ greet(name: "Alice")  // "Hello, Alice!"
   - [ ] **Ori Tests**: `tests/spec/expressions/default_insertion.ori`
   - [ ] **LLVM Support**: LLVM codegen for default insertion
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — default insertion codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — default insertion end-to-end
 
 - [ ] **Implement**: Evaluate defaults at call time (not definition time)
   - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — call-time evaluation
   - [ ] **Ori Tests**: `tests/spec/expressions/default_call_time_eval.ori`
   - [ ] **LLVM Support**: LLVM codegen for call-time evaluation
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — call-time evaluation codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — call-time evaluation end-to-end
 
 - [ ] **Implement**: Correct evaluation order (explicit args first, then defaults in param order)
   - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — evaluation order
   - [ ] **Ori Tests**: `tests/spec/expressions/default_eval_order.ori`
   - [ ] **LLVM Support**: LLVM codegen for evaluation order
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — evaluation order codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — evaluation order end-to-end
 
 ### Trait Method Defaults
 
@@ -227,18 +233,21 @@ greet(name: "Alice")  // "Hello, Alice!"
   - [ ] **Ori Tests**: `tests/spec/traits/method_defaults.ori`
   - [ ] **LLVM Support**: LLVM codegen for trait method defaults
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — trait method defaults codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — trait method defaults end-to-end
 
 - [ ] **Implement**: Allow implementations to override/remove defaults
   - [ ] **Rust Tests**: `oric/src/typeck/checker/impl.rs` — impl default override
   - [ ] **Ori Tests**: `tests/spec/traits/impl_override_defaults.ori`
   - [ ] **LLVM Support**: LLVM codegen for impl default override
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — impl default override codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — impl default override end-to-end
 
 - [ ] **Implement**: Trait object calls use trait's declared default
   - [ ] **Rust Tests**: `oric/src/codegen/dyn_dispatch.rs` — dyn default dispatch
   - [ ] **Ori Tests**: `tests/spec/traits/dyn_trait_defaults.ori`
   - [ ] **LLVM Support**: LLVM codegen for dyn default dispatch
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/default_params_tests.rs` — dyn default dispatch codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — dyn default dispatch end-to-end
 
 ---
 
@@ -263,18 +272,21 @@ Allow functions to be defined with multiple clauses that pattern match on argume
   - [ ] **Ori Tests**: `tests/spec/declarations/function_clauses.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause parameter parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause parameter parsing codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — clause parameter parsing end-to-end
 
 - [ ] **Implement**: Parse `if` guard clause between `where_clause` and `=`
   - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — guard clause parsing
   - [ ] **Ori Tests**: `tests/spec/declarations/function_clause_guards.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard clause parsing
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — guard clause parsing codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — guard clause parsing end-to-end
 
 - [ ] **Implement**: Group multiple declarations with same name into single function
   - [ ] **Rust Tests**: `ori_parse/src/grammar/decl.rs` — clause grouping
   - [ ] **Ori Tests**: `tests/spec/declarations/function_clause_grouping.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause grouping
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause grouping codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — clause grouping end-to-end
 
 ### Semantic Analysis
 
@@ -335,12 +347,14 @@ Allow functions to be defined with multiple clauses that pattern match on argume
   - [ ] **Ori Tests**: `tests/spec/declarations/clause_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause desugaring codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — clause desugaring end-to-end
 
 - [ ] **Implement**: Function clause `if` guards (compile to match arm guards)
   - [ ] **Rust Tests**: `oric/src/codegen/clauses.rs` — guard desugaring
   - [ ] **Ori Tests**: `tests/spec/declarations/guard_desugaring.ori`
   - [ ] **LLVM Support**: LLVM codegen for guard desugaring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — guard desugaring codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — guard desugaring end-to-end
 
 ### Integration
 
@@ -349,18 +363,21 @@ Allow functions to be defined with multiple clauses that pattern match on argume
   - [ ] **Ori Tests**: `tests/spec/expressions/clause_named_args.ori`
   - [ ] **LLVM Support**: LLVM codegen for argument reordering
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — argument reordering codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — argument reordering end-to-end
 
 - [ ] **Implement**: Default parameter filling before pattern matching
   - [ ] **Rust Tests**: `oric/src/codegen/call.rs` — default filling with clauses
   - [ ] **Ori Tests**: `tests/spec/expressions/clause_default_params.ori`
   - [ ] **LLVM Support**: LLVM codegen for default filling with clauses
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — default filling codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — default filling with clauses end-to-end
 
 - [ ] **Implement**: Tests target function name (cover all clauses)
   - [ ] **Rust Tests**: `oric/src/typeck/checker/test.rs` — clause test targeting
   - [ ] **Ori Tests**: `tests/spec/testing/clause_tests.ori`
   - [ ] **LLVM Support**: LLVM codegen for clause test targeting
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_clauses_tests.rs` — clause test targeting codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — clause test targeting end-to-end
 
 ---
 
@@ -407,6 +424,7 @@ NOT lambda expressions (named arg required):
   - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional.ori`
   - [ ] **LLVM Support**: LLVM codegen for lambda positional args
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — lambda positional arg codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — lambda positional arg end-to-end
 
 - [ ] **Implement**: Verify callee has exactly 1 explicit parameter (exclude `self`)
   - [ ] **Rust Tests**: `ori_typeck/src/infer/call.rs` — single param check
@@ -450,16 +468,19 @@ error[E2011]: named arguments required for direct function calls
   - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_nested.ori`
   - [ ] **LLVM Support**: LLVM codegen for nested lambdas
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — nested lambdas codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — nested lambdas end-to-end
 
 - [ ] **Implement**: Chained method calls with lambdas
   - [ ] **Ori Tests**: `tests/spec/expressions/lambda_positional_chained.ori`
   - [ ] **LLVM Support**: LLVM codegen for chained lambdas
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — chained lambdas codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — chained lambdas end-to-end
 
 - [ ] **Implement**: Lambda returning lambda
   - [ ] **Ori Tests**: `tests/spec/expressions/lambda_returning_lambda.ori`
   - [ ] **LLVM Support**: LLVM codegen for lambda returning lambda
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/call_tests.rs` — lambda returning lambda codegen
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/` — lambda returning lambda end-to-end
 
 ### Documentation
 

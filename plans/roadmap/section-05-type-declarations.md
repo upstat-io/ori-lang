@@ -70,24 +70,28 @@ sections:
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori`
   - [ ] **LLVM Support**: LLVM codegen for struct literal construction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — struct literal codegen (file does not exist)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/structs.rs` — 30 tests, 1 ignored (struct construction with int/bool/str/mixed fields, update syntax, nested structs, function params/returns, closures, derived Eq)
 
 - [x] **Implement**: Shorthand `Point { x, y }` — spec/06-types.md § Struct Types [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/postfix.rs` — shorthand parsing
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — `test_shorthand_init`, `test_mixed_shorthand`
   - [ ] **LLVM Support**: LLVM codegen for shorthand struct construction
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — shorthand struct codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet — `ori_llvm/tests/aot/structs.rs` does not test shorthand syntax
 
 - [x] **Implement**: Field access — spec/06-types.md § Struct Types [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/postfix.rs` — field access type inference
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — field chaining (`c.ceo.name`, deep nesting)
   - [ ] **LLVM Support**: LLVM codegen for struct field access
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — field access codegen (file does not exist)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/structs.rs` — all 30 tests exercise field access; nested field chains in `test_struct_nested_basic`, `test_struct_nested_three_levels`
 
 - [x] **Implement**: Destructuring — spec/09-expressions.md § Destructuring [done] (2026-02-10)
   - [x] **Rust Tests**: Parser in `ori_parse/src/grammar/expr/primary.rs` — `parse_binding_pattern()`
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — `test_destructure`, `test_destructure_partial`, `test_destructure_rename`
   - [ ] **LLVM Support**: LLVM codegen for struct destructuring
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/struct_tests.rs` — destructuring codegen (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet — `ori_llvm/tests/aot/structs.rs` does not test struct destructuring
 
 ---
 
@@ -106,12 +110,14 @@ sections:
   - [x] **Ori Tests**: MyOption (MySome/MyNone), Message (Text/Empty)
   - [ ] **LLVM Support**: LLVM codegen for single-field variants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Multi-field variants `Variant(x: Type, y: Type)` [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — multi-field variant parsing
   - [x] **Ori Tests**: Shape (Circle/Rectangle), Point3D, Event (Click/KeyPress/Quit), Response (Success/Error)
   - [ ] **LLVM Support**: LLVM codegen for multi-field variants
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Struct variants [done] (2026-02-10)
   - [x] **Rust Tests**: `ori_parse/src/grammar/attr.rs` — struct variant parsing (named fields)
@@ -122,12 +128,14 @@ sections:
   - [x] **Ori Tests**: All sum type tests construct variants; generic sum types (MyResult, MyOptional, LinkedList, Tree)
   - [ ] **LLVM Support**: LLVM codegen for variant constructors
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/sum_type_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Pattern matching on variants [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/pattern.rs` — variant pattern matching
   - [x] **Ori Tests**: Exhaustive match, wildcard, nested match, variable binding, recursive Expr eval
   - [ ] **LLVM Support**: LLVM codegen for variant pattern matching
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/matching_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
   - Note: `#derive(Eq)` for sum types NOT working (skipped in tests)
 
 ---
@@ -155,6 +163,7 @@ sections:
   - [ ] **Ori Tests**: Update `tests/spec/types/newtypes.ori` to use `.inner`
   - [ ] **LLVM Support**: Update LLVM codegen to use `.inner` field access
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/newtype_tests.rs` — `.inner` accessor codegen
+  - [ ] **AOT Tests**: No AOT coverage yet
   - [ ] **Note**: `.inner` is always public regardless of newtype visibility
   - Note: Currently using `.unwrap()` — migration to `.inner` pending
 
@@ -175,12 +184,14 @@ sections:
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — `GenericDerived<T: Eq>` works
   - [ ] **LLVM Support**: LLVM codegen for constrained generics
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/generic_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Multiple bounds `<T: A + B>` — spec/08-declarations.md § Generic Declarations
   - [ ] **Rust Tests**: `oric/src/typeck/checker/bound_checking.rs` — multiple bounds
   - [ ] **Ori Tests**: Not tested yet
   - [ ] **LLVM Support**: LLVM codegen for multiple bounds
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/generic_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Generic application / Instantiation [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/expr.rs` — `infer_struct` handles instantiation
@@ -192,6 +203,7 @@ sections:
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — `GenericDerived<T: Eq>` constraint checked
   - [ ] **LLVM Support**: LLVM codegen for constraint checking
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/generic_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -204,6 +216,7 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [ ] **Ori Tests**: `tests/spec/types/collections.ori` — all commented out
   - [ ] **LLVM Support**: LLVM codegen for list type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Lists work in evaluator (used in struct_types.ori, sum_types.ori) but type inference commented out
 
 - [ ] **Implement**: Map `{K: V}` — spec/06-types.md § Map Type
@@ -211,12 +224,14 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [ ] **Ori Tests**: `tests/spec/types/collections.ori` — all commented out
   - [ ] **LLVM Support**: LLVM codegen for map type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Set `Set<T>` — spec/06-types.md § Set Type
   - [ ] **Rust Tests**: `oric/src/typeck/infer/collections.rs` — set type inference
   - [ ] **Ori Tests**: `tests/spec/types/collections.ori` — all commented out
   - [ ] **LLVM Support**: LLVM codegen for set type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Tuple `(T, U)` — spec/06-types.md § Tuple Types
   - [x] **Parser**: Numeric field access `.0`, `.1` — `expect_member_name()` accepts integer literals (2026-02-15)
@@ -227,6 +242,7 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [ ] **Ori Tests**: `tests/spec/types/collections.ori` — all commented out
   - [ ] **LLVM Support**: LLVM codegen for tuple type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/collection_tests.rs` (file does not exist)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/tuples.rs` — 28 tests, 6 ignored (construction, field access, destructuring, nested tuples, function param/return, strings, control flow, closures, equality)
   - [ ] **Parser**: Chained field access without parens (`t.0.1`) — requires source text in parser or text in `Float` token
   - Note: Tuples work in evaluator (used in struct_types.ori destructuring) but type inference commented out
   <!-- known-bug: decision tree column count mismatch on tuple patterns with nested constructors + wildcard (e.g., (None, _)) — see compile/mod.rs:67 -->
@@ -236,12 +252,14 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [ ] **Ori Tests**: `tests/spec/expressions/loops.ori`
   - [ ] **LLVM Support**: LLVM codegen for range type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/range_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: Function `(T) -> U` — spec/06-types.md § Function Types
   - [ ] **Rust Tests**: `oric/src/typeck/infer/lambda.rs` — function type inference
   - [ ] **Ori Tests**: `tests/spec/expressions/lambdas.ori`
   - [ ] **LLVM Support**: LLVM codegen for function types
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/function_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Function types work in evaluator (used in struct_types.ori `WithFunction`)
 
 ---
@@ -253,30 +271,35 @@ Note: `tests/spec/types/collections.ori` is ENTIRELY COMMENTED OUT — type chec
   - [x] **Ori Tests**: Used throughout test suite (struct_types.ori, sum_types.ori, traits/)
   - [ ] **LLVM Support**: LLVM codegen for Option type — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_result_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `Result<T, E>` with `Ok`/`Err` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/builtins.rs` — Result type handling
   - [x] **Ori Tests**: Used in traits/core/ tests, test suite
   - [ ] **LLVM Support**: LLVM codegen for Result type — inline IR in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/option_result_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `Ordering` with `Less`/`Equal`/`Greater` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/infer/builtins.rs` — Ordering type handling
   - [x] **Ori Tests**: `tests/spec/types/ordering/methods.ori` (32 tests)
   - [ ] **LLVM Support**: LLVM codegen for Ordering type — i8 comparison in lower_calls.rs
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/ordering_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Error` type — spec/20-errors-and-panics.md § Error Conventions
   - [ ] **Rust Tests**: `oric/src/typeck/infer/builtins.rs` — Error type handling
   - [ ] **Ori Tests**: `tests/spec/types/error.ori` — not verified
   - [ ] **LLVM Support**: LLVM codegen for Error type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/error_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `Channel<T>` — spec/06-types.md § Channel
   - [ ] **Rust Tests**: `oric/src/typeck/infer/builtins.rs` — Channel type handling
   - [ ] **Ori Tests**: `tests/spec/types/channel.ori` — not implemented
   - [ ] **LLVM Support**: LLVM codegen for Channel type
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/channel_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -309,12 +332,14 @@ Replace `#derive(Trait)` with `type T with Trait = ...`. Derivation moves from a
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` (15+ tests)
   - [ ] **LLVM Support**: LLVM codegen for derive attributes
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `#derive(Eq)` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derive/eq.rs` — derive Eq generation
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — EqPoint, EmptyDerived, SingleFieldDerived, nested derive, generic derive
   - [ ] **LLVM Support**: LLVM codegen for derived Eq
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/structs.rs` — `test_struct_derived_eq`, `test_struct_derived_eq_string` (struct Eq with int and string fields)
   - Note: Derive(Eq) for SUM TYPES not working (skipped in tests)
 
 - [x] **Implement**: `#derive(Clone)` [done] (2026-02-10)
@@ -322,18 +347,21 @@ Replace `#derive(Trait)` with `type T with Trait = ...`. Derivation moves from a
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — ClonePoint, SingleFieldDerived
   - [ ] **LLVM Support**: LLVM codegen for derived Clone
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: `#derive(Hashable)` [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/typeck/derive/hashable.rs` — derive Hashable generation
   - [x] **Ori Tests**: `tests/spec/declarations/attributes.ori` — HashPoint, MultiAttrPoint
   - [ ] **LLVM Support**: LLVM codegen for derived Hashable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [ ] **Implement**: `#derive(Printable)` — spec/08-declarations.md § Attributes
   - [ ] **Rust Tests**: `oric/src/typeck/derive/printable.rs` — derive Printable generation
   - [ ] **Ori Tests**: `tests/spec/declarations/attributes.ori` — skipped ("derive(Printable) not fully implemented")
   - [ ] **LLVM Support**: LLVM codegen for derived Printable
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
   - Note: Works in traits/derive/all_derives.ori but skipped in declarations/attributes.ori
 
 - [ ] **Implement**: `#derive(Default)` — spec/08-declarations.md § Attributes
@@ -341,6 +369,7 @@ Replace `#derive(Trait)` with `type T with Trait = ...`. Derivation moves from a
   - [ ] **Ori Tests**: Not tested
   - [ ] **LLVM Support**: LLVM codegen for derived Default
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/derive_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -351,18 +380,21 @@ Replace `#derive(Trait)` with `type T with Trait = ...`. Derivation moves from a
   - [x] **Ori Tests**: `tests/spec/declarations/struct_types.ori` — `pub type PublicStruct`, `tests/spec/declarations/sum_types.ori` — `pub type PublicStatus`
   - [ ] **LLVM Support**: LLVM codegen for pub type visibility
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/visibility_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Public visible from other modules [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/module/visibility.rs` — public visibility
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` — `pub type Point` imported cross-module
   - [ ] **LLVM Support**: LLVM codegen for public visibility
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/visibility_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 - [x] **Implement**: Private only in declaring module [done] (2026-02-10)
   - [x] **Rust Tests**: `oric/src/eval/module/visibility.rs` — private visibility
   - [x] **Ori Tests**: `tests/spec/modules/use_imports.ori` — `type InternalPoint` (private)
   - [ ] **LLVM Support**: LLVM codegen for private visibility
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/visibility_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
@@ -426,6 +458,7 @@ Generalize associated functions to work for ANY type with an `impl` block, remov
 
 - [ ] **LLVM Support**: Codegen for associated function calls
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/associated_function_tests.rs` (file does not exist)
+  - [ ] **AOT Tests**: No AOT coverage yet
 
 ---
 
