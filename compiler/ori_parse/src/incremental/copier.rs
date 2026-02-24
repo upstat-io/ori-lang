@@ -136,23 +136,28 @@ impl<'old> AstCopier<'old> {
             }
             ExprKind::For {
                 label,
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
                 is_yield,
-            } => ExprKind::For {
-                label: *label,
-                binding: *binding,
-                iter: self.copy_expr(*iter, new_arena),
-                guard: if guard.is_present() {
-                    self.copy_expr(*guard, new_arena)
-                } else {
-                    ExprId::INVALID
-                },
-                body: self.copy_expr(*body, new_arena),
-                is_yield: *is_yield,
-            },
+            } => {
+                let old_pattern = self.old_arena.get_binding_pattern(*pattern);
+                let copied_pattern = self.copy_binding_pattern(old_pattern);
+                let new_pattern_id = new_arena.alloc_binding_pattern(copied_pattern);
+                ExprKind::For {
+                    label: *label,
+                    pattern: new_pattern_id,
+                    iter: self.copy_expr(*iter, new_arena),
+                    guard: if guard.is_present() {
+                        self.copy_expr(*guard, new_arena)
+                    } else {
+                        ExprId::INVALID
+                    },
+                    body: self.copy_expr(*body, new_arena),
+                    is_yield: *is_yield,
+                }
+            }
             ExprKind::Loop { label, body } => ExprKind::Loop {
                 label: *label,
                 body: self.copy_expr(*body, new_arena),

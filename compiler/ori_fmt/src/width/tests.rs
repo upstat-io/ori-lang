@@ -1024,14 +1024,18 @@ fn test_width_for_labeled() {
     let interner = StringInterner::new();
 
     let label = interner.intern("row");
-    let binding = interner.intern("x");
+    let binding_name = interner.intern("x");
+    let pattern = arena.alloc_binding_pattern(ori_ir::BindingPattern::Name {
+        name: binding_name,
+        mutable: ori_ir::Mutability::Mutable,
+    });
     let iter = make_expr(&mut arena, ExprKind::Ident(interner.intern("items")));
     let body = make_expr(&mut arena, ExprKind::Ident(interner.intern("x")));
     let for_expr = make_expr(
         &mut arena,
         ExprKind::For {
             label,
-            binding,
+            pattern,
             iter,
             guard: ExprId::INVALID,
             body,

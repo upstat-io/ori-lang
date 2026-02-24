@@ -19,6 +19,14 @@ fn span() -> Span {
     Span::DUMMY
 }
 
+/// Allocate a simple name binding pattern for for-loop tests.
+fn binding_pat(arena: &mut ExprArena, n: u32) -> ori_ir::BindingPatternId {
+    arena.alloc_binding_pattern(BindingPattern::Name {
+        name: name(n),
+        mutable: Mutability::Mutable,
+    })
+}
+
 /// Helper to build an expression and get its ID.
 fn alloc(arena: &mut ExprArena, kind: ExprKind) -> ExprId {
     arena.alloc_expr(Expr::new(kind, span()))
@@ -860,12 +868,13 @@ fn test_infer_for_do() {
 
     let iter = alloc(&mut arena, ExprKind::Ident(name(1)));
     let body = alloc(&mut arena, ExprKind::Unit);
+    let pat = binding_pat(&mut arena, 2);
 
     let for_expr = alloc(
         &mut arena,
         ExprKind::For {
             label: Name::EMPTY,
-            binding: name(2), // 'x'
+            pattern: pat, // 'x'
             iter,
             guard: ExprId::INVALID,
             body,
@@ -892,12 +901,13 @@ fn test_infer_for_yield() {
     let iter = alloc(&mut arena, ExprKind::Ident(name(1)));
     // Use x (the bound element) in body
     let x_ref = alloc(&mut arena, ExprKind::Ident(name(2)));
+    let pat = binding_pat(&mut arena, 2);
 
     let for_expr = alloc(
         &mut arena,
         ExprKind::For {
             label: Name::EMPTY,
-            binding: name(2), // 'x'
+            pattern: pat, // 'x'
             iter,
             guard: ExprId::INVALID,
             body: x_ref,
@@ -930,12 +940,13 @@ fn test_infer_for_with_guard() {
     let iter = alloc(&mut arena, ExprKind::Ident(name(1)));
     let guard = alloc(&mut arena, ExprKind::Bool(true));
     let body = alloc(&mut arena, ExprKind::Unit);
+    let pat = binding_pat(&mut arena, 2);
 
     let for_expr = alloc(
         &mut arena,
         ExprKind::For {
             label: Name::EMPTY,
-            binding: name(2),
+            pattern: pat,
             iter,
             guard,
             body,
@@ -961,12 +972,13 @@ fn test_infer_for_guard_not_bool() {
     let iter = alloc(&mut arena, ExprKind::Ident(name(1)));
     let guard = alloc(&mut arena, ExprKind::Int(1)); // Not bool!
     let body = alloc(&mut arena, ExprKind::Unit);
+    let pat = binding_pat(&mut arena, 2);
 
     let for_expr = alloc(
         &mut arena,
         ExprKind::For {
             label: Name::EMPTY,
-            binding: name(2),
+            pattern: pat,
             iter,
             guard,
             body,
