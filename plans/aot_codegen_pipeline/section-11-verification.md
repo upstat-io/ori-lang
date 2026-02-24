@@ -70,7 +70,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [ ] Tuple destructuring in for loop `for (a, b) in ...` — Parser gap (#[ignore])
   - [x] Tuple == equality comparison — **FIXED** (2026-02-24) — tuple equality comparison codegen
 
-- [ ] **Structs:** (2026-02-23)
+- [x] **Structs:** (2026-02-23, completed 2026-02-24)
   - [x] Basic construction (1/2/3 fields), bool fields, mixed fields — covered (structs.rs)
   - [x] String fields (one, two string fields, method on string field) — covered (structs.rs)
   - [x] Update syntax (one field, all fields, preserves original, chain) — covered (structs.rs)
@@ -236,7 +236,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - Combined patterns (guard+tuple, result dispatch, nested match, fizzbuzz) — covered (patterns.rs)
   - Exhaustiveness (bool cases, many char literals) — covered (patterns.rs)
 
-- [ ] **Type conversions:** (2026-02-23)
+- [x] **Type conversions:** (2026-02-23, completed 2026-02-24)
   - [x] int.to_float, int.to_float (negative, zero, large) — covered (conversions.rs)
   - [x] float.to_int (basic, truncation, negative truncation, zero, negative zero) — covered (conversions.rs)
   - [x] int.into (int -> float) — covered (conversions.rs)
@@ -251,7 +251,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] int.f() shorthand — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
   - [x] int.byte() and byte roundtrip — **FIXED** (2026-02-23) — added to TYPECK_BUILTIN_METHODS
 
-- [ ] **Variable scoping & block expressions:** (2026-02-23)
+- [x] **Variable scoping & block expressions:** (2026-02-23, completed 2026-02-24)
   - [x] Let bindings (basic, type annotation, chain) — covered (scoping.rs)
   - [x] Variable shadowing (same type, different type, uses previous, many shadows) — covered (scoping.rs)
   - [x] Block expressions as values (basic, single, nested, with side effects) — covered (scoping.rs)
