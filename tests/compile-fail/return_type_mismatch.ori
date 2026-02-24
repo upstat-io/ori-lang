@@ -5,7 +5,7 @@
 // A function's body must have a type compatible with the declared return type.
 
 #[compile_fail("type mismatch")]
-@test_return_type_mismatch () -> void = {
+@test_return_type_mismatch tests _ () -> void = {
     let greet = (name: str) -> int = "Hello, " + name;
     ()
 }

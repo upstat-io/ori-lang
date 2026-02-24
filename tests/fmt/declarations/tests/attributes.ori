@@ -1,15 +1,15 @@
 // Golden test: Test attributes
 // Spec: 08-declarations.md § Test Declarations
 // Design: tooling/formatter/design/02-constructs/declarations.md
-// Note: Free-floating tests are identified by name starting with test_
+// Note: Free-floating tests use `tests _` syntax
 
 #skip("not implemented")
-@test_future () -> void = print(msg: "future");
+@test_future tests _ () -> void = print(msg: "future");
 
 #compile_fail("type mismatch")
-@test_type_error () -> void = 42;
+@test_type_error tests _ () -> void = 42;
 
 // TODO: LLVM backend doesn't properly handle #fail with panic
 #skip("LLVM backend: panic handling in #fail tests not working")
 #fail("assertion failed")
-@test_panic () -> void = panic(msg: "assertion failed");
+@test_panic tests _ () -> void = panic(msg: "assertion failed");

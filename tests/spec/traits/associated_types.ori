@@ -56,7 +56,7 @@ impl Container for StrBox {
 // A function that requires the container's Item type to be Eq
 @needs_eq_item<C: Container> (c: C) -> bool where C.Item: Eq = true;
 
-@test_needs_eq_item () -> void = {
+@test_needs_eq_item tests _ () -> void = {
     // IntBox.Item = int, and int: Eq, so this should work
     let box = IntBox { value: 42 };
     assert(cond: needs_eq_item(c: box))
@@ -72,7 +72,7 @@ impl Container for FnBox {
 
 // This should fail: FnBox.Item = () -> int, and functions don't implement Eq
 #[compile_fail("does not satisfy trait bound `Eq`")]
-@test_fnbox_fails_eq_constraint () -> void = {
+@test_fnbox_fails_eq_constraint tests _ () -> void = {
     let box = FnBox { func: () -> 42 };
     needs_eq_item(c: box)
 }

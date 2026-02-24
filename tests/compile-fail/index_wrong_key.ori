@@ -9,7 +9,7 @@ impl Index<int, int> for Lookup {
 
 // Wrong key type: str instead of int
 #[compile_fail("type mismatch")]
-@test_wrong_key () -> void = {
+@test_wrong_key tests _ () -> void = {
     let l = Lookup { data: [1, 2, 3] };
     let _ = l["hello"];
     ()

@@ -26,7 +26,7 @@ impl Pipeline for Stream {
 }
 
 #[compile_fail("conflicting default")]
-@test_conflicting_defaults () -> void = {
+@test_conflicting_defaults tests _ () -> void = {
     let s = Stream { id: 1 };
     ()
 }

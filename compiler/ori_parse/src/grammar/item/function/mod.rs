@@ -19,7 +19,6 @@ impl Parser<'_> {
     /// Function: @name (params) -> Type = body
     /// Attached test: @name tests @target1 tests @target2 (params) -> Type = body
     /// Floating test: @name tests _ (params) -> void = body
-    /// Floating test (legacy): @`test_name` (params) -> void = body
     ///
     /// Returns `EmptyErr` if no `@` is present.
     pub(crate) fn parse_function_or_test(
@@ -80,10 +79,6 @@ impl Parser<'_> {
             };
 
             self.parse_test_body(name, targets, attrs, start_span)
-                .with_error_context(crate::ErrorContext::TestDef)
-        } else if self.cursor.interner().lookup(name).starts_with("test_") {
-            // Free-floating test (name starts with test_ but no targets)
-            self.parse_test_body(name, Vec::new(), attrs, start_span)
                 .with_error_context(crate::ErrorContext::TestDef)
         } else {
             // Regular function

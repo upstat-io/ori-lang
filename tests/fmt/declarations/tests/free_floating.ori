@@ -1,10 +1,10 @@
 // Golden test: Free-floating test declarations
 // Spec: 08-declarations.md § Test Declarations
 // Design: tooling/formatter/design/02-constructs/declarations.md
-// Note: Free-floating tests are identified by name starting with test_ (no tests clause)
+// Note: Free-floating tests use `tests _` syntax
 
 use std.testing { assert, assert_eq }
 
-@test_integration () -> void = assert(cond: true);
+@test_integration tests _ () -> void = assert(cond: true);
 
-@test_smoke () -> void = assert_eq(actual: 1, expected: 1);
+@test_smoke tests _ () -> void = assert_eq(actual: 1, expected: 1);

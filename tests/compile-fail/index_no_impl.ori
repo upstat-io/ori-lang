@@ -5,7 +5,7 @@ type Point = { x: int, y: int }
 
 // Subscript on type without Index impl
 #[compile_fail("does not support indexing")]
-@test_no_index () -> void = {
+@test_no_index tests _ () -> void = {
     let p = Point { x: 1, y: 2 };
     let _ = p[0];
     ()

@@ -7,7 +7,7 @@ type Fahrenheit = { degrees: int }
 
 // Fahrenheit has no Into impl at all — .into() should fail
 #[compile_fail("does not implement `Into`")]
-@test_no_into_at_all () -> void = {
+@test_no_into_at_all tests _ () -> void = {
     let f = Fahrenheit { degrees: 212 };
     let _ = f.into();
     ()
