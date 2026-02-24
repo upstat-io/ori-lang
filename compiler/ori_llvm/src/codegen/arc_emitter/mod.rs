@@ -1343,15 +1343,34 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             ArcInstr::IsShared { dst, var } => {
                 // Inline refcount check: data_ptr - 8 = strong_count (i64).
                 // Shared when strong_count > 1 (more than one owner).
-                let data_ptr = self.var(*var);
-                let i8_ty = self.builder.i8_type();
-                let neg8 = self.builder.const_i64(-8);
-                let rc_ptr = self.builder.gep(i8_ty, data_ptr, &[neg8], "rc_ptr");
-                let i64_ty = self.builder.i64_type();
-                let rc_val = self.builder.load(i64_ty, rc_ptr, "rc_val");
-                let one = self.builder.const_i64(1);
-                let is_shared = self.builder.icmp_sgt(rc_val, one, "is_shared");
-                self.def_var(*dst, EmittedValue::Immediate(is_shared));
+                //
+                // Only valid for RcPointer values (heap-allocated behind an RC
+                // header). Aggregates (struct, tuple) and fat values (str) are
+                // inline SSA values with no RC header — they are always
+                // "shared" (force the slow Construct path).
+                let repr = func.var_repr(*var).unwrap_or(ValueRepr::Scalar);
+                if repr == ValueRepr::RcPointer {
+                    let data_ptr = self.var(*var);
+                    let i8_ty = self.builder.i8_type();
+                    let neg8 = self.builder.const_i64(-8);
+                    let rc_ptr = self.builder.gep(i8_ty, data_ptr, &[neg8], "rc_ptr");
+                    let i64_ty = self.builder.i64_type();
+                    let rc_val = self.builder.load(i64_ty, rc_ptr, "rc_val");
+                    let one = self.builder.const_i64(1);
+                    let is_shared = self.builder.icmp_sgt(rc_val, one, "is_shared");
+                    self.def_var(*dst, EmittedValue::Immediate(is_shared));
+                } else {
+                    // Non-pointer value: no RC header to check.
+                    // Emit `true` (always shared) to force the slow path
+                    // which uses Construct instead of in-place Set.
+                    tracing::trace!(
+                        var = var.raw(),
+                        ?repr,
+                        "IsShared on non-pointer value — emitting true"
+                    );
+                    let always_shared = self.builder.const_bool(true);
+                    self.def_var(*dst, EmittedValue::Immediate(always_shared));
+                }
             }
 
             ArcInstr::Reset { var, token } => {
@@ -1383,18 +1402,34 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 // In-place field update (only valid when uniquely owned).
                 // After expand_reuse, this only appears in the fast path for
                 // heap-allocated RC'd objects (pointer-typed base).
-                let base_val = self.var(*base);
-                let new_val = self.var(*value);
-                let base_ty = func.var_type(*base);
-                let llvm_ty = self.resolve_type(base_ty);
+                let repr = func.var_repr(*base).unwrap_or(ValueRepr::Scalar);
+                if repr == ValueRepr::RcPointer {
+                    let base_val = self.var(*base);
+                    let new_val = self.var(*value);
+                    let base_ty = func.var_type(*base);
+                    let llvm_ty = self.resolve_type(base_ty);
 
-                // GEP + store for heap-allocated RC'd objects.
-                // The base is a pointer to the struct data on the heap.
-                let field_ptr =
-                    self.builder
-                        .struct_gep(llvm_ty, base_val, *field, &format!("set.{field}.ptr"));
-                self.builder.store(new_val, field_ptr);
-                // base pointer unchanged — mutation is in-place
+                    // GEP + store for heap-allocated RC'd objects.
+                    // The base is a pointer to the struct data on the heap.
+                    let field_ptr = self.builder.struct_gep(
+                        llvm_ty,
+                        base_val,
+                        *field,
+                        &format!("set.{field}.ptr"),
+                    );
+                    self.builder.store(new_val, field_ptr);
+                    // base pointer unchanged — mutation is in-place
+                } else {
+                    // Non-pointer base: this block is unreachable (IsShared
+                    // emitted `true` for non-pointer values, so the branch
+                    // always takes the slow Construct path). Emit nothing.
+                    tracing::trace!(
+                        base = base.raw(),
+                        field,
+                        ?repr,
+                        "Set on non-pointer value — skipping (unreachable)"
+                    );
+                }
             }
 
             ArcInstr::SetTag { base, tag } => {
@@ -1535,11 +1570,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
         }
 
-        let is_float = matches!(
-            self.type_info.get(lhs_ty),
-            super::type_info::TypeInfo::Float
-        );
-        let is_str = matches!(self.type_info.get(lhs_ty), super::type_info::TypeInfo::Str);
+        let type_info = self.type_info.get(lhs_ty);
+        let is_float = matches!(type_info, super::type_info::TypeInfo::Float);
+        let is_str = matches!(type_info, super::type_info::TypeInfo::Str);
+
+        // List + list → concat (same as str + str → concat)
+        if matches!(op, BinaryOp::Add) {
+            if let super::type_info::TypeInfo::List { element } = type_info {
+                if let Some(val) = self.emit_list_concat(lhs, rhs, element) {
+                    return val;
+                }
+            }
+        }
 
         match op {
             BinaryOp::Add if is_float => self.builder.fadd(lhs, rhs, "add"),
@@ -1712,6 +1754,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
             _ => return None,
         };
+
+        // Tuple equality: compare element-wise inline (no trait impl).
+        // Tuples aren't in type_idx_to_name so trait dispatch won't find them.
+        if let super::type_info::TypeInfo::Tuple { elements } = self.type_info.get(lhs_ty) {
+            let result = self.emit_tuple_equals(lhs, rhs, &elements);
+            return if negate {
+                result.map(|r| self.builder.not(r, "neq"))
+            } else {
+                result
+            };
+        }
 
         let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
         let interned_method = self.interner.intern(method_name);
