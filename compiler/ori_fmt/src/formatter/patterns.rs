@@ -194,4 +194,10 @@ impl<I: StringLookup> Formatter<'_, I> {
             }
         }
     }
+
+    /// Emit a binding pattern by ID (arena lookup + format).
+    pub(super) fn emit_binding_pattern_id(&mut self, id: ori_ir::BindingPatternId) {
+        let pattern = self.arena.get_binding_pattern(id);
+        self.emit_binding_pattern(pattern);
+    }
 }

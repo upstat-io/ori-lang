@@ -199,12 +199,12 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::Match { .. } => ALWAYS_STACKED,
             ExprKind::For {
                 label,
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
                 is_yield,
-            } => for_width(self, *label, *binding, *iter, *guard, *body, *is_yield),
+            } => for_width(self, *label, *pattern, *iter, *guard, *body, *is_yield),
             ExprKind::Loop { label, body } => loop_width(self, *label, *body),
             ExprKind::Block { stmts, result } => block_width(self, *stmts, *result),
 

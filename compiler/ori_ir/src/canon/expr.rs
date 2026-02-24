@@ -137,11 +137,11 @@ pub enum CanExpr {
         decision_tree: DecisionTreeId,
         arms: CanRange,
     },
-    /// For loop/comprehension: `for[:label] binding in iter [if guard] do/yield body`.
+    /// For loop/comprehension: `for[:label] pattern in iter [if guard] do/yield body`.
     /// INVALID guard = no guard. `Name::EMPTY` label = no label.
     For {
         label: Name,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter: CanId,
         guard: CanId,
         body: CanId,
@@ -308,7 +308,7 @@ impl fmt::Debug for CanExpr {
             }
             CanExpr::For {
                 label,
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
@@ -316,7 +316,7 @@ impl fmt::Debug for CanExpr {
             } => {
                 write!(
                     f,
-                    "For({label:?}, {binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
+                    "For({label:?}, {pattern:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
                 )
             }
             CanExpr::Loop { label, body } => write!(f, "Loop({label:?}, {body:?})"),

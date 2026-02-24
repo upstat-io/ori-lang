@@ -352,7 +352,6 @@ fn test_tuple_in_loop() {
 }
 
 #[test]
-#[ignore = "Parser regression: for (a, b) in ... rejected with E1013 'for pattern requires named properties' (Section 00)"]
 fn test_tuple_destructure_in_loop() {
     assert_aot_success(
         r#"

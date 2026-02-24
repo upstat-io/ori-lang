@@ -1,11 +1,12 @@
-//! Pattern lowering — binding destructuring for `let` expressions.
+//! Pattern lowering — binding destructuring for `let` and `for` expressions.
 //!
-//! - [`bind_pattern`] — destructure a `CanBindingPattern` into scope bindings.
+//! - [`bind_pattern`] — destructure a `CanBindingPattern` into scope bindings (for `let`).
+//! - [`bind_for_pattern`] — bind a for-loop pattern (always immutable).
 //!
 //! Match pattern compilation is handled by the decision tree pipeline
 //! (`decision_tree::flatten` → `decision_tree::compile` → `decision_tree::emit`).
 
-use ori_ir::canon::{CanBindingPattern, CanId};
+use ori_ir::canon::{CanBindingPattern, CanBindingPatternId, CanId};
 use ori_ir::Name;
 use ori_types::Idx;
 
@@ -106,11 +107,85 @@ impl ArcLowerer<'_> {
         }
     }
 
+    // bind_for_pattern (for for-loops)
+
+    /// Bind a for-loop iteration pattern — always immutable.
+    ///
+    /// For-loop iteration variables are rebound each iteration by the loop
+    /// infrastructure, not by user assignment. Using `scope.bind()` (not
+    /// `bind_mutable()`) prevents them from appearing in `mutable_bindings()`
+    /// and generating incorrect SSA phi nodes at subsequent loop headers.
+    ///
+    /// Unlike [`bind_pattern`] (which respects the pattern's mutability flag
+    /// for `let` bindings), this always uses immutable binding — matching the
+    /// pre-pattern behavior where `scope.bind(name, elem)` was called directly.
+    pub(crate) fn bind_for_pattern(
+        &mut self,
+        pattern: CanBindingPatternId,
+        value: ArcVarId,
+        elem_ty: Idx,
+    ) {
+        let pat = *self.arena.get_binding_pattern(pattern);
+        self.bind_for_pattern_immutable(&pat, value, elem_ty);
+    }
+
+    /// Recursive immutable bind for for-loop patterns.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "field/variant/element indices never exceed u32"
+    )]
+    fn bind_for_pattern_immutable(
+        &mut self,
+        pattern: &CanBindingPattern,
+        value: ArcVarId,
+        ty: Idx,
+    ) {
+        match pattern {
+            CanBindingPattern::Name { name, .. } => {
+                self.scope.bind(*name, value);
+            }
+            CanBindingPattern::Wildcard => {}
+            CanBindingPattern::Tuple(elements) => {
+                let elem_ids: Vec<_> = self.arena.get_binding_pattern_list(*elements).to_vec();
+                for (i, &sub_pat_id) in elem_ids.iter().enumerate() {
+                    let sub_pattern = self.arena.get_binding_pattern(sub_pat_id);
+                    let elem_ty = self.tuple_elem_type(ty, i);
+                    let proj = self.builder.emit_project(elem_ty, value, i as u32, None);
+                    self.bind_for_pattern_immutable(sub_pattern, proj, elem_ty);
+                }
+            }
+            CanBindingPattern::Struct { fields } => {
+                let field_bindings: Vec<_> = self.arena.get_field_bindings(*fields).to_vec();
+                for (i, fb) in field_bindings.iter().enumerate() {
+                    let field_ty = self.struct_field_type(ty, fb.name, i);
+                    let proj = self.builder.emit_project(field_ty, value, i as u32, None);
+                    let sub_pattern = self.arena.get_binding_pattern(fb.pattern);
+                    self.bind_for_pattern_immutable(sub_pattern, proj, field_ty);
+                }
+            }
+            CanBindingPattern::List { elements, rest } => {
+                let elem_ty_inner = self.list_elem_type(ty);
+                let elem_ids: Vec<_> = self.arena.get_binding_pattern_list(*elements).to_vec();
+                for (i, &sub_pat_id) in elem_ids.iter().enumerate() {
+                    let sub_pattern = self.arena.get_binding_pattern(sub_pat_id);
+                    let proj = self
+                        .builder
+                        .emit_project(elem_ty_inner, value, i as u32, None);
+                    self.bind_for_pattern_immutable(sub_pattern, proj, elem_ty_inner);
+                }
+                if let Some((rest_name, _)) = rest {
+                    self.scope.bind(*rest_name, value);
+                }
+            }
+        }
+    }
+
     // Type helpers
 
     /// Get the type of a tuple element.
     fn tuple_elem_type(&self, tuple_ty: Idx, index: usize) -> Idx {
         use ori_types::Tag;
+        let tuple_ty = self.pool.resolve_fully(tuple_ty);
         if self.pool.tag(tuple_ty) == Tag::Tuple {
             let count = self.pool.tuple_elem_count(tuple_ty);
             if index < count {
@@ -123,7 +198,7 @@ impl ArcLowerer<'_> {
     /// Get the type of a struct field by name.
     fn struct_field_type(&self, struct_ty: Idx, field: Name, _fallback_index: usize) -> Idx {
         use ori_types::Tag;
-        let resolved = self.pool.resolve(struct_ty).unwrap_or(struct_ty);
+        let resolved = self.pool.resolve_fully(struct_ty);
         if self.pool.tag(resolved) == Tag::Struct {
             let count = self.pool.struct_field_count(resolved);
             for i in 0..count {
@@ -139,6 +214,7 @@ impl ArcLowerer<'_> {
     /// Get the element type of a list.
     fn list_elem_type(&self, list_ty: Idx) -> Idx {
         use ori_types::Tag;
+        let list_ty = self.pool.resolve_fully(list_ty);
         if self.pool.tag(list_ty) == Tag::List {
             return self.pool.list_elem(list_ty);
         }

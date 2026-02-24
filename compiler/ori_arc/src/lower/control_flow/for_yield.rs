@@ -7,8 +7,7 @@
 //! - **Range**: Iterator-based loop with `ori_list_new` + `ori_list_push`.
 //! - **Iterator/Collection**: Same as range — convert to iterator, loop, push.
 
-use ori_ir::canon::CanId;
-use ori_ir::Name;
+use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
@@ -23,7 +22,7 @@ impl ArcLowerer<'_> {
     )]
     pub(crate) fn lower_for_yield(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter_val: ArcVarId,
         iter_ty: Idx,
         tag: Tag,
@@ -32,18 +31,18 @@ impl ArcLowerer<'_> {
         result_ty: Idx,
     ) -> ArcVarId {
         tracing::debug!(
-            binding = self.name_str(binding),
+            pattern = ?pattern,
             ?tag,
             has_guard = guard.is_valid(),
             "for_yield: enter"
         );
         if tag == Tag::Option {
             let elem_ty = self.pool.option_inner(iter_ty);
-            self.lower_for_yield_option(binding, iter_val, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_option(pattern, iter_val, elem_ty, guard, body, result_ty)
         } else {
             // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
             let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(binding, iter_handle, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_iterator(pattern, iter_handle, elem_ty, guard, body, result_ty)
         }
     }
 
@@ -94,7 +93,7 @@ impl ArcLowerer<'_> {
     /// a conditional: if Some, construct `[body_val]`; if None, construct `[]`.
     fn lower_for_yield_option(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         option_val: ArcVarId,
         elem_ty: Idx,
         guard: CanId,
@@ -134,7 +133,7 @@ impl ArcLowerer<'_> {
         // Some path: extract element, optionally check guard, evaluate body.
         self.builder.position_at(some_block);
         let elem = self.builder.emit_project(elem_ty, option_val, 1, None);
-        self.scope.bind(binding, elem);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         if guard.is_valid() {
             let body_block = self.builder.new_block();
@@ -189,7 +188,7 @@ impl ArcLowerer<'_> {
     /// ```
     fn lower_for_yield_iterator(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter_val: ArcVarId,
         elem_ty: Idx,
         guard: CanId,
@@ -258,7 +257,7 @@ impl ArcLowerer<'_> {
 
             self.builder.position_at(guarded_block);
             let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-            self.scope.bind(binding, elem);
+            self.bind_for_pattern(pattern, elem, elem_ty);
             let guard_val = self.lower_expr(guard);
 
             let guard_skip = self.builder.new_block();
@@ -276,7 +275,7 @@ impl ArcLowerer<'_> {
         // Body: extract element, evaluate body, push to list.
         self.builder.position_at(body_block);
         let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-        self.scope.bind(binding, elem);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         let body_val = self.lower_expr(body);
 

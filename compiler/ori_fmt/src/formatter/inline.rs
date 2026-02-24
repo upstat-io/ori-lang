@@ -398,7 +398,7 @@ impl<I: StringLookup> Formatter<'_, I> {
             // For loop
             ExprKind::For {
                 label,
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
@@ -410,7 +410,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                     self.ctx.emit(self.interner.lookup(*label));
                 }
                 self.ctx.emit(" ");
-                self.ctx.emit(self.interner.lookup(*binding));
+                self.emit_binding_pattern_id(*pattern);
                 self.ctx.emit(" in ");
                 self.emit_iter_inline(*iter);
                 if guard.is_present() {
