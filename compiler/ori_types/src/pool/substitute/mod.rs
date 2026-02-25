@@ -56,6 +56,7 @@ pub fn substitute_in_pool(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, I
         Tag::Function => substitute_function(pool, ty, var_subst),
         Tag::Tuple => substitute_tuple(pool, ty, var_subst),
         Tag::Applied => substitute_applied(pool, ty, var_subst),
+        Tag::Struct => substitute_struct(pool, ty, var_subst),
 
         // Schemes have their own bound variables; primitives and other tags
         // don't contain variables.
@@ -214,6 +215,30 @@ fn substitute_applied(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>)
 
     if changed {
         pool.applied(name, &new_args)
+    } else {
+        ty
+    }
+}
+
+/// Substitute in a Struct type (field types, preserving field names).
+fn substitute_struct(pool: &mut Pool, ty: Idx, var_subst: &FxHashMap<u32, Idx>) -> Idx {
+    let name = pool.struct_name(ty);
+    let fields = pool.struct_fields(ty);
+
+    let mut changed = false;
+    let new_fields: Vec<(ori_ir::Name, Idx)> = fields
+        .iter()
+        .map(|&(field_name, field_ty)| {
+            let new_ty = substitute_in_pool(pool, field_ty, var_subst);
+            if new_ty != field_ty {
+                changed = true;
+            }
+            (field_name, new_ty)
+        })
+        .collect();
+
+    if changed {
+        pool.struct_type(name, &new_fields)
     } else {
         ty
     }

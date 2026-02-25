@@ -349,6 +349,10 @@ pub fn infer_borrow_scc(
     let external_sigs = collect_callee_sigs(db, module, &decomp, scc, scc_index);
 
     // Get classifier from Pool cache.
+    debug_assert!(
+        db.pool_cache().get(module.path(db)).is_some(),
+        "Pool must be cached before borrow inference — typed() should run first"
+    );
     let pool_arc = match db.pool_cache().get(module.path(db)) {
         Some(pool) => pool,
         None => {

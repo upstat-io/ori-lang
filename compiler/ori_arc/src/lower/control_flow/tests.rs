@@ -88,6 +88,7 @@ fn lower_block_with_let() {
 
     assert!(problems.is_empty(), "problems: {problems:?}");
     assert!(func.blocks[0].body.len() >= 3);
+    assert_jump_args_match_params(&func);
 }
 
 #[test]
@@ -152,6 +153,7 @@ fn lower_if_else_produces_four_blocks() {
         ArcTerminator::Branch { .. }
     ));
     assert!(!func.blocks[3].params.is_empty());
+    assert_jump_args_match_params(&func);
 }
 
 #[test]
@@ -209,6 +211,196 @@ fn lower_loop_produces_header_and_exit() {
 
     assert!(problems.is_empty(), "problems: {problems:?}");
     assert!(func.blocks.len() >= 3);
+    assert_jump_args_match_params(&func);
+}
+
+// -----------------------------------------------------------------------
+// SSA well-formedness: jump args match block params
+// -----------------------------------------------------------------------
+
+/// Verify that every `Jump` terminator passes exactly as many args as the
+/// target block has params. This catches SSA param ordering mismatches
+/// between `break`/`continue`/`exit_prep` paths and their target blocks.
+fn assert_jump_args_match_params(func: &crate::ir::ArcFunction) {
+    for block in &func.blocks {
+        if let ArcTerminator::Jump { target, args } = &block.terminator {
+            let target_block = &func.blocks[target.index()];
+            assert_eq!(
+                args.len(),
+                target_block.params.len(),
+                "Jump from bb{} → bb{}: {} args but {} params",
+                block.id.raw(),
+                target.raw(),
+                args.len(),
+                target_block.params.len(),
+            );
+        }
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "SSA integration test requires building a full AST with 2 mutable vars + for-range loop"
+)]
+fn for_range_with_mutable_vars_ssa_well_formed() {
+    let interner = StringInterner::new();
+    let mut pool = Pool::new();
+    let mut arena = CanArena::with_capacity(400);
+
+    let x_name = interner.intern("x");
+    let y_name = interner.intern("y");
+
+    // let mut x: int = 0
+    let lit0 = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(0, 1),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let pat_x = arena.push_binding_pattern(CanBindingPattern::Name {
+        name: x_name,
+        mutable: Mutability::Mutable,
+    });
+    let let_x = arena.push(CanNode::new(
+        CanExpr::Let {
+            pattern: pat_x,
+            init: lit0,
+            mutable: Mutability::Mutable,
+        },
+        Span::new(0, 10),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    // let mut y: int = 0
+    let lit0b = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(12, 13),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let pat_y = arena.push_binding_pattern(CanBindingPattern::Name {
+        name: y_name,
+        mutable: Mutability::Mutable,
+    });
+    let let_y = arena.push(CanNode::new(
+        CanExpr::Let {
+            pattern: pat_y,
+            init: lit0b,
+            mutable: Mutability::Mutable,
+        },
+        Span::new(12, 22),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    // Range: 0..10
+    let start = arena.push(CanNode::new(
+        CanExpr::Int(0),
+        Span::new(30, 31),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let end = arena.push(CanNode::new(
+        CanExpr::Int(10),
+        Span::new(33, 35),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let step = arena.push(CanNode::new(
+        CanExpr::Int(1),
+        Span::new(33, 35),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let range_ty = pool.range(Idx::INT);
+    let range = arena.push(CanNode::new(
+        CanExpr::Range {
+            start,
+            end,
+            step,
+            inclusive: false,
+        },
+        Span::new(30, 35),
+        TypeId::from_raw(range_ty.raw()),
+    ));
+
+    // Body: x = x + 1 (simplified as just an int literal for testing)
+    let body_lit = arena.push(CanNode::new(
+        CanExpr::Int(1),
+        Span::new(40, 41),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let assign_target = arena.push(CanNode::new(
+        CanExpr::Ident(x_name),
+        Span::new(38, 39),
+        TypeId::from_raw(Idx::INT.raw()),
+    ));
+    let assign_val = arena.push(CanNode::new(
+        CanExpr::Assign {
+            target: assign_target,
+            value: body_lit,
+        },
+        Span::new(38, 41),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    let pat_i = arena.push_binding_pattern(CanBindingPattern::Name {
+        name: interner.intern("i"),
+        mutable: Mutability::Immutable,
+    });
+    let for_expr = arena.push(CanNode::new(
+        CanExpr::For {
+            label: Name::EMPTY,
+            pattern: pat_i,
+            iter: range,
+            guard: ori_ir::canon::CanId::INVALID,
+            body: assign_val,
+            is_yield: false,
+        },
+        Span::new(25, 42),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    // Block: { let mut x = 0; let mut y = 0; for i in 0..10 do x = 1 }
+    let stmts = arena.push_expr_list(&[let_x, let_y]);
+    let block = arena.push(CanNode::new(
+        CanExpr::Block {
+            stmts,
+            result: for_expr,
+        },
+        Span::new(0, 50),
+        TypeId::from_raw(Idx::UNIT.raw()),
+    ));
+
+    let canon = CanonResult {
+        arena,
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+        root: block,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+    };
+
+    let mut problems = Vec::new();
+    let (func, _) = super::super::super::lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::UNIT,
+        block,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None,
+    );
+
+    assert!(problems.is_empty(), "problems: {problems:?}");
+    // The for-range loop should produce header, body, latch, exit, exit_prep blocks.
+    assert!(
+        func.blocks.len() >= 6,
+        "expected at least 6 blocks for for-range with mutable vars, got {}",
+        func.blocks.len()
+    );
+
+    // Core invariant: every Jump's args must match the target block's params.
+    assert_jump_args_match_params(&func);
 }
 
 // -----------------------------------------------------------------------
