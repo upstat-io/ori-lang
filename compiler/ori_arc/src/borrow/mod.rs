@@ -33,6 +33,14 @@
 //! promoted to owned. Without this, RC insertion would need to insert a `Dec`
 //! after the tail call, which would break the tail call optimization (the
 //! caller's stack frame must not exist after the tail call).
+//!
+//! # Per-SCC Inference (Sections 12.5–12.6)
+//!
+//! [`infer_borrow_single`] and [`infer_borrow_fixed_point`] decompose borrow
+//! inference by SCC (strongly connected component). Non-recursive SCCs use a
+//! single pass; recursive SCCs iterate to a fixed point within the SCC only.
+//! Both accept pre-resolved external callee signatures, enabling Salsa-tracked
+//! incremental queries where changing one function only re-analyzes its SCC.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -240,23 +248,60 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
 /// Single pass over one function, checking all parameter uses.
 ///
 /// Returns `true` if any parameter's ownership changed.
+///
+/// Delegates to [`update_ownership_inner`] with the full sigs map as
+/// both local and external (whole-program mode).
 fn update_ownership(
     func: &ArcFunction,
     sigs: &mut FxHashMap<Name, AnnotatedSig>,
     borrowing_builtins: &FxHashSet<Name>,
 ) -> bool {
-    let mut changed = false;
-
     // Clone this function's sig to avoid simultaneous &/&mut borrow of `sigs`.
-    // The clone is cheap (Vec of small Copy structs).
     let mut my_sig = match sigs.get(&func.name) {
         Some(sig) => sig.clone(),
         None => return false,
     };
 
-    // Build alias map: `Let { dst, value: Var(src) }` → `dst → src`.
-    // This allows ownership promotion to trace through alias chains like
-    // `v1 = v0; Construct([v1])` where v0 is a param.
+    let empty = FxHashMap::default();
+    let changed = update_ownership_inner(func, &mut my_sig, &empty, sigs, borrowing_builtins);
+
+    if changed {
+        sigs.insert(func.name, my_sig);
+    }
+    changed
+}
+
+/// Core ownership update pass for a single function.
+///
+/// Scans all instructions and terminators, promoting Borrowed parameters to
+/// Owned when required by usage (returned, stored, passed to owned position).
+///
+/// Callee signatures are looked up in two maps:
+/// - `local_sigs`: SCC members currently being iterated (in-progress sigs).
+/// - `external_sigs`: callees outside the SCC (already finalized).
+///
+/// Lookup order: `local_sigs` first, then `external_sigs`. This ensures
+/// that within a recursive SCC, we see the latest in-progress signatures
+/// of co-members, while external callees use their stable final sigs.
+///
+/// Returns `true` if any parameter's ownership changed.
+fn update_ownership_inner(
+    func: &ArcFunction,
+    my_sig: &mut AnnotatedSig,
+    local_sigs: &FxHashMap<Name, AnnotatedSig>,
+    external_sigs: &FxHashMap<Name, AnnotatedSig>,
+    borrowing_builtins: &FxHashSet<Name>,
+) -> bool {
+    /// Look up a callee's signature in local then external maps.
+    fn lookup_callee_sig<'a>(
+        callee: Name,
+        local: &'a FxHashMap<Name, AnnotatedSig>,
+        external: &'a FxHashMap<Name, AnnotatedSig>,
+    ) -> Option<&'a AnnotatedSig> {
+        local.get(&callee).or_else(|| external.get(&callee))
+    }
+
+    let mut changed = false;
     let aliases = build_alias_map(func);
 
     for block in &func.blocks {
@@ -266,65 +311,45 @@ fn update_ownership(
                 ArcInstr::Apply {
                     args, func: callee, ..
                 } => {
-                    // If a parameter is passed to an owned position in
-                    // the callee, it must become owned.
-                    if let Some(callee_sig) = sigs.get(callee) {
+                    if let Some(callee_sig) = lookup_callee_sig(*callee, local_sigs, external_sigs)
+                    {
                         for (i, &arg) in args.iter().enumerate() {
                             if i < callee_sig.params.len()
                                 && callee_sig.params[i].ownership == Ownership::Owned
                             {
-                                changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
+                                changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                             }
                         }
                     } else if !borrowing_builtins.contains(callee) {
-                        // Unknown callee (not a borrowing builtin) — all args must be owned.
                         for &arg in args {
-                            changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
+                            changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                         }
                     }
-                    // Borrowing builtins: all args stay Borrowed (no action needed).
                 }
 
                 ArcInstr::ApplyIndirect { closure, args, .. } => {
-                    // Unknown callee — all arguments and closure must be owned.
-                    changed |= try_mark_param_owned(*closure, func, &mut my_sig, &aliases);
+                    changed |= try_mark_param_owned(*closure, func, my_sig, &aliases);
                     for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
+                        changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                     }
                 }
 
-                ArcInstr::PartialApply { args, .. } => {
-                    // All captured args stored in closure env — must be owned.
+                ArcInstr::PartialApply { args, .. } | ArcInstr::Construct { args, .. } => {
                     for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
-                    }
-                }
-
-                ArcInstr::Construct { args, .. } => {
-                    // Args stored into a data structure — must be owned.
-                    for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
+                        changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                     }
                 }
 
                 ArcInstr::Project { dst, value, .. } => {
-                    // Bidirectional propagation: if the projected result is
-                    // owned, the source must also be owned (prevents
-                    // use-after-free on the projected field).
-                    if is_owned_var(*dst, func, &my_sig, &aliases) {
-                        changed |= try_mark_param_owned(*value, func, &mut my_sig, &aliases);
+                    if is_owned_var(*dst, func, my_sig, &aliases) {
+                        changed |= try_mark_param_owned(*value, func, my_sig, &aliases);
                     }
                 }
 
                 ArcInstr::Let { value, .. } => {
-                    // Let { dst, value: Var(x) } is an alias — ownership
-                    // propagation through aliases is handled by the alias map.
-                    // PrimOp and Literal are scalar — no RC concern.
                     let _ = value;
                 }
 
-                // RC and reuse operations are not present after initial
-                // lowering (they're inserted by later passes). Skip them.
                 ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
                 | ArcInstr::IsShared { .. }
@@ -338,19 +363,19 @@ fn update_ownership(
         // Scan terminator
         match &block.terminator {
             ArcTerminator::Return { value } => {
-                // Returning a parameter transfers ownership to the caller.
-                changed |= try_mark_param_owned(*value, func, &mut my_sig, &aliases);
-
-                // Tail call preservation: if this return immediately follows
-                // an Apply whose result is the returned value, check whether
-                // any arguments need ownership promotion.
-                changed |= check_tail_call(block, *value, func, &mut my_sig, sigs, &aliases);
+                changed |= try_mark_param_owned(*value, func, my_sig, &aliases);
+                changed |= check_tail_call(
+                    block,
+                    *value,
+                    func,
+                    my_sig,
+                    local_sigs,
+                    external_sigs,
+                    &aliases,
+                );
             }
 
             ArcTerminator::Jump { args, .. } => {
-                // Jump args flow into block parameters — no ownership
-                // concern for the jump itself. Block params are locals
-                // in the target block and handled there.
                 let _ = args;
             }
 
@@ -362,29 +387,23 @@ fn update_ownership(
             ArcTerminator::Invoke {
                 args, func: callee, ..
             } => {
-                // Same as Apply — check callee param ownership.
-                if let Some(callee_sig) = sigs.get(callee) {
+                if let Some(callee_sig) = lookup_callee_sig(*callee, local_sigs, external_sigs) {
                     for (i, &arg) in args.iter().enumerate() {
                         if i < callee_sig.params.len()
                             && callee_sig.params[i].ownership == Ownership::Owned
                         {
-                            changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
+                            changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                         }
                     }
                 } else if !borrowing_builtins.contains(callee) {
                     for &arg in args {
-                        changed |= try_mark_param_owned(arg, func, &mut my_sig, &aliases);
+                        changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                     }
                 }
-                // Borrowing builtins: all args stay Borrowed (no action needed).
             }
         }
     }
 
-    // Write back the (possibly-updated) signature.
-    if changed {
-        sigs.insert(func.name, my_sig);
-    }
     changed
 }
 
@@ -400,12 +419,12 @@ fn check_tail_call(
     returned_value: ArcVarId,
     func: &ArcFunction,
     my_sig: &mut AnnotatedSig,
-    sigs: &FxHashMap<Name, AnnotatedSig>,
+    local_sigs: &FxHashMap<Name, AnnotatedSig>,
+    external_sigs: &FxHashMap<Name, AnnotatedSig>,
     aliases: &FxHashMap<ArcVarId, ArcVarId>,
 ) -> bool {
     let mut changed = false;
 
-    // Find the last Apply in the block whose dst matches the returned value.
     let tail_apply = block
         .body
         .iter()
@@ -416,13 +435,11 @@ fn check_tail_call(
         func: callee, args, ..
     }) = tail_apply
     {
-        // Get the callee's param ownership info.
-        if let Some(callee_sig) = sigs.get(callee) {
+        let callee_sig = local_sigs.get(callee).or_else(|| external_sigs.get(callee));
+        if let Some(callee_sig) = callee_sig {
             for (i, &arg) in args.iter().enumerate() {
                 if i < callee_sig.params.len() && callee_sig.params[i].ownership == Ownership::Owned
                 {
-                    // If arg is a param that's currently Borrowed, promote it.
-                    // This preserves the tail call: no Dec needed after the call.
                     changed |= try_mark_param_owned(arg, func, my_sig, aliases);
                 }
             }
@@ -430,6 +447,164 @@ fn check_tail_call(
     }
 
     changed
+}
+
+/// Initialize a single function's parameters as Borrowed (non-scalar) or Owned (scalar).
+///
+/// Same logic as [`initialize_all_borrowed`] but for a single function,
+/// returning a standalone `AnnotatedSig` rather than inserting into a map.
+pub fn initialize_single_borrowed(
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+) -> AnnotatedSig {
+    let params: Vec<AnnotatedParam> = func
+        .params
+        .iter()
+        .map(|p| {
+            let ownership = if classifier.is_scalar(p.ty) {
+                Ownership::Owned
+            } else {
+                Ownership::Borrowed
+            };
+            AnnotatedParam {
+                name: Name::from_raw(p.var.raw()),
+                ty: p.ty,
+                ownership,
+            }
+        })
+        .collect();
+
+    AnnotatedSig {
+        params,
+        return_type: func.return_type,
+    }
+}
+
+/// Infer borrow annotations for a single non-recursive function (Section 12.5).
+///
+/// Unlike [`infer_borrows`] which runs whole-program fixed-point iteration,
+/// this function analyzes ONE function in a single pass. Callee signatures
+/// are provided via `external_sigs` (already finalized by earlier SCCs).
+///
+/// Suitable for non-recursive SCCs (single function, no self-call).
+///
+/// # Arguments
+///
+/// * `func` — the ARC IR function to analyze.
+/// * `external_sigs` — pre-resolved callee signatures from other SCCs.
+/// * `classifier` — type classifier for scalar vs ref types.
+/// * `borrowing_builtins` — method names whose receiver is always borrowed.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "FxHashMap/FxHashSet are the concrete types used throughout"
+)]
+pub fn infer_borrow_single(
+    func: &ArcFunction,
+    external_sigs: &FxHashMap<Name, AnnotatedSig>,
+    classifier: &dyn ArcClassification,
+    borrowing_builtins: &FxHashSet<Name>,
+) -> AnnotatedSig {
+    let mut sig = initialize_single_borrowed(func, classifier);
+    let empty_local = FxHashMap::default();
+    update_ownership_inner(
+        func,
+        &mut sig,
+        &empty_local,
+        external_sigs,
+        borrowing_builtins,
+    );
+    sig
+}
+
+/// Infer borrow annotations for a mutually recursive SCC (Section 12.6).
+///
+/// Runs fixed-point iteration over the SCC members only, using pre-resolved
+/// `external_sigs` for callees outside the SCC. Convergence is guaranteed
+/// in at most `sum_of_params + 1` iterations (monotonic: Borrowed → Owned).
+///
+/// # Arguments
+///
+/// * `scc_functions` — ARC IR functions in this SCC (mutually recursive group).
+/// * `external_sigs` — pre-resolved callee signatures from other SCCs.
+/// * `classifier` — type classifier for scalar vs ref types.
+/// * `borrowing_builtins` — method names whose receiver is always borrowed.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "FxHashMap/FxHashSet are the concrete types used throughout"
+)]
+pub fn infer_borrow_fixed_point(
+    scc_functions: &[&ArcFunction],
+    external_sigs: &FxHashMap<Name, AnnotatedSig>,
+    classifier: &dyn ArcClassification,
+    borrowing_builtins: &FxHashSet<Name>,
+) -> FxHashMap<Name, AnnotatedSig> {
+    // Initialize all SCC members.
+    let mut local_sigs = FxHashMap::default();
+    local_sigs.reserve(scc_functions.len());
+    for &func in scc_functions {
+        local_sigs.insert(func.name, initialize_single_borrowed(func, classifier));
+    }
+
+    // Fixed-point iteration within the SCC.
+    let mut changed = true;
+    let mut iterations = 0u32;
+    while changed {
+        changed = false;
+        for &func in scc_functions {
+            let mut my_sig = local_sigs[&func.name].clone();
+            if update_ownership_inner(
+                func,
+                &mut my_sig,
+                &local_sigs,
+                external_sigs,
+                borrowing_builtins,
+            ) {
+                local_sigs.insert(func.name, my_sig);
+                changed = true;
+            }
+        }
+        iterations += 1;
+    }
+
+    // Convergence bound: each iteration promotes at least one param.
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "param count per function bounded by u32::MAX in practice"
+    )]
+    let total_params: u32 = scc_functions.iter().map(|f| f.params.len() as u32).sum();
+    debug_assert!(
+        iterations <= total_params.saturating_add(1),
+        "fixed-point exceeded convergence bound: {iterations} iterations for {total_params} params"
+    );
+
+    local_sigs
+}
+
+/// Extract callee [`Name`]s from a function's instructions.
+///
+/// Scans `Apply`, `PartialApply`, and `Invoke` instructions for direct callees.
+/// Indirect calls (`ApplyIndirect`) are excluded — their callees are unknown.
+///
+/// This duplicates `CallGraph::build`'s per-function logic as a standalone
+/// helper, avoiding the need to reconstruct the full call graph in per-SCC
+/// queries.
+pub fn extract_callees(func: &ArcFunction) -> FxHashSet<Name> {
+    let mut callees = FxHashSet::default();
+    for block in &func.blocks {
+        for instr in &block.body {
+            match instr {
+                ArcInstr::Apply { func: callee, .. }
+                | ArcInstr::PartialApply { func: callee, .. } => {
+                    callees.insert(*callee);
+                }
+                _ => {}
+            }
+        }
+        if let ArcTerminator::Invoke { func: callee, .. } = &block.terminator {
+            callees.insert(*callee);
+        }
+    }
+    callees
 }
 
 /// Infer per-variable ownership from SSA data flow.
