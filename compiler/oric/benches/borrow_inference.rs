@@ -305,13 +305,13 @@ fn bench_cold_compile(c: &mut Criterion) {
     group.finish();
 }
 
-// ── Benchmark: Whole-program baseline ────────────────────────────────
+// ── Benchmark: SCC standalone baseline (no Salsa) ────────────────────
 
-fn bench_whole_program_baseline(c: &mut Criterion) {
-    let mut group = c.benchmark_group("borrow/whole_program");
+fn bench_scc_standalone(c: &mut Criterion) {
+    let mut group = c.benchmark_group("borrow/scc_standalone");
 
     for &size in &[5, 50, 200] {
-        // Standalone functions via whole-program infer_borrows.
+        // Standalone functions via SCC-based infer_borrows_scc.
         group.bench_with_input(BenchmarkId::new("standalone", size), &size, |b, &n| {
             b.iter(|| {
                 let db = CompilerDb::new();
@@ -321,7 +321,7 @@ fn bench_whole_program_baseline(c: &mut Criterion) {
                 let pool = Pool::new();
                 let classifier = ori_arc::ArcClassifier::new(&pool);
                 let builtins = ori_llvm::codegen::arc_emitter::borrowing_builtin_names(&interner);
-                black_box(ori_arc::borrow::infer_borrows(
+                black_box(ori_arc::borrow::infer_borrows_scc(
                     &functions,
                     &classifier,
                     &builtins,
@@ -329,7 +329,7 @@ fn bench_whole_program_baseline(c: &mut Criterion) {
             });
         });
 
-        // Linear chain via whole-program.
+        // Linear chain via SCC-based.
         group.bench_with_input(BenchmarkId::new("chain", size), &size, |b, &n| {
             b.iter(|| {
                 let db = CompilerDb::new();
@@ -339,7 +339,7 @@ fn bench_whole_program_baseline(c: &mut Criterion) {
                 let pool = Pool::new();
                 let classifier = ori_arc::ArcClassifier::new(&pool);
                 let builtins = ori_llvm::codegen::arc_emitter::borrowing_builtin_names(&interner);
-                black_box(ori_arc::borrow::infer_borrows(
+                black_box(ori_arc::borrow::infer_borrows_scc(
                     &functions,
                     &classifier,
                     &builtins,
@@ -510,14 +510,11 @@ fn bench_memory_profile(c: &mut Criterion) {
 
 // ── Regression gate ──────────────────────────────────────────────────
 
-/// Print a summary comparing SCC-based vs whole-program baseline.
+/// Print a summary comparing SCC standalone vs Salsa-tracked SCC queries.
 ///
 /// Two tables:
 /// 1. **Algorithm-only**: pre-created db, measures just borrow inference.
-/// 2. **Full cold start**: includes CompilerDb creation + Salsa setup.
-///
-/// The algorithm-only comparison is the fair one for evaluating borrow
-/// inference quality. The full cold start shows real end-to-end cost.
+/// 2. **SCC computation overhead**: call graph + Tarjan's, no inference.
 fn bench_regression_summary(c: &mut Criterion) {
     use std::time::Instant;
 
@@ -529,8 +526,8 @@ fn bench_regression_summary(c: &mut Criterion) {
 
     // Table 1: Algorithm-only (pre-created db, just query time).
     println!("\n### Query time (pre-created DB, includes Salsa tracking overhead)");
-    println!("| Size | Topology | Whole-Program | SCC-Queries | Overhead |");
-    println!("|------|----------|---------------|-------------|----------|");
+    println!("| Size | Topology | SCC (no Salsa) | SCC-Queries | Overhead |");
+    println!("|------|----------|----------------|-------------|----------|");
 
     for &size in &[5, 50, 200] {
         for topology in &["standalone", "chain"] {
@@ -543,7 +540,7 @@ fn bench_regression_summary(c: &mut Criterion) {
                 _ => unreachable!(),
             };
 
-            // Whole-program baseline (algorithm only).
+            // SCC standalone baseline (no Salsa).
             let functions: Vec<ArcFunction> = funcs.iter().map(|(_, f)| f.clone()).collect();
             let pool = Pool::new();
             let classifier = ori_arc::ArcClassifier::new(&pool);
@@ -551,15 +548,15 @@ fn bench_regression_summary(c: &mut Criterion) {
 
             let start = Instant::now();
             for _ in 0..iters {
-                black_box(ori_arc::borrow::infer_borrows(
+                black_box(ori_arc::borrow::infer_borrows_scc(
                     &functions,
                     &classifier,
                     &builtins,
                 ));
             }
-            let wp_ns = start.elapsed().as_nanos() / iters as u128;
+            let standalone_ns = start.elapsed().as_nanos() / iters as u128;
 
-            // SCC-based with pre-created db (fresh module each time,
+            // SCC-based with Salsa (fresh module each time,
             // but db already exists — measures query overhead, not
             // framework init).
             let start = Instant::now();
@@ -569,20 +566,20 @@ fn bench_regression_summary(c: &mut Criterion) {
             }
             let scc_ns = start.elapsed().as_nanos() / iters as u128;
 
-            let overhead = if wp_ns > 0 {
+            let overhead = if standalone_ns > 0 {
                 format!(
                     "{:+.0}%",
-                    ((scc_ns as f64 - wp_ns as f64) / wp_ns as f64) * 100.0
+                    ((scc_ns as f64 - standalone_ns as f64) / standalone_ns as f64) * 100.0
                 )
             } else {
                 "N/A".to_string()
             };
 
-            let wp_display = format_duration_ns(wp_ns);
+            let standalone_display = format_duration_ns(standalone_ns);
             let scc_display = format_duration_ns(scc_ns);
 
             println!(
-                "| {size:>4} | {topology:<10} | {wp_display:>13} | {scc_display:>11} | {overhead:>8} |",
+                "| {size:>4} | {topology:<10} | {standalone_display:>14} | {scc_display:>11} | {overhead:>8} |",
             );
         }
     }
@@ -617,8 +614,8 @@ fn bench_regression_summary(c: &mut Criterion) {
         }
     }
     println!("\n### Interpretation");
-    println!("  Whole-program = raw `infer_borrows()` (no Salsa, no tracking).");
-    println!("  SCC-queries   = per-SCC Salsa queries (includes memoization + tracking).");
+    println!("  SCC (no Salsa) = raw `infer_borrows_scc()` (no memoization/tracking).");
+    println!("  SCC-queries    = per-SCC Salsa queries (includes memoization + tracking).");
     println!("  Overhead is dominated by Salsa's per-query bookkeeping, NOT the borrow");
     println!("  algorithm. This is the expected tradeoff: pay more cold-compile cost");
     println!("  for incremental wins on warm recompilation. In a full compilation,");
@@ -646,7 +643,7 @@ fn format_duration_ns(ns: u128) -> String {
 criterion_group!(
     benches,
     bench_cold_compile,
-    bench_whole_program_baseline,
+    bench_scc_standalone,
     bench_warm_compile,
     bench_scc_computation,
     bench_memory_profile,

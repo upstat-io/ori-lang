@@ -160,7 +160,7 @@ impl ArcModuleInput {
 /// callers' queries are not re-executed).
 ///
 /// This is the Salsa-compatible replacement for the current
-/// `FxHashMap<Name, AnnotatedSig>` return type of `infer_borrows()`.
+/// `FxHashMap<Name, AnnotatedSig>` return type of `infer_borrows_scc()`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BorrowSigResult {
     /// Annotated signatures, sorted by Name for deterministic Eq/Hash.

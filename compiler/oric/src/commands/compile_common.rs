@@ -112,19 +112,33 @@ pub fn check_source(
     ))
 }
 
+/// Result of borrow inference: annotated signatures + pre-lowered ARC cache.
+///
+/// The `arc_cache` contains pre-lowered `ArcFunction`s grouped by parent
+/// function. These are consumed by `define_all_cached` during codegen,
+/// eliminating the redundant second lowering pass.
+#[cfg(feature = "llvm")]
+struct BorrowInferenceResult {
+    /// Borrow-annotated function signatures from SCC analysis.
+    sigs: FxHashMap<Name, ori_arc::AnnotatedSig>,
+    /// Pre-lowered ARC functions: parent → (ArcFunction, lambdas).
+    arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+}
+
 /// Run ARC borrow inference on all non-generic module functions.
 ///
 /// Lowers each function to ARC IR and runs per-SCC Salsa-tracked borrow
-/// inference queries. Generic functions are skipped (they require
-/// monomorphization first).
+/// inference queries. Returns both the annotated signatures and a cache of
+/// pre-lowered ARC functions for zero-copy consumption by codegen.
 ///
 /// # Flow
 ///
 /// 1. Lower each function to ARC IR
-/// 2. Create [`ArcModuleInput`] Salsa input from lowered functions
-/// 3. Query [`arc_scc_decomposition`] for SCC structure
-/// 4. Query [`infer_borrow_scc`] per SCC (creates Salsa dependency edges)
-/// 5. Collect results into `FxHashMap<Name, AnnotatedSig>`
+/// 2. Clone into flat map for Salsa, keep grouped cache for codegen
+/// 3. Create [`ArcModuleInput`] Salsa input from lowered functions
+/// 4. Query [`arc_scc_decomposition`] for SCC structure
+/// 5. Query [`infer_borrow_scc`] per SCC (creates Salsa dependency edges)
+/// 6. Return `(annotated_sigs, arc_cache)`
 ///
 /// Salsa memoizes per-SCC results. On recompilation, only SCCs with changed
 /// function bodies are re-analyzed. Early cutoff skips dependent SCCs when
@@ -138,11 +152,15 @@ fn run_borrow_inference(
     interner: &StringInterner,
     pool: &Pool,
     source_path: &str,
-) -> FxHashMap<Name, ori_arc::AnnotatedSig> {
+) -> BorrowInferenceResult {
     use crate::query::arc_queries::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput};
 
     // 1. Lower functions to ARC IR.
-    let mut arc_functions_map = rustc_hash::FxHashMap::default();
+    // We build both a grouped cache (parent → lambdas) for codegen and a flat
+    // map for Salsa. The flat map is cloned from the grouped data before being
+    // consumed by ArcModuleInput::sorted_functions.
+    let mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> =
+        FxHashMap::default();
     let mut arc_problems = Vec::new();
 
     for (func, sig) in parse_result
@@ -175,10 +193,7 @@ fn run_borrow_inference(
             sig.is_fbip,
             None,
         );
-        arc_functions_map.insert(arc_fn.name, arc_fn);
-        for lambda in lambdas {
-            arc_functions_map.insert(lambda.name, lambda);
-        }
+        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
 
     if !arc_problems.is_empty() {
@@ -186,16 +201,25 @@ fn run_borrow_inference(
         let mut acc = CodegenDiagnostics::new();
         acc.add_arc_problems(&arc_problems);
         if emit_codegen_diagnostics(acc) {
-            // ARC lowering produced errors (e.g., ArcInternalError) — abort
-            // borrow inference to avoid Salsa queries on corrupted ArcFunction data.
-            return FxHashMap::default();
+            return BorrowInferenceResult {
+                sigs: FxHashMap::default(),
+                arc_cache: FxHashMap::default(),
+            };
         }
     }
 
-    // 2. Create ArcModuleInput Salsa input.
-    // Verify Pool path coupling: the Pool was stored by typed() using file.path(db),
-    // and we look it up using this source_path. If they diverge, borrow inference
-    // silently returns empty sigs. Catch mismatches early in debug builds.
+    // 2. Build flat map for Salsa (clone from grouped cache).
+    // The clone cost is negligible vs borrow inference + LLVM codegen,
+    // and it replaces a full second lowering pass.
+    let mut arc_functions_map: FxHashMap<Name, ori_arc::ArcFunction> = FxHashMap::default();
+    for (parent, lambdas) in arc_cache.values() {
+        arc_functions_map.insert(parent.name, parent.clone());
+        for lambda in lambdas {
+            arc_functions_map.insert(lambda.name, lambda.clone());
+        }
+    }
+
+    // 3. Create ArcModuleInput Salsa input.
     debug_assert!(
         db.pool_cache()
             .get(&std::path::PathBuf::from(source_path))
@@ -211,10 +235,10 @@ fn run_borrow_inference(
         "created ArcModuleInput for Salsa borrow inference"
     );
 
-    // 3. Query SCC decomposition (Salsa-tracked).
+    // 4. Query SCC decomposition (Salsa-tracked).
     let decomp = arc_scc_decomposition(db, module);
 
-    // 4. Query per-SCC borrow inference and collect results.
+    // 5. Query per-SCC borrow inference and collect results.
     let mut annotated_sigs = FxHashMap::default();
     #[expect(
         clippy::cast_possible_truncation,
@@ -233,7 +257,10 @@ fn run_borrow_inference(
         "Salsa borrow inference complete"
     );
 
-    annotated_sigs
+    BorrowInferenceResult {
+        sigs: annotated_sigs,
+        arc_cache,
+    }
 }
 
 /// Run the codegen pipeline on a pre-checked module.
@@ -305,9 +332,14 @@ fn run_codegen_pipeline<'ctx>(
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
         // 3. Run ARC borrow inference pipeline (per-SCC Salsa queries)
+        // Returns both annotated sigs and pre-lowered ARC functions to
+        // eliminate the redundant second lowering pass during codegen.
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let annotated_sigs = run_borrow_inference(
+        let BorrowInferenceResult {
+            sigs: annotated_sigs,
+            mut arc_cache,
+        } = run_borrow_inference(
             db,
             parse_result,
             &function_sigs,
@@ -345,7 +377,8 @@ fn run_codegen_pipeline<'ctx>(
         );
         fc.declare_mono_functions(&mono_functions);
 
-        // 5. Compile impl methods
+        // 5. Compile impl methods (still inline — they use type-qualified
+        // canon lookup paths and are not pre-lowered for borrow inference)
         if !parse_result.module.impls.is_empty() {
             fc.compile_impls(
                 &parse_result.module.impls,
@@ -365,10 +398,17 @@ fn run_codegen_pipeline<'ctx>(
             fc.compile_derives(&parse_result.module, &type_result.typed.types);
         }
 
-        // 6. Define all function bodies
-        fc.define_all(&parse_result.module.functions, &function_sigs, canon);
+        // 6. Define function bodies from pre-lowered cache (eliminates dual lowering)
+        fc.define_all_cached(
+            &parse_result.module.functions,
+            &function_sigs,
+            canon,
+            &mut arc_cache,
+        );
 
-        // 6b. Define monomorphized function bodies
+        // 6b. Define monomorphized function bodies (inline fallback — not
+        // pre-lowered since monomorphization needs type substitution at
+        // lowering time, which is done per-function in FunctionCompiler)
         fc.define_mono_functions(&mono_functions, canon);
 
         // 7. Generate C main() entry point wrapper for @main (AOT only)
