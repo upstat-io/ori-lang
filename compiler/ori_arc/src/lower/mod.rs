@@ -222,6 +222,19 @@ impl ArcIrBuilder {
         self.var_types[var.index()]
     }
 
+    /// Get the type of a variable, returning `Idx::UNIT` if out of bounds.
+    ///
+    /// Used when looking up mutable variable types from scope, where the
+    /// variable may have been created in a context the builder hasn't
+    /// registered yet.
+    pub fn var_type_or_unit(&self, var: ArcVarId) -> Idx {
+        if var.index() < self.var_types.len() {
+            self.var_types[var.index()]
+        } else {
+            Idx::UNIT
+        }
+    }
+
     // Instruction emission
 
     /// Emit a `Let` instruction binding a value to a fresh variable.
