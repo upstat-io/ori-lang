@@ -13,24 +13,25 @@ use crate::codegen::arc_emitter::ArcIrEmitter;
 use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::ValueId;
 
-/// All prelude function names handled by this module (sorted).
+/// Prelude functions with complete AOT codegen (sorted).
 ///
-/// Must stay in sync with `ori_eval/src/interpreter/mod.rs::register_prelude()`.
-/// Used by sync tests to verify coverage.
+/// Must stay in sync with `try_emit_prelude_function()` match arms and
+/// `ori_eval/src/interpreter/mod.rs::register_prelude()`.
 #[allow(
     dead_code,
     reason = "used by sync tests for prelude coverage verification"
 )]
-pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &[
-    "Error",
-    "byte",
-    "float",
-    "hash_combine",
-    "int",
-    "repeat",
-    "str",
-    "thread_id",
-];
+pub(crate) const HANDLED_PRELUDE_NAMES: &[&str] = &["byte", "float", "hash_combine", "int", "str"];
+
+/// Prelude functions recognized but not yet implementable in AOT codegen.
+///
+/// These need runtime infrastructure (iterators, error construction, thread
+/// locals) that isn't available in the AOT pipeline yet.
+#[allow(
+    dead_code,
+    reason = "documents pending prelude AOT support for sync completeness"
+)]
+pub(crate) const PENDING_PRELUDE_NAMES: &[&str] = &["Error", "repeat", "thread_id"];
 
 /// Try to emit a prelude builtin function call.
 ///

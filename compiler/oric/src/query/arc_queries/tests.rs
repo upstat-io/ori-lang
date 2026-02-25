@@ -236,7 +236,7 @@ fn arc_module_input_sorted_functions_produces_sorted_output() {
 }
 
 #[test]
-fn arc_module_input_function_list() {
+fn arc_module_input_functions_accessor() {
     let db = CompilerDb::new();
     let interner = db.interner();
 
@@ -253,10 +253,10 @@ fn arc_module_input_function_list() {
         ArcModuleInput::sorted_functions(map),
     );
 
-    let list = module.function_list(&db);
-    assert_eq!(list.len(), 2);
+    let funcs = module.functions(&db);
+    assert_eq!(funcs.len(), 2);
     // Verify the functions are valid ArcFunction instances
-    for func in &list {
+    for (_, func) in funcs {
         assert_eq!(func.blocks.len(), 1);
         assert_eq!(func.return_type, Idx::UNIT);
     }

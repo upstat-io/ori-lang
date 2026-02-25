@@ -263,17 +263,19 @@ fn maybe_record_mono_instance(
     let concrete_return_type = substitute_in_pool(pool, return_type, &var_subst);
 
     // Build body_type_map: for every pool entry containing vars, compute the substituted version.
-    let mut body_type_map = FxHashMap::default();
+    // Sorted by key for deterministic Eq/Hash (Salsa early cutoff).
+    let mut body_type_map = Vec::new();
     let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
     for raw in crate::Idx::FIRST_DYNAMIC..pool_len {
         let idx = crate::Idx::from_raw(raw);
         if pool.flags(idx).contains(crate::TypeFlags::HAS_VAR) {
             let substituted = substitute_in_pool(pool, idx, &var_subst);
             if substituted != idx {
-                body_type_map.insert(idx, substituted);
+                body_type_map.push((idx, substituted));
             }
         }
     }
+    body_type_map.sort_by_key(|(k, _)| k.raw());
 
     let instance = MonoInstance {
         fn_name,

@@ -142,13 +142,6 @@ impl ArcModuleInput {
             .map(|idx| &funcs[idx].1)
     }
 
-    /// Get only the `ArcFunction` values (without names).
-    ///
-    /// Useful for passing to APIs that expect `&[ArcFunction]`.
-    pub fn function_list(self, db: &dyn crate::db::Db) -> Vec<ArcFunction> {
-        self.functions(db).iter().map(|(_, f)| f.clone()).collect()
-    }
-
     /// Create a sorted functions vec from a map, suitable for constructing
     /// this input type.
     ///
@@ -281,14 +274,15 @@ impl SccDecomposition {
 /// `SccDecomposition` is unchanged → per-SCC queries are skipped.
 #[salsa::tracked]
 pub fn arc_scc_decomposition(db: &dyn crate::db::Db, module: ArcModuleInput) -> SccDecomposition {
-    let function_list = module.function_list(db);
+    let functions = module.functions(db);
     tracing::debug!(
-        function_count = function_list.len(),
+        function_count = functions.len(),
         "computing SCC decomposition"
     );
 
     // Build transient call graph (not stored in Salsa).
-    let call_graph = ori_arc::CallGraph::build(&function_list);
+    // Uses build_from_pairs to avoid cloning all ArcFunctions from the Salsa-returned Vec.
+    let call_graph = ori_arc::CallGraph::build_from_pairs(functions);
     let sccs = ori_arc::compute_sccs(&call_graph);
 
     // Extract recursion flags.
