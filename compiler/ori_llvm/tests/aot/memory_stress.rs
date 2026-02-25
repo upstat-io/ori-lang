@@ -214,7 +214,6 @@ type Container = { a: Inner, b: Inner }
 }
 
 #[test]
-#[ignore = "AOT gap: closure capturing struct fields has ABI mismatch (§11.1 closures)"]
 fn test_mem_diamond_closure_capture() {
     // Two closures capture the same RC'd value. Both must inc on capture,
     // both must dec when the closure is dropped.
@@ -400,7 +399,6 @@ type Holder = { val: int, name: str }
 // ─── Closure lifecycle stress ───
 
 #[test]
-#[ignore = "AOT gap: closure capturing struct fields has ABI mismatch (§11.1 closures)"]
 fn test_mem_closure_capture_in_loop() {
     // Creates and destroys 1000 closures, each capturing an RC'd struct.
     // Tests that closure env + captured values are properly freed.
@@ -424,7 +422,6 @@ type Env = { factor: int, label: str }
 }
 
 #[test]
-#[ignore = "AOT gap: closure capturing struct fields has ABI mismatch (§11.1 closures)"]
 fn test_mem_closure_escapes_scope() {
     // Closure outlives the scope where its captures were created.
     // The captured value must be kept alive by the closure's RC.
@@ -454,7 +451,6 @@ type Config = { multiplier: int, name: str }
 // ─── Mixed stress: combines multiple ownership patterns ───
 
 #[test]
-#[ignore = "AOT gap: closure capturing struct fields has ABI mismatch (§11.1 closures)"]
 fn test_mem_combined_allocation_storm() {
     // Creates structs, closures, lists, strings, and shared references
     // all in one tight loop. Maximum allocation pressure.

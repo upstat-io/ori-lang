@@ -24,7 +24,7 @@ sections:
 
 # Section 11: Comprehensive Verification
 
-**Status:** In Progress (11.1 underway — 934 passed, 0 failed, 18 ignored; 11.2 complete — 0 behavioral mismatches, as of 2026-02-24)
+**Status:** In Progress (11.1 underway — 962 passed, 0 failed, 10 ignored; 11.2 complete — 0 behavioral mismatches, as of 2026-02-24)
 **Goal:** Every language feature compiles through AOT, matches JIT behavior, and has zero memory leaks.
 
 **Context:** This is the capstone section. All architectural improvements are in place. Now we prove the system works as one cohesive whole by testing every language feature through the AOT pipeline and verifying behavioral equivalence with the JIT evaluator.
@@ -43,7 +43,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - int, float, bool, char, byte, str, unit — all covered in spec.rs
   - Arithmetic, bitwise, comparison, logical operators — all covered
   - String concatenation, escapes — covered
-  - String interpolation — known AOT gap (#[ignore])
+  - String interpolation — **FIXED** (2026-02-24) — test syntax was `${name}` (JS), corrected to `{name}` (Ori)
   - Duration, Size literals and arithmetic — covered
 
 - [x] **Control flow:** (2026-02-23)
@@ -67,7 +67,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Closure capturing tuple, closure returning tuple — covered (tuples.rs)
   - [ ] Chained nested tuple field access `t.0.0` — Parser gap: lexed as float (Section 05 § 5.7, #[ignore])
   - [x] List of tuples iteration — **FIXED** (2026-02-24) — element_store_size for compound types in for-yield and list operations
-  - [ ] Tuple destructuring in for loop `for (a, b) in ...` — Parser gap (#[ignore])
+  - [x] Tuple destructuring in for loop `for (a, b) in ...` — **FIXED** (2026-02-24) — parser dispatch via `is_named_arg_at(2)` disambiguates tuple patterns from old named-property syntax
   - [x] Tuple == equality comparison — **FIXED** (2026-02-24) — tuple equality comparison codegen
 
 - [x] **Structs:** (2026-02-23, completed 2026-02-24)
@@ -86,17 +86,18 @@ Build a comprehensive test matrix covering every language feature through AOT co
 
 - [ ] **Data structures (other):**
   - [x] Enum construction and pattern matching — **FIXED** (2026-02-24) — 4 tests: construction, unit variants, mixed variants, param+return
-  - [ ] Recursive types (tree, linked list) — AOT gap: boxed/RC pointer field dereference in match codegen (#[ignore])
+  - [x] Recursive types (tree, linked list) — **FIXED** (2026-02-24) — decision tree resolve_path threads variant context; RC-boxed recursive fields load as ptr+deref
   - [ ] Generic types — AOT gap: generic function resolution (#[ignore])
 
 - [ ] **Collections:**
   - [x] List: literal, length, iter, map, filter, collect — covered
   - [x] List: push, first, last, contains, reverse — covered (2026-02-24, runtime + builtin table)
-  - [ ] List: pop, index — AOT gap: pop needs tuple return, index needs Index trait codegen (#[ignore])
+  - [x] List: pop — **FIXED** (2026-02-24) — pop returns `Option<T>` (same as last), added builtin table alias
+  - [ ] List: index — AOT gap: index needs Index trait codegen (#[ignore])
   - [x] Map: literal, length, for-loop iteration — covered
   - [x] Map: is_empty — covered (2026-02-24, inline LLVM IR)
   - [x] Map: contains_key, keys, values — covered (2026-02-24, runtime + builtin table)
-  - [ ] Map: get, insert, remove — AOT gap: get not in evaluator, insert/remove need functional map construction
+  - [x] Map: get, insert, remove — **FIXED** (2026-02-24) — runtime `ori_map_get`/`ori_map_insert`/`ori_map_remove` + sret codegen + builtin table
   - [ ] Set: all operations — not yet in AOT
   - [x] Range: `0..5`, `0..=5`, iter, yield, guard — covered
 
@@ -263,7 +264,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Tuple destructuring, struct from block, let in branches — covered (scoping.rs)
   - [x] Nested block shadowing — **FIXED** (2026-02-24) — block_let_names tracking in ArcLowerer distinguishes shadows from reassignments
 
-- [ ] **String methods:** (2026-02-23)
+- [x] **String methods:** (2026-02-23, completed 2026-02-24)
   - [x] str.length / str.len (basic, empty, single char, spaces, escapes) — covered (strings.rs)
   - [x] str.is_empty (true, false, space) — covered (strings.rs)
   - [x] str.clone (basic, independence) — covered (strings.rs)
@@ -278,8 +279,8 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] str.contains, starts_with, ends_with — **FIXED** (2026-02-23) — runtime + codegen dispatch
   - [x] str.trim, to_uppercase, to_lowercase — **FIXED** (2026-02-23) — runtime + codegen dispatch
   - [x] str.replace, repeat — **FIXED** (2026-02-23) — runtime + codegen dispatch
-  - [ ] str.chars — returns `[char]`, needs list return infrastructure (#[ignore])
-  - [ ] str.split — returns `[str]`, needs list return infrastructure (#[ignore])
+  - [x] str.chars — **FIXED** (2026-02-24) — `ori_str_chars` runtime + `emit_str_chars` codegen + `list.count` builtin alias
+  - [x] str.split — **FIXED** (2026-02-24) — `ori_str_split` runtime + `emit_str_split` codegen
 
 - [ ] **Collection methods:** (2026-02-23, updated 2026-02-24)
   - [x] List: length/len (empty, one, many), is_empty, clone — covered (collections_ext.rs)
@@ -291,8 +292,8 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Map: length/len (basic, one, alias), iter (count, for-loop), int keys — covered (collections_ext.rs)
   - [x] Map: is_empty — **FIXED** (2026-02-24) — inline LLVM IR (extract len, cmp 0)
   - [x] Map: contains_key, keys, values — **FIXED** (2026-02-24) — runtime + builtin table
-  - [ ] List: pop, index — AOT gap: pop needs tuple return, index needs Index trait codegen (#[ignore])
-  - [ ] Map: get, insert, remove — get not in evaluator, insert/remove need functional construction (#[ignore])
+  - [ ] List: index — AOT gap: index needs Index trait codegen (#[ignore])
+  - [x] Map: get, insert, remove — **FIXED** (2026-02-24) — runtime sret functions + builtin table codegen
 
 - [x] **Mutation & reassignment:** (2026-02-23)
   - Simple reassignment (single, multiple, self-reference) — covered (mutations.rs)
@@ -318,7 +319,7 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | ~~Enum variant constructors~~ | ~~21A § 21.2~~ | ~~`test_aot_enum_construction`~~ | **FIXED** (2026-02-24) — ARC lowerer intercepts variant names via Pool reverse map; LLVM codegen uses payload array GEP |
 | Generic monomorphization | 21A § 21.7 | `test_aot_generic_identity` | **CRITICAL** — blocks 2,472+ sites |
 | ~~`catch(expr:)` lowering~~ | ~~21A § 21.5~~ | ~~`test_aot_catch_success`~~ | **FIXED** (2026-02-24) — ARC lowerer `lower_exp_catch` + LLVM `invoke`/`landingpad` with `rust_eh_personality`; `ori_catch_cleanup` (no-op, leak accepted for 0.1-alpha) + `ori_catch_recover` (reads thread-local panic message) |
-| String interpolation | 21A § 21.3 | `test_aot_string_interpolation` | Cosmetic |
+| ~~String interpolation~~ | ~~21A § 21.3~~ | ~~`test_aot_string_interpolation`~~ | **FIXED** (2026-02-24) — test syntax was `${name}` (JS), corrected to `{name}` (Ori) |
 | ~~Derive Eq struct (icmp)~~ | ~~21A § 21.19~~ | ~~`test_aot_derive_eq_struct`~~ | **FIXED** (2026-02-23) — emit_comparison_via_trait |
 | ~~List methods (push/first/last)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_aot_list_push` et al.~~ | **FIXED** (2026-02-24) — runtime + builtin table (push, first, last, contains, reverse) |
 | ~~Map methods (is_empty)~~ | ~~21A § 21.10~~ | ~~`test_aot_map_is_empty`~~ | **FIXED** (2026-02-24) — inline LLVM IR |
@@ -336,14 +337,17 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | ~~String ordering (`<`, `>`)~~ | ~~21A comparison codegen~~ | ~~`test_str_compare_less`~~ | **FIXED** (2026-02-23) — wired emit_str_cmp_predicate |
 | ~~String methods (contains, trim, etc.)~~ | ~~21A § 21.10~~ | ~~`test_str_contains` et al.~~ | **FIXED** (2026-02-23) — 8 methods added (split, chars deferred: need list return) |
 | ~~List methods (push, first, last, contains, reverse)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_coll_list_push` et al.~~ | **FIXED** (2026-02-24) — 5 methods added |
-| List methods (pop, index) | 21A § 21.10, 21.12 | `test_coll_list_pop` et al. | Builtin table gap — pop needs tuple return, index needs Index trait |
+| ~~List methods (pop)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_coll_list_pop`~~ | **FIXED** (2026-02-24) — pop returns `Option<T>` (same as last), added builtin alias |
+| List methods (index) | 21A § 21.10, 21.12 | `test_coll_list_index` et al. | Builtin table gap — index needs Index trait codegen |
 | ~~Map methods (contains_key, keys, values)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_coll_map_contains_key` et al.~~ | **FIXED** (2026-02-24) — 3 methods added (get/insert/remove deferred) |
-| Map methods (get, insert, remove) | 21A § 21.10, 21.12 | `test_coll_map_get` et al. | Builtin table gap — get needs evaluator support, insert/remove need functional construction |
+| ~~Map methods (get, insert, remove)~~ | ~~21A § 21.10, 21.12~~ | ~~`test_coll_map_get` et al.~~ | **FIXED** (2026-02-24) — `ori_map_get`/`ori_map_insert`/`ori_map_remove` runtime + sret codegen |
 | ~~Named fn → closure coercion~~ | ~~21A closure codegen~~ | ~~`test_hof_apply_identity` et al.~~ | **FIXED** (2026-02-24) — `lower_ident()` checks `Tag::Function` for unscoped identifiers, emits `PartialApply` |
 | ~~`(int) -> bool` as function param~~ | ~~21A closure ABI~~ | ~~`test_hof_bool_lambda`~~ | **FIXED** (2026-02-24) — test function named `test_pred` was misclassified as test; renamed to `check_pred` |
+| ~~Closure capturing struct > 16B~~ | ~~21A closure codegen~~ | ~~`test_mem_diamond_closure_capture` et al.~~ | **FIXED** (2026-02-24) — wrapper passed struct value to callee expecting ptr; check callee ABI passing mode for captures |
+| ~~List.pop return type~~ | ~~21A § 21.10~~ | ~~`test_coll_list_pop`~~ | **FIXED** (2026-02-24) — pop returns `Option<T>` (same as last); test rewritten + builtin alias |
 | Chained tuple field access `t.0.0` | Section 05 § 5.7 | `test_tuple_nested_pair_of_pairs` | **NEW** (2026-02-23) — parser lexes `t.0.0` as float literal, not chained field access |
 | ~~List-of-tuples iteration~~ | ~~21A codegen~~ | ~~`test_tuple_in_loop`~~ | **FIXED** (2026-02-24) — element_store_size for compound types (same root cause as bool-in-for-yield) |
-| Tuple destructuring in for loops | Parser / Section 00 | `test_tuple_destructure_in_loop` | **NEW** (2026-02-23) — `for (a, b) in ...` rejected: "for pattern requires named properties" |
+| ~~Tuple destructuring in for loops~~ | ~~Parser / Section 00~~ | ~~`test_tuple_destructure_in_loop`~~ | **FIXED** (2026-02-24) — parser dispatch via `is_named_arg_at(2)` disambiguates tuple patterns from old named-property syntax |
 | ~~Tuple `==` equality~~ | ~~21A comparison codegen~~ | ~~`test_tuple_equality`~~ | **FIXED** (2026-02-24) — tuple equality comparison codegen fixed |
 | ~~Struct update with string field~~ | ~~21A struct codegen~~ | ~~`test_struct_update_with_string`~~ | **FIXED** (2026-02-24) — IsShared/Set skip non-RcPointer values, forces Construct path |
 | ~~Recursive enum types (Tree, linked list)~~ | ~~21A § 21.2~~ | ~~`test_aot_recursive_enum_tree`~~ | **FIXED** (2026-02-24) — decision tree `resolve_path` now threads variant context for type-aware field projection; RC-boxed recursive fields load as ptr+deref |
@@ -407,7 +411,7 @@ Verify that AOT-compiled programs produce identical output to JIT-interpreted pr
   - Deep recursion (100+ levels): `test_mem_deep_recursion_shared_param`
   - Large collections (10,000+ elements): `test_mem_large_list_10k`
   - Complex ownership patterns: `test_mem_diamond_sharing_*` (3 variants), `test_mem_function_chain_*` (2 variants)
-  - 15 tests pass, 5 ignored (known AOT gaps: closure ABI mismatch, ARC lowerer variable resolution)
+  - 19 tests pass, 1 ignored (ARC lowerer variable resolution in recursive struct construction)
 
 - [x] **Valgrind verification:** `scripts/valgrind-aot.sh` + `tests/valgrind/` (2026-02-24)
   - Catches leaks that `ORI_CHECK_LEAKS` misses (e.g., struct freed but nested string field RC not decremented)
