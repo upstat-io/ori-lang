@@ -62,6 +62,12 @@ paths:
 - **Audit across phases**: When adding a new capability to any phase, verify the full pipeline: lexer → parser → type checker → evaluator → codegen. A feature that works in isolation but fails end-to-end is a gap.
 - **Track with specificity**: A gap finding must name: (1) which phase blocks, (2) which phases already support, (3) what the user-visible symptom is. Vague "doesn't work" is not a finding.
 
+## Cascading Fix Detection (Architectural Smell)
+
+- **Whack-a-mole = architectural issue**: When fixing a bug at one callsite moves the failure to the next layer, STOP. Do not patch the next callsite. The pattern of "fix here → break there → fix there → break elsewhere" means a shared assumption is wrong across the pipeline. Diagnose the assumption, not the symptoms.
+- **Three-strike rule**: If the same logical fix must be applied at 3+ independent callsites, it's not a series of bugs — it's a missing abstraction or a violated boundary contract. The fix belongs at the boundary where the invariant should be established, not at every consumer.
+- **Present options to the user**: When you detect a cascading fix, stop and present: (1) what the architectural issue is, (2) why per-site patches won't scale, (3) 2-3 options at different levels (boundary fix, abstraction, workaround) with trade-offs. Let the user choose the approach.
+
 ## Phase-Specific Purity
 
 **Lexer**: Stateless scanning. Produces structural facts (`tag`, `len`). Does NOT judge keywords, resolve names, or track nesting context beyond what's needed for tokenization.

@@ -22,7 +22,11 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections: core data model, crate scaffolding, type definitions (primitives, string, compound, collections, iterators), query API, wiring (type checker, evaluator, ARC, LLVM, ori_ir migration), enforcement tests. Activates when AOT Codegen Pipeline reroute completes.
+> **QUEUED REROUTE (next)**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: Merkle hash foundation, hash stability testing, hash-forwarded signatures, hash-first import resolution, portable type descriptors (optional), backend integration, benchmarks & exit criteria. Activates when AOT Codegen Pipeline reroute completes.
+
+---
+
+> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections: core data model, crate scaffolding, type definitions (primitives, string, compound, collections, iterators), query API, wiring (type checker, evaluator, ARC, LLVM, ori_ir migration), enforcement tests. Activates when Merkle Pool Identity reroute completes.
 
 ---
 

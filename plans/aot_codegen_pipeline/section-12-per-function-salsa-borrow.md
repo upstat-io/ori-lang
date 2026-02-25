@@ -54,7 +54,7 @@ sections:
     status: not_started
   - id: "12.15"
     title: "Remove whole-program fallback"
-    status: in-progress
+    status: complete
 ---
 
 # Section 12: Per-Function Salsa Borrow Inference
@@ -617,8 +617,8 @@ Once SCC-based inference is stable and all tests pass, remove the whole-program 
 
 - [x] Remove the `salsa-borrow` feature flag — make SCC-based the only path (2026-02-25)
   Removed from `oric/Cargo.toml`. All `#[cfg(feature = "salsa-borrow")]` and `#[cfg(not(feature = "salsa-borrow"))]` conditionals removed from `compile_common.rs`. Renamed `run_borrow_inference_salsa()` → `run_borrow_inference()` (now the sole path).
-- [ ] ~~Deprecate and remove `infer_borrows()`~~ — **KEPT** for JIT evaluator:
-  `infer_borrows()` is still used by `ori_llvm/src/evaluator.rs` (JIT compilation path), which doesn't go through the Salsa pipeline. Removing it would require migrating the JIT evaluator to SCC-based inference — deferred to future work. The per-SCC functions (`infer_borrow_single`, `infer_borrow_fixed_point`) are the primary API; `infer_borrows` is the JIT convenience wrapper.
+- [x] Deprecate and remove `infer_borrows()`: (2026-02-25)
+  Replaced with `infer_borrows_scc()` — a non-Salsa SCC wrapper (CallGraph → Tarjan → per-SCC inference). JIT evaluator migrated to `infer_borrows_scc()`. `infer_borrows()`, `initialize_all_borrowed()`, `update_ownership()` deleted. Parity tests (which compared whole-program vs SCC) removed — their purpose is fulfilled. All callers updated: lib.rs re-exports, evaluator.rs, tests.rs, benchmarks, doc comments.
 
 - [x] Remove `BorrowSigCache` — Salsa memoization is sufficient (2026-02-25)
   Removed `BorrowSigCache` struct, impl, field from `CompilerDb`, accessor method, and 8 unit tests. Salsa's per-SCC memoization replaces the file-level side-cache entirely.

@@ -7,6 +7,7 @@
 set -euo pipefail
 
 ROADMAP_DIR="${1:-plans/roadmap}"
+FOCUS_SECTION="${2:-}"
 first_incomplete=""
 
 # ── Helper: find section file by section number ──
@@ -92,23 +93,47 @@ for f in "$ROADMAP_DIR"/section-*.md; do
         fi
         echo "[open] Section ${section}: ${title} (${checked}/${total}, ${pct}%)${mismatch}"
 
-        # Detail block for first incomplete section only
-        if [[ -z "$first_incomplete" ]]; then
+        # Detail block for focused section (if specified) or first incomplete
+        if [[ -n "$FOCUS_SECTION" && "${section//\"/}" == "$FOCUS_SECTION" ]] || \
+           [[ -z "$FOCUS_SECTION" && -z "$first_incomplete" ]]; then
             first_incomplete="$f"
             echo ""
             echo "=== FOCUS: Section ${section} — ${title} ==="
             echo "File: $(basename "$f")"
             echo "Progress: ${checked}/${total} (${pct}%)"
 
+            # ── Recently completed items ──
+            echo ""
+            echo "Recently completed:"
+            recently=$(awk '
+                /^---$/ { n++; next }
+                n < 2 { next }
+                /^- \[x\]/ { printf "  L%d: %s\n", NR, $0 }
+            ' "$f" | tail -3)
+            if [[ -n "$recently" ]]; then
+                echo "$recently"
+            else
+                echo "  (none)"
+            fi
+
             # ── Blocker extraction ──
             # Parse all - [ ] lines: line number, indent, effective blockers, content
             # Parent inheritance: indent-0 items set parent blocker,
             # indent>0 items inherit if no own blocker. Reset at ## boundaries.
             blocker_data=$(awk '
-                BEGIN { n = 0; parent_bl = "" }
+                BEGIN { n = 0; parent_bl = ""; cur_sub = "?" }
                 /^---$/ { n++; next }
                 n < 2 { next }
-                /^##/ { parent_bl = ""; next }
+                /^## / {
+                    parent_bl = ""
+                    header = $0
+                    sub(/^## /, "", header)
+                    split(header, parts, " ")
+                    cur_sub = parts[1]
+                    gsub(/:$/, "", cur_sub)
+                    next
+                }
+                /^###/ { parent_bl = ""; next }
                 /\- \[ \]/ {
                     line = $0
                     indent = 0
@@ -125,15 +150,16 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                     eff = own
                     if (indent > 0 && eff == "" && parent_bl != "") eff = parent_bl
                     if (eff == "") eff = "-"
-                    printf "%d\t%d\t%s\t%s\n", NR, indent, eff, line
+                    printf "%d\t%d\t%s\t%s\t%s\n", NR, indent, eff, cur_sub, line
                 }
             ' "$f")
 
-            # Count blocked vs unblocked, collect blocker section IDs
+            # Count blocked vs unblocked, collect blocker section IDs and affected subsections
             total_blocked=0
             total_unblocked=0
             declare -A blocker_item_counts=()
-            while IFS=$'\t' read -r lineno indent blockers content; do
+            declare -A blocker_subs=()
+            while IFS=$'\t' read -r lineno indent blockers subsection content; do
                 [[ -z "$lineno" ]] && continue
                 if [[ "$blockers" != "-" ]]; then
                     total_blocked=$((total_blocked + 1))
@@ -141,6 +167,7 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                     for bid in "${bids[@]}"; do
                         bsec="${bid%%.*}"
                         blocker_item_counts["$bsec"]=$(( ${blocker_item_counts["$bsec"]:-0} + 1 ))
+                        blocker_subs["${bsec}:${subsection}"]=1
                     done
                 else
                     total_unblocked=$((total_unblocked + 1))
@@ -233,22 +260,34 @@ for f in "$ROADMAP_DIR"/section-*.md; do
             ' "$f")
             echo ""
 
-            # ── First unblocked items ──
+            # ── Unblocked items (grouped by subsection) ──
             if [[ "$total_unblocked" -gt 0 ]]; then
-                echo "First unblocked items:"
-                unblocked_lines=$(echo "$blocker_data" | awk -F'\t' '$3 == "-"' | head -5 || true)
-                while IFS=$'\t' read -r lineno indent _blockers content; do
+                echo "Unblocked items:"
+                last_sub=""
+                while IFS=$'\t' read -r lineno indent _blockers subsection content; do
                     [[ -z "$lineno" ]] && continue
+                    if [[ "$subsection" != "$last_sub" ]]; then
+                        sub_title=$(awk -v sid="$subsection" '
+                            /^---$/ { n++; next }
+                            n == 1 && /^  - id:/ { id = $NF; gsub(/"/, "", id) }
+                            n == 1 && /^    title:/ { if (id == sid) { sub(/^    title: */, ""); print; exit } }
+                        ' "$f")
+                        echo "  ## ${subsection}: ${sub_title}"
+                        last_sub="$subsection"
+                    fi
                     content="${content#"${content%%[![:space:]]*}"}"
-                    echo "  L${lineno}: ${content}"
-                done <<< "$unblocked_lines"
+                    echo "    L${lineno}: ${content}"
+                done < <(echo "$blocker_data" | awk -F'\t' '$3 == "-"')
                 echo ""
             fi
 
-            # ── Blocker summary and chain ──
+            # ── Blocker tree with readiness classification ──
             if [[ "${#blocker_item_counts[@]}" -gt 0 ]]; then
-                echo "Blocker summary:"
-                for bsec in $(echo "${!blocker_item_counts[@]}" | tr ' ' '\n' | sort -n); do
+                echo "Blocker tree:"
+                sorted_blockers=($(echo "${!blocker_item_counts[@]}" | tr ' ' '\n' | sort -n))
+                last_idx=$(( ${#sorted_blockers[@]} - 1 ))
+                for i in "${!sorted_blockers[@]}"; do
+                    bsec="${sorted_blockers[$i]}"
                     bf=$(find_section_file "$bsec")
                     if [[ -n "$bf" && -f "$bf" ]]; then
                         bstatus=$(awk '/^---$/{n++; next} n==1 && /^status:/{sub(/^status: */,""); print; exit}' "$bf")
@@ -260,33 +299,64 @@ for f in "$ROADMAP_DIR"/section-*.md; do
                         if [[ "$btotal" -gt 0 ]]; then
                             bpct=$((${bchecked:-0} * 100 / btotal))
                         fi
+
+                        # Classify readiness
+                        readiness=""
+                        if [[ "$bstatus" == "complete" ]]; then
+                            readiness="DONE"
+                        elif [[ "$bstatus" == "in-progress" ]]; then
+                            readiness="IN PROGRESS (${bpct}%)"
+                        else
+                            # Walk dependency chain to determine READY vs WAITING
+                            current="$bsec"
+                            depth=0
+                            all_deps_ok=true
+                            waiting_chain=""
+                            while [[ "$depth" -lt 5 ]]; do
+                                dep="${dep_of[$current]:-}"
+                                [[ -z "$dep" ]] && break
+                                df=$(find_section_file "$dep")
+                                [[ -z "$df" || ! -f "$df" ]] && break
+                                dstatus=$(awk '/^---$/{n++; next} n==1 && /^status:/{sub(/^status: */,""); print; exit}' "$df")
+                                if [[ "$dstatus" != "complete" ]]; then
+                                    all_deps_ok=false
+                                    waiting_chain="${waiting_chain:+$waiting_chain <- }Section ${dep} [${dstatus}]"
+                                fi
+                                [[ "$dstatus" == "complete" ]] && break
+                                current="$dep"
+                                depth=$((depth + 1))
+                            done
+                            if $all_deps_ok; then
+                                dep="${dep_of[$bsec]:-}"
+                                readiness="READY${dep:+ (deps satisfied)}"
+                                [[ -z "$dep" ]] && readiness="READY (no deps)"
+                            else
+                                readiness="WAITING on ${waiting_chain}"
+                            fi
+                        fi
+
+                        # Collect affected subsections (sorted)
+                        # Note: uses if/then instead of [[ ]] && echo to avoid
+                        # set -e killing the subshell when the last iteration's test fails
+                        affected=$(for key in "${!blocker_subs[@]}"; do
+                            if [[ "${key%%:*}" == "$bsec" ]]; then echo "${key#*:}"; fi
+                        done | sort -V | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
+                        [[ -z "$affected" ]] && affected="?"
+
+                        # Tree connectors
                         count="${blocker_item_counts[$bsec]}"
                         item_word="items"
                         [[ "$count" -eq 1 ]] && item_word="item"
-                        echo "  Section ${bsec}: ${btitle} (${bstatus}, ${bpct}%) — blocks ${count} ${item_word}"
-                    fi
-                done
-                echo ""
-
-                echo "Blocker chain:"
-                for bsec in $(echo "${!blocker_item_counts[@]}" | tr ' ' '\n' | sort -n); do
-                    chain="$bsec"
-                    current="$bsec"
-                    depth=0
-                    while [[ "$depth" -lt 5 ]]; do
-                        dep="${dep_of[$current]:-}"
-                        [[ -z "$dep" ]] && break
-                        df=$(find_section_file "$dep")
-                        if [[ -z "$df" || ! -f "$df" ]]; then
-                            break
+                        if [[ "$i" -eq "$last_idx" ]]; then
+                            connector="└─"
+                            sub_prefix="   "
+                        else
+                            connector="├─"
+                            sub_prefix="│  "
                         fi
-                        dstatus=$(awk '/^---$/{n++; next} n==1 && /^status:/{sub(/^status: */,""); print; exit}' "$df")
-                        chain="$chain <- ${dep} [${dstatus}]"
-                        [[ "$dstatus" == "complete" ]] && break
-                        current="$dep"
-                        depth=$((depth + 1))
-                    done
-                    echo "  $chain"
+                        echo "  ${connector} Section ${bsec}: ${btitle} [${bstatus}, ${bpct}%] — ${readiness}"
+                        echo "  ${sub_prefix} └─ blocks ${count} ${item_word} in ${affected}"
+                    fi
                 done
                 echo ""
             fi
