@@ -1,7 +1,7 @@
 ---
 section: "12"
 title: "Per-Function Salsa Borrow Inference"
-status: not_started
+status: in-progress
 goal: "Refactor whole-program fixed-point borrow inference to per-function Salsa queries for incremental recompilation"
 inspired_by:
   - "Lean 4 src/Lean/Compiler/IR/Borrow.lean (whole-program fixed-point — what we're moving AWAY from)"
@@ -12,13 +12,13 @@ prerequisite: "ALL prior sections complete, ALL tests passing, pipeline fully st
 sections:
   - id: "12.1"
     title: "Extract call graph from ARC IR"
-    status: not_started
+    status: complete
   - id: "12.2"
     title: "Compute SCCs (strongly connected components)"
-    status: not_started
+    status: complete
   - id: "12.3"
     title: "Define Salsa-tracked input types for ARC functions"
-    status: not_started
+    status: complete
   - id: "12.4"
     title: "Implement per-SCC borrow inference query"
     status: not_started
@@ -105,7 +105,7 @@ Build a function-level call graph from lowered ARC IR. This is the foundation fo
 
 **Why a new module?** The existing `graph/mod.rs` handles intra-function CFG (block predecessors, dominators). The call graph is inter-function — different level of abstraction, different data structure.
 
-- [ ] Define `CallGraph` struct:
+- [x] Define `CallGraph` struct: (2026-02-24)
   ```rust
   /// Inter-function call graph extracted from ARC IR.
   ///
@@ -121,7 +121,7 @@ Build a function-level call graph from lowered ARC IR. This is the foundation fo
   }
   ```
 
-- [ ] Implement `CallGraph::build(functions: &[ArcFunction]) -> CallGraph`:
+- [x] Implement `CallGraph::build(functions: &[ArcFunction]) -> CallGraph`: (2026-02-24)
   Walk each function's blocks, extract callees from:
   - `ArcInstr::Apply { func, .. }` — direct call
   - `ArcInstr::PartialApply { func, .. }` — partial application (callee known)
@@ -129,17 +129,17 @@ Build a function-level call graph from lowered ARC IR. This is the foundation fo
   - Skip `ApplyIndirect` — unknown callee, handled conservatively at inference time
   - Build both forward (`callees`) and reverse (`callers`) indexes in a single pass
 
-- [ ] Implement accessor methods:
+- [x] Implement accessor methods: (2026-02-24)
   - `callees_of(name: Name) -> &FxHashSet<Name>` — who does this function call?
   - `callers_of(name: Name) -> &FxHashSet<Name>` — who calls this function?
   - `functions() -> impl Iterator<Item = Name>` — all nodes
   - `is_recursive(name: Name) -> bool` — does it appear in its own callee set?
   - `is_leaf(name: Name) -> bool` — no callees (or only external callees not in graph)
 
-- [ ] Handle external callees gracefully:
+- [x] Handle external callees gracefully: (2026-02-24)
   External functions (`ori_*` runtime, C FFI) won't be in the function set. `callees_of` returns names that may not be graph nodes — this is intentional. SCC computation only considers functions IN the graph. External callees are invisible to borrow inference (they use the all-Owned conservative path from Section 04).
 
-- [ ] Register module: add `pub mod call_graph;` to `graph/mod.rs`
+- [x] Register module: add `pub mod call_graph;` to `graph/mod.rs` (2026-02-24)
 
 **Tests** (`compiler/ori_arc/src/graph/call_graph/tests.rs`):
 - `empty_graph`: No functions → empty graph
@@ -163,7 +163,7 @@ Implement Tarjan's algorithm to find SCCs in the call graph. Each SCC becomes on
 
 **Why Tarjan's?** It produces SCCs in reverse topological order (callees before callers), which is exactly the evaluation order we need — infer callees first, then callers can read their stable signatures. Tarjan's runs in O(V + E) — one DFS traversal.
 
-- [ ] Implement `compute_sccs(graph: &CallGraph) -> Vec<Scc>`:
+- [x] Implement `compute_sccs(graph: &CallGraph) -> Vec<Scc>`: (2026-02-24)
   ```rust
   /// A strongly connected component of the call graph.
   #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -183,7 +183,7 @@ Implement Tarjan's algorithm to find SCCs in the call graph. Each SCC becomes on
   }
   ```
 
-- [ ] Implement Tarjan's SCC algorithm:
+- [x] Implement Tarjan's SCC algorithm: (2026-02-24, iterative with explicit frame stack)
   Standard Tarjan's with `index`, `lowlink`, `on_stack` arrays. Reference: CLRS Chapter 22.5 or Lean 4's `src/Lean/Compiler/LCNF/ToLCNF.lean` for a functional variant.
 
   ```rust
@@ -199,15 +199,15 @@ Implement Tarjan's algorithm to find SCCs in the call graph. Each SCC becomes on
 
   The output `Vec<Scc>` is in **reverse topological order** — leaf SCCs (no outgoing cross-SCC edges) first, root SCCs last. This is the natural output of Tarjan's algorithm.
 
-- [ ] Add `topological_order(sccs: &[Scc]) -> Vec<&Scc>`:
+- [x] Add `topological_order(sccs: &[Scc]) -> Vec<&Scc>`: (2026-02-24, note: Tarjan's natural output IS forward topological order, no reversal needed)
   Reverse the Tarjan output to get **forward topological order** (callees before callers). This is the order in which we evaluate borrow inference queries — when we process SCC-A, all SCCs that A calls into have already been computed.
 
-- [ ] Handle edge cases:
+- [x] Handle edge cases: (2026-02-24)
   - Functions not in the graph (external) → not included in any SCC
   - Self-recursive function with no other calls → SCC of size 1, `is_recursive = true`
   - Disconnected functions (no calls to/from any other function) → SCC of size 1 each
 
-- [ ] Register module: add `pub mod scc;` to `graph/mod.rs`
+- [x] Register module: add `pub mod scc;` to `graph/mod.rs` (2026-02-24)
 
 **Tests** (`compiler/ori_arc/src/graph/scc/tests.rs`):
 - `no_functions`: Empty graph → no SCCs
@@ -232,63 +232,34 @@ Create Salsa-compatible wrappers for the ARC IR types that feed into borrow infe
 
 **Approach:** Use Salsa `#[salsa::input]` for the lowered ARC IR (set once per compilation), and `#[salsa::tracked]` for computed results.
 
-- [ ] Define `ArcModuleInput` — Salsa input holding all lowered functions for a file:
-  ```rust
-  /// Salsa input: lowered ARC IR for one source file.
-  ///
-  /// Set once during the lowering phase. Salsa tracks whether the
-  /// content changes between compilations — if it doesn't, all
-  /// dependent queries are skipped.
-  #[salsa::input]
-  pub struct ArcModuleInput {
-      /// Source file path (for cache keying and diagnostics).
-      #[id]
-      pub path: PathBuf,
-      /// Lowered ARC functions, keyed by function name.
-      /// Using Vec<(Name, ArcFunction)> instead of FxHashMap because
-      /// Vec satisfies Salsa's Eq + Hash requirements (element-wise comparison).
-      pub functions: Vec<(Name, ArcFunction)>,
-      /// Pre-computed call graph for this module.
-      pub call_graph: CallGraph,
-      /// Pre-computed SCCs in topological order (callees first).
-      pub sccs: Vec<Scc>,
-  }
-  ```
+- [x] Define `ArcModuleInput` — Salsa input holding lowered functions for a file: (2026-02-24, simplified)
+  Stores only `path` and `functions: Vec<(Name, ArcFunction)>` (sorted by Name). Call graph and SCCs omitted from the input — they will be derived by tracked queries in 12.4 for better incrementality (extra Salsa early cutoff layer: if call structure doesn't change, SCC queries skip even if function bodies changed).
 
-  **Why Vec<(Name, ArcFunction)> instead of FxHashMap?** Salsa input types must be `Eq + Hash`. `Vec` gets these from its elements (both `Name` and `ArcFunction` already derive them). `FxHashMap` does not implement `Eq` or `Hash`. The vec must be sorted by `Name` for deterministic comparison.
+- [x] Define `BorrowSigResult` — Salsa-compatible per-SCC output: (2026-02-24)
+  `#[derive(Clone, Debug, PartialEq, Eq, Hash)]` with sorted `Vec<(Name, AnnotatedSig)>` for deterministic Salsa comparison.
 
-  **Note:** `CallGraph` and `Scc` must also derive `Clone, Eq, PartialEq, Hash, Debug` to be stored in a Salsa input. This is straightforward — they're small data structures with hashable contents.
+- [x] Add helper methods: (2026-02-24)
+  - `BorrowSigResult::get(name)` — binary search on sorted vec
+  - `BorrowSigResult::into_map()` / `from_map()` — convert to/from `FxHashMap`
+  - `BorrowSigResult::empty()`, `len()`, `is_empty()`, `iter()`
+  - `ArcModuleInput::get_function()` — binary search on sorted functions
+  - `ArcModuleInput::function_list()` — extract `Vec<ArcFunction>`
+  - `ArcModuleInput::sorted_functions()` — sort a `FxHashMap` into sorted vec
 
-- [ ] Define `BorrowSigResult` — Salsa-compatible per-SCC output:
-  ```rust
-  /// Per-SCC borrow inference result. Stored as a sorted Vec for
-  /// deterministic Salsa comparison (enables early cutoff).
-  #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-  pub struct BorrowSigResult {
-      /// Annotated signatures, sorted by Name for deterministic Eq/Hash.
-      pub sigs: Vec<(Name, AnnotatedSig)>,
-  }
-  ```
+- [x] Verify `CallGraph` and `Scc` derive requirements: (2026-02-24, resolved differently)
+  `CallGraph` NOT stored in Salsa input — avoids `SalsaCallGraph` wrapper entirely. `Scc` already derives `Clone, Eq, PartialEq, Hash, Debug`. Call graph will be a derived tracked query in 12.4.
 
-  **Why sorted Vec?** Salsa uses `Eq` to detect whether a query result changed (early cutoff). If the result is a `Vec<(Name, AnnotatedSig)>` in consistent sorted order, element-wise equality comparison is deterministic and cheap. This is the standard Salsa pattern for map-like results.
+- [x] Register module: add `pub mod arc_queries;` to `query/mod.rs` (2026-02-24, behind `#[cfg(feature = "llvm")]`)
 
-- [ ] Add helper methods:
-  - `BorrowSigResult::get(name: Name) -> Option<&AnnotatedSig>` — binary search on sorted vec
-  - `BorrowSigResult::into_map(self) -> FxHashMap<Name, AnnotatedSig>` — convert for downstream consumers
-  - `BorrowSigResult::from_map(map: FxHashMap<Name, AnnotatedSig>) -> Self` — convert from inference output (sorts by Name)
-
-- [ ] Verify `CallGraph` and `Scc` derive requirements:
-  - `CallGraph` contains `FxHashMap` and `FxHashSet` — these do NOT derive `Eq`/`Hash`
-  - **Resolution:** Either (a) store call graph edges as sorted `Vec` inside the Salsa input, or (b) use a content hash for the call graph rather than structural equality
-  - Recommended: (a) — define `SalsaCallGraph` with `Vec<(Name, Vec<Name>)>` (sorted) for the Salsa input, keep `CallGraph` with `FxHashMap` for runtime use, add conversion methods
-
-- [ ] Register module: add `pub mod arc_queries;` to `query/mod.rs`
-
-**Tests** (`compiler/oric/src/query/arc_queries/tests.rs`):
-- `borrow_sig_result_sorted`: `from_map` produces sorted output
-- `borrow_sig_result_get`: Binary search finds correct entry
-- `borrow_sig_result_eq`: Same sigs in different insertion order → equal after `from_map`
-- `arc_module_input_roundtrip`: Create input, read back functions
+**Tests** (`compiler/oric/src/query/arc_queries/tests.rs`): (all passing, 2026-02-24)
+- `borrow_sig_result_from_map_is_sorted`: `from_map` produces sorted output
+- `borrow_sig_result_get_finds_entry`: Binary search finds correct entry, returns None for missing
+- `borrow_sig_result_eq_ignores_insertion_order`: Same sigs in different insertion order → equal after `from_map`
+- `borrow_sig_result_roundtrip_map`: `from_map` → `into_map` preserves all entries
+- `borrow_sig_result_empty`: `empty()` returns empty result
+- `arc_module_input_roundtrip`: Create input, read back path/functions/get_function
+- `arc_module_input_sorted_functions_produces_sorted_output`: `sorted_functions` sorts by Name
+- `arc_module_input_function_list`: `function_list` returns valid ArcFunction instances
 
 ---
 
