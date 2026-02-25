@@ -126,14 +126,14 @@ Unit tests for `BorrowSigCache` cache behavior (8 tests):
 ## 08.5 Completion Checklist
 
 - [x] `ArcFunction` and all sub-types derive `Clone, Eq, PartialEq, Hash, Debug`
-- [x] `BorrowSigCache` type defined with `store()`/`get()`/`invalidate()` methods
-- [x] `BorrowSigCache` field added to `CompilerDb` (behind `#[cfg(feature = "llvm")]`)
-- [x] `compile_to_llvm()` uses cache (check → miss → store)
-- [x] `compile_to_llvm_with_imports()` uses cache (check → miss → store)
+- [x] ~~`BorrowSigCache` type defined with `store()`/`get()`/`invalidate()` methods~~ — **SUPERSEDED** (2026-02-25): `BorrowSigCache` removed in Section 12.15. Replaced by per-SCC Salsa memoization which provides automatic caching, invalidation, and early cutoff.
+- [x] ~~`BorrowSigCache` field added to `CompilerDb`~~ — **SUPERSEDED** (2026-02-25): Removed from `CompilerDb`.
+- [x] `compile_to_llvm()` uses per-SCC Salsa borrow inference (migrated from `BorrowSigCache` in Section 12.15)
+- [x] `compile_to_llvm_with_imports()` uses per-SCC Salsa borrow inference (migrated from `BorrowSigCache` in Section 12.15)
 - [x] Both LLVM and non-LLVM builds compile
-- [x] Unit tests for cache behavior (8 tests, all pass)
-- [ ] End-to-end incremental tests (deferred to watch-mode)
-- [x] `./test-all.sh` passes (9402 passed, 7 pre-existing failures)
+- [x] ~~Unit tests for cache behavior (8 tests)~~ — **SUPERSEDED** (2026-02-25): Tests removed with `BorrowSigCache`. Replaced by 7 incremental behavior tests in Section 12.12.
+- [ ] End-to-end incremental tests (deferred to watch-mode / Section 12.14)
+- [x] `./test-all.sh` passes (10,111 passed, 0 failed — 2026-02-25)
 - [x] No performance regression on cold compile
 
-**Exit Criteria:** Borrow inference results are cached per-session via `BorrowSigCache`. The cache infrastructure is in place and tested. End-to-end incremental verification is deferred to watch-mode implementation, which will provide the session reuse needed to exercise cross-compilation caching.
+**Exit Criteria:** ~~Borrow inference results are cached per-session via `BorrowSigCache`.~~ **Updated (2026-02-25):** Borrow inference is now fully Salsa-tracked via per-SCC queries (Section 12). `BorrowSigCache` was removed — Salsa memoization provides automatic caching at finer granularity (per-SCC vs per-file). End-to-end incremental verification is deferred to watch-mode (Section 12.14).

@@ -16,15 +16,13 @@
 //!   Salsa's early cutoff skips downstream queries when results are unchanged
 //!   (e.g., whitespace-only edits don't trigger re-parsing).
 //!
-//! - **ArtifactCache** handles the back-end: ARC IR caching (Layer 1) and
-//!   object code caching (Layer 2, future). Codegen is **not** a Salsa query
-//!   because LLVM types (`Module`, `FunctionValue`, `BasicBlock`) are lifetime-
-//!   bound to an LLVM `Context` and do not satisfy Salsa's `Clone + Eq + Hash`
-//!   requirements.
+//! - **ArtifactCache** handles the back-end: object code caching (future).
+//!   Codegen is **not** a Salsa query because LLVM types (`Module`,
+//!   `FunctionValue`, `BasicBlock`) are lifetime-bound to an LLVM `Context`
+//!   and do not satisfy Salsa's `Clone + Eq + Hash` requirements.
 //!
-//! The handoff occurs after `typed()`: function content hashes are computed from
-//! the `TypeCheckResult`, and the `ArcIrCache` checks whether ARC analysis can
-//! be skipped. See [`run_arc_pipeline_cached`] for the cache integration point.
+//! - **ARC borrow inference** is now fully Salsa-tracked via per-SCC queries
+//!   (Section 12). See [`run_borrow_inference`] for the Salsa integration point.
 
 #[cfg(feature = "llvm")]
 use std::path::Path;
@@ -116,86 +114,13 @@ pub fn check_source(
 
 /// Run ARC borrow inference on all non-generic module functions.
 ///
-/// Lowers each function to ARC IR, runs the iterative borrow inference
-/// algorithm, and returns both:
-/// - A map from function `Name` → `AnnotatedSig` with ownership annotations
-/// - The lowered `ArcFunction`s (for reuse by downstream passes, avoiding re-lowering)
-///
-/// Generic functions are skipped (they require monomorphization first).
-/// Functions that fail ARC IR lowering are skipped with a diagnostic.
-#[cfg(all(feature = "llvm", not(feature = "salsa-borrow")))]
-fn run_borrow_inference(
-    parse_result: &ParseOutput,
-    function_sigs: &[FunctionSig],
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
-    classifier: &ori_arc::ArcClassifier<'_>,
-) -> (
-    FxHashMap<Name, ori_arc::AnnotatedSig>,
-    Vec<ori_arc::ArcFunction>,
-) {
-    let mut arc_functions = Vec::new();
-    let mut arc_problems = Vec::new();
-
-    for (func, sig) in parse_result
-        .module
-        .functions
-        .iter()
-        .zip(function_sigs.iter())
-    {
-        // Skip generic functions — they need monomorphization first
-        if sig.is_generic() {
-            continue;
-        }
-
-        let params: Vec<(Name, Idx)> = sig
-            .param_names
-            .iter()
-            .zip(sig.param_types.iter())
-            .map(|(&n, &t)| (n, t))
-            .collect();
-
-        // Look up the canonical root for this function.
-        let body_id = canon.root_for(func.name).unwrap_or(canon.root);
-        let (arc_fn, lambdas) = ori_arc::lower_function_can(
-            func.name,
-            &params,
-            sig.return_type,
-            body_id,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            sig.is_fbip,
-            None, // non-generic: no type substitution
-        );
-        arc_functions.push(arc_fn);
-        arc_functions.extend(lambdas);
-    }
-
-    // Surface ARC lowering issues as structured diagnostics (non-fatal)
-    if !arc_problems.is_empty() {
-        use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
-        let mut acc = CodegenDiagnostics::new();
-        acc.add_arc_problems(&arc_problems);
-        emit_codegen_diagnostics(acc);
-    }
-
-    let borrowing_builtins = ori_llvm::codegen::arc_emitter::borrowing_builtin_names(interner);
-    let sigs = ori_arc::infer_borrows(&arc_functions, classifier, &borrowing_builtins);
-    (sigs, arc_functions)
-}
-
-/// Run per-SCC Salsa-based borrow inference (Section 12.9).
-///
-/// Replaces the whole-program `infer_borrows()` path with per-SCC Salsa
-/// queries for incremental recompilation. The lowering step is identical;
-/// only the inference step changes.
+/// Lowers each function to ARC IR and runs per-SCC Salsa-tracked borrow
+/// inference queries. Generic functions are skipped (they require
+/// monomorphization first).
 ///
 /// # Flow
 ///
-/// 1. Lower each function to ARC IR (same as [`run_borrow_inference`])
+/// 1. Lower each function to ARC IR
 /// 2. Create [`ArcModuleInput`] Salsa input from lowered functions
 /// 3. Query [`arc_scc_decomposition`] for SCC structure
 /// 4. Query [`infer_borrow_scc`] per SCC (creates Salsa dependency edges)
@@ -204,8 +129,8 @@ fn run_borrow_inference(
 /// Salsa memoizes per-SCC results. On recompilation, only SCCs with changed
 /// function bodies are re-analyzed. Early cutoff skips dependent SCCs when
 /// borrow signatures are unchanged.
-#[cfg(feature = "salsa-borrow")]
-fn run_borrow_inference_salsa(
+#[cfg(feature = "llvm")]
+fn run_borrow_inference(
     db: &CompilerDb,
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
@@ -216,7 +141,7 @@ fn run_borrow_inference_salsa(
 ) -> FxHashMap<Name, ori_arc::AnnotatedSig> {
     use crate::query::arc_queries::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput};
 
-    // 1. Lower functions to ARC IR (same as run_borrow_inference).
+    // 1. Lower functions to ARC IR.
     let mut arc_functions_map = rustc_hash::FxHashMap::default();
     let mut arc_problems = Vec::new();
 
@@ -297,75 +222,6 @@ fn run_borrow_inference_salsa(
     annotated_sigs
 }
 
-/// Run ARC pipeline with optional caching.
-///
-/// On cache hit (same module hash): deserializes cached ARC IR and extracts
-/// annotated signatures, skipping the full ARC analysis pipeline.
-///
-/// On cache miss: runs the full pipeline (lower → borrow inference → RC
-/// insertion → elimination → reuse), serializes the result to the cache.
-///
-/// Returns the annotated signatures (needed by codegen for RC operations).
-#[cfg(all(feature = "llvm", not(feature = "salsa-borrow")))]
-pub fn run_arc_pipeline_cached(
-    parse_result: &ParseOutput,
-    function_sigs: &[ori_types::FunctionSig],
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
-    classifier: &ori_arc::ArcClassifier<'_>,
-    arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
-    module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
-) -> FxHashMap<Name, ori_arc::AnnotatedSig> {
-    // Try cache hit
-    if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
-        let key = ori_llvm::aot::incremental::arc_cache::ArcIrCacheKey {
-            function_hash: hash,
-        };
-
-        if let Some(cached) = cache.get(&key) {
-            if let Ok(arc_functions) = cached.to_arc_functions() {
-                tracing::debug!("ARC IR cache hit — skipping ARC analysis");
-                let borrowing_builtins =
-                    ori_llvm::codegen::arc_emitter::borrowing_builtin_names(interner);
-                return ori_arc::infer_borrows(&arc_functions, classifier, &borrowing_builtins);
-            }
-            tracing::debug!("ARC IR cache corrupt — re-analyzing");
-        }
-    }
-
-    // Cache miss — run borrow inference (returns both sigs and lowered functions)
-    let (annotated_sigs, arc_functions) = run_borrow_inference(
-        parse_result,
-        function_sigs,
-        canon,
-        interner,
-        pool,
-        classifier,
-    );
-
-    // Cache the lowered (pre-pipeline) functions for next time.
-    // The cache hit path only needs these for `infer_borrows`, which operates
-    // on the raw lowered IR — it doesn't need post-pipeline RC ops. Running
-    // the full optimization pipeline here would be wasted work since Tier 2
-    // ARC codegen (which would consume the transformed IR) is not yet active.
-    if let (Some(cache), Some(hash)) = (arc_cache, module_hash) {
-        let key = ori_llvm::aot::incremental::arc_cache::ArcIrCacheKey {
-            function_hash: hash,
-        };
-
-        if let Ok(cached) =
-            ori_llvm::aot::incremental::arc_cache::CachedArcIr::from_arc_functions(&arc_functions)
-        {
-            if let Err(e) = cache.put(&key, &cached) {
-                tracing::debug!("failed to write ARC IR cache: {e}");
-            }
-        }
-    }
-
-    annotated_sigs
-}
-
 /// Compile source to LLVM IR using the V2 codegen pipeline.
 ///
 /// Takes checked parse and type results and generates LLVM IR via:
@@ -427,12 +283,10 @@ pub fn compile_to_llvm<'ctx>(
         // 2. Register user-defined types
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
-        // 3. Run ARC borrow inference pipeline
+        // 3. Run ARC borrow inference pipeline (per-SCC Salsa queries)
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-
-        #[cfg(feature = "salsa-borrow")]
-        let annotated_sigs = run_borrow_inference_salsa(
+        let annotated_sigs = run_borrow_inference(
             db,
             parse_result,
             &function_sigs,
@@ -441,28 +295,6 @@ pub fn compile_to_llvm<'ctx>(
             pool,
             source_path,
         );
-
-        #[cfg(not(feature = "salsa-borrow"))]
-        let annotated_sigs = {
-            let source_key = std::path::Path::new(source_path);
-            if let Some(cached) = db.borrow_sig_cache().get(source_key) {
-                tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
-                (*cached).clone()
-            } else {
-                let sigs = run_arc_pipeline_cached(
-                    parse_result,
-                    &function_sigs,
-                    canon,
-                    interner,
-                    pool,
-                    &classifier,
-                    None, // No ARC IR cache for single-file path
-                    None, // No module hash
-                );
-                db.borrow_sig_cache().store(source_key, sigs.clone());
-                sigs
-            }
-        };
 
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
@@ -642,12 +474,11 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
 
-        // Suppress unused warnings for params only used in the non-Salsa path.
-        #[cfg(feature = "salsa-borrow")]
+        // arc_cache and module_hash reserved for future ARC IR disk caching
+        // integration with the Salsa path (Section 12.14 watch-mode).
         let _ = (arc_cache, module_hash);
 
-        #[cfg(feature = "salsa-borrow")]
-        let annotated_sigs = run_borrow_inference_salsa(
+        let annotated_sigs = run_borrow_inference(
             db,
             parse_result,
             &function_sigs,
@@ -656,28 +487,6 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             pool,
             source_path,
         );
-
-        #[cfg(not(feature = "salsa-borrow"))]
-        let annotated_sigs = {
-            let source_key = std::path::Path::new(source_path);
-            if let Some(cached) = db.borrow_sig_cache().get(source_key) {
-                tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
-                (*cached).clone()
-            } else {
-                let sigs = run_arc_pipeline_cached(
-                    parse_result,
-                    &function_sigs,
-                    canon,
-                    interner,
-                    pool,
-                    &classifier,
-                    arc_cache,
-                    module_hash,
-                );
-                db.borrow_sig_cache().store(source_key, sigs.clone());
-                sigs
-            }
-        };
 
         // 5. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(

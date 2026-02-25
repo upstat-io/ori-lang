@@ -19,7 +19,6 @@ path = "src/main.rs"
 [features]
 default = []
 llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM installed - build in container only
-salsa-borrow = ["llvm"]  # Per-SCC Salsa borrow inference (Section 12.9) — requires LLVM
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
