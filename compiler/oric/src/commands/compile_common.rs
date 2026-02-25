@@ -489,25 +489,17 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         .iter()
         .map(|info| {
             let name = interner.intern(&info.mangled_name);
-            let sig = FunctionSig {
+            // Generate synthetic param names — compute_function_abi() zips
+            // param_names with param_types, so they must be parallel.
+            let param_names: Vec<Name> = (0..info.param_types.len())
+                .map(|i| interner.intern(&format!("_p{i}")))
+                .collect();
+            let sig = FunctionSig::synthetic(
                 name,
-                type_params: vec![],
-                const_params: vec![],
-                param_names: vec![],
-                param_types: info.param_types.clone(),
-                return_type: info.return_type,
-                capabilities: vec![],
-                is_public: false,
-                is_test: false,
-                is_main: false,
-                is_fbip: false,
-                type_param_bounds: vec![],
-                where_clauses: vec![],
-                generic_param_mapping: vec![],
-                scheme_var_ids: vec![],
-                required_params: info.param_types.len(),
-                param_defaults: vec![],
-            };
+                param_names,
+                info.param_types.clone(),
+                info.return_type,
+            );
             (name, sig)
         })
         .collect();
