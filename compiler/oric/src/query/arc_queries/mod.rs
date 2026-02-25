@@ -24,6 +24,71 @@
 //! [`infer_borrow_scc`] performs borrow inference for a single SCC, querying
 //! callee SCCs via Salsa dependency edges. This enables incremental
 //! recompilation: changing a function only re-analyzes its SCC and dependents.
+//!
+//! ## Early cutoff contract (Section 12.7)
+//!
+//! Salsa's early cutoff optimization: if a query re-executes but returns an
+//! `Eq`-equal result, dependents are NOT invalidated. This is the key
+//! incrementality win for borrow inference.
+//!
+//! **Example:** Function `foo` changes from `x + 1` to `x + 2`. Both versions
+//! have the same borrow signature (param `x` is `Borrowed` in both). Salsa
+//! re-runs `infer_borrow_scc` for foo's SCC, gets the same `BorrowSigResult`,
+//! and skips re-evaluating all of foo's callers.
+//!
+//! **Equality chain** (all types derive `Eq + Hash`, no non-deterministic fields):
+//! - `Name(u32)` — interned, O(1) comparison
+//! - `Idx(u32)` — pool index, O(1)
+//! - `Ownership` — 2-variant enum, O(1)
+//! - `AnnotatedParam { name, ty, ownership }` — 3 Copy fields, O(1)
+//! - `AnnotatedSig { params, return_type }` — O(params), typically ≤10
+//! - `BorrowSigResult { sigs }` — sorted `Vec<(Name, AnnotatedSig)>`, deterministic
+//!
+//! **Determinism guarantee:** `BorrowSigResult::from_map()` sorts entries by
+//! `Name` before storing. `SccDecomposition` sorts its index by `Name`.
+//! No `FxHashMap` or other non-deterministic container appears in any
+//! Salsa-tracked return type.
+//!
+//! ## Incremental invalidation strategy (Section 12.10)
+//!
+//! ### `ArcModuleInput` update
+//!
+//! When `typed()` produces new output, the codegen path re-lowers functions
+//! to ARC IR and creates a **new** `ArcModuleInput` via `ArcModuleInput::new()`.
+//! Salsa compares the new input's `functions` field to the previous revision:
+//!
+//! - **Functions unchanged** → `arc_scc_decomposition` returns memoized result
+//!   → all `infer_borrow_scc` queries return memoized results → no work
+//! - **Function body changed** → `arc_scc_decomposition` re-runs. If the call
+//!   graph structure is unchanged (same callees), the `SccDecomposition` is
+//!   `Eq`-equal → early cutoff → only the changed function's SCC re-infers.
+//!   If the SCC's borrow sig is unchanged → early cutoff again → callers skip.
+//!
+//! ### SCC membership changes
+//!
+//! Adding/removing a call edge can restructure SCCs (merge or split). Since
+//! `SccDecomposition` is a tracked query derived from the full function list,
+//! any structural change produces a different `SccDecomposition` value. All
+//! `infer_borrow_scc` queries re-execute with the new SCC indices, but most
+//! produce the same `BorrowSigResult` (early cutoff). This is correct because
+//! SCC index is a positional key, not a stable identity — Salsa treats any
+//! change to the decomposition as full invalidation of per-SCC queries.
+//!
+//! ### Cross-file borrow inference
+//!
+//! Currently, borrow inference is per-file. Cross-file callees (imports) are
+//! treated conservatively as external (all-Owned params). Each file gets its
+//! own `ArcModuleInput`, and there are no Salsa dependency edges between
+//! files' borrow queries. Cross-file Salsa dependencies are a future
+//! optimization (would require `ArcModuleInput` per-file with inter-file
+//! query edges).
+//!
+//! ### Granularity
+//!
+//! Current: one `ArcModuleInput` per file (all functions in the file).
+//! Future optimization: one `ArcFunctionInput` per function would give
+//! maximum Salsa granularity (changing one function only invalidates its
+//! SCC's inputs). Deferred until profiling shows module-level is too coarse.
 
 use ori_arc::{AnnotatedSig, ArcFunction};
 use ori_ir::Name;

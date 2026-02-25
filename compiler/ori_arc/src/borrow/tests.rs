@@ -1454,3 +1454,578 @@ fn derived_let_alias_inherits() {
     // v1 = Var(v0) → inherits BorrowedFrom(v(0))
     assert_eq!(ownership[1], DerivedOwnership::BorrowedFrom(v(0)));
 }
+
+// ── SCC-based vs whole-program parity tests (Section 12.11) ──────────
+
+use crate::graph::call_graph::CallGraph;
+use crate::graph::scc::compute_sccs;
+use crate::ir::ArcFunction;
+
+/// Run both whole-program and SCC-based borrow inference, assert results match.
+///
+/// This is the core parity check: for any set of functions, the SCC-based
+/// decomposition must produce identical borrow signatures to the monolithic
+/// fixed-point.
+fn assert_parity(functions: &[ArcFunction], label: &str) {
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let builtins = FxHashSet::default();
+
+    // Whole-program path.
+    let whole = infer_borrows(functions, &classifier, &builtins);
+
+    // SCC-based path.
+    let call_graph = CallGraph::build(functions);
+    let sccs = compute_sccs(&call_graph);
+    let mut scc_sigs: rustc_hash::FxHashMap<Name, crate::ownership::AnnotatedSig> =
+        rustc_hash::FxHashMap::default();
+
+    // Process SCCs in topological order (callees before callers).
+    for scc in &sccs {
+        // Collect external callee sigs from already-processed SCCs.
+        let mut external = rustc_hash::FxHashMap::default();
+        for &member in &scc.members {
+            let Some(func) = functions.iter().find(|f| f.name == member) else {
+                panic!("[{label}] SCC member {member:?} not found in functions");
+            };
+            for callee in super::extract_callees(func) {
+                if !scc.members.contains(&callee) {
+                    if let Some(sig) = scc_sigs.get(&callee) {
+                        external.insert(callee, sig.clone());
+                    }
+                }
+            }
+        }
+
+        if scc.is_recursive(&call_graph) {
+            // Recursive SCC → fixed-point.
+            let func_refs: Vec<&ArcFunction> = scc
+                .members
+                .iter()
+                .filter_map(|&m| functions.iter().find(|f| f.name == m))
+                .collect();
+            let result = infer_borrow_fixed_point(&func_refs, &external, &classifier, &builtins);
+            scc_sigs.extend(result);
+        } else {
+            // Non-recursive → single pass.
+            let name = scc.members[0];
+            let Some(func) = functions.iter().find(|f| f.name == name) else {
+                panic!("[{label}] non-recursive SCC function {name:?} not found");
+            };
+            let sig = infer_borrow_single(func, &external, &classifier, &builtins);
+            scc_sigs.insert(name, sig);
+        }
+    }
+
+    // Compare: every function in whole-program must match SCC-based.
+    for func in functions {
+        let Some(whole_sig) = whole.get(&func.name) else {
+            panic!("[{label}] whole-program missing function {:?}", func.name);
+        };
+        let Some(scc_sig) = scc_sigs.get(&func.name) else {
+            panic!("[{label}] SCC-based missing function {:?}", func.name);
+        };
+        assert_eq!(
+            whole_sig, scc_sig,
+            "[{label}] parity mismatch for function {:?}: \
+             whole-program={whole_sig:?}, scc-based={scc_sig:?}",
+            func.name,
+        );
+    }
+}
+
+#[test]
+fn parity_linear_chain_all_borrowed() {
+    // A→B→C, all just read params.
+    let a = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let b_func = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(3),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let c = make_func(
+        Name::from_raw(3),
+        vec![param(0, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(1),
+                ty: Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: crate::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0)],
+                },
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::INT],
+    );
+
+    assert_parity(&[a, b_func, c], "linear_chain_all_borrowed");
+}
+
+#[test]
+fn parity_linear_with_ownership_transfer() {
+    // A→B, B stores param → B's param Owned, A passes to B's Owned position.
+    let a = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let b_func = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: v(1),
+                ty: Idx::UNIT,
+                ctor: CtorKind::Tuple,
+                args: vec![v(0)],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    assert_parity(&[a, b_func], "linear_with_ownership_transfer");
+}
+
+#[test]
+fn parity_mutual_recursion() {
+    // A↔B, both pass params to each other (no stores).
+    let a = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let b_func = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(1),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    assert_parity(&[a, b_func], "mutual_recursion");
+}
+
+#[test]
+fn parity_mutual_recursion_with_store() {
+    // A↔B, B stores param.
+    let a = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let b_func = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    ctor: CtorKind::Tuple,
+                    args: vec![v(0)],
+                },
+                ArcInstr::Project {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    value: v(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::UNIT, Idx::STR],
+    );
+
+    assert_parity(&[a, b_func], "mutual_recursion_with_store");
+}
+
+#[test]
+fn parity_self_recursion() {
+    // A→A, param passed to own position.
+    let a = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(1),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    assert_parity(&[a], "self_recursion");
+}
+
+#[test]
+fn parity_diamond_dependency() {
+    // A→B, A→C, B→D, C→D. D is a leaf.
+    let a = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(2),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Apply {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    func: Name::from_raw(3),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::STR],
+    );
+
+    let b_func = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(4),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let c = make_func(
+        Name::from_raw(3),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(4),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    // D: leaf that stores its param.
+    let d = make_func(
+        Name::from_raw(4),
+        vec![param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: v(1),
+                ty: Idx::UNIT,
+                ctor: CtorKind::Tuple,
+                args: vec![v(0)],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    assert_parity(&[a, b_func, c, d], "diamond_dependency");
+}
+
+#[test]
+fn parity_construct_in_leaf() {
+    // Leaf function constructs struct from param → param Owned.
+    let f = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: v(1),
+                ty: Idx::UNIT,
+                ctor: CtorKind::Tuple,
+                args: vec![v(0)],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    assert_parity(&[f], "construct_in_leaf");
+}
+
+#[test]
+fn parity_return_param() {
+    // Function returns its own param → param Owned.
+    let f = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR],
+    );
+
+    assert_parity(&[f], "return_param");
+}
+
+#[test]
+fn parity_external_callee() {
+    // Function calls unknown callee (not in set).
+    let f = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(999),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    assert_parity(&[f], "external_callee");
+}
+
+#[test]
+fn parity_mixed_recursive_and_non_recursive() {
+    // SCC{A↔B} + non-recursive C→A, D→C, E (standalone).
+    let a = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let b_func = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    ctor: CtorKind::Tuple,
+                    args: vec![v(0)],
+                },
+                ArcInstr::Apply {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    func: Name::from_raw(1),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::UNIT, Idx::STR],
+    );
+
+    // C calls A.
+    let c = make_func(
+        Name::from_raw(3),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(1),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    // D calls C.
+    let d = make_func(
+        Name::from_raw(4),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(3),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    // E: standalone, no calls.
+    let e = make_func(
+        Name::from_raw(5),
+        vec![param(0, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(1),
+                ty: Idx::INT,
+                value: ArcValue::Literal(LitValue::Int(42)),
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::INT],
+    );
+
+    assert_parity(&[a, b_func, c, d, e], "mixed_recursive_and_non_recursive");
+}

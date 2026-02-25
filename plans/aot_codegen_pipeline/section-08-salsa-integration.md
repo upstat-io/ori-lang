@@ -18,6 +18,7 @@ sections:
     status: complete
   - id: "08.4"
     title: "Tests"
+    status: complete-with-deferrals
     status: complete
 ---
 

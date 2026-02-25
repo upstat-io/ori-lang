@@ -78,6 +78,7 @@ mod collections;
 mod compound_traits;
 mod iterator;
 mod option_result;
+pub(super) mod prelude;
 mod primitives;
 mod traits;
 mod trampolines;

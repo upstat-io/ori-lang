@@ -16,19 +16,42 @@
 //!     ↓
 //! typed(db, file)          — early cutoff on TypeCheckResult equality
 //!     ↓                      (also caches Pool in session-scoped PoolCache)
-//!     ├── [codegen boundary — NOT a Salsa query]
+//!     ├── [codegen boundary]
 //!     │   ↓
-//!     │   ARC analysis → LLVM emission → object file (ArtifactCache)
+//!     │   ARC lowering → ArcModuleInput (#[salsa::input])
+//!     │       ↓
+//!     │   arc_scc_decomposition(db, module)  — early cutoff on SCC structure
+//!     │       ↓
+//!     │   infer_borrow_scc(db, module, scc)  — per-SCC, early cutoff on sig
+//!     │       ↓
+//!     │   LLVM emission → object file (ArtifactCache)
 //!     │
 //!     └── evaluated(db, file) — depends on typed() for TypeCheckResult + Pool
 //!         ↓
 //!         canonicalize → evaluate
 //! ```
 //!
-//! Codegen is not a Salsa query because LLVM types are lifetime-bound to an
-//! LLVM `Context` and cannot satisfy `Clone + Eq + Hash`. The Salsa/ArtifactCache
-//! boundary is at `typed()`: function content hashes are computed from the
-//! `TypeCheckResult` and used as cache keys for ARC IR and object artifacts.
+//! # Invalidation Cascade (Section 12.10)
+//!
+//! When a source file changes, the query DAG re-evaluates bottom-up with
+//! early cutoff at each level:
+//!
+//! 1. `SourceFile` input updated → `lex_result()` re-runs
+//! 2. If tokens unchanged (e.g., whitespace edit) → cutoff, no further work
+//! 3. If tokens changed → `parsed()` re-runs
+//! 4. If AST unchanged → cutoff
+//! 5. If AST changed → `typed()` re-runs, side-caches invalidated
+//! 6. If typed IR unchanged → cutoff
+//! 7. If typed IR changed → ARC lowering re-runs, `ArcModuleInput` re-set
+//! 8. `arc_scc_decomposition()` re-runs — if SCC structure unchanged → cutoff
+//! 9. Per-SCC `infer_borrow_scc()` re-runs only for SCCs with changed members
+//! 10. If borrow sig unchanged → early cutoff, caller SCCs NOT invalidated
+//!
+//! LLVM codegen is not a Salsa query because LLVM types are lifetime-bound
+//! to an LLVM `Context` and cannot satisfy `Clone + Eq + Hash`. The
+//! Salsa/codegen boundary is at `typed()` + `infer_borrow_scc()`: function
+//! content hashes and borrow sigs are computed via Salsa, then passed to the
+//! non-incremental LLVM emission phase.
 //! See `commands/compile_common.rs` for the back-end caching strategy.
 //!
 //! # Side-Cache Invariant
