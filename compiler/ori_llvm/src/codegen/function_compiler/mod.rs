@@ -274,7 +274,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     ) {
         // Verify all non-generic functions have borrow inference entries.
         // A miss indicates a pipeline bug — the function was compiled without
-        // being analyzed by `infer_borrows`, so it falls back to all-Owned.
+        // being analyzed by `infer_borrows_scc`, so it falls back to all-Owned.
         #[cfg(debug_assertions)]
         {
             let missing: Vec<_> = module_functions
@@ -309,6 +309,99 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             // Look up the canonical body for this function
             let body = canon.root_for(func.name).unwrap_or(canon.root);
             self.define_function_body(func.name, func_id, &abi, body, canon, sig.is_fbip);
+        }
+    }
+
+    /// Define function bodies from a pre-lowered ARC IR cache.
+    ///
+    /// For each function, removes its `ArcFunction` from the cache (zero-copy
+    /// move) and runs the ARC pipeline + LLVM emission via
+    /// [`Self::define_function_body_from_arc`]. Functions not found in the cache
+    /// fall back to inline lowering via [`Self::define_function_body`].
+    pub fn define_all_cached(
+        &mut self,
+        module_functions: &[Function],
+        function_sigs: &[FunctionSig],
+        canon: &CanonResult,
+        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    ) {
+        for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
+            if sig.is_generic() {
+                continue;
+            }
+
+            let Some(&(func_id, ref abi)) = self.functions.get(&func.name) else {
+                warn!(
+                    name = %self.interner.lookup(func.name),
+                    "function not declared — skipping definition"
+                );
+                self.builder.record_codegen_error();
+                continue;
+            };
+            let abi = abi.clone();
+
+            if let Some((arc_func, lambdas)) = arc_cache.remove(&func.name) {
+                self.define_function_body_from_arc(
+                    func.name,
+                    func_id,
+                    &abi,
+                    arc_func,
+                    lambdas,
+                    self.arc_classifier,
+                );
+            } else {
+                // Fallback: function not pre-lowered — lower inline
+                let body = canon.root_for(func.name).unwrap_or(canon.root);
+                self.define_function_body(func.name, func_id, &abi, body, canon, sig.is_fbip);
+            }
+        }
+    }
+
+    /// Define monomorphized function bodies from a pre-lowered ARC IR cache.
+    ///
+    /// Same as [`Self::define_all_cached`] but for monomorphized generic functions.
+    /// Falls back to [`Self::define_mono_functions`]'s inline lowering path for
+    /// functions not found in the cache.
+    pub fn define_mono_cached(
+        &mut self,
+        mono_functions: &[crate::monomorphize::MonoFunction],
+        canon: &CanonResult,
+        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    ) {
+        for mono_fn in mono_functions {
+            let Some(&(func_id, ref abi)) = self.functions.get(&mono_fn.mangled_name) else {
+                warn!(
+                    name = %self.interner.lookup(mono_fn.mangled_name),
+                    "mono function not declared — skipping definition"
+                );
+                self.builder.record_codegen_error();
+                continue;
+            };
+            let abi = abi.clone();
+
+            if let Some((arc_func, lambdas)) = arc_cache.remove(&mono_fn.mangled_name) {
+                self.define_function_body_from_arc(
+                    mono_fn.mangled_name,
+                    func_id,
+                    &abi,
+                    arc_func,
+                    lambdas,
+                    self.arc_classifier,
+                );
+            } else {
+                // Fallback: lower inline with type substitution
+                let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+                self.define_function_body_arc_with_subst(
+                    mono_fn.mangled_name,
+                    func_id,
+                    &abi,
+                    body,
+                    canon,
+                    self.arc_classifier,
+                    mono_fn.sig.is_fbip,
+                    Some(&mono_fn.body_type_map),
+                );
+            }
         }
     }
 
@@ -485,6 +578,97 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         );
 
         // Step 3: Emit LLVM IR from ARC IR
+        let mut emitter = ArcIrEmitter::new(
+            self.builder,
+            self.type_info,
+            self.type_resolver,
+            self.interner,
+            self.pool,
+            classifier as &dyn ori_arc::ArcClassification,
+            func_id,
+            &self.functions,
+            &self.method_functions,
+            &self.type_idx_to_name,
+            &self.mono_dispatch,
+        );
+        emitter.emit_function(&arc_func, abi);
+
+        self.exit_debug_scope();
+    }
+
+    /// Define a function body from pre-lowered ARC IR.
+    ///
+    /// Skips `lower_function_can()` — the `ArcFunction` was already lowered
+    /// by the caller (e.g., during borrow inference). Runs the remainder
+    /// of the pipeline: apply borrows → annotate args → ARC pipeline → emit.
+    ///
+    /// `lambdas` are compiled as separate LLVM functions, registered in
+    /// `self.functions` so `emit_partial_apply` can look them up by `Name`.
+    fn define_function_body_from_arc(
+        &mut self,
+        name: Name,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+        mut arc_func: ori_arc::ArcFunction,
+        lambdas: Vec<ori_arc::ArcFunction>,
+        classifier: &ArcClassifier,
+    ) {
+        let name_str = self.interner.lookup(name);
+        debug!(
+            name = name_str,
+            tier = 2,
+            "defining function body (ARC, pre-lowered)"
+        );
+
+        self.enter_debug_scope(func_id);
+        self.builder.set_current_function(func_id);
+
+        // Apply borrow inference annotations to ARC IR params.
+        // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
+        // Without this, RC insertion generates unnecessary RcInc/RcDec for
+        // params that borrow inference determined should be Borrowed.
+        if let Some(sig) = self.annotated_sigs.get(&name) {
+            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
+                param.ownership = annotated.ownership;
+            }
+        } else if !arc_func.params.is_empty() {
+            warn!(
+                func = name_str,
+                params = arc_func.params.len(),
+                "borrow signature missing — compiling with all-Owned params"
+            );
+        }
+
+        // Compile lambda ArcFunctions (closures)
+        for mut lambda in lambdas {
+            self.compile_lambda_arc(&mut lambda, classifier);
+        }
+
+        // Annotate arg ownership, then run full ARC pipeline
+        ori_arc::annotate_arg_ownership(
+            &mut arc_func,
+            self.annotated_sigs,
+            self.interner,
+            &self.borrowing_builtins,
+        );
+        let arc_problems = ori_arc::run_arc_pipeline(
+            &mut arc_func,
+            classifier,
+            self.annotated_sigs,
+            self.pool,
+            self.interner,
+        );
+        for problem in &arc_problems {
+            debug!(?problem, "ARC pipeline problem");
+        }
+
+        trace!(
+            name = name_str,
+            blocks = arc_func.blocks.len(),
+            "ARC pipeline complete"
+        );
+
+        // Emit LLVM IR from ARC IR
         let mut emitter = ArcIrEmitter::new(
             self.builder,
             self.type_info,

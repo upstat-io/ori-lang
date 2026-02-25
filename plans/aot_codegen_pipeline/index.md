@@ -135,7 +135,7 @@ rc_elim/mod.rs, Swift ARCSequenceOpts
 ---
 
 ### Section 08: Salsa-Integrated Borrow Inference
-**File:** `section-08-salsa-integration.md` | **Status:** Complete
+**File:** `section-08-salsa-integration.md` | **Status:** In Progress
 
 ```
 Salsa, incremental, memoization, query, side-cache

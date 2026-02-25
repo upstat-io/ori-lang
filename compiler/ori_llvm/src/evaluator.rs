@@ -5,7 +5,11 @@
 //!
 //! # V2 Architecture
 //!
-//! The evaluator uses the V2 codegen pipeline:
+//! The evaluator is a pure codegen component — it receives pre-computed
+//! borrow inference results and pre-lowered ARC functions from the caller
+//! (`oric`). It does NOT perform ARC lowering or borrow inference itself.
+//!
+//! Pipeline:
 //! 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
 //! 2. `IrBuilder` for ID-based instruction emission
 //! 3. `FunctionCompiler` for two-pass declare-then-define compilation
@@ -35,6 +39,12 @@ pub struct ImportedFunctionForCodegen<'a> {
     pub sig: &'a FunctionSig,
     /// Canonical IR for this function's source module.
     pub canon: &'a CanonResult,
+    /// Type pool from the imported module.
+    ///
+    /// Each module gets its own Pool during type checking (per-query Salsa memoization).
+    /// The `sig` and `canon` fields contain `Idx` values from this pool — using the
+    /// importing module's pool would cause out-of-bounds panics for compound types.
+    pub pool: &'a Pool,
 }
 
 use crate::codegen::function_compiler::FunctionCompiler;
@@ -229,11 +239,18 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
     /// - `impl_sigs`: Impl method signatures as (`Name`, `FunctionSig`) pairs
     /// - `imported_functions`: Individual imported functions to compile into
     ///   this JIT module so calls to them resolve correctly
+    /// - `mono_instances`: Monomorphized generic function instances
+    /// - `annotated_sigs`: Pre-computed borrow inference results from the caller
+    /// - `arc_cache`: Pre-lowered ARC functions (consumed during define phase)
     #[instrument(skip_all, level = "debug", fields(
         functions = module.functions.len(),
         tests = tests.len(),
         imports = imported_functions.len(),
     ))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "JIT compilation pipeline — all params are required data flow inputs"
+    )]
     pub fn compile_module_with_tests<'a>(
         &'a self,
         module: &Module,
@@ -245,6 +262,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         impl_sigs: &[(Name, FunctionSig)],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
         mono_instances: &[ori_types::MonoInstance],
+        annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
+        mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
@@ -283,145 +302,16 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // 5. Register user-defined types
             type_registration::register_user_types(&resolver, user_types);
 
-            // 5b. ARC pipeline: classify types + run borrow inference
+            // 5b. ARC classifier for type classification during codegen
             let classifier = ori_arc::ArcClassifier::new(self.pool);
-            let (annotated_sigs, mono_functions) = {
-                let mut arc_functions = Vec::new();
-                let mut arc_problems = Vec::new();
 
-                // Lower module functions
-                for (func, sig) in module.functions.iter().zip(function_sigs.iter()) {
-                    if sig.is_generic() {
-                        continue;
-                    }
-                    let params: Vec<(Name, ori_types::Idx)> = sig
-                        .param_names
-                        .iter()
-                        .zip(sig.param_types.iter())
-                        .map(|(&n, &t)| (n, t))
-                        .collect();
-                    let body_id = canon.root_for(func.name).unwrap_or(canon.root);
-                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
-                        func.name,
-                        &params,
-                        sig.return_type,
-                        body_id,
-                        canon,
-                        interner,
-                        self.pool,
-                        &mut arc_problems,
-                        false,
-                        None, // non-generic: no type substitution
-                    );
-                    arc_functions.push(arc_fn);
-                    arc_functions.extend(lambdas);
-                }
-
-                // Lower imported functions
-                for imp_fn in imported_functions {
-                    if imp_fn.sig.is_generic() {
-                        continue;
-                    }
-                    let params: Vec<(Name, ori_types::Idx)> = imp_fn
-                        .sig
-                        .param_names
-                        .iter()
-                        .zip(imp_fn.sig.param_types.iter())
-                        .map(|(&n, &t)| (n, t))
-                        .collect();
-                    let body_id = imp_fn
-                        .canon
-                        .root_for(imp_fn.function.name)
-                        .unwrap_or(imp_fn.canon.root);
-                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
-                        imp_fn.function.name,
-                        &params,
-                        imp_fn.sig.return_type,
-                        body_id,
-                        imp_fn.canon,
-                        interner,
-                        self.pool,
-                        &mut arc_problems,
-                        false,
-                        None, // non-generic: no type substitution
-                    );
-                    arc_functions.push(arc_fn);
-                    arc_functions.extend(lambdas);
-                }
-
-                // Lower impl method functions
-                for (name, sig) in impl_sigs {
-                    if sig.is_generic() {
-                        continue;
-                    }
-                    let params: Vec<(Name, ori_types::Idx)> = sig
-                        .param_names
-                        .iter()
-                        .zip(sig.param_types.iter())
-                        .map(|(&n, &t)| (n, t))
-                        .collect();
-                    let body_id = canon.root_for(*name).unwrap_or(canon.root);
-                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
-                        *name,
-                        &params,
-                        sig.return_type,
-                        body_id,
-                        canon,
-                        interner,
-                        self.pool,
-                        &mut arc_problems,
-                        false,
-                        None, // non-generic: no type substitution
-                    );
-                    arc_functions.push(arc_fn);
-                    arc_functions.extend(lambdas);
-                }
-
-                // Lower monomorphized generic functions
-                let mono_functions = crate::monomorphize::collect_mono_functions(
-                    mono_instances,
-                    function_sigs,
-                    interner,
-                    self.pool,
-                );
-                if !mono_functions.is_empty() {
-                    debug!(
-                        count = mono_functions.len(),
-                        "lowering monomorphized functions"
-                    );
-                }
-                for mono_fn in &mono_functions {
-                    let params: Vec<(Name, ori_types::Idx)> = mono_fn
-                        .sig
-                        .param_names
-                        .iter()
-                        .zip(mono_fn.sig.param_types.iter())
-                        .map(|(&n, &t)| (n, t))
-                        .collect();
-                    let body_id = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
-                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
-                        mono_fn.mangled_name,
-                        &params,
-                        mono_fn.sig.return_type,
-                        body_id,
-                        canon,
-                        interner,
-                        self.pool,
-                        &mut arc_problems,
-                        false,
-                        Some(&mono_fn.body_type_map),
-                    );
-                    arc_functions.push(arc_fn);
-                    arc_functions.extend(lambdas);
-                }
-
-                let borrowing_builtins =
-                    crate::codegen::arc_emitter::borrowing_builtin_names(interner);
-                (
-                    ori_arc::infer_borrows(&arc_functions, &classifier, &borrowing_builtins),
-                    mono_functions,
-                )
-            };
+            // 5c. Collect monomorphized generic functions (needed for declaration)
+            let mono_functions = crate::monomorphize::collect_mono_functions(
+                mono_instances,
+                function_sigs,
+                interner,
+                self.pool,
+            );
 
             // 6. Two-pass function compilation
             debug!("declaring functions (phase 1)");
@@ -432,7 +322,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 interner,
                 self.pool,
                 "",
-                &annotated_sigs,
+                annotated_sigs,
                 &classifier,
                 None, // No debug info for JIT
             );
@@ -447,8 +337,6 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                     "declaring imported functions"
                 );
                 for imp_fn in imported_functions {
-                    // declare_all skips generics internally, but we use it
-                    // with single-element slices for each imported function
                     fc.declare_all(
                         std::slice::from_ref(imp_fn.function),
                         std::slice::from_ref(imp_fn.sig),
@@ -466,6 +354,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             }
 
             // 7. Compile impl methods (declare + define)
+            // Impl methods still lower inline — they use type-qualified canon
+            // lookup paths and are not pre-lowered for borrow inference.
             if !module.impls.is_empty() {
                 debug!("compiling impl methods");
                 fc.compile_impls(&module.impls, impl_sigs, canon, &module.traits);
@@ -477,31 +367,30 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 fc.compile_derives(module, user_types);
             }
 
-            // 8. Define all function bodies (phase 2)
-            debug!("defining function bodies (phase 2)");
-            fc.define_all(&module.functions, function_sigs, canon);
+            // 8. Define function bodies from pre-lowered cache (phase 2)
+            debug!("defining function bodies (phase 2, cached)");
+            fc.define_all_cached(&module.functions, function_sigs, canon, &mut arc_cache);
 
-            // 8b. Define imported function bodies (phase 2)
-            // Bodies are compiled into the same LLVM module so the JIT engine
-            // can resolve calls without a linker.
+            // 8b. Define imported function bodies from cache (phase 2)
             if !imported_functions.is_empty() {
-                debug!("defining imported function bodies (phase 2)");
+                debug!("defining imported function bodies (phase 2, cached)");
                 for imp_fn in imported_functions {
-                    fc.define_all(
+                    fc.define_all_cached(
                         std::slice::from_ref(imp_fn.function),
                         std::slice::from_ref(imp_fn.sig),
                         imp_fn.canon,
+                        &mut arc_cache,
                     );
                 }
             }
 
-            // 8c. Define monomorphized function bodies (phase 2)
+            // 8c. Define monomorphized function bodies from cache (phase 2)
             if !mono_functions.is_empty() {
                 debug!(
                     count = mono_functions.len(),
-                    "defining monomorphized function bodies"
+                    "defining monomorphized function bodies (cached)"
                 );
-                fc.define_mono_functions(&mono_functions, canon);
+                fc.define_mono_cached(&mono_functions, canon, &mut arc_cache);
             }
 
             // 9. Compile test wrappers

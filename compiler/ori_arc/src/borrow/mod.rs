@@ -1,4 +1,4 @@
-//! Iterative borrow inference for ARC IR (Section 06.2).
+//! SCC-based borrow inference for ARC IR (Section 06.2).
 //!
 //! Determines which function parameters can be **borrowed** (no RC operations
 //! at the call site) versus **owned** (caller must `rc_inc`, callee must
@@ -8,15 +8,21 @@
 //!
 //! Follows Lean 4's approach (`src/Lean/Compiler/IR/Borrow.lean`):
 //!
-//! 1. **Initialize**: All non-scalar parameters start as `Borrowed`.
-//! 2. **Scan**: Walk every instruction in every block. When a parameter is
-//!    used in a way that requires ownership (returned, stored, passed to an
-//!    owning position), mark it `Owned`.
-//! 3. **Iterate**: Repeat step 2 until no parameter changes (fixed point).
+//! 1. **Decompose**: Build call graph, compute SCCs via Tarjan's algorithm.
+//! 2. **Initialize**: All non-scalar parameters start as `Borrowed`.
+//! 3. **Per-SCC analysis**: Process SCCs in topological order (callees first):
+//!    - Non-recursive SCCs: single-pass analysis.
+//!    - Recursive SCCs: fixed-point iteration within the SCC only.
+//! 4. **Convergence**: Ownership is **monotonic** (Borrowed → Owned, never
+//!    backwards). With N parameters per SCC, convergence is guaranteed in
+//!    at most N iterations.
 //!
-//! The fixed point converges because ownership is **monotonic** — parameters
-//! can only transition from `Borrowed` to `Owned`, never backwards. With N
-//! parameters, convergence is guaranteed in at most N iterations.
+//! # Entry Points
+//!
+//! - [`infer_borrows_scc`]: Full SCC-based pipeline (call graph → SCCs →
+//!   per-SCC inference). Used by the JIT evaluator and standalone callers.
+//! - [`infer_borrow_single`] / [`infer_borrow_fixed_point`]: Per-SCC building
+//!   blocks used by both `infer_borrows_scc` and Salsa-tracked queries.
 //!
 //! # Projection Ownership Propagation
 //!
@@ -33,14 +39,6 @@
 //! promoted to owned. Without this, RC insertion would need to insert a `Dec`
 //! after the tail call, which would break the tail call optimization (the
 //! caller's stack frame must not exist after the tail call).
-//!
-//! # Per-SCC Inference (Sections 12.5–12.6)
-//!
-//! [`infer_borrow_single`] and [`infer_borrow_fixed_point`] decompose borrow
-//! inference by SCC (strongly connected component). Non-recursive SCCs use a
-//! single pass; recursive SCCs iterate to a fixed point within the SCC only.
-//! Both accept pre-resolved external callee signatures, enabling Salsa-tracked
-//! incremental queries where changing one function only re-analyzes its SCC.
 
 mod callees;
 mod derived;
@@ -54,16 +52,18 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ori_ir::Name;
 
+use crate::graph::call_graph::CallGraph;
+use crate::graph::scc::compute_sccs;
 use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
-use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
+use crate::ownership::{AnnotatedSig, Ownership};
 use crate::ArcClassification;
 
-/// Infer borrow annotations for a set of (possibly mutually recursive) functions.
+/// SCC-based borrow inference (replaces whole-program fixed-point).
 ///
-/// Returns a map from function name to its annotated signature. Scalar
-/// parameters are always effectively borrowed (no RC) and are marked as
-/// `Owned` in the output — they are simply skipped by RC insertion because
-/// their [`ArcClass`](crate::ArcClass) is `Scalar`.
+/// Decomposes functions into SCCs via Tarjan's algorithm, then infers
+/// borrow annotations per-SCC in topological order. Produces identical
+/// results to the old whole-program fixed-point, but enables future
+/// incrementality (each SCC can be cached independently).
 ///
 /// # Arguments
 ///
@@ -77,30 +77,40 @@ use crate::ArcClassification;
     clippy::implicit_hasher,
     reason = "FxHashSet is the concrete type used throughout"
 )]
-pub fn infer_borrows(
+pub fn infer_borrows_scc(
     functions: &[ArcFunction],
     classifier: &dyn ArcClassification,
     borrowing_builtins: &FxHashSet<Name>,
 ) -> FxHashMap<Name, AnnotatedSig> {
-    let mut sigs = initialize_all_borrowed(functions, classifier);
+    let graph = CallGraph::build(functions);
+    let sccs = compute_sccs(&graph);
 
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for func in functions {
-            if update_ownership(func, &mut sigs, borrowing_builtins) {
-                changed = true;
-            }
+    let func_by_name: FxHashMap<Name, &ArcFunction> =
+        functions.iter().map(|f| (f.name, f)).collect();
+
+    let mut all_sigs = FxHashMap::default();
+    for scc in &sccs {
+        if scc.is_recursive(&graph) {
+            let scc_funcs: Vec<&ArcFunction> = scc
+                .members
+                .iter()
+                .filter_map(|name| func_by_name.get(name).copied())
+                .collect();
+            let scc_sigs =
+                infer_borrow_fixed_point(&scc_funcs, &all_sigs, classifier, borrowing_builtins);
+            all_sigs.extend(scc_sigs);
+        } else if let Some(&func) = func_by_name.get(&scc.members[0]) {
+            let sig = infer_borrow_single(func, &all_sigs, classifier, borrowing_builtins);
+            all_sigs.insert(func.name, sig);
         }
     }
-
-    sigs
+    all_sigs
 }
 
 /// Apply borrow inference results back to `ArcFunction` parameters.
 ///
 /// Updates each function's `ArcParam::ownership` in-place based on the
-/// annotated signatures produced by [`infer_borrows`]. This is the bridge
+/// annotated signatures produced by [`infer_borrows_scc`]. This is the bridge
 /// between analysis (Section 06.2) and downstream passes (Section 07).
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn apply_borrows(functions: &mut [ArcFunction], sigs: &FxHashMap<Name, AnnotatedSig>) {
@@ -113,50 +123,7 @@ pub fn apply_borrows(functions: &mut [ArcFunction], sigs: &FxHashMap<Name, Annot
     }
 }
 
-// Shared helpers used by both whole-program and per-SCC inference.
-
-/// Initialize all non-scalar parameters as `Borrowed`.
-///
-/// Scalar parameters (int, float, bool, etc.) don't need RC and are
-/// initialized as `Owned` — borrow inference ignores them entirely.
-fn initialize_all_borrowed(
-    functions: &[ArcFunction],
-    classifier: &dyn ArcClassification,
-) -> FxHashMap<Name, AnnotatedSig> {
-    let mut sigs = FxHashMap::default();
-    sigs.reserve(functions.len());
-
-    for func in functions {
-        let params: Vec<AnnotatedParam> = func
-            .params
-            .iter()
-            .map(|p| {
-                let ownership = if classifier.is_scalar(p.ty) {
-                    // Scalar: no RC needed regardless of usage.
-                    Ownership::Owned
-                } else {
-                    // Ref-typed: start as Borrowed (optimistic).
-                    Ownership::Borrowed
-                };
-                AnnotatedParam {
-                    name: Name::from_raw(p.var.raw()),
-                    ty: p.ty,
-                    ownership,
-                }
-            })
-            .collect();
-
-        sigs.insert(
-            func.name,
-            AnnotatedSig {
-                params,
-                return_type: func.return_type,
-            },
-        );
-    }
-
-    sigs
-}
+// Shared helpers used by per-SCC inference.
 
 /// Returns the index into `func.params` if `var` is a function parameter.
 fn param_index(var: ArcVarId, func: &ArcFunction) -> Option<usize> {
@@ -253,32 +220,6 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
         }
     }
     current
-}
-
-/// Single pass over one function, checking all parameter uses.
-///
-/// Returns `true` if any parameter's ownership changed.
-///
-/// Delegates to [`update_ownership_inner`] with the full sigs map as
-/// both local and external (whole-program mode).
-fn update_ownership(
-    func: &ArcFunction,
-    sigs: &mut FxHashMap<Name, AnnotatedSig>,
-    borrowing_builtins: &FxHashSet<Name>,
-) -> bool {
-    // Clone this function's sig to avoid simultaneous &/&mut borrow of `sigs`.
-    let mut my_sig = match sigs.get(&func.name) {
-        Some(sig) => sig.clone(),
-        None => return false,
-    };
-
-    let empty = FxHashMap::default();
-    let changed = update_ownership_inner(func, &mut my_sig, &empty, sigs, borrowing_builtins);
-
-    if changed {
-        sigs.insert(func.name, my_sig);
-    }
-    changed
 }
 
 /// Core ownership update pass for a single function.

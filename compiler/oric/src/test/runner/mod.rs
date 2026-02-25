@@ -570,6 +570,7 @@ impl TestRunner {
         // imported by multiple test files.
         let mut imported_type_results: Vec<TypeCheckResult> = Vec::new();
         let mut imported_canon_results: Vec<ori_ir::canon::SharedCanonResult> = Vec::new();
+        let mut imported_pools: Vec<std::sync::Arc<ori_types::Pool>> = Vec::new();
         for imp_module in &resolved.modules {
             // Type-check via shared helper (Salsa queries when SourceFile is
             // available, direct type checking otherwise).
@@ -585,6 +586,7 @@ impl TestRunner {
                 imported_canon_results.push(ori_ir::canon::SharedCanonResult::new(
                     ori_ir::canon::CanonResult::empty(),
                 ));
+                imported_pools.push(std::sync::Arc::new(ori_types::Pool::new()));
                 continue;
             };
             // Use cached canonicalization — avoids re-canonicalizing the same
@@ -598,6 +600,7 @@ impl TestRunner {
             );
             imported_type_results.push(imp_tc);
             imported_canon_results.push(imp_canon);
+            imported_pools.push(imp_pool);
         }
 
         // Build per-function codegen structs for explicitly imported functions only.
@@ -655,6 +658,7 @@ impl TestRunner {
                     function: &parse_output.module.functions[fref.func_index],
                     sig: &imported_sigs_storage[sig_idx],
                     canon: &imported_canon_results[fref.module_index],
+                    pool: &imported_pools[fref.module_index],
                 }
             })
             .collect();
@@ -662,6 +666,20 @@ impl TestRunner {
         // Build function signatures aligned with module.functions source order.
         // Delegates to shared implementation in typeck.
         let function_sigs = crate::typeck::build_function_sigs(parse_result, type_result);
+
+        // ARC lowering + borrow inference (lifted out of evaluator).
+        // Lower all functions once, run borrow inference, then pass the
+        // pre-lowered cache to the evaluator for zero-copy codegen.
+        let (annotated_sigs, arc_cache) = lower_and_infer_borrows(
+            &parse_result.module,
+            &function_sigs,
+            shared_canon,
+            interner,
+            pool,
+            &type_result.typed.impl_sigs,
+            &imported_for_codegen,
+            &type_result.typed.mono_instances,
+        );
 
         // Compile module ONCE with all tests.
         // Wrap in catch_unwind to gracefully handle LLVM fatal errors
@@ -677,6 +695,8 @@ impl TestRunner {
                 &type_result.typed.impl_sigs,
                 &imported_for_codegen,
                 &type_result.typed.mono_instances,
+                &annotated_sigs,
+                arc_cache,
             )
         }));
 
@@ -1095,6 +1115,201 @@ impl TestRunner {
             report.add_function(func.name, test_names);
         }
     }
+}
+
+/// Lower all functions to ARC IR and run borrow inference.
+///
+/// This is the analysis phase that was previously embedded in the evaluator.
+/// It lowers each function exactly once, runs `infer_borrows_scc` on the flat
+/// list, then builds a cache mapping `Name → (ArcFunction, Vec<ArcFunction>)`
+/// for zero-copy consumption by `define_all_cached`.
+///
+/// Functions lowered: module functions, imported functions, impl methods,
+/// and monomorphized generic functions.
+#[cfg(feature = "llvm")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors the data flow from run_file_llvm — all inputs are required"
+)]
+fn lower_and_infer_borrows(
+    module: &ori_ir::ast::Module,
+    function_sigs: &[ori_types::FunctionSig],
+    canon: &ori_ir::canon::CanonResult,
+    interner: &ori_ir::StringInterner,
+    pool: &ori_types::Pool,
+    impl_sigs: &[(ori_ir::Name, ori_types::FunctionSig)],
+    imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
+    mono_instances: &[ori_types::MonoInstance],
+) -> (
+    rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
+    rustc_hash::FxHashMap<ori_ir::Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+) {
+    use ori_ir::Name;
+    use rustc_hash::FxHashMap;
+
+    let classifier = ori_arc::ArcClassifier::new(pool);
+    let mut local_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
+    let mut imported_lowered: Vec<(ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> = Vec::new();
+    let mut arc_problems = Vec::new();
+
+    // Lower module functions (local — uses main pool)
+    for (func, sig) in module.functions.iter().zip(function_sigs.iter()) {
+        if sig.is_generic() {
+            continue;
+        }
+        let params: Vec<(Name, ori_types::Idx)> = sig
+            .param_names
+            .iter()
+            .zip(sig.param_types.iter())
+            .map(|(&n, &t)| (n, t))
+            .collect();
+        let body_id = canon.root_for(func.name).unwrap_or(canon.root);
+        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+            func.name,
+            &params,
+            sig.return_type,
+            body_id,
+            canon,
+            interner,
+            pool,
+            &mut arc_problems,
+            false,
+            None,
+        );
+        local_lowered.push((arc_fn, lambdas));
+    }
+
+    // Lower imported functions — each uses its own module's pool, not the
+    // importing module's pool. The sig and canon contain Idx values interned
+    // in the imported module's type checker, so using the wrong pool would
+    // cause out-of-bounds panics on compound types (closures, tuples, etc.).
+    // Borrow inference also runs per-import with the correct pool classifier.
+    let borrowing_builtins = ori_llvm::codegen::arc_emitter::borrowing_builtin_names(interner);
+    let mut imported_sigs: FxHashMap<Name, ori_arc::AnnotatedSig> = FxHashMap::default();
+    for imp_fn in imported_functions {
+        if imp_fn.sig.is_generic() {
+            continue;
+        }
+        let params: Vec<(Name, ori_types::Idx)> = imp_fn
+            .sig
+            .param_names
+            .iter()
+            .zip(imp_fn.sig.param_types.iter())
+            .map(|(&n, &t)| (n, t))
+            .collect();
+        let body_id = imp_fn
+            .canon
+            .root_for(imp_fn.function.name)
+            .unwrap_or(imp_fn.canon.root);
+        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+            imp_fn.function.name,
+            &params,
+            imp_fn.sig.return_type,
+            body_id,
+            imp_fn.canon,
+            interner,
+            imp_fn.pool,
+            &mut arc_problems,
+            false,
+            None,
+        );
+        // Infer borrows for this imported function using its own pool's classifier.
+        // Imported functions don't call back into local functions, so their borrow
+        // annotations are independent and can be computed in isolation.
+        let imp_classifier = ori_arc::ArcClassifier::new(imp_fn.pool);
+        let imp_flat: Vec<ori_arc::ArcFunction> = std::iter::once(&arc_fn)
+            .chain(lambdas.iter())
+            .cloned()
+            .collect();
+        let imp_borrow_sigs =
+            ori_arc::infer_borrows_scc(&imp_flat, &imp_classifier, &borrowing_builtins);
+        imported_sigs.extend(imp_borrow_sigs);
+        imported_lowered.push((arc_fn, lambdas));
+    }
+
+    // Lower impl method functions (local — uses main pool)
+    for (name, sig) in impl_sigs {
+        if sig.is_generic() {
+            continue;
+        }
+        let params: Vec<(Name, ori_types::Idx)> = sig
+            .param_names
+            .iter()
+            .zip(sig.param_types.iter())
+            .map(|(&n, &t)| (n, t))
+            .collect();
+        let body_id = canon.root_for(*name).unwrap_or(canon.root);
+        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+            *name,
+            &params,
+            sig.return_type,
+            body_id,
+            canon,
+            interner,
+            pool,
+            &mut arc_problems,
+            false,
+            None,
+        );
+        local_lowered.push((arc_fn, lambdas));
+    }
+
+    // Lower monomorphized generic functions (local — uses main pool)
+    let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
+        mono_instances,
+        function_sigs,
+        interner,
+        pool,
+    );
+    for mono_fn in &mono_functions {
+        let params: Vec<(Name, ori_types::Idx)> = mono_fn
+            .sig
+            .param_names
+            .iter()
+            .zip(mono_fn.sig.param_types.iter())
+            .map(|(&n, &t)| (n, t))
+            .collect();
+        let body_id = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+            mono_fn.mangled_name,
+            &params,
+            mono_fn.sig.return_type,
+            body_id,
+            canon,
+            interner,
+            pool,
+            &mut arc_problems,
+            false,
+            Some(&mono_fn.body_type_map),
+        );
+        local_lowered.push((arc_fn, lambdas));
+    }
+
+    // Borrow inference for local functions using the main pool's classifier.
+    // Imported function sigs are already computed above — if local functions
+    // call imported functions but don't find their sigs in the call graph,
+    // that's safe: unknown callees are treated conservatively (params stay
+    // Borrowed), and RC emission uses the merged annotated_sigs map to insert
+    // correct inc/dec at call sites regardless.
+    let local_flat: Vec<ori_arc::ArcFunction> = local_lowered
+        .iter()
+        .flat_map(|(f, lambdas)| std::iter::once(f).chain(lambdas.iter()))
+        .cloned()
+        .collect();
+
+    let mut annotated_sigs =
+        ori_arc::infer_borrows_scc(&local_flat, &classifier, &borrowing_builtins);
+    annotated_sigs.extend(imported_sigs);
+
+    // Build cache: Name → (ArcFunction, Vec<ArcFunction>)
+    let total = local_lowered.len() + imported_lowered.len();
+    let mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> =
+        FxHashMap::with_capacity_and_hasher(total, Default::default());
+    for (arc_fn, lambdas) in local_lowered.into_iter().chain(imported_lowered) {
+        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
+    }
+
+    (annotated_sigs, arc_cache)
 }
 
 /// Convenience function to run all tests in a path.

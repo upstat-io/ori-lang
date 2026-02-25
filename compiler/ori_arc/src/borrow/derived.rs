@@ -13,8 +13,8 @@ use crate::ownership::{AnnotatedSig, DerivedOwnership, Ownership};
 
 /// Infer per-variable ownership from SSA data flow.
 ///
-/// Unlike [`super::infer_borrows`] which classifies only function parameters via
-/// fixed-point iteration, this function classifies **every** variable in a
+/// Unlike [`super::infer_borrows_scc`] which classifies only function parameters via
+/// SCC-based inference, this function classifies **every** variable in a
 /// single forward pass (no fixed-point needed — SSA guarantees each variable
 /// is defined exactly once).
 ///
