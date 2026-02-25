@@ -2428,3 +2428,119 @@ fn test_aot_for_yield_transform() {
         "for_yield_transform",
     );
 }
+
+// =========================================================================
+// Prelude builtin functions (str, int, float, byte, hash_combine)
+// =========================================================================
+
+#[test]
+fn test_aot_str_from_int() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(r#"@main () -> void = print(msg: str(42));"#);
+    assert_eq!(exit_code, 0, "str_from_int failed: {stderr}");
+    assert!(
+        stdout.contains("42"),
+        "Expected '42' in output, got: '{stdout}'"
+    );
+}
+
+#[test]
+fn test_aot_str_from_bool() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(r#"@main () -> void = print(msg: str(true));"#);
+    assert_eq!(exit_code, 0, "str_from_bool failed: {stderr}");
+    assert!(
+        stdout.contains("true"),
+        "Expected 'true' in output, got: '{stdout}'"
+    );
+}
+
+#[test]
+fn test_aot_str_from_float() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(r#"@main () -> void = print(msg: str(3.14));"#);
+    assert_eq!(exit_code, 0, "str_from_float failed: {stderr}");
+    assert!(
+        stdout.contains("3.14"),
+        "Expected '3.14' in output, got: '{stdout}'"
+    );
+}
+
+#[test]
+fn test_aot_str_from_str() {
+    let (exit_code, stdout, stderr) =
+        compile_and_run_capture(r#"@main () -> void = print(msg: str("hello"));"#);
+    assert_eq!(exit_code, 0, "str_from_str failed: {stderr}");
+    assert!(
+        stdout.contains("hello"),
+        "Expected 'hello' in output, got: '{stdout}'"
+    );
+}
+
+#[test]
+fn test_aot_int_from_float() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = int(3.7);
+    if x == 3 then 0 else 1
+}
+"#,
+        "int_from_float",
+    );
+}
+
+#[test]
+fn test_aot_int_from_bool() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let t = int(true);
+    let f = int(false);
+    if t == 1 && f == 0 then 0 else 1
+}
+"#,
+        "int_from_bool",
+    );
+}
+
+#[test]
+fn test_aot_float_from_int() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let x = float(42);
+    if x == 42.0 then 0 else 1
+}
+"#,
+        "float_from_int",
+    );
+}
+
+#[test]
+fn test_aot_byte_from_int() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let b = byte(65);
+    let back = b.to_int();
+    if back == 65 then 0 else 1
+}
+"#,
+        "byte_from_int",
+    );
+}
+
+#[test]
+fn test_aot_hash_combine_basic() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let h = hash_combine(0, 42);
+    // hash_combine should produce a non-zero value for non-zero inputs
+    if h != 0 then 0 else 1
+}
+"#,
+        "hash_combine_basic",
+    );
+}
