@@ -26,7 +26,7 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **QUEUED REROUTE**: `plans/monomorphization/` — Generic Monomorphization for AOT Compilation. 4 sections: type checker infrastructure (FunctionSig scheme_var_ids, MonoInstance/GenericArg, pool substitution, call-site recording, TypedModule propagation), ARC lowering integration (type_subst on lower_function_can), LLVM pipeline integration (collection pass, evaluator wiring, FunctionCompiler declare/define, call-site resolution, name mangling), verification. Blocks Section 18 (Const Generics) and all generic AOT work. Activates when Type Strategy Registry reroute completes.
+> **~~QUEUED REROUTE~~ RESOLVED (2026-02-25)**: `plans/monomorphization/` — Generic Monomorphization for AOT Compilation complete. All 4 sections done: type checker infrastructure (FunctionSig scheme_var_ids, MonoInstance/GenericArg, pool substitution, call-site recording, TypedModule propagation), ARC lowering integration (type_subst on lower_function_can), LLVM pipeline integration (collection pass, evaluator wiring, FunctionCompiler declare/define, call-site resolution via mono_dispatch, name mangling `{fn}$m${types}`), verification (5 AOT tests pass, 10,040 total). Completed proactively during AOT Codegen Pipeline reroute.
 
 ---
 
