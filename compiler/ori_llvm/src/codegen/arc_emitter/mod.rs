@@ -912,18 +912,31 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             .extract_value(closure_val, 1, "closure.env_ptr");
 
         if let (Some(fn_ptr), Some(env_ptr)) = (fn_ptr, env_ptr) {
-            let mut arg_vals = Vec::with_capacity(1 + args.len());
-            arg_vals.push(env_ptr);
-            for &a in args {
-                arg_vals.push(self.var(a));
-            }
-
             let ptr_ty = self.builder.ptr_type();
+            let mut arg_vals = Vec::with_capacity(1 + args.len());
             let mut param_types = Vec::with_capacity(1 + args.len());
+            arg_vals.push(env_ptr);
             param_types.push(ptr_ty);
+
             for &a in args {
                 let arg_ty = func.var_type(a);
-                param_types.push(self.resolve_type(arg_ty));
+                let passing = super::abi::compute_param_passing(arg_ty, self.type_info);
+                match passing {
+                    super::abi::ParamPassing::Indirect { .. }
+                    | super::abi::ParamPassing::Reference => {
+                        // Large struct: alloca, store, pass pointer
+                        let llvm_ty = self.resolve_type(arg_ty);
+                        let alloca = self.builder.alloca(llvm_ty, "icall.arg.tmp");
+                        self.builder.store(self.var(a), alloca);
+                        arg_vals.push(alloca);
+                        param_types.push(ptr_ty);
+                    }
+                    super::abi::ParamPassing::Void => {}
+                    super::abi::ParamPassing::Direct => {
+                        arg_vals.push(self.var(a));
+                        param_types.push(self.resolve_type(arg_ty));
+                    }
+                }
             }
 
             let ret_ty = self.resolve_type(ty);
@@ -1258,8 +1271,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 (i + 1) as u32,
                 &format!("cap.{i}.ptr"),
             );
-            let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-            callee_args.push(cap_val);
+            // Check callee ABI: if this capture param is Indirect/Reference,
+            // pass the pointer directly; otherwise load and pass by value.
+            // Note: callee_abi.params does NOT include sret (sret is in return_abi),
+            // so params[i] directly maps to the i-th capture parameter.
+            let param_passing = callee_abi.params.get(i).map(|p| &p.passing);
+            if matches!(
+                param_passing,
+                Some(
+                    super::abi::ParamPassing::Indirect { .. } | super::abi::ParamPassing::Reference
+                )
+            ) {
+                callee_args.push(field_ptr);
+            } else {
+                let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
+                callee_args.push(cap_val);
+            }
         }
 
         // Forward remaining user params (wrapper params 1..N)

@@ -24,7 +24,7 @@ pub fn dispatch_list_method(
     let n = ctx.names;
 
     // Note: Value clones in this function are cheap - Value uses Arc for heap types.
-    if method == n.len {
+    if method == n.len || method == n.length {
         len_to_value(items.len(), "list")
     } else if method == n.is_empty {
         Ok(Value::Bool(items.is_empty()))
