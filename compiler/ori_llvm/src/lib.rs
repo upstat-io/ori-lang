@@ -57,6 +57,9 @@
 pub mod codegen;
 pub mod context;
 
+// -- Monomorphization --
+pub mod monomorphize;
+
 // -- Evaluator (JIT) --
 pub mod evaluator;
 
