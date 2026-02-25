@@ -1,15 +1,15 @@
 ---
 section: "02"
 title: "ARC Lowering Integration"
-status: not-started
+status: complete
 goal: "Enable the ARC lowerer to substitute generic types with concrete types during lowering"
 sections:
   - id: "02.1"
     title: "Add type_subst to lower_function_can()"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "ArcLowerer resolve_body_type()"
-    status: not-started
+    status: complete
 ---
 
 # Section 02: ARC Lowering Integration
@@ -41,10 +41,10 @@ pub fn lower_function_can(
 ) -> (ArcFunction, Vec<ArcFunction>)
 ```
 
-- [ ] Add `type_subst` parameter to `lower_function_can()` signature
-- [ ] Pass `type_subst` through to `ArcLowerer` construction
-- [ ] Update all existing callers to pass `None`
-- [ ] Compilation clean, all tests pass (pure refactor, no behavior change)
+- [x] Add `type_subst` parameter to `lower_function_can()` signature
+- [x] Pass `type_subst` through to `ArcLowerer` construction
+- [x] Update all existing callers to pass `None`
+- [x] Compilation clean, all tests pass (pure refactor, no behavior change)
 
 ---
 
@@ -65,8 +65,8 @@ fn resolve_body_type(&self, ty: Idx) -> Idx {
 
 Call `resolve_body_type()` everywhere the lowerer reads `CanNode.ty` — expression type lookups, constructor types, call return types in the body.
 
-- [ ] Add `type_subst` field to `ArcLowerer`
-- [ ] Implement `resolve_body_type()` method
-- [ ] Audit all `CanNode.ty` reads in the lowerer and wrap with `resolve_body_type()`
-- [ ] Unit test: lowering a function body with substitution map produces concrete types in ArcFunction
-- [ ] Verify: existing non-generic lowering unchanged (all `None` callers still work)
+- [x] Add `type_subst` field to `ArcLowerer`
+- [x] Implement `resolve_body_type()` method
+- [x] Audit all `CanNode.ty` reads in the lowerer and wrap with `resolve_body_type()`
+- [x] Unit test: lowering a function body with substitution map produces concrete types in ArcFunction
+- [x] Verify: existing non-generic lowering unchanged (all `None` callers still work)

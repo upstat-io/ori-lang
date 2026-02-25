@@ -7,7 +7,7 @@
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
 use ori_types::{Idx, Pool, Tag};
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::ir::{ArcFunction, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
 
@@ -64,6 +64,12 @@ pub struct ArcLowerer<'a> {
     /// Used to intercept variant constructor calls and emit `Construct`
     /// instructions instead of function calls.
     pub(crate) variant_ctors: &'a VariantCtors,
+    /// Optional type substitution map for monomorphized generic functions.
+    ///
+    /// Maps generic `Idx` → concrete `Idx`. When `Some`, `expr_type()` applies
+    /// the substitution so the ARC lowerer emits type-specific RC operations.
+    /// `None` for non-generic functions (zero overhead).
+    pub(crate) type_subst: Option<&'a FxHashMap<Idx, Idx>>,
 }
 
 impl ArcLowerer<'_> {
@@ -74,13 +80,28 @@ impl ArcLowerer<'_> {
     }
 
     /// Get the type of a canonical expression by its ID.
+    ///
+    /// When `type_subst` is `Some` (monomorphized function), applies the
+    /// substitution to return the concrete type instead of the generic one.
     #[inline]
     pub(crate) fn expr_type(&self, id: CanId) -> Idx {
         if !id.is_valid() {
             return Idx::ERROR;
         }
         let ty = self.arena.ty(id);
-        Idx::from_raw(ty.raw())
+        let idx = Idx::from_raw(ty.raw());
+        self.resolve_body_type(idx)
+    }
+
+    /// Apply the type substitution map if present, returning the concrete type.
+    ///
+    /// For non-generic functions (`type_subst` is `None`), returns `ty` unchanged.
+    #[inline]
+    pub(crate) fn resolve_body_type(&self, ty: Idx) -> Idx {
+        match self.type_subst {
+            Some(map) => map.get(&ty).copied().unwrap_or(ty),
+            None => ty,
+        }
     }
 
     /// Emit a unit literal.

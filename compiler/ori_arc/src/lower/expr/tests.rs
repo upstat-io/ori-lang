@@ -1,3 +1,5 @@
+use rustc_hash::FxHashMap;
+
 use ori_ir::canon::{CanArena, CanNamedExpr, CanNode, CanonResult};
 use ori_ir::{FunctionExpKind, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
@@ -28,6 +30,7 @@ fn lower_single_expr(
         &pool,
         &mut problems,
         false,
+        None,
     );
     assert!(problems.is_empty(), "unexpected problems: {problems:?}");
     func
@@ -254,6 +257,7 @@ fn lower_await_is_transparent() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     // Await is now transparent — just evaluates inner expression, no problems
@@ -295,6 +299,7 @@ fn lower_function_with_params() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert_eq!(func.params.len(), 1);
@@ -352,6 +357,7 @@ fn lower_function_ref_emits_partial_apply() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty());
@@ -446,6 +452,7 @@ fn lower_format_with_dispatches_to_runtime() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty());
@@ -503,6 +510,7 @@ fn lower_function_exp_panic_emits_unreachable() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty());
@@ -560,6 +568,7 @@ fn lower_function_exp_todo_emits_unreachable() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty());
@@ -614,5 +623,131 @@ fn lower_post_01_concurrency_panics() {
         &pool,
         &mut problems,
         false,
+        None,
     );
+}
+
+// Type substitution tests
+
+#[test]
+fn type_subst_replaces_generic_type_with_concrete() {
+    // Simulate a generic function body: a single `Int(42)` expression whose
+    // canonical type is a "generic" Idx. The substitution map rewrites it
+    // to Idx::INT, verifying that resolve_body_type() is applied.
+
+    // Use a high Idx value as the "generic" type placeholder.
+    let generic_ty = Idx::from_raw(9999);
+
+    let mut arena = CanArena::with_capacity(10);
+    let node = CanNode::new(
+        ori_ir::canon::CanExpr::Int(42),
+        Span::new(0, 2),
+        TypeId::from_raw(generic_ty.raw()),
+    );
+    let body = arena.push(node);
+
+    let canon = CanonResult {
+        root: body,
+        arena,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+    };
+
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+
+    // Build the substitution map: generic_ty → INT
+    let mut subst = FxHashMap::default();
+    subst.insert(generic_ty, Idx::INT);
+
+    let (func, _) = lower_function_can(
+        Name::from_raw(1),
+        &[],
+        Idx::INT, // return type is already concrete
+        body,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        Some(&subst),
+    );
+
+    assert!(problems.is_empty(), "unexpected problems: {problems:?}");
+
+    // The Int(42) instruction should have ty == Idx::INT, not generic_ty
+    let instrs = &func.blocks[0].body;
+    assert!(!instrs.is_empty(), "expected at least one instruction");
+
+    let last = &instrs[instrs.len() - 1];
+    match last {
+        ArcInstr::Let { ty, value, .. } => {
+            assert_eq!(*ty, Idx::INT, "type should be substituted to INT");
+            assert!(
+                matches!(value, ArcValue::Literal(LitValue::Int(42))),
+                "value should be Int(42), got {value:?}"
+            );
+        }
+        other => panic!("expected Let instruction, got {other:?}"),
+    }
+}
+
+#[test]
+fn type_subst_none_leaves_types_unchanged() {
+    // Lowering with None substitution map should preserve original types.
+    // Use a valid pool Idx (FLOAT is pre-interned) so pool lookups don't OOB.
+    let ty = Idx::FLOAT;
+
+    let mut arena = CanArena::with_capacity(10);
+    let node = CanNode::new(
+        ori_ir::canon::CanExpr::Int(7),
+        Span::new(0, 1),
+        TypeId::from_raw(ty.raw()),
+    );
+    let body = arena.push(node);
+
+    let canon = CanonResult {
+        root: body,
+        arena,
+        roots: vec![],
+        method_roots: vec![],
+        problems: vec![],
+        constants: ori_ir::canon::ConstantPool::new(),
+        decision_trees: ori_ir::canon::DecisionTreePool::default(),
+    };
+
+    let interner = StringInterner::new();
+    let pool = Pool::new();
+    let mut problems = Vec::new();
+
+    let (func, _) = lower_function_can(
+        Name::from_raw(1),
+        &[],
+        ty,
+        body,
+        &canon,
+        &interner,
+        &pool,
+        &mut problems,
+        false,
+        None, // no substitution
+    );
+
+    assert!(problems.is_empty());
+    let instrs = &func.blocks[0].body;
+    let last = &instrs[instrs.len() - 1];
+    match last {
+        ArcInstr::Let { ty: instr_ty, .. } => {
+            assert_eq!(
+                *instr_ty,
+                Idx::FLOAT,
+                "type should be preserved as FLOAT without substitution"
+            );
+        }
+        other => panic!("expected Let instruction, got {other:?}"),
+    }
 }

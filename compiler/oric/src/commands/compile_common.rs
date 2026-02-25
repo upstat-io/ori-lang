@@ -168,6 +168,7 @@ fn run_borrow_inference(
             pool,
             &mut arc_problems,
             sig.is_fbip,
+            None, // non-generic: no type substitution
         );
         arc_functions.push(arc_fn);
         arc_functions.extend(lambdas);
