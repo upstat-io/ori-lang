@@ -185,10 +185,24 @@ fn run_borrow_inference(
         use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
         let mut acc = CodegenDiagnostics::new();
         acc.add_arc_problems(&arc_problems);
-        emit_codegen_diagnostics(acc);
+        if emit_codegen_diagnostics(acc) {
+            // ARC lowering produced errors (e.g., ArcInternalError) — abort
+            // borrow inference to avoid Salsa queries on corrupted ArcFunction data.
+            return FxHashMap::default();
+        }
     }
 
     // 2. Create ArcModuleInput Salsa input.
+    // Verify Pool path coupling: the Pool was stored by typed() using file.path(db),
+    // and we look it up using this source_path. If they diverge, borrow inference
+    // silently returns empty sigs. Catch mismatches early in debug builds.
+    debug_assert!(
+        db.pool_cache()
+            .get(&std::path::PathBuf::from(source_path))
+            .is_some(),
+        "Pool not cached for source_path '{source_path}' — path may diverge from file.path(db)"
+    );
+
     let sorted_functions = ArcModuleInput::sorted_functions(arc_functions_map);
     let module = ArcModuleInput::new(db, std::path::PathBuf::from(source_path), sorted_functions);
 
@@ -222,20 +236,29 @@ fn run_borrow_inference(
     annotated_sigs
 }
 
-/// Compile source to LLVM IR using the V2 codegen pipeline.
+/// Run the codegen pipeline on a pre-checked module.
 ///
-/// Takes checked parse and type results and generates LLVM IR via:
-/// 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
-/// 2. `IrBuilder` for instruction emission
-/// 3. `FunctionCompiler` for two-pass declare-then-define compilation
+/// Shared implementation for [`compile_to_llvm`] and [`compile_to_llvm_with_imports`].
+/// The pipeline:
+/// 1. Declares runtime functions
+/// 2. Registers user-defined types
+/// 3. Runs ARC borrow inference (per-SCC Salsa queries)
+/// 4. Two-pass function compilation (declare, then define)
+/// 5. Monomorphization of generic functions
+/// 6. Impl method and derived trait compilation
+/// 7. Main wrapper generation
 ///
-/// The Pool is required for proper compound type resolution during codegen
-/// (e.g., determining which return types need the sret calling convention).
-///
-/// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
+/// `symbol_prefix` controls symbol mangling: `""` for single-file (no module
+/// prefix on symbols), or the module name for multi-file compilation.
+/// `import_sigs` declares external symbols from other modules; pass `&[]` for
+/// single-file compilation.
 #[cfg(feature = "llvm")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "private pipeline helper — params match the data flow from both public compile functions"
+)]
 #[allow(unsafe_code, reason = "LLVM C API requires unsafe FFI calls")]
-pub fn compile_to_llvm<'ctx>(
+fn run_codegen_pipeline<'ctx>(
     context: &'ctx Context,
     db: &CompilerDb,
     parse_result: &ParseOutput,
@@ -243,6 +266,9 @@ pub fn compile_to_llvm<'ctx>(
     pool: &'ctx Pool,
     canon: &CanonResult,
     source_path: &str,
+    module_name: &str,
+    symbol_prefix: &str,
+    import_sigs: &[(Name, FunctionSig)],
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
     use ori_llvm::codegen::ir_builder::IrBuilder;
@@ -254,21 +280,16 @@ pub fn compile_to_llvm<'ctx>(
     use std::mem::ManuallyDrop;
 
     let interner = db.interner();
-    let module_name = Path::new(source_path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("module");
 
-    // We use ManuallyDrop + raw-pointer reborrow to work around a borrow
-    // checker limitation: FunctionCompiler's lifetime parameters tie the
-    // compilation block's borrow of `scx` to the return lifetime, preventing
-    // us from consuming `scx` afterward. The raw-pointer roundtrip creates
-    // a detached reference whose borrow doesn't leak out of the block.
-    // This is sound because `scx` lives for the entire function and the
-    // compilation block's borrows genuinely end at the block boundary.
+    // ManuallyDrop + raw-pointer reborrow to work around a borrow checker
+    // limitation: FunctionCompiler's lifetime parameters tie the compilation
+    // block's borrow of `scx` to the return lifetime, preventing us from
+    // consuming `scx` afterward. The raw-pointer roundtrip creates a detached
+    // reference whose borrow doesn't leak out of the block. Sound because `scx`
+    // lives for the entire function and compilation borrows end at the block
+    // boundary.
     let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
 
-    // V2 pipeline
     {
         // SAFETY: Detached reference to scx — see comment above.
         let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
@@ -303,11 +324,16 @@ pub fn compile_to_llvm<'ctx>(
             &resolver,
             interner,
             pool,
-            "",
+            symbol_prefix,
             &annotated_sigs,
             &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
         );
+
+        // Declare imports (no-op when import_sigs is empty for single-file compilation)
+        if !import_sigs.is_empty() {
+            fc.declare_imports(import_sigs);
+        }
         fc.declare_all(&parse_result.module.functions, &function_sigs);
 
         // 4b. Collect and declare monomorphized generic functions
@@ -367,13 +393,6 @@ pub fn compile_to_llvm<'ctx>(
         }
     }
 
-    // Debug IR output
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
-        eprintln!("=== LLVM IR for {module_name} ===");
-        eprintln!("{}", scx.llmod.print_to_string());
-        eprintln!("=== END IR ===");
-    }
-
     // SAFETY: ManuallyDrop is used only to suppress the borrow checker.
     // The compilation block's borrows have ended; we extract the module
     // by reading the field (Module implements Clone via LLVMCloneModule).
@@ -383,22 +402,70 @@ pub fn compile_to_llvm<'ctx>(
     scx.llmod.clone()
 }
 
+/// Compile source to LLVM IR.
+///
+/// Takes checked parse and type results and generates LLVM IR via:
+/// 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
+/// 2. `IrBuilder` for instruction emission
+/// 3. `FunctionCompiler` for two-pass declare-then-define compilation
+///
+/// The Pool is required for proper compound type resolution during codegen
+/// (e.g., determining which return types need the sret calling convention).
+///
+/// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
+#[cfg(feature = "llvm")]
+pub fn compile_to_llvm<'ctx>(
+    context: &'ctx Context,
+    db: &CompilerDb,
+    parse_result: &ParseOutput,
+    type_result: &TypeCheckResult,
+    pool: &'ctx Pool,
+    canon: &CanonResult,
+    source_path: &str,
+) -> ori_llvm::inkwell::module::Module<'ctx> {
+    let module_name = Path::new(source_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("module");
+
+    let llvm_module = run_codegen_pipeline(
+        context,
+        db,
+        parse_result,
+        type_result,
+        pool,
+        canon,
+        source_path,
+        module_name,
+        "", // No symbol prefix for single-file compilation
+        &[],
+    );
+
+    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        eprintln!("=== LLVM IR for {module_name} ===");
+        eprintln!("{}", llvm_module.print_to_string());
+        eprintln!("=== END IR ===");
+    }
+
+    llvm_module
+}
+
 /// Compile source to LLVM IR with explicit module name and import declarations.
 ///
-/// Uses the V2 codegen pipeline. This is used for multi-file compilation where:
+/// This is used for multi-file compilation where:
 /// - The module name is explicitly provided for proper symbol mangling
 /// - Imported functions are declared as external symbols
 ///
-/// Optional `arc_cache` and `module_hash` parameters enable ARC IR caching.
-/// When provided, unchanged modules skip ARC analysis entirely.
+/// The `arc_cache` and `module_hash` parameters are reserved for future ARC IR
+/// disk caching integration with the Salsa path (Section 12.14 watch-mode).
+/// Currently unused — they are accepted but discarded.
 ///
 /// The Pool is required for proper compound type resolution during codegen.
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 #[cfg(feature = "llvm")]
 #[allow(
-    unsafe_code,
     clippy::too_many_arguments,
-    reason = "LLVM FFI requires unsafe; multi-module compilation needs all parameters"
+    reason = "multi-module compilation needs all parameters"
 )]
 pub fn compile_to_llvm_with_imports<'ctx>(
     context: &'ctx Context,
@@ -413,155 +480,51 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
-    use ori_llvm::codegen::function_compiler::FunctionCompiler;
-    use ori_llvm::codegen::ir_builder::IrBuilder;
-    use ori_llvm::codegen::runtime_decl;
-    use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
-    use ori_llvm::codegen::type_registration;
-    use ori_llvm::SimpleCx;
-
-    use std::mem::ManuallyDrop;
+    // arc_cache and module_hash reserved for future ARC IR disk caching
+    // integration with the Salsa path (Section 12.14 watch-mode).
+    let _ = (arc_cache, module_hash);
 
     let interner = db.interner();
+    let import_sigs: Vec<(Name, FunctionSig)> = imported_functions
+        .iter()
+        .map(|info| {
+            let name = interner.intern(&info.mangled_name);
+            let sig = FunctionSig {
+                name,
+                type_params: vec![],
+                const_params: vec![],
+                param_names: vec![],
+                param_types: info.param_types.clone(),
+                return_type: info.return_type,
+                capabilities: vec![],
+                is_public: false,
+                is_test: false,
+                is_main: false,
+                is_fbip: false,
+                type_param_bounds: vec![],
+                where_clauses: vec![],
+                generic_param_mapping: vec![],
+                scheme_var_ids: vec![],
+                required_params: info.param_types.len(),
+                param_defaults: vec![],
+            };
+            (name, sig)
+        })
+        .collect();
 
-    // ManuallyDrop + raw-pointer reborrow — see compile_to_llvm for rationale.
-    let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
+    let llvm_module = run_codegen_pipeline(
+        context,
+        db,
+        parse_result,
+        type_result,
+        pool,
+        canon,
+        source_path,
+        module_name,
+        module_name, // Multi-file: symbol prefix matches module name
+        &import_sigs,
+    );
 
-    // V2 pipeline
-    {
-        // SAFETY: Detached reference to scx — see compile_to_llvm comment.
-        let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
-
-        let store = TypeInfoStore::new(pool);
-        let resolver = TypeLayoutResolver::new(&store, scx_ref);
-        let mut builder = IrBuilder::new(scx_ref);
-
-        // 1. Declare runtime functions
-        runtime_decl::declare_runtime(&mut builder);
-
-        // 2. Register user-defined types
-        type_registration::register_user_types(&resolver, &type_result.typed.types);
-
-        // 3. Declare imported functions as external symbols
-        let import_sigs: Vec<(Name, FunctionSig)> = imported_functions
-            .iter()
-            .map(|info| {
-                let name = interner.intern(&info.mangled_name);
-                let sig = FunctionSig {
-                    name,
-                    type_params: vec![],
-                    const_params: vec![],
-                    param_names: vec![],
-                    param_types: info.param_types.clone(),
-                    return_type: info.return_type,
-                    capabilities: vec![],
-                    is_public: false,
-                    is_test: false,
-                    is_main: false,
-                    is_fbip: false,
-                    type_param_bounds: vec![],
-                    where_clauses: vec![],
-                    generic_param_mapping: vec![],
-                    scheme_var_ids: vec![],
-                    required_params: info.param_types.len(),
-                    param_defaults: vec![],
-                };
-                (name, sig)
-            })
-            .collect();
-
-        // 4. Run ARC borrow inference pipeline
-        let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
-        let classifier = ori_arc::ArcClassifier::new(pool);
-
-        // arc_cache and module_hash reserved for future ARC IR disk caching
-        // integration with the Salsa path (Section 12.14 watch-mode).
-        let _ = (arc_cache, module_hash);
-
-        let annotated_sigs = run_borrow_inference(
-            db,
-            parse_result,
-            &function_sigs,
-            canon,
-            interner,
-            pool,
-            source_path,
-        );
-
-        // 5. Two-pass function compilation with borrow annotations
-        let mut fc = FunctionCompiler::new(
-            &mut builder,
-            &store,
-            &resolver,
-            interner,
-            pool,
-            module_name,
-            &annotated_sigs,
-            &classifier,
-            None, // Debug info wiring deferred to AOT pipeline integration
-        );
-        // Declare imports first so they're visible to function bodies
-        fc.declare_imports(&import_sigs);
-        fc.declare_all(&parse_result.module.functions, &function_sigs);
-
-        // 5b. Collect and declare monomorphized generic functions
-        let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
-            &type_result.typed.mono_instances,
-            &function_sigs,
-            interner,
-            pool,
-        );
-        fc.declare_mono_functions(&mono_functions);
-
-        // 6. Compile impl methods
-        if !parse_result.module.impls.is_empty() {
-            fc.compile_impls(
-                &parse_result.module.impls,
-                &type_result.typed.impl_sigs,
-                canon,
-                &parse_result.module.traits,
-            );
-        }
-
-        // 6b. Compile derived trait methods
-        if parse_result
-            .module
-            .types
-            .iter()
-            .any(|t| !t.derives.is_empty())
-        {
-            fc.compile_derives(&parse_result.module, &type_result.typed.types);
-        }
-
-        // 7. Define all function bodies
-        fc.define_all(&parse_result.module.functions, &function_sigs, canon);
-
-        // 7b. Define monomorphized function bodies
-        fc.define_mono_functions(&mono_functions, canon);
-
-        // 8. Generate C main() entry point wrapper for @main (AOT only)
-        // Also detect @panic handler for registration in main()
-        let panic_name = parse_result
-            .module
-            .functions
-            .iter()
-            .find(|f| interner.lookup(f.name) == "panic")
-            .map(|f| f.name);
-
-        for (func, sig) in parse_result
-            .module
-            .functions
-            .iter()
-            .zip(function_sigs.iter())
-        {
-            if sig.is_main {
-                fc.generate_main_wrapper(func.name, sig, panic_name);
-                break;
-            }
-        }
-    }
-
-    // Debug output
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         eprintln!(
             "Compiled module '{}' from '{}' with {} imported functions",
@@ -569,8 +532,8 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             source_path,
             imported_functions.len()
         );
-        eprintln!("{}", scx.llmod.print_to_string());
+        eprintln!("{}", llvm_module.print_to_string());
     }
 
-    scx.llmod.clone()
+    llvm_module
 }
