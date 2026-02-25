@@ -89,6 +89,8 @@ pub use drop::{
 };
 pub use expand_reuse::expand_reset_reuse;
 pub use fbip::check_fbip_enforcement;
+pub use graph::call_graph::CallGraph;
+pub use graph::scc::{compute_sccs, topological_order, Scc};
 pub use graph::DominatorTree;
 pub use ir::{
     compute_var_reprs, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,

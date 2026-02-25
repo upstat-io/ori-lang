@@ -49,6 +49,9 @@ use crate::typeck;
 use ori_ir::canon::SharedCanonResult;
 use ori_types::TypeCheckResult;
 
+#[cfg(feature = "llvm")]
+pub mod arc_queries;
+
 #[cfg(test)]
 mod tests;
 
