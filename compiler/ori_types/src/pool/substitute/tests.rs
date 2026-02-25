@@ -272,3 +272,41 @@ fn generalized_var_substituted() {
     let result = substitute_in_pool(&mut pool, var, &map);
     assert_eq!(result, Idx::STR);
 }
+
+// === Struct type ===
+
+#[test]
+fn struct_field_types_substituted() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+
+    let field_x = interner.intern("x");
+    let field_y = interner.intern("y");
+    let name = interner.intern("Point");
+    let struct_ty = pool.struct_type(name, &[(field_x, var), (field_y, Idx::INT)]);
+
+    let map = subst(&[(var_id, Idx::FLOAT)]);
+    let result = substitute_in_pool(&mut pool, struct_ty, &map);
+
+    assert_eq!(pool.tag(result), Tag::Struct);
+    assert_eq!(pool.struct_name(result), name);
+    let fields = pool.struct_fields(result);
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0], (field_x, Idx::FLOAT));
+    assert_eq!(fields[1], (field_y, Idx::INT));
+}
+
+#[test]
+fn struct_no_vars_unchanged() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let field_a = interner.intern("a");
+    let name = interner.intern("Wrapper");
+    let struct_ty = pool.struct_type(name, &[(field_a, Idx::BOOL)]);
+
+    let map = subst(&[(99, Idx::STR)]);
+    // No HAS_VAR flag — fast path returns unchanged.
+    assert_eq!(substitute_in_pool(&mut pool, struct_ty, &map), struct_ty);
+}
