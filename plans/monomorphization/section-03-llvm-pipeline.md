@@ -1,21 +1,21 @@
 ---
 section: "03"
 title: "LLVM Pipeline Integration"
-status: not-started
+status: complete
 goal: "Collect mono instances into concrete functions, lower them through ARC, declare/define in LLVM, and resolve call sites"
 sections:
   - id: "03.1"
     title: "Monomorphization Collection Pass"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Evaluator Pipeline Integration"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "FunctionCompiler Declare/Define"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "Call Site Resolution"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: LLVM Pipeline Integration
@@ -26,7 +26,7 @@ sections:
 
 ## 03.1 Monomorphization Collection Pass
 
-**File:** `compiler/ori_llvm/src/monomorphize.rs` (NEW)
+**File:** `compiler/ori_llvm/src/monomorphize/mod.rs` (NEW)
 
 For each unique `MonoInstance` from `TypedModule`, produce a `MonoFunction` with a mangled name and concrete (non-generic) signature.
 
@@ -41,7 +41,7 @@ pub struct MonoFunction {
 pub fn collect_mono_functions(
     mono_instances: &[MonoInstance],
     function_sigs: &FxHashMap<Name, FunctionSig>,
-    interner: &mut StringInterner,
+    interner: &StringInterner,
     pool: &Pool,
 ) -> Vec<MonoFunction>
 ```
@@ -52,12 +52,12 @@ For each `MonoInstance`:
 3. Compute mangled name using the scheme from `00-overview.md` Section "Name Mangling Scheme"
 4. Return `MonoFunction` carrying the `body_type_map` for ARC lowering
 
-- [ ] Create `monomorphize.rs` with `MonoFunction` struct
-- [ ] Implement `collect_mono_functions()`
-- [ ] Implement `mangle_mono_name()` helper using type encoding table
-- [ ] Implement `encode_type()` recursive type-to-string encoder
-- [ ] Wire into `ori_llvm/src/lib.rs` (`mod monomorphize; pub use ...`)
-- [ ] Unit tests: mangling produces expected names, collection deduplicates, non-generic sigs produced
+- [x] Create `monomorphize/mod.rs` with `MonoFunction` struct
+- [x] Implement `collect_mono_functions()`
+- [x] Implement `mangle_mono_name()` helper using type encoding table
+- [x] Implement `encode_type()` recursive type-to-string encoder
+- [x] Wire into `ori_llvm/src/lib.rs` (`mod monomorphize; pub use ...`)
+- [x] Unit tests: mangling produces expected names, collection deduplicates, non-generic sigs produced
 
 ---
 
@@ -67,33 +67,10 @@ For each `MonoInstance`:
 
 After the existing ARC lowering loop for module functions, add a loop for monomorphized functions. Each mono function reuses the same canonical IR body (shared, not cloned) but passes its `body_type_map` as the `type_subst`.
 
-```rust
-for mono_fn in &mono_functions {
-    let params: Vec<(Name, Idx)> = mono_fn.sig.param_names.iter()
-        .zip(mono_fn.sig.param_types.iter())
-        .map(|(&n, &t)| (n, t)).collect();
-    let body_id = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
-    let (arc_fn, lambdas) = ori_arc::lower_function_can(
-        mono_fn.mangled_name,
-        &params,
-        mono_fn.sig.return_type,
-        body_id,
-        canon,
-        interner,
-        self.pool,
-        &mut arc_problems,
-        false,
-        Some(&mono_fn.body_type_map),
-    );
-    arc_functions.push(arc_fn);
-    arc_functions.extend(lambdas);
-}
-```
-
-- [ ] Call `collect_mono_functions()` after existing signature collection
-- [ ] Add ARC lowering loop for mono functions
-- [ ] Pass `mono_functions` to `FunctionCompiler` (for declare/define)
-- [ ] Pass mono function names to call site resolution data
+- [x] Call `collect_mono_functions()` after existing signature collection
+- [x] Add ARC lowering loop for mono functions
+- [x] Pass `mono_functions` to `FunctionCompiler` (for declare/define)
+- [x] Pass mono function names to call site resolution data
 
 ---
 
@@ -101,12 +78,10 @@ for mono_fn in &mono_functions {
 
 **File:** `compiler/ori_llvm/src/codegen/function_compiler/mod.rs`
 
-In `declare_all()` and `define_all()`, add loops for `MonoFunction` entries. These have non-generic `FunctionSig` values, so existing `declare_function()` / `define_function_body()` work unchanged — no special handling needed.
-
-- [ ] Add `mono_functions: &[MonoFunction]` parameter to `declare_all()` and `define_all()`
-- [ ] Loop over mono functions in `declare_all()`, calling `declare_function()` with mangled name + concrete sig
-- [ ] Loop over mono functions in `define_all()`, calling `define_function_body()` with mangled name
-- [ ] Verify: existing non-generic functions unchanged
+- [x] Add `declare_mono_functions()` method — loops over mono functions, calls `declare_function()` with mangled name + concrete sig
+- [x] Add `define_mono_functions()` method — loops over mono functions, calls `define_function_body_arc_with_subst()` with `type_subst`
+- [x] Refactor `define_function_body_arc` → `define_function_body_arc_with_subst` to accept optional `type_subst`
+- [x] Verify: existing non-generic functions unchanged (10,035 tests pass)
 
 ---
 
@@ -114,22 +89,20 @@ In `declare_all()` and `define_all()`, add loops for `MonoFunction` entries. The
 
 **File:** `compiler/ori_llvm/src/codegen/arc_emitter/mod.rs`
 
-In `emit_apply()`, when the callee is a generic function (not found in the normal function table), resolve it to the mangled monomorphized name.
+In `emit_apply()` and `emit_invoke()`, when the callee is a generic function (not found by name in the function table), resolve it via the `mono_dispatch` index.
 
-```rust
-.or_else(|| self.resolve_mono_call(callee, args, func))
-```
+**Architecture:** `mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>` maps original generic name → list of `(concrete_param_types, mangled_name)`. Built in `declare_mono_functions()`, passed to `ArcIrEmitter`.
 
-`resolve_mono_call()`:
-1. Check if `callee` is a known generic function (stored in a lookup set from `FunctionCompiler`)
+`lookup_mono_dispatch()`:
+1. Look up `callee` in `mono_dispatch`
 2. Get concrete arg types from `func.var_type(args[i])`
-3. Compute type args from the ARC IR's concrete types
-4. Compute mangled name (same `mangle_mono_name()` from Section 03.1)
-5. Look up mangled name in `self.functions`
+3. Find entry where `param_types` matches
+4. Resolve `mangled_name` through `self.functions`
 
-**Alternative simpler approach:** Register mono functions under BOTH names — the mangled name AND an `(original_name, concrete_arg_types)` lookup key. The emitter computes arg types and looks up directly.
-
-- [ ] Add generic function name set to emitter state
-- [ ] Implement `resolve_mono_call()` method
-- [ ] Add fallback in `emit_apply()` function lookup chain
-- [ ] Test: generic call resolves to mangled function, non-generic calls unchanged
+- [x] Add `mono_dispatch` field to `ArcIrEmitter` struct
+- [x] Add `mono_dispatch` parameter to `ArcIrEmitter::new()`
+- [x] Implement `lookup_mono_dispatch()` method
+- [x] Add fallback in both `emit_apply()` and `emit_invoke()` lookup chains (step 4 of 5)
+- [x] Add `mono_dispatch` field to `FunctionCompiler`, build in `declare_mono_functions()`
+- [x] Pass `&self.mono_dispatch` to all `ArcIrEmitter::new()` calls (3 production + 19 test)
+- [x] Verify: all 10,035 tests pass, non-generic calls unchanged

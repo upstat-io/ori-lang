@@ -161,6 +161,12 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
     /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
     type_idx_to_name: &'a FxHashMap<Idx, Name>,
+    /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
+    ///
+    /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR
+    /// uses the original name (`"identity"`), but the LLVM function is declared under the
+    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types.
+    mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     /// Counter for unique `PartialApply` wrapper/drop function names.
     partial_apply_counter: u32,
     /// ARC variable → typed LLVM value mapping.
@@ -189,6 +195,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
         method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
         type_idx_to_name: &'a FxHashMap<Idx, Name>,
+        mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     ) -> Self {
         Self {
             builder,
@@ -202,6 +209,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             functions,
             method_functions,
             type_idx_to_name,
+            mono_dispatch,
             partial_apply_counter: 0,
             var_map: Vec::new(),
             block_map: Vec::new(),
@@ -642,11 +650,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // 1. Receiver-based: use first arg's type (instance methods like eq/hash)
         // 2. Return-type-based: use dst's type (static methods like default)
         // 3. Unqualified: bare function name (free functions)
-        // 4. Diagnostic fallback: logs warning, returns None
+        // 4. Monomorphized generic: match arg types → mangled specialization
+        // 5. Diagnostic fallback: logs warning, returns None
         let resolved = self
             .lookup_method_by_receiver(callee, arc_args, arc_func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
             .or_else(|| self.functions.get(&callee))
+            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
@@ -785,6 +795,26 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         None
     }
 
+    /// Resolve a generic function call to its monomorphized variant.
+    ///
+    /// The ARC IR uses the **original** generic name (e.g., `"identity"`),
+    /// but the LLVM function was declared under the **mangled** name
+    /// (e.g., `"identity$m$int"`). This method matches the concrete argument
+    /// types at the call site to find the correct monomorphization.
+    fn lookup_mono_dispatch(
+        &self,
+        callee: Name,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> Option<&(FunctionId, FunctionAbi)> {
+        let entries = self.mono_dispatch.get(&callee)?;
+        let arg_types: Vec<Idx> = args.iter().map(|a| func.var_type(*a)).collect();
+        entries
+            .iter()
+            .find(|(params, _)| *params == arg_types)
+            .and_then(|(_, mangled)| self.functions.get(mangled))
+    }
+
     /// Emit an `Apply` instruction (ABI-aware direct call).
     fn emit_apply(&mut self, dst: ArcVarId, callee: Name, args: &[ArcVarId], func: &ArcFunction) {
         let callee_name_str = self.interner.lookup(callee);
@@ -831,11 +861,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // 1. Receiver-based: use first arg's type (instance methods)
         // 2. Return-type-based: use dst's type (static methods like default)
         // 3. Unqualified: bare function name (free functions)
-        // 4. Diagnostic fallback: logs warning, returns None
+        // 4. Monomorphized generic: match arg types → mangled specialization
+        // 5. Diagnostic fallback: logs warning, returns None
         let resolved = self
             .lookup_method_by_receiver(callee, args, func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
             .or_else(|| self.functions.get(&callee))
+            .or_else(|| self.lookup_mono_dispatch(callee, args, func))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 

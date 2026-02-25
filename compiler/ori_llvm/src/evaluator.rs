@@ -244,6 +244,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         user_types: &[TypeEntry],
         impl_sigs: &[(Name, FunctionSig)],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
+        mono_instances: &[ori_types::MonoInstance],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
@@ -284,7 +285,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 
             // 5b. ARC pipeline: classify types + run borrow inference
             let classifier = ori_arc::ArcClassifier::new(self.pool);
-            let annotated_sigs = {
+            let (annotated_sigs, mono_functions) = {
                 let mut arc_functions = Vec::new();
                 let mut arc_problems = Vec::new();
 
@@ -376,9 +377,50 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                     arc_functions.extend(lambdas);
                 }
 
+                // Lower monomorphized generic functions
+                let mono_functions = crate::monomorphize::collect_mono_functions(
+                    mono_instances,
+                    function_sigs,
+                    interner,
+                    self.pool,
+                );
+                if !mono_functions.is_empty() {
+                    debug!(
+                        count = mono_functions.len(),
+                        "lowering monomorphized functions"
+                    );
+                }
+                for mono_fn in &mono_functions {
+                    let params: Vec<(Name, ori_types::Idx)> = mono_fn
+                        .sig
+                        .param_names
+                        .iter()
+                        .zip(mono_fn.sig.param_types.iter())
+                        .map(|(&n, &t)| (n, t))
+                        .collect();
+                    let body_id = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
+                        mono_fn.mangled_name,
+                        &params,
+                        mono_fn.sig.return_type,
+                        body_id,
+                        canon,
+                        interner,
+                        self.pool,
+                        &mut arc_problems,
+                        false,
+                        Some(&mono_fn.body_type_map),
+                    );
+                    arc_functions.push(arc_fn);
+                    arc_functions.extend(lambdas);
+                }
+
                 let borrowing_builtins =
                     crate::codegen::arc_emitter::borrowing_builtin_names(interner);
-                ori_arc::infer_borrows(&arc_functions, &classifier, &borrowing_builtins)
+                (
+                    ori_arc::infer_borrows(&arc_functions, &classifier, &borrowing_builtins),
+                    mono_functions,
+                )
             };
 
             // 6. Two-pass function compilation
@@ -414,6 +456,15 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 }
             }
 
+            // 6c. Declare monomorphized generic functions (phase 1)
+            if !mono_functions.is_empty() {
+                debug!(
+                    count = mono_functions.len(),
+                    "declaring monomorphized functions"
+                );
+                fc.declare_mono_functions(&mono_functions);
+            }
+
             // 7. Compile impl methods (declare + define)
             if !module.impls.is_empty() {
                 debug!("compiling impl methods");
@@ -442,6 +493,15 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         imp_fn.canon,
                     );
                 }
+            }
+
+            // 8c. Define monomorphized function bodies (phase 2)
+            if !mono_functions.is_empty() {
+                debug!(
+                    count = mono_functions.len(),
+                    "defining monomorphized function bodies"
+                );
+                fc.define_mono_functions(&mono_functions, canon);
             }
 
             // 9. Compile test wrappers
