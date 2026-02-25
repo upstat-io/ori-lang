@@ -14,8 +14,10 @@
 
 mod construct;
 mod format;
+pub mod substitute;
 
 pub use construct::*;
+pub use substitute::substitute_in_pool;
 
 use rustc_hash::FxHashMap;
 
@@ -425,26 +427,24 @@ impl Pool {
             }
 
             // Enum: propagate from variant field types
-            Tag::Enum => {
-                // extra layout: [name_lo, name_hi, variant_count, v0_name, v0_fc, v0_f0, ..., v1_name, ...]
-                let variant_count = extra[2] as usize;
-                let mut flags = TypeFlags::IS_COMPOSITE;
-                let mut offset = 3;
+            Tag::Enum => self.compute_enum_flags(extra),
 
-                for _ in 0..variant_count {
-                    let field_count = extra[offset + 1] as usize;
-                    for j in 0..field_count {
-                        let field_type_idx = extra[offset + 2 + j] as usize;
-                        flags |= TypeFlags::propagate_from(self.flags[field_type_idx]);
-                    }
-                    offset += 2 + field_count;
+            // Applied: propagate from type arguments
+            Tag::Applied => {
+                // extra layout: [name_lo, name_hi, arg_count, arg0, arg1, ...]
+                let arg_count = extra[2] as usize;
+                let mut flags = TypeFlags::IS_NAMED;
+
+                for i in 0..arg_count {
+                    let arg_idx = extra[3 + i] as usize;
+                    flags |= TypeFlags::propagate_from(self.flags[arg_idx]);
                 }
 
                 flags
             }
 
-            // Named types
-            Tag::Named | Tag::Applied | Tag::Alias => TypeFlags::IS_NAMED,
+            // Named/Alias: no children to propagate from
+            Tag::Named | Tag::Alias => TypeFlags::IS_NAMED,
 
             // Scheme
             Tag::Scheme => TypeFlags::IS_SCHEME,
@@ -455,6 +455,26 @@ impl Pool {
             Tag::SelfType => TypeFlags::HAS_SELF,
             Tag::ModuleNs => TypeFlags::empty(),
         }
+    }
+
+    /// Compute flags for an Enum type, propagating from variant field types.
+    ///
+    /// Extra layout: `[name_lo, name_hi, variant_count, v0_name, v0_fc, v0_f0, ..., v1_name, ...]`
+    fn compute_enum_flags(&self, extra: &[u32]) -> TypeFlags {
+        let variant_count = extra[2] as usize;
+        let mut flags = TypeFlags::IS_COMPOSITE;
+        let mut offset = 3;
+
+        for _ in 0..variant_count {
+            let field_count = extra[offset + 1] as usize;
+            for j in 0..field_count {
+                let field_type_idx = extra[offset + 2 + j] as usize;
+                flags |= TypeFlags::propagate_from(self.flags[field_type_idx]);
+            }
+            offset += 2 + field_count;
+        }
+
+        flags
     }
 
     // === Extra Array Accessors ===
