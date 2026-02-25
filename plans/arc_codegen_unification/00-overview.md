@@ -1,5 +1,7 @@
 # Section 00 — Overview
 
+> **SUPERSEDED (2026-02-25):** This plan has been superseded by [`plans/aot_codegen_pipeline/`](../aot_codegen_pipeline/00-overview.md). The Tier 1 removal, ARC unification, and all codegen gap closure work was completed in Sections 01-10 of the AOT codegen pipeline. Refer to that plan for the current state.
+
 ## Goal
 
 Remove the Tier 1 / Tier 2 feature flag and unify to a single ARC-based codegen pipeline.

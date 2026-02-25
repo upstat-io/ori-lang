@@ -14,6 +14,8 @@ paths:
 
 Inspired by Lean 4's LCNF IR and three-way type classification (`Scalar`/`DefiniteRef`/`PossibleRef`). Backend-independent — `ori_arc` has no LLVM dependency. The `arc_emitter` in `ori_llvm` translates ARC IR to LLVM IR.
 
+**Sole codegen path**: As of 2026-02-24, the ARC pipeline is the only codegen path. The previous Tier 1 (`ExprLowerer`) was removed entirely (~11K lines deleted). All LLVM code generation goes through ARC IR. See `plans/aot_codegen_pipeline/` for the full 12-section plan that unified the pipeline.
+
 ## Pipeline
 
 Canonical pass ordering (do NOT reorder or skip passes):
@@ -28,9 +30,10 @@ CanExpr → lower → ArcFunction
   → reset/reuse detection
   → expand reset/reuse
   → RC elimination (dataflow-based dead RC removal)
+  → cross-block RC elimination (inc/dec pairs across basic blocks)
 ```
 
-Entry points: `run_arc_pipeline()` (single function), `run_arc_pipeline_all()` (batch with borrow application).
+Entry points: `run_arc_pipeline()` (single function), `run_arc_pipeline_all()` (batch with borrow application). Borrow signatures are cached per session — recompilation of unchanged function bodies reuses cached sigs.
 
 ## Key Types
 

@@ -29,6 +29,26 @@
 //! - `option[str]` → **`DefiniteRef`** (contains heap-allocated string)
 //! - `option[T]` where `T` is unresolved → **`PossibleRef`** (conservative)
 //!
+//! # Pipeline (canonical pass ordering)
+//!
+//! ```text
+//! CanExpr → lower → ArcFunction
+//!   → borrow inference (Owned/Borrowed per param)
+//!   → derived ownership (all locals)
+//!   → dominator tree
+//!   → liveness + refined liveness
+//!   → RC insertion (RcInc/RcDec)
+//!   → reset/reuse detection → expansion
+//!   → RC identity propagation (Project roots)
+//!   → RC elimination (dataflow-based)
+//!   → cross-block RC elimination
+//!   → FBIP enforcement (#fbip functions)
+//! ```
+//!
+//! Entry: [`run_arc_pipeline()`] (single function),
+//! [`run_arc_pipeline_all()`] (batch with borrow application).
+//! This is the **sole codegen path** — Tier 1 (`ExprLowerer`) was removed.
+//!
 //! # Crate Dependencies
 //!
 //! `ori_arc` depends on `ori_types` (for `Pool`/`Idx`/`Tag`) and `ori_ir`
