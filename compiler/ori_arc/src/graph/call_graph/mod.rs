@@ -48,7 +48,21 @@ impl CallGraph {
     /// External callees (e.g., `ori_*` runtime functions) appear in callee
     /// sets but not in [`functions()`] — they are not graph nodes.
     pub fn build(functions: &[ArcFunction]) -> Self {
-        let function_names: FxHashSet<Name> = functions.iter().map(|f| f.name).collect();
+        Self::build_inner(functions.iter())
+    }
+
+    /// Build a call graph from `(Name, ArcFunction)` pairs.
+    ///
+    /// Zero-copy variant of [`build`](Self::build) for Salsa-returned
+    /// `Vec<(Name, ArcFunction)>` — avoids cloning all functions into a
+    /// separate `Vec<ArcFunction>` just to strip the names.
+    pub fn build_from_pairs(functions: &[(Name, ArcFunction)]) -> Self {
+        Self::build_inner(functions.iter().map(|(_, f)| f))
+    }
+
+    /// Shared implementation for [`build`] and [`build_from_pairs`].
+    fn build_inner<'a>(functions: impl Iterator<Item = &'a ArcFunction> + Clone) -> Self {
+        let function_names: FxHashSet<Name> = functions.clone().map(|f| f.name).collect();
 
         let mut callees: FxHashMap<Name, FxHashSet<Name>> = FxHashMap::default();
         let mut callers: FxHashMap<Name, FxHashSet<Name>> = FxHashMap::default();

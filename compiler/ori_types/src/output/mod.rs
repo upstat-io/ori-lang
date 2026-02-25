@@ -14,8 +14,6 @@
 use ori_diagnostic::ErrorGuaranteed;
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, Span};
 
-use rustc_hash::FxHashMap;
-
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError, TypeCheckWarning};
 
@@ -69,7 +67,7 @@ pub enum GenericArg {
 /// the same function and arguments are the same specialization, regardless of
 /// where the call site is. This matches Rust's `(DefId, GenericArgsRef)` and
 /// Zig's `(generic_owner, comptime_args[])` caching keys.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MonoInstance {
     /// The generic function being instantiated.
     pub fn_name: Name,
@@ -83,17 +81,11 @@ pub struct MonoInstance {
     pub concrete_return_type: Idx,
     /// Maps generic `Idx` → concrete `Idx` for body expression types.
     ///
-    /// The ARC lowerer uses this to substitute types when lowering the shared
-    /// canonical IR body into a monomorphized ARC function (matching Swift's
-    /// clone-and-substitute strategy for ARC-managed code).
-    pub body_type_map: FxHashMap<Idx, Idx>,
-}
-
-impl std::hash::Hash for MonoInstance {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.fn_name.hash(state);
-        self.generic_args.hash(state);
-    }
+    /// Sorted by key for deterministic `Eq`/`Hash` (required by Salsa early
+    /// cutoff). The ARC lowerer converts this to `FxHashMap` for O(1) lookup
+    /// when lowering the shared canonical IR body into a monomorphized ARC
+    /// function (matching Swift's clone-and-substitute strategy).
+    pub body_type_map: Vec<(Idx, Idx)>,
 }
 
 /// Type-checked module.
