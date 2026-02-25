@@ -183,7 +183,7 @@ arc.rs, aot tests, llvm-test.sh
 ---
 
 ### Section 12: Per-Function Salsa Borrow Inference
-**File:** `section-12-per-function-salsa-borrow.md` | **Status:** Not Started
+**File:** `section-12-per-function-salsa-borrow.md` | **Status:** In Progress
 
 ```
 Salsa, per-function, incremental, SCC, strongly connected component
