@@ -3,7 +3,7 @@ use ori_types::{Idx, Pool};
 use rustc_hash::FxHashSet;
 
 use crate::ir::{ArcBlock, ArcInstr, ArcTerminator, ArcValue, ArgOwnership, CtorKind, LitValue};
-use crate::ownership::Ownership;
+use crate::ownership::{AnnotatedSig, Ownership};
 use crate::test_helpers::{b, make_func_named as make_func, owned_param as param, v};
 use crate::ArcClassifier;
 
@@ -868,6 +868,545 @@ fn derived_block_params_are_owned() {
 
     // v1 is a block param → Owned
     assert_eq!(ownership[1], DerivedOwnership::Owned);
+}
+
+// ── Per-SCC inference: infer_borrow_single ──────────────
+
+use super::{extract_callees, infer_borrow_fixed_point, infer_borrow_single};
+use rustc_hash::FxHashMap;
+
+#[test]
+fn single_leaf_function_all_borrowed() {
+    // No calls → all ref-typed params stay Borrowed.
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR), param(1, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(2),
+                ty: Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: crate::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0), v(1)],
+                },
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::INT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sig = infer_borrow_single(
+        &func,
+        &FxHashMap::default(),
+        &classifier,
+        &FxHashSet::default(),
+    );
+
+    assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
+    assert_eq!(sig.params[1].ownership, Ownership::Borrowed);
+}
+
+#[test]
+fn single_with_construct_becomes_owned() {
+    // Param stored in struct → Owned.
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::UNIT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Construct {
+                dst: v(1),
+                ty: Idx::UNIT,
+                ctor: CtorKind::Tuple,
+                args: vec![v(0)],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::UNIT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sig = infer_borrow_single(
+        &func,
+        &FxHashMap::default(),
+        &classifier,
+        &FxHashSet::default(),
+    );
+
+    assert_eq!(sig.params[0].ownership, Ownership::Owned);
+}
+
+#[test]
+fn single_with_return_becomes_owned() {
+    // Param returned directly → Owned.
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sig = infer_borrow_single(
+        &func,
+        &FxHashMap::default(),
+        &classifier,
+        &FxHashSet::default(),
+    );
+
+    assert_eq!(sig.params[0].ownership, Ownership::Owned);
+}
+
+#[test]
+fn single_with_callee_owned_promotes() {
+    // Callee expects Owned → param promoted.
+    use crate::ownership::AnnotatedParam;
+
+    let callee_sig = AnnotatedSig {
+        params: vec![AnnotatedParam {
+            name: Name::from_raw(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::STR,
+    };
+    let mut external = FxHashMap::default();
+    external.insert(Name::from_raw(99), callee_sig);
+
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(99),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sig = infer_borrow_single(&func, &external, &classifier, &FxHashSet::default());
+
+    assert_eq!(sig.params[0].ownership, Ownership::Owned);
+}
+
+#[test]
+fn single_with_callee_borrowed_stays_borrowed() {
+    // Callee expects Borrowed → param stays Borrowed.
+    use crate::ownership::AnnotatedParam;
+
+    let callee_sig = AnnotatedSig {
+        params: vec![AnnotatedParam {
+            name: Name::from_raw(0),
+            ty: Idx::STR,
+            ownership: Ownership::Borrowed,
+        }],
+        return_type: Idx::INT,
+    };
+    let mut external = FxHashMap::default();
+    external.insert(Name::from_raw(99), callee_sig);
+
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::INT,
+                func: Name::from_raw(99),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::INT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sig = infer_borrow_single(&func, &external, &classifier, &FxHashSet::default());
+
+    assert_eq!(sig.params[0].ownership, Ownership::Borrowed);
+}
+
+/// Property: `infer_borrow_single` matches `infer_borrows` for non-recursive funcs.
+#[test]
+fn single_matches_whole_program() {
+    // A leaf function with mixed params (some stored, some just read).
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR), param(1, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Let {
+                    dst: v(2),
+                    ty: Idx::INT,
+                    value: ArcValue::PrimOp {
+                        op: crate::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                        args: vec![v(0), v(1)],
+                    },
+                },
+                ArcInstr::Construct {
+                    dst: v(3),
+                    ty: Idx::UNIT,
+                    ctor: CtorKind::Tuple,
+                    args: vec![v(1)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::INT, Idx::UNIT],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let no_builtins = FxHashSet::default();
+
+    let whole = infer_borrows(std::slice::from_ref(&func), &classifier, &no_builtins);
+    let single = infer_borrow_single(&func, &FxHashMap::default(), &classifier, &no_builtins);
+
+    let whole_sig = &whole[&Name::from_raw(1)];
+    assert_eq!(whole_sig.params[0].ownership, single.params[0].ownership);
+    assert_eq!(whole_sig.params[1].ownership, single.params[1].ownership);
+}
+
+// ── Per-SCC inference: infer_borrow_fixed_point ─────────
+
+#[test]
+fn fixed_point_mutual_recursion() {
+    // fn f(x: str) -> str { g(x) }
+    // fn g(y: str) -> str { f(y) }
+    // Both just pass through — converge as Borrowed.
+    let f = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let g = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(1),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = infer_borrow_fixed_point(
+        &[&f, &g],
+        &FxHashMap::default(),
+        &classifier,
+        &FxHashSet::default(),
+    );
+
+    assert_eq!(
+        sigs[&Name::from_raw(1)].params[0].ownership,
+        Ownership::Borrowed
+    );
+    assert_eq!(
+        sigs[&Name::from_raw(2)].params[0].ownership,
+        Ownership::Borrowed
+    );
+}
+
+#[test]
+fn fixed_point_with_external_callee() {
+    // fn f(x: str) -> str { external(x) }   — external expects Owned
+    // fn g(y: str) -> str { f(y) }           — propagates from f
+    use crate::ownership::AnnotatedParam;
+
+    let external_sig = AnnotatedSig {
+        params: vec![AnnotatedParam {
+            name: Name::from_raw(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        return_type: Idx::STR,
+    };
+    let mut external = FxHashMap::default();
+    external.insert(Name::from_raw(99), external_sig);
+
+    let f = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(99), // external
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let g = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(1), // calls f
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let sigs = infer_borrow_fixed_point(&[&f, &g], &external, &classifier, &FxHashSet::default());
+
+    // f passes to external Owned → f's param is Owned
+    assert_eq!(
+        sigs[&Name::from_raw(1)].params[0].ownership,
+        Ownership::Owned
+    );
+    // g passes to f's Owned → g's param is Owned
+    assert_eq!(
+        sigs[&Name::from_raw(2)].params[0].ownership,
+        Ownership::Owned
+    );
+}
+
+/// Property: `infer_borrow_fixed_point` matches `infer_borrows` for recursive SCCs.
+#[test]
+fn fixed_point_matches_whole_program() {
+    // fn f(x: str) -> str { g(x) }
+    // fn g(y: str) -> str { let t = Tuple(y); return t.0 }
+    let f = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(1),
+                ty: Idx::STR,
+                func: Name::from_raw(2),
+                args: vec![v(0)],
+                arg_ownership: vec![ArgOwnership::Owned; 1],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let g = make_func(
+        Name::from_raw(2),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Construct {
+                    dst: v(1),
+                    ty: Idx::UNIT,
+                    ctor: CtorKind::Tuple,
+                    args: vec![v(0)],
+                },
+                ArcInstr::Project {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    value: v(1),
+                    field: 0,
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::STR, Idx::UNIT, Idx::STR],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let no_builtins = FxHashSet::default();
+
+    let whole = infer_borrows(&[f.clone(), g.clone()], &classifier, &no_builtins);
+    let per_scc =
+        infer_borrow_fixed_point(&[&f, &g], &FxHashMap::default(), &classifier, &no_builtins);
+
+    for name in [Name::from_raw(1), Name::from_raw(2)] {
+        let whole_sig = &whole[&name];
+        let scc_sig = &per_scc[&name];
+        assert_eq!(
+            whole_sig.params[0].ownership, scc_sig.params[0].ownership,
+            "mismatch for function {name:?}"
+        );
+    }
+}
+
+// ── extract_callees ─────────────────────────────────────
+
+#[test]
+fn extract_callees_finds_apply_and_partial() {
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Apply {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(10),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                },
+                ArcInstr::PartialApply {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    func: Name::from_raw(20),
+                    args: vec![v(0)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::STR],
+    );
+
+    let callees = extract_callees(&func);
+    assert!(callees.contains(&Name::from_raw(10)));
+    assert!(callees.contains(&Name::from_raw(20)));
+    assert_eq!(callees.len(), 2);
+}
+
+#[test]
+fn extract_callees_finds_invoke() {
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::STR,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(42),
+                    args: vec![v(0)],
+                    arg_ownership: vec![ArgOwnership::Owned; 1],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let callees = extract_callees(&func);
+    assert!(callees.contains(&Name::from_raw(42)));
+    assert_eq!(callees.len(), 1);
+}
+
+#[test]
+fn extract_callees_ignores_indirect() {
+    let func = make_func(
+        Name::from_raw(1),
+        vec![param(0, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::ApplyIndirect {
+                dst: v(1),
+                ty: Idx::INT,
+                closure: v(0),
+                args: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::INT],
+    );
+
+    let callees = extract_callees(&func);
+    assert!(
+        callees.is_empty(),
+        "indirect calls should not appear as callees"
+    );
 }
 
 /// Let alias inherits from source.

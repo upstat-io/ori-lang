@@ -1,4 +1,4 @@
-//! Salsa-tracked types for ARC borrow inference.
+//! Salsa-tracked types and queries for ARC borrow inference.
 //!
 //! Bridges `ori_arc`'s ARC IR into `oric`'s Salsa database for
 //! incremental borrow inference (Section 12).
@@ -17,6 +17,13 @@
 //! rather than input fields gives an extra layer of Salsa early cutoff: if a
 //! function body changes but the call graph structure doesn't, SCC-dependent
 //! borrow inference queries are skipped entirely.
+//!
+//! ## Per-SCC queries (Sections 12.4–12.6)
+//!
+//! [`arc_scc_decomposition`] computes the SCC structure from function IR.
+//! [`infer_borrow_scc`] performs borrow inference for a single SCC, querying
+//! callee SCCs via Salsa dependency edges. This enables incremental
+//! recompilation: changing a function only re-analyzes its SCC and dependents.
 
 use ori_arc::{AnnotatedSig, ArcFunction};
 use ori_ir::Name;
@@ -146,4 +153,226 @@ impl BorrowSigResult {
     pub fn iter(&self) -> impl Iterator<Item = &(Name, AnnotatedSig)> {
         self.sigs.iter()
     }
+}
+
+// ── SCC Decomposition (Section 12.4) ───────────────────────────────
+
+/// Salsa-compatible SCC decomposition of the call graph.
+///
+/// Stores the SCCs in topological order (callees before callers), with
+/// parallel arrays for recursion flags and a sorted index for O(log n)
+/// function→SCC lookup.
+///
+/// Unlike [`CallGraph`](ori_arc::CallGraph) which contains `FxHashMap`/`FxHashSet`
+/// (no `Eq`/`Hash`), this type is fully Salsa-compatible. The `CallGraph` is
+/// computed transiently inside [`arc_scc_decomposition`] and discarded.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SccDecomposition {
+    /// SCCs in topological order (callees before callers).
+    pub sccs: Vec<ori_arc::Scc>,
+    /// Parallel array: whether each SCC is recursive (self or mutual).
+    recursive: Vec<bool>,
+    /// Function name → SCC index, sorted by Name for binary search.
+    scc_index: Vec<(Name, u32)>,
+}
+
+impl SccDecomposition {
+    /// Look up which SCC a function belongs to.
+    pub fn scc_of(&self, name: Name) -> Option<u32> {
+        self.scc_index
+            .binary_search_by_key(&name, |(n, _)| *n)
+            .ok()
+            .map(|idx| self.scc_index[idx].1)
+    }
+
+    /// Whether the SCC at `scc_index` is recursive.
+    pub fn is_recursive(&self, scc_index: u32) -> bool {
+        self.recursive
+            .get(scc_index as usize)
+            .copied()
+            .unwrap_or(false)
+    }
+
+    /// Number of SCCs.
+    pub fn len(&self) -> usize {
+        self.sccs.len()
+    }
+
+    /// Whether the decomposition is empty.
+    pub fn is_empty(&self) -> bool {
+        self.sccs.is_empty()
+    }
+}
+
+/// Compute the SCC decomposition of a module's call graph (Section 12.4).
+///
+/// Builds a transient [`CallGraph`](ori_arc::CallGraph) from the module's
+/// functions, computes SCCs via Tarjan's algorithm, then extracts the
+/// Salsa-compatible [`SccDecomposition`].
+///
+/// # Early Cutoff
+///
+/// If function bodies change but the call structure doesn't, the
+/// `SccDecomposition` is unchanged → per-SCC queries are skipped.
+#[salsa::tracked]
+pub fn arc_scc_decomposition(db: &dyn crate::db::Db, module: ArcModuleInput) -> SccDecomposition {
+    let function_list = module.function_list(db);
+    tracing::debug!(
+        function_count = function_list.len(),
+        "computing SCC decomposition"
+    );
+
+    // Build transient call graph (not stored in Salsa).
+    let call_graph = ori_arc::CallGraph::build(&function_list);
+    let sccs = ori_arc::compute_sccs(&call_graph);
+
+    // Extract recursion flags.
+    let recursive: Vec<bool> = sccs
+        .iter()
+        .map(|scc| scc.is_recursive(&call_graph))
+        .collect();
+
+    // Build sorted name→SCC index.
+    let mut scc_index = Vec::new();
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "SCC count bounded by function count, fits in u32"
+    )]
+    for (idx, scc) in sccs.iter().enumerate() {
+        for &member in &scc.members {
+            scc_index.push((member, idx as u32));
+        }
+    }
+    scc_index.sort_by_key(|(name, _)| *name);
+
+    tracing::debug!(scc_count = sccs.len(), "SCC decomposition complete");
+
+    SccDecomposition {
+        sccs,
+        recursive,
+        scc_index,
+    }
+}
+
+/// Infer borrow annotations for a single SCC (Section 12.4).
+///
+/// This is the core incremental query. For each SCC:
+/// - Non-recursive: single-pass via [`infer_borrow_single`](ori_arc::infer_borrow_single)
+/// - Recursive: fixed-point via [`infer_borrow_fixed_point`](ori_arc::infer_borrow_fixed_point)
+///
+/// External callee sigs are obtained by querying `infer_borrow_scc` for
+/// the callee's SCC, creating Salsa dependency edges. This is the mechanism
+/// for incremental invalidation: changing a function invalidates its SCC,
+/// which invalidates any SCC that depends on it.
+#[salsa::tracked]
+pub fn infer_borrow_scc(
+    db: &dyn crate::db::Db,
+    module: ArcModuleInput,
+    scc_index: u32,
+) -> BorrowSigResult {
+    let decomp = arc_scc_decomposition(db, module);
+    let scc = &decomp.sccs[scc_index as usize];
+
+    tracing::debug!(
+        scc_index,
+        member_count = scc.members.len(),
+        is_recursive = decomp.is_recursive(scc_index),
+        "inferring borrows for SCC"
+    );
+
+    // Collect external callee sigs from other SCCs.
+    let external_sigs = collect_callee_sigs(db, module, &decomp, scc, scc_index);
+
+    // Get classifier from Pool cache.
+    let pool_arc = match db.pool_cache().get(module.path(db)) {
+        Some(pool) => pool,
+        None => {
+            tracing::warn!("Pool not cached for module — returning empty sigs");
+            return BorrowSigResult::empty();
+        }
+    };
+    let classifier = ori_arc::ArcClassifier::new(&pool_arc);
+
+    // Get borrowing builtins.
+    let borrowing_builtins = ori_llvm::codegen::arc_emitter::borrowing_builtin_names(db.interner());
+
+    // Dispatch based on recursion.
+    if decomp.is_recursive(scc_index) {
+        // Collect ArcFunction refs for SCC members.
+        let funcs: Vec<&ArcFunction> = scc
+            .members
+            .iter()
+            .filter_map(|&name| module.get_function(db, name))
+            .collect();
+
+        let result = ori_arc::infer_borrow_fixed_point(
+            &funcs,
+            &external_sigs,
+            &classifier,
+            &borrowing_builtins,
+        );
+
+        tracing::debug!(sig_count = result.len(), "fixed-point complete");
+        BorrowSigResult::from_map(result)
+    } else {
+        // Single function, single pass.
+        let name = scc.members[0];
+        let Some(func) = module.get_function(db, name) else {
+            tracing::warn!(?name, "SCC member not found in module");
+            return BorrowSigResult::empty();
+        };
+
+        let sig =
+            ori_arc::infer_borrow_single(func, &external_sigs, &classifier, &borrowing_builtins);
+
+        let mut map = FxHashMap::default();
+        map.insert(name, sig);
+        BorrowSigResult::from_map(map)
+    }
+}
+
+/// Collect callee signatures from other SCCs.
+///
+/// For each member of the given SCC, extracts callees via instruction scanning.
+/// Callees in different SCCs trigger `infer_borrow_scc` queries (creating
+/// Salsa dependency edges). Same-SCC callees are skipped (handled by
+/// internal fixed-point). External callees (not in any SCC) are skipped
+/// (handled conservatively as unknown).
+fn collect_callee_sigs(
+    db: &dyn crate::db::Db,
+    module: ArcModuleInput,
+    decomp: &SccDecomposition,
+    scc: &ori_arc::Scc,
+    self_scc_index: u32,
+) -> FxHashMap<Name, AnnotatedSig> {
+    let mut external_sigs = FxHashMap::default();
+
+    for &member_name in &scc.members {
+        let Some(func) = module.get_function(db, member_name) else {
+            continue;
+        };
+
+        for callee_name in ori_arc::extract_callees(func) {
+            // Skip same-SCC callees (handled by fixed-point within the SCC).
+            let Some(callee_scc_idx) = decomp.scc_of(callee_name) else {
+                // External callee (not in any SCC) — skip.
+                continue;
+            };
+            if callee_scc_idx == self_scc_index {
+                continue;
+            }
+
+            // Query the callee's SCC (creates Salsa dependency edge).
+            let callee_result = infer_borrow_scc(db, module, callee_scc_idx);
+            if let Some(sig) = callee_result.get(callee_name) {
+                external_sigs.insert(callee_name, sig.clone());
+            }
+        }
+    }
+
+    tracing::debug!(
+        external_callee_count = external_sigs.len(),
+        "collected callee sigs"
+    );
+    external_sigs
 }

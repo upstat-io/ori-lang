@@ -1,6 +1,6 @@
-//! Tests for ARC borrow inference Salsa types.
+//! Tests for ARC borrow inference Salsa types and queries.
 
-use ori_arc::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcTerminator, ArcVarId};
+use ori_arc::ir::{ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcTerminator, ArcVarId};
 use ori_arc::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use ori_ir::Name;
 use ori_types::Idx;
@@ -255,4 +255,170 @@ fn arc_module_input_function_list() {
         assert_eq!(func.blocks.len(), 1);
         assert_eq!(func.return_type, Idx::UNIT);
     }
+}
+
+// ── SccDecomposition tests ──────────────────────────────────────────
+
+use super::arc_scc_decomposition;
+
+/// Build a function that calls another function.
+///
+/// `fn caller(x: unit) -> unit { callee(x) }`.
+fn calling_function(name: Name, callee: Name) -> ArcFunction {
+    ArcFunction {
+        name,
+        params: vec![],
+        return_type: Idx::UNIT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: ArcVarId::new(0),
+                ty: Idx::UNIT,
+                func: callee,
+                args: vec![],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return {
+                value: ArcVarId::new(0),
+            },
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::UNIT],
+        var_reprs: vec![],
+        spans: vec![],
+        is_fbip: false,
+    }
+}
+
+/// Helper: build a module from a list of (name, function) pairs.
+fn make_module(db: &CompilerDb, funcs: Vec<(Name, ArcFunction)>) -> ArcModuleInput {
+    let mut sorted = funcs;
+    sorted.sort_by_key(|(name, _)| *name);
+    ArcModuleInput::new(db, std::path::PathBuf::from("/test/scc.ori"), sorted)
+}
+
+#[test]
+fn scc_decomposition_single_function() {
+    let db = CompilerDb::new();
+    let interner = db.interner();
+
+    let name_a = interner.intern("scc_a");
+    let func_a = stub_function(name_a);
+    let module = make_module(&db, vec![(name_a, func_a)]);
+
+    let decomp = arc_scc_decomposition(&db, module);
+
+    assert_eq!(decomp.len(), 1);
+    assert_eq!(decomp.scc_of(name_a), Some(0));
+    assert!(!decomp.is_recursive(0));
+}
+
+#[test]
+fn scc_decomposition_linear_chain() {
+    // A→B→C: 3 separate SCCs in topological order (C first, then B, then A).
+    let db = CompilerDb::new();
+    let interner = db.interner();
+
+    let name_a = interner.intern("chain_a");
+    let name_b = interner.intern("chain_b");
+    let name_c = interner.intern("chain_c");
+
+    let func_a = calling_function(name_a, name_b);
+    let func_b = calling_function(name_b, name_c);
+    let func_c = stub_function(name_c);
+
+    let module = make_module(
+        &db,
+        vec![(name_a, func_a), (name_b, func_b), (name_c, func_c)],
+    );
+    let decomp = arc_scc_decomposition(&db, module);
+
+    assert_eq!(decomp.len(), 3, "linear chain → 3 separate SCCs");
+
+    // Each function has its own SCC.
+    let scc_a = decomp.scc_of(name_a).unwrap();
+    let scc_b = decomp.scc_of(name_b).unwrap();
+    let scc_c = decomp.scc_of(name_c).unwrap();
+
+    // All different SCCs.
+    assert_ne!(scc_a, scc_b);
+    assert_ne!(scc_b, scc_c);
+
+    // Topological order: C before B before A.
+    assert!(scc_c < scc_b, "C should come before B in topological order");
+    assert!(scc_b < scc_a, "B should come before A in topological order");
+
+    // None are recursive.
+    assert!(!decomp.is_recursive(scc_a));
+    assert!(!decomp.is_recursive(scc_b));
+    assert!(!decomp.is_recursive(scc_c));
+}
+
+#[test]
+fn scc_decomposition_mutual_recursion() {
+    // A↔B: 1 recursive SCC with 2 members.
+    let db = CompilerDb::new();
+    let interner = db.interner();
+
+    let name_a = interner.intern("mut_a");
+    let name_b = interner.intern("mut_b");
+
+    let func_a = calling_function(name_a, name_b);
+    let func_b = calling_function(name_b, name_a);
+
+    let module = make_module(&db, vec![(name_a, func_a), (name_b, func_b)]);
+    let decomp = arc_scc_decomposition(&db, module);
+
+    assert_eq!(decomp.len(), 1, "mutual recursion → 1 SCC");
+
+    let scc_a = decomp.scc_of(name_a).unwrap();
+    let scc_b = decomp.scc_of(name_b).unwrap();
+    assert_eq!(scc_a, scc_b, "both in same SCC");
+    assert!(decomp.is_recursive(scc_a));
+}
+
+#[test]
+fn scc_of_returns_correct_index() {
+    let db = CompilerDb::new();
+    let interner = db.interner();
+
+    let names: Vec<Name> = (0..5)
+        .map(|i| interner.intern(&format!("idx_{i}")))
+        .collect();
+    let funcs: Vec<(Name, ArcFunction)> = names.iter().map(|&n| (n, stub_function(n))).collect();
+    let module = make_module(&db, funcs);
+    let decomp = arc_scc_decomposition(&db, module);
+
+    // Each function should map to a valid SCC index.
+    for &name in &names {
+        let idx = decomp.scc_of(name);
+        assert!(idx.is_some(), "function should be in an SCC");
+        assert!((idx.unwrap() as usize) < decomp.len());
+    }
+
+    // Non-existent function should return None.
+    let unknown = interner.intern("unknown_func");
+    assert_eq!(decomp.scc_of(unknown), None);
+}
+
+#[test]
+fn scc_decomposition_eq_is_deterministic() {
+    // Same module → same decomposition (deterministic).
+    let db = CompilerDb::new();
+    let interner = db.interner();
+
+    let name_a = interner.intern("det_a");
+    let name_b = interner.intern("det_b");
+
+    let funcs = vec![
+        (name_a, calling_function(name_a, name_b)),
+        (name_b, stub_function(name_b)),
+    ];
+    let module = make_module(&db, funcs);
+
+    let d1 = arc_scc_decomposition(&db, module);
+    let d2 = arc_scc_decomposition(&db, module);
+
+    assert_eq!(d1, d2, "same input should produce equal decompositions");
 }
