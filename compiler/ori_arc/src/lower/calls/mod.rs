@@ -353,6 +353,7 @@ impl ArcLowerer<'_> {
                 hash_length: None,
                 block_let_names: rustc_hash::FxHashSet::default(),
                 variant_ctors: self.variant_ctors,
+                type_subst: self.type_subst,
             };
             let result = lambda_lowerer.lower_expr(body);
             if !lambda_lowerer.builder.is_terminated() {

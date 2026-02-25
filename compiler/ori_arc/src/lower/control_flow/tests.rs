@@ -83,6 +83,7 @@ fn lower_block_with_let() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
@@ -141,6 +142,7 @@ fn lower_if_else_produces_four_blocks() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty());
@@ -202,6 +204,7 @@ fn lower_loop_produces_header_and_exit() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
