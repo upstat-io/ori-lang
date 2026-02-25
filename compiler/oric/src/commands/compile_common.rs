@@ -168,6 +168,7 @@ fn run_borrow_inference(
             pool,
             &mut arc_problems,
             sig.is_fbip,
+            None, // non-generic: no type substitution
         );
         arc_functions.push(arc_fn);
         arc_functions.extend(lambdas);
@@ -352,6 +353,15 @@ pub fn compile_to_llvm<'ctx>(
         );
         fc.declare_all(&parse_result.module.functions, &function_sigs);
 
+        // 4b. Collect and declare monomorphized generic functions
+        let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
+            &type_result.typed.mono_instances,
+            &function_sigs,
+            interner,
+            pool,
+        );
+        fc.declare_mono_functions(&mono_functions);
+
         // 5. Compile impl methods
         if !parse_result.module.impls.is_empty() {
             fc.compile_impls(
@@ -374,6 +384,9 @@ pub fn compile_to_llvm<'ctx>(
 
         // 6. Define all function bodies
         fc.define_all(&parse_result.module.functions, &function_sigs, canon);
+
+        // 6b. Define monomorphized function bodies
+        fc.define_mono_functions(&mono_functions, canon);
 
         // 7. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()
@@ -492,6 +505,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                     type_param_bounds: vec![],
                     where_clauses: vec![],
                     generic_param_mapping: vec![],
+                    scheme_var_ids: vec![],
                     required_params: info.param_types.len(),
                     param_defaults: vec![],
                 };
@@ -537,6 +551,15 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         fc.declare_imports(&import_sigs);
         fc.declare_all(&parse_result.module.functions, &function_sigs);
 
+        // 5b. Collect and declare monomorphized generic functions
+        let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
+            &type_result.typed.mono_instances,
+            &function_sigs,
+            interner,
+            pool,
+        );
+        fc.declare_mono_functions(&mono_functions);
+
         // 6. Compile impl methods
         if !parse_result.module.impls.is_empty() {
             fc.compile_impls(
@@ -559,6 +582,9 @@ pub fn compile_to_llvm_with_imports<'ctx>(
 
         // 7. Define all function bodies
         fc.define_all(&parse_result.module.functions, &function_sigs, canon);
+
+        // 7b. Define monomorphized function bodies
+        fc.define_mono_functions(&mono_functions, canon);
 
         // 8. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()

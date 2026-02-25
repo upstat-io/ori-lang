@@ -1,0 +1,38 @@
+// Benchmark: Small (~30 lines)
+// Exercises: recursion, arithmetic, loops, basic control flow
+// Expected: compute-heavy with minimal allocation
+
+@fibonacci (n: int) -> int = {
+    let a = 0;
+    let b = 1;
+    for _ in 0..n do {
+        let next = a + b;
+        a = b;
+        b = next;
+    };
+    a
+}
+
+@gcd (a: int, b: int) -> int =
+    if b == 0 then a
+    else gcd(a: b, b: a % b);
+
+@collatz_steps (n: int) -> int = {
+    let steps = 0;
+    let val = n;
+    for _ in 0..10000 do {
+        if val == 1 then break;
+        if val % 2 == 0 then val = val / 2
+        else val = val * 3 + 1;
+        steps = steps + 1;
+    };
+    steps
+}
+
+@main () -> int = {
+    let fib_result = fibonacci(n: 30);
+    let gcd_result = gcd(a: 48, b: 18);
+    let collatz = collatz_steps(n: 27);
+
+    if fib_result == 832040 && gcd_result == 6 && collatz == 111 then 0 else 1
+}

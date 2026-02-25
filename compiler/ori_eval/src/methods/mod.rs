@@ -53,6 +53,7 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) hash: Name,
     pub(crate) contains: Name,
     pub(crate) len: Name,
+    pub(crate) length: Name,
     pub(crate) is_empty: Name,
     pub(crate) not: Name,
     pub(crate) unwrap: Name,
@@ -74,6 +75,8 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) starts_with: Name,
     pub(crate) ends_with: Name,
     pub(crate) escape: Name,
+    pub(crate) replace: Name,
+    pub(crate) repeat: Name,
 
     // Collection (list-specific)
     pub(crate) first: Name,
@@ -94,6 +97,7 @@ pub(crate) struct BuiltinMethodNames {
     // Variant (Result-specific)
     pub(crate) is_ok: Name,
     pub(crate) is_err: Name,
+    pub(crate) unwrap_err: Name,
 
     // Ordering
     pub(crate) is_less: Name,
@@ -163,6 +167,7 @@ impl BuiltinMethodNames {
             hash: interner.intern("hash"),
             contains: interner.intern("contains"),
             len: interner.intern("len"),
+            length: interner.intern("length"),
             is_empty: interner.intern("is_empty"),
             not: interner.intern("not"),
             unwrap: interner.intern("unwrap"),
@@ -182,6 +187,8 @@ impl BuiltinMethodNames {
             starts_with: interner.intern("starts_with"),
             ends_with: interner.intern("ends_with"),
             escape: interner.intern("escape"),
+            replace: interner.intern("replace"),
+            repeat: interner.intern("repeat"),
             // List
             first: interner.intern("first"),
             last: interner.intern("last"),
@@ -198,6 +205,7 @@ impl BuiltinMethodNames {
             // Result
             is_ok: interner.intern("is_ok"),
             is_err: interner.intern("is_err"),
+            unwrap_err: interner.intern("unwrap_err"),
             // Ordering
             is_less: interner.intern("is_less"),
             is_equal: interner.intern("is_equal"),

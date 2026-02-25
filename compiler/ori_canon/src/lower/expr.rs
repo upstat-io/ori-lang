@@ -175,19 +175,20 @@ impl Lowerer<'_> {
             }
             ExprKind::For {
                 label,
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
                 is_yield,
             } => {
+                let can_pattern = self.lower_binding_pattern(pattern);
                 let iter = self.lower_expr(iter);
                 let guard = self.lower_optional(guard);
                 let body = self.lower_expr(body);
                 self.push(
                     CanExpr::For {
                         label,
-                        binding,
+                        pattern: can_pattern,
                         iter,
                         guard,
                         body,

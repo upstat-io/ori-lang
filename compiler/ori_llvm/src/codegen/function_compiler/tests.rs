@@ -32,6 +32,7 @@ fn make_sig(
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params,
         param_defaults: vec![],
     }
@@ -222,6 +223,7 @@ fn generic_functions_are_skipped() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     };

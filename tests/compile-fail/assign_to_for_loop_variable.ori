@@ -1,0 +1,7 @@
+// Spec: 05-variables.md § Immutability — loop variables are immutable.
+// For-loop iteration variables are rebound each iteration; user reassignment is an error.
+
+#[compile_fail("cannot assign to immutable binding")]
+@test_assign_for_var tests _ () -> void = {
+    for x in [1, 2, 3] do x = 5
+}

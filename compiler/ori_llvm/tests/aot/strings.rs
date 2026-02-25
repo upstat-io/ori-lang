@@ -536,7 +536,6 @@ fn test_str_replace() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.split not in builtin table"]
 fn test_str_split() {
     assert_aot_success(
         r#"
@@ -565,7 +564,6 @@ fn test_str_repeat() {
 }
 
 #[test]
-#[ignore = "AOT gap: str.chars returns [char], needs list return infrastructure"]
 fn test_str_chars() {
     assert_aot_success(
         r#"

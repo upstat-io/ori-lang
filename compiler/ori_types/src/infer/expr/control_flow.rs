@@ -1,9 +1,9 @@
 //! Control flow inference — if, match, for, loop, break, continue.
 
-use ori_ir::{ExprArena, ExprId, Name, Span};
+use ori_ir::{BindingPatternId, ExprArena, ExprId, Name, Span};
 
 use super::super::InferEngine;
-use super::{infer_expr, lookup_struct_field_types};
+use super::{bind_pattern, infer_expr, lookup_struct_field_types};
 use crate::{
     ContextKind, Expected, ExpectedOrigin, Idx, PatternKey, SequenceKind, Tag, TypeCheckError,
     VariantFields,
@@ -580,7 +580,7 @@ pub(crate) fn substitute_type_params_with_map(
 pub(crate) fn infer_for(
     engine: &mut InferEngine<'_>,
     arena: &ExprArena,
-    binding: Name,
+    pattern: BindingPatternId,
     iter: ExprId,
     guard: ExprId,
     body: ExprId,
@@ -634,9 +634,10 @@ pub(crate) fn infer_for(
         }
     };
 
-    // Bind the loop variable
+    // Bind the loop pattern (supports name, tuple, wildcard, struct, list)
     engine.push_context(ContextKind::ForBinding);
-    engine.env_mut().bind(binding, elem_ty);
+    let pat = arena.get_binding_pattern(pattern);
+    bind_pattern(engine, arena, pat, elem_ty);
     engine.pop_context();
 
     // Check guard if present (must be bool)

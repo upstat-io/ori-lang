@@ -537,7 +537,6 @@ type Pt = { x: int, y: int }
 // ─── Combined: structs + closures + iteration ───
 
 #[test]
-#[ignore = "AOT gap: .map(r -> r.score) closure accessing struct field produces invalid LLVM IR"]
 fn test_stress_combined_struct_closure_iteration() {
     assert_aot_success(
         r#"

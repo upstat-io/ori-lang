@@ -123,20 +123,14 @@ use std.testing { assert, assert_eq }
 @test_for_tuple_destructure tests @for_tuple_destructure () -> void = {
     let pairs = [(1, "a"), (2, "b"), (3, "c")];
     let sum = 0;
-    for pair in pairs do {
-        let (n, s) = pair;
-        sum = sum + n
-    };
+    for (n, _) in pairs do sum = sum + n;
     assert_eq(actual: sum, expected: 6)
 }
 
 @for_tuple_destructure () -> int = {
     let pairs = [(1, "a"), (2, "b")];
     let sum = 0;
-    for pair in pairs do {
-        let (n, s) = pair;
-        sum = sum + n
-    };
+    for (n, _) in pairs do sum = sum + n;
     sum
 }
 
@@ -478,4 +472,95 @@ type Point = { x: int, y: int }
         if sum >= 10 then break
     };
     sum
+}
+
+// =============================================================================
+// Break in for-do with mutable variables (SSA exit block params)
+// =============================================================================
+
+// Break in for-range preserves mutable variable values at point of break.
+@test_for_range_break_with_mutation tests @for_range_break_mutation () -> void = {
+    assert_eq(actual: for_range_break_mutation(), expected: 10)
+}
+
+@for_range_break_mutation () -> int = {
+    let count = 0;
+    for i in 0..100 do {
+        if i == 10 then break;
+        count = count + 1;
+    };
+    count
+}
+
+// Break in for-range with multiple mutable variables.
+@test_for_range_break_multi_mutation tests @for_range_break_multi () -> void = {
+    assert_eq(actual: for_range_break_multi(), expected: 111)
+}
+
+@for_range_break_multi () -> int = {
+    let steps = 0;
+    let val = 27;
+    for _ in 0..10000 do {
+        if val == 1 then break;
+        if val % 2 == 0 then val = val / 2
+        else val = val * 3 + 1;
+        steps = steps + 1;
+    };
+    steps  // Collatz sequence for 27 takes 111 steps
+}
+
+// Break in for-iterator (list iteration) preserves mutations.
+@test_for_iter_break_with_mutation tests @for_iter_break_mutation () -> void = {
+    assert_eq(actual: for_iter_break_mutation(), expected: 10)
+}
+
+@for_iter_break_mutation () -> int = {
+    let xs = for i in 0..20 yield i;
+    let sum = 0;
+    for x in xs do {
+        if x >= 5 then break;
+        sum = sum + x;
+    };
+    sum  // 0 + 1 + 2 + 3 + 4 = 10
+}
+
+// Continue in for-range with mutations (already worked, verifying).
+@test_for_range_continue_with_mutation tests @for_range_continue_mutation () -> void = {
+    assert_eq(actual: for_range_continue_mutation(), expected: 25)
+}
+
+@for_range_continue_mutation () -> int = {
+    let sum = 0;
+    for i in 0..10 do {
+        if i % 2 == 0 then continue;
+        sum = sum + i;
+    };
+    sum  // 1 + 3 + 5 + 7 + 9 = 25
+}
+
+// Break + continue combined in same for-do with mutations.
+@test_for_break_continue_combined tests @for_break_continue_combined () -> void = {
+    assert_eq(actual: for_break_continue_combined(), expected: 9)
+}
+
+@for_break_continue_combined () -> int = {
+    let sum = 0;
+    for i in 0..100 do {
+        if i >= 7 then break;
+        if i % 2 == 0 then continue;
+        sum = sum + i;
+    };
+    sum  // 1 + 3 + 5 = 9
+}
+
+// Break in for-do with no mutable variables (edge case: exit params are just break value).
+@test_for_break_no_mutation tests @for_break_no_mutation () -> void = {
+    assert_eq(actual: for_break_no_mutation(), expected: 42)
+}
+
+@for_break_no_mutation () -> int = {
+    for i in 0..100 do {
+        if i == 5 then break;
+    };
+    42
 }

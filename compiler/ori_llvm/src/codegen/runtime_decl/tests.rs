@@ -48,7 +48,10 @@ fn runtime_functions_declared() {
         "ori_list_reverse",
         // Maps
         "ori_map_contains_key",
+        "ori_map_get",
+        "ori_map_insert",
         "ori_map_keys_to_list",
+        "ori_map_remove",
         "ori_map_values_to_list",
         // Comparison
         "ori_compare_int",
@@ -61,6 +64,8 @@ fn runtime_functions_declared() {
         "ori_str_compare",
         "ori_str_hash",
         "ori_str_next_char",
+        "ori_str_chars",
+        "ori_str_split",
         // Type conversions
         "ori_str_from_int",
         "ori_str_from_bool",

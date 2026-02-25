@@ -676,6 +676,7 @@ impl TestRunner {
                 &type_result.typed.types,
                 &type_result.typed.impl_sigs,
                 &imported_for_codegen,
+                &type_result.typed.mono_instances,
             )
         }));
 

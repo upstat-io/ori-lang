@@ -225,13 +225,12 @@ impl Parser<'_> {
         // Parse optional label: for:label
         let label = self.parse_optional_label();
 
-        // Parse binding name or wildcard (_)
-        let binding = if self.cursor.check(&TokenKind::Underscore) {
-            self.cursor.advance();
-            self.cursor.interner().intern("_")
-        } else {
-            committed!(self.cursor.expect_ident())
-        };
+        // Parse binding pattern (name, wildcard, tuple, struct, list)
+        let mut pattern = committed!(self.parse_binding_pattern());
+        // Per spec (§05-variables.md): for-loop variables are immutable.
+        // Enforce at the parser level so all downstream phases agree.
+        pattern.force_immutable();
+        let pattern_id = self.arena.alloc_binding_pattern(pattern);
 
         // Expect `in` keyword
         committed!(self.cursor.expect(&TokenKind::In));
@@ -278,7 +277,7 @@ impl Parser<'_> {
         ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
             ExprKind::For {
                 label,
-                binding,
+                pattern: pattern_id,
                 iter,
                 guard,
                 body,

@@ -165,12 +165,13 @@ fn infer_function_signature_with_arena(
         })
         .collect();
 
-    // Collect var IDs for scheme creation (sorted for determinism)
-    let mut var_ids: Vec<u32> = type_param_vars
-        .values()
-        .map(|idx| checker.pool().data(*idx))
+    // Collect var IDs parallel to type_params (NOT HashMap iteration order).
+    // This ensures scheme_var_ids[i] corresponds to type_params[i] and
+    // generic_param_mapping[i] — needed for monomorphization substitution.
+    let var_ids: Vec<u32> = type_params
+        .iter()
+        .map(|name| checker.pool().data(type_param_vars[name]))
         .collect();
-    var_ids.sort_unstable();
 
     // Resolve parameter types using the generic param mapping
     // Clone params to avoid borrow conflicts - params slice borrows arena,
@@ -264,6 +265,7 @@ fn infer_function_signature_with_arena(
         type_param_bounds,
         where_clauses,
         generic_param_mapping,
+        scheme_var_ids: var_ids.clone(),
         required_params,
         param_defaults,
     };
@@ -324,6 +326,7 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         type_param_bounds: Vec::new(),
         where_clauses: Vec::new(),
         generic_param_mapping: Vec::new(),
+        scheme_var_ids: Vec::new(),
         required_params,
         param_defaults,
     }

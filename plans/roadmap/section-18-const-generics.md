@@ -50,6 +50,7 @@ sections:
 **Criticality**: Medium — Type-level programming, fixed-size arrays
 
 **Dependencies**: Sections 1-2 (Type System Foundation)
+**Blocked by**: `plans/monomorphization/` — base monomorphization infrastructure must be complete before const generics can be compiled through AOT. The `GenericArg` enum and `MonoInstance` pipeline handle both type and const value arguments.
 
 ---
 
