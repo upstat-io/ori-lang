@@ -1,0 +1,20 @@
+// Valgrind test: large collection allocation and iterator lifecycle.
+// Exercises: 10K element list, iterator adapters, collect operations.
+
+@main () -> int = {
+    // Build large list
+    let xs = for i in 0..10000 yield i;
+    let sum = xs.iter().fold(start: 0, f: (acc: int, x: int) -> int = acc + x);
+
+    // Filter chain
+    let evens = xs.iter().filter(x -> x % 2 == 0).count();
+
+    // Multi-adapter pipeline
+    let result = xs.iter()
+        .map(x -> x * 2)
+        .filter(x -> x % 4 == 0)
+        .take(1000)
+        .fold(start: 0, f: (acc: int, x: int) -> int = acc + x);
+
+    if sum == 49995000 && evens == 5000 && result > 0 then 0 else 1
+}

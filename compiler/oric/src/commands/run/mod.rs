@@ -2,7 +2,7 @@
 
 use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 use oric::query::evaluated;
-use oric::{CompilerDb, Db, SourceFile};
+use oric::{CompilerDb, SourceFile};
 use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
@@ -83,12 +83,15 @@ fn report_eval_result(
         std::process::exit(1);
     }
 
-    // Print the result if it's not void
+    // Handle @main return value per spec § 18-program-execution:
+    // - @main () -> void: exit code 0 (no output)
+    // - @main () -> int: exit code = returned value (no output)
+    // The return value is NOT printed — only explicit print() calls produce output.
     if let Some(ref result) = eval_result.result {
         use oric::EvalOutput;
-        match result {
-            EvalOutput::Void => {}
-            _ => println!("{}", result.display(db.interner())),
+        if let EvalOutput::Int(code) = result {
+            let exit_code = i32::try_from(*code).unwrap_or(1);
+            std::process::exit(exit_code);
         }
     }
 }

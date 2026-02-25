@@ -244,6 +244,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         user_types: &[TypeEntry],
         impl_sigs: &[(Name, FunctionSig)],
         imported_functions: &[ImportedFunctionForCodegen<'_>],
+        mono_instances: &[ori_types::MonoInstance],
     ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
         use inkwell::OptimizationLevel;
 
@@ -284,7 +285,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 
             // 5b. ARC pipeline: classify types + run borrow inference
             let classifier = ori_arc::ArcClassifier::new(self.pool);
-            let annotated_sigs = {
+            let (annotated_sigs, mono_functions) = {
                 let mut arc_functions = Vec::new();
                 let mut arc_problems = Vec::new();
 
@@ -310,6 +311,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         self.pool,
                         &mut arc_problems,
                         false,
+                        None, // non-generic: no type substitution
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
@@ -341,6 +343,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         self.pool,
                         &mut arc_problems,
                         false,
+                        None, // non-generic: no type substitution
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
@@ -368,6 +371,45 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         self.pool,
                         &mut arc_problems,
                         false,
+                        None, // non-generic: no type substitution
+                    );
+                    arc_functions.push(arc_fn);
+                    arc_functions.extend(lambdas);
+                }
+
+                // Lower monomorphized generic functions
+                let mono_functions = crate::monomorphize::collect_mono_functions(
+                    mono_instances,
+                    function_sigs,
+                    interner,
+                    self.pool,
+                );
+                if !mono_functions.is_empty() {
+                    debug!(
+                        count = mono_functions.len(),
+                        "lowering monomorphized functions"
+                    );
+                }
+                for mono_fn in &mono_functions {
+                    let params: Vec<(Name, ori_types::Idx)> = mono_fn
+                        .sig
+                        .param_names
+                        .iter()
+                        .zip(mono_fn.sig.param_types.iter())
+                        .map(|(&n, &t)| (n, t))
+                        .collect();
+                    let body_id = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+                    let (arc_fn, lambdas) = ori_arc::lower_function_can(
+                        mono_fn.mangled_name,
+                        &params,
+                        mono_fn.sig.return_type,
+                        body_id,
+                        canon,
+                        interner,
+                        self.pool,
+                        &mut arc_problems,
+                        false,
+                        Some(&mono_fn.body_type_map),
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
@@ -375,7 +417,10 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 
                 let borrowing_builtins =
                     crate::codegen::arc_emitter::borrowing_builtin_names(interner);
-                ori_arc::infer_borrows(&arc_functions, &classifier, &borrowing_builtins)
+                (
+                    ori_arc::infer_borrows(&arc_functions, &classifier, &borrowing_builtins),
+                    mono_functions,
+                )
             };
 
             // 6. Two-pass function compilation
@@ -411,6 +456,15 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 }
             }
 
+            // 6c. Declare monomorphized generic functions (phase 1)
+            if !mono_functions.is_empty() {
+                debug!(
+                    count = mono_functions.len(),
+                    "declaring monomorphized functions"
+                );
+                fc.declare_mono_functions(&mono_functions);
+            }
+
             // 7. Compile impl methods (declare + define)
             if !module.impls.is_empty() {
                 debug!("compiling impl methods");
@@ -439,6 +493,15 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         imp_fn.canon,
                     );
                 }
+            }
+
+            // 8c. Define monomorphized function bodies (phase 2)
+            if !mono_functions.is_empty() {
+                debug!(
+                    count = mono_functions.len(),
+                    "defining monomorphized function bodies"
+                );
+                fc.define_mono_functions(&mono_functions, canon);
             }
 
             // 9. Compile test wrappers
@@ -547,7 +610,10 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_list_reverse",
     // Map methods — AOT uses runtime calls; JIT uses native Rust dispatch
     "ori_map_contains_key",
+    "ori_map_get",
+    "ori_map_insert",
     "ori_map_keys_to_list",
+    "ori_map_remove",
     "ori_map_values_to_list",
     // String methods — AOT uses runtime calls; JIT uses native Rust dispatch
     "ori_str_contains",
@@ -555,6 +621,8 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_str_repeat",
     "ori_str_replace",
     "ori_str_starts_with",
+    "ori_str_chars",
+    "ori_str_split",
     "ori_str_to_lowercase",
     "ori_str_to_uppercase",
     "ori_str_trim",
@@ -563,6 +631,9 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_rc_reset_live_count",
     // ori_run_main wraps @main with catch_unwind — JIT compiles tests directly
     "ori_run_main",
+    // catch(expr:) — AOT uses invoke/landingpad; JIT catches via ControlAction::Error
+    "ori_catch_cleanup",
+    "ori_catch_recover",
 ];
 
 /// Names of all runtime functions registered in the JIT mapping table.

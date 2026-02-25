@@ -239,7 +239,12 @@ if [[ $PARALLEL -eq 1 ]]; then
 
     # Phase 2: LLVM release build (sequential — shares target/ with workspace)
     echo "=== Building LLVM release binary ==="
-    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
+    LLVM_BUILD_OK=1
+    if ! cargo build -p oric -p ori_rt --features llvm --release -q 2>&1; then
+        echo -e "  ${RED}✗ LLVM release build FAILED — skipping LLVM spec tests${NC}"
+        LLVM_BUILD_OK=0
+        ORI_LLVM_EXIT=1
+    fi
 
     echo ""
 
@@ -261,16 +266,20 @@ if [[ $PARALLEL -eq 1 ]]; then
     run_ori_interpreter &
     ORI_INTERP_PID=$!
 
-    run_ori_llvm &
-    ORI_LLVM_PID=$!
+    if [[ $LLVM_BUILD_OK -eq 1 ]]; then
+        run_ori_llvm &
+        ORI_LLVM_PID=$!
+    fi
 
     wait $RUST_RT_PID || RUST_RT_EXIT=1
     wait $RUST_LLVM_PID || RUST_LLVM_EXIT=1
     wait $AOT_PID || AOT_EXIT=1
     ORI_INTERP_EXIT=0
     wait $ORI_INTERP_PID || ORI_INTERP_EXIT=$?
-    ORI_LLVM_EXIT=0
-    wait $ORI_LLVM_PID || ORI_LLVM_EXIT=$?
+    if [[ $LLVM_BUILD_OK -eq 1 ]]; then
+        ORI_LLVM_EXIT=0
+        wait $ORI_LLVM_PID || ORI_LLVM_EXIT=$?
+    fi
 
 else
     # Sequential execution
@@ -280,7 +289,12 @@ else
     run_rust_workspace || RUST_EXIT=1
     echo ""
     echo "=== Building LLVM release binary ==="
-    cargo build -p oric -p ori_rt --features llvm --release -q 2>/dev/null || true
+    LLVM_BUILD_OK=1
+    if ! cargo build -p oric -p ori_rt --features llvm --release -q 2>&1; then
+        echo -e "  ${RED}✗ LLVM release build FAILED — skipping LLVM spec tests${NC}"
+        LLVM_BUILD_OK=0
+        ORI_LLVM_EXIT=1
+    fi
     echo ""
     run_rust_rt || RUST_RT_EXIT=1
     echo ""
@@ -293,8 +307,10 @@ else
     ORI_INTERP_EXIT=0
     run_ori_interpreter || ORI_INTERP_EXIT=$?
     echo ""
-    ORI_LLVM_EXIT=0
-    run_ori_llvm || ORI_LLVM_EXIT=$?
+    if [[ $LLVM_BUILD_OK -eq 1 ]]; then
+        ORI_LLVM_EXIT=0
+        run_ori_llvm || ORI_LLVM_EXIT=$?
+    fi
 fi
 
 # Show verbose output if requested or on failure
@@ -392,7 +408,9 @@ printf "%-30s %8d %8d %8d %8s\n" "Rust unit tests (ori_llvm)" "$RUST_LLVM_PASSED
 printf "%-30s %8d %8d %8d %8s\n" "AOT integration tests" "$AOT_PASSED" "$AOT_FAILED" "$AOT_IGNORED" "-"
 printf "%-30s %8s\n" "WASM playground build" "$WASM_STATUS"
 printf "%-30s %8d %8d %8d %8s\n" "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED" "-"
-if [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
+if [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
+    printf "%-30s %8s\n" "Ori spec (LLVM backend)" "BUILD FAILED"
+elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
     printf "%-30s %8s\n" "Ori spec (LLVM backend)" "CRASHED"
 else
     printf "%-30s %8d %8d %8d %8d\n" "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED" "${ORI_LLVM_LCFAIL:-0}"
@@ -453,7 +471,9 @@ emit_json() {
         echo ","
         json_suite "Ori spec (interpreter)" "$ORI_INTERP_PASSED" "$ORI_INTERP_FAILED" "$ORI_INTERP_SKIPPED"
         echo ","
-        if [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
+        if [ "${LLVM_BUILD_OK:-1}" -eq 0 ]; then
+            json_crashed_suite "Ori spec (LLVM backend)"
+        elif [ "${ORI_LLVM_CRASHED:-0}" -eq 1 ]; then
             json_crashed_suite "Ori spec (LLVM backend)"
         else
             json_suite "Ori spec (LLVM backend)" "$ORI_LLVM_PASSED" "$ORI_LLVM_FAILED" "$ORI_LLVM_SKIPPED" "$ORI_LLVM_LCFAIL"

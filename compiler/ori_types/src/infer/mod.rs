@@ -133,6 +133,12 @@ pub struct InferEngine<'pool> {
 
     /// Module-level constant types for `$name` reference resolution.
     const_types: Option<&'pool FxHashMap<Name, Idx>>,
+
+    /// Monomorphization instances discovered during inference.
+    ///
+    /// Populated by `record_mono_instance()` when a generic function is called
+    /// with concrete type arguments. Extracted via `take_mono_instances()`.
+    mono_instances: Vec<crate::MonoInstance>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -157,6 +163,7 @@ impl<'pool> InferEngine<'pool> {
             provided_capabilities: FxHashSet::default(),
             pattern_resolutions: Vec::new(),
             const_types: None,
+            mono_instances: Vec::new(),
         }
     }
 
@@ -183,6 +190,7 @@ impl<'pool> InferEngine<'pool> {
             provided_capabilities: FxHashSet::default(),
             pattern_resolutions: Vec::new(),
             const_types: None,
+            mono_instances: Vec::new(),
         }
     }
 
@@ -598,6 +606,20 @@ impl<'pool> InferEngine<'pool> {
     /// Take pattern resolutions, leaving an empty vector.
     pub fn take_pattern_resolutions(&mut self) -> Vec<(PatternKey, PatternResolution)> {
         std::mem::take(&mut self.pattern_resolutions)
+    }
+
+    // ========================================
+    // Monomorphization Recording
+    // ========================================
+
+    /// Record a concrete instantiation of a generic function.
+    pub fn record_mono_instance(&mut self, instance: crate::MonoInstance) {
+        self.mono_instances.push(instance);
+    }
+
+    /// Take mono instances, leaving an empty vector.
+    pub fn take_mono_instances(&mut self) -> Vec<crate::MonoInstance> {
+        std::mem::take(&mut self.mono_instances)
     }
 
     /// Rewrite `UnknownIdent` errors matching `name` (added since `errors_before`)

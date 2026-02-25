@@ -6,12 +6,14 @@
 //! are reassigned in divergent branches (if/else, match, loop), block
 //! parameters serve as phi nodes at the merge point.
 
-use ori_ir::canon::{CanExpr, CanId, CanRange, DecisionTreeId};
+use ori_ir::canon::{CanBindingPatternId, CanExpr, CanId, CanRange, DecisionTreeId};
 use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
 mod for_yield;
+#[cfg(test)]
+pub(crate) use for_yield::pool_type_store_size;
 
 use crate::ir::{ArcValue, ArcVarId, LitValue, PrimOp};
 
@@ -353,7 +355,7 @@ impl ArcLowerer<'_> {
     /// - latch:  `[mut0, mut1, ...]` (`i_var` from header dominates latch)
     pub(crate) fn lower_for(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter: CanId,
         guard: CanId,
         body: CanId,
@@ -364,7 +366,7 @@ impl ArcLowerer<'_> {
         let iter_ty = self.expr_type(iter);
         let tag = self.pool.tag(iter_ty);
         tracing::debug!(
-            binding = self.name_str(binding),
+            pattern = ?pattern,
             ?tag,
             is_yield,
             has_guard = guard.is_valid(),
@@ -372,20 +374,20 @@ impl ArcLowerer<'_> {
         );
 
         if is_yield {
-            return self.lower_for_yield(binding, iter_val, iter_ty, tag, guard, body, ty);
+            return self.lower_for_yield(pattern, iter_val, iter_ty, tag, guard, body, ty);
         }
 
         if tag == ori_types::Tag::Range {
             // Direct counter-based loop for ranges.
-            self.lower_for_range(binding, iter_val, iter_ty, guard, body)
+            self.lower_for_range(pattern, iter_val, iter_ty, guard, body)
         } else if tag == ori_types::Tag::Option {
             // Direct 0-or-1 iteration — cheaper than allocating an iterator.
             let elem_ty = self.pool.option_inner(iter_ty);
-            self.lower_for_option(binding, iter_val, elem_ty, guard, body)
+            self.lower_for_option(pattern, iter_val, elem_ty, guard, body)
         } else if tag.is_iterator() {
             // Already an iterator — use __iter_next loop.
             let elem_ty = self.pool.iterator_elem(iter_ty);
-            self.lower_for_iterator(binding, iter_val, elem_ty, guard, body)
+            self.lower_for_iterator(pattern, iter_val, elem_ty, guard, body)
         } else {
             // List, Map, Set, Str, etc. — convert to iterator via .iter(),
             // then use the iterator-based loop.
@@ -396,7 +398,7 @@ impl ArcLowerer<'_> {
             let iter_result = self
                 .builder
                 .emit_apply(Idx::INT, iter_name, vec![iter_val], None);
-            self.lower_for_iterator(binding, iter_result, elem_ty, guard, body)
+            self.lower_for_iterator(pattern, iter_result, elem_ty, guard, body)
         }
     }
 
@@ -437,7 +439,7 @@ impl ArcLowerer<'_> {
     )]
     fn lower_for_iterator(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter_val: ArcVarId,
         elem_ty: Idx,
         guard: CanId,
@@ -446,6 +448,9 @@ impl ArcLowerer<'_> {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
         let exit_block = self.builder.new_block();
+        // Normal exit prep block: Branch can't carry args, so the normal
+        // exit path (iterator exhausted) goes header → exit_prep → exit.
+        let exit_prep_block = self.builder.new_block();
 
         // Collect mutable bindings for SSA merge.
         let pre_scope = self.scope.clone();
@@ -462,7 +467,7 @@ impl ArcLowerer<'_> {
         }
 
         tracing::debug!(
-            binding = self.name_str(binding),
+            pattern = ?pattern,
             header_bb = header_block.index(),
             body_bb = body_block.index(),
             exit_bb = exit_block.index(),
@@ -476,6 +481,15 @@ impl ArcLowerer<'_> {
         for &(name, pre_var, var_ty) in &mut_info {
             let param = self.builder.add_block_param(header_block, var_ty);
             header_mut_params.push((name, pre_var, param));
+        }
+
+        // Exit block params: result value (from break) + mutable vars.
+        // Matches what lower_break() sends: [break_val, mut0, mut1, ...]
+        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
+        let mut exit_mut_params = Vec::new();
+        for &(name, _, var_ty) in &mut_info {
+            let param = self.builder.add_block_param(exit_block, var_ty);
+            exit_mut_params.push((name, param));
         }
 
         // Entry jump: pass current mutable var values to header.
@@ -525,11 +539,11 @@ impl ArcLowerer<'_> {
         if guard.is_valid() {
             let guarded_block = self.builder.new_block();
             self.builder
-                .terminate_branch(has_more, guarded_block, exit_block);
+                .terminate_branch(has_more, guarded_block, exit_prep_block);
 
             self.builder.position_at(guarded_block);
             let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-            self.scope.bind(binding, elem);
+            self.bind_for_pattern(pattern, elem, elem_ty);
             let guard_val = self.lower_expr(guard);
 
             let guard_skip = self.builder.new_block();
@@ -545,13 +559,13 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(header_block, skip_args);
         } else {
             self.builder
-                .terminate_branch(has_more, body_block, exit_block);
+                .terminate_branch(has_more, body_block, exit_prep_block);
         }
 
         // Body: extract element and bind.
         self.builder.position_at(body_block);
         let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-        self.scope.bind(binding, elem);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         let prev_loop = self.loop_ctx.take();
         self.loop_ctx = Some(LoopContext {
@@ -573,13 +587,21 @@ impl ArcLowerer<'_> {
 
         self.loop_ctx = prev_loop;
 
-        // Exit: restore scope with mutable vars from header params.
+        // Exit prep: normal loop exhaustion path. Passes unit (no break
+        // value) + current mutable var values to the exit block.
+        self.builder.position_at(exit_prep_block);
+        let unit_val = self.emit_unit();
+        let mut prep_args = vec![unit_val];
+        prep_args.extend(header_mut_params.iter().map(|&(_, _, param_var)| param_var));
+        self.builder.terminate_jump(exit_block, prep_args);
+
+        // Exit: restore scope with mutable vars from exit block params.
         self.builder.position_at(exit_block);
         self.scope = pre_scope;
-        for &(name, _, param_var) in &header_mut_params {
-            self.scope.bind_mutable(name, param_var);
+        for &(name, param) in &exit_mut_params {
+            self.scope.bind_mutable(name, param);
         }
-        self.emit_unit()
+        result_param
     }
 
     /// Lower `for x in <option> do body` — 0-or-1 element iteration.
@@ -594,7 +616,7 @@ impl ArcLowerer<'_> {
     /// ```
     fn lower_for_option(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         option_val: ArcVarId,
         elem_ty: Idx,
         guard: CanId,
@@ -604,7 +626,7 @@ impl ArcLowerer<'_> {
         let none_block = self.builder.new_block();
         let exit_block = self.builder.new_block();
         tracing::debug!(
-            binding = self.name_str(binding),
+            pattern = ?pattern,
             some_bb = some_block.index(),
             none_bb = none_block.index(),
             exit_bb = exit_block.index(),
@@ -656,7 +678,7 @@ impl ArcLowerer<'_> {
         self.builder.position_at(some_block);
         self.scope = pre_scope.clone();
         let elem = self.builder.emit_project(elem_ty, option_val, 1, None);
-        self.scope.bind(binding, elem);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         if guard.is_valid() {
             let body_block = self.builder.new_block();
@@ -704,7 +726,7 @@ impl ArcLowerer<'_> {
     )]
     fn lower_for_range(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter_val: ArcVarId,
         _iter_ty: Idx,
         guard: CanId,
@@ -714,6 +736,9 @@ impl ArcLowerer<'_> {
         let body_block = self.builder.new_block();
         let latch_block = self.builder.new_block();
         let exit_block = self.builder.new_block();
+        // Normal exit prep block: Branch can't carry args, so the normal
+        // exit path (range exhausted) goes header → exit_prep → exit.
+        let exit_prep_block = self.builder.new_block();
 
         // Collect mutable bindings for SSA merge through the loop.
         let pre_scope = self.scope.clone();
@@ -731,7 +756,7 @@ impl ArcLowerer<'_> {
         }
 
         tracing::debug!(
-            binding = self.name_str(binding),
+            pattern = ?pattern,
             header_bb = header_block.index(),
             body_bb = body_block.index(),
             latch_bb = latch_block.index(),
@@ -753,6 +778,15 @@ impl ArcLowerer<'_> {
         for &(name, _, var_ty) in &mut_info {
             let param = self.builder.add_block_param(latch_block, var_ty);
             latch_mut_params.push((name, param));
+        }
+
+        // Exit block params: result value (from break) + mutable vars.
+        // Matches what lower_break() sends: [break_val, mut0, mut1, ...]
+        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
+        let mut exit_mut_params = Vec::new();
+        for &(name, _, var_ty) in &mut_info {
+            let param = self.builder.add_block_param(exit_block, var_ty);
+            exit_mut_params.push((name, param));
         }
 
         let start = self.builder.emit_project(Idx::INT, iter_val, 0, None);
@@ -793,10 +827,10 @@ impl ArcLowerer<'_> {
         if guard.is_valid() {
             let guarded_block = self.builder.new_block();
             self.builder
-                .terminate_branch(in_bounds, guarded_block, exit_block);
+                .terminate_branch(in_bounds, guarded_block, exit_prep_block);
 
             self.builder.position_at(guarded_block);
-            self.scope.bind(binding, i_var);
+            self.bind_for_pattern(pattern, i_var, Idx::INT);
             let guard_val = self.lower_expr(guard);
 
             let guard_skip = self.builder.new_block();
@@ -811,11 +845,11 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(latch_block, skip_args);
         } else {
             self.builder
-                .terminate_branch(in_bounds, body_block, exit_block);
+                .terminate_branch(in_bounds, body_block, exit_prep_block);
         }
 
         self.builder.position_at(body_block);
-        self.scope.bind(binding, i_var);
+        self.bind_for_pattern(pattern, i_var, Idx::INT);
 
         let prev_loop = self.loop_ctx.take();
         self.loop_ctx = Some(LoopContext {
@@ -852,12 +886,21 @@ impl ArcLowerer<'_> {
         header_args.extend(latch_mut_params.iter().map(|(_, param)| *param));
         self.builder.terminate_jump(header_block, header_args);
 
+        // Exit prep: normal range exhaustion path. Passes unit (no break
+        // value) + current mutable var values to the exit block.
+        self.builder.position_at(exit_prep_block);
+        let unit_val = self.emit_unit();
+        let mut prep_args = vec![unit_val];
+        prep_args.extend(header_mut_params.iter().map(|&(_, _, param_var)| param_var));
+        self.builder.terminate_jump(exit_block, prep_args);
+
+        // Exit: restore scope with mutable vars from exit block params.
         self.builder.position_at(exit_block);
         self.scope = pre_scope;
-        for &(name, _, param_var) in &header_mut_params {
-            self.scope.bind_mutable(name, param_var);
+        for &(name, param) in &exit_mut_params {
+            self.scope.bind_mutable(name, param);
         }
-        self.emit_unit()
+        result_param
     }
 
     // Break / Continue
@@ -1021,13 +1064,16 @@ impl ArcLowerer<'_> {
         // O(1) Arc clone instead of deep-cloning the recursive tree structure.
         let tree = self.canon.decision_trees.get_shared(tree_id);
 
+        let scrut_ty = self.builder.var_type(scrut_var);
         let mut ctx = crate::decision_tree::emit::EmitContext {
             root_scrutinee: scrut_var,
+            root_scrutinee_ty: scrut_ty,
             merge_block,
             arm_bodies: arm_ids,
             span,
             pre_scope: pre_scope.clone(),
             mutable_var_names,
+            variant_stack: Vec::new(),
         };
 
         crate::decision_tree::emit::emit_tree(self, &tree, &mut ctx);

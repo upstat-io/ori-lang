@@ -82,6 +82,17 @@ impl CheckResult {
     fn tag(&self, idx: Idx) -> Tag {
         self.pool.tag(idx)
     }
+
+    /// Find mono instances for a given function name.
+    fn mono_instances_for(&self, name: &str) -> Vec<&crate::MonoInstance> {
+        let name_id = self.interner.intern(name);
+        self.result
+            .typed
+            .mono_instances
+            .iter()
+            .filter(|m| m.fn_name == name_id)
+            .collect()
+    }
 }
 
 /// Parse and type-check an Ori source string.
@@ -1429,4 +1440,145 @@ fn collect_chained_adapters_to_set() {
     );
     let ty = result.function_body_type("filtered").unwrap();
     assert_eq!(result.tag(ty), Tag::Set, "filtered collect should be Set");
+}
+
+// ============================================================================
+// Monomorphization Instance Recording
+// ============================================================================
+
+#[test]
+fn generic_identity_records_mono_instance() {
+    let source = r"
+@identity <T> (x: T) -> T = x;
+@caller () -> int = identity(x: 42);
+@test_caller tests @caller () -> void = ();
+@test_identity tests @identity () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("identity");
+    assert!(
+        !instances.is_empty(),
+        "identity called with int should record a mono instance"
+    );
+    // The concrete arg should be int.
+    assert_eq!(instances[0].concrete_param_types.len(), 1);
+    assert_eq!(instances[0].concrete_param_types[0], Idx::INT);
+    assert_eq!(instances[0].concrete_return_type, Idx::INT);
+}
+
+#[test]
+fn generic_two_param_records_mono_instance() {
+    let source = r#"
+@pair <A, B> (a: A, b: B) -> (A, B) = (a, b);
+@caller () -> (int, str) = pair(a: 42, b: "hello");
+@test_caller tests @caller () -> void = ();
+@test_pair tests @pair () -> void = ();
+"#; // Needs r#"..."# because of the " in "hello"
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("pair");
+    assert!(
+        !instances.is_empty(),
+        "pair called with (int, str) should record a mono instance"
+    );
+    assert_eq!(instances[0].concrete_param_types.len(), 2);
+    assert_eq!(instances[0].concrete_param_types[0], Idx::INT);
+    assert_eq!(instances[0].concrete_param_types[1], Idx::STR);
+}
+
+#[test]
+fn non_generic_call_records_nothing() {
+    let source = r"
+@add (a: int, b: int) -> int = a + b;
+@caller () -> int = add(a: 1, b: 2);
+@test_caller tests @caller () -> void = ();
+@test_add tests @add () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("add");
+    assert!(
+        instances.is_empty(),
+        "non-generic function should not produce mono instances"
+    );
+}
+
+#[test]
+fn same_generic_call_twice_deduplicates() {
+    let source = r"
+@identity <T> (x: T) -> T = x;
+@caller () -> int = {
+    let a = identity(x: 1);
+    let b = identity(x: 2);
+    a + b
+}
+@test_caller tests @caller () -> void = ();
+@test_identity tests @identity () -> void = ();
+";
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("identity");
+    // Both calls use int, so dedup should give exactly one instance.
+    let int_instances: Vec<_> = instances
+        .iter()
+        .filter(|m| m.concrete_param_types[0] == Idx::INT)
+        .collect();
+    assert_eq!(
+        int_instances.len(),
+        1,
+        "same generic args should dedup to one instance"
+    );
+}
+
+#[test]
+fn different_type_args_produce_separate_instances() {
+    let source = r#"
+@identity <T> (x: T) -> T = x;
+@caller_int () -> int = identity(x: 42);
+@caller_str () -> str = identity(x: "hello");
+@test_int tests @caller_int () -> void = ();
+@test_str tests @caller_str () -> void = ();
+@test_identity tests @identity () -> void = ();
+"#;
+    let result = check_source(source);
+    assert!(
+        !result.has_errors(),
+        "should not error: {:?}",
+        result.error_kinds()
+    );
+
+    let instances = result.mono_instances_for("identity");
+    // Should have exactly 2 distinct instances: one for int, one for str.
+    assert_eq!(
+        instances.len(),
+        2,
+        "identity<int> and identity<str> should produce 2 instances, got: {instances:?}"
+    );
+    let types: Vec<Idx> = instances
+        .iter()
+        .map(|m| m.concrete_param_types[0])
+        .collect();
+    assert!(types.contains(&Idx::INT), "should have int instance");
+    assert!(types.contains(&Idx::STR), "should have str instance");
 }

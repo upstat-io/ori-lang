@@ -128,11 +128,29 @@ impl<I: StringLookup> Formatter<'_, I> {
         }
     }
 
-    /// Emit a binding pattern.
+    /// Emit a binding pattern (for `let` bindings — emits `$` for immutable names).
     pub(super) fn emit_binding_pattern(&mut self, pattern: &BindingPattern) {
+        self.emit_binding_pattern_inner(pattern, false);
+    }
+
+    /// Emit a for-loop binding pattern — suppresses `$` prefix.
+    ///
+    /// Per spec (§05-variables.md), for-loop variables are inherently immutable.
+    /// The `$` prefix is a user annotation only meaningful in `let` context, so
+    /// the formatter never emits it for for-loop patterns.
+    pub(super) fn emit_for_binding_pattern_id(&mut self, id: ori_ir::BindingPatternId) {
+        let pattern = self.arena.get_binding_pattern(id);
+        self.emit_binding_pattern_inner(pattern, true);
+    }
+
+    /// Shared binding pattern emitter.
+    ///
+    /// When `suppress_dollar` is true, `$` is not emitted for immutable names
+    /// (used for for-loop patterns where immutability is structural).
+    fn emit_binding_pattern_inner(&mut self, pattern: &BindingPattern, suppress_dollar: bool) {
         match pattern {
             BindingPattern::Name { name, mutable } => {
-                if mutable.is_immutable() {
+                if !suppress_dollar && mutable.is_immutable() {
                     self.ctx.emit("$");
                 }
                 self.ctx.emit(self.interner.lookup(*name));
@@ -143,7 +161,7 @@ impl<I: StringLookup> Formatter<'_, I> {
                     if i > 0 {
                         self.ctx.emit(", ");
                     }
-                    self.emit_binding_pattern(item);
+                    self.emit_binding_pattern_inner(item, suppress_dollar);
                 }
                 // Single-element tuples need trailing comma: (x,) vs (x)
                 if items.len() == 1 {
@@ -158,13 +176,13 @@ impl<I: StringLookup> Formatter<'_, I> {
                         self.ctx.emit(", ");
                     }
                     // Shorthand with $ prefix: { $x }
-                    if field.mutable.is_immutable() && field.pattern.is_none() {
+                    if !suppress_dollar && field.mutable.is_immutable() && field.pattern.is_none() {
                         self.ctx.emit("$");
                     }
                     self.ctx.emit(self.interner.lookup(field.name));
                     if let Some(pat) = &field.pattern {
                         self.ctx.emit(": ");
-                        self.emit_binding_pattern(pat);
+                        self.emit_binding_pattern_inner(pat, suppress_dollar);
                     }
                 }
                 self.ctx.emit(" }");
@@ -175,14 +193,14 @@ impl<I: StringLookup> Formatter<'_, I> {
                     if i > 0 {
                         self.ctx.emit(", ");
                     }
-                    self.emit_binding_pattern(item);
+                    self.emit_binding_pattern_inner(item, suppress_dollar);
                 }
                 if let Some((rest_name, rest_mut)) = rest {
                     if !elements.is_empty() {
                         self.ctx.emit(", ");
                     }
                     self.ctx.emit("..");
-                    if rest_mut.is_immutable() {
+                    if !suppress_dollar && rest_mut.is_immutable() {
                         self.ctx.emit("$");
                     }
                     self.ctx.emit(self.interner.lookup(*rest_name));

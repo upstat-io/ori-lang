@@ -1,20 +1,25 @@
 //! LLVM IR generation for derived trait methods.
 //!
-//! Generates synthetic LLVM functions for `#[derive(...)]` attributes on structs.
-//! Each derived method becomes a real LLVM function registered in `method_functions`,
-//! so the existing `lower_method_call` dispatch finds them with no special path.
+//! Generates synthetic LLVM functions for `#[derive(...)]` attributes on structs
+//! and enums. Each derived method becomes a real LLVM function registered in
+//! `method_functions`, so the existing `lower_method_call` dispatch finds them
+//! with no special path.
 //!
 //! Dispatch is strategy-driven: `DerivedTrait::strategy()` returns a `DeriveStrategy`
 //! describing the composition logic (field iteration, result combination), and this
 //! module interprets the strategy in LLVM IR terms. Adding a new trait only requires
 //! adding a strategy entry in `ori_ir` — no per-trait function needed here.
+//!
+//! **Struct derives** use `StructBody` (field iteration, formatting, cloning, default).
+//! **Enum derives** use `SumBody::MatchVariants` (tag comparison for unit variants,
+//! with payload comparison for payload variants planned).
 
 mod bodies;
 mod field_ops;
 mod string_helpers;
 
-use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, StructBody, TypeDeclKind};
-use ori_types::{Idx, TypeEntry, TypeKind};
+use ori_ir::{DerivedMethodShape, DerivedTrait, Module, Name, StructBody, SumBody, TypeDeclKind};
+use ori_types::{FieldDef, Idx, TypeEntry, TypeKind, VariantDef};
 use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
@@ -23,7 +28,8 @@ use super::function_compiler::FunctionCompiler;
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 use bodies::{
-    compile_clone_fields, compile_default_construct, compile_for_each_field, compile_format_fields,
+    compile_clone_fields, compile_default_construct, compile_enum_match_variants,
+    compile_for_each_field, compile_format_fields,
 };
 
 // ---------------------------------------------------------------------------
@@ -48,14 +54,6 @@ pub fn compile_derives<'a>(
             continue;
         }
 
-        let TypeDeclKind::Struct(_) = &type_decl.kind else {
-            trace!(
-                name = %fc.lookup_name(type_decl.name),
-                "skipping derives for non-struct type"
-            );
-            continue;
-        };
-
         let Some(type_entry) = type_map.get(&type_decl.name) else {
             warn!(
                 name = %fc.lookup_name(type_decl.name),
@@ -64,86 +62,156 @@ pub fn compile_derives<'a>(
             continue;
         };
 
-        let TypeKind::Struct(struct_def) = &type_entry.kind else {
-            warn!(
-                name = %fc.lookup_name(type_decl.name),
-                "TypeEntry is not a struct — skipping derives"
-            );
+        let type_name = type_decl.name;
+        let type_idx = type_entry.idx;
+        let type_name_str = fc.lookup_name(type_name).to_owned();
+
+        match (&type_decl.kind, &type_entry.kind) {
+            (TypeDeclKind::Struct(_), TypeKind::Struct(struct_def)) => {
+                compile_struct_derives(
+                    fc,
+                    &type_decl.derives,
+                    type_name,
+                    type_idx,
+                    &type_name_str,
+                    &struct_def.fields,
+                );
+            }
+            (TypeDeclKind::Sum(_), TypeKind::Enum { variants }) => {
+                compile_enum_derives(
+                    fc,
+                    &type_decl.derives,
+                    type_name,
+                    type_idx,
+                    &type_name_str,
+                    variants,
+                );
+            }
+            _ => {
+                trace!(
+                    name = %type_name_str,
+                    "skipping derives for unsupported type kind"
+                );
+            }
+        }
+    }
+}
+
+/// Compile derived trait methods for a struct type.
+fn compile_struct_derives<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    derives: &[Name],
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    fields: &[FieldDef],
+) {
+    debug!(
+        name = %type_name_str,
+        derives = derives.len(),
+        fields = fields.len(),
+        "compiling struct derived methods"
+    );
+
+    for derive_name in derives {
+        let trait_name_str = fc.lookup_name(*derive_name);
+        let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) else {
+            warn!(derive = %trait_name_str, "unknown derive trait — skipping");
             continue;
         };
 
-        let type_name = type_decl.name;
-        let type_idx = type_entry.idx;
-        let fields = &struct_def.fields;
-        let type_name_str = fc.lookup_name(type_name).to_owned();
-
-        debug!(
-            name = %type_name_str,
-            derives = type_decl.derives.len(),
-            fields = fields.len(),
-            "compiling derived methods"
-        );
-
-        for derive_name in &type_decl.derives {
-            let trait_name_str = fc.lookup_name(*derive_name);
-            let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) else {
-                warn!(derive = %trait_name_str, "unknown derive trait — skipping");
-                continue;
-            };
-
-            let strategy = trait_kind.strategy();
-            match strategy.struct_body {
-                StructBody::ForEachField { field_op, combine } => {
-                    compile_for_each_field(
-                        fc,
-                        trait_kind,
-                        type_name,
-                        type_idx,
-                        &type_name_str,
-                        fields,
-                        field_op,
-                        combine,
-                    );
-                }
-                StructBody::FormatFields {
+        let strategy = trait_kind.strategy();
+        match strategy.struct_body {
+            StructBody::ForEachField { field_op, combine } => {
+                compile_for_each_field(
+                    fc,
+                    trait_kind,
+                    type_name,
+                    type_idx,
+                    type_name_str,
+                    fields,
+                    field_op,
+                    combine,
+                );
+            }
+            StructBody::FormatFields {
+                open,
+                separator,
+                suffix,
+                include_names,
+            } => {
+                compile_format_fields(
+                    fc,
+                    trait_kind,
+                    type_name,
+                    type_idx,
+                    type_name_str,
+                    fields,
                     open,
                     separator,
                     suffix,
                     include_names,
-                } => {
-                    compile_format_fields(
-                        fc,
-                        trait_kind,
-                        type_name,
-                        type_idx,
-                        &type_name_str,
-                        fields,
-                        open,
-                        separator,
-                        suffix,
-                        include_names,
-                    );
-                }
-                StructBody::CloneFields => {
-                    compile_clone_fields(
-                        fc,
-                        trait_kind,
-                        type_name,
-                        type_idx,
-                        &type_name_str,
-                        fields,
-                    );
-                }
-                StructBody::DefaultConstruct => {
-                    compile_default_construct(
-                        fc,
-                        trait_kind,
-                        type_name,
-                        type_idx,
-                        &type_name_str,
-                        fields,
-                    );
-                }
+                );
+            }
+            StructBody::CloneFields => {
+                compile_clone_fields(fc, trait_kind, type_name, type_idx, type_name_str, fields);
+            }
+            StructBody::DefaultConstruct => {
+                compile_default_construct(
+                    fc,
+                    trait_kind,
+                    type_name,
+                    type_idx,
+                    type_name_str,
+                    fields,
+                );
+            }
+        }
+    }
+}
+
+/// Compile derived trait methods for an enum type.
+fn compile_enum_derives<'a>(
+    fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
+    derives: &[Name],
+    type_name: Name,
+    type_idx: Idx,
+    type_name_str: &str,
+    variants: &[VariantDef],
+) {
+    debug!(
+        name = %type_name_str,
+        derives = derives.len(),
+        variants = variants.len(),
+        "compiling enum derived methods"
+    );
+
+    for derive_name in derives {
+        let trait_name_str = fc.lookup_name(*derive_name);
+        let Some(trait_kind) = DerivedTrait::from_name(trait_name_str) else {
+            warn!(derive = %trait_name_str, "unknown derive trait — skipping");
+            continue;
+        };
+
+        let strategy = trait_kind.strategy();
+        match strategy.sum_body {
+            SumBody::MatchVariants => {
+                compile_enum_match_variants(
+                    fc,
+                    trait_kind,
+                    type_name,
+                    type_idx,
+                    type_name_str,
+                    variants,
+                    &strategy.struct_body,
+                );
+            }
+            SumBody::NotSupported => {
+                trace!(
+                    name = %type_name_str,
+                    derive = %trait_name_str,
+                    "derive trait does not support sum types"
+                );
             }
         }
     }

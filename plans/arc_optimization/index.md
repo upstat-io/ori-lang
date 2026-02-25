@@ -1,5 +1,7 @@
 # ARC Optimization Plan Index
 
+> **SUPERSEDED (2026-02-25):** This plan has been superseded by [`plans/aot_codegen_pipeline/`](../aot_codegen_pipeline/00-overview.md).
+
 > **Maintenance Notice:** Update this index when adding/modifying sections.
 
 > **Design Reference:** `plans/dpr_arc-optimization_02212026.md` — Design Pattern Review with prior art analysis (Swift, Lean 4, Koka) and proposed best-of-breed design.

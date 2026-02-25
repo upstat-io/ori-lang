@@ -80,6 +80,11 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Passed to `annotate_arg_ownership` so inline-compiled builtins get
     /// borrowing semantics instead of the default all-Owned.
     borrowing_builtins: rustc_hash::FxHashSet<Name>,
+    /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
+    ///
+    /// Built from `MonoFunction` data after `declare_mono_functions()`. Used by
+    /// `ArcIrEmitter` to resolve generic call sites to their concrete specializations.
+    mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -120,6 +125,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             arc_classifier,
             debug_context,
             borrowing_builtins,
+            mono_dispatch: FxHashMap::default(),
         }
     }
 
@@ -306,6 +312,59 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
+    // Monomorphized function support
+
+    /// Declare monomorphized functions (phase 1).
+    ///
+    /// Each `MonoFunction` has a concrete (non-generic) `FunctionSig`, so the
+    /// existing `declare_function` infrastructure works unchanged.
+    pub fn declare_mono_functions(&mut self, mono_functions: &[crate::monomorphize::MonoFunction]) {
+        for mono_fn in mono_functions {
+            self.declare_function(mono_fn.mangled_name, &mono_fn.sig, Span::new(0, 0));
+
+            // Build mono dispatch index: original_name → [(param_types, mangled_name)]
+            self.mono_dispatch
+                .entry(mono_fn.original_name)
+                .or_default()
+                .push((mono_fn.sig.param_types.clone(), mono_fn.mangled_name));
+        }
+    }
+
+    /// Define monomorphized function bodies (phase 2).
+    ///
+    /// Each mono function reuses the generic function's canonical IR body but
+    /// passes the `body_type_map` as the `type_subst` parameter to `lower_function_can`,
+    /// so expression types are substituted to concrete types during ARC lowering.
+    pub fn define_mono_functions(
+        &mut self,
+        mono_functions: &[crate::monomorphize::MonoFunction],
+        canon: &CanonResult,
+    ) {
+        for mono_fn in mono_functions {
+            let Some(&(func_id, ref abi)) = self.functions.get(&mono_fn.mangled_name) else {
+                warn!(
+                    name = %self.interner.lookup(mono_fn.mangled_name),
+                    "mono function not declared — skipping definition"
+                );
+                self.builder.record_codegen_error();
+                continue;
+            };
+            let abi = abi.clone();
+
+            let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+            self.define_function_body_arc_with_subst(
+                mono_fn.mangled_name,
+                func_id,
+                &abi,
+                body,
+                canon,
+                self.arc_classifier,
+                mono_fn.sig.is_fbip,
+                Some(&mono_fn.body_type_map),
+            );
+        }
+    }
+
     /// Define a single function body via the ARC codegen pipeline.
     ///
     /// Runs: lower → borrow annotate → ARC pipeline → `ArcIrEmitter`.
@@ -318,7 +377,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         canon: &CanonResult,
         is_fbip: bool,
     ) {
-        self.define_function_body_arc(
+        self.define_function_body_arc_with_subst(
             name,
             func_id,
             abi,
@@ -326,6 +385,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             canon,
             self.arc_classifier,
             is_fbip,
+            None,
         );
     }
 
@@ -334,7 +394,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Runs the full ARC pipeline: lower → liveness → RC insert → detect/expand
     /// reuse → RC eliminate → `ArcIrEmitter`. The emitter handles block creation,
     /// parameter binding, and return emission internally.
-    fn define_function_body_arc(
+    ///
+    /// When `type_subst` is `Some`, expression types from the canonical IR are
+    /// substituted before ARC lowering — used for monomorphized generic functions.
+    fn define_function_body_arc_with_subst(
         &mut self,
         name: Name,
         func_id: FunctionId,
@@ -343,6 +406,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         canon: &CanonResult,
         classifier: &ArcClassifier,
         is_fbip: bool,
+        type_subst: Option<&FxHashMap<Idx, Idx>>,
     ) {
         let name_str = self.interner.lookup(name);
         debug!(name = name_str, tier = 2, "defining function body (ARC)");
@@ -366,6 +430,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.pool,
             &mut problems,
             is_fbip,
+            type_subst,
         );
 
         for problem in &problems {
@@ -431,6 +496,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             &self.functions,
             &self.method_functions,
             &self.type_idx_to_name,
+            &self.mono_dispatch,
         );
         emitter.emit_function(&arc_func, abi);
 
@@ -506,6 +572,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             &self.functions,
             &self.method_functions,
             &self.type_idx_to_name,
+            &self.mono_dispatch,
         );
         emitter.emit_function(lambda, &abi);
     }
@@ -679,6 +746,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.pool,
                 &mut problems,
                 false, // tests are never #fbip
+                None,  // non-generic: no type substitution
             );
 
             // Apply borrow annotations
@@ -723,6 +791,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 &self.functions,
                 &self.method_functions,
                 &self.type_idx_to_name,
+                &self.mono_dispatch,
             );
             emitter.emit_function(&arc_func, &abi);
 
@@ -1167,8 +1236,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             "panic_info",
         );
 
-        // Call the user's @panic function
-        self.builder.call(user_panic_id, &[panic_info], "");
+        // The user's @panic function receives PanicInfo via Indirect passing
+        // (struct >16 bytes → passed by pointer). Allocate on the stack and
+        // pass the pointer.
+        let alloca = self.builder.alloca(panic_info_ty_id, "panic_info.ptr");
+        self.builder.store(panic_info, alloca);
+
+        // Call the user's @panic function with pointer to PanicInfo
+        self.builder.call(user_panic_id, &[alloca], "");
 
         // Emit ret void (handler returns normally → runtime proceeds with default)
         self.builder.ret_void();
@@ -1224,10 +1299,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         self.method_functions
             .insert((type_name, method_name), (func_id, abi.clone()));
         self.type_idx_to_name.insert(type_idx, type_name);
-        // Unqualified entry — last-writer-wins when two types derive the same
-        // trait, but emit_invoke/emit_apply tries type-qualified
-        // `lookup_method_by_receiver` first, so collisions resolve correctly.
-        self.functions.insert(method_name, (func_id, abi.clone()));
 
         // Verify round-trip: registrations are immediately retrievable.
         debug_assert!(

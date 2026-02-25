@@ -320,3 +320,86 @@ fn test_for_map_entries() {
         "for_map_entries",
     );
 }
+
+// -----------------------------------------------------------------------
+// Break in for-do with mutable variables
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_for_range_break_with_mutation() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let count = 0;
+    for i in 0..100 do {
+        if i == 10 then break;
+        count = count + 1;
+    };
+    if count == 10 then 0 else 1
+}
+"#,
+        "for_range_break_mutation",
+    );
+}
+
+#[test]
+fn test_for_range_break_multiple_mutations() {
+    assert_aot_success(
+        r#"
+@collatz_steps (n: int) -> int = {
+    let steps = 0;
+    let val = n;
+    for _ in 0..10000 do {
+        if val == 1 then break;
+        if val % 2 == 0 then val = val / 2
+        else val = val * 3 + 1;
+        steps = steps + 1;
+    };
+    steps
+}
+
+@main () -> int = {
+    let result = collatz_steps(n: 27);
+    if result == 111 then 0 else 1
+}
+"#,
+        "for_range_break_collatz",
+    );
+}
+
+#[test]
+fn test_for_iter_break_with_mutation() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = for i in 0..20 yield i;
+    let sum = 0;
+    for x in xs do {
+        if x >= 5 then break;
+        sum = sum + x;
+    };
+    // 0 + 1 + 2 + 3 + 4 = 10
+    if sum == 10 then 0 else 1
+}
+"#,
+        "for_iter_break_mutation",
+    );
+}
+
+#[test]
+fn test_for_range_continue_with_mutation() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let sum = 0;
+    for i in 0..10 do {
+        if i % 2 == 0 then continue;
+        sum = sum + i;
+    };
+    // 1 + 3 + 5 + 7 + 9 = 25
+    if sum == 25 then 0 else 1
+}
+"#,
+        "for_range_continue_mutation",
+    );
+}

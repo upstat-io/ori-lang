@@ -1,13 +1,15 @@
 //! Function call and method call inference.
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
+use rustc_hash::FxHashMap;
 
 use super::super::InferEngine;
 use super::methods::DEI_ONLY_METHODS;
 use super::{infer_expr, resolve_builtin_method};
+use crate::pool::substitute::substitute_in_pool;
 use crate::{
-    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookupResult, Pool, Tag, TypeCheckError,
-    TypeCheckWarning,
+    ContextKind, Expected, ExpectedOrigin, GenericArg, Idx, MethodLookupResult, MonoInstance, Pool,
+    Tag, TypeCheckError, TypeCheckWarning,
 };
 
 /// Infer the type of a function call expression.
@@ -74,6 +76,10 @@ pub(crate) fn infer_call(
         let arg_ty = infer_expr(engine, arena, arg_id);
         let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
     }
+
+    // Record monomorphization instance for generic function calls.
+    // At this point type variables have been unified with concrete types.
+    maybe_record_mono_instance(engine, func_name_id, &params);
 
     ret
 }
@@ -154,6 +160,9 @@ pub(crate) fn infer_call_named(
         let _ = engine.check_type(arg_ty, &expected, arg.span);
     }
 
+    // Record monomorphization instance for generic function calls.
+    maybe_record_mono_instance(engine, func_name_id, &params);
+
     // Validate where-clause constraints after argument type-checking.
     // At this point, generic type variables have been unified with concrete types.
     if let Some(func_name) = match &arena.get_expr(func).kind {
@@ -164,6 +173,123 @@ pub(crate) fn infer_call_named(
     }
 
     ret
+}
+
+/// Record a monomorphization instance if the callee is a generic function.
+///
+/// Called after argument type-checking, when all type variables have been unified
+/// with concrete types. Extracts concrete type args via `generic_param_mapping`,
+/// builds a substitution map from `scheme_var_ids`, and computes the `body_type_map`
+/// for the ARC lowerer.
+fn maybe_record_mono_instance(
+    engine: &mut InferEngine<'_>,
+    func_name: Option<Name>,
+    params: &[Idx],
+) {
+    let Some(fn_name) = func_name else {
+        return;
+    };
+
+    // Extract sig data in an immutable borrow scope.
+    let (scheme_var_ids, generic_param_mapping, param_types, return_type) = {
+        let Some(sig) = engine.get_signature(fn_name) else {
+            return;
+        };
+        if !sig.is_generic() || sig.scheme_var_ids.is_empty() {
+            return;
+        }
+        (
+            sig.scheme_var_ids.clone(),
+            sig.generic_param_mapping.clone(),
+            sig.param_types.clone(),
+            sig.return_type,
+        )
+    };
+
+    // Build the var_id → concrete_type substitution map.
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    let mut generic_args = Vec::with_capacity(scheme_var_ids.len());
+
+    for (i, &var_id) in scheme_var_ids.iter().enumerate() {
+        let concrete = if let Some(Some(param_idx)) = generic_param_mapping.get(i) {
+            // Type param appears directly as a function parameter — resolve it.
+            if let Some(&param_ty) = params.get(*param_idx) {
+                engine.resolve(param_ty)
+            } else {
+                continue;
+            }
+        } else {
+            // Indirect type param (e.g., T in [T]) — resolve the var directly.
+            let var_idx = {
+                let pool = engine.pool();
+                let mut found = None;
+                for raw in crate::Idx::FIRST_DYNAMIC..u32::try_from(pool.len()).unwrap_or(u32::MAX)
+                {
+                    let idx = crate::Idx::from_raw(raw);
+                    if pool.tag(idx) == Tag::Var && pool.data(idx) == var_id {
+                        found = Some(idx);
+                        break;
+                    }
+                }
+                found
+            };
+            if let Some(var_idx) = var_idx {
+                engine.resolve(var_idx)
+            } else {
+                continue;
+            }
+        };
+
+        // Skip if the concrete type is still a variable (not fully resolved).
+        if engine.pool().tag(concrete) == Tag::Var {
+            return;
+        }
+
+        var_subst.insert(var_id, concrete);
+        generic_args.push(GenericArg::Type(concrete));
+    }
+
+    // All type params must be resolved for a valid mono instance.
+    if var_subst.len() != scheme_var_ids.len() {
+        return;
+    }
+
+    // Compute concrete param types and return type via substitution.
+    let pool = engine.pool_mut();
+    let concrete_param_types: Vec<Idx> = param_types
+        .iter()
+        .map(|&pt| substitute_in_pool(pool, pt, &var_subst))
+        .collect();
+    let concrete_return_type = substitute_in_pool(pool, return_type, &var_subst);
+
+    // Build body_type_map: for every pool entry containing vars, compute the substituted version.
+    let mut body_type_map = FxHashMap::default();
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    for raw in crate::Idx::FIRST_DYNAMIC..pool_len {
+        let idx = crate::Idx::from_raw(raw);
+        if pool.flags(idx).contains(crate::TypeFlags::HAS_VAR) {
+            let substituted = substitute_in_pool(pool, idx, &var_subst);
+            if substituted != idx {
+                body_type_map.insert(idx, substituted);
+            }
+        }
+    }
+
+    let instance = MonoInstance {
+        fn_name,
+        generic_args,
+        concrete_param_types,
+        concrete_return_type,
+        body_type_map,
+    };
+
+    tracing::debug!(
+        fn_name = ?fn_name,
+        args = ?instance.generic_args,
+        "recorded mono instance"
+    );
+
+    engine.record_mono_instance(instance);
 }
 
 /// Validate that required capabilities are available at a call site.
@@ -582,14 +708,17 @@ pub(crate) fn infer_method_call(
     span: Span,
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return(ty) => {
+        ReceiverDispatch::Return {
+            ret_ty,
+            receiver_ty,
+        } => {
             let arg_types: Vec<Idx> = arena
                 .get_expr_list(args)
                 .iter()
                 .map(|&arg_id| infer_expr(engine, arena, arg_id))
                 .collect();
-            unify_higher_order_constraints(engine, method, ty, &arg_types);
-            return ty;
+            unify_higher_order_constraints(engine, method, ret_ty, receiver_ty, &arg_types);
+            return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
     };
@@ -636,14 +765,17 @@ pub(crate) fn infer_method_call_named(
     span: Span,
 ) -> Idx {
     let resolved = match resolve_receiver_and_builtin(engine, arena, receiver, method, span) {
-        ReceiverDispatch::Return(ty) => {
+        ReceiverDispatch::Return {
+            ret_ty,
+            receiver_ty,
+        } => {
             let arg_types: Vec<Idx> = arena
                 .get_call_args(args)
                 .iter()
                 .map(|arg| infer_expr(engine, arena, arg.value))
                 .collect();
-            unify_higher_order_constraints(engine, method, ty, &arg_types);
-            return ty;
+            unify_higher_order_constraints(engine, method, ret_ty, receiver_ty, &arg_types);
+            return ret_ty;
         }
         ReceiverDispatch::Continue { resolved } => resolved,
     };
@@ -685,7 +817,8 @@ pub(crate) fn infer_method_call_named(
 /// Result of resolving a method receiver and checking builtin dispatch.
 enum ReceiverDispatch {
     /// Return this type. Caller must infer all args first.
-    Return(Idx),
+    /// `receiver_ty` is the resolved receiver, needed for higher-order constraint propagation.
+    Return { ret_ty: Idx, receiver_ty: Idx },
     /// No builtin found. Proceed to impl lookup with this resolved receiver.
     Continue { resolved: Idx },
 }
@@ -697,10 +830,15 @@ enum ReceiverDispatch {
 /// type variables in their return types. After the closure arguments are
 /// inferred, this function unifies those variables with the closure's return
 /// type so they resolve to concrete types before codegen.
+///
+/// Also unifies closure **parameter** types with the source iterator's element
+/// type, ensuring unannotated lambda params (e.g., `r` in `.map(r -> r.score)`)
+/// resolve to the correct type rather than remaining as unresolved type variables.
 fn unify_higher_order_constraints(
     engine: &mut InferEngine<'_>,
     method: Name,
     ret_ty: Idx,
+    receiver_ty: Idx,
     arg_types: &[Idx],
 ) {
     let Some(method_str) = engine.lookup_name(method) else {
@@ -723,6 +861,8 @@ fn unify_higher_order_constraints(
             if engine.pool().tag(resolved_closure) == Tag::Function {
                 let closure_ret = engine.pool().function_return(resolved_closure);
                 let _ = engine.unify().unify(elem_var, closure_ret);
+                // Unify closure param with source iterator element
+                unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
             }
         }
         "flat_map" => {
@@ -744,6 +884,18 @@ fn unify_higher_order_constraints(
                     let inner_elem = engine.pool().iterator_elem(resolved_inner);
                     let _ = engine.unify().unify(elem_var, inner_elem);
                 }
+                // Unify closure param with source iterator element
+                unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
+            }
+        }
+        // filter, any, all, find, for_each: closure (T) -> bool/void
+        "filter" | "any" | "all" | "find" | "for_each" => {
+            let Some(&closure_ty) = arg_types.first() else {
+                return;
+            };
+            let resolved_closure = engine.resolve(closure_ty);
+            if engine.pool().tag(resolved_closure) == Tag::Function {
+                unify_closure_param_with_iterator_elem(engine, resolved_closure, receiver_ty);
             }
         }
         "fold" | "rfold" => {
@@ -756,10 +908,39 @@ fn unify_higher_order_constraints(
                 if engine.pool().tag(resolved_closure) == Tag::Function {
                     let closure_ret = engine.pool().function_return(resolved_closure);
                     let _ = engine.unify().unify(ret_ty, closure_ret);
+                    // fold/rfold closure is (Acc, T) -> Acc: second param is iterator elem
+                    let resolved_recv = engine.resolve(receiver_ty);
+                    if engine.pool().tag(resolved_recv).is_iterator() {
+                        let source_elem = engine.pool().iterator_elem(resolved_recv);
+                        let params = engine.pool().function_params(resolved_closure);
+                        if let Some(&second_param) = params.get(1) {
+                            let _ = engine.unify().unify(second_param, source_elem);
+                        }
+                    }
                 }
             }
         }
         _ => {}
+    }
+}
+
+/// Unify a closure's first parameter with the source iterator's element type.
+///
+/// For adapters like `.map(r -> r.score)`, ensures that `r` is constrained to
+/// the iterator's element type rather than remaining as an unresolved type variable.
+fn unify_closure_param_with_iterator_elem(
+    engine: &mut InferEngine<'_>,
+    resolved_closure: Idx,
+    receiver_ty: Idx,
+) {
+    let resolved_recv = engine.resolve(receiver_ty);
+    if !engine.pool().tag(resolved_recv).is_iterator() {
+        return;
+    }
+    let source_elem = engine.pool().iterator_elem(resolved_recv);
+    let params = engine.pool().function_params(resolved_closure);
+    if let Some(&first_param) = params.first() {
+        let _ = engine.unify().unify(first_param, source_elem);
     }
 }
 
@@ -784,7 +965,10 @@ fn resolve_receiver_and_builtin(
 
     // Propagate errors silently
     if resolved == Idx::ERROR {
-        return ReceiverDispatch::Return(Idx::ERROR);
+        return ReceiverDispatch::Return {
+            ret_ty: Idx::ERROR,
+            receiver_ty: Idx::ERROR,
+        };
     }
 
     // If receiver is a scheme, instantiate it to get the concrete type
@@ -797,7 +981,10 @@ fn resolve_receiver_and_builtin(
     // For unresolved type variables, defer resolution
     let tag = engine.pool().tag(resolved);
     if tag == Tag::Var {
-        return ReceiverDispatch::Return(engine.pool_mut().fresh_var());
+        return ReceiverDispatch::Return {
+            ret_ty: engine.pool_mut().fresh_var(),
+            receiver_ty: resolved,
+        };
     }
 
     let method_str = engine.lookup_name(method);
@@ -809,7 +996,10 @@ fn resolve_receiver_and_builtin(
             if matches!(tag, Tag::Iterator | Tag::DoubleEndedIterator) {
                 check_infinite_iterator_consumed(engine, arena, receiver, name_str, span);
             }
-            return ReceiverDispatch::Return(ret);
+            return ReceiverDispatch::Return {
+                ret_ty: ret,
+                receiver_ty: resolved,
+            };
         }
     }
 
@@ -825,14 +1015,20 @@ fn resolve_receiver_and_builtin(
                          or string to get a DoubleEndedIterator)"
                     ),
                 ));
-                return ReceiverDispatch::Return(Idx::ERROR);
+                return ReceiverDispatch::Return {
+                    ret_ty: Idx::ERROR,
+                    receiver_ty: Idx::ERROR,
+                };
             }
         }
     }
 
     // 1c. Reject iteration methods on Range<float>
     if let Some(err) = check_range_float_iteration(engine, resolved, tag, method_str, span) {
-        return ReceiverDispatch::Return(err);
+        return ReceiverDispatch::Return {
+            ret_ty: err,
+            receiver_ty: resolved,
+        };
     }
 
     ReceiverDispatch::Continue { resolved }

@@ -6,6 +6,33 @@
 use crate::{committed, require, ParseOutcome, Parser};
 use ori_ir::{Expr, ExprId, ExprKind, ExprRange, ParamRange, ParsedTypeId, TokenKind};
 
+// Lambda return type parsing
+
+impl Parser<'_> {
+    /// Speculatively try to parse a return type annotation (`TYPE =`) in a lambda.
+    ///
+    /// After `->` in a lambda, the grammar allows an optional `TYPE =` before the
+    /// body expression. This method tries to parse a type; if followed by `=`, it
+    /// consumes both and returns the allocated type ID. Otherwise, it restores the
+    /// cursor position and returns `INVALID`.
+    ///
+    /// This handles all type forms: primitives (`int`), function types (`(int) -> int`),
+    /// list types (`[int]`), named types (`MyType`), etc.
+    fn try_parse_lambda_return_type(&mut self) -> ParsedTypeId {
+        let snapshot = self.snapshot();
+        if let Some(ty) = self.parse_type() {
+            if self.cursor.check(&TokenKind::Eq) {
+                self.cursor.advance(); // consume `=`
+                return self.arena.alloc_parsed_type(ty);
+            }
+        }
+        // Not a return type annotation — restore and treat as body expression.
+        // Arena nodes from the failed parse_type() are harmless (freed with arena).
+        self.restore(snapshot);
+        ParsedTypeId::INVALID
+    }
+}
+
 impl Parser<'_> {
     /// Parse parenthesized expression, tuple, or lambda.
     ///
@@ -23,10 +50,6 @@ impl Parser<'_> {
         )
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "multi-case parenthesized expression parser covering tuples, lambdas, and grouped expressions"
-    )]
     fn parse_parenthesized_body(&mut self) -> ParseOutcome<ExprId> {
         let span = self.cursor.current_span();
         self.cursor.advance(); // (
@@ -38,13 +61,7 @@ impl Parser<'_> {
 
             if self.cursor.check(&TokenKind::Arrow) {
                 self.cursor.advance();
-                let ret_ty = if self.cursor.check_type_keyword() {
-                    let ty = self.parse_type();
-                    committed!(self.cursor.expect(&TokenKind::Eq));
-                    ty.map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
-                } else {
-                    ParsedTypeId::INVALID
-                };
+                let ret_ty = self.try_parse_lambda_return_type();
                 let body = require!(self, self.parse_expr(), "lambda body");
                 let end_span = self.arena.get_expr(body).span;
                 return ParseOutcome::consumed_ok(self.arena.alloc_expr(Expr::new(
@@ -70,13 +87,7 @@ impl Parser<'_> {
             committed!(self.cursor.expect(&TokenKind::RParen));
             committed!(self.cursor.expect(&TokenKind::Arrow));
 
-            let ret_ty = if self.cursor.check_type_keyword() {
-                let ty = self.parse_type();
-                committed!(self.cursor.expect(&TokenKind::Eq));
-                ty.map_or(ParsedTypeId::INVALID, |t| self.arena.alloc_parsed_type(t))
-            } else {
-                ParsedTypeId::INVALID
-            };
+            let ret_ty = self.try_parse_lambda_return_type();
 
             let body = require!(self, self.parse_expr(), "lambda body");
             let end_span = self.arena.get_expr(body).span;

@@ -3,6 +3,8 @@ use ori_ir::{Mutability, Name, Span, StringInterner, TypeId};
 use ori_types::Idx;
 use ori_types::Pool;
 
+use super::pool_type_store_size;
+
 use crate::ir::ArcTerminator;
 
 #[test]
@@ -81,6 +83,7 @@ fn lower_block_with_let() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
@@ -139,6 +142,7 @@ fn lower_if_else_produces_four_blocks() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty());
@@ -200,8 +204,69 @@ fn lower_loop_produces_header_and_exit() {
         &pool,
         &mut problems,
         false,
+        None,
     );
 
     assert!(problems.is_empty(), "problems: {problems:?}");
     assert!(func.blocks.len() >= 3);
+}
+
+// -----------------------------------------------------------------------
+// pool_type_store_size — cross-phase size agreement
+// -----------------------------------------------------------------------
+//
+// These values must match `TypeLayoutResolver::type_store_size()` in ori_llvm.
+// If a new type is added and these constants differ, for-yield element
+// buffers will be mis-sized, causing memory corruption.
+
+#[test]
+fn type_store_size_primitives() {
+    let pool = Pool::new();
+    // Scalar primitives — must match LLVM int/float type widths
+    assert_eq!(pool_type_store_size(Idx::INT, &pool, 0), 8, "int = i64");
+    assert_eq!(pool_type_store_size(Idx::FLOAT, &pool, 0), 8, "float = f64");
+    assert_eq!(pool_type_store_size(Idx::BOOL, &pool, 0), 1, "bool = i1");
+    assert_eq!(pool_type_store_size(Idx::CHAR, &pool, 0), 4, "char = i32");
+    assert_eq!(pool_type_store_size(Idx::BYTE, &pool, 0), 1, "byte = i8");
+    assert_eq!(pool_type_store_size(Idx::UNIT, &pool, 0), 0, "unit = void");
+    assert_eq!(
+        pool_type_store_size(Idx::STR, &pool, 0),
+        16,
+        "str = {{i64, ptr}}"
+    );
+    assert_eq!(
+        pool_type_store_size(Idx::DURATION, &pool, 0),
+        8,
+        "Duration = i64"
+    );
+    assert_eq!(pool_type_store_size(Idx::SIZE, &pool, 0), 8, "Size = i64");
+}
+
+#[test]
+fn type_store_size_containers() {
+    let mut pool = Pool::new();
+
+    // List<int> = {i64 len, i64 cap, ptr data} = 24
+    let list_int = pool.list(Idx::INT);
+    assert_eq!(pool_type_store_size(list_int, &pool, 0), 24, "list");
+
+    // Option<int> = {i64 tag, int payload} = 8 + 8 = 16
+    let opt_int = pool.option(Idx::INT);
+    assert_eq!(pool_type_store_size(opt_int, &pool, 0), 16, "Option<int>");
+
+    // Option<bool> = {i64 tag, bool payload} = 8 + 1 = 9
+    let opt_bool = pool.option(Idx::BOOL);
+    assert_eq!(pool_type_store_size(opt_bool, &pool, 0), 9, "Option<bool>");
+
+    // Result<int, str> = {i64 tag, max(8, 16)} = 8 + 16 = 24
+    let res = pool.result(Idx::INT, Idx::STR);
+    assert_eq!(pool_type_store_size(res, &pool, 0), 24, "Result<int, str>");
+
+    // Tuple (int, bool) = 8 + 1 = 9
+    let tup = pool.tuple(&[Idx::INT, Idx::BOOL]);
+    assert_eq!(pool_type_store_size(tup, &pool, 0), 9, "(int, bool)");
+
+    // Tuple (int, int, int) = 24
+    let tup3 = pool.tuple(&[Idx::INT, Idx::INT, Idx::INT]);
+    assert_eq!(pool_type_store_size(tup3, &pool, 0), 24, "(int, int, int)");
 }

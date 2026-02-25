@@ -984,7 +984,7 @@ These features were previously reported as broken but now parse correctly.
 - [x] **Fixed**: `timeout` as identifier — `let timeout = 5` [done] (2026-02-10)
 - [x] **Fixed**: List spread syntax — `[...result, i]` [done] (2026-02-10)
 - [x] **Fixed**: Map spread syntax — `{...base, "c": 3}` [done] (2026-02-10)
-- [ ] **Regression**: Tuple destructuring in for loops — `for (k, v) in m do ...` — still rejected with E1013 "`for` pattern requires named properties" (previously marked fixed 2026-02-10, verified broken 2026-02-23)
+- [x] **Fixed**: Tuple destructuring in for loops — `for (k, v) in m do ...` — parser dispatch via `is_named_arg_at(2)` (commit 0aae9265, verified 2026-02-24)
 - [x] **Fixed**: Multiple derives — `#derive(Eq, Clone, Debug)` [done] (2026-02-10)
 - [x] **Fixed**: `as`/`as?` type conversion — `42 as float`, `"42" as? int` [done] (2026-02-10)
 - [x] **Fixed**: Wildcard pattern in for loops — `for _ in 0..n do ...` [done] (2026-02-10)

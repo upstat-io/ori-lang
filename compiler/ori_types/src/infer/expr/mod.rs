@@ -143,14 +143,14 @@ fn infer_expr_inner(engine: &mut InferEngine<'_>, arena: &ExprArena, expr_id: Ex
         } => infer_if(engine, arena, *cond, *then_branch, *else_branch, span),
         ExprKind::Match { scrutinee, arms } => infer_match(engine, arena, *scrutinee, *arms, span),
         ExprKind::For {
-            binding,
+            pattern,
             iter,
             guard,
             body,
             is_yield,
             ..
         } => infer_for(
-            engine, arena, *binding, *iter, *guard, *body, *is_yield, span,
+            engine, arena, *pattern, *iter, *guard, *body, *is_yield, span,
         ),
         ExprKind::Loop { body, .. } => infer_loop(engine, arena, *body, span),
 

@@ -51,7 +51,7 @@ use helpers::{accumulate_widths, COMMA_SEPARATOR_WIDTH};
 use literals::{bool_width, char_width, float_width, int_width, string_width};
 use operators::{binary_op_width, unary_op_width};
 use ori_ir::{ExprArena, ExprId, ExprKind, FunctionExpKind, FunctionSeq, StringLookup};
-use patterns::binding_pattern_width;
+use patterns::{binding_pattern_width, for_binding_pattern_width};
 use rustc_hash::{FxBuildHasher, FxHashMap};
 use wrappers::{
     await_width, cast_width, err_width, loop_width, ok_width, some_width, try_width, unsafe_width,
@@ -199,12 +199,12 @@ impl<'a, I: StringLookup> WidthCalculator<'a, I> {
             ExprKind::Match { .. } => ALWAYS_STACKED,
             ExprKind::For {
                 label,
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
                 is_yield,
-            } => for_width(self, *label, *binding, *iter, *guard, *body, *is_yield),
+            } => for_width(self, *label, *pattern, *iter, *guard, *body, *is_yield),
             ExprKind::Loop { label, body } => loop_width(self, *label, *body),
             ExprKind::Block { stmts, result } => block_width(self, *stmts, *result),
 

@@ -90,12 +90,15 @@ For Ori syntax, types, patterns, and prelude:
 **Tracing/Debugging** (USE FIRST — before println, before reading code line-by-line):
 `ORI_LOG=debug ori check file.ori` | `ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori` | `ORI_LOG=ori_eval=debug ori run file.ori` | `ORI_LOG=oric=debug ori check file.ori` (Salsa queries) | Falls back to `RUST_LOG`
 **Always run `./test-all.sh` after compiler changes.**
+**Valgrind (memory safety)**: `./scripts/valgrind-aot.sh` — compiles Ori programs from `tests/valgrind/` to native binaries and runs them under Valgrind. Catches use-after-free, double-free, and leaks that `ORI_CHECK_LEAKS` misses (Valgrind tracks `malloc`/`free` at the system level, not just RC live count). Run after ARC pipeline changes or when adding new codegen patterns. Not part of `test-all.sh` due to speed (Valgrind is 20-50x slower). Can also run on any `.ori` file: `./scripts/valgrind-aot.sh path/to/file.ori`.
+**Dual-execution verification**: `./scripts/dual-exec-verify.sh` — runs spec tests through both JIT (interpreter) and LLVM (JIT/AOT) backends, compares results. Flags behavioral mismatches. Supports `--test-only`, `--main-only`, `--verbose`, `--json[=PATH]`.
+**Performance baseline**: `./scripts/perf-baseline.sh [--release]` — measures compile time, AOT vs JIT runtime, and binary sizes for benchmark programs in `tests/benchmarks/`.
 
 > **Note**: AOT compilation (`ori build`) requires `libori_rt.a`. Use `cargo bl`/`blr` to build both the compiler and runtime library together.
 
 ## Key Paths
 
-`compiler/oric/` — compiler | `docs/ori_lang/0.1-alpha/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `plans/roadmap/` — roadmap
+`compiler/oric/` — compiler | `docs/ori_lang/0.1-alpha/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT integration tests | `tests/valgrind/` — Valgrind memory safety tests | `tests/benchmarks/` — AOT performance benchmarks | `plans/roadmap/` — roadmap
 
 ## Reference Repos (`~/projects/reference_repos/lang_repos/`)
 

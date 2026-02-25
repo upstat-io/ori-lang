@@ -176,6 +176,18 @@ pub struct OriResult<T> {
 /// Read by `ori_rc_live_count` to verify all allocations were freed.
 static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 
+/// Maximum allowed reference count.
+///
+/// Matches Rust's `Arc` overflow protection: if a single allocation reaches
+/// this many live references, something is catastrophically wrong (likely an
+/// infinite increment loop). We abort rather than allowing silent wrap-around
+/// to negative counts, which would cause use-after-free.
+///
+/// Value: `isize::MAX` (same as Rust's `Arc`). On 64-bit systems this is
+/// `i64::MAX` (9.2 quintillion) — unreachable in practice, but the check
+/// costs essentially nothing (one compare per `ori_rc_inc`).
+const MAX_REFCOUNT: i64 = isize::MAX as i64;
+
 // ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
 
 /// Buffer for `setjmp`/`longjmp` JIT error recovery.
@@ -424,14 +436,35 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
         #[cfg(not(feature = "single-threaded"))]
         {
             let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
-            (*rc_ptr).fetch_add(1, Ordering::Relaxed);
+            let prev = (*rc_ptr).fetch_add(1, Ordering::Relaxed);
+
+            // Overflow protection: abort if refcount was already at the maximum.
+            // fetch_add returns the *previous* value, so prev == MAX_REFCOUNT
+            // means the new value overflowed. Matches Rust's Arc::clone check.
+            if prev == MAX_REFCOUNT {
+                rc_overflow_abort();
+            }
         }
         #[cfg(feature = "single-threaded")]
         {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
+            if *rc_ptr == MAX_REFCOUNT {
+                rc_overflow_abort();
+            }
             *rc_ptr += 1;
         }
     }
+}
+
+/// Abort on refcount overflow.
+///
+/// Separate `#[cold]` function keeps the fast path in `ori_rc_inc` small
+/// and avoids polluting the instruction cache with error handling code.
+#[cold]
+#[inline(never)]
+fn rc_overflow_abort() -> ! {
+    eprintln!("ori: refcount overflow — aborting (possible reference cycle or infinite clone)");
+    std::process::abort();
 }
 
 /// Decrement the reference count. If it reaches zero, call the drop function.
@@ -691,6 +724,43 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const i8) {
     // AOT path: unwind via Rust panic infrastructure
     eprintln!("ori panic: {msg}");
     panic::panic_any(OriPanic { message: msg });
+}
+
+/// Acknowledge a caught Rust exception from a `catch(expr:)` landing pad.
+///
+/// Called from LLVM-generated catch-all landing pads after extracting the
+/// exception pointer from the `landingpad catch null` result.
+///
+/// # Current limitations (0.1-alpha)
+///
+/// The Rust panic runtime's `__rust_panic_cleanup` is `#[rustc_std_internal_symbol]`
+/// and inaccessible from external crates. `_Unwind_DeleteException` triggers
+/// `exception_cleanup` → `__rust_drop_panic` → abort. So we currently:
+/// - Accept a small memory leak (the `Exception` struct + `Box<dyn Any>` payload)
+/// - Leave the panic counter incremented (doesn't affect single-catch scenarios)
+///
+/// The panic message is still correctly recovered via thread-local storage
+/// in [`ori_catch_recover`]. A proper fix would require either:
+/// - Reimplementing the Rust exception layout to `Box::from_raw` directly, or
+/// - Wrapping the catch body in `catch_unwind` at the runtime level.
+#[no_mangle]
+pub extern "C" fn ori_catch_cleanup(_exc_ptr: *mut u8) {
+    // Intentionally does not free the exception object.
+    // See doc comment for rationale.
+}
+
+/// Recover from a caught panic — reads the panic message from thread-local storage.
+///
+/// Called from `catch(expr:)` unwind blocks after `ori_catch_cleanup` has
+/// freed the exception object. Returns the panic message as an `OriStr`.
+/// The message was stored in thread-local storage by `ori_panic`/`ori_panic_cstr`
+/// before unwinding. Clears the panic state so subsequent catches work correctly.
+#[no_mangle]
+pub extern "C" fn ori_catch_recover() -> OriStr {
+    let msg = PANIC_MESSAGE.with(|m| m.borrow_mut().take());
+    PANIC_OCCURRED.with(|p| *p.borrow_mut() = false);
+    let text = msg.unwrap_or_else(|| "unknown panic".to_string());
+    OriStr::from_owned(text)
 }
 
 /// Assert that a condition is true.
@@ -1206,6 +1276,224 @@ pub extern "C" fn ori_map_values_to_list(
     write_array_to_list(vals, len, val_size, out_ptr);
 }
 
+/// Look up a key in a map and return `Option<V>` via sret.
+///
+/// Scans the keys array for a matching string key. Writes `{tag: i64, value}`
+/// to `out_ptr`. Tag 0 = Some (value copied), tag 1 = None.
+///
+/// Map layout: keys = contiguous `OriStr` array, vals = contiguous value array.
+#[no_mangle]
+pub extern "C" fn ori_map_get(
+    keys: *const u8,
+    vals: *const u8,
+    len: i64,
+    needle: *const OriStr,
+    val_size: i64,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let vs = val_size.max(1) as usize;
+    let needle_str = unsafe { deref_str(needle) };
+
+    if keys.is_null() || vals.is_null() || len <= 0 {
+        // None
+        unsafe {
+            out_ptr.cast::<i64>().write(1);
+        }
+        return;
+    }
+
+    let key_size = std::mem::size_of::<OriStr>();
+    for i in 0..len as usize {
+        let key_ptr = unsafe { keys.add(i * key_size).cast::<OriStr>() };
+        let key_str = unsafe { (*key_ptr).as_str() };
+        if key_str == needle_str {
+            // Some: tag = 0, copy value
+            unsafe {
+                out_ptr.cast::<i64>().write(0);
+                std::ptr::copy_nonoverlapping(vals.add(i * vs), out_ptr.add(8), vs);
+            }
+            return;
+        }
+    }
+
+    // None
+    unsafe {
+        out_ptr.cast::<i64>().write(1);
+    }
+}
+
+/// Insert a key-value pair into a map, returning a new map via sret.
+///
+/// If the key already exists, its value is updated. Otherwise a new entry
+/// is appended. Writes `{i64 len, i64 cap, ptr keys, ptr vals}` to `out_ptr`.
+#[no_mangle]
+pub extern "C" fn ori_map_insert(
+    keys: *const u8,
+    vals: *const u8,
+    len: i64,
+    key: *const OriStr,
+    val_ptr: *const u8,
+    key_size: i64,
+    val_size: i64,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() || key.is_null() || val_ptr.is_null() {
+        return;
+    }
+    let ks = key_size.max(1) as usize;
+    let vs = val_size.max(1) as usize;
+    let n = len.max(0) as usize;
+    let needle_str = unsafe { deref_str(key) };
+
+    // Check if key already exists
+    let mut found_idx: Option<usize> = None;
+    if !keys.is_null() && n > 0 {
+        for i in 0..n {
+            let k = unsafe { keys.add(i * ks).cast::<OriStr>() };
+            if unsafe { (*k).as_str() } == needle_str {
+                found_idx = Some(i);
+                break;
+            }
+        }
+    }
+
+    if let Some(idx) = found_idx {
+        // Key exists — copy map, overwrite value at idx
+        let new_keys = crate::ori_alloc(n * ks, 8);
+        let new_vals = crate::ori_alloc(n * vs, 8);
+        if !keys.is_null() {
+            unsafe { std::ptr::copy_nonoverlapping(keys, new_keys, n * ks) };
+        }
+        if !vals.is_null() {
+            unsafe { std::ptr::copy_nonoverlapping(vals, new_vals, n * vs) };
+        }
+        // Overwrite the value at the found index
+        unsafe { std::ptr::copy_nonoverlapping(val_ptr, new_vals.add(idx * vs), vs) };
+        write_map_struct(out_ptr, n as i64, new_keys, new_vals);
+    } else {
+        // Key doesn't exist — append
+        let new_len = n + 1;
+        let new_keys = crate::ori_alloc(new_len * ks, 8);
+        let new_vals = crate::ori_alloc(new_len * vs, 8);
+        if !keys.is_null() && n > 0 {
+            unsafe { std::ptr::copy_nonoverlapping(keys, new_keys, n * ks) };
+        }
+        if !vals.is_null() && n > 0 {
+            unsafe { std::ptr::copy_nonoverlapping(vals, new_vals, n * vs) };
+        }
+        // Append new key and value
+        unsafe {
+            std::ptr::copy_nonoverlapping(key.cast::<u8>(), new_keys.add(n * ks), ks);
+            std::ptr::copy_nonoverlapping(val_ptr, new_vals.add(n * vs), vs);
+        }
+        write_map_struct(out_ptr, new_len as i64, new_keys, new_vals);
+    }
+}
+
+/// Remove a key from a map, returning a new map via sret.
+///
+/// If the key doesn't exist, the result is a copy of the original map.
+/// Writes `{i64 len, i64 cap, ptr keys, ptr vals}` to `out_ptr`.
+#[no_mangle]
+pub extern "C" fn ori_map_remove(
+    keys: *const u8,
+    vals: *const u8,
+    len: i64,
+    needle: *const OriStr,
+    key_size: i64,
+    val_size: i64,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() {
+        return;
+    }
+    let ks = key_size.max(1) as usize;
+    let vs = val_size.max(1) as usize;
+    let n = len.max(0) as usize;
+    let needle_str = unsafe { deref_str(needle) };
+
+    if keys.is_null() || n == 0 {
+        write_map_struct(out_ptr, 0, std::ptr::null_mut(), std::ptr::null_mut());
+        return;
+    }
+
+    // Find the key to remove
+    let mut remove_idx: Option<usize> = None;
+    for i in 0..n {
+        let k = unsafe { keys.add(i * ks).cast::<OriStr>() };
+        if unsafe { (*k).as_str() } == needle_str {
+            remove_idx = Some(i);
+            break;
+        }
+    }
+
+    let Some(idx) = remove_idx else {
+        // Key not found — return a copy of the original map
+        let new_keys = crate::ori_alloc(n * ks, 8);
+        let new_vals = crate::ori_alloc(n * vs, 8);
+        unsafe {
+            std::ptr::copy_nonoverlapping(keys, new_keys, n * ks);
+            if !vals.is_null() {
+                std::ptr::copy_nonoverlapping(vals, new_vals, n * vs);
+            }
+        }
+        write_map_struct(out_ptr, n as i64, new_keys, new_vals);
+        return;
+    };
+
+    let new_len = n - 1;
+    if new_len == 0 {
+        write_map_struct(out_ptr, 0, std::ptr::null_mut(), std::ptr::null_mut());
+        return;
+    }
+
+    let new_keys = crate::ori_alloc(new_len * ks, 8);
+    let new_vals = crate::ori_alloc(new_len * vs, 8);
+
+    // Copy elements before the removed index
+    if idx > 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(keys, new_keys, idx * ks);
+            if !vals.is_null() {
+                std::ptr::copy_nonoverlapping(vals, new_vals, idx * vs);
+            }
+        }
+    }
+    // Copy elements after the removed index
+    let after = n - idx - 1;
+    if after > 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                keys.add((idx + 1) * ks),
+                new_keys.add(idx * ks),
+                after * ks,
+            );
+            if !vals.is_null() {
+                std::ptr::copy_nonoverlapping(
+                    vals.add((idx + 1) * vs),
+                    new_vals.add(idx * vs),
+                    after * vs,
+                );
+            }
+        }
+    }
+
+    write_map_struct(out_ptr, new_len as i64, new_keys, new_vals);
+}
+
+/// Write a map struct `{i64 len, i64 cap, ptr keys, ptr vals}` to `out_ptr`.
+fn write_map_struct(out_ptr: *mut u8, len: i64, keys: *mut u8, vals: *mut u8) {
+    unsafe {
+        out_ptr.cast::<i64>().write(len);
+        out_ptr.cast::<i64>().add(1).write(len); // cap = len
+        out_ptr.add(16).cast::<*mut u8>().write(keys);
+        out_ptr.add(24).cast::<*mut u8>().write(vals);
+    }
+}
+
 /// Shared helper: copy a contiguous array into a new list struct via sret.
 fn write_array_to_list(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
     if out_ptr.is_null() {
@@ -1230,6 +1518,88 @@ fn write_array_to_list(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut 
     let new_data = crate::ori_alloc(total, 8);
     unsafe {
         std::ptr::copy_nonoverlapping(data, new_data, total);
+        out_ptr.cast::<i64>().write(n as i64);
+        out_ptr.cast::<i64>().add(1).write(n as i64);
+        out_ptr.add(16).cast::<*mut u8>().write(new_data);
+    }
+}
+
+/// Convert a string into a list of chars (i32 Unicode scalar values).
+///
+/// Writes `{len, cap, data_ptr}` to `out_ptr` (sret pattern). Each element
+/// is an `i32` representing a Unicode code point.
+#[no_mangle]
+pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut u8) {
+    if out_ptr.is_null() {
+        return;
+    }
+    if str_ptr.is_null() || str_len <= 0 {
+        write_array_to_list(std::ptr::null(), 0, 4, out_ptr);
+        return;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(str_ptr, str_len as usize) };
+    let s = unsafe { std::str::from_utf8_unchecked(bytes) };
+
+    let chars: Vec<i32> = s.chars().map(|c| c as i32).collect();
+    let n = chars.len() as i64;
+    write_array_to_list(chars.as_ptr().cast(), n, 4, out_ptr);
+}
+
+/// Split a string by a separator, returning a list of `OriStr` values.
+///
+/// Writes `{len, cap, data_ptr}` to `out_ptr` (sret pattern). Each element
+/// is an `OriStr` (16 bytes: `{i64 len, ptr data}`). The returned strings
+/// are new allocations that the caller owns.
+#[no_mangle]
+pub extern "C" fn ori_str_split(
+    str_ptr: *const u8,
+    str_len: i64,
+    sep_ptr: *const u8,
+    sep_len: i64,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() {
+        return;
+    }
+    if str_ptr.is_null() || str_len < 0 {
+        write_array_to_list(std::ptr::null(), 0, 16, out_ptr);
+        return;
+    }
+
+    let bytes = unsafe { std::slice::from_raw_parts(str_ptr, str_len as usize) };
+    let s = unsafe { std::str::from_utf8_unchecked(bytes) };
+
+    let sep_bytes = if sep_ptr.is_null() || sep_len <= 0 {
+        ""
+    } else {
+        unsafe {
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(sep_ptr, sep_len as usize))
+        }
+    };
+
+    let parts: Vec<&str> = s.split(sep_bytes).collect();
+    let n = parts.len();
+
+    // Each OriStr is 16 bytes: {i64 len, ptr data}
+    let total = n * 16;
+    let new_data = crate::ori_alloc(total, 8);
+    for (i, part) in parts.iter().enumerate() {
+        let part_len = part.len() as i64;
+        let part_data = if part.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            let buf = crate::ori_alloc(part.len(), 1);
+            unsafe { std::ptr::copy_nonoverlapping(part.as_ptr(), buf, part.len()) };
+            buf
+        };
+        unsafe {
+            let entry = new_data.add(i * 16);
+            entry.cast::<i64>().write(part_len);
+            entry.add(8).cast::<*mut u8>().write(part_data);
+        }
+    }
+
+    unsafe {
         out_ptr.cast::<i64>().write(n as i64);
         out_ptr.cast::<i64>().add(1).write(n as i64);
         out_ptr.add(16).cast::<*mut u8>().write(new_data);

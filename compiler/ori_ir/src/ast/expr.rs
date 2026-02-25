@@ -178,11 +178,11 @@ pub enum ExprKind {
     /// Match expression (statement form): match value { arms }
     Match { scrutinee: ExprId, arms: ArmRange },
 
-    /// For loop: `for x in iter do body` or `for:label x in iter do body`
+    /// For loop: `for pattern in iter do body` or `for:label pattern in iter do body`
     For {
         /// `Name::EMPTY` = no label.
         label: Name,
-        binding: Name,
+        pattern: BindingPatternId,
         iter: ExprId,
         /// `ExprId::INVALID` = no guard.
         guard: ExprId,
@@ -417,7 +417,7 @@ impl fmt::Debug for ExprKind {
             }
             ExprKind::For {
                 label,
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
@@ -425,7 +425,7 @@ impl fmt::Debug for ExprKind {
             } => {
                 write!(
                     f,
-                    "For({label:?}, {binding:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
+                    "For({label:?}, {pattern:?}, {iter:?}, {guard:?}, {body:?}, yield={is_yield})"
                 )
             }
             ExprKind::Loop { label, body } => write!(f, "Loop({label:?}, {body:?})"),

@@ -3,8 +3,8 @@
 //! Handles lowering of `FunctionSeq` variants (Try, Match, `ForPattern`)
 //! into primitive `CanExpr` nodes.
 
-use ori_ir::canon::{CanExpr, CanId, CanRange};
-use ori_ir::{Name, Span, TypeId};
+use ori_ir::canon::{CanBindingPattern, CanExpr, CanId, CanRange};
+use ori_ir::{Mutability, Name, Span, TypeId};
 
 use super::Lowerer;
 
@@ -68,18 +68,22 @@ impl Lowerer<'_> {
                 let body = self.lower_expr(arm.body);
 
                 // Use a simple for with the binding from the arm pattern.
-                let binding = match &arm.pattern {
+                let binding_name = match &arm.pattern {
                     ori_ir::MatchPattern::Binding(name) => *name,
                     // Wildcard and complex patterns: simplified for now
                     _ => Name::EMPTY,
                 };
+                let pattern = self.arena.push_binding_pattern(CanBindingPattern::Name {
+                    name: binding_name,
+                    mutable: Mutability::Immutable,
+                });
 
                 let guard = arm.guard.map_or(CanId::INVALID, |g| self.lower_expr(g));
 
                 self.push(
                     CanExpr::For {
                         label: Name::EMPTY,
-                        binding,
+                        pattern,
                         iter,
                         guard,
                         body,

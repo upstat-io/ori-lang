@@ -29,7 +29,8 @@ pub(crate) mod scope;
 
 use ori_ir::canon::{CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
-use ori_types::{Idx, Pool};
+use ori_types::{Idx, Pool, Tag};
+use rustc_hash::FxHashMap;
 
 use crate::classify::ArcClassifier;
 use crate::ir::{
@@ -40,6 +41,34 @@ use crate::Ownership;
 
 pub use self::expr::ArcLowerer;
 pub use self::scope::ArcScope;
+
+// Variant constructor lookup
+
+/// Maps variant name → `(enum_name, variant_index, field_count)`.
+///
+/// Built once per function from the [`Pool`]'s enum type data, then shared
+/// by reference with the expression lowerer and any inner lambda lowerers.
+pub(crate) type VariantCtors = FxHashMap<Name, (Name, u32, usize)>;
+
+/// Scan the pool for all enum types and build a reverse lookup map
+/// from variant name to its parent enum info.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "pool indices and variant counts never exceed u32"
+)]
+fn build_variant_ctors(pool: &Pool) -> VariantCtors {
+    let mut map = VariantCtors::default();
+    for raw in 0..pool.len() as u32 {
+        let idx = Idx::from_raw(raw);
+        if pool.tag(idx) == Tag::Enum {
+            let enum_name = pool.enum_name(idx);
+            for (vi, (vname, fields)) in pool.enum_variants(idx).into_iter().enumerate() {
+                map.insert(vname, (enum_name, vi as u32, fields.len()));
+            }
+        }
+    }
+    map
+}
 
 // Diagnostics
 
@@ -104,6 +133,10 @@ pub struct ArcIrBuilder {
     current_block: ArcBlockId,
     next_var: u32,
     var_types: Vec<Idx>,
+    /// When set, `emit_invoke` creates unwind blocks that `Jump` to this
+    /// target instead of `Resume`. Used by `catch(expr:)` lowering to
+    /// redirect panics to a shared catch handler block.
+    catch_unwind_target: Option<ArcBlockId>,
 }
 
 impl Default for ArcIrBuilder {
@@ -121,6 +154,7 @@ impl ArcIrBuilder {
             current_block: ArcBlockId::new(0),
             next_var: 0,
             var_types: Vec::new(),
+            catch_unwind_target: None,
         }
     }
 
@@ -331,14 +365,35 @@ impl ArcIrBuilder {
 
         self.terminate_invoke(dst, ty, func, args, normal, unwind);
 
-        // Unwind block: initially just Resume. The RC insertion pass
-        // (Phase 3C) will add cleanup RcDec instructions before Resume.
+        // Unwind block terminator depends on context:
+        // - Normal code: Resume (re-raise after cleanup)
+        // - Inside catch(expr:): Jump to catch handler (catch after cleanup)
+        // The RC insertion pass (Phase 3C) adds cleanup RcDec instructions
+        // before whichever terminator is present.
         self.position_at(unwind);
-        self.terminate_resume();
+        if let Some(catch_target) = self.catch_unwind_target {
+            self.terminate_jump(catch_target, vec![]);
+        } else {
+            self.terminate_resume();
+        }
 
         // Position at the normal continuation block for subsequent lowering.
         self.position_at(normal);
         dst
+    }
+
+    /// Set the catch unwind target for `catch(expr:)` lowering.
+    ///
+    /// When set, [`emit_invoke`](Self::emit_invoke) creates unwind blocks
+    /// that `Jump` to this target instead of `Resume`. Returns the previous
+    /// target (for nesting).
+    pub fn set_catch_target(&mut self, target: ArcBlockId) -> Option<ArcBlockId> {
+        self.catch_unwind_target.replace(target)
+    }
+
+    /// Clear the catch unwind target. Returns the previous target.
+    pub fn clear_catch_target(&mut self) -> Option<ArcBlockId> {
+        self.catch_unwind_target.take()
     }
 
     // Terminators
@@ -524,6 +579,10 @@ impl ArcIrBuilder {
     clippy::too_many_arguments,
     reason = "public API entry point -- a config struct would add unnecessary complexity"
 )]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "always called with FxHashMap internally"
+)]
 pub fn lower_function_can(
     name: Name,
     params: &[(Name, Idx)],
@@ -534,6 +593,7 @@ pub fn lower_function_can(
     pool: &Pool,
     problems: &mut Vec<ArcProblem>,
     is_fbip: bool,
+    type_subst: Option<&rustc_hash::FxHashMap<Idx, Idx>>,
 ) -> (ArcFunction, Vec<ArcFunction>) {
     let fn_name = interner.lookup(name);
     tracing::debug!(
@@ -564,6 +624,7 @@ pub fn lower_function_can(
 
     let entry = builder.entry_block();
     let mut lambdas = Vec::new();
+    let variant_ctors = build_variant_ctors(pool);
 
     // Lower the body expression.
     let mut lowerer = ArcLowerer {
@@ -578,6 +639,8 @@ pub fn lower_function_can(
         lambdas: &mut lambdas,
         hash_length: None,
         block_let_names: rustc_hash::FxHashSet::default(),
+        variant_ctors: &variant_ctors,
+        type_subst,
     };
 
     let result_var = lowerer.lower_expr(body);
