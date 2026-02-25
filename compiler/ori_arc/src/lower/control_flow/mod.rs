@@ -448,6 +448,9 @@ impl ArcLowerer<'_> {
         let header_block = self.builder.new_block();
         let body_block = self.builder.new_block();
         let exit_block = self.builder.new_block();
+        // Normal exit prep block: Branch can't carry args, so the normal
+        // exit path (iterator exhausted) goes header → exit_prep → exit.
+        let exit_prep_block = self.builder.new_block();
 
         // Collect mutable bindings for SSA merge.
         let pre_scope = self.scope.clone();
@@ -478,6 +481,15 @@ impl ArcLowerer<'_> {
         for &(name, pre_var, var_ty) in &mut_info {
             let param = self.builder.add_block_param(header_block, var_ty);
             header_mut_params.push((name, pre_var, param));
+        }
+
+        // Exit block params: result value (from break) + mutable vars.
+        // Matches what lower_break() sends: [break_val, mut0, mut1, ...]
+        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
+        let mut exit_mut_params = Vec::new();
+        for &(name, _, var_ty) in &mut_info {
+            let param = self.builder.add_block_param(exit_block, var_ty);
+            exit_mut_params.push((name, param));
         }
 
         // Entry jump: pass current mutable var values to header.
@@ -527,7 +539,7 @@ impl ArcLowerer<'_> {
         if guard.is_valid() {
             let guarded_block = self.builder.new_block();
             self.builder
-                .terminate_branch(has_more, guarded_block, exit_block);
+                .terminate_branch(has_more, guarded_block, exit_prep_block);
 
             self.builder.position_at(guarded_block);
             let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
@@ -547,7 +559,7 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(header_block, skip_args);
         } else {
             self.builder
-                .terminate_branch(has_more, body_block, exit_block);
+                .terminate_branch(has_more, body_block, exit_prep_block);
         }
 
         // Body: extract element and bind.
@@ -575,13 +587,21 @@ impl ArcLowerer<'_> {
 
         self.loop_ctx = prev_loop;
 
-        // Exit: restore scope with mutable vars from header params.
+        // Exit prep: normal loop exhaustion path. Passes unit (no break
+        // value) + current mutable var values to the exit block.
+        self.builder.position_at(exit_prep_block);
+        let unit_val = self.emit_unit();
+        let mut prep_args = vec![unit_val];
+        prep_args.extend(header_mut_params.iter().map(|&(_, _, param_var)| param_var));
+        self.builder.terminate_jump(exit_block, prep_args);
+
+        // Exit: restore scope with mutable vars from exit block params.
         self.builder.position_at(exit_block);
         self.scope = pre_scope;
-        for &(name, _, param_var) in &header_mut_params {
-            self.scope.bind_mutable(name, param_var);
+        for &(name, param) in &exit_mut_params {
+            self.scope.bind_mutable(name, param);
         }
-        self.emit_unit()
+        result_param
     }
 
     /// Lower `for x in <option> do body` — 0-or-1 element iteration.
@@ -716,6 +736,9 @@ impl ArcLowerer<'_> {
         let body_block = self.builder.new_block();
         let latch_block = self.builder.new_block();
         let exit_block = self.builder.new_block();
+        // Normal exit prep block: Branch can't carry args, so the normal
+        // exit path (range exhausted) goes header → exit_prep → exit.
+        let exit_prep_block = self.builder.new_block();
 
         // Collect mutable bindings for SSA merge through the loop.
         let pre_scope = self.scope.clone();
@@ -757,6 +780,15 @@ impl ArcLowerer<'_> {
             latch_mut_params.push((name, param));
         }
 
+        // Exit block params: result value (from break) + mutable vars.
+        // Matches what lower_break() sends: [break_val, mut0, mut1, ...]
+        let result_param = self.builder.add_block_param(exit_block, Idx::UNIT);
+        let mut exit_mut_params = Vec::new();
+        for &(name, _, var_ty) in &mut_info {
+            let param = self.builder.add_block_param(exit_block, var_ty);
+            exit_mut_params.push((name, param));
+        }
+
         let start = self.builder.emit_project(Idx::INT, iter_val, 0, None);
         let end = self.builder.emit_project(Idx::INT, iter_val, 1, None);
         // Field 3 = inclusive flag (0 or 1). Adding it to end makes `i < end + inclusive`
@@ -795,7 +827,7 @@ impl ArcLowerer<'_> {
         if guard.is_valid() {
             let guarded_block = self.builder.new_block();
             self.builder
-                .terminate_branch(in_bounds, guarded_block, exit_block);
+                .terminate_branch(in_bounds, guarded_block, exit_prep_block);
 
             self.builder.position_at(guarded_block);
             self.bind_for_pattern(pattern, i_var, Idx::INT);
@@ -813,7 +845,7 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(latch_block, skip_args);
         } else {
             self.builder
-                .terminate_branch(in_bounds, body_block, exit_block);
+                .terminate_branch(in_bounds, body_block, exit_prep_block);
         }
 
         self.builder.position_at(body_block);
@@ -854,12 +886,21 @@ impl ArcLowerer<'_> {
         header_args.extend(latch_mut_params.iter().map(|(_, param)| *param));
         self.builder.terminate_jump(header_block, header_args);
 
+        // Exit prep: normal range exhaustion path. Passes unit (no break
+        // value) + current mutable var values to the exit block.
+        self.builder.position_at(exit_prep_block);
+        let unit_val = self.emit_unit();
+        let mut prep_args = vec![unit_val];
+        prep_args.extend(header_mut_params.iter().map(|&(_, _, param_var)| param_var));
+        self.builder.terminate_jump(exit_block, prep_args);
+
+        // Exit: restore scope with mutable vars from exit block params.
         self.builder.position_at(exit_block);
         self.scope = pre_scope;
-        for &(name, _, param_var) in &header_mut_params {
-            self.scope.bind_mutable(name, param_var);
+        for &(name, param) in &exit_mut_params {
+            self.scope.bind_mutable(name, param);
         }
-        self.emit_unit()
+        result_param
     }
 
     // Break / Continue

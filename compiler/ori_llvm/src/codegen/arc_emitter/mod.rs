@@ -1,14 +1,25 @@
 //! ARC IR → LLVM IR emitter.
 //!
-//! Translates `ArcFunction` basic blocks and instructions directly to LLVM IR,
+//! Translates [`ArcFunction`] basic blocks and instructions directly to LLVM IR,
 //! including RC operations (`ori_rc_inc`, `ori_rc_dec`) and structured cleanup
 //! via `invoke`/`landingpad`.
+//!
+//! This is the **sole codegen path** for all Ori functions (JIT and AOT).
+//! Every function goes through: `CanExpr → ARC IR → ArcIrEmitter → LLVM IR`.
 //!
 //! # Architecture
 //!
 //! ```text
-//! CanExpr  →  ARC IR  →  ArcIrEmitter  →  LLVM IR  (with RC)
+//! CanExpr  →  ori_arc::lower  →  ArcFunction
+//!          →  ori_arc pipeline (borrow, RC, reuse, eliminate)
+//!          →  ArcIrEmitter    →  LLVM IR  (with RC lifecycle)
 //! ```
+//!
+//! # Submodules
+//!
+//! - [`builtins`] — builtin method emission (string, list, map, iterator ops)
+//! - [`drop_gen`] — per-type LLVM drop function generation (cached by mangled name)
+//! - [`rc_ops`] — `ori_rc_inc`/`ori_rc_dec` emission with closure-aware `env_ptr` handling
 
 mod builtins;
 mod drop_gen;

@@ -1,5 +1,7 @@
 # ARC Optimization Plan
 
+> **SUPERSEDED (2026-02-25):** This plan has been superseded by [`plans/aot_codegen_pipeline/`](../aot_codegen_pipeline/00-overview.md), which completed all three phases (codegen completeness, optimization enhancements, verification) as part of a unified 12-section pipeline. Refer to the AOT codegen pipeline for the current state of ARC optimization.
+
 > **Design Reference:** `plans/dpr_arc-optimization_02212026.md` — Full prior art analysis and proposed design.
 
 ## Goal
