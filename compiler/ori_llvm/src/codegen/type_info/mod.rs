@@ -1023,6 +1023,11 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     ///
     /// Uses LLVM's type system to determine sizes. For types where we
     /// can't easily determine the size, falls back to 8 bytes (i64-sized).
+    ///
+    /// **Sync point**: `ForYieldLowerer::type_store_size()` in `ori_arc` mirrors
+    /// this logic at the Pool level. Both must agree on sizes for all types,
+    /// otherwise for-yield element buffers will be mis-sized.
+    /// See `compiler/ori_arc/src/lower/control_flow/for_yield.rs`.
     pub(crate) fn type_store_size(ty: BasicTypeEnum<'ll>) -> u64 {
         Self::type_store_size_inner(ty, 0)
     }

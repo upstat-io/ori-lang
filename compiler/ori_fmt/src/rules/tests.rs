@@ -86,7 +86,7 @@ mod nested_for_tests {
     fn for_chain_single() {
         let chain = ForChain {
             levels: vec![ForLevel {
-                binding: ori_ir::Name::EMPTY,
+                pattern: ori_ir::BindingPatternId::new(0),
                 iter: ori_ir::ExprId::INVALID,
                 guard: ori_ir::ExprId::INVALID,
                 is_yield: true,
@@ -102,13 +102,13 @@ mod nested_for_tests {
         let chain = ForChain {
             levels: vec![
                 ForLevel {
-                    binding: ori_ir::Name::EMPTY,
+                    pattern: ori_ir::BindingPatternId::new(0),
                     iter: ori_ir::ExprId::INVALID,
                     guard: ori_ir::ExprId::INVALID,
                     is_yield: true,
                 },
                 ForLevel {
-                    binding: ori_ir::Name::EMPTY,
+                    pattern: ori_ir::BindingPatternId::new(0),
                     iter: ori_ir::ExprId::INVALID,
                     guard: ori_ir::ExprId::INVALID,
                     is_yield: true,

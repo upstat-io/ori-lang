@@ -14,8 +14,87 @@
 use ori_diagnostic::ErrorGuaranteed;
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, Span};
 
+use rustc_hash::FxHashMap;
+
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError, TypeCheckWarning};
+
+/// A compile-time value used as a const generic argument.
+///
+/// Phase 1: unused (only [`GenericArg::Type`] variants).
+/// Phase 2+: const generics (`$N: int`, `$B: bool`).
+/// Phase 3+: any type `with Eq, Hashable` (`$C: Color`, `$S: [int]`).
+///
+/// Each variant must be `Eq + Hash`, mirroring Ori's requirement that
+/// const-eligible types implement `Eq + Hashable`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum ConstValue {
+    /// Integer constant (`$N: int → 42`).
+    Int(i64),
+    /// Boolean constant (`$B: bool → true`).
+    Bool(bool),
+    // Future phases add variants as const generic eligibility expands:
+    // Str(Name), Char(char), Byte(u8),
+    // Enum { type_name: Name, variant: Name },
+    // List(Vec<ConstValue>), Tuple(Vec<ConstValue>),
+}
+
+/// A concrete argument to a generic parameter.
+///
+/// Unifies type substitution (`T → int`) and const value substitution
+/// (`$N → 42`). Parallel to the function's generic parameter list.
+///
+/// This design matches the convergent pattern across reference compilers:
+/// - Rust: `GenericArgKind::Type | Const | Lifetime`
+/// - Zig: uniform `InternPool.Index` for types and comptime values
+/// - Lean 4: `Expr`-based key (types and values are both expressions)
+///
+/// Using a single enum avoids impedance mismatches when generic parameter
+/// lists contain both type and const params (e.g., `@f<T with Clone, $N: int>`).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum GenericArg {
+    /// Type parameter substitution: `T → int`.
+    Type(Idx),
+    /// Const generic value substitution: `$N → 42`, `$C → Color.Red`.
+    Const(ConstValue),
+}
+
+/// A concrete instantiation of a generic function discovered during type checking.
+///
+/// Recorded when a generic function like `@identity<T>(x: T) -> T` is called
+/// with concrete types (e.g., `identity(x: 42)` produces `T = int`). The LLVM
+/// monomorphizer stamps out one specialized function per unique `MonoInstance`.
+///
+/// Identity is determined by `(fn_name, generic_args)` — two instances with
+/// the same function and arguments are the same specialization, regardless of
+/// where the call site is. This matches Rust's `(DefId, GenericArgsRef)` and
+/// Zig's `(generic_owner, comptime_args[])` caching keys.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MonoInstance {
+    /// The generic function being instantiated.
+    pub fn_name: Name,
+    /// Concrete generic arguments (parallel to function's generic params).
+    ///
+    /// Phase 1: all `GenericArg::Type`. Phase 2+: mixed `Type` and `Const`.
+    pub generic_args: Vec<GenericArg>,
+    /// Substituted parameter types (all type variables replaced with concrete types).
+    pub concrete_param_types: Vec<Idx>,
+    /// Substituted return type.
+    pub concrete_return_type: Idx,
+    /// Maps generic `Idx` → concrete `Idx` for body expression types.
+    ///
+    /// The ARC lowerer uses this to substitute types when lowering the shared
+    /// canonical IR body into a monomorphized ARC function (matching Swift's
+    /// clone-and-substitute strategy for ARC-managed code).
+    pub body_type_map: FxHashMap<Idx, Idx>,
+}
+
+impl std::hash::Hash for MonoInstance {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.fn_name.hash(state);
+        self.generic_args.hash(state);
+    }
+}
 
 /// Type-checked module.
 ///
@@ -79,6 +158,13 @@ pub struct TypedModule {
     /// needs these to compute ABI (calling convention, sret, parameter passing)
     /// for impl methods, which are compiled separately from top-level functions.
     pub impl_sigs: Vec<(Name, FunctionSig)>,
+
+    /// Monomorphization instances discovered during type checking.
+    ///
+    /// Each entry represents a unique `(fn_name, generic_args)` combination
+    /// found at a call site. The LLVM backend uses these to stamp out
+    /// concrete specializations of generic functions.
+    pub mono_instances: Vec<MonoInstance>,
 }
 
 impl TypedModule {
@@ -97,6 +183,7 @@ impl TypedModule {
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
+            mono_instances: Vec::new(),
         }
     }
 
@@ -227,6 +314,13 @@ pub struct FunctionSig {
     /// For `@bar<T>(items: [T])`, this is `[None]` since T isn't a direct param type.
     pub generic_param_mapping: Vec<Option<usize>>,
 
+    /// Pool `var_ids` for the scheme's quantified type variables.
+    ///
+    /// Parallel to `type_params`. Needed by the monomorphizer to build
+    /// the `var_id` → `concrete_type` substitution map at call sites.
+    /// Empty for non-generic functions.
+    pub scheme_var_ids: Vec<u32>,
+
     /// Number of required parameters (those without default values).
     ///
     /// A call is valid if `required_params <= num_args <= param_types.len()`.
@@ -274,6 +368,7 @@ impl FunctionSig {
             type_param_bounds: Vec::new(),
             where_clauses: Vec::new(),
             generic_param_mapping: Vec::new(),
+            scheme_var_ids: Vec::new(),
             required_params,
             param_defaults: Vec::new(),
         }
@@ -306,6 +401,7 @@ impl FunctionSig {
             type_param_bounds: Vec::new(),
             where_clauses: Vec::new(),
             generic_param_mapping: Vec::new(),
+            scheme_var_ids: Vec::new(),
             required_params,
             param_defaults: Vec::new(),
         }

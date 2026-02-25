@@ -7,8 +7,7 @@
 //! - **Range**: Iterator-based loop with `ori_list_new` + `ori_list_push`.
 //! - **Iterator/Collection**: Same as range — convert to iterator, loop, push.
 
-use ori_ir::canon::CanId;
-use ori_ir::Name;
+use ori_ir::canon::{CanBindingPatternId, CanId};
 use ori_types::{Idx, Tag};
 
 use crate::ir::{ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
@@ -23,7 +22,7 @@ impl ArcLowerer<'_> {
     )]
     pub(crate) fn lower_for_yield(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter_val: ArcVarId,
         iter_ty: Idx,
         tag: Tag,
@@ -32,18 +31,18 @@ impl ArcLowerer<'_> {
         result_ty: Idx,
     ) -> ArcVarId {
         tracing::debug!(
-            binding = self.name_str(binding),
+            pattern = ?pattern,
             ?tag,
             has_guard = guard.is_valid(),
             "for_yield: enter"
         );
         if tag == Tag::Option {
             let elem_ty = self.pool.option_inner(iter_ty);
-            self.lower_for_yield_option(binding, iter_val, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_option(pattern, iter_val, elem_ty, guard, body, result_ty)
         } else {
             // Range, Iterator, List, Set, Str, Map — all go through iterator loop.
             let (iter_handle, elem_ty) = self.prepare_iterator(iter_val, iter_ty, tag);
-            self.lower_for_yield_iterator(binding, iter_handle, elem_ty, guard, body, result_ty)
+            self.lower_for_yield_iterator(pattern, iter_handle, elem_ty, guard, body, result_ty)
         }
     }
 
@@ -94,7 +93,7 @@ impl ArcLowerer<'_> {
     /// a conditional: if Some, construct `[body_val]`; if None, construct `[]`.
     fn lower_for_yield_option(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         option_val: ArcVarId,
         elem_ty: Idx,
         guard: CanId,
@@ -134,7 +133,7 @@ impl ArcLowerer<'_> {
         // Some path: extract element, optionally check guard, evaluate body.
         self.builder.position_at(some_block);
         let elem = self.builder.emit_project(elem_ty, option_val, 1, None);
-        self.scope.bind(binding, elem);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         if guard.is_valid() {
             let body_block = self.builder.new_block();
@@ -189,7 +188,7 @@ impl ArcLowerer<'_> {
     /// ```
     fn lower_for_yield_iterator(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter_val: ArcVarId,
         elem_ty: Idx,
         guard: CanId,
@@ -258,7 +257,7 @@ impl ArcLowerer<'_> {
 
             self.builder.position_at(guarded_block);
             let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-            self.scope.bind(binding, elem);
+            self.bind_for_pattern(pattern, elem, elem_ty);
             let guard_val = self.lower_expr(guard);
 
             let guard_skip = self.builder.new_block();
@@ -276,7 +275,7 @@ impl ArcLowerer<'_> {
         // Body: extract element, evaluate body, push to list.
         self.builder.position_at(body_block);
         let elem = self.builder.emit_project(elem_ty, next_result, 1, None);
-        self.scope.bind(binding, elem);
+        self.bind_for_pattern(pattern, elem, elem_ty);
 
         let body_val = self.lower_expr(body);
 
@@ -309,48 +308,55 @@ impl ArcLowerer<'_> {
         Self::type_store_size(elem_ty, self.pool, 0)
     }
 
-    /// Recursive store-size computation from Pool type information.
-    ///
-    /// Mirrors `TypeLayoutResolver::type_store_size()` in `ori_llvm`: sums
-    /// field sizes without alignment padding. This must stay in sync with
-    /// the LLVM emitter's size computation to avoid buffer over/under-reads.
     fn type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
-        if depth > 16 {
-            return 8; // Prevent infinite recursion on recursive types
+        pool_type_store_size(ty, pool, depth)
+    }
+}
+
+/// Recursive store-size computation from Pool type information.
+///
+/// Sums field sizes without alignment padding. This must stay in sync with
+/// `TypeLayoutResolver::type_store_size()` in `ori_llvm` — both compute the
+/// same logical size for every type, just at different abstraction levels
+/// (Pool indices here vs LLVM `BasicTypeEnum` there).
+///
+/// See `compiler/ori_llvm/src/codegen/type_info/mod.rs`.
+pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) -> i64 {
+    if depth > 16 {
+        return 8; // Prevent infinite recursion on recursive types
+    }
+    // Resolve Named/Applied/Alias types to their underlying structural type.
+    let ty = pool.resolve_fully(ty);
+    let tag = pool.tag(ty);
+    match tag {
+        Tag::Bool | Tag::Byte => 1,
+        Tag::Char => 4,
+        Tag::Unit => 0,
+        Tag::Str => 16,             // {i64, ptr}
+        Tag::List | Tag::Set => 24, // {i64, i64, ptr}
+        Tag::Map => 32,             // {i64, i64, ptr, ptr}
+        Tag::Struct => pool
+            .struct_fields(ty)
+            .iter()
+            .map(|(_, field_ty)| pool_type_store_size(*field_ty, pool, depth + 1))
+            .sum(),
+        Tag::Tuple => pool
+            .tuple_elems(ty)
+            .iter()
+            .map(|&field_ty| pool_type_store_size(field_ty, pool, depth + 1))
+            .sum(),
+        Tag::Option => {
+            // Option<T> = {i64 tag, T payload}
+            8 + pool_type_store_size(pool.option_inner(ty), pool, depth + 1)
         }
-        // Resolve Named/Applied/Alias types to their underlying structural type.
-        let ty = pool.resolve_fully(ty);
-        let tag = pool.tag(ty);
-        match tag {
-            Tag::Bool | Tag::Byte => 1,
-            Tag::Char => 4,
-            Tag::Unit => 0,
-            Tag::Str => 16,             // {i64, ptr}
-            Tag::List | Tag::Set => 24, // {i64, i64, ptr}
-            Tag::Map => 32,             // {i64, i64, ptr, ptr}
-            Tag::Struct => pool
-                .struct_fields(ty)
-                .iter()
-                .map(|(_, field_ty)| Self::type_store_size(*field_ty, pool, depth + 1))
-                .sum(),
-            Tag::Tuple => pool
-                .tuple_elems(ty)
-                .iter()
-                .map(|&field_ty| Self::type_store_size(field_ty, pool, depth + 1))
-                .sum(),
-            Tag::Option => {
-                // Option<T> = {i64 tag, T payload}
-                8 + Self::type_store_size(pool.option_inner(ty), pool, depth + 1)
-            }
-            Tag::Result => {
-                // Result<T, E> = {i64 tag, max(T, E) payload}
-                let ok_ty = pool.result_ok(ty);
-                let err_ty = pool.result_err(ty);
-                let ok_size = Self::type_store_size(ok_ty, pool, depth + 1);
-                let err_size = Self::type_store_size(err_ty, pool, depth + 1);
-                8 + ok_size.max(err_size)
-            }
-            _ => 8, // Int, Float, Duration, Size, pointer-sized default
+        Tag::Result => {
+            // Result<T, E> = {i64 tag, max(T, E) payload}
+            let ok_ty = pool.result_ok(ty);
+            let err_ty = pool.result_err(ty);
+            let ok_size = pool_type_store_size(ok_ty, pool, depth + 1);
+            let err_size = pool_type_store_size(err_ty, pool, depth + 1);
+            8 + ok_size.max(err_size)
         }
+        _ => 8, // Int, Float, Duration, Size, pointer-sized default
     }
 }

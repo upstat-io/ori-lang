@@ -8,7 +8,7 @@
 //!
 //! Lines 818-830
 
-use ori_ir::{ExprArena, ExprId, ExprKind};
+use ori_ir::{BindingPatternId, ExprArena, ExprId, ExprKind};
 
 /// Rule for nested for loop formatting.
 ///
@@ -78,8 +78,8 @@ pub struct ForChain {
 /// A single level in a nested for chain.
 #[derive(Debug)]
 pub struct ForLevel {
-    /// The binding name.
-    pub binding: ori_ir::Name,
+    /// The binding pattern.
+    pub pattern: BindingPatternId,
 
     /// The iterator expression.
     pub iter: ExprId,
@@ -112,7 +112,7 @@ pub fn collect_for_chain(arena: &ExprArena, expr_id: ExprId) -> Option<ForChain>
         let expr = arena.get_expr(current);
 
         if let ExprKind::For {
-            binding,
+            pattern,
             iter,
             guard,
             body,
@@ -121,7 +121,7 @@ pub fn collect_for_chain(arena: &ExprArena, expr_id: ExprId) -> Option<ForChain>
         } = &expr.kind
         {
             levels.push(ForLevel {
-                binding: *binding,
+                pattern: *pattern,
                 iter: *iter,
                 guard: *guard,
                 is_yield: *is_yield,

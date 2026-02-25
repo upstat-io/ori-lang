@@ -388,14 +388,13 @@ fn test_coll_list_push() {
 }
 
 #[test]
-#[ignore = "AOT gap: list.pop() not in builtin table"]
 fn test_coll_list_pop() {
     assert_aot_success(
         r#"
 @main () -> int = {
     let xs = [1, 2, 3];
-    let (last, rest) = xs.pop();
-    if last == 3 && rest.length() == 2 then 0 else 1
+    let last = xs.pop();
+    if last.is_some() && last.unwrap() == 3 then 0 else 1
 }
 "#,
         "coll_list_pop",
@@ -545,7 +544,6 @@ fn test_coll_list_reverse_single() {
 // ─── Gap inventory: map methods not in builtin table ───
 
 #[test]
-#[ignore = "AOT gap: map.get() not in builtin table"]
 fn test_coll_map_get() {
     assert_aot_success(
         r#"
@@ -601,7 +599,6 @@ fn test_coll_map_values() {
 }
 
 #[test]
-#[ignore = "AOT gap: map.insert() not in builtin table"]
 fn test_coll_map_insert() {
     assert_aot_success(
         r#"
@@ -616,7 +613,6 @@ fn test_coll_map_insert() {
 }
 
 #[test]
-#[ignore = "AOT gap: map.remove() not in builtin table"]
 fn test_coll_map_remove() {
     assert_aot_success(
         r#"

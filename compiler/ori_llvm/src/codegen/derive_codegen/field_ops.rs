@@ -91,7 +91,7 @@ pub(super) fn emit_field_operation<'a>(
             FieldOp::Hash => emit_str_hash_call(fc, lhs, name, str_ty_id),
         },
 
-        TypeInfo::Struct { .. } => {
+        TypeInfo::Struct { .. } | TypeInfo::Enum { .. } => {
             let trait_kind = match op {
                 FieldOp::Equals => DerivedTrait::Eq,
                 FieldOp::Compare => DerivedTrait::Comparable,

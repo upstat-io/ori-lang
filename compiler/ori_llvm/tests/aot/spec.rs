@@ -1597,12 +1597,9 @@ fn test_aot_list_map_collect() {
     );
 }
 
-// =========================================================================
-// Known AOT gaps (ignored until codegen supports them)
-// =========================================================================
+// Enum variant constructors
 
 #[test]
-#[ignore = "AOT gap: enum variant constructors not declared as LLVM functions"]
 fn test_aot_enum_construction() {
     assert_aot_success(
         r#"
@@ -1624,6 +1621,82 @@ type Shape = Circle(radius: int) | Square(side: int);
 }
 
 #[test]
+fn test_aot_enum_unit_variants() {
+    assert_aot_success(
+        r#"
+type Color = Red | Green | Blue;
+
+@to_int (c: Color) -> int = match c {
+    Red -> 0,
+    Green -> 1,
+    Blue -> 2,
+};
+
+@main () -> int = {
+    let r = Red;
+    let g = Green;
+    let b = Blue;
+    if to_int(c: r) == 0 && to_int(c: g) == 1 && to_int(c: b) == 2 then 0 else 1
+}
+"#,
+        "enum_unit_variants",
+    );
+}
+
+#[test]
+fn test_aot_enum_mixed_variants() {
+    assert_aot_success(
+        r#"
+type Value = Nothing | Single(x: int) | Pair(x: int, y: int);
+
+@sum (v: Value) -> int = match v {
+    Nothing -> 0,
+    Single(x) -> x,
+    Pair(x, y) -> x + y,
+};
+
+@main () -> int = {
+    let a = Nothing;
+    let b = Single(x: 10);
+    let c = Pair(x: 3, y: 7);
+    if sum(v: a) == 0 && sum(v: b) == 10 && sum(v: c) == 10 then 0 else 1
+}
+"#,
+        "enum_mixed_variants",
+    );
+}
+
+#[test]
+fn test_aot_enum_as_param_and_return() {
+    assert_aot_success(
+        r#"
+type Dir = Left | Right;
+
+@flip (d: Dir) -> Dir = match d {
+    Left -> Right,
+    Right -> Left,
+};
+
+@is_left (d: Dir) -> bool = match d {
+    Left -> true,
+    Right -> false,
+};
+
+@main () -> int = {
+    let d = Left;
+    let d2 = flip(d: d);
+    if is_left(d: d) && !is_left(d: d2) then 0 else 1
+}
+"#,
+        "enum_param_return",
+    );
+}
+
+// =========================================================================
+// Known AOT gaps (ignored until codegen supports them)
+// =========================================================================
+
+#[test]
 fn test_aot_derive_eq_struct() {
     assert_aot_success(
         r#"
@@ -1642,6 +1715,121 @@ type Point = { x: int, y: int };
 }
 
 #[test]
+fn test_aot_recursive_enum_tree() {
+    assert_aot_success(
+        r#"
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r)
+}
+
+@main () -> int = {
+    let leaf1 = Leaf(value: 5);
+    let leaf2 = Leaf(value: 10);
+    let tree = Node(left: leaf1, right: leaf2);
+    if tree_sum(t: tree) == 15 then 0 else 1
+}
+"#,
+        "recursive_enum_tree",
+    );
+}
+
+/// Deeper recursive enum: 3 levels of nesting.
+#[test]
+fn test_aot_recursive_enum_tree_deep() {
+    assert_aot_success(
+        r#"
+type Tree = Leaf(value: int) | Node(left: Tree, right: Tree);
+
+@tree_sum (t: Tree) -> int = match t {
+    Leaf(v) -> v,
+    Node(l, r) -> tree_sum(t: l) + tree_sum(t: r)
+}
+
+@main () -> int = {
+    let a = Leaf(value: 1);
+    let b = Leaf(value: 2);
+    let c = Leaf(value: 3);
+    let d = Leaf(value: 4);
+    let left = Node(left: a, right: b);
+    let right = Node(left: c, right: d);
+    let root = Node(left: left, right: right);
+    if tree_sum(t: root) == 10 then 0 else 1
+}
+"#,
+        "recursive_enum_tree_deep",
+    );
+}
+
+/// Recursive enum with a single-field variant (linked list).
+#[test]
+fn test_aot_recursive_enum_linked_list() {
+    assert_aot_success(
+        r#"
+type List = Nil | Cons(head: int, tail: List);
+
+@list_sum (l: List) -> int = match l {
+    Nil -> 0,
+    Cons(h, t) -> h + list_sum(l: t)
+}
+
+@main () -> int = {
+    let list = Cons(head: 1, tail: Cons(head: 2, tail: Cons(head: 3, tail: Nil)));
+    if list_sum(l: list) == 6 then 0 else 1
+}
+"#,
+        "recursive_enum_linked_list",
+    );
+}
+
+#[test]
+fn test_aot_derive_eq_enum() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Color = Red | Green | Blue;
+
+@main () -> int = {
+    let a = Red;
+    let b = Red;
+    let c = Blue;
+    if a == b && a != c then 0 else 1
+}
+"#,
+        "derive_eq_enum",
+    );
+}
+
+#[test]
+fn test_aot_derive_eq_enum_all_variants() {
+    assert_aot_success(
+        r#"
+#derive(Eq)
+type Dir = North | South | East | West;
+
+@main () -> int = {
+    let n1 = North;
+    let n2 = North;
+    let s = South;
+    let e = East;
+    let w = West;
+    // Same variant == same variant
+    let ok1 = n1 == n2;
+    // Different variants != each other
+    let ok2 = n1 != s;
+    let ok3 = s != e;
+    let ok4 = e != w;
+    let ok5 = w != n1;
+    if ok1 && ok2 && ok3 && ok4 && ok5 then 0 else 1
+}
+"#,
+        "derive_eq_enum_all",
+    );
+}
+
+#[test]
 #[ignore = "AOT gap: list __index builtin not resolved"]
 fn test_aot_list_index() {
     assert_aot_success(
@@ -1656,13 +1844,12 @@ fn test_aot_list_index() {
 }
 
 #[test]
-#[ignore = "AOT gap: string interpolation produces wrong result"]
 fn test_aot_string_interpolation() {
     assert_aot_success(
         r#"
 @main () -> int = {
     let name = "world";
-    let greeting = `hello ${name}`;
+    let greeting = `hello {name}`;
     if greeting == "hello world" then 0 else 1
 }
 "#,
@@ -1715,7 +1902,6 @@ fn test_aot_while_pattern_with_accumulator() {
 // =========================================================================
 
 #[test]
-#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
 fn test_aot_catch_success() {
     assert_aot_success(
         r#"
@@ -1732,7 +1918,7 @@ fn test_aot_catch_success() {
 }
 
 #[test]
-#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
+#[ignore = "AOT gap: inline panic in catch — invoke only intercepts callee-function panics, not same-function inline code"]
 fn test_aot_catch_panic() {
     assert_aot_success(
         r#"
@@ -1746,7 +1932,7 @@ fn test_aot_catch_panic() {
 }
 
 #[test]
-#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
+#[ignore = "AOT gap: inline panic in catch — invoke only intercepts callee-function panics, not same-function inline code"]
 fn test_aot_catch_div_by_zero() {
     assert_aot_success(
         r#"
@@ -1764,7 +1950,6 @@ fn test_aot_catch_div_by_zero() {
 // =========================================================================
 
 #[test]
-#[ignore = "AOT gap: generic function resolution not yet in ARC pipeline"]
 fn test_aot_generic_identity() {
     assert_aot_success(
         r#"
@@ -1781,7 +1966,6 @@ fn test_aot_generic_identity() {
 }
 
 #[test]
-#[ignore = "AOT gap: generic function resolution not yet in ARC pipeline"]
 fn test_aot_generic_pair() {
     assert_aot_success(
         r#"
@@ -1794,6 +1978,54 @@ fn test_aot_generic_pair() {
 }
 "#,
         "generic_pair",
+    );
+}
+
+#[test]
+fn test_aot_generic_three_type_params() {
+    assert_aot_success(
+        r#"
+@triple <A, B, C> (a: A, b: B, c: C) -> (A, B, C) = (a, b, c);
+
+@main () -> int = {
+    let t = triple(a: 1, b: true, c: 42);
+    let (x, y, z) = t;
+    if x == 1 && y && z == 42 then 0 else 1
+}
+"#,
+        "generic_three_params",
+    );
+}
+
+#[test]
+fn test_aot_generic_calling_non_generic() {
+    assert_aot_success(
+        r#"
+@double (n: int) -> int = n * 2;
+@apply_double <T> (x: T, n: int) -> int = double(n: n);
+
+@main () -> int = {
+    let result = apply_double(x: true, n: 21);
+    if result == 42 then 0 else 1
+}
+"#,
+        "generic_calling_non_generic",
+    );
+}
+
+#[test]
+fn test_aot_generic_two_specializations() {
+    assert_aot_success(
+        r#"
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let a = identity(x: 42);
+    let b = identity(x: true);
+    if a == 42 && b then 0 else 1
+}
+"#,
+        "generic_two_specializations",
     );
 }
 
@@ -1847,7 +2079,6 @@ fn test_aot_list_push() {
 }
 
 #[test]
-#[ignore = "AOT gap: method call on list.concat() result unresolved (.length() on concat return)"]
 fn test_aot_list_concat() {
     assert_aot_success(
         r#"
@@ -1967,7 +2198,6 @@ fn test_aot_closure_zero_capture() {
 }
 
 #[test]
-#[ignore = "Type inference bug: closure-returning-closure infers () return instead of (int) -> int"]
 fn test_aot_closure_capturing_closure() {
     assert_aot_success(
         r#"

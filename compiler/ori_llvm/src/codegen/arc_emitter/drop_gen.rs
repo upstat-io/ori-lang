@@ -26,7 +26,7 @@
 use ori_arc::{DropInfo, DropKind};
 use ori_types::{Idx, Pool, Tag};
 
-use super::ArcIrEmitter;
+use super::{is_boxed_enum_field, ArcIrEmitter};
 use crate::codegen::type_info::TypeLayoutResolver;
 use crate::codegen::value_id::{FunctionId, ValueId};
 
@@ -250,12 +250,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .map_or(&[] as &[Idx], Vec::as_slice);
 
             // Compute byte offsets (fields packed at i64 alignment)
-            let offsets = compute_variant_field_offsets(variant_fields, self);
+            let offsets = compute_variant_field_offsets(variant_fields, resolved_ty, self);
 
             let i8_ty = self.builder.i8_type();
             for &(field_index, field_type) in rc_fields {
                 let byte_offset = offsets.get(field_index as usize).copied().unwrap_or(0);
-                let field_llvm_ty = self.resolve_type(field_type);
                 let offset_val = self.builder.const_i64(byte_offset as i64);
                 let field_ptr = self.builder.gep(
                     i8_ty,
@@ -263,10 +262,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                     &[offset_val],
                     &format!("f{field_index}.ptr"),
                 );
-                let field_val =
-                    self.builder
-                        .load(field_llvm_ty, field_ptr, &format!("f{field_index}"));
-                self.emit_drop_rc_dec(field_val, field_type);
+
+                if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
+                    // Recursive field: stored as RC pointer. Load and dec.
+                    let ptr_ty = self.builder.ptr_type();
+                    let rc_ptr =
+                        self.builder
+                            .load(ptr_ty, field_ptr, &format!("f{field_index}.rc"));
+                    let drop_fn = self.get_or_generate_drop_fn(field_type);
+                    self.emit_drop_rc_dec_with_fn(rc_ptr, drop_fn);
+                } else {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let field_val =
+                        self.builder
+                            .load(field_llvm_ty, field_ptr, &format!("f{field_index}"));
+                    self.emit_drop_rc_dec(field_val, field_type);
+                }
             }
         } else {
             // Fallback: treat field_index as i64 slot offset
@@ -499,9 +510,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 /// Compute byte offsets for each field within a general enum variant.
 ///
 /// Fields are packed at i64 alignment (8-byte slots) within the `[M x i64]`
-/// payload array.
+/// payload array. Recursive fields (same type as the enclosing enum) are
+/// stored as 8-byte RC pointers, not inline.
 fn compute_variant_field_offsets(
     field_types: &[Idx],
+    enum_type: Idx,
     emitter: &ArcIrEmitter<'_, '_, '_, '_>,
 ) -> Vec<u64> {
     let mut offsets = Vec::with_capacity(field_types.len());
@@ -509,8 +522,12 @@ fn compute_variant_field_offsets(
 
     for &field_ty in field_types {
         offsets.push(current);
-        let llvm_ty = emitter.type_resolver.resolve(field_ty);
-        let field_size = TypeLayoutResolver::type_store_size(llvm_ty);
+        let field_size = if is_boxed_enum_field(emitter.pool, enum_type, field_ty) {
+            8 // Stored as RC pointer
+        } else {
+            let llvm_ty = emitter.type_resolver.resolve(field_ty);
+            TypeLayoutResolver::type_store_size(llvm_ty)
+        };
         // Round up to 8-byte alignment (i64 slot boundary)
         current += field_size.div_ceil(8).saturating_mul(8);
     }

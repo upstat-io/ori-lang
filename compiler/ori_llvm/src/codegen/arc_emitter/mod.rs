@@ -1,14 +1,25 @@
 //! ARC IR → LLVM IR emitter.
 //!
-//! Translates `ArcFunction` basic blocks and instructions directly to LLVM IR,
+//! Translates [`ArcFunction`] basic blocks and instructions directly to LLVM IR,
 //! including RC operations (`ori_rc_inc`, `ori_rc_dec`) and structured cleanup
 //! via `invoke`/`landingpad`.
+//!
+//! This is the **sole codegen path** for all Ori functions (JIT and AOT).
+//! Every function goes through: `CanExpr → ARC IR → ArcIrEmitter → LLVM IR`.
 //!
 //! # Architecture
 //!
 //! ```text
-//! CanExpr  →  ARC IR  →  ArcIrEmitter  →  LLVM IR  (with RC)
+//! CanExpr  →  ori_arc::lower  →  ArcFunction
+//!          →  ori_arc pipeline (borrow, RC, reuse, eliminate)
+//!          →  ArcIrEmitter    →  LLVM IR  (with RC lifecycle)
 //! ```
+//!
+//! # Submodules
+//!
+//! - [`builtins`] — builtin method emission (string, list, map, iterator ops)
+//! - [`drop_gen`] — per-type LLVM drop function generation (cached by mangled name)
+//! - [`rc_ops`] — `ori_rc_inc`/`ori_rc_dec` emission with closure-aware `env_ptr` handling
 
 mod builtins;
 mod drop_gen;
@@ -28,6 +39,24 @@ use super::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
+
+// ---------------------------------------------------------------------------
+// Recursive enum detection
+// ---------------------------------------------------------------------------
+
+/// Check if a field type creates a direct recursive reference within an enum.
+///
+/// Returns `true` when the resolved field type is the same Pool index as the
+/// resolved enum type — meaning the field must be RC-boxed when stored in the
+/// enum payload. Layout: stored as an 8-byte RC pointer instead of inline.
+///
+/// Only handles direct self-recursion (e.g., `type Tree = Node(Tree, Tree)`).
+/// Mutual recursion (`type A = X(B)`, `type B = Y(A)`) is not yet supported.
+fn is_boxed_enum_field(pool: &Pool, enum_type: Idx, field_type: Idx) -> bool {
+    let enum_resolved = pool.resolve_fully(enum_type);
+    let field_resolved = pool.resolve_fully(field_type);
+    pool.tag(enum_resolved) == Tag::Enum && enum_resolved == field_resolved
+}
 
 // ---------------------------------------------------------------------------
 // EmittedValue
@@ -143,6 +172,12 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
     /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
     type_idx_to_name: &'a FxHashMap<Idx, Name>,
+    /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
+    ///
+    /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR
+    /// uses the original name (`"identity"`), but the LLVM function is declared under the
+    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types.
+    mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     /// Counter for unique `PartialApply` wrapper/drop function names.
     partial_apply_counter: u32,
     /// ARC variable → typed LLVM value mapping.
@@ -171,6 +206,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
         method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
         type_idx_to_name: &'a FxHashMap<Idx, Name>,
+        mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
     ) -> Self {
         Self {
             builder,
@@ -184,6 +220,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             functions,
             method_functions,
             type_idx_to_name,
+            mono_dispatch,
             partial_apply_counter: 0,
             var_map: Vec::new(),
             block_map: Vec::new(),
@@ -195,6 +232,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     fn resolve_type(&mut self, idx: Idx) -> LLVMTypeId {
         let llvm_ty = self.type_resolver.resolve(idx);
         self.builder.register_type(llvm_ty)
+    }
+
+    /// Allocate a heap cell via `ori_rc_alloc(size, align)`.
+    ///
+    /// Returns a `ptr` to the RC-managed allocation. Used for boxing
+    /// recursive enum fields that must be stored as pointers in the payload.
+    fn rc_alloc(&mut self, size: u64, align: u64) -> ValueId {
+        let size_val = self.builder.const_i64(size as i64);
+        let align_val = self.builder.const_i64(align as i64);
+        let i64_ty = self.builder.i64_type();
+        let ptr_ty = self.builder.ptr_type();
+        let rc_alloc_func =
+            self.builder
+                .get_or_declare_function("ori_rc_alloc", &[i64_ty, i64_ty], ptr_ty);
+        self.builder
+            .call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
+            .unwrap_or_else(|| self.builder.const_null_ptr())
     }
 
     /// Compute the store size in bytes for a type index.
@@ -404,8 +458,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Emit each block's body and terminator.
-        // For unwind blocks: emit `landingpad cleanup` as the first instruction,
-        // then any cleanup instructions, then `resume` at the terminator.
+        // Unwind blocks start with a landing pad. Two flavors:
+        // - **Cleanup** (terminator = Resume): `landingpad cleanup`, RC cleanup, resume
+        // - **Catch** (terminator = Jump): `landingpad catch null`, free exception via
+        //   `ori_catch_cleanup`, then jump to catch handler. Used by `catch(expr:)`.
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
         for block in &func.blocks {
             self.builder.position_at_end(self.block(block.id));
@@ -413,8 +469,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             // Unwind blocks must start with a landingpad instruction
             if unwind_blocks.contains(&block.id.index()) {
                 if let Some(pid) = personality_id {
-                    let lp = self.builder.landingpad(pid, true, "lp");
-                    landingpad_values.insert(block.id.index(), lp);
+                    let is_catch = !matches!(block.terminator, ArcTerminator::Resume);
+                    if is_catch {
+                        // Catch-all landing pad: catches the exception
+                        let lp = self.builder.landingpad_catch_all(pid, "lp.catch");
+                        landingpad_values.insert(block.id.index(), lp);
+
+                        // Extract exception pointer and free via _Unwind_DeleteException
+                        let exc_ptr = self.builder.extract_value(lp, 0, "exc.ptr");
+                        if let Some(exc_ptr) = exc_ptr {
+                            self.emit_catch_cleanup(exc_ptr);
+                        }
+                    } else {
+                        // Cleanup landing pad: do RC cleanup, then re-raise
+                        let lp = self.builder.landingpad(pid, true, "lp");
+                        landingpad_values.insert(block.id.index(), lp);
+                    }
                 }
             }
 
@@ -475,6 +545,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             ArcTerminator::Jump { target, args } => {
                 // Record phi incoming values for the target block's parameters
                 let target_idx = target.index();
+                debug_assert_eq!(
+                    args.len(),
+                    arc_func.blocks[target_idx].params.len(),
+                    "Jump arg count must match target block param count (block {target_idx})"
+                );
                 if !args.is_empty() {
                     let Some(source_block) = self.builder.current_block() else {
                         tracing::error!("ARC jump: no current block — skipping phi incoming");
@@ -582,13 +657,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
         let arg_vals: Vec<ValueId> = arc_args.iter().map(|a| self.var(*a)).collect();
 
-        // Try compiled function (ABI-aware), then type-qualified method dispatch,
-        // then unqualified fallback, then runtime.
-        // Scope the immutable borrow to extract ABI data before mutable use.
+        // Method dispatch chain:
+        // 1. Receiver-based: use first arg's type (instance methods like eq/hash)
+        // 2. Return-type-based: use dst's type (static methods like default)
+        // 3. Unqualified: bare function name (free functions)
+        // 4. Monomorphized generic: match arg types → mangled specialization
+        // 5. Diagnostic fallback: logs warning, returns None
         let resolved = self
-            .functions
-            .get(&callee)
-            .or_else(|| self.lookup_method_by_receiver(callee, arc_args, arc_func))
+            .lookup_method_by_receiver(callee, arc_args, arc_func)
+            .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
+            .or_else(|| self.functions.get(&callee))
+            .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
@@ -686,32 +765,65 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.method_functions.get(&(*type_name, name))
     }
 
-    /// Diagnostic fallback for method lookup when both `functions` and
-    /// `lookup_method_by_receiver` miss.
+    /// Look up a static/associated method by its return type.
     ///
-    /// This should never succeed — all method registrations go through both
-    /// `functions` (unqualified) and `method_functions` (type-qualified).
-    /// If this path is reached and finds something, it indicates a registration
-    /// gap that should be fixed at the source.
+    /// Type-qualified calls with no receiver (e.g., `Point.default()`) have an
+    /// empty `args` list in ARC IR, so `lookup_method_by_receiver` fails.
+    /// For factory methods like `default()`, the return type IS the owning type,
+    /// so we can use `func.var_type(dst)` to find the correct type-qualified
+    /// entry in `method_functions`.
+    fn lookup_method_by_return_type(
+        &self,
+        name: Name,
+        dst: ArcVarId,
+        func: &ArcFunction,
+    ) -> Option<&(FunctionId, FunctionAbi)> {
+        let return_ty = func.var_type(dst);
+        let type_name = self.type_idx_to_name.get(&return_ty)?;
+        self.method_functions.get(&(*type_name, name))
+    }
+
+    /// Diagnostic check for method lookup when all typed dispatches miss.
+    ///
+    /// Always returns `None` — this function only logs diagnostics.
+    /// If a method exists in `method_functions` but wasn't found through
+    /// normal dispatch, it means the receiver's type wasn't registered in
+    /// `type_idx_to_name` (e.g., enum types whose derives aren't compiled yet).
+    /// Returning `None` ensures the caller falls through to the "unresolved
+    /// function" error path instead of silently calling the wrong method.
     fn lookup_method_fallback(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
-        let result = self
+        let exists = self
             .method_functions
             .iter()
-            .find(|&((_, method_name), _)| *method_name == name)
-            .map(|(_, v)| v);
-        if result.is_some() {
-            tracing::error!(
+            .any(|((_, method_name), _)| *method_name == name);
+        if exists {
+            tracing::warn!(
                 method = %self.interner.lookup(name),
-                "method resolved only via linear scan fallback — \
-                 registration gap in functions/type_idx_to_name"
-            );
-            debug_assert!(
-                false,
-                "method '{}' resolved via linear scan fallback — fix registration",
-                self.interner.lookup(name)
+                "method exists for another type but receiver type not registered — \
+                 likely missing enum derive codegen"
             );
         }
-        result
+        None
+    }
+
+    /// Resolve a generic function call to its monomorphized variant.
+    ///
+    /// The ARC IR uses the **original** generic name (e.g., `"identity"`),
+    /// but the LLVM function was declared under the **mangled** name
+    /// (e.g., `"identity$m$int"`). This method matches the concrete argument
+    /// types at the call site to find the correct monomorphization.
+    fn lookup_mono_dispatch(
+        &self,
+        callee: Name,
+        args: &[ArcVarId],
+        func: &ArcFunction,
+    ) -> Option<&(FunctionId, FunctionAbi)> {
+        let entries = self.mono_dispatch.get(&callee)?;
+        let arg_types: Vec<Idx> = args.iter().map(|a| func.var_type(*a)).collect();
+        entries
+            .iter()
+            .find(|(params, _)| *params == arg_types)
+            .and_then(|(_, mangled)| self.functions.get(mangled))
     }
 
     /// Emit an `Apply` instruction (ABI-aware direct call).
@@ -756,12 +868,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
         let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
 
-        // Try compiled function, then type-qualified method dispatch,
-        // then unqualified fallback, then runtime.
+        // Method dispatch chain (same as emit_invoke):
+        // 1. Receiver-based: use first arg's type (instance methods)
+        // 2. Return-type-based: use dst's type (static methods like default)
+        // 3. Unqualified: bare function name (free functions)
+        // 4. Monomorphized generic: match arg types → mangled specialization
+        // 5. Diagnostic fallback: logs warning, returns None
         let resolved = self
-            .functions
-            .get(&callee)
-            .or_else(|| self.lookup_method_by_receiver(callee, args, func))
+            .lookup_method_by_receiver(callee, args, func)
+            .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
+            .or_else(|| self.functions.get(&callee))
+            .or_else(|| self.lookup_mono_dispatch(callee, args, func))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
 
@@ -838,18 +955,31 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             .extract_value(closure_val, 1, "closure.env_ptr");
 
         if let (Some(fn_ptr), Some(env_ptr)) = (fn_ptr, env_ptr) {
-            let mut arg_vals = Vec::with_capacity(1 + args.len());
-            arg_vals.push(env_ptr);
-            for &a in args {
-                arg_vals.push(self.var(a));
-            }
-
             let ptr_ty = self.builder.ptr_type();
+            let mut arg_vals = Vec::with_capacity(1 + args.len());
             let mut param_types = Vec::with_capacity(1 + args.len());
+            arg_vals.push(env_ptr);
             param_types.push(ptr_ty);
+
             for &a in args {
                 let arg_ty = func.var_type(a);
-                param_types.push(self.resolve_type(arg_ty));
+                let passing = super::abi::compute_param_passing(arg_ty, self.type_info);
+                match passing {
+                    super::abi::ParamPassing::Indirect { .. }
+                    | super::abi::ParamPassing::Reference => {
+                        // Large struct: alloca, store, pass pointer
+                        let llvm_ty = self.resolve_type(arg_ty);
+                        let alloca = self.builder.alloca(llvm_ty, "icall.arg.tmp");
+                        self.builder.store(self.var(a), alloca);
+                        arg_vals.push(alloca);
+                        param_types.push(ptr_ty);
+                    }
+                    super::abi::ParamPassing::Void => {}
+                    super::abi::ParamPassing::Direct => {
+                        arg_vals.push(self.var(a));
+                        param_types.push(self.resolve_type(arg_ty));
+                    }
+                }
             }
 
             let ret_ty = self.resolve_type(ty);
@@ -1184,8 +1314,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 (i + 1) as u32,
                 &format!("cap.{i}.ptr"),
             );
-            let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
-            callee_args.push(cap_val);
+            // Check callee ABI: if this capture param is Indirect/Reference,
+            // pass the pointer directly; otherwise load and pass by value.
+            // Note: callee_abi.params does NOT include sret (sret is in return_abi),
+            // so params[i] directly maps to the i-th capture parameter.
+            let param_passing = callee_abi.params.get(i).map(|p| &p.passing);
+            if matches!(
+                param_passing,
+                Some(
+                    super::abi::ParamPassing::Indirect { .. } | super::abi::ParamPassing::Reference
+                )
+            ) {
+                callee_args.push(field_ptr);
+            } else {
+                let cap_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
+                callee_args.push(cap_val);
+            }
         }
 
         // Forward remaining user params (wrapper params 1..N)
@@ -1256,17 +1400,54 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 val_type_info,
                 super::type_info::TypeInfo::Result { .. } | super::type_info::TypeInfo::Enum { .. }
             ) {
+                let is_general_enum =
+                    matches!(val_type_info, super::type_info::TypeInfo::Enum { .. });
                 let llvm_val_ty = self.resolve_type(val_ty);
                 let alloca = self.builder.alloca(llvm_val_ty, "proj.alloca");
                 self.builder.store(val, alloca);
-                let gep = self.builder.struct_gep(
-                    llvm_val_ty,
-                    alloca,
-                    field,
-                    &format!("proj.{field}.gep"),
-                );
-                let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
-                self.def_var_repr(dst, loaded, func);
+                if is_general_enum {
+                    // General enum: payload is [M x i64] at struct field 1.
+                    // Index into the payload array with i64-stride GEP.
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(llvm_val_ty, alloca, 1, "proj.payload");
+                    let i64_ty = self.builder.i64_type();
+                    let slot_idx = self.builder.const_i64(i64::from(field - 1));
+                    let slot_ptr = self.builder.gep(
+                        i64_ty,
+                        payload_ptr,
+                        &[slot_idx],
+                        &format!("proj.{field}.gep"),
+                    );
+
+                    if is_boxed_enum_field(self.pool, val_ty, ty) {
+                        // Recursive field: stored as RC pointer in the payload.
+                        // Load the pointer, then load the struct from the heap.
+                        let ptr_ty = self.builder.ptr_type();
+                        let rc_ptr =
+                            self.builder
+                                .load(ptr_ty, slot_ptr, &format!("proj.{field}.ptr"));
+                        let loaded = self
+                            .builder
+                            .load(result_ty, rc_ptr, &format!("proj.{field}"));
+                        self.def_var_repr(dst, loaded, func);
+                    } else {
+                        let loaded =
+                            self.builder
+                                .load(result_ty, slot_ptr, &format!("proj.{field}"));
+                        self.def_var_repr(dst, loaded, func);
+                    }
+                } else {
+                    // Result: payload is a typed field at struct index 1.
+                    let gep = self.builder.struct_gep(
+                        llvm_val_ty,
+                        alloca,
+                        field,
+                        &format!("proj.{field}.gep"),
+                    );
+                    let loaded = self.builder.load(result_ty, gep, &format!("proj.{field}"));
+                    self.def_var_repr(dst, loaded, func);
+                }
                 return;
             }
         }
@@ -1908,19 +2089,49 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
 
             CtorKind::EnumVariant { variant, .. } => {
-                // Enum variants may have payloads smaller than the storage slot
-                // (e.g., Ok(int) in Result<int, str> where slot is {i64, ptr}).
-                // Use alloca + GEP + store to handle type mismatches safely.
-                // mem2reg eliminates the alloca in optimization.
+                // Enum layout is { i64 tag, [M x i64] payload } where M is
+                // sized for the largest variant. Fields are stored at i64-
+                // aligned slots within the payload array.
+                // Use alloca + GEP + store; mem2reg eliminates the alloca.
                 let tag_val = self.builder.const_i64(i64::from(*variant));
                 let alloca = self.builder.alloca(llvm_ty, "variant");
                 let tag_gep = self.builder.struct_gep(llvm_ty, alloca, 0, "variant.tag");
                 self.builder.store(tag_val, tag_gep);
-                for (i, &val) in arg_vals.iter().enumerate() {
-                    let gep =
+                if !arg_vals.is_empty() {
+                    let payload_ptr =
                         self.builder
-                            .struct_gep(llvm_ty, alloca, (i + 1) as u32, "variant.field");
-                    self.builder.store(val, gep);
+                            .struct_gep(llvm_ty, alloca, 1, "variant.payload");
+                    let i64_ty = self.builder.i64_type();
+
+                    // Look up variant field types for recursive field detection.
+                    let resolved_enum = self.pool.resolve_fully(ty);
+                    let variant_field_types = if self.pool.tag(resolved_enum) == Tag::Enum {
+                        let all_variants = self.pool.enum_variants(resolved_enum);
+                        all_variants
+                            .get(*variant as usize)
+                            .map(|(_, fields)| fields.clone())
+                            .unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+
+                    for (i, &val) in arg_vals.iter().enumerate() {
+                        let idx = self.builder.const_i64(i as i64);
+                        let slot = self
+                            .builder
+                            .gep(i64_ty, payload_ptr, &[idx], "variant.field");
+
+                        let field_ty = variant_field_types.get(i).copied();
+                        if field_ty.is_some_and(|ft| is_boxed_enum_field(self.pool, ty, ft)) {
+                            // Recursive field: RC-allocate and store pointer.
+                            let size = self.element_store_size(ty);
+                            let rc_ptr = self.rc_alloc(size, 8);
+                            self.builder.store(val, rc_ptr);
+                            self.builder.store(rc_ptr, slot);
+                        } else {
+                            self.builder.store(val, slot);
+                        }
+                    }
                 }
                 self.builder.load(llvm_ty, alloca, "variant")
             }
@@ -2368,10 +2579,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             self.builder.position_at_end(block);
 
             for &(field_index, field_type) in fields {
-                let field_llvm_ty = self.resolve_type(field_type);
                 // Result: typed payload fields at struct index 1+
                 // General Enum: payload is [M x i64] at struct field 1
-                let field_val = if pool_tag == Tag::Result {
+                if pool_tag == Tag::Result {
+                    let field_llvm_ty = self.resolve_type(field_type);
                     let struct_idx = 1 + field_index;
                     let field_ptr = self.builder.struct_gep(
                         enum_llvm_ty,
@@ -2379,24 +2590,37 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                         struct_idx,
                         "rc_dec.payload.ptr",
                     );
-                    self.builder
-                        .load(field_llvm_ty, field_ptr, "rc_dec.payload")
-                } else {
+                    let field_val = self
+                        .builder
+                        .load(field_llvm_ty, field_ptr, "rc_dec.payload");
+                    self.dec_value_rc(field_val, field_type);
+                } else if is_boxed_enum_field(self.pool, resolved_ty, field_type) {
+                    // Recursive field: stored as RC pointer in the payload.
                     let payload_ptr =
                         self.builder
                             .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
-                    // TODO: compute proper byte offsets for multi-field variants
-                    let field_ptr = self.builder.struct_gep(
-                        field_llvm_ty,
-                        payload_ptr,
-                        field_index,
-                        "rc_dec.field.ptr",
-                    );
-                    self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field")
-                };
-
-                // Dec the field's RC via per-type dispatch (no extract_rc_data_ptrs)
-                self.dec_value_rc(field_val, field_type);
+                    let i64_ty = self.builder.i64_type();
+                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let field_ptr =
+                        self.builder
+                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
+                    let ptr_ty = self.builder.ptr_type();
+                    let rc_ptr = self.builder.load(ptr_ty, field_ptr, "rc_dec.field.rc");
+                    let drop_fn = self.get_or_generate_drop_fn(field_type);
+                    self.call_rc_dec_all(&[rc_ptr], drop_fn);
+                } else {
+                    let field_llvm_ty = self.resolve_type(field_type);
+                    let payload_ptr =
+                        self.builder
+                            .struct_gep(enum_llvm_ty, alloca, 1, "rc_dec.payload");
+                    let i64_ty = self.builder.i64_type();
+                    let idx = self.builder.const_i64(i64::from(field_index));
+                    let field_ptr =
+                        self.builder
+                            .gep(i64_ty, payload_ptr, &[idx], "rc_dec.field.ptr");
+                    let field_val = self.builder.load(field_llvm_ty, field_ptr, "rc_dec.field");
+                    self.dec_value_rc(field_val, field_type);
+                }
             }
 
             self.builder.br(done_block);
@@ -2452,6 +2676,29 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     // -----------------------------------------------------------------------
     // Aggregate-to-pointer coercion
     // -----------------------------------------------------------------------
+
+    // Catch(expr:) EH helpers
+
+    /// Emit `ori_catch_cleanup(exc_ptr)` to free a caught Rust exception.
+    ///
+    /// Calls `_Unwind_DeleteException` via the runtime wrapper, which invokes
+    /// the cleanup callback in the Itanium ABI `_Unwind_Exception` header.
+    /// This properly frees the Rust-allocated panic payload without requiring
+    /// C++ EH ABI functions (`__cxa_begin_catch`/`__cxa_end_catch`), which
+    /// are incompatible with Rust's panic infrastructure.
+    ///
+    /// Called in catch-style unwind blocks right after the landing pad,
+    /// before any RC cleanup or catch handler logic.
+    fn emit_catch_cleanup(&mut self, exc_ptr: ValueId) {
+        let cleanup_fn = self.builder.scx().llmod.get_function("ori_catch_cleanup");
+
+        if let Some(func) = cleanup_fn {
+            let func_id = self.builder.intern_function(func);
+            self.builder.call(func_id, &[exc_ptr], "");
+        } else {
+            tracing::warn!("ori_catch_cleanup not declared — caught exception will leak");
+        }
+    }
 
     /// Coerce an aggregate value to a pointer for runtime function calls.
     ///

@@ -189,6 +189,13 @@ pub struct ModuleChecker<'a> {
     /// maps an impl method name to its resolved signature. Codegen needs
     /// these to compute ABI (calling convention, sret, parameter passing).
     impl_sigs: Vec<(Name, FunctionSig)>,
+
+    // === Monomorphization ===
+    /// Concrete generic function instantiations discovered during type checking.
+    ///
+    /// Accumulated from `InferEngine` after each function body is checked.
+    /// Deduped by `(fn_name, generic_args)` before inclusion in `TypedModule`.
+    mono_instances: Vec<crate::MonoInstance>,
 }
 
 impl<'a> ModuleChecker<'a> {
@@ -217,6 +224,7 @@ impl<'a> ModuleChecker<'a> {
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
+            mono_instances: Vec::new(),
         }
     }
 
@@ -253,6 +261,7 @@ impl<'a> ModuleChecker<'a> {
             warnings: Vec::new(),
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
+            mono_instances: Vec::new(),
         }
     }
 
@@ -368,6 +377,11 @@ impl<'a> ModuleChecker<'a> {
     /// Store an impl method signature for codegen.
     pub fn register_impl_sig(&mut self, name: Name, sig: FunctionSig) {
         self.impl_sigs.push((name, sig));
+    }
+
+    /// Accumulate mono instances from an inference engine pass.
+    pub fn accumulate_mono_instances(&mut self, instances: Vec<crate::MonoInstance>) {
+        self.mono_instances.extend(instances);
     }
 
     /// Get all registered signatures.
@@ -775,6 +789,12 @@ impl<'a> ModuleChecker<'a> {
         pattern_resolutions.sort_by_key(|(k, _)| *k);
         pattern_resolutions.dedup_by_key(|(k, _)| *k);
 
+        // Dedup mono instances by (fn_name, generic_args).
+        // Sort by fn_name for determinism, then dedup adjacent entries.
+        let mut mono_instances = self.mono_instances;
+        mono_instances.sort_by_key(|m| m.fn_name);
+        mono_instances.dedup_by(|a, b| a.fn_name == b.fn_name && a.generic_args == b.generic_args);
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
@@ -783,6 +803,7 @@ impl<'a> ModuleChecker<'a> {
             warnings: self.warnings,
             pattern_resolutions,
             impl_sigs: self.impl_sigs,
+            mono_instances,
         };
 
         (TypeCheckResult::from_typed(typed), pool)

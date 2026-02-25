@@ -6,8 +6,8 @@
 //! - Loops: `for binding in iter do/yield body`
 //! - Blocks: `{ stmts; result }`
 
-use super::{WidthCalculator, ALWAYS_STACKED};
-use ori_ir::{ExprId, ExprKind, Name, StmtRange, StringLookup};
+use super::{for_binding_pattern_width, WidthCalculator, ALWAYS_STACKED};
+use ori_ir::{BindingPatternId, ExprId, ExprKind, Name, StmtRange, StringLookup};
 
 /// Check if an expression needs parentheses when used as a receiver.
 fn receiver_needs_parens<I: StringLookup>(calc: &WidthCalculator<'_, I>, receiver: ExprId) -> bool {
@@ -100,26 +100,27 @@ pub(super) fn if_width<I: StringLookup>(
     total
 }
 
-/// Calculate width of `for[:label] binding in iter [if guard] do/yield body`.
+/// Calculate width of `for[:label] pattern in iter [if guard] do/yield body`.
 pub(super) fn for_width<I: StringLookup>(
     calc: &mut WidthCalculator<'_, I>,
     label: Name,
-    binding: Name,
+    pattern: BindingPatternId,
     iter: ExprId,
     guard: ExprId,
     body: ExprId,
     is_yield: bool,
 ) -> usize {
     let lw = label_width(calc, label);
-    let binding_w = calc.interner.lookup(binding).len();
+    let pat = calc.arena.get_binding_pattern(pattern);
+    let pattern_w = for_binding_pattern_width(pat, calc.interner);
     let iter_w = calc.width(iter);
     let body_w = calc.width(body);
     if iter_w == ALWAYS_STACKED || body_w == ALWAYS_STACKED {
         return ALWAYS_STACKED;
     }
 
-    // "for" + label + " " + binding + " in " + iter
-    let mut total = 3 + lw + 1 + binding_w + 4 + iter_w;
+    // "for" + label + " " + pattern + " in " + iter
+    let mut total = 3 + lw + 1 + pattern_w + 4 + iter_w;
 
     if guard.is_present() {
         let guard_w = calc.width(guard);

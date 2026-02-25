@@ -53,6 +53,7 @@ fn function_sig_generic() {
         type_param_bounds: vec![vec![]],
         where_clauses: vec![],
         generic_param_mapping: vec![None],
+        scheme_var_ids: vec![],
         required_params: 1,
         param_defaults: vec![],
     };
@@ -127,6 +128,7 @@ fn effect_class_reads_only() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     };
@@ -155,6 +157,7 @@ fn effect_class_has_effects() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     };
@@ -185,6 +188,7 @@ fn effect_class_mixed_caps_is_has_effects() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     };

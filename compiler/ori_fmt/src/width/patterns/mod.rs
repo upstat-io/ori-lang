@@ -10,7 +10,7 @@
 use super::helpers::COMMA_SEPARATOR_WIDTH;
 use ori_ir::{BindingPattern, StringLookup};
 
-/// Calculate width of a binding pattern.
+/// Calculate width of a binding pattern (for `let` bindings — includes `$` for immutable).
 ///
 /// Recursively calculates width for nested patterns. Includes all
 /// delimiters, separators, `$` prefixes, and shorthand syntax.
@@ -18,9 +18,34 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
     pattern: &BindingPattern,
     interner: &I,
 ) -> usize {
+    binding_pattern_width_inner(pattern, interner, false)
+}
+
+/// Calculate width of a for-loop binding pattern — excludes `$` prefix.
+///
+/// Per spec (§05-variables.md), for-loop variables are inherently immutable.
+/// The formatter never emits `$` in for-loop position, so the width calculation
+/// must match by not counting the `$` prefix.
+pub(super) fn for_binding_pattern_width<I: StringLookup>(
+    pattern: &BindingPattern,
+    interner: &I,
+) -> usize {
+    binding_pattern_width_inner(pattern, interner, true)
+}
+
+/// Shared width calculator with optional `$` suppression.
+fn binding_pattern_width_inner<I: StringLookup>(
+    pattern: &BindingPattern,
+    interner: &I,
+    suppress_dollar: bool,
+) -> usize {
     match pattern {
         BindingPattern::Name { name, mutable } => {
-            let prefix = usize::from(mutable.is_immutable()); // "$"
+            let prefix = if suppress_dollar {
+                0
+            } else {
+                usize::from(mutable.is_immutable())
+            };
             prefix + interner.lookup(*name).len()
         }
 
@@ -33,7 +58,7 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
             // "(" + elements + ")" + optional trailing comma for single element
             let mut total = 1;
             for (i, elem) in elements.iter().enumerate() {
-                total += binding_pattern_width(elem, interner);
+                total += binding_pattern_width_inner(elem, interner, suppress_dollar);
                 if i < elements.len() - 1 {
                     total += COMMA_SEPARATOR_WIDTH;
                 }
@@ -53,11 +78,15 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
             let mut total = 2;
             for (i, field) in fields.iter().enumerate() {
                 let name_w = interner.lookup(field.name).len();
-                // Shorthand with $ prefix adds 1 for "$"
-                let dollar_w = usize::from(field.mutable.is_immutable() && field.pattern.is_none());
+                let dollar_w = if suppress_dollar {
+                    0
+                } else {
+                    usize::from(field.mutable.is_immutable() && field.pattern.is_none())
+                };
                 if let Some(pat) = &field.pattern {
                     // "name: pattern"
-                    total += name_w + 2 + binding_pattern_width(pat, interner);
+                    total +=
+                        name_w + 2 + binding_pattern_width_inner(pat, interner, suppress_dollar);
                 } else {
                     // Shorthand: just "name" or "$name"
                     total += dollar_w + name_w;
@@ -73,7 +102,7 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
             // "[" + elements + "]"
             let mut total = 1;
             for (i, elem) in elements.iter().enumerate() {
-                total += binding_pattern_width(elem, interner);
+                total += binding_pattern_width_inner(elem, interner, suppress_dollar);
                 if i < elements.len() - 1 {
                     total += COMMA_SEPARATOR_WIDTH;
                 }
@@ -84,7 +113,7 @@ pub(super) fn binding_pattern_width<I: StringLookup>(
                 }
                 // "..$rest" or "..rest"
                 total += 2 + interner.lookup(*rest_name).len();
-                if rest_mut.is_immutable() {
+                if !suppress_dollar && rest_mut.is_immutable() {
                     total += 1; // "$" prefix
                 }
             }

@@ -6,14 +6,13 @@
 
 use ori_ir::canon::{CanArena, CanExpr, CanId, CanonResult};
 use ori_ir::{Name, Span, StringInterner};
-use ori_types::Idx;
-use ori_types::Pool;
-use rustc_hash::FxHashSet;
+use ori_types::{Idx, Pool, Tag};
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::ir::{ArcFunction, ArcValue, ArcVarId, LitValue, PrimOp};
+use crate::ir::{ArcFunction, ArcValue, ArcVarId, CtorKind, LitValue, PrimOp};
 
 use super::scope::ArcScope;
-use super::{ArcIrBuilder, ArcProblem};
+use super::{ArcIrBuilder, ArcProblem, VariantCtors};
 
 // Loop context
 
@@ -59,6 +58,18 @@ pub struct ArcLowerer<'a> {
     ///
     /// Saved/restored around each `lower_block` so nesting works correctly.
     pub(crate) block_let_names: FxHashSet<Name>,
+    /// Reverse lookup from variant name to enum constructor info.
+    ///
+    /// Shared by reference from [`lower_function_can`](super::lower_function_can).
+    /// Used to intercept variant constructor calls and emit `Construct`
+    /// instructions instead of function calls.
+    pub(crate) variant_ctors: &'a VariantCtors,
+    /// Optional type substitution map for monomorphized generic functions.
+    ///
+    /// Maps generic `Idx` → concrete `Idx`. When `Some`, `expr_type()` applies
+    /// the substitution so the ARC lowerer emits type-specific RC operations.
+    /// `None` for non-generic functions (zero overhead).
+    pub(crate) type_subst: Option<&'a FxHashMap<Idx, Idx>>,
 }
 
 impl ArcLowerer<'_> {
@@ -69,13 +80,28 @@ impl ArcLowerer<'_> {
     }
 
     /// Get the type of a canonical expression by its ID.
+    ///
+    /// When `type_subst` is `Some` (monomorphized function), applies the
+    /// substitution to return the concrete type instead of the generic one.
     #[inline]
     pub(crate) fn expr_type(&self, id: CanId) -> Idx {
         if !id.is_valid() {
             return Idx::ERROR;
         }
         let ty = self.arena.ty(id);
-        Idx::from_raw(ty.raw())
+        let idx = Idx::from_raw(ty.raw());
+        self.resolve_body_type(idx)
+    }
+
+    /// Apply the type substitution map if present, returning the concrete type.
+    ///
+    /// For non-generic functions (`type_subst` is `None`), returns `ty` unchanged.
+    #[inline]
+    pub(crate) fn resolve_body_type(&self, ty: Idx) -> Idx {
+        match self.type_subst {
+            Some(map) => map.get(&ty).copied().unwrap_or(ty),
+            None => ty,
+        }
     }
 
     /// Emit a unit literal.
@@ -150,6 +176,21 @@ impl ArcLowerer<'_> {
                 }
             }
             CanExpr::FunctionRef(name) => {
+                // Unit variant used as value (e.g., `let x = None` or `let c = Red`)
+                if let Some(&(enum_name, variant_idx, field_count)) = self.variant_ctors.get(&name)
+                {
+                    if field_count == 0 {
+                        return self.builder.emit_construct(
+                            ty,
+                            CtorKind::EnumVariant {
+                                enum_name,
+                                variant: variant_idx,
+                            },
+                            vec![],
+                            Some(span),
+                        );
+                    }
+                }
                 // Zero-capture closure: PartialApply with empty captures
                 self.builder
                     .emit_partial_apply(ty, name, vec![], Some(span))
@@ -186,13 +227,13 @@ impl ArcLowerer<'_> {
             } => self.lower_match(scrutinee, decision_tree, arms, ty, span),
             CanExpr::Loop { body, .. } => self.lower_loop(body, ty),
             CanExpr::For {
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
                 is_yield,
                 ..
-            } => self.lower_for(binding, iter, guard, body, ty, is_yield),
+            } => self.lower_for(pattern, iter, guard, body, ty, is_yield),
             CanExpr::Break { value, .. } => self.lower_break(value),
             CanExpr::Continue { value, .. } => self.lower_continue(value),
             CanExpr::Assign { target, value } => self.lower_assign(target, value, span),
@@ -235,7 +276,7 @@ impl ArcLowerer<'_> {
             CanExpr::Lambda { params, body } => self.lower_lambda(params, body, ty, span),
 
             // Special forms
-            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, span),
+            CanExpr::FunctionExp { kind, props } => self.lower_function_exp(kind, props, ty, span),
 
             // Formatting — dispatches to type-specific ori_format_* runtime functions
             CanExpr::FormatWith { expr, spec } => self.lower_format_with(expr, spec, ty, span),
@@ -250,6 +291,33 @@ impl ArcLowerer<'_> {
     fn lower_ident(&mut self, name: Name, ty: Idx, span: Span) -> ArcVarId {
         if let Some(var) = self.scope.lookup(name) {
             self.builder.emit_let(ty, ArcValue::Var(var), Some(span))
+        } else if let Some(&(enum_name, variant_idx, field_count)) = self.variant_ctors.get(&name) {
+            if field_count == 0 {
+                // Unit variant as identifier (e.g., `Red` in `let x = Red`)
+                self.builder.emit_construct(
+                    ty,
+                    CtorKind::EnumVariant {
+                        enum_name,
+                        variant: variant_idx,
+                    },
+                    vec![],
+                    Some(span),
+                )
+            } else {
+                // Tuple variant used as value — fn→closure coercion not yet supported
+                tracing::warn!(
+                    variant = self.name_str(name),
+                    "tuple variant used as first-class value (not yet supported)"
+                );
+                self.emit_unit()
+            }
+        } else if self.pool.tag(self.pool.resolve_fully(ty)) == Tag::Function {
+            // Named function used as a value — emit zero-capture closure.
+            // This handles `CanExpr::Ident` for top-level functions that weren't
+            // rewritten to `CanExpr::FunctionRef` by the canonicalizer (e.g.,
+            // `apply(f: double, x: 21)` where `double` is a named function).
+            self.builder
+                .emit_partial_apply(ty, name, vec![], Some(span))
         } else {
             tracing::debug!(
                 name = ?name,

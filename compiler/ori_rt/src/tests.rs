@@ -296,3 +296,83 @@ fn concurrent_dec_triggers_drop_exactly_once() {
     // Exactly one thread should have triggered the drop
     assert_eq!(CONCURRENT_DROP_COUNT.load(Ordering::SeqCst), 1);
 }
+
+// ── Overflow detection ────────────────────────────────────────────────
+
+#[test]
+fn rc_inc_does_not_overflow_under_normal_use() {
+    // Verify that many increments (but far below MAX_REFCOUNT) work fine.
+    let _g = lock_rc();
+    let ptr = ori_rc_alloc(16, 8);
+    assert_eq!(ori_rc_count(ptr), 1);
+
+    // Increment 1000 times — well within bounds
+    for _ in 0..1000 {
+        ori_rc_inc(ptr);
+    }
+    assert_eq!(ori_rc_count(ptr), 1001);
+
+    // Clean up
+    for _ in 0..1001 {
+        ori_rc_dec(ptr, None);
+    }
+    ori_rc_free(ptr, 16, 8);
+}
+
+#[test]
+#[expect(
+    clippy::expect_used,
+    reason = "subprocess test pattern requires infallible exe/output"
+)]
+fn rc_overflow_aborts_process() {
+    // We can't actually increment to isize::MAX (would take years), but we
+    // can verify the mechanism by directly setting the refcount near the
+    // limit and confirming that ori_rc_inc aborts the child process.
+    use std::process::Command;
+
+    let result =
+        Command::new(std::env::current_exe().expect("could not determine test binary path"))
+            .arg("--exact")
+            .arg("tests::rc_overflow_aborts_process_child")
+            .env("ORI_RC_OVERFLOW_TEST", "1")
+            .output()
+            .expect("failed to spawn child process");
+
+    // The child should have been killed by abort (signal) or exited non-zero
+    assert!(
+        !result.status.success(),
+        "child process should have aborted on overflow, but exited successfully"
+    );
+}
+
+/// Helper test that is only run as a subprocess by `rc_overflow_aborts_process`.
+///
+/// Directly manipulates the refcount header to near `MAX_REFCOUNT`, then
+/// calls `ori_rc_inc` which should trigger abort.
+#[test]
+fn rc_overflow_aborts_process_child() {
+    if std::env::var("ORI_RC_OVERFLOW_TEST").is_err() {
+        // Only run when invoked as a subprocess
+        return;
+    }
+
+    let ptr = ori_rc_alloc(16, 8);
+
+    // Directly write MAX_REFCOUNT into the refcount header
+    unsafe {
+        let rc_ptr = ptr.sub(8).cast::<i64>();
+        *rc_ptr = MAX_REFCOUNT;
+    }
+
+    // This should trigger the overflow abort
+    ori_rc_inc(ptr);
+
+    // Should never reach here
+    unreachable!("ori_rc_inc should have aborted");
+}
+
+// Compile-time verification that MAX_REFCOUNT is correctly defined.
+const _: () = {
+    assert!(MAX_REFCOUNT == isize::MAX as i64);
+    assert!(MAX_REFCOUNT > 0);
+};

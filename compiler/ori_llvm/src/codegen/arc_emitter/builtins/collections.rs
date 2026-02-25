@@ -54,9 +54,18 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("str", "chars", borrow: true) => emitter.emit_str_chars(ctx.arg_vals[0]),
+    ("str", "split", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            emitter.emit_str_split(ctx.arg_vals[0], ctx.arg_vals[1])
+        } else {
+            None
+        }
+    },
     ("str", "iter", borrow: true) => emitter.emit_str_iter(ctx.arg_vals[0]),
     // list
     ("list", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
+    ("list", "count", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
     ("list", "length", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
     ("list", "len", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
     ("list", "is_empty", borrow: true) => emitter.emit_list_is_empty(ctx.arg_vals[0]),
@@ -102,6 +111,14 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "last", borrow: true) => {
         if let TypeInfo::List { element } = ctx.type_info {
+            emitter.emit_list_last(ctx.arg_vals[0], *element)
+        } else {
+            None
+        }
+    },
+    ("list", "pop", borrow: true) => {
+        if let TypeInfo::List { element } = ctx.type_info {
+            // pop() returns Option<T> (same as last) — Ori lists are immutable
             emitter.emit_list_last(ctx.arg_vals[0], *element)
         } else {
             None
@@ -158,9 +175,42 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("map", "get", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Map { value, .. } = ctx.type_info {
+                emitter.emit_map_get(ctx.arg_vals[0], ctx.arg_vals[1], *value)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("map", "insert", borrow: true) => {
+        if ctx.arg_vals.len() >= 3 {
+            if let TypeInfo::Map { key, value } = ctx.type_info {
+                emitter.emit_map_insert(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
     ("map", "iter", borrow: true) => {
         if let TypeInfo::Map { key, value } = ctx.type_info {
             emitter.emit_map_iter(ctx.arg_vals[0], *key, *value)
+        } else {
+            None
+        }
+    },
+    ("map", "remove", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Map { key, value } = ctx.type_info {
+                emitter.emit_map_remove(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -469,6 +519,187 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         )
     }
 
+    /// Emit `map.get(key)` — returns `Option<V>` via sret.
+    ///
+    /// Calls `ori_map_get(keys, vals, len, needle_ptr, val_size, out_ptr)`.
+    /// Returns `{i64 tag, V value}` — tag 0=Some, 1=None.
+    pub(crate) fn emit_map_get(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_map_get")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let keys = self
+            .builder
+            .extract_value(receiver, 2, "map.keys")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let vals = self
+            .builder
+            .extract_value(receiver, 3, "map.vals")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let len = self
+            .builder
+            .extract_value(receiver, 0, "map.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let needle_ptr = self.str_to_ptr(key, "get.needle");
+        let val_size = self.element_store_size(val_ty);
+        let val_size_val = self.builder.const_i64(val_size as i64);
+
+        // Option<V> layout: {i64 tag, V value}
+        let val_llvm_ty = self.resolve_type(val_ty);
+        let raw_val_ty = self.builder.raw_type(val_llvm_ty);
+        let option_ty = self.builder.register_type(
+            self.builder
+                .scx()
+                .type_struct(&[self.builder.scx().type_i64().into(), raw_val_ty], false)
+                .into(),
+        );
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "get.out", option_ty);
+
+        self.builder.call(
+            func_id,
+            &[keys, vals, len, needle_ptr, val_size_val, out_alloca],
+            "get",
+        );
+
+        Some(self.builder.load(option_ty, out_alloca, "get.val"))
+    }
+
+    /// Extract map keys, vals, len and compute key/val sizes from type info.
+    fn extract_map_components(
+        &mut self,
+        receiver: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> (ValueId, ValueId, ValueId, ValueId, ValueId) {
+        let keys = self
+            .builder
+            .extract_value(receiver, 2, "map.keys")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let vals = self
+            .builder
+            .extract_value(receiver, 3, "map.vals")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let len = self
+            .builder
+            .extract_value(receiver, 0, "map.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let key_size_val = self
+            .builder
+            .const_i64(self.element_store_size(key_ty) as i64);
+        let val_size_val = self
+            .builder
+            .const_i64(self.element_store_size(val_ty) as i64);
+        (keys, vals, len, key_size_val, val_size_val)
+    }
+
+    /// Build the LLVM struct type `{i64, i64, ptr, ptr}` for map sret returns.
+    fn map_struct_type(&mut self) -> LLVMTypeId {
+        self.builder.register_type(
+            self.builder
+                .scx()
+                .type_struct(
+                    &[
+                        self.builder.scx().type_i64().into(),
+                        self.builder.scx().type_i64().into(),
+                        self.builder.scx().type_ptr().into(),
+                        self.builder.scx().type_ptr().into(),
+                    ],
+                    false,
+                )
+                .into(),
+        )
+    }
+
+    /// Emit `map.insert(key, value)` — returns a new map via sret.
+    ///
+    /// Calls `ori_map_insert(keys, vals, len, key_ptr, val_ptr, key_size, val_size, out_ptr)`.
+    pub(crate) fn emit_map_insert(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        value: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_map_insert")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let (keys, vals, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
+
+        let key_ptr = self.str_to_ptr(key, "insert.key");
+        let val_ptr = self.elem_to_ptr(value, val_ty, "insert.val");
+
+        let map_ty = self.map_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "insert.out", map_ty);
+
+        self.builder.call(
+            func_id,
+            &[
+                keys,
+                vals,
+                len,
+                key_ptr,
+                val_ptr,
+                key_size_val,
+                val_size_val,
+                out_alloca,
+            ],
+            "insert",
+        );
+
+        Some(self.builder.load(map_ty, out_alloca, "insert.val"))
+    }
+
+    /// Emit `map.remove(key)` — returns a new map via sret.
+    ///
+    /// Calls `ori_map_remove(keys, vals, len, needle_ptr, key_size, val_size, out_ptr)`.
+    pub(crate) fn emit_map_remove(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_map_remove")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let (keys, vals, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
+
+        let needle_ptr = self.str_to_ptr(key, "remove.needle");
+
+        let map_ty = self.map_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "remove.out", map_ty);
+
+        self.builder.call(
+            func_id,
+            &[
+                keys,
+                vals,
+                len,
+                needle_ptr,
+                key_size_val,
+                val_size_val,
+                out_alloca,
+            ],
+            "remove",
+        );
+
+        Some(self.builder.load(map_ty, out_alloca, "remove.val"))
+    }
+
     /// Alloca+store a string value and return the pointer.
     ///
     /// Runtime string methods take `*const OriStr`, but LLVM values are
@@ -532,6 +763,76 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let s_ptr = self.str_to_ptr(receiver, "str_op.self");
         self.builder
             .call(func_id, &[s_ptr, count], "ori_str_repeat")
+    }
+
+    /// Emit `str.chars()` — returns `[char]` (list of i32 code points).
+    ///
+    /// Calls `ori_str_chars(data_ptr, len, out_ptr)`.
+    pub(crate) fn emit_str_chars(&mut self, receiver: ValueId) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_str_chars")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let data_ptr = self
+            .builder
+            .extract_value(receiver, 1, "chars.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let len = self
+            .builder
+            .extract_value(receiver, 0, "chars.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let list_ty = self.list_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "chars.out", list_ty);
+
+        self.builder
+            .call(func_id, &[data_ptr, len, out_alloca], "chars");
+
+        Some(self.builder.load(list_ty, out_alloca, "chars.val"))
+    }
+
+    /// Emit `str.split(sep)` — returns `[str]` (list of strings).
+    ///
+    /// Calls `ori_str_split(data_ptr, len, sep_data, sep_len, out_ptr)`.
+    pub(crate) fn emit_str_split(
+        &mut self,
+        receiver: ValueId,
+        separator: ValueId,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_str_split")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let data_ptr = self
+            .builder
+            .extract_value(receiver, 1, "split.self.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let str_len = self
+            .builder
+            .extract_value(receiver, 0, "split.self.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let sep_data = self
+            .builder
+            .extract_value(separator, 1, "split.sep.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let sep_len = self
+            .builder
+            .extract_value(separator, 0, "split.sep.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let list_ty = self.list_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "split.out", list_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, str_len, sep_data, sep_len, out_alloca],
+            "split",
+        );
+
+        Some(self.builder.load(list_ty, out_alloca, "split.val"))
     }
 
     // -----------------------------------------------------------------------

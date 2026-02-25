@@ -16,7 +16,8 @@
 //! recursive `self.eval_can()` calls in each arm.
 
 use ori_ir::canon::{
-    CanBindingPattern, CanExpr, CanId, CanMapEntryRange, CanParamRange, CanRange, CanonResult,
+    CanBindingPattern, CanBindingPatternId, CanExpr, CanId, CanMapEntryRange, CanParamRange,
+    CanRange, CanonResult,
 };
 use ori_ir::{BinaryOp, FunctionExpKind, Name, Span, UnaryOp};
 use ori_patterns::{
@@ -323,7 +324,7 @@ impl Interpreter<'_> {
                     .map_err(|e| Self::attach_span(e, span))
             }
             CanExpr::For {
-                binding,
+                pattern,
                 iter,
                 guard,
                 body,
@@ -332,7 +333,7 @@ impl Interpreter<'_> {
             } => {
                 let iter_val = self.eval_can(iter)?;
                 let span = self.can_span(can_id);
-                self.eval_can_for(binding, &iter_val, guard, body, is_yield)
+                self.eval_can_for(pattern, &iter_val, guard, body, is_yield)
                     .map_err(|e| Self::attach_span(e, span))
             }
             CanExpr::Loop { body, .. } => self.eval_can_loop(body),
@@ -982,7 +983,7 @@ impl Interpreter<'_> {
     /// Str, Set, Option, and Iterator pass-through.
     fn eval_can_for(
         &mut self,
-        binding: Name,
+        pattern: CanBindingPatternId,
         iter_val: &Value,
         guard: CanId,
         body: CanId,
@@ -994,6 +995,9 @@ impl Interpreter<'_> {
         let mut current_iter = IteratorValue::from_value(iter_val)
             .ok_or_else(|| ControlAction::from(crate::errors::for_requires_iterable()))?;
 
+        // Load the pattern once (it's Copy-sized enum with arena indices)
+        let pat = *self.canon_ref().arena.get_binding_pattern(pattern);
+
         if is_yield {
             // for...yield: collect results into list
             let (lower, _) = current_iter.size_hint();
@@ -1004,7 +1008,7 @@ impl Interpreter<'_> {
                 let Some(val) = item else { break };
 
                 let mut scoped = self.scoped();
-                scoped.env.define(binding, val, Mutability::Immutable);
+                scoped.bind_can_pattern(&pat, val)?;
 
                 // Check guard
                 if guard.is_valid() {
@@ -1039,7 +1043,7 @@ impl Interpreter<'_> {
                 let Some(val) = item else { break };
 
                 let mut scoped = self.scoped();
-                scoped.env.define(binding, val, Mutability::Immutable);
+                scoped.bind_can_pattern(&pat, val)?;
 
                 // Check guard
                 if guard.is_valid() {

@@ -1,5 +1,7 @@
 # ARC Codegen Unification — Keyword Index
 
+> **SUPERSEDED (2026-02-25):** This plan has been superseded by [`plans/aot_codegen_pipeline/`](../aot_codegen_pipeline/00-overview.md).
+
 ## Sections
 
 | Section | Title | Keywords |

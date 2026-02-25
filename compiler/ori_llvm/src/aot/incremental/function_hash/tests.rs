@@ -16,6 +16,7 @@ fn make_sig(name: u32, param_types: Vec<Idx>, return_type: Idx) -> FunctionSig {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     }
@@ -78,6 +79,7 @@ fn extract_skips_generics() {
             type_param_bounds: vec![],
             where_clauses: vec![],
             generic_param_mapping: vec![],
+            scheme_var_ids: vec![],
             required_params: 0,
             param_defaults: vec![],
         },
