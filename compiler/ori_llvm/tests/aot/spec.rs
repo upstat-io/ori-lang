@@ -1950,7 +1950,6 @@ fn test_aot_catch_div_by_zero() {
 // =========================================================================
 
 #[test]
-#[ignore = "AOT gap: generic function resolution not yet in ARC pipeline"]
 fn test_aot_generic_identity() {
     assert_aot_success(
         r#"
@@ -1967,7 +1966,6 @@ fn test_aot_generic_identity() {
 }
 
 #[test]
-#[ignore = "AOT gap: generic function resolution not yet in ARC pipeline"]
 fn test_aot_generic_pair() {
     assert_aot_success(
         r#"
@@ -1980,6 +1978,54 @@ fn test_aot_generic_pair() {
 }
 "#,
         "generic_pair",
+    );
+}
+
+#[test]
+fn test_aot_generic_three_type_params() {
+    assert_aot_success(
+        r#"
+@triple <A, B, C> (a: A, b: B, c: C) -> (A, B, C) = (a, b, c);
+
+@main () -> int = {
+    let t = triple(a: 1, b: true, c: 42);
+    let (x, y, z) = t;
+    if x == 1 && y && z == 42 then 0 else 1
+}
+"#,
+        "generic_three_params",
+    );
+}
+
+#[test]
+fn test_aot_generic_calling_non_generic() {
+    assert_aot_success(
+        r#"
+@double (n: int) -> int = n * 2;
+@apply_double <T> (x: T, n: int) -> int = double(n: n);
+
+@main () -> int = {
+    let result = apply_double(x: true, n: 21);
+    if result == 42 then 0 else 1
+}
+"#,
+        "generic_calling_non_generic",
+    );
+}
+
+#[test]
+fn test_aot_generic_two_specializations() {
+    assert_aot_success(
+        r#"
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = {
+    let a = identity(x: 42);
+    let b = identity(x: true);
+    if a == 42 && b then 0 else 1
+}
+"#,
+        "generic_two_specializations",
     );
 }
 
