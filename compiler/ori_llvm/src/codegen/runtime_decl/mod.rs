@@ -139,6 +139,36 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
         void,
     );
 
+    // ori_map_get(keys, vals, len, needle_ptr, val_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_map_get",
+        &[ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_map_insert(keys, vals, len, key_ptr, val_ptr, key_size, val_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_map_insert",
+        &[
+            ptr_ty, ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty, i64_ty, ptr_ty,
+        ],
+        void,
+    );
+    // ori_map_remove(keys, vals, len, needle_ptr, key_size, val_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_map_remove",
+        &[ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
+
+    // ori_str_chars(str_data, str_len, out_ptr) -> void
+    builder.declare_extern_function("ori_str_chars", &[ptr_ty, i64_ty, ptr_ty], void);
+    // ori_str_split(str_data, str_len, sep_data, sep_len, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_str_split",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
+        void,
+    );
+
     // -- Comparison functions --
     builder.declare_extern_function("ori_compare_int", &[i64_ty, i64_ty], Some(i32_ty));
     builder.declare_extern_function("ori_min_int", &[i64_ty, i64_ty], Some(i64_ty));

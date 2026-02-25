@@ -307,6 +307,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "chunk"),
     ("list", "clone"),
     ("list", "compare"),
+    ("list", "concat"),
     ("list", "contains"),
     ("list", "count"),
     ("list", "debug"),
@@ -327,6 +328,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "join"),
     ("list", "last"),
     ("list", "len"),
+    ("list", "length"),
     ("list", "map"),
     ("list", "max"),
     ("list", "max_by"),
@@ -469,12 +471,12 @@ fn resolve_list_method(
 ) -> Option<Idx> {
     let elem = engine.pool().list_elem(receiver_ty);
     match method {
-        "len" | "count" | "hash" => Some(Idx::INT),
+        "len" | "length" | "count" | "hash" => Some(Idx::INT),
         "is_empty" | "contains" | "equals" => Some(Idx::BOOL),
         "first" | "last" | "pop" | "get" => Some(engine.pool_mut().option(elem)),
         "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
         "reverse" | "sort" | "sorted" | "unique" | "flatten" | "push" | "append" | "prepend"
-        | "clone" => Some(receiver_ty),
+        | "concat" | "clone" => Some(receiver_ty),
         "compare" => Some(Idx::ORDERING),
         "join" | "debug" => Some(Idx::STR),
         "enumerate" => {

@@ -1844,13 +1844,12 @@ fn test_aot_list_index() {
 }
 
 #[test]
-#[ignore = "AOT gap: string interpolation produces wrong result"]
 fn test_aot_string_interpolation() {
     assert_aot_success(
         r#"
 @main () -> int = {
     let name = "world";
-    let greeting = `hello ${name}`;
+    let greeting = `hello {name}`;
     if greeting == "hello world" then 0 else 1
 }
 "#,
@@ -1903,7 +1902,6 @@ fn test_aot_while_pattern_with_accumulator() {
 // =========================================================================
 
 #[test]
-#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
 fn test_aot_catch_success() {
     assert_aot_success(
         r#"
@@ -1920,7 +1918,7 @@ fn test_aot_catch_success() {
 }
 
 #[test]
-#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
+#[ignore = "AOT gap: inline panic in catch — invoke only intercepts callee-function panics, not same-function inline code"]
 fn test_aot_catch_panic() {
     assert_aot_success(
         r#"
@@ -1934,7 +1932,7 @@ fn test_aot_catch_panic() {
 }
 
 #[test]
-#[ignore = "AOT gap: catch() not yet lowered through ARC pipeline"]
+#[ignore = "AOT gap: inline panic in catch — invoke only intercepts callee-function panics, not same-function inline code"]
 fn test_aot_catch_div_by_zero() {
     assert_aot_success(
         r#"
@@ -2035,7 +2033,6 @@ fn test_aot_list_push() {
 }
 
 #[test]
-#[ignore = "AOT gap: method call on list.concat() result unresolved (.length() on concat return)"]
 fn test_aot_list_concat() {
     assert_aot_success(
         r#"
