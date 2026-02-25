@@ -26,6 +26,10 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
+> **QUEUED REROUTE**: `plans/monomorphization/` — Generic Monomorphization for AOT Compilation. 4 sections: type checker infrastructure (FunctionSig scheme_var_ids, MonoInstance/GenericArg, pool substitution, call-site recording, TypedModule propagation), ARC lowering integration (type_subst on lower_function_can), LLVM pipeline integration (collection pass, evaluator wiring, FunctionCompiler declare/define, call-site resolution, name mangling), verification. Blocks Section 18 (Const Generics) and all generic AOT work. Activates when Type Strategy Registry reroute completes.
+
+---
+
 ## How to Use
 
 1. **Search this file** (Ctrl+F / Cmd+F) for keywords related to what you're looking for
@@ -539,6 +543,7 @@ fixed size, [T, max N]
 const eligibility, Eq + Hashable, capability unification
 associated consts, $rank: int, trait consts
 const functions in types, $product, $len
+monomorphization, GenericArg, ConstValue, const value substitution
 ```
 
 ---
@@ -586,7 +591,12 @@ Drop, destructor, cleanup
 optimization, O0, O1, O2, O3
 debug info, DWARF, source map
 runtime, ori_rt, built-in functions
+monomorphization, generic specialization, MonoInstance, GenericArg
+name mangling, $m$, mono function
+body_type_map, type substitution, scheme_var_ids
 ```
+
+> **Design document**: Monomorphization pipeline architecture documented in `docs/ori_lang/0.1-alpha/design/monomorphization-architecture.md`. Covers Phases 1-5, reference compiler study, `GenericArg` enum, ARC lowering integration, name mangling.
 
 ---
 

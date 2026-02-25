@@ -1,13 +1,15 @@
 //! Function call and method call inference.
 
 use ori_ir::{ExprArena, ExprId, ExprKind, Name, Span};
+use rustc_hash::FxHashMap;
 
 use super::super::InferEngine;
 use super::methods::DEI_ONLY_METHODS;
 use super::{infer_expr, resolve_builtin_method};
+use crate::pool::substitute::substitute_in_pool;
 use crate::{
-    ContextKind, Expected, ExpectedOrigin, Idx, MethodLookupResult, Pool, Tag, TypeCheckError,
-    TypeCheckWarning,
+    ContextKind, Expected, ExpectedOrigin, GenericArg, Idx, MethodLookupResult, MonoInstance, Pool,
+    Tag, TypeCheckError, TypeCheckWarning,
 };
 
 /// Infer the type of a function call expression.
@@ -74,6 +76,10 @@ pub(crate) fn infer_call(
         let arg_ty = infer_expr(engine, arena, arg_id);
         let _ = engine.check_type(arg_ty, &expected, arena.get_expr(arg_id).span);
     }
+
+    // Record monomorphization instance for generic function calls.
+    // At this point type variables have been unified with concrete types.
+    maybe_record_mono_instance(engine, func_name_id, &params);
 
     ret
 }
@@ -154,6 +160,9 @@ pub(crate) fn infer_call_named(
         let _ = engine.check_type(arg_ty, &expected, arg.span);
     }
 
+    // Record monomorphization instance for generic function calls.
+    maybe_record_mono_instance(engine, func_name_id, &params);
+
     // Validate where-clause constraints after argument type-checking.
     // At this point, generic type variables have been unified with concrete types.
     if let Some(func_name) = match &arena.get_expr(func).kind {
@@ -164,6 +173,123 @@ pub(crate) fn infer_call_named(
     }
 
     ret
+}
+
+/// Record a monomorphization instance if the callee is a generic function.
+///
+/// Called after argument type-checking, when all type variables have been unified
+/// with concrete types. Extracts concrete type args via `generic_param_mapping`,
+/// builds a substitution map from `scheme_var_ids`, and computes the `body_type_map`
+/// for the ARC lowerer.
+fn maybe_record_mono_instance(
+    engine: &mut InferEngine<'_>,
+    func_name: Option<Name>,
+    params: &[Idx],
+) {
+    let Some(fn_name) = func_name else {
+        return;
+    };
+
+    // Extract sig data in an immutable borrow scope.
+    let (scheme_var_ids, generic_param_mapping, param_types, return_type) = {
+        let Some(sig) = engine.get_signature(fn_name) else {
+            return;
+        };
+        if !sig.is_generic() || sig.scheme_var_ids.is_empty() {
+            return;
+        }
+        (
+            sig.scheme_var_ids.clone(),
+            sig.generic_param_mapping.clone(),
+            sig.param_types.clone(),
+            sig.return_type,
+        )
+    };
+
+    // Build the var_id → concrete_type substitution map.
+    let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
+    let mut generic_args = Vec::with_capacity(scheme_var_ids.len());
+
+    for (i, &var_id) in scheme_var_ids.iter().enumerate() {
+        let concrete = if let Some(Some(param_idx)) = generic_param_mapping.get(i) {
+            // Type param appears directly as a function parameter — resolve it.
+            if let Some(&param_ty) = params.get(*param_idx) {
+                engine.resolve(param_ty)
+            } else {
+                continue;
+            }
+        } else {
+            // Indirect type param (e.g., T in [T]) — resolve the var directly.
+            let var_idx = {
+                let pool = engine.pool();
+                let mut found = None;
+                for raw in crate::Idx::FIRST_DYNAMIC..u32::try_from(pool.len()).unwrap_or(u32::MAX)
+                {
+                    let idx = crate::Idx::from_raw(raw);
+                    if pool.tag(idx) == Tag::Var && pool.data(idx) == var_id {
+                        found = Some(idx);
+                        break;
+                    }
+                }
+                found
+            };
+            if let Some(var_idx) = var_idx {
+                engine.resolve(var_idx)
+            } else {
+                continue;
+            }
+        };
+
+        // Skip if the concrete type is still a variable (not fully resolved).
+        if engine.pool().tag(concrete) == Tag::Var {
+            return;
+        }
+
+        var_subst.insert(var_id, concrete);
+        generic_args.push(GenericArg::Type(concrete));
+    }
+
+    // All type params must be resolved for a valid mono instance.
+    if var_subst.len() != scheme_var_ids.len() {
+        return;
+    }
+
+    // Compute concrete param types and return type via substitution.
+    let pool = engine.pool_mut();
+    let concrete_param_types: Vec<Idx> = param_types
+        .iter()
+        .map(|&pt| substitute_in_pool(pool, pt, &var_subst))
+        .collect();
+    let concrete_return_type = substitute_in_pool(pool, return_type, &var_subst);
+
+    // Build body_type_map: for every pool entry containing vars, compute the substituted version.
+    let mut body_type_map = FxHashMap::default();
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    for raw in crate::Idx::FIRST_DYNAMIC..pool_len {
+        let idx = crate::Idx::from_raw(raw);
+        if pool.flags(idx).contains(crate::TypeFlags::HAS_VAR) {
+            let substituted = substitute_in_pool(pool, idx, &var_subst);
+            if substituted != idx {
+                body_type_map.insert(idx, substituted);
+            }
+        }
+    }
+
+    let instance = MonoInstance {
+        fn_name,
+        generic_args,
+        concrete_param_types,
+        concrete_return_type,
+        body_type_map,
+    };
+
+    tracing::debug!(
+        fn_name = ?fn_name,
+        args = ?instance.generic_args,
+        "recorded mono instance"
+    );
+
+    engine.record_mono_instance(instance);
 }
 
 /// Validate that required capabilities are available at a call site.

@@ -246,6 +246,7 @@ fn compute_abi_simple_function() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 2,
         param_defaults: vec![],
     };
@@ -279,6 +280,7 @@ fn compute_abi_void_return() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     };
@@ -309,6 +311,7 @@ fn compute_abi_main_uses_c_convention() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     };
@@ -468,6 +471,7 @@ fn abi_with_ownership_uses_reference_for_borrowed_params() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 2,
         param_defaults: vec![],
     };
@@ -518,6 +522,7 @@ fn abi_with_ownership_none_falls_through() {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 1,
         param_defaults: vec![],
     };
