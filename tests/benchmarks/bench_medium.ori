@@ -1,0 +1,124 @@
+// Benchmark: Medium (~100 lines)
+// Exercises: structs, closures, iterators, pattern matching, string ops, error handling
+// Expected: balanced mix of allocation and computation
+
+type Point = { x: int, y: int }
+
+type Stats = { count: int, sum: int, min_val: int, max_val: int }
+
+@distance_squared (a: Point, b: Point) -> int = {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    dx * dx + dy * dy
+}
+
+@make_point (i: int) -> Point =
+    Point { x: i * 3 + 1, y: i * 7 - 2 };
+
+@classify (n: int) -> str =
+    match n % 4 {
+        0 -> "zero",
+        1 -> "one",
+        2 -> "two",
+        _ -> "three",
+    };
+
+@safe_divide (a: int, b: int) -> Result<int, str> =
+    if b == 0 then Err("division by zero")
+    else Ok(a / b);
+
+@chain_divide (a: int, b: int, c: int) -> Result<int, str> = {
+    let first = safe_divide(a: a, b: b)?;
+    let second = safe_divide(a: first, b: c)?;
+    Ok(second)
+}
+
+@compute_stats (values: [int]) -> Stats = {
+    let count = 0;
+    let sum = 0;
+    let min_val = 999999;
+    let max_val = -999999;
+
+    for v in values do {
+        count = count + 1;
+        sum = sum + v;
+        if v < min_val then min_val = v;
+        if v > max_val then max_val = v;
+    };
+
+    Stats { count: count, sum: sum, min_val: min_val, max_val: max_val }
+}
+
+@transform_pipeline (n: int) -> int = {
+    let values = for i in 0..n yield i * i;
+    let result = values.iter()
+        .filter(x -> x % 2 == 0)
+        .map(x -> x + 1)
+        .take(50)
+        .fold(start: 0, f: (acc: int, x: int) -> int = acc + x);
+    result
+}
+
+@build_points (n: int) -> [Point] =
+    for i in 0..n yield make_point(i: i);
+
+@closest_to_origin (points: [Point]) -> int = {
+    let best = 999999999;
+    for p in points do {
+        let d = p.x * p.x + p.y * p.y;
+        if d < best then best = d;
+    };
+    best
+}
+
+@string_work () -> int = {
+    let s = "hello";
+    let t = " world";
+    let combined = s + t;
+    let len = combined.len();
+    let upper = combined.to_uppercase();
+    let has_hello = upper.contains("HELLO");
+    if has_hello && len == 11 then 1 else 0
+}
+
+@recursive_sum (n: int, acc: int) -> int =
+    if n == 0 then acc
+    else recursive_sum(n: n - 1, acc: acc + n);
+
+@main () -> int = {
+    // Struct operations
+    let points = build_points(n: 100);
+    let closest = closest_to_origin(points: points);
+
+    // Iterator pipeline
+    let pipeline_result = transform_pipeline(n: 200);
+
+    // Stats computation
+    let data = for i in 0..500 yield i % 100;
+    let stats = compute_stats(values: data);
+
+    // Recursion
+    let rsum = recursive_sum(n: 1000, acc: 0);
+
+    // Error handling
+    let div_ok = chain_divide(a: 100, b: 5, c: 2);
+    let div_err = chain_divide(a: 100, b: 0, c: 2);
+
+    // Pattern matching
+    let class_result = classify(n: 42);
+
+    // String work
+    let str_ok = string_work();
+
+    // Validate results
+    let ok = closest > 0
+        && pipeline_result > 0
+        && stats.count == 500
+        && rsum == 500500
+        && div_ok.is_ok()
+        && div_err.is_err()
+        && class_result == "two"
+        && str_ok == 1;
+
+    if ok then 0 else 1
+}
