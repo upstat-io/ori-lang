@@ -492,6 +492,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
                     type_param_bounds: vec![],
                     where_clauses: vec![],
                     generic_param_mapping: vec![],
+                    scheme_var_ids: vec![],
                     required_params: info.param_types.len(),
                     param_defaults: vec![],
                 };

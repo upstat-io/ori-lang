@@ -333,6 +333,7 @@ fn dummy_sig(name: Name) -> FunctionSig {
         type_param_bounds: vec![],
         where_clauses: vec![],
         generic_param_mapping: vec![],
+        scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
     }

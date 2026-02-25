@@ -41,9 +41,10 @@ pub use item::Item;
 pub use lifetime::LifetimeId;
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    ConstParamInfo, EffectClass, FnWhereClause, FunctionSig, TypeCheckResult, TypedModule,
+    ConstParamInfo, ConstValue, EffectClass, FnWhereClause, FunctionSig, GenericArg, MonoInstance,
+    TypeCheckResult, TypedModule,
 };
-pub use pool::{EnumVariant, Pool, VarState, DEFAULT_RANK};
+pub use pool::{substitute_in_pool, EnumVariant, Pool, VarState, DEFAULT_RANK};
 pub use registry::{
     // Type registry
     FieldDef,
