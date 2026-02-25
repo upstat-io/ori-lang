@@ -1,5 +1,3 @@
-use rustc_hash::FxHashMap;
-
 use ori_ir::StringInterner;
 use ori_types::{FunctionSig, GenericArg, Idx, MonoInstance, Pool};
 
@@ -109,7 +107,7 @@ fn collect_produces_concrete_sig() {
         generic_args: vec![GenericArg::Type(Idx::INT)],
         concrete_param_types: vec![Idx::INT],
         concrete_return_type: Idx::INT,
-        body_type_map: FxHashMap::default(),
+        body_type_map: Vec::new(),
     };
 
     let mono_fns = collect_mono_functions(&[instance], &[generic_sig], &interner, &pool);
@@ -138,7 +136,7 @@ fn collect_skips_unknown_function() {
         generic_args: vec![GenericArg::Type(Idx::INT)],
         concrete_param_types: vec![Idx::INT],
         concrete_return_type: Idx::INT,
-        body_type_map: FxHashMap::default(),
+        body_type_map: Vec::new(),
     };
 
     let mono_fns = collect_mono_functions(

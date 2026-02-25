@@ -88,7 +88,7 @@ pub fn collect_mono_functions(
             mangled_name,
             original_name: instance.fn_name,
             sig: concrete_sig,
-            body_type_map: instance.body_type_map.clone(),
+            body_type_map: instance.body_type_map.iter().copied().collect(),
         });
     }
 
