@@ -646,9 +646,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             return;
         }
 
-        // Intercept hash_combine free function.
-        if func_name_str == "hash_combine" && arc_args.len() >= 2 {
-            let val = self.emit_hash_combine(self.var(arc_args[0]), self.var(arc_args[1]));
+        // Prelude builtin functions (str, int, float, byte, hash_combine, etc.)
+        if let Some(val) =
+            builtins::prelude::try_emit_prelude_function(self, func_name_str, arc_args, arc_func)
+        {
             self.builder.br(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
@@ -859,9 +860,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             return;
         }
 
-        // Intercept hash_combine free function: emit inline boost hash_combine.
-        if callee_name_str == "hash_combine" && args.len() >= 2 {
-            let val = self.emit_hash_combine(self.var(args[0]), self.var(args[1]));
+        // Prelude builtin functions (str, int, float, byte, hash_combine, etc.)
+        if let Some(val) =
+            builtins::prelude::try_emit_prelude_function(self, callee_name_str, args, func)
+        {
             self.def_var_repr(dst, val, func);
             return;
         }

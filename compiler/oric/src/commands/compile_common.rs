@@ -123,7 +123,7 @@ pub fn check_source(
 ///
 /// Generic functions are skipped (they require monomorphization first).
 /// Functions that fail ARC IR lowering are skipped with a diagnostic.
-#[cfg(feature = "llvm")]
+#[cfg(all(feature = "llvm", not(feature = "salsa-borrow")))]
 fn run_borrow_inference(
     parse_result: &ParseOutput,
     function_sigs: &[FunctionSig],
@@ -187,6 +187,116 @@ fn run_borrow_inference(
     (sigs, arc_functions)
 }
 
+/// Run per-SCC Salsa-based borrow inference (Section 12.9).
+///
+/// Replaces the whole-program `infer_borrows()` path with per-SCC Salsa
+/// queries for incremental recompilation. The lowering step is identical;
+/// only the inference step changes.
+///
+/// # Flow
+///
+/// 1. Lower each function to ARC IR (same as [`run_borrow_inference`])
+/// 2. Create [`ArcModuleInput`] Salsa input from lowered functions
+/// 3. Query [`arc_scc_decomposition`] for SCC structure
+/// 4. Query [`infer_borrow_scc`] per SCC (creates Salsa dependency edges)
+/// 5. Collect results into `FxHashMap<Name, AnnotatedSig>`
+///
+/// Salsa memoizes per-SCC results. On recompilation, only SCCs with changed
+/// function bodies are re-analyzed. Early cutoff skips dependent SCCs when
+/// borrow signatures are unchanged.
+#[cfg(feature = "salsa-borrow")]
+fn run_borrow_inference_salsa(
+    db: &CompilerDb,
+    parse_result: &ParseOutput,
+    function_sigs: &[FunctionSig],
+    canon: &CanonResult,
+    interner: &StringInterner,
+    pool: &Pool,
+    source_path: &str,
+) -> FxHashMap<Name, ori_arc::AnnotatedSig> {
+    use crate::query::arc_queries::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput};
+
+    // 1. Lower functions to ARC IR (same as run_borrow_inference).
+    let mut arc_functions_map = rustc_hash::FxHashMap::default();
+    let mut arc_problems = Vec::new();
+
+    for (func, sig) in parse_result
+        .module
+        .functions
+        .iter()
+        .zip(function_sigs.iter())
+    {
+        if sig.is_generic() {
+            continue;
+        }
+
+        let params: Vec<(Name, Idx)> = sig
+            .param_names
+            .iter()
+            .zip(sig.param_types.iter())
+            .map(|(&n, &t)| (n, t))
+            .collect();
+
+        let body_id = canon.root_for(func.name).unwrap_or(canon.root);
+        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+            func.name,
+            &params,
+            sig.return_type,
+            body_id,
+            canon,
+            interner,
+            pool,
+            &mut arc_problems,
+            sig.is_fbip,
+            None,
+        );
+        arc_functions_map.insert(arc_fn.name, arc_fn);
+        for lambda in lambdas {
+            arc_functions_map.insert(lambda.name, lambda);
+        }
+    }
+
+    if !arc_problems.is_empty() {
+        use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
+        let mut acc = CodegenDiagnostics::new();
+        acc.add_arc_problems(&arc_problems);
+        emit_codegen_diagnostics(acc);
+    }
+
+    // 2. Create ArcModuleInput Salsa input.
+    let sorted_functions = ArcModuleInput::sorted_functions(arc_functions_map);
+    let module = ArcModuleInput::new(db, std::path::PathBuf::from(source_path), sorted_functions);
+
+    tracing::debug!(
+        function_count = module.functions(db).len(),
+        "created ArcModuleInput for Salsa borrow inference"
+    );
+
+    // 3. Query SCC decomposition (Salsa-tracked).
+    let decomp = arc_scc_decomposition(db, module);
+
+    // 4. Query per-SCC borrow inference and collect results.
+    let mut annotated_sigs = FxHashMap::default();
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "SCC count bounded by function count, fits in u32"
+    )]
+    for i in 0..decomp.len() {
+        let result = infer_borrow_scc(db, module, i as u32);
+        for (name, sig) in result.iter() {
+            annotated_sigs.insert(*name, sig.clone());
+        }
+    }
+
+    tracing::debug!(
+        sig_count = annotated_sigs.len(),
+        scc_count = decomp.len(),
+        "Salsa borrow inference complete"
+    );
+
+    annotated_sigs
+}
+
 /// Run ARC pipeline with optional caching.
 ///
 /// On cache hit (same module hash): deserializes cached ARC IR and extracts
@@ -196,7 +306,7 @@ fn run_borrow_inference(
 /// insertion → elimination → reuse), serializes the result to the cache.
 ///
 /// Returns the annotated signatures (needed by codegen for RC operations).
-#[cfg(feature = "llvm")]
+#[cfg(all(feature = "llvm", not(feature = "salsa-borrow")))]
 pub fn run_arc_pipeline_cached(
     parse_result: &ParseOutput,
     function_sigs: &[ori_types::FunctionSig],
@@ -317,26 +427,41 @@ pub fn compile_to_llvm<'ctx>(
         // 2. Register user-defined types
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
-        // 3. Run ARC borrow inference pipeline (with session-scoped caching)
+        // 3. Run ARC borrow inference pipeline
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let source_key = std::path::Path::new(source_path);
-        let annotated_sigs = if let Some(cached) = db.borrow_sig_cache().get(source_key) {
-            tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
-            (*cached).clone()
-        } else {
-            let sigs = run_arc_pipeline_cached(
-                parse_result,
-                &function_sigs,
-                canon,
-                interner,
-                pool,
-                &classifier,
-                None, // No ARC IR cache for single-file path
-                None, // No module hash
-            );
-            db.borrow_sig_cache().store(source_key, sigs.clone());
-            sigs
+
+        #[cfg(feature = "salsa-borrow")]
+        let annotated_sigs = run_borrow_inference_salsa(
+            db,
+            parse_result,
+            &function_sigs,
+            canon,
+            interner,
+            pool,
+            source_path,
+        );
+
+        #[cfg(not(feature = "salsa-borrow"))]
+        let annotated_sigs = {
+            let source_key = std::path::Path::new(source_path);
+            if let Some(cached) = db.borrow_sig_cache().get(source_key) {
+                tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
+                (*cached).clone()
+            } else {
+                let sigs = run_arc_pipeline_cached(
+                    parse_result,
+                    &function_sigs,
+                    canon,
+                    interner,
+                    pool,
+                    &classifier,
+                    None, // No ARC IR cache for single-file path
+                    None, // No module hash
+                );
+                db.borrow_sig_cache().store(source_key, sigs.clone());
+                sigs
+            }
         };
 
         // 4. Two-pass function compilation with borrow annotations
@@ -513,26 +638,45 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             })
             .collect();
 
-        // 4. Run ARC borrow inference pipeline (with session-scoped + ARC IR caching)
+        // 4. Run ARC borrow inference pipeline
         let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
         let classifier = ori_arc::ArcClassifier::new(pool);
-        let source_key = std::path::Path::new(source_path);
-        let annotated_sigs = if let Some(cached) = db.borrow_sig_cache().get(source_key) {
-            tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
-            (*cached).clone()
-        } else {
-            let sigs = run_arc_pipeline_cached(
-                parse_result,
-                &function_sigs,
-                canon,
-                interner,
-                pool,
-                &classifier,
-                arc_cache,
-                module_hash,
-            );
-            db.borrow_sig_cache().store(source_key, sigs.clone());
-            sigs
+
+        // Suppress unused warnings for params only used in the non-Salsa path.
+        #[cfg(feature = "salsa-borrow")]
+        let _ = (arc_cache, module_hash);
+
+        #[cfg(feature = "salsa-borrow")]
+        let annotated_sigs = run_borrow_inference_salsa(
+            db,
+            parse_result,
+            &function_sigs,
+            canon,
+            interner,
+            pool,
+            source_path,
+        );
+
+        #[cfg(not(feature = "salsa-borrow"))]
+        let annotated_sigs = {
+            let source_key = std::path::Path::new(source_path);
+            if let Some(cached) = db.borrow_sig_cache().get(source_key) {
+                tracing::debug!("borrow sig cache hit — skipping ARC pipeline");
+                (*cached).clone()
+            } else {
+                let sigs = run_arc_pipeline_cached(
+                    parse_result,
+                    &function_sigs,
+                    canon,
+                    interner,
+                    pool,
+                    &classifier,
+                    arc_cache,
+                    module_hash,
+                );
+                db.borrow_sig_cache().store(source_key, sigs.clone());
+                sigs
+            }
         };
 
         // 5. Two-pass function compilation with borrow annotations
