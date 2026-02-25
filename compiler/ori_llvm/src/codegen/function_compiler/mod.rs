@@ -366,6 +366,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.pool,
             &mut problems,
             is_fbip,
+            None, // non-generic: no type substitution
         );
 
         for problem in &problems {
@@ -679,6 +680,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 self.pool,
                 &mut problems,
                 false, // tests are never #fbip
+                None,  // non-generic: no type substitution
             );
 
             // Apply borrow annotations

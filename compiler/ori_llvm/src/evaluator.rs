@@ -310,6 +310,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         self.pool,
                         &mut arc_problems,
                         false,
+                        None, // non-generic: no type substitution
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
@@ -341,6 +342,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         self.pool,
                         &mut arc_problems,
                         false,
+                        None, // non-generic: no type substitution
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);
@@ -368,6 +370,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                         self.pool,
                         &mut arc_problems,
                         false,
+                        None, // non-generic: no type substitution
                     );
                     arc_functions.push(arc_fn);
                     arc_functions.extend(lambdas);

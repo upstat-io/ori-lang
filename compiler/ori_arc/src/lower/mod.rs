@@ -579,6 +579,10 @@ impl ArcIrBuilder {
     clippy::too_many_arguments,
     reason = "public API entry point -- a config struct would add unnecessary complexity"
 )]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "always called with FxHashMap internally"
+)]
 pub fn lower_function_can(
     name: Name,
     params: &[(Name, Idx)],
@@ -589,6 +593,7 @@ pub fn lower_function_can(
     pool: &Pool,
     problems: &mut Vec<ArcProblem>,
     is_fbip: bool,
+    type_subst: Option<&rustc_hash::FxHashMap<Idx, Idx>>,
 ) -> (ArcFunction, Vec<ArcFunction>) {
     let fn_name = interner.lookup(name);
     tracing::debug!(
@@ -635,6 +640,7 @@ pub fn lower_function_can(
         hash_length: None,
         block_let_names: rustc_hash::FxHashSet::default(),
         variant_ctors: &variant_ctors,
+        type_subst,
     };
 
     let result_var = lowerer.lower_expr(body);
