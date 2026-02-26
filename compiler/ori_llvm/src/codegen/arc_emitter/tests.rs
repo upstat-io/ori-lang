@@ -9,7 +9,7 @@ use inkwell::context::Context;
 use ori_arc::{ArcClass, ArcClassification, DropInfo, DropKind};
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::ir_builder::IrBuilder;
@@ -54,6 +54,7 @@ fn drop_fn_trivial_generates_rc_free() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -67,6 +68,7 @@ fn drop_fn_trivial_generates_rc_free() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let info = DropInfo {
@@ -114,6 +116,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -127,6 +130,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let info = DropInfo {
@@ -166,6 +170,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -179,6 +184,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     // 2 variants: None (no RC), Some(str) (RC'd at field 1)
@@ -219,6 +225,7 @@ fn drop_fn_collection_generates_loop() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -232,6 +239,7 @@ fn drop_fn_collection_generates_loop() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let list_ty = Idx::from_raw(100);
@@ -279,6 +287,7 @@ fn drop_fn_map_generates_key_value_dec() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -292,6 +301,7 @@ fn drop_fn_map_generates_key_value_dec() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let map_ty = Idx::from_raw(101);
@@ -342,6 +352,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -355,6 +366,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let clos_ty = Idx::from_raw(102);
@@ -395,6 +407,7 @@ fn get_or_generate_returns_null_for_scalars() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -408,6 +421,7 @@ fn get_or_generate_returns_null_for_scalars() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let drop_fn = em.get_or_generate_drop_fn(Idx::INT);
@@ -446,6 +460,7 @@ fn get_or_generate_caches_across_calls() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -459,6 +474,7 @@ fn get_or_generate_caches_across_calls() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     // First call generates, second returns from cache
@@ -505,6 +521,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -518,6 +535,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     // Scalar types (like int) don't need drop — should return null pointer
@@ -556,6 +574,7 @@ fn drop_fn_uses_c_calling_convention() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -569,6 +588,7 @@ fn drop_fn_uses_c_calling_convention() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let info = DropInfo {
@@ -615,6 +635,7 @@ fn multiple_drop_fns_for_different_types() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -628,6 +649,7 @@ fn multiple_drop_fns_for_different_types() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let ty_a = Idx::from_raw(100);
@@ -701,6 +723,7 @@ fn is_shared_emits_gep_load_icmp() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -714,6 +737,7 @@ fn is_shared_emits_gep_load_icmp() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     // Build a minimal ArcFunction: param v0 (ptr), IsShared dst=v1 var=v0, Return v1
@@ -823,6 +847,7 @@ fn set_emits_struct_gep_and_store() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -836,6 +861,7 @@ fn set_emits_struct_gep_and_store() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     // ArcFunction: v0 (struct ptr), v1 (int), then Set v0.field(1) = v1, return v0
@@ -961,6 +987,7 @@ fn set_tag_emits_gep_and_store() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -974,6 +1001,7 @@ fn set_tag_emits_gep_and_store() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     // ArcFunction: v0 (enum ptr), then SetTag v0 tag=1, return v0
@@ -1185,6 +1213,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1198,6 +1227,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let arc_func = ArcFunction {
@@ -1288,6 +1318,7 @@ fn rc_dec_closure_null_checks_env() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1301,6 +1332,7 @@ fn rc_dec_closure_null_checks_env() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let arc_func = ArcFunction {
@@ -1403,6 +1435,7 @@ fn rc_inc_inline_enum_is_noop() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1416,6 +1449,7 @@ fn rc_inc_inline_enum_is_noop() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let arc_func = ArcFunction {
@@ -1508,6 +1542,7 @@ fn rc_dec_inline_enum_tag_switches() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1521,6 +1556,7 @@ fn rc_dec_inline_enum_tag_switches() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     let arc_func = ArcFunction {
@@ -1622,6 +1658,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
     let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
     let mono_dispatch = FxHashMap::default();
+    let nounwind = FxHashSet::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1635,6 +1672,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         &methods,
         &names,
         &mono_dispatch,
+        &nounwind,
     );
 
     // Use Idx::STR as the type — TestClassifier marks it as DefiniteRef.

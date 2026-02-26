@@ -829,6 +829,20 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Compile error if Drop.drop declares `uses Suspend`
   - [ ] Error code and message for async destructor attempt
 
+- [ ] **Implement**: Last-reference optimization (in-place mutation when RC=1) <!-- from: aot_codegen_pipeline §11.1 -->
+  - [ ] Detect `isUnique(ref)` at runtime (refcount == 1)
+  - [ ] When unique, reuse allocation for same-shape value instead of alloc+free
+  - [ ] Applies to struct update, map insert/remove, list push/pop
+  - [ ] Reference: Perceus paper §3.3 "Reuse Analysis", Koka `CheckFBIP.hs`
+  - [ ] **Rust Tests**: `ori_llvm/tests/aot/arc.rs` — last-reference reuse tests
+
+- [ ] **Implement**: Reset/reuse optimization (constructing same-shape value after match) <!-- from: aot_codegen_pipeline §11.1 -->
+  - [ ] After pattern match deconstructs a value, reuse its allocation for newly constructed value of same type
+  - [ ] Emit `reset`/`reuse` instructions in canonical IR (Lean 4 / Koka pattern)
+  - [ ] Only applies when matched value has RC=1 (exclusive ownership)
+  - [ ] Reference: Lean 4 `ExpandResetReuse.lean`, Perceus paper §3.4
+  - [ ] **Rust Tests**: `ori_llvm/tests/aot/arc.rs` — reset/reuse tests
+
 ---
 
 ## 21.16 Optimization Passes

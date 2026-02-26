@@ -33,7 +33,7 @@ use ori_arc::ir::{
 use ori_arc::ArcClassification;
 use ori_ir::{BinaryOp, Name, StringInterner, UnaryOp};
 use ori_types::{Idx, Pool, Tag};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use super::ir_builder::IrBuilder;
@@ -178,6 +178,9 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// uses the original name (`"identity"`), but the LLVM function is declared under the
     /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types.
     mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    /// Known-nounwind user function names: `Invoke` terminators calling these
+    /// emit `call` + `br` instead of LLVM `invoke`, eliminating landing pads.
+    nounwind_callees: &'a FxHashSet<Name>,
     /// Counter for unique `PartialApply` wrapper/drop function names.
     partial_apply_counter: u32,
     /// ARC variable → typed LLVM value mapping.
@@ -207,6 +210,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
         type_idx_to_name: &'a FxHashMap<Idx, Name>,
         mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+        nounwind_callees: &'a FxHashSet<Name>,
     ) -> Self {
         Self {
             builder,
@@ -221,6 +225,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             method_functions,
             type_idx_to_name,
             mono_dispatch,
+            nounwind_callees,
             partial_apply_counter: 0,
             var_map: Vec::new(),
             block_map: Vec::new(),
@@ -412,16 +417,34 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
         }
 
-        // Pre-scan: find blocks that are unwind destinations of Invoke terminators.
-        // These blocks must start with a `landingpad` instruction per LLVM requirements.
+        // Pre-scan: find unwind destination blocks. With nounwind analysis,
+        // Invoke terminators calling known-nounwind functions are downgraded
+        // to `call` + `br`, so their unwind blocks become dead code.
+        let mut all_invoke_unwind = rustc_hash::FxHashSet::default();
         let mut unwind_blocks = rustc_hash::FxHashSet::default();
         for block in &func.blocks {
-            if let ArcTerminator::Invoke { unwind, .. } = &block.terminator {
-                unwind_blocks.insert(unwind.index());
+            if let ArcTerminator::Invoke {
+                unwind,
+                func: callee,
+                ..
+            } = &block.terminator
+            {
+                all_invoke_unwind.insert(unwind.index());
+                if !self.nounwind_callees.contains(callee) {
+                    unwind_blocks.insert(unwind.index());
+                }
             }
         }
 
-        // Set personality function on the LLVM function if any invokes exist.
+        // Dead unwind blocks: targets only of nounwind Invokes (downgraded to call).
+        // These blocks have no predecessors and must not emit instructions that
+        // reference values from other blocks (LLVM dominance violation).
+        let dead_unwind: rustc_hash::FxHashSet<usize> = all_invoke_unwind
+            .difference(&unwind_blocks)
+            .copied()
+            .collect();
+
+        // Set personality function on the LLVM function if any real invokes exist.
         // Required for any function containing `invoke`/`landingpad`.
         let personality_id = if unwind_blocks.is_empty() {
             None
@@ -441,11 +464,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let entry = self.block(func.entry);
         self.builder.position_at_end(entry);
 
-        // Create phi nodes for blocks with parameters
+        // Create phi nodes for blocks with parameters (skip dead unwind blocks)
         let mut phi_nodes: Vec<Vec<(ArcVarId, ValueId)>> = Vec::new();
         for block in &func.blocks {
             let mut block_phis = Vec::new();
-            if !block.params.is_empty() {
+            if !block.params.is_empty() && !dead_unwind.contains(&block.id.index()) {
                 self.builder.position_at_end(self.block(block.id));
                 for &(var, ty) in &block.params {
                     let llvm_ty = self.resolve_type(ty);
@@ -458,7 +481,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Emit each block's body and terminator.
-        // Unwind blocks start with a landing pad. Two flavors:
+        // Dead unwind blocks (from nounwind optimization) get a single `unreachable`.
+        // Live unwind blocks start with a landing pad. Two flavors:
         // - **Cleanup** (terminator = Resume): `landingpad cleanup`, RC cleanup, resume
         // - **Catch** (terminator = Jump): `landingpad catch null`, free exception via
         //   `ori_catch_cleanup`, then jump to catch handler. Used by `catch(expr:)`.
@@ -466,7 +490,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         for block in &func.blocks {
             self.builder.position_at_end(self.block(block.id));
 
-            // Unwind blocks must start with a landingpad instruction
+            // Dead unwind block: no predecessors, emit unreachable and skip
+            if dead_unwind.contains(&block.id.index()) {
+                self.builder.unreachable();
+                continue;
+            }
+
+            // Live unwind blocks must start with a landingpad instruction
             if unwind_blocks.contains(&block.id.index()) {
                 if let Some(pid) = personality_id {
                     let is_catch = !matches!(block.terminator, ArcTerminator::Resume);
@@ -625,6 +655,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Emit an `Invoke` terminator (ABI-aware function call with unwind).
+    ///
+    /// When the callee is in [`nounwind_callees`], emits `call` + `br` instead
+    /// of `invoke`, eliminating the unwind edge and its associated landing pad.
     fn emit_invoke(
         &mut self,
         dst: ArcVarId,
@@ -635,6 +668,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         arc_func: &ArcFunction,
     ) {
         let func_name_str = self.interner.lookup(callee);
+        let is_nounwind = self.nounwind_callees.contains(&callee);
         let normal_block = self.block(normal);
         let unwind_block = self.block(unwind);
 
@@ -680,20 +714,36 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     let sret_alloca = self.builder.alloca(ret_ty, "sret.tmp");
                     let mut full_args = vec![sret_alloca];
                     full_args.extend_from_slice(&passed_args);
-                    self.builder
-                        .invoke(func_id, &full_args, normal_block, unwind_block, "invoke");
+                    self.call_or_invoke_llvm(
+                        func_id,
+                        &full_args,
+                        normal_block,
+                        unwind_block,
+                        is_nounwind,
+                        "call",
+                    );
                     self.builder.position_at_end(normal_block);
                     Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
                 }
                 ReturnPassing::Direct | ReturnPassing::Void => {
-                    self.builder
-                        .invoke(func_id, &passed_args, normal_block, unwind_block, "invoke")
+                    let result = self.call_or_invoke_llvm(
+                        func_id,
+                        &passed_args,
+                        normal_block,
+                        unwind_block,
+                        is_nounwind,
+                        "call",
+                    );
+                    if is_nounwind {
+                        self.builder.position_at_end(normal_block);
+                    }
+                    result
                 }
             };
             if let Some(val) = result {
                 self.def_var_repr(dst, val, arc_func);
             } else {
-                // Void-returning invoke: ARC IR still expects dst to be defined
+                // Void-returning call: ARC IR still expects dst to be defined
                 // (uniform SSA — every Invoke produces a variable). Bind to a
                 // unit constant so successor blocks can reference it.
                 let unit = self.builder.const_i64(0);
@@ -722,13 +772,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 })
                 .collect();
             let func_id = self.builder.intern_function(llvm_func);
-            if let Some(val) =
-                self.builder
-                    .invoke(func_id, &coerced_args, normal_block, unwind_block, "invoke")
-            {
+            if let Some(val) = self.call_or_invoke_llvm(
+                func_id,
+                &coerced_args,
+                normal_block,
+                unwind_block,
+                is_nounwind,
+                "call",
+            ) {
+                if is_nounwind {
+                    self.builder.position_at_end(normal_block);
+                }
                 self.def_var_repr(dst, val, arc_func);
             } else {
                 // Void-returning runtime function: bind dst to unit constant
+                if is_nounwind {
+                    self.builder.position_at_end(normal_block);
+                }
                 let unit = self.builder.const_i64(0);
                 self.def_var(dst, EmittedValue::Immediate(unit));
             }
@@ -744,6 +804,29 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             let unit = self.builder.const_i64(0);
             self.def_var(dst, EmittedValue::Immediate(unit));
             self.builder.record_codegen_error_with_msg(msg);
+        }
+    }
+
+    /// Emit either LLVM `invoke` or `call` + `br` depending on nounwind status.
+    ///
+    /// For nounwind callees, emits a regular `call` followed by an unconditional
+    /// branch to the normal block, eliminating the unwind edge and its landing pad.
+    fn call_or_invoke_llvm(
+        &mut self,
+        func_id: FunctionId,
+        args: &[ValueId],
+        normal_block: BlockId,
+        unwind_block: BlockId,
+        is_nounwind: bool,
+        name: &str,
+    ) -> Option<ValueId> {
+        if is_nounwind {
+            let result = self.builder.call(func_id, args, name);
+            self.builder.br(normal_block);
+            result
+        } else {
+            self.builder
+                .invoke(func_id, args, normal_block, unwind_block, name)
         }
     }
 

@@ -85,6 +85,13 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Built from `MonoFunction` data after `declare_mono_functions()`. Used by
     /// `ArcIrEmitter` to resolve generic call sites to their concrete specializations.
     mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    /// Functions determined to be nounwind (cannot panic/unwind).
+    ///
+    /// Built incrementally as functions are compiled. A function is nounwind if
+    /// its ARC IR has zero `Invoke` terminators, or if all `Invoke` callees are
+    /// themselves in this set. Passed to [`ArcIrEmitter`] to downgrade `Invoke`
+    /// terminators to `call` + `br` for calls to nounwind callees.
+    nounwind_functions: FxHashSet<Name>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -126,6 +133,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug_context,
             borrowing_builtins,
             mono_dispatch: FxHashMap::default(),
+            nounwind_functions: FxHashSet::default(),
         }
     }
 
@@ -621,9 +629,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug!(?problem, "ARC pipeline problem");
         }
 
+        let is_nounwind = self.is_arc_function_nounwind(&arc_func);
+
         trace!(
             name = name_str,
             blocks = arc_func.blocks.len(),
+            is_nounwind,
             "ARC pipeline complete"
         );
 
@@ -640,8 +651,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             &self.method_functions,
             &self.type_idx_to_name,
             &self.mono_dispatch,
+            &self.nounwind_functions,
         );
         emitter.emit_function(&arc_func, abi);
+
+        // Mark nounwind after emission so LLVM's PruneEH pass can
+        // optimize callers (even those compiled before this function).
+        if is_nounwind {
+            self.nounwind_functions.insert(name);
+            self.builder.add_nounwind_attribute(func_id);
+            debug!(name = name_str, "marked nounwind");
+        }
 
         self.exit_debug_scope();
     }
@@ -702,6 +722,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug!(?problem, "ARC pipeline problem (lambda)");
         }
 
+        let is_nounwind = self.is_arc_function_nounwind(lambda);
+
         // Emit LLVM IR from the lambda's ARC IR
         self.builder.set_current_function(func_id);
         let mut emitter = ArcIrEmitter::new(
@@ -716,8 +738,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             &self.method_functions,
             &self.type_idx_to_name,
             &self.mono_dispatch,
+            &self.nounwind_functions,
         );
         emitter.emit_function(lambda, &abi);
+
+        if is_nounwind {
+            self.nounwind_functions.insert(lambda_name);
+            self.builder.add_nounwind_attribute(func_id);
+        }
     }
 
     /// Compute a `FunctionAbi` from an `ArcFunction`'s parameter and return types.
@@ -744,6 +772,44 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             return_abi,
             call_conv: CallConv::Fast,
         }
+    }
+
+    /// Check if an ARC function is nounwind (cannot unwind/panic).
+    ///
+    /// A function is nounwind if:
+    /// 1. All `Invoke` callees are already known-nounwind (in the set), AND
+    /// 2. No `Apply` calls a may-unwind runtime function (`ori_panic*`), AND
+    /// 3. No `ApplyIndirect` instructions exist (indirect calls through
+    ///    closures/function pointers are conservatively may-unwind).
+    ///
+    /// `ori_panic` is the sole runtime function that unwinds — it uses Rust's
+    /// panic infrastructure. All other `ori_*` / `__*` runtime functions are
+    /// nounwind (abort on failure or never fail).
+    ///
+    /// Indirect calls (`ApplyIndirect`) cannot be statically resolved to a
+    /// known callee, so we must conservatively assume they may unwind. This
+    /// prevents UB when a closure target panics inside a `nounwind` function.
+    fn is_arc_function_nounwind(&self, func: &ori_arc::ArcFunction) -> bool {
+        func.blocks.iter().all(|block| {
+            let term_ok = match &block.terminator {
+                ori_arc::ir::ArcTerminator::Invoke { func: callee, .. } => {
+                    self.nounwind_functions.contains(callee)
+                }
+                _ => true,
+            };
+            let instrs_ok = block.body.iter().all(|instr| match instr {
+                ori_arc::ir::ArcInstr::Apply { func: callee, .. } => {
+                    let s = self.interner.lookup(*callee);
+                    !s.starts_with("ori_panic")
+                }
+                // Indirect calls through closures/function pointers are
+                // conservatively treated as may-unwind — we cannot know
+                // the callee's unwind behavior at compile time.
+                ori_arc::ir::ArcInstr::ApplyIndirect { .. } => false,
+                _ => true,
+            });
+            term_ok && instrs_ok
+        })
     }
 
     /// Enter debug scope for the function being compiled.
@@ -935,6 +1001,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 &self.method_functions,
                 &self.type_idx_to_name,
                 &self.mono_dispatch,
+                &self.nounwind_functions,
             );
             emitter.emit_function(&arc_func, &abi);
 
