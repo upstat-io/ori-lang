@@ -90,8 +90,9 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
     let body_span = checker.arena().get_expr(func.body).span;
 
     // Check body with function scope context
-    let (expr_types, errors, warnings, pat_resolutions, mono_instances) = checker
-        .with_function_scope(fn_type, capabilities, |c| {
+    let func_name = func.name;
+    let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
+        checker.with_function_scope(fn_type, capabilities, |c| {
             // Get arena reference (lifetime 'a, not tied to c borrow)
             let arena = c.arena();
 
@@ -101,9 +102,12 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
             // Set self type for recursive calls (self() in patterns like recurse)
             engine.set_self_type(fn_type);
 
+            // Track current function for deferred mono call recording
+            engine.set_current_function(Some(func_name));
+
             // Push context for better error messages
             engine.push_context(ContextKind::FunctionReturn {
-                func_name: Some(func.name),
+                func_name: Some(func_name),
             });
 
             // Check guard expression if present
@@ -125,7 +129,7 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
                 origin: ExpectedOrigin::Context {
                     span: body_span,
                     kind: ContextKind::FunctionReturn {
-                        func_name: Some(func.name),
+                        func_name: Some(func_name),
                     },
                 },
             };
@@ -133,14 +137,13 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
 
             engine.pop_context();
 
-            // Return expression types, errors, warnings, pattern resolutions,
-            // and mono instances.
             (
                 engine.take_expr_types(),
                 engine.take_errors(),
                 engine.take_warnings(),
                 engine.take_pattern_resolutions(),
                 engine.take_mono_instances(),
+                engine.take_deferred_mono_calls(),
             )
         });
 
@@ -157,9 +160,10 @@ fn check_function(checker: &mut ModuleChecker<'_>, func: &Function) {
         checker.push_warning(warning);
     }
 
-    // Accumulate pattern resolutions and mono instances
+    // Accumulate pattern resolutions, mono instances, and deferred calls
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_instances(mono_instances);
+    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
 }
 
 /// Check all test bodies.
@@ -227,6 +231,7 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
     let warnings = engine.take_warnings();
     let pat_resolutions = engine.take_pattern_resolutions();
     let mono_instances = engine.take_mono_instances();
+    let deferred_mono_calls = engine.take_deferred_mono_calls();
 
     // Store expression types
     for (expr_index, ty) in expr_types {
@@ -241,9 +246,10 @@ fn check_test(checker: &mut ModuleChecker<'_>, test: &TestDef) {
         checker.push_warning(warning);
     }
 
-    // Accumulate pattern resolutions and mono instances
+    // Accumulate pattern resolutions, mono instances, and deferred calls
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_instances(mono_instances);
+    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
 }
 
 /// Check all impl method bodies.
@@ -342,7 +348,7 @@ fn check_impl_method(
     let body_span = checker.arena().get_expr(method.body).span;
 
     // Check body within impl scope + function scope
-    let (expr_types, errors, warnings, pat_resolutions, mono_instances) =
+    let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
         checker.with_impl_scope(self_type, |c| {
             c.with_function_scope(fn_type, FxHashSet::default(), |c| {
                 let arena = c.arena();
@@ -372,6 +378,7 @@ fn check_impl_method(
                     engine.take_warnings(),
                     engine.take_pattern_resolutions(),
                     engine.take_mono_instances(),
+                    engine.take_deferred_mono_calls(),
                 )
             })
         });
@@ -388,6 +395,7 @@ fn check_impl_method(
     }
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_instances(mono_instances);
+    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
 
     // Export impl method signature for codegen.
     // Codegen needs param_types, return_type, and type_params to compute ABI.
@@ -470,8 +478,8 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     let body_span = checker.arena().get_expr(method.body).span;
 
     // Check body with function scope only (no impl scope for def impl)
-    let (expr_types, errors, warnings, pat_resolutions, mono_instances) = checker
-        .with_function_scope(fn_type, FxHashSet::default(), |c| {
+    let (expr_types, errors, warnings, pat_resolutions, mono_instances, deferred_mono_calls) =
+        checker.with_function_scope(fn_type, FxHashSet::default(), |c| {
             let arena = c.arena();
             let mut engine = c.create_engine_with_env(param_env);
 
@@ -499,6 +507,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
                 engine.take_warnings(),
                 engine.take_pattern_resolutions(),
                 engine.take_mono_instances(),
+                engine.take_deferred_mono_calls(),
             )
         });
 
@@ -514,6 +523,7 @@ fn check_def_impl_method(checker: &mut ModuleChecker<'_>, method: &ImplMethod) {
     }
     checker.pattern_resolutions.extend(pat_resolutions);
     checker.accumulate_mono_instances(mono_instances);
+    checker.accumulate_deferred_mono_calls(deferred_mono_calls);
 }
 
 #[cfg(test)]
