@@ -1,3 +1,9 @@
+// Journey 1: Bare arithmetic + let bindings
+// Expected: (3 + 4) * 5 - 2 = 33
 @main () -> int = {
-    42
-}
+  let a = 3;
+  let b = 4;
+  let c = a + b;   // 7
+  let d = c * 5;   // 35
+  d - 2             // 33
+};

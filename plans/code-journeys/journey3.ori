@@ -1,15 +1,7 @@
+// Journey 3: Generics + type inference
+// Expected: identity(7) + first(10, 20) = 7 + 10 = 17
 @identity<T> (x: T) -> T = x;
 
-type Pair<A, B> = { first: A, second: B }
+@first<A, B> (a: A, b: B) -> A = a;
 
-@make_pair<A, B> (a: A, b: B) -> Pair<A, B> = Pair { first: a, second: b };
-
-@first<A, B> (p: Pair<A, B>) -> A = p.first;
-
-@main () -> int = {
-    let a = identity(x: 42);
-    let b = identity(x: "hello");
-    let p = make_pair(a: a, b: 10);
-    let f = first(p: p);
-    f + 1
-}
+@main () -> int = identity(7) + first(10, 20);

@@ -1,0 +1,10 @@
+// Journey 7: Sum types (enums) + variant matching
+// Expected: area(Circle(5)) + area(Rect(3, 4)) = 25 + 12 = 37
+type Shape = Circle(radius: int) | Rect(w: int, h: int);
+
+@area (s: Shape) -> int = match s {
+  Circle(radius) -> radius * radius,
+  Rect(w, h) -> w * h,
+};
+
+@main () -> int = area(s: Circle(radius: 5)) + area(s: Rect(w: 3, h: 4));
