@@ -563,16 +563,21 @@ When implementing these features, ensure they also work across module boundaries
   - [ ] Spread in literals: `{...base, key: value}`
   - [ ] **Rust Tests**: `ori_llvm/src/collections/map_tests.rs`
 
-- [ ] **Implement**: Set operations
-  - [ ] `Set<T>` type representation (hash set)
-  - [ ] Set creation: `Set.from_list(list:)`
-  - [ ] `.insert(element:)` → `bool` (true if new)
-  - [ ] `.remove(element:)` → `bool` (true if existed)
-  - [ ] `.contains(element:)` → `bool`
-  - [ ] `.union(other:)`, `.intersection(other:)`, `.difference(other:)`
-  - [ ] Set iteration: yields `T` elements
-  - [ ] `T: Hashable + Eq` bound
-  - [ ] **Rust Tests**: `ori_llvm/src/collections/set_tests.rs`
+- [ ] **Implement**: Set operations <!-- partially done (2026-02-25) -->
+  - [x] `Set<T>` type representation: `{i64 len, i64 cap, ptr data}` (same as list — sorted flat array, not hash set)
+  - [ ] Set creation in AOT: `__collect_set` unresolved — **BLOCKER** for all AOT set tests <!-- blocked: collect-to-set -->
+  - [x] `.len()` → `emit_set_length()` — extract field 0
+  - [x] `.is_empty()` → `emit_set_is_empty()` — `len == 0`
+  - [x] `.contains(element:)` → `emit_set_contains()` via `ori_set_contains` runtime
+  - [x] `.insert(element:)` → `emit_set_insert()` via `ori_set_insert` runtime (returns new set via sret)
+  - [x] `.remove(element:)` → `emit_set_remove()` via `ori_set_remove` runtime (returns new set via sret)
+  - [x] `.union(other:)` → `emit_set_union()` via `ori_set_union` runtime (sret)
+  - [x] `.intersection(other:)` → `emit_set_intersection()` via `ori_set_intersection` runtime (sret)
+  - [x] `.difference(other:)` → `emit_set_difference()` via `ori_set_difference` runtime (sret)
+  - [x] `.to_list()` → `emit_set_to_list()` via `ori_set_to_list` runtime (sret)
+  - [ ] Set iteration: yields `T` elements (set `.iter()` codegen)
+  - [x] Runtime functions: 7 functions in `ori_rt/src/lib.rs` + declarations in `runtime_decl/mod.rs`
+  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — 10 tests (all ignored: blocked on `__collect_set`)
 
 - [ ] **Implement**: Iterator trait codegen <!-- unblocks:3.8 -->
   - [ ] `Iterator` trait: `type Item; @next (self) -> (Option<Self.Item>, Self)`

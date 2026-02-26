@@ -683,17 +683,20 @@ impl<'tcx> TypeInfoStore<'tcx> {
                 TypeInfo::Enum { variants }
             }
 
-            // Named types: resolve to concrete Struct/Enum via Pool resolution table
+            // Named types: resolve to concrete Struct/Enum via Pool resolution table.
+            // Use resolve_fully() which chains: resolve() → Applied→Named fallback.
             Tag::Named | Tag::Applied | Tag::Alias => {
-                if let Some(resolved) = self.pool.resolve(idx) {
-                    self.get(resolved)
-                } else {
+                let resolved = self.pool.resolve_fully(idx);
+                if resolved == idx {
                     tracing::warn!(
+                        ?idx,
                         tag = ?self.pool.tag(idx),
                         "Named/Applied/Alias type has no Pool resolution — \
                          may be a generic type parameter or unregistered type"
                     );
                     TypeInfo::Error
+                } else {
+                    self.get(resolved)
                 }
             }
 
@@ -807,20 +810,28 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             return self.scx.type_i64().into();
         }
 
-        // Cache hit
-        if let Some(&cached) = self.cache.borrow().get(&idx) {
+        // Canonicalize: resolve through Pool links (Var chains, Applied→Struct
+        // resolutions) so that multiple Idx values for the same concrete type
+        // share a single LLVM struct type.  Without this, the caller's
+        // `Applied(Pair, [Var→Int, Var→Int])` and the mono function's concrete
+        // `Struct(Pair, [Int, Int])` would create distinct LLVM named structs
+        // despite being the same type.
+        let canonical = self.store.pool().resolve_fully(idx);
+
+        // Cache hit (on the canonical Idx)
+        if let Some(&cached) = self.cache.borrow().get(&canonical) {
             return cached;
         }
 
         // Depth guard: catch indirect cycles and prevent stack overflow.
         let current_depth = self.depth.get();
         if current_depth >= Self::MAX_RESOLVE_DEPTH {
-            tracing::warn!(idx = ?idx, depth = current_depth, "type resolution depth limit");
+            tracing::warn!(idx = ?canonical, depth = current_depth, "type resolution depth limit");
             return self.scx.type_i64().into();
         }
         self.depth.set(current_depth + 1);
 
-        let resolved = self.resolve_inner(idx);
+        let resolved = self.resolve_inner(canonical);
 
         self.depth.set(current_depth);
         resolved

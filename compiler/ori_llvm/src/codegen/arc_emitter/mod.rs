@@ -733,10 +733,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 self.def_var(dst, EmittedValue::Immediate(unit));
             }
         } else {
-            tracing::warn!(
-                name = func_name_str,
-                "ArcIrEmitter: unresolved function in invoke"
-            );
+            let msg =
+                format!("unresolved function `{func_name_str}` in invoke — missing mono instance?");
+            tracing::warn!("{msg}");
             // Emit a branch to the normal block so the IR stays well-formed
             // (every block must have a terminator).
             self.builder.br(normal_block);
@@ -744,7 +743,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             // Bind dst to unit constant so successor blocks don't crash
             let unit = self.builder.const_i64(0);
             self.def_var(dst, EmittedValue::Immediate(unit));
-            self.builder.record_codegen_error();
+            self.builder.record_codegen_error_with_msg(msg);
         }
     }
 
@@ -820,10 +819,19 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         func: &ArcFunction,
     ) -> Option<&(FunctionId, FunctionAbi)> {
         let entries = self.mono_dispatch.get(&callee)?;
-        let arg_types: Vec<Idx> = args.iter().map(|a| func.var_type(*a)).collect();
+        let arg_types: Vec<Idx> = args
+            .iter()
+            .map(|a| self.pool.resolve_fully(func.var_type(*a)))
+            .collect();
         entries
             .iter()
-            .find(|(params, _)| *params == arg_types)
+            .find(|(params, _)| {
+                params.len() == arg_types.len()
+                    && params
+                        .iter()
+                        .zip(&arg_types)
+                        .all(|(p, a)| self.pool.resolve_fully(*p) == *a)
+            })
             .and_then(|(_, mangled)| self.functions.get(mangled))
     }
 
@@ -921,11 +929,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             let func_id = self.builder.intern_function(llvm_func);
             self.builder.call(func_id, &coerced_args, "call")
         } else {
-            tracing::warn!(
-                name = callee_name_str,
-                "ArcIrEmitter: unresolved function in apply"
+            let msg = format!(
+                "unresolved function `{callee_name_str}` in apply — missing mono instance?"
             );
-            self.builder.record_codegen_error();
+            tracing::warn!("{msg}");
+            self.builder.record_codegen_error_with_msg(msg);
             None
         };
 

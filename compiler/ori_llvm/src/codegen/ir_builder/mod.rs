@@ -36,7 +36,7 @@ mod conversions;
 mod memory;
 mod phi_types_blocks;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder as InkwellBuilder;
@@ -77,6 +77,8 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// NOT be passed to LLVM's JIT — doing so causes heap corruption (SIGABRT).
     /// The evaluator checks this after compilation to bail out early.
     pub(super) codegen_errors: Cell<u32>,
+    /// Descriptive messages for each codegen error (for diagnostics).
+    pub(super) codegen_error_descriptions: RefCell<Vec<String>>,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -90,6 +92,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             current_function: None,
             current_block: None,
             codegen_errors: Cell::new(0),
+            codegen_error_descriptions: RefCell::new(Vec::new()),
         }
     }
 
@@ -106,6 +109,19 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// must not be JIT-compiled.
     pub(crate) fn record_codegen_error(&self) {
         self.codegen_errors.set(self.codegen_errors.get() + 1);
+    }
+
+    /// Record a codegen error with a descriptive message for diagnostics.
+    pub(crate) fn record_codegen_error_with_msg(&self, msg: impl Into<String>) {
+        self.codegen_errors.set(self.codegen_errors.get() + 1);
+        self.codegen_error_descriptions
+            .borrow_mut()
+            .push(msg.into());
+    }
+
+    /// Descriptive messages for codegen errors (if any were recorded with messages).
+    pub fn codegen_error_descriptions(&self) -> Vec<String> {
+        self.codegen_error_descriptions.borrow().clone()
     }
 
     /// Number of type-mismatch errors recorded during IR construction.

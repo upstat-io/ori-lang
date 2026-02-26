@@ -98,7 +98,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Map: is_empty — covered (2026-02-24, inline LLVM IR)
   - [x] Map: contains_key, keys, values — covered (2026-02-24, runtime + builtin table)
   - [x] Map: get, insert, remove — **FIXED** (2026-02-24) — runtime `ori_map_get`/`ori_map_insert`/`ori_map_remove` + sret codegen + builtin table
-  - [ ] Set: all operations — not yet in AOT
+  - [x] Set: evaluator (9 methods), runtime (7 functions), LLVM emit (9 builtins), JIT spec tests (24) — **DONE** (2026-02-25). AOT tests written but #[ignore]: blocked on `__collect_set` (iter().collect() to Set not yet in LLVM backend)
   - [x] Range: `0..5`, `0..=5`, iter, yield, guard — covered
 
 - [x] **Functions & closures:** (2026-02-23, completed 2026-02-24)

@@ -371,7 +371,34 @@ Verify that the new path produces identical results to the existing path.
 
 ---
 
-## {NN}.3 Safety Verification (if applicable)
+## {NN}.3 Code Journey (Pipeline Integration)
+
+Run `/code-journey` to test the pipeline end-to-end with progressively
+complex Ori programs. This catches issues that unit tests and spec tests
+miss: silent wrong code generation, phase boundary mismatches, cascading
+failures across compiler stages, and eval-vs-LLVM behavioral divergence.
+
+- [ ] Run `/code-journey` — journeys escalate until the compiler breaks down
+- [ ] All CRITICAL findings from journey results triaged (fixed or tracked)
+- [ ] Eval and AOT paths produce identical results for all passing journeys
+- [ ] Journey results archived in `plans/code-journeys/`
+
+**Why this matters:** Unit tests verify individual phases in isolation.
+Code journeys verify that phases compose correctly — data flows through
+the full pipeline (lexer → parser → type checker → canonicalizer →
+eval/LLVM) and produces correct results. They use differential testing
+(eval path as oracle for LLVM path) and progressive complexity
+escalation to map the exact boundary of what works.
+
+**When to run:**
+- After any change to phase boundaries (new IR nodes, new type variants)
+- After changes to monomorphization, ARC pipeline, or codegen
+- After adding new language features that affect multiple phases
+- As final verification before marking a plan complete
+
+---
+
+## {NN}.4 Safety Verification (if applicable)
 
 - [ ] **{Safety property}:** {How it's verified, what tool/technique}
 - [ ] **Stress test:** {Scale — N allocations, N recursion depth, N elements}
@@ -379,7 +406,7 @@ Verify that the new path produces identical results to the existing path.
 
 ---
 
-## {NN}.4 Performance Validation
+## {NN}.5 Performance Validation
 
 - [ ] **{Metric 1}:** Measured {what} ({conditions}):
   - {Workload A}: ~{value}
@@ -395,7 +422,7 @@ Verify that the new path produces identical results to the existing path.
 
 ---
 
-## {NN}.5 Documentation
+## {NN}.6 Documentation
 
 - [ ] Update superseded plans to point to this plan
 - [ ] Update CLAUDE.md if new commands/paths/patterns introduced
@@ -404,10 +431,11 @@ Verify that the new path produces identical results to the existing path.
 
 ---
 
-## {NN}.6 Completion Checklist
+## {NN}.7 Completion Checklist
 
 - [ ] Test matrix covers all features (every checkbox in {NN}.1)
 - [ ] Behavioral equivalence verified ({script} passes — 0 mismatches)
+- [ ] Code journey passes — eval/AOT match, no CRITICAL findings unaddressed
 - [ ] Zero {safety violations} detected
 - [ ] Stress tests pass ({N}/{M})
 - [ ] Performance baselined

@@ -53,6 +53,14 @@ fn runtime_functions_declared() {
         "ori_map_keys_to_list",
         "ori_map_remove",
         "ori_map_values_to_list",
+        // Sets
+        "ori_set_contains",
+        "ori_set_difference",
+        "ori_set_insert",
+        "ori_set_intersection",
+        "ori_set_remove",
+        "ori_set_to_list",
+        "ori_set_union",
         // Comparison
         "ori_compare_int",
         "ori_min_int",
