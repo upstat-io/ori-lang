@@ -364,12 +364,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         key: ValueId,
     ) -> Option<ValueId> {
-        let llvm_func = self
-            .builder
-            .scx()
-            .llmod
-            .get_function("ori_map_contains_key")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_map_contains_key");
 
         let keys_ptr = self
             .builder
@@ -395,12 +390,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Calls `ori_map_keys_to_list(keys_ptr, len, key_size, out_ptr)`.
     /// Returns `{i64 len, i64 cap, ptr data}` (list struct).
     pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
-        let llvm_func = self
-            .builder
-            .scx()
-            .llmod
-            .get_function("ori_map_keys_to_list")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
 
         let keys_ptr = self
             .builder
@@ -430,12 +420,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Calls `ori_map_values_to_list(vals_ptr, len, val_size, out_ptr)`.
     /// Returns `{i64 len, i64 cap, ptr data}` (list struct).
     pub(crate) fn emit_map_values(&mut self, receiver: ValueId, val_ty: Idx) -> Option<ValueId> {
-        let llvm_func = self
-            .builder
-            .scx()
-            .llmod
-            .get_function("ori_map_values_to_list")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_map_values_to_list");
 
         let vals_ptr = self
             .builder

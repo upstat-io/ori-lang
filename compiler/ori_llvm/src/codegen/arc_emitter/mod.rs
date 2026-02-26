@@ -2864,12 +2864,18 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         args: &[ArcVarId],
         func: &ArcFunction,
     ) -> Option<ValueId> {
-        if !callee_name.starts_with("ori_format_") || args.len() < 2 {
+        if args.len() < 2 {
             return None;
         }
 
-        let llvm_func = self.builder.scx().llmod.get_function(callee_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = match callee_name {
+            "ori_format_int" => self.builder.runtime_fn("ori_format_int"),
+            "ori_format_float" => self.builder.runtime_fn("ori_format_float"),
+            "ori_format_str" => self.builder.runtime_fn("ori_format_str"),
+            "ori_format_bool" => self.builder.runtime_fn("ori_format_bool"),
+            "ori_format_char" => self.builder.runtime_fn("ori_format_char"),
+            _ => return None,
+        };
 
         // args[0] = the value to format
         let value = self.var(args[0]);
