@@ -10,9 +10,10 @@
 
 use std::collections::HashSet;
 
+use ori_ir::StringInterner;
 use ori_types::TYPECK_BUILTIN_METHODS;
 
-use super::builtin_table;
+use super::{borrowing_names_from_table, builtin_table};
 
 /// Codegen aliases: method names used internally by the ARC pipeline
 /// that map to canonical TYPECK method names.
@@ -149,5 +150,42 @@ fn builtin_coverage_above_threshold() {
         "Builtin codegen coverage dropped to {pct}% ({covered}/{total}), \
          minimum is {min_pct}%. Uncovered:\n{}",
         uncovered.join("\n"),
+    );
+}
+
+/// The canonical borrowing-builtin set in `ori_arc` must match the effective
+/// set derived from the LLVM `BuiltinTable`.
+///
+/// This catches drift: if a new builtin method is added to the table with
+/// `borrow: true` but not added to `ori_arc::BORROWING_METHOD_NAMES`, borrow
+/// inference won't know about it. Conversely, if a method is removed from the
+/// table but left in `ori_arc`, borrow inference will make incorrect assumptions.
+#[test]
+fn borrowing_builtins_sync_with_ori_arc() {
+    let interner = StringInterner::default();
+
+    // Set derived from LLVM BuiltinTable (codegen ground truth)
+    let table_set = borrowing_names_from_table(&interner);
+
+    // Set from ori_arc (canonical source for borrow inference)
+    let arc_set = ori_arc::borrowing_builtin_names(&interner);
+
+    // Find mismatches
+    let in_table_not_arc: Vec<_> = table_set
+        .difference(&arc_set)
+        .map(|n| interner.lookup(*n).to_string())
+        .collect();
+
+    let in_arc_not_table: Vec<_> = arc_set
+        .difference(&table_set)
+        .map(|n| interner.lookup(*n).to_string())
+        .collect();
+
+    assert!(
+        in_table_not_arc.is_empty() && in_arc_not_table.is_empty(),
+        "Borrowing builtin sets out of sync!\n\
+         In LLVM BuiltinTable but not ori_arc: {in_table_not_arc:?}\n\
+         In ori_arc but not LLVM BuiltinTable: {in_arc_not_table:?}\n\
+         Update ori_arc::borrow::builtins::BORROWING_METHOD_NAMES to match.",
     );
 }

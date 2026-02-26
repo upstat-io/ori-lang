@@ -123,6 +123,8 @@ struct BorrowInferenceResult {
     sigs: FxHashMap<Name, ori_arc::AnnotatedSig>,
     /// Pre-lowered ARC functions: parent → (`ArcFunction`, lambdas).
     arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    /// Monomorphized generic functions (reused by codegen to avoid recomputation).
+    mono_functions: Vec<ori_llvm::monomorphize::MonoFunction>,
 }
 
 /// Run ARC borrow inference on all non-generic module functions.
@@ -222,6 +224,7 @@ fn run_borrow_inference(
             return BorrowInferenceResult {
                 sigs: FxHashMap::default(),
                 arc_cache: FxHashMap::default(),
+                mono_functions: Vec::new(),
             };
         }
     }
@@ -278,6 +281,7 @@ fn run_borrow_inference(
     BorrowInferenceResult {
         sigs: annotated_sigs,
         arc_cache,
+        mono_functions,
     }
 }
 
@@ -357,6 +361,7 @@ fn run_codegen_pipeline<'ctx>(
         let BorrowInferenceResult {
             sigs: annotated_sigs,
             mut arc_cache,
+            mono_functions,
         } = run_borrow_inference(
             db,
             parse_result,
@@ -387,13 +392,7 @@ fn run_codegen_pipeline<'ctx>(
         }
         fc.declare_all(&parse_result.module.functions, &function_sigs);
 
-        // 4b. Collect and declare monomorphized generic functions
-        let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
-            &type_result.typed.mono_instances,
-            &function_sigs,
-            interner,
-            pool,
-        );
+        // 4b. Declare monomorphized generic functions (reused from borrow inference)
         fc.declare_mono_functions(&mono_functions);
 
         // 5. Compile impl methods (still inline — they use type-qualified

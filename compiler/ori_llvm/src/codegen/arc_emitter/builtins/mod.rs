@@ -112,8 +112,9 @@ pub(crate) struct BuiltinRegistration {
     /// Method name (e.g., `"abs"`, `"is_some"`, `"iter"`).
     pub method_name: &'static str,
     /// Whether this method borrows its receiver (reads without consuming).
-    /// Feeds into borrow inference and RC insertion: methods with
-    /// `receiver_borrowed: true` are treated as borrowing all arguments.
+    /// Read by the sync test (`borrowing_builtins_sync_with_ori_arc`) to verify
+    /// the LLVM table matches `ori_arc::BORROWING_METHOD_NAMES`.
+    #[cfg_attr(not(test), allow(dead_code, reason = "read by sync test only"))]
     pub receiver_borrowed: bool,
 }
 
@@ -253,22 +254,17 @@ pub(crate) fn builtin_table() -> &'static BuiltinTable {
     &BUILTIN_TABLE
 }
 
-/// Collect interned `Name`s for all builtin methods that borrow their receiver
-/// AND produce independent results (no hidden dependency on the receiver).
+/// Compute the set of borrowing method names from the LLVM builtin table.
 ///
-/// These names are passed to borrow inference and RC insertion so that calls
-/// to inline-compiled builtins (e.g., `len`, `is_empty`, `compare`) are
-/// recognized as borrowing rather than defaulting to all-Owned.
-///
-/// **Excluded:** Iterator methods and `.iter()` — these create derived values
-/// that reference the receiver's data. The ARC pipeline can't model these
-/// hidden dependencies, so they must use Owned semantics (the runtime handles
-/// internal RC management).
-pub fn borrowing_builtin_names(interner: &ori_ir::StringInterner) -> rustc_hash::FxHashSet<Name> {
+/// This is the codegen-derived set: all methods with `receiver_borrowed: true`,
+/// excluding Iterator methods (they consume/transform the iterator) and `.iter()`
+/// (creates dependent values). Used by the sync test to verify the canonical
+/// list in `ori_arc::borrowing_builtin_names` matches.
+#[cfg(test)]
+fn borrowing_names_from_table(interner: &ori_ir::StringInterner) -> rustc_hash::FxHashSet<Name> {
     let table = builtin_table();
     let mut names = rustc_hash::FxHashSet::default();
     for (&type_name, methods) in &table.entries {
-        // Skip all Iterator methods — they consume/transform the iterator.
         if type_name == "Iterator" {
             continue;
         }
@@ -276,7 +272,6 @@ pub fn borrowing_builtin_names(interner: &ori_ir::StringInterner) -> rustc_hash:
             if !reg.receiver_borrowed {
                 continue;
             }
-            // Skip .iter() — creates an iterator that depends on the receiver.
             if method_name == "iter" {
                 continue;
             }
