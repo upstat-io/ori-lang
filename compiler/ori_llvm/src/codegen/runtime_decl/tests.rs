@@ -250,3 +250,60 @@ fn declared_functions_covered_by_jit_or_aot_only() {
          Remove them from evaluator.rs or add them to RT_FUNCTIONS."
     );
 }
+
+/// Ensures no production code uses raw `get_function("ori_*")` to look up
+/// runtime functions. All call sites should use `runtime_fn()` instead,
+/// which lazily declares + caches. Raw `get_function` bypasses the cache,
+/// creates duplicate `FunctionId`s, and will break when AOT migrates to
+/// lazy declaration.
+///
+/// Test files are excluded — they legitimately use `get_function()` to
+/// verify declarations exist.
+#[test]
+fn no_raw_get_function_for_runtime_fns() {
+    use std::path::PathBuf;
+
+    fn collect_rs_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rs_files(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs")
+                && path.file_name().is_none_or(|name| name != "tests.rs")
+            {
+                out.push(path);
+            }
+        }
+    }
+
+    let src_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    collect_rs_files(&src_dir, &mut files);
+
+    let mut violations = Vec::new();
+    for path in &files {
+        let content = std::fs::read_to_string(path).unwrap();
+        for (line_no, line) in content.lines().enumerate() {
+            if line.contains("get_function(\"ori_") {
+                let rel = path.strip_prefix(&src_dir).unwrap();
+                violations.push(format!(
+                    "  {}:{}: {}",
+                    rel.display(),
+                    line_no + 1,
+                    line.trim()
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Found raw get_function(\"ori_*\") calls in production code.\n\
+         Use `self.builder.runtime_fn(\"ori_...\")` instead.\n\
+         Violations:\n{}",
+        violations.join("\n")
+    );
+}
