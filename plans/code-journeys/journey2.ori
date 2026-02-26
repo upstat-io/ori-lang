@@ -1,8 +1,0 @@
-// Journey 2: Function calls, if/else, booleans
-// Expected: double(5) + pick(true) = 10 + 1 = 11
-@double (x: int) -> int = x * 2;
-
-@pick (flag: bool) -> int =
-  if flag then 1 else 0;
-
-@main () -> int = double(5) + pick(true);

@@ -30,21 +30,17 @@ use ori_types::{FunctionSig, Pool, TypeEntry};
 /// A single imported function ready for LLVM compilation.
 ///
 /// Pairs a function AST with its type-checked signature and the canonical IR
-/// from its source module. Created by the caller after resolving, filtering,
-/// and type-checking imported modules.
+/// from its source module. All `Idx` values in `sig` and `canon` have been
+/// re-interned into the main compilation pool before construction — the caller
+/// uses [`ori_types::re_intern_type`] and [`CanArena::remap_types`] to ensure
+/// single-pool consistency.
 pub struct ImportedFunctionForCodegen<'a> {
     /// The function AST from the imported module.
     pub function: &'a Function,
-    /// Type-checked signature for this function.
-    pub sig: &'a FunctionSig,
-    /// Canonical IR for this function's source module.
+    /// Type-checked signature, re-interned into the main compilation pool.
+    pub sig: FunctionSig,
+    /// Canonical IR with types remapped to the main compilation pool.
     pub canon: &'a CanonResult,
-    /// Type pool from the imported module.
-    ///
-    /// Each module gets its own Pool during type checking (per-query Salsa memoization).
-    /// The `sig` and `canon` fields contain `Idx` values from this pool — using the
-    /// importing module's pool would cause out-of-bounds panics for compound types.
-    pub pool: &'a Pool,
 }
 
 use crate::codegen::function_compiler::FunctionCompiler;
@@ -338,7 +334,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 for imp_fn in imported_functions {
                     fc.declare_all(
                         std::slice::from_ref(imp_fn.function),
-                        std::slice::from_ref(imp_fn.sig),
+                        std::slice::from_ref(&imp_fn.sig),
                     );
                 }
             }
@@ -386,7 +382,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 for imp_fn in imported_functions {
                     prepared.extend(fc.prepare_all_cached(
                         std::slice::from_ref(imp_fn.function),
-                        std::slice::from_ref(imp_fn.sig),
+                        std::slice::from_ref(&imp_fn.sig),
                         imp_fn.canon,
                         &mut arc_cache,
                     ));

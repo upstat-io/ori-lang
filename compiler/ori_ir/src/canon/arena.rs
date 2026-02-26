@@ -328,6 +328,20 @@ impl CanArena {
         let end = start + range.len();
         &self.named_exprs[start..end]
     }
+
+    /// Remap all `TypeId` values in this arena using the given mapping function.
+    ///
+    /// Used for cross-pool type re-interning: after re-interning types from a
+    /// source `Pool` into a target `Pool`, the canonical IR's `TypeId` references
+    /// must be updated to use the target pool's indices.
+    ///
+    /// Primitives (indices 0-11) are identical across all pools and pass through
+    /// unchanged. Only compound types need remapping.
+    pub fn remap_types(&mut self, mut map_fn: impl FnMut(TypeId) -> TypeId) {
+        for ty in &mut self.types {
+            *ty = map_fn(*ty);
+        }
+    }
 }
 
 impl Default for CanArena {

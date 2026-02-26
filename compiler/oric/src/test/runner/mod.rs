@@ -568,10 +568,6 @@ impl TestRunner {
         // instead of aborting the process (allows catch_unwind recovery).
         ori_llvm::install_fatal_error_handler();
 
-        // Create LLVM evaluator with type pool for proper compound type resolution
-        // (needed for sret convention on large struct returns like List, Map, etc.)
-        let llvm_eval = OwnedLLVMEvaluator::with_pool(pool);
-
         // Resolve imports so imported functions can be compiled into the JIT module.
         // Uses the unified import pipeline — same resolution path as the type checker
         // and interpreter.
@@ -624,10 +620,40 @@ impl TestRunner {
             imported_pools.push(imp_pool);
         }
 
+        // === Merkle Pool Identity: Single-Pool Re-interning ===
+        //
+        // Clone the main pool and re-intern all imported types into it. This
+        // eliminates cross-pool Idx misuse: every Idx value in every sig and
+        // canon is valid in the merged pool. ARC lowering and LLVM codegen
+        // can then operate on a single pool without dual-pool juggling.
+        let mut merged_pool = pool.clone();
+
+        // Re-map canon results per module: clone each CanonResult and remap
+        // its TypeId values from the source pool to the merged pool. Build
+        // per-module re-interning caches so sig re-interning reuses them.
+        let mut per_module_caches: Vec<rustc_hash::FxHashMap<ori_types::Idx, ori_types::Idx>> =
+            vec![rustc_hash::FxHashMap::default(); imported_pools.len()];
+        let re_interned_canons: Vec<ori_ir::canon::CanonResult> = imported_canon_results
+            .iter()
+            .enumerate()
+            .map(|(module_idx, shared_canon)| {
+                let source_pool = &imported_pools[module_idx];
+                let cache = &mut per_module_caches[module_idx];
+
+                let mut remapped: ori_ir::canon::CanonResult = (**shared_canon).clone();
+                remapped.arena.remap_types(|type_id| {
+                    let source_idx = ori_types::Idx::from_raw(type_id.raw());
+                    let target_idx =
+                        ori_types::re_intern_type(source_pool, source_idx, &mut merged_pool, cache);
+                    ori_ir::TypeId::from_raw(target_idx.raw())
+                });
+                remapped
+            })
+            .collect();
+
         // Build per-function codegen structs for explicitly imported functions only.
-        // We need owned FunctionSig values that outlive the ImportedFunctionForCodegen refs.
-        let mut imported_sigs_storage: Vec<ori_types::FunctionSig> = Vec::new();
         let mut fn_refs: Vec<FnRef> = Vec::new();
+        let mut re_interned_sigs: Vec<ori_types::FunctionSig> = Vec::new();
 
         for func_ref in &resolved.imported_functions {
             if func_ref.is_module_alias {
@@ -655,7 +681,13 @@ impl TestRunner {
                     if sig.is_generic() {
                         continue;
                     }
-                    imported_sigs_storage.push(sig.clone());
+                    // Re-intern the signature from the source pool into the merged pool,
+                    // reusing the per-module cache built during canon re-mapping.
+                    let source_pool = &imported_pools[func_ref.module_index];
+                    let cache = &mut per_module_caches[func_ref.module_index];
+                    let re_interned =
+                        ori_types::re_intern_sig(sig, source_pool, &mut merged_pool, cache);
+                    re_interned_sigs.push(re_interned);
                     fn_refs.push(FnRef {
                         func_index: idx,
                         module_index: func_ref.module_index,
@@ -664,7 +696,7 @@ impl TestRunner {
             }
         }
 
-        // Build ImportedFunctionForCodegen from the stable storage
+        // Build ImportedFunctionForCodegen — all Idx values are valid in merged_pool
         let imported_for_codegen: Vec<ImportedFunctionForCodegen<'_>> = fn_refs
             .iter()
             .enumerate()
@@ -672,35 +704,37 @@ impl TestRunner {
                 let parse_output = &resolved.modules[fref.module_index].parse_output;
                 ImportedFunctionForCodegen {
                     function: &parse_output.module.functions[fref.func_index],
-                    sig: &imported_sigs_storage[sig_idx],
-                    canon: &imported_canon_results[fref.module_index],
-                    pool: &imported_pools[fref.module_index],
+                    sig: re_interned_sigs[sig_idx].clone(),
+                    canon: &re_interned_canons[fref.module_index],
                 }
             })
             .collect();
+
+        // Create LLVM evaluator with merged pool for proper compound type resolution
+        // (needed for sret convention on large struct returns like List, Map, etc.)
+        // Must be created AFTER re-interning so all Idx values in the merged pool
+        // are valid when the evaluator resolves types during codegen.
+        let llvm_eval = OwnedLLVMEvaluator::with_pool(&merged_pool);
 
         // Build function signatures aligned with module.functions source order.
         // Delegates to shared implementation in typeck.
         let function_sigs = crate::typeck::build_function_sigs(parse_result, type_result);
 
-        // ARC lowering + borrow inference (lifted out of evaluator).
-        // Lower all functions once, run borrow inference, then pass the
-        // pre-lowered cache to the evaluator for zero-copy codegen.
-        let (annotated_sigs, arc_cache) = lower_and_infer_borrows(
-            &parse_result.module,
-            &function_sigs,
-            shared_canon,
-            interner,
-            pool,
-            &type_result.typed.impl_sigs,
-            &imported_for_codegen,
-            &type_result.typed.mono_instances,
-        );
-
-        // Compile module ONCE with all tests.
-        // Wrap in catch_unwind to gracefully handle LLVM fatal errors
-        // (e.g., "unable to allocate function return" for unsupported types).
+        // ARC lowering + borrow inference + compilation, wrapped in catch_unwind
+        // to gracefully handle panics in any phase (ARC classification, LLVM codegen,
+        // etc.) without aborting the entire test runner.
         let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let (annotated_sigs, arc_cache) = lower_and_infer_borrows(
+                &parse_result.module,
+                &function_sigs,
+                shared_canon,
+                interner,
+                &merged_pool,
+                &type_result.typed.impl_sigs,
+                &imported_for_codegen,
+                &type_result.typed.mono_instances,
+            );
+
             llvm_eval.compile_module_with_tests(
                 &parse_result.module,
                 &filtered_tests,

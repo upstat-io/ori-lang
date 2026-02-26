@@ -15,10 +15,12 @@
 mod construct;
 pub mod descriptor;
 mod format;
+pub mod re_intern;
 pub mod substitute;
 
 pub use construct::*;
 pub use descriptor::{TypeDescriptor, VariantDescriptor};
+pub use re_intern::{re_intern_sig, re_intern_type};
 pub use substitute::{extract_var_from_types, substitute_in_pool};
 
 use rustc_hash::FxHashMap;
@@ -33,6 +35,7 @@ use crate::{Idx, Item, LifetimeId, Rank, Tag, TypeFlags};
 /// - Automatic deduplication (each unique type stored once)
 /// - Pre-computed metadata (flags, hashes)
 /// - Cache-friendly access patterns
+#[derive(Clone)]
 pub struct Pool {
     // === Core Storage (parallel arrays) ===
     /// All type items (tag + data).
