@@ -40,10 +40,12 @@
 //! after the tail call, which would break the tail call optimization (the
 //! caller's stack frame must not exist after the tail call).
 
+mod builtins;
 mod callees;
 mod derived;
 mod per_scc;
 
+pub use builtins::borrowing_builtin_names;
 pub use callees::extract_callees;
 pub use derived::infer_derived_ownership;
 pub use per_scc::{infer_borrow_fixed_point, infer_borrow_single, initialize_single_borrowed};

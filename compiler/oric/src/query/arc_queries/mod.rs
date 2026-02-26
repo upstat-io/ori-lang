@@ -355,7 +355,7 @@ pub fn infer_borrow_scc(
     let classifier = ori_arc::ArcClassifier::new(&pool_arc);
 
     // Get borrowing builtins.
-    let borrowing_builtins = ori_llvm::borrowing_builtin_names(db.interner());
+    let borrowing_builtins = ori_arc::borrowing_builtin_names(db.interner());
 
     // Dispatch based on recursion.
     if decomp.is_recursive(scc_index) {
