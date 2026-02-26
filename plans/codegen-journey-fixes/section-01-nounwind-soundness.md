@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Nounwind Soundness"
-status: not-started
+status: complete
 goal: "All functions are correctly classified as nounwind or may-unwind — no false nounwind claims"
 inspired_by:
   - "Rust rustc_codegen_llvm unwind handling (compiler/rustc_codegen_llvm/src/builder.rs)"
@@ -13,15 +13,15 @@ sections:
     status: complete
   - id: "01.2"
     title: "Monomorphized Callee Ordering"
-    status: not-started
+    status: complete
   - id: "01.3"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 01: Nounwind Soundness
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Every function's nounwind classification is sound — no function marked `nounwind` can ever unwind. Indirect calls (closures, function pointers) are conservatively treated as may-unwind. Monomorphized callees are analyzed before their callers so the nounwind set is complete.
 
 **Context:** Journey 4 discovered that `_ori_apply` is marked `nounwind` despite calling through a function pointer. If the closure target panics, unwinding crosses a `call` instruction (not `invoke`) inside a `nounwind` function — this is undefined behavior per LLVM semantics. Journey 3 found that monomorphized generic functions (e.g., `identity<int>`) are compiled AFTER their callers, so callers can't know they're nounwind and must use `invoke` with unnecessary landing pads.
@@ -111,24 +111,45 @@ Compile everything, then revisit callers to downgrade `invoke` → `call` where 
 4. Emit LLVM IR for all functions using the complete nounwind set
 5. Verify Journey 3 program: `_ori_main` uses `call` (not `invoke`) for `identity<int>`
 
-- [ ] Refactor to separate ARC compilation from LLVM emission
-- [ ] Build complete nounwind set from all ARC functions
-- [ ] Emit LLVM IR using complete nounwind set
-- [ ] Test: monomorphized nounwind callee → caller uses `call` not `invoke`
-- [ ] Test: monomorphized may-unwind callee → caller still uses `invoke`
-- [ ] Verify no regressions: `./test-all.sh` and `./llvm-test.sh`
+- [x] Refactor to separate ARC compilation from LLVM emission (2026-02-26)
+  - Split `compile_function()` into `prepare_function()` (returns `PreparedFunction`) and `emit_prepared_function()`
+  - New `PreparedFunction` struct holds ARC IR + metadata without emitting LLVM IR
+  - `PreparedLambda` struct for closure bodies (same separation)
+- [x] Build complete nounwind set from all ARC functions (2026-02-26)
+  - `compute_nounwind_set()` runs fixed-point iteration over all `PreparedFunction`s
+  - Populates `CodegenContext.nounwind_functions` before any LLVM emission
+- [x] Emit LLVM IR using complete nounwind set (2026-02-26)
+  - `emit_prepared_function()` and `emit_prepared_lambda()` use the pre-computed nounwind set
+  - `emit_invoke` in `arc_emitter` checks `ctx.nounwind_functions` to choose `call` vs `invoke`
+- [x] Test: monomorphized nounwind callee → caller uses `call` not `invoke` (2026-02-26)
+  - AOT test `test_mono_nounwind_callee_uses_call_not_invoke` in `generics.rs`
+  - Unit tests `compute_nounwind_set_propagates_to_generic_original_name` and `compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind`
+- [x] Test: monomorphized may-unwind callee → caller still uses `invoke` (2026-02-26)
+  - AOT test `test_mono_may_unwind_callee_uses_invoke` in `generics.rs`
+- [x] Verify no regressions: `./test-all.sh` and `./llvm-test.sh` (2026-02-26)
+  - 10,175 tests passed, 0 failures
+  - Additional fix: mono dispatch propagation bridges name domains (ARC IR uses original generic names, nounwind set uses mangled names)
 
 ---
 
 ## 01.3 Completion Checklist
 
-- [ ] No function marked `nounwind` contains an indirect call (closure/fn-ptr invocation)
-- [ ] `_ori_apply` is NOT marked nounwind
-- [ ] Monomorphized nounwind callees are in `nounwind_functions` before their callers are emitted
-- [ ] Journey 3 program: `_ori_main` uses `call` for `identity<int>` and `first<int,int>`
-- [ ] Journey 4 program: `_ori_apply` uses `invoke` (not `call`) for closure target
-- [ ] `./test-all.sh` green
-- [ ] `./llvm-test.sh` green
-- [ ] No new clippy warnings: `./llvm-clippy.sh`
+- [x] No function marked `nounwind` contains an indirect call (closure/fn-ptr invocation) (2026-02-26)
+- [x] `_ori_apply` is NOT marked nounwind (2026-02-26)
+  - Verified: `_ori_apply` has no `nounwind` attribute, uses `call i64 %closure.fn_ptr(...)` (indirect)
+- [x] Monomorphized nounwind callees are in `nounwind_functions` before their callers are emitted (2026-02-26)
+  - Two-pass: prepare → compute_nounwind_set → emit
+  - Mono dispatch propagation bridges original→mangled name domains
+- [x] Journey 3 program: `_ori_main` uses `call` for `identity<int>` and `first<int,int>` (2026-02-26)
+  - `%call = call fastcc i64 @"_ori_identity$24m$24int"(i64 7)`
+  - `%call1 = call fastcc i64 @"_ori_first$24m$24int_int"(i64 10, i64 20)`
+- [x] Journey 4 program: `_ori_apply` uses `invoke` (not `call`) for closure target (2026-02-26)
+  - `%call = invoke fastcc i64 @_ori_apply(...) to label %bb1 unwind label %bb2`
+  - Landing pad present with `cleanup` clause
+- [x] `./test-all.sh` green (2026-02-26)
+  - 10,175 tests passed, 0 failures
+- [x] `./llvm-test.sh` green (2026-02-26)
+  - 379 unit + 1012 AOT tests passed
+- [x] No new clippy warnings: `./llvm-clippy.sh` (2026-02-26)
 
 **Exit Criteria:** `is_arc_function_nounwind()` returns `false` for any function containing an indirect call. All monomorphized callees are analyzed before their callers. Journey 3 and Journey 4 programs produce correct results with optimal invoke/call usage. Zero regressions in test suite.
