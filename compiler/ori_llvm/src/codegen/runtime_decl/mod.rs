@@ -797,6 +797,30 @@ pub fn declare_single(builder: &mut IrBuilder, name: &str) -> FunctionId {
     id
 }
 
+/// Like [`declare_single`], but returns `None` if the name is not a known
+/// runtime function (instead of panicking).
+///
+/// Returns `(static_name, func_id)` where `static_name` is the `&'static str`
+/// from the `RT_FUNCTIONS` table — suitable for use as a cache key in
+/// `IrBuilder::try_runtime_fn()`.
+pub fn try_declare_single(
+    builder: &mut IrBuilder,
+    name: &str,
+) -> Option<(&'static str, FunctionId)> {
+    let spec = RT_FUNCTIONS.iter().find(|f| f.name == name)?;
+    let params: Vec<LLVMTypeId> = spec
+        .params
+        .iter()
+        .map(|&t| resolve_ty(builder, t))
+        .collect();
+    let ret = spec.ret.map(|t| resolve_ty(builder, t));
+    let id = builder.declare_extern_function(name, &params, ret);
+    for &attr in spec.attrs {
+        apply_attr(builder, id, attr);
+    }
+    Some((spec.name, id))
+}
+
 /// Eagerly declare all runtime functions in the LLVM module.
 ///
 /// Used by tests that need the full set available. Production code uses

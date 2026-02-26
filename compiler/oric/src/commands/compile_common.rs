@@ -313,7 +313,6 @@ fn run_codegen_pipeline<'ctx>(
 ) -> ori_llvm::inkwell::module::Module<'ctx> {
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
     use ori_llvm::codegen::ir_builder::IrBuilder;
-    use ori_llvm::codegen::runtime_decl;
     use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
     use ori_llvm::codegen::type_registration;
     use ori_llvm::SimpleCx;
@@ -339,10 +338,11 @@ fn run_codegen_pipeline<'ctx>(
         let resolver = TypeLayoutResolver::new(&store, scx_ref);
         let mut builder = IrBuilder::new(scx_ref);
 
-        // 1. Declare runtime functions
-        runtime_decl::declare_runtime(&mut builder);
+        // Runtime functions are declared lazily via `builder.runtime_fn(name)`.
+        // No eager `declare_runtime()` call needed — each function is declared
+        // on first use during codegen and cached thereafter.
 
-        // 2. Register user-defined types
+        // 1. Register user-defined types
         type_registration::register_user_types(&resolver, &type_result.typed.types);
 
         // 3. Run ARC borrow inference pipeline (per-SCC Salsa queries)

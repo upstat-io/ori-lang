@@ -348,6 +348,32 @@ impl ArcIrBuilder {
         dst
     }
 
+    /// Emit a `Select` (branchless conditional value) instruction.
+    ///
+    /// Maps to LLVM's `select` instruction: returns `true_val` if `cond`
+    /// is true, `false_val` otherwise. Used to eliminate basic blocks for
+    /// trivial match arms.
+    pub fn emit_select(
+        &mut self,
+        ty: Idx,
+        cond: ArcVarId,
+        true_val: ArcVarId,
+        false_val: ArcVarId,
+        span: Option<Span>,
+    ) -> ArcVarId {
+        let dst = self.fresh_var(ty);
+        let block = &mut self.blocks[self.current_block.index()];
+        block.body.push(ArcInstr::Select {
+            dst,
+            ty,
+            cond,
+            true_val,
+            false_val,
+        });
+        block.spans.push(span);
+        dst
+    }
+
     // Invoke (call that may unwind)
 
     /// Emit an `Invoke` terminator for a function call that may unwind.

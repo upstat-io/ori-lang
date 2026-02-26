@@ -602,7 +602,7 @@ fn test_mono_nounwind_callee_uses_call_not_invoke() {
 
     // Find the _ori_main function in the IR and check for call vs invoke
     // to the monomorphized identity function.
-    let main_section = extract_function_ir(&ir, "_ori_main");
+    let main_section = crate::util::extract_function_ir(&ir, "_ori_main");
 
     // The monomorphized function name contains identity and $m$
     assert!(
@@ -631,7 +631,7 @@ fn test_mono_may_unwind_callee_uses_invoke() {
 "#,
     );
 
-    let main_section = extract_function_ir(&ir, "_ori_main");
+    let main_section = crate::util::extract_function_ir(&ir, "_ori_main");
 
     // _ori_main should use `invoke` for may_panic$m$int because it calls panic
     assert!(
@@ -639,31 +639,4 @@ fn test_mono_may_unwind_callee_uses_invoke() {
         "expected `invoke fastcc` for may-unwind monomorphized callee in _ori_main.\n\
          IR:\n{main_section}"
     );
-}
-
-/// Extract the IR for a specific function from the full module IR dump.
-fn extract_function_ir<'a>(full_ir: &'a str, func_name: &str) -> &'a str {
-    // Find "define ... @func_name(" and extract until the next "define" or end
-    let search = format!("@{func_name}(");
-    let start = full_ir.find(&search).unwrap_or_else(|| {
-        panic!(
-            "function {func_name} not found in IR.\n\
-             Available functions: {:?}",
-            full_ir
-                .lines()
-                .filter(|l| l.starts_with("define "))
-                .collect::<Vec<_>>()
-        );
-    });
-
-    // Find the "define" line containing this function
-    let define_start = full_ir[..start].rfind("define ").unwrap_or(start);
-
-    // Find the next "define" or end of IR section
-    let rest = &full_ir[define_start..];
-    let end = rest[1..]
-        .find("\ndefine ")
-        .map_or(rest.len(), |pos| pos + 1);
-
-    &full_ir[define_start..define_start + end]
 }
