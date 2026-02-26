@@ -9,13 +9,11 @@ use inkwell::context::Context;
 use ori_arc::{ArcClass, ArcClassification, DropInfo, DropKind};
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
-use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::ir_builder::IrBuilder;
 use crate::codegen::runtime_decl::declare_runtime;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
-use crate::codegen::value_id::FunctionId;
 use crate::context::SimpleCx;
 
 /// Minimal ARC classifier: `Idx::STR` and index >= 100 are RC'd.
@@ -48,13 +46,8 @@ fn drop_fn_trivial_generates_rc_free() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -64,11 +57,7 @@ fn drop_fn_trivial_generates_rc_free() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let info = DropInfo {
@@ -110,13 +99,8 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -126,11 +110,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let info = DropInfo {
@@ -164,13 +144,8 @@ fn drop_fn_enum_generates_switch_on_tag() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -180,11 +155,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     // 2 variants: None (no RC), Some(str) (RC'd at field 1)
@@ -219,13 +190,8 @@ fn drop_fn_collection_generates_loop() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -235,11 +201,7 @@ fn drop_fn_collection_generates_loop() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let list_ty = Idx::from_raw(100);
@@ -281,13 +243,8 @@ fn drop_fn_map_generates_key_value_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -297,11 +254,7 @@ fn drop_fn_map_generates_key_value_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let map_ty = Idx::from_raw(101);
@@ -346,13 +299,8 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -362,11 +310,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let clos_ty = Idx::from_raw(102);
@@ -401,13 +345,8 @@ fn get_or_generate_returns_null_for_scalars() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -417,11 +356,7 @@ fn get_or_generate_returns_null_for_scalars() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let drop_fn = em.get_or_generate_drop_fn(Idx::INT);
@@ -454,13 +389,8 @@ fn get_or_generate_caches_across_calls() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -470,11 +400,7 @@ fn get_or_generate_caches_across_calls() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     // First call generates, second returns from cache
@@ -515,13 +441,8 @@ fn get_or_generate_returns_null_for_scalar_type() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -531,11 +452,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     // Scalar types (like int) don't need drop — should return null pointer
@@ -568,13 +485,8 @@ fn drop_fn_uses_c_calling_convention() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -584,11 +496,7 @@ fn drop_fn_uses_c_calling_convention() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let info = DropInfo {
@@ -629,13 +537,8 @@ fn multiple_drop_fns_for_different_types() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -645,11 +548,7 @@ fn multiple_drop_fns_for_different_types() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let ty_a = Idx::from_raw(100);
@@ -717,13 +616,8 @@ fn is_shared_emits_gep_load_icmp() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -733,11 +627,7 @@ fn is_shared_emits_gep_load_icmp() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     // Build a minimal ArcFunction: param v0 (ptr), IsShared dst=v1 var=v0, Return v1
@@ -841,13 +731,8 @@ fn set_emits_struct_gep_and_store() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -857,11 +742,7 @@ fn set_emits_struct_gep_and_store() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     // ArcFunction: v0 (struct ptr), v1 (int), then Set v0.field(1) = v1, return v0
@@ -981,13 +862,8 @@ fn set_tag_emits_gep_and_store() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -997,11 +873,7 @@ fn set_tag_emits_gep_and_store() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     // ArcFunction: v0 (enum ptr), then SetTag v0 tag=1, return v0
@@ -1207,13 +1079,8 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1223,11 +1090,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1312,13 +1175,8 @@ fn rc_dec_closure_null_checks_env() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1328,11 +1186,7 @@ fn rc_dec_closure_null_checks_env() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1429,13 +1283,8 @@ fn rc_inc_inline_enum_is_noop() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1445,11 +1294,7 @@ fn rc_inc_inline_enum_is_noop() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1536,13 +1381,8 @@ fn rc_dec_inline_enum_tag_switches() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1552,11 +1392,7 @@ fn rc_dec_inline_enum_tag_switches() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1652,13 +1488,8 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
-    let nounwind = FxHashSet::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1668,11 +1499,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
-        &nounwind,
+        &codegen_ctx,
     );
 
     // Use Idx::STR as the type — TestClassifier marks it as DefiniteRef.

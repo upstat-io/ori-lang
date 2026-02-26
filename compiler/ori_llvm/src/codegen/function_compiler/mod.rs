@@ -29,7 +29,7 @@ use super::abi::{
     compute_function_abi_with_ownership, compute_param_passing, compute_return_passing, CallConv,
     FunctionAbi, ParamAbi, ParamPassing, ReturnAbi, ReturnPassing,
 };
-use super::arc_emitter::ArcIrEmitter;
+use super::arc_emitter::{ArcIrEmitter, CodegenContext};
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
@@ -53,19 +53,8 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     mangler: Mangler,
     /// Module path for name mangling (e.g., "", "math", "data/utils").
     module_path: &'a str,
-    /// Declared functions: `Name` → (`FunctionId`, ABI).
-    functions: FxHashMap<Name, (FunctionId, FunctionAbi)>,
-    /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
-    ///
-    /// Allows same-name methods on different types (e.g., `Point.distance` and
-    /// `Line.distance`) to coexist without collision. Populated by `compile_impls`.
-    method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
-    /// Maps receiver type `Idx` → type `Name` for method dispatch.
-    ///
-    /// Used by `ArcIrEmitter` to resolve `expr_type(receiver)` to a type name
-    /// for lookup in `method_functions`. Populated by `compile_impls` using
-    /// `FunctionSig.param_types[0]` (the self parameter type).
-    type_idx_to_name: FxHashMap<Idx, Name>,
+    /// Shared function-resolution lookup tables passed to [`ArcIrEmitter`].
+    codegen_ctx: CodegenContext,
     /// Module-wide lambda counter for unique lambda function names.
     lambda_counter: Cell<u32>,
     /// Borrow inference results: function `Name` → annotated signature.
@@ -80,18 +69,6 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Passed to `annotate_arg_ownership` so inline-compiled builtins get
     /// borrowing semantics instead of the default all-Owned.
     borrowing_builtins: rustc_hash::FxHashSet<Name>,
-    /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
-    ///
-    /// Built from `MonoFunction` data after `declare_mono_functions()`. Used by
-    /// `ArcIrEmitter` to resolve generic call sites to their concrete specializations.
-    mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
-    /// Functions determined to be nounwind (cannot panic/unwind).
-    ///
-    /// Built incrementally as functions are compiled. A function is nounwind if
-    /// its ARC IR has zero `Invoke` terminators, or if all `Invoke` callees are
-    /// themselves in this set. Passed to [`ArcIrEmitter`] to downgrade `Invoke`
-    /// terminators to `call` + `br` for calls to nounwind callees.
-    nounwind_functions: FxHashSet<Name>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -124,16 +101,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             pool,
             mangler: Mangler::new(),
             module_path,
-            functions: FxHashMap::default(),
-            method_functions: FxHashMap::default(),
-            type_idx_to_name: FxHashMap::default(),
+            codegen_ctx: CodegenContext::default(),
             lambda_counter: Cell::new(0),
             annotated_sigs,
             arc_classifier,
             debug_context,
             borrowing_builtins,
-            mono_dispatch: FxHashMap::default(),
-            nounwind_functions: FxHashSet::default(),
         }
     }
 
@@ -263,7 +236,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             }
         }
 
-        self.functions.insert(name, (func_id, abi));
+        self.codegen_ctx.functions.insert(name, (func_id, abi));
     }
 
     // -----------------------------------------------------------------------
@@ -304,7 +277,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             }
 
             // Look up previously declared function
-            let Some(&(func_id, ref abi)) = self.functions.get(&func.name) else {
+            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&func.name) else {
                 warn!(
                     name = %self.interner.lookup(func.name),
                     "function not declared — skipping definition"
@@ -338,7 +311,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 continue;
             }
 
-            let Some(&(func_id, ref abi)) = self.functions.get(&func.name) else {
+            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&func.name) else {
                 warn!(
                     name = %self.interner.lookup(func.name),
                     "function not declared — skipping definition"
@@ -377,7 +350,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
     ) {
         for mono_fn in mono_functions {
-            let Some(&(func_id, ref abi)) = self.functions.get(&mono_fn.mangled_name) else {
+            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&mono_fn.mangled_name)
+            else {
                 warn!(
                     name = %self.interner.lookup(mono_fn.mangled_name),
                     "mono function not declared — skipping definition"
@@ -424,7 +398,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.declare_function(mono_fn.mangled_name, &mono_fn.sig, Span::new(0, 0));
 
             // Build mono dispatch index: original_name → [(param_types, mangled_name)]
-            self.mono_dispatch
+            self.codegen_ctx
+                .mono_dispatch
                 .entry(mono_fn.original_name)
                 .or_default()
                 .push((mono_fn.sig.param_types.clone(), mono_fn.mangled_name));
@@ -442,7 +417,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         canon: &CanonResult,
     ) {
         for mono_fn in mono_functions {
-            let Some(&(func_id, ref abi)) = self.functions.get(&mono_fn.mangled_name) else {
+            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&mono_fn.mangled_name)
+            else {
                 warn!(
                     name = %self.interner.lookup(mono_fn.mangled_name),
                     "mono function not declared — skipping definition"
@@ -548,7 +524,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// of the pipeline: apply borrows → annotate args → ARC pipeline → emit.
     ///
     /// `lambdas` are compiled as separate LLVM functions, registered in
-    /// `self.functions` so `emit_partial_apply` can look them up by `Name`.
+    /// `self.codegen_ctx.functions` so `emit_partial_apply` can look them up by `Name`.
     fn define_function_body_from_arc(
         &mut self,
         name: Name,
@@ -606,7 +582,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
-        // self.functions so that emit_partial_apply can look it up by Name.
+        // self.codegen_ctx.functions so that emit_partial_apply can look it up by Name.
         for mut lambda in lambdas {
             self.compile_lambda_arc(&mut lambda, classifier);
         }
@@ -647,18 +623,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.pool,
             classifier as &dyn ori_arc::ArcClassification,
             func_id,
-            &self.functions,
-            &self.method_functions,
-            &self.type_idx_to_name,
-            &self.mono_dispatch,
-            &self.nounwind_functions,
+            &self.codegen_ctx,
         );
         emitter.emit_function(&arc_func, abi);
 
         // Mark nounwind after emission so LLVM's PruneEH pass can
         // optimize callers (even those compiled before this function).
         if is_nounwind {
-            self.nounwind_functions.insert(name);
+            self.codegen_ctx.nounwind_functions.insert(name);
             self.builder.add_nounwind_attribute(func_id);
             debug!(name = name_str, "marked nounwind");
         }
@@ -672,7 +644,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// A wrapper function bridging `(env_ptr, user_params...)` → flat call is
     /// generated later by `emit_partial_apply` in the ARC emitter.
     ///
-    /// Registers the lambda in `self.functions` so the emitter can look it up.
+    /// Registers the lambda in `self.codegen_ctx.functions` so the emitter can look it up.
     fn compile_lambda_arc(
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
@@ -702,7 +674,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         let func_id = self.declare_function_llvm(&symbol, &abi);
 
         // Register so emit_partial_apply can find it by Name
-        self.functions.insert(lambda_name, (func_id, abi.clone()));
+        self.codegen_ctx
+            .functions
+            .insert(lambda_name, (func_id, abi.clone()));
 
         // Run full ARC pipeline on the lambda
         ori_arc::annotate_arg_ownership(
@@ -734,16 +708,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.pool,
             classifier as &dyn ori_arc::ArcClassification,
             func_id,
-            &self.functions,
-            &self.method_functions,
-            &self.type_idx_to_name,
-            &self.mono_dispatch,
-            &self.nounwind_functions,
+            &self.codegen_ctx,
         );
         emitter.emit_function(lambda, &abi);
 
         if is_nounwind {
-            self.nounwind_functions.insert(lambda_name);
+            self.codegen_ctx.nounwind_functions.insert(lambda_name);
             self.builder.add_nounwind_attribute(func_id);
         }
     }
@@ -793,7 +763,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         func.blocks.iter().all(|block| {
             let term_ok = match &block.terminator {
                 ori_arc::ir::ArcTerminator::Invoke { func: callee, .. } => {
-                    self.nounwind_functions.contains(callee)
+                    self.codegen_ctx.nounwind_functions.contains(callee)
                 }
                 _ => true,
             };
@@ -943,9 +913,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 call_conv: CallConv::C,
             };
 
-            // Lower through ARC pipeline
+            // Lower CanExpr → ARC IR
             let mut problems = Vec::new();
-            let (mut arc_func, lambdas) = lower_function_can(
+            let (arc_func, lambdas) = lower_function_can(
                 test.name,
                 &[],
                 Idx::UNIT,
@@ -958,52 +928,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
                 None,  // non-generic: no type substitution
             );
 
-            // Apply borrow annotations
-            if let Some(sig) = self.annotated_sigs.get(&test.name) {
-                for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
-                    param.ownership = annotated.ownership;
-                }
-            }
-
-            // Compile lambdas
-            for mut lambda in lambdas {
-                self.compile_lambda_arc(&mut lambda, self.arc_classifier);
-            }
-
-            // Run ARC pipeline
-            ori_arc::annotate_arg_ownership(
-                &mut arc_func,
-                self.annotated_sigs,
-                self.interner,
-                &self.borrowing_builtins,
-            );
-            let arc_problems = ori_arc::run_arc_pipeline(
-                &mut arc_func,
-                self.arc_classifier,
-                self.annotated_sigs,
-                self.pool,
-                self.interner,
-            );
-            for problem in &arc_problems {
-                debug!(?problem, "ARC pipeline problem (test)");
-            }
-
-            // Emit via ArcIrEmitter
-            let mut emitter = ArcIrEmitter::new(
-                self.builder,
-                self.type_info,
-                self.type_resolver,
-                self.interner,
-                self.pool,
-                self.arc_classifier as &dyn ori_arc::ArcClassification,
+            // Delegate to shared pipeline: borrow annotation → lambdas →
+            // ARC pipeline → nounwind analysis → LLVM emission
+            self.emit_arc_function(
+                test.name,
                 func_id,
-                &self.functions,
-                &self.method_functions,
-                &self.type_idx_to_name,
-                &self.mono_dispatch,
-                &self.nounwind_functions,
+                &abi,
+                arc_func,
+                lambdas,
+                self.arc_classifier,
             );
-            emitter.emit_function(&arc_func, &abi);
 
             test_wrappers.insert(test.name, wrapper_name);
         }
@@ -1127,31 +1061,36 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         };
         self.declare_function_with_symbol(method_name, &symbol, sig, method_span);
 
-        let Some(&(func_id, ref abi)) = self.functions.get(&method_name) else {
+        let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&method_name) else {
             return;
         };
         let abi = abi.clone();
 
         // Populate type-qualified method map for dispatch
         if let Some(tnn) = type_name_name {
-            self.method_functions
+            self.codegen_ctx
+                .method_functions
                 .insert((tnn, method_name), (func_id, abi.clone()));
 
             // Map the self type Idx → type Name for receiver resolution
             if let Some(&self_type_idx) = sig.param_types.first() {
-                self.type_idx_to_name.insert(self_type_idx, tnn);
+                self.codegen_ctx.type_idx_to_name.insert(self_type_idx, tnn);
             }
 
             // Verify round-trip: what we registered is immediately retrievable.
             debug_assert!(
-                self.method_functions.contains_key(&(tnn, method_name)),
+                self.codegen_ctx
+                    .method_functions
+                    .contains_key(&(tnn, method_name)),
                 "method_functions registration failed for {}.{}",
                 self.interner.lookup(tnn),
                 self.interner.lookup(method_name),
             );
             if let Some(&self_type_idx) = sig.param_types.first() {
                 debug_assert!(
-                    self.type_idx_to_name.contains_key(&self_type_idx),
+                    self.codegen_ctx
+                        .type_idx_to_name
+                        .contains_key(&self_type_idx),
                     "type_idx_to_name registration failed for '{}' (Idx {:?})",
                     self.interner.lookup(tnn),
                     self_type_idx,
@@ -1199,7 +1138,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         main_sig: &FunctionSig,
         panic_name: Option<Name>,
     ) -> bool {
-        let Some(&(ori_main_id, ref abi)) = self.functions.get(&main_name) else {
+        let Some(&(ori_main_id, ref abi)) = self.codegen_ctx.functions.get(&main_name) else {
             debug!("no @main function declared — skipping entry point wrapper");
             return false;
         };
@@ -1318,7 +1257,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Returns `Some(FunctionId)` of the trampoline, or `None` if the `@panic`
     /// function was not declared.
     fn generate_panic_trampoline(&mut self, panic_name: Name) -> Option<FunctionId> {
-        let Some(&(user_panic_id, _)) = self.functions.get(&panic_name) else {
+        let Some(&(user_panic_id, _)) = self.codegen_ctx.functions.get(&panic_name) else {
             debug!("no @panic function declared — skipping trampoline");
             return None;
         };
@@ -1506,20 +1445,24 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             .unwrap_or_else(|| self.builder.const_i64(0));
         let other_vals = values.into_iter().skip(1).collect();
 
-        self.method_functions
+        self.codegen_ctx
+            .method_functions
             .insert((type_name, method_name), (func_id, abi.clone()));
-        self.type_idx_to_name.insert(type_idx, type_name);
+        self.codegen_ctx
+            .type_idx_to_name
+            .insert(type_idx, type_name);
 
         // Verify round-trip: registrations are immediately retrievable.
         debug_assert!(
-            self.method_functions
+            self.codegen_ctx
+                .method_functions
                 .contains_key(&(type_name, method_name)),
             "derive: method_functions registration failed for {}.{}",
             self.interner.lookup(type_name),
             self.interner.lookup(method_name),
         );
         debug_assert!(
-            self.type_idx_to_name.contains_key(&type_idx),
+            self.codegen_ctx.type_idx_to_name.contains_key(&type_idx),
             "derive: type_idx_to_name registration failed for '{}' (Idx {:?})",
             self.interner.lookup(type_name),
             type_idx,
@@ -1534,22 +1477,22 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
     /// Look up a declared function by name.
     pub fn get_function(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
-        self.functions.get(&name)
+        self.codegen_ctx.functions.get(&name)
     }
 
     /// Borrow the function map (for call-site ABI lookup).
     pub fn function_map(&self) -> &FxHashMap<Name, (FunctionId, FunctionAbi)> {
-        &self.functions
+        &self.codegen_ctx.functions
     }
 
     /// Borrow the type-qualified method map.
     pub fn method_function_map(&self) -> &FxHashMap<(Name, Name), (FunctionId, FunctionAbi)> {
-        &self.method_functions
+        &self.codegen_ctx.method_functions
     }
 
     /// Borrow the type index → type name mapping.
     pub fn type_idx_to_name_map(&self) -> &FxHashMap<Idx, Name> {
-        &self.type_idx_to_name
+        &self.codegen_ctx.type_idx_to_name
     }
 
     // -----------------------------------------------------------------------
@@ -1603,7 +1546,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
     /// Look up a type name from a type Idx.
     pub(crate) fn type_idx_to_name(&self, idx: Idx) -> Option<Name> {
-        self.type_idx_to_name.get(&idx).copied()
+        self.codegen_ctx.type_idx_to_name.get(&idx).copied()
     }
 
     /// Look up a method function by type and method name.
@@ -1612,7 +1555,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         type_name: Name,
         method_name: Name,
     ) -> Option<(FunctionId, FunctionAbi)> {
-        self.method_functions
+        self.codegen_ctx
+            .method_functions
             .get(&(type_name, method_name))
             .cloned()
     }
