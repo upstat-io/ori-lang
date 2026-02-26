@@ -838,3 +838,511 @@ fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
         "any indirect call in the function makes it NOT nounwind"
     );
 }
+
+// ── Two-pass nounwind (compute_nounwind_set) tests ─────────────────
+
+#[test]
+fn compute_nounwind_set_marks_trivial_nounwind() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_trivial"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let mut fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // A trivially nounwind function (no calls, just returns)
+    let func_name = interner.intern("identity_int");
+    let arc_func = make_arc_func(
+        &interner,
+        "identity_int",
+        vec![],
+        ArcTerminator::Return {
+            value: ArcVarId::new(0),
+        },
+    );
+
+    let prepared = vec![PreparedFunction {
+        name: func_name,
+        func_id: FunctionId::NONE,
+        abi: make_test_abi(&pool),
+        arc_func,
+        lambdas: vec![],
+    }];
+
+    fc.compute_nounwind_set(&prepared);
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&func_name),
+        "trivially nounwind function should be in nounwind set"
+    );
+}
+
+#[test]
+fn compute_nounwind_set_caller_sees_callee() {
+    // Simulates the monomorphization ordering fix: a caller that
+    // Invoke-calls a nounwind callee should be marked nounwind
+    // even though both are in the same prepared batch.
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_chain"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let mut fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Callee: identity$m$int — trivially nounwind
+    let callee_name = interner.intern("identity_m_int");
+    let callee = make_arc_func(
+        &interner,
+        "identity_m_int",
+        vec![],
+        ArcTerminator::Return {
+            value: ArcVarId::new(0),
+        },
+    );
+
+    // Caller: main — Invokes identity$m$int (which is nounwind)
+    let caller_name = interner.intern("main");
+    let caller = make_arc_func(
+        &interner,
+        "main",
+        vec![],
+        ArcTerminator::Invoke {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: callee_name,
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    );
+
+    // Both in the same prepared batch — callee defined AFTER caller
+    // in the Vec to exercise the fixed-point iteration.
+    let prepared = vec![
+        PreparedFunction {
+            name: caller_name,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: caller,
+            lambdas: vec![],
+        },
+        PreparedFunction {
+            name: callee_name,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: callee,
+            lambdas: vec![],
+        },
+    ];
+
+    fc.compute_nounwind_set(&prepared);
+
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&callee_name),
+        "callee should be in nounwind set"
+    );
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&caller_name),
+        "caller of nounwind callee should also be in nounwind set (fixed-point)"
+    );
+}
+
+#[test]
+fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
+    // A caller that Invoke-calls a may-unwind callee (not in nounwind set)
+    // should NOT be marked nounwind.
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_blocked"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let mut fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Callee: panicking function — NOT nounwind
+    let callee_name = interner.intern("might_panic");
+    let callee = make_arc_func(
+        &interner,
+        "might_panic",
+        vec![ArcInstr::Apply {
+            dst: ArcVarId::new(1),
+            ty: Idx::UNIT,
+            func: interner.intern("ori_panic"),
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        ArcTerminator::Return {
+            value: ArcVarId::new(1),
+        },
+    );
+
+    // Caller: invokes might_panic
+    let caller_name = interner.intern("caller");
+    let caller = make_arc_func(
+        &interner,
+        "caller",
+        vec![],
+        ArcTerminator::Invoke {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: callee_name,
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    );
+
+    let prepared = vec![
+        PreparedFunction {
+            name: caller_name,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: caller,
+            lambdas: vec![],
+        },
+        PreparedFunction {
+            name: callee_name,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: callee,
+            lambdas: vec![],
+        },
+    ];
+
+    fc.compute_nounwind_set(&prepared);
+
+    assert!(
+        !fc.codegen_ctx.nounwind_functions.contains(&callee_name),
+        "panicking callee must NOT be in nounwind set"
+    );
+    assert!(
+        !fc.codegen_ctx.nounwind_functions.contains(&caller_name),
+        "caller of may-unwind callee must NOT be in nounwind set"
+    );
+}
+
+#[test]
+fn compute_nounwind_set_three_level_chain() {
+    // Tests fixed-point iteration with a 3-level chain: A → B → C
+    // All are nounwind but require 3 passes to fully propagate.
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_3level"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let mut fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // C: leaf function, trivially nounwind
+    let c_name = interner.intern("func_c");
+    let c_func = make_arc_func(
+        &interner,
+        "func_c",
+        vec![],
+        ArcTerminator::Return {
+            value: ArcVarId::new(0),
+        },
+    );
+
+    // B: invokes C
+    let b_name = interner.intern("func_b");
+    let b_func = make_arc_func(
+        &interner,
+        "func_b",
+        vec![],
+        ArcTerminator::Invoke {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: c_name,
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    );
+
+    // A: invokes B
+    let a_name = interner.intern("func_a");
+    let a_func = make_arc_func(
+        &interner,
+        "func_a",
+        vec![],
+        ArcTerminator::Invoke {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: b_name,
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    );
+
+    // Put A first (worst case for ordering — needs most passes)
+    let prepared = vec![
+        PreparedFunction {
+            name: a_name,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: a_func,
+            lambdas: vec![],
+        },
+        PreparedFunction {
+            name: b_name,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: b_func,
+            lambdas: vec![],
+        },
+        PreparedFunction {
+            name: c_name,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: c_func,
+            lambdas: vec![],
+        },
+    ];
+
+    fc.compute_nounwind_set(&prepared);
+
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&c_name),
+        "leaf function C should be nounwind"
+    );
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&b_name),
+        "B (calls nounwind C) should be nounwind"
+    );
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&a_name),
+        "A (calls nounwind B) should be nounwind after fixed-point"
+    );
+}
+
+#[test]
+fn compute_nounwind_set_propagates_to_generic_original_name() {
+    // When ALL monomorphizations of a generic are nounwind,
+    // the original generic name should also be added to the set.
+    // This is critical because ARC IR `Invoke` terminators use the
+    // original name (e.g., "identity"), not the mangled name.
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_mono_propagate"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let mut fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Monomorphized specialization: identity$m$int — trivially nounwind
+    let mangled = interner.intern("identity$m$int");
+    let mangled_func = make_arc_func(
+        &interner,
+        "identity$m$int",
+        vec![],
+        ArcTerminator::Return {
+            value: ArcVarId::new(0),
+        },
+    );
+
+    // Register the mono dispatch mapping: identity → [(int_params, identity$m$int)]
+    let original = interner.intern("identity");
+    fc.codegen_ctx
+        .mono_dispatch
+        .entry(original)
+        .or_default()
+        .push((vec![Idx::INT], mangled));
+
+    let prepared = vec![PreparedFunction {
+        name: mangled,
+        func_id: FunctionId::NONE,
+        abi: make_test_abi(&pool),
+        arc_func: mangled_func,
+        lambdas: vec![],
+    }];
+
+    fc.compute_nounwind_set(&prepared);
+
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&mangled),
+        "mangled mono name should be nounwind"
+    );
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&original),
+        "original generic name should also be nounwind (all monos are nounwind)"
+    );
+}
+
+#[test]
+fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
+    // If even ONE monomorphization may unwind, the original generic name
+    // must NOT be added to the nounwind set.
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_mono_partial"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let mut fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // First mono: identity$m$int — nounwind
+    let mangled_int = interner.intern("identity$m$int");
+    let int_func = make_arc_func(
+        &interner,
+        "identity$m$int",
+        vec![],
+        ArcTerminator::Return {
+            value: ArcVarId::new(0),
+        },
+    );
+
+    // Second mono: identity$m$str — may unwind (calls panic)
+    let mangled_str = interner.intern("identity$m$str");
+    let str_func = make_arc_func(
+        &interner,
+        "identity$m$str",
+        vec![ArcInstr::Apply {
+            dst: ArcVarId::new(1),
+            ty: Idx::UNIT,
+            func: interner.intern("ori_panic"),
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        ArcTerminator::Return {
+            value: ArcVarId::new(1),
+        },
+    );
+
+    // Register mono dispatch: identity → [int, str]
+    let original = interner.intern("identity");
+    fc.codegen_ctx
+        .mono_dispatch
+        .entry(original)
+        .or_default()
+        .push((vec![Idx::INT], mangled_int));
+    fc.codegen_ctx
+        .mono_dispatch
+        .entry(original)
+        .or_default()
+        .push((vec![Idx::STR], mangled_str));
+
+    let prepared = vec![
+        PreparedFunction {
+            name: mangled_int,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: int_func,
+            lambdas: vec![],
+        },
+        PreparedFunction {
+            name: mangled_str,
+            func_id: FunctionId::NONE,
+            abi: make_test_abi(&pool),
+            arc_func: str_func,
+            lambdas: vec![],
+        },
+    ];
+
+    fc.compute_nounwind_set(&prepared);
+
+    assert!(
+        fc.codegen_ctx.nounwind_functions.contains(&mangled_int),
+        "nounwind mono should be marked nounwind"
+    );
+    assert!(
+        !fc.codegen_ctx.nounwind_functions.contains(&mangled_str),
+        "may-unwind mono should NOT be nounwind"
+    );
+    assert!(
+        !fc.codegen_ctx.nounwind_functions.contains(&original),
+        "original name must NOT be nounwind when any mono may unwind"
+    );
+}
+
+/// Helper: create a minimal FunctionAbi for test PreparedFunctions.
+fn make_test_abi(pool: &Pool) -> FunctionAbi {
+    use super::super::abi::{CallConv, FunctionAbi, ReturnAbi, ReturnPassing};
+    let _ = pool; // unused but kept for consistency
+    FunctionAbi {
+        params: vec![],
+        return_abi: ReturnAbi {
+            ty: Idx::INT,
+            passing: ReturnPassing::Direct,
+        },
+        call_conv: CallConv::Fast,
+    }
+}

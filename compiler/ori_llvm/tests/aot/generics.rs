@@ -585,3 +585,85 @@ type Pair<A, B> = { first: A, second: B };
         "generic_struct_string_field",
     );
 }
+
+// ─── Monomorphized nounwind analysis ───
+
+#[test]
+fn test_mono_nounwind_callee_uses_call_not_invoke() {
+    // After the two-pass nounwind fix, _ori_main should call identity$m$int
+    // with `call` (not `invoke`) because identity is trivially nounwind.
+    let ir = crate::util::compile_and_capture_ir(
+        r#"
+@identity <T> (x: T) -> T = x;
+
+@main () -> int = identity(x: 42);
+"#,
+    );
+
+    // Find the _ori_main function in the IR and check for call vs invoke
+    // to the monomorphized identity function.
+    let main_section = extract_function_ir(&ir, "_ori_main");
+
+    // The monomorphized function name contains identity and $m$
+    assert!(
+        main_section.contains("call fastcc"),
+        "expected `call fastcc` for nounwind monomorphized callee in _ori_main, \
+         but found invoke or missing call.\nIR:\n{main_section}"
+    );
+    // Verify it's NOT using invoke for the identity call
+    assert!(
+        !main_section.contains("invoke fastcc"),
+        "expected NO `invoke fastcc` for nounwind monomorphized callee in _ori_main — \
+         the two-pass nounwind analysis should have proven identity nounwind.\nIR:\n{main_section}"
+    );
+}
+
+#[test]
+fn test_mono_may_unwind_callee_uses_invoke() {
+    // A generic function that calls panic should still use `invoke`.
+    let ir = crate::util::compile_and_capture_ir(
+        r#"
+@may_panic <T> (x: T) -> T = {
+    if true then panic(msg: "boom") else x
+};
+
+@main () -> int = may_panic(x: 42);
+"#,
+    );
+
+    let main_section = extract_function_ir(&ir, "_ori_main");
+
+    // _ori_main should use `invoke` for may_panic$m$int because it calls panic
+    assert!(
+        main_section.contains("invoke fastcc"),
+        "expected `invoke fastcc` for may-unwind monomorphized callee in _ori_main.\n\
+         IR:\n{main_section}"
+    );
+}
+
+/// Extract the IR for a specific function from the full module IR dump.
+fn extract_function_ir<'a>(full_ir: &'a str, func_name: &str) -> &'a str {
+    // Find "define ... @func_name(" and extract until the next "define" or end
+    let search = format!("@{func_name}(");
+    let start = full_ir.find(&search).unwrap_or_else(|| {
+        panic!(
+            "function {func_name} not found in IR.\n\
+             Available functions: {:?}",
+            full_ir
+                .lines()
+                .filter(|l| l.starts_with("define "))
+                .collect::<Vec<_>>()
+        );
+    });
+
+    // Find the "define" line containing this function
+    let define_start = full_ir[..start].rfind("define ").unwrap_or(start);
+
+    // Find the next "define" or end of IR section
+    let rest = &full_ir[define_start..];
+    let end = rest[1..]
+        .find("\ndefine ")
+        .map_or(rest.len(), |pos| pos + 1);
+
+    &full_ir[define_start..define_start + end]
+}

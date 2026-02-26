@@ -35,6 +35,41 @@ use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 // ---------------------------------------------------------------------------
+// Prepared function types (two-pass nounwind analysis)
+// ---------------------------------------------------------------------------
+
+/// A function fully processed through the ARC pipeline, ready for nounwind
+/// analysis and LLVM emission.
+///
+/// Created by [`FunctionCompiler::prepare_all_cached`] or
+/// [`FunctionCompiler::prepare_mono_cached`]. Enables two-pass compilation:
+/// 1. Lower all functions to ARC IR (populate this buffer)
+/// 2. Analyze nounwind on the complete set ([`FunctionCompiler::compute_nounwind_set`])
+/// 3. Emit LLVM IR using the complete nounwind set ([`FunctionCompiler::emit_prepared_functions`])
+///
+/// This ensures monomorphized callee nounwind status is available when
+/// analyzing callers, preventing unnecessary `invoke` + landing pad overhead.
+pub struct PreparedFunction {
+    name: Name,
+    func_id: FunctionId,
+    abi: FunctionAbi,
+    arc_func: ori_arc::ArcFunction,
+    lambdas: Vec<PreparedLambda>,
+}
+
+/// A lambda processed through the ARC pipeline, ready for LLVM emission.
+///
+/// The lambda's LLVM function is already declared and registered in
+/// `CodegenContext::functions` during preparation — only the body emission
+/// is deferred to [`FunctionCompiler::emit_prepared_functions`].
+struct PreparedLambda {
+    name: Name,
+    func_id: FunctionId,
+    abi: FunctionAbi,
+    arc_func: ori_arc::ArcFunction,
+}
+
+// ---------------------------------------------------------------------------
 // FunctionCompiler
 // ---------------------------------------------------------------------------
 
@@ -780,6 +815,406 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             });
             term_ok && instrs_ok
         })
+    }
+
+    // -----------------------------------------------------------------------
+    // Two-pass nounwind: prepare → analyze → emit
+    // -----------------------------------------------------------------------
+
+    /// Lower all non-generic functions through the ARC pipeline without
+    /// emitting LLVM IR.
+    ///
+    /// Like [`Self::define_all_cached`] but buffers results for two-pass
+    /// nounwind analysis. Functions are removed from `arc_cache` (zero-copy
+    /// move). Functions not in the cache fall back to inline lowering.
+    pub fn prepare_all_cached(
+        &mut self,
+        module_functions: &[Function],
+        function_sigs: &[FunctionSig],
+        canon: &CanonResult,
+        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    ) -> Vec<PreparedFunction> {
+        let mut prepared = Vec::new();
+
+        for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
+            if sig.is_generic() {
+                continue;
+            }
+
+            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&func.name) else {
+                warn!(
+                    name = %self.interner.lookup(func.name),
+                    "function not declared — skipping preparation"
+                );
+                self.builder.record_codegen_error();
+                continue;
+            };
+            let abi = abi.clone();
+
+            let (arc_func, lambdas) = if let Some(cached) = arc_cache.remove(&func.name) {
+                cached
+            } else {
+                // Fallback: lower inline from canonical IR
+                let body = canon.root_for(func.name).unwrap_or(canon.root);
+                let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
+                let mut problems = Vec::new();
+                let result = lower_function_can(
+                    func.name,
+                    &params,
+                    abi.return_abi.ty,
+                    body,
+                    canon,
+                    self.interner,
+                    self.pool,
+                    &mut problems,
+                    sig.is_fbip,
+                    None,
+                );
+                for problem in &problems {
+                    debug!(?problem, "ARC lowering problem (fallback)");
+                }
+                result
+            };
+
+            prepared.push(self.prepare_arc_function(func.name, func_id, &abi, arc_func, lambdas));
+        }
+
+        prepared
+    }
+
+    /// Lower all monomorphized functions through the ARC pipeline without
+    /// emitting LLVM IR.
+    ///
+    /// Like [`Self::define_mono_cached`] but buffers results for two-pass
+    /// nounwind analysis. Falls back to inline lowering with type
+    /// substitution for functions not found in the cache.
+    pub fn prepare_mono_cached(
+        &mut self,
+        mono_functions: &[crate::monomorphize::MonoFunction],
+        canon: &CanonResult,
+        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    ) -> Vec<PreparedFunction> {
+        let mut prepared = Vec::new();
+
+        for mono_fn in mono_functions {
+            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&mono_fn.mangled_name)
+            else {
+                warn!(
+                    name = %self.interner.lookup(mono_fn.mangled_name),
+                    "mono function not declared — skipping preparation"
+                );
+                self.builder.record_codegen_error();
+                continue;
+            };
+            let abi = abi.clone();
+
+            let (arc_func, lambdas) = if let Some(cached) = arc_cache.remove(&mono_fn.mangled_name)
+            {
+                cached
+            } else {
+                // Fallback: lower inline with type substitution
+                let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
+                let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
+                let mut problems = Vec::new();
+                let result = lower_function_can(
+                    mono_fn.mangled_name,
+                    &params,
+                    abi.return_abi.ty,
+                    body,
+                    canon,
+                    self.interner,
+                    self.pool,
+                    &mut problems,
+                    mono_fn.sig.is_fbip,
+                    Some(&mono_fn.body_type_map),
+                );
+                for problem in &problems {
+                    debug!(?problem, "ARC lowering problem (mono fallback)");
+                }
+                result
+            };
+
+            prepared.push(self.prepare_arc_function(
+                mono_fn.mangled_name,
+                func_id,
+                &abi,
+                arc_func,
+                lambdas,
+            ));
+        }
+
+        prepared
+    }
+
+    /// Process an ARC function through the pipeline without emitting LLVM IR.
+    ///
+    /// Applies borrow annotations, prepares lambdas (declares + ARC pipeline),
+    /// annotates arg ownership, and runs the ARC pipeline. Returns a
+    /// [`PreparedFunction`] ready for nounwind analysis and LLVM emission.
+    fn prepare_arc_function(
+        &mut self,
+        name: Name,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+        mut arc_func: ori_arc::ArcFunction,
+        lambdas: Vec<ori_arc::ArcFunction>,
+    ) -> PreparedFunction {
+        let name_str = self.interner.lookup(name);
+        debug!(
+            name = name_str,
+            "preparing function (ARC pipeline, no emit)"
+        );
+
+        // Apply borrow inference annotations
+        if let Some(sig) = self.annotated_sigs.get(&name) {
+            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
+                param.ownership = annotated.ownership;
+            }
+        } else if !arc_func.params.is_empty() {
+            warn!(
+                func = name_str,
+                params = arc_func.params.len(),
+                "borrow signature missing — compiling with all-Owned params"
+            );
+        }
+
+        // Prepare lambdas: declare + ARC pipeline (no LLVM emission)
+        let prepared_lambdas: Vec<PreparedLambda> = lambdas
+            .into_iter()
+            .map(|lambda| self.prepare_lambda(lambda))
+            .collect();
+
+        // Annotate arg ownership, then run full ARC pipeline
+        ori_arc::annotate_arg_ownership(
+            &mut arc_func,
+            self.annotated_sigs,
+            self.interner,
+            &self.borrowing_builtins,
+        );
+        let arc_problems = ori_arc::run_arc_pipeline(
+            &mut arc_func,
+            self.arc_classifier,
+            self.annotated_sigs,
+            self.pool,
+            self.interner,
+        );
+        for problem in &arc_problems {
+            debug!(?problem, "ARC pipeline problem");
+        }
+
+        trace!(
+            name = name_str,
+            blocks = arc_func.blocks.len(),
+            "ARC pipeline complete (prepared, not emitted)"
+        );
+
+        PreparedFunction {
+            name,
+            func_id,
+            abi: abi.clone(),
+            arc_func,
+            lambdas: prepared_lambdas,
+        }
+    }
+
+    /// Prepare a lambda through the ARC pipeline without emitting LLVM IR.
+    ///
+    /// Declares the LLVM function and registers it in `codegen_ctx.functions`
+    /// (so parent's `emit_partial_apply` can reference it), then runs the ARC
+    /// pipeline. The actual LLVM body emission is deferred to
+    /// [`Self::emit_prepared_functions`].
+    fn prepare_lambda(&mut self, mut lambda: ori_arc::ArcFunction) -> PreparedLambda {
+        let lambda_name = lambda.name;
+        let lambda_name_str = self.interner.lookup(lambda_name);
+
+        // Compute ABI from lambda's ArcParam types
+        let abi = self.compute_arc_function_abi(&lambda);
+
+        // Generate unique mangled symbol name
+        let counter = self.lambda_counter.get();
+        self.lambda_counter.set(counter + 1);
+        let symbol = self
+            .mangler
+            .mangle_function(self.module_path, &format!("__lambda_{counter}"));
+
+        debug!(
+            name = lambda_name_str,
+            symbol,
+            params = abi.params.len(),
+            "declaring lambda (prepare, no emit)"
+        );
+
+        // Declare LLVM function (so parent can reference it)
+        let func_id = self.declare_function_llvm(&symbol, &abi);
+
+        // Register so emit_partial_apply can find it by Name
+        self.codegen_ctx
+            .functions
+            .insert(lambda_name, (func_id, abi.clone()));
+
+        // Run full ARC pipeline on the lambda
+        ori_arc::annotate_arg_ownership(
+            &mut lambda,
+            self.annotated_sigs,
+            self.interner,
+            &self.borrowing_builtins,
+        );
+        let arc_problems = ori_arc::run_arc_pipeline(
+            &mut lambda,
+            self.arc_classifier,
+            self.annotated_sigs,
+            self.pool,
+            self.interner,
+        );
+        for problem in &arc_problems {
+            debug!(?problem, "ARC pipeline problem (lambda)");
+        }
+
+        PreparedLambda {
+            name: lambda_name,
+            func_id,
+            abi,
+            arc_func: lambda,
+        }
+    }
+
+    /// Build the complete nounwind function set from all prepared functions.
+    ///
+    /// Uses fixed-point iteration: each pass analyzes all functions and their
+    /// lambdas, adding newly-proven-nounwind functions to the set. Iteration
+    /// continues until no new functions are added. This correctly handles
+    /// call chains like A→B→C where C must be proven nounwind before B,
+    /// and B before A.
+    ///
+    /// Must be called after all `prepare_*` methods and before
+    /// [`Self::emit_prepared_functions`].
+    pub fn compute_nounwind_set(&mut self, prepared: &[PreparedFunction]) {
+        debug!(
+            functions = prepared.len(),
+            "computing complete nounwind set (fixed-point)"
+        );
+
+        let mut pass = 0u32;
+        loop {
+            let mut changed = false;
+
+            for func in prepared {
+                // Check lambdas first (they may be callees of the parent)
+                for lambda in &func.lambdas {
+                    if !self.codegen_ctx.nounwind_functions.contains(&lambda.name)
+                        && self.is_arc_function_nounwind(&lambda.arc_func)
+                    {
+                        self.codegen_ctx.nounwind_functions.insert(lambda.name);
+                        changed = true;
+                    }
+                }
+
+                // Check parent function
+                if !self.codegen_ctx.nounwind_functions.contains(&func.name)
+                    && self.is_arc_function_nounwind(&func.arc_func)
+                {
+                    self.codegen_ctx.nounwind_functions.insert(func.name);
+                    changed = true;
+                }
+            }
+
+            pass = pass.saturating_add(1);
+            if !changed {
+                break;
+            }
+        }
+
+        // Propagate nounwind from mangled monomorphized names to their original
+        // generic names. ARC IR `Invoke` terminators use the original name
+        // (e.g., `"identity"`), while `nounwind_functions` contains mangled names
+        // (e.g., `"identity$m$int"`). If ALL specializations of a generic are
+        // nounwind, the original name is also safe to call without landing pads.
+        let mut mono_propagated = 0u32;
+        for (original_name, specializations) in &self.codegen_ctx.mono_dispatch {
+            if self.codegen_ctx.nounwind_functions.contains(original_name) {
+                continue; // Already marked (e.g., non-generic with same name)
+            }
+            let all_nounwind = specializations
+                .iter()
+                .all(|(_, mangled)| self.codegen_ctx.nounwind_functions.contains(mangled));
+            if all_nounwind && !specializations.is_empty() {
+                self.codegen_ctx.nounwind_functions.insert(*original_name);
+                mono_propagated = mono_propagated.saturating_add(1);
+            }
+        }
+
+        debug!(
+            passes = pass,
+            nounwind_count = self.codegen_ctx.nounwind_functions.len(),
+            mono_propagated,
+            "nounwind analysis complete"
+        );
+    }
+
+    /// Emit LLVM IR for all prepared functions using the complete nounwind set.
+    ///
+    /// Must be called after [`Self::compute_nounwind_set`]. For each function,
+    /// emits lambdas first (so `emit_partial_apply` can reference them), then
+    /// the parent function, and applies nounwind attributes from the
+    /// pre-computed set.
+    pub fn emit_prepared_functions(&mut self, prepared: Vec<PreparedFunction>) {
+        debug!(
+            count = prepared.len(),
+            "emitting prepared functions to LLVM IR"
+        );
+
+        for func in prepared {
+            self.enter_debug_scope(func.func_id);
+            self.builder.set_current_function(func.func_id);
+
+            // Emit lambdas first
+            for lambda in &func.lambdas {
+                self.emit_prepared_lambda(lambda);
+            }
+
+            // Emit parent function
+            let mut emitter = ArcIrEmitter::new(
+                self.builder,
+                self.type_info,
+                self.type_resolver,
+                self.interner,
+                self.pool,
+                self.arc_classifier as &dyn ori_arc::ArcClassification,
+                func.func_id,
+                &self.codegen_ctx,
+            );
+            emitter.emit_function(&func.arc_func, &func.abi);
+
+            if self.codegen_ctx.nounwind_functions.contains(&func.name) {
+                self.builder.add_nounwind_attribute(func.func_id);
+                debug!(
+                    name = %self.interner.lookup(func.name),
+                    "marked nounwind"
+                );
+            }
+
+            self.exit_debug_scope();
+        }
+    }
+
+    /// Emit LLVM IR for a prepared lambda using the pre-computed nounwind set.
+    fn emit_prepared_lambda(&mut self, lambda: &PreparedLambda) {
+        self.builder.set_current_function(lambda.func_id);
+        let mut emitter = ArcIrEmitter::new(
+            self.builder,
+            self.type_info,
+            self.type_resolver,
+            self.interner,
+            self.pool,
+            self.arc_classifier as &dyn ori_arc::ArcClassification,
+            lambda.func_id,
+            &self.codegen_ctx,
+        );
+        emitter.emit_function(&lambda.arc_func, &lambda.abi);
+
+        if self.codegen_ctx.nounwind_functions.contains(&lambda.name) {
+            self.builder.add_nounwind_attribute(lambda.func_id);
+        }
     }
 
     /// Enter debug scope for the function being compiled.
