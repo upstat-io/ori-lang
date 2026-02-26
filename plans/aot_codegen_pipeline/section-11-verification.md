@@ -84,10 +84,10 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Computed fields, fields from function calls — covered (structs.rs)
   - [x] Struct update with string field — **FIXED** (2026-02-24) — IsShared/Set on inline aggregates: emit `true` to force Construct path
 
-- [ ] **Data structures (other):**
+- [x] **Data structures (other):** (2026-02-25)
   - [x] Enum construction and pattern matching — **FIXED** (2026-02-24) — 4 tests: construction, unit variants, mixed variants, param+return
   - [x] Recursive types (tree, linked list) — **FIXED** (2026-02-24) — decision tree resolve_path threads variant context; RC-boxed recursive fields load as ptr+deref
-  - [ ] Generic types — AOT gap: generic function resolution (#[ignore])
+  - [x] Generic types — **FIXED** (2026-02-25) — monomorphization pipeline complete (plans/monomorphization/); 5 AOT tests: identity, pair, triple, calling non-generic, two specializations; cross-generic chains (DeferredMonoCall architecture) — 8 additional tests: chain two params, swap params, two callees, string chains, three-level chains, four specializations, conditional, struct
 
 - [ ] **Collections:**
   - [x] List: literal, length, iter, map, filter, collect — covered
@@ -101,7 +101,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [ ] Set: all operations — not yet in AOT
   - [x] Range: `0..5`, `0..=5`, iter, yield, guard — covered
 
-- [ ] **Functions & closures:** (2026-02-23)
+- [x] **Functions & closures:** (2026-02-23, completed 2026-02-24)
   - [x] Direct function calls — covered
   - [x] Method calls on types — covered (via traits)
   - [x] Closures with 0, 1, N captures — covered (arc.rs)
@@ -124,7 +124,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - [x] Function taking `(int) -> bool` param — **FIXED** (2026-02-24) — test function name `test_pred` was classified as test; renamed to `check_pred`
   - [x] Closures capturing closures — **FIXED** (2026-02-24) — parser `check_type_keyword()` didn't recognize `(` as function type start; replaced with speculative `try_parse_lambda_return_type()`
 
-- [ ] **Error handling:** (2026-02-23)
+- [x] **Error handling:** (2026-02-23, completed 2026-02-24)
   - [x] Result basics (Ok/Err construction, is_ok/is_err, unwrap, unwrap_or) — covered (error_handling.rs)
   - [x] Option basics (Some/None construction, is_some/is_none, unwrap, unwrap_or) — covered (error_handling.rs)
   - [x] `?` propagation (Result ok/err, Option some/none) — covered (error_handling.rs)
@@ -189,7 +189,7 @@ Build a comprehensive test matrix covering every language feature through AOT co
   - Struct passed through multi-function chain — covered (stress.rs)
   - 200 function calls in loop (struct alloc + field sum) — covered (stress.rs)
 
-- [ ] **Depth & complexity:** (2026-02-23)
+- [x] **Depth & complexity:** (2026-02-23, completed 2026-02-24)
   - [x] Match with 20+ arms — covered (depth.rs)
   - [x] Match in loop (100 iterations) — covered (depth.rs)
   - [x] Nested if 5 levels deep — covered (depth.rs)
@@ -317,7 +317,7 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | Gap | Roadmap Location | Test | Severity |
 |-----|-----------------|------|----------|
 | ~~Enum variant constructors~~ | ~~21A § 21.2~~ | ~~`test_aot_enum_construction`~~ | **FIXED** (2026-02-24) — ARC lowerer intercepts variant names via Pool reverse map; LLVM codegen uses payload array GEP |
-| Generic monomorphization | 21A § 21.7 | `test_aot_generic_identity` | **CRITICAL** — blocks 2,472+ sites |
+| ~~Generic monomorphization~~ | ~~21A § 21.7~~ | ~~`test_aot_generic_identity`~~ | **FIXED** (2026-02-25) — monomorphization pipeline complete (plans/monomorphization/); 5 AOT tests pass |
 | ~~`catch(expr:)` lowering~~ | ~~21A § 21.5~~ | ~~`test_aot_catch_success`~~ | **FIXED** (2026-02-24) — ARC lowerer `lower_exp_catch` + LLVM `invoke`/`landingpad` with `rust_eh_personality`; `ori_catch_cleanup` (no-op, leak accepted for 0.1-alpha) + `ori_catch_recover` (reads thread-local panic message) |
 | ~~String interpolation~~ | ~~21A § 21.3~~ | ~~`test_aot_string_interpolation`~~ | **FIXED** (2026-02-24) — test syntax was `${name}` (JS), corrected to `{name}` (Ori) |
 | ~~Derive Eq struct (icmp)~~ | ~~21A § 21.19~~ | ~~`test_aot_derive_eq_struct`~~ | **FIXED** (2026-02-23) — emit_comparison_via_trait |
@@ -352,6 +352,8 @@ Gaps discovered during verification. **All gaps cross-referenced to real roadmap
 | ~~Struct update with string field~~ | ~~21A struct codegen~~ | ~~`test_struct_update_with_string`~~ | **FIXED** (2026-02-24) — IsShared/Set skip non-RcPointer values, forces Construct path |
 | ~~Recursive enum types (Tree, linked list)~~ | ~~21A § 21.2~~ | ~~`test_aot_recursive_enum_tree`~~ | **FIXED** (2026-02-24) — decision tree `resolve_path` now threads variant context for type-aware field projection; RC-boxed recursive fields load as ptr+deref |
 | ~~Derived Eq on unit enums~~ | ~~21A derive codegen~~ | ~~`test_aot_derive_eq_enum`~~ | **FIXED** (2026-02-24) — tag extraction + icmp for unit variants; payload enum derives skipped |
+| ~~Cross-generic function calls~~ | ~~21A monomorphization~~ | ~~`test_generic_calling_generic`~~ | **FIXED** (2026-02-25) — DeferredMonoCall architecture: records semantic var bindings (CallerSchemeVar position / Concrete) during inference, resolves transitive MonoInstances during module check; extend_var_subst_with_roots for direct body_type_map completeness |
+| Option match RC leak | ARC emitter | `test_generic_option_match_leak` | **NEW** (2026-02-25) — `match opt { Some(n) -> ..., None -> ... }` leaks RC on `Option<int>` even without generics; `.is_some()`/`.unwrap()` path is fine |
 
 ---
 
@@ -478,8 +480,8 @@ Verify that AOT-compiled programs produce identical output to JIT-interpreted pr
 - [x] Binary sizes baselined (2026-02-25)
 - [x] All documentation updated (2026-02-25)
 - [x] Superseded plans marked as superseded (2026-02-25)
-- [x] `./test-all.sh` green (2026-02-25 — 10,050 passed, 0 failed)
-- [x] `./llvm-test.sh` green (2026-02-25 — 971 AOT + 367 unit)
+- [x] `./test-all.sh` green (2026-02-25 — 10,125 passed, 0 failed)
+- [x] `./llvm-test.sh` green (2026-02-25 — 1,006 AOT + 367 unit)
 - [x] `./clippy-all.sh` green (2026-02-25)
 
 **Exit Criteria:** Every Ori language feature compiles through AOT and produces identical results to JIT interpretation, with zero memory leaks, under all test conditions. The AOT pipeline is the single, unified codegen path.

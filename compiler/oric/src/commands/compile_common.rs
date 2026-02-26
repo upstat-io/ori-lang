@@ -152,6 +152,7 @@ fn run_borrow_inference(
     interner: &StringInterner,
     pool: &Pool,
     source_path: &str,
+    mono_instances: &[ori_types::MonoInstance],
 ) -> BorrowInferenceResult {
     use crate::query::arc_queries::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput};
 
@@ -172,26 +173,39 @@ fn run_borrow_inference(
         if sig.is_generic() {
             continue;
         }
-
-        let params: Vec<(Name, Idx)> = sig
-            .param_names
-            .iter()
-            .zip(sig.param_types.iter())
-            .map(|(&n, &t)| (n, t))
-            .collect();
-
-        let body_id = canon.root_for(func.name).unwrap_or(canon.root);
-        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
             func.name,
-            &params,
-            sig.return_type,
-            body_id,
+            sig,
+            func.name,
             canon,
             interner,
             pool,
             &mut arc_problems,
-            sig.is_fbip,
             None,
+        );
+        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
+    }
+
+    // Lower monomorphized generic functions.
+    // The JIT runner already does this (runner/mod.rs), but the AOT path was
+    // missing it — mono function names would be absent from annotated_sigs,
+    // causing the warn! fallback to all-Owned in define_function_body_arc_with_subst.
+    let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
+        mono_instances,
+        function_sigs,
+        interner,
+        pool,
+    );
+    for mono_fn in &mono_functions {
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
+            mono_fn.mangled_name,
+            &mono_fn.sig,
+            mono_fn.original_name,
+            canon,
+            interner,
+            pool,
+            &mut arc_problems,
+            Some(&mono_fn.body_type_map),
         );
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }
@@ -347,6 +361,7 @@ fn run_codegen_pipeline<'ctx>(
             interner,
             pool,
             source_path,
+            &type_result.typed.mono_instances,
         );
 
         // 4. Two-pass function compilation with borrow annotations
@@ -406,10 +421,10 @@ fn run_codegen_pipeline<'ctx>(
             &mut arc_cache,
         );
 
-        // 6b. Define monomorphized function bodies (inline fallback — not
-        // pre-lowered since monomorphization needs type substitution at
-        // lowering time, which is done per-function in FunctionCompiler)
-        fc.define_mono_functions(&mono_functions, canon);
+        // 6b. Define monomorphized function bodies from pre-lowered cache.
+        // Mono functions are now lowered during borrow inference (with type
+        // substitution), so they can use the cached path like regular functions.
+        fc.define_mono_cached(&mono_functions, canon, &mut arc_cache);
 
         // 7. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()

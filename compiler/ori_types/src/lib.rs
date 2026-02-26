@@ -41,8 +41,8 @@ pub use item::Item;
 pub use lifetime::LifetimeId;
 pub use ori_ir::{PatternKey, PatternResolution};
 pub use output::{
-    ConstParamInfo, ConstValue, EffectClass, FnWhereClause, FunctionSig, GenericArg, MonoInstance,
-    TypeCheckResult, TypedModule,
+    ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass, FnWhereClause,
+    FunctionSig, GenericArg, MonoInstance, TypeCheckResult, TypedModule,
 };
 pub use pool::{substitute_in_pool, EnumVariant, Pool, VarState, DEFAULT_RANK};
 pub use registry::{

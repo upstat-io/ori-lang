@@ -1157,23 +1157,14 @@ fn lower_and_infer_borrows(
         if sig.is_generic() {
             continue;
         }
-        let params: Vec<(Name, ori_types::Idx)> = sig
-            .param_names
-            .iter()
-            .zip(sig.param_types.iter())
-            .map(|(&n, &t)| (n, t))
-            .collect();
-        let body_id = canon.root_for(func.name).unwrap_or(canon.root);
-        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
             func.name,
-            &params,
-            sig.return_type,
-            body_id,
+            sig,
+            func.name,
             canon,
             interner,
             pool,
             &mut arc_problems,
-            false,
             None,
         );
         local_lowered.push((arc_fn, lambdas));
@@ -1184,33 +1175,20 @@ fn lower_and_infer_borrows(
     // in the imported module's type checker, so using the wrong pool would
     // cause out-of-bounds panics on compound types (closures, tuples, etc.).
     // Borrow inference also runs per-import with the correct pool classifier.
-    let borrowing_builtins = ori_llvm::codegen::arc_emitter::borrowing_builtin_names(interner);
+    let borrowing_builtins = ori_llvm::borrowing_builtin_names(interner);
     let mut imported_sigs: FxHashMap<Name, ori_arc::AnnotatedSig> = FxHashMap::default();
     for imp_fn in imported_functions {
         if imp_fn.sig.is_generic() {
             continue;
         }
-        let params: Vec<(Name, ori_types::Idx)> = imp_fn
-            .sig
-            .param_names
-            .iter()
-            .zip(imp_fn.sig.param_types.iter())
-            .map(|(&n, &t)| (n, t))
-            .collect();
-        let body_id = imp_fn
-            .canon
-            .root_for(imp_fn.function.name)
-            .unwrap_or(imp_fn.canon.root);
-        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
             imp_fn.function.name,
-            &params,
-            imp_fn.sig.return_type,
-            body_id,
+            imp_fn.sig,
+            imp_fn.function.name,
             imp_fn.canon,
             interner,
             imp_fn.pool,
             &mut arc_problems,
-            false,
             None,
         );
         // Infer borrows for this imported function using its own pool's classifier.
@@ -1232,23 +1210,14 @@ fn lower_and_infer_borrows(
         if sig.is_generic() {
             continue;
         }
-        let params: Vec<(Name, ori_types::Idx)> = sig
-            .param_names
-            .iter()
-            .zip(sig.param_types.iter())
-            .map(|(&n, &t)| (n, t))
-            .collect();
-        let body_id = canon.root_for(*name).unwrap_or(canon.root);
-        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
             *name,
-            &params,
-            sig.return_type,
-            body_id,
+            sig,
+            *name,
             canon,
             interner,
             pool,
             &mut arc_problems,
-            false,
             None,
         );
         local_lowered.push((arc_fn, lambdas));
@@ -1262,27 +1231,29 @@ fn lower_and_infer_borrows(
         pool,
     );
     for mono_fn in &mono_functions {
-        let params: Vec<(Name, ori_types::Idx)> = mono_fn
-            .sig
-            .param_names
-            .iter()
-            .zip(mono_fn.sig.param_types.iter())
-            .map(|(&n, &t)| (n, t))
-            .collect();
-        let body_id = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
-        let (arc_fn, lambdas) = ori_arc::lower_function_can(
+        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
             mono_fn.mangled_name,
-            &params,
-            mono_fn.sig.return_type,
-            body_id,
+            &mono_fn.sig,
+            mono_fn.original_name,
             canon,
             interner,
             pool,
             &mut arc_problems,
-            false,
             Some(&mono_fn.body_type_map),
         );
         local_lowered.push((arc_fn, lambdas));
+    }
+
+    // Check for ARC lowering problems (unsupported patterns, internal errors).
+    // Mirrors the check in compile_common.rs — without this, the JIT runner
+    // silently swallows lowering errors that the AOT path would report.
+    if !arc_problems.is_empty() {
+        use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
+        let mut acc = CodegenDiagnostics::new();
+        acc.add_arc_problems(&arc_problems);
+        if emit_codegen_diagnostics(acc) {
+            return (FxHashMap::default(), FxHashMap::default());
+        }
     }
 
     // Borrow inference for local functions using the main pool's classifier.

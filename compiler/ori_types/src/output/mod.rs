@@ -88,6 +88,48 @@ pub struct MonoInstance {
     pub body_type_map: Vec<(Idx, Idx)>,
 }
 
+/// How a callee's type variable binds during a generic-calling-generic call.
+#[derive(Clone, Debug)]
+pub enum DeferredVarBinding {
+    /// Maps to the caller's scheme var at this position (deferred until the
+    /// caller is instantiated). E.g., `identity`'s `T` → `apply_identity`'s position 0.
+    CallerSchemeVar(usize),
+    /// Already resolved to a concrete type. E.g., `make_pair`'s `B` → `int` when
+    /// called as `make_pair(a: x, b: 99)` inside a generic function.
+    Concrete(Idx),
+}
+
+/// A deferred monomorphization call: generic function calling another generic.
+///
+/// Recorded when a generic function's body calls another generic function
+/// and at least one type argument is still a type variable. Resolved later
+/// via [`resolve_deferred_mono_calls`] when the caller is instantiated.
+///
+/// # Examples
+///
+/// Simple chain: `apply_identity<T>(x: T) = identity(x: x)` records
+/// `identity`'s `T` → `CallerSchemeVar(0)`.
+///
+/// Mixed: `wrap_with_int<T>(x: T) = make_pair(a: x, b: 99)` records
+/// `make_pair`'s `A` → `CallerSchemeVar(0)`, `B` → `Concrete(Idx::INT)`.
+#[derive(Clone, Debug)]
+pub struct DeferredMonoCall {
+    /// The generic function that contains the call.
+    pub caller: Name,
+    /// The generic function being called.
+    pub callee: Name,
+    /// The callee's scheme var IDs (in declaration order).
+    pub callee_scheme_var_ids: Vec<u32>,
+    /// Maps callee scheme var ID → binding (caller scheme var position or
+    /// concrete type). This semantic mapping avoids dependence on pool
+    /// union-find state.
+    pub var_subst: Vec<(u32, DeferredVarBinding)>,
+    /// The callee's parameter types (from its generic signature).
+    pub callee_param_types: Vec<Idx>,
+    /// The callee's return type (from its generic signature).
+    pub callee_return_type: Idx,
+}
+
 /// Type-checked module.
 ///
 /// Contains all type information computed by the inference engine.

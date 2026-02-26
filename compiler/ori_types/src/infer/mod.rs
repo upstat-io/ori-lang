@@ -139,6 +139,19 @@ pub struct InferEngine<'pool> {
     /// Populated by `record_mono_instance()` when a generic function is called
     /// with concrete type arguments. Extracted via `take_mono_instances()`.
     mono_instances: Vec<crate::MonoInstance>,
+
+    /// Deferred monomorphization calls (generic calling generic).
+    ///
+    /// Populated by `record_deferred_mono_call()` when a generic function calls
+    /// another generic with type variables still unresolved. Extracted via
+    /// `take_deferred_mono_calls()` and resolved in `finish_with_pool()`.
+    deferred_mono_calls: Vec<crate::DeferredMonoCall>,
+
+    /// Name of the function currently being type-checked.
+    ///
+    /// Used by `maybe_record_mono_instance()` to identify the caller when
+    /// recording deferred mono calls.
+    current_function: Option<Name>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -164,6 +177,8 @@ impl<'pool> InferEngine<'pool> {
             pattern_resolutions: Vec::new(),
             const_types: None,
             mono_instances: Vec::new(),
+            deferred_mono_calls: Vec::new(),
+            current_function: None,
         }
     }
 
@@ -191,6 +206,8 @@ impl<'pool> InferEngine<'pool> {
             pattern_resolutions: Vec::new(),
             const_types: None,
             mono_instances: Vec::new(),
+            deferred_mono_calls: Vec::new(),
+            current_function: None,
         }
     }
 
@@ -620,6 +637,26 @@ impl<'pool> InferEngine<'pool> {
     /// Take mono instances, leaving an empty vector.
     pub fn take_mono_instances(&mut self) -> Vec<crate::MonoInstance> {
         std::mem::take(&mut self.mono_instances)
+    }
+
+    /// Record a deferred mono call (generic calling generic).
+    pub fn record_deferred_mono_call(&mut self, call: crate::DeferredMonoCall) {
+        self.deferred_mono_calls.push(call);
+    }
+
+    /// Take deferred mono calls, leaving an empty vector.
+    pub fn take_deferred_mono_calls(&mut self) -> Vec<crate::DeferredMonoCall> {
+        std::mem::take(&mut self.deferred_mono_calls)
+    }
+
+    /// Set the current function being type-checked.
+    pub fn set_current_function(&mut self, name: Option<Name>) {
+        self.current_function = name;
+    }
+
+    /// Get the current function being type-checked.
+    pub fn current_function(&self) -> Option<Name> {
+        self.current_function
     }
 
     /// Rewrite `UnknownIdent` errors matching `name` (added since `errors_before`)
