@@ -306,7 +306,10 @@ pub(super) fn update_ownership_inner(
                     let _ = value;
                 }
 
-                ArcInstr::RcInc { .. }
+                // Select reads vars without consuming — no ownership propagation.
+                // RC/reset/reuse instructions are handled by the ARC pass itself.
+                ArcInstr::Select { .. }
+                | ArcInstr::RcInc { .. }
                 | ArcInstr::RcDec { .. }
                 | ArcInstr::IsShared { .. }
                 | ArcInstr::Set { .. }
