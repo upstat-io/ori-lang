@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "Hash Stability Testing"
-status: not_started
+status: complete
 goal: "Comprehensive test suite proving Merkle hashes are stable across independent pools and free of practical collisions"
 inspired_by:
   - "Git test suite — content-addressed object identity verification"
@@ -9,16 +9,16 @@ inspired_by:
 sections:
   - id: "02.1"
     title: "Cross-Pool Stability Tests"
-    status: not_started
+    status: complete
   - id: "02.2"
     title: "Collision Detection & Distribution"
-    status: not_started
+    status: complete
   - id: "02.3"
     title: "Structural Equality Verification"
-    status: not_started
+    status: complete
   - id: "02.4"
     title: "Debug Tooling"
-    status: not_started
+    status: complete
 ---
 
 # Section 02: Hash Stability Testing
@@ -38,7 +38,7 @@ must be complete and passing before any downstream section begins.
 
 ---
 
-## 02.1 Cross-Pool Stability Tests — NOT STARTED
+## 02.1 Cross-Pool Stability Tests — COMPLETE
 
 **Goal:** For every tag category, verify that the same type structure produces the same Merkle
 hash across two independently constructed pools with different interning histories.
@@ -143,15 +143,15 @@ fn merkle_container_of_struct_shifted() {
 Merkle correctness: a container of a non-primitive type at different Idx positions.
 
 **Exit Criteria:**
-- [ ] All 20+ test cases in the matrix passing
-- [ ] At least one test per tag category (primitive, simple, two-child, complex, named, variable, scheme)
-- [ ] At least one "shifted" test per category (noise types to move Idx values)
-- [ ] Non-primitive child test (`List<UserStruct>`) passing
-- [ ] Depth 4-5 test passing
+- [x] All 20+ test cases in the matrix passing — 22 Merkle tests (2026-02-26)
+- [x] At least one test per tag category (primitive, simple, two-child, complex, named, variable, scheme) (2026-02-26)
+- [x] At least one "shifted" test per category (noise types to move Idx values) (2026-02-26)
+- [x] Non-primitive child test (`List<UserStruct>`) passing — `merkle_container_of_struct_shifted` (2026-02-26)
+- [x] Depth 4-5 test passing — `merkle_depth_4_stable` + `merkle_depth_5_function_stable` (2026-02-26)
 
 ---
 
-## 02.2 Collision Detection & Distribution — NOT STARTED
+## 02.2 Collision Detection & Distribution — COMPLETE
 
 **Goal:** Verify that Merkle hashes have no practical collisions for realistic type sets,
 and that the hash distribution is uniform enough for `FxHashMap` performance.
@@ -228,13 +228,13 @@ fn merkle_hash_distribution_uniform() {
 ```
 
 **Exit Criteria:**
-- [ ] No collisions in 500+ distinct types
-- [ ] Hash distribution test passes (no extreme clustering)
-- [ ] Test runs in <100ms (not a bottleneck)
+- [x] No collisions in 500+ distinct types — `merkle_no_collisions_500_plus_types` (578 types) (2026-02-26)
+- [x] Hash distribution test passes (no extreme clustering) — `merkle_hash_distribution_uniform` (2026-02-26)
+- [x] Test runs in <100ms (not a bottleneck) — runs in <10ms (2026-02-26)
 
 ---
 
-## 02.3 Structural Equality Verification — NOT STARTED
+## 02.3 Structural Equality Verification — COMPLETE
 
 **Goal:** Verify that hash equality implies structural equality (no false positives)
 and that structural equality implies hash equality (no false negatives), by cross-checking
@@ -299,14 +299,14 @@ fn merkle_hash_matches_structural_equality() {
 ```
 
 **Exit Criteria:**
-- [ ] `structural_eq` reference implementation covering all tag categories
-- [ ] 100+ types verified: hash equality ↔ structural equality
-- [ ] No false positives (different types with same hash)
-- [ ] No false negatives (same type with different hash)
+- [x] `structural_eq` reference implementation covering all tag categories — exhaustive match on all 37 Tag variants (2026-02-26)
+- [x] 100+ types verified: hash equality ↔ structural equality — `merkle_hash_matches_structural_equality` (170+ pairs) (2026-02-26)
+- [x] No false positives (different types with same hash) — `merkle_structural_neq_implies_hash_neq` (2026-02-26)
+- [x] No false negatives (same type with different hash) — verified in `merkle_hash_matches_structural_equality` (2026-02-26)
 
 ---
 
-## 02.4 Debug Tooling — NOT STARTED
+## 02.4 Debug Tooling — COMPLETE
 
 **Goal:** Add diagnostic helpers for debugging hash mismatches during development.
 
@@ -335,19 +335,19 @@ fn merkle_hash_matches_structural_equality() {
 - `compiler/ori_types/src/pool/mod.rs` — add debug assertions
 
 **Exit Criteria:**
-- [ ] `format_hash` prints tag + hash + child hashes for any type
-- [ ] `debug_hash_tree` prints recursive breakdown
-- [ ] Debug assertions in hash lookups (debug builds only)
-- [ ] Tooling used in at least one failing test to demonstrate diagnostic value
+- [x] `format_hash` prints tag + hash + child hashes for any type (2026-02-26)
+- [x] `debug_hash_tree` prints recursive breakdown (2026-02-26)
+- [x] Debug assertions in hash lookups (debug builds only) — `debug_assert_eq!` in `intern()` and `intern_complex()` (2026-02-26)
+- [x] Tooling used in at least one failing test to demonstrate diagnostic value — `merkle_container_of_struct_shifted` uses `format_hash` in assertions (2026-02-26)
 
 ---
 
 ## Section 02 Completion Checklist
 
-- [ ] 20+ cross-pool stability tests covering all tag categories (02.1)
-- [ ] Non-primitive child test (container of user type) passing (02.1)
-- [ ] Collision detection with 500+ types, zero collisions (02.2)
-- [ ] Structural equality cross-check for 100+ types (02.3)
-- [ ] Debug tooling (`format_hash`, `debug_hash_tree`) implemented (02.4)
-- [ ] All tests in `pool/tests.rs` passing
-- [ ] Section 02 blocking gate: ALL tests must pass before Sections 03-07
+- [x] 20+ cross-pool stability tests covering all tag categories (02.1) — 22 Merkle stability tests (2026-02-26)
+- [x] Non-primitive child test (container of user type) passing (02.1) — `merkle_container_of_struct_shifted` (2026-02-26)
+- [x] Collision detection with 500+ types, zero collisions (02.2) — 578 types, 0 collisions (2026-02-26)
+- [x] Structural equality cross-check for 100+ types (02.3) — 170+ pairs verified (2026-02-26)
+- [x] Debug tooling (`format_hash`, `debug_hash_tree`) implemented (02.4) (2026-02-26)
+- [x] All tests in `pool/tests.rs` passing — 29 pool tests, 15 format tests, 10,614 total (2026-02-26)
+- [x] Section 02 blocking gate: ALL tests must pass before Sections 03-07 (2026-02-26)

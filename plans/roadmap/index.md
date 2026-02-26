@@ -22,11 +22,11 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **ACTIVE REROUTE**: `plans/codegen-journey-fixes/` — Codegen Journey Fixes: fix all 9 open findings from code journeys 1–7. 2 HIGH (nounwind soundness/UB: indirect calls, monomorphized callee ordering), 5 MEDIUM (IR quality: eager runtime declarations, dead blocks, redundant match branches, non-capturing lambda trampolines, trampoline nounwind), 2 LOW (opaque struct names, `cargo run` strips LLVM). Affects Section 21A (LLVM Backend), Section 22 (Tooling). 6 sections, ~305 lines. See `plans/codegen-journey-fixes/00-overview.md`.
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-26)**: `plans/codegen-journey-fixes/` — Codegen Journey Fixes complete. All 9 open findings (#2–#10) from code journeys 1–7 fixed: nounwind soundness (indirect calls + monomorphized callees), IR emission cleanup (lazy runtime declarations, dead block elimination, redundant match branches), closure pipeline (non-capturing lambda optimization, trampoline nounwind propagation), IR readability (named struct types), developer tooling (cargo run LLVM guard). 122/122 items complete, all tests passing.
 
 ---
 
-> **QUEUED REROUTE**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: Merkle hash foundation, hash stability testing, hash-forwarded signatures, hash-first import resolution, portable type descriptors (optional), backend integration, benchmarks & exit criteria. Activates when Codegen Journey Fixes reroute completes.
+> **ACTIVE REROUTE**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: Merkle hash foundation, hash stability testing, hash-forwarded signatures, hash-first import resolution, portable type descriptors (optional), backend integration, benchmarks & exit criteria.
 
 ---
 
