@@ -24,7 +24,7 @@ use std::cell::{Cell, RefCell};
 use inkwell::types::{BasicTypeEnum, StructType};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_ir::Name;
+use ori_ir::{Name, StringInterner};
 use ori_types::{Idx, Pool, Tag};
 
 use crate::context::SimpleCx;
@@ -763,6 +763,11 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     store: &'a TypeInfoStore<'tcx>,
     /// LLVM simple context for type construction.
     scx: &'a SimpleCx<'ll>,
+    /// String interner for resolving `Name` → human-readable strings.
+    ///
+    /// When present, struct/enum types get meaningful LLVM names like `%ori.Point`.
+    /// When absent (e.g., in unit tests), falls back to numeric IDs like `%ori.3`.
+    interner: Option<&'a StringInterner>,
     /// Types currently being resolved (cycle detection).
     ///
     /// When we encounter an `Idx` already in this set, we've found a cycle
@@ -783,10 +788,18 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
 
 impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     /// Create a new resolver.
-    pub fn new(store: &'a TypeInfoStore<'tcx>, scx: &'a SimpleCx<'ll>) -> Self {
+    ///
+    /// Pass an `interner` to get human-readable LLVM type names (e.g., `%ori.Point`).
+    /// Without it, types get numeric names (e.g., `%ori.3`).
+    pub fn new(
+        store: &'a TypeInfoStore<'tcx>,
+        scx: &'a SimpleCx<'ll>,
+        interner: Option<&'a StringInterner>,
+    ) -> Self {
         Self {
             store,
             scx,
+            interner,
             resolving: RefCell::new(FxHashSet::default()),
             cache: RefCell::new(FxHashMap::default()),
             named_structs: RefCell::new(FxHashMap::default()),
@@ -1010,8 +1023,8 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
     /// Get a human-readable name for an LLVM named struct.
     ///
-    /// Tries to look up the type name from the Pool. Falls back to
-    /// `"{fallback}.{raw_index}"` if the name isn't available.
+    /// When the interner is available, resolves `Name` → string for readable
+    /// type names like `%ori.Point`. Falls back to numeric IDs otherwise.
     fn type_name(&self, idx: Idx, fallback: &str) -> String {
         let pool = self.store.pool();
         if idx.raw() as usize >= pool.len() {
@@ -1020,14 +1033,29 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         match pool.tag(idx) {
             Tag::Struct => {
                 let name = pool.struct_name(idx);
-                format!("ori.{}", name.raw())
+                let label = self.resolve_name(name);
+                format!("ori.{label}")
             }
             Tag::Enum => {
                 let name = pool.enum_name(idx);
-                format!("ori.{}", name.raw())
+                let label = self.resolve_name(name);
+                format!("ori.{label}")
             }
             _ => format!("ori.{}.{}", fallback, idx.raw()),
         }
+    }
+
+    /// Resolve a `Name` to its string representation.
+    ///
+    /// Uses the interner when available; falls back to the raw numeric ID
+    /// (for test `Name::from_raw()` values or missing interner).
+    fn resolve_name(&self, name: Name) -> String {
+        if let Some(interner) = self.interner {
+            if let Some(s) = interner.try_lookup(name) {
+                return s.to_owned();
+            }
+        }
+        name.raw().to_string()
     }
 
     /// Approximate store size of an LLVM type in bytes.

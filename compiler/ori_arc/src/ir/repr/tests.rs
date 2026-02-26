@@ -242,6 +242,7 @@ fn compute_var_reprs_matches_types() {
         var_reprs: Vec::new(),
         spans: vec![vec![None, None, None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -273,6 +274,7 @@ fn compute_var_reprs_empty_function() {
         var_reprs: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let classifier = ArcClassifier::new(&pool);

@@ -18,6 +18,12 @@ use oric::test::TestRunnerConfig;
 fn main() {
     oric::tracing_setup::init();
 
+    #[cfg(not(feature = "llvm"))]
+    {
+        eprintln!("warning: ori compiled without LLVM support. AOT compilation unavailable.");
+        eprintln!("         Rebuild with: cargo bl");
+    }
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {

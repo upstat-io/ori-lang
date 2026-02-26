@@ -157,7 +157,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// (direct vs void return), sets calling convention, and applies sret
     /// attributes. Callers handle ABI computation, debug info, and registration.
     pub(super) fn declare_function_llvm(&mut self, symbol: &str, abi: &FunctionAbi) -> FunctionId {
-        let mut llvm_param_types = Vec::with_capacity(abi.params.len() + 1);
+        self.declare_function_llvm_with_extra_params(symbol, abi, &[])
+    }
+
+    /// Declare an LLVM function with optional extra leading params before ABI params.
+    ///
+    /// `extra_leading_params` are inserted after the sret pointer (if any) but
+    /// before the ABI-derived parameters. Used by non-capturing lambdas to
+    /// prepend a phantom `ptr %_env` parameter that makes the declaration
+    /// compatible with the closure calling convention `(env_ptr, user_args...)`.
+    fn declare_function_llvm_with_extra_params(
+        &mut self,
+        symbol: &str,
+        abi: &FunctionAbi,
+        extra_leading_params: &[LLVMTypeId],
+    ) -> FunctionId {
+        let mut llvm_param_types =
+            Vec::with_capacity(abi.params.len() + extra_leading_params.len() + 1);
 
         let return_llvm_type = self.type_resolver.resolve(abi.return_abi.ty);
         let return_llvm_id = self.builder.register_type(return_llvm_type);
@@ -165,6 +181,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         if matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }) {
             llvm_param_types.push(self.builder.ptr_type());
         }
+
+        llvm_param_types.extend_from_slice(extra_leading_params);
 
         for param in &abi.params {
             match &param.passing {
@@ -504,13 +522,27 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// Returns `(lambda_name, func_id, abi)` for the caller to either emit
     /// LLVM IR immediately or buffer as a [`PreparedLambda`].
+    ///
+    /// **Non-capturing optimization**: When `lambda.num_captures == 0`, the
+    /// LLVM function is declared with `ccc` + a phantom `ptr %_env` leading
+    /// parameter, making it directly callable as a closure without generating
+    /// a `_ori_partial_N` trampoline wrapper. The emission ABI (stored in
+    /// `codegen_ctx.functions`) does NOT include the phantom param — it stays
+    /// unchanged so `emit_function()` body emission works correctly.
     pub(super) fn declare_and_process_lambda(
         &mut self,
         lambda: &mut ori_arc::ArcFunction,
     ) -> (Name, FunctionId, FunctionAbi) {
         let lambda_name = lambda.name;
+        let is_non_capturing = lambda.num_captures == 0;
 
-        let abi = self.compute_arc_function_abi(lambda);
+        let mut abi = self.compute_arc_function_abi(lambda);
+
+        // Non-capturing lambdas use `ccc` so they match the closure calling
+        // convention directly: `(ptr %env, user_args...) -> ret`.
+        if is_non_capturing {
+            abi.call_conv = CallConv::C;
+        }
 
         let counter = self.lambda_counter.get();
         self.lambda_counter.set(counter + 1);
@@ -522,10 +554,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             name = %self.interner.lookup(lambda_name),
             symbol,
             params = abi.params.len(),
+            non_capturing = is_non_capturing,
             "declaring lambda"
         );
 
-        let func_id = self.declare_function_llvm(&symbol, &abi);
+        // Declare with phantom env param for non-capturing lambdas.
+        // The emission ABI (registered below) does NOT include the phantom
+        // param — emit_function() adjusts llvm_param_idx to skip it.
+        let func_id = if is_non_capturing {
+            let ptr_ty = self.builder.ptr_type();
+            self.declare_function_llvm_with_extra_params(&symbol, &abi, &[ptr_ty])
+        } else {
+            self.declare_function_llvm(&symbol, &abi)
+        };
+
+        if is_non_capturing {
+            self.codegen_ctx.non_capturing_lambdas.insert(lambda_name);
+        }
 
         self.codegen_ctx
             .functions

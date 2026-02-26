@@ -86,7 +86,7 @@ For Ori syntax, types, patterns, and prelude:
 **Primary**: `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` (includes LLVM)
 **Tests**: `cargo t` (Rust), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
 **Build**: `cargo c`/`cl`/`b`/`fmt`, `./llvm-build.sh`, `./llvm-clippy.sh`
-**LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — builds oric + ori_rt with LLVM feature
+**LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — builds oric + ori_rt (LLVM is a default feature; `cargo bl` additionally builds `ori_rt` for AOT linking)
 **Tracing/Debugging** (USE FIRST — before println, before reading code line-by-line):
 `ORI_LOG=debug ori check file.ori` | `ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori` | `ORI_LOG=ori_eval=debug ori run file.ori` | `ORI_LOG=oric=debug ori check file.ori` (Salsa queries) | Falls back to `RUST_LOG`
 **Always run `./test-all.sh` after compiler changes.**

@@ -1,7 +1,7 @@
 ---
 plan: "codegen-journey-fixes"
 title: "Code Journey Findings: Exhaustive Implementation Plan"
-status: not-started
+status: complete
 supersedes: []
 references:
   - "plans/code-journeys/summary.md"
@@ -148,16 +148,16 @@ Phase 2 - Verification
 
 | Bug | Root Cause | Fix Location | Status |
 |-----|-----------|-------------|--------|
-| #2 Nounwind unsound for indirect calls | `is_arc_function_nounwind` ignores `Apply` instructions with closure/fn-ptr targets | Section 01.1 | Not Started |
-| #3 Nounwind misses monomorphized callees | Monomorphized functions compiled AFTER callers; not in `nounwind_functions` at analysis time | Section 01.2 | Not Started |
+| #2 Nounwind unsound for indirect calls | `is_arc_function_nounwind` ignores `Apply` instructions with closure/fn-ptr targets | Section 01.1 | Fixed (2026-02-26) |
+| #3 Nounwind misses monomorphized callees | Monomorphized functions compiled AFTER callers; not in `nounwind_functions` at analysis time | Section 01.2 | Fixed (2026-02-26) |
 
 ## Quick Reference
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Nounwind Soundness | `section-01-nounwind-soundness.md` | Not Started |
-| 02 | IR Emission Cleanup | `section-02-ir-emission-cleanup.md` | Not Started |
-| 03 | Closure Pipeline | `section-03-closure-pipeline.md` | Not Started |
-| 04 | IR Readability | `section-04-ir-readability.md` | Not Started |
-| 05 | Developer Tooling | `section-05-developer-tooling.md` | Not Started |
-| 06 | Verification | `section-06-verification.md` | Not Started |
+| 01 | Nounwind Soundness | `section-01-nounwind-soundness.md` | Complete |
+| 02 | IR Emission Cleanup | `section-02-ir-emission-cleanup.md` | Complete |
+| 03 | Closure Pipeline | `section-03-closure-pipeline.md` | Complete |
+| 04 | IR Readability | `section-04-ir-readability.md` | Complete |
+| 05 | Developer Tooling | `section-05-developer-tooling.md` | Complete |
+| 06 | Verification | `section-06-verification.md` | Complete |

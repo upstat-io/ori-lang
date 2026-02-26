@@ -14,7 +14,7 @@ argument-hint: "[code-description | file.ori | --summary]"
 /code-journey                     # Auto-pick next journey (increasing complexity)
 /code-journey closures             # Create code focusing on closures
 /code-journey path/to/file.ori     # Journey with existing code
-/code-journey --summary            # Show cumulative findings across all journeys
+/code-journey --summary            # Show overview.md (cumulative findings across all journeys)
 ```
 
 ## Journey Directory
@@ -22,6 +22,7 @@ argument-hint: "[code-description | file.ori | --summary]"
 All journey files live in `plans/code-journeys/`:
 - `journeyN.ori` — the source code for journey N
 - `journeyN-results.md` — detailed results for journey N
+- `overview.md` — living dashboard updated after EVERY journey (cumulative findings, coverage map, trends)
 
 ---
 
@@ -41,7 +42,7 @@ Count completed journeys to determine the next number N.
 
 - **If `$ARGUMENTS` is a `.ori` file path**: Use that file as-is. Copy it to `plans/code-journeys/journeyN.ori`.
 - **If `$ARGUMENTS` is a description** (e.g., "closures", "pattern matching"): Create code targeting those features.
-- **If `$ARGUMENTS` is `--summary`**: Skip to Step 6 (Summary).
+- **If `$ARGUMENTS` is `--summary`**: Display the contents of `plans/code-journeys/overview.md` and stop. Don't run a journey.
 - **If no arguments**: Auto-pick by reading previous journey results and escalating complexity.
 
 **Complexity Escalation — Organic, Not Hardcoded:**
@@ -65,19 +66,19 @@ Start simple. Each journey adds ONE new language feature category on top of what
 
 **The key rule: each journey should exercise features NOT covered by previous journeys.**
 
-**Termination Condition — Stop When Things Break Down:**
+**Termination Condition — Keep Going Forever:**
 
-After each journey, assess whether to continue:
+Journeys run **indefinitely**, escalating complexity after each one. The only reason to stop:
 
-1. **CONTINUE** if: Both paths produce correct results, or only minor issues found. Escalate complexity for the next journey.
-2. **STOP** if ANY of these are true:
-   - **Eval path produces wrong results** — the interpreter itself is broken for this feature set
-   - **AOT path crashes** (not just wrong output — actual crash/segfault)
-   - **3+ CRITICAL findings in a single journey** — the feature set is fundamentally broken
-   - **The code can't even compile** (type checker rejects valid code) — the feature isn't ready for journey testing
-   - **You've done 3+ consecutive journeys where LLVM produces wrong code** — the AOT backend can't keep up
+- **STOP** if and only if: **BOTH the eval path AND the LLVM path completely fail** for a journey (both crash, both produce wrong results, or the code can't compile at all). A single path failing is NOT grounds for stopping — record the failure, update `overview.md`, and keep going.
 
-When stopping, write a final `## Journey Terminated` section in the results explaining why, and automatically produce the cumulative summary (Step 6).
+**If one path fails but the other succeeds**: Record as a CRITICAL finding, update `overview.md`, try a DIFFERENT feature area for the next journey. The goal is to exhaustively map what works and what doesn't across the entire language surface.
+
+**If both paths succeed with issues**: Record findings, update `overview.md`, escalate complexity, keep going.
+
+**If a feature area won't compile**: Try a DIFFERENT feature area. Only stop if you've tried 3+ different feature areas and ALL of them fail on BOTH paths — the compiler is too broken to continue.
+
+When stopping (both paths fail), write a final `## Journey Terminated` section in the results explaining why, and update `overview.md` one final time.
 
 **Code design principles:**
 - Each journey should produce a deterministic `int` result via `@main () -> int`
@@ -285,22 +286,30 @@ canon lower_module complete (canon_nodes=K, roots=R, constants=C, decision_trees
 [Table comparing results if they differ]
 ```
 
-### Step 6: Decide — Continue or Stop
+### Step 6: Update overview.md (MANDATORY — after EVERY journey)
 
-After writing results, evaluate the termination condition (see Step 0).
+**This happens after every single journey, no exceptions.** Write/update `plans/code-journeys/overview.md` with the cumulative state across ALL journeys completed so far.
 
-- **If continuing**: Tell the user what the next journey will target and why, then loop back to Step 0.
-- **If stopping**: Write a `## Journey Terminated` section in the last results file explaining the termination reason, then produce the cumulative summary below.
+The overview.md must contain:
 
-### Step 7: Cumulative Summary (auto on termination, or when `--summary` is used)
+1. **Journey Results Table** — one row per journey: number, theme, features tested, eval result, AOT result, key finding
+2. **Deduplicated Findings by Severity** — CRITICAL/HIGH/MEDIUM/LOW, with finding number, description, first-seen journey, current status (NEW/CONFIRMED/FIXED/REGRESSED)
+3. **Findings by Compiler Phase** — grouped by lexer/parser/typechecker/canon/eval/LLVM codegen
+4. **What Works Well** — features confirmed working on both paths
+5. **Coverage Map** — features tested and working vs. features not yet tested
+6. **Recommended Fix Priority** — ordered by impact and frequency
+7. **Trend Analysis** — which issues persist, which are specific to certain feature sets
 
-Read all existing `journeyN-results.md` files and produce a cumulative report:
+**When updating** (not first journey): Read the existing `overview.md`, merge in new findings, update statuses of existing findings (CONFIRMED if still present, FIXED if resolved), add the new journey row to the table. Do NOT rewrite from scratch each time — incrementally update.
 
-1. **Findings by severity** — deduplicated across journeys, noting which journey first found each
-2. **Findings by compiler phase** — grouped by lexer/parser/typechecker/canon/eval/LLVM
-3. **The wall** — what feature complexity level caused the compiler to break down, and why
-4. **Trend analysis** — which issues persist across journeys, which are specific to certain feature sets
-5. **Recommended fix priority** — ordered by impact and frequency
+**When `--summary` is used**: Just display the contents of `overview.md` (don't run a journey).
+
+### Step 7: Decide — Continue or Stop
+
+After updating `overview.md`, evaluate the termination condition (see Step 0).
+
+- **If continuing** (the default — almost always): Tell the user what the next journey will target and why, then loop back to Step 0. **Do not stop. Keep going.**
+- **If stopping** (BOTH paths failed completely): Write a `## Journey Terminated` section in the last results file explaining the termination reason, and add a termination note to `overview.md`.
 
 ---
 

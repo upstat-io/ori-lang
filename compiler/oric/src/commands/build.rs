@@ -535,6 +535,10 @@ fn build_file_single(
 /// Build a multi-file Ori program (with imports).
 ///
 /// This builds all dependent modules in topological order and links them together.
+#[expect(
+    clippy::too_many_lines,
+    reason = "multi-module build pipeline — splitting would fragment the build flow"
+)]
 #[cfg(feature = "llvm")]
 fn build_file_multi(path: &str, options: &BuildOptions, start: std::time::Instant) {
     use ori_llvm::aot::{build_dependency_graph, Mangler};
@@ -796,7 +800,7 @@ fn compile_single_module(
     source_path: &Path,
     compiled_modules: &[CompiledModuleInfo],
 ) -> Option<(PathBuf, CompiledModuleInfo)> {
-    use ori_llvm::aot::{derive_module_name, ObjectEmitter};
+    use ori_llvm::aot::derive_module_name;
     use ori_llvm::inkwell::context::Context;
     use oric::SourceFile;
 
@@ -871,7 +875,32 @@ fn compile_single_module(
             .and_then(|hashes| hashes.get(source_path).copied()),
     );
 
-    // Configure module for target
+    // Configure target, optimize, and emit object/bitcode
+    let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name)?;
+
+    let module_info = CompiledModuleInfo {
+        path: source_path.to_path_buf(),
+        module_name,
+        public_functions,
+    };
+
+    Some((obj_path, module_info))
+}
+
+/// Configure, optimize, and emit a compiled LLVM module to an object or bitcode file.
+///
+/// Handles both LTO (pre-link + bitcode emit) and non-LTO (verify + optimize + emit)
+/// pipelines. Returns the output file path on success.
+#[cfg(feature = "llvm")]
+fn emit_module_artifact(
+    ctx: &ModuleCompileContext<'_>,
+    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
+    module_name: &str,
+) -> Option<PathBuf> {
+    use ori_llvm::aot::ObjectEmitter;
+
+    use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
+
     let emitter = match ObjectEmitter::new(ctx.target) {
         Ok(e) => e,
         Err(e) => {
@@ -882,7 +911,7 @@ fn compile_single_module(
         }
     };
 
-    if let Err(e) = emitter.configure_module(&llvm_module) {
+    if let Err(e) = emitter.configure_module(llvm_module) {
         let mut acc = CodegenDiagnostics::new();
         acc.push(CodegenProblem::ModuleConfigFailed {
             message: e.to_string(),
@@ -891,16 +920,12 @@ fn compile_single_module(
         return None;
     }
 
-    // Verify and optimize module
-    // When LTO is enabled, the config's pipeline_string() automatically
-    // returns the pre-link variant (e.g., thinlto-pre-link<O2>)
     let is_lto = !matches!(ctx.opt_config.lto, ori_llvm::aot::LtoMode::Off);
+    let safe_name = module_name.replace('$', "_");
 
     if is_lto {
         // LTO: run pre-link pipeline and emit bitcode
-        let bc_path = ctx
-            .obj_dir
-            .join(format!("{}.bc", module_name.replace('$', "_")));
+        let bc_path = ctx.obj_dir.join(format!("{safe_name}.bc"));
         if ctx.verbose {
             eprintln!(
                 "    Emitting bitcode to {} (LTO pre-link)",
@@ -908,7 +933,7 @@ fn compile_single_module(
             );
         }
         if let Err(e) = ori_llvm::aot::prelink_and_emit_bitcode(
-            &llvm_module,
+            llvm_module,
             emitter.machine(),
             ctx.opt_config,
             &bc_path,
@@ -918,27 +943,17 @@ fn compile_single_module(
             emit_codegen_diagnostics(acc);
             return None;
         }
-        let obj_path = bc_path; // Return bitcode path in place of object path
-        return Some((
-            obj_path,
-            CompiledModuleInfo {
-                path: source_path.to_path_buf(),
-                module_name,
-                public_functions,
-            },
-        ));
+        return Some(bc_path);
     }
 
-    // Non-LTO: verify → optimize → emit object file via unified pipeline
-    let obj_path = ctx
-        .obj_dir
-        .join(format!("{}.o", module_name.replace('$', "_")));
+    // Non-LTO: verify, optimize, emit object
+    let obj_path = ctx.obj_dir.join(format!("{safe_name}.o"));
     if ctx.verbose {
         eprintln!("    Emitting object to {}", obj_path.display());
     }
 
     if let Err(e) = emitter.verify_optimize_emit(
-        &llvm_module,
+        llvm_module,
         ctx.opt_config,
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
@@ -949,13 +964,7 @@ fn compile_single_module(
         return None;
     }
 
-    let module_info = CompiledModuleInfo {
-        path: source_path.to_path_buf(),
-        module_name,
-        public_functions,
-    };
-
-    Some((obj_path, module_info))
+    Some(obj_path)
 }
 
 /// Extract public function signatures with actual types from a type-checked module.

@@ -16,7 +16,7 @@
 //!   Salsa's early cutoff skips downstream queries when results are unchanged
 //!   (e.g., whitespace-only edits don't trigger re-parsing).
 //!
-//! - **ArtifactCache** handles the back-end: object code caching (future).
+//! - **`ArtifactCache`** handles the back-end: object code caching (future).
 //!   Codegen is **not** a Salsa query because LLVM types (`Module`,
 //!   `FunctionValue`, `BasicBlock`) are lifetime-bound to an LLVM `Context`
 //!   and do not satisfy Salsa's `Clone + Eq + Hash` requirements.
@@ -121,7 +121,7 @@ pub fn check_source(
 struct BorrowInferenceResult {
     /// Borrow-annotated function signatures from SCC analysis.
     sigs: FxHashMap<Name, ori_arc::AnnotatedSig>,
-    /// Pre-lowered ARC functions: parent → (ArcFunction, lambdas).
+    /// Pre-lowered ARC functions: parent → (`ArcFunction`, lambdas).
     arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
 }
 
@@ -144,6 +144,10 @@ struct BorrowInferenceResult {
 /// function bodies are re-analyzed. Early cutoff skips dependent SCCs when
 /// borrow signatures are unchanged.
 #[cfg(feature = "llvm")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pipeline helper — each param is a distinct data flow input from the compilation stages"
+)]
 fn run_borrow_inference(
     db: &CompilerDb,
     parse_result: &ParseOutput,
@@ -335,7 +339,7 @@ fn run_codegen_pipeline<'ctx>(
         let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
         let store = TypeInfoStore::new(pool);
-        let resolver = TypeLayoutResolver::new(&store, scx_ref);
+        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
         let mut builder = IrBuilder::new(scx_ref);
 
         // Runtime functions are declared lazily via `builder.runtime_fn(name)`.

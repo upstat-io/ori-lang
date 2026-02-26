@@ -96,6 +96,7 @@ use rustc_hash::FxHashMap;
 use std::path::PathBuf;
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "Tests use unwrap for brevity")]
 mod tests;
 
 /// Salsa input: lowered ARC IR for one source file.
@@ -347,12 +348,9 @@ pub fn infer_borrow_scc(
         db.pool_cache().get(module.path(db)).is_some(),
         "Pool must be cached before borrow inference — typed() should run first"
     );
-    let pool_arc = match db.pool_cache().get(module.path(db)) {
-        Some(pool) => pool,
-        None => {
-            tracing::warn!("Pool not cached for module — returning empty sigs");
-            return BorrowSigResult::empty();
-        }
+    let Some(pool_arc) = db.pool_cache().get(module.path(db)) else {
+        tracing::warn!("Pool not cached for module — returning empty sigs");
+        return BorrowSigResult::empty();
     };
     let classifier = ori_arc::ArcClassifier::new(&pool_arc);
 
