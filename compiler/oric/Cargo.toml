@@ -56,6 +56,9 @@ tracing-tree.workspace = true
 # Temp files for AOT intermediate objects
 tempfile = "3.10"
 
+# File watching (ori watch)
+notify = "7"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 criterion = { version = "0.8", features = ["html_reports"] }

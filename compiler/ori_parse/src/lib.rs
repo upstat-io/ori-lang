@@ -31,7 +31,7 @@ use ori_ir::{
     ExprArena, Function, Module, ModuleExtra, Name, SharedArena, Span, StringInterner, TestDef,
     TokenKind, TokenList, Visibility,
 };
-use tracing::debug;
+use tracing::{debug, trace};
 
 /// Result of parsing a definition starting with @.
 /// Can be either a function or a test.
@@ -552,6 +552,19 @@ impl<'a> Parser<'a> {
         errors.append(&mut self.deferred_errors);
         let warnings = self.deferred_warnings;
 
+        debug!(
+            functions = module.functions.len(),
+            tests = module.tests.len(),
+            types = module.types.len(),
+            traits = module.traits.len(),
+            impls = module.impls.len(),
+            imports = module.imports.len(),
+            expressions = self.arena.expr_count(),
+            errors = errors.len(),
+            warnings = warnings.len(),
+            "parse_module complete"
+        );
+
         ParseOutput {
             module,
             arena: SharedArena::new(self.arena),
@@ -633,6 +646,11 @@ impl<'a> Parser<'a> {
         module: &mut Module,
         errors: &mut Vec<ParseError>,
     ) {
+        trace!(
+            pos = self.cursor.position(),
+            kind = self.cursor.current_kind().display_name(),
+            "dispatch_declaration"
+        );
         if self.cursor.check(&TokenKind::At) {
             let outcome = self.parse_function_or_test(attrs, visibility);
             match outcome {

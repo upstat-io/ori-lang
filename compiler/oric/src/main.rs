@@ -5,7 +5,8 @@
 use oric::commands::{
     add_target, build_file, check_file, demangle_symbol, explain_error, lex_file,
     list_installed_targets, list_targets, parse_build_options, parse_file, remove_target, run_file,
-    run_file_compiled, run_format, run_tests, BuildOptions, TargetFilter, TargetSubcommand,
+    run_file_compiled, run_format, run_tests, watch_file, BuildOptions, TargetFilter,
+    TargetSubcommand,
 };
 use oric::test::TestRunnerConfig;
 
@@ -226,6 +227,13 @@ fn main() {
                 include_str!("../../../BUILD_NUMBER").trim(),
             );
         }
+        "watch" => {
+            if args.len() < 3 {
+                eprintln!("Usage: ori watch <file.ori>");
+                std::process::exit(1);
+            }
+            watch_file(&args[2]);
+        }
         "--explain" | "explain" => {
             if args.len() < 3 {
                 eprintln!("Usage: ori --explain <ERROR_CODE>");
@@ -265,6 +273,7 @@ fn print_usage() {
     println!("  build <file.ori>     Compile to native executable (AOT)");
     println!("  test [path]          Run tests (default: current directory)");
     println!("  check <file.ori>     Type check a file (no execution)");
+    println!("  watch <file.ori>     Watch and re-check on changes");
     println!("  fmt [paths...]       Format Ori source files");
     println!("  target <subcommand>  Manage cross-compilation targets");
     println!("  targets              List supported compilation targets");

@@ -12,6 +12,7 @@ use ori_patterns::{integer_overflow, ControlAction, EvalError, EvalResult, Value
 /// This is the preferred entry point for unary operations. It uses
 /// enum-based dispatch which is faster than trait objects for fixed type sets.
 pub fn evaluate_unary(value: Value, op: UnaryOp) -> EvalResult {
+    tracing::trace!(?op, value_type = value.type_name(), "evaluate_unary");
     match (&value, op) {
         // Numeric negation
         (Value::Int(n), UnaryOp::Neg) => n

@@ -19,6 +19,7 @@ use ori_ir::canon::{
 };
 use ori_ir::{ExprArena, ExprId, Name, Span, TypeId};
 use ori_types::{TypeCheckResult, TypedModule};
+use tracing::debug;
 
 /// Lower a type-checked AST to canonical form.
 ///
@@ -44,13 +45,23 @@ pub fn lower(
     root: ExprId,
     interner: &ori_ir::StringInterner,
 ) -> CanonResult {
+    debug!(source_exprs = src.expr_count(), "canon lower started");
+
     if !root.is_valid() {
+        debug!("canon lower: invalid root, returning empty");
         return CanonResult::empty();
     }
 
     let mut lowerer = Lowerer::new(src, &type_result.typed, pool, interner);
     let can_root = lowerer.lower_expr(root);
     let result = lowerer.finish(can_root);
+
+    debug!(
+        canon_nodes = result.arena.len(),
+        constants = result.constants.len(),
+        decision_trees = result.decision_trees.len(),
+        "canon lower complete"
+    );
 
     #[cfg(debug_assertions)]
     crate::validate(&result);
@@ -77,7 +88,8 @@ pub fn lower(
 /// A `CanonResult` with all functions lowered and named roots populated.
 #[expect(
     clippy::too_many_lines,
-    reason = "module-level canonicalization pipeline"
+    clippy::cognitive_complexity,
+    reason = "module-level canonicalization pipeline — orchestrates all lowering passes"
 )]
 pub fn lower_module(
     module: &Module,
@@ -86,6 +98,14 @@ pub fn lower_module(
     pool: &ori_types::Pool,
     interner: &ori_ir::StringInterner,
 ) -> CanonResult {
+    debug!(
+        functions = module.functions.len(),
+        tests = module.tests.len(),
+        impls = module.impls.len(),
+        source_exprs = src.expr_count(),
+        "canon lower_module started"
+    );
+
     let mut lowerer = Lowerer::new(src, &type_result.typed, pool, interner);
     let mut roots = Vec::with_capacity(module.functions.len() + module.tests.len());
 
@@ -225,6 +245,15 @@ pub fn lower_module(
     let mut result = lowerer.finish(root);
     result.roots = roots;
     result.method_roots = method_roots;
+
+    debug!(
+        canon_nodes = result.arena.len(),
+        roots = result.roots.len(),
+        method_roots = result.method_roots.len(),
+        constants = result.constants.len(),
+        decision_trees = result.decision_trees.len(),
+        "canon lower_module complete"
+    );
 
     #[cfg(debug_assertions)]
     crate::validate(&result);

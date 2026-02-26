@@ -26,6 +26,7 @@ mod run;
 mod target;
 mod targets;
 mod test;
+mod watch;
 
 // Public types and functions for external use (tests, library consumers)
 pub use build::{
@@ -44,6 +45,7 @@ pub use run::{run_file, run_file_compiled};
 pub use target::{add_target, list_installed_targets, remove_target, TargetSubcommand};
 pub use targets::{list_targets, TargetFilter};
 pub use test::run_tests;
+pub use watch::watch_file;
 
 /// Result of running the frontend pipeline (lex → parse → typecheck).
 pub(super) struct FrontendResult {

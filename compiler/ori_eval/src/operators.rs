@@ -76,6 +76,12 @@ where
     reason = "Public API consumed by callers passing owned Values; references would force cloning at call sites"
 )]
 pub fn evaluate_binary(left: Value, right: Value, op: BinaryOp) -> EvalResult {
+    tracing::trace!(
+        ?op,
+        left_type = left.type_name(),
+        right_type = right.type_name(),
+        "evaluate_binary"
+    );
     match (&left, &right) {
         (Value::Int(a), Value::Int(b)) => eval_int_binary(*a, *b, op),
         (Value::Float(a), Value::Float(b)) => eval_float_binary(*a, *b, op),

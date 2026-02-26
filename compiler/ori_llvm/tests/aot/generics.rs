@@ -504,3 +504,84 @@ fn test_generic_in_for_yield() {
         "generic_in_for_yield",
     );
 }
+
+// ─── Generic with user-defined struct params (indirect type vars) ───
+
+#[test]
+fn test_generic_struct_field_access() {
+    // Type param T nested in struct param — tests indirect var extraction.
+    // first(p: Pair{42, 10}) + 1 should return 43, not 1.
+    assert_aot_success(
+        r#"
+type Pair<A, B> = { first: A, second: B };
+
+@first <A, B> (p: Pair<A, B>) -> A = p.first;
+
+@main () -> int = {
+    let p = Pair { first: 42, second: 10 };
+    let f = first(p: p);
+    if f + 1 == 43 then 0 else 1
+}
+"#,
+        "generic_struct_field_access",
+    );
+}
+
+#[test]
+fn test_generic_struct_two_fields() {
+    // Verify both fields of a generic struct are accessible.
+    assert_aot_success(
+        r#"
+type Pair<A, B> = { first: A, second: B };
+
+@make_pair <A, B> (a: A, b: B) -> Pair<A, B> =
+    Pair { first: a, second: b };
+
+@main () -> int = {
+    let p = make_pair(a: 10, b: 20);
+    if p.first == 10 && p.second == 20 then 0 else 1
+}
+"#,
+        "generic_struct_two_fields",
+    );
+}
+
+#[test]
+fn test_generic_struct_nested() {
+    // Generic struct containing another generic struct.
+    assert_aot_success(
+        r#"
+type Pair<A, B> = { first: A, second: B };
+type Wrapper<T> = { inner: T };
+
+@unwrap <T> (w: Wrapper<T>) -> T = w.inner;
+
+@main () -> int = {
+    let p = Pair { first: 42, second: true };
+    let w = Wrapper { inner: p };
+    let p2 = unwrap(w: w);
+    if p2.first == 42 then 0 else 1
+}
+"#,
+        "generic_struct_nested",
+    );
+}
+
+#[test]
+fn test_generic_struct_with_string_field() {
+    // Generic struct with RC-managed field — tests ARC interaction.
+    assert_aot_success(
+        r#"
+type Pair<A, B> = { first: A, second: B };
+
+@second <A, B> (p: Pair<A, B>) -> B = p.second;
+
+@main () -> int = {
+    let p = Pair { first: 1, second: "hello" };
+    let s = second(p: p);
+    if s == "hello" then 0 else 1
+}
+"#,
+        "generic_struct_string_field",
+    );
+}

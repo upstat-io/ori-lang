@@ -6,6 +6,7 @@
 
 use ori_ir::canon::{CanExpr, CanId, CanRange};
 use ori_ir::{ExprId, ExprKind, ExprRange, TypeId};
+use tracing::trace;
 
 use super::Lowerer;
 
@@ -26,6 +27,7 @@ impl Lowerer<'_> {
         let kind = *self.src.expr_kind(id);
         let span = self.src.expr_span(id);
         let ty = self.expr_type(id);
+        trace!(?id, ?kind, "lower_expr");
 
         match kind {
             // Leaf nodes — direct mapping

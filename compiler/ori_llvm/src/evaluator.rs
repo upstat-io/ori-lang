@@ -285,7 +285,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
         //   and returns `ExecutionEngine<'ctx>` tied to the Context lifetime
         let scx = ManuallyDrop::new(SimpleCx::new(&self.context, "test_module"));
 
-        let (test_wrappers, codegen_errors) = {
+        let (test_wrappers, codegen_errors, codegen_error_descriptions) = {
             // SAFETY: Detached reference to scx — see comment above.
             let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
 
@@ -401,7 +401,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             drop(fc);
 
             let errors = builder.codegen_error_count();
-            (wrappers, errors)
+            let descriptions = builder.codegen_error_descriptions();
+            (wrappers, errors, descriptions)
             // builder, resolver, store dropped here
         };
 
@@ -417,8 +418,13 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // SAFETY: The Module was created from self.context which is still
             // alive, so LLVMDisposeModule can safely clean up.
             drop(ManuallyDrop::into_inner(scx));
+            let details = if codegen_error_descriptions.is_empty() {
+                String::new()
+            } else {
+                format!(":\n  - {}", codegen_error_descriptions.join("\n  - "))
+            };
             return Err(LLVMEvalError::new(format!(
-                "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT",
+                "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT{details}",
             )));
         }
 
@@ -504,6 +510,14 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_map_keys_to_list",
     "ori_map_remove",
     "ori_map_values_to_list",
+    // Set methods — AOT uses runtime calls; JIT uses native Rust dispatch
+    "ori_set_contains",
+    "ori_set_difference",
+    "ori_set_insert",
+    "ori_set_intersection",
+    "ori_set_remove",
+    "ori_set_to_list",
+    "ori_set_union",
     // String methods — AOT uses runtime calls; JIT uses native Rust dispatch
     "ori_str_contains",
     "ori_str_ends_with",

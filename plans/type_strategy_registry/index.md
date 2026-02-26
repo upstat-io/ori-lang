@@ -249,6 +249,8 @@ grep verification, legacy removal, dead code check
 regression test, spec test, AOT test, full suite
 compile-time enforcement, Rust exhaustiveness, struct field required
 type × method × phase matrix, cross-phase coverage
+code journey, pipeline integration, differential testing, eval vs LLVM
+progressive complexity, phase boundary, end-to-end verification
 ```
 
 ---

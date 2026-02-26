@@ -27,6 +27,7 @@ pub mod panic;
 pub mod patterns;
 pub mod recursion;
 pub mod scoping;
+pub mod sets;
 pub mod spec;
 pub mod stress;
 pub mod strings;

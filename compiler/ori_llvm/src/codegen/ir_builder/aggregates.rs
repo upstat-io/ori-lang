@@ -11,8 +11,11 @@ impl IrBuilder<'_, '_> {
     pub fn extract_value(&mut self, agg: ValueId, index: u32, name: &str) -> Option<ValueId> {
         let raw = self.arena.get_value(agg);
         let BasicValueEnum::StructValue(v) = raw else {
-            tracing::error!(?raw, index, "extract_value on non-struct value");
-            self.record_codegen_error();
+            let msg = format!(
+                "extract_value on non-struct value (index {index}) — type resolution produced wrong layout"
+            );
+            tracing::error!(?raw, index, "{msg}");
+            self.record_codegen_error_with_msg(msg);
             return None;
         };
         self.builder
@@ -25,8 +28,11 @@ impl IrBuilder<'_, '_> {
     pub fn insert_value(&mut self, agg: ValueId, val: ValueId, index: u32, name: &str) -> ValueId {
         let raw_agg = self.arena.get_value(agg);
         let BasicValueEnum::StructValue(a) = raw_agg else {
-            tracing::error!(?raw_agg, index, "insert_value on non-struct value");
-            self.record_codegen_error();
+            let msg = format!(
+                "insert_value on non-struct value (index {index}) — type resolution produced wrong layout"
+            );
+            tracing::error!(?raw_agg, index, "{msg}");
+            self.record_codegen_error_with_msg(msg);
             return agg; // Return unchanged aggregate
         };
         let v = self.arena.get_value(val);
@@ -48,11 +54,11 @@ impl IrBuilder<'_, '_> {
 
         // Defensive: verify this is actually a struct type
         let BasicTypeEnum::StructType(struct_ty) = raw_ty else {
-            tracing::error!(
-                ?raw_ty,
-                "build_struct called with non-struct type — falling back"
+            let msg = format!(
+                "build_struct called with non-struct LLVM type ({raw_ty:?}) — type resolution produced wrong layout"
             );
-            self.record_codegen_error();
+            tracing::error!("{msg}");
+            self.record_codegen_error_with_msg(msg);
             return values.first().copied().unwrap_or_else(|| self.const_i64(0));
         };
 

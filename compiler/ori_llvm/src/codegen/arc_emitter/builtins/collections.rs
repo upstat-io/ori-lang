@@ -219,6 +219,87 @@ declare_builtins! { emitter, ctx;
     ("Set", "clone", borrow: true) => emitter.emit_rc_inc_clone(ctx.arg_vals[0], ctx.receiver_ty),
     ("Set", "length", borrow: true) => emitter.emit_set_length(ctx.arg_vals[0]),
     ("Set", "len", borrow: true) => emitter.emit_set_length(ctx.arg_vals[0]),
+    ("Set", "is_empty", borrow: true) => emitter.emit_set_is_empty(ctx.arg_vals[0]),
+    ("Set", "contains", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Set { element } = ctx.type_info {
+                emitter.emit_set_contains(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Set", "insert", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Set { element } = ctx.type_info {
+                emitter.emit_set_insert(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Set", "remove", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Set { element } = ctx.type_info {
+                emitter.emit_set_remove(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Set", "union", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Set { element } = ctx.type_info {
+                emitter.emit_set_union(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Set", "intersection", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Set { element } = ctx.type_info {
+                emitter.emit_set_intersection(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Set", "difference", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::Set { element } = ctx.type_info {
+                emitter.emit_set_difference(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("Set", "to_list", borrow: true) => {
+        if let TypeInfo::Set { element } = ctx.type_info {
+            emitter.emit_set_to_list(ctx.arg_vals[0], *element)
+        } else {
+            None
+        }
+    },
+    ("Set", "into", borrow: true) => {
+        if let TypeInfo::Set { element } = ctx.type_info {
+            emitter.emit_set_to_list(ctx.arg_vals[0], *element)
+        } else {
+            None
+        }
+    },
     ("Set", "iter", borrow: true) => {
         if let TypeInfo::Set { element } = ctx.type_info {
             emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
@@ -385,6 +466,210 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit `set.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
     pub(crate) fn emit_set_length(&mut self, receiver: ValueId) -> Option<ValueId> {
         self.builder.extract_value(receiver, 0, "set.len")
+    }
+
+    /// Emit `set.is_empty()` — `len == 0`.
+    pub(crate) fn emit_set_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
+        let len = self.builder.extract_value(receiver, 0, "set.len")?;
+        let zero = self.builder.const_i64(0);
+        Some(self.builder.icmp_eq(len, zero, "set.is_empty"))
+    }
+
+    /// Extract set data pointer and length from `{i64 len, i64 cap, ptr data}`.
+    fn extract_set_components(&mut self, receiver: ValueId) -> (ValueId, ValueId) {
+        let data_ptr = self
+            .builder
+            .extract_value(receiver, 2, "set.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let len = self
+            .builder
+            .extract_value(receiver, 0, "set.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        (data_ptr, len)
+    }
+
+    /// Emit `set.contains(elem)` — calls `ori_set_contains(data, len, elem_ptr, elem_size)`.
+    pub(crate) fn emit_set_contains(
+        &mut self,
+        receiver: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_set_contains")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let (data_ptr, len) = self.extract_set_components(receiver);
+        let elem_ptr = self.elem_to_ptr(elem, elem_ty, "contains.elem");
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let result = self.builder.call(
+            func_id,
+            &[data_ptr, len, elem_ptr, elem_size],
+            "set.contains",
+        )?;
+
+        // Convert i64 (0/1) to i1 (bool)
+        let zero = self.builder.const_i64(0);
+        Some(self.builder.icmp_ne(result, zero, "set.contains.bool"))
+    }
+
+    /// Emit `set.insert(elem)` — returns a new set via sret.
+    pub(crate) fn emit_set_insert(
+        &mut self,
+        receiver: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_set_insert")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let (data_ptr, len) = self.extract_set_components(receiver);
+        let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let set_ty = self.list_struct_type(); // Same layout as list: {i64, i64, ptr}
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "set.insert.out", set_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, elem_ptr, elem_size, out_alloca],
+            "set.insert",
+        );
+
+        Some(self.builder.load(set_ty, out_alloca, "set.insert.val"))
+    }
+
+    /// Emit `set.remove(elem)` — returns a new set via sret.
+    pub(crate) fn emit_set_remove(
+        &mut self,
+        receiver: ValueId,
+        elem: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_set_remove")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let (data_ptr, len) = self.extract_set_components(receiver);
+        let elem_ptr = self.elem_to_ptr(elem, elem_ty, "remove.elem");
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let set_ty = self.list_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "set.remove.out", set_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, elem_ptr, elem_size, out_alloca],
+            "set.remove",
+        );
+
+        Some(self.builder.load(set_ty, out_alloca, "set.remove.val"))
+    }
+
+    /// Emit a two-set operation (union/intersection/difference) via sret.
+    fn emit_set_binary_op(
+        &mut self,
+        receiver: ValueId,
+        other: ValueId,
+        elem_ty: Idx,
+        func_name: &str,
+        label: &str,
+    ) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let (d1, l1) = self.extract_set_components(receiver);
+        let (d2, l2) = self.extract_set_components(other);
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let set_ty = self.list_struct_type();
+        let out_alloca = self.builder.create_entry_alloca(
+            self.current_function,
+            &format!("set.{label}.out"),
+            set_ty,
+        );
+
+        self.builder.call(
+            func_id,
+            &[d1, l1, d2, l2, elem_size, out_alloca],
+            &format!("set.{label}"),
+        );
+
+        Some(
+            self.builder
+                .load(set_ty, out_alloca, &format!("set.{label}.val")),
+        )
+    }
+
+    /// Emit `set.union(other)`.
+    pub(crate) fn emit_set_union(
+        &mut self,
+        receiver: ValueId,
+        other: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        self.emit_set_binary_op(receiver, other, elem_ty, "ori_set_union", "union")
+    }
+
+    /// Emit `set.intersection(other)`.
+    pub(crate) fn emit_set_intersection(
+        &mut self,
+        receiver: ValueId,
+        other: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        self.emit_set_binary_op(
+            receiver,
+            other,
+            elem_ty,
+            "ori_set_intersection",
+            "intersection",
+        )
+    }
+
+    /// Emit `set.difference(other)`.
+    pub(crate) fn emit_set_difference(
+        &mut self,
+        receiver: ValueId,
+        other: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        self.emit_set_binary_op(receiver, other, elem_ty, "ori_set_difference", "difference")
+    }
+
+    /// Emit `set.to_list()` / `set.into()` — copies set data into a new list via sret.
+    pub(crate) fn emit_set_to_list(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
+        let llvm_func = self.builder.scx().llmod.get_function("ori_set_to_list")?;
+        let func_id = self.builder.intern_function(llvm_func);
+
+        let (data_ptr, len) = self.extract_set_components(receiver);
+        let elem_size = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let list_ty = self.list_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "set.to_list.out", list_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, elem_size, out_alloca],
+            "set.to_list",
+        );
+
+        Some(self.builder.load(list_ty, out_alloca, "set.to_list.val"))
     }
 
     /// Emit `list.iter()` — call `ori_iter_from_list(data_ptr, len, elem_size)`.

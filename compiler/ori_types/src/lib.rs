@@ -44,7 +44,9 @@ pub use output::{
     ConstParamInfo, ConstValue, DeferredMonoCall, DeferredVarBinding, EffectClass, FnWhereClause,
     FunctionSig, GenericArg, MonoInstance, TypeCheckResult, TypedModule,
 };
-pub use pool::{substitute_in_pool, EnumVariant, Pool, VarState, DEFAULT_RANK};
+pub use pool::{
+    extract_var_from_types, substitute_in_pool, EnumVariant, Pool, VarState, DEFAULT_RANK,
+};
 pub use registry::{
     // Type registry
     FieldDef,
