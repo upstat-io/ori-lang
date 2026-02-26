@@ -42,6 +42,7 @@ use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder as InkwellBuilder;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
+use rustc_hash::FxHashMap;
 
 use crate::context::SimpleCx;
 
@@ -79,6 +80,11 @@ pub struct IrBuilder<'scx, 'ctx> {
     pub(super) codegen_errors: Cell<u32>,
     /// Descriptive messages for each codegen error (for diagnostics).
     pub(super) codegen_error_descriptions: RefCell<Vec<String>>,
+    /// Cache: runtime function name → already-declared `FunctionId`.
+    ///
+    /// Avoids redundant LLVM module lookups and arena pushes for
+    /// runtime functions. Populated on first use by `runtime_fn()`.
+    runtime_cache: FxHashMap<&'static str, FunctionId>,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -93,6 +99,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             current_block: None,
             codegen_errors: Cell::new(0),
             codegen_error_descriptions: RefCell::new(Vec::new()),
+            runtime_cache: FxHashMap::default(),
         }
     }
 
@@ -179,6 +186,24 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// Intern a raw `FunctionValue` into the arena, returning a `FunctionId`.
     pub fn intern_function(&mut self, func: FunctionValue<'ctx>) -> FunctionId {
         self.arena.push_function(func)
+    }
+
+    /// Get or lazily declare a runtime function by name.
+    ///
+    /// On first call for a given name, declares the function in the LLVM
+    /// module with the correct signature and attributes (from `RT_FUNCTIONS`).
+    /// Subsequent calls return the cached `FunctionId`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` is not a known runtime function.
+    pub fn runtime_fn(&mut self, name: &'static str) -> FunctionId {
+        if let Some(&id) = self.runtime_cache.get(name) {
+            return id;
+        }
+        let id = super::runtime_decl::declare_single(self, name);
+        self.runtime_cache.insert(name, id);
+        id
     }
 }
 

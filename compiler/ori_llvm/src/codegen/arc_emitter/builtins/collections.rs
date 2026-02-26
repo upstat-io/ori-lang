@@ -495,8 +495,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_set_contains")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_set_contains");
 
         let (data_ptr, len) = self.extract_set_components(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "contains.elem");
@@ -522,8 +521,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_set_insert")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_set_insert");
 
         let (data_ptr, len) = self.extract_set_components(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
@@ -552,8 +550,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_set_remove")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_set_remove");
 
         let (data_ptr, len) = self.extract_set_components(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "remove.elem");
@@ -581,11 +578,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         other: ValueId,
         elem_ty: Idx,
-        func_name: &str,
+        func_name: &'static str,
         label: &str,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
 
         let (d1, l1) = self.extract_set_components(receiver);
         let (d2, l2) = self.extract_set_components(other);
@@ -650,8 +646,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `set.to_list()` / `set.into()` — copies set data into a new list via sret.
     pub(crate) fn emit_set_to_list(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_set_to_list")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_set_to_list");
 
         let (data_ptr, len) = self.extract_set_components(receiver);
         let elem_size = self
@@ -682,12 +677,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         _receiver_ty: Idx,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self
-            .builder
-            .scx()
-            .llmod
-            .get_function("ori_iter_from_list")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
         // Extract the raw data pointer (field 2) from {i64 len, i64 cap, ptr data}
         let data_ptr = self
@@ -715,12 +705,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// i64 inclusive}` by `lower_range`. The inclusive flag (field 3) is
     /// stored as i64 (0 or 1) and truncated to i1 for the runtime call.
     pub(crate) fn emit_range_iter(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let llvm_func = self
-            .builder
-            .scx()
-            .llmod
-            .get_function("ori_iter_from_range")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_iter_from_range");
 
         let start = self
             .builder
@@ -751,8 +736,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Str layout: `{i64 len, ptr data}`. Yields `char` (i32) values.
     pub(crate) fn emit_str_iter(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_iter_from_str")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_iter_from_str");
 
         let data_ptr = self
             .builder
@@ -776,8 +760,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_ty: Idx,
         val_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_iter_from_map")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_iter_from_map");
 
         let keys = self
             .builder
@@ -814,8 +797,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key: ValueId,
         val_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_map_get")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_map_get");
 
         let keys = self
             .builder
@@ -913,8 +895,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_ty: Idx,
         val_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_map_insert")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_map_insert");
 
         let (keys, vals, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty);
@@ -955,8 +936,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key_ty: Idx,
         val_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_map_remove")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_map_remove");
 
         let (keys, vals, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty);
@@ -1002,12 +982,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a `(str, str) -> bool` runtime call (`contains`, `starts_with`, `ends_with`).
     pub(crate) fn emit_str_bool_call(
         &mut self,
-        func_name: &str,
+        func_name: &'static str,
         receiver: ValueId,
         arg: ValueId,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
         let lhs_ptr = self.str_to_ptr(receiver, "str_op.lhs");
         let rhs_ptr = self.str_to_ptr(arg, "str_op.rhs");
         self.builder.call(func_id, &[lhs_ptr, rhs_ptr], func_name)
@@ -1016,11 +995,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Emit a `(str) -> str` runtime call (`trim`, `to_uppercase`, `to_lowercase`).
     pub(crate) fn emit_str_unary_call(
         &mut self,
-        func_name: &str,
+        func_name: &'static str,
         receiver: ValueId,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
         let ptr = self.str_to_ptr(receiver, "str_op.self");
         self.builder.call(func_id, &[ptr], func_name)
     }
@@ -1032,8 +1010,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         from: ValueId,
         to: ValueId,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_str_replace")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_str_replace");
         let s_ptr = self.str_to_ptr(receiver, "str_op.self");
         let from_ptr = self.str_to_ptr(from, "str_op.from");
         let to_ptr = self.str_to_ptr(to, "str_op.to");
@@ -1043,8 +1020,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `str.repeat(count)` — `(str, i64) -> str` runtime call.
     pub(crate) fn emit_str_repeat(&mut self, receiver: ValueId, count: ValueId) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_str_repeat")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_str_repeat");
         let s_ptr = self.str_to_ptr(receiver, "str_op.self");
         self.builder
             .call(func_id, &[s_ptr, count], "ori_str_repeat")
@@ -1054,8 +1030,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Calls `ori_str_chars(data_ptr, len, out_ptr)`.
     pub(crate) fn emit_str_chars(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_str_chars")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_str_chars");
 
         let data_ptr = self
             .builder
@@ -1085,8 +1060,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         separator: ValueId,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_str_split")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_str_split");
 
         let data_ptr = self
             .builder
@@ -1178,8 +1152,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         other: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_list_concat")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_list_concat");
 
         let (data1, len1) = self.extract_list_data_and_len(receiver);
         let (data2, len2) = self.extract_list_data_and_len(other);
@@ -1210,8 +1183,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_list_push_new")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_list_push_new");
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "push.elem");
@@ -1251,11 +1223,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         &mut self,
         receiver: ValueId,
         elem_ty: Idx,
-        func_name: &str,
+        func_name: &'static str,
         label: &str,
     ) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
         let elem_size = self.element_store_size(elem_ty);
@@ -1299,7 +1270,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
 
         let elem_info = self.type_info.get(elem_ty);
-        let (func_name, args): (&str, Vec<ValueId>) = match &elem_info {
+        let (func_name, args): (&'static str, Vec<ValueId>) = match &elem_info {
             TypeInfo::Int => ("ori_list_contains_int", vec![data_ptr, len, needle]),
             TypeInfo::Str => {
                 let needle_ptr = self.str_to_ptr(needle, "contains.needle");
@@ -1308,8 +1279,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             _ => return None, // Other element types not yet supported
         };
 
-        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
         let result = self.builder.call(func_id, &args, "contains")?;
 
         // Convert i64 (0/1) to i1 (bool)
@@ -1321,8 +1291,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Calls `ori_list_reverse(data, len, elem_size, out_ptr)`.
     pub(crate) fn emit_list_reverse(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_list_reverse")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_list_reverse");
 
         let (data_ptr, len) = self.extract_list_data_and_len(receiver);
         let elem_size = self.element_store_size(elem_ty);

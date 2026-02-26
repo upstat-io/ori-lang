@@ -13,97 +13,96 @@ fn runtime_functions_declared() {
 
     declare_runtime(&mut builder);
 
-    // Verify ALL runtime functions exist in the module (must match declare_runtime exactly)
-    let expected = [
-        // I/O
-        "ori_print",
-        "ori_print_int",
-        "ori_print_float",
-        "ori_print_bool",
-        // Panic
-        "ori_panic",
-        "ori_panic_cstr",
-        // Entry point wrapper (AOT-only, not in JIT mappings)
-        "ori_run_main",
-        // Assertions
-        "ori_assert",
-        "ori_assert_eq_int",
-        "ori_assert_eq_bool",
-        "ori_assert_eq_float",
-        "ori_assert_eq_str",
-        // Lists
-        "ori_list_alloc_data",
-        "ori_list_free_data",
-        "ori_list_new",
-        "ori_list_free",
-        "ori_list_len",
-        "ori_list_push",
-        "ori_list_take",
-        "ori_list_push_new",
-        "ori_list_first",
-        "ori_list_last",
-        "ori_list_contains_int",
-        "ori_list_contains_str",
-        "ori_list_concat",
-        "ori_list_reverse",
-        // Maps
-        "ori_map_contains_key",
-        "ori_map_get",
-        "ori_map_insert",
-        "ori_map_keys_to_list",
-        "ori_map_remove",
-        "ori_map_values_to_list",
-        // Sets
-        "ori_set_contains",
-        "ori_set_difference",
-        "ori_set_insert",
-        "ori_set_intersection",
-        "ori_set_remove",
-        "ori_set_to_list",
-        "ori_set_union",
-        // Comparison
-        "ori_compare_int",
-        "ori_min_int",
-        "ori_max_int",
-        // Strings
-        "ori_str_concat",
-        "ori_str_eq",
-        "ori_str_ne",
-        "ori_str_compare",
-        "ori_str_hash",
-        "ori_str_next_char",
-        "ori_str_chars",
-        "ori_str_split",
-        // Type conversions
-        "ori_str_from_int",
-        "ori_str_from_bool",
-        "ori_str_from_float",
-        // Format functions (Formattable trait)
-        "ori_format_int",
-        "ori_format_float",
-        "ori_format_str",
-        "ori_format_bool",
-        "ori_format_char",
-        // Reference counting
-        "ori_rc_alloc",
-        "ori_rc_inc",
-        "ori_rc_dec",
-        "ori_rc_free",
-        "ori_rc_live_count",
-        "ori_rc_reset_live_count",
-        // Args
-        "ori_args_from_argv",
-        "ori_register_panic_handler",
-        // EH personality
-        "rust_eh_personality",
-    ];
-
-    for name in &expected {
+    // Verify ALL runtime functions from RT_FUNCTIONS are in the module
+    for name in all_names() {
         assert!(
             scx.llmod.get_function(name).is_some(),
             "runtime function '{name}' should be declared"
         );
     }
+}
+
+#[test]
+fn empty_module_has_no_runtime_declarations() {
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_empty");
+    let _builder = IrBuilder::new(&scx);
+
+    // Without calling declare_runtime() or runtime_fn(), no functions exist
+    assert!(
+        scx.llmod.get_first_function().is_none(),
+        "empty module should have zero function declarations"
+    );
+}
+
+#[test]
+fn lazy_declares_only_requested_function() {
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_lazy");
+    let mut builder = IrBuilder::new(&scx);
+
+    // Request only ori_print
+    builder.runtime_fn("ori_print");
+
+    // Count functions in module — should be exactly 1
+    let mut n = 0;
+    let mut func = scx.llmod.get_first_function();
+    while let Some(f) = func {
+        n += 1;
+        func = f.get_next_function();
+    }
+    assert_eq!(n, 1, "should have exactly 1 declaration, got {n}");
+    assert!(scx.llmod.get_function("ori_print").is_some());
+    assert!(scx.llmod.get_function("ori_rc_alloc").is_none());
+}
+
+#[test]
+fn runtime_fn_caches_function_id() {
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_cache");
+    let mut builder = IrBuilder::new(&scx);
+
+    let id1 = builder.runtime_fn("ori_rc_inc");
+    let id2 = builder.runtime_fn("ori_rc_inc");
+
+    assert_eq!(
+        id1, id2,
+        "repeated runtime_fn() calls should return same ID"
+    );
+
+    // Still only 1 function in the module
+    let mut n = 0;
+    let mut func = scx.llmod.get_first_function();
+    while let Some(f) = func {
+        n += 1;
+        func = f.get_next_function();
+    }
+    assert_eq!(n, 1, "cached call should not create duplicates");
+}
+
+#[test]
+fn lazy_declaration_preserves_attributes() {
+    let ctx = Context::create();
+    let scx = SimpleCx::new(&ctx, "test_lazy_attrs");
+    let mut builder = IrBuilder::new(&scx);
+
+    // Declare only RC functions via lazy path
+    builder.runtime_fn("ori_rc_alloc");
+    builder.runtime_fn("ori_rc_inc");
+
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // ori_rc_alloc should have noalias return
+    assert!(
+        ir.contains("noalias") && ir.contains("ori_rc_alloc"),
+        "lazily declared ori_rc_alloc should have noalias: {ir}"
+    );
+
+    // nounwind should be present (both functions have it)
+    assert!(
+        ir.contains("nounwind"),
+        "lazily declared RC functions should have nounwind: {ir}"
+    );
 }
 
 #[test]
@@ -220,37 +219,20 @@ fn panic_functions_have_cold_nounwind() {
     );
 }
 
-/// Verifies that every function declared by `declare_runtime()` is either
-/// in the JIT mapping table or in the documented AOT-only exception list.
+/// Verifies that every function in `RT_FUNCTIONS` is either in the JIT
+/// mapping table or in the documented AOT-only exception list.
 ///
-/// This catches drift where a new runtime function is declared but not
-/// added to the JIT symbol mappings.
+/// This catches drift where a new runtime function is added to the table
+/// but not added to the JIT symbol mappings.
 #[test]
 fn declared_functions_covered_by_jit_or_aot_only() {
-    let ctx = Context::create();
-    let scx = SimpleCx::new(&ctx, "test_sync");
-    let mut builder = IrBuilder::new(&scx);
+    // Use all_names() — the data table is the single source of truth
+    let declared: BTreeSet<&str> = all_names().collect();
 
-    declare_runtime(&mut builder);
-
-    // Collect all function names declared in the LLVM module
-    let mut declared: BTreeSet<String> = BTreeSet::new();
-    let mut func = scx.llmod.get_first_function();
-    while let Some(f) = func {
-        declared.insert(
-            f.get_name()
-                .to_str()
-                .expect("non-UTF8 function name")
-                .to_owned(),
-        );
-        func = f.get_next_function();
-    }
-
-    // Build the combined coverage set: JIT mappings + AOT-only exceptions
-    let covered: BTreeSet<String> = JIT_MAPPED_RUNTIME_FUNCTIONS
+    let covered: BTreeSet<&str> = JIT_MAPPED_RUNTIME_FUNCTIONS
         .iter()
         .chain(AOT_ONLY_RUNTIME_FUNCTIONS.iter())
-        .map(|s| (*s).to_owned())
+        .copied()
         .collect();
 
     let uncovered: BTreeSet<_> = declared.difference(&covered).collect();
@@ -258,13 +240,13 @@ fn declared_functions_covered_by_jit_or_aot_only() {
 
     assert!(
         uncovered.is_empty(),
-        "Runtime functions declared but not in JIT mappings or AOT-only list: {uncovered:?}\n\
+        "Runtime functions in RT_FUNCTIONS but not in JIT mappings or AOT-only list: {uncovered:?}\n\
          Add them to JIT_MAPPED_RUNTIME_FUNCTIONS in evaluator.rs or \
          AOT_ONLY_RUNTIME_FUNCTIONS if they are AOT-only."
     );
     assert!(
         phantom.is_empty(),
-        "Functions in JIT/AOT-only lists but not declared by declare_runtime(): {phantom:?}\n\
-         Remove them from evaluator.rs or add them to declare_runtime()."
+        "Functions in JIT/AOT-only lists but not in RT_FUNCTIONS: {phantom:?}\n\
+         Remove them from evaluator.rs or add them to RT_FUNCTIONS."
     );
 }

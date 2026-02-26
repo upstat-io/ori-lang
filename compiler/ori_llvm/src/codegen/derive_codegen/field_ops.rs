@@ -159,17 +159,12 @@ fn emit_str_eq_call<'a>(
     name: &str,
     str_ty_id: LLVMTypeId,
 ) -> ValueId {
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let bool_ty = fc.builder_mut().bool_type();
-
     let lhs_alloca = fc.entry_alloca(str_ty_id, "lhs_str");
     fc.builder_mut().store(lhs, lhs_alloca);
     let rhs_alloca = fc.entry_alloca(str_ty_id, "rhs_str");
     fc.builder_mut().store(rhs, rhs_alloca);
 
-    let eq_fn = fc
-        .builder_mut()
-        .get_or_declare_function("ori_str_eq", &[ptr_ty, ptr_ty], bool_ty);
+    let eq_fn = fc.builder_mut().runtime_fn("ori_str_eq");
     fc.builder_mut()
         .call(eq_fn, &[lhs_alloca, rhs_alloca], name)
         .unwrap_or_else(|| fc.builder_mut().const_bool(false))
@@ -183,17 +178,12 @@ fn emit_str_compare_call<'a>(
     name: &str,
     str_ty_id: LLVMTypeId,
 ) -> ValueId {
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let i8_ty = fc.builder_mut().i8_type();
-
     let lhs_alloca = fc.entry_alloca(str_ty_id, "cmp_lhs_str");
     fc.builder_mut().store(lhs, lhs_alloca);
     let rhs_alloca = fc.entry_alloca(str_ty_id, "cmp_rhs_str");
     fc.builder_mut().store(rhs, rhs_alloca);
 
-    let cmp_fn =
-        fc.builder_mut()
-            .get_or_declare_function("ori_str_compare", &[ptr_ty, ptr_ty], i8_ty);
+    let cmp_fn = fc.builder_mut().runtime_fn("ori_str_compare");
     fc.builder_mut()
         .call(cmp_fn, &[lhs_alloca, rhs_alloca], name)
         .unwrap_or_else(|| fc.builder_mut().const_i8(1)) // Equal fallback
@@ -206,15 +196,10 @@ fn emit_str_hash_call<'a>(
     name: &str,
     str_ty_id: LLVMTypeId,
 ) -> ValueId {
-    let ptr_ty = fc.builder_mut().ptr_type();
-    let i64_ty = fc.builder_mut().i64_type();
-
     let val_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.str"));
     fc.builder_mut().store(val, val_alloca);
 
-    let hash_fn = fc
-        .builder_mut()
-        .get_or_declare_function("ori_str_hash", &[ptr_ty], i64_ty);
+    let hash_fn = fc.builder_mut().runtime_fn("ori_str_hash");
     fc.builder_mut()
         .call(hash_fn, &[val_alloca], name)
         .unwrap_or_else(|| fc.builder_mut().const_i64(0))
