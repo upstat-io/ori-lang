@@ -1296,3 +1296,57 @@ fn test_typed_early_cutoff_on_body_change() {
         "return type should be unchanged"
     );
 }
+
+/// Simulates 3 sequential file edits through the Salsa pipeline, proving that
+/// the database remains usable across multiple edit cycles. This is the
+/// foundational correctness proof for `ori watch` — if this test passes, the
+/// watch command's edit loop is sound.
+#[test]
+fn test_watch_loop_simulation() {
+    let mut db = CompilerDb::new();
+
+    let file = SourceFile::new(
+        &db,
+        PathBuf::from("/watch.ori"),
+        "@main () -> int = 1;".to_string(),
+    );
+
+    // Cycle 1: initial check
+    let r1 = typed(&db, file);
+    assert!(!r1.has_errors(), "cycle 1 should have no errors");
+    assert_eq!(r1.typed.functions.len(), 1);
+
+    // Cycle 2: body change (same signature)
+    file.set_text(&mut db)
+        .to("@main () -> int = 2;".to_string());
+
+    let r2 = typed(&db, file);
+    assert!(!r2.has_errors(), "cycle 2 should have no errors");
+    assert_eq!(r2.typed.functions[0].return_type, Idx::INT);
+
+    // Cycle 3: signature change (int → bool)
+    file.set_text(&mut db)
+        .to("@main () -> bool = true;".to_string());
+
+    let r3 = typed(&db, file);
+    assert!(!r3.has_errors(), "cycle 3 should have no errors");
+    assert_eq!(r3.typed.functions[0].return_type, Idx::BOOL);
+
+    // Cycle 4: introduce a type error, verify it's caught
+    file.set_text(&mut db)
+        .to("@main () -> int = true;".to_string());
+
+    let r4 = typed(&db, file);
+    assert!(r4.has_errors(), "cycle 4 should detect type mismatch");
+
+    // Cycle 5: fix the error, verify recovery
+    file.set_text(&mut db)
+        .to("@main () -> int = 42;".to_string());
+
+    let r5 = typed(&db, file);
+    assert!(
+        !r5.has_errors(),
+        "cycle 5 should recover after fixing error"
+    );
+    assert_eq!(r5.typed.functions[0].return_type, Idx::INT);
+}

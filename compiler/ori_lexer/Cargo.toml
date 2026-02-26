@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 ori_lexer_core.workspace = true
 ori_ir.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 pretty_assertions.workspace = true

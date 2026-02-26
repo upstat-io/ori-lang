@@ -1,0 +1,15 @@
+@identity<T> (x: T) -> T = x;
+
+type Pair<A, B> = { first: A, second: B }
+
+@make_pair<A, B> (a: A, b: B) -> Pair<A, B> = Pair { first: a, second: b };
+
+@first<A, B> (p: Pair<A, B>) -> A = p.first;
+
+@main () -> int = {
+    let a = identity(x: 42);
+    let b = identity(x: "hello");
+    let p = make_pair(a: a, b: 10);
+    let f = first(p: p);
+    f + 1
+}

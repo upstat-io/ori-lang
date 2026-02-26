@@ -160,6 +160,46 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
         void,
     );
 
+    // -- Set methods --
+    // ori_set_contains(data, len, needle_ptr, elem_size) -> i64 (0 or 1)
+    builder.declare_extern_function(
+        "ori_set_contains",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty],
+        Some(i64_ty),
+    );
+    // ori_set_insert(data, len, elem_ptr, elem_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_set_insert",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_set_remove(data, len, needle_ptr, elem_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_set_remove",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_set_union(d1, l1, d2, l2, elem_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_set_union",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_set_intersection(d1, l1, d2, l2, elem_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_set_intersection",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_set_difference(d1, l1, d2, l2, elem_size, out_ptr) -> void
+    builder.declare_extern_function(
+        "ori_set_difference",
+        &[ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
+        void,
+    );
+    // ori_set_to_list(data, len, elem_size, out_ptr) -> void
+    builder.declare_extern_function("ori_set_to_list", &[ptr_ty, i64_ty, i64_ty, ptr_ty], void);
+
     // ori_str_chars(str_data, str_len, out_ptr) -> void
     builder.declare_extern_function("ori_str_chars", &[ptr_ty, i64_ty, ptr_ty], void);
     // ori_str_split(str_data, str_len, sep_data, sep_len, out_ptr) -> void

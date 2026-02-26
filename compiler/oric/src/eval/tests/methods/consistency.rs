@@ -61,6 +61,8 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("Size", "subtract"),
     // Float hash — new compound type hash support, not yet in IR
     ("float", "hash"),
+    // length alias — eval accepts both "len" and "length", IR only registers "len"
+    ("str", "length"),
     // Printable for str (str.to_str returns itself)
     ("str", "to_str"),
     // Iterable — iter() returns Iterator<T>, not expressible in current IR ReturnSpec
@@ -456,16 +458,7 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("Result", "or_else"),
     ("Result", "unwrap_err"),
     ("Result", "unwrap_or"),
-    // Set — most methods not in eval yet
-    ("Set", "clone"),
-    ("Set", "contains"),
-    ("Set", "difference"),
-    ("Set", "insert"),
-    ("Set", "intersection"),
-    ("Set", "is_empty"),
-    ("Set", "remove"),
-    ("Set", "to_list"),
-    ("Set", "union"),
+    // Set — no remaining gaps (all methods implemented in eval)
     // Size — factory and conversion methods not in eval
     ("Size", "as_bytes"),
     ("Size", "format"),

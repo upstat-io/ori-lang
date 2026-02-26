@@ -33,6 +33,9 @@ subsections:
     title: "Full Test Suite Execution"
     status: not-started
   - id: "14.8"
+    title: "Code Journey (Pipeline Integration)"
+    status: not-started
+  - id: "14.9"
     title: "Exit Criteria (Entire Plan)"
     status: not-started
 ---
@@ -1363,7 +1366,34 @@ Each step must pass before proceeding to the next. Failures at any level must be
 
 ---
 
-## 14.8 Exit Criteria (Entire Plan)
+## 14.8 Code Journey (Pipeline Integration)
+
+Run `/code-journey` to test the pipeline end-to-end with progressively
+complex Ori programs. This catches issues that unit tests and spec tests
+miss: silent wrong code generation, phase boundary mismatches, cascading
+failures across compiler stages, and eval-vs-LLVM behavioral divergence.
+
+- [ ] Run `/code-journey` — journeys escalate until the compiler breaks down
+- [ ] All CRITICAL findings from journey results triaged (fixed or tracked)
+- [ ] Eval and AOT paths produce identical results for all passing journeys
+- [ ] Journey results archived in `plans/code-journeys/`
+
+**Why this matters:** Unit tests verify individual phases in isolation.
+Code journeys verify that phases compose correctly — data flows through
+the full pipeline (lexer → parser → type checker → canonicalizer →
+eval/LLVM) and produces correct results. They use differential testing
+(eval path as oracle for LLVM path) and progressive complexity
+escalation to map the exact boundary of what works.
+
+**When to run:**
+- After any change to phase boundaries (new IR nodes, new type variants)
+- After changes to monomorphization, ARC pipeline, or codegen
+- After adding new language features that affect multiple phases
+- As final verification before marking a plan complete
+
+---
+
+## 14.9 Exit Criteria (Entire Plan)
 
 These are the exhaustive "done" criteria for the complete Type Strategy Registry plan (Sections 01-14). Every checkbox must be checked before the plan is marked complete.
 
@@ -1427,6 +1457,7 @@ These guarantees are verified by running the full test suite.
 - [ ] `cargo blr && ./test-all.sh` passes (release build regression check)
 - [ ] No existing test was deleted, modified, or marked `#[ignore]` to achieve a passing suite
 - [ ] No `#[allow(clippy)]` was added without a `reason = "..."` justification
+- [ ] Code journey passes — eval/AOT match, no CRITICAL findings unaddressed
 
 ### Documentation
 

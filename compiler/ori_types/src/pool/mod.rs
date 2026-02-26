@@ -17,7 +17,7 @@ mod format;
 pub mod substitute;
 
 pub use construct::*;
-pub use substitute::substitute_in_pool;
+pub use substitute::{extract_var_from_types, substitute_in_pool};
 
 use rustc_hash::FxHashMap;
 
@@ -871,9 +871,17 @@ impl Pool {
     ///
     /// Returns the fully-resolved type, or the input if no resolution exists.
     pub fn resolve_fully(&self, idx: Idx) -> Idx {
+        // Bounds check: return early for indices outside the pool.
+        if idx.raw() as usize >= self.items.len() {
+            return idx;
+        }
+
         // Step 1: Follow VarState::Link chains (inference variable resolution).
         let mut current = idx;
         for _ in 0..16 {
+            if current.raw() as usize >= self.items.len() {
+                break;
+            }
             if self.tag(current) != Tag::Var {
                 break;
             }
@@ -889,14 +897,42 @@ impl Pool {
             return resolved;
         }
 
-        // Step 3: For Applied types, fall back to Named resolution.
+        // Step 3: For Applied types, try matching with resolved args.
         //
-        // The type checker records user-defined types as Applied(name, args)
-        // even for non-generic types (Applied("Shape", [])). But resolutions
-        // are keyed by Named("Shape"). When resolve() finds no entry for
-        // the Applied Idx, try looking up via the Named equivalent.
+        // The type checker creates Applied(Pair, [Var(X), Var(Y)]) during inference,
+        // where Var(X)/Var(Y) are later unified with concrete types via VarState::Link.
+        // But the resolution was registered for Applied(Pair, [Int, Int]) — a different Idx.
+        // Resolve the args through Var links and match against registered Applied resolutions.
         if self.tag(current) == Tag::Applied {
             let name = self.applied_name(current);
+            let args = self.applied_args(current);
+
+            // Resolve each arg through Var links to get the canonical types.
+            let resolved_args: Vec<Idx> = args.iter().map(|&a| self.resolve_fully(a)).collect();
+
+            // Check for an Applied resolution whose resolved args match.
+            // Both sides must be resolved: the input's args may be Var-linked,
+            // and the key's args may be Applied types that resolve further.
+            // Example: Wrapper<Pair<int, bool>> — input arg resolves to a
+            // concrete Pair struct, and the key's arg Applied(Pair, [int, bool])
+            // also resolves to the same struct.
+            for &key in self.resolutions.keys() {
+                if self.tag(key) == Tag::Applied && self.applied_name(key) == name {
+                    let key_args = self.applied_args(key);
+                    if key_args.len() == resolved_args.len()
+                        && key_args
+                            .iter()
+                            .zip(&resolved_args)
+                            .all(|(k, r)| self.resolve_fully(*k) == *r)
+                    {
+                        if let Some(concrete) = self.resolve(key) {
+                            return concrete;
+                        }
+                    }
+                }
+            }
+
+            // Fall back to Named resolution (non-generic Applied → Named struct).
             for &key in self.resolutions.keys() {
                 if self.tag(key) == Tag::Named && self.named_name(key) == name {
                     if let Some(concrete) = self.resolve(key) {
