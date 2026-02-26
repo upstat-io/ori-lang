@@ -205,6 +205,22 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
         self.runtime_cache.insert(name, id);
         id
     }
+
+    /// Try to get or lazily declare a runtime function by name.
+    ///
+    /// Unlike [`runtime_fn`](Self::runtime_fn), accepts `&str` (not just
+    /// `&'static str`) and returns `None` for unknown names instead of
+    /// panicking. Used by `ArcIrEmitter`'s fallback resolution path where
+    /// the callee name comes from ARC IR and may or may not be a runtime
+    /// function.
+    pub fn try_runtime_fn(&mut self, name: &str) -> Option<FunctionId> {
+        if let Some(&id) = self.runtime_cache.get(name) {
+            return Some(id);
+        }
+        let (static_name, id) = super::runtime_decl::try_declare_single(self, name)?;
+        self.runtime_cache.insert(static_name, id);
+        Some(id)
+    }
 }
 
 #[cfg(test)]

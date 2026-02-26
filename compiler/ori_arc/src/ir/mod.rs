@@ -306,6 +306,20 @@ pub enum ArcInstr {
         ctor: CtorKind,
         args: Vec<ArcVarId>,
     },
+
+    /// Conditional value selection: `let dst: ty = if cond then true_val else false_val`.
+    ///
+    /// Maps directly to LLVM `select`. Used by the decision tree emitter
+    /// to eliminate trivial match arm blocks — instead of
+    /// `switch → arm_block(br) → merge(phi)`, we emit
+    /// `icmp + select` inline, avoiding empty blocks.
+    Select {
+        dst: ArcVarId,
+        ty: Idx,
+        cond: ArcVarId,
+        true_val: ArcVarId,
+        false_val: ArcVarId,
+    },
 }
 
 impl ArcInstr {
@@ -328,7 +342,8 @@ impl ArcInstr {
             | ArcInstr::Project { dst, .. }
             | ArcInstr::Construct { dst, .. }
             | ArcInstr::IsShared { dst, .. }
-            | ArcInstr::Reuse { dst, .. } => Some(*dst),
+            | ArcInstr::Reuse { dst, .. }
+            | ArcInstr::Select { dst, .. } => Some(*dst),
 
             ArcInstr::Reset { token, .. } => Some(*token),
 
@@ -387,6 +402,13 @@ impl ArcInstr {
                 vars.extend_from_slice(args);
                 vars
             }
+
+            ArcInstr::Select {
+                cond,
+                true_val,
+                false_val,
+                ..
+            } => smallvec![*cond, *true_val, *false_val],
         }
     }
 
@@ -424,6 +446,13 @@ impl ArcInstr {
             ArcInstr::SetTag { base, .. } => *base == target,
 
             ArcInstr::Reuse { token, args, .. } => *token == target || args.contains(&target),
+
+            ArcInstr::Select {
+                cond,
+                true_val,
+                false_val,
+                ..
+            } => *cond == target || *true_val == target || *false_val == target,
         }
     }
 
@@ -501,6 +530,16 @@ impl ArcInstr {
             ArcInstr::Reuse { token, args, .. } => {
                 sub(token, old, new);
                 sub_args(args, old, new);
+            }
+            ArcInstr::Select {
+                cond,
+                true_val,
+                false_val,
+                ..
+            } => {
+                sub(cond, old, new);
+                sub(true_val, old, new);
+                sub(false_val, old, new);
             }
         }
     }

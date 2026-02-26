@@ -17,6 +17,7 @@ pub mod for_loops;
 pub mod formattable;
 pub mod generics;
 pub mod higher_order;
+pub mod ir_quality;
 pub mod iterators;
 pub mod linking;
 pub mod lto;

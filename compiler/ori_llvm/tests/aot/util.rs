@@ -589,6 +589,35 @@ pub fn compile_and_capture_ir(source: &str) -> String {
     String::from_utf8_lossy(&compile_result.stderr).to_string()
 }
 
+/// Extract a single function's LLVM IR from a full module dump.
+///
+/// Finds `define ... @func_name(` and returns everything up to the next
+/// `define` or end of IR. Panics if the function is not found.
+pub fn extract_function_ir<'a>(full_ir: &'a str, func_name: &str) -> &'a str {
+    let search = format!("@{func_name}(");
+    let start = full_ir.find(&search).unwrap_or_else(|| {
+        panic!(
+            "function {func_name} not found in IR.\n\
+             Available functions: {:?}",
+            full_ir
+                .lines()
+                .filter(|l| l.starts_with("define "))
+                .collect::<Vec<_>>()
+        );
+    });
+
+    // Find the "define" line containing this function
+    let define_start = full_ir[..start].rfind("define ").unwrap_or(start);
+
+    // Find the next "define" or end of IR section
+    let rest = &full_ir[define_start..];
+    let end = rest[1..]
+        .find("\ndefine ")
+        .map_or(rest.len(), |pos| pos + 1);
+
+    &full_ir[define_start..define_start + end]
+}
+
 /// Create a minimal valid WASM module for testing.
 ///
 /// This creates a WASM module with:

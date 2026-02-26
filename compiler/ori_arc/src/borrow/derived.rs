@@ -127,6 +127,15 @@ pub fn infer_derived_ownership(
                     }
                 }
 
+                // Select picks between two values at runtime — the result
+                // is owned (we can't statically know which branch is taken).
+                ArcInstr::Select { dst, .. } => {
+                    let dst_idx = dst.index();
+                    if dst_idx < num_vars {
+                        ownership[dst_idx] = DerivedOwnership::Owned;
+                    }
+                }
+
                 // RC/reuse ops don't define new variables (or their dst
                 // is a token which is always Owned).
                 ArcInstr::RcInc { .. }

@@ -226,8 +226,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     partial_apply_counter: u32,
     /// ARC variable → typed LLVM value mapping.
     var_map: Vec<Option<EmittedValue>>,
-    /// ARC block → LLVM block mapping.
-    block_map: Vec<BlockId>,
+    /// ARC block → LLVM block mapping (`None` for dead unwind blocks).
+    block_map: Vec<Option<BlockId>>,
     /// Deferred phi incoming values: `block_index` → `[(param_index, value, source_block)]`.
     /// Collected during terminator emission, applied after all blocks are emitted.
     phi_incoming: Vec<(usize, usize, ValueId, BlockId)>,
@@ -338,8 +338,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Look up the LLVM block for an ARC block.
+    ///
+    /// Panics if the block is a dead unwind block (no LLVM block was created).
     fn block(&self, b: ori_arc::ir::ArcBlockId) -> BlockId {
         self.block_map[b.index()]
+            .expect("block() called for dead unwind block — invariant violated")
     }
 
     /// Get or generate the drop function for a type.
@@ -386,65 +389,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Pre-creates all LLVM blocks, binds function parameters, emits each
     /// block's instructions and terminator, then patches phi nodes.
     pub fn emit_function(&mut self, func: &ArcFunction, abi: &FunctionAbi) {
-        // Pre-create all LLVM blocks
-        self.block_map = func
-            .blocks
-            .iter()
-            .enumerate()
-            .map(|(i, _)| {
-                let name = format!("bb{i}");
-                self.builder.append_block(self.current_function, &name)
-            })
-            .collect();
-
-        // Resize var_map to hold all variables
-        self.var_map.resize(func.var_types.len(), None);
-
-        // Bind function parameters (respecting ABI passing modes).
-        // Reference and Indirect params arrive as pointers — load the actual
-        // value so ARC IR sees the struct, not the pointer.
-        let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
-        let needs_loads = abi.params.iter().any(|p| {
-            matches!(
-                p.passing,
-                ParamPassing::Indirect { .. } | ParamPassing::Reference
-            )
-        });
-        if needs_loads {
-            // Position at entry block for load instructions
-            self.builder.position_at_end(self.block_map[0]);
-        }
-        let mut llvm_param_idx = sret_offset;
-        for (i, param) in func.params.iter().enumerate() {
-            let passing = &abi.params[i].passing;
-            match passing {
-                ParamPassing::Direct => {
-                    let llvm_param = self
-                        .builder
-                        .get_param(self.current_function, llvm_param_idx);
-                    self.def_var_repr(param.var, llvm_param, func);
-                    llvm_param_idx += 1;
-                }
-                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
-                    let ptr_param = self
-                        .builder
-                        .get_param(self.current_function, llvm_param_idx);
-                    let ty = self.resolve_type(param.ty);
-                    let loaded = self.builder.load(ty, ptr_param, "param.load");
-                    self.def_var_repr(param.var, loaded, func);
-                    llvm_param_idx += 1;
-                }
-                ParamPassing::Void => {
-                    // No physical LLVM param — bind to a zero/unit constant
-                    let zero = self.builder.const_i64(0);
-                    self.def_var(param.var, EmittedValue::Immediate(zero));
-                }
-            }
-        }
-
-        // Pre-scan: find unwind destination blocks. With nounwind analysis,
+        // Pre-scan: find dead unwind blocks. With nounwind analysis,
         // Invoke terminators calling known-nounwind functions are downgraded
         // to `call` + `br`, so their unwind blocks become dead code.
+        // This must happen before block pre-creation so we can skip creating
+        // LLVM basic blocks for dead blocks entirely.
         let mut all_invoke_unwind = rustc_hash::FxHashSet::default();
         let mut unwind_blocks = rustc_hash::FxHashSet::default();
         for block in &func.blocks {
@@ -462,8 +411,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Dead unwind blocks: targets only of nounwind Invokes (downgraded to call).
-        // These blocks have no predecessors and must not emit instructions that
-        // reference values from other blocks (LLVM dominance violation).
+        // These blocks have no predecessors and must not be emitted.
         let dead_unwind: rustc_hash::FxHashSet<usize> = all_invoke_unwind
             .difference(&unwind_blocks)
             .copied()
@@ -504,6 +452,66 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
              dead_unwind detection invariant violated"
         );
 
+        // Pre-create LLVM blocks, skipping dead unwind blocks
+        self.block_map = func
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(i, _)| {
+                if dead_unwind.contains(&i) {
+                    None
+                } else {
+                    let name = format!("bb{i}");
+                    Some(self.builder.append_block(self.current_function, &name))
+                }
+            })
+            .collect();
+
+        // Resize var_map to hold all variables
+        self.var_map.resize(func.var_types.len(), None);
+
+        // Bind function parameters (respecting ABI passing modes).
+        // Reference and Indirect params arrive as pointers — load the actual
+        // value so ARC IR sees the struct, not the pointer.
+        let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
+        let needs_loads = abi.params.iter().any(|p| {
+            matches!(
+                p.passing,
+                ParamPassing::Indirect { .. } | ParamPassing::Reference
+            )
+        });
+        if needs_loads {
+            // Position at entry block for load instructions
+            self.builder.position_at_end(self.block(func.entry));
+        }
+        let mut llvm_param_idx = sret_offset;
+        for (i, param) in func.params.iter().enumerate() {
+            let passing = &abi.params[i].passing;
+            match passing {
+                ParamPassing::Direct => {
+                    let llvm_param = self
+                        .builder
+                        .get_param(self.current_function, llvm_param_idx);
+                    self.def_var_repr(param.var, llvm_param, func);
+                    llvm_param_idx += 1;
+                }
+                ParamPassing::Indirect { .. } | ParamPassing::Reference => {
+                    let ptr_param = self
+                        .builder
+                        .get_param(self.current_function, llvm_param_idx);
+                    let ty = self.resolve_type(param.ty);
+                    let loaded = self.builder.load(ty, ptr_param, "param.load");
+                    self.def_var_repr(param.var, loaded, func);
+                    llvm_param_idx += 1;
+                }
+                ParamPassing::Void => {
+                    // No physical LLVM param — bind to a zero/unit constant
+                    let zero = self.builder.const_i64(0);
+                    self.def_var(param.var, EmittedValue::Immediate(zero));
+                }
+            }
+        }
+
         // Set personality function on the LLVM function if any real invokes exist.
         // Required for any function containing `invoke`/`landingpad`.
         let personality_id = if unwind_blocks.is_empty() {
@@ -535,20 +543,19 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
 
         // Emit each block's body and terminator.
-        // Dead unwind blocks (from nounwind optimization) get a single `unreachable`.
+        // Dead unwind blocks are skipped entirely — no LLVM block was created.
         // Live unwind blocks start with a landing pad. Two flavors:
         // - **Cleanup** (terminator = Resume): `landingpad cleanup`, RC cleanup, resume
         // - **Catch** (terminator = Jump): `landingpad catch null`, free exception via
         //   `ori_catch_cleanup`, then jump to catch handler. Used by `catch(expr:)`.
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
         for block in &func.blocks {
-            self.builder.position_at_end(self.block(block.id));
-
-            // Dead unwind block: no predecessors, emit unreachable and skip
+            // Dead unwind block: no LLVM block exists, skip entirely
             if dead_unwind.contains(&block.id.index()) {
-                self.builder.unreachable();
                 continue;
             }
+
+            self.builder.position_at_end(self.block(block.id));
 
             // Live unwind blocks must start with a landingpad instruction
             if unwind_blocks.contains(&block.id.index()) {
@@ -723,13 +730,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ) {
         let func_name_str = self.interner.lookup(callee);
         let normal_block = self.block(normal);
-        let unwind_block = self.block(unwind);
         let is_nounwind = self.ctx.nounwind_functions.contains(&callee);
         let mode = if is_nounwind {
             InvokeMode::Call {
                 normal: normal_block,
             }
         } else {
+            // Only resolve unwind block when actually needed — dead unwind
+            // blocks have no LLVM basic block and would panic in block().
+            let unwind_block = self.block(unwind);
             InvokeMode::Invoke {
                 normal: normal_block,
                 unwind: unwind_block,
@@ -803,8 +812,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             self.builder.br(normal_block);
             self.builder.position_at_end(normal_block);
             self.def_var_repr(dst, val, arc_func);
-        } else if let Some(llvm_func) = self.builder.scx().llmod.get_function(func_name_str) {
-            // Runtime function fallback with aggregate coercion
+        } else if let Some(func_id) = self.builder.try_runtime_fn(func_name_str) {
+            // Runtime function fallback with aggregate coercion.
+            // Runtime functions take ptr params, but ARC IR passes aggregate
+            // structs (Str, List, etc.) by value — coerce as needed.
             let is_list_push = func_name_str == "ori_list_push";
             let coerced_args: Vec<ValueId> = arc_args
                 .iter()
@@ -819,7 +830,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     }
                 })
                 .collect();
-            let func_id = self.builder.intern_function(llvm_func);
             if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
                 self.builder.position_at_end(mode.normal_block());
                 self.def_var_repr(dst, val, arc_func);
@@ -1026,7 +1036,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             }
         } else if let Some(val) = self.try_emit_builtin_method(callee, args, func) {
             Some(val)
-        } else if let Some(llvm_func) = self.builder.scx().llmod.get_function(callee_name_str) {
+        } else if let Some(func_id) = self.builder.try_runtime_fn(callee_name_str) {
             // Runtime function fallback: coerce aggregate args to pointers.
             // Runtime functions (ori_print, ori_str_*, etc.) take ptr params,
             // but ARC IR passes aggregate structs (Str, List, etc.) by value.
@@ -1047,7 +1057,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     }
                 })
                 .collect();
-            let func_id = self.builder.intern_function(llvm_func);
             self.builder.call(func_id, &coerced_args, "call")
         } else {
             let msg = format!(
@@ -1760,6 +1769,20 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 let tag_val = self.builder.const_i64(*tag as i64);
                 self.builder.store(tag_val, tag_ptr);
                 // base pointer unchanged — mutation is in-place
+            }
+
+            ArcInstr::Select {
+                dst,
+                cond,
+                true_val,
+                false_val,
+                ..
+            } => {
+                let c = self.var(*cond);
+                let t = self.var(*true_val);
+                let f = self.var(*false_val);
+                let result = self.builder.select(c, t, f, "sel");
+                self.def_var(*dst, EmittedValue::Immediate(result));
             }
         }
     }
