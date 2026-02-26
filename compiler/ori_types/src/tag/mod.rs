@@ -186,6 +186,45 @@ impl Tag {
         matches!(self, Self::Var | Self::BoundVar | Self::RigidVar)
     }
 
+    // === Merkle Hash Classification ===
+    //
+    // Every tag falls into exactly one of three categories for Merkle hashing:
+    // 1. `has_child_in_data()` — data = child Idx (simple containers)
+    // 2. `uses_extra()` — extra array has data to hash (complex, named, schemes)
+    // 3. Leaf — hash tag + data directly (primitives, variables, specials)
+    //
+    // `is_merkle_leaf()` = !has_child_in_data() && !uses_extra()
+
+    /// Whether `data` field contains a child type Idx.
+    ///
+    /// True for simple containers (List, Option, Set, Channel, Range,
+    /// Iterator, `DoubleEndedIterator`) where `data = child.raw()`.
+    /// For Merkle hashing, the child's hash is looked up via
+    /// `pool.hashes[data as usize]` instead of hashing the raw Idx.
+    #[inline]
+    pub const fn has_child_in_data(self) -> bool {
+        matches!(
+            self,
+            Self::List
+                | Self::Option
+                | Self::Set
+                | Self::Channel
+                | Self::Range
+                | Self::Iterator
+                | Self::DoubleEndedIterator
+        )
+    }
+
+    /// Whether this type is a Merkle hash leaf — tag + data only.
+    ///
+    /// True for primitives (data unused), type variables (data = var ID),
+    /// and special types without extra data (`ModuleNs`, `Infer`, `SelfType`).
+    /// These hash as `hash(tag, data)` — no child lookups needed.
+    #[inline]
+    pub const fn is_merkle_leaf(self) -> bool {
+        !self.has_child_in_data() && !self.uses_extra()
+    }
+
     /// Get the name of this tag as a static string.
     #[inline]
     pub const fn name(self) -> &'static str {

@@ -30,7 +30,7 @@ This gives per-module pools the performance characteristics of a global pool:
 ## Keyword Clusters by Section
 
 ### Section 01: Merkle Hash Foundation
-**File:** `section-01-merkle-hash-foundation.md` | **Status:** Not Started
+**File:** `section-01-merkle-hash-foundation.md` | **Status:** Complete
 
 ```
 compute_hash, merkle_hash, FxHasher, content-addressed
@@ -48,7 +48,7 @@ FxHash, 64-bit, collision probability, birthday paradox
 ---
 
 ### Section 02: Hash Stability Testing
-**File:** `section-02-hash-stability-testing.md` | **Status:** Not Started
+**File:** `section-02-hash-stability-testing.md` | **Status:** Complete
 
 ```
 cross-pool, stability, identical hash, different pool
@@ -149,8 +149,8 @@ scalability, 100 modules, 1000 types
 
 | ID | Title | File | Status |
 |----|-------|------|--------|
-| 01 | Merkle Hash Foundation | `section-01-merkle-hash-foundation.md` | Not Started |
-| 02 | Hash Stability Testing | `section-02-hash-stability-testing.md` | Not Started |
+| 01 | Merkle Hash Foundation | `section-01-merkle-hash-foundation.md` | Complete |
+| 02 | Hash Stability Testing | `section-02-hash-stability-testing.md` | Complete |
 | 03 | Hash-Forwarded Signatures | `section-03-hash-forwarded-signatures.md` | Not Started |
 | 04 | Hash-First Import Resolution | `section-04-hash-first-import-resolution.md` | Not Started |
 | 05 | Portable Type Descriptors | `section-05-portable-type-descriptors.md` | Not Started |
