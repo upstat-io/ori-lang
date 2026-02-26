@@ -9,17 +9,24 @@
 //! 2. **Phase 2 (define)**: Walk all functions again, lower through the ARC
 //!    pipeline (`CanExpr` → ARC IR → `ArcIrEmitter` → LLVM IR).
 //!
-//! This replaces `ModuleCompiler::compile_function_with_sig()` and
-//! `compile_test()` with ABI-driven compilation that gets calling conventions
-//! and sret handling correct from the start.
+//! Submodules:
+//! - [`nounwind`]: Two-pass nounwind analysis (prepare → analyze → emit)
+//! - [`impls`]: Impl method, test, and derived trait compilation
+//! - [`entry_point`]: AOT `main()` wrapper and panic trampoline
+
+mod entry_point;
+mod impls;
+mod nounwind;
+
+pub use nounwind::PreparedFunction;
 
 use std::cell::Cell;
 
 use ori_arc::{lower_function_can, AnnotatedSig, ArcClassifier};
 use ori_ir::canon::{CanId, CanonResult};
-use ori_ir::{Function, Name, Span, StringInterner, TestDef, TraitDef, TraitItem};
+use ori_ir::{Function, Name, Span, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use tracing::{debug, trace, warn};
 
 use crate::aot::debug::DebugContext;
@@ -33,41 +40,6 @@ use super::arc_emitter::{ArcIrEmitter, CodegenContext};
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{FunctionId, LLVMTypeId, ValueId};
-
-// ---------------------------------------------------------------------------
-// Prepared function types (two-pass nounwind analysis)
-// ---------------------------------------------------------------------------
-
-/// A function fully processed through the ARC pipeline, ready for nounwind
-/// analysis and LLVM emission.
-///
-/// Created by [`FunctionCompiler::prepare_all_cached`] or
-/// [`FunctionCompiler::prepare_mono_cached`]. Enables two-pass compilation:
-/// 1. Lower all functions to ARC IR (populate this buffer)
-/// 2. Analyze nounwind on the complete set ([`FunctionCompiler::compute_nounwind_set`])
-/// 3. Emit LLVM IR using the complete nounwind set ([`FunctionCompiler::emit_prepared_functions`])
-///
-/// This ensures monomorphized callee nounwind status is available when
-/// analyzing callers, preventing unnecessary `invoke` + landing pad overhead.
-pub struct PreparedFunction {
-    name: Name,
-    func_id: FunctionId,
-    abi: FunctionAbi,
-    arc_func: ori_arc::ArcFunction,
-    lambdas: Vec<PreparedLambda>,
-}
-
-/// A lambda processed through the ARC pipeline, ready for LLVM emission.
-///
-/// The lambda's LLVM function is already declared and registered in
-/// `CodegenContext::functions` during preparation — only the body emission
-/// is deferred to [`FunctionCompiler::emit_prepared_functions`].
-struct PreparedLambda {
-    name: Name,
-    func_id: FunctionId,
-    abi: FunctionAbi,
-    arc_func: ori_arc::ArcFunction,
-}
 
 // ---------------------------------------------------------------------------
 // FunctionCompiler
@@ -184,7 +156,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// (sret pointer, direct, indirect/reference), declares the function
     /// (direct vs void return), sets calling convention, and applies sret
     /// attributes. Callers handle ABI computation, debug info, and registration.
-    fn declare_function_llvm(&mut self, symbol: &str, abi: &FunctionAbi) -> FunctionId {
+    pub(super) fn declare_function_llvm(&mut self, symbol: &str, abi: &FunctionAbi) -> FunctionId {
         let mut llvm_param_types = Vec::with_capacity(abi.params.len() + 1);
 
         let return_llvm_type = self.type_resolver.resolve(abi.return_abi.ty);
@@ -235,7 +207,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Computes ABI from signature, delegates to [`Self::declare_function_llvm`]
     /// for LLVM-level declaration, then attaches debug info and registers the
     /// function for internal lookup.
-    fn declare_function_with_symbol(
+    pub(super) fn declare_function_with_symbol(
         &mut self,
         name: Name,
         symbol: &str,
@@ -278,150 +250,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     // Phase 2: Define
     // -----------------------------------------------------------------------
 
-    /// Define all module function bodies.
-    ///
-    /// Must be called after `declare_all()`. For each non-generic function,
-    /// lowers through the ARC pipeline and emits the return instruction.
-    pub fn define_all(
-        &mut self,
-        module_functions: &[Function],
-        function_sigs: &[FunctionSig],
-        canon: &CanonResult,
-    ) {
-        // Verify all non-generic functions have borrow inference entries.
-        // A miss indicates a pipeline bug — the function was compiled without
-        // being analyzed by `infer_borrows_scc`, so it falls back to all-Owned.
-        #[cfg(debug_assertions)]
-        {
-            let missing: Vec<_> = module_functions
-                .iter()
-                .zip(function_sigs.iter())
-                .filter(|(_, sig)| !sig.is_generic())
-                .filter(|(func, _)| !self.annotated_sigs.contains_key(&func.name))
-                .map(|(func, _)| self.interner.lookup(func.name))
-                .collect::<Vec<_>>();
-            debug_assert!(
-                missing.is_empty(),
-                "functions missing borrow sigs: {missing:?}"
-            );
-        }
-
-        for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
-            if sig.is_generic() {
-                continue;
-            }
-
-            // Look up previously declared function
-            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&func.name) else {
-                warn!(
-                    name = %self.interner.lookup(func.name),
-                    "function not declared — skipping definition"
-                );
-                self.builder.record_codegen_error();
-                continue;
-            };
-            let abi = abi.clone();
-
-            // Look up the canonical body for this function
-            let body = canon.root_for(func.name).unwrap_or(canon.root);
-            self.define_function_body(func.name, func_id, &abi, body, canon, sig.is_fbip);
-        }
-    }
-
-    /// Define function bodies from a pre-lowered ARC IR cache.
-    ///
-    /// For each function, removes its `ArcFunction` from the cache (zero-copy
-    /// move) and runs the ARC pipeline + LLVM emission via
-    /// [`Self::define_function_body_from_arc`]. Functions not found in the cache
-    /// fall back to inline lowering via [`Self::define_function_body`].
-    pub fn define_all_cached(
-        &mut self,
-        module_functions: &[Function],
-        function_sigs: &[FunctionSig],
-        canon: &CanonResult,
-        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-    ) {
-        for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
-            if sig.is_generic() {
-                continue;
-            }
-
-            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&func.name) else {
-                warn!(
-                    name = %self.interner.lookup(func.name),
-                    "function not declared — skipping definition"
-                );
-                self.builder.record_codegen_error();
-                continue;
-            };
-            let abi = abi.clone();
-
-            if let Some((arc_func, lambdas)) = arc_cache.remove(&func.name) {
-                self.define_function_body_from_arc(
-                    func.name,
-                    func_id,
-                    &abi,
-                    arc_func,
-                    lambdas,
-                    self.arc_classifier,
-                );
-            } else {
-                // Fallback: function not pre-lowered — lower inline
-                let body = canon.root_for(func.name).unwrap_or(canon.root);
-                self.define_function_body(func.name, func_id, &abi, body, canon, sig.is_fbip);
-            }
-        }
-    }
-
-    /// Define monomorphized function bodies from a pre-lowered ARC IR cache.
-    ///
-    /// Same as [`Self::define_all_cached`] but for monomorphized generic functions.
-    /// Falls back to [`Self::define_mono_functions`]'s inline lowering path for
-    /// functions not found in the cache.
-    pub fn define_mono_cached(
-        &mut self,
-        mono_functions: &[crate::monomorphize::MonoFunction],
-        canon: &CanonResult,
-        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-    ) {
-        for mono_fn in mono_functions {
-            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&mono_fn.mangled_name)
-            else {
-                warn!(
-                    name = %self.interner.lookup(mono_fn.mangled_name),
-                    "mono function not declared — skipping definition"
-                );
-                self.builder.record_codegen_error();
-                continue;
-            };
-            let abi = abi.clone();
-
-            if let Some((arc_func, lambdas)) = arc_cache.remove(&mono_fn.mangled_name) {
-                self.define_function_body_from_arc(
-                    mono_fn.mangled_name,
-                    func_id,
-                    &abi,
-                    arc_func,
-                    lambdas,
-                    self.arc_classifier,
-                );
-            } else {
-                // Fallback: lower inline with type substitution
-                let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
-                self.define_function_body_arc_with_subst(
-                    mono_fn.mangled_name,
-                    func_id,
-                    &abi,
-                    body,
-                    canon,
-                    self.arc_classifier,
-                    mono_fn.sig.is_fbip,
-                    Some(&mono_fn.body_type_map),
-                );
-            }
-        }
-    }
-
     // Monomorphized function support
 
     /// Declare monomorphized functions (phase 1).
@@ -441,46 +269,10 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    /// Define monomorphized function bodies (phase 2).
-    ///
-    /// Each mono function reuses the generic function's canonical IR body but
-    /// passes the `body_type_map` as the `type_subst` parameter to `lower_function_can`,
-    /// so expression types are substituted to concrete types during ARC lowering.
-    pub fn define_mono_functions(
-        &mut self,
-        mono_functions: &[crate::monomorphize::MonoFunction],
-        canon: &CanonResult,
-    ) {
-        for mono_fn in mono_functions {
-            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&mono_fn.mangled_name)
-            else {
-                warn!(
-                    name = %self.interner.lookup(mono_fn.mangled_name),
-                    "mono function not declared — skipping definition"
-                );
-                self.builder.record_codegen_error();
-                continue;
-            };
-            let abi = abi.clone();
-
-            let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
-            self.define_function_body_arc_with_subst(
-                mono_fn.mangled_name,
-                func_id,
-                &abi,
-                body,
-                canon,
-                self.arc_classifier,
-                mono_fn.sig.is_fbip,
-                Some(&mono_fn.body_type_map),
-            );
-        }
-    }
-
     /// Define a single function body via the ARC codegen pipeline.
     ///
     /// Runs: lower → borrow annotate → ARC pipeline → `ArcIrEmitter`.
-    fn define_function_body(
+    pub(super) fn define_function_body(
         &mut self,
         name: Name,
         func_id: FunctionId,
@@ -489,16 +281,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         canon: &CanonResult,
         is_fbip: bool,
     ) {
-        self.define_function_body_arc_with_subst(
-            name,
-            func_id,
-            abi,
-            body,
-            canon,
-            self.arc_classifier,
-            is_fbip,
-            None,
-        );
+        self.define_function_body_arc_with_subst(name, func_id, abi, body, canon, is_fbip, None);
     }
 
     /// ARC IR → LLVM IR codegen (with RC lifecycle).
@@ -516,7 +299,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         abi: &FunctionAbi,
         body: CanId,
         canon: &CanonResult,
-        classifier: &ArcClassifier,
         is_fbip: bool,
         type_subst: Option<&FxHashMap<Idx, Idx>>,
     ) {
@@ -549,97 +331,34 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug!(?problem, "ARC lowering problem");
         }
 
-        self.emit_arc_function(name, func_id, abi, arc_func, lambdas, classifier);
-    }
-
-    /// Define a function body from pre-lowered ARC IR.
-    ///
-    /// Skips `lower_function_can()` — the `ArcFunction` was already lowered
-    /// by the caller (e.g., during borrow inference). Runs the remainder
-    /// of the pipeline: apply borrows → annotate args → ARC pipeline → emit.
-    ///
-    /// `lambdas` are compiled as separate LLVM functions, registered in
-    /// `self.codegen_ctx.functions` so `emit_partial_apply` can look them up by `Name`.
-    fn define_function_body_from_arc(
-        &mut self,
-        name: Name,
-        func_id: FunctionId,
-        abi: &FunctionAbi,
-        arc_func: ori_arc::ArcFunction,
-        lambdas: Vec<ori_arc::ArcFunction>,
-        classifier: &ArcClassifier,
-    ) {
-        let name_str = self.interner.lookup(name);
-        debug!(
-            name = name_str,
-            tier = 2,
-            "defining function body (ARC, pre-lowered)"
-        );
-
-        self.enter_debug_scope(func_id);
-        self.builder.set_current_function(func_id);
-
-        self.emit_arc_function(name, func_id, abi, arc_func, lambdas, classifier);
+        self.emit_arc_function(name, func_id, abi, arc_func, lambdas);
     }
 
     /// Shared post-lowering pipeline: apply borrows → compile lambdas →
     /// annotate arg ownership → ARC pipeline → emit LLVM IR.
     ///
-    /// Called by both `define_function_body_arc_with_subst` (after inline
-    /// lowering) and `define_function_body_from_arc` (with pre-lowered ARC IR).
-    /// The caller is responsible for `enter_debug_scope` / `set_current_function`.
-    fn emit_arc_function(
+    /// Called by `define_function_body_arc_with_subst` (after inline lowering)
+    /// and `compile_tests` (for test wrappers). The caller is responsible for
+    /// `enter_debug_scope` / `set_current_function`.
+    pub(super) fn emit_arc_function(
         &mut self,
         name: Name,
         func_id: FunctionId,
         abi: &FunctionAbi,
         mut arc_func: ori_arc::ArcFunction,
         lambdas: Vec<ori_arc::ArcFunction>,
-        classifier: &ArcClassifier,
     ) {
-        let name_str = self.interner.lookup(name);
-
-        // Apply borrow inference annotations to ARC IR params.
-        // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
-        // Without this, RC insertion generates unnecessary RcInc/RcDec for
-        // params that borrow inference determined should be Borrowed.
-        if let Some(sig) = self.annotated_sigs.get(&name) {
-            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
-                param.ownership = annotated.ownership;
-            }
-        } else if !arc_func.params.is_empty() {
-            warn!(
-                func = name_str,
-                params = arc_func.params.len(),
-                "borrow signature missing — compiling with all-Owned params"
-            );
-        }
-
         // Compile lambda ArcFunctions (closures).
         // Each lambda is compiled as a separate LLVM function, registered in
         // self.codegen_ctx.functions so that emit_partial_apply can look it up by Name.
         for mut lambda in lambdas {
-            self.compile_lambda_arc(&mut lambda, classifier);
+            self.compile_lambda_arc(&mut lambda);
         }
 
-        // Annotate arg ownership, then run full ARC pipeline
-        ori_arc::annotate_arg_ownership(
-            &mut arc_func,
-            self.annotated_sigs,
-            self.interner,
-            &self.borrowing_builtins,
-        );
-        let arc_problems = ori_arc::run_arc_pipeline(
-            &mut arc_func,
-            classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-        );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem");
-        }
+        // Shared ARC processing: borrow annotations → arg ownership → pipeline
+        self.process_arc_function(name, &mut arc_func);
 
+        let name_str = self.interner.lookup(name);
         let is_nounwind = self.is_arc_function_nounwind(&arc_func);
 
         trace!(
@@ -656,7 +375,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.type_resolver,
             self.interner,
             self.pool,
-            classifier as &dyn ori_arc::ArcClassification,
+            self.arc_classifier as &dyn ori_arc::ArcClassification,
             func_id,
             &self.codegen_ctx,
         );
@@ -680,56 +399,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// generated later by `emit_partial_apply` in the ARC emitter.
     ///
     /// Registers the lambda in `self.codegen_ctx.functions` so the emitter can look it up.
-    fn compile_lambda_arc(
-        &mut self,
-        lambda: &mut ori_arc::ArcFunction,
-        classifier: &ArcClassifier,
-    ) {
-        let lambda_name = lambda.name;
-        let lambda_name_str = self.interner.lookup(lambda_name);
-
-        // Compute ABI from the lambda's ArcParam types
-        let abi = self.compute_arc_function_abi(lambda);
-
-        // Generate unique mangled symbol name
-        let counter = self.lambda_counter.get();
-        self.lambda_counter.set(counter + 1);
-        let symbol = self
-            .mangler
-            .mangle_function(self.module_path, &format!("__lambda_{counter}"));
-
-        debug!(
-            name = lambda_name_str,
-            symbol,
-            params = abi.params.len(),
-            "declaring lambda function (ARC)"
-        );
-
-        // Declare LLVM function
-        let func_id = self.declare_function_llvm(&symbol, &abi);
-
-        // Register so emit_partial_apply can find it by Name
-        self.codegen_ctx
-            .functions
-            .insert(lambda_name, (func_id, abi.clone()));
-
-        // Run full ARC pipeline on the lambda
-        ori_arc::annotate_arg_ownership(
-            lambda,
-            self.annotated_sigs,
-            self.interner,
-            &self.borrowing_builtins,
-        );
-        let arc_problems = ori_arc::run_arc_pipeline(
-            lambda,
-            classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-        );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem (lambda)");
-        }
+    fn compile_lambda_arc(&mut self, lambda: &mut ori_arc::ArcFunction) {
+        // Shared setup: declare, register, run ARC pipeline
+        let (lambda_name, func_id, abi) = self.declare_and_process_lambda(lambda);
 
         let is_nounwind = self.is_arc_function_nounwind(lambda);
 
@@ -741,7 +413,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             self.type_resolver,
             self.interner,
             self.pool,
-            classifier as &dyn ori_arc::ArcClassification,
+            self.arc_classifier as &dyn ori_arc::ArcClassification,
             func_id,
             &self.codegen_ctx,
         );
@@ -756,7 +428,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Compute a `FunctionAbi` from an `ArcFunction`'s parameter and return types.
     ///
     /// Used for lambda functions where no `FunctionSig` exists.
-    fn compute_arc_function_abi(&self, func: &ori_arc::ArcFunction) -> FunctionAbi {
+    pub(super) fn compute_arc_function_abi(&self, func: &ori_arc::ArcFunction) -> FunctionAbi {
         let params: Vec<ParamAbi> = func
             .params
             .iter()
@@ -779,6 +451,107 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Shared ARC processing helpers
+    // -----------------------------------------------------------------------
+
+    /// Apply borrow annotations, annotate arg ownership, and run the ARC
+    /// pipeline on a function.
+    ///
+    /// Shared by both the immediate-emit path ([`Self::emit_arc_function`]) and
+    /// the two-pass prepare path ([`Self::prepare_arc_function`]).
+    pub(super) fn process_arc_function(&mut self, name: Name, arc_func: &mut ori_arc::ArcFunction) {
+        // Apply borrow inference annotations to ARC IR params.
+        // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
+        // Without this, RC insertion generates unnecessary RcInc/RcDec for
+        // params that borrow inference determined should be Borrowed.
+        if let Some(sig) = self.annotated_sigs.get(&name) {
+            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
+                param.ownership = annotated.ownership;
+            }
+        } else if !arc_func.params.is_empty() {
+            let name_str = self.interner.lookup(name);
+            warn!(
+                func = name_str,
+                params = arc_func.params.len(),
+                "borrow signature missing — compiling with all-Owned params"
+            );
+        }
+
+        ori_arc::annotate_arg_ownership(
+            arc_func,
+            self.annotated_sigs,
+            self.interner,
+            &self.borrowing_builtins,
+        );
+        let arc_problems = ori_arc::run_arc_pipeline(
+            arc_func,
+            self.arc_classifier,
+            self.annotated_sigs,
+            self.pool,
+            self.interner,
+        );
+        for problem in &arc_problems {
+            debug!(?problem, "ARC pipeline problem");
+        }
+    }
+
+    /// Declare a lambda LLVM function, register it in `codegen_ctx`, and run
+    /// the ARC pipeline.
+    ///
+    /// Shared by both the immediate-emit path ([`Self::compile_lambda_arc`]) and
+    /// the two-pass prepare path ([`Self::prepare_lambda`]).
+    ///
+    /// Returns `(lambda_name, func_id, abi)` for the caller to either emit
+    /// LLVM IR immediately or buffer as a [`PreparedLambda`].
+    pub(super) fn declare_and_process_lambda(
+        &mut self,
+        lambda: &mut ori_arc::ArcFunction,
+    ) -> (Name, FunctionId, FunctionAbi) {
+        let lambda_name = lambda.name;
+
+        let abi = self.compute_arc_function_abi(lambda);
+
+        let counter = self.lambda_counter.get();
+        self.lambda_counter.set(counter + 1);
+        let symbol = self
+            .mangler
+            .mangle_function(self.module_path, &format!("__lambda_{counter}"));
+
+        debug!(
+            name = %self.interner.lookup(lambda_name),
+            symbol,
+            params = abi.params.len(),
+            "declaring lambda"
+        );
+
+        let func_id = self.declare_function_llvm(&symbol, &abi);
+
+        self.codegen_ctx
+            .functions
+            .insert(lambda_name, (func_id, abi.clone()));
+
+        // ARC processing
+        ori_arc::annotate_arg_ownership(
+            lambda,
+            self.annotated_sigs,
+            self.interner,
+            &self.borrowing_builtins,
+        );
+        let arc_problems = ori_arc::run_arc_pipeline(
+            lambda,
+            self.arc_classifier,
+            self.annotated_sigs,
+            self.pool,
+            self.interner,
+        );
+        for problem in &arc_problems {
+            debug!(?problem, "ARC pipeline problem (lambda)");
+        }
+
+        (lambda_name, func_id, abi)
+    }
+
     /// Check if an ARC function is nounwind (cannot unwind/panic).
     ///
     /// A function is nounwind if:
@@ -794,7 +567,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Indirect calls (`ApplyIndirect`) cannot be statically resolved to a
     /// known callee, so we must conservatively assume they may unwind. This
     /// prevents UB when a closure target panics inside a `nounwind` function.
-    fn is_arc_function_nounwind(&self, func: &ori_arc::ArcFunction) -> bool {
+    pub(super) fn is_arc_function_nounwind(&self, func: &ori_arc::ArcFunction) -> bool {
         func.blocks.iter().all(|block| {
             let term_ok = match &block.terminator {
                 ori_arc::ir::ArcTerminator::Invoke { func: callee, .. } => {
@@ -817,408 +590,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         })
     }
 
-    // -----------------------------------------------------------------------
-    // Two-pass nounwind: prepare → analyze → emit
-    // -----------------------------------------------------------------------
-
-    /// Lower all non-generic functions through the ARC pipeline without
-    /// emitting LLVM IR.
-    ///
-    /// Like [`Self::define_all_cached`] but buffers results for two-pass
-    /// nounwind analysis. Functions are removed from `arc_cache` (zero-copy
-    /// move). Functions not in the cache fall back to inline lowering.
-    pub fn prepare_all_cached(
-        &mut self,
-        module_functions: &[Function],
-        function_sigs: &[FunctionSig],
-        canon: &CanonResult,
-        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-    ) -> Vec<PreparedFunction> {
-        let mut prepared = Vec::new();
-
-        for (func, sig) in module_functions.iter().zip(function_sigs.iter()) {
-            if sig.is_generic() {
-                continue;
-            }
-
-            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&func.name) else {
-                warn!(
-                    name = %self.interner.lookup(func.name),
-                    "function not declared — skipping preparation"
-                );
-                self.builder.record_codegen_error();
-                continue;
-            };
-            let abi = abi.clone();
-
-            let (arc_func, lambdas) = if let Some(cached) = arc_cache.remove(&func.name) {
-                cached
-            } else {
-                // Fallback: lower inline from canonical IR
-                let body = canon.root_for(func.name).unwrap_or(canon.root);
-                let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
-                let mut problems = Vec::new();
-                let result = lower_function_can(
-                    func.name,
-                    &params,
-                    abi.return_abi.ty,
-                    body,
-                    canon,
-                    self.interner,
-                    self.pool,
-                    &mut problems,
-                    sig.is_fbip,
-                    None,
-                );
-                for problem in &problems {
-                    debug!(?problem, "ARC lowering problem (fallback)");
-                }
-                result
-            };
-
-            prepared.push(self.prepare_arc_function(func.name, func_id, &abi, arc_func, lambdas));
-        }
-
-        prepared
-    }
-
-    /// Lower all monomorphized functions through the ARC pipeline without
-    /// emitting LLVM IR.
-    ///
-    /// Like [`Self::define_mono_cached`] but buffers results for two-pass
-    /// nounwind analysis. Falls back to inline lowering with type
-    /// substitution for functions not found in the cache.
-    pub fn prepare_mono_cached(
-        &mut self,
-        mono_functions: &[crate::monomorphize::MonoFunction],
-        canon: &CanonResult,
-        arc_cache: &mut FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-    ) -> Vec<PreparedFunction> {
-        let mut prepared = Vec::new();
-
-        for mono_fn in mono_functions {
-            let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&mono_fn.mangled_name)
-            else {
-                warn!(
-                    name = %self.interner.lookup(mono_fn.mangled_name),
-                    "mono function not declared — skipping preparation"
-                );
-                self.builder.record_codegen_error();
-                continue;
-            };
-            let abi = abi.clone();
-
-            let (arc_func, lambdas) = if let Some(cached) = arc_cache.remove(&mono_fn.mangled_name)
-            {
-                cached
-            } else {
-                // Fallback: lower inline with type substitution
-                let body = canon.root_for(mono_fn.original_name).unwrap_or(canon.root);
-                let params: Vec<(Name, Idx)> = abi.params.iter().map(|p| (p.name, p.ty)).collect();
-                let mut problems = Vec::new();
-                let result = lower_function_can(
-                    mono_fn.mangled_name,
-                    &params,
-                    abi.return_abi.ty,
-                    body,
-                    canon,
-                    self.interner,
-                    self.pool,
-                    &mut problems,
-                    mono_fn.sig.is_fbip,
-                    Some(&mono_fn.body_type_map),
-                );
-                for problem in &problems {
-                    debug!(?problem, "ARC lowering problem (mono fallback)");
-                }
-                result
-            };
-
-            prepared.push(self.prepare_arc_function(
-                mono_fn.mangled_name,
-                func_id,
-                &abi,
-                arc_func,
-                lambdas,
-            ));
-        }
-
-        prepared
-    }
-
-    /// Process an ARC function through the pipeline without emitting LLVM IR.
-    ///
-    /// Applies borrow annotations, prepares lambdas (declares + ARC pipeline),
-    /// annotates arg ownership, and runs the ARC pipeline. Returns a
-    /// [`PreparedFunction`] ready for nounwind analysis and LLVM emission.
-    fn prepare_arc_function(
-        &mut self,
-        name: Name,
-        func_id: FunctionId,
-        abi: &FunctionAbi,
-        mut arc_func: ori_arc::ArcFunction,
-        lambdas: Vec<ori_arc::ArcFunction>,
-    ) -> PreparedFunction {
-        let name_str = self.interner.lookup(name);
-        debug!(
-            name = name_str,
-            "preparing function (ARC pipeline, no emit)"
-        );
-
-        // Apply borrow inference annotations
-        if let Some(sig) = self.annotated_sigs.get(&name) {
-            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
-                param.ownership = annotated.ownership;
-            }
-        } else if !arc_func.params.is_empty() {
-            warn!(
-                func = name_str,
-                params = arc_func.params.len(),
-                "borrow signature missing — compiling with all-Owned params"
-            );
-        }
-
-        // Prepare lambdas: declare + ARC pipeline (no LLVM emission)
-        let prepared_lambdas: Vec<PreparedLambda> = lambdas
-            .into_iter()
-            .map(|lambda| self.prepare_lambda(lambda))
-            .collect();
-
-        // Annotate arg ownership, then run full ARC pipeline
-        ori_arc::annotate_arg_ownership(
-            &mut arc_func,
-            self.annotated_sigs,
-            self.interner,
-            &self.borrowing_builtins,
-        );
-        let arc_problems = ori_arc::run_arc_pipeline(
-            &mut arc_func,
-            self.arc_classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-        );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem");
-        }
-
-        trace!(
-            name = name_str,
-            blocks = arc_func.blocks.len(),
-            "ARC pipeline complete (prepared, not emitted)"
-        );
-
-        PreparedFunction {
-            name,
-            func_id,
-            abi: abi.clone(),
-            arc_func,
-            lambdas: prepared_lambdas,
-        }
-    }
-
-    /// Prepare a lambda through the ARC pipeline without emitting LLVM IR.
-    ///
-    /// Declares the LLVM function and registers it in `codegen_ctx.functions`
-    /// (so parent's `emit_partial_apply` can reference it), then runs the ARC
-    /// pipeline. The actual LLVM body emission is deferred to
-    /// [`Self::emit_prepared_functions`].
-    fn prepare_lambda(&mut self, mut lambda: ori_arc::ArcFunction) -> PreparedLambda {
-        let lambda_name = lambda.name;
-        let lambda_name_str = self.interner.lookup(lambda_name);
-
-        // Compute ABI from lambda's ArcParam types
-        let abi = self.compute_arc_function_abi(&lambda);
-
-        // Generate unique mangled symbol name
-        let counter = self.lambda_counter.get();
-        self.lambda_counter.set(counter + 1);
-        let symbol = self
-            .mangler
-            .mangle_function(self.module_path, &format!("__lambda_{counter}"));
-
-        debug!(
-            name = lambda_name_str,
-            symbol,
-            params = abi.params.len(),
-            "declaring lambda (prepare, no emit)"
-        );
-
-        // Declare LLVM function (so parent can reference it)
-        let func_id = self.declare_function_llvm(&symbol, &abi);
-
-        // Register so emit_partial_apply can find it by Name
-        self.codegen_ctx
-            .functions
-            .insert(lambda_name, (func_id, abi.clone()));
-
-        // Run full ARC pipeline on the lambda
-        ori_arc::annotate_arg_ownership(
-            &mut lambda,
-            self.annotated_sigs,
-            self.interner,
-            &self.borrowing_builtins,
-        );
-        let arc_problems = ori_arc::run_arc_pipeline(
-            &mut lambda,
-            self.arc_classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-        );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem (lambda)");
-        }
-
-        PreparedLambda {
-            name: lambda_name,
-            func_id,
-            abi,
-            arc_func: lambda,
-        }
-    }
-
-    /// Build the complete nounwind function set from all prepared functions.
-    ///
-    /// Uses fixed-point iteration: each pass analyzes all functions and their
-    /// lambdas, adding newly-proven-nounwind functions to the set. Iteration
-    /// continues until no new functions are added. This correctly handles
-    /// call chains like A→B→C where C must be proven nounwind before B,
-    /// and B before A.
-    ///
-    /// Must be called after all `prepare_*` methods and before
-    /// [`Self::emit_prepared_functions`].
-    pub fn compute_nounwind_set(&mut self, prepared: &[PreparedFunction]) {
-        debug!(
-            functions = prepared.len(),
-            "computing complete nounwind set (fixed-point)"
-        );
-
-        let mut pass = 0u32;
-        loop {
-            let mut changed = false;
-
-            for func in prepared {
-                // Check lambdas first (they may be callees of the parent)
-                for lambda in &func.lambdas {
-                    if !self.codegen_ctx.nounwind_functions.contains(&lambda.name)
-                        && self.is_arc_function_nounwind(&lambda.arc_func)
-                    {
-                        self.codegen_ctx.nounwind_functions.insert(lambda.name);
-                        changed = true;
-                    }
-                }
-
-                // Check parent function
-                if !self.codegen_ctx.nounwind_functions.contains(&func.name)
-                    && self.is_arc_function_nounwind(&func.arc_func)
-                {
-                    self.codegen_ctx.nounwind_functions.insert(func.name);
-                    changed = true;
-                }
-            }
-
-            pass = pass.saturating_add(1);
-            if !changed {
-                break;
-            }
-        }
-
-        // Propagate nounwind from mangled monomorphized names to their original
-        // generic names. ARC IR `Invoke` terminators use the original name
-        // (e.g., `"identity"`), while `nounwind_functions` contains mangled names
-        // (e.g., `"identity$m$int"`). If ALL specializations of a generic are
-        // nounwind, the original name is also safe to call without landing pads.
-        let mut mono_propagated = 0u32;
-        for (original_name, specializations) in &self.codegen_ctx.mono_dispatch {
-            if self.codegen_ctx.nounwind_functions.contains(original_name) {
-                continue; // Already marked (e.g., non-generic with same name)
-            }
-            let all_nounwind = specializations
-                .iter()
-                .all(|(_, mangled)| self.codegen_ctx.nounwind_functions.contains(mangled));
-            if all_nounwind && !specializations.is_empty() {
-                self.codegen_ctx.nounwind_functions.insert(*original_name);
-                mono_propagated = mono_propagated.saturating_add(1);
-            }
-        }
-
-        debug!(
-            passes = pass,
-            nounwind_count = self.codegen_ctx.nounwind_functions.len(),
-            mono_propagated,
-            "nounwind analysis complete"
-        );
-    }
-
-    /// Emit LLVM IR for all prepared functions using the complete nounwind set.
-    ///
-    /// Must be called after [`Self::compute_nounwind_set`]. For each function,
-    /// emits lambdas first (so `emit_partial_apply` can reference them), then
-    /// the parent function, and applies nounwind attributes from the
-    /// pre-computed set.
-    pub fn emit_prepared_functions(&mut self, prepared: Vec<PreparedFunction>) {
-        debug!(
-            count = prepared.len(),
-            "emitting prepared functions to LLVM IR"
-        );
-
-        for func in prepared {
-            self.enter_debug_scope(func.func_id);
-            self.builder.set_current_function(func.func_id);
-
-            // Emit lambdas first
-            for lambda in &func.lambdas {
-                self.emit_prepared_lambda(lambda);
-            }
-
-            // Emit parent function
-            let mut emitter = ArcIrEmitter::new(
-                self.builder,
-                self.type_info,
-                self.type_resolver,
-                self.interner,
-                self.pool,
-                self.arc_classifier as &dyn ori_arc::ArcClassification,
-                func.func_id,
-                &self.codegen_ctx,
-            );
-            emitter.emit_function(&func.arc_func, &func.abi);
-
-            if self.codegen_ctx.nounwind_functions.contains(&func.name) {
-                self.builder.add_nounwind_attribute(func.func_id);
-                debug!(
-                    name = %self.interner.lookup(func.name),
-                    "marked nounwind"
-                );
-            }
-
-            self.exit_debug_scope();
-        }
-    }
-
-    /// Emit LLVM IR for a prepared lambda using the pre-computed nounwind set.
-    fn emit_prepared_lambda(&mut self, lambda: &PreparedLambda) {
-        self.builder.set_current_function(lambda.func_id);
-        let mut emitter = ArcIrEmitter::new(
-            self.builder,
-            self.type_info,
-            self.type_resolver,
-            self.interner,
-            self.pool,
-            self.arc_classifier as &dyn ori_arc::ArcClassification,
-            lambda.func_id,
-            &self.codegen_ctx,
-        );
-        emitter.emit_function(&lambda.arc_func, &lambda.abi);
-
-        if self.codegen_ctx.nounwind_functions.contains(&lambda.name) {
-            self.builder.add_nounwind_attribute(lambda.func_id);
-        }
-    }
-
     /// Enter debug scope for the function being compiled.
-    fn enter_debug_scope(&self, func_id: FunctionId) {
+    pub(super) fn enter_debug_scope(&self, func_id: FunctionId) {
         if let Some(dc) = self.debug_context {
             let func_val = self.builder.get_function_value(func_id);
             if let Some(subprogram) = func_val.get_subprogram() {
@@ -1228,7 +601,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Exit debug scope after function compilation.
-    fn exit_debug_scope(&self) {
+    pub(super) fn exit_debug_scope(&self) {
         if let Some(dc) = self.debug_context {
             dc.exit_function();
         }
@@ -1270,7 +643,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Returns one `ValueId` per non-Void parameter in ABI order. Direct params
     /// are returned as-is; Indirect/Reference params are loaded from their
     /// pointers. Does not set value names or bind to scope — callers handle that.
-    fn load_param_values(&mut self, func_id: FunctionId, abi: &FunctionAbi) -> Vec<ValueId> {
+    pub(super) fn load_param_values(
+        &mut self,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+    ) -> Vec<ValueId> {
         let has_sret = matches!(abi.return_abi.passing, ReturnPassing::Sret { .. });
         let mut llvm_idx: u32 = u32::from(has_sret);
         let mut values = Vec::with_capacity(abi.params.len());
@@ -1304,606 +681,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         values
     }
 
-    // -----------------------------------------------------------------------
-    // Tests and Impls
-    // -----------------------------------------------------------------------
-
-    /// Compile test definitions as void → void wrapper functions.
-    ///
-    /// Returns a map of `test_name → wrapper_function_name` for the JIT to call.
-    /// Each test is compiled through the full ARC pipeline.
-    pub fn compile_tests(
-        &mut self,
-        tests: &[&TestDef],
-        canon: &CanonResult,
-    ) -> FxHashMap<Name, String> {
-        let mut test_wrappers = FxHashMap::default();
-
-        for test in tests {
-            let test_name_str = self.interner.lookup(test.name);
-            let wrapper_name = self
-                .mangler
-                .mangle_function(self.module_path, &format!("test_{test_name_str}"));
-
-            debug!(name = test_name_str, wrapper = %wrapper_name, "compiling test");
-
-            let body = canon.root_for(test.name).unwrap_or(canon.root);
-
-            // Declare void → void wrapper.
-            // Test wrappers use C calling convention because they are called
-            // directly from Rust (JIT: `extern "C" fn()` in evaluator.rs).
-            // Using `fastcc` here would cause a calling convention mismatch
-            // that corrupts the stack frame, especially with invoke/landingpad.
-            let func_id = self.builder.declare_void_function(&wrapper_name, &[]);
-            self.builder.set_ccc(func_id);
-            self.builder.set_current_function(func_id);
-
-            // Build void → void ABI
-            let abi = FunctionAbi {
-                params: vec![],
-                return_abi: ReturnAbi {
-                    ty: Idx::UNIT,
-                    passing: ReturnPassing::Void,
-                },
-                call_conv: CallConv::C,
-            };
-
-            // Lower CanExpr → ARC IR
-            let mut problems = Vec::new();
-            let (arc_func, lambdas) = lower_function_can(
-                test.name,
-                &[],
-                Idx::UNIT,
-                body,
-                canon,
-                self.interner,
-                self.pool,
-                &mut problems,
-                false, // tests are never #fbip
-                None,  // non-generic: no type substitution
-            );
-
-            // Delegate to shared pipeline: borrow annotation → lambdas →
-            // ARC pipeline → nounwind analysis → LLVM emission
-            self.emit_arc_function(
-                test.name,
-                func_id,
-                &abi,
-                arc_func,
-                lambdas,
-                self.arc_classifier,
-            );
-
-            test_wrappers.insert(test.name, wrapper_name);
-        }
-
-        test_wrappers
-    }
-
-    /// Compile impl block methods.
-    ///
-    /// Impl methods use type-qualified mangled names: `_ori_[<module>$]<type>$<method>`.
-    /// This ensures different types can define methods with the same name without
-    /// LLVM symbol collision (e.g., `Point.distance` → `_ori_Point$distance`).
-    ///
-    /// Methods are inserted into both:
-    /// - `functions` (bare `method.name` key, for backward compat)
-    /// - `method_functions` (`(type_name, method_name)` key, for type-qualified dispatch)
-    ///
-    /// `type_idx_to_name` is also populated to map `sig.param_types[0]` (the self
-    /// parameter type) to the type name, enabling receiver type → type name resolution
-    /// during method call lowering.
-    pub fn compile_impls(
-        &mut self,
-        impls: &[ori_ir::ImplDef],
-        impl_sigs: &[(Name, FunctionSig)],
-        canon: &CanonResult,
-        traits: &[TraitDef],
-    ) {
-        // Consume impl_sigs positionally — the type checker pushes sigs in the
-        // same iteration order: `for impl_def { for method { register_impl_sig } }`,
-        // followed by unoverridden default trait methods.
-        // A flat HashMap keyed by method Name would lose entries when two types
-        // define same-name methods (e.g., Point.distance vs Line.distance).
-        let mut sig_iter = impl_sigs.iter();
-
-        // Build trait map for default method lookup
-        let trait_map: FxHashMap<Name, &TraitDef> = traits.iter().map(|t| (t.name, t)).collect();
-
-        for impl_def in impls {
-            // Resolve the type name from self_path for mangling
-            let type_name_name = impl_def.self_path.first().copied();
-            let type_name = type_name_name
-                .map(|n| self.interner.lookup(n).to_owned())
-                .unwrap_or_default();
-
-            for method in &impl_def.methods {
-                self.compile_impl_method_from_sig(
-                    &mut sig_iter,
-                    method.name,
-                    method.span,
-                    type_name_name,
-                    &type_name,
-                    canon,
-                );
-            }
-
-            // For trait impls, compile unoverridden default methods.
-            // The type checker registers their sigs in the same order after
-            // explicit methods, so sig_iter stays aligned.
-            if let Some(trait_path) = &impl_def.trait_path {
-                if let Some(&trait_name) = trait_path.last() {
-                    if let Some(trait_def) = trait_map.get(&trait_name) {
-                        let overridden: FxHashSet<Name> =
-                            impl_def.methods.iter().map(|m| m.name).collect();
-
-                        for item in &trait_def.items {
-                            if let TraitItem::DefaultMethod(default) = item {
-                                if !overridden.contains(&default.name) {
-                                    self.compile_impl_method_from_sig(
-                                        &mut sig_iter,
-                                        default.name,
-                                        default.span,
-                                        type_name_name,
-                                        &type_name,
-                                        canon,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Compile a single impl method by consuming the next signature from the
-    /// positional sig iterator. Used for both explicit methods and default
-    /// trait methods.
-    fn compile_impl_method_from_sig<'sig>(
-        &mut self,
-        sig_iter: &mut impl Iterator<Item = &'sig (Name, FunctionSig)>,
-        method_name: Name,
-        method_span: Span,
-        type_name_name: Option<Name>,
-        type_name: &str,
-        canon: &CanonResult,
-    ) {
-        let Some((sig_name, sig)) = sig_iter.next() else {
-            trace!(
-                name = %self.interner.lookup(method_name),
-                "no type signature for impl method — exhausted sig iterator"
-            );
-            return;
-        };
-
-        debug_assert_eq!(
-            *sig_name, method_name,
-            "impl sig/method name mismatch: sig has {sig_name:?}, method has {method_name:?}"
-        );
-
-        if sig.is_generic() {
-            return;
-        }
-
-        // Use type-qualified mangled name for LLVM symbol
-        let method_str = self.interner.lookup(method_name);
-        let symbol = if type_name.is_empty() {
-            self.mangler.mangle_function(self.module_path, method_str)
-        } else {
-            self.mangler
-                .mangle_method(self.module_path, type_name, method_str)
-        };
-        self.declare_function_with_symbol(method_name, &symbol, sig, method_span);
-
-        let Some(&(func_id, ref abi)) = self.codegen_ctx.functions.get(&method_name) else {
-            return;
-        };
-        let abi = abi.clone();
-
-        // Populate type-qualified method map for dispatch
-        if let Some(tnn) = type_name_name {
-            self.codegen_ctx
-                .method_functions
-                .insert((tnn, method_name), (func_id, abi.clone()));
-
-            // Map the self type Idx → type Name for receiver resolution
-            if let Some(&self_type_idx) = sig.param_types.first() {
-                self.codegen_ctx.type_idx_to_name.insert(self_type_idx, tnn);
-            }
-
-            // Verify round-trip: what we registered is immediately retrievable.
-            debug_assert!(
-                self.codegen_ctx
-                    .method_functions
-                    .contains_key(&(tnn, method_name)),
-                "method_functions registration failed for {}.{}",
-                self.interner.lookup(tnn),
-                self.interner.lookup(method_name),
-            );
-            if let Some(&self_type_idx) = sig.param_types.first() {
-                debug_assert!(
-                    self.codegen_ctx
-                        .type_idx_to_name
-                        .contains_key(&self_type_idx),
-                    "type_idx_to_name registration failed for '{}' (Idx {:?})",
-                    self.interner.lookup(tnn),
-                    self_type_idx,
-                );
-            }
-        }
-
-        // Look up the canonical body for this impl method
-        let body = type_name_name
-            .and_then(|tnn| canon.method_root_for(tnn, method_name))
-            .or_else(|| canon.root_for(method_name))
-            .unwrap_or(canon.root);
-
-        self.define_function_body(method_name, func_id, &abi, body, canon, sig.is_fbip);
-    }
-
     /// Declare external imported functions (for multi-module AOT compilation).
     pub fn declare_imports(&mut self, imports: &[(Name, FunctionSig)]) {
         for (name, sig) in imports {
             self.declare_function(*name, sig, Span::DUMMY);
         }
-    }
-
-    // -----------------------------------------------------------------------
-    // AOT Entry Points
-    // -----------------------------------------------------------------------
-
-    /// Generate a C-compatible `main()` wrapper that calls the Ori `@main` function.
-    ///
-    /// The wrapper bridges the C calling convention (`ccc`) to Ori's internal
-    /// calling convention (`fastcc`). Four `@main` signatures are supported:
-    ///
-    /// | Ori signature               | C wrapper                                    |
-    /// |-----------------------------|----------------------------------------------|
-    /// | `@main () -> void`          | `define i32 @main() { call @_ori_main(); ret 0 }` |
-    /// | `@main () -> int`           | `define i32 @main() { trunc call @_ori_main() }` |
-    /// | `@main (args) -> void`      | `define i32 @main(i32, ptr) { ... }`         |
-    /// | `@main (args) -> int`       | `define i32 @main(i32, ptr) { ... }`         |
-    ///
-    /// Must be called after `declare_all()` + `define_all()` so the `@main`
-    /// function is already compiled. Returns `false` if no `@main` was found.
-    pub fn generate_main_wrapper(
-        &mut self,
-        main_name: Name,
-        main_sig: &FunctionSig,
-        panic_name: Option<Name>,
-    ) -> bool {
-        let Some(&(ori_main_id, ref abi)) = self.codegen_ctx.functions.get(&main_name) else {
-            debug!("no @main function declared — skipping entry point wrapper");
-            return false;
-        };
-        let abi = abi.clone();
-
-        // Generate panic trampoline if @panic handler exists
-        let panic_trampoline = panic_name.and_then(|name| self.generate_panic_trampoline(name));
-
-        let has_args = !main_sig.param_types.is_empty();
-        let returns_int = main_sig.return_type == Idx::INT;
-
-        debug!(
-            has_args,
-            returns_int,
-            has_panic = panic_trampoline.is_some(),
-            "generating C main() entry point wrapper"
-        );
-
-        // C main signature: i32 @main() or i32 @main(i32 %argc, ptr %argv)
-        let i32_ty = self.builder.i32_type();
-        let c_main_params = if has_args {
-            let ptr_ty = self.builder.ptr_type();
-            vec![i32_ty, ptr_ty]
-        } else {
-            vec![]
-        };
-
-        let c_main_id = self
-            .builder
-            .declare_function("main", &c_main_params, i32_ty);
-        self.builder.set_ccc(c_main_id);
-
-        let entry = self.builder.append_block(c_main_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(c_main_id);
-
-        // Register panic handler trampoline if present
-        if let Some(trampoline_id) = panic_trampoline {
-            let ptr_ty = self.builder.ptr_type();
-            let register_fn = self
-                .builder
-                .get_or_declare_void_function("ori_register_panic_handler", &[ptr_ty]);
-            let trampoline_ptr = self.builder.get_function_ptr(trampoline_id);
-            self.builder.call(register_fn, &[trampoline_ptr], "");
-        }
-
-        // Build args for calling the Ori @main function
-        let call_args = if has_args {
-            // Call ori_args_from_argv(arg_count, arg_values) → Ori [str]
-            let arg_count = self.builder.get_param(c_main_id, 0);
-            let arg_values = self.builder.get_param(c_main_id, 1);
-
-            let ptr_ty = self.builder.ptr_type();
-            let scx = self.builder.scx();
-            let list_struct_ty = scx.type_struct(
-                &[
-                    scx.type_i64().into(),
-                    scx.type_i64().into(),
-                    scx.type_ptr().into(),
-                ],
-                false,
-            );
-            let list_ty_id = self.builder.register_type(list_struct_ty.into());
-            let args_fn = self.builder.get_or_declare_function(
-                "ori_args_from_argv",
-                &[i32_ty, ptr_ty],
-                list_ty_id,
-            );
-            let args_val = self.builder.call(args_fn, &[arg_count, arg_values], "args");
-            if let Some(val) = args_val {
-                vec![val]
-            } else {
-                vec![]
-            }
-        } else {
-            vec![]
-        };
-
-        // Call the Ori @main function
-        match &abi.return_abi.passing {
-            super::abi::ReturnPassing::Direct => {
-                let result = self
-                    .builder
-                    .call(ori_main_id, &call_args, "ori_main_result");
-                if returns_int {
-                    // Truncate i64 → i32 for C exit code
-                    if let Some(val) = result {
-                        let exit_code = self.builder.trunc(val, i32_ty, "exit_code");
-                        self.builder.ret(exit_code);
-                    } else {
-                        let zero = self.builder.const_i32(0);
-                        self.builder.ret(zero);
-                    }
-                } else {
-                    let zero = self.builder.const_i32(0);
-                    self.builder.ret(zero);
-                }
-            }
-            super::abi::ReturnPassing::Void | super::abi::ReturnPassing::Sret { .. } => {
-                self.builder.call(ori_main_id, &call_args, "");
-                let zero = self.builder.const_i32(0);
-                self.builder.ret(zero);
-            }
-        }
-
-        true
-    }
-
-    /// Generate a panic handler trampoline.
-    ///
-    /// The trampoline bridges the C runtime to the user's `@panic` function:
-    /// 1. Receives flat C values from the runtime (msg ptr/len, file ptr/len, line, col)
-    /// 2. Constructs the Ori `PanicInfo` struct in LLVM IR
-    /// 3. Calls the user's compiled `@panic` function
-    ///
-    /// Returns `Some(FunctionId)` of the trampoline, or `None` if the `@panic`
-    /// function was not declared.
-    fn generate_panic_trampoline(&mut self, panic_name: Name) -> Option<FunctionId> {
-        let Some(&(user_panic_id, _)) = self.codegen_ctx.functions.get(&panic_name) else {
-            debug!("no @panic function declared — skipping trampoline");
-            return None;
-        };
-
-        debug!("generating panic handler trampoline");
-
-        let ptr_ty = self.builder.ptr_type();
-        let i64_ty = self.builder.i64_type();
-
-        // Trampoline signature: (ptr msg_data, i64 msg_len, ptr file_data, i64 file_len, i64 line, i64 col) -> void
-        let trampoline_id = self.builder.declare_void_function(
-            "_ori_panic_trampoline",
-            &[ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, i64_ty],
-        );
-        self.builder.set_ccc(trampoline_id);
-
-        let entry = self.builder.append_block(trampoline_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(trampoline_id);
-
-        // Extract parameters
-        let msg_data = self.builder.get_param(trampoline_id, 0);
-        let msg_len = self.builder.get_param(trampoline_id, 1);
-        let file_data = self.builder.get_param(trampoline_id, 2);
-        let file_len = self.builder.get_param(trampoline_id, 3);
-        let line = self.builder.get_param(trampoline_id, 4);
-        let col = self.builder.get_param(trampoline_id, 5);
-
-        // Construct PanicInfo struct:
-        //   PanicInfo = { str message, TraceEntry location, [TraceEntry] stack_trace, Option<int> thread_id }
-        //
-        // Where:
-        //   str         = { i64 len, ptr data }
-        //   TraceEntry  = { str function, str file, int line, int column }
-        //                = { {i64, ptr}, {i64, ptr}, i64, i64 }
-        //   [TraceEntry] = { i64 len, i64 cap, ptr data }
-        //   Option<int>  = { i8 tag, i64 value }
-
-        let scx = self.builder.scx();
-
-        // str type: { i64, ptr }
-        let str_struct_ty = scx.type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false);
-
-        // TraceEntry type: { str, str, i64, i64 }
-        let trace_entry_ty = scx.type_struct(
-            &[
-                str_struct_ty.into(),
-                str_struct_ty.into(),
-                scx.type_i64().into(),
-                scx.type_i64().into(),
-            ],
-            false,
-        );
-
-        // [TraceEntry] type: { i64, i64, ptr }
-        let list_ty = scx.type_struct(
-            &[
-                scx.type_i64().into(),
-                scx.type_i64().into(),
-                scx.type_ptr().into(),
-            ],
-            false,
-        );
-
-        // Option<int> type: { i8, i64 }
-        let option_int_ty = scx.type_struct(&[scx.type_i8().into(), scx.type_i64().into()], false);
-
-        // PanicInfo type: { str, TraceEntry, [TraceEntry], Option<int> }
-        let panic_info_ty = scx.type_struct(
-            &[
-                str_struct_ty.into(),
-                trace_entry_ty.into(),
-                list_ty.into(),
-                option_int_ty.into(),
-            ],
-            false,
-        );
-
-        // Register all types
-        let str_ty_id = self.builder.register_type(str_struct_ty.into());
-        let trace_entry_ty_id = self.builder.register_type(trace_entry_ty.into());
-        let list_ty_id = self.builder.register_type(list_ty.into());
-        let option_int_ty_id = self.builder.register_type(option_int_ty.into());
-        let panic_info_ty_id = self.builder.register_type(panic_info_ty.into());
-
-        // Build message: str = { msg_len, msg_data }
-        let message = self
-            .builder
-            .build_struct(str_ty_id, &[msg_len, msg_data], "message");
-
-        // Build empty function name: str = { 0, null }
-        let zero_i64 = self.builder.const_i64(0);
-        let null_ptr = self.builder.const_null_ptr();
-        let empty_str = self
-            .builder
-            .build_struct(str_ty_id, &[zero_i64, null_ptr], "empty_fn");
-
-        // Build file name: str = { file_len, file_data }
-        let file_str = self
-            .builder
-            .build_struct(str_ty_id, &[file_len, file_data], "file");
-
-        // Build location: TraceEntry = { empty_fn, file, line, col }
-        let location = self.builder.build_struct(
-            trace_entry_ty_id,
-            &[empty_str, file_str, line, col],
-            "location",
-        );
-
-        // Build empty stack_trace: [TraceEntry] = { 0, 0, null }
-        let stack_trace =
-            self.builder
-                .build_struct(list_ty_id, &[zero_i64, zero_i64, null_ptr], "stack_trace");
-
-        // Build thread_id: Option<int> = { 0 (None tag), 0 }
-        let zero_i8 = self.builder.const_i8(0);
-        let thread_id =
-            self.builder
-                .build_struct(option_int_ty_id, &[zero_i8, zero_i64], "thread_id");
-
-        // Build PanicInfo = { message, location, stack_trace, thread_id }
-        let panic_info = self.builder.build_struct(
-            panic_info_ty_id,
-            &[message, location, stack_trace, thread_id],
-            "panic_info",
-        );
-
-        // The user's @panic function receives PanicInfo via Indirect passing
-        // (struct >16 bytes → passed by pointer). Allocate on the stack and
-        // pass the pointer.
-        let alloca = self.builder.alloca(panic_info_ty_id, "panic_info.ptr");
-        self.builder.store(panic_info, alloca);
-
-        // Call the user's @panic function with pointer to PanicInfo
-        self.builder.call(user_panic_id, &[alloca], "");
-
-        // Emit ret void (handler returns normally → runtime proceeds with default)
-        self.builder.ret_void();
-
-        Some(trampoline_id)
-    }
-
-    // -----------------------------------------------------------------------
-    // Derived Trait Methods
-    // -----------------------------------------------------------------------
-
-    /// Compile derived trait methods for types with `#[derive(...)]`.
-    ///
-    /// Generates synthetic LLVM functions for derived traits (Eq, Clone,
-    /// Hashable, Printable) and registers them in `method_functions` for
-    /// normal method dispatch.
-    pub fn compile_derives(
-        &mut self,
-        module: &ori_ir::Module,
-        user_types: &[ori_types::TypeEntry],
-    ) {
-        super::derive_codegen::compile_derives(self, module, user_types);
-    }
-
-    /// Declare a derived method LLVM function, create entry block, bind params.
-    ///
-    /// Delegates to [`Self::declare_function_llvm`] for declaration and
-    /// [`Self::load_param_values`] for parameter loading. Registers the method
-    /// in `method_functions` and `type_idx_to_name` for dispatch.
-    ///
-    /// Returns `(func_id, self_value, other_param_values)`.
-    pub(crate) fn declare_and_bind_derive(
-        &mut self,
-        symbol: &str,
-        abi: &FunctionAbi,
-        type_name: Name,
-        method_name: Name,
-        type_idx: Idx,
-    ) -> (FunctionId, ValueId, Vec<ValueId>) {
-        let func_id = self.declare_function_llvm(symbol, abi);
-
-        let entry = self.builder.append_block(func_id, "entry");
-        self.builder.position_at_end(entry);
-        self.builder.set_current_function(func_id);
-
-        let values = self.load_param_values(func_id, abi);
-        let self_value = values
-            .first()
-            .copied()
-            .unwrap_or_else(|| self.builder.const_i64(0));
-        let other_vals = values.into_iter().skip(1).collect();
-
-        self.codegen_ctx
-            .method_functions
-            .insert((type_name, method_name), (func_id, abi.clone()));
-        self.codegen_ctx
-            .type_idx_to_name
-            .insert(type_idx, type_name);
-
-        // Verify round-trip: registrations are immediately retrievable.
-        debug_assert!(
-            self.codegen_ctx
-                .method_functions
-                .contains_key(&(type_name, method_name)),
-            "derive: method_functions registration failed for {}.{}",
-            self.interner.lookup(type_name),
-            self.interner.lookup(method_name),
-        );
-        debug_assert!(
-            self.codegen_ctx.type_idx_to_name.contains_key(&type_idx),
-            "derive: type_idx_to_name registration failed for '{}' (Idx {:?})",
-            self.interner.lookup(type_name),
-            type_idx,
-        );
-
-        (func_id, self_value, other_vals)
     }
 
     // -----------------------------------------------------------------------
