@@ -134,18 +134,10 @@ fn eval_with_profile(
 /// Subsequent runs with unchanged source reuse the cached binary.
 #[cfg(feature = "llvm")]
 pub fn run_file_compiled(path: &str) {
-    use ori_llvm::inkwell::context::Context;
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     use std::process::Command;
     use std::time::Instant;
-
-    use ori_llvm::aot::{
-        LinkInput, LinkOutput, LinkerDriver, ObjectEmitter, OutputFormat, RuntimeConfig,
-    };
-
-    use super::compile_common::{check_source, compile_to_llvm};
-    use oric::{CompilerDb, SourceFile};
 
     let start = Instant::now();
 
@@ -201,6 +193,46 @@ pub fn run_file_compiled(path: &str) {
     // Cache miss - need to compile
     eprintln!("  Compiling {path} (first run)...");
 
+    compile_and_cache(path, content, &cache_dir, &binary_name, &binary_path);
+
+    let compile_time = start.elapsed();
+    eprintln!("  Compiled in {:.2}s", compile_time.as_secs_f64());
+
+    // Execute the compiled binary
+    let status = match Command::new(&binary_path).status() {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "error: failed to execute compiled binary '{}': {}",
+                binary_path.display(),
+                e
+            );
+            std::process::exit(1);
+        }
+    };
+
+    std::process::exit(status.code().unwrap_or(1));
+}
+
+/// Compile source to a native binary and cache it.
+///
+/// Runs the full AOT pipeline: parse, type-check, codegen, optimize, link.
+#[cfg(feature = "llvm")]
+fn compile_and_cache(
+    path: &str,
+    content: String,
+    cache_dir: &std::path::Path,
+    binary_name: &str,
+    binary_path: &std::path::Path,
+) {
+    use ori_llvm::aot::{
+        LinkInput, LinkOutput, LinkerDriver, ObjectEmitter, OutputFormat, RuntimeConfig,
+    };
+    use ori_llvm::inkwell::context::Context;
+
+    use super::compile_common::{check_source, compile_to_llvm};
+    use oric::{CompilerDb, SourceFile};
+
     // Parse and type-check (shared with build_file)
     let db = CompilerDb::new();
     let file = SourceFile::new(&db, PathBuf::from(path), content);
@@ -239,7 +271,7 @@ pub fn run_file_compiled(path: &str) {
     }
 
     // Ensure cache directory exists
-    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+    if let Err(e) = std::fs::create_dir_all(cache_dir) {
         eprintln!("warning: could not create cache directory: {e}");
     }
 
@@ -266,7 +298,7 @@ pub fn run_file_compiled(path: &str) {
 
     let mut link_input = LinkInput {
         objects: vec![obj_path.clone()],
-        output: binary_path.clone(),
+        output: binary_path.to_path_buf(),
         output_kind: LinkOutput::Executable,
         gc_sections: true, // Remove unused sections
         ..Default::default()
@@ -282,24 +314,6 @@ pub fn run_file_compiled(path: &str) {
 
     // Clean up object file
     let _ = std::fs::remove_file(&obj_path);
-
-    let compile_time = start.elapsed();
-    eprintln!("  Compiled in {:.2}s", compile_time.as_secs_f64());
-
-    // Execute the compiled binary
-    let status = match Command::new(&binary_path).status() {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!(
-                "error: failed to execute compiled binary '{}': {}",
-                binary_path.display(),
-                e
-            );
-            std::process::exit(1);
-        }
-    };
-
-    std::process::exit(status.code().unwrap_or(1));
 }
 
 /// Get the cache directory for compiled binaries.

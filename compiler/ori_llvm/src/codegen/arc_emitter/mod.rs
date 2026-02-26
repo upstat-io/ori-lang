@@ -191,6 +191,10 @@ pub struct CodegenContext {
     /// Known-nounwind user function names: `Invoke` terminators calling these
     /// emit `call` + `br` instead of LLVM `invoke`, eliminating landing pads.
     pub nounwind_functions: FxHashSet<Name>,
+    /// Non-capturing lambda names: these are declared with closure-compatible
+    /// ABI (`ccc` + phantom `ptr` env param) so `PartialApply` can point
+    /// directly at them without generating a `_ori_partial_N` trampoline.
+    pub non_capturing_lambdas: FxHashSet<Name>,
 }
 
 // ---------------------------------------------------------------------------
@@ -473,7 +477,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // Bind function parameters (respecting ABI passing modes).
         // Reference and Indirect params arrive as pointers — load the actual
         // value so ARC IR sees the struct, not the pointer.
+        //
+        // Non-capturing lambdas have a phantom `ptr %_env` prepended to their
+        // LLVM param list (so they're directly callable as closures). Skip it
+        // by adding 1 to the starting index.
         let sret_offset = u32::from(matches!(abi.return_abi.passing, ReturnPassing::Sret { .. }));
+        let phantom_env_offset = u32::from(self.ctx.non_capturing_lambdas.contains(&func.name));
         let needs_loads = abi.params.iter().any(|p| {
             matches!(
                 p.passing,
@@ -484,7 +493,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             // Position at entry block for load instructions
             self.builder.position_at_end(self.block(func.entry));
         }
-        let mut llvm_param_idx = sret_offset;
+        let mut llvm_param_idx = sret_offset + phantom_env_offset;
         for (i, param) in func.params.iter().enumerate() {
             let passing = &abi.params[i].passing;
             match passing {
@@ -1144,12 +1153,16 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// Emit a `PartialApply` instruction (closure creation).
     ///
-    /// Generates a wrapper function that bridges the closure calling convention
-    /// `(env_ptr, user_args...)` to the lambda's flat calling convention
-    /// `(captures..., user_args...)`. If there are captures, allocates an
-    /// RC-tracked environment struct to hold them.
+    /// For **non-capturing lambdas** (callee is in `non_capturing_lambdas`),
+    /// the lambda was declared with closure-compatible ABI (`ccc` + phantom
+    /// `ptr %_env`), so we can use the lambda's function pointer directly as
+    /// `fn_ptr` without generating a `_ori_partial_N` trampoline. The closure
+    /// is `{ lambda_fn_ptr, null }`.
     ///
-    /// The resulting fat-pointer closure is `{ wrapper_fn_ptr, env_ptr }`.
+    /// For **capturing lambdas**, generates a wrapper function that bridges
+    /// the closure calling convention `(env_ptr, user_args...)` to the
+    /// lambda's flat convention `(captures..., user_args...)`, allocates an
+    /// RC-tracked environment struct, and builds `{ wrapper_fn_ptr, env_ptr }`.
     fn emit_partial_apply(
         &mut self,
         dst: ArcVarId,
@@ -1159,9 +1172,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         func: &ArcFunction,
     ) {
         let callee_name_str = self.interner.lookup(callee);
+        let is_non_capturing = self.ctx.non_capturing_lambdas.contains(&callee);
+
         tracing::debug!(
             name = callee_name_str,
             captures = args.len(),
+            non_capturing = is_non_capturing,
             "ArcIrEmitter: PartialApply — closure creation"
         );
 
@@ -1179,6 +1195,20 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             self.def_var(dst, EmittedValue::Aggregate(closure));
             return;
         };
+
+        // Non-capturing fast path: lambda already has closure-compatible ABI,
+        // so use its function pointer directly — no wrapper needed.
+        if is_non_capturing && args.is_empty() {
+            let fn_ptr = self.builder.get_function_ptr(callee_func_id);
+            let null_env = self.builder.const_null_ptr();
+            let closure_ty = self.builder.closure_type();
+            let closure =
+                self.builder
+                    .build_struct(closure_ty, &[fn_ptr, null_env], "partial_apply.direct");
+            self.def_var(dst, EmittedValue::Aggregate(closure));
+            return;
+        }
+
         let callee_abi = callee_abi.clone();
         let num_captures = args.len();
 
@@ -1197,11 +1227,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         };
 
         // == Generate wrapper function ==
+        let target_is_nounwind = self.ctx.nounwind_functions.contains(&callee);
         let wrapper_fn_ptr = self.generate_closure_wrapper(
             callee_func_id,
             &callee_abi,
             &capture_types,
             &remaining_params,
+            target_is_nounwind,
         );
 
         // == Build fat-pointer closure { wrapper_fn_ptr, env_ptr } ==
@@ -1365,6 +1397,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         callee_abi: &FunctionAbi,
         capture_types: &[Idx],
         remaining_params: &[super::abi::ParamAbi],
+        target_is_nounwind: bool,
     ) -> ValueId {
         let partial_id = self.partial_apply_counter;
         self.partial_apply_counter += 1;
@@ -1405,6 +1438,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 .declare_function(&wrapper_name, &wrapper_param_types, ret_ty)
         };
         self.builder.set_ccc(wrapper_func_id);
+        if target_is_nounwind {
+            self.builder.add_nounwind_attribute(wrapper_func_id);
+        }
 
         // Generate wrapper body
         let entry = self.builder.append_block(wrapper_func_id, "entry");

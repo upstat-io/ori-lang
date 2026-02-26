@@ -1,22 +1,22 @@
 ---
 section: "05"
 title: "Developer Tooling"
-status: not-started
+status: complete
 goal: "cargo run cannot silently strip LLVM feature from the ori binary"
 inspired_by: []
 depends_on: []
 sections:
   - id: "05.1"
     title: "LLVM Feature Guard"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 05: Developer Tooling
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Developers cannot accidentally lose LLVM support by running `cargo run`. The binary at `~/.local/bin/ori` always reflects the intended feature set.
 
 **Context:** Journey 1 discovered that `cargo run -- run file.ori` rebuilds `oric` WITHOUT `--features llvm`, overwriting the LLVM-enabled binary at `target/debug/ori`. The symlink at `~/.local/bin/ori` then points to a non-LLVM binary. Any `cargo run` invocation silently breaks AOT until next `cargo bl`. This is a developer experience trap — easy to trigger, hard to diagnose.
@@ -27,7 +27,7 @@ sections:
 
 ## 05.1 LLVM Feature Guard
 
-**File(s):** `compiler/oric/Cargo.toml`, potentially `compiler/oric/src/main.rs` or a build script
+**File(s):** `compiler/oric/Cargo.toml`, `compiler/oric/src/main.rs`
 
 **Finding #10** (LOW): `cargo run` rebuilds without `--features llvm`, overwriting the LLVM binary.
 
@@ -60,29 +60,29 @@ Use `ori` for LLVM-enabled and `ori-lite` for non-LLVM. Different paths, no over
 
 **Recommended path:** Option (a) + Option (b) together. Default features include LLVM (prevents accidental stripping) AND a runtime warning if LLVM is missing (catches edge cases).
 
-- [ ] Add `llvm` to default features in `compiler/oric/Cargo.toml`
-- [ ] Add runtime warning when LLVM feature is not compiled in
+- [x] Add `llvm` to default features in `compiler/oric/Cargo.toml`
+- [x] Add runtime warning when LLVM feature is not compiled in
   ```rust
-  // In main.rs or early startup:
+  // In main.rs early startup:
   #[cfg(not(feature = "llvm"))]
   {
       eprintln!("warning: ori compiled without LLVM support. AOT compilation unavailable.");
       eprintln!("         Rebuild with: cargo bl");
   }
   ```
-- [ ] Update `build-all.sh` if needed (may need `--no-default-features` for non-LLVM builds)
-- [ ] Update CLAUDE.md if build commands change
-- [ ] Test: `cargo run -- run tests/spec/basics/let.ori` — produces correct output with LLVM available
-- [ ] Test: `cargo run --no-default-features -- run tests/spec/basics/let.ori` — shows warning, still works for eval
+- [x] Update `build-all.sh` if needed (may need `--no-default-features` for non-LLVM builds)
+- [x] Update CLAUDE.md if build commands change
+- [x] Test: `cargo run -- run tests/spec/declarations/constants.ori` — produces correct output with LLVM available
+- [x] Test: `cargo run --no-default-features -- run tests/spec/declarations/constants.ori` — shows warning, still works for eval
 
 ---
 
 ## 05.2 Completion Checklist
 
-- [ ] `cargo run` includes LLVM feature by default
-- [ ] `cargo run --no-default-features` explicitly opts out (with warning)
-- [ ] `~/.local/bin/ori` symlink always points to LLVM-enabled binary after `cargo run`
-- [ ] `build-all.sh` still works correctly
-- [ ] `cargo bl` / `cargo blr` still work correctly
+- [x] `cargo run` includes LLVM feature by default
+- [x] `cargo run --no-default-features` explicitly opts out (with warning)
+- [x] `~/.local/bin/ori` symlink always points to LLVM-enabled binary after `cargo run`
+- [x] `build-all.sh` still works correctly
+- [x] `cargo bl` / `cargo blr` still work correctly
 
 **Exit Criteria:** Running `cargo run -- run file.ori` does NOT overwrite the LLVM-enabled binary. `ori build file.ori` works immediately after `cargo run` without needing `cargo bl`.

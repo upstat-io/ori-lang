@@ -290,7 +290,7 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
 
             // 2. Type infrastructure
             let store = TypeInfoStore::new(self.pool);
-            let resolver = TypeLayoutResolver::new(&store, scx_ref);
+            let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
 
             // 3. IR builder
             let mut builder = IrBuilder::new(scx_ref);

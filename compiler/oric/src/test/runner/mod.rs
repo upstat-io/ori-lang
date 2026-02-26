@@ -496,15 +496,23 @@ impl TestRunner {
         summary
     }
 
-    /// Run regular (non-compile_fail) tests using the LLVM JIT backend.
+    /// Run regular (non-`compile_fail`) tests using the LLVM JIT backend.
     ///
     /// Uses the "compile once, run many" pattern: compiles all functions and test
     /// wrappers into a single JIT engine, then runs each test from that engine.
     /// This avoids O(n²) recompilation that caused LLVM resource exhaustion.
     ///
-    /// Note: compile_fail tests are handled in the common path of
+    /// Note: `compile_fail` tests are handled in the common path of
     /// `run_file_with_interner()` before backend dispatch — they are NOT
     /// passed here. This avoids double-counting.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "test runner mirrors the full compilation pipeline — all inputs are required"
+    )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "JIT test pipeline — splitting would fragment the compile→run flow"
+    )]
     #[cfg(feature = "llvm")]
     fn run_file_llvm(
         summary: &mut FileSummary,
@@ -518,6 +526,13 @@ impl TestRunner {
         interner: &crate::ir::StringInterner,
         config: &TestRunnerConfig,
     ) {
+        /// Index into `imported_sigs_storage` and `resolved.modules` for linking
+        /// imported function codegen structs back to their source data.
+        struct FnRef {
+            func_index: usize,
+            module_index: usize,
+        }
+
         use ori_llvm::evaluator::{ImportedFunctionForCodegen, OwnedLLVMEvaluator};
 
         // Skip LLVM compilation if no regular tests to run
@@ -582,7 +597,7 @@ impl TestRunner {
             ) else {
                 // Pool not cached — internal error. Push empty results to
                 // maintain index alignment with resolved.modules.
-                imported_type_results.push(TypeCheckResult::ok(Default::default()));
+                imported_type_results.push(TypeCheckResult::ok(ori_types::TypedModule::default()));
                 imported_canon_results.push(ori_ir::canon::SharedCanonResult::new(
                     ori_ir::canon::CanonResult::empty(),
                 ));
@@ -606,11 +621,6 @@ impl TestRunner {
         // Build per-function codegen structs for explicitly imported functions only.
         // We need owned FunctionSig values that outlive the ImportedFunctionForCodegen refs.
         let mut imported_sigs_storage: Vec<ori_types::FunctionSig> = Vec::new();
-
-        struct FnRef {
-            func_index: usize,
-            module_index: usize,
-        }
         let mut fn_refs: Vec<FnRef> = Vec::new();
 
         for func_ref in &resolved.imported_functions {
@@ -1126,10 +1136,22 @@ impl TestRunner {
 ///
 /// Functions lowered: module functions, imported functions, impl methods,
 /// and monomorphized generic functions.
+///
+/// Maps function names to their ARC-lowered forms with borrow annotations.
+#[cfg(feature = "llvm")]
+type ArcLoweringResult = (
+    rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
+    rustc_hash::FxHashMap<ori_ir::Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+);
+
 #[cfg(feature = "llvm")]
 #[expect(
     clippy::too_many_arguments,
     reason = "mirrors the data flow from run_file_llvm — all inputs are required"
+)]
+#[expect(
+    clippy::too_many_lines,
+    reason = "ARC lowering pipeline — local, imported, impl, and mono functions in sequence"
 )]
 fn lower_and_infer_borrows(
     module: &ori_ir::ast::Module,
@@ -1140,10 +1162,7 @@ fn lower_and_infer_borrows(
     impl_sigs: &[(ori_ir::Name, ori_types::FunctionSig)],
     imported_functions: &[ori_llvm::evaluator::ImportedFunctionForCodegen<'_>],
     mono_instances: &[ori_types::MonoInstance],
-) -> (
-    rustc_hash::FxHashMap<ori_ir::Name, ori_arc::AnnotatedSig>,
-    rustc_hash::FxHashMap<ori_ir::Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-) {
+) -> ArcLoweringResult {
     use ori_ir::Name;
     use rustc_hash::FxHashMap;
 
@@ -1275,7 +1294,7 @@ fn lower_and_infer_borrows(
     // Build cache: Name → (ArcFunction, Vec<ArcFunction>)
     let total = local_lowered.len() + imported_lowered.len();
     let mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> =
-        FxHashMap::with_capacity_and_hasher(total, Default::default());
+        FxHashMap::with_capacity_and_hasher(total, rustc_hash::FxBuildHasher);
     for (arc_fn, lambdas) in local_lowered.into_iter().chain(imported_lowered) {
         arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
     }

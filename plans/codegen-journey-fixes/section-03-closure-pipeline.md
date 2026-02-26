@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Closure Pipeline"
-status: not-started
+status: complete
 goal: "Non-capturing lambdas avoid trampoline overhead; trampolines inherit nounwind from their targets"
 inspired_by:
   - "Rust rustc_codegen_llvm closure ABI (compiler/rustc_codegen_llvm/src/mir/block.rs — FnPtr vs Closure)"
@@ -10,18 +10,18 @@ depends_on: ["01"]
 sections:
   - id: "03.1"
     title: "Non-Capturing Lambda Optimization"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "Trampoline Nounwind Propagation"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Closure Pipeline
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Non-capturing lambdas are represented as bare function pointers without closure allocation or trampoline indirection. Trampoline functions inherit the `nounwind` attribute when their target is provably nounwind.
 
 **Context:** Journey 4 found two closure pipeline issues. First, a non-capturing lambda like `(x: int) -> int = x + 1` still requires a `{ ptr, ptr }` closure pair with null `env_ptr` and a trampoline function `_ori_partial_0` that just forwards the call. This is unnecessary overhead for the common case. Second, trampolines like `_ori_partial_0` lack `nounwind` even when they only call a nounwind lambda.
@@ -56,21 +56,21 @@ For non-capturing lambdas, the closure struct and trampoline are pure overhead.
 
 **Recommended path:** Option (b) first — eliminate the trampoline indirection while keeping the `{ fn_ptr, null }` closure ABI for compatibility. Option (a) can be a future optimization.
 
-- [ ] Detect non-capturing lambdas during `compile_lambda_arc()`
+- [x] Detect non-capturing lambdas during `compile_lambda_arc()`
   - A lambda is non-capturing if its ArcFunction has zero captured environment variables
-  - Check: `arc_function.captures.is_empty()` or equivalent
+  - Check: `arc_function.num_captures == 0` (field added to `ArcFunction`)
 
-- [ ] For non-capturing lambdas, set `fn_ptr` directly to the lambda function (no trampoline)
-  - The lambda function must have the same signature the caller expects
-  - If the lambda ABI matches the expected calling convention, skip trampoline entirely
-  - If ABI mismatch (e.g., sret vs direct return), trampoline is still needed
+- [x] For non-capturing lambdas, set `fn_ptr` directly to the lambda function (no trampoline)
+  - Non-capturing lambdas declared with `ccc` + phantom `ptr %_env` prepended
+  - `emit_partial_apply()` fast path: uses lambda function pointer directly, null env
+  - Trampoline generation skipped entirely
 
-- [ ] Set `env_ptr` to null for non-capturing lambdas (already done, but make explicit)
+- [x] Set `env_ptr` to null for non-capturing lambdas (already done, but make explicit)
 
-- [ ] Test: non-capturing lambda `(x: int) -> int = x + 1` — no `_ori_partial` trampoline in IR
-- [ ] Test: capturing lambda `let y = 5; (x: int) -> int = x + y` — trampoline still generated
-- [ ] Test: non-capturing lambda passed to HOF — correct results
-- [ ] Verify no regressions: `./llvm-test.sh`
+- [x] Test: non-capturing lambda `(x: int) -> int = x + 1` — no `_ori_partial` trampoline in IR
+- [x] Test: capturing lambda `let y = 5; (x: int) -> int = x + y` — trampoline still generated
+- [x] Test: non-capturing lambda passed to HOF — correct results
+- [x] Verify no regressions: `./llvm-test.sh` — all 1016 tests pass
 
 ---
 
@@ -86,32 +86,29 @@ For non-capturing lambdas, the closure struct and trampoline are pure overhead.
 
 After generating a trampoline, check if the target lambda is in `nounwind_functions`. If so, mark the trampoline `nounwind` too.
 
-- [ ] After `generate_trampoline_fn()`, check target nounwind status
-  ```rust
-  let trampoline_fn = generate_trampoline_fn(...);
-  if self.nounwind_functions.contains(&target_name) {
-      trampoline_fn.add_attribute(nounwind);
-      self.nounwind_functions.insert(trampoline_name);
-  }
-  ```
+- [x] After `generate_closure_wrapper()`, check target nounwind status
+  - Added `target_is_nounwind: bool` parameter to `generate_closure_wrapper()`
+  - Sets `add_nounwind_attribute(wrapper_func_id)` when target is nounwind
+  - Call site in `emit_partial_apply()` checks `self.ctx.nounwind_functions.contains(&callee)`
 
-- [ ] Handle edge case: if §03.1 eliminates the trampoline for non-capturing lambdas, this only applies to capturing-lambda trampolines
+- [x] Handle edge case: if §03.1 eliminates the trampoline for non-capturing lambdas, this only applies to capturing-lambda trampolines
+  - Non-capturing fast path returns early before `generate_closure_wrapper` is called
 
-- [ ] Test: trampoline for nounwind lambda → trampoline has `nounwind` attribute
-- [ ] Test: trampoline for may-unwind lambda → trampoline does NOT have `nounwind`
-- [ ] Verify no regressions: `./llvm-test.sh`
+- [x] Test: trampoline for nounwind lambda → trampoline has `nounwind` attribute
+- [x] Test: trampoline for may-unwind lambda → trampoline does NOT have `nounwind`
+- [x] Verify no regressions: `./llvm-test.sh` — all 1460 tests pass
 
 ---
 
 ## 03.3 Completion Checklist
 
-- [ ] Non-capturing lambdas produce no `_ori_partial` trampoline in IR
-- [ ] Capturing lambdas still produce correct trampolines
-- [ ] Trampoline for nounwind target has `nounwind` attribute
-- [ ] Trampoline for may-unwind target does NOT have `nounwind`
-- [ ] Journey 4 program produces correct results with optimized closure IR
-- [ ] `./test-all.sh` green
-- [ ] `./llvm-test.sh` green
-- [ ] `./llvm-clippy.sh` green
+- [x] Non-capturing lambdas produce no `_ori_partial` trampoline in IR
+- [x] Capturing lambdas still produce correct trampolines
+- [x] Trampoline for nounwind target has `nounwind` attribute
+- [x] Trampoline for may-unwind target does NOT have `nounwind`
+- [x] Journey 4 program produces correct results with optimized closure IR (exit code 16, correct)
+- [x] `./test-all.sh` green (10184 passed, 0 failed)
+- [x] `./llvm-test.sh` green (1460 passed, 0 failed)
+- [x] `./llvm-clippy.sh` green (no warnings)
 
 **Exit Criteria:** Journey 4 program compiles with one fewer trampoline function (non-capturing lambda optimized away). Remaining trampolines correctly inherit nounwind. Zero regressions.

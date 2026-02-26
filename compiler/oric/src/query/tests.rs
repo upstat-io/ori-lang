@@ -1228,7 +1228,7 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
     let file1 = SourceFile::new(
         &db,
         PathBuf::from("/test1.ori"),
-        "add (a: int, b: int) -> int = a + b".to_string(),
+        "@add (a: int, b: int) -> int = a + b;".to_string(),
     );
     let type1 = typed(&db, file1);
     let hashes1 = extract_function_hashes(&type1.typed.functions, &type1.typed.expr_types);
@@ -1237,7 +1237,7 @@ fn test_body_change_without_signature_change_produces_different_module_hash() {
     let file2 = SourceFile::new(
         &db,
         PathBuf::from("/test2.ori"),
-        "add (a: int, b: int) -> int = a + b + 0".to_string(),
+        "@add (a: int, b: int) -> int = a + b + 0;".to_string(),
     );
     let type2 = typed(&db, file2);
     let hashes2 = extract_function_hashes(&type2.typed.functions, &type2.typed.expr_types);

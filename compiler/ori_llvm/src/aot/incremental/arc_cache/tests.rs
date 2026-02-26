@@ -32,6 +32,7 @@ fn sample_arc_function() -> ArcFunction {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 

@@ -603,6 +603,7 @@ impl ArcIrBuilder {
             var_reprs: Vec::new(),
             spans,
             is_fbip,
+            num_captures: 0,
         }
     }
 }
