@@ -117,3 +117,70 @@ fn format_named_without_interner_shows_raw() {
     // Without interner, shows raw index
     assert!(pool.format_type(named).starts_with("Named#"));
 }
+
+// === Merkle Hash Debug Tooling Tests ===
+
+#[test]
+fn format_hash_primitive() {
+    let pool = Pool::new();
+    let output = pool.format_hash(Idx::INT);
+    assert!(output.contains("int"), "Should show type name: {output}");
+    assert!(
+        output.contains("hash=0x"),
+        "Should show hash value: {output}"
+    );
+    assert!(output.contains("tag="), "Should show tag name: {output}");
+}
+
+#[test]
+fn format_hash_container_shows_child_hash() {
+    let mut pool = Pool::new();
+    let list_int = pool.list(Idx::INT);
+    let output = pool.format_hash(list_int);
+    assert!(output.contains("[int]"), "Should show type name");
+    assert!(output.contains("child_hash=0x"), "Should show child hash");
+    assert!(output.contains("(int)"), "Should show child type name");
+}
+
+#[test]
+fn format_hash_function_shows_param_hashes() {
+    let mut pool = Pool::new();
+    let func = pool.function(&[Idx::INT, Idx::STR], Idx::BOOL);
+    let output = pool.format_hash(func);
+    assert!(output.contains("2 params"), "Should show param count");
+    assert!(output.contains("p0_hash=0x"), "Should show param hash");
+    assert!(output.contains("ret_hash=0x"), "Should show return hash");
+}
+
+#[test]
+fn debug_hash_tree_shows_recursive_structure() {
+    let mut pool = Pool::new();
+    let list_int = pool.list(Idx::INT);
+    let map = pool.map(Idx::STR, list_int);
+    let tree = pool.debug_hash_tree(map);
+
+    // Should show the top-level map
+    assert!(tree.contains("{str: [int]}"), "Should show map type");
+    // Should show key and value subtrees
+    assert!(tree.contains("key:"), "Should show key label");
+    assert!(tree.contains("value:"), "Should show value label");
+    // Should show the nested list
+    assert!(tree.contains("[int]"), "Should show nested list");
+    // Each line should have a hash
+    let hash_count = tree.matches("hash=0x").count();
+    assert!(
+        hash_count >= 4,
+        "Should have 4+ hashes (map, str, list, int), got {hash_count}"
+    );
+}
+
+#[test]
+fn debug_hash_tree_function_shows_params_and_return() {
+    let mut pool = Pool::new();
+    let func = pool.function(&[Idx::INT, Idx::STR], Idx::BOOL);
+    let tree = pool.debug_hash_tree(func);
+
+    assert!(tree.contains("param[0]:"), "Should show param[0]");
+    assert!(tree.contains("param[1]:"), "Should show param[1]");
+    assert!(tree.contains("return:"), "Should show return");
+}

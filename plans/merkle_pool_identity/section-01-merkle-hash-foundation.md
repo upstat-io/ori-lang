@@ -1,7 +1,7 @@
 ---
 section: "01"
 title: "Merkle Hash Foundation"
-status: not_started
+status: complete
 goal: "Replace pool-local hashes with content-addressed Merkle hashes that are stable across independent Pool instances"
 inspired_by:
   - "Git object model — content-addressed storage where SHA = identity (https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)"
@@ -11,19 +11,19 @@ inspired_by:
 sections:
   - id: "01.1"
     title: "Tag Layout Classification"
-    status: not_started
+    status: complete
   - id: "01.2"
     title: "Child Reference Map"
-    status: not_started
+    status: complete
   - id: "01.3"
     title: "Merkle Hash Function Design"
-    status: not_started
+    status: complete
   - id: "01.4"
     title: "Implementation"
-    status: not_started
+    status: complete
   - id: "01.5"
     title: "Primitive & Fixed-Index Stability"
-    status: not_started
+    status: complete
 ---
 
 # Section 01: Merkle Hash Foundation
@@ -45,7 +45,7 @@ depends only on its structure, not its pool position. Same type → same hash �
 
 ---
 
-## 01.1 Tag Layout Classification — NOT STARTED
+## 01.1 Tag Layout Classification — COMPLETE
 
 **Goal:** Document the complete data layout for all 44 Tag variants, classifying which positions
 in `data` and `extra` are child Idx references (must be Merkle-hashed) vs structural data
@@ -205,14 +205,14 @@ cross-module signatures. Merkle hash: `hash(tag, data)` — treat as opaque.
 Add `debug_assert!` that these never appear in exported FunctionSig hashes.
 
 **Exit Criteria:**
-- [ ] Every Tag variant classified with data/extra layout
-- [ ] Child reference positions documented for each tag
-- [ ] Structural vs child-reference distinction clear for every field
-- [ ] Special types verified to never appear in cross-module signatures
+- [x] Every Tag variant classified with data/extra layout (2026-02-26)
+- [x] Child reference positions documented for each tag (2026-02-26)
+- [x] Structural vs child-reference distinction clear for every field (2026-02-26)
+- [x] Special types verified to never appear in cross-module signatures (2026-02-26)
 
 ---
 
-## 01.2 Child Reference Map — NOT STARTED
+## 01.2 Child Reference Map — COMPLETE
 
 **Goal:** Create a compile-time-queryable classification of which data/extra positions are
 child Idx references for each tag. This is the lookup table the Merkle hash function uses.
@@ -269,14 +269,14 @@ impl Tag {
 - `matches!` coverage test using `Tag::all_variants()` or similar
 
 **Exit Criteria:**
-- [ ] `has_child_in_data()` covers all simple containers
-- [ ] `has_children_in_extra()` covers all complex/two-child/applied/scheme types
-- [ ] `is_merkle_leaf()` covers all primitives, named, variables, special types
-- [ ] Exhaustiveness test prevents silent drift when new tags are added
+- [x] `has_child_in_data()` covers all simple containers (2026-02-26)
+- [x] `uses_extra()` covers all complex/two-child/named/applied/scheme types — uses existing method instead of `has_children_in_extra()` (2026-02-26)
+- [x] `is_merkle_leaf()` covers all primitives, variables, special types without extra (2026-02-26)
+- [x] Exhaustiveness test prevents silent drift when new tags are added (2026-02-26)
 
 ---
 
-## 01.3 Merkle Hash Function Design — NOT STARTED
+## 01.3 Merkle Hash Function Design — COMPLETE
 
 **Goal:** Design the Merkle hash algorithm that produces identical hashes for structurally
 identical types regardless of which Pool they're interned in.
@@ -448,16 +448,16 @@ fn merkle_hash_extra(&self, tag: Tag, start: usize, len: usize, h: &mut impl Has
    item is pushed.
 
 **Exit Criteria:**
-- [ ] Merkle hash algorithm handles all 44 tag variants
-- [ ] Child Idx positions correctly identified for every tag
-- [ ] Structural data positions correctly identified for every tag
-- [ ] Type variable hashing design documented and justified
-- [ ] `&self` borrow safety verified (no aliasing during interning)
-- [ ] FxHash collision bound acceptable for target type counts
+- [x] Merkle hash algorithm handles all 37 tag variants (plan said 44 — actual enum has 37) (2026-02-26)
+- [x] Child Idx positions correctly identified for every tag (2026-02-26)
+- [x] Structural data positions correctly identified for every tag (2026-02-26)
+- [x] Type variable hashing design documented and justified (2026-02-26)
+- [x] `&self` borrow safety verified (no aliasing during interning) (2026-02-26)
+- [x] FxHash collision bound acceptable for target type counts (2026-02-26)
 
 ---
 
-## 01.4 Implementation — NOT STARTED
+## 01.4 Implementation — COMPLETE
 
 **Goal:** Replace `compute_hash` with `merkle_hash` in `pool/mod.rs`, updating `intern()`
 and `intern_complex()` to use the new function.
@@ -609,17 +609,17 @@ pub fn find_tuple(&self, elems: &[Idx]) -> Option<Idx> {
 ```
 
 **Exit Criteria:**
-- [ ] `compute_hash` replaced with `merkle_hash` in all call sites
-- [ ] `intern()` uses `merkle_hash` for simple types
-- [ ] `intern_complex()` uses `merkle_hash` for complex types
-- [ ] `find_tuple()` uses `merkle_hash` for lookup
-- [ ] `compute_primitive_hash()` verified unchanged (already stable)
-- [ ] All existing tests pass (hash values change but semantics preserved)
-- [ ] `cargo c` succeeds for `ori_types`
+- [x] `compute_hash` replaced with `merkle_hash` in all call sites (2026-02-26)
+- [x] `intern()` uses `merkle_hash` for simple types (2026-02-26)
+- [x] `intern_complex()` uses `merkle_hash` for complex types (2026-02-26)
+- [x] `find_tuple()` uses `merkle_hash` for lookup (2026-02-26)
+- [x] `compute_primitive_hash()` verified unchanged (already stable) (2026-02-26)
+- [x] All existing tests pass (hash values change but semantics preserved) (2026-02-26)
+- [x] `cargo c` succeeds for `ori_types` (2026-02-26)
 
 ---
 
-## 01.5 Primitive & Fixed-Index Stability — NOT STARTED
+## 01.5 Primitive & Fixed-Index Stability — COMPLETE
 
 **Goal:** Verify that primitives at fixed indices (0-11) produce the same Merkle hash as before,
 and that types composed only of primitives (`List<int>`, `(int, str) -> bool`) produce identical
@@ -683,22 +683,23 @@ fn merkle_hash_containers_stable_across_pools() {
 - Scheme types with same variable structure → same hash across pools
 
 **Exit Criteria:**
-- [ ] All primitive hashes identical across fresh pools
-- [ ] Simple container hashes stable despite different interning order
-- [ ] Complex type hashes stable despite different Idx assignments
-- [ ] At least 10 cross-pool stability tests covering all tag categories
-- [ ] Tests in `pool/tests.rs` with clear assertions
+- [x] All primitive hashes identical across fresh pools (2026-02-26)
+- [x] Simple container hashes stable despite different interning order (2026-02-26)
+- [x] Complex type hashes stable despite different Idx assignments (2026-02-26)
+- [x] At least 10 cross-pool stability tests covering all tag categories — 17 tests added (2026-02-26)
+- [x] Tests in `pool/tests.rs` with clear assertions (2026-02-26)
 
 ---
 
 ## Section 01 Completion Checklist
 
-- [ ] All 44 Tag variants classified (01.1)
-- [ ] `has_child_in_data()`, `has_children_in_extra()`, `is_merkle_leaf()` added to Tag (01.2)
-- [ ] Exhaustiveness test for tag classification (01.2)
-- [ ] `merkle_hash()` and `merkle_hash_extra()` implemented in Pool (01.3, 01.4)
-- [ ] `intern()`, `intern_complex()`, `find_tuple()` updated (01.4)
-- [ ] `compute_hash()` removed or deprecated (01.4)
-- [ ] Cross-pool hash stability tests passing (01.5)
-- [ ] All existing `cargo t -p ori_types` tests pass
-- [ ] `cargo c` succeeds for all crates in workspace
+- [x] All 37 Tag variants classified (01.1) — plan said 44 but enum has 37 (2026-02-26)
+- [x] `has_child_in_data()`, `is_merkle_leaf()` added to Tag; reuses existing `uses_extra()` (01.2) (2026-02-26)
+- [x] Exhaustiveness test for tag classification (01.2) (2026-02-26)
+- [x] `merkle_hash()` and `merkle_hash_extra()` implemented in Pool (01.3, 01.4) (2026-02-26)
+- [x] `intern()`, `intern_complex()`, `find_tuple()` updated (01.4) (2026-02-26)
+- [x] `compute_hash()` removed (01.4) (2026-02-26)
+- [x] Cross-pool hash stability tests passing — 17 tests (01.5) (2026-02-26)
+- [x] All existing `cargo t -p ori_types` tests pass — 571+ tests (2026-02-26)
+- [x] `cargo c` succeeds for all crates in workspace (2026-02-26)
+- [x] `./test-all.sh` passes — 10,600 tests, 0 failures (2026-02-26)

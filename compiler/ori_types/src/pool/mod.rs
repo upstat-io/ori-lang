@@ -260,10 +260,17 @@ impl Pool {
         reason = "items.len() always fits u32 — pool indices are u32"
     )]
     pub fn intern(&mut self, tag: Tag, data: u32) -> Idx {
-        let hash = Self::compute_hash(tag, data, &[]);
+        let hash = self.merkle_hash(tag, data, &[]);
 
         // Check for existing
         if let Some(&idx) = self.intern_map.get(&hash) {
+            debug_assert_eq!(
+                self.tag(idx),
+                tag,
+                "Merkle hash collision: hash 0x{hash:016x} maps to {:?} but expected {:?}",
+                self.tag(idx),
+                tag
+            );
             return idx;
         }
 
@@ -289,10 +296,17 @@ impl Pool {
         reason = "items.len() and extra.len() always fit u32 — pool storage is u32-indexed"
     )]
     pub fn intern_complex(&mut self, tag: Tag, extra_data: &[u32]) -> Idx {
-        let hash = Self::compute_hash(tag, 0, extra_data);
+        let hash = self.merkle_hash(tag, 0, extra_data);
 
         // Check for existing
         if let Some(&idx) = self.intern_map.get(&hash) {
+            debug_assert_eq!(
+                self.tag(idx),
+                tag,
+                "Merkle hash collision: hash 0x{hash:016x} maps to {:?} but expected {:?}",
+                self.tag(idx),
+                tag
+            );
             return idx;
         }
 
@@ -313,16 +327,150 @@ impl Pool {
         idx
     }
 
-    /// Compute hash for interning.
-    fn compute_hash(tag: Tag, data: u32, extra: &[u32]) -> u64 {
+    /// Compute a content-addressed Merkle hash for interning.
+    ///
+    /// Unlike the previous `compute_hash`, this hashes child types by their
+    /// Merkle hashes (from `self.hashes[]`), not by their raw Idx values.
+    /// This makes the hash stable across independent Pool instances:
+    /// the same type structure always produces the same hash.
+    ///
+    /// # Categories
+    ///
+    /// - `has_child_in_data()`: data = child Idx → hash child's Merkle hash
+    /// - `uses_extra()`: tag-specific extra layout → `merkle_hash_extra()`
+    /// - Leaf: hash tag + data directly (primitives, variables, specials)
+    fn merkle_hash(&self, tag: Tag, data: u32, extra: &[u32]) -> u64 {
         use std::hash::{Hash, Hasher};
-        let mut hasher = rustc_hash::FxHasher::default();
+        let mut h = rustc_hash::FxHasher::default();
 
-        (tag as u8).hash(&mut hasher);
-        data.hash(&mut hasher);
-        extra.hash(&mut hasher);
+        (tag as u8).hash(&mut h);
 
-        hasher.finish()
+        if tag.has_child_in_data() {
+            // Simple container: data = child Idx → hash child's Merkle hash
+            self.hashes[data as usize].hash(&mut h);
+        } else if tag.uses_extra() {
+            // Complex type with extra data — tag-specific layout.
+            // Note: data is NOT hashed here because for complex types
+            // data = extra array offset (pool-local, not structural).
+            self.merkle_hash_extra(tag, extra, &mut h);
+        } else {
+            // Leaf: hash data directly (primitives: data=0, vars: data=var_id, etc.)
+            data.hash(&mut h);
+        }
+
+        h.finish()
+    }
+
+    /// Hash the extra array data for a complex type, using tag-specific layout.
+    ///
+    /// Child Idx positions are looked up in `self.hashes[]` (Merkle recursion).
+    /// Structural data (names, counts, lifetime IDs) is hashed directly.
+    fn merkle_hash_extra(&self, tag: Tag, extra: &[u32], h: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        match tag {
+            // Two-child: both positions are child Idx
+            Tag::Map | Tag::Result => {
+                self.hashes[extra[0] as usize].hash(h);
+                self.hashes[extra[1] as usize].hash(h);
+            }
+
+            // Borrowed: inner is child, lifetime is structural
+            Tag::Borrowed => {
+                self.hashes[extra[0] as usize].hash(h);
+                extra[1].hash(h); // lifetime ID
+            }
+
+            // Function: [param_count, p0, p1, ..., return_type]
+            Tag::Function => {
+                let count = extra[0] as usize;
+                count.hash(h);
+                for i in 0..count {
+                    self.hashes[extra[1 + i] as usize].hash(h);
+                }
+                self.hashes[extra[1 + count] as usize].hash(h);
+            }
+
+            // Tuple: [elem_count, e0, e1, ...]
+            Tag::Tuple => {
+                let count = extra[0] as usize;
+                count.hash(h);
+                for i in 0..count {
+                    self.hashes[extra[1 + i] as usize].hash(h);
+                }
+            }
+
+            // Struct: [name_lo, name_hi, field_count, f0_name, f0_type, ...]
+            Tag::Struct => {
+                extra[0].hash(h); // name_lo (structural)
+                extra[1].hash(h); // name_hi (structural)
+                let field_count = extra[2] as usize;
+                field_count.hash(h);
+                for i in 0..field_count {
+                    extra[3 + i * 2].hash(h); // field name (structural)
+                    self.hashes[extra[3 + i * 2 + 1] as usize].hash(h); // field type (child)
+                }
+            }
+
+            // Enum: [name_lo, name_hi, variant_count, v0_name, v0_fc, v0_f0, ...]
+            Tag::Enum => {
+                extra[0].hash(h); // name_lo
+                extra[1].hash(h); // name_hi
+                let variant_count = extra[2] as usize;
+                variant_count.hash(h);
+                let mut offset = 3;
+                for _ in 0..variant_count {
+                    extra[offset].hash(h); // variant name (structural)
+                    let fc = extra[offset + 1] as usize;
+                    fc.hash(h); // field count (structural)
+                    for j in 0..fc {
+                        self.hashes[extra[offset + 2 + j] as usize].hash(h); // field type (child)
+                    }
+                    offset += 2 + fc;
+                }
+            }
+
+            // Named: [name_lo, name_hi] — all structural, no children
+            Tag::Named => {
+                extra[0].hash(h); // name_lo
+                extra[1].hash(h); // name_hi
+            }
+
+            // Applied: [name_lo, name_hi, arg_count, a0, a1, ...]
+            Tag::Applied => {
+                extra[0].hash(h); // name_lo (structural)
+                extra[1].hash(h); // name_hi (structural)
+                let arg_count = extra[2] as usize;
+                arg_count.hash(h);
+                for i in 0..arg_count {
+                    self.hashes[extra[3 + i] as usize].hash(h); // arg type (child)
+                }
+            }
+
+            // Alias: [name_lo, name_hi] — all structural (similar to Named)
+            // Projection: [projection data] — transient, all structural
+            Tag::Alias | Tag::Projection => {
+                for &word in extra {
+                    word.hash(h);
+                }
+            }
+
+            // Scheme: [var_count, v0_id, v1_id, ..., body_idx]
+            Tag::Scheme => {
+                let var_count = extra[0] as usize;
+                var_count.hash(h);
+                // Var IDs are positional (de Bruijn-like) — hash as structural
+                for i in 0..var_count {
+                    extra[1 + i].hash(h);
+                }
+                // Body is a child type
+                self.hashes[extra[1 + var_count] as usize].hash(h);
+            }
+
+            _ => unreachable!(
+                "uses_extra() returned true for {:?} but merkle_hash_extra has no handler",
+                tag
+            ),
+        }
     }
 
     /// Compute flags for a type.
@@ -579,7 +727,7 @@ impl Pool {
         for &e in elems {
             extra.push(e.raw());
         }
-        let hash = Self::compute_hash(Tag::Tuple, 0, &extra);
+        let hash = self.merkle_hash(Tag::Tuple, 0, &extra);
         self.intern_map.get(&hash).copied()
     }
 
