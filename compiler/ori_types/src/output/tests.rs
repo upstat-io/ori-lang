@@ -56,6 +56,8 @@ fn function_sig_generic() {
         scheme_var_ids: vec![],
         required_params: 1,
         param_defaults: vec![],
+        param_hashes: vec![0; 1],
+        return_hash: 0,
     };
 
     assert!(sig.is_generic());
@@ -131,6 +133,8 @@ fn effect_class_reads_only() {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::ReadsOnly);
@@ -160,6 +164,8 @@ fn effect_class_has_effects() {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);
@@ -191,6 +197,8 @@ fn effect_class_mixed_caps_is_has_effects() {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
     };
 
     assert_eq!(sig.effect_class(&interner), EffectClass::HasEffects);
@@ -256,6 +264,7 @@ fn type_def_export() {
         span: Span::DUMMY,
         type_params: vec![],
         visibility: Visibility::Public,
+        merkle_hash: 0,
     });
 
     assert_eq!(module.type_count(), 1);
@@ -269,4 +278,88 @@ fn type_def_export() {
         assert_eq!(s.fields.len(), 2);
         assert_eq!(s.fields[0].ty, Idx::INT);
     }
+}
+
+#[test]
+fn populate_hashes_matches_pool() {
+    let mut pool = Pool::new();
+    let list_str = pool.list(Idx::STR);
+    let opt_bool = pool.option(Idx::BOOL);
+
+    let mut sig = FunctionSig::simple(Name::from_raw(1), vec![Idx::INT, list_str], opt_bool);
+
+    // Before populate: hashes are zeros
+    assert_eq!(sig.param_hashes, vec![0, 0]);
+    assert_eq!(sig.return_hash, 0);
+
+    sig.populate_hashes(&pool);
+
+    // After populate: hashes match pool
+    assert_eq!(sig.param_hashes.len(), sig.param_types.len());
+    for (i, (&idx, &hash)) in sig.param_types.iter().zip(&sig.param_hashes).enumerate() {
+        assert_eq!(
+            pool.hash(idx),
+            hash,
+            "param[{i}] hash mismatch: pool says {}, sig says {}",
+            pool.hash(idx),
+            hash,
+        );
+    }
+    assert_eq!(pool.hash(sig.return_type), sig.return_hash);
+}
+
+#[test]
+fn populate_hashes_computed_from_pool() {
+    let pool = Pool::new();
+    let mut sig = FunctionSig::simple(
+        Name::from_raw(1),
+        vec![Idx::INT, Idx::STR, Idx::BOOL],
+        Idx::UNIT,
+    );
+
+    sig.populate_hashes(&pool);
+
+    // Hashes must match the pool's Merkle hash for each type
+    // (Note: FxHasher can produce 0 for Tag::Int — that's valid, not "uninitialized")
+    for (i, (&idx, &hash)) in sig.param_types.iter().zip(&sig.param_hashes).enumerate() {
+        assert_eq!(
+            pool.hash(idx),
+            hash,
+            "param[{i}] hash inconsistent with pool"
+        );
+    }
+    assert_eq!(pool.hash(sig.return_type), sig.return_hash);
+
+    // At least some primitive hashes should be distinct from each other
+    // (verifies computation actually runs, not just zeros everywhere)
+    let distinct: std::collections::HashSet<u64> = sig.param_hashes.iter().copied().collect();
+    assert!(
+        distinct.len() >= 2,
+        "primitive hashes should produce distinct values"
+    );
+}
+
+#[test]
+fn populate_hashes_cross_pool_stable() {
+    // Same types interned in different pools must produce same hashes
+    let mut pool_a = Pool::new();
+    let mut pool_b = Pool::new();
+
+    let list_int_a = pool_a.list(Idx::INT);
+    let list_int_b = pool_b.list(Idx::INT);
+
+    let mut sig_a = FunctionSig::simple(Name::from_raw(1), vec![list_int_a], Idx::BOOL);
+    let mut sig_b = FunctionSig::simple(Name::from_raw(1), vec![list_int_b], Idx::BOOL);
+
+    sig_a.populate_hashes(&pool_a);
+    sig_b.populate_hashes(&pool_b);
+
+    assert_eq!(
+        sig_a.param_hashes, sig_b.param_hashes,
+        "same types in different pools must produce identical param hashes"
+    );
+    assert_eq!(
+        sig_a.return_hash, sig_b.return_hash,
+        "same return type in different pools must produce identical return hash"
+    );
 }

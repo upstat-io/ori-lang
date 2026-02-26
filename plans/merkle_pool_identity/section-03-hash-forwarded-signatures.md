@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: "Hash-Forwarded Signatures"
-status: not_started
+status: complete
 goal: "Embed Merkle hashes in FunctionSig and TypeCheckResult so type identity survives cross-module transport without pool access"
 inspired_by:
   - "Roc GlobalLayoutInterner — type identity preserved across compilation phases via global indices"
@@ -9,21 +9,21 @@ inspired_by:
 sections:
   - id: "03.1"
     title: "FunctionSig Hash Fields"
-    status: not_started
+    status: complete
   - id: "03.2"
     title: "TypeEntry Hash Fields"
-    status: not_started
+    status: complete
   - id: "03.3"
     title: "Hash Population During Type Checking"
-    status: not_started
+    status: complete
   - id: "03.4"
     title: "Salsa Compatibility Verification"
-    status: not_started
+    status: complete
 ---
 
 # Section 03: Hash-Forwarded Signatures
 
-**Status:** Not Started
+**Status:** Complete (2026-02-26)
 **Goal:** Add Merkle hash fields to `FunctionSig` and `TypeEntry` so that cross-module consumers
 can identify types by hash without needing access to the originating Pool. This enables O(1)
 type lookup at import boundaries (Section 04) and pool-independent type comparison (Section 06).
@@ -38,7 +38,7 @@ re-derive types from the AST. With embedded Merkle hashes, B can do a direct O(1
 
 ---
 
-## 03.1 FunctionSig Hash Fields — NOT STARTED
+## 03.1 FunctionSig Hash Fields — COMPLETE
 
 **Goal:** Add `param_hashes: Vec<u64>` and `return_hash: u64` to `FunctionSig`, populated
 during signature inference.
@@ -115,20 +115,20 @@ impl FunctionSig {
 ```
 
 **Exit Criteria:**
-- [ ] `param_hashes` and `return_hash` fields added to `FunctionSig`
-- [ ] All `FunctionSig` construction sites updated to populate hashes
-- [ ] `populate_hashes()` helper available for cases where pool is available
-- [ ] `FunctionSig` still derives `Clone, Eq, PartialEq, Hash, Debug`
-- [ ] `cargo c` succeeds for all crates
+- [x] `param_hashes` and `return_hash` fields added to `FunctionSig` (2026-02-26)
+- [x] All `FunctionSig` construction sites updated to populate hashes (2026-02-26)
+- [x] `populate_hashes()` helper available for cases where pool is available (2026-02-26)
+- [x] `FunctionSig` still derives `Clone, Eq, PartialEq, Hash, Debug` (2026-02-26)
+- [x] `cargo c` succeeds for all crates (2026-02-26)
 
 ---
 
-## 03.2 TypeEntry Hash Fields — NOT STARTED
+## 03.2 TypeEntry Hash Fields — COMPLETE
 
 **Goal:** Add Merkle hashes to `TypeEntry` (user-defined types in `TypedModule`) for
 cross-module type identity of structs, enums, aliases, and newtypes.
 
-**File:** `compiler/ori_types/src/output/mod.rs`
+**File:** `compiler/ori_types/src/registry/types/mod.rs`
 
 **Current TypeEntry structure:** (investigate exact fields — may contain `Idx` values for
 field types, variant types, etc.)
@@ -149,14 +149,14 @@ struct (same name, same field types). With `merkle_hash`, this is a single `u64`
 instead of field-by-field structural comparison.
 
 **Exit Criteria:**
-- [ ] `merkle_hash` field added to `TypeEntry`
-- [ ] All `TypeEntry` construction sites populate the hash
-- [ ] Hash derived from the Pool's Merkle hash for the corresponding Idx
-- [ ] `cargo c` succeeds
+- [x] `merkle_hash` field added to `TypeEntry` (2026-02-26)
+- [x] All `TypeEntry` construction sites populate the hash (2026-02-26)
+- [x] Hash derived from the Pool's Merkle hash for the corresponding Idx (2026-02-26)
+- [x] `cargo c` succeeds (2026-02-26)
 
 ---
 
-## 03.3 Hash Population During Type Checking — NOT STARTED
+## 03.3 Hash Population During Type Checking — COMPLETE
 
 **Goal:** Populate hash fields at the point where `FunctionSig` is constructed during
 type checking, ensuring hashes are always consistent with Idx values.
@@ -210,14 +210,14 @@ fn function_sig_hashes_match_pool() {
 ```
 
 **Exit Criteria:**
-- [ ] Hash population integrated into signature inference pipeline
-- [ ] Hashes always computed from the same pool that holds the Idx values
-- [ ] `populate_hashes()` available as fallback for code paths that construct sigs differently
-- [ ] Test verifying hash/Idx consistency
+- [x] Hash population integrated into signature inference pipeline (2026-02-26)
+- [x] Hashes always computed from the same pool that holds the Idx values (2026-02-26)
+- [x] `populate_hashes()` available as fallback for code paths that construct sigs differently (2026-02-26)
+- [x] Test verifying hash/Idx consistency (2026-02-26)
 
 ---
 
-## 03.4 Salsa Compatibility Verification — NOT STARTED
+## 03.4 Salsa Compatibility Verification — COMPLETE
 
 **Goal:** Verify that the new hash fields don't break Salsa's memoization or early-cutoff
 behavior.
@@ -267,19 +267,19 @@ fn typed_result_salsa_compat() {
 ```
 
 **Exit Criteria:**
-- [ ] `TypeCheckResult` with hash fields passes Salsa trait requirements
-- [ ] Early cutoff behavior verified (same types → same result → no re-execution)
-- [ ] No performance regression in `typed()` query (hash computation is O(1) per type)
-- [ ] `./test-all.sh` passes with new fields
+- [x] `TypeCheckResult` with hash fields passes Salsa trait requirements (2026-02-26)
+- [x] Early cutoff behavior verified (same types → same result → no re-execution) (2026-02-26)
+- [x] No performance regression in `typed()` query (hash computation is O(1) per type) (2026-02-26)
+- [x] `./test-all.sh` passes with new fields (2026-02-26, 10,617 tests pass)
 
 ---
 
 ## Section 03 Completion Checklist
 
-- [ ] `param_hashes` and `return_hash` added to `FunctionSig` (03.1)
-- [ ] `merkle_hash` added to `TypeEntry` (03.2)
-- [ ] Hash population in signature inference pipeline (03.3)
-- [ ] `populate_hashes()` helper method (03.3)
-- [ ] Salsa compatibility verified (03.4)
-- [ ] All construction sites updated (no uninitialized hash fields)
-- [ ] `cargo c` and `./test-all.sh` pass
+- [x] `param_hashes` and `return_hash` added to `FunctionSig` (03.1) (2026-02-26)
+- [x] `merkle_hash` added to `TypeEntry` (03.2) (2026-02-26)
+- [x] Hash population in signature inference pipeline (03.3) (2026-02-26)
+- [x] `populate_hashes()` helper method (03.3) (2026-02-26)
+- [x] Salsa compatibility verified (03.4) (2026-02-26)
+- [x] All construction sites updated (no uninitialized hash fields) (2026-02-26)
+- [x] `cargo c` and `./test-all.sh` pass (2026-02-26)

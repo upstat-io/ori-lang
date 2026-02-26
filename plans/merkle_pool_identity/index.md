@@ -65,7 +65,7 @@ pool_hash_eq, structural_eq
 ---
 
 ### Section 03: Hash-Forwarded Signatures
-**File:** `section-03-hash-forwarded-signatures.md` | **Status:** Not Started
+**File:** `section-03-hash-forwarded-signatures.md` | **Status:** Complete
 
 ```
 FunctionSig, param_hashes, return_hash, u64
@@ -151,7 +151,7 @@ scalability, 100 modules, 1000 types
 |----|-------|------|--------|
 | 01 | Merkle Hash Foundation | `section-01-merkle-hash-foundation.md` | Complete |
 | 02 | Hash Stability Testing | `section-02-hash-stability-testing.md` | Complete |
-| 03 | Hash-Forwarded Signatures | `section-03-hash-forwarded-signatures.md` | Not Started |
+| 03 | Hash-Forwarded Signatures | `section-03-hash-forwarded-signatures.md` | Complete |
 | 04 | Hash-First Import Resolution | `section-04-hash-first-import-resolution.md` | Not Started |
 | 05 | Portable Type Descriptors | `section-05-portable-type-descriptors.md` | Not Started |
 | 06 | Backend Integration | `section-06-backend-integration.md` | Not Started |

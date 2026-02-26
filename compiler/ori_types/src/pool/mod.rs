@@ -13,10 +13,12 @@
 //! - Structure-of-Arrays (`SoA`) layout for cache-friendly bulk operations
 
 mod construct;
+pub mod descriptor;
 mod format;
 pub mod substitute;
 
 pub use construct::*;
+pub use descriptor::{TypeDescriptor, VariantDescriptor};
 pub use substitute::{extract_var_from_types, substitute_in_pool};
 
 use rustc_hash::FxHashMap;
@@ -224,6 +226,20 @@ impl Pool {
     #[inline]
     pub fn hash(&self, idx: Idx) -> u64 {
         self.hashes[idx.raw() as usize]
+    }
+
+    /// Look up a type by its Merkle hash.
+    ///
+    /// Returns `Some(idx)` if a type with this hash exists in the pool,
+    /// `None` otherwise. O(1) via `intern_map`.
+    ///
+    /// Used for hash-first import resolution: when importing a function from
+    /// another module, we can resolve its parameter/return types by Merkle hash
+    /// instead of re-walking the AST — provided those types already exist in
+    /// the local pool.
+    #[inline]
+    pub fn lookup_by_hash(&self, merkle_hash: u64) -> Option<Idx> {
+        self.intern_map.get(&merkle_hash).copied()
     }
 
     /// Get the variable state for a variable ID.

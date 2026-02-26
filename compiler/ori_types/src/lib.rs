@@ -45,7 +45,8 @@ pub use output::{
     FunctionSig, GenericArg, MonoInstance, TypeCheckResult, TypedModule,
 };
 pub use pool::{
-    extract_var_from_types, substitute_in_pool, EnumVariant, Pool, VarState, DEFAULT_RANK,
+    extract_var_from_types, substitute_in_pool, EnumVariant, Pool, TypeDescriptor, VarState,
+    VariantDescriptor, DEFAULT_RANK,
 };
 pub use registry::{
     // Type registry

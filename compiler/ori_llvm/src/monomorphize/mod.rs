@@ -64,6 +64,14 @@ pub fn collect_mono_functions(
 
         // Build concrete signature: same structure, but with substituted types
         // and empty type_params (making is_generic() return false).
+        // Compute Merkle hashes for concrete types
+        let param_hashes: Vec<u64> = instance
+            .concrete_param_types
+            .iter()
+            .map(|&idx| pool.hash(idx))
+            .collect();
+        let return_hash = pool.hash(instance.concrete_return_type);
+
         let concrete_sig = FunctionSig {
             name: mangled_name,
             type_params: vec![],
@@ -82,6 +90,8 @@ pub fn collect_mono_functions(
             scheme_var_ids: vec![],
             required_params: generic_sig.required_params,
             param_defaults: generic_sig.param_defaults.clone(),
+            param_hashes,
+            return_hash,
         };
 
         result.push(MonoFunction {
