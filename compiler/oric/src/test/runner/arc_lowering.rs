@@ -65,11 +65,9 @@ pub(crate) fn lower_and_infer_borrows(
         local_lowered.push((arc_fn, lambdas));
     }
 
-    // Lower imported functions — each uses its own module's pool, not the
-    // importing module's pool. The sig and canon contain Idx values interned
-    // in the imported module's type checker, so using the wrong pool would
-    // cause out-of-bounds panics on compound types (closures, tuples, etc.).
-    // Borrow inference also runs per-import with the correct pool classifier.
+    // Lower imported functions using the main pool. All Idx values in
+    // imp_fn.sig and imp_fn.canon have been re-interned into the main pool
+    // by the caller, so we can safely use the same pool and classifier.
     let borrowing_builtins = ori_arc::borrowing_builtin_names(interner);
     let mut imported_sigs: FxHashMap<Name, ori_arc::AnnotatedSig> = FxHashMap::default();
     for imp_fn in imported_functions {
@@ -78,24 +76,22 @@ pub(crate) fn lower_and_infer_borrows(
         }
         let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
             imp_fn.function.name,
-            imp_fn.sig,
+            &imp_fn.sig,
             imp_fn.function.name,
             imp_fn.canon,
             interner,
-            imp_fn.pool,
+            pool,
             &mut arc_problems,
             None,
         );
-        // Infer borrows for this imported function using its own pool's classifier.
-        // Imported functions don't call back into local functions, so their borrow
-        // annotations are independent and can be computed in isolation.
-        let imp_classifier = ori_arc::ArcClassifier::new(imp_fn.pool);
+        // Borrow inference uses the main pool's classifier — all types are
+        // in the same pool after re-interning.
         let imp_flat: Vec<ori_arc::ArcFunction> = std::iter::once(&arc_fn)
             .chain(lambdas.iter())
             .cloned()
             .collect();
         let imp_borrow_sigs =
-            ori_arc::infer_borrows_scc(&imp_flat, &imp_classifier, &borrowing_builtins);
+            ori_arc::infer_borrows_scc(&imp_flat, &classifier, &borrowing_builtins);
         imported_sigs.extend(imp_borrow_sigs);
         imported_lowered.push((arc_fn, lambdas));
     }
