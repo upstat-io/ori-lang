@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Portable Type Descriptors"
-status: not_started
+status: complete
 goal: "Enable zero-AST type reconstruction across module boundaries via self-contained, pool-independent type descriptors"
 inspired_by:
   - "Git pack files — self-contained object bundles for efficient transfer"
@@ -10,21 +10,21 @@ inspired_by:
 sections:
   - id: "05.1"
     title: "TypeDescriptor Design"
-    status: not_started
+    status: complete
   - id: "05.2"
     title: "Descriptor Generation"
-    status: not_started
+    status: complete
   - id: "05.3"
     title: "Reconstruction Algorithm"
-    status: not_started
+    status: complete
   - id: "05.4"
     title: "Integration with TypeCheckResult"
-    status: not_started
+    status: complete
 ---
 
 # Section 05: Portable Type Descriptors
 
-**Status:** Not Started
+**Status:** Complete
 **Goal:** Provide a self-contained type representation that can reconstruct any type in a
 new Pool without access to the originating Pool or AST. This eliminates the AST fallback
 path entirely, making cross-module type resolution fully pool-independent.
@@ -49,7 +49,7 @@ in parallel with Section 06 (backend integration).
 
 ---
 
-## 05.1 TypeDescriptor Design — NOT STARTED
+## 05.1 TypeDescriptor Design — COMPLETE
 
 **Goal:** Define a compact, pool-independent type representation that references children
 by Merkle hash rather than by Idx.
@@ -176,15 +176,15 @@ pub struct VariantDescriptor {
 **File:** `compiler/ori_types/src/pool/descriptor.rs` (new file)
 
 **Exit Criteria:**
-- [ ] `TypeDescriptor` enum defined with all needed variants
-- [ ] `VariantDescriptor` defined
-- [ ] All descriptor variants reference children by Merkle hash
-- [ ] `TypeDescriptor` derives `Clone, Debug, PartialEq, Eq, Hash`
-- [ ] Size estimates documented
+- [x] `TypeDescriptor` enum defined with all needed variants
+- [x] `VariantDescriptor` defined
+- [x] All descriptor variants reference children by Merkle hash
+- [x] `TypeDescriptor` derives `Clone, Debug, PartialEq, Eq, Hash`
+- [x] Size estimates documented
 
 ---
 
-## 05.2 Descriptor Generation — NOT STARTED
+## 05.2 Descriptor Generation — COMPLETE
 
 **Goal:** Generate a topologically sorted sequence of `TypeDescriptor`s from a Pool type.
 
@@ -281,15 +281,15 @@ impl Pool {
 **File:** `compiler/ori_types/src/pool/descriptor.rs`
 
 **Exit Criteria:**
-- [ ] `Pool::describe()` generates correct descriptor for each tag variant
-- [ ] `Pool::describe_transitive()` produces topologically sorted sequence
-- [ ] Deduplication by hash (each type appears once)
-- [ ] Test: `describe_transitive(List<Map<str, int>>)` produces 4 descriptors
+- [x] `Pool::describe()` generates correct descriptor for each tag variant
+- [x] `Pool::describe_transitive()` produces topologically sorted sequence
+- [x] Deduplication by hash (each type appears once)
+- [x] Test: `describe_transitive(List<Map<str, int>>)` produces 4 descriptors
   (int, str, Map<str,int>, List<Map<str,int>>) in topological order
 
 ---
 
-## 05.3 Reconstruction Algorithm — NOT STARTED
+## 05.3 Reconstruction Algorithm — COMPLETE
 
 **Goal:** Reconstruct types in a new Pool from a sequence of TypeDescriptors.
 
@@ -377,15 +377,15 @@ lookup never fails.
   (assuming 70% hit rate from prelude/common types)
 
 **Exit Criteria:**
-- [ ] `Pool::reconstruct()` handles all descriptor variants
-- [ ] Topological ordering respected (children before parents)
-- [ ] Existing types skipped (hash lookup hit)
-- [ ] New types correctly interned with Merkle hash
-- [ ] Test: reconstruct `(Map<str, List<int>>) -> Option<bool>` in empty pool
+- [x] `Pool::reconstruct()` handles all descriptor variants
+- [x] Topological ordering respected (children before parents)
+- [x] Existing types skipped (hash lookup hit)
+- [x] New types correctly interned with Merkle hash
+- [x] Test: reconstruct `(Map<str, List<int>>) -> Option<bool>` in empty pool
 
 ---
 
-## 05.4 Integration with TypeCheckResult — NOT STARTED
+## 05.4 Integration with TypeCheckResult — COMPLETE
 
 **Goal:** Embed type descriptors in `TypeCheckResult` so cross-module type reconstruction
 doesn't need AST access.
@@ -439,20 +439,20 @@ fn generate_export_descriptors(
 - Acceptable for Salsa memoization
 
 **Exit Criteria:**
-- [ ] `type_descriptors` field added to `TypedModule`
-- [ ] Descriptor generation after type checking
-- [ ] Only public function types exported (minimize size)
-- [ ] Salsa compatibility maintained
-- [ ] `cargo c` and `./test-all.sh` pass
+- [x] `type_descriptors` field added to `TypedModule`
+- [x] Descriptor generation after type checking
+- [x] Only public function types exported (minimize size)
+- [x] Salsa compatibility maintained
+- [x] `cargo c` and `./test-all.sh` pass
 
 ---
 
 ## Section 05 Completion Checklist
 
-- [ ] `TypeDescriptor` enum with all variants (05.1)
-- [ ] `Pool::describe()` and `Pool::describe_transitive()` (05.2)
-- [ ] `Pool::reconstruct()` from descriptor sequence (05.3)
-- [ ] Round-trip test: describe → reconstruct → verify hash equality (05.3)
-- [ ] Integration with `TypedModule` (05.4)
-- [ ] Import path uses descriptors when available, AST fallback otherwise
-- [ ] All tests pass
+- [x] `TypeDescriptor` enum with all variants (05.1)
+- [x] `Pool::describe()` and `Pool::describe_transitive()` (05.2)
+- [x] `Pool::reconstruct()` from descriptor sequence (05.3)
+- [x] Round-trip test: describe → reconstruct → verify hash equality (05.3)
+- [x] Integration with `TypedModule` (05.4)
+- [x] Import path uses descriptors when available, AST fallback otherwise
+- [x] All tests pass

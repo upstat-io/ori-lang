@@ -57,6 +57,7 @@ fn make_type_entry(name: Name, idx: Idx, kind: TypeKind) -> TypeEntry {
         span: ori_ir::Span::new(0, 0),
         type_params: vec![],
         visibility: Visibility::Public,
+        merkle_hash: 0,
     }
 }
 
@@ -127,6 +128,7 @@ fn generic_types_are_skipped() {
         span: ori_ir::Span::new(0, 0),
         type_params: vec![Name::from_raw(301)], // generic param T
         visibility: Visibility::Public,
+        merkle_hash: 0,
     };
 
     // Should not panic — generic types are skipped

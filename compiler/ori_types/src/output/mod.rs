@@ -14,6 +14,7 @@
 use ori_diagnostic::ErrorGuaranteed;
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, Span};
 
+use crate::pool::TypeDescriptor;
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError, TypeCheckWarning};
 
@@ -199,6 +200,15 @@ pub struct TypedModule {
     /// found at a call site. The LLVM backend uses these to stamp out
     /// concrete specializations of generic functions.
     pub mono_instances: Vec<MonoInstance>,
+
+    /// Portable type descriptors for all types referenced in exported signatures.
+    ///
+    /// Topologically sorted: leaves first. Each entry is `(merkle_hash, descriptor)`.
+    /// Importing modules can reconstruct any exported type from these descriptors
+    /// without accessing the originating Pool or AST.
+    ///
+    /// Only includes types from public function signatures to minimize size.
+    pub type_descriptors: Vec<(u64, TypeDescriptor)>,
 }
 
 impl TypedModule {
@@ -218,6 +228,7 @@ impl TypedModule {
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
             mono_instances: Vec::new(),
+            type_descriptors: Vec::new(),
         }
     }
 
@@ -366,6 +377,23 @@ pub struct FunctionSig {
     /// `None` if the parameter is required. Used by the canonicalizer to fill in omitted
     /// arguments when desugaring `CallNamed` to positional `Call`.
     pub param_defaults: Vec<Option<ExprId>>,
+
+    /// Merkle hashes for parameter types — stable across Pool instances.
+    ///
+    /// `param_hashes[i]` is the content-addressed hash of `param_types[i]`.
+    /// Used for cross-module type identity: receiving modules can look up
+    /// types by hash in their own `intern_map` without AST re-walking.
+    /// Always `param_hashes.len() == param_types.len()`.
+    ///
+    /// Zero when the signature was constructed without pool access (e.g.,
+    /// test helpers, dummy signatures). Use [`populate_hashes()`](Self::populate_hashes)
+    /// to fill in after construction.
+    pub param_hashes: Vec<u64>,
+
+    /// Merkle hash for the return type — stable across Pool instances.
+    ///
+    /// Zero when constructed without pool access.
+    pub return_hash: u64,
 }
 
 /// A where-clause constraint on a function.
@@ -385,8 +413,12 @@ pub struct FnWhereClause {
 
 impl FunctionSig {
     /// Create a simple function signature with no generics or capabilities.
+    ///
+    /// Hash fields are initialized to zero. Call [`populate_hashes()`](Self::populate_hashes)
+    /// to fill them from a Pool.
     pub fn simple(name: Name, param_types: Vec<Idx>, return_type: Idx) -> Self {
         let required_params = param_types.len();
+        let param_hashes = vec![0; param_types.len()];
         Self {
             name,
             type_params: Vec::new(),
@@ -405,6 +437,8 @@ impl FunctionSig {
             scheme_var_ids: Vec::new(),
             required_params,
             param_defaults: Vec::new(),
+            param_hashes,
+            return_hash: 0,
         }
     }
 
@@ -413,6 +447,9 @@ impl FunctionSig {
     /// Like [`simple`](Self::simple) but includes parameter names, which are
     /// needed for ABI computation in derived trait methods. All other fields
     /// (generics, capabilities, flags) default to empty/false.
+    ///
+    /// Hash fields are initialized to zero. Call [`populate_hashes()`](Self::populate_hashes)
+    /// to fill them from a Pool.
     pub fn synthetic(
         name: Name,
         param_names: Vec<Name>,
@@ -420,6 +457,7 @@ impl FunctionSig {
         return_type: Idx,
     ) -> Self {
         let required_params = param_types.len();
+        let param_hashes = vec![0; param_types.len()];
         Self {
             name,
             type_params: Vec::new(),
@@ -438,7 +476,23 @@ impl FunctionSig {
             scheme_var_ids: Vec::new(),
             required_params,
             param_defaults: Vec::new(),
+            param_hashes,
+            return_hash: 0,
         }
+    }
+
+    /// Populate Merkle hash fields from a Pool.
+    ///
+    /// Computes content-addressed hashes for all parameter types and the return
+    /// type, enabling cross-module type identity without pool access. Call this
+    /// after construction when a Pool is available.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug mode if any `Idx` is out of bounds for the pool.
+    pub fn populate_hashes(&mut self, pool: &crate::Pool) {
+        self.param_hashes = self.param_types.iter().map(|&idx| pool.hash(idx)).collect();
+        self.return_hash = pool.hash(self.return_type);
     }
 
     /// Get the function type as an `Idx`.

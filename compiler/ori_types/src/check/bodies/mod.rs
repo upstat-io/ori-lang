@@ -402,6 +402,13 @@ fn check_impl_method(
     let param_names: Vec<Name> = params.iter().map(|p| p.name).collect();
     let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
     let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
+    // Compute Merkle hashes for cross-module type identity
+    let param_hashes: Vec<u64> = param_types
+        .iter()
+        .map(|&idx| checker.pool().hash(idx))
+        .collect();
+    let return_hash = checker.pool().hash(return_type);
+
     let sig = FunctionSig {
         name: method.name,
         type_params: type_params.to_vec(),
@@ -420,6 +427,8 @@ fn check_impl_method(
         scheme_var_ids: vec![],
         required_params,
         param_defaults,
+        param_hashes,
+        return_hash,
     };
     checker.register_impl_sig(method.name, sig);
 }

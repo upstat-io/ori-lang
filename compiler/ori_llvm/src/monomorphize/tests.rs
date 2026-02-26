@@ -30,6 +30,8 @@ fn make_generic_sig(interner: &StringInterner) -> FunctionSig {
         scheme_var_ids: vec![0],
         required_params: 1,
         param_defaults: vec![],
+        param_hashes: vec![0],
+        return_hash: 0,
     }
 }
 

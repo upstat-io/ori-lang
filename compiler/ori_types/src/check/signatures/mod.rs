@@ -250,6 +250,13 @@ fn infer_function_signature_with_arena(
         func.name == main_name
     };
 
+    // Compute Merkle hashes for cross-module type identity
+    let param_hashes: Vec<u64> = param_types
+        .iter()
+        .map(|&idx| checker.pool().hash(idx))
+        .collect();
+    let return_hash = checker.pool().hash(return_type);
+
     let sig = FunctionSig {
         name: func.name,
         type_params,
@@ -268,6 +275,8 @@ fn infer_function_signature_with_arena(
         scheme_var_ids: var_ids.clone(),
         required_params,
         param_defaults,
+        param_hashes,
+        return_hash,
     };
 
     (sig, var_ids)
@@ -311,6 +320,13 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
     let param_defaults: Vec<Option<ori_ir::ExprId>> = params.iter().map(|p| p.default).collect();
     let required_params = param_defaults.iter().filter(|d| d.is_none()).count();
 
+    // Compute Merkle hashes for cross-module type identity
+    let param_hashes: Vec<u64> = param_types
+        .iter()
+        .map(|&idx| checker.pool().hash(idx))
+        .collect();
+    let return_hash = checker.pool().hash(return_type);
+
     FunctionSig {
         name: test.name,
         type_params,
@@ -329,6 +345,8 @@ fn infer_test_signature(checker: &mut ModuleChecker<'_>, test: &TestDef) -> Func
         scheme_var_ids: Vec::new(),
         required_params,
         param_defaults,
+        param_hashes,
+        return_hash,
     }
 }
 

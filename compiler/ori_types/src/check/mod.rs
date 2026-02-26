@@ -55,6 +55,7 @@
 use ori_ir::{ExprArena, Name, Span, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::pool::TypeDescriptor;
 use crate::{
     FunctionSig, Idx, InferEngine, MethodRegistry, PatternKey, PatternResolution, Pool,
     TraitRegistry, TypeCheckError, TypeCheckResult, TypeCheckWarning, TypeEnv, TypeRegistry,
@@ -423,9 +424,11 @@ impl<'a> ModuleChecker<'a> {
 
     /// Register an imported function for cross-module type checking.
     ///
-    /// Infers the function's signature using the foreign module's arena,
-    /// creates the function type in the local pool, and binds it in
-    /// the import environment.
+    /// If `imported_sig` is provided (from the source module's `TypeCheckResult`),
+    /// attempts hash-first resolution: looks up each parameter/return type by
+    /// Merkle hash in the local pool (O(1) per type). Falls back to AST
+    /// re-walking if any type is missing from the local pool or the function
+    /// is generic (type variables are pool-local).
     ///
     /// Call this before `collect_signatures()` / `check_module_impl()` so
     /// that imported bindings are visible as the parent scope of local
@@ -434,20 +437,28 @@ impl<'a> ModuleChecker<'a> {
         &mut self,
         func: &ori_ir::Function,
         foreign_arena: &ExprArena,
+        imported_sig: Option<&FunctionSig>,
     ) {
+        // Fast path: resolve non-generic signatures by Merkle hash
+        if let Some(ext_sig) = imported_sig {
+            if let Some(local_sig) = self.try_resolve_sig_by_hash(ext_sig) {
+                tracing::debug!(
+                    name = ?self.interner.lookup(local_sig.name),
+                    "import: hash-first hit"
+                );
+                self.bind_imported_sig(local_sig);
+                return;
+            }
+            tracing::debug!(
+                name = ?self.interner.lookup(ext_sig.name),
+                generic = !ext_sig.scheme_var_ids.is_empty(),
+                "import: hash-first miss → AST fallback"
+            );
+        }
+
+        // Slow path: AST re-walking (creates types in local pool)
         let (sig, var_ids) = signatures::infer_function_signature_from(self, func, foreign_arena);
-        let fn_type = self.pool.function(&sig.param_types, sig.return_type);
-
-        // Wrap generic functions in a type scheme so each call gets fresh
-        // type variables via instantiation (prevents shared-variable pollution).
-        let bound_type = if var_ids.is_empty() {
-            fn_type
-        } else {
-            self.pool.scheme(&var_ids, fn_type)
-        };
-
-        self.import_env.bind(sig.name, bound_type);
-        self.signatures.insert(sig.name, sig);
+        self.bind_imported_sig_with_vars(sig, &var_ids);
     }
 
     /// Register an imported function under a different local name.
@@ -461,20 +472,107 @@ impl<'a> ModuleChecker<'a> {
         func: &ori_ir::Function,
         foreign_arena: &ExprArena,
         alias: Name,
+        imported_sig: Option<&FunctionSig>,
     ) {
+        // Fast path: resolve non-generic signatures by Merkle hash
+        if let Some(ext_sig) = imported_sig {
+            if let Some(mut local_sig) = self.try_resolve_sig_by_hash(ext_sig) {
+                tracing::debug!(
+                    name = ?self.interner.lookup(ext_sig.name),
+                    alias = ?self.interner.lookup(alias),
+                    "import: hash-first hit (aliased)"
+                );
+                local_sig.name = alias;
+                self.bind_imported_sig(local_sig);
+                return;
+            }
+            tracing::debug!(
+                name = ?self.interner.lookup(ext_sig.name),
+                alias = ?self.interner.lookup(alias),
+                generic = !ext_sig.scheme_var_ids.is_empty(),
+                "import: hash-first miss → AST fallback (aliased)"
+            );
+        }
+
+        // Slow path: AST re-walking
         let (mut sig, var_ids) =
             signatures::infer_function_signature_from(self, func, foreign_arena);
         sig.name = alias;
+        self.bind_imported_sig_with_vars(sig, &var_ids);
+    }
+
+    /// Try to resolve all types in an imported signature by Merkle hash lookup.
+    ///
+    /// Returns `Some(local_sig)` if every param/return type already exists in
+    /// the local pool. Returns `None` if any lookup misses (caller should fall
+    /// back to AST re-walking).
+    ///
+    /// Generic functions (non-empty `scheme_var_ids`) always return `None`
+    /// because type variable hashes are pool-local and won't match across pools.
+    fn try_resolve_sig_by_hash(&self, ext_sig: &FunctionSig) -> Option<FunctionSig> {
+        // Generic functions: type variables are pool-local, hash won't match
+        if !ext_sig.scheme_var_ids.is_empty() {
+            return None;
+        }
+
+        // Try to resolve every param type by hash
+        let mut local_param_types = Vec::with_capacity(ext_sig.param_types.len());
+        for &hash in &ext_sig.param_hashes {
+            local_param_types.push(self.pool.lookup_by_hash(hash)?);
+        }
+
+        // Try to resolve return type by hash
+        let local_return_type = self.pool.lookup_by_hash(ext_sig.return_hash)?;
+
+        // All types resolved — build local FunctionSig
+        Some(FunctionSig {
+            name: ext_sig.name,
+            type_params: ext_sig.type_params.clone(),
+            const_params: ext_sig.const_params.clone(),
+            param_names: ext_sig.param_names.clone(),
+            param_types: local_param_types,
+            return_type: local_return_type,
+            capabilities: ext_sig.capabilities.clone(),
+            is_public: ext_sig.is_public,
+            is_test: ext_sig.is_test,
+            is_main: ext_sig.is_main,
+            is_fbip: ext_sig.is_fbip,
+            type_param_bounds: ext_sig.type_param_bounds.clone(),
+            where_clauses: ext_sig.where_clauses.clone(),
+            generic_param_mapping: ext_sig.generic_param_mapping.clone(),
+            scheme_var_ids: ext_sig.scheme_var_ids.clone(),
+            required_params: ext_sig.required_params,
+            param_defaults: ext_sig.param_defaults.clone(),
+            param_hashes: ext_sig.param_hashes.clone(),
+            return_hash: ext_sig.return_hash,
+        })
+    }
+
+    /// Bind an imported signature into the import environment (non-generic path).
+    ///
+    /// Used by the hash-first resolution path where we know `scheme_var_ids` is empty.
+    fn bind_imported_sig(&mut self, sig: FunctionSig) {
+        let fn_type = self.pool.function(&sig.param_types, sig.return_type);
+        self.import_env.bind(sig.name, fn_type);
+        self.signatures.insert(sig.name, sig);
+    }
+
+    /// Bind an imported signature, wrapping generic functions in a type scheme.
+    ///
+    /// Used by the AST fallback path where we have explicit var IDs.
+    fn bind_imported_sig_with_vars(&mut self, sig: FunctionSig, var_ids: &[u32]) {
         let fn_type = self.pool.function(&sig.param_types, sig.return_type);
 
+        // Wrap generic functions in a type scheme so each call gets fresh
+        // type variables via instantiation (prevents shared-variable pollution).
         let bound_type = if var_ids.is_empty() {
             fn_type
         } else {
-            self.pool.scheme(&var_ids, fn_type)
+            self.pool.scheme(var_ids, fn_type)
         };
 
-        self.import_env.bind(alias, bound_type);
-        self.signatures.insert(alias, sig);
+        self.import_env.bind(sig.name, bound_type);
+        self.signatures.insert(sig.name, sig);
     }
 
     /// Register traits from an imported module (e.g., prelude).
@@ -814,6 +912,10 @@ impl<'a> ModuleChecker<'a> {
         mono_instances.sort_by_key(|m| m.fn_name);
         mono_instances.dedup_by(|a, b| a.fn_name == b.fn_name && a.generic_args == b.generic_args);
 
+        // Generate portable type descriptors for all public function signatures.
+        // These enable cross-module type reconstruction without AST access.
+        let type_descriptors = generate_export_descriptors(&pool, &functions);
+
         let typed = TypedModule {
             expr_types: self.expr_types,
             functions,
@@ -823,10 +925,36 @@ impl<'a> ModuleChecker<'a> {
             pattern_resolutions,
             impl_sigs: self.impl_sigs,
             mono_instances,
+            type_descriptors,
         };
 
         (TypeCheckResult::from_typed(typed), pool)
     }
+}
+
+/// Generate portable type descriptors for all types in public function signatures.
+///
+/// Iterates public functions, collecting descriptors for every param type and
+/// return type. Deduplicates by Merkle hash via `describe_recursive`'s visited set.
+/// The result is topologically sorted: leaves (primitives) first.
+fn generate_export_descriptors(
+    pool: &Pool,
+    functions: &[FunctionSig],
+) -> Vec<(u64, TypeDescriptor)> {
+    let mut descriptors = Vec::new();
+    let mut visited = FxHashSet::default();
+
+    for sig in functions {
+        if !sig.is_public {
+            continue;
+        }
+        for &idx in &sig.param_types {
+            pool.describe_recursive(idx, &mut descriptors, &mut visited);
+        }
+        pool.describe_recursive(sig.return_type, &mut descriptors, &mut visited);
+    }
+
+    descriptors
 }
 
 /// Resolve deferred mono calls transitively.

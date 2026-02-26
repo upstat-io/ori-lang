@@ -74,6 +74,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
     ];
     let _enum_idx = checker.pool_mut().enum_type(ordering_name, &pool_variants);
 
+    let hash = checker.pool().hash(ordering_idx);
     checker.type_registry_mut().register_enum(
         ordering_name,
         ordering_idx,
@@ -81,6 +82,7 @@ fn register_ordering_type(checker: &mut ModuleChecker<'_>) {
         variants,
         Span::DUMMY,
         Visibility::Public,
+        hash,
     );
 }
 
@@ -137,6 +139,7 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
         },
     ];
 
+    let hash = checker.pool().hash(named_idx);
     checker.type_registry_mut().register_struct(
         te_name,
         named_idx,
@@ -144,6 +147,7 @@ fn register_trace_entry_type(checker: &mut ModuleChecker<'_>) {
         field_defs,
         Span::DUMMY,
         Visibility::Public,
+        hash,
     );
 }
 
@@ -191,6 +195,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
         },
     ];
 
+    let hash = checker.pool().hash(named_idx);
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -198,6 +203,7 @@ fn register_alignment_type(checker: &mut ModuleChecker<'_>) {
         variants,
         Span::DUMMY,
         Visibility::Public,
+        hash,
     );
 }
 
@@ -245,6 +251,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
         },
     ];
 
+    let hash = checker.pool().hash(named_idx);
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -252,6 +259,7 @@ fn register_sign_type(checker: &mut ModuleChecker<'_>) {
         variants,
         Span::DUMMY,
         Visibility::Public,
+        hash,
     );
 }
 
@@ -289,6 +297,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         })
         .collect();
 
+    let hash = checker.pool().hash(named_idx);
     checker.type_registry_mut().register_enum(
         type_name,
         named_idx,
@@ -296,6 +305,7 @@ fn register_format_type_type(checker: &mut ModuleChecker<'_>) {
         variants,
         Span::DUMMY,
         Visibility::Public,
+        hash,
     );
 }
 
@@ -377,6 +387,7 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
         },
     ];
 
+    let hash = checker.pool().hash(named_idx);
     checker.type_registry_mut().register_struct(
         spec_name,
         named_idx,
@@ -384,5 +395,6 @@ fn register_format_spec_type(checker: &mut ModuleChecker<'_>) {
         field_defs,
         Span::DUMMY,
         Visibility::Public,
+        hash,
     );
 }
