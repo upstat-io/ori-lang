@@ -178,8 +178,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         iter_ptr: ValueId,
         elem_ty: Idx,
     ) -> Option<ValueId> {
-        let func = self.builder.scx().llmod.get_function("ori_iter_next")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_next");
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
@@ -228,8 +227,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let n = arg_vals[1];
-        let func = self.builder.scx().llmod.get_function("ori_iter_take")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_take");
         self.builder.call(func_id, &[iter_ptr, n], "iter.take")
     }
 
@@ -238,8 +236,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let n = arg_vals[1];
-        let func = self.builder.scx().llmod.get_function("ori_iter_skip")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_skip");
         self.builder.call(func_id, &[iter_ptr, n], "iter.skip")
     }
 
@@ -248,18 +245,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return None;
         }
         let other = arg_vals[1];
-        let func = self.builder.scx().llmod.get_function("ori_iter_chain")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_chain");
         self.builder.call(func_id, &[iter_ptr, other], "iter.chain")
     }
 
     fn emit_iter_enumerate(&mut self, iter_ptr: ValueId) -> Option<ValueId> {
-        let func = self
-            .builder
-            .scx()
-            .llmod
-            .get_function("ori_iter_enumerate")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_enumerate");
         self.builder.call(func_id, &[iter_ptr], "iter.enumerate")
     }
 
@@ -275,8 +266,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let other = arg_vals[1];
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
-        let func = self.builder.scx().llmod.get_function("ori_iter_zip")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_zip");
         self.builder
             .call(func_id, &[iter_ptr, other, elem_size_val], "iter.zip")
     }
@@ -310,8 +300,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        let func = self.builder.scx().llmod.get_function("ori_iter_map")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_map");
         self.builder.call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
@@ -338,8 +327,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        let func = self.builder.scx().llmod.get_function("ori_iter_filter")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_filter");
         self.builder.call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
@@ -350,8 +338,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Consumers
 
     fn emit_iter_collect(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        let func = self.builder.scx().llmod.get_function("ori_iter_collect")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_collect");
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
@@ -377,8 +364,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     fn emit_iter_count(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
-        let func = self.builder.scx().llmod.get_function("ori_iter_count")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_count");
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
@@ -406,8 +392,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        let func = self.builder.scx().llmod.get_function("ori_iter_any")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_any");
         let result = self.builder.call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
@@ -440,8 +425,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        let func = self.builder.scx().llmod.get_function("ori_iter_all")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_all");
         let result = self.builder.call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
@@ -474,8 +458,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        let func = self.builder.scx().llmod.get_function("ori_iter_find")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_find");
 
         // sret pattern for Option<T> result
         // Option layout: {i64 tag, T payload} — matches TypeLayoutResolver
@@ -519,8 +502,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        let func = self.builder.scx().llmod.get_function("ori_iter_for_each")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_for_each");
         self.builder.call(
             func_id,
             &[iter_ptr, tramp_fn, closure_env, elem_size_val],
@@ -568,8 +550,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             self.builder
                 .create_entry_alloca(self.current_function, "fold.out", acc_llvm_ty);
 
-        let func = self.builder.scx().llmod.get_function("ori_iter_fold")?;
-        let func_id = self.builder.intern_function(func);
+        let func_id = self.builder.runtime_fn("ori_iter_fold");
         self.builder.call(
             func_id,
             &[

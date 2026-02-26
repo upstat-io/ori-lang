@@ -49,7 +49,6 @@ pub struct ImportedFunctionForCodegen<'a> {
 
 use crate::codegen::function_compiler::FunctionCompiler;
 use crate::codegen::ir_builder::IrBuilder;
-use crate::codegen::runtime_decl;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::codegen::type_registration;
 use crate::context::SimpleCx;
@@ -296,8 +295,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             // 3. IR builder
             let mut builder = IrBuilder::new(scx_ref);
 
-            // 4. Declare runtime functions
-            runtime_decl::declare_runtime(&mut builder);
+            // 4. Runtime functions: declared lazily via builder.runtime_fn()
+            // (no eager declare_runtime() call needed)
 
             // 5. Register user-defined types
             type_registration::register_user_types(&resolver, user_types);
