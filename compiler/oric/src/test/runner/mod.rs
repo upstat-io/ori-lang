@@ -1122,7 +1122,7 @@ impl TestRunner {
 /// This is the analysis phase that was previously embedded in the evaluator.
 /// It lowers each function exactly once, runs `infer_borrows_scc` on the flat
 /// list, then builds a cache mapping `Name → (ArcFunction, Vec<ArcFunction>)`
-/// for zero-copy consumption by `define_all_cached`.
+/// for zero-copy consumption by `prepare_all_cached`.
 ///
 /// Functions lowered: module functions, imported functions, impl methods,
 /// and monomorphized generic functions.

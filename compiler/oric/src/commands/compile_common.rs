@@ -115,7 +115,7 @@ pub fn check_source(
 /// Result of borrow inference: annotated signatures + pre-lowered ARC cache.
 ///
 /// The `arc_cache` contains pre-lowered `ArcFunction`s grouped by parent
-/// function. These are consumed by `define_all_cached` during codegen,
+/// function. These are consumed by `prepare_all_cached` during codegen,
 /// eliminating the redundant second lowering pass.
 #[cfg(feature = "llvm")]
 struct BorrowInferenceResult {

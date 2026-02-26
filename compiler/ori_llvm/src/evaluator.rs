@@ -329,8 +329,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             fc.declare_all(&module.functions, function_sigs);
 
             // 6b. Declare imported functions (phase 1)
-            // Imported functions must be declared before any define_all so that
-            // call sites in the main module can resolve references to them.
+            // Imported functions must be declared before function body emission
+            // so that call sites in the main module can resolve references to them.
             if !imported_functions.is_empty() {
                 debug!(
                     count = imported_functions.len(),
