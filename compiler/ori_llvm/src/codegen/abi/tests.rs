@@ -249,6 +249,8 @@ fn compute_abi_simple_function() {
         scheme_var_ids: vec![],
         required_params: 2,
         param_defaults: vec![],
+        param_hashes: vec![0; 2],
+        return_hash: 0,
     };
 
     let abi = compute_function_abi(&sig, &store);
@@ -283,6 +285,8 @@ fn compute_abi_void_return() {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
     };
 
     let abi = compute_function_abi(&sig, &store);
@@ -314,6 +318,8 @@ fn compute_abi_main_uses_c_convention() {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
     };
 
     let abi = compute_function_abi(&sig, &store);
@@ -474,6 +480,8 @@ fn abi_with_ownership_uses_reference_for_borrowed_params() {
         scheme_var_ids: vec![],
         required_params: 2,
         param_defaults: vec![],
+        param_hashes: vec![0; 2],
+        return_hash: 0,
     };
 
     let annotated = AnnotatedSig {
@@ -525,6 +533,8 @@ fn abi_with_ownership_none_falls_through() {
         scheme_var_ids: vec![],
         required_params: 1,
         param_defaults: vec![],
+        param_hashes: vec![0; 1],
+        return_hash: 0,
     };
 
     // No borrow info → falls through to standard compute_function_abi

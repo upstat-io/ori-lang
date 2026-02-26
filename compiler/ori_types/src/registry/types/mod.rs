@@ -53,6 +53,16 @@ pub struct TypeEntry {
 
     /// Visibility of this type.
     pub visibility: Visibility,
+
+    /// Merkle hash of the type's Pool representation.
+    ///
+    /// Content-addressed hash stable across Pool instances. Enables
+    /// cross-module type identity: two modules can verify they refer
+    /// to the same type by comparing `u64` hashes instead of
+    /// re-walking the AST.
+    ///
+    /// Zero when constructed without pool access (e.g., test helpers).
+    pub merkle_hash: u64,
 }
 
 /// The kind of a user-defined type.
@@ -157,8 +167,10 @@ impl TypeRegistry {
     }
 
     /// Register a struct type.
-    ///
-    /// Returns the pool index for this type.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "type registration requires all fields"
+    )]
     pub fn register_struct(
         &mut self,
         name: Name,
@@ -167,6 +179,7 @@ impl TypeRegistry {
         fields: Vec<FieldDef>,
         span: Span,
         visibility: Visibility,
+        merkle_hash: u64,
     ) {
         let entry = TypeEntry {
             name,
@@ -178,6 +191,7 @@ impl TypeRegistry {
             span,
             type_params,
             visibility,
+            merkle_hash,
         };
 
         self.insert_entry(entry);
@@ -186,6 +200,10 @@ impl TypeRegistry {
     /// Register an enum type.
     ///
     /// Also populates the variant index for O(1) constructor lookup.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "type registration requires all fields"
+    )]
     pub fn register_enum(
         &mut self,
         name: Name,
@@ -194,6 +212,7 @@ impl TypeRegistry {
         variants: Vec<VariantDef>,
         span: Span,
         visibility: Visibility,
+        merkle_hash: u64,
     ) {
         // Index variants for O(1) lookup
         for (variant_idx, variant) in variants.iter().enumerate() {
@@ -208,12 +227,17 @@ impl TypeRegistry {
             span,
             type_params,
             visibility,
+            merkle_hash,
         };
 
         self.insert_entry(entry);
     }
 
     /// Register a newtype (nominally distinct wrapper).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "type registration requires all fields"
+    )]
     pub fn register_newtype(
         &mut self,
         name: Name,
@@ -222,6 +246,7 @@ impl TypeRegistry {
         underlying: Idx,
         span: Span,
         visibility: Visibility,
+        merkle_hash: u64,
     ) {
         let entry = TypeEntry {
             name,
@@ -230,12 +255,17 @@ impl TypeRegistry {
             span,
             type_params,
             visibility,
+            merkle_hash,
         };
 
         self.insert_entry(entry);
     }
 
     /// Register a type alias (structural equivalent).
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "type registration requires all fields"
+    )]
     pub fn register_alias(
         &mut self,
         name: Name,
@@ -244,6 +274,7 @@ impl TypeRegistry {
         target: Idx,
         span: Span,
         visibility: Visibility,
+        merkle_hash: u64,
     ) {
         let entry = TypeEntry {
             name,
@@ -252,6 +283,7 @@ impl TypeRegistry {
             span,
             type_params,
             visibility,
+            merkle_hash,
         };
 
         self.insert_entry(entry);

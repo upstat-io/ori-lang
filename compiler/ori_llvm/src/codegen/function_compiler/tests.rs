@@ -18,6 +18,7 @@ fn make_sig(
     is_main: bool,
 ) -> FunctionSig {
     let required_params = param_types.len();
+    let param_hashes = vec![0; param_types.len()];
     FunctionSig {
         name,
         type_params: vec![],
@@ -36,6 +37,8 @@ fn make_sig(
         scheme_var_ids: vec![],
         required_params,
         param_defaults: vec![],
+        param_hashes,
+        return_hash: 0,
     }
 }
 
@@ -227,6 +230,8 @@ fn generic_functions_are_skipped() {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
     };
 
     let func = Function {

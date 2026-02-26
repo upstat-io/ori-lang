@@ -1,6 +1,7 @@
 use super::*;
 
 fn make_sig(name: u32, param_types: Vec<Idx>, return_type: Idx) -> FunctionSig {
+    let param_count = param_types.len();
     FunctionSig {
         name: Name::from_raw(name),
         type_params: vec![],
@@ -19,6 +20,8 @@ fn make_sig(name: u32, param_types: Vec<Idx>, return_type: Idx) -> FunctionSig {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![0; param_count],
+        return_hash: 0,
     }
 }
 
@@ -82,6 +85,8 @@ fn extract_skips_generics() {
             scheme_var_ids: vec![],
             required_params: 0,
             param_defaults: vec![],
+            param_hashes: vec![],
+            return_hash: 0,
         },
     ];
 
