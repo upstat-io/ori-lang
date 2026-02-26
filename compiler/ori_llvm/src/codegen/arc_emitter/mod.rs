@@ -140,6 +140,60 @@ impl EmittedValue {
 }
 
 // ---------------------------------------------------------------------------
+// InvokeMode
+// ---------------------------------------------------------------------------
+
+/// Controls whether a function call emits LLVM `invoke` (with unwind) or `call` + `br`.
+///
+/// Eliminates the boolean flag + dead `unwind_block` parameter pattern:
+/// - `Invoke { unwind }` carries the unwind block only when needed
+/// - `Call { normal }` makes it clear no unwind handling is needed
+#[derive(Clone, Copy, Debug)]
+enum InvokeMode {
+    /// Emit LLVM `invoke` with both normal and unwind continuations.
+    Invoke { normal: BlockId, unwind: BlockId },
+    /// Emit LLVM `call` + unconditional `br` to normal block (nounwind callee).
+    Call { normal: BlockId },
+}
+
+impl InvokeMode {
+    /// The normal continuation block (used by both variants).
+    fn normal_block(self) -> BlockId {
+        match self {
+            Self::Invoke { normal, .. } | Self::Call { normal } => normal,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CodegenContext
+// ---------------------------------------------------------------------------
+
+/// Shared lookup tables for function resolution during ARC IR → LLVM IR emission.
+///
+/// Bundles the five name-resolution maps that travel together from
+/// [`FunctionCompiler`] to [`ArcIrEmitter`]. Extracting these reduces the
+/// emitter constructor from 12 parameters to 7 semantically distinct ones.
+#[derive(Default)]
+pub struct CodegenContext {
+    /// Declared functions: `Name` → (`FunctionId`, ABI).
+    pub functions: FxHashMap<Name, (FunctionId, FunctionAbi)>,
+    /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
+    pub method_functions: FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
+    /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
+    pub type_idx_to_name: FxHashMap<Idx, Name>,
+    /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
+    ///
+    /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR
+    /// uses the original name (`"identity"`), but the LLVM function is declared under the
+    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types.
+    pub mono_dispatch: FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
+    /// Known-nounwind user function names: `Invoke` terminators calling these
+    /// emit `call` + `br` instead of LLVM `invoke`, eliminating landing pads.
+    pub nounwind_functions: FxHashSet<Name>,
+}
+
+// ---------------------------------------------------------------------------
 // ArcIrEmitter
 // ---------------------------------------------------------------------------
 
@@ -166,21 +220,8 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     drop_fn_cache: FxHashMap<Idx, FunctionId>,
     /// The LLVM function being compiled.
     current_function: FunctionId,
-    /// Declared functions: `Name` → (`FunctionId`, ABI).
-    functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
-    /// Type-qualified method lookup: `(type_name, method_name)` → (`FunctionId`, ABI).
-    method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
-    /// Maps receiver type `Idx` → type `Name` for operator trait dispatch.
-    type_idx_to_name: &'a FxHashMap<Idx, Name>,
-    /// Monomorphized generic dispatch: original name → `[(concrete_param_types, mangled_name)]`.
-    ///
-    /// When a non-generic function calls a generic one (e.g., `identity(42)`), the ARC IR
-    /// uses the original name (`"identity"`), but the LLVM function is declared under the
-    /// mangled name (`"identity$m$int"`). This index resolves the call by matching arg types.
-    mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
-    /// Known-nounwind user function names: `Invoke` terminators calling these
-    /// emit `call` + `br` instead of LLVM `invoke`, eliminating landing pads.
-    nounwind_callees: &'a FxHashSet<Name>,
+    /// Shared function-resolution lookup tables.
+    ctx: &'a CodegenContext,
     /// Counter for unique `PartialApply` wrapper/drop function names.
     partial_apply_counter: u32,
     /// ARC variable → typed LLVM value mapping.
@@ -194,10 +235,6 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Create a new ARC IR emitter.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "ARC emitter needs all codegen contexts; grouping would add indirection"
-    )]
     pub fn new(
         builder: &'a mut IrBuilder<'scx, 'ctx>,
         type_info: &'a TypeInfoStore<'tcx>,
@@ -206,11 +243,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         pool: &'a Pool,
         classifier: &'a dyn ArcClassification,
         current_function: FunctionId,
-        functions: &'a FxHashMap<Name, (FunctionId, FunctionAbi)>,
-        method_functions: &'a FxHashMap<(Name, Name), (FunctionId, FunctionAbi)>,
-        type_idx_to_name: &'a FxHashMap<Idx, Name>,
-        mono_dispatch: &'a FxHashMap<Name, Vec<(Vec<Idx>, Name)>>,
-        nounwind_callees: &'a FxHashSet<Name>,
+        ctx: &'a CodegenContext,
     ) -> Self {
         Self {
             builder,
@@ -221,11 +254,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             classifier,
             drop_fn_cache: FxHashMap::default(),
             current_function,
-            functions,
-            method_functions,
-            type_idx_to_name,
-            mono_dispatch,
-            nounwind_callees,
+            ctx,
             partial_apply_counter: 0,
             var_map: Vec::new(),
             block_map: Vec::new(),
@@ -430,7 +459,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             } = &block.terminator
             {
                 all_invoke_unwind.insert(unwind.index());
-                if !self.nounwind_callees.contains(callee) {
+                if !self.ctx.nounwind_functions.contains(callee) {
                     unwind_blocks.insert(unwind.index());
                 }
             }
@@ -443,6 +472,41 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             .difference(&unwind_blocks)
             .copied()
             .collect();
+
+        // Invariant: dead unwind blocks must not be reachable via non-Invoke edges.
+        // If a Jump/Branch/Switch targets a dead block, the detection is broken.
+        debug_assert!(
+            {
+                let mut ok = true;
+                for block in &func.blocks {
+                    let non_invoke_targets: Vec<usize> = match &block.terminator {
+                        ArcTerminator::Jump { target, .. } => vec![target.index()],
+                        ArcTerminator::Branch {
+                            then_block,
+                            else_block,
+                            ..
+                        } => {
+                            vec![then_block.index(), else_block.index()]
+                        }
+                        ArcTerminator::Switch { cases, default, .. } => {
+                            let mut t: Vec<usize> = cases.iter().map(|(_, b)| b.index()).collect();
+                            t.push(default.index());
+                            t
+                        }
+                        ArcTerminator::Invoke { normal, .. } => vec![normal.index()],
+                        _ => vec![],
+                    };
+                    for target in non_invoke_targets {
+                        if dead_unwind.contains(&target) {
+                            ok = false;
+                        }
+                    }
+                }
+                ok
+            },
+            "dead unwind block is reachable via non-Invoke terminator — \
+             dead_unwind detection invariant violated"
+        );
 
         // Set personality function on the LLVM function if any real invokes exist.
         // Required for any function containing `invoke`/`landingpad`.
@@ -656,7 +720,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// Emit an `Invoke` terminator (ABI-aware function call with unwind).
     ///
-    /// When the callee is in [`nounwind_callees`], emits `call` + `br` instead
+    /// When the callee is in [`nounwind_functions`], emits `call` + `br` instead
     /// of `invoke`, eliminating the unwind edge and its associated landing pad.
     fn emit_invoke(
         &mut self,
@@ -668,9 +732,19 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         arc_func: &ArcFunction,
     ) {
         let func_name_str = self.interner.lookup(callee);
-        let is_nounwind = self.nounwind_callees.contains(&callee);
         let normal_block = self.block(normal);
         let unwind_block = self.block(unwind);
+        let is_nounwind = self.ctx.nounwind_functions.contains(&callee);
+        let mode = if is_nounwind {
+            InvokeMode::Call {
+                normal: normal_block,
+            }
+        } else {
+            InvokeMode::Invoke {
+                normal: normal_block,
+                unwind: unwind_block,
+            }
+        };
 
         // Intercept ori_format_* calls: decompose string struct arg into (ptr, len).
         if let Some(val) = self.try_emit_format_call(func_name_str, arc_args, arc_func) {
@@ -701,7 +775,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let resolved = self
             .lookup_method_by_receiver(callee, arc_args, arc_func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, arc_func))
-            .or_else(|| self.functions.get(&callee))
+            .or_else(|| self.ctx.functions.get(&callee))
             .or_else(|| self.lookup_mono_dispatch(callee, arc_args, arc_func))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
@@ -714,29 +788,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     let sret_alloca = self.builder.alloca(ret_ty, "sret.tmp");
                     let mut full_args = vec![sret_alloca];
                     full_args.extend_from_slice(&passed_args);
-                    self.call_or_invoke_llvm(
-                        func_id,
-                        &full_args,
-                        normal_block,
-                        unwind_block,
-                        is_nounwind,
-                        "call",
-                    );
-                    self.builder.position_at_end(normal_block);
+                    self.call_or_invoke_llvm(func_id, &full_args, mode, "call");
+                    self.builder.position_at_end(mode.normal_block());
                     Some(self.builder.load(ret_ty, sret_alloca, "sret.load"))
                 }
                 ReturnPassing::Direct | ReturnPassing::Void => {
-                    let result = self.call_or_invoke_llvm(
-                        func_id,
-                        &passed_args,
-                        normal_block,
-                        unwind_block,
-                        is_nounwind,
-                        "call",
-                    );
-                    if is_nounwind {
-                        self.builder.position_at_end(normal_block);
-                    }
+                    let result = self.call_or_invoke_llvm(func_id, &passed_args, mode, "call");
+                    self.builder.position_at_end(mode.normal_block());
                     result
                 }
             };
@@ -772,23 +830,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 })
                 .collect();
             let func_id = self.builder.intern_function(llvm_func);
-            if let Some(val) = self.call_or_invoke_llvm(
-                func_id,
-                &coerced_args,
-                normal_block,
-                unwind_block,
-                is_nounwind,
-                "call",
-            ) {
-                if is_nounwind {
-                    self.builder.position_at_end(normal_block);
-                }
+            if let Some(val) = self.call_or_invoke_llvm(func_id, &coerced_args, mode, "call") {
+                self.builder.position_at_end(mode.normal_block());
                 self.def_var_repr(dst, val, arc_func);
             } else {
                 // Void-returning runtime function: bind dst to unit constant
-                if is_nounwind {
-                    self.builder.position_at_end(normal_block);
-                }
+                self.builder.position_at_end(mode.normal_block());
                 let unit = self.builder.const_i64(0);
                 self.def_var(dst, EmittedValue::Immediate(unit));
             }
@@ -807,26 +854,26 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
     }
 
-    /// Emit either LLVM `invoke` or `call` + `br` depending on nounwind status.
+    /// Emit either LLVM `invoke` or `call` + `br` based on [`InvokeMode`].
     ///
-    /// For nounwind callees, emits a regular `call` followed by an unconditional
-    /// branch to the normal block, eliminating the unwind edge and its landing pad.
+    /// - `InvokeMode::Invoke`: emits `invoke` with normal + unwind continuations
+    /// - `InvokeMode::Call`: emits `call` + unconditional `br` to normal block
     fn call_or_invoke_llvm(
         &mut self,
         func_id: FunctionId,
         args: &[ValueId],
-        normal_block: BlockId,
-        unwind_block: BlockId,
-        is_nounwind: bool,
+        mode: InvokeMode,
         name: &str,
     ) -> Option<ValueId> {
-        if is_nounwind {
-            let result = self.builder.call(func_id, args, name);
-            self.builder.br(normal_block);
-            result
-        } else {
-            self.builder
-                .invoke(func_id, args, normal_block, unwind_block, name)
+        match mode {
+            InvokeMode::Call { normal } => {
+                let result = self.builder.call(func_id, args, name);
+                self.builder.br(normal);
+                result
+            }
+            InvokeMode::Invoke { normal, unwind } => {
+                self.builder.invoke(func_id, args, normal, unwind, name)
+            }
         }
     }
 
@@ -844,8 +891,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ) -> Option<&(FunctionId, FunctionAbi)> {
         let &first_arg = args.first()?;
         let receiver_ty = func.var_type(first_arg);
-        let type_name = self.type_idx_to_name.get(&receiver_ty)?;
-        self.method_functions.get(&(*type_name, name))
+        let type_name = self.ctx.type_idx_to_name.get(&receiver_ty)?;
+        self.ctx.method_functions.get(&(*type_name, name))
     }
 
     /// Look up a static/associated method by its return type.
@@ -862,8 +909,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         func: &ArcFunction,
     ) -> Option<&(FunctionId, FunctionAbi)> {
         let return_ty = func.var_type(dst);
-        let type_name = self.type_idx_to_name.get(&return_ty)?;
-        self.method_functions.get(&(*type_name, name))
+        let type_name = self.ctx.type_idx_to_name.get(&return_ty)?;
+        self.ctx.method_functions.get(&(*type_name, name))
     }
 
     /// Diagnostic check for method lookup when all typed dispatches miss.
@@ -876,6 +923,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// function" error path instead of silently calling the wrong method.
     fn lookup_method_fallback(&self, name: Name) -> Option<&(FunctionId, FunctionAbi)> {
         let exists = self
+            .ctx
             .method_functions
             .iter()
             .any(|((_, method_name), _)| *method_name == name);
@@ -901,7 +949,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         args: &[ArcVarId],
         func: &ArcFunction,
     ) -> Option<&(FunctionId, FunctionAbi)> {
-        let entries = self.mono_dispatch.get(&callee)?;
+        let entries = self.ctx.mono_dispatch.get(&callee)?;
         let arg_types: Vec<Idx> = args
             .iter()
             .map(|a| self.pool.resolve_fully(func.var_type(*a)))
@@ -915,7 +963,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                         .zip(&arg_types)
                         .all(|(p, a)| self.pool.resolve_fully(*p) == *a)
             })
-            .and_then(|(_, mangled)| self.functions.get(mangled))
+            .and_then(|(_, mangled)| self.ctx.functions.get(mangled))
     }
 
     /// Emit an `Apply` instruction (ABI-aware direct call).
@@ -970,7 +1018,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let resolved = self
             .lookup_method_by_receiver(callee, args, func)
             .or_else(|| self.lookup_method_by_return_type(callee, dst, func))
-            .or_else(|| self.functions.get(&callee))
+            .or_else(|| self.ctx.functions.get(&callee))
             .or_else(|| self.lookup_mono_dispatch(callee, args, func))
             .or_else(|| self.lookup_method_fallback(callee))
             .map(|(fid, abi)| (*fid, abi.params.clone(), abi.return_abi.clone()));
@@ -1119,7 +1167,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         );
 
         // Look up the callee (lambda function), already compiled and registered
-        let Some(&(callee_func_id, ref callee_abi)) = self.functions.get(&callee) else {
+        let Some(&(callee_func_id, ref callee_abi)) = self.ctx.functions.get(&callee) else {
             tracing::warn!(
                 name = callee_name_str,
                 "emit_partial_apply: callee not found"
@@ -1989,12 +2037,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         lhs_ty: Idx,
     ) -> Option<ValueId> {
         let method_name = op.trait_method_name()?;
-        let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
+        let type_name = *self.ctx.type_idx_to_name.get(&lhs_ty)?;
         let interned_method = self.interner.intern(method_name);
         // Scope the immutable borrow of method_functions: extract only what
         // we need so we can call &mut self methods below.
         let (func_id, params, ret_passing, ret_ty_idx) = {
-            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            let (fid, abi) = self
+                .ctx
+                .method_functions
+                .get(&(type_name, interned_method))?;
             (
                 *fid,
                 abi.params.clone(),
@@ -2053,10 +2104,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             };
         }
 
-        let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
+        let type_name = *self.ctx.type_idx_to_name.get(&lhs_ty)?;
         let interned_method = self.interner.intern(method_name);
         let (func_id, params, ret_passing) = {
-            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            let (fid, abi) = self
+                .ctx
+                .method_functions
+                .get(&(type_name, interned_method))?;
             (*fid, abi.params.clone(), abi.return_abi.passing.clone())
         };
 
@@ -2090,10 +2144,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         rhs: ValueId,
         lhs_ty: Idx,
     ) -> Option<ValueId> {
-        let type_name = *self.type_idx_to_name.get(&lhs_ty)?;
+        let type_name = *self.ctx.type_idx_to_name.get(&lhs_ty)?;
         let interned_method = self.interner.intern("compare");
         let (func_id, params, ret_passing, ret_ty_idx) = {
-            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            let (fid, abi) = self
+                .ctx
+                .method_functions
+                .get(&(type_name, interned_method))?;
             (
                 *fid,
                 abi.params.clone(),
@@ -2140,10 +2197,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         operand_ty: Idx,
     ) -> Option<ValueId> {
         let method_name = op.trait_method_name()?;
-        let type_name = *self.type_idx_to_name.get(&operand_ty)?;
+        let type_name = *self.ctx.type_idx_to_name.get(&operand_ty)?;
         let interned_method = self.interner.intern(method_name);
         let (func_id, params, ret_passing, ret_ty_idx) = {
-            let (fid, abi) = self.method_functions.get(&(type_name, interned_method))?;
+            let (fid, abi) = self
+                .ctx
+                .method_functions
+                .get(&(type_name, interned_method))?;
             (
                 *fid,
                 abi.params.clone(),
