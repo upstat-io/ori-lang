@@ -81,7 +81,7 @@ PoolCache, typed_pool, typed, query/mod.rs
 ---
 
 ### Section 04: Hash-First Import Resolution
-**File:** `section-04-hash-first-import-resolution.md` | **Status:** Not Started
+**File:** `section-04-hash-first-import-resolution.md` | **Status:** Complete
 
 ```
 register_imported_function, resolve_and_check_type_with_vars
@@ -97,7 +97,7 @@ resolve_parsed_type, type_resolution.rs
 ---
 
 ### Section 05: Portable Type Descriptors
-**File:** `section-05-portable-type-descriptors.md` | **Status:** Not Started
+**File:** `section-05-portable-type-descriptors.md` | **Status:** Complete
 
 ```
 TypeDescriptor, portable, pool-independent, self-contained
@@ -113,7 +113,7 @@ reconstruct_from_descriptor, ensure_type_exists
 ---
 
 ### Section 06: Backend Integration
-**File:** `section-06-backend-integration.md` | **Status:** Not Started
+**File:** `section-06-backend-integration.md` | **Status:** Complete
 
 ```
 ori_llvm, ImportedFunctionForCodegen, pool field
@@ -129,7 +129,7 @@ hash-based identity, eliminate pool dependency
 ---
 
 ### Section 07: Benchmarks & Exit Criteria
-**File:** `section-07-benchmarks-exit-criteria.md` | **Status:** Not Started
+**File:** `section-07-benchmarks-exit-criteria.md` | **Status:** Complete
 
 ```
 benchmark, import boundary, throughput
@@ -152,10 +152,10 @@ scalability, 100 modules, 1000 types
 | 01 | Merkle Hash Foundation | `section-01-merkle-hash-foundation.md` | Complete |
 | 02 | Hash Stability Testing | `section-02-hash-stability-testing.md` | Complete |
 | 03 | Hash-Forwarded Signatures | `section-03-hash-forwarded-signatures.md` | Complete |
-| 04 | Hash-First Import Resolution | `section-04-hash-first-import-resolution.md` | Not Started |
-| 05 | Portable Type Descriptors | `section-05-portable-type-descriptors.md` | Not Started |
-| 06 | Backend Integration | `section-06-backend-integration.md` | Not Started |
-| 07 | Benchmarks & Exit Criteria | `section-07-benchmarks-exit-criteria.md` | Not Started |
+| 04 | Hash-First Import Resolution | `section-04-hash-first-import-resolution.md` | Complete |
+| 05 | Portable Type Descriptors | `section-05-portable-type-descriptors.md` | Complete |
+| 06 | Backend Integration | `section-06-backend-integration.md` | Complete |
+| 07 | Benchmarks & Exit Criteria | `section-07-benchmarks-exit-criteria.md` | Complete |
 
 ---
 

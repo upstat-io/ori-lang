@@ -1,7 +1,0 @@
-// Journey 3: Generics + type inference
-// Expected: identity(7) + first(10, 20) = 7 + 10 = 17
-@identity<T> (x: T) -> T = x;
-
-@first<A, B> (a: A, b: B) -> A = a;
-
-@main () -> int = identity(7) + first(10, 20);

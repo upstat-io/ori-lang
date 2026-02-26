@@ -95,5 +95,9 @@ name = "borrow_inference"
 harness = false
 required-features = ["llvm"]
 
+[[bench]]
+name = "pool_interning"
+harness = false
+
 [lints]
 workspace = true

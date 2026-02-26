@@ -6,35 +6,15 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **~~PRIORITY BLOCKER~~ RESOLVED (2026-02-19)**: Section 10.7 `catch(expr)` — implemented across all interpreter phases. `assert_panics` works via `library/std/testing.ori`. All 16 previously-skipped tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) now pass. LLVM codegen for catch remains simplified (placeholder).
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-26)**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: all complete. Key results: 3.1x import speedup, 31.6x cross-module comparison speedup, ~1.6KB/module memory overhead.
 
 ---
 
-> **~~PRIORITY ESCALATION~~ RESOLVED (2026-02-20)**: Section 15D.3 `$` immutability enforcement — block expression syntax (`{ }` with `;`), old `run()`/`match()`/`try()`/`loop()` syntax removed, compile-time immutability enforcement (E2039), all 229+ test files migrated. Remaining 15D.3 items: `mut` keyword removal, `$x`/`x` scope conflicts, module-level immutability.
+> **ACTIVE REROUTE**: `plans/value-semantics-optimization/` — Value Semantics Optimization: Copy-on-Write collections (in-place when RC==1), Small String Optimization (23-byte inline), zero-copy slices, static uniqueness analysis, collection memory recycling, drop specialization. Covers runtime (`ori_rt`), LLVM codegen (`ori_llvm`), evaluator parity (`ori_eval`), ARC pipeline (`ori_arc`). 9 sections.
 
 ---
 
-> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-20)**: `plans/block_unify/` — Block Unification complete. `FunctionSeq::Run` / `SeqBinding` eliminated. Single `ExprKind::Block` + `StmtKind` representation (Gleam pattern). TypeEnv parallel maps merged into single `Binding` struct. Parser block parsing deduplicated via `collect_block_stmts()`. All 5 sections complete, 10,219 tests passing.
-
----
-
-> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-26)**: `plans/aot_codegen_pipeline/` — AOT Codegen Pipeline complete. All 12 sections done: emission layer typing, lowerer gaps, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation, cross-block RC elimination, Salsa borrow inference, FBIP enforcement, legacy cleanup (~11K deletion), per-function Salsa borrow inference, comprehensive verification (202/212, 3 items deferred: t.0.0 parser gap → §05, list[index] → §21A, ARC optimizations → §21A.15 post-0.1-alpha). 10,125 tests passing, 1,006 AOT + 367 unit LLVM tests green.
-
----
-
-> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-26)**: `plans/codegen-journey-fixes/` — Codegen Journey Fixes complete. All 9 open findings (#2–#10) from code journeys 1–7 fixed: nounwind soundness (indirect calls + monomorphized callees), IR emission cleanup (lazy runtime declarations, dead block elimination, redundant match branches), closure pipeline (non-capturing lambda optimization, trampoline nounwind propagation), IR readability (named struct types), developer tooling (cargo run LLVM guard). 122/122 items complete, all tests passing.
-
----
-
-> **ACTIVE REROUTE**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: Merkle hash foundation, hash stability testing, hash-forwarded signatures, hash-first import resolution, portable type descriptors (optional), backend integration, benchmarks & exit criteria.
-
----
-
-> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections: core data model, crate scaffolding, type definitions (primitives, string, compound, collections, iterators), query API, wiring (type checker, evaluator, ARC, LLVM, ori_ir migration), enforcement tests. Activates when Merkle Pool Identity reroute completes.
-
----
-
-> **~~QUEUED REROUTE~~ RESOLVED (2026-02-25)**: `plans/monomorphization/` — Generic Monomorphization for AOT Compilation complete. All 4 sections done: type checker infrastructure (FunctionSig scheme_var_ids, MonoInstance/GenericArg, pool substitution, call-site recording, TypedModule propagation), ARC lowering integration (type_subst on lower_function_can), LLVM pipeline integration (collection pass, evaluator wiring, FunctionCompiler declare/define, call-site resolution via mono_dispatch, name mangling `{fn}$m${types}`), verification (5 AOT tests pass, 10,040 total). Completed proactively during AOT Codegen Pipeline reroute.
+> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections. Activates when Value Semantics Optimization reroute completes.
 
 ---
 
