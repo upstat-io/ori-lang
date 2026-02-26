@@ -1,0 +1,9 @@
+// Journey 4: Closures + higher-order functions
+// Expected: apply(add_one, 10) + offset = 11 + 5 = 16
+@apply (f: (int) -> int, x: int) -> int = f(x);
+
+@main () -> int = {
+  let offset = 5;
+  let add_one = (x: int) -> int = x + 1;
+  apply(add_one, 10) + offset
+};

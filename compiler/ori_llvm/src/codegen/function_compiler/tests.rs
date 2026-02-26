@@ -2,7 +2,8 @@ use super::*;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
 use crate::context::SimpleCx;
 use inkwell::context::Context;
-use ori_arc::{AnnotatedSig, ArcClassifier};
+use ori_arc::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcVarId, ArgOwnership};
+use ori_arc::{AnnotatedSig, ArcClassifier, ArcFunction};
 use ori_ir::canon::CanId;
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -535,4 +536,305 @@ fn module_path_appears_in_mangled_name() {
     assert!(scx.llmod.get_function("_ori_math$add").is_some());
     // Unmangled name should NOT exist
     assert!(scx.llmod.get_function("add").is_none());
+}
+
+// ── Nounwind analysis tests ──────────────────────────────────────────
+
+/// Helper: create a minimal FunctionCompiler for nounwind testing.
+fn make_nounwind_fc<'a, 'scx: 'ctx, 'ctx, 'tcx>(
+    builder: &'a mut IrBuilder<'scx, 'ctx>,
+    store: &'a TypeInfoStore<'tcx>,
+    resolver: &'a TypeLayoutResolver<'a, 'scx, 'ctx>,
+    interner: &'a StringInterner,
+    pool: &'tcx Pool,
+    annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
+    classifier: &'a ArcClassifier<'tcx>,
+) -> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
+    FunctionCompiler::new(
+        builder,
+        store,
+        resolver,
+        interner,
+        pool,
+        "",
+        annotated_sigs,
+        classifier,
+        None,
+    )
+}
+
+/// Helper: build a single-block ArcFunction with the given body instructions.
+fn make_arc_func(
+    interner: &StringInterner,
+    name: &str,
+    body: Vec<ArcInstr>,
+    terminator: ArcTerminator,
+) -> ArcFunction {
+    let func_name = interner.intern(name);
+    ArcFunction {
+        name: func_name,
+        params: vec![],
+        return_type: Idx::INT,
+        blocks: vec![ArcBlock {
+            id: ArcBlockId::new(0),
+            params: vec![],
+            body,
+            terminator,
+        }],
+        entry: ArcBlockId::new(0),
+        var_types: vec![Idx::INT; 8],
+        var_reprs: vec![],
+        spans: vec![],
+        is_fbip: false,
+    }
+}
+
+#[test]
+fn nounwind_empty_function() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_empty"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Empty function (just returns) → nounwind
+    let func = make_arc_func(
+        &interner,
+        "empty",
+        vec![],
+        ArcTerminator::Return {
+            value: ArcVarId::new(0),
+        },
+    );
+    assert!(fc.is_arc_function_nounwind(&func));
+}
+
+#[test]
+fn nounwind_direct_safe_call() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_safe"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Direct call to a safe runtime function (not ori_panic*) → nounwind
+    let func = make_arc_func(
+        &interner,
+        "safe_caller",
+        vec![ArcInstr::Apply {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: interner.intern("ori_str_len"),
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Borrowed],
+        }],
+        ArcTerminator::Return {
+            value: ArcVarId::new(1),
+        },
+    );
+    assert!(fc.is_arc_function_nounwind(&func));
+}
+
+#[test]
+fn nounwind_panic_call_is_not_nounwind() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_panic"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Direct call to ori_panic → NOT nounwind
+    let func = make_arc_func(
+        &interner,
+        "panicking",
+        vec![ArcInstr::Apply {
+            dst: ArcVarId::new(1),
+            ty: Idx::UNIT,
+            func: interner.intern("ori_panic"),
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+        }],
+        ArcTerminator::Return {
+            value: ArcVarId::new(1),
+        },
+    );
+    assert!(!fc.is_arc_function_nounwind(&func));
+}
+
+#[test]
+fn nounwind_indirect_call_is_not_nounwind() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_indirect"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Indirect call through closure → NOT nounwind (the fix for Finding #2)
+    let func = make_arc_func(
+        &interner,
+        "closure_caller",
+        vec![ArcInstr::ApplyIndirect {
+            dst: ArcVarId::new(2),
+            ty: Idx::INT,
+            closure: ArcVarId::new(0),
+            args: vec![ArcVarId::new(1)],
+        }],
+        ArcTerminator::Return {
+            value: ArcVarId::new(2),
+        },
+    );
+    assert!(
+        !fc.is_arc_function_nounwind(&func),
+        "functions with indirect calls (closures) must NOT be nounwind"
+    );
+}
+
+#[test]
+fn nounwind_invoke_unknown_callee_is_not_nounwind() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_invoke"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Invoke to a callee NOT in nounwind set → NOT nounwind
+    let func = make_arc_func(
+        &interner,
+        "invoke_caller",
+        vec![],
+        ArcTerminator::Invoke {
+            dst: ArcVarId::new(1),
+            ty: Idx::INT,
+            func: interner.intern("unknown_fn"),
+            args: vec![ArcVarId::new(0)],
+            arg_ownership: vec![ArgOwnership::Owned],
+            normal: ArcBlockId::new(1),
+            unwind: ArcBlockId::new(2),
+        },
+    );
+    assert!(
+        !fc.is_arc_function_nounwind(&func),
+        "invoke to unknown callee must NOT be nounwind"
+    );
+}
+
+#[test]
+fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
+    let pool = Pool::new();
+    let ctx = Context::create();
+    let interner = StringInterner::new();
+    let store = TypeInfoStore::new(&pool);
+    let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_mixed"));
+    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let mut builder = IrBuilder::new(&scx);
+    let classifier = ArcClassifier::new(&pool);
+    let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
+
+    let fc = make_nounwind_fc(
+        &mut builder,
+        &store,
+        &resolver,
+        &interner,
+        &pool,
+        &annotated_sigs,
+        &classifier,
+    );
+
+    // Mix of safe direct call + indirect call → NOT nounwind (indirect poisons it)
+    let func = make_arc_func(
+        &interner,
+        "mixed_caller",
+        vec![
+            ArcInstr::Apply {
+                dst: ArcVarId::new(1),
+                ty: Idx::INT,
+                func: interner.intern("ori_str_len"),
+                args: vec![ArcVarId::new(0)],
+                arg_ownership: vec![ArgOwnership::Borrowed],
+            },
+            ArcInstr::ApplyIndirect {
+                dst: ArcVarId::new(3),
+                ty: Idx::INT,
+                closure: ArcVarId::new(2),
+                args: vec![ArcVarId::new(1)],
+            },
+        ],
+        ArcTerminator::Return {
+            value: ArcVarId::new(3),
+        },
+    );
+    assert!(
+        !fc.is_arc_function_nounwind(&func),
+        "any indirect call in the function makes it NOT nounwind"
+    );
 }

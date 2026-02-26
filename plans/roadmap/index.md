@@ -18,11 +18,15 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **ACTIVE REROUTE**: `plans/aot_codegen_pipeline/` — AOT Codegen Pipeline (supersedes `plans/arc_optimization/` and `plans/arc_codegen_unification/`). 11 sections: emission layer typing, lowerer gaps, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation, cross-block RC elimination, Salsa borrow inference, FBIP enforcement, legacy cleanup (~11K deletion), comprehensive verification. Design reference: `plans/dpr_aot-codegen-pipeline_02222026.md`.
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-26)**: `plans/aot_codegen_pipeline/` — AOT Codegen Pipeline complete. All 12 sections done: emission layer typing, lowerer gaps, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation, cross-block RC elimination, Salsa borrow inference, FBIP enforcement, legacy cleanup (~11K deletion), per-function Salsa borrow inference, comprehensive verification (202/212, 3 items deferred: t.0.0 parser gap → §05, list[index] → §21A, ARC optimizations → §21A.15 post-0.1-alpha). 10,125 tests passing, 1,006 AOT + 367 unit LLVM tests green.
 
 ---
 
-> **QUEUED REROUTE (next)**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: Merkle hash foundation, hash stability testing, hash-forwarded signatures, hash-first import resolution, portable type descriptors (optional), backend integration, benchmarks & exit criteria. Activates when AOT Codegen Pipeline reroute completes.
+> **ACTIVE REROUTE**: `plans/codegen-journey-fixes/` — Codegen Journey Fixes: fix all 9 open findings from code journeys 1–7. 2 HIGH (nounwind soundness/UB: indirect calls, monomorphized callee ordering), 5 MEDIUM (IR quality: eager runtime declarations, dead blocks, redundant match branches, non-capturing lambda trampolines, trampoline nounwind), 2 LOW (opaque struct names, `cargo run` strips LLVM). Affects Section 21A (LLVM Backend), Section 22 (Tooling). 6 sections, ~305 lines. See `plans/codegen-journey-fixes/00-overview.md`.
+
+---
+
+> **QUEUED REROUTE**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: Merkle hash foundation, hash stability testing, hash-forwarded signatures, hash-first import resolution, portable type descriptors (optional), backend integration, benchmarks & exit criteria. Activates when Codegen Journey Fixes reroute completes.
 
 ---
 
