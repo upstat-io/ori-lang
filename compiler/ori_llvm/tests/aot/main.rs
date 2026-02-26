@@ -15,6 +15,7 @@ pub mod derives;
 pub mod error_handling;
 pub mod for_loops;
 pub mod formattable;
+pub mod generics;
 pub mod higher_order;
 pub mod iterators;
 pub mod linking;

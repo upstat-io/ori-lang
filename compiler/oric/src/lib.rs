@@ -55,6 +55,8 @@ macro_rules! static_assert_size {
     };
 }
 
+#[cfg(feature = "llvm")]
+pub mod arc_lowering;
 pub mod commands;
 pub mod db;
 pub mod imports;

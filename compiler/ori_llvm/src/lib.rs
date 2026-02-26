@@ -70,6 +70,7 @@ pub mod runtime;
 pub mod aot;
 
 // -- Re-exports --
+pub use codegen::arc_emitter::borrowing_builtin_names;
 pub use context::SimpleCx;
 pub use inkwell;
 

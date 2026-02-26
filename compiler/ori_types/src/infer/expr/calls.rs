@@ -206,9 +206,11 @@ fn maybe_record_mono_instance(
         )
     };
 
-    // Build the var_id → concrete_type substitution map.
+    // Build the var_id → resolved_type substitution map.
+    // Track whether any resolved types are still type variables (deferred case).
     let mut var_subst: FxHashMap<u32, Idx> = FxHashMap::default();
     let mut generic_args = Vec::with_capacity(scheme_var_ids.len());
+    let mut has_unresolved_vars = false;
 
     for (i, &var_id) in scheme_var_ids.iter().enumerate() {
         let concrete = if let Some(Some(param_idx)) = generic_param_mapping.get(i) {
@@ -240,21 +242,37 @@ fn maybe_record_mono_instance(
             }
         };
 
-        // Skip if the concrete type is still a variable (not fully resolved).
         if engine.pool().tag(concrete) == Tag::Var {
-            return;
+            has_unresolved_vars = true;
         }
 
         var_subst.insert(var_id, concrete);
         generic_args.push(GenericArg::Type(concrete));
     }
 
-    // All type params must be resolved for a valid mono instance.
+    // All type params must be mapped (even if some are still variables).
     if var_subst.len() != scheme_var_ids.len() {
         return;
     }
 
-    // Compute concrete param types and return type via substitution.
+    // Deferred case: some type params are still variables (generic calling generic).
+    if has_unresolved_vars {
+        record_deferred_mono_call(
+            engine,
+            fn_name,
+            &scheme_var_ids,
+            &var_subst,
+            param_types,
+            return_type,
+        );
+        return;
+    }
+
+    // Extend var_subst with root var_ids of equivalence classes so
+    // substitute_in_pool can handle root vars from inner instantiations.
+    extend_var_subst_with_roots(engine, &mut var_subst);
+
+    // Concrete case: all type params resolved — build full MonoInstance.
     let pool = engine.pool_mut();
     let concrete_param_types: Vec<Idx> = param_types
         .iter()
@@ -299,6 +317,133 @@ fn maybe_record_mono_instance(
 /// Looks up the callee's signature to find its `uses` capabilities,
 /// then checks each one against the caller's declared + provided capabilities.
 /// Emits `E2014 MissingCapability` for each missing capability.
+/// Record a deferred monomorphization call when a generic function calls another
+/// generic with type variables still unresolved.
+///
+/// Maps each callee scheme var to either a caller scheme var position (for vars
+/// that depend on the caller's type params) or a concrete type (for vars that
+/// are already resolved at the call site).
+fn record_deferred_mono_call(
+    engine: &mut InferEngine<'_>,
+    callee: Name,
+    callee_scheme_var_ids: &[u32],
+    var_subst: &FxHashMap<u32, Idx>,
+    callee_param_types: Vec<Idx>,
+    callee_return_type: Idx,
+) {
+    let Some(caller) = engine.current_function() else {
+        return;
+    };
+
+    // Get caller's signature data (borrow dance: clone to release immutable borrow).
+    let caller_sig_data = engine.get_signature(caller).map(|sig| {
+        (
+            sig.scheme_var_ids.clone(),
+            sig.param_types.clone(),
+            sig.generic_param_mapping.clone(),
+        )
+    });
+    let Some((caller_svids, caller_ptypes, caller_gpm)) = caller_sig_data else {
+        return;
+    };
+
+    // Resolve each caller scheme var through the engine to find its root.
+    let caller_roots: Vec<Idx> = caller_svids
+        .iter()
+        .enumerate()
+        .map(|(pos, _)| {
+            if let Some(Some(param_idx)) = caller_gpm.get(pos) {
+                engine.resolve(caller_ptypes[*param_idx])
+            } else {
+                let sv_id = caller_svids[pos];
+                let pool = engine.pool();
+                let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+                let var_idx = (crate::Idx::FIRST_DYNAMIC..pool_len)
+                    .map(crate::Idx::from_raw)
+                    .find(|&idx| pool.tag(idx) == Tag::Var && pool.data(idx) == sv_id);
+                var_idx.map_or(crate::Idx::ERROR, |idx| engine.resolve(idx))
+            }
+        })
+        .collect();
+
+    // Map each callee var to a caller scheme var position or concrete type.
+    let mut semantic_subst: Vec<(u32, crate::DeferredVarBinding)> = Vec::new();
+    let mut all_mapped = true;
+    for (&callee_var_id, &concrete_idx) in var_subst {
+        if engine.pool().tag(concrete_idx) != Tag::Var {
+            semantic_subst.push((
+                callee_var_id,
+                crate::DeferredVarBinding::Concrete(concrete_idx),
+            ));
+        } else if let Some(pos) = caller_roots.iter().position(|&r| r == concrete_idx) {
+            semantic_subst.push((
+                callee_var_id,
+                crate::DeferredVarBinding::CallerSchemeVar(pos),
+            ));
+        } else {
+            tracing::warn!(
+                callee_var_id,
+                ?concrete_idx,
+                "could not map callee var to caller scheme var"
+            );
+            all_mapped = false;
+        }
+    }
+
+    if all_mapped && semantic_subst.len() == callee_scheme_var_ids.len() {
+        let deferred = crate::DeferredMonoCall {
+            caller,
+            callee,
+            callee_scheme_var_ids: callee_scheme_var_ids.to_vec(),
+            var_subst: semantic_subst,
+            callee_param_types,
+            callee_return_type,
+        };
+        tracing::debug!(
+            caller = ?caller,
+            callee = ?callee,
+            subst = ?deferred.var_subst,
+            "recorded deferred mono call (generic calling generic)"
+        );
+        engine.record_deferred_mono_call(deferred);
+    }
+}
+
+/// Extend `var_subst` with root `var_ids` of each scheme var's equivalence class.
+///
+/// When a generic function's body calls another generic, unification creates a
+/// union-find chain: `scheme_var` → `fresh_body_var` → `instantiation_root`.
+/// `substitute_in_pool` follows links child→parent but can't substitute root
+/// vars whose `var_id` isn't in `var_subst`. Adding root `var_ids` ensures all
+/// vars in the equivalence class are substitutable.
+fn extend_var_subst_with_roots(engine: &mut InferEngine<'_>, var_subst: &mut FxHashMap<u32, Idx>) {
+    let mut root_extensions: Vec<(u32, crate::Idx)> = Vec::new();
+    for (&sv_id, &concrete) in var_subst.iter() {
+        // Borrow dance: find the scheme var Idx in a scoped borrow,
+        // then resolve with &mut engine after the borrow drops.
+        let sv_idx = {
+            let pool = engine.pool();
+            let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+            (crate::Idx::FIRST_DYNAMIC..pool_len)
+                .map(crate::Idx::from_raw)
+                .find(|&idx| pool.tag(idx) == Tag::Var && pool.data(idx) == sv_id)
+        };
+        if let Some(sv_idx) = sv_idx {
+            let root = engine.resolve(sv_idx);
+            let pool = engine.pool();
+            if pool.tag(root) == Tag::Var {
+                let root_vid = pool.data(root);
+                if root_vid != sv_id {
+                    root_extensions.push((root_vid, concrete));
+                }
+            }
+        }
+    }
+    for (vid, concrete) in root_extensions {
+        var_subst.insert(vid, concrete);
+    }
+}
+
 pub(crate) fn check_call_capabilities(
     engine: &mut InferEngine<'_>,
     func_name: Option<Name>,

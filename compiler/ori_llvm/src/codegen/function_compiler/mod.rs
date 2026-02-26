@@ -513,7 +513,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         // Step 1: Lower canonical IR → ARC IR
         let mut problems = Vec::new();
-        let (mut arc_func, lambdas) = lower_function_can(
+        let (arc_func, lambdas) = lower_function_can(
             name,
             &params,
             return_type,
@@ -530,70 +530,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             debug!(?problem, "ARC lowering problem");
         }
 
-        // Step 1.5: Apply borrow inference annotations to ARC IR params.
-        // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
-        // Without this, RC insertion generates unnecessary RcInc/RcDec for
-        // params that borrow inference determined should be Borrowed.
-        if let Some(sig) = self.annotated_sigs.get(&name) {
-            for (param, annotated) in arc_func.params.iter_mut().zip(&sig.params) {
-                param.ownership = annotated.ownership;
-            }
-        } else if !arc_func.params.is_empty() {
-            warn!(
-                func = name_str,
-                params = arc_func.params.len(),
-                "borrow signature missing — compiling with all-Owned params"
-            );
-        }
-
-        // Step 1.6: Compile lambda ArcFunctions (closures).
-        // Each lambda is compiled as a separate LLVM function, registered in
-        // self.functions so that emit_partial_apply can look it up by Name.
-        for mut lambda in lambdas {
-            self.compile_lambda_arc(&mut lambda, classifier);
-        }
-
-        // Step 2: Annotate arg ownership, then run full ARC pipeline
-        ori_arc::annotate_arg_ownership(
-            &mut arc_func,
-            self.annotated_sigs,
-            self.interner,
-            &self.borrowing_builtins,
-        );
-        let arc_problems = ori_arc::run_arc_pipeline(
-            &mut arc_func,
-            classifier,
-            self.annotated_sigs,
-            self.pool,
-            self.interner,
-        );
-        for problem in &arc_problems {
-            debug!(?problem, "ARC pipeline problem");
-        }
-
-        trace!(
-            name = name_str,
-            blocks = arc_func.blocks.len(),
-            "ARC pipeline complete"
-        );
-
-        // Step 3: Emit LLVM IR from ARC IR
-        let mut emitter = ArcIrEmitter::new(
-            self.builder,
-            self.type_info,
-            self.type_resolver,
-            self.interner,
-            self.pool,
-            classifier as &dyn ori_arc::ArcClassification,
-            func_id,
-            &self.functions,
-            &self.method_functions,
-            &self.type_idx_to_name,
-            &self.mono_dispatch,
-        );
-        emitter.emit_function(&arc_func, abi);
-
-        self.exit_debug_scope();
+        self.emit_arc_function(name, func_id, abi, arc_func, lambdas, classifier);
     }
 
     /// Define a function body from pre-lowered ARC IR.
@@ -609,7 +546,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         name: Name,
         func_id: FunctionId,
         abi: &FunctionAbi,
-        mut arc_func: ori_arc::ArcFunction,
+        arc_func: ori_arc::ArcFunction,
         lambdas: Vec<ori_arc::ArcFunction>,
         classifier: &ArcClassifier,
     ) {
@@ -622,6 +559,26 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
 
         self.enter_debug_scope(func_id);
         self.builder.set_current_function(func_id);
+
+        self.emit_arc_function(name, func_id, abi, arc_func, lambdas, classifier);
+    }
+
+    /// Shared post-lowering pipeline: apply borrows → compile lambdas →
+    /// annotate arg ownership → ARC pipeline → emit LLVM IR.
+    ///
+    /// Called by both `define_function_body_arc_with_subst` (after inline
+    /// lowering) and `define_function_body_from_arc` (with pre-lowered ARC IR).
+    /// The caller is responsible for `enter_debug_scope` / `set_current_function`.
+    fn emit_arc_function(
+        &mut self,
+        name: Name,
+        func_id: FunctionId,
+        abi: &FunctionAbi,
+        mut arc_func: ori_arc::ArcFunction,
+        lambdas: Vec<ori_arc::ArcFunction>,
+        classifier: &ArcClassifier,
+    ) {
+        let name_str = self.interner.lookup(name);
 
         // Apply borrow inference annotations to ARC IR params.
         // Lowering defaults all params to Ownership::Owned (lower/mod.rs).
@@ -639,7 +596,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             );
         }
 
-        // Compile lambda ArcFunctions (closures)
+        // Compile lambda ArcFunctions (closures).
+        // Each lambda is compiled as a separate LLVM function, registered in
+        // self.functions so that emit_partial_apply can look it up by Name.
         for mut lambda in lambdas {
             self.compile_lambda_arc(&mut lambda, classifier);
         }

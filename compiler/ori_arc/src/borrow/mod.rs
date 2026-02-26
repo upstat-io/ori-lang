@@ -209,6 +209,11 @@ fn build_alias_map(func: &ArcFunction) -> FxHashMap<ArcVarId, ArcVarId> {
 ///
 /// Follows `Let { value: Var(x) }` chains: `v2 → v1 → v0 (param)`.
 /// Terminates at the first non-alias variable or after a safety limit.
+///
+/// The 64-step limit is purely defensive: in practice, alias chains are 1–3
+/// deep (one `Let { value: Var(x) }` per level). The limit guards against
+/// pathological or cyclic alias maps — if hit, it indicates a bug in
+/// `build_alias_map` or upstream lowering, not normal program structure.
 fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcVarId {
     let mut current = var;
     let mut steps = 0u32;
