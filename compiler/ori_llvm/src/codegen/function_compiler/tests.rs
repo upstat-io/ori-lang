@@ -51,7 +51,7 @@ fn declare_simple_function() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_declare"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("add");
@@ -97,7 +97,7 @@ fn declare_void_function() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_void"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("do_thing");
@@ -130,7 +130,7 @@ fn declare_sret_function() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_sret"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("get_list");
@@ -172,7 +172,7 @@ fn declare_main_uses_c_calling_convention() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_main_cc"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("main");
@@ -204,7 +204,7 @@ fn generic_functions_are_skipped() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_generic_skip"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("identity");
@@ -278,7 +278,7 @@ fn function_map_returns_all_declared() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_map"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let add_name = interner.intern("add");
@@ -338,7 +338,7 @@ fn compile_impls_populates_method_functions_map() {
     let ctx = Context::create();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_method_dispatch"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let distance_name = interner.intern("distance");
@@ -504,7 +504,7 @@ fn module_path_appears_in_mangled_name() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_module_mangle"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
 
     let func_name = interner.intern("add");
@@ -586,6 +586,7 @@ fn make_arc_func(
         var_reprs: vec![],
         spans: vec![],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -596,7 +597,7 @@ fn nounwind_empty_function() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_empty"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -630,7 +631,7 @@ fn nounwind_direct_safe_call() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_safe"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -670,7 +671,7 @@ fn nounwind_panic_call_is_not_nounwind() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_panic"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -710,7 +711,7 @@ fn nounwind_indirect_call_is_not_nounwind() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_indirect"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -752,7 +753,7 @@ fn nounwind_invoke_unknown_callee_is_not_nounwind() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_invoke"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -795,7 +796,7 @@ fn nounwind_mixed_safe_and_indirect_is_not_nounwind() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_mixed"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -848,7 +849,7 @@ fn compute_nounwind_set_marks_trivial_nounwind() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_trivial"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -899,7 +900,7 @@ fn compute_nounwind_set_caller_sees_callee() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_chain"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -982,7 +983,7 @@ fn compute_nounwind_set_may_unwind_callee_blocks_caller() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_blocked"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -1069,7 +1070,7 @@ fn compute_nounwind_set_three_level_chain() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_compute_nounwind_3level"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -1181,7 +1182,7 @@ fn compute_nounwind_set_propagates_to_generic_original_name() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_mono_propagate"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();
@@ -1244,7 +1245,7 @@ fn compute_nounwind_set_does_not_propagate_if_any_mono_may_unwind() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_nounwind_mono_partial"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     let classifier = ArcClassifier::new(&pool);
     let annotated_sigs: FxHashMap<Name, AnnotatedSig> = FxHashMap::default();

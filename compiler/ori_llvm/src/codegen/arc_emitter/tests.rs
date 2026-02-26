@@ -36,7 +36,7 @@ fn drop_fn_trivial_generates_rc_free() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_trivial"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -89,7 +89,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fields"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -134,7 +134,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -180,7 +180,7 @@ fn drop_fn_collection_generates_loop() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_collection"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -233,7 +233,7 @@ fn drop_fn_map_generates_key_value_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_map"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -289,7 +289,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_closure"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -335,7 +335,7 @@ fn get_or_generate_returns_null_for_scalars() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_scalar"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -379,7 +379,7 @@ fn get_or_generate_caches_across_calls() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_cache"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -431,7 +431,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_scalar"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -475,7 +475,7 @@ fn drop_fn_uses_c_calling_convention() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ccc"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -527,7 +527,7 @@ fn multiple_drop_fns_for_different_types() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_multi"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -604,7 +604,7 @@ fn is_shared_emits_gep_load_icmp() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_is_shared"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -657,6 +657,7 @@ fn is_shared_emits_gep_load_icmp() {
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -720,7 +721,7 @@ fn set_emits_struct_gep_and_store() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_set"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -779,6 +780,7 @@ fn set_emits_struct_gep_and_store() {
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -852,7 +854,7 @@ fn set_tag_emits_gep_and_store() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_set_tag"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -901,6 +903,7 @@ fn set_tag_emits_gep_and_store() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1066,7 +1069,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fat_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1117,6 +1120,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1163,7 +1167,7 @@ fn rc_dec_closure_null_checks_env() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_clos_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1213,6 +1217,7 @@ fn rc_dec_closure_null_checks_env() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1269,7 +1274,7 @@ fn rc_inc_inline_enum_is_noop() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum_inc"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1322,6 +1327,7 @@ fn rc_inc_inline_enum_is_noop() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1367,7 +1373,7 @@ fn rc_dec_inline_enum_tag_switches() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1419,6 +1425,7 @@ fn rc_dec_inline_enum_tag_switches() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1478,7 +1485,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_heap_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1528,6 +1535,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {

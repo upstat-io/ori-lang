@@ -573,6 +573,7 @@ fn collect_deduplicates_types() {
         var_reprs: Vec::new(),
         spans: vec![vec![None, None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -622,6 +623,7 @@ fn collect_multiple_types() {
         var_reprs: Vec::new(),
         spans: vec![vec![None, None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -668,6 +670,7 @@ fn collect_skips_scalar_rc_dec() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);

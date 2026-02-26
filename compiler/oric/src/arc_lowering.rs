@@ -26,6 +26,10 @@ use rustc_hash::FxHashMap;
     clippy::too_many_arguments,
     reason = "thin wrapper over lower_function_can — params mirror the underlying API"
 )]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "downstream lower_function_can requires concrete FxHashMap — cannot generalize"
+)]
 pub fn lower_to_arc(
     name: Name,
     sig: &FunctionSig,

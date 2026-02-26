@@ -728,6 +728,13 @@ pub struct ArcFunction {
     /// reused in-place. Missed reuse produces an `ArcProblem::FbipViolation`.
     #[cfg_attr(feature = "cache", serde(default))]
     pub is_fbip: bool,
+    /// Number of leading parameters that are captures (not user parameters).
+    ///
+    /// Set by `lower_lambda()` — top-level functions always have `0`.
+    /// Used by the LLVM backend to detect non-capturing lambdas and
+    /// skip trampoline wrapper generation.
+    #[cfg_attr(feature = "cache", serde(default))]
+    pub num_captures: usize,
 }
 
 impl ArcFunction {

@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "IR Readability"
-status: not-started
+status: complete
 goal: "LLVM struct types use human-readable names (%ori.Point, not %ori.3)"
 inspired_by:
   - "Rust rustc_codegen_llvm type naming (compiler/rustc_codegen_llvm/src/type_.rs)"
@@ -9,10 +9,10 @@ depends_on: []
 sections:
   - id: "04.1"
     title: "Named Struct Types"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 04: IR Readability
@@ -40,28 +40,32 @@ sections:
 - Is the struct name not being stored in the Pool during type checking?
 - Or is the `Idx` being used from a different pool (cross-pool issue)?
 
-- [ ] Investigate why `pool.struct_name(idx)` returns `None` for Journey 5's `Point` struct
-  - Add tracing: `tracing::debug!("type_name: idx={idx:?}, struct_name={:?}", pool.struct_name(idx))`
-  - Run Journey 5 program with `ORI_LOG=ori_llvm=debug`
-  - Check if the struct name is stored in the Pool at all
+- [x] Investigate why `pool.struct_name(idx)` returns `None` for Journey 5's `Point` struct
+  - **Root cause**: `pool.struct_name(idx)` actually returns `Name` correctly, but
+    `type_name()` called `name.raw()` which returns the raw `u32` packed interned ID
+    (shard + local index), not the human-readable string
+  - Fix: thread `StringInterner` through `TypeLayoutResolver` and use `try_lookup()`
 
-- [ ] Fix the root cause:
-  - If struct name isn't stored: ensure type checker or canonicalizer stores it in Pool
-  - If cross-pool idx: re-intern the idx into the correct pool (see MEMORY.md cross-pool section)
-  - If naming logic bug: fix `type_name()` to resolve correctly
+- [x] Fix the root cause:
+  - Added optional `interner: Option<&'a StringInterner>` field to `TypeLayoutResolver`
+  - Updated `new()` to accept the interner parameter
+  - Added `resolve_name()` method using `interner.try_lookup()` with numeric fallback
+  - Fixed `type_name()` to use `resolve_name()` instead of `name.raw()`
+  - Updated 54 call sites (1 production + 53 tests)
 
-- [ ] Test: compile `struct Point { x: int, y: int }` — IR shows `%ori.Point` not `%ori.3`
-- [ ] Test: compile enum — IR shows `%ori.Color` not `%ori.Enum.5`
-- [ ] Verify no regressions: `./llvm-test.sh`
+- [x] Test: compile `struct Point { x: int, y: int }` — IR shows `%ori.Point` not `%ori.3`
+- [x] Test: compile enum — IR shows `%ori.Color` not `%ori.Enum.5`
+- [x] Verify no regressions: `./llvm-test.sh` — all 1460 tests pass
 
 ---
 
 ## 04.2 Completion Checklist
 
-- [ ] All user-defined struct types use `%ori.{Name}` in generated IR
-- [ ] All user-defined enum types use `%ori.{Name}` in generated IR
-- [ ] Fallback to index-based names only for truly anonymous types (if any exist)
-- [ ] `./llvm-test.sh` green
-- [ ] `./llvm-clippy.sh` green
+- [x] All user-defined struct types use `%ori.{Name}` in generated IR
+- [x] All user-defined enum types use `%ori.{Name}` in generated IR
+- [x] Fallback to index-based names only for truly anonymous types (if any exist)
+- [x] `./test-all.sh` green (10184 passed, 0 failed)
+- [x] `./llvm-test.sh` green (1460 passed, 0 failed)
+- [x] `./llvm-clippy.sh` green
 
 **Exit Criteria:** Journey 5 program IR contains `%ori.Point` (or equivalent human-readable name) instead of `%ori.3`. All named types in the test suite use readable names.

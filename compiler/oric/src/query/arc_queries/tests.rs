@@ -11,10 +11,10 @@ use rustc_hash::FxHashMap;
 use salsa::Setter;
 use std::path::Path;
 
-use super::{infer_borrow_scc, ArcModuleInput, BorrowSigResult};
+use super::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput, BorrowSigResult};
 use crate::db::{CompilerDb, Db};
 
-/// Create a minimal ArcFunction stub for testing.
+/// Create a minimal `ArcFunction` stub for testing.
 ///
 /// Produces a valid function with one block that returns immediately.
 fn stub_function(name: Name) -> ArcFunction {
@@ -35,10 +35,11 @@ fn stub_function(name: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
-/// Create a simple AnnotatedSig for testing.
+/// Create a simple `AnnotatedSig` for testing.
 fn stub_sig(name: Name) -> AnnotatedSig {
     AnnotatedSig {
         params: vec![AnnotatedParam {
@@ -198,13 +199,11 @@ fn arc_module_input_roundtrip() {
     assert_eq!(functions.len(), 2);
 
     // Verify functions are accessible
-    let found_foo = module.get_function(&db, name_foo);
-    assert!(found_foo.is_some());
-    assert_eq!(found_foo.unwrap().name, name_foo);
+    let found_foo = module.get_function(&db, name_foo).unwrap();
+    assert_eq!(found_foo.name, name_foo);
 
-    let found_bar = module.get_function(&db, name_bar);
-    assert!(found_bar.is_some());
-    assert_eq!(found_bar.unwrap().name, name_bar);
+    let found_bar = module.get_function(&db, name_bar).unwrap();
+    assert_eq!(found_bar.name, name_bar);
 
     // Nonexistent function
     let name_baz = interner.intern("baz");
@@ -264,8 +263,6 @@ fn arc_module_input_functions_accessor() {
 
 // ── SccDecomposition tests ──────────────────────────────────────────
 
-use super::arc_scc_decomposition;
-
 /// Build a function that calls another function.
 ///
 /// `fn caller(x: unit) -> unit { callee(x) }`.
@@ -293,6 +290,7 @@ fn calling_function(name: Name, callee: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -397,9 +395,8 @@ fn scc_of_returns_correct_index() {
 
     // Each function should map to a valid SCC index.
     for &name in &names {
-        let idx = decomp.scc_of(name);
-        assert!(idx.is_some(), "function should be in an SCC");
-        assert!((idx.unwrap() as usize) < decomp.len());
+        let idx = decomp.scc_of(name).unwrap();
+        assert!((idx as usize) < decomp.len());
     }
 
     // Non-existent function should return None.
@@ -510,6 +507,8 @@ fn early_cutoff_result_different_sig_not_equal() {
 
 #[test]
 fn early_cutoff_deterministic_multi_function_ordering() {
+    use std::hash::{Hash, Hasher};
+
     // Multiple functions: regardless of map insertion order, the
     // BorrowSigResult is identical. This is the key determinism guarantee
     // that makes Salsa early cutoff reliable.
@@ -541,7 +540,6 @@ fn early_cutoff_deterministic_multi_function_ordering() {
     );
 
     // Verify hash is also deterministic.
-    use std::hash::{Hash, Hasher};
     let hash_of = |r: &BorrowSigResult| {
         let mut h = std::hash::DefaultHasher::new();
         r.hash(&mut h);
@@ -732,6 +730,7 @@ fn pure_reader(name: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -765,6 +764,7 @@ fn param_storer(name: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -799,6 +799,7 @@ fn param_forwarder(name: Name, callee: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -846,6 +847,7 @@ fn modified_reader(name: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None, None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -872,7 +874,7 @@ fn make_incremental_module(db: &CompilerDb, funcs: Vec<(Name, ArcFunction)>) -> 
 /// Query all SCCs for a module, returning the total number of SCCs.
 fn query_all_sccs(db: &dyn Db, module: ArcModuleInput) -> u32 {
     let decomp = arc_scc_decomposition(db, module);
-    let count = decomp.len() as u32;
+    let count = u32::try_from(decomp.len()).unwrap();
     for i in 0..count {
         let _ = infer_borrow_scc(db, module, i);
     }
@@ -945,7 +947,7 @@ fn incremental_identical_update_results_stable() {
 
     // First query — capture results.
     let decomp1 = arc_scc_decomposition(&db, module);
-    let scc_count = decomp1.len() as u32;
+    let scc_count = u32::try_from(decomp1.len()).unwrap();
     let mut results_before = Vec::new();
     for i in 0..scc_count {
         results_before.push(infer_borrow_scc(&db, module, i));
@@ -993,7 +995,7 @@ fn incremental_body_change_same_sig_results_stable() {
 
     // First query — capture results.
     let decomp = arc_scc_decomposition(&db, module);
-    let scc_count = decomp.len() as u32;
+    let scc_count = u32::try_from(decomp.len()).unwrap();
     let mut results_before = Vec::new();
     for i in 0..scc_count {
         results_before.push(infer_borrow_scc(&db, module, i));
@@ -1009,7 +1011,7 @@ fn incremental_body_change_same_sig_results_stable() {
 
     // Re-query — results should be identical.
     let decomp2 = arc_scc_decomposition(&db, module);
-    let scc_count2 = decomp2.len() as u32;
+    let scc_count2 = u32::try_from(decomp2.len()).unwrap();
     assert_eq!(scc_count, scc_count2, "SCC count unchanged");
 
     let mut results_after = Vec::new();
@@ -1053,7 +1055,8 @@ fn incremental_body_change_different_sig_propagates() {
     );
 
     let decomp1 = arc_scc_decomposition(&db, module);
-    for i in 0..decomp1.len() as u32 {
+    let decomp1_count = u32::try_from(decomp1.len()).unwrap();
+    for i in 0..decomp1_count {
         let _ = infer_borrow_scc(&db, module, i);
     }
 
@@ -1203,6 +1206,7 @@ fn incremental_mutual_recursion_body_change_same_sig() {
         var_reprs: vec![],
         spans: vec![vec![None, None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let mut new_funcs = vec![

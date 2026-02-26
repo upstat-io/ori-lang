@@ -5,6 +5,22 @@
 //!
 //! **Requires `llvm` feature**: `cargo bench -p oric --features llvm --bench borrow_inference`
 
+// Benchmark code uses patterns that are idiomatic for benchmark harnesses
+// but trigger clippy pedantic lints. Suppress at file level rather than
+// annotating each of ~20 call sites.
+#![expect(
+    clippy::needless_borrow,
+    reason = "benchmark generators take &Interner"
+)]
+#![expect(
+    clippy::cast_sign_loss,
+    reason = "iteration counts are always positive"
+)]
+#![expect(
+    clippy::cast_precision_loss,
+    reason = "nanosecond timing values fit in f64"
+)]
+
 use std::hint::black_box;
 use std::path::{Path, PathBuf};
 
@@ -57,6 +73,7 @@ fn standalone_reader(name: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -89,6 +106,7 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -120,6 +138,7 @@ fn storer_function(name: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
@@ -163,6 +182,7 @@ fn modified_reader(name: Name) -> ArcFunction {
         var_reprs: vec![],
         spans: vec![vec![None, None]],
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
