@@ -556,6 +556,39 @@ pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
     (exit_code, stdout, stderr)
 }
 
+/// Compile an Ori program and capture its LLVM IR (via `ORI_DEBUG_LLVM=1`).
+///
+/// Returns the IR string from compilation stderr. Panics if compilation fails.
+pub fn compile_and_capture_ir(source: &str) -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let source_path = temp_dir.path().join(format!("test_ir_{id}.ori"));
+    let binary_path = temp_dir.path().join(format!("test_ir_{id}"));
+
+    fs::write(&source_path, source).expect("Failed to write source");
+
+    let compile_result = Command::new(ori_binary())
+        .args([
+            "build",
+            source_path.to_str().unwrap(),
+            "-o",
+            binary_path.to_str().unwrap(),
+        ])
+        .env("ORI_DEBUG_LLVM", "1")
+        .output()
+        .expect("Failed to execute ori build");
+
+    assert!(
+        compile_result.status.success(),
+        "Compilation failed:\n{}",
+        String::from_utf8_lossy(&compile_result.stderr)
+    );
+
+    String::from_utf8_lossy(&compile_result.stderr).to_string()
+}
+
 /// Create a minimal valid WASM module for testing.
 ///
 /// This creates a WASM module with:

@@ -413,18 +413,23 @@ fn run_codegen_pipeline<'ctx>(
             fc.compile_derives(&parse_result.module, &type_result.typed.types);
         }
 
-        // 6. Define function bodies from pre-lowered cache (eliminates dual lowering)
-        fc.define_all_cached(
+        // 6. Two-pass function compilation for sound nounwind analysis:
+        //    a) Lower all functions to ARC IR (no LLVM emission)
+        //    b) Build complete nounwind set via fixed-point analysis
+        //    c) Emit LLVM IR using the complete nounwind set
+        let mut prepared = fc.prepare_all_cached(
             &parse_result.module.functions,
             &function_sigs,
             canon,
             &mut arc_cache,
         );
 
-        // 6b. Define monomorphized function bodies from pre-lowered cache.
-        // Mono functions are now lowered during borrow inference (with type
-        // substitution), so they can use the cached path like regular functions.
-        fc.define_mono_cached(&mono_functions, canon, &mut arc_cache);
+        // 6b. Prepare monomorphized function bodies from pre-lowered cache.
+        prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, &mut arc_cache));
+
+        // 6c. Build complete nounwind set and emit LLVM IR
+        fc.compute_nounwind_set(&prepared);
+        fc.emit_prepared_functions(prepared);
 
         // 7. Generate C main() entry point wrapper for @main (AOT only)
         // Also detect @panic handler for registration in main()

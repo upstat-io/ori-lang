@@ -367,31 +367,45 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
                 fc.compile_derives(module, user_types);
             }
 
-            // 8. Define function bodies from pre-lowered cache (phase 2)
-            debug!("defining function bodies (phase 2, cached)");
-            fc.define_all_cached(&module.functions, function_sigs, canon, &mut arc_cache);
+            // 8. Two-pass function compilation for sound nounwind analysis:
+            //    a) Lower all functions to ARC IR (no LLVM emission)
+            //    b) Build complete nounwind set via fixed-point analysis
+            //    c) Emit LLVM IR using the complete nounwind set
+            //
+            // This ensures monomorphized callee nounwind status is available
+            // when analyzing callers, preventing unnecessary invoke+landingpad.
+            debug!("preparing function bodies (phase 2a, ARC pipeline)");
+            let mut prepared =
+                fc.prepare_all_cached(&module.functions, function_sigs, canon, &mut arc_cache);
 
-            // 8b. Define imported function bodies from cache (phase 2)
+            // 8b. Prepare imported function bodies
             if !imported_functions.is_empty() {
-                debug!("defining imported function bodies (phase 2, cached)");
+                debug!(
+                    count = imported_functions.len(),
+                    "preparing imported function bodies"
+                );
                 for imp_fn in imported_functions {
-                    fc.define_all_cached(
+                    prepared.extend(fc.prepare_all_cached(
                         std::slice::from_ref(imp_fn.function),
                         std::slice::from_ref(imp_fn.sig),
                         imp_fn.canon,
                         &mut arc_cache,
-                    );
+                    ));
                 }
             }
 
-            // 8c. Define monomorphized function bodies from cache (phase 2)
+            // 8c. Prepare monomorphized function bodies
             if !mono_functions.is_empty() {
                 debug!(
                     count = mono_functions.len(),
-                    "defining monomorphized function bodies (cached)"
+                    "preparing monomorphized function bodies"
                 );
-                fc.define_mono_cached(&mono_functions, canon, &mut arc_cache);
+                prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, &mut arc_cache));
             }
+
+            // 8d. Build complete nounwind set and emit LLVM IR
+            fc.compute_nounwind_set(&prepared);
+            fc.emit_prepared_functions(prepared);
 
             // 9. Compile test wrappers
             debug!("compiling test wrappers");
