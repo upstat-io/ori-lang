@@ -79,8 +79,8 @@ use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
 pub use borrow::{
-    apply_borrows, extract_callees, infer_borrow_fixed_point, infer_borrow_single,
-    infer_borrows_scc, infer_derived_ownership, initialize_single_borrowed,
+    apply_borrows, borrowing_builtin_names, extract_callees, infer_borrow_fixed_point,
+    infer_borrow_single, infer_borrows_scc, infer_derived_ownership, initialize_single_borrowed,
 };
 pub use classify::ArcClassifier;
 pub use decision_tree::{

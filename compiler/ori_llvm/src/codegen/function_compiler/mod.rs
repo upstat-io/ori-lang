@@ -99,7 +99,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
-        let borrowing_builtins = crate::codegen::arc_emitter::borrowing_builtin_names(interner);
+        let borrowing_builtins = ori_arc::borrowing_builtin_names(interner);
         Self {
             builder,
             type_info,

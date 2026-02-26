@@ -1,7 +1,7 @@
 use ori_ir::Name;
 use ori_types::Idx;
 
-use crate::ir::{ArcTerminator, ArcValue, LitValue};
+use crate::ir::{ArcBlockId, ArcTerminator, ArcValue, ArcVarId, CtorKind, LitValue};
 
 use super::*;
 

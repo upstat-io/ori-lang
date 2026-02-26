@@ -1,6 +1,6 @@
 ---
 name: impl-hygiene-review
-description: Review implementation hygiene at phase boundaries. NOT architecture or code style — purely plumbing quality.
+description: Review implementation hygiene at phase boundaries — plumbing quality and file organization.
 allowed-tools: Read, Grep, Glob, Task, Bash, EnterPlanMode
 ---
 
@@ -8,7 +8,7 @@ allowed-tools: Read, Grep, Glob, Task, Bash, EnterPlanMode
 
 Review implementation hygiene against `.claude/rules/impl-hygiene.md` and generate a plan to fix violations.
 
-**Implementation hygiene is NOT architecture** (design decisions are made) **and NOT code style** (naming, comments, formatting). It's the plumbing layer — phase boundaries, data flow, error propagation, abstraction discipline.
+**Implementation hygiene is NOT architecture** (design decisions are made) **and NOT code style** (naming, comments, formatting). It's the plumbing layer — phase boundaries, data flow, error propagation, abstraction discipline, and file organization.
 
 ## Target
 
@@ -129,6 +129,14 @@ Follow the data from producer to consumer:
 - [ ] No silent workarounds for missing capabilities? (e.g., destructuring instead of `.0` because parser blocks it)
 - [ ] Full pipeline works end-to-end for each feature? (lexer → parser → type checker → evaluator → codegen)
 
+**File Organization:**
+- [ ] All production source files under 500 lines? (test files exempt)
+- [ ] Each file has a single clear responsibility? (not mixing closures, operators, construction, dispatch)
+- [ ] Logical groups of 200+ lines within a file extracted to submodules?
+- [ ] File names describe what the file does? (not just `mod.rs` holding everything)
+- [ ] Directory structure mirrors the logical phase/pass structure?
+- [ ] Files touched by these commits that were already over 500 lines — were they split?
+
 ### Step 6: Compile Findings
 
 Organize findings by boundary/interface, categorized as:
@@ -138,23 +146,24 @@ Organize findings by boundary/interface, categorized as:
 - **GAP** — Feature supported in one phase but blocked or missing in another, breaking end-to-end functionality (e.g., type checker handles `.0` but parser rejects it)
 - **WASTE** — Unnecessary allocation, clone, or transformation at boundary (extra copy, redundant conversion)
 - **EXPOSURE** — Internal state leaking through boundary types (parser state in AST, raw IDs without newtypes)
+- **BLOAT** — File exceeds 500-line production limit, mixes multiple responsibilities, or lacks submodule structure. Bloated files obscure internal boundaries and make drift/leak detection harder. Include: current line count, identified responsibilities, and concrete extraction targets.
 - **NOTE** — Observation, not actionable (acceptable tradeoff, documented exception)
 
 ### Step 7: Generate Plan
 
 Use **EnterPlanMode** to create a fix plan. The plan should:
 
-1. List every LEAK, WASTE, and EXPOSURE finding with `file:line` references
+1. List every LEAK, DRIFT, GAP, WASTE, EXPOSURE, and BLOAT finding with `file:line` references
 2. Group by boundary (e.g., "lexer→parser", "parser→types")
 3. Estimate scope: "N boundaries, ~M findings"
-4. Order: leaks first (phase bleeding), then waste (perf), then exposure (type safety)
+4. Order: leaks first (phase bleeding), then drift (sync), then gaps (feature coverage), then bloat (file organization), then waste (perf), then exposure (type safety)
 
 ### Plan Format
 
 ```
 ## Implementation Hygiene Review: {target}
 
-**Scope:** N boundaries reviewed, ~M findings (X leak, Y drift, Z gap, W waste, V exposure)
+**Scope:** N boundaries reviewed, ~M findings (X leak, Y drift, Z gap, W bloat, V waste, U exposure)
 
 ### Active Plan Context
 
@@ -186,17 +195,18 @@ Use **EnterPlanMode** to create a fix plan. The plan should:
 1. Phase bleeding fixes (may require interface changes)
 2. Registration drift fixes (add missing mappings, centralize parallel lists)
 3. Gap fixes (unblock end-to-end feature paths)
-4. Error propagation fixes (may add error variants)
-5. Ownership/allocation fixes (perf, no API change)
-6. Type discipline fixes (newtypes, generics)
-6. Run `./test-all.sh` to verify no behavior changes
-7. Run `./clippy-all.sh` to verify no regressions
+4. File organization fixes (split bloated files into submodules — pure refactor, no logic changes)
+5. Error propagation fixes (may add error variants)
+6. Ownership/allocation fixes (perf, no API change)
+7. Type discipline fixes (newtypes, generics)
+8. Run `./test-all.sh` to verify no behavior changes
+9. Run `./clippy-all.sh` to verify no regressions
 ```
 
 ## Important Rules
 
 1. **No architecture changes** — Don't propose new phases, new IRs, or restructured crate graphs
-2. **No code style fixes** — Don't flag naming, comments, or file organization (that's `/code-hygiene-review`)
+2. **No code style fixes** — Don't flag naming, comments, or formatting (that's `/code-hygiene-review`). File organization (size, hierarchy, submodule structure) IS in scope — it's structural hygiene, not style.
 3. **Trace, don't grep** — Follow actual data flow through the code, don't just search for patterns
 4. **Read both sides** — Always read both the producer and consumer of a boundary
 5. **Understand before flagging** — Some apparent violations are intentional (e.g., lexer tracking nesting depth for nested comments is acceptable phase-local state, not phase bleeding)

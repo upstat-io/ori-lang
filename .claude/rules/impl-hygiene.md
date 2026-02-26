@@ -5,7 +5,7 @@ paths:
 
 # Implementation Hygiene Rules
 
-**Implementation hygiene is NOT architecture** (design decisions are made) **and NOT code hygiene** (surface style). It's about whether the implementation faithfully and cleanly realizes the architecture — tight joints, correct flow, no leaks.
+**Implementation hygiene is NOT architecture** (design decisions are made) **and NOT code hygiene** (surface style). It's about whether the implementation faithfully and cleanly realizes the architecture — tight joints, correct flow, no leaks, clear structure.
 
 ## Phase Boundary Discipline
 
@@ -61,6 +61,15 @@ paths:
 - **Never silently work around a gap**: If a feature doesn't work end-to-end, don't restructure code to avoid the broken path. Flag it immediately. A workaround hides the gap from the roadmap and from future implementers.
 - **Audit across phases**: When adding a new capability to any phase, verify the full pipeline: lexer → parser → type checker → evaluator → codegen. A feature that works in isolation but fails end-to-end is a gap.
 - **Track with specificity**: A gap finding must name: (1) which phase blocks, (2) which phases already support, (3) what the user-visible symptom is. Vague "doesn't work" is not a finding.
+
+## File Organization
+
+- **500-line production file limit**: Source files (excluding tests) should stay under 500 lines. Files over this threshold obscure internal boundaries and make hygiene auditing harder. When a file exceeds 500 lines, it's a **BLOAT** finding.
+- **Single responsibility per file**: Each file should have one clear responsibility. A file containing closures, operators, construction, deconstruction, runtime calls, and method dispatch is doing 6 jobs — split it into focused submodules.
+- **Submodule extraction over monolithic growth**: When a logical group of functions (closures, operators, construction) exceeds ~200 lines within a file, extract it into a sibling submodule. The parent `mod.rs` should be a dispatch hub, not a megafile.
+- **File names reflect content**: Module names should describe what the file does, not just where it sits in the hierarchy. `closures.rs` is better than putting closure logic in `mod.rs`.
+- **Hierarchy matches phase structure**: Directory structure should mirror the logical phase/pass structure. If a crate has 3 passes, there should be 3 submodules — not one file with 3 sections separated by comments.
+- **Split when touching**: Per CLAUDE.md, when touching a file already over 500 lines, take the opportunity to split it. Not splitting when touching is itself a finding.
 
 ## Cascading Fix Detection (Architectural Smell)
 
