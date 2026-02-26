@@ -470,10 +470,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `ori_rc_dec(val, drop_fn_ptr)` with a pre-computed drop function.
     fn emit_drop_rc_dec_with_fn(&mut self, val: ValueId, drop_fn_ptr: ValueId) {
-        if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
-            let func_id = self.builder.intern_function(llvm_func);
-            self.builder.call(func_id, &[val, drop_fn_ptr], "");
-        }
+        let func_id = self.builder.runtime_fn("ori_rc_dec");
+        self.builder.call(func_id, &[val, drop_fn_ptr], "");
     }
 
     /// Emit `ori_rc_free(data_ptr, size, align)` to deallocate an RC object.
@@ -484,11 +482,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let size_val = self.builder.const_i64(size as i64);
         let align_val = self.builder.const_i64(align as i64);
 
-        if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_free") {
-            let func_id = self.builder.intern_function(llvm_func);
-            self.builder
-                .call(func_id, &[data_ptr, size_val, align_val], "");
-        }
+        let func_id = self.builder.runtime_fn("ori_rc_free");
+        self.builder
+            .call(func_id, &[data_ptr, size_val, align_val], "");
     }
 
     /// Emit `ori_list_free_data(data, cap, elem_size)` to free a collection buffer.
@@ -496,10 +492,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size = self.element_store_size(element_type);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
 
-        if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_list_free_data") {
-            let func_id = self.builder.intern_function(llvm_func);
-            self.builder.call(func_id, &[data, cap, elem_size_val], "");
-        }
+        let func_id = self.builder.runtime_fn("ori_list_free_data");
+        self.builder.call(func_id, &[data, cap, elem_size_val], "");
     }
 }
 

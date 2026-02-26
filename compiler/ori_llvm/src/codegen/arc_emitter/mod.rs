@@ -275,11 +275,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     fn rc_alloc(&mut self, size: u64, align: u64) -> ValueId {
         let size_val = self.builder.const_i64(size as i64);
         let align_val = self.builder.const_i64(align as i64);
-        let i64_ty = self.builder.i64_type();
-        let ptr_ty = self.builder.ptr_type();
-        let rc_alloc_func =
-            self.builder
-                .get_or_declare_function("ori_rc_alloc", &[i64_ty, i64_ty], ptr_ty);
+        let rc_alloc_func = self.builder.runtime_fn("ori_rc_alloc");
         self.builder
             .call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
             .unwrap_or_else(|| self.builder.const_null_ptr())
@@ -513,15 +509,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let personality_id = if unwind_blocks.is_empty() {
             None
         } else {
-            self.builder
-                .scx()
-                .llmod
-                .get_function("rust_eh_personality")
-                .map(|f| {
-                    let pid = self.builder.intern_function(f);
-                    self.builder.set_personality(self.current_function, pid);
-                    pid
-                })
+            let pid = self.builder.runtime_fn("rust_eh_personality");
+            self.builder.set_personality(self.current_function, pid);
+            Some(pid)
         };
 
         // Position at entry block
@@ -1237,11 +1227,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // Allocate via ori_rc_alloc(size, align=8)
         let size_val = self.builder.const_i64(env_size as i64);
         let align_val = self.builder.const_i64(8);
-        let i64_ty = self.builder.i64_type();
-        let ptr_ty = self.builder.ptr_type();
-        let rc_alloc_func =
-            self.builder
-                .get_or_declare_function("ori_rc_alloc", &[i64_ty, i64_ty], ptr_ty);
+        let rc_alloc_func = self.builder.runtime_fn("ori_rc_alloc");
         let data_ptr = self
             .builder
             .call(rc_alloc_func, &[size_val, align_val], "env.data")
@@ -1327,11 +1313,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 let field_val = self.builder.load(field_ty, field_ptr, &format!("cap.{i}"));
                 let data_ptrs = self.extract_rc_data_ptrs(field_val, cap_ty);
                 let drop_fn = self.get_or_generate_drop_fn(cap_ty);
-                if let Some(rc_dec) = self.builder.scx().llmod.get_function("ori_rc_dec") {
-                    let rc_dec_id = self.builder.intern_function(rc_dec);
-                    for data_ptr_val in data_ptrs {
-                        self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
-                    }
+                let rc_dec_id = self.builder.runtime_fn("ori_rc_dec");
+                for data_ptr_val in data_ptrs {
+                    self.builder.call(rc_dec_id, &[data_ptr_val, drop_fn], "");
                 }
             }
         }
@@ -1339,11 +1323,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // Free the env struct
         let size_val = self.builder.const_i64(env_size as i64);
         let align_val = self.builder.const_i64(8);
-        if let Some(rc_free) = self.builder.scx().llmod.get_function("ori_rc_free") {
-            let rc_free_id = self.builder.intern_function(rc_free);
-            self.builder
-                .call(rc_free_id, &[data_ptr, size_val, align_val], "");
-        }
+        let rc_free_id = self.builder.runtime_fn("ori_rc_free");
+        self.builder
+            .call(rc_free_id, &[data_ptr, size_val, align_val], "");
         self.builder.ret_void();
 
         // Restore builder position
@@ -1815,42 +1797,25 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 // valid RC header for ARC RcInc/RcDec operations.
                 let global = self.builder.build_global_string_ptr(s, "str");
                 let len = self.builder.const_i64(s.len() as i64);
-                if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_str_from_raw") {
-                    let func_id = self.builder.intern_function(llvm_func);
-                    self.builder
-                        .call(func_id, &[global, len], "str.val")
-                        .unwrap_or_else(|| {
-                            // Fallback: build inline struct (no RC safety)
-                            let str_ty = self.builder.register_type(
-                                self.builder
-                                    .scx()
-                                    .type_struct(
-                                        &[
-                                            self.builder.scx().type_i64().into(),
-                                            self.builder.scx().type_ptr().into(),
-                                        ],
-                                        false,
-                                    )
-                                    .into(),
-                            );
-                            self.builder.build_struct(str_ty, &[len, global], "str.val")
-                        })
-                } else {
-                    // No runtime: build inline struct (JIT or tests)
-                    let str_ty = self.builder.register_type(
-                        self.builder
-                            .scx()
-                            .type_struct(
-                                &[
-                                    self.builder.scx().type_i64().into(),
-                                    self.builder.scx().type_ptr().into(),
-                                ],
-                                false,
-                            )
-                            .into(),
-                    );
-                    self.builder.build_struct(str_ty, &[len, global], "str.val")
-                }
+                let func_id = self.builder.runtime_fn("ori_str_from_raw");
+                self.builder
+                    .call(func_id, &[global, len], "str.val")
+                    .unwrap_or_else(|| {
+                        // Fallback: build inline struct (no RC safety)
+                        let str_ty = self.builder.register_type(
+                            self.builder
+                                .scx()
+                                .type_struct(
+                                    &[
+                                        self.builder.scx().type_i64().into(),
+                                        self.builder.scx().type_ptr().into(),
+                                    ],
+                                    false,
+                                )
+                                .into(),
+                        );
+                        self.builder.build_struct(str_ty, &[len, global], "str.val")
+                    })
             }
             LitValue::Duration { value, unit } => {
                 let nanos = unit.to_nanos(*value);
@@ -2303,16 +2268,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 let cap_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);
 
-                let data_ptr = if let Some(alloc_fn) =
-                    self.builder.scx().llmod.get_function("ori_list_alloc_data")
-                {
-                    let func_id = self.builder.intern_function(alloc_fn);
-                    self.builder
-                        .call(func_id, &[cap_val, esize_val], "list.data")
-                        .unwrap_or_else(|| self.builder.const_null_ptr())
-                } else {
-                    self.builder.const_null_ptr()
-                };
+                let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
+                let data_ptr = self
+                    .builder
+                    .call(alloc_fn, &[cap_val, esize_val], "list.data")
+                    .unwrap_or_else(|| self.builder.const_null_ptr());
 
                 // Store each element into the data buffer
                 for (i, &val) in arg_vals.iter().enumerate() {
@@ -2345,28 +2305,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 let key_esize = self.builder.const_i64(key_size as i64);
                 let val_esize = self.builder.const_i64(val_size as i64);
 
-                let alloc_fn = self
+                let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
+
+                let keys_ptr = self
                     .builder
-                    .scx()
-                    .llmod
-                    .get_function("ori_list_alloc_data")
-                    .map(|f| self.builder.intern_function(f));
+                    .call(alloc_fn, &[count_val, key_esize], "map.keys")
+                    .unwrap_or_else(|| self.builder.const_null_ptr());
 
-                let keys_ptr = if let Some(fid) = alloc_fn {
-                    self.builder
-                        .call(fid, &[count_val, key_esize], "map.keys")
-                        .unwrap_or_else(|| self.builder.const_null_ptr())
-                } else {
-                    self.builder.const_null_ptr()
-                };
-
-                let vals_ptr = if let Some(fid) = alloc_fn {
-                    self.builder
-                        .call(fid, &[count_val, val_esize], "map.vals")
-                        .unwrap_or_else(|| self.builder.const_null_ptr())
-                } else {
-                    self.builder.const_null_ptr()
-                };
+                let vals_ptr = self
+                    .builder
+                    .call(alloc_fn, &[count_val, val_esize], "map.vals")
+                    .unwrap_or_else(|| self.builder.const_null_ptr());
 
                 // Store keys and values into their respective arrays
                 for i in 0..count {
@@ -2404,16 +2353,11 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 let cap_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);
 
-                let data_ptr = if let Some(alloc_fn) =
-                    self.builder.scx().llmod.get_function("ori_list_alloc_data")
-                {
-                    let func_id = self.builder.intern_function(alloc_fn);
-                    self.builder
-                        .call(func_id, &[cap_val, esize_val], "set.data")
-                        .unwrap_or_else(|| self.builder.const_null_ptr())
-                } else {
-                    self.builder.const_null_ptr()
-                };
+                let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
+                let data_ptr = self
+                    .builder
+                    .call(alloc_fn, &[cap_val, esize_val], "set.data")
+                    .unwrap_or_else(|| self.builder.const_null_ptr());
 
                 for (i, &val) in arg_vals.iter().enumerate() {
                     let idx = self.builder.const_i64(i as i64);
@@ -2791,8 +2735,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `ori_list_take` uses an explicit sret pattern: `void(ptr list, ptr out)`.
     /// We alloca a `{i64, i64, ptr}` result, call the function, then load.
     fn emit_list_take(&mut self, list_var: ArcVarId, _func: &ArcFunction) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_list_take")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_list_take");
         let list_ptr = self.var(list_var);
 
         // Alloca {i64, i64, ptr} for the result
@@ -2843,14 +2786,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Called in catch-style unwind blocks right after the landing pad,
     /// before any RC cleanup or catch handler logic.
     fn emit_catch_cleanup(&mut self, exc_ptr: ValueId) {
-        let cleanup_fn = self.builder.scx().llmod.get_function("ori_catch_cleanup");
-
-        if let Some(func) = cleanup_fn {
-            let func_id = self.builder.intern_function(func);
-            self.builder.call(func_id, &[exc_ptr], "");
-        } else {
-            tracing::warn!("ori_catch_cleanup not declared — caught exception will leak");
-        }
+        let func_id = self.builder.runtime_fn("ori_catch_cleanup");
+        self.builder.call(func_id, &[exc_ptr], "");
     }
 
     /// Coerce an aggregate value to a pointer for runtime function calls.
@@ -2966,16 +2903,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// `returns_str` controls the return type: `true` → `{ i64, ptr }`, `false` → `i1`.
     fn emit_str_runtime_call(
         &mut self,
-        func_name: &str,
+        func_name: &'static str,
         lhs: ValueId,
         rhs: ValueId,
         returns_str: bool,
     ) -> ValueId {
-        let Some(llvm_func) = self.builder.scx().llmod.get_function(func_name) else {
-            tracing::warn!(func_name, "ArcIrEmitter: string runtime function not found");
-            return self.builder.const_i64(0);
-        };
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
 
         // Alloca + store both operands (runtime takes pointers to string structs)
         let str_ty = self.resolve_type(ori_types::Idx::STR);

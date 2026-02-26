@@ -69,10 +69,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Register panic handler trampoline if present
         if let Some(trampoline_id) = panic_trampoline {
-            let ptr_ty = self.builder.ptr_type();
-            let register_fn = self
-                .builder
-                .get_or_declare_void_function("ori_register_panic_handler", &[ptr_ty]);
+            let register_fn = self.builder.runtime_fn("ori_register_panic_handler");
             let trampoline_ptr = self.builder.get_function_ptr(trampoline_id);
             self.builder.call(register_fn, &[trampoline_ptr], "");
         }
@@ -83,22 +80,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             let arg_count = self.builder.get_param(c_main_id, 0);
             let arg_values = self.builder.get_param(c_main_id, 1);
 
-            let ptr_ty = self.builder.ptr_type();
-            let scx = self.builder.scx();
-            let list_struct_ty = scx.type_struct(
-                &[
-                    scx.type_i64().into(),
-                    scx.type_i64().into(),
-                    scx.type_ptr().into(),
-                ],
-                false,
-            );
-            let list_ty_id = self.builder.register_type(list_struct_ty.into());
-            let args_fn = self.builder.get_or_declare_function(
-                "ori_args_from_argv",
-                &[i32_ty, ptr_ty],
-                list_ty_id,
-            );
+            let args_fn = self.builder.runtime_fn("ori_args_from_argv");
             let args_val = self.builder.call(args_fn, &[arg_count, arg_values], "args");
             if let Some(val) = args_val {
                 vec![val]

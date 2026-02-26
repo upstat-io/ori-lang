@@ -391,8 +391,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// `ori_str_compare(ptr, ptr) -> i8` returns the Ordering directly.
     fn emit_str_compare(&mut self, lhs: ValueId, rhs: ValueId) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_str_compare")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_str_compare");
 
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let lhs_ptr =
@@ -409,8 +408,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `str.hash()` via `ori_str_hash`.
     fn emit_str_hash(&mut self, receiver: ValueId) -> Option<ValueId> {
-        let llvm_func = self.builder.scx().llmod.get_function("ori_str_hash")?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_str_hash");
 
         let str_ty = self.resolve_type(ori_types::Idx::STR);
         let ptr = self

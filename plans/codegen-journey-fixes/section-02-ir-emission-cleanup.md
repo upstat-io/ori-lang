@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "IR Emission Cleanup"
-status: not-started
+status: in-progress
 goal: "Eliminate unnecessary IR artifacts: eager declarations, dead blocks, redundant branches"
 inspired_by:
   - "LLVM lazy symbol resolution (JIT engines resolve symbols on first call)"
@@ -10,7 +10,7 @@ depends_on: ["01"]
 sections:
   - id: "02.1"
     title: "Lazy Runtime Declarations"
-    status: not-started
+    status: complete
   - id: "02.2"
     title: "Dead Unreachable Block Elimination"
     status: not-started
@@ -24,7 +24,7 @@ sections:
 
 # Section 02: IR Emission Cleanup
 
-**Status:** Not Started
+**Status:** In Progress (§02.1 complete)
 **Goal:** Generated LLVM IR contains only declarations, blocks, and branches that are actually needed. A trivial program like `@main () -> int = 33` should produce near-minimal IR — no 98 unused `declare` statements, no dead `unreachable` blocks, no redundant `br` instructions.
 
 **Context:** Journeys 1–6 consistently showed IR bloat: 98 runtime declarations even when zero are called (Journey 1), dead unreachable blocks from nounwind invoke→call downgrade (Journeys 2, 4, 5, 6), and redundant unconditional branches in match arms (Journey 6). While LLVM's optimizer removes all of these at `-O1`+, they clutter `-O0` output, slow debug builds, and make IR inspection harder during development.
@@ -47,35 +47,24 @@ sections:
 
 **Target behavior:** Each runtime function is declared on first use via a lazy accessor.
 
-- [ ] Create `RuntimeDeclarations` struct with cached `Option<FunctionValue>` for each runtime function
-  ```rust
-  pub struct RuntimeDeclarations<'ctx> {
-      module: &'ctx Module,
-      // Lazily populated:
-      ori_print: OnceCell<FunctionValue<'ctx>>,
-      ori_rc_alloc: OnceCell<FunctionValue<'ctx>>,
-      // ... one field per runtime function
-  }
-  ```
+- [x] Create data-driven `RT_FUNCTIONS` table + `IrBuilder::runtime_fn()` cache
+  - Static `RT_FUNCTIONS: &[RtFn]` table (98 entries) with `Ty`/`Attr` enums — single source of truth
+  - `IrBuilder::runtime_fn(name)` with `FxHashMap<&'static str, FunctionId>` cache
+  - Simpler than OnceCell struct: no new lifetime params, no threading through call chain
 
-- [ ] Replace `declare_runtime()` with lazy `get_or_declare_*()` methods
-  ```rust
-  impl<'ctx> RuntimeDeclarations<'ctx> {
-      pub fn ori_print(&self) -> FunctionValue<'ctx> {
-          *self.ori_print.get_or_init(|| {
-              // declare_extern_function(module, "ori_print", ...)
-          })
-      }
-  }
-  ```
+- [x] Replace `declare_runtime()` with lazy `declare_single()` / `runtime_fn()`
+  - `declare_single(builder, name)` resolves from table, declares with correct signature + attrs
+  - `declare_runtime()` retained for tests only (delegates to `declare_single`)
+  - Removed eager `declare_runtime()` call from `evaluator.rs`
 
-- [ ] Update all call sites in `arc_emitter/mod.rs` to use lazy accessors instead of name-based lookups
-  - Search for `module.get_function("ori_*")` pattern
-  - Replace with `self.runtime.ori_*()` calls
+- [x] Update all call sites (~60) to use `runtime_fn()` instead of name-based lookups
+  - Converted `get_function("ori_*") → intern_function()` pattern across 12 files
+  - `rc_ops.rs`, `arc_emitter/mod.rs`, `drop_gen.rs`, `builtins/*.rs`, `derive_codegen/*.rs`, `entry_point.rs`
+  - 3 dynamic-name call sites left unconverted (use string interner, not static names)
 
-- [ ] Test: compile `@main () -> int = 33` — verify 0 unused `declare` statements in IR
-- [ ] Test: compile a program using `print()` — verify only `ori_print` (and transitive deps) declared
-- [ ] Verify no regressions: `./llvm-test.sh`
+- [x] Test: empty module has 0 declarations; single request declares only 1 function
+- [x] Test: `runtime_fn()` caches FunctionId; lazy declaration preserves attributes
+- [x] Verify no regressions: `./llvm-test.sh` — 383 unit + 1012 AOT tests pass
 
 ---
 

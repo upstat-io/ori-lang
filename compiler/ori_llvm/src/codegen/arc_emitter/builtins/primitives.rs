@@ -164,8 +164,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             _ => return None,
         };
 
-        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
         self.builder.call(func_id, &[receiver], "to_str")
     }
 }

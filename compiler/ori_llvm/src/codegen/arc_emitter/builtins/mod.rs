@@ -361,12 +361,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         val: ValueId,
         ty: ori_types::Idx,
     ) -> Option<ValueId> {
-        if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_inc") {
-            let func_id = self.builder.intern_function(llvm_func);
-            let data_ptrs = self.extract_rc_data_ptrs(val, ty);
-            for data_ptr in data_ptrs {
-                self.builder.call(func_id, &[data_ptr], "");
-            }
+        let func_id = self.builder.runtime_fn("ori_rc_inc");
+        let data_ptrs = self.extract_rc_data_ptrs(val, ty);
+        for data_ptr in data_ptrs {
+            self.builder.call(func_id, &[data_ptr], "");
         }
         Some(val)
     }
