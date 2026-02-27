@@ -41,7 +41,7 @@ fn test_arc_fbip_violation_from() {
     let diag = codegen.into_diagnostic();
     assert_eq!(diag.code, ErrorCode::E4004);
     assert!(diag.message.contains("swap"));
-    assert!(diag.message.contains("2"));
+    assert!(diag.message.contains('2'));
     assert!(diag.notes.iter().any(|n| n.contains("1 reuse")));
 }
 

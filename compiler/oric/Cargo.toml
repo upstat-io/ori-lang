@@ -18,7 +18,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM installed - build in container only
+llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 17; build via `cargo bl`/`blr` (see .cargo/config.toml)
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
@@ -56,6 +56,9 @@ tracing-tree.workspace = true
 # Temp files for AOT intermediate objects
 tempfile = "3.10"
 
+# File watching (ori watch)
+notify = "7"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 criterion = { version = "0.8", features = ["html_reports"] }
@@ -85,6 +88,15 @@ harness = false
 
 [[bench]]
 name = "memory"
+harness = false
+
+[[bench]]
+name = "borrow_inference"
+harness = false
+required-features = ["llvm"]
+
+[[bench]]
+name = "pool_interning"
 harness = false
 
 [lints]

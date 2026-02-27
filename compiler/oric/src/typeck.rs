@@ -105,7 +105,7 @@ pub(crate) fn type_check_with_imports_and_pool(
         interner,
         |checker| {
             register_builtins(interner, checker);
-            register_resolved_imports(&resolved, checker, interner);
+            register_resolved_imports(db, &resolved, checker, interner);
         },
     )
 }
@@ -168,15 +168,23 @@ pub(crate) fn register_builtins(
 /// Uses `resolved.imported_functions` directly — each entry already tracks the
 /// local name, original name, source module, and whether it's a module alias.
 fn register_resolved_imports(
+    db: &dyn Db,
     resolved: &imports::ResolvedImports,
     checker: &mut ori_types::ModuleChecker<'_>,
     interner: &StringInterner,
 ) {
     // 1a. Register prelude functions (all public)
     if let Some(ref prelude) = resolved.prelude {
+        // Get prelude's type-checked signatures for hash-first resolution.
+        // Triggers prelude type checking (or returns cached result) via Salsa.
+        let prelude_tcr = prelude.source_file.map(|sf| crate::query::typed(db, sf));
+
         for func in &prelude.parse_output.module.functions {
             if func.visibility.is_public() {
-                checker.register_imported_function(func, &prelude.parse_output.arena);
+                let imported_sig = prelude_tcr
+                    .as_ref()
+                    .and_then(|r| r.typed.functions.iter().find(|s| s.name == func.name));
+                checker.register_imported_function(func, &prelude.parse_output.arena, imported_sig);
             }
         }
     }
@@ -211,6 +219,15 @@ fn register_resolved_imports(
 
     // 3. Register explicitly imported functions
     // Each imported_function ref maps directly to a resolved module and function.
+    //
+    // Pre-compute type check results for hash-first signature resolution.
+    // One result per module (not per function) — avoids repeated Salsa clones.
+    let module_results: Vec<Option<TypeCheckResult>> = resolved
+        .modules
+        .iter()
+        .map(|m| m.source_file.map(|sf| crate::query::typed(db, sf)))
+        .collect();
+
     for func_ref in &resolved.imported_functions {
         let module = &resolved.modules[func_ref.module_index];
         let imported_parsed = &module.parse_output;
@@ -236,14 +253,25 @@ fn register_resolved_imports(
             continue;
         };
 
+        // Look up the imported signature from the type check result
+        let imported_sig = module_results[func_ref.module_index]
+            .as_ref()
+            .and_then(|r| {
+                r.typed
+                    .functions
+                    .iter()
+                    .find(|s| s.name == func_ref.original_name)
+            });
+
         // Register with alias support
         if func_ref.local_name == func_ref.original_name {
-            checker.register_imported_function(func, &imported_parsed.arena);
+            checker.register_imported_function(func, &imported_parsed.arena, imported_sig);
         } else {
             checker.register_imported_function_as(
                 func,
                 &imported_parsed.arena,
                 func_ref.local_name,
+                imported_sig,
             );
         }
     }
@@ -336,5 +364,7 @@ fn dummy_sig(name: Name) -> FunctionSig {
         scheme_var_ids: vec![],
         required_params: 0,
         param_defaults: vec![],
+        param_hashes: vec![],
+        return_hash: 0,
     }
 }

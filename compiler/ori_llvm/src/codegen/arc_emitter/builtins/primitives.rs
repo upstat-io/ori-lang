@@ -152,7 +152,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `to_str` for a primitive type via runtime conversion function.
-    fn emit_to_str(&mut self, receiver: ValueId, type_info: &TypeInfo) -> Option<ValueId> {
+    pub(crate) fn emit_to_str(
+        &mut self,
+        receiver: ValueId,
+        type_info: &TypeInfo,
+    ) -> Option<ValueId> {
         let func_name = match type_info {
             TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => "ori_str_from_int",
             TypeInfo::Float => "ori_str_from_float",
@@ -160,8 +164,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             _ => return None,
         };
 
-        let llvm_func = self.builder.scx().llmod.get_function(func_name)?;
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn(func_name);
         self.builder.call(func_id, &[receiver], "to_str")
     }
 }

@@ -108,6 +108,8 @@ Consecutive blank lines are collapsed to a single blank line. Trailing whitespac
 | Spread `...` | No space after | `[...a, ...b]`, `f(...args)` |
 | Unary operators | No space after | `-x`, `!valid`, `~mask` |
 | Error propagation `?` | No space before | `fetch()?` |
+| Pipe `\|>` | Space around | `x \|> f()` |
+| Pipe to method `\|> .m()` | Space around `\|>`, no space before `.` | `x \|> .trim()` |
 | Nullish coalescing `??` | Space around | `a ?? b` |
 | Labels `:` | No space around | `loop:outer`, `break:label` |
 | Type conversion `as`/`as?` | Space around | `42 as float`, `"42" as? int` |
@@ -120,6 +122,11 @@ Consecutive blank lines are collapsed to a single blank line. Trailing whitespac
 | Compound assignment | Space around | `x += 1`, `flags \|= FLAG` |
 | Comments `//` | Space after | `// comment` |
 | Punning `:` | No space after | `f(name:, age:)` |
+| Qualified path `::` | No space | `Type::Trait::Assoc` |
+| Import `without` | Space around | `Trait without def` |
+| Fixed-capacity `max` | Space around | `[T, max N]` |
+| FFI `out` | Space after | `db: out CPtr` |
+| FFI `owned`/`borrowed` | Space after | `owned CPtr`, `borrowed str` |
 
 ---
 
@@ -154,6 +161,7 @@ Most constructs follow a single rule: **inline if the construct fits within 100 
 | `timeout`/`cache`/`catch` | Inline | Stacked |
 | Lambdas | Inline | Block body `{ }` |
 | Method chains | Inline | Break at every `.` |
+| Pipe chains `\|>` | Inline | Each `\|>` on own line, same indent as receiver |
 | Binary expressions | Inline | Break before operator |
 | Destructuring patterns | Inline | One per line |
 | Capset declarations | Inline, sorted | One per line, sorted |
@@ -220,9 +228,18 @@ All parameters inline if the declaration fits within 100 characters. Otherwise, 
 ) -> Config = { ... }
 ```
 
-Default parameter values use `= expr` with spaces around `=`. The default stays with its parameter when breaking.
+Default parameter values use `= expr` with spaces around `=`. The default stays with its parameter when breaking. When a default expression is long, break after `=` and indent the default value:
 
-Variadic parameters use `...` attached to the type with no space: `nums: ...int`.
+```ori
+@configure (
+    host: str = "localhost",
+    port: int = 8080,
+    retry_policy: RetryPolicy =
+        RetryPolicy.exponential(base: 100ms, max: 30s),
+) -> Config = { ... }
+```
+
+Variadic parameters use `...` attached to the type with no space: `nums: ...int`. Variadic trait objects use the same pattern: `items: ...Printable`.
 
 ### Return Type
 
@@ -345,6 +362,18 @@ Each clause of a pattern-matched function is a separate declaration. Guards use 
 @classify (n: int) -> str if n < 0 = "negative";
 
 @classify (_: int) -> str = "zero";
+```
+
+Long guards break to a new indented line. Inside the guard, `&&` and `||` follow standard binary expression breaking (break before operator). The `=` follows after the guard.
+
+```ori
+@validate (input: str) -> bool
+    if input.len() > 0
+        && input.len() <= MAX_LENGTH
+        && is_ascii(input:)
+= true;
+
+@validate (_: str) -> bool = false;
 ```
 
 ### Const Functions
@@ -498,6 +527,20 @@ Inline if fits. `where` on associated types breaks to a new indented line when l
 = { ... }
 ```
 
+### Fixed-Capacity List Types
+
+`[T, max N]` has space around `max`. The type is never broken internally.
+
+```ori
+@buffer () -> [int, max 64] = [int, max 64]();
+
+type RingBuffer<T> = {
+    data: [T, max 256],
+    head: int,
+    tail: int,
+};
+```
+
 ### Complex Type Annotations
 
 Inline if fits. Break at outermost `<>` or `->` first. Inner types break independently.
@@ -510,11 +553,23 @@ let $handler: (int) -> Result<str, Error> = process;
 let $processor: (Config, [UserData], {str: int})
     -> Result<[ProcessedData], Error> = pipeline;
 
-// Deeply nested — break at each level
-let $complex: Result<
+// Deeply nested — break at outermost first
+let $data: Result<
     {str: [Option<UserData>]},
-    Error,
+    ProcessingError,
 > = fetch_all();
+
+// Multiple levels break independently
+let $complex: Result<
+    {str: [
+        Option<UserData>,
+    ]},
+    Error,
+> = compute();
+
+// Function type inside generic
+let $handlers: {str: (Request) -> Result<Response, Error>} =
+    build_routes();
 ```
 
 ---
@@ -634,6 +689,35 @@ let $result = {
 };
 ```
 
+Void blocks (all expressions terminated by semicolons) have no result expression. The blank-line-before-result rule does not apply since there is no result to separate.
+
+```ori
+// Void block — no result, no blank line
+for item in items do {
+    validate(item:);
+    process(item:);
+    log(msg: `processed {item}`);
+};
+```
+
+### Let Bindings with Type Annotations
+
+When a `let` binding with a type annotation exceeds width, break after `=` first (keeps name and type together). The type annotation itself breaks only if name + type alone exceeds width, using the complex type annotation rules.
+
+```ori
+// Inline
+let $x: int = 42;
+
+// Value breaks after =
+let $config: Result<Config, Error> =
+    load_config(path: "settings.json");
+
+// Type itself breaks (very long type)
+let $handler: (Config, [UserData], {str: int})
+    -> Result<[ProcessedData], Error> =
+    build_pipeline(config:);
+```
+
 ### Try Blocks
 
 `try { }` is always stacked. Never inline.
@@ -737,6 +821,13 @@ let $records = for item in items yield {
 let $pairs = for x in xs
     for y in ys
     yield (x, y);
+
+// Yield to map — tuples become {K: V}
+let $lookup = for user in users yield (user.id, user.name);
+
+let $index = for item in items
+    if item.is_active
+    yield (item.key, item.value);
 ```
 
 ### For Loops with `do`
@@ -792,7 +883,7 @@ let $msg = match status {
 };
 ```
 
-Guards stay inline with the pattern. Block arm bodies use `-> { }` with closing `},` aligned.
+Guards stay inline with the pattern. Block arm bodies use `-> { }` with closing `},` aligned. When a single-expression arm body exceeds width, break after `->` and indent the body.
 
 ```ori
 let $label = match score {
@@ -801,12 +892,20 @@ let $label = match score {
     _ -> "F",
 };
 
+// Block arm body
 let $result = match event {
     Click(x, y, button) -> {
         let $target = find_target(x:, y:);
         handle_click(target:, button:)
     },
     Close -> shutdown(),
+};
+
+// Long single-expression arm — break after ->
+let $msg = match shape {
+    Circle(r) ->
+        `circle with radius {r} and area {3.14 * r ** 2}`,
+    Point -> "point",
 };
 ```
 
@@ -833,6 +932,60 @@ let $msg = match error {
 };
 ```
 
+Expressions in arm bodies follow their own formatting rules. If-then-else and pipe chains in arms are inline if they fit; when the arm exceeds width, break after `->` and the body expression formats at the indented level.
+
+```ori
+// If-then-else as arm body — inline
+let $sign = match n {
+    x if x > 0 -> if x > 100 then "big" else "small",
+    x if x < 0 -> "negative",
+    _ -> "zero",
+};
+
+// If-then-else as arm body — breaking
+let $label = match category {
+    Premium(level) ->
+        if level > 5 then "platinum"
+        else if level > 3 then "gold"
+        else "silver",
+    Free -> "basic",
+};
+
+// Pipe chain as arm body
+let $result = match input {
+    Raw(data) ->
+        data
+        |> parse(format: Format.Json)
+        |> validate(schema:)
+        |> transform(config:),
+    Cached(value) -> value,
+};
+```
+
+### Method-Style Match
+
+The `value.match(arms)` form formats as a regular method call. Arms are arguments. Inline if fits. One arm per line when broken, with trailing comma. Width-based breaking rules apply (not always-stacked like block `match`).
+
+```ori
+// Inline
+let $label = status.match(Ok(v) -> v, Err(_) -> "unknown");
+
+// Broken — one arm per line
+let $label = status.match(
+    Ok(value) -> `success: {value}`,
+    Err(e) -> `error: {e.to_str()}`,
+);
+
+// With block arm body
+let $result = data.match(
+    Valid(content) -> {
+        let $processed = transform(content:);
+        Ok(processed)
+    },
+    Invalid(err) -> Err(err),
+);
+```
+
 ### Method Chains
 
 Inline if fits. When any break is needed, receiver stays on the first line and all subsequent dots break (all-or-nothing). Method arguments break independently inside.
@@ -848,12 +1001,86 @@ let $result = items
     .fold(initial: 0, op: (a, b) -> a + b);
 ```
 
-Associated function calls (`Type.method()`) follow the same rules.
+Associated function calls (`Type.method()`) follow the same rules. Qualified dispatch (`Trait.method(value)`, `module.Type.method(value)`) has no space around `.`. Qualified associated type paths use `::` with no space (`Type::Trait::Assoc`).
 
 ```ori
 let $p = Point.new(x: 10, y: 20);
 let $result = Point.new(x: 1, y: 2)
     .distance_to(other: origin);
+
+// Qualified dispatch
+let $s = Printable.to_str(value);
+let $ord = Comparable.compare(a, other: b);
+type Item = Iterator::Item;
+```
+
+Parenthesized expressions as chain receivers stay on the first line. The contents break independently inside the parentheses. Index brackets `[]` are attached with no space and do not break independently — they are part of the preceding element in a chain.
+
+```ori
+// Inline
+let $n = (a + b).abs();
+let $total = (for x in items yield x).count();
+
+// Chain breaks — paren group is receiver
+let $result = (for x in items yield x * 2)
+    .filter(predicate: is_positive)
+    .fold(initial: 0, op: (a, b) -> a + b);
+
+// Paren group itself is long — inner breaks
+let $result = (
+    for user in users
+    if user.is_active
+    yield user.score
+)
+    .filter(predicate: x -> x > threshold)
+    .sum();
+
+// Index chains — attached, no breaking between indexes
+let $cell = matrix[row][col];
+let $val = data["key"][0];
+
+// Mixed index + method chain — breaks at dots
+let $result = data["users"][0]
+    .profile()
+    .scores[0]
+    .to_str();
+```
+
+### Pipe Chains
+
+Inline if fits. When breaking, the receiver stays on the first line and each `|>` goes on its own line at the same indentation level as the receiver. `|> .method()` calls a method on the piped value.
+
+```ori
+// Inline
+let $result = x |> double() |> add(n: 1);
+
+// Broken — each |> on own line
+let $processed = data
+    |> transform(factor: 2)
+    |> filter(predicate: is_positive)
+    |> collect();
+
+// Pipe to method
+let $cleaned = text |> .trim() |> .upper();
+
+// Pipe with lambda fallback
+let $formatted = value |> (n -> `result: {n}`);
+```
+
+Each `|>` step should be a single operation. When pipe steps and method chains are mixed, pipe breaks take precedence over chain breaks. The idiomatic style is one operation per `|>` step:
+
+```ori
+// Idiomatic: one operation per |> step
+let $r = data
+    |> transform()
+    |> .filter(x -> x > 0)
+    |> .map(y -> y * 2)
+    |> .collect();
+
+// If user writes mixed, pipe breaks take precedence
+let $r = data
+    |> transform()
+    |> .filter(x -> x > 0).map(y -> y * 2);
 ```
 
 ### Binary Expressions
@@ -871,9 +1098,24 @@ let $valid = is_admin
     || has_permission(perm: "write");
 ```
 
+### Type Conversions
+
+`as` and `as?` have space around (like binary operators) and break before `as` when long. `as?` is a single token (no space before `?`).
+
+```ori
+// Inline
+let $f = n as float;
+let $parsed = s as? int;
+
+// Long — break before as
+let $converted =
+    compute_intermediate_result(input: value)
+    as OtherType;
+```
+
 ### Lambdas
 
-Inline if fits. No parens for single untyped param. Block body for multi-statement.
+Inline if fits. No parens for single untyped param. Block body for multi-statement. Typed lambdas `(x: int) -> int = expr` follow the same rules with annotations inline; break at `=` when long.
 
 ```ori
 // Inline
@@ -881,11 +1123,28 @@ x -> x + 1
 (a, b) -> a + b
 () -> 42
 
+// Typed lambda
+let $transform = (x: int) -> int = x * 2;
+
+// Long typed lambda — break at =
+let $handler =
+    (req: Request, ctx: Context) -> Result<Response, str> =
+        process_request(req:, ctx:);
+
 // Block body
 (x) -> {
     let $processed = validate(value: x);
     transform(processed:)
 }
+
+// Curried lambdas — inline if fits
+let $add = x -> y -> x + y;
+let $add3 = x -> y -> z -> x + y + z;
+
+// Curried — breaking, inner is body of outer
+let $builder =
+    config -> request -> response ->
+        build_handler(config:, request:, response:);
 ```
 
 ### Labels
@@ -901,24 +1160,35 @@ loop:outer {
 };
 ```
 
-### Break with Value
+### Break and Continue with Value
 
-Space between `break` and value. Value on the same line when short. Long value breaks to the next indented line.
+Space between `break`/`continue` and value. Value on the same line when short. Long value breaks to the next indented line. Labeled forms use `break:label value` and `continue:label value`.
 
 ```ori
 let $found = loop {
     let $item = next();
     if item.matches(query:) then break item;
 };
+
+// continue with value (substitution in yield)
+let $results = for x in items yield {
+    if x < 0 then continue 0;
+
+    compute(x:)
+};
 ```
 
 ### Error Propagation
 
-`?` is attached to the expression with no space (postfix). `??` is a binary operator with space around that breaks before the operator like other binary operators.
+`?` is attached to the expression with no space (postfix). `??` is a binary operator with space around that breaks before the operator like other binary operators. `?` and `??` compose naturally with no special interaction — `?` attaches to its operand, then `??` follows standard binary breaking rules.
 
 ```ori
 // ? attached
 let $data = read_file(path:)?;
+
+// ? in method chains — stays attached, chain breaks after ?
+let $name = get_user(id:)?.profile()?.display_name();
+
 let $name = get_user(id:)?
     .profile()?
     .display_name();
@@ -928,6 +1198,13 @@ let $connection = try_primary_db()
     ?? try_secondary_db()
     ?? try_fallback_db()
     ?? panic(msg: "no database available");
+
+// ? then ?? — compose naturally
+let $conn = try_connect()? ?? default_connection();
+
+let $data = fetch_primary()?
+    ?? fetch_secondary()?
+    ?? fallback_data();
 ```
 
 ### Assignments
@@ -968,7 +1245,7 @@ let $users = [
 
 ### Maps
 
-Inline if fits. One entry per line when broken.
+Inline if fits. One entry per line when broken. Computed keys `[expr]` have no space inside the brackets and are treated as regular entries.
 
 ```ori
 let $m = { "a": 1, "b": 2 };
@@ -977,6 +1254,15 @@ let $config = {
     "name": "Alice",
     "age": 30,
     "email": "alice@example.com",
+};
+
+// Computed keys
+let $dynamic = {[key]: value};
+
+let $mixed = {
+    "version": "1.0",
+    [env]: "active",
+    "debug": "false",
 };
 ```
 
@@ -996,17 +1282,40 @@ let $config = Config {
 };
 ```
 
-### Spread
-
-`...` attached to the expression with no space. Spread on its own line when the collection is broken.
+The trailing comma in single-element tuples is semantic — `(int,)` is a tuple type, `(int)` is a parenthesized type. The formatter must preserve this distinction exactly as written, never adding or removing the comma.
 
 ```ori
-let $combined = [...first, ...second];
+// Single-element tuple — comma preserved
+let $wrapped: (int,) = (42,);
+type Singleton = (str,);
 
+// Parenthesized type — no comma, just grouping
+let $x: (int) = 42;
+```
+
+### Spread
+
+`...` attached to the expression with no space. Spread is treated as a regular entry — inline if fits, on its own line when broken. In struct updates, the spread goes first, followed by field overrides.
+
+```ori
+// Inline
+let $combined = [...first, ...second];
+let $updated = { ...config, debug: true };
+
+// Broken — spread first, overrides follow
 let $updated = {
-    ...original,
-    name: new_name,
-    email: new_email,
+    ...config,
+    host: "production.example.com",
+    port: 443,
+    timeout: 60s,
+    debug: false,
+};
+
+// Multiple spreads
+let $merged = {
+    ...defaults,
+    ...overrides,
+    version: "2.0",
 };
 ```
 
@@ -1021,6 +1330,30 @@ No space around `..`/`..=`. Space around `by`.
 10..0 by -1
 ```
 
+### Literals
+
+All literals are atomic tokens — never broken, never reformatted internally. Numeric format (hex casing, underscore placement, base, exponent notation) is preserved as-written. Duration and size suffixes are part of the token with no space before the suffix.
+
+```ori
+// Character literals
+let $ch = 'a';
+let $nl = '\n';
+
+// Duration/size — suffix attached
+let $timeout = 30s;
+let $delay = 100ms;
+let $limit = 4kb;
+
+// Numeric formats preserved
+let $million = 1_000_000;
+let $mask = 0xFF;
+let $addr = 0xDEAD_BEEF;
+let $flags = 0b1010_0101;
+let $tiny = 2.5e-8;
+```
+
+`embed(path)` and `has_embed(path)` are regular function-like expressions. The path string is atomic. No special formatting.
+
 ### Strings and Templates
 
 Never break inside string or template string content. Break the containing construct instead. No space inside `{}` interpolation braces.
@@ -1033,6 +1366,17 @@ let $report =
 // Extract to variables for very long templates
 let $user_info = user.display_name;
 let $report = `User {user_info} logged in from {location} at {time}`;
+```
+
+This rule applies recursively to nested template strings (a template inside another template's interpolation). When too long, break the binding, not the template.
+
+```ori
+// Nested template — atomic at every level
+let $msg = `User {`{first} {last}`} logged in`;
+
+// Too long — break the binding
+let $notification =
+    `Alert: {`User {user.name} (ID: {user.id})`} performed {action}`;
 ```
 
 ### Named Arguments
@@ -1056,6 +1400,37 @@ let $conn = Database.connect(
 
 // Single-param with inline lambda — no name needed
 list.map(x -> x * 2);
+```
+
+### Expression Arguments
+
+Block expressions and `for`-yield expressions used as arguments follow standard expression rules. The block or `for`-yield breaks independently inside the argument position.
+
+```ori
+// Block as argument — inline if fits
+let $v = f(data: { let $x = 1; x + 2 });
+
+// Block as argument — broken
+let $result = process(
+    data: {
+        let $x = compute();
+        let $y = transform(x:);
+
+        validate(y:)
+    },
+    timeout: 30s,
+);
+
+// For-yield as argument — inline if fits
+let $total = sum(items: for x in xs yield x * 2);
+
+// For-yield as argument — broken
+let $result = process(
+    items: for user in users
+        if user.is_active
+        yield user.score,
+    timeout: 30s,
+);
 ```
 
 ---
@@ -1090,6 +1465,22 @@ let $result =
     in {
         log(msg: "starting");
         do_work()
+    };
+
+// Nested with...in — each level indented
+let $result =
+    with Http = MockHttp
+    in with Cache = MockCache
+    in {
+        fetch_cached(url:)
+    };
+
+// Prefer: multiple bindings on single with
+let $result =
+    with Http = MockHttp,
+         Cache = MockCache
+    in {
+        fetch_cached(url:)
     };
 ```
 
@@ -1193,6 +1584,18 @@ use "./models" { Post, User };
 use "./utils" { format_date, validate };
 ```
 
+`without def` is part of the import item with spaces around `without`:
+
+```ori
+use "./traits" { Printable without def }
+
+use "./traits" {
+    Clone without def,
+    Debug,
+    Printable without def,
+};
+```
+
 Extension imports appear after regular imports in the same group. Methods sorted alphabetically.
 
 ```ori
@@ -1207,7 +1610,7 @@ extension std.collections.extensions {
 
 ### Extern Blocks
 
-Opening `{` on the same line. Declarations indented. `as "alias"` stays on the declaration line.
+Opening `{` on the same line. Declarations indented. `as "alias"` stays on the declaration line. Block-level annotations (`#error`, `#free`) appear on the extern header line. Per-function annotations appear before `as`. `out`, `owned`, `borrowed` are inline with parameters.
 
 ```ori
 extern "c" from "libm" {
@@ -1219,6 +1622,37 @@ extern "c" from "libm" {
 extern "js" from "./utils.js" {
     @_parse (input: str) -> JsValue as "parse";
 }
+
+// Error protocol on block header
+extern "c" from "sqlite3" #error(errno) {
+    @_open (path: str, db: out CPtr) -> c_int as "sqlite3_open";
+    @_close (db: CPtr) -> c_int as "sqlite3_close";
+}
+
+// Ownership + free on block
+extern "c" from "lib" #free(free) {
+    @_alloc (size: c_size) -> owned CPtr as "malloc";
+    @_get_name (obj: borrowed CPtr) -> borrowed str as "get_name";
+}
+
+// Per-function #error opt-out
+extern "c" from "lib" #error(errno) {
+    @_read (fd: c_int, buf: [byte]) -> c_int as "read";
+    @_close (fd: c_int) -> c_int #error(none) as "close";
+}
+
+// C variadics
+extern "c" {
+    @_printf (fmt: CPtr, ...) -> c_int as "printf";
+}
+```
+
+Parametric FFI capabilities use `uses FFI("library")` and follow normal capability formatting:
+
+```ori
+@query (db: CPtr, sql: str) -> Result<[Row], str>
+    uses FFI("sqlite3")
+= { ... }
 ```
 
 ### Capset Declarations
@@ -1278,6 +1712,46 @@ Conditional compilation attributes follow width-based breaking: inline if fits, 
 #repr("c")
 #repr("aligned", 16)
 #repr("transparent")
+```
+
+`#derive` follows width-based breaking: inline if fits, one trait per line when broken. Traits are sorted alphabetically within the derive.
+
+```ori
+// Inline
+#derive(Eq, Clone, Debug)
+type Point = { x: int, y: int };
+
+// Broken — one per line, sorted
+#derive(
+    Clone,
+    Comparable,
+    Debug,
+    Default,
+    Eq,
+    Formattable,
+    Hashable,
+    Printable,
+)
+type Config = {
+    timeout: Duration,
+    retries: int,
+};
+```
+
+Comments between stacked attributes are not permitted. Attributes form a cohesive unit attached to their declaration. The formatter moves intervening comments above the attribute block.
+
+```ori
+// Input
+#target(os: "linux")
+// platform-specific
+#derive(Eq, Clone)
+type NativeBuffer = { ... };
+
+// Formatted — comment moved above
+// platform-specific
+#target(os: "linux")
+#derive(Eq, Clone)
+type NativeBuffer = { ... };
 ```
 
 ---

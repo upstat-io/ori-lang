@@ -169,6 +169,7 @@ impl Interpreter<'_> {
         // CanExpr is Copy (24 bytes) — this is cheap.
         let canon = self.canon_ref();
         let kind = *canon.arena.kind(can_id);
+        tracing::trace!(?can_id, ?kind, "eval_can_inner");
 
         match kind {
             // Literals

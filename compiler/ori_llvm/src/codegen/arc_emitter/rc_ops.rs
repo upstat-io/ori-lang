@@ -235,10 +235,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Extract `env_ptr` (field 1), null-check (zero-capture closures have
     /// null env), then call `ori_rc_inc` on the non-null env.
     fn emit_rc_inc_closure(&mut self, val: super::ValueId, count: u32) {
-        let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_inc") else {
-            return;
-        };
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_rc_inc");
 
         let Some(env_ptr) = self.builder.extract_value(val, 1, "rc_inc.env") else {
             return;
@@ -283,10 +280,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.position_at_end(do_dec);
         let ptr_ty = self.builder.ptr_type();
         let drop_fn = self.builder.load(ptr_ty, env_ptr, "rc_dec.drop_fn");
-        if let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") {
-            let func_id = self.builder.intern_function(llvm_func);
-            self.builder.call(func_id, &[env_ptr, drop_fn], "");
-        }
+        let func_id = self.builder.runtime_fn("ori_rc_dec");
+        self.builder.call(func_id, &[env_ptr, drop_fn], "");
         self.builder.br(skip);
 
         self.builder.position_at_end(skip);
@@ -554,10 +549,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if ptrs.is_empty() {
             return;
         }
-        let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_inc") else {
-            return;
-        };
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_rc_inc");
         for &ptr in ptrs {
             for _ in 0..count {
                 self.builder.call(func_id, &[ptr], "");
@@ -570,10 +562,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         if ptrs.is_empty() {
             return;
         }
-        let Some(llvm_func) = self.builder.scx().llmod.get_function("ori_rc_dec") else {
-            return;
-        };
-        let func_id = self.builder.intern_function(llvm_func);
+        let func_id = self.builder.runtime_fn("ori_rc_dec");
         for &ptr in ptrs {
             self.builder.call(func_id, &[ptr, drop_fn], "");
         }

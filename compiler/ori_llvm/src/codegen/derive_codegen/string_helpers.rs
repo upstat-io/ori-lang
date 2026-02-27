@@ -36,16 +36,12 @@ pub(super) fn emit_str_concat<'a>(
     name: &str,
     str_ty_id: LLVMTypeId,
 ) -> ValueId {
-    let ptr_ty = fc.builder_mut().ptr_type();
-
     let lhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.lhs"));
     fc.builder_mut().store(lhs, lhs_alloca);
     let rhs_alloca = fc.entry_alloca(str_ty_id, &format!("{name}.rhs"));
     fc.builder_mut().store(rhs, rhs_alloca);
 
-    let concat_fn =
-        fc.builder_mut()
-            .get_or_declare_function("ori_str_concat", &[ptr_ty, ptr_ty], str_ty_id);
+    let concat_fn = fc.builder_mut().runtime_fn("ori_str_concat");
     fc.builder_mut()
         .call(concat_fn, &[lhs_alloca, rhs_alloca], name)
         .unwrap_or_else(|| emit_str_literal(fc, "", "empty", str_ty_id))
@@ -67,32 +63,19 @@ pub(super) fn emit_field_to_string<'a>(
     let info = fc.type_info().get(field_type);
     match &info {
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
-            let i64_ty = fc.builder_mut().i64_type();
-            let f =
-                fc.builder_mut()
-                    .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
+            let f = fc.builder_mut().runtime_fn("ori_str_from_int");
             fc.builder_mut()
                 .call(f, &[val], name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
         }
         TypeInfo::Float => {
-            let f64_ty = fc.builder_mut().f64_type();
-            let f = fc.builder_mut().get_or_declare_function(
-                "ori_str_from_float",
-                &[f64_ty],
-                str_ty_id,
-            );
+            let f = fc.builder_mut().runtime_fn("ori_str_from_float");
             fc.builder_mut()
                 .call(f, &[val], name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<float>", name, str_ty_id))
         }
         TypeInfo::Bool => {
-            let bool_ty = fc.builder_mut().bool_type();
-            let f = fc.builder_mut().get_or_declare_function(
-                "ori_str_from_bool",
-                &[bool_ty],
-                str_ty_id,
-            );
+            let f = fc.builder_mut().runtime_fn("ori_str_from_bool");
             fc.builder_mut()
                 .call(f, &[val], name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<bool>", name, str_ty_id))
@@ -111,9 +94,7 @@ pub(super) fn emit_field_to_string<'a>(
         TypeInfo::Char => {
             let i64_ty = fc.builder_mut().i64_type();
             let char_as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let f =
-                fc.builder_mut()
-                    .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
+            let f = fc.builder_mut().runtime_fn("ori_str_from_int");
             fc.builder_mut()
                 .call(f, &[char_as_i64], name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<char>", name, str_ty_id))
@@ -121,9 +102,7 @@ pub(super) fn emit_field_to_string<'a>(
         TypeInfo::Byte | TypeInfo::Ordering => {
             let i64_ty = fc.builder_mut().i64_type();
             let as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
-            let f =
-                fc.builder_mut()
-                    .get_or_declare_function("ori_str_from_int", &[i64_ty], str_ty_id);
+            let f = fc.builder_mut().runtime_fn("ori_str_from_int");
             fc.builder_mut()
                 .call(f, &[as_i64], name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<byte>", name, str_ty_id))

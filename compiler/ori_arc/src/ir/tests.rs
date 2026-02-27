@@ -422,6 +422,7 @@ fn arc_function_var_type_single() {
         var_reprs: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
+        num_captures: 0,
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
 }
@@ -460,6 +461,7 @@ fn arc_function_var_type_multiple() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
     assert_eq!(func.var_type(ArcVarId::new(1)), Idx::STR);
@@ -871,6 +873,7 @@ fn fresh_var_sequential_ids() {
         var_reprs: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let v1 = func.fresh_var(Idx::STR);
@@ -913,6 +916,7 @@ fn test_arc_ir_roundtrip() {
         var_reprs: Vec::new(),
         spans: vec![vec![Some(ori_ir::Span::new(10, 20))]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let bytes = bincode::serialize(&func).unwrap_or_else(|e| panic!("serialize failed: {e}"));
@@ -1033,9 +1037,12 @@ fn test_arc_ir_all_instr_variants() {
             "roundtrip failed for instr variant {i}"
         );
     }
+}
 
-    // Also test all terminator variants
-    let terminators = vec![
+#[cfg(feature = "cache")]
+#[test]
+fn test_arc_ir_all_terminator_variants() {
+    let terminators = [
         ArcTerminator::Return {
             value: ArcVarId::new(0),
         },
@@ -1097,6 +1104,7 @@ fn next_block_id_and_push() {
         var_reprs: Vec::new(),
         spans: vec![vec![]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     assert_eq!(func.next_block_id(), ArcBlockId::new(1));

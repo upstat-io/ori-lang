@@ -1,0 +1,480 @@
+//! LLVM-based evaluator for running Ori code.
+//!
+//! This provides a JIT-based evaluator that compiles Ori code to LLVM IR
+//! and executes it natively, as an alternative to the tree-walking interpreter.
+//!
+//! # V2 Architecture
+//!
+//! The evaluator is a pure codegen component — it receives pre-computed
+//! borrow inference results and pre-lowered ARC functions from the caller
+//! (`oric`). It does NOT perform ARC lowering or borrow inference itself.
+//!
+//! Pipeline:
+//! 1. `TypeInfoStore` + `TypeLayoutResolver` for LLVM type computation
+//! 2. `IrBuilder` for ID-based instruction emission
+//! 3. `FunctionCompiler` for two-pass declare-then-define compilation
+//! 4. `ArcIrEmitter` for ARC IR → LLVM IR lowering (with RC lifecycle)
+
+mod runtime_mappings;
+
+#[cfg(test)]
+pub(crate) use runtime_mappings::AOT_ONLY_RUNTIME_FUNCTIONS;
+#[cfg(test)]
+pub(crate) use runtime_mappings::JIT_MAPPED_RUNTIME_FUNCTIONS;
+
+use std::mem::ManuallyDrop;
+
+use inkwell::context::Context;
+use inkwell::execution_engine::ExecutionEngine;
+use rustc_hash::FxHashMap;
+use tracing::{debug, instrument};
+
+use ori_ir::ast::{Function, Module, TestDef};
+use ori_ir::canon::CanonResult;
+use ori_ir::{Name, StringInterner};
+use ori_types::{FunctionSig, Pool, TypeEntry};
+
+/// A single imported function ready for LLVM compilation.
+///
+/// Pairs a function AST with its type-checked signature and the canonical IR
+/// from its source module. All `Idx` values in `sig` and `canon` have been
+/// re-interned into the main compilation pool before construction — the caller
+/// uses [`ori_types::re_intern_type`] and [`CanArena::remap_types`] to ensure
+/// single-pool consistency.
+pub struct ImportedFunctionForCodegen<'a> {
+    /// The function AST from the imported module.
+    pub function: &'a Function,
+    /// Type-checked signature, re-interned into the main compilation pool.
+    pub sig: FunctionSig,
+    /// Canonical IR with types remapped to the main compilation pool.
+    pub canon: &'a CanonResult,
+}
+
+use crate::codegen::function_compiler::FunctionCompiler;
+use crate::codegen::ir_builder::IrBuilder;
+use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
+use crate::codegen::type_registration;
+use crate::context::SimpleCx;
+use crate::runtime;
+
+/// Result type for LLVM evaluation.
+pub type LLVMEvalResult = Result<LLVMValue, LLVMEvalError>;
+
+/// Values that can be returned from LLVM evaluation.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LLVMValue {
+    /// Void/unit value
+    Void,
+    /// Integer value
+    Int(i64),
+    /// Float value
+    Float(f64),
+    /// Boolean value
+    Bool(bool),
+}
+
+/// Error during LLVM evaluation.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct LLVMEvalError {
+    pub message: String,
+}
+
+impl LLVMEvalError {
+    pub fn new(message: impl Into<String>) -> Self {
+        LLVMEvalError {
+            message: message.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for LLVMEvalError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for LLVMEvalError {}
+
+// ---------------------------------------------------------------------------
+// CompiledTestModule
+// ---------------------------------------------------------------------------
+
+/// A compiled module with JIT engine ready for test execution.
+///
+/// All functions and tests are compiled once, then tests can be run multiple times
+/// from the same engine. This avoids the O(n²) recompilation problem where each test
+/// would otherwise recompile all module functions.
+///
+/// # Lifetime
+///
+/// The `'ll` lifetime ties to the LLVM `Context` (owned by `OwnedLLVMEvaluator`).
+/// The `ExecutionEngine` takes C-level ownership of the module via
+/// `LLVMCreateJITCompilerForModule`, so the Rust `Module` wrapper can be safely
+/// dropped after engine creation (it becomes a shell — see inkwell's
+/// `Module::owned_by_ee` field).
+pub struct CompiledTestModule<'ll> {
+    /// The JIT execution engine (owns the compiled machine code).
+    engine: ExecutionEngine<'ll>,
+    /// Test wrapper function names for lookup.
+    /// Maps test `Name` to the wrapper function name string (e.g., `__test_my_test`).
+    test_wrappers: FxHashMap<Name, String>,
+}
+
+impl CompiledTestModule<'_> {
+    /// Run a single test from this compiled module.
+    ///
+    /// Uses `setjmp`/`longjmp` to recover from panics in JIT-compiled code.
+    /// When JIT code calls `ori_panic` or `ori_panic_cstr`, it `longjmp`s back
+    /// here instead of calling `exit(1)`, preserving the test runner process.
+    ///
+    /// # Safety
+    ///
+    /// The test function must exist in the compiled module and have signature `() -> void`.
+    #[allow(
+        unsafe_code,
+        reason = "JIT execution requires unsafe FFI: get_function, setjmp, and call"
+    )]
+    pub fn run_test(&self, test_name: Name) -> LLVMEvalResult {
+        // Reset panic state before running
+        runtime::reset_panic_state();
+
+        // Snapshot live RC count before test for leak detection
+        let live_before = runtime::ori_rc_live_count();
+
+        // Look up the wrapper function name
+        let wrapper_name = self.test_wrappers.get(&test_name).ok_or_else(|| {
+            LLVMEvalError::new(format!("Test wrapper not found for test: {test_name:?}"))
+        })?;
+
+        // Get function pointer
+        // SAFETY: We compiled this test wrapper with signature () -> void
+        let test_fn = unsafe {
+            self.engine
+                .get_function::<unsafe extern "C" fn()>(wrapper_name)
+                .map_err(|e| LLVMEvalError::new(format!("Test function not found: {e}")))?
+        };
+
+        // Set up setjmp/longjmp recovery for JIT panics
+        let mut jmp_buf = runtime::JmpBuf::new();
+        let buf_ptr: *mut runtime::JmpBuf = &raw mut jmp_buf;
+        runtime::enter_jit_mode(buf_ptr);
+
+        // SAFETY: jmp_buf is stack-allocated and valid for the duration of this call.
+        // setjmp returns 0 on direct call, non-zero when longjmp fires.
+        let longjmp_fired = unsafe { runtime::jit_setjmp(buf_ptr) } != 0;
+
+        if longjmp_fired {
+            // longjmp returned us here — JIT code hit a panic
+            runtime::leave_jit_mode();
+            let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(LLVMEvalError::new(msg));
+        }
+
+        // Normal path: execute the test
+        // SAFETY: test_fn has signature () -> void, compiled by us
+        unsafe { test_fn.call() };
+
+        runtime::leave_jit_mode();
+
+        // Check if panic occurred (safety net — assertions now longjmp in JIT mode)
+        if runtime::did_panic() {
+            let msg = runtime::get_panic_message().unwrap_or_else(|| "unknown panic".to_string());
+            return Err(LLVMEvalError::new(msg));
+        }
+
+        // Check for ARC leaks: compare live count after test to snapshot before
+        let live_after = runtime::ori_rc_live_count();
+        let leaked = live_after - live_before;
+        if leaked > 0 {
+            return Err(LLVMEvalError::new(format!(
+                "ARC leak: {leaked} allocation(s) not freed"
+            )));
+        }
+
+        Ok(LLVMValue::Void)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// OwnedLLVMEvaluator (V2 pipeline)
+// ---------------------------------------------------------------------------
+
+/// LLVM-based evaluator that owns its context.
+///
+/// Uses the V2 codegen pipeline (`TypeInfoStore` → `IrBuilder` → `FunctionCompiler`).
+pub struct OwnedLLVMEvaluator<'tcx> {
+    context: Context,
+    /// Type pool for resolving compound types (List, Map, etc.)
+    pool: &'tcx Pool,
+}
+
+impl<'tcx> OwnedLLVMEvaluator<'tcx> {
+    /// Create an evaluator with a type pool for compound type resolution.
+    #[must_use]
+    pub fn with_pool(pool: &'tcx Pool) -> Self {
+        OwnedLLVMEvaluator {
+            context: Context::create(),
+            pool,
+        }
+    }
+
+    /// Compile an entire module with all its tests using the V2 pipeline.
+    ///
+    /// This is the recommended way to run multiple tests from the same module.
+    /// It compiles all functions and test wrappers ONCE, then returns a
+    /// `CompiledTestModule` that can run individual tests without recompilation.
+    ///
+    /// # Performance
+    ///
+    /// For a module with N functions and M tests:
+    /// - Old approach: O(M × N) function compilations (each test recompiles all)
+    /// - This approach: O(N + M) function compilations (compile once, run many)
+    ///
+    /// # Arguments
+    ///
+    /// - `module`: The parsed module containing functions and type declarations
+    /// - `tests`: The tests to compile wrappers for
+    /// - `canon`: Canonical IR for this module
+    /// - `interner`: String interner for name resolution
+    /// - `function_sigs`: Function signatures from type checker (aligned with module.functions)
+    /// - `user_types`: User-defined type entries from type checker
+    /// - `impl_sigs`: Impl method signatures as (`Name`, `FunctionSig`) pairs
+    /// - `imported_functions`: Individual imported functions to compile into
+    ///   this JIT module so calls to them resolve correctly
+    /// - `mono_instances`: Monomorphized generic function instances
+    /// - `annotated_sigs`: Pre-computed borrow inference results from the caller
+    /// - `arc_cache`: Pre-lowered ARC functions (consumed during define phase)
+    #[instrument(skip_all, level = "debug", fields(
+        functions = module.functions.len(),
+        tests = tests.len(),
+        imports = imported_functions.len(),
+    ))]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "JIT compilation pipeline — all params are required data flow inputs"
+    )]
+    pub fn compile_module_with_tests<'a>(
+        &'a self,
+        module: &Module,
+        tests: &[&TestDef],
+        canon: &CanonResult,
+        interner: &StringInterner,
+        function_sigs: &[FunctionSig],
+        user_types: &[TypeEntry],
+        impl_sigs: &[(Name, FunctionSig)],
+        imported_functions: &[ImportedFunctionForCodegen<'_>],
+        mono_instances: &[ori_types::MonoInstance],
+        annotated_sigs: &FxHashMap<Name, ori_arc::AnnotatedSig>,
+        mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
+    ) -> Result<CompiledTestModule<'a>, LLVMEvalError> {
+        use inkwell::OptimizationLevel;
+
+        // --- V2 pipeline ---
+
+        // 1. Create LLVM module context.
+        //
+        // We use ManuallyDrop + raw-pointer reborrow to work around a borrow
+        // checker limitation: FunctionCompiler's lifetime parameters tie the
+        // compilation block's borrow of `scx` to the return lifetime, preventing
+        // us from creating the ExecutionEngine afterward. The raw-pointer
+        // roundtrip (`scx_ref`) creates a detached reference whose borrow
+        // doesn't leak out of the block. This is sound because:
+        //
+        // - `scx` lives for the entire function (ManuallyDrop suppresses drop)
+        // - The compilation block's borrows genuinely end at the block boundary
+        // - `create_jit_execution_engine` takes C-level ownership of the module
+        //   (the Rust `Module` becomes a shell — see inkwell's `owned_by_ee`)
+        //   and returns `ExecutionEngine<'ctx>` tied to the Context lifetime
+        let scx = ManuallyDrop::new(SimpleCx::new(&self.context, "test_module"));
+
+        let (test_wrappers, codegen_errors, codegen_error_descriptions) = {
+            // SAFETY: Detached reference to scx — see comment above.
+            let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
+
+            // 2. Type infrastructure
+            let store = TypeInfoStore::new(self.pool);
+            let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
+
+            // 3. IR builder
+            let mut builder = IrBuilder::new(scx_ref);
+
+            // 4. Runtime functions: declared lazily via builder.runtime_fn()
+            // (no eager declare_runtime() call needed)
+
+            // 5. Register user-defined types
+            type_registration::register_user_types(&resolver, user_types);
+
+            // 5b. ARC classifier for type classification during codegen
+            let classifier = ori_arc::ArcClassifier::new(self.pool);
+
+            // 5c. Collect monomorphized generic functions (needed for declaration)
+            let mono_functions = crate::monomorphize::collect_mono_functions(
+                mono_instances,
+                function_sigs,
+                interner,
+                self.pool,
+            );
+
+            // 6. Two-pass function compilation
+            debug!("declaring functions (phase 1)");
+            let mut fc = FunctionCompiler::new(
+                &mut builder,
+                &store,
+                &resolver,
+                interner,
+                self.pool,
+                "",
+                annotated_sigs,
+                &classifier,
+                None, // No debug info for JIT
+            );
+            fc.declare_all(&module.functions, function_sigs);
+
+            // 6b. Declare imported functions (phase 1)
+            // Imported functions must be declared before function body emission
+            // so that call sites in the main module can resolve references to them.
+            if !imported_functions.is_empty() {
+                debug!(
+                    count = imported_functions.len(),
+                    "declaring imported functions"
+                );
+                for imp_fn in imported_functions {
+                    fc.declare_all(
+                        std::slice::from_ref(imp_fn.function),
+                        std::slice::from_ref(&imp_fn.sig),
+                    );
+                }
+            }
+
+            // 6c. Declare monomorphized generic functions (phase 1)
+            if !mono_functions.is_empty() {
+                debug!(
+                    count = mono_functions.len(),
+                    "declaring monomorphized functions"
+                );
+                fc.declare_mono_functions(&mono_functions);
+            }
+
+            // 7. Compile impl methods (declare + define)
+            // Impl methods still lower inline — they use type-qualified canon
+            // lookup paths and are not pre-lowered for borrow inference.
+            if !module.impls.is_empty() {
+                debug!("compiling impl methods");
+                fc.compile_impls(&module.impls, impl_sigs, canon, &module.traits);
+            }
+
+            // 7b. Compile derived trait methods
+            if module.types.iter().any(|t| !t.derives.is_empty()) {
+                debug!("compiling derived trait methods");
+                fc.compile_derives(module, user_types);
+            }
+
+            // 8. Two-pass function compilation for sound nounwind analysis:
+            //    a) Lower all functions to ARC IR (no LLVM emission)
+            //    b) Build complete nounwind set via fixed-point analysis
+            //    c) Emit LLVM IR using the complete nounwind set
+            //
+            // This ensures monomorphized callee nounwind status is available
+            // when analyzing callers, preventing unnecessary invoke+landingpad.
+            debug!("preparing function bodies (phase 2a, ARC pipeline)");
+            let mut prepared =
+                fc.prepare_all_cached(&module.functions, function_sigs, canon, &mut arc_cache);
+
+            // 8b. Prepare imported function bodies
+            if !imported_functions.is_empty() {
+                debug!(
+                    count = imported_functions.len(),
+                    "preparing imported function bodies"
+                );
+                for imp_fn in imported_functions {
+                    prepared.extend(fc.prepare_all_cached(
+                        std::slice::from_ref(imp_fn.function),
+                        std::slice::from_ref(&imp_fn.sig),
+                        imp_fn.canon,
+                        &mut arc_cache,
+                    ));
+                }
+            }
+
+            // 8c. Prepare monomorphized function bodies
+            if !mono_functions.is_empty() {
+                debug!(
+                    count = mono_functions.len(),
+                    "preparing monomorphized function bodies"
+                );
+                prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, &mut arc_cache));
+            }
+
+            // 8d. Build complete nounwind set and emit LLVM IR
+            fc.compute_nounwind_set(&prepared);
+            fc.emit_prepared_functions(prepared);
+
+            // 9. Compile test wrappers
+            debug!("compiling test wrappers");
+            let wrappers = fc.compile_tests(tests, canon);
+
+            // Drop fc to release &mut builder borrow
+            drop(fc);
+
+            let errors = builder.codegen_error_count();
+            let descriptions = builder.codegen_error_descriptions();
+            (wrappers, errors, descriptions)
+            // builder, resolver, store dropped here
+        };
+
+        // Bail out early if codegen produced type-mismatch errors.
+        // Feeding malformed IR to LLVM's verifier or JIT can cause
+        // heap corruption (SIGABRT) that kills the entire process.
+        if codegen_errors > 0 {
+            // Drop scx to free the LLVM Module while the Context (owned by
+            // self) is still alive. Previously this was leaked (ManuallyDrop
+            // suppressed drop), but that caused the Module's LLVM-internal
+            // pointers to dangle when the Context was freed — accumulating
+            // leaked modules across many files eventually corrupted LLVM's heap.
+            // SAFETY: The Module was created from self.context which is still
+            // alive, so LLVMDisposeModule can safely clean up.
+            drop(ManuallyDrop::into_inner(scx));
+            let details = if codegen_error_descriptions.is_empty() {
+                String::new()
+            } else {
+                format!(":\n  - {}", codegen_error_descriptions.join("\n  - "))
+            };
+            return Err(LLVMEvalError::new(format!(
+                "LLVM codegen had {codegen_errors} type-mismatch error(s) — skipping verification/JIT{details}",
+            )));
+        }
+
+        // 10. Debug: print IR if requested
+        if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+            eprintln!("=== LLVM IR for compiled module ===");
+            eprintln!("{}", scx.llmod.print_to_string());
+            eprintln!("=== END IR ===");
+        }
+
+        // 11. Verify IR
+        if let Err(msg) = scx.llmod.verify() {
+            // Drop scx to free the Module while Context is alive (see codegen_errors note).
+            drop(ManuallyDrop::into_inner(scx));
+            return Err(LLVMEvalError::new(format!(
+                "LLVM IR verification failed: {msg}"
+            )));
+        }
+
+        // 12. Create JIT execution engine
+        // SAFETY: Same detached-reference pattern as above — see step 1 comment.
+        debug!("creating JIT execution engine");
+        let engine = unsafe {
+            let module = &*std::ptr::addr_of!(scx.llmod);
+            let eng = module
+                .create_jit_execution_engine(OptimizationLevel::None)
+                .map_err(|e| LLVMEvalError::new(e.to_string()))?;
+            runtime_mappings::add_runtime_mappings_to_engine(&eng, module)?;
+            eng
+        };
+
+        Ok(CompiledTestModule {
+            engine,
+            test_wrappers,
+        })
+    }
+}

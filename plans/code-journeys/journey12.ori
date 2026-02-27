@@ -1,0 +1,49 @@
+// Journey 12: "I am an option"
+// Features: Option<T>, Some/None, match on Option, ? propagation
+// Expected: check_some() + check_none() + check_chain() + check_prop() = 20 + 5 + 8 + 0 = 33
+
+@safe_div (a: int, b: int) -> Option<int> =
+    if b == 0 then None else Some(a / b);
+
+@unwrap_or (opt: Option<int>, default: int) -> int =
+    match opt { Some(v) -> v, None -> default }
+
+@check_some () -> int = {
+    let a = safe_div(a: 100, b: 5);
+    unwrap_or(opt: a, default: 0)
+    // = 20
+}
+
+@check_none () -> int = {
+    let b = safe_div(a: 100, b: 0);
+    unwrap_or(opt: b, default: 5)
+    // = 5
+}
+
+@check_chain () -> int = {
+    let x = unwrap_or(opt: safe_div(a: 80, b: 10), default: 0);
+    let y = unwrap_or(opt: safe_div(a: 50, b: 0), default: 0);
+    x + y
+    // = 8 + 0 = 8
+}
+
+@try_div (a: int, b: int, c: int) -> Option<int> = {
+    let x = safe_div(a: a, b: b)?;
+    safe_div(a: x, b: c)
+}
+
+@check_prop () -> int = {
+    let ok = unwrap_or(opt: try_div(a: 1000, b: 10, c: 5), default: -1);
+    let fail_first = unwrap_or(opt: try_div(a: 1000, b: 0, c: 5), default: -10);
+    let fail_second = unwrap_or(opt: try_div(a: 1000, b: 10, c: 0), default: -10);
+    ok + fail_first + fail_second
+    // = 20 + (-10) + (-10) = 0
+}
+
+@main () -> int = {
+    let a = check_some();     // = 20
+    let b = check_none();     // = 5
+    let c = check_chain();    // = 8
+    let d = check_prop();     // = 0
+    a + b + c + d             // = 33
+}

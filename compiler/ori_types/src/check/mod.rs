@@ -55,6 +55,7 @@
 use ori_ir::{ExprArena, Name, Span, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::pool::TypeDescriptor;
 use crate::{
     FunctionSig, Idx, InferEngine, MethodRegistry, PatternKey, PatternResolution, Pool,
     TraitRegistry, TypeCheckError, TypeCheckResult, TypeCheckWarning, TypeEnv, TypeRegistry,
@@ -196,6 +197,12 @@ pub struct ModuleChecker<'a> {
     /// Accumulated from `InferEngine` after each function body is checked.
     /// Deduped by `(fn_name, generic_args)` before inclusion in `TypedModule`.
     mono_instances: Vec<crate::MonoInstance>,
+
+    /// Deferred mono calls (generic calling generic).
+    ///
+    /// Accumulated from `InferEngine` after each function body is checked.
+    /// Resolved in `finish_with_pool()` using direct `MonoInstance` body type maps.
+    deferred_mono_calls: Vec<crate::DeferredMonoCall>,
 }
 
 impl<'a> ModuleChecker<'a> {
@@ -225,6 +232,7 @@ impl<'a> ModuleChecker<'a> {
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
             mono_instances: Vec::new(),
+            deferred_mono_calls: Vec::new(),
         }
     }
 
@@ -262,6 +270,7 @@ impl<'a> ModuleChecker<'a> {
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
             mono_instances: Vec::new(),
+            deferred_mono_calls: Vec::new(),
         }
     }
 
@@ -384,6 +393,11 @@ impl<'a> ModuleChecker<'a> {
         self.mono_instances.extend(instances);
     }
 
+    /// Accumulate deferred mono calls from an inference engine pass.
+    pub fn accumulate_deferred_mono_calls(&mut self, calls: Vec<crate::DeferredMonoCall>) {
+        self.deferred_mono_calls.extend(calls);
+    }
+
     /// Get all registered signatures.
     pub fn signatures(&self) -> &FxHashMap<Name, FunctionSig> {
         &self.signatures
@@ -410,9 +424,11 @@ impl<'a> ModuleChecker<'a> {
 
     /// Register an imported function for cross-module type checking.
     ///
-    /// Infers the function's signature using the foreign module's arena,
-    /// creates the function type in the local pool, and binds it in
-    /// the import environment.
+    /// If `imported_sig` is provided (from the source module's `TypeCheckResult`),
+    /// attempts hash-first resolution: looks up each parameter/return type by
+    /// Merkle hash in the local pool (O(1) per type). Falls back to AST
+    /// re-walking if any type is missing from the local pool or the function
+    /// is generic (type variables are pool-local).
     ///
     /// Call this before `collect_signatures()` / `check_module_impl()` so
     /// that imported bindings are visible as the parent scope of local
@@ -421,20 +437,28 @@ impl<'a> ModuleChecker<'a> {
         &mut self,
         func: &ori_ir::Function,
         foreign_arena: &ExprArena,
+        imported_sig: Option<&FunctionSig>,
     ) {
+        // Fast path: resolve non-generic signatures by Merkle hash
+        if let Some(ext_sig) = imported_sig {
+            if let Some(local_sig) = self.try_resolve_sig_by_hash(ext_sig) {
+                tracing::debug!(
+                    name = ?self.interner.lookup(local_sig.name),
+                    "import: hash-first hit"
+                );
+                self.bind_imported_sig(local_sig);
+                return;
+            }
+            tracing::debug!(
+                name = ?self.interner.lookup(ext_sig.name),
+                generic = !ext_sig.scheme_var_ids.is_empty(),
+                "import: hash-first miss → AST fallback"
+            );
+        }
+
+        // Slow path: AST re-walking (creates types in local pool)
         let (sig, var_ids) = signatures::infer_function_signature_from(self, func, foreign_arena);
-        let fn_type = self.pool.function(&sig.param_types, sig.return_type);
-
-        // Wrap generic functions in a type scheme so each call gets fresh
-        // type variables via instantiation (prevents shared-variable pollution).
-        let bound_type = if var_ids.is_empty() {
-            fn_type
-        } else {
-            self.pool.scheme(&var_ids, fn_type)
-        };
-
-        self.import_env.bind(sig.name, bound_type);
-        self.signatures.insert(sig.name, sig);
+        self.bind_imported_sig_with_vars(sig, &var_ids);
     }
 
     /// Register an imported function under a different local name.
@@ -448,20 +472,107 @@ impl<'a> ModuleChecker<'a> {
         func: &ori_ir::Function,
         foreign_arena: &ExprArena,
         alias: Name,
+        imported_sig: Option<&FunctionSig>,
     ) {
+        // Fast path: resolve non-generic signatures by Merkle hash
+        if let Some(ext_sig) = imported_sig {
+            if let Some(mut local_sig) = self.try_resolve_sig_by_hash(ext_sig) {
+                tracing::debug!(
+                    name = ?self.interner.lookup(ext_sig.name),
+                    alias = ?self.interner.lookup(alias),
+                    "import: hash-first hit (aliased)"
+                );
+                local_sig.name = alias;
+                self.bind_imported_sig(local_sig);
+                return;
+            }
+            tracing::debug!(
+                name = ?self.interner.lookup(ext_sig.name),
+                alias = ?self.interner.lookup(alias),
+                generic = !ext_sig.scheme_var_ids.is_empty(),
+                "import: hash-first miss → AST fallback (aliased)"
+            );
+        }
+
+        // Slow path: AST re-walking
         let (mut sig, var_ids) =
             signatures::infer_function_signature_from(self, func, foreign_arena);
         sig.name = alias;
+        self.bind_imported_sig_with_vars(sig, &var_ids);
+    }
+
+    /// Try to resolve all types in an imported signature by Merkle hash lookup.
+    ///
+    /// Returns `Some(local_sig)` if every param/return type already exists in
+    /// the local pool. Returns `None` if any lookup misses (caller should fall
+    /// back to AST re-walking).
+    ///
+    /// Generic functions (non-empty `scheme_var_ids`) always return `None`
+    /// because type variable hashes are pool-local and won't match across pools.
+    fn try_resolve_sig_by_hash(&self, ext_sig: &FunctionSig) -> Option<FunctionSig> {
+        // Generic functions: type variables are pool-local, hash won't match
+        if !ext_sig.scheme_var_ids.is_empty() {
+            return None;
+        }
+
+        // Try to resolve every param type by hash
+        let mut local_param_types = Vec::with_capacity(ext_sig.param_types.len());
+        for &hash in &ext_sig.param_hashes {
+            local_param_types.push(self.pool.lookup_by_hash(hash)?);
+        }
+
+        // Try to resolve return type by hash
+        let local_return_type = self.pool.lookup_by_hash(ext_sig.return_hash)?;
+
+        // All types resolved — build local FunctionSig
+        Some(FunctionSig {
+            name: ext_sig.name,
+            type_params: ext_sig.type_params.clone(),
+            const_params: ext_sig.const_params.clone(),
+            param_names: ext_sig.param_names.clone(),
+            param_types: local_param_types,
+            return_type: local_return_type,
+            capabilities: ext_sig.capabilities.clone(),
+            is_public: ext_sig.is_public,
+            is_test: ext_sig.is_test,
+            is_main: ext_sig.is_main,
+            is_fbip: ext_sig.is_fbip,
+            type_param_bounds: ext_sig.type_param_bounds.clone(),
+            where_clauses: ext_sig.where_clauses.clone(),
+            generic_param_mapping: ext_sig.generic_param_mapping.clone(),
+            scheme_var_ids: ext_sig.scheme_var_ids.clone(),
+            required_params: ext_sig.required_params,
+            param_defaults: ext_sig.param_defaults.clone(),
+            param_hashes: ext_sig.param_hashes.clone(),
+            return_hash: ext_sig.return_hash,
+        })
+    }
+
+    /// Bind an imported signature into the import environment (non-generic path).
+    ///
+    /// Used by the hash-first resolution path where we know `scheme_var_ids` is empty.
+    fn bind_imported_sig(&mut self, sig: FunctionSig) {
+        let fn_type = self.pool.function(&sig.param_types, sig.return_type);
+        self.import_env.bind(sig.name, fn_type);
+        self.signatures.insert(sig.name, sig);
+    }
+
+    /// Bind an imported signature, wrapping generic functions in a type scheme.
+    ///
+    /// Used by the AST fallback path where we have explicit var IDs.
+    fn bind_imported_sig_with_vars(&mut self, sig: FunctionSig, var_ids: &[u32]) {
         let fn_type = self.pool.function(&sig.param_types, sig.return_type);
 
+        // Wrap generic functions in a type scheme so each call gets fresh
+        // type variables via instantiation (prevents shared-variable pollution).
         let bound_type = if var_ids.is_empty() {
             fn_type
         } else {
-            self.pool.scheme(&var_ids, fn_type)
+            self.pool.scheme(var_ids, fn_type)
         };
 
-        self.import_env.bind(alias, bound_type);
-        self.signatures.insert(alias, sig);
+        self.import_env.bind(sig.name, bound_type);
+        self.signatures.insert(sig.name, sig);
     }
 
     /// Register traits from an imported module (e.g., prelude).
@@ -774,7 +885,8 @@ impl<'a> ModuleChecker<'a> {
     /// Use this when you need access to the pool for type resolution
     /// after checking is complete.
     pub fn finish_with_pool(self) -> (TypeCheckResult, Pool) {
-        let pool = self.pool;
+        let mut pool = self.pool;
+        let deferred_mono_calls = self.deferred_mono_calls;
 
         // Sort functions by name for deterministic output regardless of
         // FxHashMap iteration order. Required for Salsa's Eq comparison.
@@ -789,11 +901,20 @@ impl<'a> ModuleChecker<'a> {
         pattern_resolutions.sort_by_key(|(k, _)| *k);
         pattern_resolutions.dedup_by_key(|(k, _)| *k);
 
+        // Resolve transitive mono calls (generic calling generic) before dedup.
+        let mut mono_instances = self.mono_instances;
+        if !deferred_mono_calls.is_empty() {
+            resolve_deferred_mono_calls(&mut pool, &mut mono_instances, &deferred_mono_calls);
+        }
+
         // Dedup mono instances by (fn_name, generic_args).
         // Sort by fn_name for determinism, then dedup adjacent entries.
-        let mut mono_instances = self.mono_instances;
         mono_instances.sort_by_key(|m| m.fn_name);
         mono_instances.dedup_by(|a, b| a.fn_name == b.fn_name && a.generic_args == b.generic_args);
+
+        // Generate portable type descriptors for all public function signatures.
+        // These enable cross-module type reconstruction without AST access.
+        let type_descriptors = generate_export_descriptors(&pool, &functions);
 
         let typed = TypedModule {
             expr_types: self.expr_types,
@@ -804,9 +925,208 @@ impl<'a> ModuleChecker<'a> {
             pattern_resolutions,
             impl_sigs: self.impl_sigs,
             mono_instances,
+            type_descriptors,
         };
 
         (TypeCheckResult::from_typed(typed), pool)
+    }
+}
+
+/// Generate portable type descriptors for all types in public function signatures.
+///
+/// Iterates public functions, collecting descriptors for every param type and
+/// return type. Deduplicates by Merkle hash via `describe_recursive`'s visited set.
+/// The result is topologically sorted: leaves (primitives) first.
+fn generate_export_descriptors(
+    pool: &Pool,
+    functions: &[FunctionSig],
+) -> Vec<(u64, TypeDescriptor)> {
+    let mut descriptors = Vec::new();
+    let mut visited = FxHashSet::default();
+
+    for sig in functions {
+        if !sig.is_public {
+            continue;
+        }
+        for &idx in &sig.param_types {
+            pool.describe_recursive(idx, &mut descriptors, &mut visited);
+        }
+        pool.describe_recursive(sig.return_type, &mut descriptors, &mut visited);
+    }
+
+    descriptors
+}
+
+/// Resolve deferred mono calls transitively.
+///
+/// When a generic function calls another generic, the type checker records a
+/// [`DeferredMonoCall`] instead of a direct [`MonoInstance`] (because the type
+/// arguments are still variables at checking time). This function resolves those
+/// deferred calls using the body type maps from concrete `MonoInstance`s.
+///
+/// Uses a fixed-point worklist: each newly discovered `MonoInstance` may trigger
+/// further deferred calls (e.g., `double_wrap<int>` → `wrap<int>` → `id<int>`).
+///
+/// # Algorithm
+///
+/// For each `MonoInstance` (e.g., `apply_identity<int>`):
+/// 1. Find deferred calls from that function (e.g., `identity` from `apply_identity`)
+/// 2. Apply the caller's body type map to resolve deferred variable mappings
+///    (e.g., `identity`'s `T` → `apply_identity`'s `T` → `int`)
+/// 3. Use `substitute_in_pool` to build concrete types and body type map
+/// 4. Create new `MonoInstance` for the callee
+/// 5. Repeat until no new instances are discovered
+fn resolve_deferred_mono_calls(
+    pool: &mut Pool,
+    mono_instances: &mut Vec<crate::MonoInstance>,
+    deferred_calls: &[crate::DeferredMonoCall],
+) {
+    use rustc_hash::{FxHashMap, FxHashSet};
+
+    use crate::{GenericArg, Idx};
+
+    // Track already-seen (fn_name, generic_args) to avoid duplicates.
+    let mut seen: FxHashSet<(Name, Vec<GenericArg>)> = mono_instances
+        .iter()
+        .map(|m| (m.fn_name, m.generic_args.clone()))
+        .collect();
+
+    tracing::debug!(
+        instances = mono_instances.len(),
+        deferred = deferred_calls.len(),
+        "resolve_deferred_mono_calls: starting"
+    );
+
+    // Fixed-point worklist: process all instances including newly discovered ones.
+    let mut i = 0;
+    while i < mono_instances.len() {
+        let caller_name = mono_instances[i].fn_name;
+        let caller_generic_args = mono_instances[i].generic_args.clone();
+
+        for deferred in deferred_calls.iter().filter(|d| d.caller == caller_name) {
+            tracing::trace!(
+                caller = ?caller_name,
+                callee = ?deferred.callee,
+                caller_generic_args = ?caller_generic_args,
+                var_subst = ?deferred.var_subst,
+                "processing deferred call"
+            );
+
+            // Resolve the callee's var_subst: map each callee var_id to a concrete
+            // type by looking up the caller's generic_args at the stored position.
+            let mut resolved_var_subst: FxHashMap<u32, Idx> = FxHashMap::with_capacity_and_hasher(
+                deferred.var_subst.len(),
+                rustc_hash::FxBuildHasher,
+            );
+            let mut all_concrete = true;
+
+            for (callee_var_id, binding) in &deferred.var_subst {
+                let concrete = match binding {
+                    crate::DeferredVarBinding::CallerSchemeVar(pos) => {
+                        let Some(GenericArg::Type(idx)) = caller_generic_args.get(*pos) else {
+                            all_concrete = false;
+                            break;
+                        };
+                        *idx
+                    }
+                    crate::DeferredVarBinding::Concrete(idx) => *idx,
+                };
+
+                tracing::trace!(callee_var_id, ?binding, ?concrete, "resolved deferred var");
+
+                if pool.tag(concrete) == crate::Tag::Var {
+                    all_concrete = false;
+                    break;
+                }
+                resolved_var_subst.insert(*callee_var_id, concrete);
+            }
+
+            if !all_concrete {
+                continue;
+            }
+
+            // Build generic_args in scheme_var_ids order.
+            let generic_args: Vec<GenericArg> = deferred
+                .callee_scheme_var_ids
+                .iter()
+                .filter_map(|var_id| {
+                    resolved_var_subst
+                        .get(var_id)
+                        .map(|&idx| GenericArg::Type(idx))
+                })
+                .collect();
+
+            if generic_args.len() != deferred.callee_scheme_var_ids.len() {
+                continue;
+            }
+
+            let key = (deferred.callee, generic_args.clone());
+            if !seen.insert(key) {
+                continue;
+            }
+
+            let instance = build_mono_instance(
+                pool,
+                deferred.callee,
+                generic_args,
+                &deferred.callee_param_types,
+                deferred.callee_return_type,
+                &resolved_var_subst,
+            );
+
+            tracing::debug!(
+                callee = ?deferred.callee,
+                args = ?instance.generic_args,
+                "resolved transitive mono instance"
+            );
+
+            mono_instances.push(instance);
+        }
+
+        i += 1;
+    }
+}
+
+/// Build a `MonoInstance` by substituting type variables with concrete types.
+///
+/// Computes concrete param/return types and scans the pool for entries that
+/// need substitution (the `body_type_map` for ARC lowering).
+fn build_mono_instance(
+    pool: &mut Pool,
+    fn_name: Name,
+    generic_args: Vec<crate::GenericArg>,
+    param_types: &[crate::Idx],
+    return_type: crate::Idx,
+    var_subst: &rustc_hash::FxHashMap<u32, crate::Idx>,
+) -> crate::MonoInstance {
+    use crate::pool::substitute::substitute_in_pool;
+    use crate::{Idx, TypeFlags};
+
+    let concrete_param_types: Vec<Idx> = param_types
+        .iter()
+        .map(|&pt| substitute_in_pool(pool, pt, var_subst))
+        .collect();
+    let concrete_return_type = substitute_in_pool(pool, return_type, var_subst);
+
+    let mut body_type_map = Vec::new();
+    let pool_len = u32::try_from(pool.len()).unwrap_or(u32::MAX);
+    for raw in Idx::FIRST_DYNAMIC..pool_len {
+        let idx = Idx::from_raw(raw);
+        if pool.flags(idx).contains(TypeFlags::HAS_VAR) {
+            let substituted = substitute_in_pool(pool, idx, var_subst);
+            if substituted != idx {
+                body_type_map.push((idx, substituted));
+            }
+        }
+    }
+    body_type_map.sort_by_key(|(k, _)| k.raw());
+
+    crate::MonoInstance {
+        fn_name,
+        generic_args,
+        concrete_param_types,
+        concrete_return_type,
+        body_type_map,
     }
 }
 

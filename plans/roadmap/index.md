@@ -6,27 +6,27 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **~~PRIORITY BLOCKER~~ RESOLVED (2026-02-19)**: Section 10.7 `catch(expr)` — implemented across all interpreter phases. `assert_panics` works via `library/std/testing.ori`. All 16 previously-skipped tests (11 in `integer_safety.ori`, 5 in `operators_bitwise.ori`) now pass. LLVM codegen for catch remains simplified (placeholder).
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-26)**: `plans/merkle_pool_identity/` — Merkle Pool Identity: content-addressed hashing for cross-module type identity. Replaces pool-local `Idx` hashing with recursive structure-based Merkle hashes (Git model), enabling O(1) cross-module type comparison and O(1) import resolution. 7 sections: all complete. Key results: 3.1x import speedup, 31.6x cross-module comparison speedup, ~1.6KB/module memory overhead.
 
 ---
 
-> **~~PRIORITY ESCALATION~~ RESOLVED (2026-02-20)**: Section 15D.3 `$` immutability enforcement — block expression syntax (`{ }` with `;`), old `run()`/`match()`/`try()`/`loop()` syntax removed, compile-time immutability enforcement (E2039), all 229+ test files migrated. Remaining 15D.3 items: `mut` keyword removal, `$x`/`x` scope conflicts, module-level immutability.
+> **ACTIVE REROUTE (in-progress)**: `plans/value-semantics-optimization/` — Value Semantics Optimization: Copy-on-Write collections (in-place when RC==1), Small String Optimization (23-byte inline), zero-copy slices, static uniqueness analysis, collection memory recycling, drop specialization. Covers runtime (`ori_rt`), LLVM codegen (`ori_llvm`), evaluator parity (`ori_eval`), ARC pipeline (`ori_arc`). 9 sections.
 
 ---
 
-> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-20)**: `plans/block_unify/` — Block Unification complete. `FunctionSeq::Run` / `SeqBinding` eliminated. Single `ExprKind::Block` + `StmtKind` representation (Gleam pattern). TypeEnv parallel maps merged into single `Binding` struct. Parser block parsing deduplicated via `collect_block_stmts()`. All 5 sections complete, 10,219 tests passing.
+> **QUEUED REROUTE**: `plans/llvm-codegen-fixes/` — LLVM Codegen Fixes: resolve all 28 issues discovered across 12 code journeys. 4 CRITICAL (mixed closures crash C1, list indexing crash C2, payload sum Eq silent wrong C3, Option match tag inversion silent wrong C4), 2 HIGH (empty landing pads H1, unsound nounwind H2), 14 MEDIUM (UB, alignment, variant/struct codegen quality, ARC drop dedup, IR cleanliness), 7 LOW (canonicalizer, select, dead phis). 11 sections. Independent of other reroutes — can activate at any time. Section 03 (EH cleanup) overlaps with `ori-eh-personality` plan. Source: `plans/code-journeys/` (12 journey results).
 
 ---
 
-> **ACTIVE REROUTE**: `plans/aot_codegen_pipeline/` — AOT Codegen Pipeline (supersedes `plans/arc_optimization/` and `plans/arc_codegen_unification/`). 11 sections: emission layer typing, lowerer gaps, closure codegen, borrow hardening, builtin dispatch table, RC identity propagation, cross-block RC elimination, Salsa borrow inference, FBIP enforcement, legacy cleanup (~11K deletion), comprehensive verification. Design reference: `plans/dpr_aot-codegen-pipeline_02222026.md`.
+> **QUEUED REROUTE**: `plans/ori-eh-personality/` — Ori EH Personality: replace `rust_eh_personality` with Ori's own `ori_eh_personality` implemented in C (~150 lines of Itanium EH ABI LSDA parsing). Handles cleanup and catch-all landing pads. Covers runtime (`ori_rt` — new C file + build.rs), LLVM codegen (`ori_llvm` — symbol swap in 4 locations). 3 sections. Independent of other reroutes — can activate at any time. Discovered by Code Journey 3.
 
 ---
 
-> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections: core data model, crate scaffolding, type definitions (primitives, string, compound, collections, iterators), query API, wiring (type checker, evaluator, ARC, LLVM, ori_ir migration), enforcement tests. Activates when AOT Codegen Pipeline reroute completes.
+> **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections. Activates when Value Semantics Optimization reroute completes.
 
 ---
 
-> **~~QUEUED REROUTE~~ RESOLVED (2026-02-25)**: `plans/monomorphization/` — Generic Monomorphization for AOT Compilation complete. All 4 sections done: type checker infrastructure (FunctionSig scheme_var_ids, MonoInstance/GenericArg, pool substitution, call-site recording, TypedModule propagation), ARC lowering integration (type_subst on lower_function_can), LLVM pipeline integration (collection pass, evaluator wiring, FunctionCompiler declare/define, call-site resolution via mono_dispatch, name mangling `{fn}$m${types}`), verification (5 AOT tests pass, 10,040 total). Completed proactively during AOT Codegen Pipeline reroute.
+> **QUEUED REROUTE**: `plans/repr-opt/` — Representation Optimization & ARC Intelligence: complete the 3-tier representation optimization framework — from abstract types through range analysis and escape analysis to optimally-narrowed LLVM IR. New `ori_repr` crate creates a `ReprPlan` (decision document) between type checking and codegen. Covers: transitive triviality & ARC elision (§02), value range analysis via abstract interpretation (§03), integer narrowing `int`→`i8`/`i16`/`i32` (§04), float narrowing `f64`→`f32` (§05), struct field reordering (§06), enum niche filling like Rust's `Option<bool>`=1 byte (§07), escape analysis & stack promotion (§08), ARC header compression `i64`→`i8`/`i16`/`i32` refcounts (§09), thread-local non-atomic ARC (§10), SSO/SVO/packed-bool collection specialization (§11). Targets: ≥10% runtime improvement, ≥20% memory reduction, ≥40% fewer RC operations. Draws from Swift SIL ARC optimizer, Lean4 RC/Borrow/Reuse, Koka FBIP, Roc NumericRange, Zig InternPool. 12 sections, ~9,500 new lines. Activates when Type Strategy Registry reroute completes.
 
 ---
 

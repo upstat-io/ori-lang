@@ -178,6 +178,73 @@ fn bench_typeck_incremental(c: &mut Criterion) {
     });
 }
 
+fn bench_typeck_incremental_recheck(c: &mut Criterion) {
+    use salsa::Setter;
+
+    let mut group = c.benchmark_group("typeck/incremental");
+
+    // Cold: new db + file + typed()
+    group.bench_function("cold", |b| {
+        b.iter(|| {
+            let db = CompilerDb::new();
+            let file = SourceFile::new(
+                &db,
+                PathBuf::from("/bench.ori"),
+                "@main () -> int = 42;".to_string(),
+            );
+            black_box(typed(&db, file));
+        });
+    });
+
+    // Warm (same sig): body change, same return type
+    group.bench_function("recheck_same_sig", |b| {
+        let mut db = CompilerDb::new();
+        let file = SourceFile::new(
+            &db,
+            PathBuf::from("/bench.ori"),
+            "@main () -> int = 42;".to_string(),
+        );
+        let _ = typed(&db, file);
+
+        let mut toggle = false;
+        b.iter(|| {
+            let text = if toggle {
+                "@main () -> int = 42;".to_string()
+            } else {
+                "@main () -> int = 100;".to_string()
+            };
+            toggle = !toggle;
+            file.set_text(&mut db).to(text);
+            black_box(typed(&db, file));
+        });
+    });
+
+    // Warm (changed sig): signature changes each iteration
+    group.bench_function("recheck_changed_sig", |b| {
+        let mut db = CompilerDb::new();
+        let file = SourceFile::new(
+            &db,
+            PathBuf::from("/bench.ori"),
+            "@main () -> int = 42;".to_string(),
+        );
+        let _ = typed(&db, file);
+
+        let mut toggle = false;
+        b.iter(|| {
+            let text = if toggle {
+                "@main () -> int = 42;".to_string()
+            } else {
+                "@main () -> bool = true;".to_string()
+            };
+            toggle = !toggle;
+            file.set_text(&mut db).to(text);
+            black_box(typed(&db, file));
+        });
+    });
+
+    group.finish();
+}
+
 fn bench_typeck_annotation_impact(c: &mut Criterion) {
     let db = CompilerDb::new();
     let mut group = c.benchmark_group("typeck/annotation_impact");
@@ -215,6 +282,7 @@ criterion_group!(
     bench_typeck_scaling_annotated,
     bench_typeck_scaling_inferred,
     bench_typeck_incremental,
+    bench_typeck_incremental_recheck,
     bench_typeck_annotation_impact,
 );
 criterion_main!(benches);

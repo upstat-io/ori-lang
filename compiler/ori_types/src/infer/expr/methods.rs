@@ -164,6 +164,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("Set", "is_empty"),
     ("Set", "iter"),
     ("Set", "len"),
+    ("Set", "length"),
     ("Set", "remove"),
     ("Set", "to_list"),
     ("Set", "union"),
@@ -366,6 +367,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("map", "iter"),
     ("map", "keys"),
     ("map", "len"),
+    ("map", "length"),
     ("map", "merge"),
     ("map", "remove"),
     ("map", "update"),
@@ -554,7 +556,7 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
     let key_ty = engine.pool().map_key(receiver_ty);
     let value_ty = engine.pool().map_value(receiver_ty);
     match method {
-        "len" | "hash" => Some(Idx::INT),
+        "len" | "length" | "hash" => Some(Idx::INT),
         "is_empty" | "contains_key" | "contains" | "equals" => Some(Idx::BOOL),
         "get" => Some(engine.pool_mut().option(value_ty)),
         "iter" => {
@@ -576,7 +578,7 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
 fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
     let elem = engine.pool().set_elem(receiver_ty);
     match method {
-        "len" | "hash" => Some(Idx::INT),
+        "len" | "length" | "hash" => Some(Idx::INT),
         "is_empty" | "contains" | "equals" => Some(Idx::BOOL),
         "iter" => Some(engine.pool_mut().iterator(elem)),
         "insert" | "remove" | "union" | "intersection" | "difference" | "clone" => {

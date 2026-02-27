@@ -5,366 +5,16 @@
 
 #[cfg(feature = "llvm")]
 use std::path::Path;
+#[cfg(feature = "llvm")]
 use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
 use super::read_file;
 
-/// Build options parsed from command line arguments.
-///
-/// This struct naturally has many boolean flags representing independent
-/// build configuration options (release mode, library type flags, verbose
-/// output, etc.). These are not state machine candidates as they are
-/// independent orthogonal settings.
-#[derive(Debug, Clone)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "independent orthogonal CLI flags, not a state machine"
-)]
-pub struct BuildOptions {
-    /// Build with optimizations (--release)
-    pub release: bool,
-    /// Target triple (--target=<triple>)
-    pub target: Option<String>,
-    /// Optimization level: 0, 1, 2, 3, s, z (--opt=<level>)
-    pub opt_level: OptLevel,
-    /// Debug info level: 0, 1, 2 (--debug=<level>)
-    pub debug_level: DebugLevel,
-    /// Output file path (-o, --output)
-    pub output: Option<PathBuf>,
-    /// Output directory (--out-dir)
-    pub out_dir: Option<PathBuf>,
-    /// Emit type: obj, llvm-ir, llvm-bc, asm (--emit)
-    pub emit: Option<EmitType>,
-    /// Build as static library (--lib)
-    pub lib: bool,
-    /// Build as shared library (--dylib)
-    pub dylib: bool,
-    /// Build for WebAssembly (--wasm)
-    pub wasm: bool,
-    /// Linker to use: system, lld (--linker)
-    pub linker: Option<String>,
-    /// Link mode: static, dynamic (--link)
-    pub link_mode: LinkMode,
-    /// LTO mode: off, thin, full (--lto)
-    pub lto: LtoMode,
-    /// Parallel compilation jobs (--jobs)
-    pub jobs: Option<usize>,
-    /// Target CPU (--cpu)
-    pub cpu: Option<String>,
-    /// CPU features (--features)
-    pub features: Option<String>,
-    /// Generate JavaScript bindings for WASM (--js-bindings)
-    pub js_bindings: bool,
-    /// Run wasm-opt post-processor (--wasm-opt)
-    pub wasm_opt: bool,
-    /// Verbose output (-v, --verbose)
-    pub verbose: bool,
-}
-
-impl Default for BuildOptions {
-    fn default() -> Self {
-        Self {
-            release: false,
-            target: None,
-            opt_level: OptLevel::O0,
-            debug_level: DebugLevel::Full,
-            output: None,
-            out_dir: None,
-            emit: None,
-            lib: false,
-            dylib: false,
-            wasm: false,
-            linker: None,
-            link_mode: LinkMode::Static,
-            lto: LtoMode::Off,
-            jobs: None,
-            cpu: None,
-            features: None,
-            js_bindings: false,
-            wasm_opt: false,
-            verbose: false,
-        }
-    }
-}
-
-impl BuildOptions {
-    /// Merge another `BuildOptions` into this one.
-    ///
-    /// For boolean flags, uses OR (true wins).
-    /// For Option fields, takes the new value if present.
-    /// For --release, also applies its implied `opt_level` and `debug_level`.
-    pub fn merge(&mut self, other: &Self) {
-        // Handle --release specially: it implies opt_level and debug_level
-        if other.release {
-            self.release = true;
-            self.opt_level = other.opt_level;
-            self.debug_level = other.debug_level;
-        }
-
-        // Option fields: take new value if present
-        if other.target.is_some() {
-            self.target.clone_from(&other.target);
-        }
-        if other.output.is_some() {
-            self.output.clone_from(&other.output);
-        }
-        if other.out_dir.is_some() {
-            self.out_dir.clone_from(&other.out_dir);
-        }
-        if other.emit.is_some() {
-            self.emit = other.emit;
-        }
-        if other.linker.is_some() {
-            self.linker.clone_from(&other.linker);
-        }
-        if other.cpu.is_some() {
-            self.cpu.clone_from(&other.cpu);
-        }
-        if other.features.is_some() {
-            self.features.clone_from(&other.features);
-        }
-
-        // Boolean flags: OR (true wins)
-        self.lib |= other.lib;
-        self.dylib |= other.dylib;
-        self.wasm |= other.wasm;
-        self.js_bindings |= other.js_bindings;
-        self.wasm_opt |= other.wasm_opt;
-        self.verbose |= other.verbose;
-    }
-}
-
-/// Optimization level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum OptLevel {
-    /// No optimization (fastest compile, debugging)
-    #[default]
-    O0,
-    /// Basic optimization
-    O1,
-    /// Standard optimization (production default)
-    O2,
-    /// Aggressive optimization
-    O3,
-    /// Optimize for size
-    Os,
-    /// Minimize size aggressively
-    Oz,
-}
-
-impl OptLevel {
-    /// Parse from command line string.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "0" => Some(Self::O0),
-            "1" => Some(Self::O1),
-            "2" => Some(Self::O2),
-            "3" => Some(Self::O3),
-            "s" => Some(Self::Os),
-            "z" => Some(Self::Oz),
-            _ => None,
-        }
-    }
-}
-
-/// Debug information level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum DebugLevel {
-    /// No debug info
-    None,
-    /// Line tables only
-    LineTablesOnly,
-    /// Full debug info (variables, types, source)
-    #[default]
-    Full,
-}
-
-impl DebugLevel {
-    /// Parse from command line string.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "0" => Some(Self::None),
-            "1" => Some(Self::LineTablesOnly),
-            "2" => Some(Self::Full),
-            _ => None,
-        }
-    }
-}
-
-/// What to emit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EmitType {
-    /// Native object file (.o)
-    Object,
-    /// LLVM IR text (.ll)
-    LlvmIr,
-    /// LLVM bitcode (.bc)
-    LlvmBc,
-    /// Assembly (.s)
-    Assembly,
-}
-
-impl EmitType {
-    /// Parse from command line string.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "obj" | "object" => Some(Self::Object),
-            "llvm-ir" | "ir" => Some(Self::LlvmIr),
-            "llvm-bc" | "bc" | "bitcode" => Some(Self::LlvmBc),
-            "asm" | "assembly" => Some(Self::Assembly),
-            _ => None,
-        }
-    }
-
-    /// Get the file extension for this emit type.
-    #[cfg(feature = "llvm")]
-    pub fn extension(&self) -> &'static str {
-        match self {
-            Self::Object => "o",
-            Self::LlvmIr => "ll",
-            Self::LlvmBc => "bc",
-            Self::Assembly => "s",
-        }
-    }
-}
-
-/// Link mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LinkMode {
-    /// Static linking (embed runtime)
-    #[default]
-    Static,
-    /// Dynamic linking (link to `libori_rt.so`)
-    Dynamic,
-}
-
-impl LinkMode {
-    /// Parse from command line string.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "static" => Some(Self::Static),
-            "dynamic" => Some(Self::Dynamic),
-            _ => None,
-        }
-    }
-}
-
-/// LTO mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LtoMode {
-    /// No LTO
-    #[default]
-    Off,
-    /// Thin LTO (parallel, fast)
-    Thin,
-    /// Full LTO (maximum optimization)
-    Full,
-}
-
-impl LtoMode {
-    /// Parse from command line string.
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "off" | "false" | "no" => Some(Self::Off),
-            "thin" => Some(Self::Thin),
-            "full" | "true" | "yes" => Some(Self::Full),
-            _ => None,
-        }
-    }
-}
-
-/// Parse build options from command line arguments.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "linear if/else CLI flag parser"
-)]
-pub fn parse_build_options(args: &[String]) -> BuildOptions {
-    let mut options = BuildOptions::default();
-
-    for arg in args {
-        if arg == "--release" {
-            options.release = true;
-            // --release implies O2 and no debug info
-            options.opt_level = OptLevel::O2;
-            options.debug_level = DebugLevel::None;
-        } else if let Some(target) = arg.strip_prefix("--target=") {
-            options.target = Some(target.to_string());
-        } else if let Some(level) = arg.strip_prefix("--opt=") {
-            if let Some(opt) = OptLevel::parse(level) {
-                options.opt_level = opt;
-            } else {
-                eprintln!("warning: unknown optimization level '{level}', using O0");
-            }
-        } else if let Some(level) = arg.strip_prefix("--debug=") {
-            if let Some(dbg) = DebugLevel::parse(level) {
-                options.debug_level = dbg;
-            } else {
-                eprintln!("warning: unknown debug level '{level}', using full");
-            }
-        } else if let Some(output) = arg.strip_prefix("-o=") {
-            options.output = Some(PathBuf::from(output));
-        } else if let Some(output) = arg.strip_prefix("--output=") {
-            options.output = Some(PathBuf::from(output));
-        } else if let Some(dir) = arg.strip_prefix("--out-dir=") {
-            options.out_dir = Some(PathBuf::from(dir));
-        } else if let Some(emit) = arg.strip_prefix("--emit=") {
-            if let Some(e) = EmitType::parse(emit) {
-                options.emit = Some(e);
-            } else {
-                eprintln!(
-                    "warning: unknown emit type '{emit}', options: obj, llvm-ir, llvm-bc, asm"
-                );
-            }
-        } else if arg == "--lib" {
-            options.lib = true;
-        } else if arg == "--dylib" {
-            options.dylib = true;
-        } else if arg == "--wasm" {
-            options.wasm = true;
-        } else if let Some(linker) = arg.strip_prefix("--linker=") {
-            options.linker = Some(linker.to_string());
-        } else if let Some(link) = arg.strip_prefix("--link=") {
-            if let Some(mode) = LinkMode::parse(link) {
-                options.link_mode = mode;
-            } else {
-                eprintln!("warning: unknown link mode '{link}', using static");
-            }
-        } else if let Some(lto) = arg.strip_prefix("--lto=") {
-            if let Some(mode) = LtoMode::parse(lto) {
-                options.lto = mode;
-            } else {
-                eprintln!("warning: unknown LTO mode '{lto}', using off");
-            }
-        } else if let Some(jobs) = arg.strip_prefix("--jobs=") {
-            if jobs == "auto" {
-                options.jobs = None; // Will use available cores
-            } else if let Ok(n) = jobs.parse() {
-                options.jobs = Some(n);
-            } else {
-                eprintln!("warning: invalid jobs count '{jobs}', using auto");
-            }
-        } else if arg == "-j" {
-            // Shorthand for --jobs=auto
-            options.jobs = None;
-        } else if let Some(cpu) = arg.strip_prefix("--cpu=") {
-            options.cpu = Some(cpu.to_string());
-        } else if let Some(features) = arg.strip_prefix("--features=") {
-            options.features = Some(features.to_string());
-        } else if arg == "--js-bindings" {
-            options.js_bindings = true;
-        } else if arg == "--wasm-opt" {
-            options.wasm_opt = true;
-        } else if arg == "-v" || arg == "--verbose" {
-            options.verbose = true;
-        }
-    }
-
-    // Handle -o without = (next arg is the path)
-    // This is handled in the caller since it requires peeking ahead
-
-    options
-}
+// Re-export options types so `commands::build::BuildOptions` etc. still resolves.
+pub use super::build_options::{
+    parse_build_options, BuildOptions, DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,
+};
 
 /// Check if source code has any imports.
 ///
@@ -535,6 +185,10 @@ fn build_file_single(
 /// Build a multi-file Ori program (with imports).
 ///
 /// This builds all dependent modules in topological order and links them together.
+#[expect(
+    clippy::too_many_lines,
+    reason = "multi-module build pipeline — splitting would fragment the build flow"
+)]
 #[cfg(feature = "llvm")]
 fn build_file_multi(path: &str, options: &BuildOptions, start: std::time::Instant) {
     use ori_llvm::aot::{build_dependency_graph, Mangler};
@@ -796,7 +450,7 @@ fn compile_single_module(
     source_path: &Path,
     compiled_modules: &[CompiledModuleInfo],
 ) -> Option<(PathBuf, CompiledModuleInfo)> {
-    use ori_llvm::aot::{derive_module_name, ObjectEmitter};
+    use ori_llvm::aot::derive_module_name;
     use ori_llvm::inkwell::context::Context;
     use oric::SourceFile;
 
@@ -871,7 +525,32 @@ fn compile_single_module(
             .and_then(|hashes| hashes.get(source_path).copied()),
     );
 
-    // Configure module for target
+    // Configure target, optimize, and emit object/bitcode
+    let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name)?;
+
+    let module_info = CompiledModuleInfo {
+        path: source_path.to_path_buf(),
+        module_name,
+        public_functions,
+    };
+
+    Some((obj_path, module_info))
+}
+
+/// Configure, optimize, and emit a compiled LLVM module to an object or bitcode file.
+///
+/// Handles both LTO (pre-link + bitcode emit) and non-LTO (verify + optimize + emit)
+/// pipelines. Returns the output file path on success.
+#[cfg(feature = "llvm")]
+fn emit_module_artifact(
+    ctx: &ModuleCompileContext<'_>,
+    llvm_module: &ori_llvm::inkwell::module::Module<'_>,
+    module_name: &str,
+) -> Option<PathBuf> {
+    use ori_llvm::aot::ObjectEmitter;
+
+    use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics, CodegenProblem};
+
     let emitter = match ObjectEmitter::new(ctx.target) {
         Ok(e) => e,
         Err(e) => {
@@ -882,7 +561,7 @@ fn compile_single_module(
         }
     };
 
-    if let Err(e) = emitter.configure_module(&llvm_module) {
+    if let Err(e) = emitter.configure_module(llvm_module) {
         let mut acc = CodegenDiagnostics::new();
         acc.push(CodegenProblem::ModuleConfigFailed {
             message: e.to_string(),
@@ -891,16 +570,12 @@ fn compile_single_module(
         return None;
     }
 
-    // Verify and optimize module
-    // When LTO is enabled, the config's pipeline_string() automatically
-    // returns the pre-link variant (e.g., thinlto-pre-link<O2>)
     let is_lto = !matches!(ctx.opt_config.lto, ori_llvm::aot::LtoMode::Off);
+    let safe_name = module_name.replace('$', "_");
 
     if is_lto {
         // LTO: run pre-link pipeline and emit bitcode
-        let bc_path = ctx
-            .obj_dir
-            .join(format!("{}.bc", module_name.replace('$', "_")));
+        let bc_path = ctx.obj_dir.join(format!("{safe_name}.bc"));
         if ctx.verbose {
             eprintln!(
                 "    Emitting bitcode to {} (LTO pre-link)",
@@ -908,7 +583,7 @@ fn compile_single_module(
             );
         }
         if let Err(e) = ori_llvm::aot::prelink_and_emit_bitcode(
-            &llvm_module,
+            llvm_module,
             emitter.machine(),
             ctx.opt_config,
             &bc_path,
@@ -918,27 +593,17 @@ fn compile_single_module(
             emit_codegen_diagnostics(acc);
             return None;
         }
-        let obj_path = bc_path; // Return bitcode path in place of object path
-        return Some((
-            obj_path,
-            CompiledModuleInfo {
-                path: source_path.to_path_buf(),
-                module_name,
-                public_functions,
-            },
-        ));
+        return Some(bc_path);
     }
 
-    // Non-LTO: verify → optimize → emit object file via unified pipeline
-    let obj_path = ctx
-        .obj_dir
-        .join(format!("{}.o", module_name.replace('$', "_")));
+    // Non-LTO: verify, optimize, emit object
+    let obj_path = ctx.obj_dir.join(format!("{safe_name}.o"));
     if ctx.verbose {
         eprintln!("    Emitting object to {}", obj_path.display());
     }
 
     if let Err(e) = emitter.verify_optimize_emit(
-        &llvm_module,
+        llvm_module,
         ctx.opt_config,
         &obj_path,
         ori_llvm::aot::OutputFormat::Object,
@@ -949,13 +614,7 @@ fn compile_single_module(
         return None;
     }
 
-    let module_info = CompiledModuleInfo {
-        path: source_path.to_path_buf(),
-        module_name,
-        public_functions,
-    };
-
-    Some((obj_path, module_info))
+    Some(obj_path)
 }
 
 /// Extract public function signatures with actual types from a type-checked module.

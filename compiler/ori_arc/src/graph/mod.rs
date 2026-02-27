@@ -1,10 +1,17 @@
-//! Shared CFG analysis utilities for ARC optimization passes.
+//! Shared graph analysis utilities for ARC optimization passes.
 //!
 //! Functions in this module are generic graph operations on [`ArcFunction`]
 //! that multiple independent passes need. They live here rather than in a
 //! specific pass module so that passes do not import from each other —
 //! keeping the dependency graph flat (all passes depend on `graph`, none
 //! depend on each other).
+//!
+//! ## Submodules
+//!
+//! - [`call_graph`] — inter-function call graph for SCC-based borrow inference
+
+pub mod call_graph;
+pub mod scc;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::{smallvec, SmallVec};

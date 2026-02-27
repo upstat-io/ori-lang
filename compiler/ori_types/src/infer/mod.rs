@@ -33,6 +33,7 @@
 //! - `Pool` for O(1) type equality
 //! - Rich error context for helpful diagnostic messages
 
+mod context;
 mod env;
 mod expr;
 
@@ -42,12 +43,9 @@ pub use expr::{check_expr, infer_expr, resolve_parsed_type, TYPECK_BUILTIN_METHO
 use ori_ir::{Name, StringInterner};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_diagnostic::Suggestion;
-
 use crate::{
-    check::WellKnownNames, diff_types, ContextKind, ErrorContext, Expected, FunctionSig, Idx,
-    PatternKey, PatternResolution, Pool, TraitRegistry, TypeCheckError, TypeCheckWarning,
-    TypeErrorKind, TypeProblem, TypeRegistry, UnifyEngine, UnifyError,
+    check::WellKnownNames, ContextKind, FunctionSig, Idx, PatternKey, PatternResolution, Pool,
+    TraitRegistry, TypeCheckError, TypeCheckWarning, TypeRegistry, UnifyEngine, UnifyError,
 };
 
 /// Expression ID type (mirrors `ori_ir::ExprId`).
@@ -139,6 +137,19 @@ pub struct InferEngine<'pool> {
     /// Populated by `record_mono_instance()` when a generic function is called
     /// with concrete type arguments. Extracted via `take_mono_instances()`.
     mono_instances: Vec<crate::MonoInstance>,
+
+    /// Deferred monomorphization calls (generic calling generic).
+    ///
+    /// Populated by `record_deferred_mono_call()` when a generic function calls
+    /// another generic with type variables still unresolved. Extracted via
+    /// `take_deferred_mono_calls()` and resolved in `finish_with_pool()`.
+    deferred_mono_calls: Vec<crate::DeferredMonoCall>,
+
+    /// Name of the function currently being type-checked.
+    ///
+    /// Used by `maybe_record_mono_instance()` to identify the caller when
+    /// recording deferred mono calls.
+    current_function: Option<Name>,
 }
 
 impl<'pool> InferEngine<'pool> {
@@ -164,6 +175,8 @@ impl<'pool> InferEngine<'pool> {
             pattern_resolutions: Vec::new(),
             const_types: None,
             mono_instances: Vec::new(),
+            deferred_mono_calls: Vec::new(),
+            current_function: None,
         }
     }
 
@@ -191,6 +204,8 @@ impl<'pool> InferEngine<'pool> {
             pattern_resolutions: Vec::new(),
             const_types: None,
             mono_instances: Vec::new(),
+            deferred_mono_calls: Vec::new(),
+            current_function: None,
         }
     }
 
@@ -520,81 +535,6 @@ impl<'pool> InferEngine<'pool> {
     }
 
     // ========================================
-    // Context Management
-    // ========================================
-
-    /// Push a context onto the stack (for nested error tracking).
-    pub fn push_context(&mut self, ctx: ContextKind) {
-        self.context_stack.push(ctx);
-    }
-
-    /// Pop a context from the stack.
-    pub fn pop_context(&mut self) -> Option<ContextKind> {
-        self.context_stack.pop()
-    }
-
-    /// Get the current context (top of stack).
-    pub fn current_context(&self) -> Option<&ContextKind> {
-        self.context_stack.last()
-    }
-
-    /// Execute a closure with a temporary context pushed.
-    ///
-    /// The context is automatically popped when the closure returns.
-    pub fn with_context<T, F>(&mut self, ctx: ContextKind, f: F) -> T
-    where
-        F: FnOnce(&mut Self) -> T,
-    {
-        self.push_context(ctx);
-        let result = f(self);
-        self.pop_context();
-        result
-    }
-
-    // ========================================
-    // Error Management
-    // ========================================
-
-    /// Check if any errors have been accumulated.
-    #[inline]
-    pub fn has_errors(&self) -> bool {
-        !self.errors.is_empty()
-    }
-
-    /// Get accumulated errors.
-    #[inline]
-    pub fn errors(&self) -> &[TypeCheckError] {
-        &self.errors
-    }
-
-    /// Take accumulated errors, leaving an empty vector.
-    pub fn take_errors(&mut self) -> Vec<TypeCheckError> {
-        std::mem::take(&mut self.errors)
-    }
-
-    /// Push a type check error.
-    pub fn push_error(&mut self, error: TypeCheckError) {
-        tracing::debug!(kind = ?error.kind, "type error recorded");
-        self.errors.push(error);
-    }
-
-    /// Get the current error count (for detecting new errors after a section).
-    pub fn error_count(&self) -> usize {
-        self.errors.len()
-    }
-
-    /// Push a type check warning.
-    pub fn push_warning(&mut self, warning: TypeCheckWarning) {
-        tracing::debug!(kind = ?warning.kind, "type warning recorded");
-        self.warnings.push(warning);
-    }
-
-    /// Take accumulated warnings, leaving an empty vector.
-    pub fn take_warnings(&mut self) -> Vec<TypeCheckWarning> {
-        std::mem::take(&mut self.warnings)
-    }
-
-    // ========================================
     // Pattern Resolution
     // ========================================
 
@@ -622,141 +562,24 @@ impl<'pool> InferEngine<'pool> {
         std::mem::take(&mut self.mono_instances)
     }
 
-    /// Rewrite `UnknownIdent` errors matching `name` (added since `errors_before`)
-    /// into `ClosureSelfCapture` errors.
-    ///
-    /// This detects patterns like `let f = () -> f` where a closure body
-    /// references its own binding name.
-    pub fn rewrite_self_capture_errors(&mut self, binding_name: Name, errors_before: usize) {
-        for error in &mut self.errors[errors_before..] {
-            if let TypeErrorKind::UnknownIdent { name, .. } = &error.kind {
-                if *name == binding_name {
-                    *error = TypeCheckError::closure_self_capture(error.span);
-                }
-            }
-        }
+    /// Record a deferred mono call (generic calling generic).
+    pub fn record_deferred_mono_call(&mut self, call: crate::DeferredMonoCall) {
+        self.deferred_mono_calls.push(call);
     }
 
-    // ========================================
-    // Bidirectional Type Checking
-    // ========================================
-
-    /// Check a type against an expected type.
-    ///
-    /// This is the "check" direction of bidirectional type checking:
-    /// given an expected type, verify that the inferred type matches.
-    ///
-    /// On unification failure, converts the error to a rich `TypeCheckError`
-    /// with context and suggestions.
-    #[expect(
-        clippy::result_large_err,
-        reason = "TypeCheckError is intentionally large for rich error context with suggestions"
-    )]
-    pub fn check_type(
-        &mut self,
-        inferred: Idx,
-        expected: &Expected,
-        span: ori_ir::Span,
-    ) -> Result<(), TypeCheckError> {
-        match self.unify.unify(inferred, expected.ty) {
-            Ok(()) => Ok(()),
-            Err(ref unify_err) => {
-                let error = self.make_type_error(inferred, expected, span, unify_err);
-                self.errors.push(error.clone());
-                Err(error)
-            }
-        }
+    /// Take deferred mono calls, leaving an empty vector.
+    pub fn take_deferred_mono_calls(&mut self) -> Vec<crate::DeferredMonoCall> {
+        std::mem::take(&mut self.deferred_mono_calls)
     }
 
-    /// Convert a unification error to a rich type check error.
-    fn make_type_error(
-        &self,
-        inferred: Idx,
-        expected: &Expected,
-        span: ori_ir::Span,
-        unify_err: &UnifyError,
-    ) -> TypeCheckError {
-        // Resolve both types to get their final forms
-        let resolved_inferred = self.unify.resolve_readonly(inferred);
-        let resolved_expected = self.unify.resolve_readonly(expected.ty);
-
-        // Identify specific problems between the types
-        let problems = diff_types(self.pool(), resolved_expected, resolved_inferred);
-
-        // Generate suggestions based on the problems
-        let suggestions = self.generate_suggestions(&problems);
-
-        // Build context from current state
-        let context = ErrorContext {
-            checking: self.current_context().cloned(),
-            expected_because: Some(expected.origin.clone()),
-            notes: self.make_context_notes(unify_err),
-        };
-
-        TypeCheckError {
-            span,
-            kind: TypeErrorKind::Mismatch {
-                expected: resolved_expected,
-                found: resolved_inferred,
-                problems,
-            },
-            context,
-            suggestions,
-        }
+    /// Set the current function being type-checked.
+    pub fn set_current_function(&mut self, name: Option<Name>) {
+        self.current_function = name;
     }
 
-    /// Generate suggestions based on identified problems.
-    #[expect(
-        clippy::unused_self,
-        reason = "Will use pool for formatting when string interning is added"
-    )]
-    fn generate_suggestions(&self, problems: &[TypeProblem]) -> Vec<Suggestion> {
-        let mut suggestions = Vec::new();
-
-        for problem in problems {
-            suggestions.extend(problem.suggestions());
-        }
-
-        // Sort by priority and deduplicate
-        suggestions.sort_by_key(|s| s.priority);
-        suggestions.dedup_by(|a, b| a.message == b.message);
-
-        suggestions
-    }
-
-    /// Generate context notes from a unification error.
-    #[expect(
-        clippy::unused_self,
-        reason = "Will use pool for name resolution when string interning is added"
-    )]
-    fn make_context_notes(&self, unify_err: &UnifyError) -> Vec<String> {
-        let mut notes = Vec::new();
-
-        match unify_err {
-            UnifyError::InfiniteType { var_id, .. } => {
-                notes.push(format!(
-                    "Type variable ${var_id} would create an infinite type"
-                ));
-            }
-            UnifyError::RigidMismatch { rigid_name, .. } => {
-                // Note: rigid_name is a Name which we can't resolve to string here.
-                // The error formatter will need access to a string interner.
-                notes.push(format!(
-                    "Type parameter (id={}) is rigid and cannot be unified with a concrete type",
-                    rigid_name.raw()
-                ));
-            }
-            UnifyError::RigidRigidMismatch { rigid1, rigid2 } => {
-                notes.push(format!(
-                    "Type parameters (id={}) and (id={}) are different and cannot be unified",
-                    rigid1.raw(),
-                    rigid2.raw()
-                ));
-            }
-            _ => {}
-        }
-
-        notes
+    /// Get the current function being type-checked.
+    pub fn current_function(&self) -> Option<Name> {
+        self.current_function
     }
 
     // ========================================

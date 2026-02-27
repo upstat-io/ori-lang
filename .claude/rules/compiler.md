@@ -83,6 +83,11 @@ ORI_LOG=ori_types=debug,ori_eval=debug ori run f.ori    # Multiple targets
 - `#[tracing::instrument]` on public API entry points; use `skip_all` or `skip(arena, engine)` for large/non-Debug args
 - Salsa `#[tracked]` functions: use manual `tracing::debug!()` events (not `#[instrument]`)
 
+## Cascading Fixes = Architectural Smell
+- When fixing a bug at one callsite moves the failure to the next layer, **STOP**. Do not patch the next callsite. Diagnose the shared assumption that's wrong across the pipeline.
+- If the same logical fix must be applied at 3+ independent callsites, it's a missing abstraction or violated boundary contract — fix at the boundary, not at every consumer.
+- Present the architectural issue to the user with 2-3 options (boundary fix, abstraction, workaround) and let them choose.
+
 ## Style
 - Functions < 100 lines (strongly prefer shorter — target < 50)
 - No dead code, no `#[allow(clippy)]` without reason

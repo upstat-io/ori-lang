@@ -9,13 +9,11 @@ use inkwell::context::Context;
 use ori_arc::{ArcClass, ArcClassification, DropInfo, DropKind};
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
-use rustc_hash::FxHashMap;
 
 use crate::codegen::abi::FunctionAbi;
 use crate::codegen::ir_builder::IrBuilder;
 use crate::codegen::runtime_decl::declare_runtime;
 use crate::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
-use crate::codegen::value_id::FunctionId;
 use crate::context::SimpleCx;
 
 /// Minimal ARC classifier: `Idx::STR` and index >= 100 are RC'd.
@@ -38,7 +36,7 @@ fn drop_fn_trivial_generates_rc_free() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_trivial"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -48,12 +46,8 @@ fn drop_fn_trivial_generates_rc_free() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -63,10 +57,7 @@ fn drop_fn_trivial_generates_rc_free() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let info = DropInfo {
@@ -98,7 +89,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fields"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -108,12 +99,8 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -123,10 +110,7 @@ fn drop_fn_fields_generates_gep_and_rc_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let info = DropInfo {
@@ -150,7 +134,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -160,12 +144,8 @@ fn drop_fn_enum_generates_switch_on_tag() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -175,10 +155,7 @@ fn drop_fn_enum_generates_switch_on_tag() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     // 2 variants: None (no RC), Some(str) (RC'd at field 1)
@@ -203,7 +180,7 @@ fn drop_fn_collection_generates_loop() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_collection"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -213,12 +190,8 @@ fn drop_fn_collection_generates_loop() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -228,10 +201,7 @@ fn drop_fn_collection_generates_loop() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let list_ty = Idx::from_raw(100);
@@ -263,7 +233,7 @@ fn drop_fn_map_generates_key_value_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_map"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -273,12 +243,8 @@ fn drop_fn_map_generates_key_value_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -288,10 +254,7 @@ fn drop_fn_map_generates_key_value_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let map_ty = Idx::from_raw(101);
@@ -326,7 +289,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_closure"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -336,12 +299,8 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -351,10 +310,7 @@ fn drop_fn_closure_env_emits_gep_and_rc_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let clos_ty = Idx::from_raw(102);
@@ -379,7 +335,7 @@ fn get_or_generate_returns_null_for_scalars() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_scalar"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -389,12 +345,8 @@ fn get_or_generate_returns_null_for_scalars() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -404,10 +356,7 @@ fn get_or_generate_returns_null_for_scalars() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let drop_fn = em.get_or_generate_drop_fn(Idx::INT);
@@ -430,7 +379,7 @@ fn get_or_generate_caches_across_calls() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_cache"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -440,12 +389,8 @@ fn get_or_generate_caches_across_calls() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -455,10 +400,7 @@ fn get_or_generate_caches_across_calls() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     // First call generates, second returns from cache
@@ -489,7 +431,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_scalar"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -499,12 +441,8 @@ fn get_or_generate_returns_null_for_scalar_type() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -514,10 +452,7 @@ fn get_or_generate_returns_null_for_scalar_type() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     // Scalar types (like int) don't need drop — should return null pointer
@@ -540,7 +475,7 @@ fn drop_fn_uses_c_calling_convention() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_ccc"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -550,12 +485,8 @@ fn drop_fn_uses_c_calling_convention() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -565,10 +496,7 @@ fn drop_fn_uses_c_calling_convention() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let info = DropInfo {
@@ -599,7 +527,7 @@ fn multiple_drop_fns_for_different_types() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_multi"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -609,12 +537,8 @@ fn multiple_drop_fns_for_different_types() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -624,10 +548,7 @@ fn multiple_drop_fns_for_different_types() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let ty_a = Idx::from_raw(100);
@@ -683,7 +604,7 @@ fn is_shared_emits_gep_load_icmp() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_is_shared"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -695,12 +616,8 @@ fn is_shared_emits_gep_load_icmp() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -710,10 +627,7 @@ fn is_shared_emits_gep_load_icmp() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     // Build a minimal ArcFunction: param v0 (ptr), IsShared dst=v1 var=v0, Return v1
@@ -743,6 +657,7 @@ fn is_shared_emits_gep_load_icmp() {
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -806,7 +721,7 @@ fn set_emits_struct_gep_and_store() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_set"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -817,12 +732,8 @@ fn set_emits_struct_gep_and_store() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -832,10 +743,7 @@ fn set_emits_struct_gep_and_store() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     // ArcFunction: v0 (struct ptr), v1 (int), then Set v0.field(1) = v1, return v0
@@ -872,6 +780,7 @@ fn set_emits_struct_gep_and_store() {
         var_reprs: vec![ValueRepr::RcPointer, ValueRepr::Scalar],
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -945,7 +854,7 @@ fn set_tag_emits_gep_and_store() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_set_tag"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -955,12 +864,8 @@ fn set_tag_emits_gep_and_store() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -970,10 +875,7 @@ fn set_tag_emits_gep_and_store() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     // ArcFunction: v0 (enum ptr), then SetTag v0 tag=1, return v0
@@ -1001,6 +903,7 @@ fn set_tag_emits_gep_and_store() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1166,7 +1069,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_fat_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1179,12 +1082,8 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1194,10 +1093,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1224,6 +1120,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1270,7 +1167,7 @@ fn rc_dec_closure_null_checks_env() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_clos_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1282,12 +1179,8 @@ fn rc_dec_closure_null_checks_env() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1297,10 +1190,7 @@ fn rc_dec_closure_null_checks_env() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1327,6 +1217,7 @@ fn rc_dec_closure_null_checks_env() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1383,7 +1274,7 @@ fn rc_inc_inline_enum_is_noop() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum_inc"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1397,12 +1288,8 @@ fn rc_inc_inline_enum_is_noop() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1412,10 +1299,7 @@ fn rc_inc_inline_enum_is_noop() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1443,6 +1327,7 @@ fn rc_inc_inline_enum_is_noop() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1488,7 +1373,7 @@ fn rc_dec_inline_enum_tag_switches() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_enum_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1502,12 +1387,8 @@ fn rc_dec_inline_enum_tag_switches() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1517,10 +1398,7 @@ fn rc_dec_inline_enum_tag_switches() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     let arc_func = ArcFunction {
@@ -1547,6 +1425,7 @@ fn rc_dec_inline_enum_tag_switches() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {
@@ -1606,7 +1485,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
     let interner = StringInterner::new();
     let store = TypeInfoStore::new(&pool);
     let scx = ManuallyDrop::new(SimpleCx::new(&ctx, "test_heap_dec"));
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, Some(&interner));
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
@@ -1616,12 +1495,8 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
     builder.set_current_function(host);
     builder.position_at_end(entry);
 
-    let functions: FxHashMap<ori_ir::Name, (FunctionId, FunctionAbi)> = FxHashMap::default();
-    let methods: FxHashMap<(ori_ir::Name, ori_ir::Name), (FunctionId, FunctionAbi)> =
-        FxHashMap::default();
-    let names: FxHashMap<Idx, ori_ir::Name> = FxHashMap::default();
     let cl = TestClassifier;
-    let mono_dispatch = FxHashMap::default();
+    let codegen_ctx = super::CodegenContext::default();
 
     let mut em = super::ArcIrEmitter::new(
         &mut builder,
@@ -1631,10 +1506,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         &pool,
         &cl as &dyn ArcClassification,
         host,
-        &functions,
-        &methods,
-        &names,
-        &mono_dispatch,
+        &codegen_ctx,
     );
 
     // Use Idx::STR as the type — TestClassifier marks it as DefiniteRef.
@@ -1663,6 +1535,7 @@ fn rc_dec_heap_pointer_calls_ori_rc_dec() {
         var_reprs: Vec::new(),
         spans: vec![vec![None]],
         is_fbip: false,
+        num_captures: 0,
     };
 
     let abi = FunctionAbi {

@@ -57,7 +57,7 @@ pub enum CodegenProblem {
     TargetNotSupported { triple: String, message: String },
 
     // ── Runtime (E5005) ─────────────────────────────────────────────
-    /// Runtime library (libori_rt.a) not found.
+    /// Runtime library (`libori_rt.a`) not found.
     RuntimeNotFound { search_paths: Vec<String> },
 
     // ── Linker (E5006) ──────────────────────────────────────────────
@@ -93,49 +93,10 @@ impl CodegenProblem {
     #[cold]
     pub fn into_diagnostic(self) -> Diagnostic {
         match self {
-            // ── ARC (E4xxx) ─────────────────────────────────────
-            Self::ArcUnsupportedPattern { kind, span } => Diagnostic::warning(ErrorCode::E4002)
-                .with_message(format!(
-                    "pattern kind '{kind}' is not yet supported in ARC IR lowering"
-                ))
-                .with_label(span, "this pattern")
-                .with_note(
-                    "ARC analysis will skip this pattern; RC operations may not be optimized",
-                ),
-
-            Self::ArcInternalError { message, span } => Diagnostic::error(ErrorCode::E4003)
-                .with_message(format!("ARC internal error: {message}"))
-                .with_label(span, "while lowering this expression")
-                .with_note(
-                    "this is likely a compiler bug — please report it at \
-                         https://github.com/oriproject/ori/issues",
-                ),
-
-            Self::ArcFbipViolation {
-                func_name,
-                missed_count,
-                achieved_count,
-                span,
-            } => Diagnostic::error(ErrorCode::E4004)
-                .with_message(format!(
-                    "#fbip function '{func_name}' has {missed_count} missed reuse \
-                     {opportunities}",
-                    opportunities = if missed_count == 1 {
-                        "opportunity"
-                    } else {
-                        "opportunities"
-                    }
-                ))
-                .with_label(span, "this function is annotated #fbip")
-                .with_note(format!(
-                    "{achieved_count} reuse {achieved} achieved, {missed_count} missed",
-                    achieved = if achieved_count == 1 {
-                        "opportunity"
-                    } else {
-                        "opportunities"
-                    }
-                ))
-                .with_suggestion("remove #fbip or restructure to enable constructor reuse"),
+            // ARC problems (E4xxx)
+            Self::ArcUnsupportedPattern { .. }
+            | Self::ArcInternalError { .. }
+            | Self::ArcFbipViolation { .. } => self.arc_diagnostic(),
 
             // ── Verification (E5001) ────────────────────────────
             Self::VerificationFailed { message } => Diagnostic::error(ErrorCode::E5001)
@@ -216,6 +177,57 @@ impl CodegenProblem {
             Self::ModuleConfigFailed { message } => Diagnostic::error(ErrorCode::E5009)
                 .with_message(format!("module configuration failed: {message}"))
                 .with_note("failed to apply target settings to LLVM module"),
+        }
+    }
+
+    /// Convert an ARC-specific problem into a diagnostic.
+    #[cold]
+    fn arc_diagnostic(self) -> Diagnostic {
+        match self {
+            Self::ArcUnsupportedPattern { kind, span } => Diagnostic::warning(ErrorCode::E4002)
+                .with_message(format!(
+                    "pattern kind '{kind}' is not yet supported in ARC IR lowering"
+                ))
+                .with_label(span, "this pattern")
+                .with_note(
+                    "ARC analysis will skip this pattern; RC operations may not be optimized",
+                ),
+
+            Self::ArcInternalError { message, span } => Diagnostic::error(ErrorCode::E4003)
+                .with_message(format!("ARC internal error: {message}"))
+                .with_label(span, "while lowering this expression")
+                .with_note(
+                    "this is likely a compiler bug — please report it at \
+                         https://github.com/oriproject/ori/issues",
+                ),
+
+            Self::ArcFbipViolation {
+                func_name,
+                missed_count,
+                achieved_count,
+                span,
+            } => {
+                let opp = |n| {
+                    if n == 1 {
+                        "opportunity"
+                    } else {
+                        "opportunities"
+                    }
+                };
+                Diagnostic::error(ErrorCode::E4004)
+                    .with_message(format!(
+                        "#fbip function '{func_name}' has {missed_count} missed reuse {}",
+                        opp(missed_count)
+                    ))
+                    .with_label(span, "this function is annotated #fbip")
+                    .with_note(format!(
+                        "{achieved_count} reuse {} achieved, {missed_count} missed",
+                        opp(achieved_count)
+                    ))
+                    .with_suggestion("remove #fbip or restructure to enable constructor reuse")
+            }
+
+            _ => unreachable!("arc_diagnostic called with non-ARC variant"),
         }
     }
 
@@ -509,11 +521,11 @@ pub fn report_codegen_error(problem: impl Into<CodegenProblem>) -> ! {
 /// Returns `true` if any errors were emitted (callers should abort).
 #[cold]
 pub fn emit_codegen_diagnostics(diagnostics: CodegenDiagnostics) -> bool {
+    use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
+
     if diagnostics.is_empty() {
         return false;
     }
-
-    use ori_diagnostic::emitter::{ColorMode, DiagnosticEmitter, TerminalEmitter};
 
     let has_errors = diagnostics.has_errors();
     let diags = diagnostics.into_diagnostics();

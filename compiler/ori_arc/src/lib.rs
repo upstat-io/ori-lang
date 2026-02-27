@@ -78,7 +78,10 @@ use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
-pub use borrow::{apply_borrows, infer_borrows, infer_derived_ownership};
+pub use borrow::{
+    apply_borrows, borrowing_builtin_names, extract_callees, infer_borrow_fixed_point,
+    infer_borrow_single, infer_borrows_scc, infer_derived_ownership, initialize_single_borrowed,
+};
 pub use classify::ArcClassifier;
 pub use decision_tree::{
     DecisionTree, FlatPattern, PathInstruction, PatternMatrix, PatternRow, ScrutineePath, TestKind,
@@ -89,6 +92,8 @@ pub use drop::{
 };
 pub use expand_reuse::expand_reset_reuse;
 pub use fbip::check_fbip_enforcement;
+pub use graph::call_graph::CallGraph;
+pub use graph::scc::{compute_sccs, topological_order, Scc};
 pub use graph::DominatorTree;
 pub use ir::{
     compute_var_reprs, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,

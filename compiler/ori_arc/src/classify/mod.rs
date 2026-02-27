@@ -186,12 +186,16 @@ impl<'pool> ArcClassifier<'pool> {
                 self.classify_children(&all_field_types)
             }
 
-            // Named type resolution
+            // Named type resolution: use resolve_fully() to handle
+            // Applied types with Var args (from monomorphization) and
+            // Named types that need Applied→Named fallback.
             Tag::Named | Tag::Applied | Tag::Alias => {
-                match self.pool.resolve(idx) {
-                    Some(resolved) => self.classify(resolved),
+                let resolved = self.pool.resolve_fully(idx);
+                if resolved == idx {
                     // Unresolved named type — conservative fallback.
-                    None => ArcClass::PossibleRef,
+                    ArcClass::PossibleRef
+                } else {
+                    self.classify(resolved)
                 }
             }
 

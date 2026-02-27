@@ -1,0 +1,252 @@
+// Spec: §3.5 Set Type — built-in methods
+// Tests for Set<T> methods: contains, is_empty, insert, remove,
+// union, intersection, difference, to_list, clone
+
+use std.testing { assert_eq, assert }
+
+// =============================================================================
+// contains
+// =============================================================================
+
+@set_contains_present () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.contains(2)
+}
+
+@test_set_contains_present tests @set_contains_present () -> void =
+    assert(set_contains_present());
+
+@set_contains_absent () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.contains(42)
+}
+
+@test_set_contains_absent tests @set_contains_absent () -> void =
+    assert(!set_contains_absent());
+
+@set_contains_empty () -> bool = {
+    let s: Set<int> = [].iter().collect();
+    s.contains(1)
+}
+
+@test_set_contains_empty tests @set_contains_empty () -> void =
+    assert(!set_contains_empty());
+
+// =============================================================================
+// is_empty
+// =============================================================================
+
+@set_is_empty_true () -> bool = {
+    let s: Set<int> = [].iter().collect();
+    s.is_empty()
+}
+
+@test_set_is_empty_true tests @set_is_empty_true () -> void =
+    assert(set_is_empty_true());
+
+@set_is_empty_false () -> bool = {
+    let s: Set<int> = [1, 2].iter().collect();
+    s.is_empty()
+}
+
+@test_set_is_empty_false tests @set_is_empty_false () -> void =
+    assert(!set_is_empty_false());
+
+// =============================================================================
+// insert
+// =============================================================================
+
+@set_insert_new () -> int = {
+    let s: Set<int> = [1, 2].iter().collect();
+    let s2 = s.insert(3);
+    s2.len()
+}
+
+@test_set_insert_new tests @set_insert_new () -> void =
+    assert_eq(actual: set_insert_new(), expected: 3);
+
+@set_insert_existing () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s2 = s.insert(2);
+    s2.len()
+}
+
+@test_set_insert_existing tests @set_insert_existing () -> void =
+    assert_eq(actual: set_insert_existing(), expected: 3);
+
+@set_insert_preserves_original () -> int = {
+    let s: Set<int> = [1, 2].iter().collect();
+    let _ = s.insert(3);
+    s.len()
+}
+
+@test_set_insert_preserves_original tests @set_insert_preserves_original () -> void =
+    assert_eq(actual: set_insert_preserves_original(), expected: 2);
+
+// =============================================================================
+// remove
+// =============================================================================
+
+@set_remove_existing () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s2 = s.remove(2);
+    s2.len()
+}
+
+@test_set_remove_existing tests @set_remove_existing () -> void =
+    assert_eq(actual: set_remove_existing(), expected: 2);
+
+@set_remove_absent () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s2 = s.remove(42);
+    s2.len()
+}
+
+@test_set_remove_absent tests @set_remove_absent () -> void =
+    assert_eq(actual: set_remove_absent(), expected: 3);
+
+@set_remove_check_contents () -> bool = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s2 = s.remove(2);
+    !s2.contains(2)
+}
+
+@test_set_remove_check_contents tests @set_remove_check_contents () -> void =
+    assert(set_remove_check_contents());
+
+// =============================================================================
+// union
+// =============================================================================
+
+@set_union_len () -> int = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [2, 3].iter().collect();
+    a.union(b).len()
+}
+
+@test_set_union_len tests @set_union_len () -> void =
+    assert_eq(actual: set_union_len(), expected: 3);
+
+@set_union_disjoint () -> int = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [3, 4].iter().collect();
+    a.union(b).len()
+}
+
+@test_set_union_disjoint tests @set_union_disjoint () -> void =
+    assert_eq(actual: set_union_disjoint(), expected: 4);
+
+@set_union_same () -> int = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [1, 2, 3].iter().collect();
+    a.union(b).len()
+}
+
+@test_set_union_same tests @set_union_same () -> void =
+    assert_eq(actual: set_union_same(), expected: 3);
+
+// =============================================================================
+// intersection
+// =============================================================================
+
+@set_intersection_overlap () -> int = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [2, 3, 4].iter().collect();
+    a.intersection(b).len()
+}
+
+@test_set_intersection_overlap tests @set_intersection_overlap () -> void =
+    assert_eq(actual: set_intersection_overlap(), expected: 2);
+
+@set_intersection_disjoint () -> int = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [3, 4].iter().collect();
+    a.intersection(b).len()
+}
+
+@test_set_intersection_disjoint tests @set_intersection_disjoint () -> void =
+    assert_eq(actual: set_intersection_disjoint(), expected: 0);
+
+@set_intersection_subset () -> int = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [2].iter().collect();
+    a.intersection(b).len()
+}
+
+@test_set_intersection_subset tests @set_intersection_subset () -> void =
+    assert_eq(actual: set_intersection_subset(), expected: 1);
+
+// =============================================================================
+// difference
+// =============================================================================
+
+@set_difference_overlap () -> int = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [2].iter().collect();
+    a.difference(b).len()
+}
+
+@test_set_difference_overlap tests @set_difference_overlap () -> void =
+    assert_eq(actual: set_difference_overlap(), expected: 2);
+
+@set_difference_disjoint () -> int = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [4, 5].iter().collect();
+    a.difference(b).len()
+}
+
+@test_set_difference_disjoint tests @set_difference_disjoint () -> void =
+    assert_eq(actual: set_difference_disjoint(), expected: 3);
+
+@set_difference_all () -> int = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [1, 2].iter().collect();
+    a.difference(b).len()
+}
+
+@test_set_difference_all tests @set_difference_all () -> void =
+    assert_eq(actual: set_difference_all(), expected: 0);
+
+// =============================================================================
+// to_list
+// =============================================================================
+
+@set_to_list_len () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    s.to_list().len()
+}
+
+@test_set_to_list_len tests @set_to_list_len () -> void =
+    assert_eq(actual: set_to_list_len(), expected: 3);
+
+@set_to_list_empty () -> int = {
+    let s: Set<int> = [].iter().collect();
+    s.to_list().len()
+}
+
+@test_set_to_list_empty tests @set_to_list_empty () -> void =
+    assert_eq(actual: set_to_list_empty(), expected: 0);
+
+// =============================================================================
+// clone
+// =============================================================================
+
+@set_clone_len () -> int = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s2 = s.clone();
+    s2.len()
+}
+
+@test_set_clone_len tests @set_clone_len () -> void =
+    assert_eq(actual: set_clone_len(), expected: 3);
+
+@set_clone_independent () -> int = {
+    let s: Set<int> = [1, 2].iter().collect();
+    let s2 = s.clone();
+    let s3 = s2.insert(3);
+    // original is unchanged
+    s.len()
+}
+
+@test_set_clone_independent tests @set_clone_independent () -> void =
+    assert_eq(actual: set_clone_independent(), expected: 2);

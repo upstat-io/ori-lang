@@ -178,6 +178,7 @@ version = "0.1.0-alpha.9"
 dependencies = [
  "ori_ir",
  "ori_lexer_core",
+ "tracing",
 ]
 
 [[package]]

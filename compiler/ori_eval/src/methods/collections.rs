@@ -109,7 +109,7 @@ pub fn dispatch_string_method(
 
     let n = ctx.names;
 
-    if method == n.len {
+    if method == n.len || method == n.length {
         len_to_value(s.len(), "string")
     } else if method == n.is_empty {
         Ok(Value::Bool(s.is_empty()))
@@ -252,7 +252,7 @@ pub fn dispatch_map_method(
 
     let n = ctx.names;
 
-    if method == n.len {
+    if method == n.len || method == n.length {
         len_to_value(map.len(), "map")
     } else if method == n.is_empty {
         Ok(Value::Bool(map.is_empty()))
@@ -293,10 +293,6 @@ pub fn dispatch_map_method(
 }
 
 /// Dispatch methods on set values.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
-)]
 pub fn dispatch_set_method(
     receiver: Value,
     method: Name,
@@ -316,9 +312,75 @@ pub fn dispatch_set_method(
             Some(iter) => Ok(Value::iterator(iter)),
             None => unreachable!("Set is always iterable"),
         }
-    } else if method == n.len {
+    } else if method == n.len || method == n.length {
         require_args("len", 0, args.len())?;
         len_to_value(items.len(), "set")
+    } else if method == n.is_empty {
+        require_args("is_empty", 0, args.len())?;
+        Ok(Value::Bool(items.is_empty()))
+    } else if method == n.contains {
+        require_args("contains", 1, args.len())?;
+        let key = args[0]
+            .to_map_key()
+            .map_err(|_| ori_patterns::wrong_arg_type("contains", "hashable value"))?;
+        Ok(Value::Bool(items.contains_key(&key)))
+    } else if method == n.insert {
+        require_args("insert", 1, args.len())?;
+        let mut result: std::collections::BTreeMap<String, Value> = (**items).clone();
+        let mut args = args;
+        let elem = args.swap_remove(0);
+        let key = elem
+            .to_map_key()
+            .map_err(|_| ori_patterns::wrong_arg_type("insert", "hashable value"))?;
+        result.insert(key, elem);
+        Ok(Value::set(result))
+    } else if method == n.remove {
+        require_args("remove", 1, args.len())?;
+        let key = args[0]
+            .to_map_key()
+            .map_err(|_| ori_patterns::wrong_arg_type("remove", "hashable value"))?;
+        let mut result: std::collections::BTreeMap<String, Value> = (**items).clone();
+        result.remove(&key);
+        Ok(Value::set(result))
+    } else if method == n.union {
+        require_args("union", 1, args.len())?;
+        let Value::Set(ref other) = args[0] else {
+            return Err(ori_patterns::wrong_arg_type("union", "Set").into());
+        };
+        let mut result: std::collections::BTreeMap<String, Value> = (**items).clone();
+        for (k, v) in other.iter() {
+            result.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        Ok(Value::set(result))
+    } else if method == n.intersection {
+        require_args("intersection", 1, args.len())?;
+        let Value::Set(ref other) = args[0] else {
+            return Err(ori_patterns::wrong_arg_type("intersection", "Set").into());
+        };
+        let result: std::collections::BTreeMap<String, Value> = items
+            .iter()
+            .filter(|(k, _)| other.contains_key(k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        Ok(Value::set(result))
+    } else if method == n.difference {
+        require_args("difference", 1, args.len())?;
+        let Value::Set(ref other) = args[0] else {
+            return Err(ori_patterns::wrong_arg_type("difference", "Set").into());
+        };
+        let result: std::collections::BTreeMap<String, Value> = items
+            .iter()
+            .filter(|(k, _)| !other.contains_key(k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        Ok(Value::set(result))
+    } else if method == n.to_list || method == n.into {
+        require_args("to_list", 0, args.len())?;
+        Ok(Value::list(items.values().cloned().collect()))
+    // Clone trait - deep clone of set
+    } else if method == n.clone_ {
+        require_args("clone", 0, args.len())?;
+        Ok(receiver)
     // Eq trait - deep value equality
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
@@ -332,10 +394,6 @@ pub fn dispatch_set_method(
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
         Ok(Value::string(debug_value(&receiver)))
-    // Into trait: Set<T> -> [T] (collect to list)
-    } else if method == n.into {
-        require_args("into", 0, args.len())?;
-        Ok(Value::list(items.values().cloned().collect()))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }
