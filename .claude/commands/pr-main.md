@@ -26,7 +26,18 @@ git diff --stat
 
 If on `main` or `master`, STOP and inform the user they need to be on a feature/dev branch.
 
-### Step 2: Run Commit-Push Workflow
+### Step 2: Sync with Master
+
+**ACTION:** Merge master into the current branch so the PR won't be "out of date":
+
+```bash
+git fetch origin master
+git merge origin/master --no-edit
+```
+
+If there are merge conflicts, stop and inform the user. Otherwise continue.
+
+### Step 3: Run Commit-Push Workflow
 
 Follow the `/commit-push` workflow:
 1. Check git status and diff
@@ -34,7 +45,7 @@ Follow the `/commit-push` workflow:
 3. **Get user confirmation** before committing
 4. Stage, commit, and push changes
 
-### Step 3: Analyze Changes for PR
+### Step 4: Analyze Changes for PR
 
 After pushing, analyze the commits that will be in the PR:
 
@@ -43,7 +54,7 @@ git log master..HEAD --oneline
 git diff master..HEAD --stat
 ```
 
-### Step 4: Check Past PRs for Context
+### Step 5: Check Past PRs for Context
 
 **ACTION:** Fetch recent merged PRs to avoid repeating previous summaries:
 
@@ -53,7 +64,7 @@ gh pr list --base master --state merged --limit 5 --json number,title,body
 
 Read the titles and summaries. The new PR must only describe **what changed since the last merged PR** — do not re-describe work that was already covered.
 
-### Step 5: Draft PR Title and Summary
+### Step 6: Draft PR Title and Summary
 
 Create a PR title and summary based on the commits, informed by what past PRs already covered:
 
@@ -66,7 +77,7 @@ Create a PR title and summary based on the commits, informed by what past PRs al
 - Only describe work **not already covered** by a previous PR
 - If a past PR mentioned "Types V2 migration", don't repeat it — focus on what's new
 
-### Step 6: Present PR Details and Get Confirmation
+### Step 7: Present PR Details and Get Confirmation
 
 Show the user:
 1. The branch being merged (e.g., `dev` → `master`)
@@ -77,7 +88,7 @@ Ask: "Shall I create this PR with auto-merge enabled?"
 
 **Do NOT create the PR until user confirms.**
 
-### Step 7: Create PR and Enable Auto-Merge
+### Step 8: Create PR and Enable Auto-Merge
 
 After user confirms:
 
@@ -106,11 +117,12 @@ Report success with the PR URL and note that it will auto-merge when CI passes.
 Before completing, verify:
 
 - [ ] Confirmed not on main/master branch (Step 1)
-- [ ] Changes committed and pushed (Step 2)
-- [ ] Past PRs checked to avoid repetition (Step 4)
-- [ ] PR title and summary drafted (Step 5)
-- [ ] User confirmed before creating PR (Step 6)
-- [ ] PR created and auto-merge enabled (Step 7)
+- [ ] Synced with master (Step 2)
+- [ ] Changes committed and pushed (Step 3)
+- [ ] Past PRs checked to avoid repetition (Step 5)
+- [ ] PR title and summary drafted (Step 6)
+- [ ] User confirmed before creating PR (Step 7)
+- [ ] PR created and auto-merge enabled (Step 8)
 
 ---
 

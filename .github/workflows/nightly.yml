@@ -1,0 +1,77 @@
+name: Nightly Release
+
+# Create a PR from dev → master every night if there are new commits.
+# The existing auto-release workflow tags and releases after merge.
+
+on:
+  schedule:
+    # Every day at midnight UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # Manual trigger for testing
+
+jobs:
+  nightly-pr:
+    name: Nightly PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+          fetch-depth: 0
+
+      - name: Check for new commits
+        id: check
+        run: |
+          git fetch origin master dev
+          AHEAD=$(git rev-list --count origin/master..origin/dev)
+          echo "ahead=$AHEAD" >> $GITHUB_OUTPUT
+          if [ "$AHEAD" -eq 0 ]; then
+            echo "No new commits on dev since last merge. Skipping."
+          else
+            echo "$AHEAD new commit(s) on dev ahead of master."
+          fi
+
+      - name: Check for existing PR
+        if: steps.check.outputs.ahead != '0'
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+        run: |
+          PR=$(gh pr list --base master --head dev --state open --json number --jq '.[0].number // empty')
+          if [ -n "$PR" ]; then
+            echo "PR #$PR already open. Skipping."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create nightly PR
+        if: steps.check.outputs.ahead != '0' && steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+        run: |
+          DATE=$(date -u +"%Y-%m-%d")
+          AHEAD=${{ steps.check.outputs.ahead }}
+
+          gh pr create \
+            --base master \
+            --head dev \
+            --title "nightly: $DATE" \
+            --body "$(cat <<EOF
+          ## Nightly Release — $DATE
+
+          Automated PR with $AHEAD new commit(s) from dev.
+
+          This PR will auto-merge once CI passes, triggering a nightly release.
+          EOF
+          )"
+
+      - name: Enable auto-merge
+        if: steps.check.outputs.ahead != '0' && steps.existing.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+        run: |
+          gh pr merge --auto --merge --delete-branch=false
