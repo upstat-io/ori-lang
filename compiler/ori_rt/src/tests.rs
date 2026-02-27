@@ -3,6 +3,12 @@
 //! All RC tests acquire `RC_TEST_LOCK` because `RC_LIVE_COUNT` is a global
 //! atomic counter modified by `ori_rc_alloc`/`ori_rc_free`. Without
 //! serialization, parallel tests cause TOCTOU races in live-count assertions.
+#![expect(clippy::unwrap_used, reason = "test code uses unwrap for clarity")]
+#![expect(clippy::expect_used, reason = "test code uses expect for clarity")]
+#![expect(
+    clippy::items_after_statements,
+    reason = "inner helper fns in test functions are idiomatic"
+)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::MutexGuard;
@@ -376,6 +382,229 @@ const _: () = {
     assert!(MAX_REFCOUNT == isize::MAX as i64);
     assert!(MAX_REFCOUNT > 0);
 };
+
+// ── RC Event Tracing ────────────────────────────────────────────────
+
+#[test]
+fn rc_trace_disabled_by_default() {
+    // When ORI_TRACE_RC is not set, tracing should be disabled.
+    assert!(
+        !rc_trace_enabled(),
+        "rc_trace_enabled() should return false when ORI_TRACE_RC is not set"
+    );
+}
+
+#[test]
+#[expect(
+    clippy::expect_used,
+    reason = "subprocess test pattern requires infallible exe/output"
+)]
+fn rc_trace_produces_balanced_sequence() {
+    use std::process::Command;
+
+    let result =
+        Command::new(std::env::current_exe().expect("could not determine test binary path"))
+            .arg("--exact")
+            .arg("tests::rc_trace_produces_balanced_sequence_child")
+            .arg("--nocapture")
+            .env("ORI_RC_TRACE_TEST", "1")
+            .env("ORI_TRACE_RC", "1")
+            .output()
+            .expect("failed to spawn child process");
+
+    assert!(
+        result.status.success(),
+        "child should exit successfully, stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let rc_lines: Vec<&str> = stderr.lines().filter(|l| l.starts_with("[RC]")).collect();
+
+    // Expected sequence: alloc, inc, dec, dec(FREE), free
+    assert_eq!(
+        rc_lines.len(),
+        5,
+        "expected 5 RC trace lines, got {}:\n{}",
+        rc_lines.len(),
+        rc_lines.join("\n")
+    );
+
+    // Verify event types in order
+    assert!(rc_lines[0].contains("alloc"), "line 0: {}", rc_lines[0]);
+    assert!(rc_lines[0].contains("rc=1"), "alloc rc=1: {}", rc_lines[0]);
+    assert!(
+        rc_lines[0].contains("size=16"),
+        "alloc size: {}",
+        rc_lines[0]
+    );
+    assert!(
+        rc_lines[0].contains("live=1"),
+        "alloc live=1: {}",
+        rc_lines[0]
+    );
+
+    assert!(rc_lines[1].contains("inc"), "line 1: {}", rc_lines[1]);
+    assert!(rc_lines[1].contains("rc=2"), "inc rc=2: {}", rc_lines[1]);
+
+    assert!(rc_lines[2].contains("dec"), "line 2: {}", rc_lines[2]);
+    assert!(rc_lines[2].contains("rc=1"), "dec rc=1: {}", rc_lines[2]);
+
+    assert!(rc_lines[3].contains("dec"), "line 3: {}", rc_lines[3]);
+    assert!(rc_lines[3].contains("rc=0"), "dec rc=0: {}", rc_lines[3]);
+    assert!(rc_lines[3].contains("FREE"), "dec FREE: {}", rc_lines[3]);
+
+    assert!(rc_lines[4].contains("free"), "line 4: {}", rc_lines[4]);
+    assert!(
+        rc_lines[4].contains("size=16"),
+        "free size: {}",
+        rc_lines[4]
+    );
+    assert!(
+        rc_lines[4].contains("live=0"),
+        "free live=0: {}",
+        rc_lines[4]
+    );
+
+    // All lines reference the same pointer.
+    // Extract the "0x..." substring up to the next space.
+    let alloc_line = rc_lines[0];
+    let ptr_start = alloc_line
+        .find("0x")
+        .expect("alloc line should contain pointer");
+    let ptr_end = alloc_line[ptr_start..]
+        .find(' ')
+        .map_or(alloc_line.len(), |i| ptr_start + i);
+    let ptr = &alloc_line[ptr_start..ptr_end];
+    for (i, line) in rc_lines.iter().enumerate() {
+        assert!(
+            line.contains(ptr),
+            "line {i} should reference same pointer {ptr}: {line}"
+        );
+    }
+}
+
+/// Subprocess helper for `rc_trace_produces_balanced_sequence`.
+#[test]
+fn rc_trace_produces_balanced_sequence_child() {
+    if std::env::var("ORI_RC_TRACE_TEST").is_err() {
+        return;
+    }
+
+    let ptr = ori_rc_alloc(16, 8); // alloc → rc=1
+    ori_rc_inc(ptr); // inc → rc=2
+    ori_rc_dec(ptr, None); // dec → rc=1
+    ori_rc_dec(ptr, None); // dec → rc=0 FREE (no drop_fn)
+    ori_rc_free(ptr, 16, 8); // free
+}
+
+// ── Leak Attribution ─────────────────────────────────────────────────
+
+#[test]
+#[expect(
+    clippy::expect_used,
+    reason = "subprocess test pattern requires infallible exe/output"
+)]
+fn leak_attribution_reports_unfreed_allocations() {
+    use std::process::Command;
+
+    let result =
+        Command::new(std::env::current_exe().expect("could not determine test binary path"))
+            .arg("--exact")
+            .arg("tests::leak_attribution_child")
+            .arg("--nocapture")
+            .env("ORI_LEAK_ATTRIB_TEST", "1")
+            .env("ORI_CHECK_LEAKS", "1")
+            .output()
+            .expect("failed to spawn child process");
+
+    // ori_run_main returns exit code 2 when leaks detected
+    assert_eq!(
+        result.status.code(),
+        Some(2),
+        "child should exit with code 2 (leak detected), stderr: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&result.stderr);
+
+    // Should report 2 leaked allocations
+    assert!(
+        stderr.contains("2 RC allocation(s) not freed"),
+        "should report 2 leaks: {stderr}"
+    );
+
+    // In debug builds, attribution lines include alloc_id, ptr, size, align
+    #[cfg(debug_assertions)]
+    {
+        // Attribution lines start with "  #"
+        let attrib_lines: Vec<&str> = stderr.lines().filter(|l| l.starts_with("  #")).collect();
+        assert_eq!(
+            attrib_lines.len(),
+            2,
+            "expected 2 attribution lines, got {}:\n{}",
+            attrib_lines.len(),
+            attrib_lines.join("\n")
+        );
+
+        // Each line should contain ptr=, size=, align=, (unfreed)
+        for line in &attrib_lines {
+            assert!(line.contains("ptr=0x"), "missing ptr: {line}");
+            assert!(line.contains("size="), "missing size: {line}");
+            assert!(line.contains("align="), "missing align: {line}");
+            assert!(line.contains("(unfreed)"), "missing (unfreed): {line}");
+        }
+
+        // First allocation (24 bytes), second allocation (16 bytes) — sorted by ID
+        assert!(
+            attrib_lines[0].contains("#0"),
+            "first attribution should be #0: {}",
+            attrib_lines[0]
+        );
+        assert!(
+            attrib_lines[0].contains("size=24"),
+            "first leak should be 24 bytes: {}",
+            attrib_lines[0]
+        );
+        assert!(
+            attrib_lines[1].contains("#1"),
+            "second attribution should be #1: {}",
+            attrib_lines[1]
+        );
+        assert!(
+            attrib_lines[1].contains("size=16"),
+            "second leak should be 16 bytes: {}",
+            attrib_lines[1]
+        );
+    }
+}
+
+/// Subprocess helper for `leak_attribution_reports_unfreed_allocations`.
+///
+/// Deliberately leaks 2 allocations and frees 1, then exits via `ori_run_main`
+/// so the leak report is printed.
+#[test]
+fn leak_attribution_child() {
+    if std::env::var("ORI_LEAK_ATTRIB_TEST").is_err() {
+        return;
+    }
+
+    extern "C" fn leaky_main() {
+        let ptr1 = ori_rc_alloc(24, 8); // alloc #0 — leaked
+        let ptr2 = ori_rc_alloc(16, 8); // alloc #1 — leaked
+        let ptr3 = ori_rc_alloc(32, 8); // alloc #2 — freed
+
+        // Free only ptr3 (via dec to zero + free)
+        ori_rc_dec(ptr3, None);
+        ori_rc_free(ptr3, 32, 8);
+
+        // ptr1 and ptr2 are deliberately leaked
+        let _ = (ptr1, ptr2);
+    }
+
+    let exit_code = ori_run_main(leaky_main);
+    std::process::exit(exit_code);
+}
 
 // ── Uniqueness check (COW foundation) ────────────────────────────────
 
@@ -2230,4 +2459,163 @@ fn cow_sort_empty_unchanged() {
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 0);
     assert!(result_data.is_null());
+}
+
+// ── ORI_RT_DEBUG assertion mode ───────────────────────────────────────
+
+/// Enable debug assertions for the duration of a closure, then clean up.
+fn with_rt_debug<F: FnOnce()>(f: F) {
+    let _g = lock_rc();
+    reset_freed_set();
+    RT_DEBUG_FORCE.store(true, Ordering::Relaxed);
+    f();
+    RT_DEBUG_FORCE.store(false, Ordering::Relaxed);
+    reset_freed_set();
+}
+
+#[test]
+fn freed_set_tracks_freed_pointers() {
+    with_rt_debug(|| {
+        let ptr = ori_rc_alloc(16, 8);
+        let addr = ptr as usize;
+
+        // Not in freed set yet
+        assert!(!freed_set().lock().unwrap().contains(&addr));
+
+        // Free — should register in freed set
+        ori_rc_free(ptr, 16, 8);
+        assert!(freed_set().lock().unwrap().contains(&addr));
+    });
+}
+
+#[test]
+fn freed_set_reset_clears_state() {
+    with_rt_debug(|| {
+        let ptr = ori_rc_alloc(16, 8);
+        let addr = ptr as usize;
+        ori_rc_free(ptr, 16, 8);
+        assert!(freed_set().lock().unwrap().contains(&addr));
+
+        reset_freed_set();
+        assert!(!freed_set().lock().unwrap().contains(&addr));
+    });
+}
+
+#[test]
+fn debug_validate_rc_accepts_valid_refcount() {
+    with_rt_debug(|| {
+        let ptr = ori_rc_alloc(16, 8);
+
+        // Refcount is 1, which is valid (1..999999)
+        let rc = unsafe { ptr.sub(8).cast::<i64>().read() };
+        assert_eq!(rc, 1);
+        assert!(rc > 0 && rc < 1_000_000);
+
+        // rt_debug_validate_rc should not abort on a valid refcount
+        rt_debug_validate_rc(ptr.cast_const(), "test");
+
+        ori_rc_free(ptr, 16, 8);
+    });
+}
+
+#[test]
+fn debug_validate_rc_accepts_incremented_refcount() {
+    with_rt_debug(|| {
+        let ptr = ori_rc_alloc(16, 8);
+
+        // ori_rc_inc should succeed (validated internally)
+        ori_rc_inc(ptr);
+        let rc = unsafe { ptr.sub(8).cast::<i64>().read() };
+        assert_eq!(rc, 2);
+
+        // Clean up
+        ori_rc_dec(ptr, None);
+        ori_rc_dec(ptr, None);
+        // After dec to 0, ptr is logically freed but drop_fn is None
+        // so ori_rc_free wasn't called — free explicitly
+        ori_rc_free(ptr, 16, 8);
+    });
+}
+
+#[test]
+fn debug_mode_detects_freed_pointer_in_set() {
+    with_rt_debug(|| {
+        let ptr = ori_rc_alloc(16, 8);
+        let addr = ptr as usize;
+
+        // Simulate: free the pointer
+        ori_rc_free(ptr, 16, 8);
+
+        // Verify detection: the freed set should contain this pointer
+        assert!(
+            freed_set().lock().unwrap().contains(&addr),
+            "freed pointer should be tracked in freed set"
+        );
+
+        // In a real scenario, calling ori_rc_inc(ptr) would now abort
+        // because rt_debug_check_not_freed detects the pointer in the
+        // freed set. We can't test the abort in-process, but we verify
+        // the detection mechanism works.
+    });
+}
+
+#[test]
+fn debug_check_not_freed_passes_for_live_pointer() {
+    with_rt_debug(|| {
+        let ptr = ori_rc_alloc(16, 8);
+
+        // Should not abort — pointer is live
+        rt_debug_check_not_freed(ptr.cast_const(), "test");
+
+        ori_rc_free(ptr, 16, 8);
+    });
+}
+
+// ── Release-mode underflow detection ──────────────────────────────────
+
+#[test]
+fn rc_underflow_aborts_process() {
+    // Verify that decrementing a zero-refcount allocation aborts.
+    // Must be tested in a subprocess because abort() kills the process.
+    use std::process::Command;
+
+    let result =
+        Command::new(std::env::current_exe().expect("could not determine test binary path"))
+            .arg("--exact")
+            .arg("tests::rc_underflow_aborts_process_child")
+            .env("ORI_RC_UNDERFLOW_TEST", "1")
+            .output()
+            .expect("failed to spawn child process");
+
+    // The child should have been killed by abort (SIGABRT) or exited non-zero
+    assert!(
+        !result.status.success(),
+        "child process should have aborted on underflow, but exited successfully"
+    );
+}
+
+/// Helper test only run as a subprocess by `rc_underflow_aborts_process`.
+///
+/// Allocates an RC object, manually zeroes the refcount, then calls
+/// `ori_rc_dec` which should trigger the underflow abort.
+#[test]
+fn rc_underflow_aborts_process_child() {
+    if std::env::var("ORI_RC_UNDERFLOW_TEST").is_err() {
+        // Only run when invoked as a subprocess
+        return;
+    }
+
+    let ptr = ori_rc_alloc(16, 8);
+
+    // Directly write 0 into the refcount header (simulate already-freed)
+    unsafe {
+        let rc_ptr = ptr.sub(8).cast::<i64>();
+        *rc_ptr = 0;
+    }
+
+    // This should trigger the underflow abort
+    ori_rc_dec(ptr, None);
+
+    // Should never reach here
+    unreachable!("ori_rc_dec should have aborted on zero refcount");
 }
