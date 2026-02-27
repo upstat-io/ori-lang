@@ -78,7 +78,9 @@ entry → header → body → latch → header (or exit)
 
 | Variable | Purpose |
 |----------|---------|
-| `ORI_DEBUG_LLVM=1` | Dump full IR to stderr before verification |
+| `ORI_DUMP_AFTER_LLVM=1` | Annotated LLVM IR with Ori function names, RC/COW ops |
+| `ORI_DEBUG_LLVM=1` | Legacy alias for `ORI_DUMP_AFTER_LLVM` |
+| `ORI_DUMP_AFTER_ARC=1` | ARC IR with RC strategy annotations |
 | `ORI_LOG=ori_llvm=debug` | Codegen event log (function-level) |
 | `ORI_LOG=ori_llvm=trace` | Per-instruction detail (very verbose) |
 

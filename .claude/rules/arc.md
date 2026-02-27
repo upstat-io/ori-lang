@@ -148,7 +148,8 @@ ORI_LOG=ori_arc=debug ORI_LOG_TREE=1 ori build f.ori  # Hierarchical view of low
 
 # ARC IR emission (ARC IR → LLVM IR)
 ORI_LOG=ori_llvm=trace ori build file.ori         # ARC emission detail
-ORI_DEBUG_LLVM=1 ori build file.ori               # Dump full LLVM IR
+ORI_DUMP_AFTER_LLVM=1 ori build file.ori           # Annotated LLVM IR (Ori names, RC/COW ops)
+ORI_DUMP_AFTER_ARC=1 ori build file.ori            # ARC IR with RC strategy annotations
 
 # Combined: see both lowering and emission
 ORI_LOG=ori_arc=debug,ori_llvm=trace ori build file.ori

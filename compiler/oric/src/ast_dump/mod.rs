@@ -8,7 +8,7 @@
 //! before the AST flows into type checking.
 
 mod expr;
-mod patterns;
+pub(crate) mod patterns;
 
 use std::fmt::Write;
 

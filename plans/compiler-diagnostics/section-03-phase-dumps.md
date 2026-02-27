@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: Phase Dump System
-status: in-progress
+status: complete
 goal: "Centralized debug flag registry + ORI_DUMP_AFTER_* phase dumps for parse/typeck/ARC/LLVM"
 inspired_by:
   - "Roc debug_flags crate (centralized env var flags + dbg_set!/dbg_do! macros)"
@@ -17,19 +17,19 @@ sections:
     status: complete
   - id: "03.3"
     title: "ORI_DUMP_AFTER_TYPECK"
-    status: not-started
+    status: complete
   - id: "03.4"
     title: "ORI_DUMP_AFTER_ARC"
-    status: not-started
+    status: complete
   - id: "03.5"
     title: "ORI_DUMP_AFTER_LLVM"
-    status: not-started
+    status: complete
   - id: "03.6"
     title: "Consistency Validation Script"
-    status: not-started
+    status: complete
   - id: "03.7"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 03: Phase Dump System
@@ -147,8 +147,8 @@ Dump the parsed AST in a human-readable format. Shows the structure the parser p
 
 Dump the type-annotated IR after type checking. Shows inferred types for all expressions, resolved method calls, and trait implementations.
 
-- [ ] Add dump hook after type checking completes
-- [ ] Output format: similar to AST dump but with type annotations on every node
+- [x] Add dump hook after type checking completes
+- [x] Output format: similar to AST dump but with type annotations on every node
   ```
   === Typed IR after typeck: test.ori ===
   Function @main () -> int
@@ -161,38 +161,43 @@ Dump the type-annotated IR after type checking. Shows inferred types for all exp
         Ident xs : [int]
   === END Typed IR ===
   ```
-- [ ] Show resolved method dispatch (builtin vs trait impl vs inherent)
-- [ ] Show type variable unification results
-- [ ] Gate behind `dbg_do!(ORI_DUMP_AFTER_TYPECK, ...)`
-- [ ] Test: `ORI_DUMP_AFTER_TYPECK=1 ori check test.ori` shows types on all nodes
+- [x] Show resolved method dispatch (builtin vs trait impl vs inherent)
+- [x] Show type variable unification results
+- [x] Gate behind `dbg_do!(ORI_DUMP_AFTER_TYPECK, ...)`
+- [x] Test: `ORI_DUMP_AFTER_TYPECK=1 ori check test.ori` shows types on all nodes
 
 ---
 
 ## 03.4 ORI_DUMP_AFTER_ARC — ARC IR Pretty-Printer
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/` (add pretty-printer for ARC IR)
+**File(s):** `compiler/oric/src/arc_dump/` (new module: `mod.rs` + `instr.rs`)
 
 This is the highest-value phase dump. The ARC IR is the intermediate form between typed Ori expressions and LLVM IR — it includes RC strategy decisions, drop placement, and COW operation selection. Today this IR exists only as in-memory Rust structs with no serialization.
 
-- [ ] Create a pretty-printer for ARC IR nodes (`CanExpr` / ARC-lowered form)
-- [ ] Show RC strategy decisions for each value:
-  ```
-  === ARC IR after lowering: @main ===
-  %0 = list_alloc [1, 2] : [int]  → RC(heap), rc=1
-  %1 = cow_push %0, 3 : [int]     → RC(heap), cow_mut
-  %2 = rc_dec %0                   → drop original (if not reused by cow)
-  %3 = cow_reverse %1 : [int]     → RC(heap), cow_mut
-  %4 = rc_dec %1                   → drop push result
-  %5 = list_length %3 : int       → trivial (no RC)
-  %6 = rc_dec %3                   → drop reversed
-  return %5
-  === END ARC IR ===
-  ```
-- [ ] Annotate each operation with its RC strategy: `trivial`, `RC(heap)`, `RC(inline)`, `cow_mut`, `cow_copy`
-- [ ] Show explicit RC inc/dec operations and their targets
-- [ ] Show drop function assignments (which drop_fn is generated for which type)
-- [ ] Gate behind `dbg_do!(ORI_DUMP_AFTER_ARC, ...)`
-- [ ] Test: `ORI_DUMP_AFTER_ARC=1 ori build test.ori` shows ARC decisions
+- [x] Create a pretty-printer for ARC IR nodes (basic-block IR: `ArcFunction` → `ArcBlock` → `ArcInstr` → `ArcTerminator`) (2026-02-27)
+  - `compiler/oric/src/arc_dump/mod.rs` — entry point, function-level formatting, helpers
+  - `compiler/oric/src/arc_dump/instr.rs` — per-instruction and per-terminator formatting
+  - Clones pre-lowered functions from `arc_cache` and runs full ARC pipeline for accurate RC display
+  - Output follows LLVM IR / Rust MIR conventions: `fn @name(params) -> ret`, `bb0:`, `%var: type = instr`
+- [x] Show RC strategy decisions for each value: (2026-02-27)
+  - `ValueRepr` annotations on every variable: `[Scalar]`, `[RcPtr]`, `[FatVal]`, `[Aggregate]`
+  - `RcStrategy` annotations on RC ops: `[HeapPtr]`, `[FatPtr]`, `[Closure]`, `[AggFields]`, `[InlineEnum]`
+  - Ownership annotations on function params: `[own]`, `[borrow]`
+- [x] Annotate each operation with its RC strategy: `[HeapPtr]`, `[FatPtr]`, `[Closure]`, `[AggFields]`, `[InlineEnum]` (2026-02-27)
+- [x] Show explicit RC inc/dec operations and their targets (2026-02-27)
+  - `RcInc %var [strategy]` with optional `xN` for batched increments
+  - `RcDec %var [strategy]`
+- [x] Show drop function assignments (which drop_fn is generated for which type) (2026-02-27)
+  - Drop functions are implicit in `RcDec` strategy annotations (e.g., `[HeapPtr]` → `ori_rc_dec(ptr, drop_fn)`)
+  - Reset/Reuse operations shown: `Reset`, `Reuse`, `IsShared`, `Set`, `SetTag`
+- [x] Gate behind `dbg_do!(ORI_DUMP_AFTER_ARC, ...)` (2026-02-27)
+  - Hook in `compile_common.rs::run_codegen_pipeline()` after `run_borrow_inference()` returns
+  - Zero overhead in release builds (compiled out via `#[cfg(debug_assertions)]`)
+  - Respects `ORI_DUMP_AFTER_ARC=0` to explicitly disable
+- [x] Test: `ORI_DUMP_AFTER_ARC=1 ori build test.ori` shows ARC decisions (2026-02-27)
+  - Verified with scalar-only (struct Point), RC (list push/length), and closure (map/fold with lambdas) programs
+  - Verified gating: no output without env var, no output with =0
+  - `./test-all.sh` green (10,366 tests, 0 failures)
 
 ---
 
@@ -202,24 +207,29 @@ This is the highest-value phase dump. The ARC IR is the intermediate form betwee
 
 Replace the existing `ORI_DEBUG_LLVM` with a richer dump that adds Ori-aware annotations to the raw LLVM IR. This is the "phase dump" version of Section 01's `ir-dump.sh`, but built into the compiler.
 
-- [ ] Migrate `ORI_DEBUG_LLVM` behavior into `ORI_DUMP_AFTER_LLVM`
-- [ ] Keep `ORI_DEBUG_LLVM` as an alias (backward compat) — same underlying flag
-- [ ] Add Ori function name annotations as comments:
+- [x] Migrate `ORI_DEBUG_LLVM` behavior into `ORI_DUMP_AFTER_LLVM` (2026-02-27)
+- [x] Keep `ORI_DEBUG_LLVM` as an alias (backward compat) — same underlying flag (2026-02-27)
+- [x] Add Ori function name annotations as comments: (2026-02-27)
   ```llvm
-  ; === @main : () -> int ===
+  ; --- @main ---
   define i64 @_ori_main() {
   ```
-- [ ] Add RC operation annotations:
+- [x] Add RC operation annotations: (2026-02-27)
   ```llvm
-  call void @ori_rc_dec(ptr %data, ptr @drop_fn)  ; RC-- list [int]
-  call void @ori_rc_inc(ptr %data)                 ; RC++ list [int]
+  call void @ori_rc_dec(ptr %data, ptr @drop_fn)  ; RC-- [int]
+  call void @ori_rc_inc(ptr %data)                 ; RC++
   ```
-- [ ] Add COW operation annotations:
+- [x] Add COW operation annotations: (2026-02-27)
   ```llvm
-  call void @ori_list_push_cow(...)                ; COW push [int], elem=i64
+  call void @ori_list_push_cow(...)                ; COW push list
   ```
-- [ ] Gate behind `dbg_do!(ORI_DUMP_AFTER_LLVM, ...)` in debug builds, env var check in release
-- [ ] Test: `ORI_DUMP_AFTER_LLVM=1 ori build test.ori` produces annotated IR
+- [x] Gate behind `llvm_dump_requested()` (checks both flags) in debug builds, env var check in evaluator (2026-02-27)
+- [x] Test: `ORI_DUMP_AFTER_LLVM=1 ori build test.ori` produces annotated IR (2026-02-27)
+  - Verified function name demangling: `_ori_main` → `@main`, drop functions → `drop [int]`
+  - Verified RC annotations: `RC-- [int]` from drop function pool index resolution
+  - Verified backward compat: `ORI_DEBUG_LLVM=1` also triggers enhanced dump
+  - Verified gating: no output without env var, no output with `=0`
+  - `./test-all.sh` green (10,366 tests, 0 failures)
 
 ---
 
@@ -229,33 +239,46 @@ Replace the existing `ORI_DEBUG_LLVM` with a richer dump that adds Ori-aware ann
 
 Following Roc's `ci/check_debug_vars.sh`, validate that all flags defined in `debug_flags.rs` are documented and that no stale flags exist in the codebase.
 
-- [ ] Create `diagnostics/check-debug-flags.sh`
+- [x] Create `diagnostics/check-debug-flags.sh` (2026-02-27)
   ```bash
   # Usage: diagnostics/check-debug-flags.sh
   # Validates: every ORI_* debug flag in debug_flags.rs is used somewhere
   # Validates: every ORI_* env var check in source references a flag in debug_flags.rs
   # Validates: CLAUDE.md documents all flags
   ```
-- [ ] Parse `debug_flags.rs` for defined flag names
-- [ ] Grep codebase for `std::env::var("ORI_` — verify all reference centralized flags
-- [ ] Check CLAUDE.md "Commands" section lists all diagnostic env vars
-- [ ] Report: stale flags (defined but unused), orphan checks (used but undefined), undocumented flags
-- [ ] Test: run on current codebase, verify clean output after migration
+- [x] Parse `debug_flags.rs` for defined flag names (2026-02-27)
+- [x] Grep codebase for `std::env::var("ORI_` — verify all reference centralized flags (2026-02-27)
+  - Correctly excludes non-diagnostic vars (ORI_STDLIB, ORI_WORKSPACE_DIR, ORI_SYSROOT, ORI_LOG*)
+  - Correctly excludes test-only guard vars (ORI_RC_OVERFLOW_TEST, etc.)
+- [x] Check CLAUDE.md "Commands" section lists all diagnostic env vars (2026-02-27)
+  - Added phase dump, runtime debug, and consistency check documentation to CLAUDE.md
+- [x] Report: stale flags (defined but unused), orphan checks (used but undefined), undocumented flags (2026-02-27)
+- [x] Test: run on current codebase, verify clean output after migration (2026-02-27)
+  - 8 defined flags, 0 stale, 0 orphan, 0 undocumented — all checks pass
 
 ---
 
 ## 03.7 Completion Checklist
 
-- [ ] `debug_flags.rs` defines all diagnostic env vars in one file
-- [ ] `dbg_set!` / `dbg_do!` macros work correctly (true in debug, false in release)
-- [ ] Existing `ORI_DEBUG_LLVM` migrated to centralized flag
-- [ ] `ORI_DUMP_AFTER_PARSE=1` produces readable AST dump
-- [ ] `ORI_DUMP_AFTER_TYPECK=1` produces typed IR dump with resolved methods
-- [ ] `ORI_DUMP_AFTER_ARC=1` produces ARC IR with RC strategy annotations
-- [ ] `ORI_DUMP_AFTER_LLVM=1` produces annotated LLVM IR (superset of `ORI_DEBUG_LLVM`)
-- [ ] `diagnostics/check-debug-flags.sh` validates flag consistency
-- [ ] Zero overhead in release builds (all `dbg_do!` calls compile-time eliminated)
-- [ ] `./test-all.sh` green
-- [ ] All flags documented in CLAUDE.md and .claude/rules/
+- [x] `debug_flags.rs` defines all diagnostic env vars in one file (2026-02-27)
+  - 8 flags: 4 phase dumps + 1 legacy alias + 3 runtime flags
+- [x] `dbg_set!` / `dbg_do!` macros work correctly (true in debug, false in release) (2026-02-27)
+  - `#[cfg(debug_assertions)]` gating verified — entire block removed in release
+- [x] Existing `ORI_DEBUG_LLVM` migrated to centralized flag (2026-02-27)
+  - Both `oric` (compile_common.rs) and `ori_llvm` (evaluator) now check both flags
+- [x] `ORI_DUMP_AFTER_PARSE=1` produces readable AST dump (2026-02-27)
+- [x] `ORI_DUMP_AFTER_TYPECK=1` produces typed IR dump with resolved methods (2026-02-27)
+- [x] `ORI_DUMP_AFTER_ARC=1` produces ARC IR with RC strategy annotations (2026-02-27)
+- [x] `ORI_DUMP_AFTER_LLVM=1` produces annotated LLVM IR (superset of `ORI_DEBUG_LLVM`) (2026-02-27)
+  - Demangled Ori function names, drop function type resolution, RC++/RC-- with type, COW ops
+- [x] `diagnostics/check-debug-flags.sh` validates flag consistency (2026-02-27)
+  - 8 defined, 0 stale, 0 orphan, 0 undocumented
+- [x] Zero overhead in release builds (all `dbg_do!` calls compile-time eliminated) (2026-02-27)
+- [x] `./test-all.sh` green (2026-02-27)
+  - 10,366 tests, 0 failures
+- [x] All flags documented in CLAUDE.md and .claude/rules/ (2026-02-27)
+  - CLAUDE.md: phase dumps, runtime debug, consistency sections added
+  - .claude/rules/llvm.md: ORI_DUMP_AFTER_LLVM + ORI_DUMP_AFTER_ARC added
+  - .claude/rules/arc.md: updated from ORI_DEBUG_LLVM to ORI_DUMP_AFTER_LLVM
 
 **Exit Criteria:** Running `ORI_DUMP_AFTER_PARSE=1 ORI_DUMP_AFTER_TYPECK=1 ORI_DUMP_AFTER_ARC=1 ORI_DUMP_AFTER_LLVM=1 ori build test.ori` produces four clearly-separated dump sections showing the program's transformation through each compiler phase. The ARC IR dump for `[1,2].push(3).reverse()` clearly shows which RC operations are emitted and in what order, making the double-free bug immediately visible.

@@ -32,6 +32,16 @@ use tracing::{debug, instrument};
 use ori_ir::ast::{Function, Module, TestDef};
 use ori_ir::canon::CanonResult;
 use ori_ir::{Name, StringInterner};
+
+/// Check if LLVM IR dumping is requested (new or legacy env var).
+///
+/// Cannot use `oric::dbg_do!` here because `ori_llvm` doesn't depend on `oric`.
+/// This is a raw env var check — the zero-overhead debug-only gating happens at
+/// the `oric` call sites instead.
+fn llvm_dump_requested() -> bool {
+    std::env::var("ORI_DUMP_AFTER_LLVM").is_ok_and(|v| v != "0")
+        || std::env::var("ORI_DEBUG_LLVM").is_ok_and(|v| v != "0")
+}
 use ori_types::{FunctionSig, Pool, TypeEntry};
 
 /// A single imported function ready for LLVM compilation.
@@ -444,8 +454,8 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             )));
         }
 
-        // 10. Debug: print IR if requested
-        if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+        // 10. Debug: print IR if requested (supports both new and legacy flag)
+        if llvm_dump_requested() {
             eprintln!("=== LLVM IR for compiled module ===");
             eprintln!("{}", scx.llmod.print_to_string());
             eprintln!("=== END IR ===");
