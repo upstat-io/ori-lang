@@ -1,12 +1,14 @@
 name: Auto Release
 
-# Automatically tag and release on every merge to master.
+# Automatically tag and release on every merge to master — but ONLY after CI passes.
 # Uses CalVer: v2026.02.27.N-alpha (UTC date + daily build counter + release stage).
 # The release stage (alpha, beta, rc) comes from the RELEASE_STAGE file.
 # No commits to master — just tags the merge commit directly.
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [master]
 
 # Queue releases — don't cancel in-progress ones.
@@ -18,6 +20,8 @@ concurrency:
 jobs:
   auto-release:
     name: Tag & Release
+    # Only release if CI succeeded — never release on failure
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
