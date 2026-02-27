@@ -76,7 +76,7 @@ declare_builtins! { emitter, ctx;
     ("list", "concat", borrow: true) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_concat(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
             } else {
                 None
             }
@@ -87,7 +87,7 @@ declare_builtins! { emitter, ctx;
     ("list", "add", borrow: true) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_concat(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
             } else {
                 None
             }
@@ -98,7 +98,7 @@ declare_builtins! { emitter, ctx;
     ("list", "push", borrow: true) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_push_new(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
             } else {
                 None
             }
@@ -122,7 +122,9 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "pop", borrow: true) => {
         if let TypeInfo::List { element } = ctx.type_info {
-            // pop() returns Option<T> (same as last) — Ori lists are immutable
+            // pop() returns Option<T> in the type checker — COW list mutation
+            // for pop requires ARC pipeline cooperation (dual return: element + modified list).
+            // For now, return the last element as Option<T>.
             emitter.emit_list_last(ctx.arg_vals[0], *element)
         } else {
             None
@@ -141,11 +143,13 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "reverse", borrow: true) => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_reverse(ctx.arg_vals[0], *element)
+            emitter.emit_list_reverse_cow(ctx.arg_vals[0], *element)
         } else {
             None
         }
     },
+    // list.set, list.insert, list.remove — COW emitters ready in list_builtins.rs,
+    // pending type checker support (TYPECK_BUILTIN_METHODS entries needed)
     ("list", "iter", borrow: true) => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)
