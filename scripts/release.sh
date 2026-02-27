@@ -25,7 +25,11 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 usage() {
-    echo "Usage: $0 [version]"
+    echo "Usage: $0 [OPTIONS] [version]"
+    echo ""
+    echo "Options:"
+    echo "  -y, --yes   Skip interactive confirmation (for CI)"
+    echo "  -h, --help  Show this help message"
     echo ""
     echo "If no version specified, auto-increments the pre-release number:"
     echo "  0.1.0-alpha.1  →  0.1.0-alpha.2"
@@ -34,6 +38,7 @@ usage() {
     echo ""
     echo "Examples:"
     echo "  $0              # Auto-increment nightly"
+    echo "  $0 --yes        # Auto-increment without confirmation (CI)"
     echo "  $0 0.1.0-beta.1 # Start beta phase"
     echo "  $0 0.2.0        # Stable release"
     echo ""
@@ -90,10 +95,17 @@ update_workspace_version() {
 }
 
 main() {
-    # Handle help flag
-    if [[ "${1:-}" == "-h" ]] || [[ "${1:-}" == "--help" ]]; then
-        usage
-    fi
+    local auto_confirm=false
+    local explicit_version=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) usage ;;
+            -y|--yes) auto_confirm=true; shift ;;
+            -*) echo -e "${RED}ERROR${NC}: Unknown option: $1"; usage ;;
+            *) explicit_version="$1"; shift ;;
+        esac
+    done
 
     # Ensure we're on master branch
     local current_branch
@@ -116,12 +128,12 @@ main() {
 
     # Determine new version
     local new_version
-    if [[ $# -eq 0 ]]; then
+    if [[ -z "$explicit_version" ]]; then
         # Auto-increment
         new_version=$(auto_increment_version "$current_version")
         echo -e "${CYAN}Auto-incrementing version...${NC}"
     else
-        new_version="$1"
+        new_version="$explicit_version"
     fi
 
     # Validate
@@ -132,12 +144,14 @@ main() {
     echo -e "${BOLD}New version:${NC}     $new_version"
     echo ""
 
-    # Confirm
-    read -p "Proceed with version bump? [y/N] " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Aborted."
-        exit 1
+    # Confirm (skip with --yes)
+    if ! $auto_confirm; then
+        read -p "Proceed with version bump? [y/N] " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Aborted."
+            exit 1
+        fi
     fi
 
     echo ""
@@ -148,26 +162,30 @@ main() {
     echo "=== Syncing all manifests ==="
     "$SCRIPT_DIR/sync-version.sh"
 
-    echo ""
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-    echo -e "${CYAN}                      NEXT STEPS                           ${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
-    echo ""
-    echo "1. Review changes:"
-    echo "   git diff"
-    echo ""
-    echo "2. Run full test suite:"
-    echo "   ./test-all"
-    echo ""
-    echo "3. Commit and tag:"
-    echo -e "   ${YELLOW}git add -A && git commit -m \"chore: release v$new_version\"${NC}"
-    echo -e "   ${YELLOW}git tag v$new_version${NC}"
-    echo -e "   ${YELLOW}git push origin master --tags${NC}"
-    echo ""
-    echo "The release workflow will automatically:"
-    echo "  • Build binaries for Linux, macOS, Windows"
-    echo "  • Create GitHub release (marked as nightly/pre-release)"
-    echo "  • Generate checksums and release notes"
+    # Show next steps only in interactive mode
+    if ! $auto_confirm; then
+        echo ""
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+        echo -e "${CYAN}                      NEXT STEPS                           ${NC}"
+        echo -e "${CYAN}═══════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo "1. Review changes:"
+        echo "   git diff"
+        echo ""
+        echo "2. Run full test suite:"
+        echo "   ./test-all"
+        echo ""
+        echo "3. Commit and tag:"
+        echo -e "   ${YELLOW}git add -A && git commit -m \"chore: release v$new_version\"${NC}"
+        echo -e "   ${YELLOW}git tag v$new_version${NC}"
+        echo -e "   ${YELLOW}git push origin master --tags${NC}"
+        echo ""
+        echo "The release workflow will automatically:"
+        echo "  • Build binaries for Linux, macOS, Windows"
+        echo "  • Create GitHub release (marked as nightly/pre-release)"
+        echo "  • Generate checksums and release notes"
+    fi
+
     echo ""
     echo -e "${GREEN}Version bump complete!${NC}"
 }

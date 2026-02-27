@@ -1,0 +1,88 @@
+name: Auto Release
+
+# Automatically bump version, tag, and trigger release on every merge to master.
+# During alpha, every PR merge gets its own release (alpha.N → alpha.N+1).
+
+on:
+  push:
+    branches: [master]
+
+# Queue releases — don't cancel in-progress ones.
+# Each merge gets its own version bump, processed sequentially.
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  auto-release:
+    name: Bump Version & Tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Skip release commits to prevent infinite loop.
+    # The version bump commit starts with "chore: release v".
+    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+          fetch-depth: 0
+          ref: master
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Determine version
+        id: version
+        run: |
+          CURRENT=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/')
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+
+          if git rev-parse "refs/tags/v$CURRENT" &>/dev/null; then
+            # Tag exists — auto-increment
+            echo "Tag v$CURRENT already exists, auto-incrementing..."
+            echo "bumped=true" >> $GITHUB_OUTPUT
+          else
+            # Tag doesn't exist — version was set manually in a PR, or first release
+            echo "Tag v$CURRENT does not exist, using current version as-is"
+            echo "bumped=false" >> $GITHUB_OUTPUT
+            echo "new_version=$CURRENT" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Bump version
+        if: steps.version.outputs.bumped == 'true'
+        run: ./scripts/release.sh --yes
+
+      - name: Read new version
+        id: new_version
+        run: |
+          VERSION=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $VERSION"
+
+      - name: Regenerate lockfiles
+        if: steps.version.outputs.bumped == 'true'
+        run: |
+          cargo generate-lockfile
+          cargo generate-lockfile --manifest-path compiler/ori_llvm/Cargo.toml
+          cargo generate-lockfile --manifest-path compiler/ori_rt/Cargo.toml
+          cargo generate-lockfile --manifest-path tools/ori-lsp/Cargo.toml
+          cargo generate-lockfile --manifest-path website/playground-wasm/Cargo.toml
+
+      - name: Commit version bump
+        if: steps.version.outputs.bumped == 'true'
+        run: |
+          git add -A
+          git commit -m "chore: release v${{ steps.new_version.outputs.version }}"
+
+      - name: Tag and push
+        run: |
+          git tag "v${{ steps.new_version.outputs.version }}"
+          git push origin master --tags
