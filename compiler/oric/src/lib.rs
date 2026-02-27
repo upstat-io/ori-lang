@@ -57,8 +57,10 @@ macro_rules! static_assert_size {
 
 #[cfg(feature = "llvm")]
 pub mod arc_lowering;
+pub mod ast_dump;
 pub mod commands;
 pub mod db;
+pub mod debug_flags;
 pub mod imports;
 pub mod input;
 pub mod ir;
