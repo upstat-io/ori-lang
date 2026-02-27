@@ -256,7 +256,11 @@ fn compile_and_cache(
         &pool,
         &canon_result,
         path,
-    );
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(1)
+    });
 
     // Configure module for target
     let emitter = ObjectEmitter::new(&target)
