@@ -19,7 +19,6 @@ concurrency:
 
 permissions:
   contents: write
-  models: read
 
 jobs:
   auto-release:
@@ -36,6 +35,19 @@ jobs:
           token: ${{ secrets.ORILANG_RELEASE_TOKEN }}
           fetch-depth: 0
           ref: master
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Copilot CLI + SDK
+        run: |
+          npm i -g @github/copilot
+          pip install github-copilot-sdk
 
       - name: Derive release tag
         id: tag
@@ -93,16 +105,23 @@ jobs:
       - name: Generate AI release notes
         id: ai_notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
           COMMIT_LOG=$(cat /tmp/commit-log.txt)
           DIFF_STAT=$(cat /tmp/diff-stat.txt)
           TAG="${{ steps.tag.outputs.tag }}"
           PREV_TAG="${{ steps.commits.outputs.prev_tag }}"
 
-          # Build the prompt
-          PROMPT=$(cat <<'PROMPT_EOF'
-          You are writing release notes for "Ori", a statically-typed, expression-based programming language compiler. Given the commit log below, write concise, user-friendly release notes in markdown.
+          # Generate release notes using Claude Sonnet 4.6 via Copilot SDK
+          python3 << PYEOF
+          import asyncio, sys, os
+
+          COMMIT_LOG = """${COMMIT_LOG}"""
+          DIFF_STAT = """${DIFF_STAT}"""
+          TAG = "${TAG}"
+          PREV_TAG = "${PREV_TAG}" or "beginning"
+
+          PROMPT = f"""You are writing release notes for "Ori", a statically-typed, expression-based programming language compiler. Given the commit log below, write concise, user-friendly release notes in markdown.
 
           Rules:
           - Group changes into sections: **Features**, **Bug Fixes**, **Improvements**, **Internal** (only if meaningful)
@@ -111,60 +130,56 @@ jobs:
           - Keep each bullet to one line
           - Skip merge commits and CI-only changes
           - If there are no user-facing changes, just say "Internal improvements and maintenance."
-          - Do NOT wrap in ```markdown fences
-          PROMPT_EOF
-          )
+          - Do NOT wrap in \`\`\`markdown fences
 
-          # Append the actual data
-          FULL_PROMPT="${PROMPT}
+          Commit log ({PREV_TAG}..{TAG}):
+          {COMMIT_LOG}
 
-          Commit log (${PREV_TAG:-beginning}..${TAG}):
-          ${COMMIT_LOG}
+          Diff stats: {DIFF_STAT}"""
 
-          Diff stats: ${DIFF_STAT}"
+          async def main():
+              from copilot import CopilotClient, PermissionHandler
 
-          # Call GitHub Models API (capture HTTP status separately)
-          HTTP_CODE=$(curl -s -o /tmp/ai-response.json -w "%{http_code}" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://models.github.ai/inference/chat/completions" \
-            -d "$(jq -n \
-              --arg prompt "$FULL_PROMPT" \
-              '{
-                model: "github-copilot/claude-sonnet-4.6",
-                messages: [
-                  { role: "user", content: $prompt }
-                ],
-                temperature: 0.3
-              }')")
+              client = CopilotClient()
+              await client.start()
+              try:
+                  session = await client.create_session({
+                      "model": "claude-sonnet-4.6",
+                      "streaming": False,
+                      "on_permission_request": PermissionHandler.approve_all,
+                  })
+                  done = asyncio.Event()
+                  result = []
 
-          echo "GitHub Models API HTTP status: $HTTP_CODE"
+                  def on_event(event):
+                      t = event.type.value if hasattr(event.type, 'value') else str(event.type)
+                      if t == "assistant.message":
+                          content = event.data.content if hasattr(event.data, 'content') else str(event.data)
+                          result.append(content)
+                      elif t == "session.idle":
+                          done.set()
 
-          if [[ "$HTTP_CODE" -ne 200 ]]; then
-            echo "::warning::GitHub Models API returned HTTP $HTTP_CODE"
-            # Log error details (safe — no secrets in response body)
-            echo "Response body:"
-            cat /tmp/ai-response.json 2>/dev/null || echo "(empty)"
-          fi
+                  session.on(on_event)
+                  await session.send({"prompt": PROMPT})
+                  await asyncio.wait_for(done.wait(), timeout=120)
 
-          RESPONSE=$(cat /tmp/ai-response.json 2>/dev/null || echo "{}")
+                  if result:
+                      with open("/tmp/release-notes.txt", "w") as f:
+                          f.write(result[-1])
+                      print("AI release notes generated successfully")
+                  else:
+                      raise RuntimeError("No response from model")
 
-          # Extract content — try OpenAI format first, then Anthropic format
-          AI_NOTES=$(echo "$RESPONSE" | jq -r '
-            .choices[0].message.content //
-            .content[0].text //
-            empty
-          ')
+              finally:
+                  await client.stop()
 
-          if [[ -z "$AI_NOTES" ]]; then
-            echo "::warning::AI note generation failed, falling back to commit log"
-            AI_NOTES="## Changes
-
-          ${COMMIT_LOG}"
-          fi
-
-          # Write to file for the next step
-          echo "$AI_NOTES" > /tmp/release-notes.txt
+          try:
+              asyncio.run(main())
+          except Exception as e:
+              print(f"::warning::AI release notes failed ({e}), falling back to commit log")
+              with open("/tmp/release-notes.txt", "w") as f:
+                  f.write(f"## Changes\n\n{COMMIT_LOG}")
+          PYEOF
 
       - name: Create release
         env:
