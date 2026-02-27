@@ -1,0 +1,11 @@
+// Diagnostic fixture: chained COW operations.
+// Exercises multiple sequential COW calls that the IR audit should analyze.
+
+@main () -> int = {
+    let list = [10, 20, 30];
+    let a = list.push(40);
+    let b = a.push(50);
+    let c = b.reverse();
+    let sum = c.fold(0, (acc: int, x: int) -> int = acc + x);
+    if sum == 150 then 0 else 1
+}

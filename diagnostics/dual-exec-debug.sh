@@ -27,18 +27,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# --- Locate ori binary ---
-if [[ -n "${ORI_BIN:-}" ]]; then
-    ORI="$ORI_BIN"
-elif [[ -x "$ROOT_DIR/target/release/ori" ]]; then
-    ORI="$ROOT_DIR/target/release/ori"
-elif [[ -x "$ROOT_DIR/target/debug/ori" ]]; then
-    ORI="$ROOT_DIR/target/debug/ori"
-else
-    ORI="ori"
-fi
+source "$SCRIPT_DIR/_common.sh"
+find_ori_bin
 
 # --- Defaults ---
 VERBOSE=0

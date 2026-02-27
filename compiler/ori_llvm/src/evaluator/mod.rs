@@ -470,6 +470,17 @@ impl<'tcx> OwnedLLVMEvaluator<'tcx> {
             )));
         }
 
+        // 11.5. RC audit (gated on ORI_AUDIT_CODEGEN=1)
+        if crate::verify::audit_requested() {
+            let audit_report = crate::verify::audit_module(&scx.llmod);
+            audit_report.emit_to_stderr();
+            if audit_report.has_errors() {
+                let n = audit_report.error_count();
+                drop(ManuallyDrop::into_inner(scx));
+                return Err(LLVMEvalError::new(format!("RC audit found {n} error(s)")));
+            }
+        }
+
         // 12. Create JIT execution engine
         // SAFETY: Same detached-reference pattern as above — see step 1 comment.
         debug!("creating JIT execution engine");

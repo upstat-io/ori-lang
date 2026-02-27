@@ -528,6 +528,19 @@ pub fn compile_to_llvm<'ctx>(
         );
     }
 
+    // RC audit (gated on ORI_AUDIT_CODEGEN=1, debug builds only)
+    crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
+        let audit_report = ori_llvm::verify::audit_module(&llvm_module);
+        audit_report.emit_to_stderr();
+        if audit_report.has_errors() {
+            eprintln!(
+                "RC audit found {} error(s) — aborting",
+                audit_report.error_count()
+            );
+            std::process::exit(1);
+        }
+    });
+
     llvm_module
 }
 
@@ -607,6 +620,19 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             source_path,
         );
     }
+
+    // RC audit (gated on ORI_AUDIT_CODEGEN=1, debug builds only)
+    crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
+        let audit_report = ori_llvm::verify::audit_module(&llvm_module);
+        audit_report.emit_to_stderr();
+        if audit_report.has_errors() {
+            eprintln!(
+                "RC audit found {} error(s) — aborting",
+                audit_report.error_count()
+            );
+            std::process::exit(1);
+        }
+    });
 
     llvm_module
 }
