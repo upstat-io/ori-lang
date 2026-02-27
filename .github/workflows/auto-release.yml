@@ -131,7 +131,7 @@ jobs:
             -d "$(jq -n \
               --arg prompt "$FULL_PROMPT" \
               '{
-                model: "anthropic/claude-sonnet-4-6",
+                model: "github-copilot/claude-sonnet-4.6",
                 messages: [
                   { role: "user", content: $prompt }
                 ],
