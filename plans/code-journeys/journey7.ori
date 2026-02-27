@@ -1,0 +1,26 @@
+// Journey 7: "I am a loop"
+// Features: loop, break, for..in, ranges, mutable let, compound assignment
+// Expected: sum_loop(5) + sum_for(5) = 15 + 15 = 30
+
+@sum_loop (n: int) -> int = {
+    let i = 0;
+    let total = 0;
+    loop {
+        if i >= n then break;
+        total += i + 1;
+        i += 1
+    };
+    total
+}
+
+@sum_for (n: int) -> int = {
+    let total = 0;
+    for x in 1..=n do total += x;
+    total
+}
+
+@main () -> int = {
+    let a = sum_loop(n: 5);   // = 1+2+3+4+5 = 15
+    let b = sum_for(n: 5);    // = 1+2+3+4+5 = 15
+    a + b                     // = 30
+}

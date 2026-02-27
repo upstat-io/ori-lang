@@ -15,6 +15,7 @@ use oric::reporting::typeck::TypeErrorRenderer;
 use oric::{CompilerDb, Db, SourceFile};
 
 pub mod build;
+pub mod build_options;
 mod check;
 #[cfg(feature = "llvm")]
 mod compile_common;
@@ -29,7 +30,7 @@ mod test;
 mod watch;
 
 // Public types and functions for external use (tests, library consumers)
-pub use build::{
+pub use build_options::{
     parse_build_options, BuildOptions, DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,
 };
 
