@@ -44,7 +44,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // List + list → concat (same as str + str → concat)
         if matches!(op, BinaryOp::Add) {
             if let super::super::type_info::TypeInfo::List { element } = type_info {
-                if let Some(val) = self.emit_list_concat(lhs, rhs, element) {
+                if let Some(val) = self.emit_list_concat_cow(lhs, rhs, element) {
                     return val;
                 }
             }
