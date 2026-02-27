@@ -6,6 +6,7 @@
 #
 # Options:
 #   --valgrind         Run under Valgrind for memory error detection
+#   --rc-trace         Enable ORI_TRACE_RC=1 during execution and leak check
 #   --verbose          Include disassembly in the report
 #   --no-color         Disable color output
 #   --color            Force color output (default: auto-detect terminal)
@@ -49,6 +50,7 @@ fi
 
 # --- Defaults ---
 USE_VALGRIND=0
+USE_RC_TRACE=0
 VERBOSE=0
 USE_COLOR=auto
 FILE=""
@@ -57,6 +59,7 @@ FILE=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --valgrind) USE_VALGRIND=1; shift ;;
+        --rc-trace) USE_RC_TRACE=1; shift ;;
         --verbose) VERBOSE=1; shift ;;
         --color) USE_COLOR=yes; shift ;;
         --no-color) USE_COLOR=no; shift ;;
@@ -170,7 +173,12 @@ echo ""
 # ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[2/7] Execution${C_NC}"
 
-"$tmpdir/binary" > "$tmpdir/exec_stdout.txt" 2>"$tmpdir/exec_stderr.txt"
+rc_trace_env=()
+if [[ $USE_RC_TRACE -eq 1 ]]; then
+    rc_trace_env=(env ORI_TRACE_RC=1)
+    echo -e "  ${C_DIM}(ORI_TRACE_RC=1 enabled)${C_NC}"
+fi
+"${rc_trace_env[@]}" "$tmpdir/binary" > "$tmpdir/exec_stdout.txt" 2>"$tmpdir/exec_stderr.txt"
 exec_exit=$?
 
 if [[ $exec_exit -eq 0 ]]; then
@@ -203,7 +211,11 @@ echo ""
 # ═══════════════════════════════════════════════════════════
 echo -e "${C_BOLD}[3/7] Leak Check${C_NC}"
 
-ORI_CHECK_LEAKS=1 "$tmpdir/binary" > /dev/null 2>"$tmpdir/leak_stderr.txt"
+leak_env=(env ORI_CHECK_LEAKS=1)
+if [[ $USE_RC_TRACE -eq 1 ]]; then
+    leak_env+=(ORI_TRACE_RC=1)
+fi
+"${leak_env[@]}" "$tmpdir/binary" > /dev/null 2>"$tmpdir/leak_stderr.txt"
 leak_exit=$?
 
 if grep -q "RC live count" "$tmpdir/leak_stderr.txt"; then
