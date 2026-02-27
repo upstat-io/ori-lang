@@ -131,7 +131,7 @@ jobs:
             -d "$(jq -n \
               --arg prompt "$FULL_PROMPT" \
               '{
-                model: "openai/gpt-4o-mini",
+                model: "anthropic/claude-sonnet-4-6",
                 messages: [
                   { role: "user", content: $prompt }
                 ],
@@ -143,13 +143,18 @@ jobs:
           if [[ "$HTTP_CODE" -ne 200 ]]; then
             echo "::warning::GitHub Models API returned HTTP $HTTP_CODE"
             # Log error details (safe — no secrets in response body)
-            cat /tmp/ai-response.json || true
+            echo "Response body:"
+            cat /tmp/ai-response.json 2>/dev/null || echo "(empty)"
           fi
 
-          RESPONSE=$(cat /tmp/ai-response.json)
+          RESPONSE=$(cat /tmp/ai-response.json 2>/dev/null || echo "{}")
 
-          # Extract the content from the response
-          AI_NOTES=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          # Extract content — try OpenAI format first, then Anthropic format
+          AI_NOTES=$(echo "$RESPONSE" | jq -r '
+            .choices[0].message.content //
+            .content[0].text //
+            empty
+          ')
 
           if [[ -z "$AI_NOTES" ]]; then
             echo "::warning::AI note generation failed, falling back to commit log"
