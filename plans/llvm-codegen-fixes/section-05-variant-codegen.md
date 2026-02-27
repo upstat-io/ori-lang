@@ -1,0 +1,105 @@
+---
+section: "05"
+title: "Variant Codegen"
+status: not-started
+goal: "Variant construction uses insertvalue (no alloca roundtrip); identical match arms deduplicated"
+depends_on: []
+sections:
+  - id: "05.1"
+    title: "Fix M7 — insertvalue for variant construction"
+    status: not-started
+  - id: "05.2"
+    title: "Fix M8 — Deduplicate identical match arms"
+    status: not-started
+  - id: "05.3"
+    title: "Completion Checklist"
+    status: not-started
+---
+
+# Section 05: Variant Codegen
+
+**Status:** Not Started
+**Goal:** Variant construction uses direct `insertvalue` (2 instructions) instead of alloca+store+load roundtrip (12 instructions). Identical match arms are merged into a single block.
+
+**Context:** J6 showed that creating `Success(42)` takes 12 instructions (alloca, store tag, GEP, store value, load tag, insertvalue, load payload, insertvalue) when it could be 2 `insertvalue` instructions. J6 also showed that `Success` and `Failure` match arms compile to identical code (same offset extraction) but aren't merged. This also fixes M14 (uninitialized payload) as a side effect — `insertvalue` doesn't read uninitialized memory.
+
+**Cross-section:** This subsumes the M14 fix from Section 02 for unit variants — `insertvalue` with `undef` payload is well-defined LLVM IR (the `undef` is never used).
+
+---
+
+## 05.1 Fix M7 — insertvalue for Variant Construction
+
+**Journey:** J6 (confirmed J6, J11, J12) | **Severity:** MEDIUM
+**File(s):** `compiler/ori_llvm/src/codegen/` (variant construction)
+
+Replace:
+```llvm
+; Current — 12 instructions:
+%variant = alloca { i64, [1 x i64] }, align 8
+%tag.ptr = getelementptr inbounds ..., ptr %variant, i32 0, i32 0
+store i64 0, ptr %tag.ptr, align 4
+%payload.ptr = getelementptr inbounds ..., ptr %variant, i32 0, i32 1, i64 0
+store i64 42, ptr %payload.ptr, align 4
+%tag = load i64, ptr %tag.ptr, align 4
+%s0 = insertvalue { i64, [1 x i64] } zeroinitializer, i64 %tag, 0
+%payload = load i64, ptr %payload.ptr, align 4
+%s1 = insertvalue { i64, [1 x i64] } %s0, i64 %payload, 1, 0
+```
+
+With:
+```llvm
+; Target — 2 instructions:
+%s0 = insertvalue { i64, [1 x i64] } zeroinitializer, i64 0, 0           ; tag = 0 (Some)
+%s1 = insertvalue { i64, [1 x i64] } %s0, i64 42, 1, 0                   ; payload = 42
+```
+
+- [ ] Find the variant construction code in codegen
+- [ ] Replace alloca+store+load pattern with direct `insertvalue` chain
+- [ ] Handle unit variants: `insertvalue` with tag only, payload left as `zeroinitializer` (avoids M14)
+- [ ] Handle multi-field payload variants (e.g., `Rect(w: int, h: int)`)
+- [ ] Verify: Journey 6 `Success(42)` compiles to 2 insertvalue instructions
+- [ ] Verify: Journey 12 `None` construction has no uninitialized load
+
+---
+
+## 05.2 Fix M8 — Deduplicate Identical Match Arms
+
+**Journey:** J6 | **Severity:** MEDIUM
+**File(s):** `compiler/ori_llvm/src/codegen/` (match codegen)
+
+In Journey 6, the `extract` function's `Success` and `Failure` arms generate identical code (both extract payload[0] from the same offset). They should share a single block.
+
+```llvm
+; Current — 2 identical blocks:
+bb2:                                   ; Success arm
+  %proj.alloca = alloca %ori.Result2, ...
+  store %ori.Result2 %0, ptr %proj.alloca
+  %proj.payload = getelementptr ... i32 0, i32 1
+  %proj.1 = load i64, ptr %proj.payload
+  br label %bb1
+bb3:                                   ; Failure arm — IDENTICAL!
+  %proj.alloca1 = alloca %ori.Result2, ...
+  store %ori.Result2 %0, ptr %proj.alloca1
+  %proj.payload2 = getelementptr ... i32 0, i32 1
+  %proj.14 = load i64, ptr %proj.payload2
+  br label %bb1
+```
+
+Target: single block when the codegen for different arms is structurally identical.
+
+- [ ] Analyze: how common is this pattern? (Only when all arms extract from the same offset)
+- [ ] Implement: detect when switch arms generate identical code and merge them
+- [ ] Alternative: LLVM's MergeIdenticalBlocks pass may handle this — check if it does
+- [ ] If LLVM handles it: consider this LOW priority (optimization passes clean it up)
+
+---
+
+## 05.3 Completion Checklist
+
+- [ ] Variant construction uses `insertvalue` chain (no alloca+store+load)
+- [ ] Unit variant construction produces no uninitialized loads (M14 fixed as side effect)
+- [ ] Match arm deduplication evaluated (implemented or deferred to LLVM passes)
+- [ ] `./test-all.sh` green
+- [ ] `./scripts/valgrind-aot.sh` — 0 errors
+
+**Exit Criteria:** `grep -c "alloca.*variant" *.ll` shows no variant construction allocas. Journey 6 `Success(42)` compiles to 2-3 instructions.

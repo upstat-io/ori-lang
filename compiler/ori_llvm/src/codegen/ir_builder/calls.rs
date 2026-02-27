@@ -24,6 +24,11 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .builder
             .build_call(func, &arg_vals, name)
             .expect("call");
+        // Explicitly copy the callee's calling convention to the call instruction.
+        // inkwell's build_call does NOT reliably propagate fastcc from the callee
+        // function — without this, nounwind-downgraded invokes lose their fastcc,
+        // causing calling convention mismatches and wrong results.
+        call_val.set_call_convention(func.get_call_conventions());
         call_val
             .try_as_basic_value()
             .basic()
@@ -53,6 +58,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .build_call(func, &arg_vals, name)
             .expect("call_tail");
         call_val.set_tail_call(true);
+        call_val.set_call_convention(func.get_call_conventions());
         call_val
             .try_as_basic_value()
             .basic()
@@ -167,9 +173,9 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .builder
             .build_invoke(func, &arg_vals, then_bb, catch_bb, name)
             .expect("invoke");
-        // inkwell's build_invoke does not automatically copy the calling
-        // convention from the callee (unlike build_call). Without this,
-        // fastcc callees get invoked with the default ccc, causing SIGSEGV.
+        // inkwell's build_invoke does not reliably copy the calling convention
+        // from the callee. Without this, fastcc callees get invoked with the
+        // default ccc, causing SIGSEGV or wrong results.
         call_val.set_call_convention(func.get_call_conventions());
         call_val
             .try_as_basic_value()

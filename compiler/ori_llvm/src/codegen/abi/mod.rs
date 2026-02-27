@@ -230,6 +230,12 @@ pub fn select_call_conv(name: &str, is_main: bool, is_extern: bool) -> CallConv 
 ///
 /// This is the single entry point that bridges `ori_types::FunctionSig` → `FunctionAbi`.
 pub fn compute_function_abi(sig: &FunctionSig, store: &TypeInfoStore<'_>) -> FunctionAbi {
+    debug_assert_eq!(
+        sig.param_names.len(),
+        sig.param_types.len(),
+        "param_names and param_types must be parallel (function {:?})",
+        sig.name
+    );
     let params: Vec<ParamAbi> = sig
         .param_names
         .iter()
@@ -303,6 +309,12 @@ pub fn compute_function_abi_with_ownership(
         return compute_function_abi(sig, store);
     };
 
+    debug_assert_eq!(
+        sig.param_names.len(),
+        sig.param_types.len(),
+        "param_names and param_types must be parallel (function {:?})",
+        sig.name
+    );
     let params: Vec<ParamAbi> = sig
         .param_names
         .iter()

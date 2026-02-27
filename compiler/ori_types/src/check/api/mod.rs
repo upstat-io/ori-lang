@@ -135,7 +135,7 @@ pub fn check_module_with_pool(
 ///     |checker| {
 ///         // Register functions from another module
 ///         for func in &other_module.functions {
-///             checker.register_imported_function(func, &other_arena);
+///             checker.register_imported_function(func, &other_arena, None);
 ///         }
 ///     },
 /// );

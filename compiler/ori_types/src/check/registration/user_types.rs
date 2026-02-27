@@ -65,6 +65,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             let struct_idx = checker.pool_mut().struct_type(decl.name, &pool_fields);
             checker.pool_mut().set_resolution(idx, struct_idx);
 
+            let hash = checker.pool().hash(idx);
             checker.type_registry_mut().register_struct(
                 decl.name,
                 idx,
@@ -72,6 +73,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 field_defs,
                 decl.span,
                 visibility,
+                hash,
             );
         }
 
@@ -127,6 +129,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
             let enum_idx = checker.pool_mut().enum_type(decl.name, &pool_variants);
             checker.pool_mut().set_resolution(idx, enum_idx);
 
+            let hash = checker.pool().hash(idx);
             checker.type_registry_mut().register_enum(
                 decl.name,
                 idx,
@@ -134,11 +137,13 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 variant_defs,
                 decl.span,
                 visibility,
+                hash,
             );
         }
 
         ori_ir::TypeDeclKind::Newtype(underlying) => {
             let underlying_ty = resolve_field_type(checker, underlying);
+            let hash = checker.pool().hash(idx);
             checker.type_registry_mut().register_newtype(
                 decl.name,
                 idx,
@@ -146,6 +151,7 @@ fn register_type_decl(checker: &mut ModuleChecker<'_>, decl: &ori_ir::TypeDecl) 
                 underlying_ty,
                 decl.span,
                 visibility,
+                hash,
             );
         }
     }

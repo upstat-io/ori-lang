@@ -477,6 +477,7 @@ impl<'a> Interpreter<'a> {
             function_val_byte, function_val_error, function_val_float, function_val_hash_combine,
             function_val_int, function_val_repeat, function_val_str, function_val_thread_id,
         };
+        tracing::debug!("registering prelude");
 
         // Type conversion functions (positional args allowed per spec)
         self.register_function_val("str", function_val_str, "str");

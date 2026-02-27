@@ -1,380 +1,172 @@
 //! Runtime function declarations for V2 codegen.
 //!
-//! Declares all extern functions provided by the Ori runtime library (`ori_rt`).
+//! Declares extern functions provided by the Ori runtime library (`ori_rt`).
 //! These are resolved at link time (AOT) or via symbol mapping (JIT).
 //!
-//! Replaces `CodegenCx::declare_runtime_functions()` with a standalone function
-//! that operates on `IrBuilder` — no coupling to `CodegenCx`.
+//! # Lazy declaration (production)
+//!
+//! `declare_single()` declares one runtime function on demand, with the
+//! correct signature and attributes from the `RT_FUNCTIONS` table.
+//! Called via `IrBuilder::runtime_fn()`, which caches the result.
+//!
+//! A trivial `@main () -> int = 33` produces zero runtime declarations.
+//!
+//! # Eager declaration (tests)
+//!
+//! `declare_runtime()` eagerly declares all functions. Used by unit tests
+//! that need the full set available in the LLVM module.
+
+mod runtime_functions;
+
+use runtime_functions::{Attr, RtFn, Ty, RT_FUNCTIONS};
 
 use super::ir_builder::IrBuilder;
+use super::value_id::{FunctionId, LLVMTypeId};
 
-/// Declare all Ori runtime functions as external linkage in the LLVM module.
-///
-/// Call this once per module before any function compilation. The declarations
-/// make runtime functions available for codegen (e.g., `ori_print`, `ori_panic`).
-pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
-    let void = None;
-    let i64_ty = builder.i64_type();
-    let i32_ty = builder.i32_type();
-    let f64_ty = builder.f64_type();
-    let bool_ty = builder.bool_type();
-    let ptr_ty = builder.ptr_type();
+// ---------------------------------------------------------------------------
+// Type and attribute resolution
+// ---------------------------------------------------------------------------
 
-    // String type: { i64 len, ptr data }
-    let str_ty = builder.register_type(
-        builder
-            .scx()
-            .type_struct(
+/// Resolve a type descriptor to an LLVM type ID.
+fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
+    match ty {
+        Ty::I64 => builder.i64_type(),
+        Ty::I32 => builder.i32_type(),
+        Ty::I8 => builder.i8_type(),
+        Ty::F64 => builder.f64_type(),
+        Ty::Bool => builder.bool_type(),
+        Ty::Ptr => builder.ptr_type(),
+        Ty::Str => {
+            let st = builder.scx().type_struct(
                 &[
                     builder.scx().type_i64().into(),
                     builder.scx().type_ptr().into(),
                 ],
                 false,
-            )
-            .into(),
-    );
-
-    // -- I/O functions --
-    builder.declare_extern_function("ori_print", &[ptr_ty], void);
-    builder.declare_extern_function("ori_print_int", &[i64_ty], void);
-    builder.declare_extern_function("ori_print_float", &[f64_ty], void);
-    builder.declare_extern_function("ori_print_bool", &[bool_ty], void);
-
-    // -- Panic functions --
-    // cold: panic paths are rarely taken; moves code out of hot layout
-    // NOT nounwind: ori_panic unwinds via Rust panic infrastructure
-    // so LLVM invoke/landingpad can run RC cleanup handlers
-    let panic_fn = builder.declare_extern_function("ori_panic", &[ptr_ty], void);
-    builder.add_cold_attribute(panic_fn);
-    let panic_cstr = builder.declare_extern_function("ori_panic_cstr", &[ptr_ty], void);
-    builder.add_cold_attribute(panic_cstr);
-
-    // -- Entry point wrapper --
-    // ori_run_main wraps @main with catch_unwind for clean panic handling.
-    // Parameter is `extern "C" fn()` but declared as `ptr` — LLVM opaque
-    // pointers erase the distinction, so both are ABI-compatible.
-    builder.declare_extern_function("ori_run_main", &[ptr_ty], Some(i32_ty));
-
-    // -- Assertion functions --
-    builder.declare_extern_function("ori_assert", &[bool_ty], void);
-    builder.declare_extern_function("ori_assert_eq_int", &[i64_ty, i64_ty], void);
-    builder.declare_extern_function("ori_assert_eq_bool", &[bool_ty, bool_ty], void);
-    builder.declare_extern_function("ori_assert_eq_float", &[f64_ty, f64_ty], void);
-    builder.declare_extern_function("ori_assert_eq_str", &[ptr_ty, ptr_ty], void);
-
-    // -- List functions --
-    // List type: { i64 len, i64 cap, ptr data }
-    let list_ty = builder.register_type(
-        builder
-            .scx()
-            .type_struct(
+            );
+            builder.register_type(st.into())
+        }
+        Ty::List => {
+            let st = builder.scx().type_struct(
                 &[
                     builder.scx().type_i64().into(),
                     builder.scx().type_i64().into(),
                     builder.scx().type_ptr().into(),
                 ],
                 false,
-            )
-            .into(),
-    );
-    builder.declare_extern_function("ori_list_alloc_data", &[i64_ty, i64_ty], Some(ptr_ty));
-    builder.declare_extern_function("ori_list_free_data", &[ptr_ty, i64_ty, i64_ty], void);
-    builder.declare_extern_function("ori_list_new", &[i64_ty, i64_ty], Some(ptr_ty));
-    builder.declare_extern_function("ori_list_free", &[ptr_ty, i64_ty], void);
-    builder.declare_extern_function("ori_list_len", &[ptr_ty], Some(i64_ty));
-    // ori_list_push(list_ptr, elem_ptr, elem_size) -> void
-    builder.declare_extern_function("ori_list_push", &[ptr_ty, ptr_ty, i64_ty], void);
-    // ori_list_take(list_ptr, out_ptr) -> void  (sret pattern: writes {len, cap, data} to out_ptr)
-    builder.declare_extern_function("ori_list_take", &[ptr_ty, ptr_ty], void);
-    // ori_list_push_new(data, len, elem_ptr, elem_size, out_ptr) -> void
-    // Functional push: creates new list with element appended, writes to out_ptr.
-    builder.declare_extern_function(
-        "ori_list_push_new",
-        &[ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
-        void,
-    );
-    // ori_list_first(data, len, elem_size, out_ptr) -> void
-    // Writes {tag: i64, value: [elem_size]} to out_ptr. tag=0 (None) or tag=1 (Some).
-    builder.declare_extern_function("ori_list_first", &[ptr_ty, i64_ty, i64_ty, ptr_ty], void);
-    // ori_list_last(data, len, elem_size, out_ptr) -> void
-    builder.declare_extern_function("ori_list_last", &[ptr_ty, i64_ty, i64_ty, ptr_ty], void);
-    // ori_list_contains_int(data, len, needle) -> i64 (0 or 1)
-    builder.declare_extern_function(
-        "ori_list_contains_int",
-        &[ptr_ty, i64_ty, i64_ty],
-        Some(i64_ty),
-    );
-    // ori_list_contains_str(data, len, needle_ptr) -> i64 (0 or 1)
-    builder.declare_extern_function(
-        "ori_list_contains_str",
-        &[ptr_ty, i64_ty, ptr_ty],
-        Some(i64_ty),
-    );
-    // ori_list_concat(data1, len1, data2, len2, elem_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_list_concat",
-        &[ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
-        void,
-    );
-    // ori_list_reverse(data, len, elem_size, out_ptr) -> void
-    builder.declare_extern_function("ori_list_reverse", &[ptr_ty, i64_ty, i64_ty, ptr_ty], void);
-
-    // -- Map methods --
-    // ori_map_contains_key(keys, len, needle_ptr) -> i64 (0 or 1)
-    builder.declare_extern_function(
-        "ori_map_contains_key",
-        &[ptr_ty, i64_ty, ptr_ty],
-        Some(i64_ty),
-    );
-    // ori_map_keys_to_list(keys, len, key_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_map_keys_to_list",
-        &[ptr_ty, i64_ty, i64_ty, ptr_ty],
-        void,
-    );
-    // ori_map_values_to_list(vals, len, val_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_map_values_to_list",
-        &[ptr_ty, i64_ty, i64_ty, ptr_ty],
-        void,
-    );
-
-    // ori_map_get(keys, vals, len, needle_ptr, val_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_map_get",
-        &[ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
-        void,
-    );
-    // ori_map_insert(keys, vals, len, key_ptr, val_ptr, key_size, val_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_map_insert",
-        &[
-            ptr_ty, ptr_ty, i64_ty, ptr_ty, ptr_ty, i64_ty, i64_ty, ptr_ty,
-        ],
-        void,
-    );
-    // ori_map_remove(keys, vals, len, needle_ptr, key_size, val_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_map_remove",
-        &[ptr_ty, ptr_ty, i64_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
-        void,
-    );
-
-    // ori_str_chars(str_data, str_len, out_ptr) -> void
-    builder.declare_extern_function("ori_str_chars", &[ptr_ty, i64_ty, ptr_ty], void);
-    // ori_str_split(str_data, str_len, sep_data, sep_len, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_str_split",
-        &[ptr_ty, i64_ty, ptr_ty, i64_ty, ptr_ty],
-        void,
-    );
-
-    // -- Comparison functions --
-    builder.declare_extern_function("ori_compare_int", &[i64_ty, i64_ty], Some(i32_ty));
-    builder.declare_extern_function("ori_min_int", &[i64_ty, i64_ty], Some(i64_ty));
-    builder.declare_extern_function("ori_max_int", &[i64_ty, i64_ty], Some(i64_ty));
-
-    // -- String functions --
-    let i8_ty = builder.i8_type();
-    builder.declare_extern_function("ori_str_concat", &[ptr_ty, ptr_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_eq", &[ptr_ty, ptr_ty], Some(bool_ty));
-    builder.declare_extern_function("ori_str_ne", &[ptr_ty, ptr_ty], Some(bool_ty));
-    builder.declare_extern_function("ori_str_compare", &[ptr_ty, ptr_ty], Some(i8_ty));
-    builder.declare_extern_function("ori_str_hash", &[ptr_ty], Some(i64_ty));
-
-    // -- String iteration --
-    // ori_str_next_char(data: ptr, len: i64, byte_offset: i64) -> {i32 codepoint, i64 next_offset}
-    let char_result_ty = builder.register_type(
-        builder
-            .scx()
-            .type_struct(
+            );
+            builder.register_type(st.into())
+        }
+        Ty::Map => {
+            let st = builder.scx().type_struct(
+                &[
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_ptr().into(),
+                    builder.scx().type_ptr().into(),
+                ],
+                false,
+            );
+            builder.register_type(st.into())
+        }
+        Ty::CharResult => {
+            let st = builder.scx().type_struct(
                 &[
                     builder.scx().type_i32().into(),
                     builder.scx().type_i64().into(),
                 ],
                 false,
-            )
-            .into(),
-    );
-    builder.declare_extern_function(
-        "ori_str_next_char",
-        &[ptr_ty, i64_ty, i64_ty],
-        Some(char_result_ty),
-    );
+            );
+            builder.register_type(st.into())
+        }
+    }
+}
 
-    // -- Type conversion functions --
-    builder.declare_extern_function("ori_str_from_raw", &[ptr_ty, i64_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_from_int", &[i64_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_from_bool", &[bool_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_from_float", &[f64_ty], Some(str_ty));
+/// Apply an attribute to a declared function.
+fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr) {
+    match attr {
+        Attr::Nounwind => builder.add_nounwind_attribute(func),
+        Attr::Cold => builder.add_cold_attribute(func),
+        Attr::NoaliasReturn => builder.add_noalias_return_attribute(func),
+        Attr::MemArgmemRW => builder.add_memory_argmem_readwrite_attribute(func),
+    }
+}
 
-    // -- String methods --
-    builder.declare_extern_function("ori_str_contains", &[ptr_ty, ptr_ty], Some(bool_ty));
-    builder.declare_extern_function("ori_str_starts_with", &[ptr_ty, ptr_ty], Some(bool_ty));
-    builder.declare_extern_function("ori_str_ends_with", &[ptr_ty, ptr_ty], Some(bool_ty));
-    builder.declare_extern_function("ori_str_trim", &[ptr_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_to_uppercase", &[ptr_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_to_lowercase", &[ptr_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_replace", &[ptr_ty, ptr_ty, ptr_ty], Some(str_ty));
-    builder.declare_extern_function("ori_str_repeat", &[ptr_ty, i64_ty], Some(str_ty));
+/// Declare a single runtime function from its specification.
+fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
+    let params: Vec<LLVMTypeId> = spec
+        .params
+        .iter()
+        .map(|&t| resolve_ty(builder, t))
+        .collect();
+    let ret = spec.ret.map(|t| resolve_ty(builder, t));
+    let id = builder.declare_extern_function(spec.name, &params, ret);
+    for &attr in spec.attrs {
+        apply_attr(builder, id, attr);
+    }
+    id
+}
 
-    // -- Format functions (§3.16 Formattable trait) --
-    // Each takes the value + format spec string (ptr + len) and returns formatted OriStr.
-    builder.declare_extern_function("ori_format_int", &[i64_ty, ptr_ty, i64_ty], Some(str_ty));
-    builder.declare_extern_function("ori_format_float", &[f64_ty, ptr_ty, i64_ty], Some(str_ty));
-    builder.declare_extern_function("ori_format_str", &[ptr_ty, ptr_ty, i64_ty], Some(str_ty));
-    builder.declare_extern_function("ori_format_bool", &[bool_ty, ptr_ty, i64_ty], Some(str_ty));
-    builder.declare_extern_function("ori_format_char", &[i32_ty, ptr_ty, i64_ty], Some(str_ty));
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
-    // -- Reference counting (V2: data-pointer style, 8-byte header) --
-    //
-    // ARC-safe attributes are CRITICAL for correctness under LLVM optimization.
-    // Without them, DSE/LICM/GVN may reorder or eliminate RC operations.
-    // See plans/llvm_v2/section-11-llvm-passes.md §11.3 for rationale.
+/// Declare a single runtime function by name (lazy, on first use).
+///
+/// Looks up the function in `RT_FUNCTIONS`, declares it in the LLVM module
+/// with the correct signature and attributes, and returns the `FunctionId`.
+///
+/// Called by `IrBuilder::runtime_fn()` which caches the result. If the
+/// function already exists in the LLVM module, reuses the existing
+/// declaration (via `declare_extern_function`'s idempotency).
+///
+/// # Panics
+///
+/// Panics if `name` is not a known runtime function.
+pub fn declare_single(builder: &mut IrBuilder, name: &str) -> FunctionId {
+    let spec = RT_FUNCTIONS
+        .iter()
+        .find(|f| f.name == name)
+        .unwrap_or_else(|| panic!("unknown runtime function: {name}"));
+    declare_spec(builder, spec)
+}
 
-    // ori_rc_alloc(size: usize, align: usize) -> *mut u8 (data pointer)
-    // noalias return: fresh allocation, no existing pointers alias it
-    // nounwind: allocation failure = abort (no unwinding)
-    let rc_alloc = builder.declare_extern_function("ori_rc_alloc", &[i64_ty, i64_ty], Some(ptr_ty));
-    builder.add_nounwind_attribute(rc_alloc);
-    builder.add_noalias_return_attribute(rc_alloc);
+/// Like [`declare_single`], but returns `None` if the name is not a known
+/// runtime function (instead of panicking).
+///
+/// Returns `(static_name, func_id)` where `static_name` is the `&'static str`
+/// from the `RT_FUNCTIONS` table — suitable for use as a cache key in
+/// `IrBuilder::try_runtime_fn()`.
+pub fn try_declare_single(
+    builder: &mut IrBuilder,
+    name: &str,
+) -> Option<(&'static str, FunctionId)> {
+    let spec = RT_FUNCTIONS.iter().find(|f| f.name == name)?;
+    let id = declare_spec(builder, spec);
+    Some((spec.name, id))
+}
 
-    // ori_rc_inc(data_ptr: *mut u8)
-    // nounwind: RC operations never throw
-    // memory(argmem: readwrite): only touches refcount at ptr-8
-    // NOT readonly/readnone — modifies the refcount word
-    let rc_inc = builder.declare_extern_function("ori_rc_inc", &[ptr_ty], void);
-    builder.add_nounwind_attribute(rc_inc);
-    builder.add_memory_argmem_readwrite_attribute(rc_inc);
+/// Eagerly declare all runtime functions in the LLVM module.
+///
+/// Used by tests that need the full set available. Production code uses
+/// `IrBuilder::runtime_fn()` for on-demand declaration.
+pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
+    for spec in RT_FUNCTIONS {
+        declare_single(builder, spec.name);
+    }
+}
 
-    // ori_rc_dec(data_ptr: *mut u8, drop_fn: fn(*mut u8))
-    // nounwind: drop functions must not unwind (panic = abort)
-    // memory(argmem: readwrite): modifies refcount, may call drop_fn, may free
-    // NOT readonly — decrements refcount AND may free memory
-    let rc_dec = builder.declare_extern_function("ori_rc_dec", &[ptr_ty, ptr_ty], void);
-    builder.add_nounwind_attribute(rc_dec);
-    builder.add_memory_argmem_readwrite_attribute(rc_dec);
+/// Returns the names of all known runtime functions.
+///
+/// Used by tests to verify sync with JIT/AOT-only function lists.
+pub fn all_names() -> impl Iterator<Item = &'static str> {
+    RT_FUNCTIONS.iter().map(|f| f.name)
+}
 
-    // ori_rc_free(data_ptr: *mut u8, size: usize, align: usize)
-    // nounwind: deallocation never throws
-    let rc_free = builder.declare_extern_function("ori_rc_free", &[ptr_ty, i64_ty, i64_ty], void);
-    builder.add_nounwind_attribute(rc_free);
-
-    // ori_rc_live_count() -> i64
-    // Returns live RC allocation count (allocs minus frees) for leak detection.
-    let rc_live = builder.declare_extern_function("ori_rc_live_count", &[], Some(i64_ty));
-    builder.add_nounwind_attribute(rc_live);
-
-    // ori_rc_reset_live_count()
-    // Resets the live RC allocation counter to zero. Used by JIT test runners.
-    let rc_reset = builder.declare_extern_function("ori_rc_reset_live_count", &[], void);
-    builder.add_nounwind_attribute(rc_reset);
-
-    // -- Args conversion --
-    // ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList { i64, i64, ptr }
-    builder.declare_extern_function("ori_args_from_argv", &[i32_ty, ptr_ty], Some(list_ty));
-
-    // -- Iterator functions --
-    // Constructors: return opaque iterator handle (ptr)
-    builder.declare_extern_function(
-        "ori_iter_from_list",
-        &[ptr_ty, i64_ty, i64_ty],
-        Some(ptr_ty),
-    );
-    builder.declare_extern_function(
-        "ori_iter_from_range",
-        &[i64_ty, i64_ty, i64_ty, bool_ty],
-        Some(ptr_ty),
-    );
-    // ori_iter_from_str(data, len) -> ptr
-    builder.declare_extern_function("ori_iter_from_str", &[ptr_ty, i64_ty], Some(ptr_ty));
-    // ori_iter_from_map(keys, vals, len, key_size, val_size) -> ptr
-    builder.declare_extern_function(
-        "ori_iter_from_map",
-        &[ptr_ty, ptr_ty, i64_ty, i64_ty, i64_ty],
-        Some(ptr_ty),
-    );
-
-    // Next: ori_iter_next(iter, out_ptr, elem_size) -> i8 (0=done, 1=has_next)
-    builder.declare_extern_function("ori_iter_next", &[ptr_ty, ptr_ty, i64_ty], Some(i8_ty));
-
-    // Adapters: take source handle, return new handle
-    // ori_iter_map(iter, transform_fn, transform_env, in_size) -> ptr
-    builder.declare_extern_function(
-        "ori_iter_map",
-        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
-        Some(ptr_ty),
-    );
-    // ori_iter_filter(iter, predicate_fn, predicate_env, elem_size) -> ptr
-    builder.declare_extern_function(
-        "ori_iter_filter",
-        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
-        Some(ptr_ty),
-    );
-    builder.declare_extern_function("ori_iter_take", &[ptr_ty, i64_ty], Some(ptr_ty));
-    builder.declare_extern_function("ori_iter_skip", &[ptr_ty, i64_ty], Some(ptr_ty));
-    builder.declare_extern_function("ori_iter_enumerate", &[ptr_ty], Some(ptr_ty));
-    // ori_iter_zip(left, right, left_elem_size) -> ptr
-    builder.declare_extern_function("ori_iter_zip", &[ptr_ty, ptr_ty, i64_ty], Some(ptr_ty));
-    // ori_iter_chain(first, second) -> ptr
-    builder.declare_extern_function("ori_iter_chain", &[ptr_ty, ptr_ty], Some(ptr_ty));
-
-    // Consumers
-    // ori_iter_collect(iter, elem_size, out_ptr) -> void (sret pattern)
-    builder.declare_extern_function("ori_iter_collect", &[ptr_ty, i64_ty, ptr_ty], void);
-    // ori_iter_count(iter, elem_size) -> i64
-    builder.declare_extern_function("ori_iter_count", &[ptr_ty, i64_ty], Some(i64_ty));
-    // ori_iter_any(iter, pred_fn, pred_env, elem_size) -> i8
-    builder.declare_extern_function(
-        "ori_iter_any",
-        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
-        Some(i8_ty),
-    );
-    // ori_iter_all(iter, pred_fn, pred_env, elem_size) -> i8
-    builder.declare_extern_function(
-        "ori_iter_all",
-        &[ptr_ty, ptr_ty, ptr_ty, i64_ty],
-        Some(i8_ty),
-    );
-    // ori_iter_find(iter, pred_fn, pred_env, elem_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_iter_find",
-        &[ptr_ty, ptr_ty, ptr_ty, i64_ty, ptr_ty],
-        void,
-    );
-    // ori_iter_for_each(iter, fn, env, elem_size) -> void
-    builder.declare_extern_function("ori_iter_for_each", &[ptr_ty, ptr_ty, ptr_ty, i64_ty], void);
-    // ori_iter_fold(iter, init_ptr, fold_fn, fold_env, elem_size, acc_size, out_ptr) -> void
-    builder.declare_extern_function(
-        "ori_iter_fold",
-        &[ptr_ty, ptr_ty, ptr_ty, ptr_ty, i64_ty, i64_ty, ptr_ty],
-        void,
-    );
-
-    // Cleanup
-    builder.declare_extern_function("ori_iter_drop", &[ptr_ty], void);
-
-    // -- Panic handler registration --
-    builder.declare_extern_function("ori_register_panic_handler", &[ptr_ty], void);
-
-    // -- Catch recovery --
-    // ori_catch_cleanup(exc_ptr: ptr) -> void
-    // Acknowledges a caught Rust exception. Currently a no-op (see ori_rt docs).
-    // Called from catch(expr:) landing pads before ori_catch_recover.
-    builder.declare_extern_function("ori_catch_cleanup", &[ptr_ty], void);
-
-    // ori_catch_recover() -> OriStr { i64 len, ptr data }
-    // Reads panic message from thread-local and clears panic state.
-    builder.declare_extern_function("ori_catch_recover", &[], Some(str_ty));
-
-    // -- EH personality (Itanium ABI) --
-    // Required by any function containing invoke/landingpad.
-    // We use Rust's personality function (already in libori_rt.a) instead of
-    // __gxx_personality_v0 (which would require linking libstdc++).
-    // rust_eh_personality parses the same LSDA format that LLVM generates.
-    let personality =
-        builder.declare_extern_function("rust_eh_personality", &[i32_ty], Some(i32_ty));
-    builder.add_nounwind_attribute(personality);
+/// Returns the number of runtime functions in the table.
+#[cfg(test)]
+pub fn count() -> usize {
+    RT_FUNCTIONS.len()
 }
 
 // ---------------------------------------------------------------------------

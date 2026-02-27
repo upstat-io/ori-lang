@@ -1,4 +1,4 @@
-//! `TypeInfo` enum and `TypeInfoStore` for V2 codegen.
+//! `TypeInfo` enum, `TypeInfoStore`, and `TypeLayoutResolver` for V2 codegen.
 //!
 //! Every Ori type category gets a [`TypeInfo`] variant that encapsulates its
 //! LLVM representation, memory layout, and calling convention. Adding a new
@@ -7,6 +7,12 @@
 //!
 //! Design from Swift's `TypeInfo` hierarchy, adapted as a Rust enum per Ori
 //! coding guidelines ("enum for fixed sets — exhaustiveness, static dispatch").
+//!
+//! # Module Layout
+//!
+//! - **[`info`]** — `TypeInfo` enum + methods (`storage_type`, `size`, `alignment`, triviality)
+//! - **[`store`]** — `TypeInfoStore` cached `Idx` → `TypeInfo` mapping
+//! - **`TypeLayoutResolver`** (this file) — recursive LLVM type resolution with cycle detection
 //!
 //! # Crate Split
 //!
@@ -19,725 +25,23 @@
 //! - Roc `gen_llvm/src/llvm/convert.rs` (`basic_type_from_layout`)
 //! - Zig `src/codegen/llvm.zig` (`lowerType` with `TypeMap` cache)
 
+mod info;
+mod store;
+
+pub use info::{EnumVariantInfo, TypeInfo};
+pub use store::TypeInfoStore;
+
 use std::cell::{Cell, RefCell};
 
 use inkwell::types::{BasicTypeEnum, StructType};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use ori_ir::Name;
-use ori_types::{Idx, Pool, Tag};
+use ori_ir::{Name, StringInterner};
+#[cfg(test)]
+use ori_types::Pool;
+use ori_types::{Idx, Tag};
 
 use crate::context::SimpleCx;
-
-// ---------------------------------------------------------------------------
-// TypeInfo enum
-// ---------------------------------------------------------------------------
-
-/// Variant info for a single enum variant, stored in `TypeInfo::Enum`.
-#[derive(Clone, Debug)]
-pub struct EnumVariantInfo {
-    /// Variant name (interned).
-    pub name: Name,
-    /// Field types (empty for unit variants, one element for tuple variants).
-    pub fields: Vec<Idx>,
-}
-
-/// LLVM-specific type information for code generation.
-///
-/// Every Ori type category gets a variant. The enum encapsulates all
-/// information needed to generate LLVM IR for values of this type:
-/// representation, size, ABI, copy/destroy emission.
-///
-/// ARC classification is NOT here — it lives in `ori_arc::ArcClassification`
-/// (no LLVM dependency). This enum is purely about LLVM code generation.
-#[derive(Clone, Debug)]
-pub enum TypeInfo {
-    /// `int` -> i64
-    Int,
-    /// `float` -> f64
-    Float,
-    /// `bool` -> i1
-    Bool,
-    /// `char` -> i32 (Unicode scalar value)
-    Char,
-    /// `byte` -> i8
-    Byte,
-    /// `unit` -> i64 (LLVM void cannot be stored/passed/phi'd)
-    Unit,
-    /// `never` -> i64 (LLVM void cannot be stored/passed/phi'd)
-    Never,
-    /// `str` -> {i64 len, ptr data}
-    Str,
-    /// `duration` -> i64 (nanoseconds)
-    Duration,
-    /// `size` -> i64 (bytes)
-    Size,
-    /// `ordering` -> i8 (Less=0, Equal=1, Greater=2)
-    Ordering,
-    /// `[T]` -> {i64 len, i64 cap, ptr data}
-    List { element: Idx },
-    /// `{K: V}` -> {i64 len, i64 cap, ptr keys, ptr vals}
-    Map { key: Idx, value: Idx },
-    /// `set[T]` -> {i64 len, i64 cap, ptr data}
-    Set { element: Idx },
-    /// `(A, B, ...)` -> {A, B, ...}
-    Tuple { elements: Vec<Idx> },
-    /// `option[T]` -> {i8 tag, T payload}
-    Option { inner: Idx },
-    /// `result[T, E]` -> {i8 tag, max(T, E) payload}
-    Result { ok: Idx, err: Idx },
-    /// `range` -> {i64 start, i64 end, i64 step, i64 inclusive}
-    Range,
-    /// User-defined struct -> {field1, field2, ...}
-    Struct { fields: Vec<(Name, Idx)> },
-    /// User-defined enum -> {tag, max(variant payloads)}
-    Enum { variants: Vec<EnumVariantInfo> },
-    /// `Iterator<T>` -> ptr (opaque heap-allocated iterator handle)
-    Iterator { element: Idx },
-    /// `chan<T>` -> ptr (opaque heap-allocated channel)
-    Channel { element: Idx },
-    /// `(P1, ...) -> R` -> ptr (function pointer or closure pointer)
-    Function { params: Vec<Idx>, ret: Idx },
-    /// Error/unknown type fallback.
-    ///
-    /// Used for types that should never reach codegen:
-    /// `Var`, `BoundVar`, `RigidVar`, `Scheme`, `Projection`,
-    /// `ModuleNs`, `Infer`, `SelfType`.
-    Error,
-}
-
-// ---------------------------------------------------------------------------
-// TypeInfo — representation methods
-// ---------------------------------------------------------------------------
-
-impl TypeInfo {
-    /// The LLVM type used to represent values of this type in memory.
-    ///
-    /// This is the canonical type mapping. Every `TypeInfo` variant knows
-    /// exactly how it maps to LLVM IR, making extension straightforward.
-    pub fn storage_type<'ll>(&self, scx: &SimpleCx<'ll>) -> BasicTypeEnum<'ll> {
-        match self {
-            // Primitives
-            Self::Int | Self::Duration | Self::Size | Self::Unit | Self::Never => {
-                scx.type_i64().into()
-            }
-            Self::Float => scx.type_f64().into(),
-            Self::Bool => scx.type_i1().into(),
-            Self::Char => scx.type_i32().into(),
-            Self::Byte | Self::Ordering => scx.type_i8().into(),
-
-            // Str: {i64 len, ptr data}
-            Self::Str => scx
-                .type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false)
-                .into(),
-
-            // Collections
-            Self::List { .. } | Self::Set { .. } => scx
-                .type_struct(
-                    &[
-                        scx.type_i64().into(),
-                        scx.type_i64().into(),
-                        scx.type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
-
-            Self::Map { .. } => scx
-                .type_struct(
-                    &[
-                        scx.type_i64().into(),
-                        scx.type_i64().into(),
-                        scx.type_ptr().into(),
-                        scx.type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
-
-            // Range layout: {i64 start, i64 end, i64 step, i64 inclusive}
-            // ARC IR constructs ranges as 4-element tuples with i64 fields.
-            // The inclusive flag is stored as i64 (0/1) and truncated to i1
-            // only when calling ori_iter_from_range.
-            Self::Range => scx
-                .type_struct(
-                    &[
-                        scx.type_i64().into(),
-                        scx.type_i64().into(),
-                        scx.type_i64().into(),
-                        scx.type_i64().into(),
-                    ],
-                    false,
-                )
-                .into(),
-
-            // Tagged unions: {i8 tag, payload}
-            // Option uses the inner type directly as payload.
-            // Result uses the larger of ok/err — for now, uses ok type.
-            // TODO: Result should use max(ok, err) size for correct layout.
-            Self::Option { inner } => {
-                // Payload type depends on inner type. Since we don't have
-                // the store here, use i64 as a uniform payload representation.
-                // The actual payload coercion happens at emit time.
-                let _ = inner;
-                scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
-                    .into()
-            }
-            Self::Result { ok, err } => {
-                let _ = (ok, err);
-                scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
-                    .into()
-            }
-
-            // Tuple: struct of element types. Without the store, we can't
-            // resolve element types here. This returns an empty struct as
-            // placeholder — actual tuple lowering uses TypeInfoStore which
-            // has access to resolve element types via the Pool.
-            Self::Tuple { elements } => {
-                // Placeholder: tuple of N i64s. Real lowering via store.
-                let fields: Vec<BasicTypeEnum<'ll>> =
-                    elements.iter().map(|_| scx.type_i64().into()).collect();
-                scx.type_struct(&fields, false).into()
-            }
-
-            // Iterator / Channel: opaque heap-allocated handles
-            Self::Iterator { .. } | Self::Channel { .. } => scx.type_ptr().into(),
-
-            // Function: fat-pointer closure { fn_ptr: ptr, env_ptr: ptr }
-            // All function-typed values use this two-pointer representation,
-            // even non-closures (which have env_ptr = null). This uniform
-            // representation avoids branching at call sites.
-            Self::Function { .. } => scx
-                .type_struct(&[scx.type_ptr().into(), scx.type_ptr().into()], false)
-                .into(),
-
-            // User-defined types (placeholder — resolved via TypeInfoStore)
-            Self::Struct { fields } => {
-                let field_types: Vec<BasicTypeEnum<'ll>> =
-                    fields.iter().map(|_| scx.type_i64().into()).collect();
-                scx.type_struct(&field_types, false).into()
-            }
-            Self::Enum { .. } => {
-                // Default: {i64 tag, i64 payload} — real layout computed by store
-                scx.type_struct(&[scx.type_i64().into(), scx.type_i64().into()], false)
-                    .into()
-            }
-
-            // Error fallback
-            Self::Error => scx.type_i64().into(),
-        }
-    }
-
-    /// Size in bytes (ABI size).
-    ///
-    /// Returns `None` for types whose size depends on element types and
-    /// can only be computed with a `TypeInfoStore` (which has Pool access).
-    ///
-    /// Used by Section 04's `compute_param_passing()` and `compute_return_passing()`.
-    pub fn size(&self) -> Option<u64> {
-        match self {
-            // 8-byte types: scalars, handles, error fallback
-            Self::Int
-            | Self::Float
-            | Self::Duration
-            | Self::Size
-            | Self::Unit
-            | Self::Never
-            | Self::Iterator { .. }
-            | Self::Channel { .. }
-            | Self::Error => Some(8),
-
-            // 1-byte types
-            Self::Bool | Self::Byte | Self::Ordering => Some(1),
-
-            // 4-byte types
-            Self::Char => Some(4),
-
-            // 16-byte types:
-            // Function: fat-pointer closure { ptr, ptr }
-            // Str: {i64, ptr}
-            // Option/Result: {i64, T} — uniform i64 tag + payload = 16 bytes
-            Self::Function { .. } | Self::Str | Self::Option { .. } | Self::Result { .. } => {
-                Some(16)
-            }
-
-            // List/Set: {i64, i64, ptr} = 24 bytes
-            Self::List { .. } | Self::Set { .. } => Some(24),
-
-            // Range: {i64 start, i64 end, i64 step, i64 inclusive} = 32 bytes
-            // Map: {i64, i64, ptr, ptr} = 32 bytes
-            Self::Range | Self::Map { .. } => Some(32),
-
-            // Dynamic-size types: depend on element/field types
-            Self::Tuple { .. } | Self::Struct { .. } | Self::Enum { .. } => None,
-        }
-    }
-
-    /// The type name matching `TYPECK_BUILTIN_METHODS` convention.
-    ///
-    /// Returns `Some("int")` for `TypeInfo::Int`, `Some("Option")` for
-    /// `TypeInfo::Option { .. }`, etc. Returns `None` for types without
-    /// builtin methods (Unit, Never, user-defined structs/enums).
-    ///
-    /// Naming convention follows `TYPECK_BUILTIN_METHODS`: lowercase for
-    /// primitive syntax types (`int`, `str`, `list`, `map`, `range`, `tuple`),
-    /// `PascalCase` for named/standard types (`Option`, `Result`, `Set`,
-    /// `Iterator`, `Channel`, `Duration`, `Size`, `Ordering`).
-    pub fn builtin_type_name(&self) -> Option<&'static str> {
-        match self {
-            Self::Int => Some("int"),
-            Self::Float => Some("float"),
-            Self::Bool => Some("bool"),
-            Self::Char => Some("char"),
-            Self::Byte => Some("byte"),
-            Self::Str => Some("str"),
-            Self::Duration => Some("Duration"),
-            Self::Size => Some("Size"),
-            Self::Ordering => Some("Ordering"),
-            Self::List { .. } => Some("list"),
-            Self::Map { .. } => Some("map"),
-            Self::Set { .. } => Some("Set"),
-            Self::Tuple { .. } => Some("tuple"),
-            Self::Option { .. } => Some("Option"),
-            Self::Result { .. } => Some("Result"),
-            Self::Range => Some("range"),
-            Self::Iterator { .. } => Some("Iterator"),
-            Self::Channel { .. } => Some("Channel"),
-            Self::Error => Some("error"),
-            // No builtin methods for these types
-            Self::Unit
-            | Self::Never
-            | Self::Struct { .. }
-            | Self::Enum { .. }
-            | Self::Function { .. } => None,
-        }
-    }
-
-    /// Alignment in bytes.
-    ///
-    /// Returns the required alignment for this type. On x86-64, all types
-    /// align to at most 8 bytes.
-    pub fn alignment(&self) -> u32 {
-        match self {
-            Self::Bool | Self::Byte | Self::Ordering => 1,
-            Self::Char => 4,
-            // Everything else aligns to 8 on x86-64
-            _ => 8,
-        }
-    }
-
-    /// True if this type has no ARC semantics (no retain/release needed).
-    ///
-    /// Trivial types are passed by value and don't participate in
-    /// reference counting. This is the codegen-level triviality check;
-    /// the ARC-level classification lives in `ori_arc`.
-    pub fn is_trivial(&self) -> bool {
-        match self {
-            // Scalar primitives and error fallback are trivial
-            Self::Int
-            | Self::Float
-            | Self::Bool
-            | Self::Char
-            | Self::Byte
-            | Self::Unit
-            | Self::Never
-            | Self::Duration
-            | Self::Size
-            | Self::Ordering
-            | Self::Range
-            | Self::Error => true,
-
-            // Everything else has heap data or may contain heap data.
-            // Tagged unions (Option/Result) and composites (Tuple/Struct/Enum)
-            // are conservatively non-trivial — precise classification requires
-            // transitive field analysis (future: ori_arc ArcClassification).
-            Self::Str
-            | Self::List { .. }
-            | Self::Map { .. }
-            | Self::Set { .. }
-            | Self::Iterator { .. }
-            | Self::Channel { .. }
-            | Self::Function { .. }
-            | Self::Option { .. }
-            | Self::Result { .. }
-            | Self::Tuple { .. }
-            | Self::Struct { .. }
-            | Self::Enum { .. } => false,
-        }
-    }
-
-    /// True if values fit in registers and can be loaded/stored directly.
-    ///
-    /// Non-loadable types must be passed by reference (sret ABI).
-    pub fn is_loadable(&self) -> bool {
-        match self.size() {
-            Some(size) => size <= 16,
-            // Unknown size — conservatively not loadable
-            None => false,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// TypeInfoStore
-// ---------------------------------------------------------------------------
-
-/// Static sentinel returned for `Idx::NONE` lookups.
-static NONE_TYPE_INFO: TypeInfo = TypeInfo::Error;
-
-/// Maps `Idx` -> `TypeInfo` for all types encountered during codegen.
-///
-/// Indices 0-63 are pre-populated at construction (12 real primitives +
-/// 52 Error padding), matching Pool's layout. Dynamic types (index >= 64)
-/// are populated lazily on first access.
-///
-/// Uses indexed storage (`Vec`) for O(1) lookup — `Idx` values are dense.
-/// No Arc, no dyn, no `RwLock` — single-threaded per codegen context.
-///
-/// Uses interior mutability (`RefCell`) to allow shared access while
-/// supporting lazy population on first access.
-///
-/// Only depends on Pool — struct/enum field data must be pre-flattened
-/// into Pool's extra array during type checking (prerequisite refactor
-/// required for full Struct/Enum support).
-pub struct TypeInfoStore<'tcx> {
-    /// `Idx` -> `TypeInfo` mapping. Dense indexed storage.
-    /// Indices 0-63 are pre-populated at construction.
-    /// `None` = not yet computed. `Some` = cached.
-    entries: RefCell<Vec<Option<TypeInfo>>>,
-
-    /// Pool reference for type property queries.
-    pool: &'tcx Pool,
-
-    /// Cache for transitive triviality classification.
-    ///
-    /// `true` = type has no ARC semantics (all fields transitively trivial).
-    triviality_cache: RefCell<FxHashMap<Idx, bool>>,
-
-    /// Types currently being classified for triviality (cycle detection).
-    ///
-    /// Recursive types are conservatively non-trivial since they require
-    /// heap indirection (pointers).
-    classifying_trivial: RefCell<FxHashSet<Idx>>,
-
-    /// Types currently being computed in `compute_type_info()` (cycle detection).
-    ///
-    /// Named/Applied/Alias resolution calls `self.get(resolved)` which can
-    /// re-enter `compute_type_info()` for another Named type — unbounded
-    /// recursion. This set detects the cycle and returns `TypeInfo::Error`.
-    computing: RefCell<FxHashSet<Idx>>,
-}
-
-impl<'tcx> TypeInfoStore<'tcx> {
-    /// Create a new store, pre-populating primitive type entries.
-    ///
-    /// Indices 0-11 are real primitives; 12-63 are reserved (Error padding).
-    pub fn new(pool: &'tcx Pool) -> Self {
-        let mut entries = Vec::with_capacity(64);
-        for i in 0..64u32 {
-            let idx = Idx::from_raw(i);
-            let info = Self::primitive_type_info(pool, idx);
-            entries.push(Some(info));
-        }
-        Self {
-            entries: RefCell::new(entries),
-            pool,
-            triviality_cache: RefCell::new(FxHashMap::default()),
-            classifying_trivial: RefCell::new(FxHashSet::default()),
-            computing: RefCell::new(FxHashSet::default()),
-        }
-    }
-
-    /// Resolve primitive type info for pre-interned indices.
-    fn primitive_type_info(pool: &Pool, idx: Idx) -> TypeInfo {
-        // Only the first 12 indices are real primitives; the rest are padding.
-        if idx.raw() >= 64 {
-            return TypeInfo::Error;
-        }
-        match pool.tag(idx) {
-            Tag::Int => TypeInfo::Int,
-            Tag::Float => TypeInfo::Float,
-            Tag::Bool => TypeInfo::Bool,
-            Tag::Str => TypeInfo::Str,
-            Tag::Char => TypeInfo::Char,
-            Tag::Byte => TypeInfo::Byte,
-            Tag::Unit => TypeInfo::Unit,
-            Tag::Never => TypeInfo::Never,
-            Tag::Duration => TypeInfo::Duration,
-            Tag::Size => TypeInfo::Size,
-            Tag::Ordering => TypeInfo::Ordering,
-            _ => TypeInfo::Error, // Reserved slots 12-63
-        }
-    }
-
-    /// Get the `TypeInfo` for a type, computing lazily if needed.
-    ///
-    /// Returns `TypeInfo::Error` for `Idx::NONE` (sentinel, `u32::MAX`).
-    pub fn get(&self, idx: Idx) -> TypeInfo {
-        // Guard: Idx::NONE is a sentinel (u32::MAX) — not a valid index.
-        if idx == Idx::NONE {
-            return NONE_TYPE_INFO.clone();
-        }
-
-        let index = idx.raw() as usize;
-
-        // Guard: reject indices beyond the pool — these are unresolved
-        // generic types or stale indices from a different compilation unit.
-        if index >= self.pool.len() {
-            tracing::warn!(idx = ?idx, pool_len = self.pool.len(), "type index out of pool bounds");
-            return TypeInfo::Error;
-        }
-
-        // Fast path: already computed
-        {
-            let entries = self.entries.borrow();
-            if index < entries.len() {
-                if let Some(ref info) = entries[index] {
-                    return info.clone();
-                }
-            }
-        }
-
-        // Slow path: compute and cache
-        let info = self.compute_type_info(idx);
-        let mut entries = self.entries.borrow_mut();
-        if index >= entries.len() {
-            entries.resize_with(index + 1, || None);
-        }
-        entries[index] = Some(info.clone());
-        info
-    }
-
-    /// Access the underlying Pool.
-    pub fn pool(&self) -> &'tcx Pool {
-        self.pool
-    }
-
-    /// Transitive triviality check: true if this type (and all its children)
-    /// have no ARC semantics.
-    ///
-    /// Unlike `TypeInfo::is_trivial()` which is conservative (all compound
-    /// types are non-trivial), this method walks child types transitively:
-    /// - `option[int]` → trivial (inner is scalar)
-    /// - `option[str]` → non-trivial (str has heap data)
-    /// - `(int, float)` → trivial (all elements scalar)
-    /// - `struct Point { x: int, y: int }` → trivial (all fields scalar)
-    /// - Recursive types → non-trivial (require heap indirection)
-    pub fn is_trivial(&self, idx: Idx) -> bool {
-        // Sentinel
-        if idx == Idx::NONE {
-            return true;
-        }
-
-        // Fast path: cache hit
-        if let Some(&cached) = self.triviality_cache.borrow().get(&idx) {
-            return cached;
-        }
-
-        let result = self.classify_trivial(idx);
-        self.triviality_cache.borrow_mut().insert(idx, result);
-        result
-    }
-
-    /// Recursive triviality classification with cycle detection.
-    fn classify_trivial(&self, idx: Idx) -> bool {
-        // Cycle detection: if we're already classifying this type, it's
-        // recursive, which means it needs heap indirection → non-trivial.
-        if !self.classifying_trivial.borrow_mut().insert(idx) {
-            return false;
-        }
-
-        let info = self.get(idx);
-        let result = match &info {
-            // Scalar primitives are always trivial.
-            TypeInfo::Int
-            | TypeInfo::Float
-            | TypeInfo::Bool
-            | TypeInfo::Char
-            | TypeInfo::Byte
-            | TypeInfo::Unit
-            | TypeInfo::Never
-            | TypeInfo::Duration
-            | TypeInfo::Size
-            | TypeInfo::Ordering
-            | TypeInfo::Range
-            | TypeInfo::Error => true,
-
-            // Heap-backed types are always non-trivial.
-            TypeInfo::Str
-            | TypeInfo::List { .. }
-            | TypeInfo::Map { .. }
-            | TypeInfo::Set { .. }
-            | TypeInfo::Iterator { .. }
-            | TypeInfo::Channel { .. }
-            | TypeInfo::Function { .. } => false,
-
-            // Compound types: trivial iff all children are trivial.
-            TypeInfo::Option { inner } => self.is_trivial(*inner),
-            TypeInfo::Result { ok, err } => self.is_trivial(*ok) && self.is_trivial(*err),
-            TypeInfo::Tuple { elements } => elements.iter().all(|&e| self.is_trivial(e)),
-            TypeInfo::Struct { fields } => fields.iter().all(|&(_, ty)| self.is_trivial(ty)),
-            TypeInfo::Enum { variants } => variants
-                .iter()
-                .all(|v| v.fields.iter().all(|&f| self.is_trivial(f))),
-        };
-
-        self.classifying_trivial.borrow_mut().remove(&idx);
-        result
-    }
-
-    /// Compute `TypeInfo` from Pool tags.
-    ///
-    /// Dispatches on `pool.tag(idx)` to determine the type category and
-    /// extract child type information from the Pool.
-    fn compute_type_info(&self, idx: Idx) -> TypeInfo {
-        // Cycle detection: Named/Applied/Alias resolution calls self.get()
-        // which re-enters compute_type_info(). Detect and break the cycle.
-        if !self.computing.borrow_mut().insert(idx) {
-            tracing::warn!(idx = ?idx, "recursive type in compute_type_info");
-            return TypeInfo::Error;
-        }
-
-        let result = self.compute_type_info_inner(idx);
-
-        self.computing.borrow_mut().remove(&idx);
-        result
-    }
-
-    /// Inner implementation of type info computation, separated for cycle guard.
-    fn compute_type_info_inner(&self, idx: Idx) -> TypeInfo {
-        match self.pool.tag(idx) {
-            // Primitives (should already be pre-populated, but handle gracefully)
-            Tag::Int => TypeInfo::Int,
-            Tag::Float => TypeInfo::Float,
-            Tag::Bool => TypeInfo::Bool,
-            Tag::Str => TypeInfo::Str,
-            Tag::Char => TypeInfo::Char,
-            Tag::Byte => TypeInfo::Byte,
-            Tag::Unit => TypeInfo::Unit,
-            Tag::Never => TypeInfo::Never,
-            Tag::Error => TypeInfo::Error,
-            Tag::Duration => TypeInfo::Duration,
-            Tag::Size => TypeInfo::Size,
-            Tag::Ordering => TypeInfo::Ordering,
-
-            // Simple containers (data = child Idx directly)
-            Tag::List => TypeInfo::List {
-                element: self.pool.list_elem(idx),
-            },
-            Tag::Option => TypeInfo::Option {
-                inner: self.pool.option_inner(idx),
-            },
-            Tag::Set => TypeInfo::Set {
-                element: self.pool.set_elem(idx),
-            },
-            Tag::Range => {
-                // Currently range is always range<int> with fixed layout.
-                // Verify element type is Int (or NONE for unparameterized).
-                let elem = self.pool.range_elem(idx);
-                debug_assert!(
-                    self.pool.tag(elem) == Tag::Int || elem == Idx::NONE,
-                    "Range element type is not Int — generic range not yet implemented"
-                );
-                TypeInfo::Range
-            }
-            Tag::Channel => TypeInfo::Channel {
-                element: self.pool.channel_elem(idx),
-            },
-
-            // Two-child containers (data = index into extra[])
-            Tag::Map => TypeInfo::Map {
-                key: self.pool.map_key(idx),
-                value: self.pool.map_value(idx),
-            },
-            Tag::Result => TypeInfo::Result {
-                ok: self.pool.result_ok(idx),
-                err: self.pool.result_err(idx),
-            },
-
-            // Complex types (extra[] with length prefix)
-            Tag::Function => TypeInfo::Function {
-                params: self.pool.function_params(idx),
-                ret: self.pool.function_return(idx),
-            },
-            Tag::Tuple => TypeInfo::Tuple {
-                elements: self.pool.tuple_elems(idx),
-            },
-
-            // Struct: read field data from Pool's extra array
-            Tag::Struct => {
-                let fields = self.pool.struct_fields(idx);
-                TypeInfo::Struct { fields }
-            }
-
-            // Enum: read variant data from Pool's extra array
-            Tag::Enum => {
-                let pool_variants = self.pool.enum_variants(idx);
-                let variants = pool_variants
-                    .into_iter()
-                    .map(|(name, field_types)| EnumVariantInfo {
-                        name,
-                        fields: field_types,
-                    })
-                    .collect();
-                TypeInfo::Enum { variants }
-            }
-
-            // Named types: resolve to concrete Struct/Enum via Pool resolution table
-            Tag::Named | Tag::Applied | Tag::Alias => {
-                if let Some(resolved) = self.pool.resolve(idx) {
-                    self.get(resolved)
-                } else {
-                    tracing::warn!(
-                        tag = ?self.pool.tag(idx),
-                        "Named/Applied/Alias type has no Pool resolution — \
-                         may be a generic type parameter or unregistered type"
-                    );
-                    TypeInfo::Error
-                }
-            }
-
-            // Type variables: follow unification link chains to the resolved type.
-            //
-            // Type inference creates fresh variables (e.g., `Ok(42)` gets type
-            // `Result<int, ?E>`). Unification resolves `?E = str` via
-            // `VarState::Link`, but the canonical IR may store the pre-resolution
-            // Idx. Follow the link chain here to find the concrete type.
-            Tag::Var => {
-                let resolved = self.pool.resolve_fully(idx);
-                if resolved != idx {
-                    return self.get(resolved);
-                }
-                tracing::error!(
-                    ?idx,
-                    "unresolved type variable at codegen — type inference bug"
-                );
-                TypeInfo::Error
-            }
-
-            // Iterator: opaque heap-allocated handle (runtime pointer).
-            Tag::Iterator | Tag::DoubleEndedIterator => TypeInfo::Iterator {
-                element: self.pool.iterator_elem(idx),
-            },
-
-            // These tags should genuinely never reach codegen.
-            Tag::BoundVar
-            | Tag::RigidVar
-            | Tag::Borrowed
-            | Tag::Scheme
-            | Tag::Projection
-            | Tag::ModuleNs
-            | Tag::Infer
-            | Tag::SelfType => {
-                tracing::error!(
-                    tag = ?self.pool.tag(idx),
-                    "unreachable type tag at codegen — type inference bug"
-                );
-                TypeInfo::Error
-            }
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // TypeLayoutResolver — recursive LLVM type resolution
@@ -760,6 +64,11 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
     store: &'a TypeInfoStore<'tcx>,
     /// LLVM simple context for type construction.
     scx: &'a SimpleCx<'ll>,
+    /// String interner for resolving `Name` → human-readable strings.
+    ///
+    /// When present, struct/enum types get meaningful LLVM names like `%ori.Point`.
+    /// When absent (e.g., in unit tests), falls back to numeric IDs like `%ori.3`.
+    interner: Option<&'a StringInterner>,
     /// Types currently being resolved (cycle detection).
     ///
     /// When we encounter an `Idx` already in this set, we've found a cycle
@@ -780,10 +89,18 @@ pub struct TypeLayoutResolver<'a, 'll, 'tcx> {
 
 impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
     /// Create a new resolver.
-    pub fn new(store: &'a TypeInfoStore<'tcx>, scx: &'a SimpleCx<'ll>) -> Self {
+    ///
+    /// Pass an `interner` to get human-readable LLVM type names (e.g., `%ori.Point`).
+    /// Without it, types get numeric names (e.g., `%ori.3`).
+    pub fn new(
+        store: &'a TypeInfoStore<'tcx>,
+        scx: &'a SimpleCx<'ll>,
+        interner: Option<&'a StringInterner>,
+    ) -> Self {
         Self {
             store,
             scx,
+            interner,
             resolving: RefCell::new(FxHashSet::default()),
             cache: RefCell::new(FxHashMap::default()),
             named_structs: RefCell::new(FxHashMap::default()),
@@ -807,20 +124,28 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
             return self.scx.type_i64().into();
         }
 
-        // Cache hit
-        if let Some(&cached) = self.cache.borrow().get(&idx) {
+        // Canonicalize: resolve through Pool links (Var chains, Applied→Struct
+        // resolutions) so that multiple Idx values for the same concrete type
+        // share a single LLVM struct type.  Without this, the caller's
+        // `Applied(Pair, [Var→Int, Var→Int])` and the mono function's concrete
+        // `Struct(Pair, [Int, Int])` would create distinct LLVM named structs
+        // despite being the same type.
+        let canonical = self.store.pool().resolve_fully(idx);
+
+        // Cache hit (on the canonical Idx)
+        if let Some(&cached) = self.cache.borrow().get(&canonical) {
             return cached;
         }
 
         // Depth guard: catch indirect cycles and prevent stack overflow.
         let current_depth = self.depth.get();
         if current_depth >= Self::MAX_RESOLVE_DEPTH {
-            tracing::warn!(idx = ?idx, depth = current_depth, "type resolution depth limit");
+            tracing::warn!(idx = ?canonical, depth = current_depth, "type resolution depth limit");
             return self.scx.type_i64().into();
         }
         self.depth.set(current_depth + 1);
 
-        let resolved = self.resolve_inner(idx);
+        let resolved = self.resolve_inner(canonical);
 
         self.depth.set(current_depth);
         resolved
@@ -999,8 +324,8 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
 
     /// Get a human-readable name for an LLVM named struct.
     ///
-    /// Tries to look up the type name from the Pool. Falls back to
-    /// `"{fallback}.{raw_index}"` if the name isn't available.
+    /// When the interner is available, resolves `Name` → string for readable
+    /// type names like `%ori.Point`. Falls back to numeric IDs otherwise.
     fn type_name(&self, idx: Idx, fallback: &str) -> String {
         let pool = self.store.pool();
         if idx.raw() as usize >= pool.len() {
@@ -1009,14 +334,29 @@ impl<'a, 'll, 'tcx> TypeLayoutResolver<'a, 'll, 'tcx> {
         match pool.tag(idx) {
             Tag::Struct => {
                 let name = pool.struct_name(idx);
-                format!("ori.{}", name.raw())
+                let label = self.resolve_name(name);
+                format!("ori.{label}")
             }
             Tag::Enum => {
                 let name = pool.enum_name(idx);
-                format!("ori.{}", name.raw())
+                let label = self.resolve_name(name);
+                format!("ori.{label}")
             }
             _ => format!("ori.{}.{}", fallback, idx.raw()),
         }
+    }
+
+    /// Resolve a `Name` to its string representation.
+    ///
+    /// Uses the interner when available; falls back to the raw numeric ID
+    /// (for test `Name::from_raw()` values or missing interner).
+    fn resolve_name(&self, name: Name) -> String {
+        if let Some(interner) = self.interner {
+            if let Some(s) = interner.try_lookup(name) {
+                return s.to_owned();
+            }
+        }
+        name.raw().to_string()
     }
 
     /// Approximate store size of an LLVM type in bytes.

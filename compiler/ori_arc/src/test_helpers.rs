@@ -53,6 +53,7 @@ pub(crate) fn make_func_named(
         var_reprs: Vec::new(),
         spans: span_vecs,
         is_fbip: false,
+        num_captures: 0,
     }
 }
 
