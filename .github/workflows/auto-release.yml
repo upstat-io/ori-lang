@@ -17,6 +17,10 @@ concurrency:
   group: auto-release
   cancel-in-progress: false
 
+permissions:
+  contents: write
+  models: read
+
 jobs:
   auto-release:
     name: Tag & Release
@@ -64,22 +68,97 @@ jobs:
           git tag "${{ steps.tag.outputs.tag }}"
           git push origin "${{ steps.tag.outputs.tag }}"
 
-      - name: Create release with notes
-        env:
-          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+      - name: Gather commit log
+        id: commits
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
 
           # Find previous tag for release notes range
           PREV_TAG=$(git tag --sort=-creatordate | grep '^v' | sed -n '2p')
 
-          NOTES_ARGS=""
           if [[ -n "$PREV_TAG" ]]; then
-            NOTES_ARGS="--notes-start-tag $PREV_TAG"
+            LOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+            DIFF_STAT=$(git diff "${PREV_TAG}..HEAD" --stat | tail -1)
+          else
+            LOG=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
+            DIFF_STAT=""
           fi
+
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
+          # Write to file to avoid shell quoting issues
+          echo "$LOG" > /tmp/commit-log.txt
+          echo "$DIFF_STAT" > /tmp/diff-stat.txt
+
+      - name: Generate AI release notes
+        id: ai_notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMIT_LOG=$(cat /tmp/commit-log.txt)
+          DIFF_STAT=$(cat /tmp/diff-stat.txt)
+          TAG="${{ steps.tag.outputs.tag }}"
+          PREV_TAG="${{ steps.commits.outputs.prev_tag }}"
+
+          # Build the prompt
+          PROMPT=$(cat <<'PROMPT_EOF'
+          You are writing release notes for "Ori", a statically-typed, expression-based programming language compiler. Given the commit log below, write concise, user-friendly release notes in markdown.
+
+          Rules:
+          - Group changes into sections: **Features**, **Bug Fixes**, **Improvements**, **Internal** (only if meaningful)
+          - Omit empty sections
+          - Use past tense ("Added", "Fixed", "Improved")
+          - Keep each bullet to one line
+          - Skip merge commits and CI-only changes
+          - If there are no user-facing changes, just say "Internal improvements and maintenance."
+          - Do NOT wrap in ```markdown fences
+          PROMPT_EOF
+          )
+
+          # Append the actual data
+          FULL_PROMPT="${PROMPT}
+
+          Commit log (${PREV_TAG:-beginning}..${TAG}):
+          ${COMMIT_LOG}
+
+          Diff stats: ${DIFF_STAT}"
+
+          # Call GitHub Models API
+          RESPONSE=$(curl -s \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://models.github.ai/inference/chat/completions" \
+            -d "$(jq -n \
+              --arg prompt "$FULL_PROMPT" \
+              '{
+                model: "openai/gpt-4o-mini",
+                messages: [
+                  { role: "user", content: $prompt }
+                ],
+                temperature: 0.3
+              }')")
+
+          # Extract the content from the response
+          AI_NOTES=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+
+          if [[ -z "$AI_NOTES" ]]; then
+            echo "::warning::AI note generation failed, falling back to commit log"
+            AI_NOTES="## Changes
+
+          ${COMMIT_LOG}"
+          fi
+
+          # Write to file for the next step
+          echo "$AI_NOTES" > /tmp/release-notes.txt
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          NOTES=$(cat /tmp/release-notes.txt)
 
           gh release create "$TAG" \
             --title "Ori ${TAG#v}" \
-            --generate-notes \
-            $NOTES_ARGS \
+            --notes "$NOTES" \
             --prerelease
