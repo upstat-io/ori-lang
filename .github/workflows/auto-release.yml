@@ -131,7 +131,7 @@ jobs:
             -d "$(jq -n \
               --arg prompt "$FULL_PROMPT" \
               '{
-                model: "github-copilot/claude-sonnet-4.6",
+                model: "openai/gpt-4o-mini",
                 messages: [
                   { role: "user", content: $prompt }
                 ],
