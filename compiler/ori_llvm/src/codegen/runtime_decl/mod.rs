@@ -16,7 +16,7 @@
 //! `declare_runtime()` eagerly declares all functions. Used by unit tests
 //! that need the full set available in the LLVM module.
 
-mod runtime_functions;
+pub(crate) mod runtime_functions;
 
 use runtime_functions::{Attr, RtFn, Ty, RT_FUNCTIONS};
 
