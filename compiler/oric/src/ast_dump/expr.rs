@@ -505,7 +505,7 @@ pub(super) fn dump_expr(
 /// Used for simple expressions in contexts where a tree dump would be excessive
 /// (e.g., contract conditions, constant values).
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-pub(super) fn dump_expr_inline(
+pub(crate) fn dump_expr_inline(
     out: &mut String,
     id: ExprId,
     arena: &ExprArena,
