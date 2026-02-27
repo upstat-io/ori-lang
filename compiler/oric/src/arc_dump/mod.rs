@@ -34,6 +34,7 @@ pub fn dump_arc_ir(
     path: &str,
 ) {
     let borrowing_builtins = ori_arc::borrowing_builtin_names(interner);
+    let consuming_receiver_builtins = ori_arc::consuming_receiver_builtin_names(interner);
     let mut out = String::with_capacity(16384);
 
     // Collect and sort function names for deterministic output order.
@@ -61,6 +62,7 @@ pub fn dump_arc_ir(
             interner,
             pool,
             &borrowing_builtins,
+            &consuming_receiver_builtins,
         );
 
         for func in &funcs {

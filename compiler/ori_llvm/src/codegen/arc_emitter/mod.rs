@@ -78,6 +78,18 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Avoids regenerating drop functions for the same type and handles
     /// recursive types (entry inserted before body generation).
     drop_fn_cache: FxHashMap<Idx, FunctionId>,
+    /// Cache: element type `Idx` → already-generated element-dec function.
+    /// Element-dec functions receive a pointer to an element within a buffer
+    /// and decrement that element's RC children (without freeing the element).
+    elem_dec_fn_cache: FxHashMap<Idx, FunctionId>,
+    /// Cache: element type `Idx` → already-generated element-inc function.
+    /// Element-inc functions receive a pointer to an element within a buffer
+    /// and increment that element's RC children. Used by COW slow paths.
+    elem_inc_fn_cache: FxHashMap<Idx, FunctionId>,
+    /// Cache: element type `Idx` → already-generated comparison thunk `FunctionId`.
+    /// Compare thunks have signature `fn(*const u8, *const u8) -> i32` (-1/0/1)
+    /// and are used by `ori_list_sort_cow`.
+    compare_thunk_cache: FxHashMap<Idx, FunctionId>,
     /// The LLVM function being compiled.
     current_function: FunctionId,
     /// Shared function-resolution lookup tables.
@@ -113,6 +125,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             pool,
             classifier,
             drop_fn_cache: FxHashMap::default(),
+            elem_dec_fn_cache: FxHashMap::default(),
+            elem_inc_fn_cache: FxHashMap::default(),
+            compare_thunk_cache: FxHashMap::default(),
             current_function,
             ctx,
             partial_apply_counter: 0,
@@ -252,6 +267,138 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         }
 
         self.builder.get_function_ptr(func_id)
+    }
+
+    /// Get or generate an element-dec function for a collection's element type.
+    ///
+    /// Element-dec functions receive a pointer to an element **within a data
+    /// buffer** and decrement that element's RC children. They do NOT free
+    /// the element itself (the buffer owns the storage).
+    ///
+    /// Returns null for scalar types or types whose elements have no RC children.
+    fn get_or_generate_elem_dec_fn(&mut self, element_type: Idx) -> ValueId {
+        // Scalar elements — no RC children to dec
+        if self.classifier.is_scalar(element_type) {
+            return self.builder.const_null_ptr();
+        }
+
+        // Fast path: already generated
+        if let Some(&func_id) = self.elem_dec_fn_cache.get(&element_type) {
+            return self.builder.get_function_ptr(func_id);
+        }
+
+        // Save builder state
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        let func_id = self.generate_elem_dec_fn_body(element_type);
+
+        // Restore builder state
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        self.builder.get_function_ptr(func_id)
+    }
+
+    /// Generate the body of an element-dec function for a given element type.
+    ///
+    /// The function signature is `void (ptr %elem)`. It loads the element
+    /// value from `%elem` and decrements all RC-managed children.
+    fn generate_elem_dec_fn_body(&mut self, element_type: Idx) -> FunctionId {
+        let ptr_ty = self.builder.ptr_type();
+
+        let name = format!("_ori_elem_dec${}", element_type.raw());
+        let func_id = self.builder.declare_void_function(&name, &[ptr_ty]);
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        self.builder.add_cold_attribute(func_id);
+
+        // Cache before body generation to handle recursive types
+        self.elem_dec_fn_cache.insert(element_type, func_id);
+
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let elem_ptr = self.builder.get_param(func_id, 0);
+
+        // Load the element value from the pointer
+        let elem_llvm_ty = self.resolve_type(element_type);
+        let elem_val = self.builder.load(elem_llvm_ty, elem_ptr, "elem");
+
+        // Dec all RC children of the element value
+        self.dec_value_rc(elem_val, element_type);
+
+        self.builder.ret_void();
+        func_id
+    }
+
+    /// Get or generate an element-inc function for a collection's element type.
+    ///
+    /// Element-inc functions receive a pointer to an element **within a data
+    /// buffer** and increment that element's RC children. Used by COW slow
+    /// paths to account for byte-copied elements that now live in a new buffer.
+    ///
+    /// Returns null for scalar types or types whose elements have no RC children.
+    pub(super) fn get_or_generate_elem_inc_fn(&mut self, element_type: Idx) -> ValueId {
+        // Scalar elements — no RC children to inc
+        if self.classifier.is_scalar(element_type) {
+            return self.builder.const_null_ptr();
+        }
+
+        // Fast path: already generated
+        if let Some(&func_id) = self.elem_inc_fn_cache.get(&element_type) {
+            return self.builder.get_function_ptr(func_id);
+        }
+
+        // Save builder state
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        let func_id = self.generate_elem_inc_fn_body(element_type);
+
+        // Restore builder state
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        self.builder.get_function_ptr(func_id)
+    }
+
+    /// Generate the body of an element-inc function for a given element type.
+    ///
+    /// The function signature is `void (ptr %elem)`. It loads the element
+    /// value from `%elem` and increments all RC-managed children.
+    fn generate_elem_inc_fn_body(&mut self, element_type: Idx) -> FunctionId {
+        let ptr_ty = self.builder.ptr_type();
+
+        let name = format!("_ori_elem_inc${}", element_type.raw());
+        let func_id = self.builder.declare_void_function(&name, &[ptr_ty]);
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+        self.builder.add_cold_attribute(func_id);
+
+        // Cache before body generation to handle recursive types
+        self.elem_inc_fn_cache.insert(element_type, func_id);
+
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let elem_ptr = self.builder.get_param(func_id, 0);
+
+        // Load the element value from the pointer
+        let elem_llvm_ty = self.resolve_type(element_type);
+        let elem_val = self.builder.load(elem_llvm_ty, elem_ptr, "elem");
+
+        // Inc all RC children of the element value
+        self.inc_value_rc(elem_val, element_type, 1);
+
+        self.builder.ret_void();
+        func_id
     }
 
     // -----------------------------------------------------------------------

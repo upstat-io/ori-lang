@@ -76,6 +76,10 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     /// Passed to `annotate_arg_ownership` so inline-compiled builtins get
     /// borrowing semantics instead of the default all-Owned.
     borrowing_builtins: rustc_hash::FxHashSet<Name>,
+    /// COW list method names with consuming receiver semantics (e.g., `push`,
+    /// `reverse`). When the receiver is a `List`, the ARC pipeline marks it
+    /// as `Owned` to prevent duplicate `RcDec` (the runtime handles RC internally).
+    consuming_receiver_builtins: rustc_hash::FxHashSet<Name>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -100,6 +104,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
         let borrowing_builtins = ori_arc::borrowing_builtin_names(interner);
+        let consuming_receiver_builtins = ori_arc::consuming_receiver_builtin_names(interner);
         Self {
             builder,
             type_info,
@@ -114,6 +119,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             arc_classifier,
             debug_context,
             borrowing_builtins,
+            consuming_receiver_builtins,
         }
     }
 

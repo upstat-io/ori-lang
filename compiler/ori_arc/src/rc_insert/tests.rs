@@ -1684,7 +1684,14 @@ fn external_invoke_args_get_dec() {
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
     let sigs = FxHashMap::default();
-    annotate_arg_ownership(&mut func, &sigs, &interner, &FxHashSet::default());
+    annotate_arg_ownership(
+        &mut func,
+        &sigs,
+        &interner,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &pool,
+    );
 
     // Run RC insertion.
     let ownership = infer_derived_ownership(&func, &sigs);
@@ -1744,7 +1751,14 @@ fn external_invoke_scalar_arg_no_dec() {
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
     let sigs = FxHashMap::default();
-    annotate_arg_ownership(&mut func, &sigs, &interner, &FxHashSet::default());
+    annotate_arg_ownership(
+        &mut func,
+        &sigs,
+        &interner,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        &pool,
+    );
     let ownership = infer_derived_ownership(&func, &sigs);
     let liveness = compute_liveness(&func, &classifier);
     insert_rc_ops_with_ownership(&mut func, &classifier, &liveness, &ownership, &sigs, &pool);

@@ -552,13 +552,23 @@ fn compute_arg_ownership(
 /// `is_empty`) whose receiver is always borrowed. These are compiled inline
 /// by the LLVM emitter — their args must be marked Borrowed so that the
 /// caller retains ownership and inserts `RcDec` at the arg's last use.
+///
+/// `consuming_receiver_builtins` identifies COW list methods (e.g., `push`,
+/// `reverse`) where the receiver's RC is managed internally by the runtime.
+/// When the receiver type is `List`, the first arg is marked `Owned` to
+/// prevent the ARC pipeline from emitting a duplicate `RcDec`.
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn annotate_arg_ownership(
     func: &mut ArcFunction,
     sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
     interner: &ori_ir::StringInterner,
     borrowing_builtins: &FxHashSet<ori_ir::Name>,
+    consuming_receiver_builtins: &FxHashSet<ori_ir::Name>,
+    pool: &Pool,
 ) {
+    // Split borrow: var_types is read-only, blocks are mutated.
+    let var_types = &func.var_types;
+
     for block in &mut func.blocks {
         // Annotate body instructions.
         for instr in &mut block.body {
@@ -571,6 +581,14 @@ pub fn annotate_arg_ownership(
             {
                 *arg_ownership =
                     compute_arg_ownership(*callee, args.len(), sigs, interner, borrowing_builtins);
+                apply_consuming_receiver_override(
+                    *callee,
+                    args,
+                    arg_ownership,
+                    consuming_receiver_builtins,
+                    var_types,
+                    pool,
+                );
             }
         }
 
@@ -584,7 +602,44 @@ pub fn annotate_arg_ownership(
         {
             *arg_ownership =
                 compute_arg_ownership(*callee, args.len(), sigs, interner, borrowing_builtins);
+            apply_consuming_receiver_override(
+                *callee,
+                args,
+                arg_ownership,
+                consuming_receiver_builtins,
+                var_types,
+                pool,
+            );
         }
+    }
+}
+
+/// Override borrowing ownership for COW list methods with consuming receivers.
+///
+/// When a callee is in `consuming_builtins` and the first argument's type
+/// resolves to `Tag::List`, marks the receiver as `Owned`. This prevents
+/// the ARC pipeline from emitting a duplicate `RcDec` for methods that
+/// handle the old buffer's RC internally (COW semantics).
+///
+/// Type-qualified: `"add"` and `"concat"` are shared names — borrowing for
+/// strings, consuming for lists. Only the list case is overridden here.
+fn apply_consuming_receiver_override(
+    callee: ori_ir::Name,
+    args: &[ArcVarId],
+    arg_ownership: &mut [ArgOwnership],
+    consuming_builtins: &FxHashSet<ori_ir::Name>,
+    var_types: &[ori_types::Idx],
+    pool: &Pool,
+) {
+    if !consuming_builtins.contains(&callee) || args.is_empty() || arg_ownership.is_empty() {
+        return;
+    }
+
+    // Check the receiver's type (first argument).
+    let receiver_var = args[0];
+    let receiver_idx = var_types[receiver_var.index()];
+    if pool.tag(receiver_idx) == ori_types::Tag::List {
+        arg_ownership[0] = ArgOwnership::Owned;
     }
 }
 
