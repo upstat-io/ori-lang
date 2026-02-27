@@ -405,6 +405,16 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         self.arena.push_value(ptr_val.into())
     }
 
+    /// Check whether a function already has a body (basic blocks).
+    ///
+    /// Used to avoid regenerating auxiliary functions (compare thunks, drop
+    /// functions) that may already exist in the LLVM module from a previous
+    /// emitter instance.
+    pub fn function_has_body(&self, func: FunctionId) -> bool {
+        let func_val = self.arena.get_function(func);
+        func_val.count_basic_blocks() > 0
+    }
+
     // -- Calling conventions --
 
     /// Set the calling convention on a function.

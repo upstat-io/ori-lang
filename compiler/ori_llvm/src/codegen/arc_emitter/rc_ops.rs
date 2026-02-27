@@ -129,54 +129,97 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     fn emit_rc_inc_heap(&mut self, var: ArcVarId, count: u32, func: &ArcFunction) {
         let val = self.var(var);
         let ty = func.var_type(var);
-        let resolved = self.pool.resolve_fully(ty);
-        let tag = self.pool.tag(resolved);
-
-        let ptrs = self.extract_heap_data_ptrs(val, tag);
+        let ptrs = self.extract_rc_data_ptrs(val, ty);
         self.call_rc_inc_all(&ptrs, count);
     }
 
     /// Dec a heap-allocated collection.
     ///
-    /// Extracts data pointer(s) via collection layout, generates a drop
-    /// function for the collection type, and calls `ori_rc_dec` for each.
+    /// For List/Set/Map: extracts len, cap, and data pointer(s), then calls
+    /// `ori_buffer_rc_dec` which correctly handles element iteration and
+    /// buffer freeing. For other heap types: falls back to `ori_rc_dec`.
     fn emit_rc_dec_heap(&mut self, var: ArcVarId, func: &ArcFunction) {
         let val = self.var(var);
         let ty = func.var_type(var);
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
 
-        let ptrs = self.extract_heap_data_ptrs(val, tag);
-        let drop_fn = self.get_or_generate_drop_fn(ty);
-        self.call_rc_dec_all(&ptrs, drop_fn);
+        match tag {
+            Tag::List | Tag::Set => self.emit_buffer_rc_dec_list_or_set(val, resolved, tag),
+            Tag::Map => self.emit_buffer_rc_dec_map(val, resolved),
+            _ => {
+                let drop_fn = self.get_or_generate_drop_fn(ty);
+                self.call_rc_dec_all(&[val], drop_fn);
+            }
+        }
     }
 
-    /// Extract data pointer(s) from a heap collection by its Pool tag.
+    /// Emit `ori_buffer_rc_dec` for a list or set value.
     ///
-    /// - List/Set: `{i64 len, i64 cap, ptr data}` → field 2
-    /// - Map: `{i64 len, i64 cap, ptr keys, ptr vals}` → fields 2, 3
-    /// - Other: value is the RC pointer directly
-    fn extract_heap_data_ptrs(&mut self, val: super::ValueId, tag: Tag) -> Vec<super::ValueId> {
-        match tag {
-            Tag::List | Tag::Set => self
-                .builder
-                .extract_value(val, 2, "rc.data_ptr")
-                .map_or_else(|| vec![val], |p| vec![p]),
-            Tag::Map => {
-                let mut ptrs = Vec::with_capacity(2);
-                if let Some(k) = self.builder.extract_value(val, 2, "rc.keys_ptr") {
-                    ptrs.push(k);
-                }
-                if let Some(v) = self.builder.extract_value(val, 3, "rc.vals_ptr") {
-                    ptrs.push(v);
-                }
-                if ptrs.is_empty() {
-                    vec![val]
-                } else {
-                    ptrs
-                }
-            }
-            _ => vec![val],
+    /// Extracts `{len, cap, data}` from the collection value, computes
+    /// the element size and element-dec function, and calls the runtime.
+    fn emit_buffer_rc_dec_list_or_set(
+        &mut self,
+        val: super::ValueId,
+        resolved: ori_types::Idx,
+        tag: Tag,
+    ) {
+        let Some(data) = self.builder.extract_value(val, 2, "rc.data_ptr") else {
+            return;
+        };
+        let Some(len) = self.builder.extract_value(val, 0, "rc.len") else {
+            return;
+        };
+        let Some(cap) = self.builder.extract_value(val, 1, "rc.cap") else {
+            return;
+        };
+
+        let elem_type = if tag == Tag::List {
+            self.pool.list_elem(resolved)
+        } else {
+            self.pool.set_elem(resolved)
+        };
+        let elem_size = self.element_store_size(elem_type);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
+
+        let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
+        self.builder
+            .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+    }
+
+    /// Emit `ori_buffer_rc_dec` for a map value.
+    ///
+    /// Maps have two separate data buffers (keys and values). Each is
+    /// independently RC-managed with its own element-dec function.
+    fn emit_buffer_rc_dec_map(&mut self, val: super::ValueId, resolved: ori_types::Idx) {
+        let Some(len) = self.builder.extract_value(val, 0, "rc.len") else {
+            return;
+        };
+        // Maps use len as cap (no separate capacity tracking)
+        let cap = len;
+
+        let key_type = self.pool.map_key(resolved);
+        let val_type = self.pool.map_value(resolved);
+
+        // Dec keys buffer
+        if let Some(keys) = self.builder.extract_value(val, 2, "rc.keys_ptr") {
+            let key_size = self.element_store_size(key_type);
+            let key_size_val = self.builder.const_i64(key_size as i64);
+            let key_dec_fn = self.get_or_generate_elem_dec_fn(key_type);
+            let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
+            self.builder
+                .call(func_id, &[keys, len, cap, key_size_val, key_dec_fn], "");
+        }
+
+        // Dec values buffer
+        if let Some(vals) = self.builder.extract_value(val, 3, "rc.vals_ptr") {
+            let val_size = self.element_store_size(val_type);
+            let val_size_val = self.builder.const_i64(val_size as i64);
+            let val_dec_fn = self.get_or_generate_elem_dec_fn(val_type);
+            let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
+            self.builder
+                .call(func_id, &[vals, len, cap, val_size_val, val_dec_fn], "");
         }
     }
 
@@ -465,23 +508,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Closure: null-check env_ptr, load drop_fn from env header
             Tag::Function => self.emit_rc_dec_closure(val),
 
-            // Collections
+            // Collections: use buffer-aware RC dec
             Tag::List | Tag::Set => {
-                let drop_fn = self.get_or_generate_drop_fn(ty);
-                if let Some(dp) = self.builder.extract_value(val, 2, "rc_dec.data") {
-                    self.call_rc_dec_all(&[dp], drop_fn);
-                } else {
-                    self.call_rc_dec_all(&[val], drop_fn);
-                }
+                self.emit_buffer_rc_dec_list_or_set(val, resolved, tag);
             }
             Tag::Map => {
-                let drop_fn = self.get_or_generate_drop_fn(ty);
-                if let Some(k) = self.builder.extract_value(val, 2, "rc_dec.keys") {
-                    self.call_rc_dec_all(&[k], drop_fn);
-                }
-                if let Some(v) = self.builder.extract_value(val, 3, "rc_dec.vals") {
-                    self.call_rc_dec_all(&[v], drop_fn);
-                }
+                self.emit_buffer_rc_dec_map(val, resolved);
             }
 
             // Struct: traverse RC fields, per-field drop functions

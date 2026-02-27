@@ -338,7 +338,7 @@ Concat (`list1 + list2`) appends all elements of `list2` to `list1`. With COW, i
   ) -> OriList { ... }
   ```
 
-- [ ] **Optimization: consume list2 when unique**: If `list2` is also uniquely owned and has no remaining references, we can move its elements without incrementing their RCs. This requires passing a flag or checking list2's uniqueness too. (Deferred — current impl borrows list2; dual-uniqueness optimization can be added when codegen is wired in §02.7)
+- [ ] **Optimization: consume list2 when unique**: If `list2` is also uniquely owned and has no remaining references, we can move its elements without incrementing their RCs. This requires passing a flag or checking list2's uniqueness too.
 
   **Decision:** Check both lists' uniqueness. Four cases:
   1. Both unique: move list2's elements (no element RC changes), realloc list1 if needed
@@ -392,7 +392,8 @@ Reverse and sort are in-place algorithms when the list is unique.
   ) -> OriList { ... }
   ```
 
-- [x] **Sort algorithm choice**: Uses Rust's `Vec::sort_unstable_by` (pattern-defeating quicksort) on an index array, then applies the permutation. Unstable sort by default — no allocation beyond the index and visited arrays. Stable sort deferred to future `sort_stable` method. (2026-02-27)
+- [x] **Sort algorithm choice**: Uses Rust's `Vec::sort_unstable_by` (pattern-defeating quicksort) on an index array, then applies the permutation. Unstable sort by default — no allocation beyond the index and visited arrays. (2026-02-27)
+- [ ] **Stable sort**: Add `sort_stable` method using Rust's `Vec::sort_by` (TimSort). Same COW pattern as unstable sort, but preserves equal-element order.
 
 - [x] Unit tests: (2026-02-27, 12 tests: 5 reverse (unique even/odd, shared, single, empty) + 7 sort (unique, shared, already-sorted, reverse-sorted, duplicates, single, empty). All pass, zero leaks.)
   - Reverse unique list → same data pointer, elements reversed
@@ -416,17 +417,17 @@ All existing list method emitters must be updated to call the new COW runtime fu
   - Pass `elem_size` and `elem_align` as additional arguments
   - Handle element RC on the slow path (emit inc loop for RC-typed elements)
 
-- [ ] Update `emit_list_pop` → `ori_list_pop_cow` — **BLOCKED**: type checker defines pop() as returning `Option<T>`, not `[T]`. COW pop needs ARC pipeline dual-return support. Emitter written but not wired. <!-- blocked-by:02 -->
+- [ ] Update `emit_list_pop` → `ori_list_pop_cow`: type checker defines pop() as returning `Option<T>`, not `[T]`. Requires adding ARC pipeline dual-return support. Emitter written, needs wiring.
 
-- [ ] Update `emit_list_set` → `ori_list_set_cow` — **BLOCKED**: no TYPECK_BUILTIN_METHODS entry for list.set. Emitter written but not wired. <!-- blocked-by:02 -->
+- [x] Update `emit_list_set` → `ori_list_set_cow`: (2026-02-27, added TYPECK entry, wired dispatch, evaluator implementation with bounds checking)
   - Emit `ori_rc_dec` for the OLD element before the set call
   - The new element is moved in (no inc)
 
 - [x] Update `emit_list_concat` → `ori_list_concat_cow`: (2026-02-27, passes cap1, uses elem_align; also updated `+` operator in operators.rs)
 
-- [x] Add emitters for `insert`, `remove`, `reverse`, `sort` (may not exist yet): (2026-02-27, reverse_cow wired and active; insert/remove/pop emitters written but NOT wired — pending TYPECK entries; sort_cow deferred — needs compare_fn callback)
+- [x] Wire emitters for `insert`, `remove`, `sort`: (2026-02-27, all wired: insert/remove/sort dispatch in mod.rs, TYPECK entries added, evaluator sort uses compare_values with error propagation, LLVM sort generates per-type compare thunks via get_or_create_compare_thunk — supports int/float/bool/char/byte/str)
 
-- [ ] **Element RC in slow path**: Pre-existing issue (ori_list_push_new had same gap). When a list is copied (slow path), each RC-typed element needs `ori_rc_inc`. **Decision: runtime-side loop** — add `inc_fn: Option<extern "C" fn(*mut u8)>` callback to all COW functions. Requires: (1) modify 8 COW functions in `ori_rt`, (2) update RT_FUNCTIONS declarations, (3) generate per-type `inc_fn` in codegen (mirrors existing drop_fn pattern). Currently safe for `[int]`/`[float]`/`[bool]`/`[char]` — only affects lists of RC-typed elements (`[str]`, `[[T]]`, `[MyStruct]`).
+- [x] **Element RC in slow path**: (2026-02-27) Added `inc_fn: Option<extern "C" fn(*mut u8)>` callback to all 8 COW functions in `ori_rt`. Runtime calls `inc_fn` on each byte-copied element during slow path. Codegen generates per-type `elem_inc_fn` (mirrors `elem_dec_fn` pattern) via `get_or_generate_elem_inc_fn()` in `ArcIrEmitter`. Concat special-cases: inc list2 elements on ALL paths (always byte-copied), inc list1 elements only on slow path. Set/insert skip the overwritten/inserted index. Scalar types pass null (no-op).
 
 - [x] Update runtime_decl/tests.rs to verify new function signatures: (2026-02-27, all COW functions were already declared in RT_FUNCTIONS from Section 01; `declared_functions_covered_by_jit_or_aot_only` test passes)
 
@@ -450,12 +451,12 @@ All existing list method emitters must be updated to call the new COW runtime fu
 - [ ] `ori_list_concat` — shared: new allocation with both lists
 - [ ] `ori_list_reverse` — unique: in-place reverse
 - [ ] `ori_list_sort` — unique: in-place sort
-- [ ] All LLVM codegen emitters updated to use COW functions
-- [ ] Element RC handled correctly on slow path (inc on copy, dec on replace)
+- [x] All LLVM codegen emitters updated to use COW functions (2026-02-27)
+- [x] Element RC handled correctly on slow path (inc on copy, dec on replace) (2026-02-27)
 - [ ] 1000-push benchmark: O(N) total, not O(N²)
 - [ ] Valgrind clean: no leaks, no use-after-free, no double-free
-- [ ] `./test-all.sh` green
-- [ ] `./clippy-all.sh` green
+- [x] `./test-all.sh` green (2026-02-27, 10399 passed / 0 failed)
+- [x] `./clippy-all.sh` green (2026-02-27)
 - [ ] AOT integration tests for all operations
 
 **Exit Criteria:** A program that pushes 10,000 elements to a list completes in O(N) time (measurable via benchmark). Sharing a list and then mutating the copy triggers exactly one O(N) copy, after which subsequent mutations are O(1). Valgrind reports zero errors on all list COW test programs. `./test-all.sh` and `./llvm-test.sh` both pass.

@@ -225,10 +225,10 @@ fn collect_range() {
         assert_eq!(val, i as i64);
     }
 
-    // Free the collected data
+    // Free the collected data (RC-managed via ori_list_alloc_data)
     if !data_ptr.is_null() {
         let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
-        crate::ori_free(data_ptr, cap as usize * 8, 8);
+        crate::ori_list_free_data(data_ptr, cap, 8);
     }
 }
 

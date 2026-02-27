@@ -864,14 +864,14 @@ fn list_ensure_capacity_grows_from_sentinel() {
         list.cap
     );
 
-    // Clean up — data buffers are plain-allocated (ori_alloc), not RC-allocated
-    ori_free(list.data, list.cap as usize * 8, 8);
+    // Clean up — data buffers are RC-allocated via ori_list_alloc_data
+    ori_list_free_data(list.data, list.cap, 8);
 }
 
 #[test]
 fn list_ensure_capacity_noop_when_sufficient() {
-    // Allocate a data buffer with capacity 8 (plain alloc, not RC)
-    let data = ori_alloc(8 * 8, 8); // 8 elements × 8 bytes
+    // Allocate a data buffer with capacity 8 (RC-allocated)
+    let data = ori_list_alloc_data(8, 8); // 8 elements × 8 bytes
     let mut list = OriList {
         len: 3,
         cap: 8,
@@ -889,13 +889,13 @@ fn list_ensure_capacity_noop_when_sufficient() {
     );
     assert_eq!(list.cap, 8);
 
-    ori_free(list.data, 8 * 8, 8);
+    ori_list_free_data(list.data, list.cap, 8);
 }
 
 #[test]
 fn list_ensure_capacity_grows_buffer() {
-    // Data buffers are plain-allocated (ori_alloc), not RC-allocated
-    let data = ori_alloc(4 * 8, 8); // 4 elements × 8 bytes
+    // Data buffers are RC-allocated via ori_list_alloc_data
+    let data = ori_list_alloc_data(4, 8); // 4 elements × 8 bytes
     let mut list = OriList {
         len: 4,
         cap: 4,
@@ -926,7 +926,7 @@ fn list_ensure_capacity_grows_buffer() {
         }
     }
 
-    ori_free(list.data, list.cap as usize * 8, 8);
+    ori_list_free_data(list.data, list.cap, 8);
 }
 
 // ── Empty collection sentinels (COW foundation) ──────────────────────
@@ -978,7 +978,7 @@ fn sentinel_rc_operations_are_noop() {
 #[test]
 fn list_box_new_creates_rc_struct() {
     let _g = lock_rc();
-    let data = ori_alloc(32, 8); // 4 × 8 bytes
+    let data = ori_list_alloc_data(4, 8); // 4 × 8 bytes
     assert!(!data.is_null());
 
     let box_ptr = ori_list_box_new(3, 4, data);
@@ -991,8 +991,8 @@ fn list_box_new_creates_rc_struct() {
     assert_eq!(list.cap, 4);
     assert_eq!(list.data, data);
 
-    // Clean up
-    ori_free(data, 32, 8);
+    // Clean up (RC-allocated data buffer)
+    ori_list_free_data(data, 4, 8);
     ori_rc_free(
         box_ptr,
         std::mem::size_of::<OriList>(),
@@ -1004,8 +1004,8 @@ fn list_box_new_creates_rc_struct() {
 fn list_box_new_round_trip_with_data() {
     let _g = lock_rc();
 
-    // Write known pattern to data buffer
-    let data = ori_alloc(3 * 8, 8);
+    // Write known pattern to data buffer (RC-allocated)
+    let data = ori_list_alloc_data(3, 8);
     unsafe {
         *data.cast::<i64>() = 10;
         *data.cast::<i64>().add(1) = 20;
@@ -1022,7 +1022,7 @@ fn list_box_new_round_trip_with_data() {
         assert_eq!(*(list.data as *const i64).add(2), 30);
     }
 
-    ori_free(data, 3 * 8, 8);
+    ori_list_free_data(data, 3, 8);
     ori_rc_free(
         box_ptr,
         std::mem::size_of::<OriList>(),
@@ -1073,6 +1073,7 @@ fn cow_push_to_empty_sentinel() {
         std::ptr::from_ref(&elem).cast(),
         std::mem::size_of::<i64>() as i64,
         std::mem::align_of::<i64>() as i64,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1116,6 +1117,7 @@ fn cow_push_unique_with_capacity() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1161,6 +1163,7 @@ fn cow_push_unique_needs_growth() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1208,6 +1211,7 @@ fn cow_push_shared_list_copies() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1274,6 +1278,7 @@ fn cow_push_1000_sequential_amortized() {
             std::ptr::from_ref(&i).cast(),
             es as i64,
             8,
+            None,
             out.as_mut_ptr(),
         );
 
@@ -1329,7 +1334,7 @@ fn cow_pop_unique_decrements_len() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_pop_cow(data, 3, 4, es as i64, 8, out.as_mut_ptr());
+    ori_list_pop_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
@@ -1363,7 +1368,7 @@ fn cow_pop_shared_copies() {
     ori_rc_inc(data); // RC=2
 
     let mut out = [0u8; 24];
-    ori_list_pop_cow(data, 3, 4, es as i64, 8, out.as_mut_ptr());
+    ori_list_pop_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
@@ -1409,7 +1414,7 @@ fn cow_pop_to_empty_retains_buffer() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_pop_cow(data, 1, 4, es as i64, 8, out.as_mut_ptr());
+    ori_list_pop_cow(data, 1, 4, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
@@ -1434,6 +1439,7 @@ fn cow_pop_empty_list_returns_empty() {
         0,
         std::mem::size_of::<i64>() as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1467,6 +1473,7 @@ fn cow_set_unique_overwrites_in_place() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1515,6 +1522,7 @@ fn cow_set_shared_copies() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1565,6 +1573,7 @@ fn cow_set_at_index_zero() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1604,6 +1613,7 @@ fn cow_insert_unique_at_beginning() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1645,6 +1655,7 @@ fn cow_insert_unique_at_middle() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1680,6 +1691,7 @@ fn cow_insert_unique_at_end() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1716,6 +1728,7 @@ fn cow_insert_unique_needs_growth() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1753,6 +1766,7 @@ fn cow_insert_shared_copies() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1797,6 +1811,7 @@ fn cow_insert_into_empty() {
         std::ptr::from_ref(&elem).cast(),
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1832,6 +1847,7 @@ fn cow_remove_unique_at_beginning() {
         0, // remove first
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -1861,7 +1877,7 @@ fn cow_remove_unique_at_middle() {
     let data = rc_alloc_i64_list(&[10, 20, 30], 4);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, out.as_mut_ptr());
+    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
@@ -1888,7 +1904,7 @@ fn cow_remove_unique_at_end() {
     let data = rc_alloc_i64_list(&[10, 20, 30], 4);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 3, 4, 2, es as i64, 8, out.as_mut_ptr());
+    ori_list_remove_cow(data, 3, 4, 2, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
@@ -1911,7 +1927,7 @@ fn cow_remove_unique_last_element_frees() {
     let data = rc_alloc_i64_list(&[42], 4);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 1, 4, 0, es as i64, 8, out.as_mut_ptr());
+    ori_list_remove_cow(data, 1, 4, 0, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 0, "empty after removing last");
@@ -1931,7 +1947,7 @@ fn cow_remove_shared_copies() {
     ori_rc_inc(data);
 
     let mut out = [0u8; 24];
-    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, out.as_mut_ptr());
+    ori_list_remove_cow(data, 3, 4, 1, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
@@ -1972,7 +1988,7 @@ fn cow_concat_unique_with_capacity() {
     let data2 = rc_alloc_i64_list(&[30, 40], 4);
 
     let mut out = [0u8; 24];
-    ori_list_concat_cow(data1, 2, 8, data2, 2, es as i64, 8, out.as_mut_ptr());
+    ori_list_concat_cow(data1, 2, 8, data2, 2, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2006,7 +2022,7 @@ fn cow_concat_unique_needs_growth() {
     let data2 = rc_alloc_i64_list(&[30, 40], 2);
 
     let mut out = [0u8; 24];
-    ori_list_concat_cow(data1, 2, 2, data2, 2, es as i64, 8, out.as_mut_ptr());
+    ori_list_concat_cow(data1, 2, 2, data2, 2, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2036,7 +2052,7 @@ fn cow_concat_shared_copies() {
     let data2 = rc_alloc_i64_list(&[30, 40], 2);
 
     let mut out = [0u8; 24];
-    ori_list_concat_cow(data1, 2, 4, data2, 2, es as i64, 8, out.as_mut_ptr());
+    ori_list_concat_cow(data1, 2, 4, data2, 2, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2079,6 +2095,7 @@ fn cow_concat_empty_lists() {
         0,
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -2106,6 +2123,7 @@ fn cow_concat_empty_list1() {
         2,
         es as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -2136,7 +2154,7 @@ fn cow_reverse_unique_in_place() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 4, 4, es as i64, 8, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 4, 4, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2166,7 +2184,7 @@ fn cow_reverse_unique_odd_count() {
     let data = rc_alloc_i64_list(&[10, 20, 30], 4);
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 3, 4, es as i64, 8, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3);
@@ -2191,7 +2209,7 @@ fn cow_reverse_shared_copies() {
     ori_rc_inc(data);
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 3, 4, es as i64, 8, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 3, 4, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3);
@@ -2227,7 +2245,7 @@ fn cow_reverse_single_element_unchanged() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_reverse_cow(data, 1, 4, es as i64, 8, out.as_mut_ptr());
+    ori_list_reverse_cow(data, 1, 4, es as i64, 8, None, out.as_mut_ptr());
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 1);
@@ -2253,6 +2271,7 @@ fn cow_reverse_empty_unchanged() {
         0,
         std::mem::size_of::<i64>() as i64,
         8,
+        None,
         out.as_mut_ptr(),
     );
 
@@ -2284,7 +2303,16 @@ fn cow_sort_unique_in_place() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_sort_cow(data, 4, 4, es as i64, 8, compare_i64_asc, out.as_mut_ptr());
+    ori_list_sort_cow(
+        data,
+        4,
+        4,
+        es as i64,
+        8,
+        compare_i64_asc,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2315,7 +2343,16 @@ fn cow_sort_shared_copies() {
     ori_rc_inc(data);
 
     let mut out = [0u8; 24];
-    ori_list_sort_cow(data, 4, 4, es as i64, 8, compare_i64_asc, out.as_mut_ptr());
+    ori_list_sort_cow(
+        data,
+        4,
+        4,
+        es as i64,
+        8,
+        compare_i64_asc,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2353,7 +2390,16 @@ fn cow_sort_already_sorted() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_sort_cow(data, 4, 4, es as i64, 8, compare_i64_asc, out.as_mut_ptr());
+    ori_list_sort_cow(
+        data,
+        4,
+        4,
+        es as i64,
+        8,
+        compare_i64_asc,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (_, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(result_data, original_ptr, "same pointer");
@@ -2378,7 +2424,16 @@ fn cow_sort_reverse_sorted() {
     let data = rc_alloc_i64_list(&[40, 30, 20, 10], 4);
 
     let mut out = [0u8; 24];
-    ori_list_sort_cow(data, 4, 4, es as i64, 8, compare_i64_asc, out.as_mut_ptr());
+    ori_list_sort_cow(
+        data,
+        4,
+        4,
+        es as i64,
+        8,
+        compare_i64_asc,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (_, _, result_data) = unsafe { read_list_result(&out) };
 
@@ -2402,7 +2457,16 @@ fn cow_sort_with_duplicates() {
     let data = rc_alloc_i64_list(&[30, 10, 30, 20, 10], 8);
 
     let mut out = [0u8; 24];
-    ori_list_sort_cow(data, 5, 8, es as i64, 8, compare_i64_asc, out.as_mut_ptr());
+    ori_list_sort_cow(
+        data,
+        5,
+        8,
+        es as i64,
+        8,
+        compare_i64_asc,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 5);
@@ -2433,7 +2497,16 @@ fn cow_sort_single_element_unchanged() {
     let original_ptr = data;
 
     let mut out = [0u8; 24];
-    ori_list_sort_cow(data, 1, 4, es as i64, 8, compare_i64_asc, out.as_mut_ptr());
+    ori_list_sort_cow(
+        data,
+        1,
+        4,
+        es as i64,
+        8,
+        compare_i64_asc,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 1);
@@ -2453,6 +2526,7 @@ fn cow_sort_empty_unchanged() {
         std::mem::size_of::<i64>() as i64,
         8,
         compare_i64_asc,
+        None,
         out.as_mut_ptr(),
     );
 

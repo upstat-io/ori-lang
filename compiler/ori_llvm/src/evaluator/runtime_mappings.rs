@@ -143,6 +143,7 @@ pub(crate) const JIT_MAPPED_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_rc_inc",
     "ori_rc_dec",
     "ori_rc_free",
+    "ori_buffer_rc_dec",
     "ori_args_from_argv",
     "ori_register_panic_handler",
     "rust_eh_personality",
@@ -268,6 +269,10 @@ pub(super) fn add_runtime_mappings_to_engine(
         ("ori_rc_inc", runtime::ori_rc_inc as *const () as usize),
         ("ori_rc_dec", runtime::ori_rc_dec as *const () as usize),
         ("ori_rc_free", runtime::ori_rc_free as *const () as usize),
+        (
+            "ori_buffer_rc_dec",
+            runtime::ori_buffer_rc_dec as *const () as usize,
+        ),
         (
             "ori_args_from_argv",
             runtime::ori_args_from_argv as *const () as usize,

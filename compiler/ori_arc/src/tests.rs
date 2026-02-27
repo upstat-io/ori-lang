@@ -19,7 +19,14 @@ fn run_full_pipeline(
 ) {
     let sigs = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
-    crate::annotate_arg_ownership(func, &sigs, &interner, &FxHashSet::default());
+    crate::annotate_arg_ownership(
+        func,
+        &sigs,
+        &interner,
+        &FxHashSet::default(),
+        &FxHashSet::default(),
+        pool,
+    );
     crate::run_arc_pipeline(func, classifier, &sigs, pool, &interner);
 }
 

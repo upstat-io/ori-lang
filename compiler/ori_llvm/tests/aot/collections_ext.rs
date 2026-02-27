@@ -631,7 +631,6 @@ fn test_coll_list_reverse_empty() {
 }
 
 #[test]
-#[ignore = "COW list chaining bug: push().reverse() returns wrong result"]
 fn test_coll_list_push_then_reverse() {
     assert_aot_success(
         r#"
@@ -642,6 +641,58 @@ fn test_coll_list_push_then_reverse() {
 }
 "#,
         "coll_list_push_then_reverse",
+    );
+}
+
+#[test]
+fn test_coll_list_push_push() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1].push(2).push(3);
+    if xs.length() == 3 && xs.first().unwrap() == 1 && xs.last().unwrap() == 3 then 0 else 1
+}
+"#,
+        "coll_list_push_push",
+    );
+}
+
+#[test]
+fn test_coll_list_reverse_reverse() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3].reverse().reverse();
+    if xs.length() == 3 && xs.first().unwrap() == 1 && xs.last().unwrap() == 3 then 0 else 1
+}
+"#,
+        "coll_list_reverse_reverse",
+    );
+}
+
+#[test]
+fn test_coll_list_push_concat() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2].push(3) + [4, 5];
+    if xs.length() == 5 && xs.first().unwrap() == 1 && xs.last().unwrap() == 5 then 0 else 1
+}
+"#,
+        "coll_list_push_concat",
+    );
+}
+
+#[test]
+fn test_coll_list_concat_reverse() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = ([1, 2] + [3]).reverse();
+    if xs.length() == 3 && xs.first().unwrap() == 3 && xs.last().unwrap() == 1 then 0 else 1
+}
+"#,
+        "coll_list_concat_reverse",
     );
 }
 

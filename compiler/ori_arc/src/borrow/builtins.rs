@@ -33,7 +33,6 @@ use rustc_hash::FxHashSet;
 /// with `borrow: true`, also add its name here (if not already present).
 const BORROWING_METHOD_NAMES: &[&str] = &[
     "abs",
-    "add",
     "byte",
     "chars",
     "clone",
@@ -67,7 +66,6 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
     "len",
     "length",
     "pop",
-    "push",
     "remove",
     "repeat",
     "replace",
@@ -88,6 +86,27 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
     "values",
 ];
 
+/// Method names with **consuming receiver** semantics for list types.
+///
+/// These are COW (Copy-on-Write) list methods that handle the old buffer's
+/// RC lifecycle internally: the fast path reuses the buffer (unique owner),
+/// the slow path allocates a new buffer and `ori_rc_dec`s the old one.
+///
+/// The ARC pipeline must NOT emit an additional `RcDec` for the receiver
+/// argument when calling these methods — doing so causes double-free.
+///
+/// **Type-qualified**: `"add"` and `"concat"` are borrowing for strings but
+/// consuming for lists. The type check happens at the call site in
+/// [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership).
+///
+/// Sorted alphabetically.
+const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
+    "add",     // list + list (COW concat)
+    "concat",  // list.concat (COW concat)
+    "push",    // list.push (COW push)
+    "reverse", // list.reverse (COW reverse)
+];
+
 /// Collect interned [`Name`]s for all builtin methods that borrow their receiver.
 ///
 /// Returns the set of method names (not type-qualified) that borrow inference
@@ -97,6 +116,20 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
 /// See [`BORROWING_METHOD_NAMES`] for the full list and exclusion rules.
 pub fn borrowing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
     BORROWING_METHOD_NAMES
+        .iter()
+        .map(|name| interner.intern(name))
+        .collect()
+}
+
+/// Collect interned [`Name`]s for COW list methods with consuming receiver semantics.
+///
+/// These methods handle the old buffer's RC internally. When the receiver is
+/// a `List` type, the ARC pipeline must mark the receiver argument as `Owned`
+/// (no extra `RcDec`) instead of the default `Borrowed` from the borrowing set.
+///
+/// See [`CONSUMING_RECEIVER_METHOD_NAMES`] for the full list and rationale.
+pub fn consuming_receiver_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    CONSUMING_RECEIVER_METHOD_NAMES
         .iter()
         .map(|name| interner.intern(name))
         .collect()
@@ -146,5 +179,80 @@ mod tests {
             !BORROWING_METHOD_NAMES.contains(&"iter"),
             "\"iter\" must not be in BORROWING_METHOD_NAMES — .iter() creates dependent values"
         );
+    }
+
+    #[test]
+    fn consuming_receiver_method_names_sorted() {
+        for window in CONSUMING_RECEIVER_METHOD_NAMES.windows(2) {
+            assert!(
+                window[0] < window[1],
+                "CONSUMING_RECEIVER_METHOD_NAMES not sorted: {:?} >= {:?}",
+                window[0],
+                window[1],
+            );
+        }
+    }
+
+    #[test]
+    fn consuming_receiver_method_names_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for &name in CONSUMING_RECEIVER_METHOD_NAMES {
+            assert!(
+                seen.insert(name),
+                "duplicate in CONSUMING_RECEIVER_METHOD_NAMES: {name:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn consuming_receiver_builtin_names_returns_correct_count() {
+        let interner = StringInterner::default();
+        let names = consuming_receiver_builtin_names(&interner);
+        assert_eq!(
+            names.len(),
+            CONSUMING_RECEIVER_METHOD_NAMES.len(),
+            "interned set should have same count as const array (no duplicates)"
+        );
+    }
+
+    #[test]
+    fn push_not_in_borrowing() {
+        assert!(
+            !BORROWING_METHOD_NAMES.contains(&"push"),
+            "\"push\" must not be in BORROWING — it's list-only and COW consuming"
+        );
+    }
+
+    #[test]
+    fn add_not_in_borrowing() {
+        assert!(
+            !BORROWING_METHOD_NAMES.contains(&"add"),
+            "\"add\" must not be in BORROWING — it's list-only and COW consuming"
+        );
+    }
+
+    #[test]
+    fn reverse_in_both_borrowing_and_consuming() {
+        // "reverse" is borrowing for Ordering (Ordering.reverse() is a pure read)
+        // but consuming for List (COW semantics). The consuming-receiver override
+        // in annotate_arg_ownership handles the list case.
+        assert!(
+            BORROWING_METHOD_NAMES.contains(&"reverse"),
+            "\"reverse\" must be in BORROWING — Ordering.reverse() borrows"
+        );
+        assert!(
+            CONSUMING_RECEIVER_METHOD_NAMES.contains(&"reverse"),
+            "\"reverse\" must be in CONSUMING — list.reverse() is COW consuming"
+        );
+    }
+
+    #[test]
+    fn cow_methods_in_consuming() {
+        for &method in &["add", "concat", "push", "reverse"] {
+            assert!(
+                CONSUMING_RECEIVER_METHOD_NAMES.contains(&method),
+                "\"{method}\" must be in CONSUMING_RECEIVER_METHOD_NAMES"
+            );
+        }
     }
 }

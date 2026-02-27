@@ -442,7 +442,7 @@ fn test_ori_args_from_argv_with_args() {
 
     // Clean up (in production, the runtime or RC handles this)
     unsafe {
-        // Free each string's data
+        // Free each string's data (raw-allocated in ori_args_from_argv)
         for i in 0..2 {
             let s = &*elements.add(i);
             if !s.data.is_null() && s.len > 0 {
@@ -450,9 +450,12 @@ fn test_ori_args_from_argv_with_args() {
                 std::alloc::dealloc(s.data as *mut u8, layout);
             }
         }
-        // Free the array
-        let layout = std::alloc::Layout::array::<runtime::OriStr>(2).unwrap();
-        std::alloc::dealloc(list.data, layout);
+        // Free the list data array (RC-allocated via ori_rc_alloc)
+        runtime::ori_rc_free(
+            list.data,
+            2 * std::mem::size_of::<runtime::OriStr>(),
+            std::mem::align_of::<runtime::OriStr>(),
+        );
     }
 }
 

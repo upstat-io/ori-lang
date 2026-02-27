@@ -963,6 +963,96 @@ fn call_drop_fn(f: extern "C" fn(*mut u8), data_ptr: *mut u8) {
     }
 }
 
+/// Decrement the refcount on a collection data buffer.
+///
+/// Unlike `ori_rc_dec` (which takes a type-level drop function that receives
+/// the buffer pointer), this function knows the buffer's element layout:
+///
+/// - `len`: number of live elements in the buffer
+/// - `cap`: allocated capacity (used for `ori_list_free_data`)
+/// - `elem_size`: byte size of each element
+/// - `elem_dec_fn`: optional function called on each element when the buffer
+///   is being freed. Receives a pointer to the element *within* the buffer.
+///   Used to decrement RC children of each element (e.g., string data ptrs
+///   inside a `[str]` buffer). Pass null for elements with no RC children.
+///
+/// When the refcount reaches zero:
+/// 1. Calls `elem_dec_fn` on each of the `len` elements (if non-null)
+/// 2. Frees the buffer via `ori_list_free_data`
+#[no_mangle]
+pub extern "C" fn ori_buffer_rc_dec(
+    data: *mut u8,
+    len: i64,
+    cap: i64,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data.is_null() {
+        return;
+    }
+
+    rt_debug_validate_rc(data.cast_const(), "ori_buffer_rc_dec");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data.cast_const(), "ori_buffer_rc_dec");
+
+    let es = elem_size.max(1) as usize;
+    let n = len.max(0) as usize;
+
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        let prev = unsafe {
+            let rc_ptr = data.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).fetch_sub(1, Ordering::Release)
+        };
+
+        if prev <= 0 {
+            rc_underflow_abort(data);
+        }
+
+        if rc_trace_enabled() {
+            rc_trace_dec(data.cast_const(), prev - 1);
+        }
+
+        if prev <= 1 {
+            std::sync::atomic::fence(Ordering::Acquire);
+
+            if let Some(f) = elem_dec_fn {
+                for i in 0..n {
+                    call_drop_fn(f, unsafe { data.add(i * es) });
+                }
+            }
+
+            ori_list_free_data(data, cap, elem_size);
+        }
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let (should_drop, new_rc) = unsafe {
+            let rc_ptr = data.sub(8).cast::<i64>();
+            if *rc_ptr <= 0 {
+                rc_underflow_abort(data);
+            }
+            *rc_ptr -= 1;
+            (*rc_ptr <= 0, *rc_ptr)
+        };
+
+        if rc_trace_enabled() {
+            rc_trace_dec(data.cast_const(), new_rc);
+        }
+
+        if should_drop {
+            if let Some(f) = elem_dec_fn {
+                for i in 0..n {
+                    call_drop_fn(f, unsafe { data.add(i * es) });
+                }
+            }
+
+            ori_list_free_data(data, cap, elem_size);
+        }
+    }
+}
+
 /// Free a reference-counted allocation unconditionally.
 ///
 /// Deallocates from `data_ptr - 8` with total size `size + 8`.
@@ -1220,13 +1310,12 @@ pub extern "C" fn ori_list_ensure_capacity(
 
     if list.data.is_null() {
         // Sentinel (empty list) → first allocation.
-        // Data buffers are plain-allocated (no RC header). The owning OriList
-        // box is RC-allocated; the data buffer is freed via ori_free in the
-        // drop function (ori_list_free_data).
-        list.data = ori_alloc(new_byte_size, elem_align);
+        // Data buffers are RC-managed (8-byte refcount header) so COW
+        // functions can call ori_rc_is_unique/ori_rc_dec on them.
+        list.data = ori_rc_alloc(new_byte_size, elem_align);
     } else {
         let old_byte_size = list.cap as usize * elem_size;
-        list.data = ori_realloc(list.data, old_byte_size, new_byte_size, elem_align);
+        list.data = ori_rc_realloc(list.data, old_byte_size, new_byte_size, elem_align);
     }
 
     if !list.data.is_null() {
@@ -1524,6 +1613,11 @@ pub extern "C" fn ori_list_box_new(len: i64, cap: i64, data: *mut u8) -> *mut u8
 /// suitable for storing list elements directly. Used by codegen to allocate
 /// the data buffer before boxing it with `ori_list_box_new`.
 ///
+/// The buffer is **RC-managed** (8-byte refcount header, initial count = 1),
+/// so COW functions can call `ori_rc_is_unique(data)` and `ori_rc_dec(data)`
+/// without UB. This is critical: all list data buffers must be allocated
+/// through `ori_rc_alloc` so the RC header is present and initialized.
+///
 /// For a complete RC-boxed list (metadata + data), use `ori_list_new`.
 #[no_mangle]
 pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 {
@@ -1531,13 +1625,7 @@ pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 
     let size = elem_size.max(1) as usize;
     if cap > 0 {
         let total = cap * size;
-        // Minimum 8-byte alignment matches ori_alloc's discipline. Handles i64, f64,
-        // and pointer elements correctly. Layout::array::<u8> would give alignment 1.
-        let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) else {
-            return std::ptr::null_mut();
-        };
-        // SAFETY: Layout is non-zero size (cap > 0, size >= 1), alignment is valid
-        unsafe { std::alloc::alloc(layout) }
+        ori_rc_alloc(total, 8)
     } else {
         std::ptr::null_mut()
     }
@@ -1556,11 +1644,11 @@ pub extern "C" fn ori_list_new(capacity: i64, elem_size: i64) -> *mut OriList {
         cap: cap as i64,
         data: if cap > 0 {
             let total = cap * size;
-            let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) else {
+            let data = ori_rc_alloc(total, 8);
+            if data.is_null() {
                 return std::ptr::null_mut();
-            };
-            // SAFETY: Layout is non-zero size (cap > 0, size >= 1), alignment is valid
-            unsafe { std::alloc::alloc(layout) }
+            }
+            data
         } else {
             std::ptr::null_mut()
         },
@@ -1582,9 +1670,7 @@ pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
         if !list.data.is_null() && list.cap > 0 {
             let size = elem_size.max(1) as usize;
             let total = list.cap as usize * size;
-            if let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) {
-                std::alloc::dealloc(list.data, layout);
-            }
+            ori_rc_free(list.data, total, 8);
         }
     }
 }
@@ -1594,6 +1680,9 @@ pub extern "C" fn ori_list_free(list: *mut OriList, elem_size: i64) {
 /// For stack-struct lists (`{len, cap, data}`) where only the data buffer
 /// is heap-allocated. The list header lives on the stack and doesn't need
 /// freeing. Used by ARC cleanup when decrementing list refcounts.
+///
+/// The buffer was allocated via `ori_rc_alloc` (RC-managed with 8-byte
+/// header), so we use `ori_rc_free` to deallocate correctly.
 #[no_mangle]
 pub extern "C" fn ori_list_free_data(data: *mut u8, capacity: i64, elem_size: i64) {
     if data.is_null() || capacity <= 0 {
@@ -1602,10 +1691,7 @@ pub extern "C" fn ori_list_free_data(data: *mut u8, capacity: i64, elem_size: i6
     let cap = capacity as usize;
     let size = elem_size.max(1) as usize;
     let total = cap * size;
-    if let Ok(layout) = std::alloc::Layout::from_size_align(total, 8) {
-        // SAFETY: data was allocated by ori_list_alloc_data with same layout
-        unsafe { std::alloc::dealloc(data, layout) };
-    }
+    ori_rc_free(data, total, 8);
 }
 
 /// Get the length of a list.
@@ -1641,9 +1727,9 @@ pub extern "C" fn ori_list_push(list: *mut u8, elem_ptr: *const u8, elem_size: i
         let old_total = list.cap.max(0) as usize * es;
         let new_total = new_cap * es;
         let new_data = if list.data.is_null() {
-            crate::ori_alloc(new_total, 8)
+            crate::ori_rc_alloc(new_total, 8)
         } else {
-            crate::ori_realloc(list.data, old_total, new_total, 8)
+            crate::ori_rc_realloc(list.data, old_total, new_total, 8)
         };
         list.data = new_data;
         list.cap = new_cap as i64;
@@ -1713,7 +1799,7 @@ pub extern "C" fn ori_list_push_new(
     let new_len = old_len + 1;
     let new_total = new_len * es;
 
-    let new_data = crate::ori_alloc(new_total, 8);
+    let new_data = crate::ori_rc_alloc(new_total, 8);
 
     // Copy old elements
     if !data.is_null() && old_len > 0 {
@@ -1735,6 +1821,38 @@ pub extern "C" fn ori_list_push_new(
     }
 }
 
+/// Write `{ len, cap, data }` triple to the output pointer.
+///
+/// This is the common output pattern for all COW list functions.
+/// The layout matches `[T]`'s ABI: `i64 len`, `i64 cap`, `*mut u8 data`.
+#[inline]
+unsafe fn write_list_output(out_ptr: *mut u8, len: i64, cap: i64, data: *mut u8) {
+    out_ptr.cast::<i64>().write(len);
+    out_ptr.cast::<i64>().add(1).write(cap);
+    out_ptr.add(16).cast::<*mut u8>().write(data);
+}
+
+/// Increment RC for each copied element in a data buffer.
+///
+/// Called on COW slow paths after `copy_nonoverlapping` to ensure each
+/// byte-copied RC-managed element gets its reference count incremented
+/// (the new buffer is a new reference to each element's sub-objects).
+///
+/// No-op if `inc_fn` is None (scalar element types have no RC children).
+#[inline]
+fn inc_copied_elements(
+    data: *mut u8,
+    count: usize,
+    elem_size: usize,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if let Some(f) = inc_fn {
+        for i in 0..count {
+            f(unsafe { data.add(i * elem_size) });
+        }
+    }
+}
+
 /// COW-aware list push with consuming semantics.
 ///
 /// Appends `elem` to a list. The data buffer must be RC-allocated (via
@@ -1753,9 +1871,8 @@ pub extern "C" fn ori_list_push_new(
 ///
 /// # Element RC
 ///
-/// The function performs a byte-level copy of elements on the slow path. It
-/// does NOT increment RC for RC'd elements. The codegen (§02.7) must emit
-/// element-wise `ori_rc_inc` calls after slow-path copies.
+/// On the slow path, byte-copied elements get their RC incremented via the
+/// `inc_fn` callback (if non-null). Pass null for scalar element types.
 ///
 /// # Output
 ///
@@ -1768,6 +1885,7 @@ pub extern "C" fn ori_list_push_cow(
     elem_ptr: *const u8,
     elem_size: i64,
     elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem_ptr.is_null() {
@@ -1828,11 +1946,12 @@ pub extern "C" fn ori_list_push_cow(
     let new_cap = next_capacity(base_cap, new_len);
     let new_data = ori_rc_alloc(new_cap * es, ea);
 
-    // Copy old elements (byte-level; element RC inc is codegen's responsibility)
+    // Copy old elements and increment their RC (they're now in a new buffer)
     if !data.is_null() && old_len > 0 {
         unsafe {
             std::ptr::copy_nonoverlapping(data, new_data, old_len * es);
         }
+        inc_copied_elements(new_data, old_len, es, inc_fn);
     }
 
     // Write new element
@@ -1842,8 +1961,8 @@ pub extern "C" fn ori_list_push_cow(
 
     // Release our reference to the old buffer. For shared buffers (RC > 1),
     // this decrements without triggering deallocation. For empty (null), this
-    // is a no-op. drop_fn is None because element cleanup is the codegen's
-    // responsibility — we only release the buffer reference itself.
+    // is a no-op. drop_fn is None because element RC was already handled by
+    // inc_copied_elements above — we only release the buffer reference itself.
     ori_rc_dec(data, None);
 
     // Write result
@@ -1889,6 +2008,7 @@ pub extern "C" fn ori_list_pop_cow(
     cap: i64,
     elem_size: i64,
     elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -1943,10 +2063,11 @@ pub extern "C" fn ori_list_pop_cow(
     let new_cap = new_len; // No excess capacity needed for copied lists
     let new_data = ori_rc_alloc(new_cap * es, ea);
 
-    // Copy all-but-last elements
+    // Copy all-but-last elements and increment their RC
     unsafe {
         std::ptr::copy_nonoverlapping(data, new_data, new_len * es);
     }
+    inc_copied_elements(new_data, new_len, es, inc_fn);
 
     // Release our reference to the old buffer
     ori_rc_dec(data, None);
@@ -1988,6 +2109,7 @@ pub extern "C" fn ori_list_set_cow(
     elem_ptr: *const u8,
     elem_size: i64,
     elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem_ptr.is_null() {
@@ -2035,6 +2157,17 @@ pub extern "C" fn ori_list_set_cow(
         std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(idx * es), es);
     }
 
+    // Inc RC for all copied elements EXCEPT the one at index (it was overwritten)
+    inc_copied_elements(new_data, idx, es, inc_fn);
+    if idx + 1 < old_len {
+        inc_copied_elements(
+            unsafe { new_data.add((idx + 1) * es) },
+            old_len - idx - 1,
+            es,
+            inc_fn,
+        );
+    }
+
     // Release our reference to the old buffer
     ori_rc_dec(data, None);
 
@@ -2076,6 +2209,7 @@ pub extern "C" fn ori_list_insert_cow(
     elem_ptr: *const u8,
     elem_size: i64,
     elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem_ptr.is_null() {
@@ -2089,11 +2223,7 @@ pub extern "C" fn ori_list_insert_cow(
     // Bounds check — index must be 0..=len (insert at end is valid)
     if index < 0 || index > len {
         rt_debug_bounds_warning("ori_list_insert_cow", index, len);
-        unsafe {
-            out_ptr.cast::<i64>().write(len);
-            out_ptr.cast::<i64>().add(1).write(cap);
-            out_ptr.add(16).cast::<*mut u8>().write(data);
-        }
+        unsafe { write_list_output(out_ptr, len, cap, data) };
         return;
     }
 
@@ -2120,9 +2250,7 @@ pub extern "C" fn ori_list_insert_cow(
                     );
                 }
                 std::ptr::copy_nonoverlapping(elem_ptr, data.add(idx * es), es);
-                out_ptr.cast::<i64>().write(new_len as i64);
-                out_ptr.cast::<i64>().add(1).write(cap);
-                out_ptr.add(16).cast::<*mut u8>().write(data);
+                write_list_output(out_ptr, new_len as i64, cap, data);
             }
             return;
         }
@@ -2131,11 +2259,7 @@ pub extern "C" fn ori_list_insert_cow(
         let new_cap = next_capacity(old_cap, new_len);
         let new_data = ori_rc_realloc(data, old_cap * es, new_cap * es, ea);
         if new_data.is_null() {
-            unsafe {
-                out_ptr.cast::<i64>().write(len);
-                out_ptr.cast::<i64>().add(1).write(cap);
-                out_ptr.add(16).cast::<*mut u8>().write(data);
-            }
+            unsafe { write_list_output(out_ptr, len, cap, data) };
             return;
         }
         unsafe {
@@ -2147,9 +2271,7 @@ pub extern "C" fn ori_list_insert_cow(
                 );
             }
             std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(idx * es), es);
-            out_ptr.cast::<i64>().write(new_len as i64);
-            out_ptr.cast::<i64>().add(1).write(new_cap as i64);
-            out_ptr.add(16).cast::<*mut u8>().write(new_data);
+            write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data);
         }
         return;
     }
@@ -2182,14 +2304,20 @@ pub extern "C" fn ori_list_insert_cow(
         std::ptr::copy_nonoverlapping(elem_ptr, new_data.add(idx * es), es);
     }
 
+    // Inc RC for all copied elements (positions [0..idx] and [idx+1..new_len])
+    inc_copied_elements(new_data, idx, es, inc_fn);
+    if tail_count > 0 {
+        inc_copied_elements(
+            unsafe { new_data.add((idx + 1) * es) },
+            tail_count,
+            es,
+            inc_fn,
+        );
+    }
+
     // Release old buffer
     ori_rc_dec(data, None);
-
-    unsafe {
-        out_ptr.cast::<i64>().write(new_len as i64);
-        out_ptr.cast::<i64>().add(1).write(new_cap as i64);
-        out_ptr.add(16).cast::<*mut u8>().write(new_data);
-    }
+    unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
 }
 
 /// COW-aware list remove with consuming semantics.
@@ -2224,6 +2352,7 @@ pub extern "C" fn ori_list_remove_cow(
     index: i64,
     elem_size: i64,
     elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -2316,6 +2445,9 @@ pub extern "C" fn ori_list_remove_cow(
         }
     }
 
+    // Inc RC for all copied elements (the removed element is NOT in new buffer)
+    inc_copied_elements(new_data, new_len, es, inc_fn);
+
     // Release old buffer
     ori_rc_dec(data, None);
 
@@ -2323,6 +2455,24 @@ pub extern "C" fn ori_list_remove_cow(
         out_ptr.cast::<i64>().write(new_len as i64);
         out_ptr.cast::<i64>().add(1).write(new_len as i64); // cap = len (tight)
         out_ptr.add(16).cast::<*mut u8>().write(new_data);
+    }
+}
+
+/// Copy list2's elements to `dst` and increment their RC.
+///
+/// list2 is always borrowed (not consumed), so every byte-copied element
+/// needs its RC incremented. This pattern repeats across all concat paths.
+#[inline]
+fn copy_and_inc_list2(
+    dst: *mut u8,
+    data2: *const u8,
+    n2: usize,
+    es: usize,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if !data2.is_null() {
+        unsafe { std::ptr::copy_nonoverlapping(data2, dst, n2 * es) };
+        inc_copied_elements(dst, n2, es, inc_fn);
     }
 }
 
@@ -2353,6 +2503,7 @@ pub extern "C" fn ori_list_concat_cow(
     len2: i64,
     elem_size: i64,
     elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -2367,26 +2518,14 @@ pub extern "C" fn ori_list_concat_cow(
 
     // Empty concatenation
     if new_len == 0 {
-        unsafe {
-            out_ptr.cast::<i64>().write(0);
-            out_ptr.cast::<i64>().add(1).write(0);
-            out_ptr
-                .add(16)
-                .cast::<*mut u8>()
-                .write(std::ptr::null_mut());
-        }
-        // Dec data1 if non-null (consuming semantics)
+        unsafe { write_list_output(out_ptr, 0, 0, std::ptr::null_mut()) };
         ori_rc_dec(data1, None);
         return;
     }
 
     // list2 is empty — return list1 unchanged
     if n2 == 0 {
-        unsafe {
-            out_ptr.cast::<i64>().write(len1);
-            out_ptr.cast::<i64>().add(1).write(cap1);
-            out_ptr.add(16).cast::<*mut u8>().write(data1);
-        }
+        unsafe { write_list_output(out_ptr, len1, cap1, data1) };
         return;
     }
 
@@ -2394,83 +2533,41 @@ pub extern "C" fn ori_list_concat_cow(
     if n1 == 0 || data1.is_null() {
         let new_cap = next_capacity(0, new_len);
         let new_data = ori_rc_alloc(new_cap * es, ea);
-        if !data2.is_null() {
-            unsafe {
-                std::ptr::copy_nonoverlapping(data2, new_data, n2 * es);
-            }
-        }
-        // Dec data1 if non-null (consuming semantics)
+        copy_and_inc_list2(new_data, data2, n2, es, inc_fn);
         ori_rc_dec(data1, None);
-        unsafe {
-            out_ptr.cast::<i64>().write(n2 as i64);
-            out_ptr.cast::<i64>().add(1).write(new_cap as i64);
-            out_ptr.add(16).cast::<*mut u8>().write(new_data);
-        }
+        unsafe { write_list_output(out_ptr, n2 as i64, new_cap as i64, new_data) };
         return;
     }
 
     // FAST PATH: list1 unique
     if ori_rc_is_unique(data1) {
         let old_cap = cap1.max(0) as usize;
-
         if old_cap >= new_len {
             // Has capacity — memcpy list2 elements after list1
-            if !data2.is_null() {
-                unsafe {
-                    std::ptr::copy_nonoverlapping(data2, data1.add(n1 * es), n2 * es);
-                }
-            }
-            unsafe {
-                out_ptr.cast::<i64>().write(new_len as i64);
-                out_ptr.cast::<i64>().add(1).write(cap1);
-                out_ptr.add(16).cast::<*mut u8>().write(data1);
-            }
+            copy_and_inc_list2(unsafe { data1.add(n1 * es) }, data2, n2, es, inc_fn);
+            unsafe { write_list_output(out_ptr, new_len as i64, cap1, data1) };
             return;
         }
-
         // Needs growth — realloc, then memcpy list2
         let new_cap = next_capacity(old_cap, new_len);
         let new_data = ori_rc_realloc(data1, old_cap * es, new_cap * es, ea);
         if new_data.is_null() {
-            unsafe {
-                out_ptr.cast::<i64>().write(len1);
-                out_ptr.cast::<i64>().add(1).write(cap1);
-                out_ptr.add(16).cast::<*mut u8>().write(data1);
-            }
+            unsafe { write_list_output(out_ptr, len1, cap1, data1) };
             return;
         }
-        if !data2.is_null() {
-            unsafe {
-                std::ptr::copy_nonoverlapping(data2, new_data.add(n1 * es), n2 * es);
-            }
-        }
-        unsafe {
-            out_ptr.cast::<i64>().write(new_len as i64);
-            out_ptr.cast::<i64>().add(1).write(new_cap as i64);
-            out_ptr.add(16).cast::<*mut u8>().write(new_data);
-        }
+        copy_and_inc_list2(unsafe { new_data.add(n1 * es) }, data2, n2, es, inc_fn);
+        unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
         return;
     }
 
     // SLOW PATH: list1 shared — allocate new buffer, copy both
     let new_cap = next_capacity(0, new_len);
     let new_data = ori_rc_alloc(new_cap * es, ea);
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(data1, new_data, n1 * es);
-        if !data2.is_null() {
-            std::ptr::copy_nonoverlapping(data2, new_data.add(n1 * es), n2 * es);
-        }
-    }
-
-    // Release our reference to list1's old buffer
+    unsafe { std::ptr::copy_nonoverlapping(data1, new_data, n1 * es) };
+    copy_and_inc_list2(new_data.wrapping_add(n1 * es), data2, n2, es, inc_fn);
+    inc_copied_elements(new_data, n1, es, inc_fn);
     ori_rc_dec(data1, None);
-
-    unsafe {
-        out_ptr.cast::<i64>().write(new_len as i64);
-        out_ptr.cast::<i64>().add(1).write(new_cap as i64);
-        out_ptr.add(16).cast::<*mut u8>().write(new_data);
-    }
+    unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
 }
 
 /// COW-aware list reverse with consuming semantics.
@@ -2493,6 +2590,7 @@ pub extern "C" fn ori_list_reverse_cow(
     cap: i64,
     elem_size: i64,
     elem_align: i64,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -2552,6 +2650,9 @@ pub extern "C" fn ori_list_reverse_cow(
         }
     }
 
+    // Inc RC for all copied elements
+    inc_copied_elements(new_data, n, es, inc_fn);
+
     // Release old buffer
     ori_rc_dec(data, None);
 
@@ -2591,6 +2692,7 @@ pub extern "C" fn ori_list_sort_cow(
     elem_size: i64,
     elem_align: i64,
     compare_fn: extern "C" fn(*const u8, *const u8) -> i32,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -2637,6 +2739,9 @@ pub extern "C" fn ori_list_sort_cow(
             std::ptr::copy_nonoverlapping(data.add(src_idx * es), new_data.add(dst_idx * es), es);
         }
     }
+
+    // Inc RC for all copied elements
+    inc_copied_elements(new_data, n, es, inc_fn);
 
     // Release old buffer
     ori_rc_dec(data, None);
@@ -2802,7 +2907,7 @@ pub extern "C" fn ori_list_reverse(data: *const u8, len: i64, elem_size: i64, ou
     }
 
     let total = n * es;
-    let new_data = crate::ori_alloc(total, 8);
+    let new_data = crate::ori_rc_alloc(total, 8);
 
     for i in 0..n {
         let src_offset = (n - 1 - i) * es;
@@ -2853,7 +2958,7 @@ pub extern "C" fn ori_list_concat(
     }
 
     let total_bytes = total_len * es;
-    let new_data = crate::ori_alloc(total_bytes, 8);
+    let new_data = crate::ori_rc_alloc(total_bytes, 8);
 
     unsafe {
         if !data1.is_null() && n1 > 0 {
@@ -3198,7 +3303,7 @@ pub extern "C" fn ori_set_insert(
 
     // Not found — append
     let new_len = n + 1;
-    let new_data = crate::ori_alloc(new_len * es, 8);
+    let new_data = crate::ori_rc_alloc(new_len * es, 8);
     if !data.is_null() && n > 0 {
         unsafe { std::ptr::copy_nonoverlapping(data, new_data, n * es) };
     }
@@ -3253,7 +3358,7 @@ pub extern "C" fn ori_set_remove(
         return;
     }
 
-    let new_data = crate::ori_alloc(new_len * es, 8);
+    let new_data = crate::ori_rc_alloc(new_len * es, 8);
     // Copy elements before idx
     if idx > 0 {
         unsafe { std::ptr::copy_nonoverlapping(data, new_data, idx * es) };
@@ -3306,7 +3411,7 @@ pub extern "C" fn ori_set_union(
 
     // Collect: start with all of set1, add unique elements from set2
     let max_len = n1 + n2;
-    let buf = crate::ori_alloc(max_len * es, 8);
+    let buf = crate::ori_rc_alloc(max_len * es, 8);
     unsafe { std::ptr::copy_nonoverlapping(d1, buf, n1 * es) };
     let mut result_len = n1;
 
@@ -3345,7 +3450,7 @@ pub extern "C" fn ori_set_intersection(
         return;
     }
 
-    let buf = crate::ori_alloc(n1.min(n2) * es, 8);
+    let buf = crate::ori_rc_alloc(n1.min(n2) * es, 8);
     let mut result_len = 0;
 
     for i in 0..n1 {
@@ -3387,7 +3492,7 @@ pub extern "C" fn ori_set_difference(
         return;
     }
 
-    let buf = crate::ori_alloc(n1 * es, 8);
+    let buf = crate::ori_rc_alloc(n1 * es, 8);
     let mut result_len = 0;
 
     for i in 0..n1 {
@@ -3444,7 +3549,7 @@ fn write_set_copy(data: *const u8, len: usize, elem_size: usize, out_ptr: *mut u
         return;
     }
     let total = len * elem_size;
-    let new_data = crate::ori_alloc(total, 8);
+    let new_data = crate::ori_rc_alloc(total, 8);
     unsafe { std::ptr::copy_nonoverlapping(data, new_data, total) };
     write_set_struct(out_ptr, len as i64, new_data);
 }
@@ -3470,7 +3575,7 @@ fn write_array_to_list(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut 
     }
 
     let total = n * es;
-    let new_data = crate::ori_alloc(total, 8);
+    let new_data = crate::ori_rc_alloc(total, 8);
     unsafe {
         std::ptr::copy_nonoverlapping(data, new_data, total);
         out_ptr.cast::<i64>().write(n as i64);
@@ -3537,7 +3642,7 @@ pub extern "C" fn ori_str_split(
 
     // Each OriStr is 16 bytes: {i64 len, ptr data}
     let total = n * 16;
-    let new_data = crate::ori_alloc(total, 8);
+    let new_data = crate::ori_rc_alloc(total, 8);
     for (i, part) in parts.iter().enumerate() {
         let part_len = part.len() as i64;
         let part_data = if part.is_empty() {
@@ -3828,11 +3933,11 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriLi
     }
 
     let count = (argc - 1) as usize; // skip argv[0]
-                                     // Allocate contiguous array for OriStr elements (16 bytes each)
-    let layout = std::alloc::Layout::array::<OriStr>(count)
-        .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
-    // SAFETY: Layout is valid (count > 0, OriStr has standard alignment)
-    let data = unsafe { std::alloc::alloc(layout) };
+                                     // Allocate contiguous array for OriStr elements (16 bytes each).
+                                     // Uses ori_rc_alloc so the list data has an RC header, consistent
+                                     // with all other list data allocations.
+    let total = count * std::mem::size_of::<OriStr>();
+    let data = ori_rc_alloc(total, std::mem::align_of::<OriStr>());
     if data.is_null() {
         return OriList {
             len: 0,

@@ -191,6 +191,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_push_cow",
+        // data, len, cap, elem_ptr, elem_size, elem_align, inc_fn, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -198,6 +199,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
@@ -205,12 +207,22 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_pop_cow",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        // data, len, cap, elem_size, elem_align, inc_fn, out_ptr
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
         attrs: &[],
     },
     RtFn {
         name: "ori_list_set_cow",
+        // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -219,6 +231,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
@@ -226,6 +239,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_insert_cow",
+        // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -234,6 +248,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
@@ -241,6 +256,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_remove_cow",
+        // data, len, cap, index, elem_size, elem_align, inc_fn, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -248,6 +264,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
@@ -255,6 +272,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_concat_cow",
+        // data1, len1, cap1, data2, len2, elem_size, elem_align, inc_fn, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -263,6 +281,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
@@ -270,18 +289,29 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_reverse_cow",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
-        ret: None,
-        attrs: &[],
-    },
-    RtFn {
-        name: "ori_list_sort_cow",
+        // data, len, cap, elem_size, elem_align, inc_fn, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_list_sort_cow",
+        // data, len, cap, elem_size, elem_align, compare_fn, inc_fn, out_ptr
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
         ],
@@ -620,6 +650,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
         ret: None,
         attrs: &[Attr::Nounwind],
+    },
+    // Buffer-aware RC dec for collection data buffers.
+    // (data, len, cap, elem_size, elem_dec_fn)
+    RtFn {
+        name: "ori_buffer_rc_dec",
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
     },
     RtFn {
         name: "ori_rc_live_count",
