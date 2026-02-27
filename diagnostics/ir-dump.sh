@@ -36,24 +36,8 @@ set -euo pipefail
 
 # --- Locate LLVM-enabled ori binary ---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-if [[ -n "${ORI_BIN:-}" ]]; then
-    ORI="$ORI_BIN"
-elif [[ -x "$ROOT_DIR/target/release/ori" ]]; then
-    ORI="$ROOT_DIR/target/release/ori"
-elif [[ -x "$ROOT_DIR/target/debug/ori" ]]; then
-    ORI="$ROOT_DIR/target/debug/ori"
-else
-    ORI="ori"
-fi
-
-# Verify the binary has LLVM support (non-LLVM builds emit E5004 immediately)
-if "$ORI" build /dev/null 2>&1 | grep -q "without LLVM"; then
-    echo "Error: ori binary at '$ORI' was compiled without LLVM support" >&2
-    echo "Rebuild with: cargo bl (debug) or cargo blr (release)" >&2
-    exit 2
-fi
+source "$SCRIPT_DIR/_common.sh"
+find_ori_bin
 
 # --- Defaults ---
 RAW=0
@@ -138,12 +122,12 @@ else
     # Unoptimized IR: ORI_DEBUG_LLVM=1 dumps to stderr between markers
     if ! ORI_DEBUG_LLVM=1 "$ORI" build "$FILE" -o "$tmpdir/out" 2>"$tmpdir/ir_raw.txt"; then
         # Show build errors (strip any partial IR output)
-        grep -v "^=== \(LLVM IR\|END IR\)" "$tmpdir/ir_raw.txt" >&2 || true
+        grep -v "^=== \(LLVM IR\|END LLVM IR\)" "$tmpdir/ir_raw.txt" >&2 || true
         echo "Error: compilation failed" >&2
         exit 1
     fi
     # Extract IR between markers, stripping the marker lines themselves
-    sed -n '/^=== LLVM IR/,/^=== END IR ===/p' "$tmpdir/ir_raw.txt" | \
+    sed -n '/^=== LLVM IR/,/^=== END LLVM IR ===/p' "$tmpdir/ir_raw.txt" | \
         sed '1d;$d' > "$tmpdir/ir_clean.txt"
 fi
 

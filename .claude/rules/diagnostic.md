@@ -42,6 +42,13 @@ New codes: increment within range, add doc in `errors/EXXX.md`.
 ```bash
 ORI_LOG=ori_types=debug ori check file.ori          # See type errors as they're pushed
 ORI_LOG=debug ori check file.ori                    # See all phase-level diagnostic activity
+ORI_DUMP_AFTER_TYPECK=1 ori check file.ori          # Inspect typed IR to verify diagnostic context
+```
+
+### Codegen Verification
+```bash
+ORI_AUDIT_CODEGEN=1 ori build file.ori              # In-pipeline RC audit (detects codegen issues)
+diagnostics/codegen-audit.sh file.ori               # Shell wrapper with color output
 ```
 
 **Tips**:

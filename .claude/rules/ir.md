@@ -52,6 +52,14 @@ ORI_LOG=ori_types=trace ori check file.ori          # See how IR nodes are consu
 ORI_LOG=ori_eval=trace ori run file.ori             # See how IR nodes are consumed by evaluator
 ```
 
+### Phase Dumps (inspect IR at each stage)
+```bash
+ORI_DUMP_AFTER_PARSE=1 ori check file.ori           # AST after parsing
+ORI_DUMP_AFTER_TYPECK=1 ori check file.ori          # Typed IR after type checking
+ORI_DUMP_AFTER_ARC=1 ori build file.ori             # ARC IR with RC strategies
+ORI_DUMP_AFTER_LLVM=1 ori build file.ori            # Annotated LLVM IR
+```
+
 **Tips**:
 - TypeId mismatch? Check `type_id.rs` alignment with `ori_types::Idx` (primitives 0-11 must match)
 - Wrong ExprId? Use `ori_types=trace` to see which expression IDs the type checker processes

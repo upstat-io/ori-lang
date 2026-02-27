@@ -83,6 +83,12 @@ ORI_LOG=debug ORI_LOG_TREE=1 cargo st tests/spec/patterns/  # Hierarchical trace
 ORI_LOG=oric=debug cargo st tests/spec/              # Salsa query execution + cache hits
 ```
 
+**For AOT test failures** — use diagnostic scripts:
+- `diagnostics/diagnose-aot.sh test_file.ori` — all-in-one AOT diagnostic
+- `diagnostics/dual-exec-debug.sh test_file.ori` — compare interpreter vs AOT output
+- `diagnostics/codegen-audit.sh test_file.ori` — static RC/COW/ABI analysis
+- `ORI_TRACE_RC=1 ORI_CHECK_LEAKS=1 ./binary` — runtime RC trace + leak check
+
 **Tips**:
 - Test crashes/hangs? Use `timeout 10 ORI_LOG=debug cargo st path/to/test.ori`
 - Wrong result? Use `ORI_LOG=ori_eval=trace ORI_LOG_TREE=1` on the specific test file

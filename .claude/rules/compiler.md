@@ -62,6 +62,21 @@ ORI_LOG=oric=debug ori check file.ori               # Salsa query execution
 ORI_LOG=ori_types=debug,ori_eval=debug ori run f.ori    # Multiple targets
 ```
 
+### Phase Dumps (debug builds only)
+```bash
+ORI_DUMP_AFTER_PARSE=1 ori check file.ori      # AST after parse
+ORI_DUMP_AFTER_TYPECK=1 ori check file.ori     # Typed IR after typeck
+ORI_DUMP_AFTER_ARC=1 ori build file.ori        # ARC IR with RC strategies
+ORI_DUMP_AFTER_LLVM=1 ori build file.ori       # Annotated LLVM IR
+```
+
+### Runtime Instrumentation (AOT binaries)
+```bash
+ORI_TRACE_RC=1 ./binary                         # RC event trace (alloc/inc/dec/free)
+ORI_RT_DEBUG=1 ./binary                          # Runtime assertions (header validation)
+ORI_CHECK_LEAKS=1 ./binary                       # Leak check with attribution
+```
+
 ### Tracing Targets (by crate)
 | Target | What it shows |
 |--------|--------------|

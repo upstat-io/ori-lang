@@ -54,7 +54,14 @@ Both built with `cargo build -p ori_rt`.
 
 For LLVM IR debugging workflow, tools, common bug categories, and verification strategy, see @llvm.md
 
+**Runtime env vars:**
+- `ORI_TRACE_RC=1` — Logs every RC alloc/inc/dec/free event to stderr
+- `ORI_TRACE_RC=verbose` — Adds backtraces to RC events
+- `ORI_RT_DEBUG=1` — Enables runtime assertions (RC header validation, bounds checks)
+- `ORI_CHECK_LEAKS=1` — Reports unfreed allocations with allocation-site attribution
+
 **RC debugging scripts** — use these for memory/RC issues:
 - `diagnostics/rc-stats.sh <file.ori>` — static RC balance analysis per function in LLVM IR
+- `diagnostics/codegen-audit.sh <file.ori>` — in-pipeline RC balance, COW correctness, ABI checks (`--strict`)
 - `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: build + run + `ORI_CHECK_LEAKS` + RC stats + IR (add `--valgrind`)
 - `diagnostics/dual-exec-debug.sh <file.ori>` — interpreter vs AOT comparison, auto-dumps on mismatch

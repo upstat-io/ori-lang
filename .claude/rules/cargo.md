@@ -25,8 +25,8 @@ paths:
 | `cargo c` | `check --workspace` | Check all crates |
 | `cargo b` | `build --workspace` | Build all crates |
 | `cargo cl` | `clippy --workspace --all-targets` | Clippy all crates |
-| `cargo bl` | `build -p oric -p ori_rt --features llvm` | LLVM debug build |
-| `cargo blr` | `build -p oric -p ori_rt --features llvm --release` | LLVM release build |
+| `cargo bl` | `build -p oric -p ori_rt --features llvm` | LLVM debug build (compiler + runtime for AOT) |
+| `cargo blr` | `build -p oric -p ori_rt --features llvm --release` | LLVM release build (compiler + runtime for AOT) |
 | `cargo rl` | `run -p oric --features llvm --bin ori --` | Run with LLVM |
 | `cargo cll` | `clippy --manifest-path compiler/ori_llvm/Cargo.toml --all-targets` | Clippy LLVM crate |
 

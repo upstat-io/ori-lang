@@ -92,6 +92,7 @@ For Ori syntax, types, patterns, and prelude:
 `ORI_LOG=debug ori check file.ori` | `ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori` | `ORI_LOG=ori_eval=debug ori run file.ori` | `ORI_LOG=oric=debug ori check file.ori` (Salsa queries) | Falls back to `RUST_LOG`
 **Phase dumps** (show compiler IR at each stage): `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR with RC strategies) | `ORI_DUMP_AFTER_LLVM=1` (annotated LLVM IR, superset of `ORI_DEBUG_LLVM`) — all output to stderr, zero overhead in release builds.
 **Runtime debug** (checked in `ori_rt`): `ORI_TRACE_RC=1` (RC operation log) | `ORI_RT_DEBUG=1` (bounds/underflow assertions) | `ORI_CHECK_LEAKS=1` (report live RC objects on exit)
+**Codegen audit**: `ORI_AUDIT_CODEGEN=1` — in-pipeline RC verification: checks alloc/dec balance, COW sequencing, ABI arg counts, large aggregate loads. Zero cost when disabled. Options: `ORI_AUDIT_STRICT=1` (pessimistic: COW treated as freeing, params tracked as RC-managed) | `ORI_AUDIT_FUNCTION=name` (filter to functions matching substring).
 **Consistency**: `diagnostics/check-debug-flags.sh` — validates all `ORI_*` flags are defined, used, and documented.
 **Always run `./test-all.sh` after compiler changes.**
 **Valgrind (memory safety)**: `./scripts/valgrind-aot.sh` — compiles Ori programs from `tests/valgrind/` to native binaries and runs them under Valgrind. Catches use-after-free, double-free, and leaks that `ORI_CHECK_LEAKS` misses (Valgrind tracks `malloc`/`free` at the system level, not just RC live count). Run after ARC pipeline changes or when adding new codegen patterns. Not part of `test-all.sh` due to speed (Valgrind is 20-50x slower). Can also run on any `.ori` file: `./scripts/valgrind-aot.sh path/to/file.ori`.
@@ -104,6 +105,7 @@ For Ori syntax, types, patterns, and prelude:
 - `diagnostics/rc-stats.sh <file.ori>` — count RC operations (alloc/inc/dec/free) per function in LLVM IR, flag imbalances
 - `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: compile + execute + leak check + RC stats + IR dump + optional Valgrind (`--valgrind`) and disasm (`--verbose`)
 - `diagnostics/dual-exec-debug.sh <file.ori>` — run through interpreter AND AOT, compare exit codes + stdout; on mismatch auto-dumps IR and RC stats (`--verbose` adds `ORI_LOG=debug` traces)
+- `diagnostics/codegen-audit.sh <file.ori>` — static analysis of LLVM IR: RC balance, COW correctness, ABI conformance (`--strict` for pessimistic, `--function <name>` to filter)
 All scripts support `--help`, `--no-color`/`--color`, and handle missing args and compilation failures gracefully.
 
 > **Note**: AOT compilation (`ori build`) requires `libori_rt.a`. Use `cargo bl`/`blr` to build both the compiler and runtime library together.
