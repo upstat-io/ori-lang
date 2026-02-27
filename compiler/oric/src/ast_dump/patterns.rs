@@ -12,7 +12,7 @@ use super::expr::dump_expr_inline;
 
 /// Dump a binding pattern inline.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-pub(super) fn dump_binding_pattern(
+pub(crate) fn dump_binding_pattern(
     out: &mut String,
     pattern: &BindingPattern,
     interner: &StringInterner,
@@ -73,7 +73,7 @@ pub(super) fn dump_binding_pattern(
 
 /// Dump a match pattern inline.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-pub(super) fn dump_match_pattern(
+pub(crate) fn dump_match_pattern(
     out: &mut String,
     pattern: &MatchPattern,
     arena: &ExprArena,
@@ -170,7 +170,7 @@ pub(super) fn dump_match_pattern(
 }
 
 /// Format a parsed type for display.
-pub(super) fn format_parsed_type(
+pub(crate) fn format_parsed_type(
     ty: &ori_ir::ParsedType,
     arena: &ExprArena,
     interner: &StringInterner,
@@ -247,7 +247,7 @@ pub(super) fn format_parsed_type(
 }
 
 /// Format a label name (empty → "", non-empty → ":name").
-pub(super) fn format_label(label: Name, interner: &StringInterner) -> String {
+pub(crate) fn format_label(label: Name, interner: &StringInterner) -> String {
     if label == Name::EMPTY {
         String::new()
     } else {

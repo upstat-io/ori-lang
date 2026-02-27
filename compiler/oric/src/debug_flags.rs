@@ -19,8 +19,9 @@
 //! - `flags!` — defines flag constants with doc comments
 //!
 //! Note: `ori_llvm` cannot depend on `oric` (the dep direction is reversed),
-//! so flags consumed inside `ori_llvm` are checked via raw `std::env::var` calls
-//! until we migrate dumps to the `oric` call site (section 03.5).
+//! so flags consumed inside `ori_llvm` (e.g., evaluator JIT path) use raw
+//! `std::env::var` checks. The `oric` call sites use `dbg_do!`/`dbg_set!` macros
+//! for zero-overhead gating in release builds.
 
 /// Check if a debug flag is set. Returns `false` in release builds.
 ///

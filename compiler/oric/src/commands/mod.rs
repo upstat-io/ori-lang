@@ -138,6 +138,18 @@ pub(super) fn report_frontend_errors(
         return None;
     };
 
+    // Phase dump: Typed IR after type checking (gated behind ORI_DUMP_AFTER_TYPECK=1)
+    crate::dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_TYPECK, {
+        let path_str = file.path(db).display().to_string();
+        crate::ir_dump::dump_typed_ir(
+            &parse_result,
+            &type_result.typed,
+            &pool,
+            db.interner(),
+            &path_str,
+        );
+    });
+
     if type_result.has_errors() {
         let renderer = TypeErrorRenderer::new(&pool, db.interner());
         for error in type_result.errors() {
