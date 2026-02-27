@@ -5,6 +5,7 @@
 
 #[cfg(feature = "llvm")]
 use std::path::Path;
+#[cfg(feature = "llvm")]
 use std::path::PathBuf;
 
 #[cfg(feature = "llvm")]
