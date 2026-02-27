@@ -111,7 +111,8 @@ fn build_file_single(
         &pool,
         &canon_result,
         path,
-    );
+    )
+    .unwrap_or_else(|e| report_codegen_error(CodegenProblem::VerificationFailed { message: e }));
 
     // Configure module for target
     let emitter = ObjectEmitter::new(&target).unwrap_or_else(|e| report_codegen_error(e));
@@ -509,7 +510,7 @@ fn compile_single_module(
     // Salsa/ArtifactCache boundary: typed() results flow into codegen via
     // function content hashes; ArcIrCache provides Layer 1 caching.
     let context = Context::create();
-    let llvm_module = compile_to_llvm_with_imports(
+    let llvm_module = match compile_to_llvm_with_imports(
         &context,
         ctx.db,
         &parse_result,
@@ -523,7 +524,15 @@ fn compile_single_module(
         ctx.module_hash
             .as_ref()
             .and_then(|hashes| hashes.get(source_path).copied()),
-    );
+    ) {
+        Ok(m) => m,
+        Err(e) => {
+            let mut acc = CodegenDiagnostics::new();
+            acc.push(CodegenProblem::VerificationFailed { message: e });
+            emit_codegen_diagnostics(acc);
+            return None;
+        }
+    };
 
     // Configure target, optimize, and emit object/bitcode
     let obj_path = emit_module_artifact(ctx, &llvm_module, &module_name)?;

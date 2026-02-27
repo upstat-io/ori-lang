@@ -3,6 +3,10 @@
 //! Single source of truth for all runtime functions declared by the Ori compiler.
 //! Each entry specifies the function's name, parameter types, return type,
 //! and any LLVM attributes.
+//!
+//! This file is exempt from the 500-line limit: it is a pure static data table
+//! (no logic, no branching). Splitting would scatter the single source of truth
+//! across files, making audits harder and increasing sync risk.
 
 // ---------------------------------------------------------------------------
 // Type and attribute descriptors
