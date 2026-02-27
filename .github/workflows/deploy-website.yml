@@ -6,6 +6,9 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: [master]
+  # Deploy directly on release commits (CI is skipped for these, but website needs version update)
+  push:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -20,6 +23,13 @@ concurrency:
 
 jobs:
   build:
+    # push: only for release commits (CI is skipped, but website needs the version)
+    # workflow_run: only when CI succeeded (not when skipped for release commits)
+    # workflow_dispatch: always
+    if: >-
+      (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'chore: release v')) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
