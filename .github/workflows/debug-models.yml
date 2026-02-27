@@ -5,25 +5,13 @@ on:
 
 permissions:
   contents: read
+  models: read
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify COPILOT_GITHUB_TOKEN is set
-        env:
-          TOKEN_SET: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
-        run: |
-          if [[ "$TOKEN_SET" != "true" ]]; then
-            echo "::error::COPILOT_GITHUB_TOKEN secret is not set."
-            echo "Create a fine-grained PAT with 'Models' permission at:"
-            echo "  https://github.com/settings/personal-access-tokens/new"
-            echo "Then add it as a repo secret named COPILOT_GITHUB_TOKEN"
-            exit 1
-          fi
-          echo "Token is set."
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -39,30 +27,35 @@ jobs:
           echo "Copilot CLI version:"
           copilot --version || echo "(no --version flag)"
 
-      # Test 1: CLI programmatic mode (simplest — uses default model)
-      - name: "Test 1: CLI programmatic mode"
+      # Test 1a: CLI with COPILOT_GITHUB_TOKEN (user PAT)
+      - name: "Test 1a: CLI with user PAT"
+        if: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          echo "--- Running: copilot -p ---"
-          OUTPUT=$(copilot -p "Reply with exactly: COPILOT_CLI_OK" 2>&1) || true
+          echo "--- Running: copilot -p with COPILOT_GITHUB_TOKEN ---"
+          OUTPUT=$(copilot -p "Reply with exactly: CLI_PAT_OK" 2>&1) || true
           echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -q "COPILOT_CLI_OK"; then
-            echo "::notice::CLI programmatic mode: SUCCESS"
-          else
-            echo "::warning::CLI programmatic mode: did not get expected response"
-          fi
 
-      # Test 2: Python SDK with claude-sonnet-4.5 (documented slug)
-      - name: "Test 2: SDK with claude-sonnet-4.5"
+      # Test 1b: CLI with built-in GITHUB_TOKEN
+      - name: "Test 1b: CLI with GITHUB_TOKEN"
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "--- Running: copilot -p with GITHUB_TOKEN ---"
+          OUTPUT=$(copilot -p "Reply with exactly: CLI_GHTOKEN_OK" 2>&1) || true
+          echo "$OUTPUT"
+
+      # Test 2: SDK with PermissionHandler fix + claude-sonnet-4.5
+      - name: "Test 2: SDK claude-sonnet-4.5 (PAT)"
+        if: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
+        continue-on-error: true
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          echo "--- Running: SDK claude-sonnet-4.5 ---"
           python3 << 'PYEOF'
-          import asyncio
-          import sys
-          from copilot import CopilotClient
+          import asyncio, sys
+          from copilot import CopilotClient, PermissionHandler
 
           async def main():
               client = CopilotClient()
@@ -71,44 +64,85 @@ jobs:
                   session = await client.create_session({
                       "model": "claude-sonnet-4.5",
                       "streaming": False,
+                      "on_permission_request": PermissionHandler.approve_all,
                   })
                   done = asyncio.Event()
                   result = []
-
                   def on_event(event):
                       t = event.type.value if hasattr(event.type, 'value') else str(event.type)
                       if t == "assistant.message":
                           content = event.data.content if hasattr(event.data, 'content') else str(event.data)
                           result.append(content)
-                          print(f"[assistant.message] {content}")
+                          print(f"[{t}] {content}")
                       elif t == "session.idle":
                           done.set()
                       else:
                           print(f"[{t}] {event.data}")
-
                   session.on(on_event)
-                  await session.send({"prompt": "Reply with exactly: SDK_SONNET_45_OK"})
+                  await session.send({"prompt": "Reply with exactly: SDK_45_OK"})
                   await asyncio.wait_for(done.wait(), timeout=60)
-                  print(f"SUCCESS: claude-sonnet-4.5 responded: {result[-1] if result else 'NO RESPONSE'}")
+                  print(f"SUCCESS: {result[-1] if result else 'NO RESPONSE'}")
               except Exception as e:
-                  print(f"FAILED: claude-sonnet-4.5: {e}", file=sys.stderr)
+                  print(f"FAILED: {e}", file=sys.stderr)
                   sys.exit(1)
               finally:
                   await client.stop()
-
           asyncio.run(main())
           PYEOF
 
-      # Test 3: Python SDK with claude-sonnet-4.6 (what we want)
-      - name: "Test 3: SDK with claude-sonnet-4.6"
+      # Test 3: SDK with GITHUB_TOKEN + claude-sonnet-4.5
+      - name: "Test 3: SDK claude-sonnet-4.5 (GITHUB_TOKEN)"
+        continue-on-error: true
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import asyncio, sys
+          from copilot import CopilotClient, PermissionHandler
+
+          async def main():
+              client = CopilotClient()
+              await client.start()
+              try:
+                  session = await client.create_session({
+                      "model": "claude-sonnet-4.5",
+                      "streaming": False,
+                      "on_permission_request": PermissionHandler.approve_all,
+                  })
+                  done = asyncio.Event()
+                  result = []
+                  def on_event(event):
+                      t = event.type.value if hasattr(event.type, 'value') else str(event.type)
+                      if t == "assistant.message":
+                          content = event.data.content if hasattr(event.data, 'content') else str(event.data)
+                          result.append(content)
+                          print(f"[{t}] {content}")
+                      elif t == "session.idle":
+                          done.set()
+                      else:
+                          print(f"[{t}] {event.data}")
+                  session.on(on_event)
+                  await session.send({"prompt": "Reply with exactly: SDK_GHTOKEN_OK"})
+                  await asyncio.wait_for(done.wait(), timeout=60)
+                  print(f"SUCCESS: {result[-1] if result else 'NO RESPONSE'}")
+              except Exception as e:
+                  print(f"FAILED: {e}", file=sys.stderr)
+                  sys.exit(1)
+              finally:
+                  await client.stop()
+          asyncio.run(main())
+          PYEOF
+
+      # Test 4: SDK with claude-sonnet-4.6 (PAT)
+      - name: "Test 4: SDK claude-sonnet-4.6 (PAT)"
+        if: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
+        continue-on-error: true
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          echo "--- Running: SDK claude-sonnet-4.6 ---"
           python3 << 'PYEOF'
-          import asyncio
-          import sys
-          from copilot import CopilotClient
+          import asyncio, sys
+          from copilot import CopilotClient, PermissionHandler
 
           async def main():
               client = CopilotClient()
@@ -117,59 +151,84 @@ jobs:
                   session = await client.create_session({
                       "model": "claude-sonnet-4.6",
                       "streaming": False,
+                      "on_permission_request": PermissionHandler.approve_all,
                   })
                   done = asyncio.Event()
                   result = []
-
                   def on_event(event):
                       t = event.type.value if hasattr(event.type, 'value') else str(event.type)
                       if t == "assistant.message":
                           content = event.data.content if hasattr(event.data, 'content') else str(event.data)
                           result.append(content)
-                          print(f"[assistant.message] {content}")
+                          print(f"[{t}] {content}")
                       elif t == "session.idle":
                           done.set()
                       else:
                           print(f"[{t}] {event.data}")
-
                   session.on(on_event)
-                  await session.send({"prompt": "Reply with exactly: SDK_SONNET_46_OK"})
+                  await session.send({"prompt": "Reply with exactly: SDK_46_OK"})
                   await asyncio.wait_for(done.wait(), timeout=60)
-                  print(f"SUCCESS: claude-sonnet-4.6 responded: {result[-1] if result else 'NO RESPONSE'}")
+                  print(f"SUCCESS: {result[-1] if result else 'NO RESPONSE'}")
               except Exception as e:
-                  print(f"FAILED: claude-sonnet-4.6: {e}", file=sys.stderr)
+                  print(f"FAILED: {e}", file=sys.stderr)
                   sys.exit(1)
               finally:
                   await client.stop()
-
           asyncio.run(main())
           PYEOF
 
-      # Test 4: List available models (if supported)
-      - name: "Test 4: List available models"
+      # Test 5: GitHub Models API with GITHUB_TOKEN (direct curl)
+      - name: "Test 5: GitHub Models API (direct curl)"
         env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "--- Trying to list models ---"
+          echo "--- Testing GitHub Models API ---"
+          # List available models
+          echo "GET /models:"
+          curl -s -w "\nHTTP %{http_code}\n" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://models.github.ai/inference/models" | head -100
+
+          echo ""
+          echo "--- Testing known model slugs ---"
+          for MODEL in \
+            "openai/gpt-4o-mini" \
+            "anthropic/claude-sonnet-4-6" \
+            "claude-sonnet-4.6" \
+            "claude-sonnet-4.5"
+          do
+            CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://models.github.ai/inference/chat/completions" \
+              -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":5}")
+            BODY=$(cat /tmp/resp.json 2>/dev/null | head -5)
+            echo "$MODEL -> HTTP $CODE | $BODY"
+          done
+
+      # Test 6: Inspect available SDK methods
+      - name: "Test 6: Inspect SDK API"
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
           python3 << 'PYEOF'
-          import asyncio
-          from copilot import CopilotClient
-
-          async def main():
-              client = CopilotClient()
-              await client.start()
+          import copilot
+          print("copilot package dir:", dir(copilot))
+          print()
+          # Check for PermissionHandler
+          if hasattr(copilot, 'PermissionHandler'):
+              print("PermissionHandler:", dir(copilot.PermissionHandler))
+          else:
+              print("No PermissionHandler found")
+              # Try alternative imports
               try:
-                  if hasattr(client, 'list_models'):
-                      models = await client.list_models()
-                      print("Available models:", models)
-                  else:
-                      print("list_models() not available on client")
-                      # Try dir() to see what's available
-                      print("Client methods:", [m for m in dir(client) if not m.startswith('_')])
-              except Exception as e:
-                  print(f"list_models failed: {e}")
-              finally:
-                  await client.stop()
-
-          asyncio.run(main())
+                  from copilot.types import PermissionHandler
+                  print("Found in copilot.types:", dir(PermissionHandler))
+              except ImportError:
+                  print("Not in copilot.types either")
+              try:
+                  from copilot import permissions
+                  print("Found copilot.permissions:", dir(permissions))
+              except ImportError:
+                  print("No copilot.permissions module")
           PYEOF
