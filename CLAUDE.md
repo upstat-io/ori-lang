@@ -94,12 +94,20 @@ For Ori syntax, types, patterns, and prelude:
 **Valgrind (memory safety)**: `./scripts/valgrind-aot.sh` — compiles Ori programs from `tests/valgrind/` to native binaries and runs them under Valgrind. Catches use-after-free, double-free, and leaks that `ORI_CHECK_LEAKS` misses (Valgrind tracks `malloc`/`free` at the system level, not just RC live count). Run after ARC pipeline changes or when adding new codegen patterns. Not part of `test-all.sh` due to speed (Valgrind is 20-50x slower). Can also run on any `.ori` file: `./scripts/valgrind-aot.sh path/to/file.ori`.
 **Dual-execution verification**: `./scripts/dual-exec-verify.sh` — runs spec tests through both JIT (interpreter) and LLVM (JIT/AOT) backends, compares results. Flags behavioral mismatches. Supports `--test-only`, `--main-only`, `--verbose`, `--json[=PATH]`.
 **Performance baseline**: `./scripts/perf-baseline.sh [--release]` — measures compile time, AOT vs JIT runtime, and binary sizes for benchmark programs in `tests/benchmarks/`.
+**Diagnostic scripts** (`diagnostics/`): Quick AOT/codegen debugging — USE THESE when investigating LLVM, ARC, or backend mismatch bugs:
+- `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR dump (use `--raw` for undecorated)
+- `diagnostics/ir-diff.sh <a.ori> <b.ori>` — side-by-side IR comparison between two programs
+- `diagnostics/disasm-ori.sh <file.ori>` — native disassembly with Ori symbol demangling
+- `diagnostics/rc-stats.sh <file.ori>` — count RC operations (alloc/inc/dec/free) per function in LLVM IR, flag imbalances
+- `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: compile + execute + leak check + RC stats + IR dump + optional Valgrind (`--valgrind`) and disasm (`--verbose`)
+- `diagnostics/dual-exec-debug.sh <file.ori>` — run through interpreter AND AOT, compare exit codes + stdout; on mismatch auto-dumps IR and RC stats (`--verbose` adds `ORI_LOG=debug` traces)
+All scripts support `--help`, `--no-color`/`--color`, and handle missing args and compilation failures gracefully.
 
 > **Note**: AOT compilation (`ori build`) requires `libori_rt.a`. Use `cargo bl`/`blr` to build both the compiler and runtime library together.
 
 ## Key Paths
 
-`compiler/oric/` — compiler | `docs/ori_lang/0.1-alpha/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT integration tests | `tests/valgrind/` — Valgrind memory safety tests | `tests/benchmarks/` — AOT performance benchmarks | `plans/roadmap/` — roadmap
+`compiler/oric/` — compiler | `docs/ori_lang/0.1-alpha/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT integration tests | `tests/valgrind/` — Valgrind memory safety tests | `tests/benchmarks/` — AOT performance benchmarks | `diagnostics/` — AOT/codegen diagnostic scripts (ir-dump, ir-diff, disasm, rc-stats, diagnose-aot, dual-exec-debug) | `plans/roadmap/` — roadmap
 
 ## Reference Repos (`~/projects/reference_repos/lang_repos/`)
 

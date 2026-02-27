@@ -61,3 +61,9 @@ Format: `_ori_<module>$<function>[<suffix>]`
 ## LLVM Debugging
 
 For LLVM IR debugging workflow, tools, common bug categories, and verification strategy, see @llvm.md
+
+**Quick AOT diagnostics** — use `diagnostics/` scripts for fast debugging:
+- `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: build + run + leak check + RC stats + IR dump
+- `diagnostics/dual-exec-debug.sh <file.ori>` — compare interpreter vs AOT; auto-dumps diagnostics on mismatch
+- `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR
+- `diagnostics/rc-stats.sh <file.ori>` — RC balance per function

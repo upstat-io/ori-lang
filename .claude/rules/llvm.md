@@ -82,6 +82,13 @@ entry → header → body → latch → header (or exit)
 | `ORI_LOG=ori_llvm=debug` | Codegen event log (function-level) |
 | `ORI_LOG=ori_llvm=trace` | Per-instruction detail (very verbose) |
 
+**Diagnostic scripts** (`diagnostics/`) — use these FIRST for LLVM/AOT bugs:
+- `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR dump
+- `diagnostics/ir-diff.sh <a.ori> <b.ori>` — compare IR between two programs
+- `diagnostics/rc-stats.sh <file.ori>` — RC operation balance per function (flags over-release/leaks)
+- `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: build + run + leak check + RC stats + IR (add `--valgrind` for memory errors)
+- `diagnostics/dual-exec-debug.sh <file.ori>` — compare interpreter vs AOT output; auto-dumps IR + RC stats on mismatch
+
 **Triage**: Verification fail = our codegen bug. Optimization crash = `opt -verify-each -opt-bisect-limit=N`. Runtime segfault = check ABI/GEP/aggregate loads. Compare with `clang -emit-llvm -S -O0` for reference IR.
 
 Tests run **sequentially** (not parallel) due to `Context::create()` contention.
