@@ -11,22 +11,22 @@ depends_on: ["01"]
 sections:
   - id: "02.1"
     title: "COW Push (Append)"
-    status: in-progress
+    status: complete
   - id: "02.2"
     title: "COW Pop"
-    status: not-started
+    status: complete
   - id: "02.3"
     title: "COW Set (Index Assignment)"
-    status: not-started
+    status: complete
   - id: "02.4"
     title: "COW Insert & Remove"
-    status: not-started
+    status: complete
   - id: "02.5"
     title: "COW Concat (List Concatenation)"
-    status: not-started
+    status: in-progress
   - id: "02.6"
     title: "COW Reverse & Sort"
-    status: not-started
+    status: complete
   - id: "02.7"
     title: "LLVM Codegen Updates"
     status: not-started
@@ -57,7 +57,7 @@ sections:
 
 Push is the highest-impact single operation. Most list construction patterns are repeated appends.
 
-- [ ] Replace `ori_list_push_new` with COW-aware `ori_list_push`: <!-- reverted 2026-02-27: premature boxed model migration caused ABI mismatch with codegen emitters; full migration in §02.7 -->
+- [x] Replace `ori_list_push_new` with COW-aware `ori_list_push`: (2026-02-27, implemented as `ori_list_push_cow` with consuming semantics — sret ABI matching current codegen pattern. Uses RC-allocated data buffers. Fast path: unique+capacity=in-place O(1), unique+growth=realloc. Slow path: shared/empty=allocate+copy+dec-old. Codegen wiring deferred to §02.7)
   ```rust
   /// Appends `elem` to `list`. If the list's data buffer is uniquely owned
   /// and has sufficient capacity, writes in place (O(1)). Otherwise,
@@ -148,7 +148,7 @@ Push is the highest-impact single operation. Most list construction patterns are
   - If another thread is racing with `ori_rc_inc`, the value is being shared, and `Relaxed` may see either 1 or 2 — if it sees 1, the inc hasn't happened yet, so we're still the sole owner; if it sees 2, we correctly take the slow path
   - `Release`/`Acquire` is only needed for the *dec* path (to ensure visibility of writes before deallocation)
 
-- [ ] Unit tests (Rust): <!-- reverted 2026-02-27: 6 COW push tests removed with boxed model revert -->
+- [x] Unit tests (Rust): (2026-02-27, 5 tests in `ori_rt/src/tests.rs`: cow_push_to_empty_sentinel, cow_push_unique_with_capacity, cow_push_unique_needs_growth, cow_push_shared_list_copies, cow_push_1000_sequential_amortized. All pass with zero leaks verified via RC_LIVE_COUNT.)
   - Push to empty list (sentinel) → allocates, len=1, cap=MIN_CAPACITY
   - Push to unique list with capacity → in-place, same data pointer
   - Push to unique list without capacity → realloc, new data pointer, doubled cap
@@ -173,7 +173,7 @@ Push is the highest-impact single operation. Most list construction patterns are
 
 Pop removes and returns the last element. With COW, if unique, we simply decrement `len` (the element is still in the buffer but inaccessible). If shared, we copy all-but-last.
 
-- [ ] Replace `ori_list_pop_new` with COW-aware `ori_list_pop`:
+- [x] Replace `ori_list_pop_new` with COW-aware `ori_list_pop`: (2026-02-27, implemented as `ori_list_pop_cow` with consuming semantics. Fast path: unique=decrement len O(1), capacity retained. Slow path: shared=allocate+copy len-1+dec old. Empty list returns sentinel.)
   ```rust
   /// Removes the last element from the list. Returns the shortened list.
   /// If unique: decrements len (O(1), element stays in buffer but is logically removed).
@@ -202,9 +202,9 @@ Pop removes and returns the last element. With COW, if unique, we simply decreme
   }
   ```
 
-- [ ] **Capacity reclamation**: When a unique list's `len` drops below `cap / 4`, consider shrinking. But this is a tradeoff — shrinking prevents memory waste but causes reallocation. **Decision: Do NOT auto-shrink.** Let capacity grow but never auto-shrink. Users can explicitly call `list.compact()` (future method) to reclaim. This matches Rust's `Vec` behavior.
+- [x] **Capacity reclamation**: When a unique list's `len` drops below `cap / 4`, consider shrinking. But this is a tradeoff — shrinking prevents memory waste but causes reallocation. **Decision: Do NOT auto-shrink.** Let capacity grow but never auto-shrink. Users can explicitly call `list.compact()` (future method) to reclaim. This matches Rust's `Vec` behavior. (2026-02-27, implemented — fast path retains capacity, verified by cow_pop_to_empty_retains_buffer test)
 
-- [ ] Unit tests:
+- [x] Unit tests: (2026-02-27, 4 tests in `ori_rt/src/tests.rs`: cow_pop_unique_decrements_len, cow_pop_shared_copies, cow_pop_to_empty_retains_buffer, cow_pop_empty_list_returns_empty. All pass, zero leaks.)
   - Pop from unique list → same data pointer, len decremented
   - Pop from shared list → new allocation, old untouched
   - Pop to empty → len=0, data pointer still valid (capacity retained)
@@ -217,7 +217,7 @@ Pop removes and returns the last element. With COW, if unique, we simply decreme
 
 Set replaces the element at a given index. With COW, if unique, we overwrite in place. If shared, we copy the whole list, then overwrite.
 
-- [ ] Replace `ori_list_set_new` with COW-aware `ori_list_set`:
+- [x] Replace `ori_list_set_new` with COW-aware `ori_list_set`: (2026-02-27, implemented as `ori_list_set_cow` with consuming semantics. Fast path: unique=overwrite in-place O(1). Slow path: shared=copy entire list+overwrite in copy O(n). Out-of-bounds returns input unchanged. Codegen wiring deferred to §02.7)
   ```rust
   /// Replaces the element at `index` with `elem`.
   /// If unique: overwrites in place (O(1)).
@@ -260,7 +260,7 @@ Set replaces the element at a given index. With COW, if unique, we overwrite in 
   }
   ```
 
-- [ ] Unit tests:
+- [x] Unit tests: (2026-02-27, 3 tests in `ori_rt/src/tests.rs`: cow_set_unique_overwrites_in_place, cow_set_shared_copies, cow_set_at_index_zero. All pass, zero leaks.)
   - Set on unique list → same data pointer, element replaced
   - Set on shared list → new allocation, old list unchanged
   - Set at index 0, middle, and last position
@@ -273,7 +273,7 @@ Set replaces the element at a given index. With COW, if unique, we overwrite in 
 
 Insert shifts elements right; remove shifts elements left. With COW, if unique, we shift in place using `memmove`. If shared, we copy with the shift built into the copy.
 
-- [ ] Add `ori_list_insert`:
+- [x] Add `ori_list_insert`: (2026-02-27, implemented as `ori_list_insert_cow` with consuming semantics. Fast path: unique+capacity=memmove right+write O(n). unique+growth=realloc+memmove+write. Slow path: shared=alloc+copy [0..idx]+elem+copy [idx..len]+dec old. Index 0..=len valid, OOB returns unchanged.)
   ```rust
   /// Inserts `elem` at `index`, shifting subsequent elements right.
   /// If unique and has capacity: memmove right + write (O(n) for shift, but
@@ -289,7 +289,7 @@ Insert shifts elements right; remove shifts elements left. With COW, if unique, 
   ) -> OriList { ... }
   ```
 
-- [ ] Add `ori_list_remove`:
+- [x] Add `ori_list_remove`: (2026-02-27, implemented as `ori_list_remove_cow` with consuming semantics. Fast path: unique=memmove left O(n), unique+empty=ori_rc_free. Slow path: shared=alloc+copy [0..idx]+[idx+1..len]+dec old. Caller extracts element before call.)
   ```rust
   /// Removes element at `index`, shifting subsequent elements left.
   /// If unique: memmove left (O(n) for shift, no allocation).
@@ -304,7 +304,7 @@ Insert shifts elements right; remove shifts elements left. With COW, if unique, 
   ) -> OriList { ... }
   ```
 
-- [ ] Unit tests:
+- [x] Unit tests: (2026-02-27, 11 tests: 6 insert (beginning/middle/end unique, growth, shared, empty) + 5 remove (beginning/middle/end unique, last-element-frees, shared). All pass, zero leaks.)
   - Insert at beginning, middle, end (unique and shared)
   - Remove from beginning, middle, end (unique and shared)
   - Insert that triggers growth (unique: realloc + shift, shared: fresh alloc)
@@ -318,7 +318,7 @@ Insert shifts elements right; remove shifts elements left. With COW, if unique, 
 
 Concat (`list1 + list2`) appends all elements of `list2` to `list1`. With COW, if `list1` is unique and has capacity for `list2`, we extend in place.
 
-- [ ] Replace `ori_list_concat_new` with COW-aware `ori_list_concat`:
+- [x] Replace `ori_list_concat_new` with COW-aware `ori_list_concat`: (2026-02-27, implemented as `ori_list_concat_cow` with consuming semantics for list1, borrowing list2. Fast path: list1 unique+capacity=memcpy list2 O(m). unique+growth=realloc+memcpy. Slow path: shared=alloc+copy both+dec old list1.)
   ```rust
   /// Concatenates list2 onto list1.
   /// If list1 is unique:
@@ -338,7 +338,7 @@ Concat (`list1 + list2`) appends all elements of `list2` to `list1`. With COW, i
   ) -> OriList { ... }
   ```
 
-- [ ] **Optimization: consume list2 when unique**: If `list2` is also uniquely owned and has no remaining references, we can move its elements without incrementing their RCs. This requires passing a flag or checking list2's uniqueness too.
+- [ ] **Optimization: consume list2 when unique**: If `list2` is also uniquely owned and has no remaining references, we can move its elements without incrementing their RCs. This requires passing a flag or checking list2's uniqueness too. (Deferred — current impl borrows list2; dual-uniqueness optimization can be added when codegen is wired in §02.7)
 
   **Decision:** Check both lists' uniqueness. Four cases:
   1. Both unique: move list2's elements (no element RC changes), realloc list1 if needed
@@ -346,7 +346,7 @@ Concat (`list1 + list2`) appends all elements of `list2` to `list1`. With COW, i
   3. list1 shared, list2 unique: allocate new, copy list1 (inc each), move list2
   4. Both shared: allocate new, copy both (inc all elements)
 
-- [ ] Unit tests:
+- [x] Unit tests: (2026-02-27, 5 tests: cow_concat_unique_with_capacity, cow_concat_unique_needs_growth, cow_concat_shared_copies, cow_concat_empty_lists, cow_concat_empty_list1. All pass, zero leaks.)
   - Concat where list1 has capacity → no realloc
   - Concat where list1 needs growth → realloc
   - Concat with shared list1 → new allocation
@@ -362,7 +362,7 @@ Concat (`list1 + list2`) appends all elements of `list2` to `list1`. With COW, i
 
 Reverse and sort are in-place algorithms when the list is unique.
 
-- [ ] Add COW `ori_list_reverse`:
+- [x] Add COW `ori_list_reverse`: (2026-02-27, implemented as `ori_list_reverse_cow` with consuming semantics. Fast path: unique=swap loop in-place O(n). Slow path: shared=alloc+copy in reverse order+dec old. Single/empty elements returned unchanged.)
   ```rust
   /// Reverses the list.
   /// If unique: reverse in place using swap loop (O(n), no allocation).
@@ -375,7 +375,7 @@ Reverse and sort are in-place algorithms when the list is unique.
   ) -> OriList { ... }
   ```
 
-- [ ] Add COW `ori_list_sort`:
+- [x] Add COW `ori_list_sort`: (2026-02-27, implemented as `ori_list_sort_cow` with consuming semantics. Uses index-sort + cycle-following permutation. Fast path: unique=sort indices+permute in-place O(n log n). Slow path: shared=sort indices+copy in sorted order+dec old. compare_fn has C ABI.)
   ```rust
   /// Sorts the list using the provided comparison function.
   /// If unique: sort in place (O(n log n), no allocation).
@@ -392,9 +392,9 @@ Reverse and sort are in-place algorithms when the list is unique.
   ) -> OriList { ... }
   ```
 
-- [ ] **Sort algorithm choice**: Use an adaptive sort (like `slice::sort_unstable` in Rust — pattern-defeating quicksort). For stability, use merge sort. **Decision: unstable sort by default** (faster, less memory). Provide `sort_stable` as a separate method (future).
+- [x] **Sort algorithm choice**: Uses Rust's `Vec::sort_unstable_by` (pattern-defeating quicksort) on an index array, then applies the permutation. Unstable sort by default — no allocation beyond the index and visited arrays. Stable sort deferred to future `sort_stable` method. (2026-02-27)
 
-- [ ] Unit tests:
+- [x] Unit tests: (2026-02-27, 12 tests: 5 reverse (unique even/odd, shared, single, empty) + 7 sort (unique, shared, already-sorted, reverse-sorted, duplicates, single, empty). All pass, zero leaks.)
   - Reverse unique list → same data pointer, elements reversed
   - Reverse shared list → new allocation, original unchanged
   - Sort unique list → same data pointer, elements sorted
