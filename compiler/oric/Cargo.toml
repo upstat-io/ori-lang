@@ -17,8 +17,8 @@ name = "ori"
 path = "src/main.rs"
 
 [features]
-default = ["llvm"]
-llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 17 (see LLVM_SYS_170_PREFIX in .cargo/config.toml)
+default = []
+llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 17; build via `cargo bl`/`blr` (see .cargo/config.toml)
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
