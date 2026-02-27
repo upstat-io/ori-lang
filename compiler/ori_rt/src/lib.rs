@@ -124,11 +124,24 @@ impl OriStr {
 }
 
 /// Ori list representation: { i64 len, i64 cap, *mut u8 data }
+///
+/// Also used for sets, which share the same memory layout.
 #[repr(C)]
 pub struct OriList {
     pub len: i64,
     pub cap: i64,
     pub data: *mut u8,
+}
+
+/// Ori map representation: { i64 len, i64 cap, *mut u8 keys, *mut u8 values }
+///
+/// Uses parallel arrays for keys and values (each RC'd separately).
+#[repr(C)]
+pub struct OriMap {
+    pub len: i64,
+    pub cap: i64,
+    pub keys: *mut u8,
+    pub values: *mut u8,
 }
 
 /// Ori Option representation: { i8 tag, T value }
@@ -187,6 +200,30 @@ static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 /// `i64::MAX` (9.2 quintillion) — unreachable in practice, but the check
 /// costs essentially nothing (one compare per `ori_rc_inc`).
 const MAX_REFCOUNT: i64 = isize::MAX as i64;
+
+// ── Collection growth strategy ───────────────────────────────────────
+
+/// Minimum initial capacity for collections.
+///
+/// Set to 4 to avoid frequent reallocation for small collections while
+/// not wasting memory for single-element lists. Matches Rust's `Vec`
+/// behavior (which uses 4 for small element types).
+const MIN_COLLECTION_CAPACITY: usize = 4;
+
+/// Compute the next capacity for a collection that needs to hold at least
+/// `required` elements.
+///
+/// Returns `max(required, current * 2, MIN_COLLECTION_CAPACITY)`.
+///
+/// Uses 2x doubling (matches Rust `Vec`, Swift `Array`, Java `ArrayList`):
+/// - Amortized O(1) append
+/// - At most 50% wasted capacity
+/// - Simple and well-understood
+#[inline]
+fn next_capacity(current: usize, required: usize) -> usize {
+    let doubled = current.saturating_mul(2);
+    doubled.max(required).max(MIN_COLLECTION_CAPACITY)
+}
 
 // ── setjmp/longjmp JIT recovery ──────────────────────────────────────────
 
@@ -620,6 +657,243 @@ pub extern "C" fn ori_rc_count(data_ptr: *const u8) -> i64 {
     }
 }
 
+/// Check whether an RC'd object is uniquely owned (refcount == 1).
+///
+/// This is the foundational COW (copy-on-write) primitive. When the refcount
+/// is 1, the caller is the sole owner and may mutate the allocation in place
+/// without copying. When the refcount is > 1, the caller must copy before
+/// mutating.
+///
+/// Returns `false` for null pointers (empty collection sentinels are never
+/// "unique" — they have no buffer to mutate in place).
+///
+/// Uses `Relaxed` ordering, which is sufficient because:
+/// - If truly unique (RC=1), no other thread holds a reference, so there are
+///   no concurrent writers to synchronize with.
+/// - If another thread just dropped its reference (Release decrement), the
+///   Acquire fence in `ori_rc_dec` ensures visibility before deallocation.
+///   We're only reading here, not deallocating.
+/// - A stale read of RC=2 when the true value is 1 is safe (we take the slow
+///   copy path unnecessarily). A stale read of RC=1 when the true value is 2
+///   is impossible: the incrementing thread must have cloned from an existing
+///   reference, so the count was already >= 2 before the clone.
+///
+/// Matches Swift's `isKnownUniquelyReferenced` and Lean 4's `isShared` (inverted).
+#[no_mangle]
+pub extern "C" fn ori_rc_is_unique(data_ptr: *const u8) -> bool {
+    if data_ptr.is_null() {
+        return false;
+    }
+
+    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
+    // and 8-byte aligned. AtomicI64 has the same layout as i64.
+    unsafe {
+        #[cfg(not(feature = "single-threaded"))]
+        {
+            let rc_ptr = data_ptr.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).load(Ordering::Relaxed) == 1
+        }
+        #[cfg(feature = "single-threaded")]
+        {
+            *data_ptr.sub(8).cast::<i64>() == 1
+        }
+    }
+}
+
+/// Check whether an RC'd object is uniquely owned OR is a null sentinel.
+///
+/// Returns `true` if `data_ptr` is null (sentinel — no buffer exists) or if
+/// the refcount is exactly 1. Used by COW operations that handle sentinels
+/// separately: if null, allocate a new buffer; if unique, mutate in place.
+#[no_mangle]
+pub extern "C" fn ori_rc_is_unique_or_null(data_ptr: *const u8) -> bool {
+    data_ptr.is_null() || ori_rc_is_unique(data_ptr)
+}
+
+/// Reallocate a reference-counted buffer to a new data size.
+///
+/// Adjusts the underlying allocation (which includes the 8-byte RC header)
+/// while preserving the refcount. Returns the new data pointer (8 bytes past
+/// the base).
+///
+/// # Preconditions
+/// - `data_ptr` was returned by `ori_rc_alloc`
+/// - `ori_rc_is_unique(data_ptr)` is true (caller is the sole owner)
+/// - `new_data_size > 0` (use `ori_rc_free` to deallocate)
+///
+/// Returns null on allocation failure (original allocation is NOT freed in
+/// that case — caller retains ownership).
+#[no_mangle]
+pub extern "C" fn ori_rc_realloc(
+    data_ptr: *mut u8,
+    old_data_size: usize,
+    new_data_size: usize,
+    align: usize,
+) -> *mut u8 {
+    if data_ptr.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let align = align.max(8);
+    let old_total = old_data_size + 8;
+    let new_total = new_data_size + 8;
+
+    let old_layout = match std::alloc::Layout::from_size_align(old_total, align) {
+        Ok(layout) => layout,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is the
+    // base pointer with layout (old_data_size + 8, align). realloc preserves
+    // the first min(old_total, new_total) bytes, including the RC header.
+    let base = unsafe { data_ptr.sub(8) };
+    let new_base = unsafe { std::alloc::realloc(base, old_layout, new_total) };
+
+    if new_base.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    // Return data pointer (8 bytes past the refcount header)
+    unsafe { new_base.add(8) }
+}
+
+/// Copy `count * elem_size` bytes from `src` to `dst` (non-overlapping).
+///
+/// Thin wrapper over `ptr::copy_nonoverlapping` for use from LLVM-generated
+/// code. Does NOT perform reference count operations on elements — the caller
+/// is responsible for incrementing RC on copied RC'd elements.
+#[no_mangle]
+pub extern "C" fn ori_memcpy_elements(
+    dst: *mut u8,
+    src: *const u8,
+    count: usize,
+    elem_size: usize,
+) {
+    if count == 0 || elem_size == 0 || dst.is_null() || src.is_null() {
+        return;
+    }
+
+    // SAFETY: caller guarantees dst and src are valid for count * elem_size
+    // bytes and do not overlap.
+    unsafe {
+        std::ptr::copy_nonoverlapping(src, dst, count * elem_size);
+    }
+}
+
+/// Move `count * elem_size` bytes from `src` to `dst` (may overlap).
+///
+/// Thin wrapper over `ptr::copy` for use from LLVM-generated code when
+/// shifting elements during insert/remove operations. Does NOT perform
+/// reference count operations on elements.
+#[no_mangle]
+pub extern "C" fn ori_memmove_elements(
+    dst: *mut u8,
+    src: *const u8,
+    count: usize,
+    elem_size: usize,
+) {
+    if count == 0 || elem_size == 0 || dst.is_null() || src.is_null() {
+        return;
+    }
+
+    // SAFETY: caller guarantees dst and src are valid for count * elem_size
+    // bytes. Regions may overlap.
+    unsafe {
+        std::ptr::copy(src, dst, count * elem_size);
+    }
+}
+
+/// Ensure a list has capacity for at least `required` elements.
+///
+/// If `list.cap >= required`, this is a no-op. Otherwise, reallocates the
+/// buffer using `next_capacity()` for amortized O(1) growth.
+///
+/// # Preconditions
+/// - `list` is a valid pointer to an `OriList`
+/// - The list's data buffer is uniquely owned (`ori_rc_is_unique(list.data)`)
+///   OR the data pointer is null (empty sentinel)
+/// - `elem_size` and `elem_align` describe the element layout
+#[no_mangle]
+pub extern "C" fn ori_list_ensure_capacity(
+    list: *mut OriList,
+    required: i64,
+    elem_size: usize,
+    elem_align: usize,
+) {
+    if list.is_null() || required <= 0 {
+        return;
+    }
+
+    let list = unsafe { &mut *list };
+    let required = required as usize;
+
+    if (list.cap as usize) >= required {
+        return;
+    }
+
+    let new_cap = next_capacity(list.cap as usize, required);
+    let new_byte_size = new_cap * elem_size;
+
+    if list.data.is_null() {
+        // Sentinel (empty list) → first allocation.
+        // Data buffers are plain-allocated (no RC header). The owning OriList
+        // box is RC-allocated; the data buffer is freed via ori_free in the
+        // drop function (ori_list_free_data).
+        list.data = ori_alloc(new_byte_size, elem_align);
+    } else {
+        let old_byte_size = list.cap as usize * elem_size;
+        list.data = ori_realloc(list.data, old_byte_size, new_byte_size, elem_align);
+    }
+
+    if !list.data.is_null() {
+        list.cap = new_cap as i64;
+    }
+}
+
+// ── Empty collection sentinels ───────────────────────────────────────
+//
+// Empty collections use null data pointers as sentinels. This avoids heap
+// allocation for the common case of `[]`, `""`, `{}`, `#{}`.
+// - `ori_rc_inc(null)` and `ori_rc_dec(null)` are no-ops (already handled)
+// - `ori_rc_is_unique(null)` returns false → first mutation allocates
+
+/// Return an empty list sentinel (no allocation).
+///
+/// Returns null — the boxed list model uses null as the empty sentinel.
+/// `ori_rc_inc(null)` and `ori_rc_dec(null)` are no-ops.
+#[no_mangle]
+pub extern "C" fn ori_list_empty() -> *mut u8 {
+    std::ptr::null_mut()
+}
+
+/// Return an empty string sentinel (no allocation).
+#[no_mangle]
+pub extern "C" fn ori_str_empty() -> OriStr {
+    OriStr {
+        len: 0,
+        data: std::ptr::null(),
+    }
+}
+
+/// Return an empty map sentinel (no allocation).
+#[no_mangle]
+pub extern "C" fn ori_map_empty() -> OriMap {
+    OriMap {
+        len: 0,
+        cap: 0,
+        keys: std::ptr::null_mut(),
+        values: std::ptr::null_mut(),
+    }
+}
+
+/// Return an empty set sentinel (no allocation).
+///
+/// Sets use the same boxed layout as lists — null is the empty sentinel.
+#[no_mangle]
+pub extern "C" fn ori_set_empty() -> *mut u8 {
+    std::ptr::null_mut()
+}
+
 /// Print a string to stdout.
 #[no_mangle]
 pub extern "C" fn ori_print(s: *const OriStr) {
@@ -833,14 +1107,40 @@ pub extern "C-unwind" fn ori_assert_eq_str(actual: *const OriStr, expected: *con
     }
 }
 
+/// Allocate a new RC-boxed list struct with the given fields.
+///
+/// The `OriList` metadata `{len, cap, data}` is RC-allocated via
+/// `ori_rc_alloc`. The data buffer (`data`) is plain-allocated separately
+/// and owned by the `OriList`. Returns a pointer to the `OriList` data area
+/// (RC header at `ptr - 8`).
+///
+/// Returns null on allocation failure.
+#[no_mangle]
+pub extern "C" fn ori_list_box_new(len: i64, cap: i64, data: *mut u8) -> *mut u8 {
+    let box_ptr = ori_rc_alloc(
+        std::mem::size_of::<OriList>(),
+        std::mem::align_of::<OriList>(),
+    );
+    if box_ptr.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: box_ptr is a valid RC allocation of OriList size
+    unsafe {
+        let list = &mut *box_ptr.cast::<OriList>();
+        list.len = len;
+        list.cap = cap;
+        list.data = data;
+    }
+    box_ptr
+}
+
 /// Allocate a raw data buffer for a list with given capacity.
 ///
 /// Returns a pointer to a contiguous buffer of `capacity * elem_size` bytes,
-/// suitable for storing list elements directly. The caller manages the list
-/// header (`{len, cap, data}`) as a stack struct in LLVM IR.
+/// suitable for storing list elements directly. Used by codegen to allocate
+/// the data buffer before boxing it with `ori_list_box_new`.
 ///
-/// This is the JIT/codegen allocation path. For AOT code that needs a full
-/// `OriList` struct on the heap, use `ori_list_new`.
+/// For a complete RC-boxed list (metadata + data), use `ori_list_new`.
 #[no_mangle]
 pub extern "C" fn ori_list_alloc_data(capacity: i64, elem_size: i64) -> *mut u8 {
     let cap = capacity.max(0) as usize;
