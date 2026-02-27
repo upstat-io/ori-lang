@@ -70,6 +70,19 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_str_to_lowercase",
     "ori_str_to_uppercase",
     "ori_str_trim",
+    // Boxed list construction — AOT wraps list structs in RC boxes; JIT uses native Vecs
+    "ori_list_box_new",
+    // COW primitives — AOT uses runtime calls; JIT uses native Rust dispatch
+    "ori_list_empty",
+    "ori_list_ensure_capacity",
+    "ori_map_empty",
+    "ori_memcpy_elements",
+    "ori_memmove_elements",
+    "ori_rc_is_unique",
+    "ori_rc_is_unique_or_null",
+    "ori_rc_realloc",
+    "ori_set_empty",
+    "ori_str_empty",
     // RC leak detection — AOT test infrastructure only
     "ori_rc_live_count",
     "ori_rc_reset_live_count",

@@ -21,6 +21,8 @@ pub(super) enum Ty {
     Str,
     /// `{i64, i64, ptr}` — Ori list/set representation.
     List,
+    /// `{i64, i64, ptr, ptr}` — Ori map representation (len, cap, keys, values).
+    Map,
     /// `{i32, i64}` — char iteration result `{codepoint, next_offset}`.
     CharResult,
 }
@@ -170,6 +172,12 @@ pub(super) static RT_FUNCTIONS: &[RtFn] = &[
         params: &[Ty::Ptr, Ty::Ptr],
         ret: None,
         attrs: &[],
+    },
+    RtFn {
+        name: "ori_list_box_new",
+        params: &[Ty::I64, Ty::I64, Ty::Ptr],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
     },
     RtFn {
         name: "ori_list_push_new",
@@ -520,6 +528,68 @@ pub(super) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_rc_reset_live_count",
         params: &[],
         ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    // COW primitives
+    RtFn {
+        name: "ori_rc_is_unique",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_rc_is_unique_or_null",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Bool),
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_rc_realloc",
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_memcpy_elements",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::I64, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_memmove_elements",
+        params: &[Ty::Ptr, Ty::Ptr, Ty::I64, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_list_ensure_capacity",
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    // Empty collection sentinels
+    RtFn {
+        name: "ori_list_empty",
+        params: &[],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_str_empty",
+        params: &[],
+        ret: Some(Ty::Str),
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_map_empty",
+        params: &[],
+        ret: Some(Ty::Map),
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_set_empty",
+        params: &[],
+        ret: Some(Ty::Ptr),
         attrs: &[Attr::Nounwind],
     },
     // Args conversion

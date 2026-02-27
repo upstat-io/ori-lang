@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "List COW Operations"
-status: not-started
+status: in-progress
 goal: "Every list mutation is O(1) amortized when uniquely owned"
 inspired_by:
   - "Swift stdlib/public/core/Array.swift — _makeMutableAndUnique() protocol"
@@ -11,7 +11,7 @@ depends_on: ["01"]
 sections:
   - id: "02.1"
     title: "COW Push (Append)"
-    status: not-started
+    status: in-progress
   - id: "02.2"
     title: "COW Pop"
     status: not-started
@@ -57,7 +57,7 @@ sections:
 
 Push is the highest-impact single operation. Most list construction patterns are repeated appends.
 
-- [ ] Replace `ori_list_push_new` with COW-aware `ori_list_push`:
+- [ ] Replace `ori_list_push_new` with COW-aware `ori_list_push`: <!-- reverted 2026-02-27: premature boxed model migration caused ABI mismatch with codegen emitters; full migration in §02.7 -->
   ```rust
   /// Appends `elem` to `list`. If the list's data buffer is uniquely owned
   /// and has sufficient capacity, writes in place (O(1)). Otherwise,
@@ -127,7 +127,7 @@ Push is the highest-impact single operation. Most list construction patterns are
   }
   ```
 
-- [ ] **Slow path element RC handling**: When copying elements from a shared list to a new buffer, each element that is itself RC'd must be incremented (the new buffer now also references them). The codegen (§02.7) must emit element-wise `ori_rc_inc` calls after `ori_list_push` on the slow path.
+- [x] **Slow path element RC handling**: When copying elements from a shared list to a new buffer, each element that is itself RC'd must be incremented (the new buffer now also references them). The codegen (§02.7) must emit element-wise `ori_rc_inc` calls after `ori_list_push` on the slow path. (2026-02-26, design documented; runtime uses byte-copy; codegen-side RC inc deferred to §02.7)
 
   **Design decision — who increments element RCs:**
 
@@ -143,19 +143,19 @@ Push is the highest-impact single operation. Most list construction patterns are
 
   **Recommended:** Option (a) — pass a `drop_fn`-style callback for element RC operations. The runtime calls it for each copied element on the slow path. This matches the existing drop function pattern in `arc_emitter/drop_gen.rs`.
 
-- [ ] **Thread safety note**: The uniqueness check uses `Relaxed` ordering. This is safe because:
+- [x] **Thread safety note**: The uniqueness check uses `Relaxed` ordering. This is safe because: (2026-02-26, documented in `ori_rc_is_unique` doc comment — §01.1)
   - If RC==1, no other thread holds a reference (by definition)
   - If another thread is racing with `ori_rc_inc`, the value is being shared, and `Relaxed` may see either 1 or 2 — if it sees 1, the inc hasn't happened yet, so we're still the sole owner; if it sees 2, we correctly take the slow path
   - `Release`/`Acquire` is only needed for the *dec* path (to ensure visibility of writes before deallocation)
 
-- [ ] Unit tests (Rust):
+- [ ] Unit tests (Rust): <!-- reverted 2026-02-27: 6 COW push tests removed with boxed model revert -->
   - Push to empty list (sentinel) → allocates, len=1, cap=MIN_CAPACITY
   - Push to unique list with capacity → in-place, same data pointer
   - Push to unique list without capacity → realloc, new data pointer, doubled cap
   - Push to shared list (RC=2) → new allocation, old untouched
   - 1000 sequential pushes → amortized O(1), ~10 reallocations
 
-- [ ] AOT integration test (`compiler/ori_llvm/tests/aot/`):
+- [ ] AOT integration test (`compiler/ori_llvm/tests/aot/`): <!-- blocked-by:02.7 -->
   ```ori
   @test tests {
       let list = [1, 2, 3]
