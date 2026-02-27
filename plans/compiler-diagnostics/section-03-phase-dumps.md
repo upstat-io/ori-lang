@@ -1,7 +1,7 @@
 ---
 section: "03"
 title: Phase Dump System
-status: not-started
+status: in-progress
 goal: "Centralized debug flag registry + ORI_DUMP_AFTER_* phase dumps for parse/typeck/ARC/LLVM"
 inspired_by:
   - "Roc debug_flags crate (centralized env var flags + dbg_set!/dbg_do! macros)"
@@ -11,10 +11,10 @@ depends_on: []
 sections:
   - id: "03.1"
     title: "Centralized Debug Flags Module"
-    status: not-started
+    status: complete
   - id: "03.2"
     title: "ORI_DUMP_AFTER_PARSE"
-    status: not-started
+    status: complete
   - id: "03.3"
     title: "ORI_DUMP_AFTER_TYPECK"
     status: not-started
@@ -54,7 +54,7 @@ sections:
 
 Create a single source of truth for all debugging environment variables, following Roc's `debug_flags` pattern. This replaces scattered `std::env::var("ORI_DEBUG_LLVM")` checks with a centralized, documented, validated module.
 
-- [ ] Create `compiler/oric/src/debug_flags.rs` with flag definitions
+- [x] Create `compiler/oric/src/debug_flags.rs` with flag definitions (2026-02-27)
   ```rust
   //! Centralized debug flags for the Ori compiler.
   //!
@@ -104,10 +104,11 @@ Create a single source of truth for all debugging environment variables, followi
   pub const ORI_RT_DEBUG: &str = "ORI_RT_DEBUG";
   pub const ORI_CHECK_LEAKS: &str = "ORI_CHECK_LEAKS";
   ```
-- [ ] Export macros and constants from `oric` crate
-- [ ] Migrate existing `ORI_DEBUG_LLVM` checks in `evaluator/mod.rs` and `compile_common.rs` to use centralized flag
-- [ ] Add `mod debug_flags;` to `compiler/oric/src/lib.rs`
-- [ ] Test: verify existing `ORI_DEBUG_LLVM=1` behavior unchanged after migration
+- [x] Export macros and constants from `oric` crate (2026-02-27)
+- [x] Migrate existing `ORI_DEBUG_LLVM` checks in `compile_common.rs` to use centralized flag (2026-02-27)
+  - Note: `ori_llvm/evaluator/mod.rs` can't import from `oric` (dep direction reversed); deferred to 03.5
+- [x] Add `mod debug_flags;` to `compiler/oric/src/lib.rs` (2026-02-27)
+- [x] Test: verify existing `ORI_DEBUG_LLVM=1` behavior unchanged after migration (2026-02-27)
 
 ---
 
@@ -117,23 +118,26 @@ Create a single source of truth for all debugging environment variables, followi
 
 Dump the parsed AST in a human-readable format. Shows the structure the parser produced before type checking.
 
-- [ ] Add dump hook after `parse_module()` call in compile pipeline
-- [ ] Use existing `Debug` impls on AST nodes, or add a simple pretty-printer
-- [ ] Output format: indented tree showing function signatures, expression structure, pattern forms
+- [x] Add dump hook after `parse_module()` call in compile pipeline (2026-02-27)
+  - Hook placed in `report_frontend_errors()` in `commands/mod.rs` after `parsed(db, file)` call
+- [x] Use existing `Debug` impls on AST nodes, or add a simple pretty-printer (2026-02-27)
+  - Custom pretty-printer in `compiler/oric/src/ast_dump/` module (3 files: mod.rs, expr.rs, patterns.rs)
+  - Covers all ~30 ExprKind variants, all BindingPattern/MatchPattern variants, all ParsedType variants
+- [x] Output format: indented tree showing function signatures, expression structure, pattern forms (2026-02-27)
   ```
   === AST after parse: test.ori ===
-  Function @main () -> int
-    Block
-      LetBinding xs =
-        MethodCall .reverse()
-          MethodCall .push(3)
-            ListLiteral [1, 2]
-      MethodCall .length()
-        Ident xs
+  Function @add (a: TypeId::INT, b: TypeId::INT) -> TypeId::INT
+    Binary(+)
+      Ident(a)
+      Ident(b)
   === END AST ===
   ```
-- [ ] Gate behind `dbg_do!(ORI_DUMP_AFTER_PARSE, ...)`
-- [ ] Test: `ORI_DUMP_AFTER_PARSE=1 ori check test.ori` produces readable AST
+- [x] Gate behind `dbg_do!(ORI_DUMP_AFTER_PARSE, ...)` (2026-02-27)
+  - Zero overhead in release builds (compiled out via `#[cfg(debug_assertions)]`)
+  - Respects `ORI_DUMP_AFTER_PARSE=0` to explicitly disable
+- [x] Test: `ORI_DUMP_AFTER_PARSE=1 ori check test.ori` produces readable AST (2026-02-27)
+  - Verified with multiple spec test files (int_literals.ori, loops.ori, match.ori)
+  - Verified gating: no output without env var, no output with =0
 
 ---
 

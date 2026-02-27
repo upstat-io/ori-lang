@@ -25,6 +25,8 @@
 //!   (Section 12). See [`run_borrow_inference`] for the Salsa integration point.
 
 #[cfg(feature = "llvm")]
+use crate::dbg_do;
+#[cfg(feature = "llvm")]
 use std::path::Path;
 
 #[cfg(feature = "llvm")]
@@ -504,11 +506,11 @@ pub fn compile_to_llvm<'ctx>(
         &[],
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+    dbg_do!(crate::debug_flags::ORI_DEBUG_LLVM, {
         eprintln!("=== LLVM IR for {module_name} ===");
         eprintln!("{}", llvm_module.print_to_string().to_string_lossy());
         eprintln!("=== END IR ===");
-    }
+    });
 
     llvm_module
 }
@@ -580,7 +582,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         &import_sigs,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
+    dbg_do!(crate::debug_flags::ORI_DEBUG_LLVM, {
         eprintln!(
             "Compiled module '{}' from '{}' with {} imported functions",
             module_name,
@@ -588,7 +590,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             imported_functions.len()
         );
         eprintln!("{}", llvm_module.print_to_string().to_string_lossy());
-    }
+    });
 
     llvm_module
 }
