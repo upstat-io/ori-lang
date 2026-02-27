@@ -201,6 +201,94 @@ static RC_LIVE_COUNT: AtomicI64 = AtomicI64::new(0);
 /// costs essentially nothing (one compare per `ori_rc_inc`).
 const MAX_REFCOUNT: i64 = isize::MAX as i64;
 
+// ── RC Event Tracing ─────────────────────────────────────────────────
+
+/// RC trace verbosity, cached from `ORI_TRACE_RC` env var.
+///
+/// - `Disabled`: No trace output (default, zero overhead after first check)
+/// - `Basic`: Print `[RC] alloc/inc/dec/free` events to stderr
+/// - `Verbose`: Basic + backtrace for each operation
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RcTraceMode {
+    Disabled,
+    Basic,
+    Verbose,
+}
+
+/// Check the RC trace mode from `ORI_TRACE_RC` env var.
+///
+/// Caches the result in a `OnceLock` — after the first call, this is a single
+/// atomic load (~1ns). Zero overhead when tracing is disabled.
+///
+/// - Not set / other: `Disabled`
+/// - `ORI_TRACE_RC=1` or `true`: `Basic`
+/// - `ORI_TRACE_RC=verbose`: `Verbose`
+fn rc_trace_mode() -> RcTraceMode {
+    static MODE: OnceLock<RcTraceMode> = OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("ORI_TRACE_RC").as_deref() {
+        Ok("1" | "true") => RcTraceMode::Basic,
+        Ok("verbose") => RcTraceMode::Verbose,
+        _ => RcTraceMode::Disabled,
+    })
+}
+
+/// Quick check whether RC event tracing is enabled.
+///
+/// After the first call, this compiles down to a single atomic load.
+#[inline]
+fn rc_trace_enabled() -> bool {
+    rc_trace_mode() != RcTraceMode::Disabled
+}
+
+/// Trace an `ori_rc_alloc` event.
+#[cold]
+#[inline(never)]
+fn rc_trace_alloc(data_ptr: *const u8, size: usize, align: usize) {
+    let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+    eprintln!("[RC] alloc   {data_ptr:p} size={size} align={align} → rc=1 (live={live})");
+    rc_trace_verbose_backtrace();
+}
+
+/// Trace an `ori_rc_inc` event.
+#[cold]
+#[inline(never)]
+fn rc_trace_inc(data_ptr: *const u8, new_rc: i64) {
+    let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+    eprintln!("[RC] inc     {data_ptr:p} → rc={new_rc} (live={live})");
+    rc_trace_verbose_backtrace();
+}
+
+/// Trace an `ori_rc_dec` event.
+#[cold]
+#[inline(never)]
+fn rc_trace_dec(data_ptr: *const u8, new_rc: i64) {
+    let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+    if new_rc == 0 {
+        eprintln!("[RC] dec     {data_ptr:p} → rc=0 FREE (live={live})");
+    } else {
+        eprintln!("[RC] dec     {data_ptr:p} → rc={new_rc} (live={live})");
+    }
+    rc_trace_verbose_backtrace();
+}
+
+/// Trace an `ori_rc_free` event.
+#[cold]
+#[inline(never)]
+fn rc_trace_free(data_ptr: *const u8, size: usize, align: usize) {
+    let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
+    eprintln!("[RC] free    {data_ptr:p} size={size} align={align} (live={live})");
+    rc_trace_verbose_backtrace();
+}
+
+/// Print a backtrace if verbose tracing is enabled.
+#[cold]
+#[inline(never)]
+fn rc_trace_verbose_backtrace() {
+    if rc_trace_mode() == RcTraceMode::Verbose {
+        eprintln!("{}", std::backtrace::Backtrace::force_capture());
+    }
+}
+
 // ── Collection growth strategy ───────────────────────────────────────
 
 /// Minimum initial capacity for collections.
@@ -450,7 +538,13 @@ pub extern "C" fn ori_rc_alloc(size: usize, align: usize) -> *mut u8 {
 
     // Return data pointer (8 bytes past the strong_count)
     // SAFETY: base is valid for total_size bytes, so base + 8 is valid
-    unsafe { base.add(8) }
+    let data_ptr = unsafe { base.add(8) };
+
+    if rc_trace_enabled() {
+        rc_trace_alloc(data_ptr.cast_const(), size, align);
+    }
+
+    data_ptr
 }
 
 /// Increment the reference count of an RC'd object.
@@ -481,6 +575,10 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
             if prev == MAX_REFCOUNT {
                 rc_overflow_abort();
             }
+
+            if rc_trace_enabled() {
+                rc_trace_inc(data_ptr.cast_const(), prev + 1);
+            }
         }
         #[cfg(feature = "single-threaded")]
         {
@@ -489,6 +587,10 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
                 rc_overflow_abort();
             }
             *rc_ptr += 1;
+
+            if rc_trace_enabled() {
+                rc_trace_inc(data_ptr.cast_const(), *rc_ptr);
+            }
         }
     }
 }
@@ -543,6 +645,10 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
             "ori_rc_dec: refcount was already zero (use-after-free)"
         );
 
+        if rc_trace_enabled() {
+            rc_trace_dec(data_ptr.cast_const(), prev - 1);
+        }
+
         if prev <= 1 {
             // Acquire fence: synchronize with all Release decrements from other
             // threads. This ensures the drop function sees all writes that any
@@ -557,15 +663,19 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
 
     #[cfg(feature = "single-threaded")]
     {
-        let should_drop = unsafe {
+        let (should_drop, new_rc) = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
             debug_assert!(
                 *rc_ptr > 0,
                 "ori_rc_dec: refcount was already zero (use-after-free)"
             );
             *rc_ptr -= 1;
-            *rc_ptr <= 0
+            (*rc_ptr <= 0, *rc_ptr)
         };
+
+        if rc_trace_enabled() {
+            rc_trace_dec(data_ptr.cast_const(), new_rc);
+        }
 
         if should_drop {
             if let Some(f) = drop_fn {
@@ -612,6 +722,10 @@ pub extern "C" fn ori_rc_free(data_ptr: *mut u8, size: usize, align: usize) {
     ori_free(base, total_size, align);
 
     RC_LIVE_COUNT.fetch_sub(1, Ordering::Relaxed);
+
+    if rc_trace_enabled() {
+        rc_trace_free(data_ptr.cast_const(), size, align);
+    }
 }
 
 /// Get the number of live RC allocations (for testing and debugging).

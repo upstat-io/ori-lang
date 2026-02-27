@@ -1,9 +1,13 @@
 ---
+import fs from 'node:fs';
+import path from 'node:path';
+
+const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUILD_NUMBER'), 'utf-8').trim();
 ---
 
 <section class="hero">
   <div class="hero-inner">
-    <span class="status-badge">Pre-Alpha</span>
+    <span class="status-badge">v{version}</span>
     <h1 class="hero-title">Code That Proves Itself</h1>
     <p class="hero-subtitle">
       Expression-based. Type-inferred. Effect-aware. Tests are mandatory and live in the dependency graph. Memory is automatic with no GC or borrow checker. If it compiles, it's verified. If you change it, you'll know what broke.

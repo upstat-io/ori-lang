@@ -506,7 +506,7 @@ pub fn compile_to_llvm<'ctx>(
 
     if std::env::var("ORI_DEBUG_LLVM").is_ok() {
         eprintln!("=== LLVM IR for {module_name} ===");
-        eprintln!("{}", llvm_module.print_to_string());
+        eprintln!("{}", llvm_module.print_to_string().to_string_lossy());
         eprintln!("=== END IR ===");
     }
 
@@ -587,7 +587,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
             source_path,
             imported_functions.len()
         );
-        eprintln!("{}", llvm_module.print_to_string());
+        eprintln!("{}", llvm_module.print_to_string().to_string_lossy());
     }
 
     llvm_module
