@@ -57,6 +57,18 @@ fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
             );
             builder.register_type(st.into())
         }
+        Ty::Map => {
+            let st = builder.scx().type_struct(
+                &[
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_i64().into(),
+                    builder.scx().type_ptr().into(),
+                    builder.scx().type_ptr().into(),
+                ],
+                false,
+            );
+            builder.register_type(st.into())
+        }
         Ty::CharResult => {
             let st = builder.scx().type_struct(
                 &[
