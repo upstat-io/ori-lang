@@ -123,8 +123,8 @@ jobs:
 
           Diff stats: ${DIFF_STAT}"
 
-          # Call GitHub Models API
-          RESPONSE=$(curl -s \
+          # Call GitHub Models API (capture HTTP status separately)
+          HTTP_CODE=$(curl -s -o /tmp/ai-response.json -w "%{http_code}" \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Content-Type: application/json" \
             "https://models.github.ai/inference/chat/completions" \
@@ -137,6 +137,16 @@ jobs:
                 ],
                 temperature: 0.3
               }')")
+
+          echo "GitHub Models API HTTP status: $HTTP_CODE"
+
+          if [[ "$HTTP_CODE" -ne 200 ]]; then
+            echo "::warning::GitHub Models API returned HTTP $HTTP_CODE"
+            # Log error details (safe — no secrets in response body)
+            cat /tmp/ai-response.json || true
+          fi
+
+          RESPONSE=$(cat /tmp/ai-response.json)
 
           # Extract the content from the response
           AI_NOTES=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
