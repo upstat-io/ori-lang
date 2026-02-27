@@ -267,3 +267,102 @@ fn can_expr_hash_consistency() {
     set.insert(CanExpr::Bool(true));
     assert_eq!(set.len(), 2);
 }
+
+// ── remap_types ─────────────────────────────────────────────
+
+#[test]
+fn remap_types_updates_all_entries() {
+    let mut arena = CanArena::new();
+
+    // Push nodes with distinct compound TypeIds
+    let ty_a = TypeId::from_raw(TypeId::FIRST_COMPOUND);
+    let ty_b = TypeId::from_raw(TypeId::FIRST_COMPOUND + 1);
+    let id1 = arena.push(CanNode::new(CanExpr::Int(1), Span::DUMMY, ty_a));
+    let id2 = arena.push(CanNode::new(CanExpr::Int(2), Span::DUMMY, ty_b));
+    let id3 = arena.push(CanNode::new(CanExpr::Bool(true), Span::DUMMY, ty_a));
+
+    // Remap: shift all compound types by +10
+    arena.remap_types(|ty| {
+        if ty.raw() >= TypeId::FIRST_COMPOUND {
+            TypeId::from_raw(ty.raw() + 10)
+        } else {
+            ty
+        }
+    });
+
+    let expected_a = TypeId::from_raw(TypeId::FIRST_COMPOUND + 10);
+    let expected_b = TypeId::from_raw(TypeId::FIRST_COMPOUND + 11);
+    assert_eq!(arena.ty(id1), expected_a);
+    assert_eq!(arena.ty(id2), expected_b);
+    assert_eq!(arena.ty(id3), expected_a);
+}
+
+#[test]
+fn remap_types_preserves_primitives() {
+    let mut arena = CanArena::new();
+
+    let id_int = arena.push(CanNode::new(CanExpr::Int(42), Span::DUMMY, TypeId::INT));
+    let id_bool = arena.push(CanNode::new(CanExpr::Bool(true), Span::DUMMY, TypeId::BOOL));
+    let id_str = arena.push(CanNode::new(
+        CanExpr::Str(Name::EMPTY),
+        Span::DUMMY,
+        TypeId::STR,
+    ));
+
+    // Identity remap for primitives, shift compounds
+    arena.remap_types(|ty| {
+        if ty.raw() >= TypeId::FIRST_COMPOUND {
+            TypeId::from_raw(ty.raw() + 100)
+        } else {
+            ty
+        }
+    });
+
+    // Primitives unchanged
+    assert_eq!(arena.ty(id_int), TypeId::INT);
+    assert_eq!(arena.ty(id_bool), TypeId::BOOL);
+    assert_eq!(arena.ty(id_str), TypeId::STR);
+}
+
+#[test]
+fn remap_types_mixed_primitive_and_compound() {
+    let mut arena = CanArena::new();
+
+    let compound_ty = TypeId::from_raw(TypeId::FIRST_COMPOUND + 5);
+    let id1 = arena.push(CanNode::new(CanExpr::Int(1), Span::DUMMY, TypeId::INT));
+    let id2 = arena.push(CanNode::new(CanExpr::Int(2), Span::DUMMY, compound_ty));
+    let id3 = arena.push(CanNode::new(CanExpr::Unit, Span::DUMMY, TypeId::UNIT));
+    let id4 = arena.push(CanNode::new(CanExpr::Int(4), Span::DUMMY, compound_ty));
+
+    // Remap compounds to a different slot
+    let remapped = TypeId::from_raw(TypeId::FIRST_COMPOUND + 99);
+    arena.remap_types(|ty| if ty == compound_ty { remapped } else { ty });
+
+    assert_eq!(arena.ty(id1), TypeId::INT);
+    assert_eq!(arena.ty(id2), remapped);
+    assert_eq!(arena.ty(id3), TypeId::UNIT);
+    assert_eq!(arena.ty(id4), remapped);
+}
+
+#[test]
+fn remap_types_on_empty_arena() {
+    let mut arena = CanArena::new();
+    // Should not panic on empty arena
+    arena.remap_types(|ty| ty);
+    assert!(arena.is_empty());
+}
+
+#[test]
+fn remap_types_does_not_affect_expressions() {
+    let mut arena = CanArena::new();
+
+    let ty = TypeId::from_raw(TypeId::FIRST_COMPOUND);
+    let id = arena.push(CanNode::new(CanExpr::Int(42), Span::DUMMY, ty));
+
+    arena.remap_types(|_| TypeId::BOOL);
+
+    // Type changed, but expression kind and span preserved
+    assert_eq!(*arena.kind(id), CanExpr::Int(42));
+    assert_eq!(arena.span(id), Span::DUMMY);
+    assert_eq!(arena.ty(id), TypeId::BOOL);
+}

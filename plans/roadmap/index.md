@@ -14,7 +14,15 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
+> **QUEUED REROUTE**: `plans/ori-eh-personality/` — Ori EH Personality: replace `rust_eh_personality` with Ori's own `ori_eh_personality` implemented in C (~150 lines of Itanium EH ABI LSDA parsing). Handles cleanup and catch-all landing pads. Covers runtime (`ori_rt` — new C file + build.rs), LLVM codegen (`ori_llvm` — symbol swap in 4 locations). 3 sections. Independent of other reroutes — can activate at any time. Discovered by Code Journey 3.
+
+---
+
 > **QUEUED REROUTE**: `plans/type_strategy_registry/` — Type Strategy Registry: pure-data `ori_registry` crate centralizing all builtin type behavior (methods, operators, ownership, memory strategy) as `const` data consumed by every compiler phase. Eliminates ~1,900 lines of parallel allowlists and hard-coded type knowledge across ori_types, ori_eval, ori_ir, ori_llvm, ori_arc. 14 sections. Activates when Value Semantics Optimization reroute completes.
+
+---
+
+> **QUEUED REROUTE**: `plans/repr-opt/` — Representation Optimization & ARC Intelligence: complete the 3-tier representation optimization framework — from abstract types through range analysis and escape analysis to optimally-narrowed LLVM IR. New `ori_repr` crate creates a `ReprPlan` (decision document) between type checking and codegen. Covers: transitive triviality & ARC elision (§02), value range analysis via abstract interpretation (§03), integer narrowing `int`→`i8`/`i16`/`i32` (§04), float narrowing `f64`→`f32` (§05), struct field reordering (§06), enum niche filling like Rust's `Option<bool>`=1 byte (§07), escape analysis & stack promotion (§08), ARC header compression `i64`→`i8`/`i16`/`i32` refcounts (§09), thread-local non-atomic ARC (§10), SSO/SVO/packed-bool collection specialization (§11). Targets: ≥10% runtime improvement, ≥20% memory reduction, ≥40% fewer RC operations. Draws from Swift SIL ARC optimizer, Lean4 RC/Borrow/Reuse, Koka FBIP, Roc NumericRange, Zig InternPool. 12 sections, ~9,500 new lines. Activates when Type Strategy Registry reroute completes.
 
 ---
 

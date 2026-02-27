@@ -87,6 +87,7 @@ For Ori syntax, types, patterns, and prelude:
 **Tests**: `cargo t` (Rust), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
 **Build**: `cargo c`/`cl`/`b`/`fmt`, `./llvm-build.sh`, `./llvm-clippy.sh`
 **LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — builds oric + ori_rt (LLVM is a default feature; `cargo bl` additionally builds `ori_rt` for AOT linking)
+**Optimized release**: `cargo build --profile release-lto` — fat LTO + single codegen unit (~20% faster binary, ~3.5x longer build). Output: `target/release-lto/ori`. Use for published binaries and benchmarks. Regular `--release` (used by `test-all.sh`, `cargo blr`) is unaffected.
 **Tracing/Debugging** (USE FIRST — before println, before reading code line-by-line):
 `ORI_LOG=debug ori check file.ori` | `ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori` | `ORI_LOG=ori_eval=debug ori run file.ori` | `ORI_LOG=oric=debug ori check file.ori` (Salsa queries) | Falls back to `RUST_LOG`
 **Always run `./test-all.sh` after compiler changes.**
@@ -115,7 +116,7 @@ For Ori syntax, types, patterns, and prelude:
 
 ## CLI
 
-`ori run file.ori` | `ori check file.ori` | `ori check --no-test` | `ori check --strict` | `ori test` | `ori test --only-attached` | `ori fmt src/`
+`ori run file.ori` | `ori check file.ori` | `ori test` | `ori test --only-attached` | `ori fmt src/`
 
 ## Files & Tests
 

@@ -1,0 +1,32 @@
+// Journey 10: "I am a list"
+// Features: list literals, list length, list as parameter, for..in list, ARC for lists
+// NOTE: list indexing (xs[0]) crashes AOT — CRITICAL C2
+// Expected: check_length() + check_iteration() + check_passing() = 13 + 15 + 5 = 33
+
+@count_items (xs: [int]) -> int = xs.length();
+
+@check_length () -> int = {
+    let a = [10, 20, 30];
+    let b = [40, 50];
+    let c = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    a.length() + b.length() + count_items(xs: c) - count_items(xs: b)
+    // = 3 + 2 + 10 - 2 = 13
+}
+
+@check_iteration () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let total = 0;
+    for x in xs do total += x;
+    total
+    // = 1 + 2 + 3 + 4 + 5 = 15
+}
+
+@check_passing () -> int = count_items(xs: [100, 200, 300, 400, 500]);
+// = 5
+
+@main () -> int = {
+    let a = check_length();     // = 13
+    let b = check_iteration();  // = 15
+    let c = check_passing();    // = 5
+    a + b + c                   // = 33
+}
