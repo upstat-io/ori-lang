@@ -15,6 +15,7 @@ use oric::reporting::typeck::TypeErrorRenderer;
 use oric::{CompilerDb, Db, SourceFile};
 
 pub mod build;
+pub mod build_options;
 mod check;
 #[cfg(feature = "llvm")]
 mod compile_common;
@@ -26,9 +27,10 @@ mod run;
 mod target;
 mod targets;
 mod test;
+mod watch;
 
 // Public types and functions for external use (tests, library consumers)
-pub use build::{
+pub use build_options::{
     parse_build_options, BuildOptions, DebugLevel, EmitType, LinkMode, LtoMode, OptLevel,
 };
 
@@ -44,6 +46,7 @@ pub use run::{run_file, run_file_compiled};
 pub use target::{add_target, list_installed_targets, remove_target, TargetSubcommand};
 pub use targets::{list_targets, TargetFilter};
 pub use test::run_tests;
+pub use watch::watch_file;
 
 /// Result of running the frontend pipeline (lex → parse → typecheck).
 pub(super) struct FrontendResult {

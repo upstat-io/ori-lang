@@ -1,5 +1,5 @@
 use super::*;
-use crate::ExpectedOrigin;
+use crate::{Expected, ExpectedOrigin, TypeErrorKind};
 
 #[test]
 fn test_literal_inference() {

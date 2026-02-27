@@ -36,12 +36,13 @@ mod conversions;
 mod memory;
 mod phi_types_blocks;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder as InkwellBuilder;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, FunctionValue};
+use rustc_hash::FxHashMap;
 
 use crate::context::SimpleCx;
 
@@ -77,6 +78,13 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// NOT be passed to LLVM's JIT — doing so causes heap corruption (SIGABRT).
     /// The evaluator checks this after compilation to bail out early.
     pub(super) codegen_errors: Cell<u32>,
+    /// Descriptive messages for each codegen error (for diagnostics).
+    pub(super) codegen_error_descriptions: RefCell<Vec<String>>,
+    /// Cache: runtime function name → already-declared `FunctionId`.
+    ///
+    /// Avoids redundant LLVM module lookups and arena pushes for
+    /// runtime functions. Populated on first use by `runtime_fn()`.
+    runtime_cache: FxHashMap<&'static str, FunctionId>,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -90,6 +98,8 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             current_function: None,
             current_block: None,
             codegen_errors: Cell::new(0),
+            codegen_error_descriptions: RefCell::new(Vec::new()),
+            runtime_cache: FxHashMap::default(),
         }
     }
 
@@ -106,6 +116,19 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// must not be JIT-compiled.
     pub(crate) fn record_codegen_error(&self) {
         self.codegen_errors.set(self.codegen_errors.get() + 1);
+    }
+
+    /// Record a codegen error with a descriptive message for diagnostics.
+    pub(crate) fn record_codegen_error_with_msg(&self, msg: impl Into<String>) {
+        self.codegen_errors.set(self.codegen_errors.get() + 1);
+        self.codegen_error_descriptions
+            .borrow_mut()
+            .push(msg.into());
+    }
+
+    /// Descriptive messages for codegen errors (if any were recorded with messages).
+    pub fn codegen_error_descriptions(&self) -> Vec<String> {
+        self.codegen_error_descriptions.borrow().clone()
     }
 
     /// Number of type-mismatch errors recorded during IR construction.
@@ -163,6 +186,40 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// Intern a raw `FunctionValue` into the arena, returning a `FunctionId`.
     pub fn intern_function(&mut self, func: FunctionValue<'ctx>) -> FunctionId {
         self.arena.push_function(func)
+    }
+
+    /// Get or lazily declare a runtime function by name.
+    ///
+    /// On first call for a given name, declares the function in the LLVM
+    /// module with the correct signature and attributes (from `RT_FUNCTIONS`).
+    /// Subsequent calls return the cached `FunctionId`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` is not a known runtime function.
+    pub fn runtime_fn(&mut self, name: &'static str) -> FunctionId {
+        if let Some(&id) = self.runtime_cache.get(name) {
+            return id;
+        }
+        let id = super::runtime_decl::declare_single(self, name);
+        self.runtime_cache.insert(name, id);
+        id
+    }
+
+    /// Try to get or lazily declare a runtime function by name.
+    ///
+    /// Unlike [`runtime_fn`](Self::runtime_fn), accepts `&str` (not just
+    /// `&'static str`) and returns `None` for unknown names instead of
+    /// panicking. Used by `ArcIrEmitter`'s fallback resolution path where
+    /// the callee name comes from ARC IR and may or may not be a runtime
+    /// function.
+    pub fn try_runtime_fn(&mut self, name: &str) -> Option<FunctionId> {
+        if let Some(&id) = self.runtime_cache.get(name) {
+            return Some(id);
+        }
+        let (static_name, id) = super::runtime_decl::try_declare_single(self, name)?;
+        self.runtime_cache.insert(static_name, id);
+        Some(id)
     }
 }
 

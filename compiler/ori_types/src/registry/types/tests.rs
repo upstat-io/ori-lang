@@ -34,7 +34,15 @@ fn register_and_lookup_struct() {
         },
     ];
 
-    registry.register_struct(name, idx, vec![], fields, test_span(), Visibility::Public);
+    registry.register_struct(
+        name,
+        idx,
+        vec![],
+        fields,
+        test_span(),
+        Visibility::Public,
+        0,
+    );
 
     // Lookup by name
     let entry = registry.get_by_name(name).expect("should find by name");
@@ -74,7 +82,15 @@ fn register_and_lookup_enum() {
         },
     ];
 
-    registry.register_enum(name, idx, vec![], variants, test_span(), Visibility::Public);
+    registry.register_enum(
+        name,
+        idx,
+        vec![],
+        variants,
+        test_span(),
+        Visibility::Public,
+        0,
+    );
 
     // Lookup by name
     let entry = registry.get_by_name(name).expect("should find by name");
@@ -107,7 +123,15 @@ fn register_newtype() {
     let name = test_name("UserId");
     let idx = Idx::from_raw(102);
 
-    registry.register_newtype(name, idx, vec![], Idx::INT, test_span(), Visibility::Public);
+    registry.register_newtype(
+        name,
+        idx,
+        vec![],
+        Idx::INT,
+        test_span(),
+        Visibility::Public,
+        0,
+    );
 
     let entry = registry.get_by_name(name).expect("should find");
     assert!(entry.kind.is_newtype());
@@ -128,7 +152,15 @@ fn register_alias() {
     let idx = Idx::from_raw(103);
     let target = Idx::from_raw(200); // Some list type
 
-    registry.register_alias(name, idx, vec![], target, test_span(), Visibility::Public);
+    registry.register_alias(
+        name,
+        idx,
+        vec![],
+        target,
+        test_span(),
+        Visibility::Public,
+        0,
+    );
 
     let entry = registry.get_by_name(name).expect("should find");
     assert!(entry.kind.is_alias());
@@ -179,6 +211,7 @@ fn iteration_is_sorted() {
         vec![],
         test_span(),
         Visibility::Public,
+        0,
     );
     registry.register_struct(
         name_a,
@@ -187,6 +220,7 @@ fn iteration_is_sorted() {
         vec![],
         test_span(),
         Visibility::Public,
+        0,
     );
     registry.register_struct(
         name_m,
@@ -195,6 +229,7 @@ fn iteration_is_sorted() {
         vec![],
         test_span(),
         Visibility::Public,
+        0,
     );
 
     // Iteration should be in sorted order (by Name's Ord impl)
@@ -224,6 +259,7 @@ fn generic_type_params() {
         }],
         test_span(),
         Visibility::Public,
+        0,
     );
 
     let entry = registry.get_by_name(name).expect("should find");
@@ -260,6 +296,7 @@ fn struct_field_lookup() {
         ],
         test_span(),
         Visibility::Public,
+        0,
     );
 
     // Find field x

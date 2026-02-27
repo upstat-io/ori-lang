@@ -272,3 +272,183 @@ fn generalized_var_substituted() {
     let result = substitute_in_pool(&mut pool, var, &map);
     assert_eq!(result, Idx::STR);
 }
+
+// === Struct type ===
+
+#[test]
+fn struct_field_types_substituted() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+
+    let field_x = interner.intern("x");
+    let field_y = interner.intern("y");
+    let name = interner.intern("Point");
+    let struct_ty = pool.struct_type(name, &[(field_x, var), (field_y, Idx::INT)]);
+
+    let map = subst(&[(var_id, Idx::FLOAT)]);
+    let result = substitute_in_pool(&mut pool, struct_ty, &map);
+
+    assert_eq!(pool.tag(result), Tag::Struct);
+    assert_eq!(pool.struct_name(result), name);
+    let fields = pool.struct_fields(result);
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0], (field_x, Idx::FLOAT));
+    assert_eq!(fields[1], (field_y, Idx::INT));
+}
+
+#[test]
+fn struct_no_vars_unchanged() {
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let field_a = interner.intern("a");
+    let name = interner.intern("Wrapper");
+    let struct_ty = pool.struct_type(name, &[(field_a, Idx::BOOL)]);
+
+    let map = subst(&[(99, Idx::STR)]);
+    // No HAS_VAR flag — fast path returns unchanged.
+    assert_eq!(substitute_in_pool(&mut pool, struct_ty, &map), struct_ty);
+}
+
+// === extract_var_from_types ===
+
+use super::extract_var_from_types;
+
+#[test]
+fn extract_var_from_applied() {
+    // Applied(Pair, [Var(A), Var(B)]) + Applied(Pair, [Int, Bool]) → A=Int, B=Bool
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let pair_name = interner.intern("Pair");
+
+    let var_a = pool.fresh_var();
+    let var_b = pool.fresh_var();
+    let a_id = pool.data(var_a);
+    let b_id = pool.data(var_b);
+
+    let generic = pool.applied(pair_name, &[var_a, var_b]);
+    let concrete = pool.applied(pair_name, &[Idx::INT, Idx::BOOL]);
+
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, a_id),
+        Some(Idx::INT)
+    );
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, b_id),
+        Some(Idx::BOOL)
+    );
+}
+
+#[test]
+fn extract_var_from_nested() {
+    // List<Applied(Pair, [Var(A), Int])> + List<Applied(Pair, [Bool, Int])> → A=Bool
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let pair_name = interner.intern("Pair");
+
+    let var_a = pool.fresh_var();
+    let a_id = pool.data(var_a);
+
+    let generic_inner = pool.applied(pair_name, &[var_a, Idx::INT]);
+    let generic = pool.list(generic_inner);
+
+    let concrete_inner = pool.applied(pair_name, &[Idx::BOOL, Idx::INT]);
+    let concrete = pool.list(concrete_inner);
+
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, a_id),
+        Some(Idx::BOOL)
+    );
+}
+
+#[test]
+fn extract_var_from_tuple() {
+    // (Var(A), Var(B)) + (Int, Str) → A=Int, B=Str
+    let mut pool = Pool::new();
+    let var_a = pool.fresh_var();
+    let var_b = pool.fresh_var();
+    let a_id = pool.data(var_a);
+    let b_id = pool.data(var_b);
+
+    let generic = pool.tuple(&[var_a, var_b]);
+    let concrete = pool.tuple(&[Idx::INT, Idx::STR]);
+
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, a_id),
+        Some(Idx::INT)
+    );
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, b_id),
+        Some(Idx::STR)
+    );
+}
+
+#[test]
+fn extract_var_not_found() {
+    // Var(A) not present in type → None
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let pair_name = interner.intern("Pair");
+
+    let concrete = pool.applied(pair_name, &[Idx::INT, Idx::BOOL]);
+
+    // var_id 999 doesn't exist anywhere in the type
+    assert_eq!(extract_var_from_types(&pool, concrete, concrete, 999), None);
+}
+
+#[test]
+fn extract_var_from_function() {
+    // (Var(A)) -> Var(B) + (Int) -> Str → A=Int, B=Str
+    let mut pool = Pool::new();
+    let var_a = pool.fresh_var();
+    let var_b = pool.fresh_var();
+    let a_id = pool.data(var_a);
+    let b_id = pool.data(var_b);
+
+    let generic = pool.function(&[var_a], var_b);
+    let concrete = pool.function(&[Idx::INT], Idx::STR);
+
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, a_id),
+        Some(Idx::INT)
+    );
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, b_id),
+        Some(Idx::STR)
+    );
+}
+
+#[test]
+fn extract_var_from_struct() {
+    // Struct { x: Var(A), y: Int } + Struct { x: Bool, y: Int } → A=Bool
+    let mut pool = Pool::new();
+    let interner = ori_ir::StringInterner::new();
+    let var_a = pool.fresh_var();
+    let a_id = pool.data(var_a);
+
+    let name = interner.intern("MyStruct");
+    let fx = interner.intern("x");
+    let fy = interner.intern("y");
+
+    let generic = pool.struct_type(name, &[(fx, var_a), (fy, Idx::INT)]);
+    let concrete = pool.struct_type(name, &[(fx, Idx::BOOL), (fy, Idx::INT)]);
+
+    assert_eq!(
+        extract_var_from_types(&pool, generic, concrete, a_id),
+        Some(Idx::BOOL)
+    );
+}
+
+#[test]
+fn extract_var_direct_match() {
+    // Var(A) + Int → A=Int (direct variable at top level)
+    let mut pool = Pool::new();
+    let var_a = pool.fresh_var();
+    let a_id = pool.data(var_a);
+
+    assert_eq!(
+        extract_var_from_types(&pool, var_a, Idx::INT, a_id),
+        Some(Idx::INT)
+    );
+}

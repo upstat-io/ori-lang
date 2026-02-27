@@ -88,6 +88,14 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) keys: Name,
     pub(crate) values: Name,
 
+    // Collection (set-specific)
+    pub(crate) insert: Name,
+    pub(crate) remove: Name,
+    pub(crate) union: Name,
+    pub(crate) intersection: Name,
+    pub(crate) difference: Name,
+    pub(crate) to_list: Name,
+
     // Variant (Option-specific)
     pub(crate) unwrap_or: Name,
     pub(crate) is_some: Name,
@@ -197,6 +205,13 @@ impl BuiltinMethodNames {
             contains_key: interner.intern("contains_key"),
             keys: interner.intern("keys"),
             values: interner.intern("values"),
+            // Set
+            insert: interner.intern("insert"),
+            remove: interner.intern("remove"),
+            union: interner.intern("union"),
+            intersection: interner.intern("intersection"),
+            difference: interner.intern("difference"),
+            to_list: interner.intern("to_list"),
             // Option
             unwrap_or: interner.intern("unwrap_or"),
             is_some: interner.intern("is_some"),

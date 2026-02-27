@@ -57,6 +57,7 @@ fn make_type_entry(name: Name, idx: Idx, kind: TypeKind) -> TypeEntry {
         span: ori_ir::Span::new(0, 0),
         type_params: vec![],
         visibility: Visibility::Public,
+        merkle_hash: 0,
     }
 }
 
@@ -66,7 +67,7 @@ fn register_struct_creates_named_llvm_type() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_struct_reg");
     let store = TypeInfoStore::new(&pool);
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None);
 
     let entry = make_type_entry(
         Name::from_raw(100),
@@ -92,7 +93,7 @@ fn register_enum_creates_named_llvm_type() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_enum_reg");
     let store = TypeInfoStore::new(&pool);
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None);
 
     let entry = make_type_entry(
         Name::from_raw(200),
@@ -115,7 +116,7 @@ fn generic_types_are_skipped() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_generic_skip");
     let store = TypeInfoStore::new(&pool);
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None);
 
     let entry = TypeEntry {
         name: Name::from_raw(300),
@@ -127,6 +128,7 @@ fn generic_types_are_skipped() {
         span: ori_ir::Span::new(0, 0),
         type_params: vec![Name::from_raw(301)], // generic param T
         visibility: Visibility::Public,
+        merkle_hash: 0,
     };
 
     // Should not panic — generic types are skipped
@@ -139,7 +141,7 @@ fn empty_type_list_is_noop() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_empty");
     let store = TypeInfoStore::new(&pool);
-    let resolver = TypeLayoutResolver::new(&store, &scx);
+    let resolver = TypeLayoutResolver::new(&store, &scx, None);
 
     register_user_types(&resolver, &[]);
 }

@@ -14,8 +14,7 @@
 use ori_diagnostic::ErrorGuaranteed;
 use ori_ir::{ExprId, Name, PatternKey, PatternResolution, Span};
 
-use rustc_hash::FxHashMap;
-
+use crate::pool::TypeDescriptor;
 use crate::registry::TypeEntry;
 use crate::{Idx, TypeCheckError, TypeCheckWarning};
 
@@ -69,7 +68,7 @@ pub enum GenericArg {
 /// the same function and arguments are the same specialization, regardless of
 /// where the call site is. This matches Rust's `(DefId, GenericArgsRef)` and
 /// Zig's `(generic_owner, comptime_args[])` caching keys.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MonoInstance {
     /// The generic function being instantiated.
     pub fn_name: Name,
@@ -83,17 +82,53 @@ pub struct MonoInstance {
     pub concrete_return_type: Idx,
     /// Maps generic `Idx` → concrete `Idx` for body expression types.
     ///
-    /// The ARC lowerer uses this to substitute types when lowering the shared
-    /// canonical IR body into a monomorphized ARC function (matching Swift's
-    /// clone-and-substitute strategy for ARC-managed code).
-    pub body_type_map: FxHashMap<Idx, Idx>,
+    /// Sorted by key for deterministic `Eq`/`Hash` (required by Salsa early
+    /// cutoff). The ARC lowerer converts this to `FxHashMap` for O(1) lookup
+    /// when lowering the shared canonical IR body into a monomorphized ARC
+    /// function (matching Swift's clone-and-substitute strategy).
+    pub body_type_map: Vec<(Idx, Idx)>,
 }
 
-impl std::hash::Hash for MonoInstance {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.fn_name.hash(state);
-        self.generic_args.hash(state);
-    }
+/// How a callee's type variable binds during a generic-calling-generic call.
+#[derive(Clone, Debug)]
+pub enum DeferredVarBinding {
+    /// Maps to the caller's scheme var at this position (deferred until the
+    /// caller is instantiated). E.g., `identity`'s `T` → `apply_identity`'s position 0.
+    CallerSchemeVar(usize),
+    /// Already resolved to a concrete type. E.g., `make_pair`'s `B` → `int` when
+    /// called as `make_pair(a: x, b: 99)` inside a generic function.
+    Concrete(Idx),
+}
+
+/// A deferred monomorphization call: generic function calling another generic.
+///
+/// Recorded when a generic function's body calls another generic function
+/// and at least one type argument is still a type variable. Resolved later
+/// via [`resolve_deferred_mono_calls`] when the caller is instantiated.
+///
+/// # Examples
+///
+/// Simple chain: `apply_identity<T>(x: T) = identity(x: x)` records
+/// `identity`'s `T` → `CallerSchemeVar(0)`.
+///
+/// Mixed: `wrap_with_int<T>(x: T) = make_pair(a: x, b: 99)` records
+/// `make_pair`'s `A` → `CallerSchemeVar(0)`, `B` → `Concrete(Idx::INT)`.
+#[derive(Clone, Debug)]
+pub struct DeferredMonoCall {
+    /// The generic function that contains the call.
+    pub caller: Name,
+    /// The generic function being called.
+    pub callee: Name,
+    /// The callee's scheme var IDs (in declaration order).
+    pub callee_scheme_var_ids: Vec<u32>,
+    /// Maps callee scheme var ID → binding (caller scheme var position or
+    /// concrete type). This semantic mapping avoids dependence on pool
+    /// union-find state.
+    pub var_subst: Vec<(u32, DeferredVarBinding)>,
+    /// The callee's parameter types (from its generic signature).
+    pub callee_param_types: Vec<Idx>,
+    /// The callee's return type (from its generic signature).
+    pub callee_return_type: Idx,
 }
 
 /// Type-checked module.
@@ -165,6 +200,15 @@ pub struct TypedModule {
     /// found at a call site. The LLVM backend uses these to stamp out
     /// concrete specializations of generic functions.
     pub mono_instances: Vec<MonoInstance>,
+
+    /// Portable type descriptors for all types referenced in exported signatures.
+    ///
+    /// Topologically sorted: leaves first. Each entry is `(merkle_hash, descriptor)`.
+    /// Importing modules can reconstruct any exported type from these descriptors
+    /// without accessing the originating Pool or AST.
+    ///
+    /// Only includes types from public function signatures to minimize size.
+    pub type_descriptors: Vec<(u64, TypeDescriptor)>,
 }
 
 impl TypedModule {
@@ -184,6 +228,7 @@ impl TypedModule {
             pattern_resolutions: Vec::new(),
             impl_sigs: Vec::new(),
             mono_instances: Vec::new(),
+            type_descriptors: Vec::new(),
         }
     }
 
@@ -332,6 +377,23 @@ pub struct FunctionSig {
     /// `None` if the parameter is required. Used by the canonicalizer to fill in omitted
     /// arguments when desugaring `CallNamed` to positional `Call`.
     pub param_defaults: Vec<Option<ExprId>>,
+
+    /// Merkle hashes for parameter types — stable across Pool instances.
+    ///
+    /// `param_hashes[i]` is the content-addressed hash of `param_types[i]`.
+    /// Used for cross-module type identity: receiving modules can look up
+    /// types by hash in their own `intern_map` without AST re-walking.
+    /// Always `param_hashes.len() == param_types.len()`.
+    ///
+    /// Zero when the signature was constructed without pool access (e.g.,
+    /// test helpers, dummy signatures). Use [`populate_hashes()`](Self::populate_hashes)
+    /// to fill in after construction.
+    pub param_hashes: Vec<u64>,
+
+    /// Merkle hash for the return type — stable across Pool instances.
+    ///
+    /// Zero when constructed without pool access.
+    pub return_hash: u64,
 }
 
 /// A where-clause constraint on a function.
@@ -351,8 +413,12 @@ pub struct FnWhereClause {
 
 impl FunctionSig {
     /// Create a simple function signature with no generics or capabilities.
+    ///
+    /// Hash fields are initialized to zero. Call [`populate_hashes()`](Self::populate_hashes)
+    /// to fill them from a Pool.
     pub fn simple(name: Name, param_types: Vec<Idx>, return_type: Idx) -> Self {
         let required_params = param_types.len();
+        let param_hashes = vec![0; param_types.len()];
         Self {
             name,
             type_params: Vec::new(),
@@ -371,6 +437,8 @@ impl FunctionSig {
             scheme_var_ids: Vec::new(),
             required_params,
             param_defaults: Vec::new(),
+            param_hashes,
+            return_hash: 0,
         }
     }
 
@@ -379,6 +447,9 @@ impl FunctionSig {
     /// Like [`simple`](Self::simple) but includes parameter names, which are
     /// needed for ABI computation in derived trait methods. All other fields
     /// (generics, capabilities, flags) default to empty/false.
+    ///
+    /// Hash fields are initialized to zero. Call [`populate_hashes()`](Self::populate_hashes)
+    /// to fill them from a Pool.
     pub fn synthetic(
         name: Name,
         param_names: Vec<Name>,
@@ -386,6 +457,7 @@ impl FunctionSig {
         return_type: Idx,
     ) -> Self {
         let required_params = param_types.len();
+        let param_hashes = vec![0; param_types.len()];
         Self {
             name,
             type_params: Vec::new(),
@@ -404,7 +476,23 @@ impl FunctionSig {
             scheme_var_ids: Vec::new(),
             required_params,
             param_defaults: Vec::new(),
+            param_hashes,
+            return_hash: 0,
         }
+    }
+
+    /// Populate Merkle hash fields from a Pool.
+    ///
+    /// Computes content-addressed hashes for all parameter types and the return
+    /// type, enabling cross-module type identity without pool access. Call this
+    /// after construction when a Pool is available.
+    ///
+    /// # Panics
+    ///
+    /// Panics in debug mode if any `Idx` is out of bounds for the pool.
+    pub fn populate_hashes(&mut self, pool: &crate::Pool) {
+        self.param_hashes = self.param_types.iter().map(|&idx| pool.hash(idx)).collect();
+        self.return_hash = pool.hash(self.return_type);
     }
 
     /// Get the function type as an `Idx`.

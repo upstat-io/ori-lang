@@ -95,3 +95,11 @@ must_use_candidate = "allow"
 too_many_lines = "deny"
 cognitive_complexity = "deny"
 similar_names = "allow"
+
+# Optimized release profile for final/published builds.
+# Use: cargo build --profile release-lto
+# ~20% faster binaries, ~3.5x longer build vs --release.
+[profile.release-lto]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

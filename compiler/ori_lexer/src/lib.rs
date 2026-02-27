@@ -55,6 +55,7 @@ use ori_ir::{
     TokenKind, TokenList,
 };
 use ori_lexer_core::{EncodingIssueKind, RawScanner, RawTag, SourceBuffer};
+use tracing::{debug, trace};
 
 /// Output from lexing with comment capture and metadata.
 ///
@@ -219,6 +220,8 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
     reason = "lexer main loop with token classification"
 )]
 pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
+    debug!(source_len = source.len(), "lexing started");
+
     let buf = SourceBuffer::new(source);
     let mut scanner = RawScanner::new(buf.cursor());
     let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
@@ -327,6 +330,7 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
             _ => {
                 last_significant_was_newline = false;
                 let kind = cooker.cook(raw.tag, offset, raw.len);
+                trace!(offset, raw_tag = ?raw.tag, ?kind, "cooked token");
 
                 // Check for detached doc comments: if pending doc exists and
                 // the next non-trivia token is NOT a declaration keyword, warn.
@@ -384,6 +388,14 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     // Append accumulated cooker errors to the output (preserving encoding issue
     // errors already pushed during SourceBuffer construction).
     output.errors.extend(cooker.into_errors());
+
+    debug!(
+        tokens = output.tokens.len(),
+        comments = output.comments.len(),
+        errors = output.errors.len(),
+        warnings = output.warnings.len(),
+        "lexing complete"
+    );
 
     output
 }

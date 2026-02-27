@@ -97,6 +97,7 @@ fn test_compile_module_with_tests_empty() {
         method_roots: vec![],
         problems: vec![],
     };
+    let empty_sigs = rustc_hash::FxHashMap::default();
     let result = evaluator.compile_module_with_tests(
         &module,
         &[],
@@ -107,6 +108,8 @@ fn test_compile_module_with_tests_empty() {
         &[],
         &[],
         &[],
+        &empty_sigs,
+        rustc_hash::FxHashMap::default(),
     );
 
     assert!(
