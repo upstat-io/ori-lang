@@ -541,6 +541,109 @@ fn test_coll_list_reverse_single() {
     );
 }
 
+// ─── COW-specific list tests (Section 02.7) ───
+
+#[test]
+fn test_coll_list_push_multi() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1].push(2).push(3).push(4).push(5);
+    if xs.length() == 5 then 0 else 1
+}
+"#,
+        "coll_list_push_multi",
+    );
+}
+
+#[test]
+fn test_coll_list_concat_basic() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [1, 2, 3];
+    let b = [4, 5];
+    let c = a.concat(b);
+    if c.length() == 5 then 0 else 1
+}
+"#,
+        "coll_list_concat_basic",
+    );
+}
+
+#[test]
+fn test_coll_list_concat_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [1, 2];
+    let b: [int] = [];
+    let c = a.concat(b);
+    if c.length() == 2 then 0 else 1
+}
+"#,
+        "coll_list_concat_empty",
+    );
+}
+
+#[test]
+fn test_coll_list_add_operator() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let a = [1, 2];
+    let b = [3, 4];
+    let c = a + b;
+    if c.length() == 4 then 0 else 1
+}
+"#,
+        "coll_list_add_operator",
+    );
+}
+
+#[test]
+fn test_coll_list_reverse_values() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let rev = xs.reverse();
+    let f = rev.first();
+    if f.is_some() && f.unwrap() == 30 then 0 else 1
+}
+"#,
+        "coll_list_reverse_values",
+    );
+}
+
+#[test]
+fn test_coll_list_reverse_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs: [int] = [];
+    let rev = xs.reverse();
+    if rev.length() == 0 then 0 else 1
+}
+"#,
+        "coll_list_reverse_empty",
+    );
+}
+
+#[test]
+fn test_coll_list_push_then_reverse() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2].push(3).reverse();
+    let f = xs.first();
+    if xs.length() == 3 && f.is_some() && f.unwrap() == 3 then 0 else 1
+}
+"#,
+        "coll_list_push_then_reverse",
+    );
+}
+
 // ─── Gap inventory: map methods not in builtin table ───
 
 #[test]
