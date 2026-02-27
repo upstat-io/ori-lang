@@ -115,6 +115,27 @@ flags! {
     /// Usage: `ORI_DUMP_AFTER_LLVM=1 ori build file.ori`
     ORI_DUMP_AFTER_LLVM
 
+    // === Verification ===
+
+    /// Run in-pipeline RC audit on emitted LLVM IR.
+    ///
+    /// Detects leaks, double-frees, COW sequencing bugs, and ABI violations.
+    /// Usage: `ORI_AUDIT_CODEGEN=1 ori build file.ori`
+    ORI_AUDIT_CODEGEN
+
+    /// Enable strict (pessimistic) mode for the codegen audit.
+    ///
+    /// Treats COW functions as always-freeing (potential double-free becomes
+    /// definite error). Also tracks function pointer parameters as RC-managed.
+    /// Usage: `ORI_AUDIT_CODEGEN=1 ORI_AUDIT_STRICT=1 ori build file.ori`
+    ORI_AUDIT_STRICT
+
+    /// Filter codegen audit to a single function by name.
+    ///
+    /// Only analyzes the function whose LLVM name contains the given string.
+    /// Usage: `ORI_AUDIT_CODEGEN=1 ORI_AUDIT_FUNCTION=main ori build file.ori`
+    ORI_AUDIT_FUNCTION
+
     // === Existing Flags (migrated) ===
 
     /// Print LLVM IR to stderr before JIT compilation.

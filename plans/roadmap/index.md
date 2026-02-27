@@ -10,11 +10,11 @@ Quick-reference keyword index for finding roadmap sections. Search for a term to
 
 ---
 
-> **ACTIVE REROUTE**: `plans/compiler-diagnostics/` — Compiler Diagnostics Toolkit: comprehensive diagnostic tooling for accelerating compiler debugging. Shell scripts (ir-dump, ir-diff, diagnose-aot, disasm-ori, rc-stats, codegen-audit), runtime RC instrumentation (ORI_TRACE_RC event logging, leak attribution, ORI_RT_DEBUG assertions), phase dump system (ORI_DUMP_AFTER_PARSE/TYPECK/ARC/LLVM, centralized debug_flags module), codegen audit (static RC balance analysis, COW correctness, ABI conformance). 5 sections, ~2,050 new lines. Motivated by value-semantics-optimization debugging (push+reverse COW bug requiring 30+ min manual IR analysis).
+> **~~ACTIVE REROUTE~~ RESOLVED (2026-02-27)**: `plans/compiler-diagnostics/` — Compiler Diagnostics Toolkit: comprehensive diagnostic tooling for accelerating compiler debugging. Shell scripts (ir-dump, ir-diff, diagnose-aot, disasm-ori, rc-stats, codegen-audit), runtime RC instrumentation (ORI_TRACE_RC event logging, leak attribution, ORI_RT_DEBUG assertions), phase dump system (ORI_DUMP_AFTER_PARSE/TYPECK/ARC/LLVM, centralized debug_flags module), codegen audit (static RC balance analysis, COW correctness, ABI conformance). 5 sections complete, ~2,050 new lines. All diagnostic scripts self-tested (21/21), documentation updated across CLAUDE.md and 13 rules files.
 
 ---
 
-> **QUEUED REROUTE**: `plans/value-semantics-optimization/` — Value Semantics Optimization: Copy-on-Write collections (in-place when RC==1), Small String Optimization (23-byte inline), zero-copy slices, static uniqueness analysis, collection memory recycling, drop specialization. Covers runtime (`ori_rt`), LLVM codegen (`ori_llvm`), evaluator parity (`ori_eval`), ARC pipeline (`ori_arc`). 9 sections. Paused mid-section-02 (debugging push+reverse COW bug). Activates when Compiler Diagnostics Toolkit reroute completes.
+> **ACTIVE REROUTE**: `plans/value-semantics-optimization/` — Value Semantics Optimization: Copy-on-Write collections (in-place when RC==1), Small String Optimization (23-byte inline), zero-copy slices, static uniqueness analysis, collection memory recycling, drop specialization. Covers runtime (`ori_rt`), LLVM codegen (`ori_llvm`), evaluator parity (`ori_eval`), ARC pipeline (`ori_arc`). 9 sections. Paused mid-section-02 (debugging push+reverse COW bug).
 
 ---
 

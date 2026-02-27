@@ -66,4 +66,7 @@ For LLVM IR debugging workflow, tools, common bug categories, and verification s
 - `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: build + run + leak check + RC stats + IR dump
 - `diagnostics/dual-exec-debug.sh <file.ori>` — compare interpreter vs AOT; auto-dumps diagnostics on mismatch
 - `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR
+- `diagnostics/ir-diff.sh <a.ori> <b.ori>` — compare IR between two programs
 - `diagnostics/rc-stats.sh <file.ori>` — RC balance per function
+- `diagnostics/codegen-audit.sh <file.ori>` — static RC/COW/ABI analysis (`--strict`, `--function <name>`)
+- `diagnostics/disasm-ori.sh <file.ori>` — native disassembly with Ori symbol demangling

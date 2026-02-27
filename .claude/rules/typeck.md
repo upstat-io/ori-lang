@@ -50,6 +50,7 @@ paths:
 ```bash
 ORI_LOG=ori_types=debug ori check file.ori          # Module-level phases
 ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check f.ori  # Per-expression call tree
+ORI_DUMP_AFTER_TYPECK=1 ori check file.ori          # Dump typed IR after type checking
 ```
 
 - `debug`: Module check, signature collection, body checking, type errors

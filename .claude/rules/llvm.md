@@ -88,8 +88,11 @@ entry → header → body → latch → header (or exit)
 - `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR dump
 - `diagnostics/ir-diff.sh <a.ori> <b.ori>` — compare IR between two programs
 - `diagnostics/rc-stats.sh <file.ori>` — RC operation balance per function (flags over-release/leaks)
+- `diagnostics/codegen-audit.sh <file.ori>` — static RC balance, COW correctness, ABI conformance (`--strict`, `--function <name>`)
 - `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: build + run + leak check + RC stats + IR (add `--valgrind` for memory errors)
 - `diagnostics/dual-exec-debug.sh <file.ori>` — compare interpreter vs AOT output; auto-dumps IR + RC stats on mismatch
+
+**In-pipeline audit** (`ORI_AUDIT_CODEGEN=1`): Rust-based LLVM IR verification during compilation. Checks RC alloc/dec balance, COW sequencing, ABI arg counts, large aggregate loads. `ORI_AUDIT_STRICT=1` for pessimistic mode; `ORI_AUDIT_FUNCTION=name` to filter.
 
 **Triage**: Verification fail = our codegen bug. Optimization crash = `opt -verify-each -opt-bisect-limit=N`. Runtime segfault = check ABI/GEP/aggregate loads. Compare with `clang -emit-llvm -S -O0` for reference IR.
 

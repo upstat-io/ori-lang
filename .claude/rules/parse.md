@@ -48,6 +48,11 @@ ORI_LOG=oric=debug ori check file.ori               # See when parsed() query ru
 ORI_LOG=ori_parse=trace ori check file.ori          # Parser-level tracing (as instrumented)
 ```
 
+### Phase Dump
+```bash
+ORI_DUMP_AFTER_PARSE=1 ori check file.ori           # Dump AST after parsing
+```
+
 **Tips**:
 - Parse error on valid syntax? Check `grammar.ebnf` first, then context flags
 - Salsa returning stale parse? Use `ORI_LOG=oric=debug` to check `WillExecute` for `parsed()` query

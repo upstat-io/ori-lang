@@ -64,6 +64,13 @@ ORI_LOG=ori_eval=debug,ori_types=debug ori run file.ori  # Eval + type checking 
 
 **DO NOT** add a DerivedTrait variant in `ori_ir` without verifying the strategy dispatch covers it. See CLAUDE.md "Adding a New Derived Trait" checklist.
 
+## Debugging Evaluator vs AOT Mismatches
+
+```bash
+diagnostics/dual-exec-debug.sh file.ori   # compare interpreter vs AOT output
+```
+Auto-dumps IR and RC stats on mismatch. Add `--verbose` for `ORI_LOG=debug` traces.
+
 ## Key Files
 - `lib.rs`: Interpreter, eval dispatch
 - `interpreter/resolvers/`: MethodDispatcher (priority chain)

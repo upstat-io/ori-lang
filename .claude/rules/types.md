@@ -75,6 +75,11 @@ ORI_LOG=ori_types=debug,oric=debug ori check file.ori      # Types + Salsa query
 **Instrumented functions** (`trace` level): `infer_expr()`, `check_expr()` — per-expression, very verbose
 **Manual events**: `push_error()` logs type errors at debug level
 
+### Phase Dump
+```bash
+ORI_DUMP_AFTER_TYPECK=1 ori check file.ori          # Dump typed IR (type pool state after checking)
+```
+
 **Tips**:
 - Type mismatch? Use `ORI_LOG=ori_types=debug` to see which function body triggers the error
 - Inference wrong? Use `ORI_LOG=ori_types=trace ORI_LOG_TREE=1` to trace the full inference chain

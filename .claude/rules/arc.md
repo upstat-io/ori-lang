@@ -155,7 +155,9 @@ ORI_DUMP_AFTER_ARC=1 ori build file.ori            # ARC IR with RC strategy ann
 ORI_LOG=ori_arc=debug,ori_llvm=trace ori build file.ori
 
 # Diagnostic scripts (USE THESE for quick RC debugging)
+ORI_TRACE_RC=1 ./binary                           # Runtime RC event trace (alloc/inc/dec/free)
 diagnostics/rc-stats.sh file.ori                  # RC balance per function (flags over-release/leaks)
+diagnostics/codegen-audit.sh file.ori             # Static RC balance, COW correctness, ABI checks (--strict)
 diagnostics/diagnose-aot.sh file.ori              # All-in-one: build + leak check + RC stats + IR
 diagnostics/dual-exec-debug.sh file.ori           # Interpreter vs AOT comparison (auto-dumps on mismatch)
 ```
