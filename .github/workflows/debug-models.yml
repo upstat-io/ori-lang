@@ -1,0 +1,43 @@
+name: Debug GitHub Models
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  models: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: List models and test slugs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== Trying GET /models ==="
+          curl -s -w "\nHTTP %{http_code}\n" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://models.github.ai/inference/models" | head -200
+
+          echo ""
+          echo "=== Testing model slugs ==="
+          for MODEL in \
+            "anthropic/claude-sonnet-4-6" \
+            "anthropic/claude-sonnet-4.6" \
+            "Anthropic/Claude-Sonnet-4.6" \
+            "github-copilot/claude-sonnet-4.6" \
+            "azure-ai/claude-sonnet-4-6" \
+            "claude-sonnet-4-6" \
+            "claude-sonnet-4.6" \
+            "Anthropic-Claude-Sonnet-4.6" \
+            "openai/gpt-4o-mini"
+          do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://models.github.ai/inference/chat/completions" \
+              -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":5}")
+            echo "$MODEL -> HTTP $CODE"
+          done
