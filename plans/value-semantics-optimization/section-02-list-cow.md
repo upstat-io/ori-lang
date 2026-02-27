@@ -29,7 +29,7 @@ sections:
     status: complete
   - id: "02.7"
     title: "LLVM Codegen Updates"
-    status: not-started
+    status: in-progress
   - id: "02.8"
     title: "Completion Checklist"
     status: not-started
@@ -412,34 +412,23 @@ Reverse and sort are in-place algorithms when the list is unique.
 
 All existing list method emitters must be updated to call the new COW runtime functions instead of the old `_new` variants.
 
-- [ ] Update `emit_list_push` to call `ori_list_push` instead of `ori_list_push_new`:
+- [x] Update `emit_list_push` to call `ori_list_push_cow` instead of `ori_list_push_new`: (2026-02-27, passes elem_size + elem_align, extracts cap field for COW fast path)
   - Pass `elem_size` and `elem_align` as additional arguments
   - Handle element RC on the slow path (emit inc loop for RC-typed elements)
 
-- [ ] Update `emit_list_pop` → `ori_list_pop`
+- [ ] Update `emit_list_pop` → `ori_list_pop_cow` — **BLOCKED**: type checker defines pop() as returning `Option<T>`, not `[T]`. COW pop needs ARC pipeline dual-return support. Emitter written but not wired. <!-- blocked-by:02 -->
 
-- [ ] Update `emit_list_set` → `ori_list_set`:
+- [ ] Update `emit_list_set` → `ori_list_set_cow` — **BLOCKED**: no TYPECK_BUILTIN_METHODS entry for list.set. Emitter written but not wired. <!-- blocked-by:02 -->
   - Emit `ori_rc_dec` for the OLD element before the set call
   - The new element is moved in (no inc)
 
-- [ ] Update `emit_list_concat` → `ori_list_concat`
+- [x] Update `emit_list_concat` → `ori_list_concat_cow`: (2026-02-27, passes cap1, uses elem_align; also updated `+` operator in operators.rs)
 
-- [ ] Add emitters for `insert`, `remove`, `reverse`, `sort` (may not exist yet)
+- [x] Add emitters for `insert`, `remove`, `reverse`, `sort` (may not exist yet): (2026-02-27, reverse_cow wired and active; insert/remove/pop emitters written but NOT wired — pending TYPECK entries; sort_cow deferred — needs compare_fn callback)
 
-- [ ] **Element RC in slow path**: The codegen must handle element RC operations for the slow path. When a list is copied (slow path), each RC-typed element needs an `ori_rc_inc`. This should be a loop in the generated code:
-  ```llvm
-  ; Slow path element RC loop
-  %i = phi i64 [0, %slow_path_entry], [%i_next, %rc_loop]
-  %elem_ptr = getelementptr i8, ptr %new_data, i64 %offset
-  call void @ori_rc_inc(ptr %elem_ptr)
-  %i_next = add i64 %i, 1
-  %done = icmp eq i64 %i_next, %len
-  br i1 %done, label %slow_path_done, label %rc_loop
-  ```
+- [ ] **Element RC in slow path**: Pre-existing issue (ori_list_push_new had same gap). When a list is copied (slow path), each RC-typed element needs `ori_rc_inc`. **Decision: runtime-side loop** — add `inc_fn: Option<extern "C" fn(*mut u8)>` callback to all COW functions. Requires: (1) modify 8 COW functions in `ori_rt`, (2) update RT_FUNCTIONS declarations, (3) generate per-type `inc_fn` in codegen (mirrors existing drop_fn pattern). Currently safe for `[int]`/`[float]`/`[bool]`/`[char]` — only affects lists of RC-typed elements (`[str]`, `[[T]]`, `[MyStruct]`).
 
-  **Alternative**: Pass an `inc_fn` to the runtime function (like `drop_fn` for dec). This moves the loop into the runtime, simplifying codegen. **Decision: runtime-side loop** — keeps codegen simple, matches the drop_fn pattern.
-
-- [ ] Update runtime_decl/tests.rs to verify new function signatures
+- [x] Update runtime_decl/tests.rs to verify new function signatures: (2026-02-27, all COW functions were already declared in RT_FUNCTIONS from Section 01; `declared_functions_covered_by_jit_or_aot_only` test passes)
 
 ---
 
