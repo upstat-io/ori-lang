@@ -4,6 +4,18 @@
 
 **Do it properly, not just simply. Correct architecture over quick hacks; no shortcuts or "good enough" solutions.**
 
+**CHOOSE THE RIGHT ARCHITECTURE, NOT THE EASY ONE.**
+When you identify multiple approaches, stress-test each against **already-defined requirements** before choosing. The failure to avoid: "Option A is simpler" → start implementing → discover it can't handle cases the language already supports (user-defined types, generics, traits that already exist) → rewrite as Option B. This is a shortcut wearing a disguise.
+
+This is NOT about over-engineering or designing for hypothetical futures. Do NOT add abstraction, configurability, or flexibility for speculative cases. The checkpoint is narrower than that:
+
+**Before implementing an approach, ask: does it fulfill the existing contract?**
+1. **Does it work for user-defined types, not just primitives?** Ori has `derive Comparable`, user structs, enums. If your approach only handles `int` and `float`, it's incomplete against *current* language features — not some future wish.
+2. **How do established compilers solve this?** Check reference repos. If Rust, Swift, and Lean 4 all generate per-type functions at compile time rather than hardcoding per-primitive in the runtime, that's a signal the primitive-only approach is a dead-end.
+3. **Am I choosing this because it's correct, or because it's easier?** Be honest. If "easier" — stop, choose the correct one.
+
+The line: "this only works for built-in types but that's fine for now" is the red flag. If the language already lets users write types that should work here, "for now" means "broken."
+
 **NO WORKAROUNDS. NO HACKS. NO SHORTCUTS.**
 - **Proper fixes only** — If a fix feels hacky, it IS hacky. Find the right solution.
 - **When unsure, STOP and ASK** — Do not guess. Do not assume. Pause and ask the user for guidance.
@@ -12,17 +24,28 @@
 - **No "temporary" fixes** — There is no such thing. Today's temporary fix is tomorrow's permanent tech debt.
 - **If you can't do it right, say so** — Communicate blockers rather than shipping bad code.
 
+**NO DEFERRING WITHOUT PERMISSION.**
+You are NOT permitted to defer, postpone, skip, punt, or label anything as "out of scope," "pre-existing," "future work," "tracked separately," or "outside the current task" without **explicitly asking the user first**. This includes bugs found during work, broken tests, style violations, issues in adjacent code, TODOs/FIXMEs you encounter — everything. The default is to fix it now. If you believe deferral is genuinely warranted, you MUST use `AskUserQuestion` to explain the issue and get explicit approval before moving on. Silence is not consent to defer. Moving on without asking is a violation.
+
 **TDD for bugs — NEVER fix without tests first**:
 1. **STOP** — Do not jump to fixing. Resist the urge to immediately change code.
 2. **Understand** — Consult the spec (`docs/ori_lang/0.1-alpha/spec/`), grammar, and design docs. Know the *intended* behavior.
-3. **Reproduce with tests** — Write MULTIPLE tests (not just one):
+3. **Run diagnostics** — Before reading code line-by-line, use the diagnostic suite to understand the bug:
+   - Wrong output → `diagnostics/dual-exec-debug.sh file.ori` (compare eval vs AOT)
+   - Crash/segfault → `diagnostics/diagnose-aot.sh file.ori --valgrind`
+   - Memory leak → `ORI_CHECK_LEAKS=1 ./binary` then `diagnostics/rc-stats.sh file.ori`
+   - RC corruption → `ORI_TRACE_RC=1 ./binary` then `diagnostics/codegen-audit.sh file.ori --strict`
+   - Type error → `ORI_LOG=ori_types=debug ori check file.ori`
+   - Wrong IR → `diagnostics/ir-dump.sh file.ori` and `diagnostics/ir-diff.sh`
+   - General debugging → `ORI_LOG=debug ori check file.ori` or `ORI_LOG=<crate>=trace`
+4. **Reproduce with tests** — Write MULTIPLE tests (not just one):
    - The exact failing case that exposed the bug
    - Edge cases: boundaries, empty inputs, single elements, maximum values
    - Related variations: similar patterns that might also be affected
    - Regression guards: cases that currently work and must continue to work
-4. **Verify tests fail** — All bug-reproducing tests MUST fail. If they pass, you misunderstand the bug or the spec.
-5. **Fix the code** — Now implement the fix.
-6. **Tests pass unchanged** — All tests must pass WITHOUT modifying them. If you need to change tests to pass, you either wrote wrong tests or made a wrong fix. Go back to step 2.
+5. **Verify tests fail** — All bug-reproducing tests MUST fail. If they pass, you misunderstand the bug or the spec.
+6. **Fix the code** — Now implement the fix.
+7. **Tests pass unchanged** — All tests must pass WITHOUT modifying them. If you need to change tests to pass, you either wrote wrong tests or made a wrong fix. Go back to step 2.
 
 ---
 
@@ -86,7 +109,7 @@ For Ori syntax, types, patterns, and prelude:
 **Primary**: `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` (includes LLVM)
 **Tests**: `cargo t` (Rust), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
 **Build**: `cargo c`/`cl`/`b`/`fmt`, `./llvm-build.sh`, `./llvm-clippy.sh`
-**LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — builds oric + ori_rt (LLVM is a default feature; `cargo bl` additionally builds `ori_rt` for AOT linking)
+**LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — expands to `build -p oric -p ori_rt --features llvm`. The `--features llvm` activates oric's `llvm` feature (enabling `dep:ori_llvm` + `dep:ori_arc`); ori_rt does NOT have a `llvm` feature and Cargo silently ignores unknown features for packages that don't define them. **Do NOT second-guess this** — it works, just run it.
 **Optimized release**: `cargo build --profile release-lto` — fat LTO + single codegen unit (~20% faster binary, ~3.5x longer build). Output: `target/release-lto/ori`. Use for published binaries and benchmarks. Regular `--release` (used by `test-all.sh`, `cargo blr`) is unaffected.
 **Tracing/Debugging** (USE FIRST — before println, before reading code line-by-line):
 `ORI_LOG=debug ori check file.ori` | `ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori` | `ORI_LOG=ori_eval=debug ori run file.ori` | `ORI_LOG=oric=debug ori check file.ori` (Salsa queries) | Falls back to `RUST_LOG`

@@ -83,6 +83,10 @@ entry → header → body → latch → header (or exit)
 | `ORI_DUMP_AFTER_ARC=1` | ARC IR with RC strategy annotations |
 | `ORI_LOG=ori_llvm=debug` | Codegen event log (function-level) |
 | `ORI_LOG=ori_llvm=trace` | Per-instruction detail (very verbose) |
+| `ORI_TRACE_RC=1 ./binary` | Runtime RC event trace (alloc/inc/dec/free) |
+| `ORI_RT_DEBUG=1 ./binary` | Runtime assertions (header validation, bounds checks) |
+| `ORI_CHECK_LEAKS=1 ./binary` | Leak check with attribution on exit |
+| `ORI_AUDIT_CODEGEN=1` | In-pipeline RC/COW/ABI audit (add `ORI_AUDIT_STRICT=1` for pessimistic) |
 
 **Diagnostic scripts** (`diagnostics/`) — use these FIRST for LLVM/AOT bugs:
 - `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR dump

@@ -73,7 +73,7 @@ declare_builtins! { emitter, ctx;
     ("list", "length", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
     ("list", "len", borrow: true) => emitter.emit_list_length(ctx.arg_vals[0]),
     ("list", "is_empty", borrow: true) => emitter.emit_list_is_empty(ctx.arg_vals[0]),
-    ("list", "concat", borrow: true) => {
+    ("list", "concat", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -84,7 +84,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "add", borrow: true) => {
+    ("list", "add", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -95,7 +95,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "push", borrow: true) => {
+    ("list", "push", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -141,15 +141,53 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "reverse", borrow: true) => {
+    ("list", "reverse", borrow: false) => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_reverse_cow(ctx.arg_vals[0], *element)
         } else {
             None
         }
     },
-    // list.set, list.insert, list.remove — COW emitters ready in list_builtins.rs,
-    // pending type checker support (TYPECK_BUILTIN_METHODS entries needed)
+    ("list", "sort", borrow: false) => {
+        if let TypeInfo::List { element } = ctx.type_info {
+            emitter.emit_list_sort_cow(ctx.arg_vals[0], *element)
+        } else {
+            None
+        }
+    },
+    ("list", "set", borrow: false) => {
+        if ctx.arg_vals.len() >= 3 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                emitter.emit_list_set_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("list", "insert", borrow: false) => {
+        if ctx.arg_vals.len() >= 3 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                emitter.emit_list_insert_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("list", "remove", borrow: false) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                emitter.emit_list_remove_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
     ("list", "iter", borrow: true) => {
         if let TypeInfo::List { element } = ctx.type_info {
             emitter.emit_list_iter(ctx.arg_vals[0], ctx.receiver_ty, *element)

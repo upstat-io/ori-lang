@@ -156,6 +156,15 @@ ORI_LOG=ori_arc=debug,ori_llvm=trace ori build file.ori
 
 # Diagnostic scripts (USE THESE for quick RC debugging)
 ORI_TRACE_RC=1 ./binary                           # Runtime RC event trace (alloc/inc/dec/free)
+ORI_RT_DEBUG=1 ./binary                            # Runtime assertions (header validation, bounds checks)
+ORI_CHECK_LEAKS=1 ./binary                         # Leak check with attribution on exit
+
+# In-pipeline codegen audit (Rust-level, runs during compilation)
+ORI_AUDIT_CODEGEN=1 ori build file.ori            # RC balance, COW sequencing, ABI arg counts
+ORI_AUDIT_STRICT=1 ORI_AUDIT_CODEGEN=1 ori build file.ori  # Pessimistic: COW=freeing, params=RC-managed
+ORI_AUDIT_FUNCTION=name ORI_AUDIT_CODEGEN=1 ori build file.ori  # Filter to specific function
+
+# Diagnostic scripts (USE THESE for quick RC debugging)
 diagnostics/rc-stats.sh file.ori                  # RC balance per function (flags over-release/leaks)
 diagnostics/codegen-audit.sh file.ori             # Static RC balance, COW correctness, ABI checks (--strict)
 diagnostics/diagnose-aot.sh file.ori              # All-in-one: build + leak check + RC stats + IR

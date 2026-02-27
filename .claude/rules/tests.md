@@ -81,6 +81,12 @@ ORI_LOG=ori_types=debug cargo st tests/spec/types/   # Type checker only
 ORI_LOG=ori_eval=debug cargo st tests/spec/eval/     # Evaluator only
 ORI_LOG=debug ORI_LOG_TREE=1 cargo st tests/spec/patterns/  # Hierarchical trace
 ORI_LOG=oric=debug cargo st tests/spec/              # Salsa query execution + cache hits
+
+# Phase dumps — see compiler IR at each stage:
+ORI_DUMP_AFTER_PARSE=1 ori check file.ori           # AST after parse
+ORI_DUMP_AFTER_TYPECK=1 ori check file.ori          # Typed IR after typeck
+ORI_DUMP_AFTER_ARC=1 ori build file.ori             # ARC IR with RC strategies
+ORI_DUMP_AFTER_LLVM=1 ori build file.ori            # Annotated LLVM IR
 ```
 
 **For AOT test failures** — use diagnostic scripts:

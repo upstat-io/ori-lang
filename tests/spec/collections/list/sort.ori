@@ -1,0 +1,65 @@
+// list.sort() — returns a new sorted list using element-type comparison.
+// Spec: list.sort() -> [T] where T: Comparable
+
+use std.testing { assert_eq }
+
+@sort_integers () -> [int] = {
+    [3, 1, 4, 1, 5, 9, 2, 6].sort()
+}
+
+@test_sort_integers tests @sort_integers () -> void = {
+    assert_eq(actual: sort_integers(), expected: [1, 1, 2, 3, 4, 5, 6, 9])
+}
+
+@sort_strings () -> [str] = {
+    ["banana", "apple", "cherry"].sort()
+}
+
+@test_sort_strings tests @sort_strings () -> void = {
+    assert_eq(actual: sort_strings(), expected: ["apple", "banana", "cherry"])
+}
+
+@sort_empty () -> [int] = {
+    let empty: [int] = [];
+    empty.sort()
+}
+
+@test_sort_empty tests @sort_empty () -> void = {
+    assert_eq(actual: sort_empty(), expected: [])
+}
+
+@sort_single () -> [int] = [42].sort();
+
+@test_sort_single tests @sort_single () -> void = {
+    assert_eq(actual: sort_single(), expected: [42])
+}
+
+@sort_already_sorted () -> [int] = [1, 2, 3].sort();
+
+@test_sort_already_sorted tests @sort_already_sorted () -> void = {
+    assert_eq(actual: sort_already_sorted(), expected: [1, 2, 3])
+}
+
+@sort_preserves_original () -> ([int], [int]) = {
+    let nums = [3, 1, 2];
+    let sorted = nums.sort();
+    (nums, sorted)
+}
+
+@test_sort_preserves_original tests @sort_preserves_original () -> void = {
+    let (original, sorted) = sort_preserves_original();
+    assert_eq(actual: original, expected: [3, 1, 2]);
+    assert_eq(actual: sorted, expected: [1, 2, 3])
+}
+
+@sort_descending () -> [int] = [5, 4, 3, 2, 1].sort();
+
+@test_sort_descending tests @sort_descending () -> void = {
+    assert_eq(actual: sort_descending(), expected: [1, 2, 3, 4, 5])
+}
+
+@sort_with_negatives () -> [int] = [-3, 0, 5, -1, 2].sort();
+
+@test_sort_with_negatives tests @sort_with_negatives () -> void = {
+    assert_eq(actual: sort_with_negatives(), expected: [-3, -1, 0, 2, 5])
+}

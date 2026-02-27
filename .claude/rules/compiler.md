@@ -98,6 +98,56 @@ ORI_CHECK_LEAKS=1 ./binary                       # Leak check with attribution
 - `#[tracing::instrument]` on public API entry points; use `skip_all` or `skip(arena, engine)` for large/non-Debug args
 - Salsa `#[tracked]` functions: use manual `tracing::debug!()` events (not `#[instrument]`)
 
+## Diagnostic Scripts — USE THESE
+
+**Before reading code line-by-line, run the diagnostic scripts.** They extract more signal in seconds than manual investigation in minutes.
+
+```bash
+# All-in-one (build + run + leak check + RC stats + IR dump)
+diagnostics/diagnose-aot.sh file.ori              # Add --valgrind for memory errors
+
+# Behavioral mismatch (interpreter vs AOT comparison)
+diagnostics/dual-exec-debug.sh file.ori           # Auto-dumps IR + RC stats on mismatch
+
+# RC correctness
+diagnostics/rc-stats.sh file.ori                  # RC balance per function (flags imbalances)
+diagnostics/codegen-audit.sh file.ori             # Static RC + COW + ABI analysis (--strict, --function name)
+
+# IR inspection
+diagnostics/ir-dump.sh file.ori                   # Annotated LLVM IR (--raw for undecorated)
+diagnostics/ir-diff.sh a.ori b.ori                # Side-by-side IR comparison
+
+# Disassembly
+diagnostics/disasm-ori.sh file.ori                # Native disassembly with Ori demangling
+```
+
+**In-pipeline codegen audit** (Rust-level, runs during compilation):
+```bash
+ORI_AUDIT_CODEGEN=1 ori build file.ori            # RC balance, COW sequencing, ABI arg counts
+ORI_AUDIT_STRICT=1 ORI_AUDIT_CODEGEN=1 ori build file.ori  # Pessimistic mode
+ORI_AUDIT_FUNCTION=name ORI_AUDIT_CODEGEN=1 ori build file.ori  # Filter to specific function
+```
+
+**Consistency check**: `diagnostics/check-debug-flags.sh` — validates all `ORI_*` flags are defined, used, and documented.
+
+## Bug Debugging Workflow
+
+When you encounter a bug, follow this order — **do not skip steps**:
+
+1. **STOP** — Do not jump to fixing. Resist the urge.
+2. **Consult spec** — `docs/ori_lang/0.1-alpha/spec/` for intended behavior
+3. **Run diagnostics** — Choose based on symptom:
+   - Wrong output → `diagnostics/dual-exec-debug.sh` (compare eval vs AOT)
+   - Crash/segfault → `diagnostics/diagnose-aot.sh --valgrind`
+   - Memory leak → `ORI_CHECK_LEAKS=1 ./binary` then `diagnostics/rc-stats.sh`
+   - RC corruption → `ORI_TRACE_RC=1 ./binary` then `diagnostics/codegen-audit.sh --strict`
+   - Type error → `ORI_LOG=ori_types=debug ori check file.ori`
+   - Wrong IR → `diagnostics/ir-dump.sh` and compare with `diagnostics/ir-diff.sh`
+4. **Write tests** — MULTIPLE: exact case, edges, variations, guards
+5. **Verify tests fail** — proves understanding
+6. **Fix the code**
+7. **Tests pass unchanged**
+
 ## Cascading Fixes = Architectural Smell
 - When fixing a bug at one callsite moves the failure to the next layer, **STOP**. Do not patch the next callsite. Diagnose the shared assumption that's wrong across the pipeline.
 - If the same logical fix must be applied at 3+ independent callsites, it's a missing abstraction or violated boundary contract — fix at the boundary, not at every consumer.
