@@ -36,34 +36,6 @@ jobs:
           fi
           echo "Tag is on master branch - OK"
 
-      - name: Extract expected version from tag
-        id: tag_version
-        run: |
-          # Remove 'v' prefix from tag
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          echo "tag_version=$TAG_VERSION" >> $GITHUB_OUTPUT
-          echo "Tag version: $TAG_VERSION"
-
-      - name: Extract Cargo.toml version
-        id: cargo_version
-        run: |
-          CARGO_VERSION=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/')
-          echo "cargo_version=$CARGO_VERSION" >> $GITHUB_OUTPUT
-          echo "Cargo.toml version: $CARGO_VERSION"
-
-      - name: Validate tag matches Cargo.toml
-        run: |
-          if [[ "${{ steps.tag_version.outputs.tag_version }}" != "${{ steps.cargo_version.outputs.cargo_version }}" ]]; then
-            echo "ERROR: Tag version (${{ steps.tag_version.outputs.tag_version }}) does not match Cargo.toml version (${{ steps.cargo_version.outputs.cargo_version }})"
-            echo ""
-            echo "To fix:"
-            echo "  1. Delete the tag: git tag -d ${{ github.ref_name }} && git push origin :refs/tags/${{ github.ref_name }}"
-            echo "  2. Update versions: ./scripts/release.sh ${{ steps.tag_version.outputs.tag_version }}"
-            echo "  3. Commit, tag, and push again"
-            exit 1
-          fi
-          echo "Version validation passed!"
-
       - name: Check version synchronization
         run: ./scripts/sync-version.sh --check
 
@@ -90,8 +62,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Derive build number
-        run: ./scripts/bump-build.sh
+      - name: Derive build number from tag
+        run: |
+          # Extract CalVer build number from tag: v2026.02.27.2-alpha → 2026.02.27.2
+          BUILD=$(echo "${GITHUB_REF_NAME}" | grep -oE '[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+')
+          if [[ -n "$BUILD" ]]; then
+            echo "$BUILD" > BUILD_NUMBER
+          else
+            ./scripts/bump-build.sh  # Fallback for semver tags
+          fi
+          echo "Build number: $(cat BUILD_NUMBER)"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -149,8 +129,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Derive build number
-        run: ./scripts/bump-build.sh
+      - name: Derive build number from tag
+        run: |
+          # Extract CalVer build number from tag: v2026.02.27.2-alpha → 2026.02.27.2
+          BUILD=$(echo "${GITHUB_REF_NAME}" | grep -oE '[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+')
+          if [[ -n "$BUILD" ]]; then
+            echo "$BUILD" > BUILD_NUMBER
+          else
+            ./scripts/bump-build.sh  # Fallback for semver tags
+          fi
+          echo "Build number: $(cat BUILD_NUMBER)"
 
       - name: Install LLVM
         run: |
@@ -302,58 +290,12 @@ jobs:
             echo "This is a stable release"
           fi
 
-      - name: Generate release body
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          if [[ "$VERSION" == *"alpha"* ]]; then
-            cat << 'BODY' > release_body.md
-          ## ⚠️ Nightly Release
-
-          This is an **alpha/nightly** build intended for testing and development.
-          It may contain bugs and breaking changes.
-
-          ### Installation
-
-          **Quick install (Linux/macOS):**
-          ```bash
-          curl -fsSL https://ori-lang.com/install.sh | sh
-          ```
-
-          **Manual download:** See assets below for your platform.
-
-          ### What's New
-
-          See the auto-generated changelog below for details.
-
-          ---
-          BODY
-          else
-            cat << 'BODY' > release_body.md
-          ## Installation
-
-          **Quick install (Linux/macOS):**
-          ```bash
-          curl -fsSL https://ori-lang.com/install.sh | sh
-          ```
-
-          **Manual download:** See assets below for your platform.
-
-          ### What's New
-
-          See the auto-generated changelog below for details.
-
-          ---
-          BODY
-          fi
-
-      - name: Create Release
+      - name: Upload artifacts to release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ steps.release_type.outputs.name }}
-          body_path: release_body.md
           files: |
             artifacts/*
-          generate_release_notes: true
           prerelease: ${{ steps.release_type.outputs.prerelease }}
           make_latest: ${{ steps.release_type.outputs.prerelease != 'true' }}
         env:

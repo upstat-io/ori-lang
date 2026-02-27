@@ -1,27 +1,28 @@
 name: Auto Release
 
-# Automatically bump version, tag, and trigger release on every merge to master.
-# During alpha, every PR merge gets its own release (alpha.N → alpha.N+1).
+# Automatically tag and release on every merge to master.
+# Uses CalVer: v2026.02.27.N-alpha (UTC date + daily build counter).
+# No commits to master — just tags the merge commit directly.
 
 on:
   push:
     branches: [master]
 
+# Change to "beta" or remove for stable releases.
+env:
+  PRERELEASE_SUFFIX: alpha
+
 # Queue releases — don't cancel in-progress ones.
-# Each merge gets its own version bump, processed sequentially.
+# Each merge gets its own tag, processed sequentially.
 concurrency:
   group: auto-release
   cancel-in-progress: false
 
 jobs:
   auto-release:
-    name: Bump Version & Tag
+    name: Tag & Release
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    # Skip release commits to prevent infinite loop.
-    # The version bump commit starts with "chore: release v".
-    if: "!startsWith(github.event.head_commit.message, 'chore: release v')"
+    timeout-minutes: 5
 
     steps:
       - name: Checkout
@@ -31,58 +32,39 @@ jobs:
           fetch-depth: 0
           ref: master
 
-      - name: Configure git
+      - name: Derive release tag
+        id: tag
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          TODAY=$(date -u +"%Y.%m.%d")
+          COUNT=1
+          while git rev-parse "refs/tags/v${TODAY}.${COUNT}-${PRERELEASE_SUFFIX}" &>/dev/null; do
+            COUNT=$((COUNT + 1))
+          done
+          TAG="v${TODAY}.${COUNT}-${PRERELEASE_SUFFIX}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Determine version
-        id: version
+      - name: Push tag
         run: |
-          CURRENT=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/')
-          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          git tag "${{ steps.tag.outputs.tag }}"
+          git push origin "${{ steps.tag.outputs.tag }}"
 
-          if git rev-parse "refs/tags/v$CURRENT" &>/dev/null; then
-            # Tag exists — auto-increment
-            echo "Tag v$CURRENT already exists, auto-incrementing..."
-            echo "bumped=true" >> $GITHUB_OUTPUT
-          else
-            # Tag doesn't exist — version was set manually in a PR, or first release
-            echo "Tag v$CURRENT does not exist, using current version as-is"
-            echo "bumped=false" >> $GITHUB_OUTPUT
-            echo "new_version=$CURRENT" >> $GITHUB_OUTPUT
+      - name: Create release with notes
+        env:
+          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+
+          # Find previous tag for release notes range
+          PREV_TAG=$(git tag --sort=-creatordate | grep '^v' | sed -n '2p')
+
+          NOTES_ARGS=""
+          if [[ -n "$PREV_TAG" ]]; then
+            NOTES_ARGS="--notes-start-tag $PREV_TAG"
           fi
 
-      - name: Bump version
-        if: steps.version.outputs.bumped == 'true'
-        run: ./scripts/release.sh --yes
-
-      - name: Read new version
-        id: new_version
-        run: |
-          VERSION=$(grep -E '^version\s*=' Cargo.toml | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "New version: $VERSION"
-
-      - name: Regenerate lockfiles
-        if: steps.version.outputs.bumped == 'true'
-        run: |
-          cargo generate-lockfile
-          cargo generate-lockfile --manifest-path compiler/ori_llvm/Cargo.toml
-          cargo generate-lockfile --manifest-path compiler/ori_rt/Cargo.toml
-          cargo generate-lockfile --manifest-path tools/ori-lsp/Cargo.toml
-          cargo generate-lockfile --manifest-path website/playground-wasm/Cargo.toml
-
-      - name: Commit version bump
-        if: steps.version.outputs.bumped == 'true'
-        run: |
-          git add -A
-          git commit -m "chore: release v${{ steps.new_version.outputs.version }}"
-
-      - name: Tag and push
-        run: |
-          git tag "v${{ steps.new_version.outputs.version }}"
-          git push origin master --tags
+          gh release create "$TAG" \
+            --title "Ori ${TAG#v}" \
+            --generate-notes \
+            $NOTES_ARGS \
+            --prerelease
