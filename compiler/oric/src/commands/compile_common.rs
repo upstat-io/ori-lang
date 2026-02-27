@@ -25,6 +25,8 @@
 //!   (Section 12). See [`run_borrow_inference`] for the Salsa integration point.
 
 #[cfg(feature = "llvm")]
+use crate::dbg_do;
+#[cfg(feature = "llvm")]
 use std::path::Path;
 
 #[cfg(feature = "llvm")]
@@ -373,6 +375,18 @@ fn run_codegen_pipeline<'ctx>(
             &type_result.typed.mono_instances,
         );
 
+        // Phase dump: ARC IR after lowering + pipeline (gated behind ORI_DUMP_AFTER_ARC=1)
+        dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_ARC, {
+            crate::arc_dump::dump_arc_ir(
+                &arc_cache,
+                &annotated_sigs,
+                &classifier,
+                pool,
+                interner,
+                source_path,
+            );
+        });
+
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
             &mut builder,
@@ -504,10 +518,14 @@ pub fn compile_to_llvm<'ctx>(
         &[],
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
-        eprintln!("=== LLVM IR for {module_name} ===");
-        eprintln!("{}", llvm_module.print_to_string().to_string_lossy());
-        eprintln!("=== END IR ===");
+    // Phase dump: LLVM IR after codegen (gated behind ORI_DUMP_AFTER_LLVM=1 or ORI_DEBUG_LLVM=1)
+    if crate::llvm_dump::llvm_dump_requested() {
+        crate::llvm_dump::dump_llvm_ir(
+            &llvm_module.print_to_string().to_string_lossy(),
+            pool,
+            db.interner(),
+            source_path,
+        );
     }
 
     llvm_module
@@ -580,14 +598,14 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         &import_sigs,
     );
 
-    if std::env::var("ORI_DEBUG_LLVM").is_ok() {
-        eprintln!(
-            "Compiled module '{}' from '{}' with {} imported functions",
-            module_name,
+    // Phase dump: LLVM IR after codegen (gated behind ORI_DUMP_AFTER_LLVM=1 or ORI_DEBUG_LLVM=1)
+    if crate::llvm_dump::llvm_dump_requested() {
+        crate::llvm_dump::dump_llvm_ir(
+            &llvm_module.print_to_string().to_string_lossy(),
+            pool,
+            interner,
             source_path,
-            imported_functions.len()
         );
-        eprintln!("{}", llvm_module.print_to_string().to_string_lossy());
     }
 
     llvm_module

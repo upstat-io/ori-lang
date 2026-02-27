@@ -55,11 +55,15 @@ pub mod format;
 pub mod iterator;
 
 use std::cell::{Cell, RefCell};
+#[cfg(debug_assertions)]
+use std::collections::{HashMap, HashSet};
 use std::ffi::CStr;
 use std::panic;
 #[cfg(not(feature = "single-threaded"))]
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::{AtomicPtr, Ordering};
+#[cfg(debug_assertions)]
+use std::sync::Mutex;
 use std::sync::OnceLock;
 
 /// Ori panic payload for stack unwinding (AOT mode).
@@ -240,6 +244,33 @@ fn rc_trace_enabled() -> bool {
     rc_trace_mode() != RcTraceMode::Disabled
 }
 
+/// Test-only: force-enable runtime debug assertions regardless of env var.
+///
+/// Avoids test dependency on `ORI_RT_DEBUG` env var (which is cached in
+/// `OnceLock` and would affect all tests in the same process).
+#[cfg(test)]
+static RT_DEBUG_FORCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Check whether runtime assertion mode is enabled via `ORI_RT_DEBUG`.
+///
+/// Caches the result in a `OnceLock` — after the first call, this is a single
+/// atomic load (~1ns). Zero overhead when disabled.
+///
+/// Enabled by `ORI_RT_DEBUG=1` or `ORI_RT_DEBUG=true`.
+fn rt_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+
+    #[cfg(test)]
+    if RT_DEBUG_FORCE.load(Ordering::Relaxed) {
+        return true;
+    }
+    *ENABLED.get_or_init(|| {
+        std::env::var("ORI_RT_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
 /// Trace an `ori_rc_alloc` event.
 #[cold]
 #[inline(never)]
@@ -287,6 +318,210 @@ fn rc_trace_verbose_backtrace() {
     if rc_trace_mode() == RcTraceMode::Verbose {
         eprintln!("{}", std::backtrace::Backtrace::force_capture());
     }
+}
+
+// ── Leak Attribution (debug builds only) ─────────────────────────────
+
+/// Monotonic allocation counter for leak attribution.
+///
+/// Each `ori_rc_alloc` call gets a unique ID, making it easy to correlate
+/// unfreed allocations with their creation point in an RC event trace.
+/// Only incremented when `ORI_CHECK_LEAKS=1`.
+#[cfg(debug_assertions)]
+static RC_ALLOC_COUNTER: AtomicI64 = AtomicI64::new(0);
+
+/// Access the allocation registry for leak attribution.
+///
+/// Maps `data_ptr` (as `usize`) → `(alloc_id, size, align)` for every
+/// live RC allocation. Entries are added in `ori_rc_alloc` and removed
+/// in `ori_rc_free`. At program exit, any remaining entries are leaked
+/// allocations — the report prints their IDs, sizes, and addresses.
+///
+/// Uses `usize` keys because `*mut u8` is not `Send` (required by `Mutex`).
+/// The `OnceLock` + init pattern matches `rc_trace_mode()` and `check_leaks_enabled()`.
+///
+/// Only exists in debug builds (`#[cfg(debug_assertions)]`). In release builds,
+/// `ORI_CHECK_LEAKS` still reports the *count* of leaked allocations via
+/// `RC_LIVE_COUNT`, but cannot attribute them to specific allocation sites.
+/// `(alloc_id, size, align)` — metadata stored per live allocation.
+#[cfg(debug_assertions)]
+type AllocEntry = (i64, usize, usize);
+
+#[cfg(debug_assertions)]
+fn alloc_registry() -> &'static Mutex<HashMap<usize, AllocEntry>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<usize, AllocEntry>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Register an allocation in the leak attribution registry.
+///
+/// Called from `ori_rc_alloc` when `ORI_CHECK_LEAKS=1` in debug builds.
+#[cfg(debug_assertions)]
+fn alloc_registry_insert(data_ptr: *mut u8, size: usize, align: usize) {
+    let id = RC_ALLOC_COUNTER.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut reg) = alloc_registry().lock() {
+        reg.insert(data_ptr as usize, (id, size, align));
+    }
+}
+
+/// Deregister an allocation from the leak attribution registry.
+///
+/// Called from `ori_rc_free` when `ORI_CHECK_LEAKS=1` in debug builds.
+#[cfg(debug_assertions)]
+fn alloc_registry_remove(data_ptr: *mut u8) {
+    if let Ok(mut reg) = alloc_registry().lock() {
+        reg.remove(&(data_ptr as usize));
+    }
+}
+
+/// Print the leak attribution report for all unfreed allocations.
+///
+/// Called from `ori_run_main` when `ORI_CHECK_LEAKS=1` detects leaks.
+/// Prints each unfreed allocation's ID, pointer address, size, and alignment.
+#[cfg(debug_assertions)]
+fn alloc_registry_report() {
+    if let Ok(reg) = alloc_registry().lock() {
+        if reg.is_empty() {
+            return;
+        }
+        // Sort by alloc_id for deterministic output
+        let mut entries: Vec<_> = reg.iter().collect();
+        entries.sort_by_key(|(_, (id, _, _))| *id);
+        for (&ptr_addr, &(id, size, align)) in &entries {
+            eprintln!("  #{id}: ptr=0x{ptr_addr:x} size={size} align={align} (unfreed)");
+        }
+    }
+}
+
+/// Reset the allocation registry and counter.
+///
+/// Used for test isolation in JIT test runners where multiple tests
+/// execute in the same process.
+#[cfg(debug_assertions)]
+pub fn reset_alloc_registry() {
+    if let Ok(mut reg) = alloc_registry().lock() {
+        reg.clear();
+    }
+    RC_ALLOC_COUNTER.store(0, Ordering::Relaxed);
+}
+
+// ── Runtime Assertion Mode (ORI_RT_DEBUG) ─────────────────────────────
+
+/// Validate that the RC header at `data_ptr - 8` holds a plausible refcount.
+///
+/// Catches: use-after-free (refcount overwritten), corruption, misaligned pointers.
+/// Only runs when `ORI_RT_DEBUG=1`. Aborts on invalid values.
+///
+/// `#[inline]` so the `rt_debug_enabled()` check is inlined at the call site
+/// and the branch is predicted not-taken — zero overhead when disabled.
+#[inline]
+fn rt_debug_validate_rc(data_ptr: *const u8, op: &str) {
+    if !rt_debug_enabled() {
+        return;
+    }
+    rt_debug_validate_rc_impl(data_ptr, op);
+}
+
+/// The heavy validation logic — extracted to `#[cold]` so it doesn't pollute
+/// the instruction cache in the fast path.
+#[cold]
+#[inline(never)]
+fn rt_debug_validate_rc_impl(data_ptr: *const u8, op: &str) {
+    unsafe {
+        let rc = data_ptr.sub(8).cast::<i64>().read();
+        if rc <= 0 || rc >= 1_000_000 {
+            eprintln!(
+                "ori: ORI_RT_DEBUG — {op} on {data_ptr:p}: \
+                 implausible refcount {rc} (expected 1..999999, \
+                 likely use-after-free or corruption)"
+            );
+            std::process::abort();
+        }
+    }
+}
+
+/// Access the freed-pointer tracking set for double-free detection.
+///
+/// `HashSet<usize>` stores raw pointer addresses (as `usize` for `Send`
+/// compatibility). Only active in debug builds when `ORI_RT_DEBUG=1`.
+#[cfg(debug_assertions)]
+fn freed_set() -> &'static Mutex<HashSet<usize>> {
+    static SET: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+    SET.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Check that a pointer has not already been freed.
+///
+/// Called from `ori_rc_inc` and `ori_rc_dec` to catch use-after-free.
+/// Aborts immediately if the pointer is in the freed set.
+#[cfg(debug_assertions)]
+fn rt_debug_check_not_freed(data_ptr: *const u8, op: &str) {
+    if !rt_debug_enabled() {
+        return;
+    }
+    if let Ok(set) = freed_set().lock() {
+        if set.contains(&(data_ptr as usize)) {
+            eprintln!(
+                "ori: ORI_RT_DEBUG — {op} on {data_ptr:p}: \
+                 pointer was already freed (use-after-free)"
+            );
+            std::process::abort();
+        }
+    }
+}
+
+/// Register a pointer as freed, aborting on double-free.
+///
+/// Called from `ori_rc_free`. If the pointer was already in the freed set,
+/// this is a double-free bug in the compiler's RC codegen.
+#[cfg(debug_assertions)]
+fn rt_debug_register_freed(data_ptr: *const u8) {
+    if !rt_debug_enabled() {
+        return;
+    }
+    if let Ok(mut set) = freed_set().lock() {
+        if !set.insert(data_ptr as usize) {
+            eprintln!("ori: ORI_RT_DEBUG — ori_rc_free on {data_ptr:p}: double-free detected");
+            std::process::abort();
+        }
+    }
+}
+
+/// Reset the freed-pointer tracking set.
+///
+/// Used for test isolation in JIT test runners where multiple tests
+/// execute in the same process.
+#[cfg(debug_assertions)]
+pub fn reset_freed_set() {
+    if let Ok(mut set) = freed_set().lock() {
+        set.clear();
+    }
+}
+
+/// Log a warning when a COW function receives a null data pointer.
+///
+/// This is a diagnostic aid, not an error — empty list mutations are valid
+/// but may indicate unexpected state during debugging.
+#[cold]
+#[inline(never)]
+fn rt_debug_null_cow_warning(op: &str) {
+    if !rt_debug_enabled() {
+        return;
+    }
+    eprintln!("ori: ORI_RT_DEBUG — {op}: null data_ptr (empty list mutation)");
+}
+
+/// Log a warning when a list operation has an out-of-bounds index.
+///
+/// The COW functions already handle OOB by returning the list unchanged,
+/// but in debug mode we want visibility into silent bounds failures.
+#[cold]
+#[inline(never)]
+fn rt_debug_bounds_warning(op: &str, index: i64, len: i64) {
+    if !rt_debug_enabled() {
+        return;
+    }
+    eprintln!("ori: ORI_RT_DEBUG — {op}: index {index} out of bounds (len={len})");
 }
 
 // ── Collection growth strategy ───────────────────────────────────────
@@ -540,6 +775,11 @@ pub extern "C" fn ori_rc_alloc(size: usize, align: usize) -> *mut u8 {
     // SAFETY: base is valid for total_size bytes, so base + 8 is valid
     let data_ptr = unsafe { base.add(8) };
 
+    #[cfg(debug_assertions)]
+    if check_leaks_enabled() {
+        alloc_registry_insert(data_ptr, size, align);
+    }
+
     if rc_trace_enabled() {
         rc_trace_alloc(data_ptr.cast_const(), size, align);
     }
@@ -560,6 +800,10 @@ pub extern "C" fn ori_rc_inc(data_ptr: *mut u8) {
     if data_ptr.is_null() {
         return;
     }
+
+    rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_inc");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_inc");
 
     // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
     // and 8-byte aligned. AtomicI64 has the same layout as i64.
@@ -606,6 +850,19 @@ fn rc_overflow_abort() -> ! {
     std::process::abort();
 }
 
+/// Abort on refcount underflow (decrement of already-zero refcount).
+///
+/// Separate `#[cold]` function keeps the fast path in `ori_rc_dec` small.
+/// NOT gated behind any flag — this is a safety net for all builds.
+/// One branch per decrement (~0.5ns overhead, always predicted not-taken).
+#[cold]
+#[inline(never)]
+fn rc_underflow_abort(data_ptr: *mut u8) -> ! {
+    eprintln!("ori: FATAL — ori_rc_dec called on already-freed allocation at {data_ptr:p}");
+    eprintln!("ori: this is a double-free bug in the compiler's RC codegen");
+    std::process::abort();
+}
+
 /// Decrement the reference count. If it reaches zero, call the drop function.
 ///
 /// `data_ptr` points to the data area. `strong_count` is at `data_ptr - 8`.
@@ -631,6 +888,10 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
         return;
     }
 
+    rt_debug_validate_rc(data_ptr.cast_const(), "ori_rc_dec");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data_ptr.cast_const(), "ori_rc_dec");
+
     // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is valid
     // and 8-byte aligned. AtomicI64 has the same layout as i64.
     #[cfg(not(feature = "single-threaded"))]
@@ -640,10 +901,11 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
             (*rc_ptr).fetch_sub(1, Ordering::Release)
         };
 
-        debug_assert!(
-            prev > 0,
-            "ori_rc_dec: refcount was already zero (use-after-free)"
-        );
+        // Release-mode underflow detection: abort if refcount was already zero.
+        // NOT gated behind a flag — one branch per dec (~0.5ns, always not-taken).
+        if prev <= 0 {
+            rc_underflow_abort(data_ptr);
+        }
 
         if rc_trace_enabled() {
             rc_trace_dec(data_ptr.cast_const(), prev - 1);
@@ -665,10 +927,10 @@ pub extern "C" fn ori_rc_dec(data_ptr: *mut u8, drop_fn: Option<extern "C" fn(*m
     {
         let (should_drop, new_rc) = unsafe {
             let rc_ptr = data_ptr.sub(8).cast::<i64>();
-            debug_assert!(
-                *rc_ptr > 0,
-                "ori_rc_dec: refcount was already zero (use-after-free)"
-            );
+            // Release-mode underflow detection (single-threaded path)
+            if *rc_ptr <= 0 {
+                rc_underflow_abort(data_ptr);
+            }
             *rc_ptr -= 1;
             (*rc_ptr <= 0, *rc_ptr)
         };
@@ -714,6 +976,9 @@ pub extern "C" fn ori_rc_free(data_ptr: *mut u8, size: usize, align: usize) {
         return;
     }
 
+    #[cfg(debug_assertions)]
+    rt_debug_register_freed(data_ptr.cast_const());
+
     // SAFETY: data_ptr was returned by ori_rc_alloc, so data_ptr - 8 is the base
     let base = unsafe { data_ptr.sub(8) };
     let total_size = size + 8;
@@ -722,6 +987,11 @@ pub extern "C" fn ori_rc_free(data_ptr: *mut u8, size: usize, align: usize) {
     ori_free(base, total_size, align);
 
     RC_LIVE_COUNT.fetch_sub(1, Ordering::Relaxed);
+
+    #[cfg(debug_assertions)]
+    if check_leaks_enabled() {
+        alloc_registry_remove(data_ptr);
+    }
 
     if rc_trace_enabled() {
         rc_trace_free(data_ptr.cast_const(), size, align);
@@ -1504,6 +1774,10 @@ pub extern "C" fn ori_list_push_cow(
         return;
     }
 
+    if data.is_null() {
+        rt_debug_null_cow_warning("ori_list_push_cow");
+    }
+
     let es = elem_size.max(1) as usize;
     let ea = elem_align.max(1) as usize;
     let old_len = len.max(0) as usize;
@@ -1623,6 +1897,9 @@ pub extern "C" fn ori_list_pop_cow(
 
     // Empty list — return unchanged
     if len <= 0 || data.is_null() {
+        if data.is_null() {
+            rt_debug_null_cow_warning("ori_list_pop_cow");
+        }
         unsafe {
             out_ptr.cast::<i64>().write(0);
             out_ptr.cast::<i64>().add(1).write(0);
@@ -1719,6 +1996,11 @@ pub extern "C" fn ori_list_set_cow(
 
     // Bounds check — return unchanged if out of range
     if data.is_null() || index < 0 || index >= len {
+        if data.is_null() {
+            rt_debug_null_cow_warning("ori_list_set_cow");
+        } else {
+            rt_debug_bounds_warning("ori_list_set_cow", index, len);
+        }
         unsafe {
             out_ptr.cast::<i64>().write(len);
             out_ptr.cast::<i64>().add(1).write(cap);
@@ -1800,8 +2082,13 @@ pub extern "C" fn ori_list_insert_cow(
         return;
     }
 
+    if data.is_null() {
+        rt_debug_null_cow_warning("ori_list_insert_cow");
+    }
+
     // Bounds check — index must be 0..=len (insert at end is valid)
     if index < 0 || index > len {
+        rt_debug_bounds_warning("ori_list_insert_cow", index, len);
         unsafe {
             out_ptr.cast::<i64>().write(len);
             out_ptr.cast::<i64>().add(1).write(cap);
@@ -1945,6 +2232,11 @@ pub extern "C" fn ori_list_remove_cow(
 
     // Bounds check
     if data.is_null() || index < 0 || index >= len {
+        if data.is_null() {
+            rt_debug_null_cow_warning("ori_list_remove_cow");
+        } else {
+            rt_debug_bounds_warning("ori_list_remove_cow", index, len);
+        }
         unsafe {
             out_ptr.cast::<i64>().write(len);
             out_ptr.cast::<i64>().add(1).write(cap);
@@ -3775,6 +4067,8 @@ pub extern "C" fn ori_run_main(main_fn: extern "C" fn()) -> i32 {
                 let live = RC_LIVE_COUNT.load(Ordering::Relaxed);
                 if live != 0 {
                     eprintln!("ori: {live} RC allocation(s) not freed (memory leak)");
+                    #[cfg(debug_assertions)]
+                    alloc_registry_report();
                     return 2;
                 }
             }
