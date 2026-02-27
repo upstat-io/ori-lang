@@ -104,6 +104,13 @@ pub(super) fn report_frontend_errors(
     // Check for parse errors — route through DiagnosticQueue for
     // deduplication and soft-error suppression after hard errors
     let parse_result = parsed(db, file);
+
+    // Phase dump: AST after parse (gated behind ORI_DUMP_AFTER_PARSE=1)
+    crate::dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_PARSE, {
+        let path_str = file.path(db).display().to_string();
+        crate::ast_dump::dump_ast(&parse_result, db.interner(), &path_str);
+    });
+
     if parse_result.has_errors() {
         let source = file.text(db);
         let mut queue = DiagnosticQueue::new();
