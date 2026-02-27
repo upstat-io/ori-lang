@@ -50,6 +50,11 @@ Both built with `cargo build -p ori_rt`.
 - `JmpBuf` + `jit_setjmp`/`enter_jit_mode`/`leave_jit_mode` for `setjmp`/`longjmp`-based recovery
 - `did_panic`, `get_panic_message`, `reset_panic_state` for test assertions
 
-## LLVM Debugging
+## Debugging
 
 For LLVM IR debugging workflow, tools, common bug categories, and verification strategy, see @llvm.md
+
+**RC debugging scripts** — use these for memory/RC issues:
+- `diagnostics/rc-stats.sh <file.ori>` — static RC balance analysis per function in LLVM IR
+- `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: build + run + `ORI_CHECK_LEAKS` + RC stats + IR (add `--valgrind`)
+- `diagnostics/dual-exec-debug.sh <file.ori>` — interpreter vs AOT comparison, auto-dumps on mismatch

@@ -1,16 +1,13 @@
 name: Auto Release
 
 # Automatically tag and release on every merge to master.
-# Uses CalVer: v2026.02.27.N-alpha (UTC date + daily build counter).
+# Uses CalVer: v2026.02.27.N-alpha (UTC date + daily build counter + release stage).
+# The release stage (alpha, beta, rc) comes from the RELEASE_STAGE file.
 # No commits to master — just tags the merge commit directly.
 
 on:
   push:
     branches: [master]
-
-# Change to "beta" or remove for stable releases.
-env:
-  PRERELEASE_SUFFIX: alpha
 
 # Queue releases — don't cancel in-progress ones.
 # Each merge gets its own tag, processed sequentially.
@@ -35,12 +32,26 @@ jobs:
       - name: Derive release tag
         id: tag
         run: |
+          # Read release stage from the single source of truth
+          STAGE=""
+          if [[ -f RELEASE_STAGE ]]; then
+            STAGE=$(tr -d '[:space:]' < RELEASE_STAGE)
+          fi
+
           TODAY=$(date -u +"%Y.%m.%d")
           COUNT=1
-          while git rev-parse "refs/tags/v${TODAY}.${COUNT}-${PRERELEASE_SUFFIX}" &>/dev/null; do
+
+          # Build the version suffix
+          if [[ -n "$STAGE" ]]; then
+            SUFFIX="-${STAGE}"
+          else
+            SUFFIX=""
+          fi
+
+          while git rev-parse "refs/tags/v${TODAY}.${COUNT}${SUFFIX}" &>/dev/null; do
             COUNT=$((COUNT + 1))
           done
-          TAG="v${TODAY}.${COUNT}-${PRERELEASE_SUFFIX}"
+          TAG="v${TODAY}.${COUNT}${SUFFIX}"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Release tag: $TAG"
 

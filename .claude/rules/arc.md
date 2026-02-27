@@ -152,6 +152,11 @@ ORI_DEBUG_LLVM=1 ori build file.ori               # Dump full LLVM IR
 
 # Combined: see both lowering and emission
 ORI_LOG=ori_arc=debug,ori_llvm=trace ori build file.ori
+
+# Diagnostic scripts (USE THESE for quick RC debugging)
+diagnostics/rc-stats.sh file.ori                  # RC balance per function (flags over-release/leaks)
+diagnostics/diagnose-aot.sh file.ori              # All-in-one: build + leak check + RC stats + IR
+diagnostics/dual-exec-debug.sh file.ori           # Interpreter vs AOT comparison (auto-dumps on mismatch)
 ```
 
 ### What Each Level Shows (ori_arc)
