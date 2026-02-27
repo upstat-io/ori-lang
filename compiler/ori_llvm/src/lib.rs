@@ -69,6 +69,9 @@ pub mod runtime;
 // -- AOT compilation --
 pub mod aot;
 
+// -- Verification --
+pub mod verify;
+
 // -- Re-exports --
 pub use context::SimpleCx;
 pub use inkwell;

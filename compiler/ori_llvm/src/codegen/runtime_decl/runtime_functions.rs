@@ -10,7 +10,7 @@
 
 /// Primitive type descriptor for runtime function signatures.
 #[derive(Clone, Copy)]
-pub(super) enum Ty {
+pub(crate) enum Ty {
     I64,
     I32,
     I8,
@@ -29,7 +29,7 @@ pub(super) enum Ty {
 
 /// Function attribute applied after declaration.
 #[derive(Clone, Copy)]
-pub(super) enum Attr {
+pub(crate) enum Attr {
     Nounwind,
     Cold,
     NoaliasReturn,
@@ -37,11 +37,11 @@ pub(super) enum Attr {
 }
 
 /// Runtime function specification: name, signature, and attributes.
-pub(super) struct RtFn {
-    pub(super) name: &'static str,
-    pub(super) params: &'static [Ty],
-    pub(super) ret: Option<Ty>,
-    pub(super) attrs: &'static [Attr],
+pub(crate) struct RtFn {
+    pub(crate) name: &'static str,
+    pub(crate) params: &'static [Ty],
+    pub(crate) ret: Option<Ty>,
+    pub(crate) attrs: &'static [Attr],
 }
 
 // ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ pub(super) struct RtFn {
 /// Each entry specifies the function's name, parameter types, return type,
 /// and any LLVM attributes. This table is the single source of truth —
 /// both `declare_single()` and `declare_runtime()` use it.
-pub(super) static RT_FUNCTIONS: &[RtFn] = &[
+pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     // I/O
     RtFn {
         name: "ori_print",

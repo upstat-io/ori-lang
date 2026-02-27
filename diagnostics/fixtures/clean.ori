@@ -1,0 +1,9 @@
+// Diagnostic fixture: clean program with collections and RC.
+// All diagnostic tools should pass with no warnings.
+
+@main () -> int = {
+    let list = [1, 2, 3];
+    let pushed = list.push(4);
+    let reversed = pushed.reverse();
+    if reversed.len() == 4 then 0 else 1
+}

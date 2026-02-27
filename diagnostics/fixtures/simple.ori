@@ -1,0 +1,7 @@
+// Diagnostic fixture: minimal program (no collections, no RC).
+// All diagnostic tools should produce baseline results.
+
+@main () -> int = {
+    let x = 42;
+    if x == 42 then 0 else 1
+}
