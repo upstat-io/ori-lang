@@ -3,6 +3,7 @@
 //! Handles `length`/`len`, `is_empty`, `concat`, `iter` for List, Str, Map, Set, Range.
 
 mod list_builtins;
+mod list_cow;
 mod map_set_builtins;
 mod string_builtins;
 
@@ -120,7 +121,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("list", "pop", borrow: true) => {
+    ("list", "pop", borrow: false) => {
         if let TypeInfo::List { element } = ctx.type_info {
             // pop() returns Option<T> in the type checker — COW list mutation
             // for pop requires ARC pipeline cooperation (dual return: element + modified list).

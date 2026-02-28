@@ -2,7 +2,7 @@
     "name": "ori-lang",
     "displayName": "Ori Language",
     "description": "Syntax highlighting for the Ori programming language",
-    "version": "0.1.0",
+    "version": "2026.2.28",
     "publisher": "ori-lang",
     "engines": {
         "vscode": "^1.75.0"
