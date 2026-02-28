@@ -11,6 +11,7 @@
 //! - **RC balance** (`rc_balance`): alloc→inc→dec→free lifecycle tracking
 //! - **COW rules** (`cow_rules`): COW input sequencing (no reuse, no dec-before)
 //! - **ABI check** (`abi_check`): arg counts, large aggregate loads, nounwind+invoke
+//! - **Safety checks** (`safety_checks`): panic/assert call density analysis
 //!
 //! # Options
 //!
@@ -23,6 +24,7 @@ mod abi_check;
 mod cow_rules;
 mod rc_balance;
 pub(crate) mod report;
+mod safety_checks;
 
 pub use report::AuditReport;
 
@@ -124,6 +126,7 @@ pub fn audit_module_with_options(module: &Module<'_>, options: &AuditOptions) ->
     rc_balance::check_module(module, options, &mut report);
     cow_rules::check_module(module, options, &mut report);
     abi_check::check_module(module, options, &mut report);
+    safety_checks::check_module(module, options, &mut report);
     report
 }
 

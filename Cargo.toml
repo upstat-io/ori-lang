@@ -103,3 +103,10 @@ similar_names = "allow"
 inherits = "release"
 lto = "fat"
 codegen-units = 1
+
+# PGO-optimized release profile. Used by scripts/pgo-build.sh.
+# RUSTFLAGS supplies -Cprofile-generate or -Cprofile-use on top.
+[profile.release-pgo]
+inherits = "release"
+lto = "fat"
+codegen-units = 1

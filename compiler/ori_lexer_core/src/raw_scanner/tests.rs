@@ -592,6 +592,65 @@ fn empty_char_literal() {
 }
 
 #[test]
+fn multichar_literal_recovered_as_single_token() {
+    // 'ab' — too many characters, but should produce ONE error token, not three.
+    // Before fix: UnterminatedChar('a), Ident(b), UnterminatedChar(')
+    let tags = scan_tags("'ab'");
+    assert_eq!(tags, vec![RawTag::UnterminatedChar]);
+    assert_eq!(scan("'ab'")[0].len, 4); // covers entire 'ab'
+}
+
+#[test]
+fn multichar_literal_three_chars() {
+    // 'xyz' — recovery consumes to closing quote
+    let tags = scan_tags("'xyz'");
+    assert_eq!(tags, vec![RawTag::UnterminatedChar]);
+    assert_eq!(scan("'xyz'")[0].len, 5);
+}
+
+#[test]
+fn multichar_literal_at_eof() {
+    // 'ab — no closing quote, recovery hits EOF
+    let tags = scan_tags("'ab");
+    assert_eq!(tags, vec![RawTag::UnterminatedChar]);
+    assert_eq!(scan("'ab")[0].len, 3);
+}
+
+#[test]
+fn multichar_literal_stops_at_newline() {
+    // 'ab\n — recovery stops at newline, doesn't cross lines
+    let tags = scan_tags("'ab\n");
+    assert_eq!(tags, vec![RawTag::UnterminatedChar, RawTag::Newline]);
+    assert_eq!(scan("'ab\n")[0].len, 3); // 'ab only, newline separate
+}
+
+#[test]
+fn multichar_literal_with_escape_in_body() {
+    // 'a\'b' — recovery skips escaped \' and continues to real closing '
+    let tags = scan_tags("'a\\'b'");
+    assert_eq!(tags, vec![RawTag::UnterminatedChar]);
+    assert_eq!(scan("'a\\'b'")[0].len, 6); // 'a\'b' = 6 bytes
+}
+
+#[test]
+fn multichar_in_context() {
+    // let x = 'ab' — should not pollute surrounding tokens
+    let tags = scan_tags("let x = 'ab'");
+    assert_eq!(
+        tags,
+        vec![
+            RawTag::Ident,            // let
+            RawTag::Whitespace,       // (space)
+            RawTag::Ident,            // x
+            RawTag::Whitespace,       // (space)
+            RawTag::Equal,            // =
+            RawTag::Whitespace,       // (space)
+            RawTag::UnterminatedChar, // 'ab' as single error token
+        ]
+    );
+}
+
+#[test]
 fn char_unicode_2byte() {
     // λ = U+03BB = 2 bytes (CE BB)
     assert_eq!(scan_tags("'λ'"), vec![RawTag::Char]);
@@ -723,14 +782,20 @@ fn template_unterminated() {
 
 #[test]
 fn template_unterminated_in_interpolation() {
-    // `{x  — template opens, interpolation starts, then EOF
-    // After TemplateHead + Ident, the scanner sees EOF.
-    // The `}` that would trigger template_middle_or_tail never arrives.
-    // The template_depth stack is orphaned — the cooking layer detects this.
+    // `{x  — template opens, interpolation starts, then EOF.
+    // eof() detects orphaned template_depth and emits UnterminatedTemplate
+    // before the final Eof, so consumers see the error in the token stream.
     let tags = scan_tags("`{x");
-    assert_eq!(tags, vec![RawTag::TemplateHead, RawTag::Ident]);
+    assert_eq!(
+        tags,
+        vec![
+            RawTag::TemplateHead,
+            RawTag::Ident,
+            RawTag::UnterminatedTemplate
+        ]
+    );
 
-    // Verify template_depth is NOT empty (orphaned)
+    // After draining, template_depth should be empty
     let buf = SourceBuffer::new("`{x");
     let mut scanner = RawScanner::new(buf.cursor());
     loop {
@@ -740,8 +805,42 @@ fn template_unterminated_in_interpolation() {
         }
     }
     assert!(
-        !scanner.template_depth.is_empty(),
-        "template_depth should be non-empty for unterminated interpolation"
+        scanner.template_depth.is_empty(),
+        "template_depth should be drained after EOF emits UnterminatedTemplate"
+    );
+}
+
+#[test]
+fn template_unterminated_in_nested_interpolation() {
+    // `{a + `{b — two levels of template interpolation, both unterminated
+    let tags = scan_tags("`{a + `{b");
+    assert_eq!(
+        tags,
+        vec![
+            RawTag::TemplateHead, // `{
+            RawTag::Ident,        // a
+            RawTag::Whitespace,
+            RawTag::Plus,
+            RawTag::Whitespace,
+            RawTag::TemplateHead,         // `{
+            RawTag::Ident,                // b
+            RawTag::UnterminatedTemplate, // EOF clears inner depth
+            RawTag::UnterminatedTemplate, // EOF clears outer depth
+        ]
+    );
+}
+
+#[test]
+fn template_unterminated_interpolation_only_expr() {
+    // `{123 — numeric expression in interpolation, then EOF
+    let tags = scan_tags("`{123");
+    assert_eq!(
+        tags,
+        vec![
+            RawTag::TemplateHead,
+            RawTag::Int,
+            RawTag::UnterminatedTemplate,
+        ]
     );
 }
 

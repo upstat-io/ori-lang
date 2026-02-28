@@ -31,6 +31,129 @@ use crate::parse_helpers::{parse_float_skip_underscores, parse_int_skip_undersco
 use crate::unicode_confusables;
 use crate::what_is_next::{self, NextContext};
 
+/// Number of slots in the direct-mapped identifier cache.
+const IDENT_CACHE_SIZE: usize = 256;
+const IDENT_CACHE_MASK: usize = IDENT_CACHE_SIZE - 1;
+
+/// Direct-mapped identifier cache: fixed 256-entry array indexed by hash.
+///
+/// On hit (text matches), returns the cached `TokenKind` — bypassing both
+/// keyword lookup and the string interner. On miss or collision, the slot
+/// is overwritten with the new entry (no probing, no chaining).
+///
+/// This is ~10x cheaper than `FxHashMap` per lookup because it avoids
+/// `HashMap` bookkeeping, probing, and dynamic resizing. The tradeoff is
+/// that collisions silently evict entries, but the hot identifiers (`int`,
+/// `let`, `x`, etc.) that appear thousands of times naturally dominate
+/// their slots.
+struct IdentCache<'src> {
+    slots: [Option<(&'src str, TokenKind)>; IDENT_CACHE_SIZE],
+}
+
+impl<'src> IdentCache<'src> {
+    fn new() -> Self {
+        Self {
+            slots: [(); IDENT_CACHE_SIZE].map(|()| None),
+        }
+    }
+
+    /// Look up a cached identifier result.
+    #[expect(
+        clippy::inline_always,
+        reason = "hot inner loop: 3-instruction cache probe"
+    )]
+    #[inline(always)]
+    fn get(&self, text: &str) -> Option<&TokenKind> {
+        let slot = Self::hash(text);
+        if let Some((cached, kind)) = &self.slots[slot] {
+            if *cached == text {
+                return Some(kind);
+            }
+        }
+        None
+    }
+
+    /// Insert or overwrite a cache entry.
+    #[expect(
+        clippy::inline_always,
+        reason = "hot inner loop: 2-instruction cache store"
+    )]
+    #[inline(always)]
+    fn insert(&mut self, text: &'src str, kind: TokenKind) {
+        let slot = Self::hash(text);
+        self.slots[slot] = Some((text, kind));
+    }
+
+    /// Simple hash: first byte * 31 ^ last byte ^ length.
+    /// Distributes identifiers well because last byte varies even for
+    /// prefixed names (func0, func1, ...) and length separates keywords.
+    #[expect(clippy::inline_always, reason = "hot inner loop: 4-instruction hash")]
+    #[inline(always)]
+    fn hash(text: &str) -> usize {
+        let bytes = text.as_bytes();
+        debug_assert!(!bytes.is_empty(), "identifiers are never empty");
+        let len = bytes.len();
+        let first = bytes[0] as usize;
+        let last = bytes[len - 1] as usize;
+        (first.wrapping_mul(31) ^ last ^ len) & IDENT_CACHE_MASK
+    }
+}
+
+/// Result of cooking a single raw token.
+///
+/// Carries all metadata the driver loop needs in a single return value,
+/// eliminating post-cook state polling (`last_cook_had_error()`,
+/// `last_cook_was_contextual_kw()`) and redundant `discriminant_index()` calls.
+#[derive(Debug)]
+pub(crate) struct CookResult {
+    /// The cooked token kind.
+    pub kind: TokenKind,
+    /// Pre-computed discriminant tag for `TokenList::push_with_tag()`.
+    pub tag: u8,
+    /// Whether this `cook()` call added errors to the error vec.
+    pub had_error: bool,
+    /// Whether this token was resolved as a contextual keyword.
+    pub contextual_kw: bool,
+}
+
+impl CookResult {
+    /// Normal token: no error, not contextual.
+    #[inline]
+    fn new(kind: TokenKind) -> Self {
+        let tag = kind.discriminant_index();
+        Self {
+            kind,
+            tag,
+            had_error: false,
+            contextual_kw: false,
+        }
+    }
+
+    /// Token that pushed an error during cooking.
+    #[inline]
+    fn with_error(kind: TokenKind) -> Self {
+        let tag = kind.discriminant_index();
+        Self {
+            kind,
+            tag,
+            had_error: true,
+            contextual_kw: false,
+        }
+    }
+
+    /// Context-sensitive keyword (soft keyword with valid lookahead).
+    #[inline]
+    fn contextual(kind: TokenKind) -> Self {
+        let tag = kind.discriminant_index();
+        Self {
+            kind,
+            tag,
+            had_error: false,
+            contextual_kw: true,
+        }
+    }
+}
+
 /// Cooks raw tokens into parser-ready `TokenKind` values.
 ///
 /// Stateless with respect to individual tokens — each `cook()` call is
@@ -39,11 +162,11 @@ pub(crate) struct TokenCooker<'src> {
     source: &'src [u8],
     interner: &'src StringInterner,
     errors: Vec<LexError>,
-    /// Number of errors before the current `cook()` call.
-    /// Used by `last_cook_had_error()` to detect errors added during cooking.
-    errors_before_cook: usize,
-    /// Set to `true` when the current `cook()` resolves a context-sensitive keyword.
-    contextual_kw: bool,
+    /// Direct-mapped cache of `cook_ident()` results for repeated identifiers.
+    /// Fixed 256-entry array indexed by a simple hash of the identifier text.
+    /// On hit, bypasses keyword lookup AND the interner entirely.
+    /// Soft keywords are NOT cached (context-sensitive).
+    ident_cache: IdentCache<'src>,
 }
 
 impl<'src> TokenCooker<'src> {
@@ -53,8 +176,7 @@ impl<'src> TokenCooker<'src> {
             source,
             interner,
             errors: Vec::new(),
-            errors_before_cook: 0,
-            contextual_kw: false,
+            ident_cache: IdentCache::new(),
         }
     }
 
@@ -69,95 +191,79 @@ impl<'src> TokenCooker<'src> {
         &self.errors
     }
 
-    /// Check if the most recent `cook()` call added any errors.
-    ///
-    /// Used by the driver loop to set `TokenFlags::HAS_ERROR` on the token.
-    pub(crate) fn last_cook_had_error(&self) -> bool {
-        self.errors.len() > self.errors_before_cook
-    }
-
-    /// Check if the most recent `cook()` resolved a context-sensitive keyword.
-    ///
-    /// Used by the driver loop to set `TokenFlags::CONTEXTUAL_KW` on the token.
-    pub(crate) fn last_cook_was_contextual_kw(&self) -> bool {
-        self.contextual_kw
-    }
-
-    /// Cook a single raw token into a `TokenKind`.
+    /// Cook a single raw token into a `CookResult`.
     ///
     /// `offset` is the byte position of the token in source.
     /// `len` is the byte length of the token.
     #[inline]
     #[expect(
         clippy::too_many_lines,
-        reason = "exhaustive RawTag → TokenKind cooking dispatch"
+        reason = "exhaustive RawTag → CookResult cooking dispatch"
     )]
-    pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> TokenKind {
-        self.errors_before_cook = self.errors.len();
-        self.contextual_kw = false;
+    pub(crate) fn cook(&mut self, tag: RawTag, offset: u32, len: u32) -> CookResult {
         match tag {
             // Direct-map operators
-            RawTag::Plus => TokenKind::Plus,
-            RawTag::Minus => TokenKind::Minus,
-            RawTag::Star => TokenKind::Star,
-            RawTag::Slash => TokenKind::Slash,
-            RawTag::Percent => TokenKind::Percent,
-            RawTag::Caret => TokenKind::Caret,
-            RawTag::Ampersand => TokenKind::Amp,
-            RawTag::Pipe => TokenKind::Pipe,
-            RawTag::Tilde => TokenKind::Tilde,
-            RawTag::Bang => TokenKind::Bang,
-            RawTag::Equal => TokenKind::Eq,
-            RawTag::Less => TokenKind::Lt,
-            RawTag::Greater => TokenKind::Gt,
-            RawTag::Dot => TokenKind::Dot,
-            RawTag::Question => TokenKind::Question,
+            RawTag::Plus => CookResult::new(TokenKind::Plus),
+            RawTag::Minus => CookResult::new(TokenKind::Minus),
+            RawTag::Star => CookResult::new(TokenKind::Star),
+            RawTag::Slash => CookResult::new(TokenKind::Slash),
+            RawTag::Percent => CookResult::new(TokenKind::Percent),
+            RawTag::Caret => CookResult::new(TokenKind::Caret),
+            RawTag::Ampersand => CookResult::new(TokenKind::Amp),
+            RawTag::Pipe => CookResult::new(TokenKind::Pipe),
+            RawTag::Tilde => CookResult::new(TokenKind::Tilde),
+            RawTag::Bang => CookResult::new(TokenKind::Bang),
+            RawTag::Equal => CookResult::new(TokenKind::Eq),
+            RawTag::Less => CookResult::new(TokenKind::Lt),
+            RawTag::Greater => CookResult::new(TokenKind::Gt),
+            RawTag::Dot => CookResult::new(TokenKind::Dot),
+            RawTag::Question => CookResult::new(TokenKind::Question),
 
             // Compound operators
-            RawTag::EqualEqual => TokenKind::EqEq,
-            RawTag::BangEqual => TokenKind::NotEq,
-            RawTag::LessEqual => TokenKind::LtEq,
-            RawTag::AmpersandAmpersand => TokenKind::AmpAmp,
-            RawTag::PipePipe => TokenKind::PipePipe,
-            RawTag::Arrow => TokenKind::Arrow,
-            RawTag::FatArrow => TokenKind::FatArrow,
-            RawTag::DotDot => TokenKind::DotDot,
-            RawTag::DotDotEqual => TokenKind::DotDotEq,
-            RawTag::DotDotDot => TokenKind::DotDotDot,
-            RawTag::ColonColon => TokenKind::DoubleColon,
-            RawTag::Shl => TokenKind::Shl,
-            RawTag::QuestionQuestion => TokenKind::DoubleQuestion,
+            RawTag::EqualEqual => CookResult::new(TokenKind::EqEq),
+            RawTag::BangEqual => CookResult::new(TokenKind::NotEq),
+            RawTag::LessEqual => CookResult::new(TokenKind::LtEq),
+            RawTag::AmpersandAmpersand => CookResult::new(TokenKind::AmpAmp),
+            RawTag::PipePipe => CookResult::new(TokenKind::PipePipe),
+            RawTag::Arrow => CookResult::new(TokenKind::Arrow),
+            RawTag::FatArrow => CookResult::new(TokenKind::FatArrow),
+            RawTag::DotDot => CookResult::new(TokenKind::DotDot),
+            RawTag::DotDotEqual => CookResult::new(TokenKind::DotDotEq),
+            RawTag::DotDotDot => CookResult::new(TokenKind::DotDotDot),
+            RawTag::ColonColon => CookResult::new(TokenKind::DoubleColon),
+            RawTag::Shl => CookResult::new(TokenKind::Shl),
+            RawTag::QuestionQuestion => CookResult::new(TokenKind::DoubleQuestion),
 
             // Compound assignment operators
-            RawTag::PlusEq => TokenKind::PlusEq,
-            RawTag::MinusEq => TokenKind::MinusEq,
-            RawTag::StarEq => TokenKind::StarEq,
-            RawTag::SlashEq => TokenKind::SlashEq,
-            RawTag::PercentEq => TokenKind::PercentEq,
-            RawTag::AtEq => TokenKind::AtEq,
-            RawTag::AmpersandEq => TokenKind::AmpEq,
-            RawTag::PipeEq => TokenKind::PipeEq,
-            RawTag::CaretEq => TokenKind::CaretEq,
-            RawTag::ShlEq => TokenKind::ShlEq,
-            RawTag::AmpersandAmpersandEq => TokenKind::AmpAmpEq,
-            RawTag::PipePipeEq => TokenKind::PipePipeEq,
+            RawTag::PlusEq => CookResult::new(TokenKind::PlusEq),
+            RawTag::MinusEq => CookResult::new(TokenKind::MinusEq),
+            RawTag::StarEq => CookResult::new(TokenKind::StarEq),
+            RawTag::SlashEq => CookResult::new(TokenKind::SlashEq),
+            RawTag::PercentEq => CookResult::new(TokenKind::PercentEq),
+            RawTag::AtEq => CookResult::new(TokenKind::AtEq),
+            RawTag::AmpersandEq => CookResult::new(TokenKind::AmpEq),
+            RawTag::PipeEq => CookResult::new(TokenKind::PipeEq),
+            RawTag::CaretEq => CookResult::new(TokenKind::CaretEq),
+            RawTag::ShlEq => CookResult::new(TokenKind::ShlEq),
+            RawTag::AmpersandAmpersandEq => CookResult::new(TokenKind::AmpAmpEq),
+            RawTag::PipePipeEq => CookResult::new(TokenKind::PipePipeEq),
 
             // Delimiters
-            RawTag::LeftParen => TokenKind::LParen,
-            RawTag::RightParen => TokenKind::RParen,
-            RawTag::LeftBracket => TokenKind::LBracket,
-            RawTag::RightBracket => TokenKind::RBracket,
-            RawTag::LeftBrace => TokenKind::LBrace,
-            RawTag::RightBrace => TokenKind::RBrace,
-            RawTag::Comma => TokenKind::Comma,
-            RawTag::Colon => TokenKind::Colon,
-            RawTag::Semicolon => TokenKind::Semicolon,
-            RawTag::At => TokenKind::At,
-            RawTag::Hash => TokenKind::Hash,
-            RawTag::Underscore => TokenKind::Underscore,
-            RawTag::Dollar => TokenKind::Dollar,
-            RawTag::HashBracket => TokenKind::HashBracket,
-            RawTag::HashBang => TokenKind::HashBang,
+            RawTag::LeftParen => CookResult::new(TokenKind::LParen),
+            RawTag::RightParen => CookResult::new(TokenKind::RParen),
+            RawTag::LeftBracket => CookResult::new(TokenKind::LBracket),
+            RawTag::RightBracket => CookResult::new(TokenKind::RBracket),
+            RawTag::LeftBrace => CookResult::new(TokenKind::LBrace),
+            RawTag::RightBrace => CookResult::new(TokenKind::RBrace),
+            RawTag::Comma => CookResult::new(TokenKind::Comma),
+            RawTag::Colon => CookResult::new(TokenKind::Colon),
+            RawTag::Semicolon => CookResult::new(TokenKind::Semicolon),
+            RawTag::At => CookResult::new(TokenKind::At),
+            RawTag::Hash => CookResult::new(TokenKind::Hash),
+            RawTag::Underscore => CookResult::new(TokenKind::Underscore),
+            RawTag::Dollar => CookResult::new(TokenKind::Dollar),
+            RawTag::HashBracket => CookResult::new(TokenKind::HashBracket),
+            RawTag::HashBang => CookResult::new(TokenKind::HashBang),
 
             // Identifiers
             RawTag::Ident => self.cook_ident(offset, len),
@@ -188,22 +294,22 @@ impl<'src> TokenCooker<'src> {
             RawTag::UnterminatedString => {
                 self.errors
                     .push(LexError::unterminated_string(span(offset, len)));
-                TokenKind::Error
+                CookResult::with_error(TokenKind::Error)
             }
             RawTag::UnterminatedChar => {
                 self.errors
                     .push(LexError::unterminated_char(span(offset, len)));
-                TokenKind::Error
+                CookResult::with_error(TokenKind::Error)
             }
             RawTag::UnterminatedTemplate => {
                 self.errors
                     .push(LexError::unterminated_template(span(offset, len)));
-                TokenKind::Error
+                CookResult::with_error(TokenKind::Error)
             }
             RawTag::Backslash => {
                 self.errors
                     .push(LexError::standalone_backslash(span(offset, len)));
-                TokenKind::Error
+                CookResult::with_error(TokenKind::Error)
             }
             // Defensive: the raw scanner does not currently emit InvalidEscape
             // (escape validation is deferred to the cooking layer's unescape_*_v2
@@ -214,7 +320,7 @@ impl<'src> TokenCooker<'src> {
                 let esc_char = text.chars().nth(1).unwrap_or('?');
                 self.errors
                     .push(LexError::invalid_string_escape(span(offset, len), esc_char));
-                TokenKind::Error
+                CookResult::with_error(TokenKind::Error)
             }
             // Trivia and interior nulls (should not reach cook — handled by driver)
             RawTag::Whitespace | RawTag::Newline | RawTag::LineComment | RawTag::InteriorNull => {
@@ -222,7 +328,7 @@ impl<'src> TokenCooker<'src> {
                     false,
                     "Trivia/InteriorNull tags should be handled by the driver loop, not cook()"
                 );
-                TokenKind::Error
+                CookResult::new(TokenKind::Error)
             }
 
             // EOF (should not reach cook — handled by driver)
@@ -231,11 +337,11 @@ impl<'src> TokenCooker<'src> {
                     false,
                     "Eof should be handled by the driver loop, not cook()"
                 );
-                TokenKind::Eof
+                CookResult::new(TokenKind::Eof)
             }
 
             // Future variants (non_exhaustive)
-            _ => TokenKind::Error,
+            _ => CookResult::new(TokenKind::Error),
         }
     }
 
@@ -245,7 +351,7 @@ impl<'src> TokenCooker<'src> {
     /// patterns. This replaces the simple `InvalidByte` handling with
     /// context-aware diagnostics.
     #[cold]
-    fn cook_invalid_byte(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_invalid_byte(&mut self, offset: u32, len: u32) -> CookResult {
         let byte = self.source[offset as usize];
         let err_span = span(offset, len);
 
@@ -264,7 +370,7 @@ impl<'src> TokenCooker<'src> {
                         let full_span = span(offset, char_len);
                         self.errors
                             .push(LexError::unicode_confusable(full_span, ch, suggested, name));
-                        return TokenKind::Error;
+                        return CookResult::with_error(TokenKind::Error);
                     }
                 }
             }
@@ -281,89 +387,111 @@ impl<'src> TokenCooker<'src> {
         }
 
         self.errors.push(err);
-        TokenKind::Error
+        CookResult::with_error(TokenKind::Error)
     }
 
     // Cooking helpers
 
     #[inline]
-    fn cook_ident(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_ident(&mut self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
-        if let Some(kw) = keywords::lookup(text) {
-            return kw;
+
+        // Fast path: direct-mapped cache hit bypasses keyword lookup + interner.
+        if let Some(kind) = self.ident_cache.get(text) {
+            return CookResult::new(kind.clone());
         }
-        // Pre-filter: only attempt soft keyword lookup when length + first byte
-        // match one of the 6 soft keywords. Eliminates >99% of binary searches.
+
+        // Keyword lookup
+        if let Some(kw) = keywords::lookup(text) {
+            self.ident_cache.insert(text, kw.clone());
+            return CookResult::new(kw);
+        }
+
+        // Soft keywords are NOT cached — they are context-sensitive
+        // (same text can be keyword or identifier depending on lookahead).
         if keywords::could_be_soft_keyword(text) {
             let rest = &self.source[(offset + len) as usize..];
             if let Some(kw) = keywords::soft_keyword_lookup(text, rest) {
-                self.contextual_kw = true;
-                return kw;
+                return CookResult::contextual(kw);
             }
         }
-        // Pre-filter: only attempt reserved-future lookup when length + first byte
-        // match one of the 5 reserved-future keywords.
-        if keywords::could_be_reserved_future(text) {
+
+        // Reserved-future check (still lex as identifier so parser can continue)
+        let had_error = if keywords::could_be_reserved_future(text) {
             if let Some(keyword) = keywords::reserved_future_lookup(text) {
                 self.errors.push(LexError::reserved_future_keyword(
                     span(offset, len),
                     keyword,
                 ));
-                // Still lex as an identifier so the parser can continue
+                true
+            } else {
+                false
             }
+        } else {
+            false
+        };
+
+        // Intern and cache
+        let kind = TokenKind::Ident(self.interner.intern(text));
+        self.ident_cache.insert(text, kind.clone());
+        let tag = kind.discriminant_index();
+        CookResult {
+            kind,
+            tag,
+            had_error,
+            contextual_kw: false,
         }
-        TokenKind::Ident(self.interner.intern(text))
     }
 
     #[inline]
-    fn cook_int(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_int(&mut self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
         if let Some(n) = parse_int_skip_underscores(text, 10) {
-            TokenKind::Int(n)
+            CookResult::new(TokenKind::Int(n))
         } else {
             self.errors.push(LexError::int_overflow(span(offset, len)));
-            TokenKind::Error
+            CookResult::with_error(TokenKind::Error)
         }
     }
 
-    fn cook_hex_int(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_hex_int(&mut self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
         // Strip the 0x/0X prefix
         let hex_part = &text[2..];
         if let Some(n) = parse_int_skip_underscores(hex_part, 16) {
-            TokenKind::Int(n)
+            CookResult::new(TokenKind::Int(n))
         } else {
             self.errors
                 .push(LexError::hex_int_overflow(span(offset, len)));
-            TokenKind::Error
+            CookResult::with_error(TokenKind::Error)
         }
     }
 
-    fn cook_bin_int(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_bin_int(&mut self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
         // Strip the 0b/0B prefix
         let bin_part = &text[2..];
         if let Some(n) = parse_int_skip_underscores(bin_part, 2) {
-            TokenKind::Int(n)
+            CookResult::new(TokenKind::Int(n))
         } else {
             self.errors
                 .push(LexError::bin_int_overflow(span(offset, len)));
-            TokenKind::Error
+            CookResult::with_error(TokenKind::Error)
         }
     }
 
-    fn cook_float(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_float(&mut self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
         if let Some(f) = parse_float_skip_underscores(text) {
-            TokenKind::Float(f.to_bits())
+            CookResult::new(TokenKind::Float(f.to_bits()))
         } else {
             self.errors
                 .push(LexError::float_parse_error(span(offset, len)));
-            TokenKind::Error
+            CookResult::with_error(TokenKind::Error)
         }
     }
 
-    fn cook_duration(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_duration(&mut self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
 
         // Detect suffix by matching from the end
@@ -371,7 +499,7 @@ impl<'src> TokenCooker<'src> {
         if suffix_len == 0 {
             // Shouldn't happen with valid raw tokens, but be safe
             self.errors.push(LexError::int_overflow(span(offset, len)));
-            return TokenKind::Error;
+            return CookResult::with_error(TokenKind::Error);
         }
 
         let num_part = &text[..text.len() - suffix_len];
@@ -381,27 +509,27 @@ impl<'src> TokenCooker<'src> {
             // Spec: "Decimal syntax is compile-time sugar computed via integer
             // arithmetic — no floating-point operations are involved."
             if let Some(nanos) = parse_decimal_unit_value(num_part, unit.nanos_multiplier()) {
-                TokenKind::Duration(nanos, DurationUnit::Nanoseconds)
+                CookResult::new(TokenKind::Duration(nanos, DurationUnit::Nanoseconds))
             } else {
                 self.errors
                     .push(LexError::decimal_not_representable(span(offset, len)));
-                TokenKind::Error
+                CookResult::with_error(TokenKind::Error)
             }
         } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
-            TokenKind::Duration(value, unit)
+            CookResult::new(TokenKind::Duration(value, unit))
         } else {
             self.errors.push(LexError::int_overflow(span(offset, len)));
-            TokenKind::Error
+            CookResult::with_error(TokenKind::Error)
         }
     }
 
-    fn cook_size(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_size(&mut self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
 
         let (suffix_len, unit) = detect_size_suffix(text);
         if suffix_len == 0 {
             self.errors.push(LexError::int_overflow(span(offset, len)));
-            return TokenKind::Error;
+            return CookResult::with_error(TokenKind::Error);
         }
 
         let num_part = &text[..text.len() - suffix_len];
@@ -409,21 +537,22 @@ impl<'src> TokenCooker<'src> {
         if num_part.contains('.') {
             // Decimal size: convert to bytes via integer arithmetic.
             if let Some(bytes) = parse_decimal_unit_value(num_part, unit.bytes_multiplier()) {
-                TokenKind::Size(bytes, SizeUnit::Bytes)
+                CookResult::new(TokenKind::Size(bytes, SizeUnit::Bytes))
             } else {
                 self.errors
                     .push(LexError::decimal_not_representable(span(offset, len)));
-                TokenKind::Error
+                CookResult::with_error(TokenKind::Error)
             }
         } else if let Some(value) = parse_int_skip_underscores(num_part, 10) {
-            TokenKind::Size(value, unit)
+            CookResult::new(TokenKind::Size(value, unit))
         } else {
             self.errors.push(LexError::int_overflow(span(offset, len)));
-            TokenKind::Error
+            CookResult::with_error(TokenKind::Error)
         }
     }
 
-    fn cook_string(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_string(&mut self, offset: u32, len: u32) -> CookResult {
+        let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
         // Strip surrounding quotes
         let content = &text[1..text.len() - 1];
@@ -437,20 +566,32 @@ impl<'src> TokenCooker<'src> {
                 self.interner.intern(content)
             }
         };
-        TokenKind::String(name)
+        let kind = TokenKind::String(name);
+        if self.errors.len() > errors_before {
+            CookResult::with_error(kind)
+        } else {
+            CookResult::new(kind)
+        }
     }
 
-    fn cook_char(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_char(&mut self, offset: u32, len: u32) -> CookResult {
+        let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
         // Strip surrounding quotes
         let content = &text[1..text.len() - 1];
         let content_offset = offset + 1;
 
         let c = unescape_char_v2(content, content_offset, &mut self.errors);
-        TokenKind::Char(c)
+        let kind = TokenKind::Char(c);
+        if self.errors.len() > errors_before {
+            CookResult::with_error(kind)
+        } else {
+            CookResult::new(kind)
+        }
     }
 
-    fn cook_template_head(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_template_head(&mut self, offset: u32, len: u32) -> CookResult {
+        let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
         // Strip leading ` and trailing {
         let content = &text[1..text.len() - 1];
@@ -460,10 +601,16 @@ impl<'src> TokenCooker<'src> {
             Some(unescaped) => self.interner.intern_owned(unescaped),
             None => self.interner.intern(content),
         };
-        TokenKind::TemplateHead(name)
+        let kind = TokenKind::TemplateHead(name);
+        if self.errors.len() > errors_before {
+            CookResult::with_error(kind)
+        } else {
+            CookResult::new(kind)
+        }
     }
 
-    fn cook_template_middle(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_template_middle(&mut self, offset: u32, len: u32) -> CookResult {
+        let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
         // Strip leading } and trailing {
         let content = &text[1..text.len() - 1];
@@ -473,10 +620,16 @@ impl<'src> TokenCooker<'src> {
             Some(unescaped) => self.interner.intern_owned(unescaped),
             None => self.interner.intern(content),
         };
-        TokenKind::TemplateMiddle(name)
+        let kind = TokenKind::TemplateMiddle(name);
+        if self.errors.len() > errors_before {
+            CookResult::with_error(kind)
+        } else {
+            CookResult::new(kind)
+        }
     }
 
-    fn cook_template_tail(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_template_tail(&mut self, offset: u32, len: u32) -> CookResult {
+        let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
         // Strip leading } and trailing `
         let content = &text[1..text.len() - 1];
@@ -486,18 +639,24 @@ impl<'src> TokenCooker<'src> {
             Some(unescaped) => self.interner.intern_owned(unescaped),
             None => self.interner.intern(content),
         };
-        TokenKind::TemplateTail(name)
+        let kind = TokenKind::TemplateTail(name);
+        if self.errors.len() > errors_before {
+            CookResult::with_error(kind)
+        } else {
+            CookResult::new(kind)
+        }
     }
 
-    fn cook_format_spec(&self, offset: u32, len: u32) -> TokenKind {
+    fn cook_format_spec(&self, offset: u32, len: u32) -> CookResult {
         let text = slice_source(self.source, offset, len);
         // The format spec token includes the leading `:` from the scanner.
         // Strip it to get just the spec content.
         let content = &text[1..];
-        TokenKind::FormatSpec(self.interner.intern(content))
+        CookResult::new(TokenKind::FormatSpec(self.interner.intern(content)))
     }
 
-    fn cook_template_complete(&mut self, offset: u32, len: u32) -> TokenKind {
+    fn cook_template_complete(&mut self, offset: u32, len: u32) -> CookResult {
+        let errors_before = self.errors.len();
         let text = slice_source(self.source, offset, len);
         // Strip both backticks
         let content = &text[1..text.len() - 1];
@@ -507,7 +666,12 @@ impl<'src> TokenCooker<'src> {
             Some(unescaped) => self.interner.intern_owned(unescaped),
             None => self.interner.intern(content),
         };
-        TokenKind::TemplateFull(name)
+        let kind = TokenKind::TemplateFull(name);
+        if self.errors.len() > errors_before {
+            CookResult::with_error(kind)
+        } else {
+            CookResult::new(kind)
+        }
     }
 }
 

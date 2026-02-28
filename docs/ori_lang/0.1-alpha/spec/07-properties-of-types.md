@@ -249,7 +249,7 @@ impl Formattable for Money {
     @format (self, spec: FormatSpec) -> str = {
         let dollars = self.cents / 100;
         let cents = self.cents % 100;
-        let base = `${dollars}.{cents:02}`;
+        let base = `{dollars}.{cents:02}`;
         apply_alignment(s: base, spec: spec)
     }
 }

@@ -115,6 +115,13 @@ flags! {
     /// Usage: `ORI_DUMP_AFTER_LLVM=1 ori build file.ori`
     ORI_DUMP_AFTER_LLVM
 
+    /// Emit `GraphViz` DOT output of ARC IR control-flow graphs to stderr.
+    ///
+    /// Each function becomes a digraph with basic blocks as table nodes and
+    /// RC operations color-highlighted. Pipe to file and render with `dot`.
+    /// Usage: `ORI_EMIT_ARC_DOT=1 ori build file.ori 2> arc.dot`
+    ORI_EMIT_ARC_DOT
+
     // === Verification ===
 
     /// Run in-pipeline RC audit on emitted LLVM IR.
