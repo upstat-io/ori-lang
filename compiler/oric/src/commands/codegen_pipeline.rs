@@ -296,6 +296,11 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             );
         });
 
+        // Phase dump: ARC IR as GraphViz DOT (gated behind ORI_EMIT_ARC_DOT=1)
+        crate::dbg_do!(crate::debug_flags::ORI_EMIT_ARC_DOT, {
+            crate::arc_dot::emit_arc_dot(&arc_cache, &annotated_sigs, &classifier, pool, interner);
+        });
+
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
             &mut builder,

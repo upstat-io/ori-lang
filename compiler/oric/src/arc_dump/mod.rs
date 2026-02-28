@@ -8,7 +8,7 @@
 //! IR), ARC IR is a basic-block SSA-like form. The output follows LLVM IR / Rust
 //! MIR conventions: `fn @name(params) -> ret`, `bb0:`, `%var: type = instr`.
 
-mod instr;
+pub(crate) mod instr;
 
 use std::fmt::Write;
 

@@ -663,14 +663,15 @@ fn no_is_doc_without_comment() {
 
 #[test]
 fn is_doc_set_in_simple_lex() {
-    // lex() delegates to lex_with_comments(), so IS_DOC is set
+    // lex() currently routes through lex_driver::<true>, so IS_DOC is set.
+    // If routing changes to lex_driver::<false>, IS_DOC would be omitted.
     let interner = StringInterner::new();
     let tokens = lex("// #Description\ndef", &interner);
     let flags = tokens.flags();
     // tokens: newline, def, EOF
     assert!(
         flags[1].is_doc(),
-        "lex() should set IS_DOC (delegates to lex_with_comments)"
+        "lex() should set IS_DOC (routes through full metadata path)"
     );
 }
 

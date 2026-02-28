@@ -89,7 +89,10 @@ pub(super) mod bp {
 }
 ```
 
-**Note:** The `**` (power) operator is NOT in this Pratt table — it is parsed by a dedicated `parse_power_expr()` function between `parse_unary_expr()` and `parse_postfix_expr()`, using simple right-recursive descent: `power_expr = postfix_expr [ "**" power_expr ]`. This is because `**` binds tighter than unary `-` (so `-x ** 2 = -(x ** 2)`), placing it outside the Pratt-parsed precedence levels.
+**Note:** The `**` (power) and `|>` (pipe) operators are NOT in this Pratt table.
+- `**` binds tighter than unary but looser than postfix. It is parsed by a dedicated `parse_power_expr()` function between `parse_unary_expr()` and `parse_postfix_expr()`, using right-recursive descent.
+- `|>` has the lowest precedence of all binary operators (level 16) and is parsed by a dedicated loop in `parse_pipe_expr()` which calls the Pratt parser.
+
 
 Range operators use a single binding power constant rather than a pair because they are non-associative — `1..10..20` is a parse error. A `parsed_range` flag prevents chaining.
 

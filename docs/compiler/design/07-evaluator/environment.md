@@ -272,16 +272,14 @@ impl Environment {
 
 ## Mutation
 
-Mutable variables use `let mut`:
+Variables are mutable by default. Use the `$` prefix in a `let` binding to create an immutable constant:
 
 ```ori
-let x = 0;
-{
-    x = x + 1;  // Mutate x
-    x = x + 1;
-    x
-}
-// x = 2
+let x = 0;          // Mutable variable
+let $y = 10;        // Immutable constant
+
+x = x + 1;          // OK
+y = y + 1;          // error E1012: cannot assign to immutable constant y
 ```
 
 ```rust
