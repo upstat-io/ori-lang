@@ -359,8 +359,12 @@ impl ArcLowerer<'_> {
         prep_args.extend(header_mut_params.iter().map(|&(_, _, param_var)| param_var));
         self.builder.terminate_jump(exit_block, prep_args);
 
-        // Exit: restore scope with mutable vars from exit block params.
+        // Exit: drop the iterator handle, then restore scope.
+        // Both normal exhaustion and break paths converge here.
         self.builder.position_at(exit_block);
+        let iter_drop_name = self.interner.intern("ori_iter_drop");
+        self.builder
+            .emit_apply(Idx::UNIT, iter_drop_name, vec![iter_val], None);
         self.scope = pre_scope;
         for &(name, param) in &exit_mut_params {
             self.scope.bind_mutable(name, param);

@@ -301,10 +301,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(map_ty, out_alloca, "remove.val"))
     }
 
-    /// Emit `map.iter()` — call `ori_iter_from_map(keys, vals, len, key_size, val_size)`.
+    /// Emit `map.iter()` — call `ori_iter_from_map(keys, vals, len, ks, vs, owns, k_dec, v_dec)`.
     ///
     /// Map layout: `{i64 len, i64 cap, ptr keys, ptr vals}`.
     /// Yields `(K, V)` tuples as concatenated key+value bytes.
+    /// The iterator takes ownership of one RC reference to each of the keys
+    /// and values buffers, releasing them via `ori_rc_dec` when dropped.
     pub(crate) fn emit_map_iter(
         &mut self,
         receiver: ValueId,
@@ -330,10 +332,22 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let val_size = self.element_store_size(val_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let val_size_val = self.builder.const_i64(val_size as i64);
+        let owns_data = self.builder.const_bool(true);
+        let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
+        let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
 
         self.builder.call(
             func_id,
-            &[keys, vals, len, key_size_val, val_size_val],
+            &[
+                keys,
+                vals,
+                len,
+                key_size_val,
+                val_size_val,
+                owns_data,
+                key_dec_fn,
+                val_dec_fn,
+            ],
             "map.iter",
         )
     }

@@ -696,6 +696,271 @@ fn test_coll_list_concat_reverse() {
     );
 }
 
+// ─── COW list set/insert/remove/sort ───
+
+#[test]
+fn test_coll_list_set_basic() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let ys = xs.set(1, 99);
+    if ys.length() == 3 && ys.first().unwrap() == 10 && ys.last().unwrap() == 30 then 0 else 1
+}
+"#,
+        "coll_list_set_basic",
+    );
+}
+
+#[test]
+fn test_coll_list_set_first() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let ys = xs.set(0, 99);
+    if ys.first().unwrap() == 99 then 0 else 1
+}
+"#,
+        "coll_list_set_first",
+    );
+}
+
+#[test]
+fn test_coll_list_set_last() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let ys = xs.set(2, 99);
+    if ys.last().unwrap() == 99 then 0 else 1
+}
+"#,
+        "coll_list_set_last",
+    );
+}
+
+#[test]
+fn test_coll_list_insert_beginning() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [2, 3];
+    let ys = xs.insert(0, 1);
+    if ys.length() == 3 && ys.first().unwrap() == 1 then 0 else 1
+}
+"#,
+        "coll_list_insert_beginning",
+    );
+}
+
+#[test]
+fn test_coll_list_insert_middle() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 3];
+    let ys = xs.insert(1, 2);
+    if ys.length() == 3 then 0 else 1
+}
+"#,
+        "coll_list_insert_middle",
+    );
+}
+
+#[test]
+fn test_coll_list_insert_end() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2];
+    let ys = xs.insert(2, 3);
+    if ys.length() == 3 && ys.last().unwrap() == 3 then 0 else 1
+}
+"#,
+        "coll_list_insert_end",
+    );
+}
+
+#[test]
+fn test_coll_list_remove_first() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let ys = xs.remove(0);
+    if ys.length() == 2 && ys.first().unwrap() == 2 then 0 else 1
+}
+"#,
+        "coll_list_remove_first",
+    );
+}
+
+#[test]
+fn test_coll_list_remove_last() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let ys = xs.remove(2);
+    if ys.length() == 2 && ys.last().unwrap() == 2 then 0 else 1
+}
+"#,
+        "coll_list_remove_last",
+    );
+}
+
+#[test]
+fn test_coll_list_sort_ints() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [3, 1, 4, 1, 5, 9, 2, 6];
+    let sorted = xs.sort();
+    if sorted.length() == 8 && sorted.first().unwrap() == 1 && sorted.last().unwrap() == 9 then 0 else 1
+}
+"#,
+        "coll_list_sort_ints",
+    );
+}
+
+#[test]
+fn test_coll_list_sort_already_sorted() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3, 4, 5];
+    let sorted = xs.sort();
+    if sorted.first().unwrap() == 1 && sorted.last().unwrap() == 5 then 0 else 1
+}
+"#,
+        "coll_list_sort_already_sorted",
+    );
+}
+
+#[test]
+fn test_coll_list_sort_reverse_order() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [5, 4, 3, 2, 1];
+    let sorted = xs.sort();
+    if sorted.first().unwrap() == 1 && sorted.last().unwrap() == 5 then 0 else 1
+}
+"#,
+        "coll_list_sort_reverse_order",
+    );
+}
+
+#[test]
+fn test_coll_list_sort_single() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [42];
+    let sorted = xs.sort();
+    if sorted.length() == 1 && sorted.first().unwrap() == 42 then 0 else 1
+}
+"#,
+        "coll_list_sort_single",
+    );
+}
+
+// ─── COW loop-based push (1000-element benchmark) ───
+
+#[test]
+fn test_coll_list_push_loop_1000() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs: [int] = [];
+    for i in 0..1000 do {
+        xs = xs.push(i);
+    };
+    if xs.length() == 1000 && xs.first().unwrap() == 0 && xs.last().unwrap() == 999 then 0 else 1
+}
+"#,
+        "coll_list_push_loop_1000",
+    );
+}
+
+// ─── COW sharing: mutate copy, original untouched ───
+
+#[test]
+fn test_coll_list_cow_push_shared() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let ys = xs.push(4);
+    // xs should still be length 3, ys should be length 4
+    if xs.length() == 3 && ys.length() == 4 then 0 else 1
+}
+"#,
+        "coll_list_cow_push_shared",
+    );
+}
+
+#[test]
+fn test_coll_list_cow_reverse_shared() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    let ys = xs.reverse();
+    // xs should still be [1,2,3], ys should be [3,2,1]
+    if xs.first().unwrap() == 1 && ys.first().unwrap() == 3 then 0 else 1
+}
+"#,
+        "coll_list_cow_reverse_shared",
+    );
+}
+
+#[test]
+fn test_coll_list_cow_sort_shared() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [3, 1, 2];
+    let ys = xs.sort();
+    // xs should still be [3,1,2], ys should be [1,2,3]
+    if xs.first().unwrap() == 3 && ys.first().unwrap() == 1 then 0 else 1
+}
+"#,
+        "coll_list_cow_sort_shared",
+    );
+}
+
+#[test]
+fn test_coll_list_cow_set_shared() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30];
+    let ys = xs.set(1, 99);
+    // xs should still have 20 at index 1
+    if xs.last().unwrap() == 30 && ys.length() == 3 then 0 else 1
+}
+"#,
+        "coll_list_cow_set_shared",
+    );
+}
+
+#[test]
+fn test_coll_list_cow_concat_shared() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [1, 2];
+    let ys = xs + [3, 4];
+    // xs should still be length 2
+    if xs.length() == 2 && ys.length() == 4 then 0 else 1
+}
+"#,
+        "coll_list_cow_concat_shared",
+    );
+}
+
 // ─── Gap inventory: map methods not in builtin table ───
 
 #[test]

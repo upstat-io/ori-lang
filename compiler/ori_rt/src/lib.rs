@@ -2458,38 +2458,67 @@ pub extern "C" fn ori_list_remove_cow(
     }
 }
 
-/// Copy list2's elements to `dst` and increment their RC.
+/// Copy list2's elements to `dst`, incrementing RC only if list2 is shared.
 ///
-/// list2 is always borrowed (not consumed), so every byte-copied element
-/// needs its RC incremented. This pattern repeats across all concat paths.
+/// When `list2_unique` is true, elements are moved (byte-copy only, no RC
+/// change) because there's still exactly one owner. When false, each copied
+/// element's RC is incremented since both the source and destination now
+/// reference the element's sub-objects.
 #[inline]
-fn copy_and_inc_list2(
+fn copy_list2_elements(
     dst: *mut u8,
     data2: *const u8,
     n2: usize,
     es: usize,
+    list2_unique: bool,
     inc_fn: Option<extern "C" fn(*mut u8)>,
 ) {
     if !data2.is_null() {
         unsafe { std::ptr::copy_nonoverlapping(data2, dst, n2 * es) };
-        inc_copied_elements(dst, n2, es, inc_fn);
+        if !list2_unique {
+            inc_copied_elements(dst, n2, es, inc_fn);
+        }
     }
 }
 
-/// COW-aware list concatenation with consuming semantics.
+/// Dispose of list2's buffer after its elements have been copied out.
 ///
-/// Concatenates `list2` onto `list1`. If `list1` is uniquely owned and has
-/// sufficient capacity, copies `list2` elements directly after `list1`'s
-/// elements (O(m)). If unique but needs growth, reallocates first. If
-/// shared, allocates a new buffer and copies both lists.
+/// Elements have already been moved (unique) or copied+inc'd (shared), so
+/// no child cleanup is needed. We just need to either free the buffer
+/// (last reference) or decrement the RC (other references remain).
 ///
-/// `list2` is borrowed (not consumed) — the caller retains ownership and
-/// is responsible for its lifetime management.
+/// Uses `ori_rc_is_unique` at disposal time (not the initial snapshot) to
+/// handle self-concat (`x + x`) where a prior dec on data1 (same buffer)
+/// may have reduced the RC.
+#[inline]
+fn dec_consumed_list2(data2: *mut u8, alloc_size: usize, ea: usize) {
+    if data2.is_null() {
+        return;
+    }
+    if ori_rc_is_unique(data2) {
+        // Last reference — free the buffer directly.
+        // No drop_fn needed: elements already moved/inc'd by the caller.
+        ori_rc_free(data2, alloc_size, ea);
+    } else {
+        // Other references remain — just decrement.
+        ori_rc_dec(data2, None);
+    }
+}
+
+/// COW-aware list concatenation with dual-consuming semantics.
 ///
-/// # Element RC
+/// Both `list1` and `list2` are **consumed** (ownership transferred). The
+/// runtime checks uniqueness of each buffer at runtime to select the optimal
+/// strategy:
 ///
-/// Elements from `list2` are byte-copied; the codegen must emit RC inc
-/// for each copied element if the element type is RC'd.
+/// | list1   | list2   | Strategy                                        |
+/// |---------|---------|-------------------------------------------------|
+/// | unique  | unique  | Reuse list1 buffer, **move** list2 (no inc)     |
+/// | unique  | shared  | Reuse list1 buffer, **copy** list2 (inc each)   |
+/// | shared  | unique  | New buffer, copy list1 (inc), **move** list2    |
+/// | shared  | shared  | New buffer, copy both (inc all)                 |
+///
+/// **Bonus**: list1 empty + list2 unique → takeover list2's buffer (O(1)).
 ///
 /// # Output
 ///
@@ -2499,8 +2528,9 @@ pub extern "C" fn ori_list_concat_cow(
     data1: *mut u8,
     len1: i64,
     cap1: i64,
-    data2: *const u8,
+    data2: *mut u8,
     len2: i64,
+    cap2: i64,
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
@@ -2514,37 +2544,57 @@ pub extern "C" fn ori_list_concat_cow(
     let ea = elem_align.max(1) as usize;
     let n1 = len1.max(0) as usize;
     let n2 = len2.max(0) as usize;
+    let c2 = cap2.max(0) as usize;
     let new_len = n1 + n2;
+    let data2_unique = ori_rc_is_unique(data2);
 
     // Empty concatenation
     if new_len == 0 {
         unsafe { write_list_output(out_ptr, 0, 0, std::ptr::null_mut()) };
         ori_rc_dec(data1, None);
+        ori_rc_dec(data2, None);
         return;
     }
 
-    // list2 is empty — return list1 unchanged
+    // list2 is empty — return list1 unchanged, consume list2
     if n2 == 0 {
         unsafe { write_list_output(out_ptr, len1, cap1, data1) };
+        ori_rc_dec(data2, None);
         return;
     }
 
-    // list1 is empty — copy list2 into a fresh buffer
+    // list1 is empty
     if n1 == 0 || data1.is_null() {
+        if data2_unique {
+            // TAKEOVER: list2 is unique — transfer its buffer directly (O(1))
+            unsafe { write_list_output(out_ptr, len2, cap2, data2) };
+            ori_rc_dec(data1, None);
+            return;
+        }
+        // list2 is shared — copy into fresh buffer
         let new_cap = next_capacity(0, new_len);
         let new_data = ori_rc_alloc(new_cap * es, ea);
-        copy_and_inc_list2(new_data, data2, n2, es, inc_fn);
+        copy_list2_elements(new_data, data2, n2, es, false, inc_fn);
         ori_rc_dec(data1, None);
+        ori_rc_dec(data2, None);
         unsafe { write_list_output(out_ptr, n2 as i64, new_cap as i64, new_data) };
         return;
     }
 
-    // FAST PATH: list1 unique
+    // FAST PATH: list1 unique — reuse its buffer
     if ori_rc_is_unique(data1) {
         let old_cap = cap1.max(0) as usize;
         if old_cap >= new_len {
             // Has capacity — memcpy list2 elements after list1
-            copy_and_inc_list2(unsafe { data1.add(n1 * es) }, data2, n2, es, inc_fn);
+            copy_list2_elements(
+                unsafe { data1.add(n1 * es) },
+                data2,
+                n2,
+                es,
+                data2_unique,
+                inc_fn,
+            );
+            dec_consumed_list2(data2, c2 * es, ea);
             unsafe { write_list_output(out_ptr, new_len as i64, cap1, data1) };
             return;
         }
@@ -2552,10 +2602,19 @@ pub extern "C" fn ori_list_concat_cow(
         let new_cap = next_capacity(old_cap, new_len);
         let new_data = ori_rc_realloc(data1, old_cap * es, new_cap * es, ea);
         if new_data.is_null() {
+            dec_consumed_list2(data2, c2 * es, ea);
             unsafe { write_list_output(out_ptr, len1, cap1, data1) };
             return;
         }
-        copy_and_inc_list2(unsafe { new_data.add(n1 * es) }, data2, n2, es, inc_fn);
+        copy_list2_elements(
+            unsafe { new_data.add(n1 * es) },
+            data2,
+            n2,
+            es,
+            data2_unique,
+            inc_fn,
+        );
+        dec_consumed_list2(data2, c2 * es, ea);
         unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
         return;
     }
@@ -2564,9 +2623,17 @@ pub extern "C" fn ori_list_concat_cow(
     let new_cap = next_capacity(0, new_len);
     let new_data = ori_rc_alloc(new_cap * es, ea);
     unsafe { std::ptr::copy_nonoverlapping(data1, new_data, n1 * es) };
-    copy_and_inc_list2(new_data.wrapping_add(n1 * es), data2, n2, es, inc_fn);
+    copy_list2_elements(
+        new_data.wrapping_add(n1 * es),
+        data2,
+        n2,
+        es,
+        data2_unique,
+        inc_fn,
+    );
     inc_copied_elements(new_data, n1, es, inc_fn);
     ori_rc_dec(data1, None);
+    dec_consumed_list2(data2, c2 * es, ea);
     unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
 }
 

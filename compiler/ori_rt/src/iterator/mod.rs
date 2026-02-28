@@ -37,11 +37,17 @@ const MAX_ELEM_SIZE: usize = 256;
 /// or adapter from the evaluator's `IteratorValue` enum.
 enum IterState {
     /// Iterates over a contiguous array of elements (list data buffer).
+    ///
+    /// When `cap > 0`, the iterator owns a reference to the RC-managed data
+    /// buffer. `Drop` calls `ori_buffer_rc_dec` to release it. When `cap == 0`
+    /// (e.g., Rust unit tests with stack data), no cleanup is performed.
     List {
-        data: *const u8,
+        data: *mut u8,
         len: i64,
         pos: i64,
+        cap: i64,
         elem_size: i64,
+        elem_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
 
     /// Iterates over an integer range with step.
@@ -98,21 +104,105 @@ enum IterState {
     },
 
     /// Iterates over a UTF-8 string, yielding Unicode codepoints (i32/char).
+    ///
+    /// When `owns_data` is true, the iterator holds an RC reference to the
+    /// string data and `Drop` calls `ori_buffer_rc_dec` to release it (dec
+    /// refcount + free when rc reaches 0). When false (e.g., Rust unit
+    /// tests), no cleanup is performed.
     Str {
-        data: *const u8,
+        data: *mut u8,
         len: i64,
         byte_offset: i64,
+        owns_data: bool,
     },
 
     /// Iterates over a map's key-value pairs, yielding `(key, value)` tuples.
+    ///
+    /// When `owns_data` is true, the iterator holds RC references to both
+    /// the keys and values buffers. `Drop` calls `ori_buffer_rc_dec` on each
+    /// to dec the refcount, clean up inner elements, and free when rc reaches 0.
     Map {
-        keys: *const u8,
-        vals: *const u8,
+        keys: *mut u8,
+        vals: *mut u8,
         len: i64,
         pos: i64,
         key_size: i64,
         val_size: i64,
+        owns_data: bool,
+        key_dec_fn: Option<extern "C" fn(*mut u8)>,
+        val_dec_fn: Option<extern "C" fn(*mut u8)>,
     },
+}
+
+impl Drop for IterState {
+    fn drop(&mut self) {
+        // Release RC references to data owned by source-level iterators.
+        //
+        // The ARC pipeline transfers ownership of one RC reference to the
+        // iterator when `.iter()` is called (Owned semantics). We release
+        // it here so the data is freed when the last iterator reference
+        // goes away.
+        //
+        // For adapter variants (Mapped, Filtered, etc.), Rust automatically
+        // drops the inner `Box<IterState>` AFTER this `drop()` returns,
+        // cascading the cleanup to the source iterator.
+        match self {
+            IterState::List {
+                data,
+                len,
+                cap,
+                elem_size,
+                elem_dec_fn,
+                ..
+            } => {
+                // cap > 0 indicates RC-managed data (from the compiler).
+                // cap == 0 indicates test data (stack-allocated, no cleanup).
+                if !data.is_null() && *cap > 0 {
+                    crate::ori_buffer_rc_dec(*data, *len, *cap, *elem_size, *elem_dec_fn);
+                }
+            }
+            IterState::Str {
+                data,
+                len,
+                owns_data,
+                ..
+            } => {
+                // String data is allocated via ori_rc_alloc (in ori_str_from_raw),
+                // so we must use ori_buffer_rc_dec to both dec the refcount AND
+                // free the memory when rc reaches 0. ori_rc_dec alone only decs
+                // the refcount without freeing.
+                // len=0 (no inner RC elements), cap=string byte length, elem_size=1.
+                if *owns_data && !data.is_null() {
+                    crate::ori_buffer_rc_dec(*data, 0, *len, 1, None);
+                }
+            }
+            IterState::Map {
+                keys,
+                vals,
+                len,
+                key_size,
+                val_size,
+                owns_data,
+                key_dec_fn,
+                val_dec_fn,
+                ..
+            } => {
+                // Map key/val buffers are allocated via ori_list_alloc_data
+                // (which calls ori_rc_alloc). Use ori_buffer_rc_dec to dec the
+                // refcount, clean up inner elements, and free when rc reaches 0.
+                // cap=len (maps don't over-allocate).
+                if *owns_data {
+                    if !keys.is_null() {
+                        crate::ori_buffer_rc_dec(*keys, *len, *len, *key_size, *key_dec_fn);
+                    }
+                    if !vals.is_null() {
+                        crate::ori_buffer_rc_dec(*vals, *len, *len, *val_size, *val_dec_fn);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Trampoline signature for map: `(env, in_ptr, out_ptr) -> void`
@@ -144,6 +234,7 @@ impl IterState {
                 len,
                 pos,
                 elem_size: es,
+                ..
             } => Self::next_list(*data, *len, pos, *es, out_ptr),
             Self::Range {
                 current,
@@ -186,6 +277,7 @@ impl IterState {
                 data,
                 len,
                 byte_offset,
+                ..
             } => Self::next_str(*data, *len, byte_offset, out_ptr),
             Self::Map {
                 keys,
@@ -194,17 +286,12 @@ impl IterState {
                 pos,
                 key_size,
                 val_size,
+                ..
             } => Self::next_map(*keys, *vals, *len, pos, *key_size, *val_size, out_ptr),
         }
     }
 
-    unsafe fn next_list(
-        data: *const u8,
-        len: i64,
-        pos: &mut i64,
-        es: i64,
-        out_ptr: *mut u8,
-    ) -> bool {
+    unsafe fn next_list(data: *mut u8, len: i64, pos: &mut i64, es: i64, out_ptr: *mut u8) -> bool {
         if *pos >= len {
             return false;
         }
@@ -378,7 +465,7 @@ impl IterState {
     /// Str: decode the next UTF-8 codepoint and write it as i32.
     ///
     /// Output is a single `i32` (4 bytes) — the Unicode scalar value.
-    unsafe fn next_str(data: *const u8, len: i64, byte_offset: &mut i64, out_ptr: *mut u8) -> bool {
+    unsafe fn next_str(data: *mut u8, len: i64, byte_offset: &mut i64, out_ptr: *mut u8) -> bool {
         if data.is_null() || *byte_offset >= len {
             return false;
         }
@@ -401,8 +488,8 @@ impl IterState {
     ///
     /// Output layout: `[key_bytes | value_bytes]` (concatenated).
     unsafe fn next_map(
-        keys: *const u8,
-        vals: *const u8,
+        keys: *mut u8,
+        vals: *mut u8,
         len: i64,
         pos: &mut i64,
         key_size: i64,
@@ -429,16 +516,32 @@ impl IterState {
 
 /// Create an iterator over a list's data buffer.
 ///
-/// `data` points to the list's contiguous element storage.
-/// `len` is the number of elements. `elem_size` is bytes per element.
-/// The iterator borrows the data — the list must outlive the iterator.
+/// `data` points to the list's contiguous RC-managed element storage.
+/// `len` is the number of elements. `cap` is the buffer capacity.
+/// `elem_size` is bytes per element. `elem_dec_fn` is the per-element
+/// RC cleanup function (null for scalar elements).
+///
+/// The iterator takes ownership of one RC reference to `data`. When the
+/// iterator is dropped (by a consumer function or `ori_iter_drop`),
+/// `Drop for IterState` calls `ori_buffer_rc_dec` to release the reference.
+///
+/// For Rust unit tests with stack-allocated data, pass `cap = 0` and
+/// `elem_dec_fn = None` — no cleanup is performed on drop.
 #[no_mangle]
-pub extern "C" fn ori_iter_from_list(data: *const u8, len: i64, elem_size: i64) -> *mut u8 {
+pub extern "C" fn ori_iter_from_list(
+    data: *mut u8,
+    len: i64,
+    cap: i64,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) -> *mut u8 {
     let state = IterState::List {
         data,
         len,
         pos: 0,
+        cap,
         elem_size,
+        elem_dec_fn,
     };
     Box::into_raw(Box::new(state)).cast()
 }
@@ -463,11 +566,12 @@ pub extern "C" fn ori_iter_from_range(start: i64, end: i64, step: i64, inclusive
 /// `data` points to the string's UTF-8 byte data. `len` is the byte length.
 /// Each element yielded is an `i32` (4 bytes) containing a Unicode scalar value.
 #[no_mangle]
-pub extern "C" fn ori_iter_from_str(data: *const u8, len: i64) -> *mut u8 {
+pub extern "C" fn ori_iter_from_str(data: *mut u8, len: i64, owns_data: bool) -> *mut u8 {
     let state = IterState::Str {
         data,
         len,
         byte_offset: 0,
+        owns_data,
     };
     Box::into_raw(Box::new(state)).cast()
 }
@@ -479,11 +583,14 @@ pub extern "C" fn ori_iter_from_str(data: *const u8, len: i64) -> *mut u8 {
 /// Each element yielded is `[key_bytes | val_bytes]` (concatenated).
 #[no_mangle]
 pub extern "C" fn ori_iter_from_map(
-    keys: *const u8,
-    vals: *const u8,
+    keys: *mut u8,
+    vals: *mut u8,
     len: i64,
     key_size: i64,
     val_size: i64,
+    owns_data: bool,
+    key_dec_fn: Option<extern "C" fn(*mut u8)>,
+    val_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
     let state = IterState::Map {
         keys,
@@ -492,6 +599,9 @@ pub extern "C" fn ori_iter_from_map(
         pos: 0,
         key_size,
         val_size,
+        owns_data,
+        key_dec_fn,
+        val_dec_fn,
     };
     Box::into_raw(Box::new(state)).cast()
 }

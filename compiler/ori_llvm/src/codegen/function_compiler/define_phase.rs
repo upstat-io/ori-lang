@@ -256,8 +256,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             arc_func,
             self.annotated_sigs,
             self.interner,
-            &self.borrowing_builtins,
-            &self.consuming_receiver_builtins,
+            &self.builtin_ownership,
             self.pool,
         );
         let arc_problems = ori_arc::run_arc_pipeline(
@@ -339,8 +338,7 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             lambda,
             self.annotated_sigs,
             self.interner,
-            &self.borrowing_builtins,
-            &self.consuming_receiver_builtins,
+            &self.builtin_ownership,
             self.pool,
         );
         let arc_problems = ori_arc::run_arc_pipeline(
