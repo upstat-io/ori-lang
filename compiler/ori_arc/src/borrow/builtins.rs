@@ -67,7 +67,6 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
     "last",
     "len",
     "length",
-    "pop",
     "remove",
     "repeat",
     "replace",
@@ -106,6 +105,7 @@ const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
     "add",         // list + list (COW concat)
     "concat",      // list.concat (COW concat)
     "insert",      // list.insert (COW insert)
+    "pop",         // list.pop (COW pop)
     "push",        // list.push (COW push)
     "remove",      // list.remove (COW remove)
     "reverse",     // list.reverse (COW reverse)
@@ -288,6 +288,14 @@ mod tests {
     }
 
     #[test]
+    fn pop_not_in_borrowing() {
+        assert!(
+            !BORROWING_METHOD_NAMES.contains(&"pop"),
+            "\"pop\" must not be in BORROWING — it's list-only and COW consuming"
+        );
+    }
+
+    #[test]
     fn add_not_in_borrowing() {
         assert!(
             !BORROWING_METHOD_NAMES.contains(&"add"),
@@ -342,6 +350,7 @@ mod tests {
             "add",
             "concat",
             "insert",
+            "pop",
             "push",
             "remove",
             "reverse",

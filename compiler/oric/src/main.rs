@@ -228,8 +228,7 @@ fn main() {
         }
         "version" | "--version" | "-v" => {
             println!(
-                "Ori Compiler {} (build {})",
-                env!("CARGO_PKG_VERSION"),
+                "Ori Compiler {}",
                 include_str!("../../../BUILD_NUMBER").trim(),
             );
         }
@@ -267,8 +266,7 @@ fn main() {
 
 fn print_usage() {
     println!(
-        "Ori Compiler {} (build {})",
-        env!("CARGO_PKG_VERSION"),
+        "Ori Compiler {}",
         include_str!("../../../BUILD_NUMBER").trim(),
     );
     println!();
