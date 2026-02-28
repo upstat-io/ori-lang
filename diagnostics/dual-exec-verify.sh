@@ -1,18 +1,24 @@
 #!/bin/bash
-# Dual-Execution Verification: Compare interpreter vs LLVM backend results
+# Dual-Execution Verification: Compare interpreter vs LLVM backend results.
+#
+# Usage:
+#   diagnostics/dual-exec-verify.sh [options] [test-path]
+#
+# Options:
+#   -v, --verbose      Show all test results, not just mismatches
+#   --json[=PATH]      Emit JSON report (default: build/dual-exec-report.json)
+#   --main-only        Only run @main program comparison (skip @test comparison)
+#   --test-only        Only run @test comparison (skip @main programs)
+#   --no-color         Disable color output
+#   --color            Force color output (default: auto-detect terminal)
+#   -h, --help         Show this help
 #
 # Runs all spec tests through both backends and cross-references results
 # to detect behavioral mismatches.
 #
-# Usage:
-#   ./scripts/dual-exec-verify.sh [options] [test-path]
-#
-# Options:
-#   -v, --verbose     Show all test results, not just mismatches
-#   --json[=PATH]     Emit JSON report (default: build/dual-exec-report.json)
-#   --main-only       Only run @main program comparison (skip @test comparison)
-#   --test-only       Only run @test comparison (skip @main programs)
-#   -h, --help        Show this help
+# Environment:
+#   ORI_BIN    Override path to ori binary (used for both interpreter and LLVM
+#              if the binary has LLVM support; interpreter-only otherwise)
 #
 # Exit codes:
 #   0 = No behavioral mismatches detected
@@ -22,62 +28,83 @@
 set -uo pipefail
 # Note: NOT using set -e because functions return mismatch counts as exit codes
 
-# --- Configuration ---
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-INTERP_BIN="$ROOT_DIR/target/debug/ori"
-LLVM_BIN="$ROOT_DIR/target/release/ori"
+source "$SCRIPT_DIR/_common.sh"
+
+# --- Defaults ---
 TEST_PATH="tests/"
+INTERP_BIN=""
+LLVM_BIN=""
 VERBOSE=0
 EMIT_JSON=0
 JSON_PATH="$ROOT_DIR/build/dual-exec-report.json"
 RUN_TESTS=1
 RUN_MAIN=1
-
-# --- Colors ---
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-DIM='\033[2m'
-NC='\033[0m'
+USE_COLOR=auto
 
 # --- Parse arguments ---
-for arg in "$@"; do
-    case $arg in
-        -v|--verbose) VERBOSE=1 ;;
-        --json) EMIT_JSON=1 ;;
-        --json=*) EMIT_JSON=1; JSON_PATH="${arg#--json=}" ;;
-        --main-only) RUN_TESTS=0 ;;
-        --test-only) RUN_MAIN=0 ;;
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -v|--verbose) VERBOSE=1; shift ;;
+        --json) EMIT_JSON=1; shift ;;
+        --json=*) EMIT_JSON=1; JSON_PATH="${1#--json=}"; shift ;;
+        --main-only) RUN_TESTS=0; shift ;;
+        --test-only) RUN_MAIN=0; shift ;;
+        --color) USE_COLOR=yes; shift ;;
+        --no-color) USE_COLOR=no; shift ;;
         -h|--help)
-            head -20 "$0" | tail -18 | sed 's/^# \?//'
+            sed -n '2,/^$/{ s/^# \?//; p }' "$0"
             exit 0
             ;;
+        -*)
+            echo "Error: unknown option: $1" >&2
+            echo "Run with --help for usage." >&2
+            exit 2
+            ;;
         *)
-            if [[ -e "$arg" || -e "$ROOT_DIR/$arg" ]]; then
-                TEST_PATH="$arg"
+            if [[ -e "$1" || -e "$ROOT_DIR/$1" ]]; then
+                TEST_PATH="$1"
             else
-                echo "Unknown argument: $arg" >&2
+                echo "Error: path not found: $1" >&2
                 exit 2
             fi
+            shift
             ;;
     esac
 done
 
-# --- Verify binaries exist ---
-check_binary() {
-    local bin="$1" label="$2"
-    if [[ ! -x "$bin" ]]; then
-        echo -e "${RED}ERROR: $label binary not found at $bin${NC}" >&2
-        echo "Run 'cargo build' (interpreter) or 'cargo blr' (LLVM) first." >&2
-        exit 2
-    fi
-}
+# --- Locate binaries ---
+# Interpreter: any ori binary (no LLVM needed)
+find_any_ori_bin
+INTERP_BIN="$ORI_INTERP"
 
-check_binary "$INTERP_BIN" "Interpreter"
-check_binary "$LLVM_BIN" "LLVM"
+# LLVM: needs LLVM support
+find_ori_bin
+LLVM_BIN="$ORI"
+
+# --- Resolve color mode ---
+# (placed after binary lookup to keep error ordering predictable)
+if [[ "$USE_COLOR" == "auto" ]]; then
+    if [[ -t 1 ]]; then
+        USE_COLOR=yes
+    else
+        USE_COLOR=no
+    fi
+fi
+
+# --- Color codes ---
+if [[ "$USE_COLOR" == "yes" ]]; then
+    C_RED='\033[0;31m'
+    C_GREEN='\033[0;32m'
+    C_YELLOW='\033[0;33m'
+    C_CYAN='\033[0;36m'
+    C_BOLD='\033[1m'
+    C_DIM='\033[2m'
+    C_NC='\033[0m'
+else
+    C_RED="" C_GREEN="" C_YELLOW="" C_CYAN="" C_BOLD="" C_DIM="" C_NC=""
+fi
 
 # --- Temp files ---
 INTERP_OUTPUT=$(mktemp)
@@ -169,7 +196,7 @@ cross_reference() {
             PASS:PASS)
                 ((VERIFIED++))
                 if [[ $VERBOSE -eq 1 ]]; then
-                    echo -e "  ${GREEN}VERIFIED${NC}: $file :: $test"
+                    printf "  ${C_GREEN}VERIFIED${C_NC}: %s :: %s\n" "$file" "$test"
                 fi
                 ;;
             PASS:BLOCKED|PASS:LCFAIL|PASS:MISSING)
@@ -177,11 +204,11 @@ cross_reference() {
                 ;;
             PASS:FAIL)
                 ((MISMATCH_INTERP++))
-                MISMATCH_DETAILS+=("${RED}MISMATCH${NC}: $file :: $test — PASS (interp) vs FAIL (LLVM)")
+                MISMATCH_DETAILS+=("${C_RED}MISMATCH${C_NC}: $file :: $test — PASS (interp) vs FAIL (LLVM)")
                 ;;
             FAIL:PASS)
                 ((MISMATCH_LLVM++))
-                MISMATCH_DETAILS+=("${RED}MISMATCH${NC}: $file :: $test — FAIL (interp) vs PASS (LLVM)")
+                MISMATCH_DETAILS+=("${C_RED}MISMATCH${C_NC}: $file :: $test — FAIL (interp) vs PASS (LLVM)")
                 ;;
             SKIP:SKIP|SKIP:BLOCKED|SKIP:LCFAIL|SKIP:MISSING)
                 ((BOTH_SKIP++))
@@ -192,7 +219,8 @@ cross_reference() {
             *)
                 # Other combinations (e.g., SKIP:PASS) — unusual but not critical
                 if [[ $VERBOSE -eq 1 ]]; then
-                    echo -e "  ${DIM}OTHER${NC}: $file :: $test — $status (interp) vs $llvm_status (LLVM)"
+                    printf "  ${C_DIM}OTHER${C_NC}: %s :: %s — %s (interp) vs %s (LLVM)\n" \
+                        "$file" "$test" "$status" "$llvm_status"
                 fi
                 ;;
         esac
@@ -200,23 +228,21 @@ cross_reference() {
 }
 
 run_test_comparison() {
-    echo -e "${BOLD}=== Dual-Execution Verification: @test functions ===${NC}"
-    echo ""
+    printf "${C_BOLD}=== Dual-Execution Verification: @test functions ===${C_NC}\n\n"
 
     # Run interpreter
     echo -n "  Running interpreter backend..."
     ORI_LOG=off "$INTERP_BIN" test --verbose "$TEST_PATH" > "$INTERP_OUTPUT" 2>&1 || true
     local interp_summary
     interp_summary=$(grep -E "^  [0-9]+ passed" "$INTERP_OUTPUT" | tail -1)
-    echo -e " ${GREEN}done${NC} ($interp_summary)"
+    printf " ${C_GREEN}done${C_NC} (%s)\n" "$interp_summary"
 
     # Run LLVM
     echo -n "  Running LLVM backend..."
     ORI_LOG=off "$LLVM_BIN" test --verbose --backend=llvm "$TEST_PATH" > "$LLVM_OUTPUT" 2>&1 || true
     local llvm_summary
     llvm_summary=$(grep -E "^  [0-9]+ passed" "$LLVM_OUTPUT" | tail -1)
-    echo -e " ${GREEN}done${NC} ($llvm_summary)"
-    echo ""
+    printf " ${C_GREEN}done${C_NC} (%s)\n\n" "$llvm_summary"
 
     # Parse results
     local interp_parsed llvm_parsed
@@ -245,34 +271,33 @@ run_test_comparison() {
     if [[ $compile_fail_verified -lt 0 ]]; then compile_fail_verified=0; fi
 
     local total_verified=$((VERIFIED + compile_fail_verified))
-    local total_interp=$((VERIFIED + INTERP_ONLY + MISMATCH_INTERP + BOTH_SKIP + BOTH_FAIL))
     local total_mismatches=$((MISMATCH_INTERP + MISMATCH_LLVM))
 
-    echo -e "${BOLD}  Results:${NC}"
-    echo -e "    ${GREEN}Verified (runtime, both PASS)${NC}:  $VERIFIED"
-    echo -e "    ${GREEN}Verified (compile-fail)${NC}:        $compile_fail_verified"
-    echo -e "    ${CYAN}LLVM coverage gap${NC}:              $INTERP_ONLY"
-    echo -e "    ${DIM}Both skip${NC}:                      $BOTH_SKIP"
+    printf "${C_BOLD}  Results:${C_NC}\n"
+    printf "    ${C_GREEN}Verified (runtime, both PASS)${C_NC}:  %d\n" "$VERIFIED"
+    printf "    ${C_GREEN}Verified (compile-fail)${C_NC}:        %d\n" "$compile_fail_verified"
+    printf "    ${C_CYAN}LLVM coverage gap${C_NC}:              %d\n" "$INTERP_ONLY"
+    printf "    ${C_DIM}Both skip${C_NC}:                      %d\n" "$BOTH_SKIP"
     if [[ $BOTH_FAIL -gt 0 ]]; then
-        echo -e "    ${YELLOW}Both fail${NC}:                      $BOTH_FAIL"
+        printf "    ${C_YELLOW}Both fail${C_NC}:                      %d\n" "$BOTH_FAIL"
     fi
 
     if [[ $total_mismatches -gt 0 ]]; then
         echo ""
-        echo -e "    ${RED}${BOLD}BEHAVIORAL MISMATCHES: $total_mismatches${NC}"
-        echo ""
+        printf "    ${C_RED}${C_BOLD}BEHAVIORAL MISMATCHES: %d${C_NC}\n\n" "$total_mismatches"
         for detail in "${MISMATCH_DETAILS[@]}"; do
-            echo -e "    $detail"
+            printf "    %b\n" "$detail"
         done
     else
         echo ""
-        echo -e "    ${GREEN}${BOLD}No behavioral mismatches detected${NC}"
+        printf "    ${C_GREEN}${C_BOLD}No behavioral mismatches detected${C_NC}\n"
     fi
 
     echo ""
-    echo -e "  ${BOLD}Interpreter${NC}: $interp_total tests | ${BOLD}LLVM${NC}: $llvm_total pass + $llvm_lcfail compile-fail"
-    echo -e "  ${BOLD}Total verified${NC}: $total_verified / $llvm_total ($((total_verified * 100 / (llvm_total > 0 ? llvm_total : 1)))%)"
-    echo ""
+    printf "  ${C_BOLD}Interpreter${C_NC}: %s tests | ${C_BOLD}LLVM${C_NC}: %s pass + %s compile-fail\n" \
+        "$interp_total" "$llvm_total" "$llvm_lcfail"
+    printf "  ${C_BOLD}Total verified${C_NC}: %d / %s (%d%%)\n\n" \
+        "$total_verified" "$llvm_total" "$((total_verified * 100 / (llvm_total > 0 ? llvm_total : 1)))"
 
     return $total_mismatches
 }
@@ -288,8 +313,7 @@ MAIN_INTERP_FAIL=0
 declare -a MAIN_MISMATCH_DETAILS=()
 
 run_main_comparison() {
-    echo -e "${BOLD}=== Dual-Execution Verification: @main programs ===${NC}"
-    echo ""
+    printf "${C_BOLD}=== Dual-Execution Verification: @main programs ===${C_NC}\n\n"
 
     # Find .ori files with @main
     local main_files
@@ -312,7 +336,7 @@ run_main_comparison() {
 
     while IFS= read -r file; do
         local rel_file="${file#$ROOT_DIR/}"
-        echo -n "  $rel_file ... "
+        printf "  %s ... " "$rel_file"
 
         # Run interpreter
         local interp_out interp_exit
@@ -330,16 +354,16 @@ run_main_comparison() {
 
         # Compare
         if [[ $aot_exit -eq 999 ]]; then
-            echo -e "${YELLOW}AOT compile fail${NC}"
+            printf "${C_YELLOW}AOT compile fail${C_NC}\n"
             ((MAIN_AOT_FAIL++))
         elif [[ $interp_exit -ne 0 ]] && [[ $aot_exit -ne 0 ]]; then
-            echo -e "${DIM}both fail (interp=$interp_exit, aot=$aot_exit)${NC}"
+            printf "${C_DIM}both fail (interp=%d, aot=%d)${C_NC}\n" "$interp_exit" "$aot_exit"
             ((MAIN_INTERP_FAIL++))
         elif [[ "$interp_out" == "$aot_out" ]] && [[ $interp_exit -eq $aot_exit ]]; then
-            echo -e "${GREEN}verified${NC}"
+            printf "${C_GREEN}verified${C_NC}\n"
             ((MAIN_VERIFIED++))
         else
-            echo -e "${RED}MISMATCH${NC}"
+            printf "${C_RED}MISMATCH${C_NC}\n"
             ((MAIN_MISMATCH++))
             MAIN_MISMATCH_DETAILS+=("$rel_file")
             if [[ "$interp_out" != "$aot_out" ]]; then
@@ -354,22 +378,22 @@ run_main_comparison() {
     done <<< "$main_files" || true
 
     echo ""
-    echo -e "${BOLD}  Results:${NC}"
-    echo -e "    ${GREEN}Verified${NC}:         $MAIN_VERIFIED"
-    echo -e "    ${YELLOW}AOT compile fail${NC}: $MAIN_AOT_FAIL"
+    printf "${C_BOLD}  Results:${C_NC}\n"
+    printf "    ${C_GREEN}Verified${C_NC}:         %d\n" "$MAIN_VERIFIED"
+    printf "    ${C_YELLOW}AOT compile fail${C_NC}: %d\n" "$MAIN_AOT_FAIL"
     if [[ $MAIN_INTERP_FAIL -gt 0 ]]; then
-        echo -e "    ${DIM}Both fail${NC}:         $MAIN_INTERP_FAIL"
+        printf "    ${C_DIM}Both fail${C_NC}:         %d\n" "$MAIN_INTERP_FAIL"
     fi
 
     if [[ $MAIN_MISMATCH -gt 0 ]]; then
         echo ""
-        echo -e "    ${RED}${BOLD}BEHAVIORAL MISMATCHES: $MAIN_MISMATCH${NC}"
+        printf "    ${C_RED}${C_BOLD}BEHAVIORAL MISMATCHES: %d${C_NC}\n" "$MAIN_MISMATCH"
         for detail in "${MAIN_MISMATCH_DETAILS[@]}"; do
-            echo -e "    $detail"
+            printf "    %s\n" "$detail"
         done
     else
         echo ""
-        echo -e "    ${GREEN}${BOLD}No behavioral mismatches detected${NC}"
+        printf "    ${C_GREEN}${C_BOLD}No behavioral mismatches detected${C_NC}\n"
     fi
     echo ""
 
@@ -419,9 +443,8 @@ JSONEOF
 # =============================================================================
 
 echo ""
-echo -e "${BOLD}Ori Dual-Execution Verification${NC}"
-echo -e "${DIM}Comparing interpreter vs LLVM backend for behavioral equivalence${NC}"
-echo ""
+printf "${C_BOLD}Ori Dual-Execution Verification${C_NC}\n"
+printf "${C_DIM}Comparing interpreter vs LLVM backend for behavioral equivalence${C_NC}\n\n"
 
 TEST_MISMATCHES=0
 MAIN_MISMATCHES=0
@@ -439,9 +462,9 @@ TOTAL_MISMATCHES=$((TEST_MISMATCHES + MAIN_MISMATCHES))
 
 echo "=============================================="
 if [[ $TOTAL_MISMATCHES -eq 0 ]]; then
-    echo -e "${GREEN}${BOLD}  DUAL-EXECUTION: ALL VERIFIED${NC}"
+    printf "${C_GREEN}${C_BOLD}  DUAL-EXECUTION: ALL VERIFIED${C_NC}\n"
 else
-    echo -e "${RED}${BOLD}  DUAL-EXECUTION: $TOTAL_MISMATCHES MISMATCHES FOUND${NC}"
+    printf "${C_RED}${C_BOLD}  DUAL-EXECUTION: %d MISMATCHES FOUND${C_NC}\n" "$TOTAL_MISMATCHES"
 fi
 echo "=============================================="
 echo ""
