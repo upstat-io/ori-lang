@@ -7,7 +7,7 @@ This document describes how version numbers are managed across the Ori project.
 The **`BUILD_NUMBER`** file at the repo root is the single source of truth for the project version:
 
 ```
-2026.02.27.5-alpha
+2026.02.28.1-alpha
 ```
 
 ### Format
@@ -18,19 +18,30 @@ YYYY.MM.DD.N-STAGE
 
 - `YYYY.MM.DD` — UTC date of the build
 - `N` — daily counter (starts at 1, increments with each merge on the same day)
-- `STAGE` — release stage from the `RELEASE_STAGE` file (`alpha`, `beta`, `rc`, or empty for stable)
+- `STAGE` — release stage (`alpha`, `beta`, `rc`, or empty for stable), embedded in `BUILD_NUMBER` itself
 
 Example: `2026.02.27.3-alpha` = third build on February 27, 2026, alpha stage.
 
 ### How It Works
 
-The build number is **derived from git history** — no persistent counter needed. The script `bump-build.sh` counts first-parent commits to master on the current UTC date and appends the release stage:
+The build number is **derived from git history** — no persistent counter needed. The script `bump-build.sh` counts first-parent commits to master on the current UTC date and appends the release stage (extracted from the existing `BUILD_NUMBER`):
 
 ```bash
 git log --first-parent --oneline --since="<midnight-utc>" master | wc -l
 ```
 
-The `RELEASE_STAGE` file at the repo root controls the suffix. Change it to `beta`, `rc`, or leave it empty for stable releases.
+### CalVer to Cargo SemVer Mapping
+
+Cargo requires valid SemVer. The `sync-version.sh` script converts CalVer to Cargo-compatible format:
+
+| Context | Format | Example |
+|---------|--------|---------|
+| BUILD_NUMBER (human, tags) | `YYYY.MM.DD.N-STAGE` | `2026.02.28.1-alpha` |
+| Cargo.toml (valid SemVer) | `YYYY.M.D-STAGE.N` | `2026.2.28-alpha.1` |
+| NPM package.json | `YYYY.M.D` | `2026.2.28` |
+| Git tag | `vYYYY.MM.DD.N-STAGE` | `v2026.02.28.1-alpha` |
+
+SemVer forbids leading zeros, so `02` becomes `2`, `06` becomes `6` in Cargo versions.
 
 ## Version Locations
 
@@ -42,44 +53,48 @@ The `RELEASE_STAGE` file at the repo root controls the suffix. Change it to `bet
 | `website/playground-wasm/src/lib.rs` | `include_str!("../../../BUILD_NUMBER")` |
 | `website/src/components/landing/Hero.astro` | Reads `BUILD_NUMBER` at build time |
 
-### Cargo.toml (Rust tooling)
+### Cargo.toml (derived from BUILD_NUMBER)
 
-The workspace `Cargo.toml` maintains a separate semver version (`0.1.0-alpha.N`) required by Cargo. This is a Rust tooling concern, not the project version. Synchronized via `sync-version.sh`.
+All Cargo.toml versions are derived from `BUILD_NUMBER` via `sync-version.sh`. Workspace members inherit the version; excluded crates are synced explicitly.
 
-| File | Version Format |
+| File | Version Source |
 |------|----------------|
-| `Cargo.toml` (workspace) | Full (`0.1.0-alpha.10`) |
-| `compiler/oric/Cargo.toml` | Full (`0.1.0-alpha.10`) |
-| `compiler/ori_llvm/Cargo.toml` | Full (`0.1.0-alpha.10`) |
-| `website/playground-wasm/Cargo.toml` | Full (`0.1.0-alpha.10`) |
-| `website/src/layouts/BaseLayout.astro` | Full (`0.1.0-alpha.10`) |
-| `website/package.json` | Base semver (`0.1.0`) |
-| `website/src/wasm/package.json` | Base semver (`0.1.0`) |
-| `editors/vscode-ori/package.json` | Base semver (`0.1.0`) |
+| `Cargo.toml` (workspace) | CalVer → Cargo (`2026.2.28-alpha.1`) |
+| `compiler/oric/Cargo.toml` | `version.workspace = true` |
+| `compiler/ori_lexer_core/Cargo.toml` | `version.workspace = true` |
+| `compiler/ori_llvm/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
+| `compiler/ori_rt/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
+| `tools/ori-lsp/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
+| `website/playground-wasm/Cargo.toml` | CalVer → Cargo (standalone) |
+| `website/src/layouts/BaseLayout.astro` | CalVer → Cargo |
+| `website/package.json` | CalVer → NPM (`2026.2.28`) |
+| `website/src/wasm/package.json` | CalVer → NPM |
+| `editors/vscode-ori/package.json` | CalVer → NPM |
 
 ## Where It Appears
 
 | Location | Format |
 |----------|--------|
-| `ori --version` | `Ori Compiler 0.1.0-alpha.10 (build 2026.02.27.5-alpha)` |
-| `ori help` | `Ori Compiler 0.1.0-alpha.10 (build 2026.02.27.5-alpha)` |
-| Website hero badge | `v2026.02.27.5-alpha` |
-| Playground footer | `Ori build 2026.02.27.5-alpha` |
-| GitHub release tag | `v2026.02.27.5-alpha` |
-| GitHub release title | `Ori 2026.02.27.5-alpha` |
+| `ori --version` | `Ori Compiler 2026.02.28.1-alpha` |
+| `ori help` | `Ori Compiler 2026.02.28.1-alpha` |
+| Website hero badge | `v2026.02.28.1-alpha` |
+| Playground footer | `Ori build 2026.02.28.1-alpha` |
+| GitHub release tag | `v2026.02.28.1-alpha` |
+| GitHub release title | `Ori 2026.02.28.1-alpha` |
 
 ## Release Pipeline
 
 ### Automatic (every merge to master)
 
-1. `auto-release.yml` reads `RELEASE_STAGE`, derives next CalVer tag
+1. `auto-release.yml` reads stage from `BUILD_NUMBER`, derives next CalVer tag
 2. Tags the merge commit: `v2026.02.27.N-alpha`
-3. `release.yml` triggers on the tag, extracts full version (including stage) into `BUILD_NUMBER`
-4. Builds binaries with the correct version baked in
+3. `release.yml` triggers on the tag, extracts full version into `BUILD_NUMBER`
+4. Runs `sync-version.sh` to set Cargo.toml versions from the tag
+5. Builds binaries with the correct version baked in
 
 ### Nightly
 
-`nightly.yml` runs daily at midnight UTC, creates a PR from `dev` → `master`, auto-merges if CI passes, which triggers the auto-release.
+`nightly.yml` runs daily at midnight UTC, creates a PR from `dev` -> `master`, auto-merges if CI passes, which triggers the auto-release.
 
 ## Commands
 
@@ -90,22 +105,33 @@ The workspace `Cargo.toml` maintains a separate semver version (`0.1.0-alpha.N`)
 # Bump the build number (normally done by CI)
 ./scripts/bump-build.sh
 
-# Check Cargo.toml version sync (CI)
+# Change release stage (alpha -> beta -> rc -> stable)
+./scripts/bump-build.sh --set-stage beta
+
+# Check all versions are in sync (CI)
 ./scripts/sync-version.sh --check
 
-# Synchronize Cargo.toml versions
+# Synchronize all manifests from BUILD_NUMBER
 ./scripts/sync-version.sh
 
-# Bump Cargo.toml version
-./scripts/release.sh 0.1.0-alpha.11
+# Full release preparation (bump + sync + next steps)
+./scripts/release.sh
+./scripts/release.sh --set-stage beta
+./scripts/release.sh --yes  # Non-interactive (CI)
 ```
 
 ## Changing Release Stage
 
 To move from alpha to beta:
 
-1. Edit `RELEASE_STAGE`: change `alpha` to `beta`
-2. Commit and merge to master
-3. All subsequent builds will be `YYYY.MM.DD.N-beta`
+```bash
+./scripts/release.sh --set-stage beta
+```
 
-To go stable, empty the file or delete it.
+This updates `BUILD_NUMBER` with the new stage and syncs all manifests. All subsequent builds will be `YYYY.MM.DD.N-beta`.
+
+To go stable:
+
+```bash
+./scripts/release.sh --set-stage stable
+```

@@ -1,476 +1,13 @@
-//! Built-in method resolution for primitives and collections.
+//! Per-type method resolution functions.
+//!
+//! Each function handles method lookup for a specific type tag,
+//! returning `Some(return_type)` for recognized methods or `None`
+//! to fall through to trait-based dispatch.
 
-use super::super::InferEngine;
+use crate::infer::InferEngine;
 use crate::{Idx, Tag};
 
-/// Methods that are only available on `DoubleEndedIterator`, not plain `Iterator`.
-///
-/// Used by `resolve_iterator_method()` (the `if is_dei` guards) and by
-/// `infer_method_call()` / `infer_method_call_named()` (diagnostic fallback for
-/// non-DEI receivers). Single source of truth to prevent drift.
-pub const DEI_ONLY_METHODS: &[&str] = &["last", "next_back", "rev", "rfind", "rfold"];
-
-/// All built-in methods recognized by the type checker's `resolve_builtin_method()`.
-///
-/// Used by cross-crate consistency tests to verify the type checker, evaluator,
-/// and IR registry agree on which methods exist. Each entry is `(type_name, method_name)`.
-/// Sorted by type then method for deterministic comparison.
-///
-/// Type names match `EVAL_BUILTIN_METHODS` convention: lowercase for primitives
-/// (`"int"`, `"str"`), proper-case for special types (`"Duration"`, `"Ordering"`).
-///
-/// **Named/Applied** types are excluded (user-defined, not builtin).
-pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
-    // Proper-cased types sort before lowercase in ASCII (A-Z < a-z).
-    //
-    // Channel
-    ("Channel", "close"),
-    ("Channel", "is_closed"),
-    ("Channel", "is_empty"),
-    ("Channel", "len"),
-    ("Channel", "receive"),
-    ("Channel", "recv"),
-    ("Channel", "send"),
-    ("Channel", "try_receive"),
-    ("Channel", "try_recv"),
-    // DoubleEndedIterator (methods only available on DoubleEndedIterator)
-    ("DoubleEndedIterator", "last"),
-    ("DoubleEndedIterator", "next_back"),
-    ("DoubleEndedIterator", "rev"),
-    ("DoubleEndedIterator", "rfind"),
-    ("DoubleEndedIterator", "rfold"),
-    // Duration
-    ("Duration", "abs"),
-    ("Duration", "as_micros"),
-    ("Duration", "as_millis"),
-    ("Duration", "as_nanos"),
-    ("Duration", "as_seconds"),
-    ("Duration", "clone"),
-    ("Duration", "compare"),
-    ("Duration", "debug"),
-    ("Duration", "equals"),
-    ("Duration", "format"),
-    ("Duration", "from_hours"),
-    ("Duration", "from_micros"),
-    ("Duration", "from_microseconds"),
-    ("Duration", "from_millis"),
-    ("Duration", "from_milliseconds"),
-    ("Duration", "from_minutes"),
-    ("Duration", "from_nanos"),
-    ("Duration", "from_nanoseconds"),
-    ("Duration", "from_seconds"),
-    ("Duration", "hash"),
-    ("Duration", "hours"),
-    ("Duration", "is_negative"),
-    ("Duration", "is_positive"),
-    ("Duration", "is_zero"),
-    ("Duration", "microseconds"),
-    ("Duration", "milliseconds"),
-    ("Duration", "minutes"),
-    ("Duration", "nanoseconds"),
-    ("Duration", "seconds"),
-    ("Duration", "to_micros"),
-    ("Duration", "to_millis"),
-    ("Duration", "to_nanos"),
-    ("Duration", "to_seconds"),
-    ("Duration", "to_str"),
-    ("Duration", "zero"),
-    // Iterator (methods available on both Iterator and DoubleEndedIterator)
-    ("Iterator", "all"),
-    ("Iterator", "any"),
-    ("Iterator", "chain"),
-    ("Iterator", "collect"),
-    ("Iterator", "count"),
-    ("Iterator", "cycle"),
-    ("Iterator", "enumerate"),
-    ("Iterator", "filter"),
-    ("Iterator", "find"),
-    ("Iterator", "flat_map"),
-    ("Iterator", "flatten"),
-    ("Iterator", "fold"),
-    ("Iterator", "for_each"),
-    ("Iterator", "join"),
-    ("Iterator", "map"),
-    ("Iterator", "next"),
-    ("Iterator", "skip"),
-    ("Iterator", "take"),
-    ("Iterator", "zip"),
-    // Option
-    ("Option", "and_then"),
-    ("Option", "clone"),
-    ("Option", "compare"),
-    ("Option", "debug"),
-    ("Option", "equals"),
-    ("Option", "expect"),
-    ("Option", "filter"),
-    ("Option", "flat_map"),
-    ("Option", "hash"),
-    ("Option", "is_none"),
-    ("Option", "is_some"),
-    ("Option", "iter"),
-    ("Option", "map"),
-    ("Option", "ok_or"),
-    ("Option", "or"),
-    ("Option", "or_else"),
-    ("Option", "unwrap"),
-    ("Option", "unwrap_or"),
-    // Ordering
-    ("Ordering", "clone"),
-    ("Ordering", "compare"),
-    ("Ordering", "debug"),
-    ("Ordering", "equals"),
-    ("Ordering", "hash"),
-    ("Ordering", "is_equal"),
-    ("Ordering", "is_greater"),
-    ("Ordering", "is_greater_or_equal"),
-    ("Ordering", "is_less"),
-    ("Ordering", "is_less_or_equal"),
-    ("Ordering", "reverse"),
-    ("Ordering", "then"),
-    ("Ordering", "then_with"),
-    ("Ordering", "to_str"),
-    // Result
-    ("Result", "and_then"),
-    ("Result", "clone"),
-    ("Result", "compare"),
-    ("Result", "debug"),
-    ("Result", "equals"),
-    ("Result", "err"),
-    ("Result", "expect"),
-    ("Result", "expect_err"),
-    ("Result", "has_trace"),
-    ("Result", "hash"),
-    ("Result", "is_err"),
-    ("Result", "is_ok"),
-    ("Result", "map"),
-    ("Result", "map_err"),
-    ("Result", "ok"),
-    ("Result", "or_else"),
-    ("Result", "trace"),
-    ("Result", "trace_entries"),
-    ("Result", "unwrap"),
-    ("Result", "unwrap_err"),
-    ("Result", "unwrap_or"),
-    // Set
-    ("Set", "clone"),
-    ("Set", "contains"),
-    ("Set", "debug"),
-    ("Set", "difference"),
-    ("Set", "equals"),
-    ("Set", "hash"),
-    ("Set", "insert"),
-    ("Set", "intersection"),
-    ("Set", "into"),
-    ("Set", "is_empty"),
-    ("Set", "iter"),
-    ("Set", "len"),
-    ("Set", "length"),
-    ("Set", "remove"),
-    ("Set", "to_list"),
-    ("Set", "union"),
-    // Size
-    ("Size", "as_bytes"),
-    ("Size", "clone"),
-    ("Size", "compare"),
-    ("Size", "debug"),
-    ("Size", "equals"),
-    ("Size", "format"),
-    ("Size", "from_bytes"),
-    ("Size", "from_gb"),
-    ("Size", "from_gigabytes"),
-    ("Size", "from_kb"),
-    ("Size", "from_kilobytes"),
-    ("Size", "from_mb"),
-    ("Size", "from_megabytes"),
-    ("Size", "from_tb"),
-    ("Size", "from_terabytes"),
-    ("Size", "hash"),
-    ("Size", "is_zero"),
-    ("Size", "to_bytes"),
-    ("Size", "to_gb"),
-    ("Size", "to_kb"),
-    ("Size", "to_mb"),
-    ("Size", "to_str"),
-    ("Size", "to_tb"),
-    ("Size", "zero"),
-    // bool
-    ("bool", "clone"),
-    ("bool", "compare"),
-    ("bool", "debug"),
-    ("bool", "equals"),
-    ("bool", "hash"),
-    ("bool", "to_int"),
-    ("bool", "to_str"),
-    // byte
-    ("byte", "clone"),
-    ("byte", "compare"),
-    ("byte", "debug"),
-    ("byte", "equals"),
-    ("byte", "hash"),
-    ("byte", "is_ascii"),
-    ("byte", "is_ascii_alpha"),
-    ("byte", "is_ascii_digit"),
-    ("byte", "is_ascii_whitespace"),
-    ("byte", "to_char"),
-    ("byte", "to_int"),
-    ("byte", "to_str"),
-    // char
-    ("char", "clone"),
-    ("char", "compare"),
-    ("char", "debug"),
-    ("char", "equals"),
-    ("char", "hash"),
-    ("char", "is_alpha"),
-    ("char", "is_ascii"),
-    ("char", "is_digit"),
-    ("char", "is_lowercase"),
-    ("char", "is_uppercase"),
-    ("char", "is_whitespace"),
-    ("char", "to_byte"),
-    ("char", "to_int"),
-    ("char", "to_lowercase"),
-    ("char", "to_str"),
-    ("char", "to_uppercase"),
-    // error - Traceable trait and accessors
-    ("error", "clone"),
-    ("error", "debug"),
-    ("error", "has_trace"),
-    ("error", "message"),
-    ("error", "to_str"),
-    ("error", "trace"),
-    ("error", "trace_entries"),
-    ("error", "with_trace"),
-    // float
-    ("float", "abs"),
-    ("float", "acos"),
-    ("float", "asin"),
-    ("float", "atan"),
-    ("float", "atan2"),
-    ("float", "cbrt"),
-    ("float", "ceil"),
-    ("float", "clamp"),
-    ("float", "clone"),
-    ("float", "compare"),
-    ("float", "cos"),
-    ("float", "debug"),
-    ("float", "equals"),
-    ("float", "exp"),
-    ("float", "floor"),
-    ("float", "hash"),
-    ("float", "is_finite"),
-    ("float", "is_infinite"),
-    ("float", "is_nan"),
-    ("float", "is_negative"),
-    ("float", "is_normal"),
-    ("float", "is_positive"),
-    ("float", "is_zero"),
-    ("float", "ln"),
-    ("float", "log10"),
-    ("float", "log2"),
-    ("float", "max"),
-    ("float", "min"),
-    ("float", "pow"),
-    ("float", "round"),
-    ("float", "signum"),
-    ("float", "sin"),
-    ("float", "sqrt"),
-    ("float", "tan"),
-    ("float", "to_int"),
-    ("float", "to_str"),
-    ("float", "trunc"),
-    // int
-    ("int", "abs"),
-    ("int", "byte"),
-    ("int", "clamp"),
-    ("int", "clone"),
-    ("int", "compare"),
-    ("int", "debug"),
-    ("int", "equals"),
-    ("int", "f"),
-    ("int", "hash"),
-    ("int", "into"),
-    ("int", "is_even"),
-    ("int", "is_negative"),
-    ("int", "is_odd"),
-    ("int", "is_positive"),
-    ("int", "is_zero"),
-    ("int", "max"),
-    ("int", "min"),
-    ("int", "pow"),
-    ("int", "signum"),
-    ("int", "to_byte"),
-    ("int", "to_float"),
-    ("int", "to_str"),
-    // list
-    ("list", "all"),
-    ("list", "any"),
-    ("list", "append"),
-    ("list", "chunk"),
-    ("list", "clone"),
-    ("list", "compare"),
-    ("list", "concat"),
-    ("list", "contains"),
-    ("list", "count"),
-    ("list", "debug"),
-    ("list", "enumerate"),
-    ("list", "equals"),
-    ("list", "filter"),
-    ("list", "find"),
-    ("list", "first"),
-    ("list", "flat_map"),
-    ("list", "flatten"),
-    ("list", "fold"),
-    ("list", "for_each"),
-    ("list", "get"),
-    ("list", "group_by"),
-    ("list", "hash"),
-    ("list", "insert"),
-    ("list", "is_empty"),
-    ("list", "iter"),
-    ("list", "join"),
-    ("list", "last"),
-    ("list", "len"),
-    ("list", "length"),
-    ("list", "map"),
-    ("list", "max"),
-    ("list", "max_by"),
-    ("list", "min"),
-    ("list", "min_by"),
-    ("list", "partition"),
-    ("list", "pop"),
-    ("list", "prepend"),
-    ("list", "product"),
-    ("list", "push"),
-    ("list", "reduce"),
-    ("list", "remove"),
-    ("list", "reverse"),
-    ("list", "set"),
-    ("list", "skip"),
-    ("list", "skip_while"),
-    ("list", "sort"),
-    ("list", "sort_by"),
-    ("list", "sort_stable"),
-    ("list", "sorted"),
-    ("list", "sum"),
-    ("list", "take"),
-    ("list", "take_while"),
-    ("list", "unique"),
-    ("list", "window"),
-    ("list", "zip"),
-    // map
-    ("map", "clone"),
-    ("map", "contains"),
-    ("map", "contains_key"),
-    ("map", "debug"),
-    ("map", "entries"),
-    ("map", "equals"),
-    ("map", "get"),
-    ("map", "hash"),
-    ("map", "insert"),
-    ("map", "is_empty"),
-    ("map", "iter"),
-    ("map", "keys"),
-    ("map", "len"),
-    ("map", "length"),
-    ("map", "merge"),
-    ("map", "remove"),
-    ("map", "update"),
-    ("map", "values"),
-    // range
-    ("range", "collect"),
-    ("range", "contains"),
-    ("range", "count"),
-    ("range", "is_empty"),
-    ("range", "iter"),
-    ("range", "len"),
-    ("range", "step_by"),
-    ("range", "to_list"),
-    // str
-    ("str", "byte_len"),
-    ("str", "bytes"),
-    ("str", "chars"),
-    ("str", "clone"),
-    ("str", "compare"),
-    ("str", "concat"),
-    ("str", "contains"),
-    ("str", "debug"),
-    ("str", "ends_with"),
-    ("str", "equals"),
-    ("str", "escape"),
-    ("str", "hash"),
-    ("str", "index_of"),
-    ("str", "into"),
-    ("str", "is_empty"),
-    ("str", "iter"),
-    ("str", "last_index_of"),
-    ("str", "len"),
-    ("str", "length"),
-    ("str", "lines"),
-    ("str", "pad_end"),
-    ("str", "pad_start"),
-    ("str", "parse_float"),
-    ("str", "parse_int"),
-    ("str", "repeat"),
-    ("str", "replace"),
-    ("str", "slice"),
-    ("str", "split"),
-    ("str", "starts_with"),
-    ("str", "substring"),
-    ("str", "to_float"),
-    ("str", "to_int"),
-    ("str", "to_lowercase"),
-    ("str", "to_str"),
-    ("str", "to_uppercase"),
-    ("str", "trim"),
-    ("str", "trim_end"),
-    ("str", "trim_start"),
-    // tuple
-    ("tuple", "clone"),
-    ("tuple", "compare"),
-    ("tuple", "debug"),
-    ("tuple", "equals"),
-    ("tuple", "hash"),
-    ("tuple", "len"),
-];
-
-/// Resolve a built-in method call on a known type tag.
-///
-/// Returns `Some(return_type)` if the method is a known built-in,
-/// `None` if the method is not recognized for this type tag.
-pub(crate) fn resolve_builtin_method(
-    engine: &mut InferEngine<'_>,
-    receiver_ty: Idx,
-    tag: Tag,
-    method_name: &str,
-) -> Option<Idx> {
-    match tag {
-        Tag::List => resolve_list_method(engine, receiver_ty, method_name),
-        Tag::Option => resolve_option_method(engine, receiver_ty, method_name),
-        Tag::Result => resolve_result_method(engine, receiver_ty, method_name),
-        Tag::Map => resolve_map_method(engine, receiver_ty, method_name),
-        Tag::Set => resolve_set_method(engine, receiver_ty, method_name),
-        Tag::Str => resolve_str_method(engine, method_name),
-        Tag::Int => resolve_int_method(method_name),
-        Tag::Float => resolve_float_method(method_name),
-        Tag::Duration => resolve_duration_method(method_name),
-        Tag::Size => resolve_size_method(method_name),
-        Tag::Channel => resolve_channel_method(engine, receiver_ty, method_name),
-        Tag::Range => resolve_range_method(engine, receiver_ty, method_name),
-        Tag::Iterator | Tag::DoubleEndedIterator => {
-            resolve_iterator_method(engine, receiver_ty, method_name)
-        }
-        Tag::Named | Tag::Applied => resolve_named_type_method(engine, receiver_ty, method_name),
-        Tag::Error => resolve_error_method(engine, method_name),
-        Tag::Bool => resolve_bool_method(method_name),
-        Tag::Byte => resolve_byte_method(method_name),
-        Tag::Char => resolve_char_method(method_name),
-        Tag::Ordering => resolve_ordering_method(method_name),
-        Tag::Tuple => resolve_tuple_method(receiver_ty, method_name),
-        _ => None,
-    }
-}
-
-fn resolve_list_method(
+pub(super) fn resolve_list_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method: &str,
@@ -509,7 +46,7 @@ fn resolve_list_method(
     }
 }
 
-fn resolve_option_method(
+pub(super) fn resolve_option_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method: &str,
@@ -534,7 +71,7 @@ fn resolve_option_method(
     }
 }
 
-fn resolve_result_method(
+pub(super) fn resolve_result_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method: &str,
@@ -558,7 +95,11 @@ fn resolve_result_method(
     }
 }
 
-fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
+pub(super) fn resolve_map_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Option<Idx> {
     let key_ty = engine.pool().map_key(receiver_ty);
     let value_ty = engine.pool().map_value(receiver_ty);
     match method {
@@ -581,7 +122,11 @@ fn resolve_map_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
     }
 }
 
-fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &str) -> Option<Idx> {
+pub(super) fn resolve_set_method(
+    engine: &mut InferEngine<'_>,
+    receiver_ty: Idx,
+    method: &str,
+) -> Option<Idx> {
     let elem = engine.pool().set_elem(receiver_ty);
     match method {
         "len" | "length" | "hash" => Some(Idx::INT),
@@ -596,7 +141,7 @@ fn resolve_set_method(engine: &mut InferEngine<'_>, receiver_ty: Idx, method: &s
     }
 }
 
-fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx> {
+pub(super) fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx> {
     match method {
         "into" => {
             // str.into() -> Error (wraps string as error message)
@@ -620,7 +165,7 @@ fn resolve_str_method(engine: &mut InferEngine<'_>, method: &str) -> Option<Idx>
     }
 }
 
-fn resolve_int_method(method: &str) -> Option<Idx> {
+pub(super) fn resolve_int_method(method: &str) -> Option<Idx> {
     match method {
         "abs" | "min" | "max" | "clamp" | "pow" | "signum" | "clone" | "hash" => Some(Idx::INT),
         "to_float" | "into" | "f" => Some(Idx::FLOAT),
@@ -634,7 +179,7 @@ fn resolve_int_method(method: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_float_method(method: &str) -> Option<Idx> {
+pub(super) fn resolve_float_method(method: &str) -> Option<Idx> {
     match method {
         "abs" | "sqrt" | "cbrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "atan2"
         | "ln" | "log2" | "log10" | "exp" | "pow" | "min" | "max" | "clamp" | "signum"
@@ -648,7 +193,7 @@ fn resolve_float_method(method: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_duration_method(method: &str) -> Option<Idx> {
+pub(super) fn resolve_duration_method(method: &str) -> Option<Idx> {
     match method {
         // Instance methods
         "to_seconds" | "to_millis" | "to_micros" | "to_nanos" | "as_seconds" | "as_millis"
@@ -665,7 +210,7 @@ fn resolve_duration_method(method: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_size_method(method: &str) -> Option<Idx> {
+pub(super) fn resolve_size_method(method: &str) -> Option<Idx> {
     match method {
         // Instance methods
         "to_bytes" | "as_bytes" | "to_kb" | "to_mb" | "to_gb" | "to_tb" | "hash" => Some(Idx::INT),
@@ -681,7 +226,7 @@ fn resolve_size_method(method: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_channel_method(
+pub(super) fn resolve_channel_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method: &str,
@@ -696,7 +241,7 @@ fn resolve_channel_method(
     }
 }
 
-fn resolve_range_method(
+pub(super) fn resolve_range_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method: &str,
@@ -719,7 +264,7 @@ fn resolve_range_method(
 /// Resolve methods on Named/Applied types (user-defined structs, enums, newtypes).
 ///
 /// For newtypes, supports `.unwrap()` to extract the inner value.
-fn resolve_named_type_method(
+pub(super) fn resolve_named_type_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method_name: &str,
@@ -743,7 +288,7 @@ fn resolve_named_type_method(
 }
 
 /// Ordering methods: predicates, reverse, equality, and trait methods.
-fn resolve_ordering_method(method_name: &str) -> Option<Idx> {
+pub(super) fn resolve_ordering_method(method_name: &str) -> Option<Idx> {
     match method_name {
         "is_less"
         | "is_equal"
@@ -758,7 +303,7 @@ fn resolve_ordering_method(method_name: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_error_method(engine: &mut InferEngine<'_>, method_name: &str) -> Option<Idx> {
+pub(super) fn resolve_error_method(engine: &mut InferEngine<'_>, method_name: &str) -> Option<Idx> {
     match method_name {
         "message" | "to_str" | "debug" | "trace" => Some(Idx::STR),
         "has_trace" => Some(Idx::BOOL),
@@ -768,7 +313,7 @@ fn resolve_error_method(engine: &mut InferEngine<'_>, method_name: &str) -> Opti
     }
 }
 
-fn resolve_bool_method(method_name: &str) -> Option<Idx> {
+pub(super) fn resolve_bool_method(method_name: &str) -> Option<Idx> {
     match method_name {
         "to_str" | "debug" => Some(Idx::STR),
         "to_int" | "hash" => Some(Idx::INT),
@@ -778,7 +323,7 @@ fn resolve_bool_method(method_name: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_byte_method(method_name: &str) -> Option<Idx> {
+pub(super) fn resolve_byte_method(method_name: &str) -> Option<Idx> {
     match method_name {
         "to_int" | "hash" => Some(Idx::INT),
         "to_char" => Some(Idx::CHAR),
@@ -792,7 +337,7 @@ fn resolve_byte_method(method_name: &str) -> Option<Idx> {
     }
 }
 
-fn resolve_char_method(method_name: &str) -> Option<Idx> {
+pub(super) fn resolve_char_method(method_name: &str) -> Option<Idx> {
     match method_name {
         "to_str" | "debug" => Some(Idx::STR),
         "to_int" | "to_byte" | "hash" => Some(Idx::INT),
@@ -809,9 +354,9 @@ fn resolve_char_method(method_name: &str) -> Option<Idx> {
 /// Three categories:
 /// - **Adapters** return a new iterator (may propagate or downgrade double-endedness)
 /// - **Consumers** eagerly consume the iterator and return a final value
-/// - **Double-ended only** (`next_back`, `rev`, `last`, `rfind`, `rfold`) — only
+/// - **Double-ended only** (`next_back`, `rev`, `last`, `rfind`, `rfold`) -- only
 ///   available on `DoubleEndedIterator<T>`, rejected on plain `Iterator<T>`
-fn resolve_iterator_method(
+pub(super) fn resolve_iterator_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
     method: &str,
@@ -875,7 +420,7 @@ fn resolve_iterator_method(
     }
 }
 
-fn resolve_tuple_method(receiver_ty: Idx, method_name: &str) -> Option<Idx> {
+pub(super) fn resolve_tuple_method(receiver_ty: Idx, method_name: &str) -> Option<Idx> {
     match method_name {
         "len" | "hash" => Some(Idx::INT),
         "compare" => Some(Idx::ORDERING),

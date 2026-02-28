@@ -1,6 +1,6 @@
 [package]
 name = "ori-lsp"
-version = "0.1.0-alpha.9"
+version = "2026.2.28-alpha.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"

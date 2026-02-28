@@ -844,7 +844,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
         ],
-        //        keys   vals   len   ks     vs     owns_data  k_dec  v_dec
+        //        data   cap    len   ks     vs     owns_data  k_dec  v_dec
         ret: Some(Ty::Ptr),
         attrs: &[],
     },

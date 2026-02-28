@@ -23,7 +23,7 @@ Both built with `cargo build -p ori_rt`.
 - Pointers from LLVM guaranteed valid
 
 ## Type Representations
-- `str` → `{ len: i64, data: *const u8 }`
+- `str` → `{ len: i64, cap: i64, data: *mut u8 }` (24-byte SSO layout)
 - `[T]` → `{ len: i64, cap: i64, data: *mut u8 }`
 - `Option<T>` → `{ tag: i64, value: T }`
 
