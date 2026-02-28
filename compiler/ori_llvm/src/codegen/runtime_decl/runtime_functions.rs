@@ -25,7 +25,7 @@ pub(crate) enum Ty {
     Str,
     /// `{i64, i64, ptr}` — Ori list/set representation.
     List,
-    /// `{i64, i64, ptr, ptr}` — Ori map representation (len, cap, keys, values).
+    /// `{i64, i64, ptr}` — Ori map representation (len, cap, data).
     Map,
     /// `{i32, i64}` — char iteration result `{codepoint, next_offset}`.
     CharResult,
@@ -35,7 +35,7 @@ impl Ty {
     /// Whether this return type exceeds the x86-64 `SysV` ABI register return
     /// threshold (16 bytes) and must use `sret` convention.
     ///
-    /// `Str` (24 bytes), `List` (24 bytes), and `Map` (32 bytes) all exceed it.
+    /// `Str` (24 bytes), `List` (24 bytes), and `Map` (24 bytes) all exceed it.
     /// `CharResult` (16 bytes) fits exactly and uses direct return.
     pub(crate) const fn needs_sret(self) -> bool {
         matches!(self, Self::Str | Self::List | Self::Map)
@@ -382,36 +382,49 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         ret: None,
         attrs: &[],
     },
-    // Map
+    // Map — single-buffer layout: data = [keys...|vals...]
     RtFn {
         name: "ori_map_contains_key",
+        // (data, len, needle) -> i64
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::I64),
         attrs: &[],
     },
     RtFn {
         name: "ori_map_keys_to_list",
+        // (data, len, key_size, out_ptr)
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
         attrs: &[],
     },
     RtFn {
         name: "ori_map_values_to_list",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
+        // (data, cap, len, key_size, val_size, out_ptr)
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
         attrs: &[],
     },
     RtFn {
         name: "ori_map_get",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
+        // (data, cap, len, needle, key_size, val_size, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+        ],
         ret: None,
         attrs: &[],
     },
     RtFn {
         name: "ori_map_insert",
+        // (data, cap, len, key, val_ptr, key_size, val_size, out_ptr)
         params: &[
             Ty::Ptr,
-            Ty::Ptr,
+            Ty::I64,
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
@@ -424,13 +437,29 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_remove",
+        // (data, cap, len, needle, key_size, val_size, out_ptr)
         params: &[
             Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
             Ty::Ptr,
             Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_map_buffer_rc_dec",
+        // (data, cap, len, key_size, val_size, key_dec_fn, val_dec_fn)
+        params: &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
@@ -804,9 +833,10 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_from_map",
+        // (data, cap, len, key_size, val_size, owns_data, key_dec_fn, val_dec_fn)
         params: &[
             Ty::Ptr,
-            Ty::Ptr,
+            Ty::I64,
             Ty::I64,
             Ty::I64,
             Ty::I64,

@@ -118,12 +118,12 @@ enum IterState {
 
     /// Iterates over a map's key-value pairs, yielding `(key, value)` tuples.
     ///
-    /// When `owns_data` is true, the iterator holds RC references to both
-    /// the keys and values buffers. `Drop` calls `ori_buffer_rc_dec` on each
-    /// to dec the refcount, clean up inner elements, and free when rc reaches 0.
+    /// Data layout: `[key0..keyN | val0..valN]`, values at `data + cap * key_size`.
+    /// When `owns_data` is true, the iterator holds an RC reference to the
+    /// combined data buffer. `Drop` calls `ori_map_buffer_rc_dec` to clean up.
     Map {
-        keys: *mut u8,
-        vals: *mut u8,
+        data: *mut u8,
+        cap: i64,
         len: i64,
         pos: i64,
         key_size: i64,
@@ -177,8 +177,8 @@ impl Drop for IterState {
                 }
             }
             IterState::Map {
-                keys,
-                vals,
+                data,
+                cap,
                 len,
                 key_size,
                 val_size,
@@ -187,17 +187,20 @@ impl Drop for IterState {
                 val_dec_fn,
                 ..
             } => {
-                // Map key/val buffers are allocated via ori_list_alloc_data
-                // (which calls ori_rc_alloc). Use ori_buffer_rc_dec to dec the
-                // refcount, clean up inner elements, and free when rc reaches 0.
-                // cap=len (maps don't over-allocate).
-                if *owns_data {
-                    if !keys.is_null() {
-                        crate::ori_buffer_rc_dec(*keys, *len, *len, *key_size, *key_dec_fn);
-                    }
-                    if !vals.is_null() {
-                        crate::ori_buffer_rc_dec(*vals, *len, *len, *val_size, *val_dec_fn);
-                    }
+                // Map data buffer uses combined layout [keys...|vals...].
+                // ori_map_buffer_rc_dec decs the refcount, cleans up both key
+                // and value children at their respective offsets, and frees
+                // when rc reaches 0.
+                if *owns_data && !data.is_null() {
+                    crate::ori_map_buffer_rc_dec(
+                        *data,
+                        *cap,
+                        *len,
+                        *key_size,
+                        *val_size,
+                        *key_dec_fn,
+                        *val_dec_fn,
+                    );
                 }
             }
             _ => {}
@@ -280,14 +283,14 @@ impl IterState {
                 ..
             } => Self::next_str(*data, *len, byte_offset, out_ptr),
             Self::Map {
-                keys,
-                vals,
+                data,
+                cap,
                 len,
                 pos,
                 key_size,
                 val_size,
                 ..
-            } => Self::next_map(*keys, *vals, *len, pos, *key_size, *val_size, out_ptr),
+            } => Self::next_map(*data, *cap, *len, pos, *key_size, *val_size, out_ptr),
         }
     }
 
@@ -486,10 +489,11 @@ impl IterState {
 
     /// Map: yield the next `(key, value)` pair.
     ///
+    /// Data layout: `[key0..keyN | val0..valN]`, values at `data + cap * key_size`.
     /// Output layout: `[key_bytes | value_bytes]` (concatenated).
     unsafe fn next_map(
-        keys: *mut u8,
-        vals: *mut u8,
+        data: *mut u8,
+        cap: i64,
         len: i64,
         pos: &mut i64,
         key_size: i64,
@@ -499,14 +503,13 @@ impl IterState {
         if *pos >= len {
             return false;
         }
-        let k_off = (*pos * key_size) as usize;
-        let v_off = (*pos * val_size) as usize;
-        ptr::copy_nonoverlapping(keys.add(k_off), out_ptr, key_size as usize);
-        ptr::copy_nonoverlapping(
-            vals.add(v_off),
-            out_ptr.add(key_size as usize),
-            val_size as usize,
-        );
+        let ks = key_size as usize;
+        let vs = val_size as usize;
+        let k_off = *pos as usize * ks;
+        let vals_start = data.add(cap as usize * ks);
+        let v_off = *pos as usize * vs;
+        ptr::copy_nonoverlapping(data.add(k_off), out_ptr, ks);
+        ptr::copy_nonoverlapping(vals_start.add(v_off), out_ptr.add(ks), vs);
         *pos += 1;
         true
     }
@@ -622,13 +625,14 @@ pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
 
 /// Create an iterator over a map's key-value pairs.
 ///
-/// `keys` and `vals` point to the map's contiguous key/value buffers.
-/// `len` is the number of entries. `key_size`/`val_size` are bytes per key/value.
+/// `data` points to the map's combined data buffer `[keys...|vals...]`.
+/// `cap` is the buffer capacity, `len` is the number of entries.
+/// `key_size`/`val_size` are bytes per key/value.
 /// Each element yielded is `[key_bytes | val_bytes]` (concatenated).
 #[no_mangle]
 pub extern "C" fn ori_iter_from_map(
-    keys: *mut u8,
-    vals: *mut u8,
+    data: *mut u8,
+    cap: i64,
     len: i64,
     key_size: i64,
     val_size: i64,
@@ -637,8 +641,8 @@ pub extern "C" fn ori_iter_from_map(
     val_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) -> *mut u8 {
     let state = IterState::Map {
-        keys,
-        vals,
+        data,
+        cap,
         len,
         pos: 0,
         key_size,

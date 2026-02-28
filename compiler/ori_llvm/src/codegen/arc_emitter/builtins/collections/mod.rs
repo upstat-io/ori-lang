@@ -222,16 +222,16 @@ declare_builtins! { emitter, ctx;
         }
     },
     ("map", "values", borrow: true) => {
-        if let TypeInfo::Map { value, .. } = ctx.type_info {
-            emitter.emit_map_values(ctx.arg_vals[0], *value)
+        if let TypeInfo::Map { key, value } = ctx.type_info {
+            emitter.emit_map_values(ctx.arg_vals[0], *key, *value)
         } else {
             None
         }
     },
     ("map", "get", borrow: true) => {
         if ctx.arg_vals.len() >= 2 {
-            if let TypeInfo::Map { value, .. } = ctx.type_info {
-                emitter.emit_map_get(ctx.arg_vals[0], ctx.arg_vals[1], *value)
+            if let TypeInfo::Map { key, value } = ctx.type_info {
+                emitter.emit_map_get(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value)
             } else {
                 None
             }

@@ -54,6 +54,7 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_list_contains_str",
     "ori_list_reverse",
     // Map methods — AOT uses runtime calls; JIT uses native Rust dispatch
+    "ori_map_buffer_rc_dec",
     "ori_map_contains_key",
     "ori_map_get",
     "ori_map_insert",

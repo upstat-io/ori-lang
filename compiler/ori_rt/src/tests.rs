@@ -1696,8 +1696,7 @@ fn map_empty_sentinel_is_null() {
     let m = ori_map_empty();
     assert_eq!(m.len, 0);
     assert_eq!(m.cap, 0);
-    assert!(m.keys.is_null(), "sentinel map keys should be null");
-    assert!(m.values.is_null(), "sentinel map values should be null");
+    assert!(m.data.is_null(), "sentinel map data should be null");
 }
 
 #[test]

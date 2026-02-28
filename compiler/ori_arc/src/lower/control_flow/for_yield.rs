@@ -335,9 +335,8 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
         Tag::Bool | Tag::Byte => 1,
         Tag::Char => 4,
         Tag::Unit => 0,
-        Tag::Str => 16,             // {i64, ptr}
-        Tag::List | Tag::Set => 24, // {i64, i64, ptr}
-        Tag::Map => 32,             // {i64, i64, ptr, ptr}
+        Tag::Str => 16,                        // {i64, ptr}
+        Tag::List | Tag::Set | Tag::Map => 24, // {i64, i64, ptr}
         Tag::Struct => pool
             .struct_fields(ty)
             .iter()

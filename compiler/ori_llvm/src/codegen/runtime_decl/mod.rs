@@ -36,24 +36,12 @@ fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
         Ty::F64 => builder.f64_type(),
         Ty::Bool => builder.bool_type(),
         Ty::Ptr => builder.ptr_type(),
-        // Str {len, cap, data} and List {len, cap, data} share the same 24-byte layout
-        Ty::Str | Ty::List => {
+        // Str {len, cap, data}, List/Map {len, cap, data} share the same 24-byte layout
+        Ty::Str | Ty::List | Ty::Map => {
             let st = builder.scx().type_struct(
                 &[
                     builder.scx().type_i64().into(),
                     builder.scx().type_i64().into(),
-                    builder.scx().type_ptr().into(),
-                ],
-                false,
-            );
-            builder.register_type(st.into())
-        }
-        Ty::Map => {
-            let st = builder.scx().type_struct(
-                &[
-                    builder.scx().type_i64().into(),
-                    builder.scx().type_i64().into(),
-                    builder.scx().type_ptr().into(),
                     builder.scx().type_ptr().into(),
                 ],
                 false,

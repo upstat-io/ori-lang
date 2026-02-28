@@ -78,7 +78,7 @@ fn composite_sizes() {
             value: Idx::INT
         }
         .size(),
-        Some(32)
+        Some(24)
     );
     assert_eq!(TypeInfo::Range.size(), Some(32));
     assert_eq!(TypeInfo::Option { inner: Idx::INT }.size(), Some(16));
@@ -135,7 +135,7 @@ fn non_loadable_types() {
         key: Idx::STR,
         value: Idx::INT
     }
-    .is_loadable()); // 32 bytes
+    .is_loadable()); // 24 bytes
 }
 
 // -- Storage type tests --
