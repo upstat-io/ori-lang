@@ -272,12 +272,13 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_concat_cow",
-        // data1, len1, cap1, data2, len2, elem_size, elem_align, inc_fn, out_ptr
+        // data1, len1, cap1, data2, len2, cap2, elem_size, elem_align, inc_fn, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I64,
             Ty::I64,
             Ty::I64,
             Ty::I64,
@@ -743,7 +744,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     // Iterator constructors
     RtFn {
         name: "ori_iter_from_list",
-        params: &[Ty::Ptr, Ty::I64, Ty::I64],
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        //        data   len   cap   es     elem_dec_fn
         ret: Some(Ty::Ptr),
         attrs: &[],
     },
@@ -755,13 +757,24 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_from_str",
-        params: &[Ty::Ptr, Ty::I64],
+        params: &[Ty::Ptr, Ty::I64, Ty::Bool],
+        //        data   len   owns_data
         ret: Some(Ty::Ptr),
         attrs: &[],
     },
     RtFn {
         name: "ori_iter_from_map",
-        params: &[Ty::Ptr, Ty::Ptr, Ty::I64, Ty::I64, Ty::I64],
+        params: &[
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Bool,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        //        keys   vals   len   ks     vs     owns_data  k_dec  v_dec
         ret: Some(Ty::Ptr),
         attrs: &[],
     },

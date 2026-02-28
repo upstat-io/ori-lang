@@ -72,14 +72,8 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     arc_classifier: &'a ArcClassifier<'tcx>,
     /// Debug info context (None for JIT, Some for AOT with debug info enabled).
     debug_context: Option<&'a DebugContext<'ctx>>,
-    /// Builtin method names whose receiver is borrowed (e.g., `len`, `is_empty`).
-    /// Passed to `annotate_arg_ownership` so inline-compiled builtins get
-    /// borrowing semantics instead of the default all-Owned.
-    borrowing_builtins: rustc_hash::FxHashSet<Name>,
-    /// COW list method names with consuming receiver semantics (e.g., `push`,
-    /// `reverse`). When the receiver is a `List`, the ARC pipeline marks it
-    /// as `Owned` to prevent duplicate `RcDec` (the runtime handles RC internally).
-    consuming_receiver_builtins: rustc_hash::FxHashSet<Name>,
+    /// Pre-computed builtin ownership sets for ARC annotation.
+    builtin_ownership: ori_arc::BuiltinOwnershipSets,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -103,8 +97,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
     ) -> Self {
-        let borrowing_builtins = ori_arc::borrowing_builtin_names(interner);
-        let consuming_receiver_builtins = ori_arc::consuming_receiver_builtin_names(interner);
+        let builtin_ownership = ori_arc::BuiltinOwnershipSets::new(interner);
         Self {
             builder,
             type_info,
@@ -118,8 +111,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             annotated_sigs,
             arc_classifier,
             debug_context,
-            borrowing_builtins,
-            consuming_receiver_builtins,
+            builtin_ownership,
         }
     }
 

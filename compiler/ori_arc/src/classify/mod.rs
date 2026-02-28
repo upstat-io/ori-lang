@@ -136,7 +136,9 @@ impl<'pool> ArcClassifier<'pool> {
     /// Classify a non-primitive type by its Pool tag.
     fn classify_by_tag(&self, idx: Idx) -> ArcClass {
         match self.pool.tag(idx) {
-            // Scalars (primitives -- caught by fast path, but handle gracefully)
+            // Scalars: primitives (caught by fast path, but handle gracefully)
+            // and iterators (runtime-managed lifecycle — heap-allocated with
+            // Box::new, NOT ori_rc_alloc, so they lack RC headers).
             Tag::Int
             | Tag::Float
             | Tag::Bool
@@ -147,17 +149,14 @@ impl<'pool> ArcClassifier<'pool> {
             | Tag::Error
             | Tag::Duration
             | Tag::Size
-            | Tag::Ordering => ArcClass::Scalar,
+            | Tag::Ordering
+            | Tag::Iterator
+            | Tag::DoubleEndedIterator => ArcClass::Scalar,
 
             // DefiniteRef: heap-allocated or closure types
-            Tag::Str
-            | Tag::List
-            | Tag::Map
-            | Tag::Set
-            | Tag::Channel
-            | Tag::Function
-            | Tag::Iterator
-            | Tag::DoubleEndedIterator => ArcClass::DefiniteRef,
+            Tag::Str | Tag::List | Tag::Map | Tag::Set | Tag::Channel | Tag::Function => {
+                ArcClass::DefiniteRef
+            }
 
             // Transitive: single child
             Tag::Option => self.classify(self.pool.option_inner(idx)),

@@ -292,8 +292,11 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(header_block, vec![]);
         }
 
-        // Exit: extract final list from heap wrapper.
+        // Exit: drop the iterator handle, then extract the final list.
         self.builder.position_at(exit_block);
+        let iter_drop = self.interner.intern("ori_iter_drop");
+        self.builder
+            .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None);
         let list_take = self.interner.intern("ori_list_take");
         self.builder
             .emit_apply(result_ty, list_take, vec![list_ptr], None)

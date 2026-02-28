@@ -458,10 +458,29 @@ pub fn insert_external_invoke_cleanup(
 fn is_borrowing_instr(instr: &ArcInstr, ctx: &RcContext<'_>) -> bool {
     match instr {
         // PrimOp: arithmetic, comparison, logical, string ops — all borrow.
+        //
+        // Exception: `Binary(Add)` on list-typed operands is **consuming**.
+        // The LLVM backend compiles list `+` to `ori_list_concat_cow`, which
+        // is a COW function that takes ownership of both operands (receiver
+        // and list2). The ARC pipeline must NOT emit `RcDec` for either
+        // operand — the runtime handles their RC lifecycle internally.
         ArcInstr::Let {
-            value: crate::ir::ArcValue::PrimOp { .. },
+            value: crate::ir::ArcValue::PrimOp { op, args },
             ..
-        } => true,
+        } => {
+            if matches!(op, crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add)) {
+                if let Some(pool) = ctx.pool {
+                    if let Some(&first_arg) = args.first() {
+                        let arg_ty = ctx.func.var_type(first_arg);
+                        let resolved = pool.resolve_fully(arg_ty);
+                        if pool.tag(resolved) == ori_types::Tag::List {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        }
 
         // Project with scalar result: the parent is borrowed, not consumed.
         //
@@ -553,17 +572,20 @@ fn compute_arg_ownership(
 /// by the LLVM emitter — their args must be marked Borrowed so that the
 /// caller retains ownership and inserts `RcDec` at the arg's last use.
 ///
-/// `consuming_receiver_builtins` identifies COW list methods (e.g., `push`,
+/// `builtins.consuming_receiver` identifies COW list methods (e.g., `push`,
 /// `reverse`) where the receiver's RC is managed internally by the runtime.
 /// When the receiver type is `List`, the first arg is marked `Owned` to
 /// prevent the ARC pipeline from emitting a duplicate `RcDec`.
+///
+/// `builtins.consuming_second_arg` identifies COW list methods (e.g., `add`,
+/// `concat`) where the runtime also consumes the second argument (list2).
+/// When the receiver is `List` and `args.len() >= 2`, arg[1] is also `Owned`.
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn annotate_arg_ownership(
     func: &mut ArcFunction,
     sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
     interner: &ori_ir::StringInterner,
-    borrowing_builtins: &FxHashSet<ori_ir::Name>,
-    consuming_receiver_builtins: &FxHashSet<ori_ir::Name>,
+    builtins: &crate::BuiltinOwnershipSets,
     pool: &Pool,
 ) {
     // Split borrow: var_types is read-only, blocks are mutated.
@@ -580,12 +602,13 @@ pub fn annotate_arg_ownership(
             } = instr
             {
                 *arg_ownership =
-                    compute_arg_ownership(*callee, args.len(), sigs, interner, borrowing_builtins);
-                apply_consuming_receiver_override(
+                    compute_arg_ownership(*callee, args.len(), sigs, interner, &builtins.borrowing);
+                apply_consuming_overrides(
                     *callee,
                     args,
                     arg_ownership,
-                    consuming_receiver_builtins,
+                    &builtins.consuming_receiver,
+                    &builtins.consuming_second_arg,
                     var_types,
                     pool,
                 );
@@ -601,12 +624,13 @@ pub fn annotate_arg_ownership(
         } = &mut block.terminator
         {
             *arg_ownership =
-                compute_arg_ownership(*callee, args.len(), sigs, interner, borrowing_builtins);
-            apply_consuming_receiver_override(
+                compute_arg_ownership(*callee, args.len(), sigs, interner, &builtins.borrowing);
+            apply_consuming_overrides(
                 *callee,
                 args,
                 arg_ownership,
-                consuming_receiver_builtins,
+                &builtins.consuming_receiver,
+                &builtins.consuming_second_arg,
                 var_types,
                 pool,
             );
@@ -614,32 +638,51 @@ pub fn annotate_arg_ownership(
     }
 }
 
-/// Override borrowing ownership for COW list methods with consuming receivers.
+/// Override borrowing ownership for COW list methods with consuming semantics.
 ///
-/// When a callee is in `consuming_builtins` and the first argument's type
-/// resolves to `Tag::List`, marks the receiver as `Owned`. This prevents
-/// the ARC pipeline from emitting a duplicate `RcDec` for methods that
-/// handle the old buffer's RC internally (COW semantics).
+/// Applies two overrides for list-typed receivers:
+/// 1. **Receiver** (arg[0]): When `callee` is in `consuming_receiver_builtins`
+///    and the receiver is `List`, marks arg[0] as `Owned`.
+/// 2. **Second arg** (arg[1]): When `callee` is *also* in
+///    `consuming_second_arg_builtins` and the receiver is `List`, marks
+///    arg[1] as `Owned` too — the runtime consumes list2's buffer.
 ///
 /// Type-qualified: `"add"` and `"concat"` are shared names — borrowing for
 /// strings, consuming for lists. Only the list case is overridden here.
-fn apply_consuming_receiver_override(
+fn apply_consuming_overrides(
     callee: ori_ir::Name,
     args: &[ArcVarId],
     arg_ownership: &mut [ArgOwnership],
-    consuming_builtins: &FxHashSet<ori_ir::Name>,
+    consuming_receiver_builtins: &FxHashSet<ori_ir::Name>,
+    consuming_second_arg_builtins: &FxHashSet<ori_ir::Name>,
     var_types: &[ori_types::Idx],
     pool: &Pool,
 ) {
-    if !consuming_builtins.contains(&callee) || args.is_empty() || arg_ownership.is_empty() {
+    if args.is_empty() || arg_ownership.is_empty() {
         return;
     }
 
-    // Check the receiver's type (first argument).
+    // Check if the receiver is a list (type-qualified gate).
+    let is_receiver_consuming = consuming_receiver_builtins.contains(&callee);
+    if !is_receiver_consuming {
+        return;
+    }
+
     let receiver_var = args[0];
     let receiver_idx = var_types[receiver_var.index()];
-    if pool.tag(receiver_idx) == ori_types::Tag::List {
-        arg_ownership[0] = ArgOwnership::Owned;
+    if pool.tag(receiver_idx) != ori_types::Tag::List {
+        return;
+    }
+
+    // Receiver is List — mark it as Owned.
+    arg_ownership[0] = ArgOwnership::Owned;
+
+    // Also mark second arg as Owned if this method consumes list2.
+    if consuming_second_arg_builtins.contains(&callee)
+        && args.len() >= 2
+        && arg_ownership.len() >= 2
+    {
+        arg_ownership[1] = ArgOwnership::Owned;
     }
 }
 
