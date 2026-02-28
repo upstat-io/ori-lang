@@ -369,15 +369,71 @@ pub struct OriList {
     pub data: *mut u8,
 }
 
-/// Ori map representation: { i64 len, i64 cap, *mut u8 keys, *mut u8 values }
+/// Ori map representation: { i64 len, i64 cap, *mut u8 data }
 ///
-/// Uses parallel arrays for keys and values (each RC'd separately).
+/// Single RC'd buffer with keys then values: `[key0..keyN | val0..valN]`.
+/// Keys start at `data + 0`, values at `data + cap * key_size`.
+/// Single RC header enables one uniqueness check for COW.
 #[repr(C)]
 pub struct OriMap {
     pub len: i64,
     pub cap: i64,
-    pub keys: *mut u8,
-    pub values: *mut u8,
+    pub data: *mut u8,
+}
+
+impl OriMap {
+    /// Pointer to key at `index` within the data buffer.
+    ///
+    /// # Safety
+    /// `index` must be < `self.len` and `self.data` must be valid.
+    #[inline]
+    pub unsafe fn key_ptr(&self, index: usize, key_size: usize) -> *const u8 {
+        self.data.add(index * key_size)
+    }
+
+    /// Mutable pointer to key at `index`.
+    ///
+    /// # Safety
+    /// `index` must be < `self.cap` and `self.data` must be valid.
+    #[inline]
+    pub unsafe fn key_ptr_mut(&self, index: usize, key_size: usize) -> *mut u8 {
+        self.data.add(index * key_size)
+    }
+
+    /// Pointer to value at `index` within the data buffer.
+    ///
+    /// # Safety
+    /// `index` must be < `self.len` and `self.data` must be valid.
+    #[inline]
+    pub unsafe fn value_ptr(&self, index: usize, key_size: usize, val_size: usize) -> *const u8 {
+        self.data
+            .add((self.cap as usize) * key_size + index * val_size)
+    }
+
+    /// Mutable pointer to value at `index`.
+    ///
+    /// # Safety
+    /// `index` must be < `self.cap` and `self.data` must be valid.
+    #[inline]
+    pub unsafe fn value_ptr_mut(&self, index: usize, key_size: usize, val_size: usize) -> *mut u8 {
+        self.data
+            .add((self.cap as usize) * key_size + index * val_size)
+    }
+
+    /// Total byte size of the data buffer for given capacity.
+    #[inline]
+    pub fn buffer_size(cap: usize, key_size: usize, val_size: usize) -> usize {
+        cap * key_size + cap * val_size
+    }
+
+    /// Allocate a new data buffer for `cap` entries and return its pointer.
+    fn alloc_buffer(cap: usize, key_size: usize, val_size: usize) -> *mut u8 {
+        let total = Self::buffer_size(cap, key_size, val_size);
+        if total == 0 {
+            return std::ptr::null_mut();
+        }
+        crate::ori_rc_alloc(total, 8)
+    }
 }
 
 /// Ori Option representation: { i8 tag, T value }
@@ -1285,6 +1341,104 @@ pub extern "C" fn ori_buffer_rc_dec(
     }
 }
 
+/// Decrement the refcount of a map's combined data buffer.
+///
+/// Map data layout: `[key0..keyN | val0..valN]` where values start at
+/// `data + cap * key_size`. When RC reaches 0, calls `key_dec_fn` on each
+/// key and `val_dec_fn` on each value, then frees the buffer.
+#[no_mangle]
+pub extern "C" fn ori_map_buffer_rc_dec(
+    data: *mut u8,
+    cap: i64,
+    len: i64,
+    key_size: i64,
+    val_size: i64,
+    key_dec_fn: Option<extern "C" fn(*mut u8)>,
+    val_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data.is_null() {
+        return;
+    }
+
+    rt_debug_validate_rc(data.cast_const(), "ori_map_buffer_rc_dec");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data.cast_const(), "ori_map_buffer_rc_dec");
+
+    let ks = key_size.max(1) as usize;
+    let vs = val_size.max(1) as usize;
+    let n = len.max(0) as usize;
+    let c = cap.max(0) as usize;
+
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        let prev = unsafe {
+            let rc_ptr = data.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).fetch_sub(1, Ordering::Release)
+        };
+
+        if prev <= 0 {
+            rc_underflow_abort(data);
+        }
+
+        if rc_trace_enabled() {
+            rc_trace_dec(data.cast_const(), prev - 1);
+        }
+
+        if prev <= 1 {
+            std::sync::atomic::fence(Ordering::Acquire);
+            map_buffer_cleanup(data, c, n, ks, vs, key_dec_fn, val_dec_fn);
+        }
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let (should_drop, new_rc) = unsafe {
+            let rc_ptr = data.sub(8).cast::<i64>();
+            if *rc_ptr <= 0 {
+                rc_underflow_abort(data);
+            }
+            *rc_ptr -= 1;
+            (*rc_ptr <= 0, *rc_ptr)
+        };
+
+        if rc_trace_enabled() {
+            rc_trace_dec(data.cast_const(), new_rc);
+        }
+
+        if should_drop {
+            map_buffer_cleanup(data, c, n, ks, vs, key_dec_fn, val_dec_fn);
+        }
+    }
+}
+
+/// Clean up and free a map data buffer. Called when RC reaches 0.
+fn map_buffer_cleanup(
+    data: *mut u8,
+    cap: usize,
+    len: usize,
+    key_size: usize,
+    val_size: usize,
+    key_dec_fn: Option<extern "C" fn(*mut u8)>,
+    val_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    // Dec children: keys at offset 0, values at offset cap * key_size
+    if let Some(f) = key_dec_fn {
+        for i in 0..len {
+            call_drop_fn(f, unsafe { data.add(i * key_size) });
+        }
+    }
+    if let Some(f) = val_dec_fn {
+        let vals_start = unsafe { data.add(cap * key_size) };
+        for i in 0..len {
+            call_drop_fn(f, unsafe { vals_start.add(i * val_size) });
+        }
+    }
+
+    // Free the combined buffer
+    let total = OriMap::buffer_size(cap, key_size, val_size);
+    ori_rc_free(data, total, 8);
+}
+
 /// Free a reference-counted allocation unconditionally.
 ///
 /// Deallocates from `data_ptr - 8` with total size `size + 8`.
@@ -1606,8 +1760,7 @@ pub extern "C" fn ori_map_empty() -> OriMap {
     OriMap {
         len: 0,
         cap: 0,
-        keys: std::ptr::null_mut(),
-        values: std::ptr::null_mut(),
+        data: std::ptr::null_mut(),
     }
 }
 
@@ -3342,18 +3495,18 @@ pub extern "C" fn ori_list_concat(
 
 /// Check if a map contains a string key.
 ///
-/// Map keys are stored as a contiguous array of `OriStr` values
-/// (24 bytes each, SSO or heap). Linear scan with string comparison.
+/// Map data buffer layout: `[key0..keyN | val0..valN]`.
+/// Keys start at `data + 0`. Linear scan with string comparison.
 /// Returns 1 if found, 0 otherwise.
 #[no_mangle]
-pub extern "C" fn ori_map_contains_key(keys: *const u8, len: i64, needle: *const OriStr) -> i64 {
-    if keys.is_null() || len <= 0 || needle.is_null() {
+pub extern "C" fn ori_map_contains_key(data: *const u8, len: i64, needle: *const OriStr) -> i64 {
+    if data.is_null() || len <= 0 || needle.is_null() {
         return 0;
     }
     let needle_str = unsafe { deref_str(needle) };
     let key_size = std::mem::size_of::<OriStr>();
     for i in 0..len as usize {
-        let key_ptr = unsafe { keys.add(i * key_size).cast::<OriStr>() };
+        let key_ptr = unsafe { data.add(i * key_size).cast::<OriStr>() };
         let key_str = unsafe { (*key_ptr).as_str() };
         if key_str == needle_str {
             return 1;
@@ -3364,71 +3517,81 @@ pub extern "C" fn ori_map_contains_key(keys: *const u8, len: i64, needle: *const
 
 /// Extract map keys as a new list.
 ///
-/// Allocates a new buffer and copies all keys. Writes `{len, len, data_ptr}`
-/// to `out_ptr` (sret pattern). The resulting list owns its data buffer.
+/// Keys start at `data + 0`. Allocates a new buffer and copies all keys.
+/// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
 #[no_mangle]
-pub extern "C" fn ori_map_keys_to_list(keys: *const u8, len: i64, key_size: i64, out_ptr: *mut u8) {
-    write_array_to_list(keys, len, key_size, out_ptr);
+pub extern "C" fn ori_map_keys_to_list(data: *const u8, len: i64, key_size: i64, out_ptr: *mut u8) {
+    // Keys are at offset 0 in the data buffer, so data is the keys array.
+    write_array_to_list(data, len, key_size, out_ptr);
 }
 
 /// Extract map values as a new list.
 ///
-/// Allocates a new buffer and copies all values. Writes `{len, len, data_ptr}`
-/// to `out_ptr` (sret pattern). The resulting list owns its data buffer.
+/// Values start at `data + cap * key_size`. Allocates a new buffer and copies
+/// all values. Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
 #[no_mangle]
 pub extern "C" fn ori_map_values_to_list(
-    vals: *const u8,
+    data: *const u8,
+    cap: i64,
     len: i64,
+    key_size: i64,
     val_size: i64,
     out_ptr: *mut u8,
 ) {
-    write_array_to_list(vals, len, val_size, out_ptr);
+    if data.is_null() || len <= 0 {
+        write_array_to_list(std::ptr::null(), 0, val_size, out_ptr);
+        return;
+    }
+    let vals_start = unsafe { data.add(cap as usize * key_size as usize) };
+    write_array_to_list(vals_start, len, val_size, out_ptr);
 }
 
 /// Look up a key in a map and return `Option<V>` via sret.
 ///
-/// Scans the keys array for a matching string key. Writes `{tag: i64, value}`
+/// Scans the keys region for a matching string key. Writes `{tag: i64, value}`
 /// to `out_ptr`. Tag 0 = Some (value copied), tag 1 = None.
 ///
-/// Map layout: keys = contiguous `OriStr` array, vals = contiguous value array.
+/// Map data layout: `[key0..keyN | val0..valN]`, values at `data + cap * key_size`.
 #[no_mangle]
 pub extern "C" fn ori_map_get(
-    keys: *const u8,
-    vals: *const u8,
+    data: *const u8,
+    cap: i64,
     len: i64,
     needle: *const OriStr,
+    key_size: i64,
     val_size: i64,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
         return;
     }
+    let ks = key_size.max(1) as usize;
     let vs = val_size.max(1) as usize;
     let needle_str = unsafe { deref_str(needle) };
 
-    if keys.is_null() || vals.is_null() || len <= 0 {
-        // None
+    if data.is_null() || len <= 0 {
         unsafe {
             out_ptr.cast::<i64>().write(1);
         }
         return;
     }
 
-    let key_size = std::mem::size_of::<OriStr>();
-    for i in 0..len as usize {
-        let key_ptr = unsafe { keys.add(i * key_size).cast::<OriStr>() };
-        let key_str = unsafe { (*key_ptr).as_str() };
+    let n = len as usize;
+    let c = cap as usize;
+    for i in 0..n {
+        let kp = unsafe { data.add(i * ks).cast::<OriStr>() };
+        let key_str = unsafe { (*kp).as_str() };
         if key_str == needle_str {
             // Some: tag = 0, copy value
+            let vals_start = unsafe { data.add(c * ks) };
             unsafe {
                 out_ptr.cast::<i64>().write(0);
-                std::ptr::copy_nonoverlapping(vals.add(i * vs), out_ptr.add(8), vs);
+                std::ptr::copy_nonoverlapping(vals_start.add(i * vs), out_ptr.add(8), vs);
             }
             return;
         }
     }
 
-    // None
     unsafe {
         out_ptr.cast::<i64>().write(1);
     }
@@ -3437,11 +3600,13 @@ pub extern "C" fn ori_map_get(
 /// Insert a key-value pair into a map, returning a new map via sret.
 ///
 /// If the key already exists, its value is updated. Otherwise a new entry
-/// is appended. Writes `{i64 len, i64 cap, ptr keys, ptr vals}` to `out_ptr`.
+/// is appended. Writes `{i64 len, i64 cap, ptr data}` to `out_ptr`.
+///
+/// Data layout: `[key0..keyN | val0..valN]`, values at `data + cap * key_size`.
 #[no_mangle]
 pub extern "C" fn ori_map_insert(
-    keys: *const u8,
-    vals: *const u8,
+    data: *const u8,
+    cap: i64,
     len: i64,
     key: *const OriStr,
     val_ptr: *const u8,
@@ -3455,13 +3620,14 @@ pub extern "C" fn ori_map_insert(
     let ks = key_size.max(1) as usize;
     let vs = val_size.max(1) as usize;
     let n = len.max(0) as usize;
+    let c = cap.max(0) as usize;
     let needle_str = unsafe { deref_str(key) };
 
     // Check if key already exists
     let mut found_idx: Option<usize> = None;
-    if !keys.is_null() && n > 0 {
+    if !data.is_null() && n > 0 {
         for i in 0..n {
-            let k = unsafe { keys.add(i * ks).cast::<OriStr>() };
+            let k = unsafe { data.add(i * ks).cast::<OriStr>() };
             if unsafe { (*k).as_str() } == needle_str {
                 found_idx = Some(i);
                 break;
@@ -3470,46 +3636,55 @@ pub extern "C" fn ori_map_insert(
     }
 
     if let Some(idx) = found_idx {
-        // Key exists — copy map, overwrite value at idx
-        let new_keys = crate::ori_alloc(n * ks, 8);
-        let new_vals = crate::ori_alloc(n * vs, 8);
-        if !keys.is_null() {
-            unsafe { std::ptr::copy_nonoverlapping(keys, new_keys, n * ks) };
+        // Key exists — allocate new buffer, copy, overwrite value at idx
+        let new_data = OriMap::alloc_buffer(n, ks, vs);
+        if !data.is_null() {
+            unsafe {
+                // Copy keys
+                std::ptr::copy_nonoverlapping(data, new_data, n * ks);
+                // Copy values
+                let old_vals = data.add(c * ks);
+                let new_vals = new_data.add(n * ks);
+                std::ptr::copy_nonoverlapping(old_vals, new_vals, n * vs);
+                // Overwrite the value at the found index
+                std::ptr::copy_nonoverlapping(val_ptr, new_vals.add(idx * vs), vs);
+            }
         }
-        if !vals.is_null() {
-            unsafe { std::ptr::copy_nonoverlapping(vals, new_vals, n * vs) };
-        }
-        // Overwrite the value at the found index
-        unsafe { std::ptr::copy_nonoverlapping(val_ptr, new_vals.add(idx * vs), vs) };
-        write_map_struct(out_ptr, n as i64, new_keys, new_vals);
+        write_map_struct(out_ptr, n as i64, n as i64, new_data);
     } else {
-        // Key doesn't exist — append
+        // Key doesn't exist — allocate larger buffer, copy, append
         let new_len = n + 1;
-        let new_keys = crate::ori_alloc(new_len * ks, 8);
-        let new_vals = crate::ori_alloc(new_len * vs, 8);
-        if !keys.is_null() && n > 0 {
-            unsafe { std::ptr::copy_nonoverlapping(keys, new_keys, n * ks) };
-        }
-        if !vals.is_null() && n > 0 {
-            unsafe { std::ptr::copy_nonoverlapping(vals, new_vals, n * vs) };
+        let new_data = OriMap::alloc_buffer(new_len, ks, vs);
+        if !data.is_null() && n > 0 {
+            unsafe {
+                // Copy existing keys
+                std::ptr::copy_nonoverlapping(data, new_data, n * ks);
+                // Copy existing values
+                let old_vals = data.add(c * ks);
+                let new_vals = new_data.add(new_len * ks);
+                std::ptr::copy_nonoverlapping(old_vals, new_vals, n * vs);
+            }
         }
         // Append new key and value
         unsafe {
-            std::ptr::copy_nonoverlapping(key.cast::<u8>(), new_keys.add(n * ks), ks);
+            std::ptr::copy_nonoverlapping(key.cast::<u8>(), new_data.add(n * ks), ks);
+            let new_vals = new_data.add(new_len * ks);
             std::ptr::copy_nonoverlapping(val_ptr, new_vals.add(n * vs), vs);
         }
-        write_map_struct(out_ptr, new_len as i64, new_keys, new_vals);
+        write_map_struct(out_ptr, new_len as i64, new_len as i64, new_data);
     }
 }
 
 /// Remove a key from a map, returning a new map via sret.
 ///
 /// If the key doesn't exist, the result is a copy of the original map.
-/// Writes `{i64 len, i64 cap, ptr keys, ptr vals}` to `out_ptr`.
+/// Writes `{i64 len, i64 cap, ptr data}` to `out_ptr`.
+///
+/// Data layout: `[key0..keyN | val0..valN]`, values at `data + cap * key_size`.
 #[no_mangle]
 pub extern "C" fn ori_map_remove(
-    keys: *const u8,
-    vals: *const u8,
+    data: *const u8,
+    cap: i64,
     len: i64,
     needle: *const OriStr,
     key_size: i64,
@@ -3522,84 +3697,85 @@ pub extern "C" fn ori_map_remove(
     let ks = key_size.max(1) as usize;
     let vs = val_size.max(1) as usize;
     let n = len.max(0) as usize;
+    let c = cap.max(0) as usize;
     let needle_str = unsafe { deref_str(needle) };
 
-    if keys.is_null() || n == 0 {
-        write_map_struct(out_ptr, 0, std::ptr::null_mut(), std::ptr::null_mut());
+    if data.is_null() || n == 0 {
+        write_map_struct(out_ptr, 0, 0, std::ptr::null_mut());
         return;
     }
 
     // Find the key to remove
     let mut remove_idx: Option<usize> = None;
     for i in 0..n {
-        let k = unsafe { keys.add(i * ks).cast::<OriStr>() };
+        let k = unsafe { data.add(i * ks).cast::<OriStr>() };
         if unsafe { (*k).as_str() } == needle_str {
             remove_idx = Some(i);
             break;
         }
     }
 
+    let old_vals = unsafe { data.add(c * ks) };
+
     let Some(idx) = remove_idx else {
         // Key not found — return a copy of the original map
-        let new_keys = crate::ori_alloc(n * ks, 8);
-        let new_vals = crate::ori_alloc(n * vs, 8);
+        let new_data = OriMap::alloc_buffer(n, ks, vs);
         unsafe {
-            std::ptr::copy_nonoverlapping(keys, new_keys, n * ks);
-            if !vals.is_null() {
-                std::ptr::copy_nonoverlapping(vals, new_vals, n * vs);
-            }
+            std::ptr::copy_nonoverlapping(data, new_data, n * ks);
+            let new_vals = new_data.add(n * ks);
+            std::ptr::copy_nonoverlapping(old_vals, new_vals, n * vs);
         }
-        write_map_struct(out_ptr, n as i64, new_keys, new_vals);
+        write_map_struct(out_ptr, n as i64, n as i64, new_data);
         return;
     };
 
     let new_len = n - 1;
     if new_len == 0 {
-        write_map_struct(out_ptr, 0, std::ptr::null_mut(), std::ptr::null_mut());
+        write_map_struct(out_ptr, 0, 0, std::ptr::null_mut());
         return;
     }
 
-    let new_keys = crate::ori_alloc(new_len * ks, 8);
-    let new_vals = crate::ori_alloc(new_len * vs, 8);
+    let new_data = OriMap::alloc_buffer(new_len, ks, vs);
+    let new_vals = unsafe { new_data.add(new_len * ks) };
 
-    // Copy elements before the removed index
+    // Copy keys before and after the removed index
     if idx > 0 {
-        unsafe {
-            std::ptr::copy_nonoverlapping(keys, new_keys, idx * ks);
-            if !vals.is_null() {
-                std::ptr::copy_nonoverlapping(vals, new_vals, idx * vs);
-            }
-        }
+        unsafe { std::ptr::copy_nonoverlapping(data, new_data, idx * ks) };
     }
-    // Copy elements after the removed index
     let after = n - idx - 1;
     if after > 0 {
         unsafe {
             std::ptr::copy_nonoverlapping(
-                keys.add((idx + 1) * ks),
-                new_keys.add(idx * ks),
+                data.add((idx + 1) * ks),
+                new_data.add(idx * ks),
                 after * ks,
             );
-            if !vals.is_null() {
-                std::ptr::copy_nonoverlapping(
-                    vals.add((idx + 1) * vs),
-                    new_vals.add(idx * vs),
-                    after * vs,
-                );
-            }
         }
     }
 
-    write_map_struct(out_ptr, new_len as i64, new_keys, new_vals);
+    // Copy values before and after the removed index
+    if idx > 0 {
+        unsafe { std::ptr::copy_nonoverlapping(old_vals, new_vals, idx * vs) };
+    }
+    if after > 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                old_vals.add((idx + 1) * vs),
+                new_vals.add(idx * vs),
+                after * vs,
+            );
+        }
+    }
+
+    write_map_struct(out_ptr, new_len as i64, new_len as i64, new_data);
 }
 
-/// Write a map struct `{i64 len, i64 cap, ptr keys, ptr vals}` to `out_ptr`.
-fn write_map_struct(out_ptr: *mut u8, len: i64, keys: *mut u8, vals: *mut u8) {
+/// Write a map struct `{i64 len, i64 cap, ptr data}` to `out_ptr`.
+fn write_map_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut u8) {
     unsafe {
         out_ptr.cast::<i64>().write(len);
-        out_ptr.cast::<i64>().add(1).write(len); // cap = len
-        out_ptr.add(16).cast::<*mut u8>().write(keys);
-        out_ptr.add(24).cast::<*mut u8>().write(vals);
+        out_ptr.cast::<i64>().add(1).write(cap);
+        out_ptr.add(16).cast::<*mut u8>().write(data);
     }
 }
 
