@@ -716,7 +716,7 @@ fn resolve_path(
     current
 }
 
-/// Look up the type of a field within a specific enum variant.
+/// Look up the type of a field within a specific variant of an enum, Option, or Result.
 fn lookup_variant_field_type(
     pool: &ori_types::Pool,
     enum_type: Idx,
@@ -724,14 +724,32 @@ fn lookup_variant_field_type(
     field_index: u32,
 ) -> Idx {
     let resolved = pool.resolve_fully(enum_type);
-    if pool.tag(resolved) != Tag::Enum {
-        return Idx::UNIT;
-    }
-    let variants = pool.enum_variants(resolved);
-    if let Some((_, fields)) = variants.get(variant_index as usize) {
-        if let Some(&field_ty) = fields.get(field_index as usize) {
-            return field_ty;
+    match pool.tag(resolved) {
+        Tag::Enum => {
+            let variants = pool.enum_variants(resolved);
+            if let Some((_, fields)) = variants.get(variant_index as usize) {
+                if let Some(&field_ty) = fields.get(field_index as usize) {
+                    return field_ty;
+                }
+            }
         }
+        Tag::Option => {
+            // Some (index 1) has one field (the inner type), None (index 0) has none.
+            if variant_index == 1 && field_index == 0 {
+                return pool.option_inner(resolved);
+            }
+        }
+        Tag::Result => {
+            // Ok (index 0) has one field (ok type), Err (index 1) has one field (err type).
+            if field_index == 0 {
+                return if variant_index == 0 {
+                    pool.result_ok(resolved)
+                } else {
+                    pool.result_err(resolved)
+                };
+            }
+        }
+        _ => {}
     }
     Idx::UNIT
 }

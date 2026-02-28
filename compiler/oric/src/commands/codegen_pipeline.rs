@@ -229,7 +229,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
     module_name: &str,
     symbol_prefix: &str,
     import_sigs: &[(Name, FunctionSig)],
-) -> ori_llvm::inkwell::module::Module<'ctx> {
+) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     use ori_llvm::codegen::function_compiler::FunctionCompiler;
     use ori_llvm::codegen::ir_builder::IrBuilder;
     use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
@@ -379,11 +379,42 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         }
     }
 
+    // Phase dump: annotated LLVM IR (gated behind ORI_DUMP_AFTER_LLVM=1 or
+    // ORI_DEBUG_LLVM=1). Runs BEFORE verify/clone so IR is visible even when
+    // the module has structural errors — mirrors the JIT path pattern.
+    if crate::llvm_dump::llvm_dump_requested() {
+        crate::llvm_dump::dump_llvm_ir(
+            &scx.llmod.print_to_string().to_string_lossy(),
+            pool,
+            interner,
+            source_path,
+        );
+    }
+
+    // Codegen audit (debug builds only, gated behind ORI_AUDIT_CODEGEN=1).
+    crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
+        let audit_report = ori_llvm::verify::audit_module(&scx.llmod);
+        audit_report.emit_to_stderr();
+        if audit_report.has_errors() {
+            return Err(format!(
+                "RC audit found {} error(s) — aborting",
+                audit_report.error_count()
+            ));
+        }
+    });
+
+    // Explicit LLVM IR verification. Done before clone() because inkwell's
+    // clone_module() internally verifies and panics on invalid IR — by
+    // verifying first, the IR dump above is already emitted for debugging.
+    if let Err(msg) = scx.llmod.verify() {
+        return Err(format!("LLVM IR verification failed: {msg}"));
+    }
+
     // SAFETY: ManuallyDrop is used only to suppress the borrow checker.
     // The compilation block's borrows have ended; we extract the module
     // by reading the field (Module implements Clone via LLVMCloneModule).
     // We can't call into_inner() because SimpleCx has other fields that
     // would be moved while the ManuallyDrop still exists, so we clone
     // the module instead.
-    scx.llmod.clone()
+    Ok(scx.llmod.clone())
 }

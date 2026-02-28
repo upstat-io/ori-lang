@@ -2,7 +2,7 @@
 /target/
 /target-llvm/
 **/target/
-/build/
+**/build/
 
 # Cargo lock for libraries (keep for binaries)
 # Cargo.lock  # We keep this since we have a binary
@@ -71,4 +71,5 @@ __pycache__/
 
 #claude
 .claude/discussions
+.claude/worktrees/
 scratchpad

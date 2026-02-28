@@ -31,6 +31,7 @@ pub mod scoping;
 pub mod sets;
 pub mod spec;
 pub mod stress;
+pub mod string_sso;
 pub mod strings;
 pub mod structs;
 pub mod traits;

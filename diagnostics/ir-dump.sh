@@ -119,16 +119,29 @@ if [[ "$OPTIMIZED" -eq 1 ]]; then
     fi
     cat "$ir_file" > "$tmpdir/ir_clean.txt"
 else
-    # Unoptimized IR: ORI_DEBUG_LLVM=1 dumps to stderr between markers
-    if ! ORI_DEBUG_LLVM=1 "$ORI" build "$FILE" -o "$tmpdir/out" 2>"$tmpdir/ir_raw.txt"; then
-        # Show build errors (strip any partial IR output)
-        grep -v "^=== \(LLVM IR\|END LLVM IR\)" "$tmpdir/ir_raw.txt" >&2 || true
-        echo "Error: compilation failed" >&2
-        exit 1
-    fi
+    # Unoptimized IR: ORI_DEBUG_LLVM=1 dumps to stderr between markers.
+    # The IR dump runs before verification/clone, so markers may be present
+    # even when the build subsequently fails (e.g., LLVM IR verification error).
+    build_exit=0
+    ORI_DEBUG_LLVM=1 "$ORI" build "$FILE" -o "$tmpdir/out" 2>"$tmpdir/ir_raw.txt" || build_exit=$?
+
     # Extract IR between markers, stripping the marker lines themselves
     sed -n '/^=== LLVM IR/,/^=== END LLVM IR ===/p' "$tmpdir/ir_raw.txt" | \
         sed '1d;$d' > "$tmpdir/ir_clean.txt"
+
+    if [[ "$build_exit" -ne 0 ]]; then
+        if [[ -s "$tmpdir/ir_clean.txt" ]]; then
+            # IR was captured before the failure — show it with a warning
+            echo "Warning: build failed (exit $build_exit) but IR was captured before the error" >&2
+            # Also show non-IR error lines so the user sees the failure reason
+            grep -v "^=== \(LLVM IR\|END LLVM IR\)" "$tmpdir/ir_raw.txt" | grep -v "^;" | head -20 >&2 || true
+        else
+            # No IR captured and build failed — nothing to show
+            grep -v "^=== \(LLVM IR\|END LLVM IR\)" "$tmpdir/ir_raw.txt" >&2 || true
+            echo "Error: compilation failed and no IR was captured" >&2
+            exit 1
+        fi
+    fi
 fi
 
 if [[ ! -s "$tmpdir/ir_clean.txt" ]]; then

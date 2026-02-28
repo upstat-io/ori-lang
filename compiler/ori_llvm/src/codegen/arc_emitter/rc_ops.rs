@@ -227,28 +227,87 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // FatPointer handlers
     // -----------------------------------------------------------------------
 
-    /// Inc a fat value (str = `{i64 len, ptr data}`).
+    /// Inc a fat value (str = `{i64 len, i64 cap, ptr data}`).
     ///
-    /// Data pointer is always at field 1. No Pool query needed.
+    /// Data pointer is always at field 2. SSO strings (inline, no heap)
+    /// are detected by the MSB of the data pointer field and skipped.
     fn emit_rc_inc_fat(&mut self, var: ArcVarId, count: u32) {
         let val = self.var(var);
-        let Some(data_ptr) = self.builder.extract_value(val, 1, "rc_inc.fat_data") else {
+        let Some(data_ptr) = self.builder.extract_value(val, 2, "rc_inc.fat_data") else {
             return;
         };
+        let do_inc = self
+            .builder
+            .append_block(self.current_function, "rc_inc.heap");
+        let skip = self
+            .builder
+            .append_block(self.current_function, "rc_inc.sso_skip");
+        let is_sso = self.emit_sso_check(data_ptr, "rc_inc");
+        self.builder.cond_br(is_sso, skip, do_inc);
+
+        self.builder.position_at_end(do_inc);
         self.call_rc_inc_all(&[data_ptr], count);
+        self.builder.br(skip);
+
+        self.builder.position_at_end(skip);
     }
 
     /// Dec a fat value.
     ///
-    /// Data pointer at field 1, drop function from the variable's type.
+    /// Data pointer at field 2, drop function from the variable's type.
+    /// SSO strings are detected and skipped (no heap allocation to free).
     fn emit_rc_dec_fat(&mut self, var: ArcVarId, func: &ArcFunction) {
         let val = self.var(var);
         let ty = func.var_type(var);
-        let Some(data_ptr) = self.builder.extract_value(val, 1, "rc_dec.fat_data") else {
+        let Some(data_ptr) = self.builder.extract_value(val, 2, "rc_dec.fat_data") else {
             return;
         };
+        let do_dec = self
+            .builder
+            .append_block(self.current_function, "rc_dec.heap");
+        let skip = self
+            .builder
+            .append_block(self.current_function, "rc_dec.sso_skip");
+        let is_sso = self.emit_sso_check(data_ptr, "rc_dec");
+        self.builder.cond_br(is_sso, skip, do_dec);
+
+        self.builder.position_at_end(do_dec);
         let drop_fn = self.get_or_generate_drop_fn(ty);
         self.call_rc_dec_all(&[data_ptr], drop_fn);
+        self.builder.br(skip);
+
+        self.builder.position_at_end(skip);
+    }
+
+    /// Check if a string's data pointer field indicates SSO (inline storage).
+    ///
+    /// SSO strings store inline bytes in the union. The SSO flag is the MSB
+    /// of byte 23 (the `flags` field). On little-endian x86-64, this maps to
+    /// the MSB of the pointer field. We also treat null pointers as "skip RC"
+    /// (empty heap strings have null data).
+    pub(super) fn emit_sso_check(
+        &mut self,
+        data_ptr: super::ValueId,
+        prefix: &str,
+    ) -> super::ValueId {
+        let i64_ty = self.builder.i64_type();
+        let ptr_int = self
+            .builder
+            .ptr_to_int(data_ptr, i64_ty, &format!("{prefix}.p2i"));
+        let sso_mask = self.builder.const_i64(i64::MIN); // 0x8000_0000_0000_0000
+        let masked = self
+            .builder
+            .and(ptr_int, sso_mask, &format!("{prefix}.sso_flag"));
+        let zero = self.builder.const_i64(0);
+        let is_sso = self
+            .builder
+            .icmp_ne(masked, zero, &format!("{prefix}.is_sso"));
+        // Also skip if null (empty heap strings)
+        let is_null = self
+            .builder
+            .is_null_ptr(data_ptr, &format!("{prefix}.null"));
+        self.builder
+            .or(is_sso, is_null, &format!("{prefix}.skip_rc"))
     }
 
     // -----------------------------------------------------------------------
@@ -390,10 +449,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Result
             | Tag::Enum => {}
 
-            // FatValue: data_ptr at field 1
+            // Str: SSO check + RC inc on heap data pointer
             Tag::Str => {
-                if let Some(dp) = self.builder.extract_value(val, 1, "rc_inc.data") {
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                    let do_inc = self
+                        .builder
+                        .append_block(self.current_function, "rc_inc.str_heap");
+                    let skip = self
+                        .builder
+                        .append_block(self.current_function, "rc_inc.str_skip");
+                    let is_sso = self.emit_sso_check(dp, "rc_inc.str");
+                    self.builder.cond_br(is_sso, skip, do_inc);
+
+                    self.builder.position_at_end(do_inc);
                     self.call_rc_inc_all(&[dp], count);
+                    self.builder.br(skip);
+
+                    self.builder.position_at_end(skip);
                 }
             }
 
@@ -497,11 +569,24 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             | Tag::Result
             | Tag::Enum => {}
 
-            // FatValue: data_ptr at field 1
+            // Str: SSO check + RC dec on heap data pointer
             Tag::Str => {
-                if let Some(dp) = self.builder.extract_value(val, 1, "rc_dec.data") {
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_dec.data") {
+                    let do_dec = self
+                        .builder
+                        .append_block(self.current_function, "rc_dec.str_heap");
+                    let skip = self
+                        .builder
+                        .append_block(self.current_function, "rc_dec.str_skip");
+                    let is_sso = self.emit_sso_check(dp, "rc_dec.str");
+                    self.builder.cond_br(is_sso, skip, do_dec);
+
+                    self.builder.position_at_end(do_dec);
                     let drop_fn = self.get_or_generate_drop_fn(ty);
                     self.call_rc_dec_all(&[dp], drop_fn);
+                    self.builder.br(skip);
+
+                    self.builder.position_at_end(skip);
                 }
             }
 

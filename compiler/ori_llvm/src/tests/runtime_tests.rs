@@ -10,10 +10,7 @@
 use crate::runtime::{self, OriStr};
 
 fn make_ori_str(s: &[u8]) -> OriStr {
-    OriStr {
-        len: s.len() as i64,
-        data: s.as_ptr(),
-    }
+    OriStr::from_bytes(s)
 }
 
 #[test]
@@ -213,104 +210,57 @@ fn test_ori_assert_eq_str_fails() {
 }
 
 #[test]
-#[allow(
-    unsafe_code,
-    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
-)]
 fn test_ori_str_from_int() {
     let result = runtime::ori_str_from_int(42);
-    assert!(result.len > 0);
-    assert!(!result.data.is_null());
-
-    let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
-    let s = std::str::from_utf8(slice).unwrap();
-    assert_eq!(s, "42");
+    assert!(!result.is_empty());
+    assert_eq!(unsafe { result.as_str() }, "42");
 }
 
 #[test]
-#[allow(
-    unsafe_code,
-    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
-)]
 fn test_ori_str_from_int_negative() {
     let result = runtime::ori_str_from_int(-123);
-    let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
-    let s = std::str::from_utf8(slice).unwrap();
-    assert_eq!(s, "-123");
+    assert_eq!(unsafe { result.as_str() }, "-123");
 }
 
 #[test]
-#[allow(
-    unsafe_code,
-    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
-)]
 fn test_ori_str_from_bool_true() {
     let result = runtime::ori_str_from_bool(true);
-    let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
-    let s = std::str::from_utf8(slice).unwrap();
-    assert_eq!(s, "true");
+    assert_eq!(unsafe { result.as_str() }, "true");
 }
 
 #[test]
-#[allow(
-    unsafe_code,
-    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
-)]
 fn test_ori_str_from_bool_false() {
     let result = runtime::ori_str_from_bool(false);
-    let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
-    let s = std::str::from_utf8(slice).unwrap();
-    assert_eq!(s, "false");
+    assert_eq!(unsafe { result.as_str() }, "false");
 }
 
 #[test]
-#[allow(
-    unsafe_code,
-    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
-)]
 fn test_ori_str_from_float() {
     // Use 2.5 instead of 3.14 to avoid clippy::approx_constant warning
     let result = runtime::ori_str_from_float(2.5);
-    assert!(result.len > 0);
-    assert!(!result.data.is_null());
-
-    let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
-    let s = std::str::from_utf8(slice).unwrap();
+    assert!(!result.is_empty());
+    let s = unsafe { result.as_str() };
     assert!(s.starts_with("2.5"));
 }
 
 #[test]
-#[allow(
-    unsafe_code,
-    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
-)]
 fn test_ori_str_concat() {
     let s1 = make_ori_str(b"hello");
     let s2 = make_ori_str(b"world");
 
     let result = runtime::ori_str_concat(&raw const s1, &raw const s2);
-    assert_eq!(result.len, 10);
-
-    let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
-    let s = std::str::from_utf8(slice).unwrap();
-    assert_eq!(s, "helloworld");
+    assert_eq!(result.len(), 10);
+    assert_eq!(unsafe { result.as_str() }, "helloworld");
 }
 
 #[test]
-#[allow(
-    unsafe_code,
-    reason = "runtime FFI returns raw pointers; unsafe needed to read results"
-)]
 fn test_ori_str_concat_empty() {
     let s1 = make_ori_str(b"");
     let s2 = make_ori_str(b"test");
 
     let result = runtime::ori_str_concat(&raw const s1, &raw const s2);
-    assert_eq!(result.len, 4);
-
-    let slice = unsafe { std::slice::from_raw_parts(result.data, result.len as usize) };
-    let s = std::str::from_utf8(slice).unwrap();
-    assert_eq!(s, "test");
+    assert_eq!(result.len(), 4);
+    assert_eq!(unsafe { result.as_str() }, "test");
 }
 
 #[test]
@@ -442,12 +392,11 @@ fn test_ori_args_from_argv_with_args() {
 
     // Clean up (in production, the runtime or RC handles this)
     unsafe {
-        // Free each string's data (raw-allocated in ori_args_from_argv)
+        // Free each string's heap data (SSO strings have no heap to free)
         for i in 0..2 {
             let s = &*elements.add(i);
-            if !s.data.is_null() && s.len > 0 {
-                let layout = std::alloc::Layout::array::<u8>(s.len as usize).unwrap();
-                std::alloc::dealloc(s.data as *mut u8, layout);
+            if let Some(ptr) = s.heap_data_ptr() {
+                runtime::ori_rc_free(ptr, s.heap.cap as usize, 1);
             }
         }
         // Free the list data array (RC-allocated via ori_rc_alloc)

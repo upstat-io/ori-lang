@@ -428,6 +428,44 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         Some(self.builder.load(list_ty, out, "sort.val"))
     }
+
+    /// Emit a stable sort (`TimSort`) — preserves relative order of equal elements.
+    /// Identical to `emit_list_sort_cow` but calls `ori_list_sort_stable_cow`.
+    pub(crate) fn emit_list_sort_stable_cow(
+        &mut self,
+        receiver: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let compare_fn_ptr = self.get_or_create_compare_thunk(elem_ty)?;
+
+        let func_id = self.builder.runtime_fn("ori_list_sort_stable_cow");
+
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty);
+        let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
+
+        let list_ty = self.list_struct_type();
+        let out =
+            self.builder
+                .create_entry_alloca(self.current_function, "sort_stable.out", list_ty);
+
+        self.builder.call(
+            func_id,
+            &[
+                data_ptr,
+                len,
+                cap,
+                elem_size_val,
+                elem_align_val,
+                compare_fn_ptr,
+                inc_fn,
+                out,
+            ],
+            "sort_stable",
+        );
+
+        Some(self.builder.load(list_ty, out, "sort_stable.val"))
+    }
 }
 
 // ---------------------------------------------------------------------------

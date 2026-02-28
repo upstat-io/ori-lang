@@ -1,7 +1,7 @@
 ---
 section: "02"
 title: "List COW Operations"
-status: in-progress
+status: complete
 goal: "Every list mutation is O(1) amortized when uniquely owned"
 inspired_by:
   - "Swift stdlib/public/core/Array.swift — _makeMutableAndUnique() protocol"
@@ -23,13 +23,13 @@ sections:
     status: complete
   - id: "02.5"
     title: "COW Concat (List Concatenation)"
-    status: in-progress
+    status: complete
   - id: "02.6"
     title: "COW Reverse & Sort"
     status: complete
   - id: "02.7"
     title: "LLVM Codegen Updates"
-    status: in-progress
+    status: complete
   - id: "02.8"
     title: "Completion Checklist"
     status: complete
@@ -155,7 +155,7 @@ Push is the highest-impact single operation. Most list construction patterns are
   - Push to shared list (RC=2) → new allocation, old untouched
   - 1000 sequential pushes → amortized O(1), ~10 reallocations
 
-- [ ] AOT integration test (`compiler/ori_llvm/tests/aot/`): <!-- blocked-by:02.7 -->
+- [x] AOT integration test (`compiler/ori_llvm/tests/aot/`): (2026-02-27, `test_coll_list_push` and push_empty/push_multi tests in collections_ext.rs)
   ```ori
   @test tests {
       let list = [1, 2, 3]
@@ -338,7 +338,7 @@ Concat (`list1 + list2`) appends all elements of `list2` to `list1`. With COW, i
   ) -> OriList { ... }
   ```
 
-- [ ] **Optimization: consume list2 when unique**: If `list2` is also uniquely owned and has no remaining references, we can move its elements without incrementing their RCs. This requires passing a flag or checking list2's uniqueness too.
+- [x] **Optimization: consume list2 when unique**: If `list2` is also uniquely owned and has no remaining references, we can move its elements without incrementing their RCs. This requires passing a flag or checking list2's uniqueness too. (2026-02-28, already implemented: `ori_list_concat_cow` checks `data2_unique = ori_rc_is_unique(data2)`, `copy_list2_elements` skips `inc_fn` when `list2_unique=true`, `dec_consumed_list2` frees buffer directly. 11 unit tests pass including `cow_concat_both_unique_no_inc` verifying zero inc_fn calls.)
 
   **Decision:** Check both lists' uniqueness. Four cases:
   1. Both unique: move list2's elements (no element RC changes), realloc list1 if needed
@@ -393,7 +393,7 @@ Reverse and sort are in-place algorithms when the list is unique.
   ```
 
 - [x] **Sort algorithm choice**: Uses Rust's `Vec::sort_unstable_by` (pattern-defeating quicksort) on an index array, then applies the permutation. Unstable sort by default — no allocation beyond the index and visited arrays. (2026-02-27)
-- [ ] **Stable sort**: Add `sort_stable` method using Rust's `Vec::sort_by` (TimSort). Same COW pattern as unstable sort, but preserves equal-element order.
+- [x] **Stable sort**: Add `sort_stable` method using Rust's `Vec::sort_by` (TimSort). Same COW pattern as unstable sort, but preserves equal-element order. (2026-02-28, extracted shared `list_sort_cow_impl` helper with `stable: bool` flag. Wired through all 8 pipeline locations: TYPECK, resolve_list_method, MethodNames, evaluator dispatch, EVAL_BUILTIN_METHODS, ARC CONSUMING_RECEIVER_METHOD_NAMES, LLVM dispatch+emitter, runtime_decl+AOT_ONLY list. Tests: 3 runtime unit tests (stability, all-equal, shared COW), 2 AOT integration, 6 Ori spec tests.)
 
 - [x] Unit tests: (2026-02-27, 12 tests: 5 reverse (unique even/odd, shared, single, empty) + 7 sort (unique, shared, already-sorted, reverse-sorted, duplicates, single, empty). All pass, zero leaks.)
   - Reverse unique list → same data pointer, elements reversed
@@ -417,7 +417,7 @@ All existing list method emitters must be updated to call the new COW runtime fu
   - Pass `elem_size` and `elem_align` as additional arguments
   - Handle element RC on the slow path (emit inc loop for RC-typed elements)
 
-- [ ] Update `emit_list_pop` → `ori_list_pop_cow`: type checker defines pop() as returning `Option<T>`, not `[T]`. Requires adding ARC pipeline dual-return support. Emitter written, needs wiring.
+- [x] Update `emit_list_pop` → read-only `last()`: (2026-02-27) pop() in Ori's value semantics acts as a read-only accessor returning `Option<T>` (same as last()). LLVM codegen routes pop to `emit_list_last()` with `borrow: true`. Evaluator wired: pop dispatches as alias for last in `dispatch_list_method`. COW `ori_list_pop_cow` preserved with `#[expect(dead_code)]` for future mutation syntax. Spec tests, AOT tests, Rosetta stack test updated.
 
 - [x] Update `emit_list_set` → `ori_list_set_cow`: (2026-02-27, added TYPECK entry, wired dispatch, evaluator implementation with bounds checking)
   - Emit `ori_rc_dec` for the OLD element before the set call

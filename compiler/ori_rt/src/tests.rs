@@ -24,6 +24,17 @@ fn lock_rc() -> MutexGuard<'static, ()> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Free a heap `OriStr`'s RC allocation in tests.
+///
+/// Calls `ori_rc_free` with the capacity (= actual allocation size), which
+/// decrements `RC_LIVE_COUNT` and frees memory. No-op for SSO strings.
+fn free_heap_str(s: &OriStr) {
+    if let Some(ptr) = s.heap_data_ptr() {
+        let alloc_size = unsafe { s.heap.cap as usize };
+        ori_rc_free(ptr, alloc_size, 1);
+    }
+}
+
 // ── Basic RC lifecycle ──────────────────────────────────────────────────
 
 #[test]
@@ -937,11 +948,747 @@ fn list_empty_sentinel_is_null() {
     assert!(ptr.is_null(), "empty list sentinel should be null pointer");
 }
 
+// SSO (Small String Optimization) tests
+
 #[test]
-fn str_empty_sentinel_is_null() {
+fn sso_layout_is_24_bytes() {
+    assert_eq!(std::mem::size_of::<OriStr>(), 24);
+    assert_eq!(std::mem::align_of::<OriStr>(), 8);
+}
+
+#[test]
+fn sso_empty_string() {
+    let s = OriStr::EMPTY;
+    assert!(s.is_sso(), "empty string should be SSO");
+    assert_eq!(s.len(), 0);
+    assert!(s.is_empty());
+    assert_eq!(s.as_bytes(), &[]);
+    assert_eq!(unsafe { s.as_str() }, "");
+    assert!(s.heap_data_ptr().is_none(), "SSO has no heap data");
+}
+
+#[test]
+fn sso_empty_sentinel_matches_const() {
     let s = ori_str_empty();
-    assert_eq!(s.len, 0);
-    assert!(s.data.is_null(), "sentinel str data should be null");
+    assert!(s.is_sso());
+    assert_eq!(s.len(), 0);
+    assert!(s.is_empty());
+}
+
+#[test]
+fn sso_one_byte_string() {
+    let s = OriStr::from_sso(b"x");
+    assert!(s.is_sso());
+    assert_eq!(s.len(), 1);
+    assert!(!s.is_empty());
+    assert_eq!(s.as_bytes(), b"x");
+    assert_eq!(unsafe { s.as_str() }, "x");
+    assert!(s.heap_data_ptr().is_none());
+}
+
+#[test]
+fn sso_max_length_23_bytes() {
+    let data = b"abcdefghijklmnopqrstuvw"; // exactly 23 bytes
+    assert_eq!(data.len(), 23);
+    let s = OriStr::from_sso(data);
+    assert!(s.is_sso());
+    assert_eq!(s.len(), 23);
+    assert_eq!(s.as_bytes(), data.as_slice());
+    assert_eq!(unsafe { s.as_str() }, "abcdefghijklmnopqrstuvw");
+    assert!(s.heap_data_ptr().is_none());
+}
+
+#[test]
+fn sso_from_bytes_chooses_sso_for_short() {
+    let s = OriStr::from_bytes(b"hello");
+    assert!(s.is_sso());
+    assert_eq!(s.len(), 5);
+    assert_eq!(unsafe { s.as_str() }, "hello");
+}
+
+#[test]
+fn sso_from_bytes_chooses_heap_for_long() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let data = b"this is a string that exceeds twenty-three bytes";
+    assert!(data.len() > 23);
+    let s = OriStr::from_bytes(data);
+    assert!(!s.is_sso(), "long string should be heap");
+    assert_eq!(s.len(), data.len());
+    assert_eq!(s.as_bytes(), data.as_slice());
+    assert_eq!(
+        unsafe { s.as_str() },
+        "this is a string that exceeds twenty-three bytes"
+    );
+    assert!(s.heap_data_ptr().is_some(), "heap string has data pointer");
+    // Verify RC was allocated
+    let after = ori_rc_live_count();
+    assert_eq!(after, before + 1, "heap string should allocate 1 RC object");
+    // Clean up
+    free_heap_str(&s);
+}
+
+#[test]
+fn sso_from_owned_short_string() {
+    let s = OriStr::from_owned("hi");
+    assert!(s.is_sso());
+    assert_eq!(s.len(), 2);
+    assert_eq!(unsafe { s.as_str() }, "hi");
+}
+
+#[test]
+fn sso_from_owned_long_string() {
+    let _g = lock_rc();
+    let long = "a".repeat(50);
+    let s = OriStr::from_owned(&long);
+    assert!(!s.is_sso());
+    assert_eq!(s.len(), 50);
+    assert_eq!(unsafe { s.as_str() }, &long);
+    // Clean up
+    free_heap_str(&s);
+}
+
+#[test]
+fn sso_from_raw_short() {
+    let data = b"test";
+    let s = ori_str_from_raw(data.as_ptr(), 4);
+    assert!(s.is_sso(), "4-byte from_raw should use SSO");
+    assert_eq!(s.len(), 4);
+    assert_eq!(unsafe { s.as_str() }, "test");
+}
+
+#[test]
+fn sso_from_raw_empty() {
+    let s = ori_str_from_raw(std::ptr::null(), 0);
+    assert!(s.is_sso());
+    assert_eq!(s.len(), 0);
+    assert!(s.is_empty());
+}
+
+#[test]
+fn sso_from_raw_long() {
+    let _g = lock_rc();
+    let data = b"this is definitely longer than twenty three bytes!";
+    let s = ori_str_from_raw(data.as_ptr(), data.len() as i64);
+    assert!(!s.is_sso());
+    assert_eq!(s.len(), data.len());
+    assert_eq!(
+        unsafe { s.as_str() },
+        "this is definitely longer than twenty three bytes!"
+    );
+    free_heap_str(&s);
+}
+
+#[test]
+fn sso_from_bool_uses_sso() {
+    let t = ori_str_from_bool(true);
+    let f = ori_str_from_bool(false);
+    assert!(t.is_sso(), "'true' (4 bytes) should be SSO");
+    assert!(f.is_sso(), "'false' (5 bytes) should be SSO");
+    assert_eq!(unsafe { t.as_str() }, "true");
+    assert_eq!(unsafe { f.as_str() }, "false");
+}
+
+#[test]
+fn sso_from_int_short() {
+    let s = ori_str_from_int(42);
+    assert!(s.is_sso(), "'42' (2 bytes) should be SSO");
+    assert_eq!(unsafe { s.as_str() }, "42");
+}
+
+#[test]
+fn sso_heap_data_ptr_returns_valid_pointer() {
+    let _g = lock_rc();
+    let s = OriStr::from_heap(b"heap string that is long enough");
+    assert!(!s.is_sso());
+    let ptr = s.heap_data_ptr();
+    assert!(ptr.is_some());
+    // Verify the pointer is valid by checking RC
+    assert_eq!(ori_rc_count(ptr.unwrap()), 1);
+    free_heap_str(&s);
+}
+
+#[test]
+fn sso_discriminator_is_reliable() {
+    // SSO strings: byte 23 has high bit set
+    let empty = OriStr::EMPTY;
+    let short = OriStr::from_sso(b"a");
+    let max = OriStr::from_sso(&[b'z'; 23]);
+    assert!(empty.is_sso());
+    assert!(short.is_sso());
+    assert!(max.is_sso());
+
+    // Heap strings: byte 23 has high bit clear (canonical addressing)
+    let _g = lock_rc();
+    let heap = OriStr::from_heap(b"long enough to be heap allocated!!");
+    assert!(!heap.is_sso());
+    free_heap_str(&heap);
+}
+
+#[test]
+fn sso_utf8_multibyte() {
+    // UTF-8 multibyte chars: "café" = 5 bytes (c, a, f, 0xC3, 0xA9)
+    let s = OriStr::from_bytes("café".as_bytes());
+    assert!(s.is_sso(), "5-byte UTF-8 string should be SSO");
+    assert_eq!(s.len(), 5);
+    assert_eq!(unsafe { s.as_str() }, "café");
+
+    // Emoji: "🎉" = 4 bytes
+    let s = OriStr::from_bytes("🎉".as_bytes());
+    assert!(s.is_sso());
+    assert_eq!(s.len(), 4);
+    assert_eq!(unsafe { s.as_str() }, "🎉");
+}
+
+// Capacity tracking and SSO→heap promotion tests
+
+#[test]
+fn sso_promote_to_heap() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"hello");
+    assert!(s.is_sso());
+    let heap = s.promote_to_heap(32);
+    assert!(!heap.is_sso(), "promoted string should be heap");
+    assert_eq!(heap.len(), 5);
+    assert_eq!(unsafe { heap.as_str() }, "hello");
+    unsafe {
+        assert!(heap.heap.cap >= 32, "capacity should be at least min_cap");
+    }
+    free_heap_str(&heap);
+}
+
+#[test]
+fn sso_promote_empty_to_heap() {
+    let _g = lock_rc();
+    let s = OriStr::EMPTY;
+    let heap = s.promote_to_heap(16);
+    assert!(!heap.is_sso());
+    assert_eq!(heap.len(), 0);
+    unsafe {
+        assert!(heap.heap.cap >= 16);
+    }
+    free_heap_str(&heap);
+}
+
+#[test]
+fn heap_with_capacity() {
+    let _g = lock_rc();
+    let s = OriStr::with_capacity(64);
+    assert!(!s.is_sso(), "with_capacity always creates heap");
+    assert_eq!(s.len(), 0);
+    unsafe {
+        assert_eq!(s.heap.cap, 64);
+    }
+    free_heap_str(&s);
+}
+
+#[test]
+fn heap_ensure_capacity_no_realloc_when_sufficient() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let mut s = OriStr::from_heap(&[b'a'; 30]); // 30-byte heap string
+    assert!(!s.is_sso());
+    let old_cap = unsafe { s.heap.cap };
+    let old_ptr = s.heap_data_ptr().unwrap();
+    s.ensure_capacity(30); // already have capacity
+    let new_ptr = s.heap_data_ptr().unwrap();
+    assert_eq!(old_ptr, new_ptr, "should not reallocate");
+    assert_eq!(unsafe { s.heap.cap }, old_cap);
+    free_heap_str(&s);
+    assert_eq!(ori_rc_live_count(), before);
+}
+
+#[test]
+fn heap_ensure_capacity_reallocs_when_needed() {
+    let _g = lock_rc();
+    let mut s = OriStr::from_heap(&[b'b'; 30]); // cap=30
+    assert_eq!(s.len(), 30);
+    s.ensure_capacity(100); // need more
+    unsafe {
+        assert!(s.heap.cap >= 100, "cap should grow to at least 100");
+    }
+    assert_eq!(s.len(), 30, "length should not change");
+    assert_eq!(s.as_bytes(), &[b'b'; 30], "data should be preserved");
+    free_heap_str(&s);
+}
+
+#[test]
+fn heap_from_heap_sets_cap_equal_to_len() {
+    let _g = lock_rc();
+    let s = OriStr::from_heap(b"test data here!!");
+    assert!(!s.is_sso());
+    unsafe {
+        assert_eq!(s.heap.cap, s.heap.len, "from_heap sets cap = len");
+    }
+    free_heap_str(&s);
+}
+
+// SSO + SSO → SSO (combined ≤ 23 bytes)
+#[test]
+fn concat_sso_sso_to_sso() {
+    let _g = lock_rc();
+    let a = OriStr::from_sso(b"hello ");
+    let b = OriStr::from_sso(b"world");
+    let result = ori_str_concat(&a, &b);
+    assert!(result.is_sso(), "short concat should stay SSO");
+    assert_eq!(unsafe { result.as_str() }, "hello world");
+    assert_eq!(result.len(), 11);
+}
+
+// SSO + SSO → heap (combined > 23 bytes)
+#[test]
+fn concat_sso_sso_to_heap() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let a = OriStr::from_sso(b"twelve chars!"); // 12 bytes
+    let b = OriStr::from_sso(b"twelve chars!"); // 12 bytes → combined 24 > 23
+    let result = ori_str_concat(&a, &b);
+    assert!(
+        !result.is_sso(),
+        "combined > 23 bytes should promote to heap"
+    );
+    assert_eq!(unsafe { result.as_str() }, "twelve chars!twelve chars!");
+    assert_eq!(result.len(), 26);
+    assert_eq!(ori_rc_live_count(), before + 1);
+    free_heap_str(&result);
+}
+
+// Heap unique with capacity → in-place append
+#[test]
+fn concat_heap_unique_with_capacity_inplace() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    // Content must be long enough that a + b > SSO_MAX_LEN (23),
+    // otherwise Case 1 (SSO) triggers before Case 2 (in-place).
+    let content = b"this exceeds sso limit!"; // 23 bytes
+    let mut a = OriStr::with_capacity(64);
+    assert!(!a.is_sso());
+    unsafe {
+        std::ptr::copy_nonoverlapping(content.as_ptr(), a.heap.data, content.len());
+        a.heap.len = content.len() as i64;
+    }
+    let alloc_count_after_a = ori_rc_live_count();
+    assert_eq!(alloc_count_after_a, before + 1);
+
+    let b = OriStr::from_sso(b"x"); // 23 + 1 = 24 > 23 → forces heap path
+    let result = ori_str_concat(&a, &b);
+    assert!(!result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "this exceeds sso limit!x");
+    // Should reuse the same allocation — no new alloc
+    assert_eq!(
+        ori_rc_live_count(),
+        alloc_count_after_a,
+        "in-place append should not allocate"
+    );
+    unsafe {
+        assert_eq!(result.heap.data, a.heap.data, "should reuse same buffer");
+    }
+    free_heap_str(&result);
+}
+
+// Heap unique without capacity → fresh allocation (borrow semantics)
+#[test]
+fn concat_heap_unique_no_capacity_realloc() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    // from_heap sets cap = len, so no spare capacity
+    let a = OriStr::from_heap(b"hello from the heap side!");
+    assert!(!a.is_sso());
+    assert_eq!(ori_rc_live_count(), before + 1);
+
+    let b = OriStr::from_sso(b" more!");
+    let result = ori_str_concat(&a, &b);
+    assert!(!result.is_sso());
+    assert_eq!(
+        unsafe { result.as_str() },
+        "hello from the heap side! more!"
+    );
+    // Borrow semantics: concat doesn't consume `a`, so both are live
+    assert_eq!(ori_rc_live_count(), before + 2);
+    free_heap_str(&a);
+    free_heap_str(&result);
+}
+
+// Heap shared + SSO → new allocation
+#[test]
+fn concat_heap_shared_new_alloc() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let a = OriStr::from_heap(b"shared string data here!");
+    assert!(!a.is_sso());
+    // Add a second reference so it's shared (not unique)
+    unsafe {
+        ori_rc_inc(a.heap.data);
+    }
+    assert!(!ori_rc_is_unique(unsafe { a.heap.data }));
+
+    let b = OriStr::from_sso(b" extra");
+    let result = ori_str_concat(&a, &b);
+    assert!(!result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "shared string data here! extra");
+    // Should be a new allocation (2 live: original shared + new)
+    assert_eq!(ori_rc_live_count(), before + 2);
+
+    // Clean up: dec the extra ref on a, then free both
+    ori_rc_dec(unsafe { a.heap.data }, None);
+    free_heap_str(&a);
+    free_heap_str(&result);
+}
+
+// Empty + any → return other side (no allocation)
+#[test]
+fn concat_empty_returns_other() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+
+    let a = OriStr::EMPTY;
+    let b = OriStr::from_sso(b"hello");
+    let result = ori_str_concat(&a, &b);
+    assert_eq!(unsafe { result.as_str() }, "hello");
+    assert_eq!(
+        ori_rc_live_count(),
+        before,
+        "empty + sso should not allocate"
+    );
+
+    let result2 = ori_str_concat(&b, &a);
+    assert_eq!(unsafe { result2.as_str() }, "hello");
+    assert_eq!(
+        ori_rc_live_count(),
+        before,
+        "sso + empty should not allocate"
+    );
+}
+
+// Null pointers handled safely
+#[test]
+fn concat_null_pointers() {
+    let _g = lock_rc();
+    let a = OriStr::from_sso(b"test");
+    let result = ori_str_concat(&a, std::ptr::null());
+    assert_eq!(unsafe { result.as_str() }, "test");
+
+    let result2 = ori_str_concat(std::ptr::null(), &a);
+    assert_eq!(unsafe { result2.as_str() }, "test");
+
+    let result3 = ori_str_concat(std::ptr::null(), std::ptr::null());
+    assert_eq!(unsafe { result3.as_str() }, "");
+}
+
+// Chain of 100 concats on unique string with proper cleanup (borrow semantics)
+#[test]
+fn concat_chain_amortized_growth() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    // Start > 23 bytes so every concat stays in heap territory
+    let seed = b"this seed exceeds sso!!"; // 23 bytes
+    let mut s = OriStr::from_heap(seed);
+    let chunk = OriStr::from_sso(b"x");
+    for _ in 0..100 {
+        let old = s;
+        s = ori_str_concat(&old, &chunk);
+        // Borrow semantics: concat doesn't consume `old`, so we must release it.
+        // Case 2 (in-place append) shares data pointer → RC was inc'd to 2,
+        // so dec brings to 1. Case 4 (fresh alloc) leaves old at RC=1, so
+        // free releases it.
+        if let Some(old_ptr) = old.heap_data_ptr() {
+            let new_ptr = s.heap_data_ptr();
+            if new_ptr == Some(old_ptr) {
+                // Case 2: shared allocation, just dec (RC: 2 → 1)
+                ori_rc_dec(old_ptr, None);
+            } else {
+                // Case 4: different allocation, free the old one
+                free_heap_str(&old);
+            }
+        }
+    }
+    assert_eq!(s.len(), seed.len() + 100);
+    assert!(unsafe { s.as_str() }.starts_with("this seed exceeds sso!!"));
+    assert_eq!(
+        unsafe { &s.as_str()[seed.len()..] },
+        "x".repeat(100).as_str()
+    );
+    // After proper cleanup, only the final string is live
+    assert_eq!(
+        ori_rc_live_count(),
+        before + 1,
+        "chain with cleanup should end with single allocation"
+    );
+    free_heap_str(&s);
+}
+
+// Verify capacity grows with amortized doubling
+#[test]
+fn concat_capacity_growth_is_amortized() {
+    let _g = lock_rc();
+    // Both sides must combine to > 23 bytes, so we exercise the heap path
+    let a = OriStr::from_heap(b"seed data exceeding sso!"); // 24 bytes, cap = len = 24
+    let b = OriStr::from_sso(b"!");
+    let result = ori_str_concat(&a, &b);
+    assert!(!result.is_sso());
+    unsafe {
+        // Fresh allocation uses next_capacity for amortized growth
+        assert!(
+            result.heap.cap > result.heap.len,
+            "capacity {} should exceed len {} after growth",
+            result.heap.cap,
+            result.heap.len,
+        );
+    }
+    // Borrow semantics: both `a` and `result` are live
+    free_heap_str(&a);
+    free_heap_str(&result);
+}
+
+// UTF-8 multibyte concat stays valid
+#[test]
+fn concat_utf8_multibyte() {
+    let _g = lock_rc();
+    let a = OriStr::from_sso("héllo".as_bytes());
+    let b = OriStr::from_sso(" wörld".as_bytes());
+    let result = ori_str_concat(&a, &b);
+    assert_eq!(unsafe { result.as_str() }, "héllo wörld");
+    // "héllo" = 6 bytes, " wörld" = 7 bytes → 13 ≤ 23 → SSO
+    assert!(result.is_sso());
+    assert_eq!(result.len(), 13);
+}
+
+// ── COW string transforms ──────────────────────────────────────────────
+
+// to_uppercase: SSO ASCII → mutate SSO bytes in place
+#[test]
+fn uppercase_sso_ascii() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"hello");
+    let result = ori_str_to_uppercase(&s);
+    assert!(result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "HELLO");
+}
+
+// to_uppercase: heap unique ASCII → in-place mutation
+#[test]
+fn uppercase_heap_unique_inplace() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let s = OriStr::from_heap(b"hello from the heap side!!");
+    assert!(!s.is_sso());
+    assert_eq!(ori_rc_live_count(), before + 1);
+
+    let result = ori_str_to_uppercase(&s);
+    assert!(!result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "HELLO FROM THE HEAP SIDE!!");
+    // In-place: no new allocation
+    assert_eq!(ori_rc_live_count(), before + 1);
+    free_heap_str(&result);
+}
+
+// to_uppercase: heap shared ASCII → new allocation
+#[test]
+fn uppercase_heap_shared_new_alloc() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let s = OriStr::from_heap(b"shared string on heap!!!");
+    unsafe {
+        ori_rc_inc(s.heap.data);
+    } // make shared
+    assert_eq!(ori_rc_live_count(), before + 1);
+
+    let result = ori_str_to_uppercase(&s);
+    assert_eq!(unsafe { result.as_str() }, "SHARED STRING ON HEAP!!!");
+    // New allocation for the result
+    assert_eq!(ori_rc_live_count(), before + 2);
+
+    ori_rc_dec(unsafe { s.heap.data }, None);
+    free_heap_str(&s);
+    free_heap_str(&result);
+}
+
+// to_uppercase: non-ASCII falls through to Rust's to_uppercase
+#[test]
+fn uppercase_non_ascii() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso("café".as_bytes());
+    let result = ori_str_to_uppercase(&s);
+    assert_eq!(unsafe { result.as_str() }, "CAFÉ");
+}
+
+// to_lowercase: SSO ASCII
+#[test]
+fn lowercase_sso_ascii() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"HELLO");
+    let result = ori_str_to_lowercase(&s);
+    assert!(result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "hello");
+}
+
+// to_lowercase: heap unique ASCII → in-place
+#[test]
+fn lowercase_heap_unique_inplace() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let s = OriStr::from_heap(b"HELLO FROM THE HEAP SIDE!!");
+    let result = ori_str_to_lowercase(&s);
+    assert_eq!(unsafe { result.as_str() }, "hello from the heap side!!");
+    assert_eq!(ori_rc_live_count(), before + 1);
+    free_heap_str(&result);
+}
+
+// trim: removes whitespace, returns SSO for short results
+#[test]
+fn trim_removes_whitespace() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"  hello  ");
+    let result = ori_str_trim(&s);
+    assert!(result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "hello");
+}
+
+// trim: empty result
+#[test]
+fn trim_all_whitespace() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"   ");
+    let result = ori_str_trim(&s);
+    assert!(result.is_sso());
+    assert_eq!(result.len(), 0);
+}
+
+// replace: same-length on unique heap → in-place
+#[test]
+fn replace_same_length_heap_inplace() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let s = OriStr::from_heap(b"hello world, hello earth!");
+    let from = OriStr::from_sso(b"hello");
+    let to = OriStr::from_sso(b"HELLO");
+    let result = ori_str_replace(&s, &from, &to);
+    assert_eq!(unsafe { result.as_str() }, "HELLO world, HELLO earth!");
+    assert_eq!(ori_rc_live_count(), before + 1);
+    free_heap_str(&result);
+}
+
+// replace: different-length → new allocation
+#[test]
+fn replace_different_length() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"hello world");
+    let from = OriStr::from_sso(b"world");
+    let to = OriStr::from_sso(b"everyone");
+    let result = ori_str_replace(&s, &from, &to);
+    assert_eq!(unsafe { result.as_str() }, "hello everyone");
+}
+
+// repeat: SSO result
+#[test]
+fn repeat_sso_result() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let s = OriStr::from_sso(b"ab");
+    let result = ori_str_repeat(&s, 5);
+    assert!(result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "ababababab");
+    assert_eq!(
+        ori_rc_live_count(),
+        before,
+        "SSO repeat should not allocate"
+    );
+}
+
+// repeat: heap result with exact capacity
+#[test]
+fn repeat_heap_exact_capacity() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let s = OriStr::from_sso(b"abc");
+    let result = ori_str_repeat(&s, 10); // 30 bytes > 23
+    assert!(!result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "abcabcabcabcabcabcabcabcabcabc");
+    assert_eq!(result.len(), 30);
+    unsafe {
+        assert_eq!(result.heap.cap, 30, "repeat should use exact capacity");
+    }
+    assert_eq!(ori_rc_live_count(), before + 1);
+    free_heap_str(&result);
+}
+
+// repeat: count=0 → empty
+#[test]
+fn repeat_zero_count() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"hello");
+    let result = ori_str_repeat(&s, 0);
+    assert!(result.is_sso());
+    assert_eq!(result.len(), 0);
+}
+
+// repeat: count=1 → return input
+#[test]
+fn repeat_one_count() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"hello");
+    let result = ori_str_repeat(&s, 1);
+    assert_eq!(unsafe { result.as_str() }, "hello");
+}
+
+// push_char: SSO + ASCII char → SSO
+#[test]
+fn push_char_sso_ascii() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let s = OriStr::from_sso(b"hello");
+    let result = ori_str_push_char(&s, u32::from(b'!'));
+    assert!(result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "hello!");
+    assert_eq!(
+        ori_rc_live_count(),
+        before,
+        "SSO push_char should not allocate"
+    );
+}
+
+// push_char: SSO + multibyte char → SSO
+#[test]
+fn push_char_sso_multibyte() {
+    let _g = lock_rc();
+    let s = OriStr::from_sso(b"caf");
+    let result = ori_str_push_char(&s, 0xE9); // 'é'
+    assert!(result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "café");
+    assert_eq!(result.len(), 5); // 3 + 2 bytes for é
+}
+
+// push_char: heap unique with capacity → in-place
+#[test]
+fn push_char_heap_inplace() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let content = b"this exceeds sso limit!"; // 23 bytes
+    let mut s = OriStr::with_capacity(64);
+    unsafe {
+        std::ptr::copy_nonoverlapping(content.as_ptr(), s.heap.data, content.len());
+        s.heap.len = content.len() as i64;
+    }
+    assert_eq!(ori_rc_live_count(), before + 1);
+
+    let result = ori_str_push_char(&s, u32::from(b'x'));
+    assert_eq!(unsafe { result.as_str() }, "this exceeds sso limit!x");
+    assert_eq!(
+        ori_rc_live_count(),
+        before + 1,
+        "in-place push should not allocate"
+    );
+    free_heap_str(&result);
+}
+
+// push_char: empty + char → SSO
+#[test]
+fn push_char_empty_string() {
+    let _g = lock_rc();
+    let s = OriStr::EMPTY;
+    let result = ori_str_push_char(&s, u32::from(b'x'));
+    assert!(result.is_sso());
+    assert_eq!(unsafe { result.as_str() }, "x");
 }
 
 #[test]
@@ -2835,6 +3582,159 @@ fn cow_sort_empty_unchanged() {
     let (len, _, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 0);
     assert!(result_data.is_null());
+}
+
+// ── COW list stable sort (ori_list_sort_stable_cow) ──────────────────
+
+/// Stability test: elements with equal keys preserve their original order.
+/// We sort pairs (key, id) by key — ids should stay in insertion order for equal keys.
+/// Encode as i64: high 32 bits = key, low 32 bits = id.
+fn encode_pair(key: i32, id: i32) -> i64 {
+    (i64::from(key) << 32) | (i64::from(id) & 0xFFFF_FFFF)
+}
+fn decode_id(val: i64) -> i32 {
+    val as i32
+}
+
+/// Compare only the high 32 bits (the "key" portion).
+extern "C" fn compare_by_key(a: *const u8, b: *const u8) -> i32 {
+    let a_val = unsafe { a.cast::<i64>().read() };
+    let b_val = unsafe { b.cast::<i64>().read() };
+    let a_key = (a_val >> 32) as i32;
+    let b_key = (b_val >> 32) as i32;
+    a_key.cmp(&b_key) as i32
+}
+
+#[test]
+fn cow_sort_stable_preserves_equal_element_order() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+
+    // Elements: (key=1,id=0), (key=2,id=1), (key=1,id=2), (key=3,id=3), (key=2,id=4)
+    // Stable sort by key should give: (1,0),(1,2),(2,1),(2,4),(3,3)
+    let elems = [
+        encode_pair(1, 0),
+        encode_pair(2, 1),
+        encode_pair(1, 2),
+        encode_pair(3, 3),
+        encode_pair(2, 4),
+    ];
+    let data = rc_alloc_i64_list(&elems, 5);
+
+    let mut out = [0u8; 24];
+    ori_list_sort_stable_cow(
+        data,
+        5,
+        5,
+        es as i64,
+        8,
+        compare_by_key,
+        None,
+        out.as_mut_ptr(),
+    );
+
+    let (len, _, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 5);
+
+    // Verify stability: ids within each key group are in original insertion order
+    let result_ids: Vec<i32> = (0..5)
+        .map(|i| unsafe { decode_id(result_data.cast::<i64>().add(i).read()) })
+        .collect();
+    assert_eq!(
+        result_ids,
+        vec![0, 2, 1, 4, 3],
+        "stable sort preserves equal-element order"
+    );
+
+    ori_rc_free(result_data, 5 * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_sort_unstable_may_not_preserve_order() {
+    // This test verifies that sort_stable and sort_unstable CAN differ on ordering
+    // of equal elements. We don't assert that unstable MUST reorder (it may or may not),
+    // but we verify stable sort is deterministic.
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+
+    let elems = [
+        encode_pair(1, 0),
+        encode_pair(1, 1),
+        encode_pair(1, 2),
+        encode_pair(1, 3),
+    ];
+    let data = rc_alloc_i64_list(&elems, 4);
+
+    let mut out = [0u8; 24];
+    ori_list_sort_stable_cow(
+        data,
+        4,
+        4,
+        es as i64,
+        8,
+        compare_by_key,
+        None,
+        out.as_mut_ptr(),
+    );
+
+    let (len, _, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 4);
+
+    // All keys equal — stable sort MUST preserve original order
+    let result_ids: Vec<i32> = (0..4)
+        .map(|i| unsafe { decode_id(result_data.cast::<i64>().add(i).read()) })
+        .collect();
+    assert_eq!(
+        result_ids,
+        vec![0, 1, 2, 3],
+        "stable sort: all-equal keys preserve order"
+    );
+
+    ori_rc_free(result_data, 4 * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_sort_stable_shared_copies() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+
+    let data = rc_alloc_i64_list(&[30, 10, 20], 4);
+    ori_rc_inc(data); // RC=2, shared
+    let original_ptr = data;
+
+    let mut out = [0u8; 24];
+    ori_list_sort_stable_cow(
+        data,
+        3,
+        4,
+        es as i64,
+        8,
+        compare_i64_asc,
+        None,
+        out.as_mut_ptr(),
+    );
+
+    let (len, _, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 3);
+    assert_ne!(
+        result_data, original_ptr,
+        "SLOW PATH: different pointer (shared)"
+    );
+
+    // Verify sorted
+    let vals: Vec<i64> = (0..3)
+        .map(|i| unsafe { result_data.cast::<i64>().add(i).read() })
+        .collect();
+    assert_eq!(vals, vec![10, 20, 30]);
+
+    ori_rc_free(original_ptr, 4 * es, 8); // free original (RC was dec'd to 1 by runtime)
+    ori_rc_free(result_data, 3 * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
 // ── ORI_RT_DEBUG assertion mode ───────────────────────────────────────

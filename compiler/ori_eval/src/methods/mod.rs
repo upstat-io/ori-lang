@@ -81,9 +81,11 @@ pub(crate) struct BuiltinMethodNames {
     // Collection (list-specific)
     pub(crate) first: Name,
     pub(crate) last: Name,
+    pub(crate) pop: Name,
     pub(crate) push: Name,
     pub(crate) set: Name,
     pub(crate) sort: Name,
+    pub(crate) sort_stable: Name,
 
     // Collection (map-specific)
     pub(crate) contains_key: Name,
@@ -202,9 +204,11 @@ impl BuiltinMethodNames {
             // List
             first: interner.intern("first"),
             last: interner.intern("last"),
+            pop: interner.intern("pop"),
             push: interner.intern("push"),
             set: interner.intern("set"),
             sort: interner.intern("sort"),
+            sort_stable: interner.intern("sort_stable"),
             // Map
             contains_key: interner.intern("contains_key"),
             keys: interner.intern("keys"),

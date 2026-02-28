@@ -349,6 +349,7 @@ pub const TYPECK_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "skip_while"),
     ("list", "sort"),
     ("list", "sort_by"),
+    ("list", "sort_stable"),
     ("list", "sorted"),
     ("list", "sum"),
     ("list", "take"),
@@ -480,8 +481,10 @@ fn resolve_list_method(
         "is_empty" | "contains" | "equals" => Some(Idx::BOOL),
         "first" | "last" | "pop" | "get" => Some(engine.pool_mut().option(elem)),
         "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
-        "reverse" | "sort" | "sorted" | "unique" | "flatten" | "push" | "append" | "prepend"
-        | "concat" | "clone" | "set" | "insert" | "remove" => Some(receiver_ty),
+        "reverse" | "sort" | "sort_stable" | "sorted" | "unique" | "flatten" | "push"
+        | "append" | "prepend" | "concat" | "clone" | "set" | "insert" | "remove" => {
+            Some(receiver_ty)
+        }
         "compare" => Some(Idx::ORDERING),
         "join" | "debug" => Some(Idx::STR),
         "enumerate" => {

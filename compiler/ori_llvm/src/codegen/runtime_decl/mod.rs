@@ -36,17 +36,8 @@ fn resolve_ty(builder: &mut IrBuilder, ty: Ty) -> LLVMTypeId {
         Ty::F64 => builder.f64_type(),
         Ty::Bool => builder.bool_type(),
         Ty::Ptr => builder.ptr_type(),
-        Ty::Str => {
-            let st = builder.scx().type_struct(
-                &[
-                    builder.scx().type_i64().into(),
-                    builder.scx().type_ptr().into(),
-                ],
-                false,
-            );
-            builder.register_type(st.into())
-        }
-        Ty::List => {
+        // Str {len, cap, data} and List {len, cap, data} share the same 24-byte layout
+        Ty::Str | Ty::List => {
             let st = builder.scx().type_struct(
                 &[
                     builder.scx().type_i64().into(),
@@ -93,14 +84,37 @@ fn apply_attr(builder: &mut IrBuilder, func: FunctionId, attr: Attr) {
 }
 
 /// Declare a single runtime function from its specification.
+///
+/// For return types > 16 bytes (`Str`, `List`, `Map`), the x86-64 `SysV` ABI
+/// requires sret convention: the caller allocates stack space and passes
+/// a pointer as the first argument; the callee writes the result there.
+/// We declare these as void-returning with an sret pointer prepended.
 fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
-    let params: Vec<LLVMTypeId> = spec
+    let mut params: Vec<LLVMTypeId> = spec
         .params
         .iter()
         .map(|&t| resolve_ty(builder, t))
         .collect();
-    let ret = spec.ret.map(|t| resolve_ty(builder, t));
+
+    let needs_sret = spec.ret.is_some_and(Ty::needs_sret);
+
+    let (ret, sret_ty) = if needs_sret {
+        let ret_type = resolve_ty(builder, spec.ret.unwrap());
+        // Prepend ptr as first param (the sret output pointer)
+        let ptr_ty = builder.ptr_type();
+        params.insert(0, ptr_ty);
+        (None, Some(ret_type))
+    } else {
+        (spec.ret.map(|t| resolve_ty(builder, t)), None)
+    };
+
     let id = builder.declare_extern_function(spec.name, &params, ret);
+
+    if let Some(sret_type) = sret_ty {
+        builder.add_sret_attribute(id, 0, sret_type);
+        builder.add_noalias_attribute(id, 0);
+    }
+
     for &attr in spec.attrs {
         apply_attr(builder, id, attr);
     }
@@ -161,6 +175,17 @@ pub fn declare_runtime(builder: &mut IrBuilder<'_, '_>) {
 /// Used by tests to verify sync with JIT/AOT-only function lists.
 pub fn all_names() -> impl Iterator<Item = &'static str> {
     RT_FUNCTIONS.iter().map(|f| f.name)
+}
+
+/// Check if a runtime function returns a large struct via sret convention.
+///
+/// Used by `emit_apply`'s runtime function fallback path to decide between
+/// `call` (direct return) and `call_with_sret` (pointer-based return).
+pub fn rt_fn_needs_sret(name: &str) -> bool {
+    RT_FUNCTIONS
+        .iter()
+        .find(|f| f.name == name)
+        .is_some_and(|spec| spec.ret.is_some_and(Ty::needs_sret))
 }
 
 /// Returns the number of runtime functions in the table.
