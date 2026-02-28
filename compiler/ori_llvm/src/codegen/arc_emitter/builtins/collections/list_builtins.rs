@@ -73,7 +73,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.icmp_ne(result, zero, "contains.bool"))
     }
 
-    /// Emit `list.iter()` — call `ori_iter_from_list(data_ptr, len, elem_size)`.
+    /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)`.
+    ///
+    /// The iterator takes ownership of one RC reference to the list data buffer.
+    /// When the iterator is consumed/dropped, the runtime's `Drop for IterState`
+    /// calls `ori_buffer_rc_dec` to release the reference.
     pub(crate) fn emit_list_iter(
         &mut self,
         receiver: ValueId,
@@ -82,13 +86,20 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_list");
 
-        let (data_ptr, len) = self.extract_list_data_and_len(receiver);
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
         let elem_size_val = self
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
 
-        self.builder
-            .call(func_id, &[data_ptr, len, elem_size_val], "list.iter")
+        // Generate the per-element dec function for RC-managed element types.
+        // For scalar elements (int, float, etc.) this is null.
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, cap, elem_size_val, elem_dec_fn],
+            "list.iter",
+        )
     }
 }
 
@@ -296,8 +307,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `list.concat(other)` / `list.add(other)` — COW concatenation.
     ///
-    /// Fast path (list1 unique + capacity): copies list2 elements after list1.
-    /// Slow path (shared): new allocation with both lists.
+    /// Both lists are consumed (ownership transferred to the runtime). The
+    /// runtime checks uniqueness at runtime to skip RC increments when the
+    /// source list is uniquely owned.
     pub(crate) fn emit_list_concat_cow(
         &mut self,
         receiver: ValueId,
@@ -307,7 +319,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn("ori_list_concat_cow");
 
         let (data1, len1, cap1) = self.extract_list_fields(receiver);
-        let (data2, len2) = self.extract_list_data_and_len(other);
+        let (data2, len2, cap2) = self.extract_list_fields(other);
         let (elem_size_val, elem_align_val) = self.elem_size_and_align(elem_ty);
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
@@ -324,6 +336,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 cap1,
                 data2,
                 len2,
+                cap2,
                 elem_size_val,
                 elem_align_val,
                 inc_fn,

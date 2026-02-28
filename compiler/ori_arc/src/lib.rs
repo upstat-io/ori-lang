@@ -79,9 +79,10 @@ use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
 pub use borrow::{
-    apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names, extract_callees,
-    infer_borrow_fixed_point, infer_borrow_single, infer_borrows_scc, infer_derived_ownership,
-    initialize_single_borrowed,
+    apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names,
+    consuming_second_arg_builtin_names, extract_callees, infer_borrow_fixed_point,
+    infer_borrow_single, infer_borrows_scc, infer_derived_ownership, initialize_single_borrowed,
+    BuiltinOwnershipSets,
 };
 pub use classify::ArcClassifier;
 pub use decision_tree::{
@@ -185,20 +186,12 @@ pub fn run_arc_pipeline_all(
     sigs: &FxHashMap<Name, AnnotatedSig>,
     interner: &ori_ir::StringInterner,
     pool: &Pool,
-    borrowing_builtins: &rustc_hash::FxHashSet<Name>,
-    consuming_receiver_builtins: &rustc_hash::FxHashSet<Name>,
+    builtins: &BuiltinOwnershipSets,
 ) -> Vec<ArcProblem> {
     borrow::apply_borrows(functions, sigs);
     let mut all_problems = Vec::new();
     for func in functions {
-        rc_insert::annotate_arg_ownership(
-            func,
-            sigs,
-            interner,
-            borrowing_builtins,
-            consuming_receiver_builtins,
-            pool,
-        );
+        rc_insert::annotate_arg_ownership(func, sigs, interner, builtins, pool);
         let problems = run_arc_pipeline(func, classifier, sigs, pool, interner);
         all_problems.extend(problems);
     }

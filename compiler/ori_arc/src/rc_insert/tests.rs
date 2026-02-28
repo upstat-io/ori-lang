@@ -1688,8 +1688,11 @@ fn external_invoke_args_get_dec() {
         &mut func,
         &sigs,
         &interner,
-        &FxHashSet::default(),
-        &FxHashSet::default(),
+        &crate::BuiltinOwnershipSets {
+            borrowing: FxHashSet::default(),
+            consuming_receiver: FxHashSet::default(),
+            consuming_second_arg: FxHashSet::default(),
+        },
         &pool,
     );
 
@@ -1755,8 +1758,11 @@ fn external_invoke_scalar_arg_no_dec() {
         &mut func,
         &sigs,
         &interner,
-        &FxHashSet::default(),
-        &FxHashSet::default(),
+        &crate::BuiltinOwnershipSets {
+            borrowing: FxHashSet::default(),
+            consuming_receiver: FxHashSet::default(),
+            consuming_second_arg: FxHashSet::default(),
+        },
         &pool,
     );
     let ownership = infer_derived_ownership(&func, &sigs);
@@ -2325,5 +2331,118 @@ fn chained_try_no_leak() {
         count_dec(&result, 4, v(1)),
         0,
         "second scrut consumed by non-scalar Project in B4"
+    );
+}
+
+// --- List Binary(Add) consuming semantics ---
+
+/// List `+` operator — operands must NOT get `RcDec` because the COW concat
+/// function (`ori_list_concat_cow`) consumes both the receiver and list2.
+///
+/// ```text
+/// fn f(xs: [int], ys: [int]) -> [int] {
+///     xs + ys   // PrimOp::Binary(Add) on list types
+/// }
+/// ```
+///
+/// Before the fix, `is_borrowing_instr` treated ALL `PrimOps` as borrowing,
+/// which emitted `RcDec` for both operands (double-free). After the fix,
+/// `Binary(Add)` on list types is consuming — no `RcDec` on operands.
+#[test]
+fn list_add_consuming_no_dec_on_operands() {
+    let mut pool = Pool::new();
+    let list_int = pool.list(Idx::INT);
+
+    let func = make_func(
+        vec![owned_param(0, list_int), owned_param(1, list_int)],
+        list_int,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(2),
+                ty: list_int,
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0), v(1)],
+                },
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![list_int, list_int, list_int],
+    );
+
+    let classifier = ArcClassifier::new(&pool);
+    let liveness = compute_liveness(&func, &classifier);
+    let sigs = FxHashMap::default();
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let mut result = func;
+    insert_rc_ops_with_ownership(
+        &mut result,
+        &classifier,
+        &liveness,
+        &ownership,
+        &sigs,
+        &pool,
+    );
+
+    // List + list → consuming: NO RcDec on either operand.
+    // The COW concat function handles RC lifecycle internally.
+    assert_eq!(
+        count_dec(&result, 0, v(0)),
+        0,
+        "list Add receiver must NOT get RcDec — consumed by COW concat"
+    );
+    assert_eq!(
+        count_dec(&result, 0, v(1)),
+        0,
+        "list Add second arg must NOT get RcDec — consumed by COW concat"
+    );
+}
+
+/// Int `+` operator — operands are scalar, no RC ops at all.
+/// Sanity check that the list-specific consuming override doesn't affect scalars.
+#[test]
+fn int_add_still_scalar_no_rc() {
+    let pool = Pool::new();
+
+    let func = make_func(
+        vec![owned_param(0, Idx::INT), owned_param(1, Idx::INT)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(2),
+                ty: Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Add),
+                    args: vec![v(0), v(1)],
+                },
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![Idx::INT, Idx::INT, Idx::INT],
+    );
+
+    let classifier = ArcClassifier::new(&pool);
+    let liveness = compute_liveness(&func, &classifier);
+    let sigs = FxHashMap::default();
+    let ownership = infer_derived_ownership(&func, &sigs);
+    let mut result = func;
+    insert_rc_ops_with_ownership(
+        &mut result,
+        &classifier,
+        &liveness,
+        &ownership,
+        &sigs,
+        &pool,
+    );
+
+    // Scalars: zero RC ops total (same as `scalars_untouched` test).
+    assert_eq!(
+        count_rc_ops(&result, 0),
+        0,
+        "int Add should have zero RC ops"
     );
 }

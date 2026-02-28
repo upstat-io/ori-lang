@@ -136,9 +136,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(list_ty, out_alloca, "split.val"))
     }
 
-    /// Emit `str.iter()` — call `ori_iter_from_str(data, len)`.
+    /// Emit `str.iter()` — call `ori_iter_from_str(data, len, owns_data)`.
     ///
     /// Str layout: `{i64 len, ptr data}`. Yields `char` (i32) values.
+    /// The iterator takes ownership of one RC reference to the string data
+    /// and releases it via `ori_rc_dec` when dropped.
     pub(crate) fn emit_str_iter(&mut self, receiver: ValueId) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_str");
 
@@ -150,7 +152,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(receiver, 0, "str.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
+        let owns_data = self.builder.const_bool(true);
 
-        self.builder.call(func_id, &[data_ptr, len], "str.iter")
+        self.builder
+            .call(func_id, &[data_ptr, len, owns_data], "str.iter")
     }
 }

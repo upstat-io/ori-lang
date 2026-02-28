@@ -23,8 +23,11 @@ fn run_full_pipeline(
         func,
         &sigs,
         &interner,
-        &FxHashSet::default(),
-        &FxHashSet::default(),
+        &crate::BuiltinOwnershipSets {
+            borrowing: FxHashSet::default(),
+            consuming_receiver: FxHashSet::default(),
+            consuming_second_arg: FxHashSet::default(),
+        },
         pool,
     );
     crate::run_arc_pipeline(func, classifier, &sigs, pool, &interner);

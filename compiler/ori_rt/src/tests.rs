@@ -1984,11 +1984,22 @@ fn cow_concat_unique_with_capacity() {
     let data1 = rc_alloc_i64_list(&[10, 20], 8);
     let original_ptr = data1;
 
-    // list2: [30, 40]
+    // list2: [30, 40] — both unique (RC=1), runtime consumes both
     let data2 = rc_alloc_i64_list(&[30, 40], 4);
 
     let mut out = [0u8; 24];
-    ori_list_concat_cow(data1, 2, 8, data2, 2, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_concat_cow(
+        data1,
+        2,
+        8,
+        data2,
+        2,
+        4,
+        es as i64,
+        8,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2005,8 +2016,8 @@ fn cow_concat_unique_with_capacity() {
         assert_eq!(*result_data.cast::<i64>().add(3), 40);
     }
 
+    // data2 consumed by runtime (unique → freed). Only free result.
     ori_rc_free(result_data, 8 * es, 8);
-    ori_rc_free(data2, 4 * es, 8);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -2018,11 +2029,22 @@ fn cow_concat_unique_needs_growth() {
 
     // list1: [10, 20] with capacity 2 (no room)
     let data1 = rc_alloc_i64_list(&[10, 20], 2);
-    // list2: [30, 40]
+    // list2: [30, 40] — both unique, runtime consumes both
     let data2 = rc_alloc_i64_list(&[30, 40], 2);
 
     let mut out = [0u8; 24];
-    ori_list_concat_cow(data1, 2, 2, data2, 2, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_concat_cow(
+        data1,
+        2,
+        2,
+        data2,
+        2,
+        2,
+        es as i64,
+        8,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
@@ -2035,30 +2057,41 @@ fn cow_concat_unique_needs_growth() {
         assert_eq!(*result_data.cast::<i64>().add(3), 40);
     }
 
+    // data2 consumed by runtime (unique → freed). Only free result.
     ori_rc_free(result_data, cap as usize * es, 8);
-    ori_rc_free(data2, 2 * es, 8);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
 #[test]
-fn cow_concat_shared_copies() {
+fn cow_concat_shared_list1_unique_list2() {
     let _g = lock_rc();
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>();
 
-    // list1 shared (RC=2)
+    // list1 shared (RC=2), list2 unique (RC=1)
     let data1 = rc_alloc_i64_list(&[10, 20], 4);
     ori_rc_inc(data1);
     let data2 = rc_alloc_i64_list(&[30, 40], 2);
 
     let mut out = [0u8; 24];
-    ori_list_concat_cow(data1, 2, 4, data2, 2, es as i64, 8, None, out.as_mut_ptr());
+    ori_list_concat_cow(
+        data1,
+        2,
+        4,
+        data2,
+        2,
+        2,
+        es as i64,
+        8,
+        None,
+        out.as_mut_ptr(),
+    );
 
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4);
     assert_ne!(result_data, data1, "SLOW PATH: different pointer (shared)");
 
-    // Old buffer untouched
+    // Old buffer untouched, RC went from 2→1 (runtime dec'd)
     assert_eq!(ori_rc_count(data1), 1);
     unsafe {
         assert_eq!(*data1.cast::<i64>(), 10);
@@ -2073,8 +2106,8 @@ fn cow_concat_shared_copies() {
         assert_eq!(*result_data.cast::<i64>().add(3), 40);
     }
 
+    // data2 consumed by runtime (unique → freed). Free data1 (our remaining ref) and result.
     ori_rc_free(data1, 4 * es, 8);
-    ori_rc_free(data2, 2 * es, 8);
     ori_rc_free(result_data, cap as usize * es, 8);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
@@ -2085,13 +2118,14 @@ fn cow_concat_empty_lists() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>();
 
-    // Both empty
+    // Both empty — runtime decs both (no-op for null)
     let mut out = [0u8; 24];
     ori_list_concat_cow(
         std::ptr::null_mut(),
         0,
         0,
-        std::ptr::null(),
+        std::ptr::null_mut(),
+        0,
         0,
         es as i64,
         8,
@@ -2106,12 +2140,12 @@ fn cow_concat_empty_lists() {
 }
 
 #[test]
-fn cow_concat_empty_list1() {
+fn cow_concat_empty_list1_unique_list2_takeover() {
     let _g = lock_rc();
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>();
 
-    // list1 empty, list2 has data
+    // list1 empty, list2 unique → TAKEOVER (zero-copy)
     let data2 = rc_alloc_i64_list(&[30, 40], 2);
 
     let mut out = [0u8; 24];
@@ -2120,6 +2154,49 @@ fn cow_concat_empty_list1() {
         0,
         0,
         data2,
+        2,
+        2,
+        es as i64,
+        8,
+        None,
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 2);
+    assert_eq!(cap, 2);
+    assert_eq!(
+        result_data, data2,
+        "TAKEOVER: result IS data2's buffer (zero-copy)"
+    );
+
+    unsafe {
+        assert_eq!(*result_data.cast::<i64>(), 30);
+        assert_eq!(*result_data.cast::<i64>().add(1), 40);
+    }
+
+    // data2 ownership transferred to result — free once
+    ori_rc_free(result_data, cap as usize * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_concat_empty_list1_shared_list2() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+
+    // list1 empty, list2 shared (RC=2) → fresh copy
+    let data2 = rc_alloc_i64_list(&[30, 40], 2);
+    ori_rc_inc(data2);
+
+    let mut out = [0u8; 24];
+    ori_list_concat_cow(
+        std::ptr::null_mut(),
+        0,
+        0,
+        data2,
+        2,
         2,
         es as i64,
         8,
@@ -2130,14 +2207,239 @@ fn cow_concat_empty_list1() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
     assert!(!result_data.is_null());
-    assert_ne!(result_data, data2, "fresh copy, not same as list2");
+    assert_ne!(result_data, data2, "shared: fresh copy, not same as list2");
+
+    // data2 still alive (RC was 2, runtime dec'd to 1)
+    assert_eq!(ori_rc_count(data2), 1);
 
     unsafe {
         assert_eq!(*result_data.cast::<i64>(), 30);
         assert_eq!(*result_data.cast::<i64>().add(1), 40);
     }
 
+    // Free data2 (our remaining ref) and result
     ori_rc_free(data2, 2 * es, 8);
+    ori_rc_free(result_data, cap as usize * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+// ── COW concat: inc_fn counting tests ────────────────────────────────
+//
+// These tests use a counting inc_fn to verify that the runtime correctly
+// skips RC increments when list2 is uniquely owned (moved, not copied).
+
+static INC_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn counting_inc_fn(_ptr: *mut u8) {
+    INC_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+#[test]
+fn cow_concat_both_unique_no_inc() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+    INC_COUNT.store(0, Ordering::Relaxed);
+
+    // Both lists unique — no element RC increments should happen
+    let data1 = rc_alloc_i64_list(&[10, 20], 8);
+    let data2 = rc_alloc_i64_list(&[30, 40], 4);
+
+    let mut out = [0u8; 24];
+    ori_list_concat_cow(
+        data1,
+        2,
+        8,
+        data2,
+        2,
+        4,
+        es as i64,
+        8,
+        Some(counting_inc_fn),
+        out.as_mut_ptr(),
+    );
+
+    let (len, _, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 4);
+    assert_eq!(
+        INC_COUNT.load(Ordering::Relaxed),
+        0,
+        "both unique: ZERO inc_fn calls (elements moved, not copied)"
+    );
+
+    ori_rc_free(result_data, 8 * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_concat_list1_unique_list2_shared_inc_n2() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+    INC_COUNT.store(0, Ordering::Relaxed);
+
+    // list1 unique, list2 shared (RC=2) — should inc N2 elements
+    let data1 = rc_alloc_i64_list(&[10, 20], 8);
+    let data2 = rc_alloc_i64_list(&[30, 40, 50], 3);
+    ori_rc_inc(data2);
+
+    let mut out = [0u8; 24];
+    ori_list_concat_cow(
+        data1,
+        2,
+        8,
+        data2,
+        3,
+        3,
+        es as i64,
+        8,
+        Some(counting_inc_fn),
+        out.as_mut_ptr(),
+    );
+
+    let (len, _, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 5);
+    assert_eq!(
+        INC_COUNT.load(Ordering::Relaxed),
+        3,
+        "list2 shared: inc_fn called N2=3 times"
+    );
+
+    // data2 still alive (RC was 2, runtime dec'd to 1)
+    assert_eq!(ori_rc_count(data2), 1);
+    ori_rc_free(data2, 3 * es, 8);
+    ori_rc_free(result_data, 8 * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_concat_list1_shared_list2_unique_inc_n1_only() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+    INC_COUNT.store(0, Ordering::Relaxed);
+
+    // list1 shared (RC=2), list2 unique — should inc N1 elements only
+    let data1 = rc_alloc_i64_list(&[10, 20, 30], 3);
+    ori_rc_inc(data1);
+    let data2 = rc_alloc_i64_list(&[40, 50], 2);
+
+    let mut out = [0u8; 24];
+    ori_list_concat_cow(
+        data1,
+        3,
+        3,
+        data2,
+        2,
+        2,
+        es as i64,
+        8,
+        Some(counting_inc_fn),
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 5);
+    assert_eq!(
+        INC_COUNT.load(Ordering::Relaxed),
+        3,
+        "list1 shared, list2 unique: inc_fn called N1=3 times (list2 moved)"
+    );
+
+    // data1 still alive (RC was 2, runtime dec'd to 1)
+    assert_eq!(ori_rc_count(data1), 1);
+    ori_rc_free(data1, 3 * es, 8);
+    ori_rc_free(result_data, cap as usize * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_concat_both_shared_inc_n1_plus_n2() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+    INC_COUNT.store(0, Ordering::Relaxed);
+
+    // Both shared — should inc N1 + N2 elements
+    let data1 = rc_alloc_i64_list(&[10, 20], 2);
+    ori_rc_inc(data1);
+    let data2 = rc_alloc_i64_list(&[30, 40, 50], 3);
+    ori_rc_inc(data2);
+
+    let mut out = [0u8; 24];
+    ori_list_concat_cow(
+        data1,
+        2,
+        2,
+        data2,
+        3,
+        3,
+        es as i64,
+        8,
+        Some(counting_inc_fn),
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 5);
+    assert_eq!(
+        INC_COUNT.load(Ordering::Relaxed),
+        5,
+        "both shared: inc_fn called N1+N2=5 times"
+    );
+
+    // Both originals still alive (RC 2→1 each)
+    assert_eq!(ori_rc_count(data1), 1);
+    assert_eq!(ori_rc_count(data2), 1);
+    ori_rc_free(data1, 2 * es, 8);
+    ori_rc_free(data2, 3 * es, 8);
+    ori_rc_free(result_data, cap as usize * es, 8);
+    assert_eq!(ori_rc_live_count(), before, "no leaks");
+}
+
+#[test]
+fn cow_concat_self_same_buffer() {
+    let _g = lock_rc();
+    let before = ori_rc_live_count();
+    let es = std::mem::size_of::<i64>();
+    INC_COUNT.store(0, Ordering::Relaxed);
+
+    // Self-concat: x + x. ARC pipeline inc's for multi-use → RC=2 at call.
+    let data = rc_alloc_i64_list(&[10, 20], 4);
+    ori_rc_inc(data); // Simulate ARC pipeline inc for multi-use
+
+    let mut out = [0u8; 24];
+    ori_list_concat_cow(
+        data,
+        2,
+        4,
+        data,
+        2,
+        4,
+        es as i64,
+        8,
+        Some(counting_inc_fn),
+        out.as_mut_ptr(),
+    );
+
+    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    assert_eq!(len, 4);
+    // Both args shared (RC=2) → case 4: inc all elements (N1 + N2 = 4)
+    assert_eq!(
+        INC_COUNT.load(Ordering::Relaxed),
+        4,
+        "self-concat: both shared, inc N1+N2=4"
+    );
+
+    unsafe {
+        assert_eq!(*result_data.cast::<i64>(), 10);
+        assert_eq!(*result_data.cast::<i64>().add(1), 20);
+        assert_eq!(*result_data.cast::<i64>().add(2), 10, "same data");
+        assert_eq!(*result_data.cast::<i64>().add(3), 20);
+    }
+
+    // Original buffer: RC was 2, runtime dec'd twice (data1 + data2) → 0 → freed
+    // Result is the only live allocation
     ori_rc_free(result_data, cap as usize * es, 8);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
