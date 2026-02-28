@@ -23,7 +23,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// |--------|--------------------------------|--------------------|
     /// | List   | `{i64, i64, ptr}`              | field 2            |
     /// | Set    | `{i64, i64, ptr}`              | field 2            |
-    /// | Str    | `{i64, ptr}`                   | field 1            |
+    /// | Str    | `{i64, i64, ptr}` (SSO union)  | field 2 (SSO→null) |
     /// | Map    | `{i64, i64, ptr, ptr}`         | field 2, field 3   |
     /// | Struct | `{field0, field1, ...}`         | recurse per field  |
     /// | Tuple  | `{elem0, elem1, ...}`          | recurse per elem   |
@@ -47,9 +47,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
             Tag::Str => {
-                // {i64 len, ptr data} — data at field 1
-                if let Some(ptr) = self.builder.extract_value(val, 1, "rc.data_ptr") {
-                    vec![ptr]
+                // {i64 len, i64 cap, ptr data} — data at field 2.
+                // SSO strings have inline bytes in field 2, not a valid pointer.
+                // Emit a select that returns null for SSO, so ori_rc_inc/dec
+                // safely skip it (both null-check at entry).
+                if let Some(ptr) = self.builder.extract_value(val, 2, "rc.data_ptr") {
+                    let is_sso = self.emit_sso_check(ptr, "rc_str");
+                    let null = self.builder.const_null_ptr();
+                    let safe_ptr = self.builder.select(is_sso, null, ptr, "rc.str_safe_ptr");
+                    vec![safe_ptr]
                 } else {
                     vec![val]
                 }

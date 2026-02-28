@@ -402,6 +402,20 @@ fn test_coll_list_pop() {
 }
 
 #[test]
+fn test_coll_list_pop_empty() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs: [int] = [];
+    let p = xs.pop();
+    if p.is_none() then 0 else 1
+}
+"#,
+        "coll_list_pop_empty",
+    );
+}
+
+#[test]
 fn test_coll_list_first() {
     assert_aot_success(
         r#"
@@ -958,6 +972,37 @@ fn test_coll_list_cow_concat_shared() {
 }
 "#,
         "coll_list_cow_concat_shared",
+    );
+}
+
+// ─── COW list sort_stable ───
+
+#[test]
+fn test_coll_list_sort_stable_ints() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [3, 1, 4, 1, 5];
+    let sorted = xs.sort_stable();
+    if sorted.length() == 5 && sorted.first().unwrap() == 1 && sorted.last().unwrap() == 5 then 0 else 1
+}
+"#,
+        "coll_list_sort_stable_ints",
+    );
+}
+
+#[test]
+fn test_coll_list_sort_stable_cow_shared() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [3, 1, 2];
+    let ys = xs.sort_stable();
+    // xs should still be [3,1,2], ys should be [1,2,3]
+    if xs.first().unwrap() == 3 && ys.first().unwrap() == 1 then 0 else 1
+}
+"#,
+        "coll_list_sort_stable_cow_shared",
     );
 }
 

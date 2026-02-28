@@ -76,12 +76,28 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
 
         // Build args for calling the Ori @main function
         let call_args = if has_args {
-            // Call ori_args_from_argv(arg_count, arg_values) → Ori [str]
+            // Call ori_args_from_argv(arg_count, arg_values) → Ori [str] via sret
             let arg_count = self.builder.get_param(c_main_id, 0);
             let arg_values = self.builder.get_param(c_main_id, 1);
 
             let args_fn = self.builder.runtime_fn("ori_args_from_argv");
-            let args_val = self.builder.call(args_fn, &[arg_count, arg_values], "args");
+            // List type: {i64 len, i64 cap, ptr data} — same struct as Str
+            let list_ty = self.builder.register_type(
+                self.builder
+                    .scx()
+                    .type_struct(
+                        &[
+                            self.builder.scx().type_i64().into(),
+                            self.builder.scx().type_i64().into(),
+                            self.builder.scx().type_ptr().into(),
+                        ],
+                        false,
+                    )
+                    .into(),
+            );
+            let args_val =
+                self.builder
+                    .call_with_sret(args_fn, &[arg_count, arg_values], list_ty, "args");
             if let Some(val) = args_val {
                 vec![val]
             } else {
@@ -164,16 +180,23 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         //   PanicInfo = { str message, TraceEntry location, [TraceEntry] stack_trace, Option<int> thread_id }
         //
         // Where:
-        //   str         = { i64 len, ptr data }
+        //   str         = { i64 len, i64 cap, ptr data }
         //   TraceEntry  = { str function, str file, int line, int column }
-        //                = { {i64, ptr}, {i64, ptr}, i64, i64 }
+        //                = { {i64, i64, ptr}, {i64, i64, ptr}, i64, i64 }
         //   [TraceEntry] = { i64 len, i64 cap, ptr data }
         //   Option<int>  = { i8 tag, i64 value }
 
         let scx = self.builder.scx();
 
-        // str type: { i64, ptr }
-        let str_struct_ty = scx.type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false);
+        // str type: { i64, i64, ptr }
+        let str_struct_ty = scx.type_struct(
+            &[
+                scx.type_i64().into(),
+                scx.type_i64().into(),
+                scx.type_ptr().into(),
+            ],
+            false,
+        );
 
         // TraceEntry type: { str, str, i64, i64 }
         let trace_entry_ty = scx.type_struct(
@@ -217,22 +240,42 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
         let option_int_ty_id = self.builder.register_type(option_int_ty.into());
         let panic_info_ty_id = self.builder.register_type(panic_info_ty.into());
 
-        // Build message: str = { msg_len, msg_data }
-        let message = self
-            .builder
-            .build_struct(str_ty_id, &[msg_len, msg_data], "message");
+        // Build strings via ori_str_from_raw to get proper SSO/RC-managed layout.
+        // Inline {len, cap, global_ptr} would be UB if passed to COW operations
+        // (global pointers lack RC headers).
+        let from_raw = self.builder.runtime_fn("ori_str_from_raw");
 
-        // Build empty function name: str = { 0, null }
         let zero_i64 = self.builder.const_i64(0);
         let null_ptr = self.builder.const_null_ptr();
+
+        // Build message string
+        let message = self
+            .builder
+            .call_with_sret(from_raw, &[msg_data, msg_len], str_ty_id, "message")
+            .unwrap_or_else(|| {
+                let msg_cap = msg_len;
+                self.builder
+                    .build_struct(str_ty_id, &[msg_len, msg_cap, msg_data], "message")
+            });
+
+        // Build empty function name (ori_str_from_raw with null → SSO empty)
         let empty_str = self
             .builder
-            .build_struct(str_ty_id, &[zero_i64, null_ptr], "empty_fn");
+            .call_with_sret(from_raw, &[null_ptr, zero_i64], str_ty_id, "empty_fn")
+            .unwrap_or_else(|| {
+                self.builder
+                    .build_struct(str_ty_id, &[zero_i64, zero_i64, null_ptr], "empty_fn")
+            });
 
-        // Build file name: str = { file_len, file_data }
+        // Build file name string
         let file_str = self
             .builder
-            .build_struct(str_ty_id, &[file_len, file_data], "file");
+            .call_with_sret(from_raw, &[file_data, file_len], str_ty_id, "file")
+            .unwrap_or_else(|| {
+                let file_cap = file_len;
+                self.builder
+                    .build_struct(str_ty_id, &[file_len, file_cap, file_data], "file")
+            });
 
         // Build location: TraceEntry = { empty_fn, file, line, col }
         let location = self.builder.build_struct(

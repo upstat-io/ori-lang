@@ -571,7 +571,6 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("list", "min"),
     ("list", "min_by"),
     ("list", "partition"),
-    ("list", "pop"),
     ("list", "prepend"),
     ("list", "product"),
     ("list", "reduce"),

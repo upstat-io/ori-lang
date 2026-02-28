@@ -1,0 +1,46 @@
+// list.pop() — returns the last element as Option<T>, without modifying the list.
+// In Ori's value semantics, pop() is a read-only accessor equivalent to last().
+// Spec: list.pop() -> Option<T>
+
+use std.testing { assert_eq }
+
+@pop_integers () -> Option<int> = {
+    [1, 2, 3].pop()
+}
+
+@test_pop_integers tests @pop_integers () -> void = {
+    assert_eq(actual: pop_integers(), expected: Some(3))
+}
+
+@pop_empty () -> Option<int> = {
+    let empty: [int] = [];
+    empty.pop()
+}
+
+@test_pop_empty tests @pop_empty () -> void = {
+    assert_eq(actual: pop_empty(), expected: None)
+}
+
+@pop_single () -> Option<int> = [42].pop();
+
+@test_pop_single tests @pop_single () -> void = {
+    assert_eq(actual: pop_single(), expected: Some(42))
+}
+
+@pop_strings () -> Option<str> = ["hello", "world"].pop();
+
+@test_pop_strings tests @pop_strings () -> void = {
+    assert_eq(actual: pop_strings(), expected: Some("world"))
+}
+
+@pop_preserves_original () -> ([int], Option<int>) = {
+    let nums = [10, 20, 30];
+    let popped = nums.pop();
+    (nums, popped)
+}
+
+@test_pop_preserves_original tests @pop_preserves_original () -> void = {
+    let (original, popped) = pop_preserves_original();
+    assert_eq(actual: original, expected: [10, 20, 30]);
+    assert_eq(actual: popped, expected: Some(30))
+}

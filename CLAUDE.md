@@ -2,6 +2,9 @@
 
 **This system is ONE thing.** The compiler, type checker, evaluator, codegen, tests, spec, stdlib — they are not separate projects. They are one machine. A broken piece anywhere means the whole machine is broken. There is no "my change" vs "someone else's code." There is no "unrelated." There is no "pre-existing." There is no "outside scope." If you encounter something broken, it is your problem right now. Do not label it and move on. Investigate why it's broken. Understand the cause. Fix it. Every single piece must fit together to form a complete, working whole — a puzzle with even one missing piece is an incomplete puzzle. Add discovered issues to your todo list and fix them before completing your task.
 
+**ALL FAILURES ARE YOUR FAILURES. NO EXCEPTIONS.**
+Do NOT waste time classifying whether a failing test or broken behavior is "pre-existing," "unrelated," "not caused by my change," or "someone else's problem." That analysis is itself a waste of time. Every failing test is your failing test. Every broken behavior is your broken behavior. Every issue you encounter is your issue to fix — right now, in this session. Do not skip tests. Do not defer fixes. Do not move on while anything is broken. The question is never "did I cause this?" — the question is "is it fixed yet?"
+
 **Do it properly, not just simply. Correct architecture over quick hacks; no shortcuts or "good enough" solutions.**
 
 **CHOOSE THE RIGHT ARCHITECTURE, NOT THE EASY ONE.**
@@ -24,8 +27,16 @@ The line: "this only works for built-in types but that's fine for now" is the re
 - **No "temporary" fixes** — There is no such thing. Today's temporary fix is tomorrow's permanent tech debt.
 - **If you can't do it right, say so** — Communicate blockers rather than shipping bad code.
 
-**NO DEFERRING WITHOUT PERMISSION.**
+**NO DEFERRING. NO SKIPPING. NO "PRE-EXISTING" EXCUSES.**
 You are NOT permitted to defer, postpone, skip, punt, or label anything as "out of scope," "pre-existing," "future work," "tracked separately," or "outside the current task" without **explicitly asking the user first**. This includes bugs found during work, broken tests, style violations, issues in adjacent code, TODOs/FIXMEs you encounter — everything. The default is to fix it now. If you believe deferral is genuinely warranted, you MUST use `AskUserQuestion` to explain the issue and get explicit approval before moving on. Silence is not consent to defer. Moving on without asking is a violation.
+
+**Specifically banned time-wasting patterns:**
+- Investigating whether a test failure is "pre-existing" or "caused by my change" — IRRELEVANT. Fix it.
+- Saying "this test was already failing before my changes" — IRRELEVANT. Fix it.
+- Saying "this is unrelated to the current task" — IRRELEVANT. Fix it.
+- Running git blame or git log to prove something isn't your fault — WASTE OF TIME. Fix it.
+- Skipping a failing test because "it tests something else" — NO. Fix it.
+- Marking a test as `#[ignore]` or `#skip` to make the suite green — ABSOLUTELY NOT. Fix the code.
 
 **TDD for bugs — NEVER fix without tests first**:
 1. **STOP** — Do not jump to fixing. Resist the urge to immediately change code.

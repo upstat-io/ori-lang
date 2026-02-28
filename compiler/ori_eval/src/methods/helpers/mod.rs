@@ -198,11 +198,13 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "last"),
     ("list", "len"),
     ("list", "length"),
+    ("list", "pop"),
     ("list", "push"),
     ("list", "remove"),
     ("list", "reverse"),
     ("list", "set"),
     ("list", "sort"),
+    ("list", "sort_stable"),
     // map
     ("map", "clone"),
     ("map", "contains_key"),

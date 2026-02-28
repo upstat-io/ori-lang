@@ -30,7 +30,7 @@ pub fn dispatch_list_method(
         Ok(Value::Bool(items.is_empty()))
     } else if method == n.first {
         Ok(items.first().cloned().map_or(Value::None, Value::some))
-    } else if method == n.last {
+    } else if method == n.last || method == n.pop {
         Ok(items.last().cloned().map_or(Value::None, Value::some))
     } else if method == n.contains {
         require_args("contains", 1, args.len())?;
@@ -81,8 +81,13 @@ pub fn dispatch_list_method(
         let mut result = (*items).clone();
         result.reverse();
         Ok(Value::list(result))
-    } else if method == n.sort {
-        require_args("sort", 0, args.len())?;
+    } else if method == n.sort || method == n.sort_stable {
+        let name = if method == n.sort {
+            "sort"
+        } else {
+            "sort_stable"
+        };
+        require_args(name, 0, args.len())?;
         sort_list(&items, ctx)
     } else if method == n.add || method == n.concat {
         require_args("concat", 1, args.len())?;

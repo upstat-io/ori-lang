@@ -163,39 +163,22 @@ fn test_ori_min_max() {
 
 #[test]
 fn test_ori_str_concat() {
-    let a = OriStr {
-        len: 5,
-        data: "hello".as_ptr(),
-    };
-    let b = OriStr {
-        len: 6,
-        data: " world".as_ptr(),
-    };
+    let a = OriStr::from_sso(b"hello");
+    let b = OriStr::from_sso(b" world");
 
     let result = ori_str_concat(&a, &b);
-    assert_eq!(result.len, 11);
+    assert_eq!(result.len(), 11);
 
     let text = unsafe { result.as_str() };
     assert_eq!(text, "hello world");
-
-    // Free the result (allocated via ori_rc_alloc with 8-byte RC header)
-    ori_rc_dec(result.data as *mut u8, None);
+    // Result is SSO (11 ≤ 23), no heap to free
 }
 
 #[test]
 fn test_ori_str_eq() {
-    let a = OriStr {
-        len: 5,
-        data: "hello".as_ptr(),
-    };
-    let b = OriStr {
-        len: 5,
-        data: "hello".as_ptr(),
-    };
-    let c = OriStr {
-        len: 5,
-        data: "world".as_ptr(),
-    };
+    let a = OriStr::from_sso(b"hello");
+    let b = OriStr::from_sso(b"hello");
+    let c = OriStr::from_sso(b"world");
 
     assert!(ori_str_eq(&a, &b));
     assert!(!ori_str_eq(&a, &c));
