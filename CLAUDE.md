@@ -2,22 +2,7 @@
 
 **This system is ONE thing.** The compiler, type checker, evaluator, codegen, tests, spec, stdlib — they are not separate projects. They are one machine. A broken piece anywhere means the whole machine is broken. There is no "my change" vs "someone else's code." There is no "unrelated." There is no "pre-existing." There is no "outside scope." If you encounter something broken, it is your problem right now. Do not label it and move on. Investigate why it's broken. Understand the cause. Fix it. Every single piece must fit together to form a complete, working whole — a puzzle with even one missing piece is an incomplete puzzle. Add discovered issues to your todo list and fix them before completing your task.
 
-**ALL FAILURES ARE YOUR FAILURES. NO EXCEPTIONS.**
-Do NOT waste time classifying whether a failing test or broken behavior is "pre-existing," "unrelated," "not caused by my change," or "someone else's problem." That analysis is itself a waste of time. Every failing test is your failing test. Every broken behavior is your broken behavior. Every issue you encounter is your issue to fix — right now, in this session. Do not skip tests. Do not defer fixes. Do not move on while anything is broken. The question is never "did I cause this?" — the question is "is it fixed yet?"
-
 **Do it properly, not just simply. Correct architecture over quick hacks; no shortcuts or "good enough" solutions.**
-
-**CHOOSE THE RIGHT ARCHITECTURE, NOT THE EASY ONE.**
-When you identify multiple approaches, stress-test each against **already-defined requirements** before choosing. The failure to avoid: "Option A is simpler" → start implementing → discover it can't handle cases the language already supports (user-defined types, generics, traits that already exist) → rewrite as Option B. This is a shortcut wearing a disguise.
-
-This is NOT about over-engineering or designing for hypothetical futures. Do NOT add abstraction, configurability, or flexibility for speculative cases. The checkpoint is narrower than that:
-
-**Before implementing an approach, ask: does it fulfill the existing contract?**
-1. **Does it work for user-defined types, not just primitives?** Ori has `derive Comparable`, user structs, enums. If your approach only handles `int` and `float`, it's incomplete against *current* language features — not some future wish.
-2. **How do established compilers solve this?** Check reference repos. If Rust, Swift, and Lean 4 all generate per-type functions at compile time rather than hardcoding per-primitive in the runtime, that's a signal the primitive-only approach is a dead-end.
-3. **Am I choosing this because it's correct, or because it's easier?** Be honest. If "easier" — stop, choose the correct one.
-
-The line: "this only works for built-in types but that's fine for now" is the red flag. If the language already lets users write types that should work here, "for now" means "broken."
 
 **NO WORKAROUNDS. NO HACKS. NO SHORTCUTS.**
 - **Proper fixes only** — If a fix feels hacky, it IS hacky. Find the right solution.
@@ -27,36 +12,17 @@ The line: "this only works for built-in types but that's fine for now" is the re
 - **No "temporary" fixes** — There is no such thing. Today's temporary fix is tomorrow's permanent tech debt.
 - **If you can't do it right, say so** — Communicate blockers rather than shipping bad code.
 
-**NO DEFERRING. NO SKIPPING. NO "PRE-EXISTING" EXCUSES.**
-You are NOT permitted to defer, postpone, skip, punt, or label anything as "out of scope," "pre-existing," "future work," "tracked separately," or "outside the current task" without **explicitly asking the user first**. This includes bugs found during work, broken tests, style violations, issues in adjacent code, TODOs/FIXMEs you encounter — everything. The default is to fix it now. If you believe deferral is genuinely warranted, you MUST use `AskUserQuestion` to explain the issue and get explicit approval before moving on. Silence is not consent to defer. Moving on without asking is a violation.
-
-**Specifically banned time-wasting patterns:**
-- Investigating whether a test failure is "pre-existing" or "caused by my change" — IRRELEVANT. Fix it.
-- Saying "this test was already failing before my changes" — IRRELEVANT. Fix it.
-- Saying "this is unrelated to the current task" — IRRELEVANT. Fix it.
-- Running git blame or git log to prove something isn't your fault — WASTE OF TIME. Fix it.
-- Skipping a failing test because "it tests something else" — NO. Fix it.
-- Marking a test as `#[ignore]` or `#skip` to make the suite green — ABSOLUTELY NOT. Fix the code.
-
 **TDD for bugs — NEVER fix without tests first**:
 1. **STOP** — Do not jump to fixing. Resist the urge to immediately change code.
 2. **Understand** — Consult the spec (`docs/ori_lang/0.1-alpha/spec/`), grammar, and design docs. Know the *intended* behavior.
-3. **Run diagnostics** — Before reading code line-by-line, use the diagnostic suite to understand the bug:
-   - Wrong output → `diagnostics/dual-exec-debug.sh file.ori` (compare eval vs AOT)
-   - Crash/segfault → `diagnostics/diagnose-aot.sh file.ori --valgrind`
-   - Memory leak → `ORI_CHECK_LEAKS=1 ./binary` then `diagnostics/rc-stats.sh file.ori`
-   - RC corruption → `ORI_TRACE_RC=1 ./binary` then `diagnostics/codegen-audit.sh file.ori --strict`
-   - Type error → `ORI_LOG=ori_types=debug ori check file.ori`
-   - Wrong IR → `diagnostics/ir-dump.sh file.ori` and `diagnostics/ir-diff.sh`
-   - General debugging → `ORI_LOG=debug ori check file.ori` or `ORI_LOG=<crate>=trace`
-4. **Reproduce with tests** — Write MULTIPLE tests (not just one):
+3. **Reproduce with tests** — Write MULTIPLE tests (not just one):
    - The exact failing case that exposed the bug
    - Edge cases: boundaries, empty inputs, single elements, maximum values
    - Related variations: similar patterns that might also be affected
    - Regression guards: cases that currently work and must continue to work
-5. **Verify tests fail** — All bug-reproducing tests MUST fail. If they pass, you misunderstand the bug or the spec.
-6. **Fix the code** — Now implement the fix.
-7. **Tests pass unchanged** — All tests must pass WITHOUT modifying them. If you need to change tests to pass, you either wrote wrong tests or made a wrong fix. Go back to step 2.
+4. **Verify tests fail** — All bug-reproducing tests MUST fail. If they pass, you misunderstand the bug or the spec.
+5. **Fix the code** — Now implement the fix.
+6. **Tests pass unchanged** — All tests must pass WITHOUT modifying them. If you need to change tests to pass, you either wrote wrong tests or made a wrong fix. Go back to step 2.
 
 ---
 
@@ -120,7 +86,7 @@ For Ori syntax, types, patterns, and prelude:
 **Primary**: `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` (includes LLVM)
 **Tests**: `cargo t` (Rust), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
 **Build**: `cargo c`/`cl`/`b`/`fmt`, `./llvm-build.sh`, `./llvm-clippy.sh`
-**LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — expands to `build -p oric -p ori_rt --features llvm`. The `--features llvm` activates oric's `llvm` feature (enabling `dep:ori_llvm` + `dep:ori_arc`); ori_rt does NOT have a `llvm` feature and Cargo silently ignores unknown features for packages that don't define them. **Do NOT second-guess this** — it works, just run it.
+**LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — builds oric + ori_rt (LLVM is a default feature; `cargo bl` additionally builds `ori_rt` for AOT linking)
 **Optimized release**: `cargo build --profile release-lto` — fat LTO + single codegen unit (~20% faster binary, ~3.5x longer build). Output: `target/release-lto/ori`. Use for published binaries and benchmarks. Regular `--release` (used by `test-all.sh`, `cargo blr`) is unaffected.
 **Tracing/Debugging** (USE FIRST — before println, before reading code line-by-line):
 `ORI_LOG=debug ori check file.ori` | `ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori` | `ORI_LOG=ori_eval=debug ori run file.ori` | `ORI_LOG=oric=debug ori check file.ori` (Salsa queries) | Falls back to `RUST_LOG`
@@ -129,8 +95,6 @@ For Ori syntax, types, patterns, and prelude:
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — in-pipeline RC verification: checks alloc/dec balance, COW sequencing, ABI arg counts, large aggregate loads. Zero cost when disabled. Options: `ORI_AUDIT_STRICT=1` (pessimistic: COW treated as freeing, params tracked as RC-managed) | `ORI_AUDIT_FUNCTION=name` (filter to functions matching substring).
 **Consistency**: `diagnostics/check-debug-flags.sh` — validates all `ORI_*` flags are defined, used, and documented.
 **Always run `./test-all.sh` after compiler changes.**
-**Valgrind (memory safety)**: `./scripts/valgrind-aot.sh` — compiles Ori programs from `tests/valgrind/` to native binaries and runs them under Valgrind. Catches use-after-free, double-free, and leaks that `ORI_CHECK_LEAKS` misses (Valgrind tracks `malloc`/`free` at the system level, not just RC live count). Run after ARC pipeline changes or when adding new codegen patterns. Not part of `test-all.sh` due to speed (Valgrind is 20-50x slower). Can also run on any `.ori` file: `./scripts/valgrind-aot.sh path/to/file.ori`.
-**Dual-execution verification**: `./scripts/dual-exec-verify.sh` — runs spec tests through both JIT (interpreter) and LLVM (JIT/AOT) backends, compares results. Flags behavioral mismatches. Supports `--test-only`, `--main-only`, `--verbose`, `--json[=PATH]`.
 **Performance baseline**: `./scripts/perf-baseline.sh [--release]` — measures compile time, AOT vs JIT runtime, and binary sizes for benchmark programs in `tests/benchmarks/`.
 **Diagnostic scripts** (`diagnostics/`): Quick AOT/codegen debugging — USE THESE when investigating LLVM, ARC, or backend mismatch bugs:
 - `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR dump (use `--raw` for undecorated)
@@ -140,13 +104,15 @@ For Ori syntax, types, patterns, and prelude:
 - `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: compile + execute + leak check + RC stats + IR dump + optional Valgrind (`--valgrind`) and disasm (`--verbose`)
 - `diagnostics/dual-exec-debug.sh <file.ori>` — run through interpreter AND AOT, compare exit codes + stdout; on mismatch auto-dumps IR and RC stats (`--verbose` adds `ORI_LOG=debug` traces)
 - `diagnostics/codegen-audit.sh <file.ori>` — static analysis of LLVM IR: RC balance, COW correctness, ABI conformance (`--strict` for pessimistic, `--function <name>` to filter)
+- `diagnostics/valgrind-aot.sh [file.ori ...]` — compile Ori programs to native binaries and run under Valgrind for memory error detection (use-after-free, double-free, leaks). Defaults to `tests/valgrind/`. Not part of `test-all.sh` (Valgrind is 20-50x slower).
+- `diagnostics/dual-exec-verify.sh [test-path]` — batch comparison of interpreter vs LLVM backend across spec tests. Flags behavioral mismatches. Supports `--test-only`, `--main-only`, `--verbose`, `--json[=PATH]`.
 All scripts support `--help`, `--no-color`/`--color`, and handle missing args and compilation failures gracefully.
 
 > **Note**: AOT compilation (`ori build`) requires `libori_rt.a`. Use `cargo bl`/`blr` to build both the compiler and runtime library together.
 
 ## Key Paths
 
-`compiler/oric/` — compiler | `docs/ori_lang/0.1-alpha/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT integration tests | `tests/valgrind/` — Valgrind memory safety tests | `tests/benchmarks/` — AOT performance benchmarks | `diagnostics/` — AOT/codegen diagnostic scripts (ir-dump, ir-diff, disasm, rc-stats, diagnose-aot, dual-exec-debug) | `plans/roadmap/` — roadmap
+`compiler/oric/` — compiler | `docs/ori_lang/0.1-alpha/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT integration tests | `tests/valgrind/` — Valgrind memory safety tests | `tests/benchmarks/` — AOT performance benchmarks | `diagnostics/` — AOT/codegen diagnostic scripts (ir-dump, ir-diff, disasm, rc-stats, diagnose-aot, dual-exec-debug, valgrind-aot, dual-exec-verify) | `plans/roadmap/` — roadmap
 
 ## Reference Repos (`~/projects/reference_repos/lang_repos/`)
 
