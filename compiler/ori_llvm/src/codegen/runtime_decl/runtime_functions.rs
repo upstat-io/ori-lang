@@ -21,7 +21,7 @@ pub(crate) enum Ty {
     F64,
     Bool,
     Ptr,
-    /// `{i64, ptr}` — Ori string representation.
+    /// `{i64, i64, ptr}` — Ori string representation (len, cap, data).
     Str,
     /// `{i64, i64, ptr}` — Ori list/set representation.
     List,
@@ -29,6 +29,17 @@ pub(crate) enum Ty {
     Map,
     /// `{i32, i64}` — char iteration result `{codepoint, next_offset}`.
     CharResult,
+}
+
+impl Ty {
+    /// Whether this return type exceeds the x86-64 `SysV` ABI register return
+    /// threshold (16 bytes) and must use `sret` convention.
+    ///
+    /// `Str` (24 bytes), `List` (24 bytes), and `Map` (32 bytes) all exceed it.
+    /// `CharResult` (16 bytes) fits exactly and uses direct return.
+    pub(crate) const fn needs_sret(self) -> bool {
+        matches!(self, Self::Str | Self::List | Self::Map)
+    }
 }
 
 /// Function attribute applied after declaration.
@@ -320,6 +331,22 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[],
     },
     RtFn {
+        name: "ori_list_sort_stable_cow",
+        // Same signature as ori_list_sort_cow (stable TimSort variant)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
         name: "ori_list_first",
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
@@ -513,6 +540,19 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         name: "ori_str_hash",
         params: &[Ty::Ptr],
         ret: Some(Ty::I64),
+        attrs: &[],
+    },
+    // String property access (SSO-safe)
+    RtFn {
+        name: "ori_str_len",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::I64),
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_str_data",
+        params: &[Ty::Ptr],
+        ret: Some(Ty::Ptr),
         attrs: &[],
     },
     // String iteration (char-by-char)
@@ -757,8 +797,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_iter_from_str",
-        params: &[Ty::Ptr, Ty::I64, Ty::Bool],
-        //        data   len   owns_data
+        params: &[Ty::Ptr],
+        //        *const OriStr (SSO-safe)
         ret: Some(Ty::Ptr),
         attrs: &[],
     },

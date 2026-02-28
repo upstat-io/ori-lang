@@ -70,7 +70,7 @@ fn primitive_sizes() {
 
 #[test]
 fn composite_sizes() {
-    assert_eq!(TypeInfo::Str.size(), Some(16));
+    assert_eq!(TypeInfo::Str.size(), Some(24));
     assert_eq!(TypeInfo::List { element: Idx::INT }.size(), Some(24));
     assert_eq!(
         TypeInfo::Map {
@@ -124,12 +124,12 @@ fn alignment_values() {
 #[test]
 fn loadable_types() {
     assert!(TypeInfo::Int.is_loadable());
-    assert!(TypeInfo::Str.is_loadable()); // 16 bytes fits in 2 registers
     assert!(TypeInfo::Option { inner: Idx::INT }.is_loadable()); // 16 bytes
 }
 
 #[test]
 fn non_loadable_types() {
+    assert!(!TypeInfo::Str.is_loadable()); // 24 bytes (SSO layout)
     assert!(!TypeInfo::List { element: Idx::INT }.is_loadable()); // 24 bytes
     assert!(!TypeInfo::Map {
         key: Idx::STR,

@@ -54,10 +54,14 @@ pub(super) fn generate_drop_fn<'a, 'scx: 'ctx, 'ctx, 'tcx>(
     // Cache before body generation (cycle safety for recursive types)
     emitter.drop_fn_cache.insert(ty, func_id);
 
-    // Create entry block and position builder
+    // Create entry block and position builder.
+    // Set BOTH builder.current_function AND emitter.current_function so that
+    // SSO-check blocks (created by inc_value_rc/dec_value_rc) are appended to
+    // the drop function, not the caller's function.
     let entry = emitter.builder.append_block(func_id, "entry");
     emitter.builder.position_at_end(entry);
     emitter.builder.set_current_function(func_id);
+    emitter.current_function = func_id;
 
     // Data pointer parameter
     let data_ptr = emitter.builder.get_param(func_id, 0);

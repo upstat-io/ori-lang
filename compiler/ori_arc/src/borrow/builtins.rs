@@ -103,13 +103,14 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
 ///
 /// Sorted alphabetically.
 const CONSUMING_RECEIVER_METHOD_NAMES: &[&str] = &[
-    "add",     // list + list (COW concat)
-    "concat",  // list.concat (COW concat)
-    "insert",  // list.insert (COW insert)
-    "push",    // list.push (COW push)
-    "remove",  // list.remove (COW remove)
-    "reverse", // list.reverse (COW reverse)
-    "sort",    // list.sort (COW sort)
+    "add",         // list + list (COW concat)
+    "concat",      // list.concat (COW concat)
+    "insert",      // list.insert (COW insert)
+    "push",        // list.push (COW push)
+    "remove",      // list.remove (COW remove)
+    "reverse",     // list.reverse (COW reverse)
+    "sort",        // list.sort (COW sort, unstable)
+    "sort_stable", // list.sort_stable (COW sort, stable/TimSort)
 ];
 
 /// COW list methods that consume both receiver AND second argument (list2).
@@ -338,7 +339,14 @@ mod tests {
     #[test]
     fn cow_methods_in_consuming() {
         for &method in &[
-            "add", "concat", "insert", "push", "remove", "reverse", "sort",
+            "add",
+            "concat",
+            "insert",
+            "push",
+            "remove",
+            "reverse",
+            "sort",
+            "sort_stable",
         ] {
             assert!(
                 CONSUMING_RECEIVER_METHOD_NAMES.contains(&method),

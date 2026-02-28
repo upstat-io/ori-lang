@@ -77,52 +77,284 @@ pub struct OriPanic {
     pub message: String,
 }
 
-/// Ori string representation: { i64 len, *const u8 data }
+/// SSO discriminator: high bit of byte 23 (the last byte of the 24-byte struct).
+///
+/// On 64-bit platforms, user-space pointers have the high bit clear (canonical
+/// addressing), so byte 23 of a heap string (the MSB of the data pointer) is
+/// always 0. For SSO strings, we set it to 1.
+const SSO_FLAG: u8 = 0x80;
+
+/// Mask to extract SSO string length from the flags byte (low 7 bits).
+const SSO_LEN_MASK: u8 = 0x7F;
+
+/// Maximum byte length for SSO (inline) strings.
+const SSO_MAX_LEN: usize = 23;
+
+/// Heap string layout: `{len, cap, data}` — 24 bytes.
+///
+/// Data pointer points to RC-managed memory with a refcount header
+/// at `data_ptr - 8`, allocated by `ori_rc_alloc`.
 #[repr(C)]
-pub struct OriStr {
+#[derive(Clone, Copy)]
+pub struct OriStrHeap {
     pub len: i64,
-    pub data: *const u8,
+    pub cap: i64,
+    pub data: *mut u8,
+}
+
+/// SSO (Small String Optimization) layout: `{bytes, flags}` — 24 bytes.
+///
+/// String data is stored inline in `bytes[0..len]`. No heap allocation,
+/// no RC header, no refcount operations needed.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct OriStrSSO {
+    pub bytes: [u8; 23],
+    /// High bit (0x80) = SSO flag; low 7 bits = length (0..=23).
+    pub flags: u8,
+}
+
+/// Ori string representation — 24-byte union with Small String Optimization.
+///
+/// Strings ≤ 23 bytes are stored inline (SSO): no heap allocation, no RC.
+/// Strings > 23 bytes use a heap-allocated RC-managed buffer with capacity
+/// tracking for COW (Copy-on-Write) growth.
+///
+/// The discriminator is byte 23: high bit = 1 → SSO, high bit = 0 → heap.
+/// This works because user-space pointers on 64-bit platforms have the MSB
+/// clear (canonical addressing), so the heap data pointer's MSB is always 0.
+///
+/// ```text
+/// Heap:  ┌──────────┬──────────┬──────────┐
+///        │ len (i64)│ cap (i64)│data (ptr)│  24 bytes
+///        └──────────┴──────────┴──────────┘
+///
+/// SSO:   ┌──────────────────────────┬─────┐
+///        │ string data (23 bytes)   │flags│  24 bytes
+///        └──────────────────────────┴─────┘
+///                                    high bit=1 → SSO, low 7 bits=length
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union OriStr {
+    pub heap: OriStrHeap,
+    pub sso: OriStrSSO,
 }
 
 impl OriStr {
+    /// Empty string constant (SSO, zero length, no allocation).
+    pub const EMPTY: Self = Self {
+        sso: OriStrSSO {
+            bytes: [0u8; 23],
+            flags: SSO_FLAG,
+        },
+    };
+
+    /// Check whether this string uses SSO (inline storage).
+    #[inline]
+    #[must_use]
+    pub fn is_sso(&self) -> bool {
+        // SAFETY: The flags byte (byte 23) is at the same position in both
+        // union variants — it's the MSB of the data pointer for heap strings,
+        // and the explicit flags field for SSO strings.
+        unsafe { self.sso.flags & SSO_FLAG != 0 }
+    }
+
+    /// Byte length of the string.
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        if self.is_sso() {
+            unsafe { (self.sso.flags & SSO_LEN_MASK) as usize }
+        } else {
+            unsafe { self.heap.len as usize }
+        }
+    }
+
+    /// Whether the string is empty (zero bytes).
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Raw byte content of the string.
+    #[inline]
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        if self.is_sso() {
+            let len = self.len();
+            unsafe { &self.sso.bytes[..len] }
+        } else {
+            unsafe {
+                if self.heap.data.is_null() || self.heap.len <= 0 {
+                    &[]
+                } else {
+                    std::slice::from_raw_parts(self.heap.data, self.heap.len as usize)
+                }
+            }
+        }
+    }
+
     /// Convert to Rust string slice.
     ///
     /// # Safety
-    /// Caller must ensure data pointer is valid and len is correct.
+    /// Caller must ensure the bytes are valid UTF-8.
+    #[inline]
     #[must_use]
     pub unsafe fn as_str(&self) -> &str {
-        if self.data.is_null() || self.len <= 0 {
-            return "";
-        }
-        let slice = std::slice::from_raw_parts(self.data, self.len as usize);
-        std::str::from_utf8_unchecked(slice)
+        std::str::from_utf8_unchecked(self.as_bytes())
     }
 
-    /// Create an `OriStr` from an owned `String` using RC-managed allocation.
+    /// Get the heap data pointer for RC operations.
     ///
-    /// The string data is copied into an `ori_rc_alloc` buffer so that the
-    /// ARC pipeline's `RcInc`/`RcDec` operations work correctly (they expect
-    /// a refcount header at `data_ptr - 8`).
+    /// Returns `None` for SSO strings (no heap allocation to manage).
+    #[inline]
     #[must_use]
-    pub fn from_owned(s: String) -> Self {
-        let bytes = s.into_bytes();
-        let len = bytes.len() as i64;
-        if bytes.is_empty() {
-            return Self {
-                len: 0,
-                data: std::ptr::null(),
-            };
-        }
-        let data = ori_rc_alloc(bytes.len(), 1);
-        if !data.is_null() {
-            // SAFETY: ori_rc_alloc returned a valid pointer of at least `bytes.len()` bytes.
+    pub fn heap_data_ptr(&self) -> Option<*mut u8> {
+        if self.is_sso() {
+            None
+        } else {
             unsafe {
-                std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, bytes.len());
+                if self.heap.data.is_null() {
+                    None
+                } else {
+                    Some(self.heap.data)
+                }
+            }
+        }
+    }
+
+    /// Create an SSO string from a byte slice.
+    ///
+    /// # Panics
+    /// Debug-panics if `bytes.len() > 23`.
+    #[must_use]
+    pub fn from_sso(bytes: &[u8]) -> Self {
+        debug_assert!(
+            bytes.len() <= SSO_MAX_LEN,
+            "SSO string too long: {} > {SSO_MAX_LEN}",
+            bytes.len()
+        );
+        let mut sso = OriStrSSO {
+            bytes: [0u8; 23],
+            flags: SSO_FLAG | bytes.len() as u8,
+        };
+        sso.bytes[..bytes.len()].copy_from_slice(bytes);
+        Self { sso }
+    }
+
+    /// Create a heap string from a byte slice with RC-managed allocation.
+    ///
+    /// The data is copied into an `ori_rc_alloc` buffer so that the ARC
+    /// pipeline's `RcInc`/`RcDec` operations work correctly.
+    #[must_use]
+    pub fn from_heap(bytes: &[u8]) -> Self {
+        if bytes.is_empty() {
+            return Self::EMPTY;
+        }
+        let len = bytes.len();
+        let data = ori_rc_alloc(len, 1);
+        if !data.is_null() {
+            // SAFETY: data is freshly allocated with at least `len` bytes.
+            unsafe {
+                std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, len);
             }
         }
         Self {
-            len,
-            data: data as *const u8,
+            heap: OriStrHeap {
+                len: len as i64,
+                cap: len as i64,
+                data,
+            },
+        }
+    }
+
+    /// Create a string, automatically choosing SSO (≤ 23 bytes) or heap.
+    #[must_use]
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        if bytes.len() <= SSO_MAX_LEN {
+            Self::from_sso(bytes)
+        } else {
+            Self::from_heap(bytes)
+        }
+    }
+
+    /// Create from an owned `String`, using SSO when possible.
+    ///
+    /// For strings ≤ 23 bytes, stores inline (no heap allocation).
+    /// For longer strings, copies into an RC-managed heap buffer.
+    #[must_use]
+    pub fn from_owned(s: &str) -> Self {
+        Self::from_bytes(s.as_bytes())
+    }
+
+    /// Create a heap string with a pre-allocated capacity.
+    ///
+    /// Allocates a buffer of `cap` bytes but sets length to 0.
+    /// Used for building strings incrementally (concat chains).
+    #[must_use]
+    pub fn with_capacity(cap: usize) -> Self {
+        if cap == 0 {
+            return Self::EMPTY;
+        }
+        let data = ori_rc_alloc(cap, 1);
+        Self {
+            heap: OriStrHeap {
+                len: 0,
+                cap: cap as i64,
+                data,
+            },
+        }
+    }
+
+    /// Promote an SSO string to a heap string with at least `min_cap` capacity.
+    ///
+    /// Copies the inline bytes into an RC-managed heap buffer. Returns a heap
+    /// variant with the original content and room to grow.
+    ///
+    /// # Precondition
+    /// `self` must be an SSO string. Calling on a heap string is a logic error
+    /// (debug-asserted).
+    #[must_use]
+    pub fn promote_to_heap(&self, min_cap: usize) -> Self {
+        debug_assert!(self.is_sso(), "promote_to_heap called on heap string");
+        let len = self.len();
+        let cap = next_capacity(0, min_cap);
+        let data = ori_rc_alloc(cap, 1);
+        if !data.is_null() && len > 0 {
+            // SAFETY: SSO bytes are inline and valid for `len` bytes.
+            unsafe {
+                std::ptr::copy_nonoverlapping(self.sso.bytes.as_ptr(), data, len);
+            }
+        }
+        Self {
+            heap: OriStrHeap {
+                len: len as i64,
+                cap: cap as i64,
+                data,
+            },
+        }
+    }
+
+    /// Ensure a heap string has capacity for at least `required` bytes.
+    ///
+    /// If the current capacity is sufficient, this is a no-op.
+    /// Otherwise, reallocates the buffer with amortized growth.
+    ///
+    /// # Precondition
+    /// `self` must be a uniquely-owned heap string (not SSO, not shared).
+    pub fn ensure_capacity(&mut self, required: usize) {
+        debug_assert!(!self.is_sso(), "ensure_capacity called on SSO string");
+        unsafe {
+            if self.heap.cap as usize >= required {
+                return;
+            }
+            let old_len = self.heap.len as usize;
+            let new_cap = next_capacity(self.heap.cap as usize, required);
+            let new_data = ori_rc_realloc(self.heap.data, old_len, new_cap, 1);
+            self.heap.cap = new_cap as i64;
+            self.heap.data = new_data;
         }
     }
 }
@@ -1339,13 +1571,33 @@ pub extern "C" fn ori_list_empty() -> *mut u8 {
     std::ptr::null_mut()
 }
 
-/// Return an empty string sentinel (no allocation).
+/// Return an empty string sentinel (SSO, no allocation).
 #[no_mangle]
 pub extern "C" fn ori_str_empty() -> OriStr {
-    OriStr {
-        len: 0,
-        data: std::ptr::null(),
+    OriStr::EMPTY
+}
+
+/// Ensure a heap string has capacity for at least `required` bytes.
+///
+/// If the string is SSO or already has sufficient capacity, this is a no-op.
+/// Otherwise, reallocates the heap buffer using `next_capacity()` for
+/// amortized O(1) growth.
+///
+/// # Precondition
+/// If the string is heap, it must be uniquely owned (`ori_rc_is_unique`).
+/// The caller (LLVM codegen) is responsible for checking uniqueness before
+/// calling this function.
+#[no_mangle]
+pub extern "C" fn ori_str_ensure_capacity(s: *mut OriStr, required: i64) {
+    if s.is_null() || required <= 0 {
+        return;
     }
+    let str_ref = unsafe { &mut *s };
+    if str_ref.is_sso() {
+        // SSO strings don't have capacity — promotion handled by caller
+        return;
+    }
+    str_ref.ensure_capacity(required as usize);
 }
 
 /// Return an empty map sentinel (no allocation).
@@ -1507,7 +1759,7 @@ pub extern "C" fn ori_catch_recover() -> OriStr {
     let msg = PANIC_MESSAGE.with(|m| m.borrow_mut().take());
     PANIC_OCCURRED.with(|p| *p.borrow_mut() = false);
     let text = msg.unwrap_or_else(|| "unknown panic".to_string());
-    OriStr::from_owned(text)
+    OriStr::from_owned(&text)
 }
 
 /// Assert that a condition is true.
@@ -2762,6 +3014,45 @@ pub extern "C" fn ori_list_sort_cow(
     inc_fn: Option<extern "C" fn(*mut u8)>,
     out_ptr: *mut u8,
 ) {
+    list_sort_cow_impl(
+        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, out_ptr, false,
+    );
+}
+
+/// Stable sort (`TimSort`) — preserves relative order of equal elements.
+/// Same COW semantics as `ori_list_sort_cow`.
+#[unsafe(no_mangle)]
+pub extern "C" fn ori_list_sort_stable_cow(
+    data: *mut u8,
+    len: i64,
+    cap: i64,
+    elem_size: i64,
+    elem_align: i64,
+    compare_fn: extern "C" fn(*const u8, *const u8) -> i32,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
+    out_ptr: *mut u8,
+) {
+    list_sort_cow_impl(
+        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, out_ptr, true,
+    );
+}
+
+/// Shared implementation for COW list sort (unstable and stable variants).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "C FFI parameters from two sort entry points"
+)]
+fn list_sort_cow_impl(
+    data: *mut u8,
+    len: i64,
+    cap: i64,
+    elem_size: i64,
+    elem_align: i64,
+    compare_fn: extern "C" fn(*const u8, *const u8) -> i32,
+    inc_fn: Option<extern "C" fn(*mut u8)>,
+    out_ptr: *mut u8,
+    stable: bool,
+) {
     if out_ptr.is_null() {
         return;
     }
@@ -2782,10 +3073,15 @@ pub extern "C" fn ori_list_sort_cow(
 
     // Build sorted index array — works for both paths
     let mut indices: Vec<usize> = (0..n).collect();
-    indices.sort_unstable_by(|&a, &b| {
-        let cmp = compare_fn(unsafe { data.add(a * es) }, unsafe { data.add(b * es) });
-        cmp.cmp(&0)
-    });
+    let cmp = |&a: &usize, &b: &usize| {
+        let c = compare_fn(unsafe { data.add(a * es) }, unsafe { data.add(b * es) });
+        c.cmp(&0)
+    };
+    if stable {
+        indices.sort_by(cmp);
+    } else {
+        indices.sort_unstable_by(cmp);
+    }
 
     // FAST PATH: unique owner — permute in place
     if ori_rc_is_unique(data) {
@@ -2930,7 +3226,7 @@ pub extern "C" fn ori_list_contains_int(data: *const u8, len: i64, needle: i64) 
 
 /// Check whether a list of strings contains a given string.
 ///
-/// Each string element is `{i64 len, ptr data}` (16 bytes).
+/// Each string element is an `OriStr` (24 bytes, SSO or heap).
 /// Returns 1 (true) if found, 0 (false) otherwise.
 #[no_mangle]
 pub extern "C" fn ori_list_contains_str(data: *const u8, len: i64, needle: *const OriStr) -> i64 {
@@ -3046,8 +3342,8 @@ pub extern "C" fn ori_list_concat(
 
 /// Check if a map contains a string key.
 ///
-/// Map keys are stored as a contiguous array of `OriStr` structs
-/// (`{i64 len, ptr data}`). Linear scan with string comparison.
+/// Map keys are stored as a contiguous array of `OriStr` values
+/// (24 bytes each, SSO or heap). Linear scan with string comparison.
 /// Returns 1 if found, 0 otherwise.
 #[no_mangle]
 pub extern "C" fn ori_map_contains_key(keys: *const u8, len: i64, needle: *const OriStr) -> i64 {
@@ -3675,8 +3971,7 @@ pub extern "C" fn ori_str_chars(str_ptr: *const u8, str_len: i64, out_ptr: *mut 
 /// Split a string by a separator, returning a list of `OriStr` values.
 ///
 /// Writes `{len, cap, data_ptr}` to `out_ptr` (sret pattern). Each element
-/// is an `OriStr` (16 bytes: `{i64 len, ptr data}`). The returned strings
-/// are new allocations that the caller owns.
+/// is an `OriStr` (24 bytes). Short substrings use SSO (no heap allocation).
 #[no_mangle]
 pub extern "C" fn ori_str_split(
     str_ptr: *const u8,
@@ -3685,11 +3980,12 @@ pub extern "C" fn ori_str_split(
     sep_len: i64,
     out_ptr: *mut u8,
 ) {
+    let elem_size = std::mem::size_of::<OriStr>();
     if out_ptr.is_null() {
         return;
     }
     if str_ptr.is_null() || str_len < 0 {
-        write_array_to_list(std::ptr::null(), 0, 16, out_ptr);
+        write_array_to_list(std::ptr::null(), 0, elem_size as i64, out_ptr);
         return;
     }
 
@@ -3707,23 +4003,13 @@ pub extern "C" fn ori_str_split(
     let parts: Vec<&str> = s.split(sep_bytes).collect();
     let n = parts.len();
 
-    // Each OriStr is 16 bytes: {i64 len, ptr data}
-    let total = n * 16;
-    let new_data = crate::ori_rc_alloc(total, 8);
+    let total = n * elem_size;
+    let new_data = crate::ori_rc_alloc(total, std::mem::align_of::<OriStr>());
+    let elements = new_data.cast::<OriStr>();
     for (i, part) in parts.iter().enumerate() {
-        let part_len = part.len() as i64;
-        let part_data = if part.is_empty() {
-            std::ptr::null_mut()
-        } else {
-            let buf = crate::ori_alloc(part.len(), 1);
-            unsafe { std::ptr::copy_nonoverlapping(part.as_ptr(), buf, part.len()) };
-            buf
-        };
-        unsafe {
-            let entry = new_data.add(i * 16);
-            entry.cast::<i64>().write(part_len);
-            entry.add(8).cast::<*mut u8>().write(part_data);
-        }
+        let element = OriStr::from_bytes(part.as_bytes());
+        // SAFETY: elements[i] is within the allocated array.
+        unsafe { elements.add(i).write(element) };
     }
 
     unsafe {
@@ -3746,24 +4032,103 @@ unsafe fn deref_str<'a>(ptr: *const OriStr) -> &'a str {
     }
 }
 
-/// Concatenate two strings.
+/// Concatenate two strings with COW (Copy-on-Write) optimization.
 ///
-/// Returns a new `OriStr` with the concatenated result.
-/// The caller is responsible for freeing the result.
+/// Four cases, from fastest to slowest:
+/// 1. Both SSO and combined ≤ 23 bytes → SSO result (no allocation)
+/// 2. `a` is heap, unique, has capacity → append `b` in place (O(m))
+/// 3. `a` is heap, unique, no capacity → realloc + append (O(n+m) amortized)
+/// 4. `a` is shared or SSO (promotion needed) → allocate new (O(n+m))
+///
+/// The caller is responsible for RC management of the result.
 #[no_mangle]
 pub extern "C" fn ori_str_concat(a: *const OriStr, b: *const OriStr) -> OriStr {
-    let a_str = if a.is_null() {
-        ""
+    let a_ref = if a.is_null() {
+        &OriStr::EMPTY
     } else {
-        unsafe { (*a).as_str() }
+        unsafe { &*a }
     };
-    let b_str = if b.is_null() {
-        ""
+    let b_ref = if b.is_null() {
+        &OriStr::EMPTY
     } else {
-        unsafe { (*b).as_str() }
+        unsafe { &*b }
     };
 
-    OriStr::from_owned(format!("{a_str}{b_str}"))
+    let a_bytes = a_ref.as_bytes();
+    let b_bytes = b_ref.as_bytes();
+    let a_len = a_bytes.len();
+    let b_len = b_bytes.len();
+
+    // Short-circuit: empty operands
+    if b_len == 0 {
+        return *a_ref;
+    }
+    if a_len == 0 {
+        return *b_ref;
+    }
+
+    let combined = a_len + b_len;
+
+    // Case 1: Both fit in SSO
+    if combined <= SSO_MAX_LEN {
+        let mut sso = OriStrSSO {
+            bytes: [0u8; 23],
+            flags: SSO_FLAG | combined as u8,
+        };
+        sso.bytes[..a_len].copy_from_slice(a_bytes);
+        sso.bytes[a_len..combined].copy_from_slice(b_bytes);
+        return OriStr { sso };
+    }
+
+    // Cases 2-3: `a` is heap and uniquely owned — in-place append.
+    //
+    // The caller borrows `a` by pointer and will RC-dec it after the call.
+    // Case 2 (in-place append): We reuse `a`'s data pointer in the result,
+    //   so both old and new values share it. RC-inc to keep the allocation
+    //   alive after the caller's dec.
+    // Case 3 (realloc): `realloc` may free the old allocation, making the
+    //   caller's old pointer dangling. We CANNOT use realloc here — instead
+    //   fall through to Case 4 (fresh allocation) so the caller's dec
+    //   cleanly frees the old allocation.
+    if !a_ref.is_sso() {
+        let heap = unsafe { &a_ref.heap };
+        if !heap.data.is_null() && ori_rc_is_unique(heap.data) && (heap.cap as usize) >= combined {
+            // Case 2: has capacity — append in place, inc RC for caller's dec
+            unsafe {
+                std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), heap.data.add(a_len), b_len);
+            }
+            ori_rc_inc(heap.data);
+            return OriStr {
+                heap: OriStrHeap {
+                    len: combined as i64,
+                    cap: heap.cap,
+                    data: heap.data,
+                },
+            };
+        }
+    }
+
+    // Case 4: allocate new (a is shared or SSO requiring promotion)
+    // Use a's current capacity as the base for amortized doubling growth,
+    // so repeated concats don't degrade to O(n) total allocations.
+    let a_cap = if a_ref.is_sso() {
+        0
+    } else {
+        unsafe { a_ref.heap.cap as usize }
+    };
+    let new_cap = next_capacity(a_cap, combined);
+    let new_data = ori_rc_alloc(new_cap, 1);
+    unsafe {
+        std::ptr::copy_nonoverlapping(a_bytes.as_ptr(), new_data, a_len);
+        std::ptr::copy_nonoverlapping(b_bytes.as_ptr(), new_data.add(a_len), b_len);
+    }
+    OriStr {
+        heap: OriStrHeap {
+            len: combined as i64,
+            cap: new_cap as i64,
+            data: new_data,
+        },
+    }
 }
 
 /// Compare two strings for equality.
@@ -3822,16 +4187,10 @@ pub extern "C" fn ori_str_hash(s: *const OriStr) -> i64 {
     const FNV_OFFSET_BASIS: u64 = 14_695_981_039_346_656_037;
     const FNV_PRIME: u64 = 1_099_511_628_211;
 
-    let bytes = if s.is_null() {
+    let bytes: &[u8] = if s.is_null() {
         &[]
     } else {
-        // SAFETY: Caller ensures s points to a valid OriStr
-        let ori_str = unsafe { &*s };
-        if ori_str.data.is_null() || ori_str.len <= 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(ori_str.data, ori_str.len as usize) }
-        }
+        unsafe { (*s).as_bytes() }
     };
 
     let mut hash = FNV_OFFSET_BASIS;
@@ -3845,50 +4204,76 @@ pub extern "C" fn ori_str_hash(s: *const OriStr) -> i64 {
 /// Convert an integer to a string.
 #[no_mangle]
 pub extern "C" fn ori_str_from_int(n: i64) -> OriStr {
-    OriStr::from_owned(n.to_string())
+    OriStr::from_owned(&n.to_string())
 }
 
 /// Create an `OriStr` from a raw pointer + length (e.g., string literals).
 ///
-/// Copies the data into an RC-managed heap allocation so the resulting
-/// string can safely participate in ARC `RcInc`/`RcDec` operations.
+/// Uses SSO for strings ≤ 23 bytes (no heap allocation). For longer strings,
+/// copies into an RC-managed heap buffer for ARC `RcInc`/`RcDec` operations.
 #[no_mangle]
 pub extern "C" fn ori_str_from_raw(src: *const u8, len: i64) -> OriStr {
     if src.is_null() || len <= 0 {
-        return OriStr {
-            len: 0,
-            data: std::ptr::null(),
-        };
+        return OriStr::EMPTY;
     }
     let size = len as usize;
-    let data = ori_rc_alloc(size, 1);
-    if !data.is_null() {
-        // SAFETY: src is valid for `size` bytes; data is freshly allocated with at least `size` bytes.
-        unsafe {
-            std::ptr::copy_nonoverlapping(src, data, size);
-        }
+    // SAFETY: Caller ensures src is valid for `size` bytes.
+    let bytes = unsafe { std::slice::from_raw_parts(src, size) };
+    OriStr::from_bytes(bytes)
+}
+
+/// Return the byte length of a string (SSO-safe).
+///
+/// For SSO strings, the length is encoded in the flags byte (byte 23, bits 0–6).
+/// For heap strings, the length is the first i64 field. Codegen must call this
+/// instead of extracting field 0 directly, since the union layout differs.
+#[no_mangle]
+pub extern "C" fn ori_str_len(s: *const OriStr) -> i64 {
+    if s.is_null() {
+        return 0;
     }
-    OriStr {
-        len,
-        data: data as *const u8,
+    unsafe { &*s }.len() as i64
+}
+
+/// Return a pointer to the string's raw byte data (SSO-safe).
+///
+/// For SSO strings, returns a pointer to the inline bytes (at the start of the
+/// struct). For heap strings, returns the data pointer (field 2). The returned
+/// pointer is valid as long as the `OriStr` it came from is alive and unmodified.
+///
+/// **Lifetime warning**: For SSO strings, the pointer points into the `OriStr`
+/// struct itself. If the `OriStr` is on the stack (an alloca), the pointer is only
+/// valid while that stack frame is live. Do NOT store this pointer in a long-lived
+/// structure — use `ori_iter_from_str` for iterators instead.
+#[no_mangle]
+pub extern "C" fn ori_str_data(s: *const OriStr) -> *const u8 {
+    if s.is_null() {
+        return std::ptr::null();
+    }
+    let s = unsafe { &*s };
+    if s.is_sso() {
+        unsafe { s.sso.bytes.as_ptr() }
+    } else {
+        unsafe { s.heap.data }
     }
 }
 
 /// Convert a boolean to a string.
 ///
-/// Returns a heap-allocated `OriStr`, matching the ownership semantics of
-/// `ori_str_from_int` and `ori_str_from_float`. All `ori_str_from_*` functions
-/// must return owned strings so LLVM-generated cleanup code can uniformly free them.
+/// Both "true" (4 bytes) and "false" (5 bytes) fit in SSO — no heap allocation.
 #[no_mangle]
 pub extern "C" fn ori_str_from_bool(b: bool) -> OriStr {
-    let result = if b { "true" } else { "false" };
-    OriStr::from_owned(result.to_string())
+    if b {
+        OriStr::from_sso(b"true")
+    } else {
+        OriStr::from_sso(b"false")
+    }
 }
 
 /// Convert a float to a string.
 #[no_mangle]
 pub extern "C" fn ori_str_from_float(f: f64) -> OriStr {
-    OriStr::from_owned(f.to_string())
+    OriStr::from_owned(&f.to_string())
 }
 
 // -- String methods --
@@ -3915,42 +4300,288 @@ pub extern "C" fn ori_str_ends_with(s: *const OriStr, suffix: *const OriStr) -> 
 }
 
 /// Trim whitespace from both ends of a string.
+///
+/// Returns a new `OriStr` containing the trimmed content. Uses SSO when
+/// the trimmed result is ≤ 23 bytes (avoids intermediate `String` allocation).
 #[no_mangle]
 pub extern "C" fn ori_str_trim(s: *const OriStr) -> OriStr {
-    let s = unsafe { deref_str(s) };
-    OriStr::from_owned(s.trim().to_owned())
+    let s_ref = if s.is_null() {
+        return OriStr::EMPTY;
+    } else {
+        unsafe { &*s }
+    };
+    let trimmed = unsafe { s_ref.as_str() }.trim();
+    OriStr::from_bytes(trimmed.as_bytes())
 }
 
 /// Convert a string to uppercase.
+///
+/// COW optimization: if the string is ASCII-only and uniquely owned on the
+/// heap, the transformation is done in place (ASCII case change preserves
+/// byte length). For SSO strings, the bytes are copied and transformed
+/// inline. Non-ASCII strings fall through to Rust's `to_uppercase()`.
 #[no_mangle]
 pub extern "C" fn ori_str_to_uppercase(s: *const OriStr) -> OriStr {
-    let s = unsafe { deref_str(s) };
-    OriStr::from_owned(s.to_uppercase())
+    let s_ref = if s.is_null() {
+        return OriStr::EMPTY;
+    } else {
+        unsafe { &*s }
+    };
+    let bytes = s_ref.as_bytes();
+    let len = bytes.len();
+    if len == 0 {
+        return OriStr::EMPTY;
+    }
+
+    // Non-ASCII: fall through to Rust (length may change, e.g. ß → SS)
+    if !bytes.is_ascii() {
+        return OriStr::from_owned(&unsafe { s_ref.as_str() }.to_uppercase());
+    }
+
+    // ASCII: byte length is preserved — can do in-place or SSO
+    if s_ref.is_sso() {
+        let mut sso = unsafe { s_ref.sso };
+        for b in &mut sso.bytes[..len] {
+            b.make_ascii_uppercase();
+        }
+        return OriStr { sso };
+    }
+
+    // Heap: try in-place if unique
+    let heap = unsafe { &s_ref.heap };
+    if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+        let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
+        data.make_ascii_uppercase();
+        return *s_ref;
+    }
+
+    // Shared heap: allocate new
+    let mut result = Vec::with_capacity(len);
+    result.extend(bytes.iter().map(u8::to_ascii_uppercase));
+    OriStr::from_bytes(&result)
 }
 
 /// Convert a string to lowercase.
+///
+/// Same COW strategy as `ori_str_to_uppercase`.
 #[no_mangle]
 pub extern "C" fn ori_str_to_lowercase(s: *const OriStr) -> OriStr {
-    let s = unsafe { deref_str(s) };
-    OriStr::from_owned(s.to_lowercase())
+    let s_ref = if s.is_null() {
+        return OriStr::EMPTY;
+    } else {
+        unsafe { &*s }
+    };
+    let bytes = s_ref.as_bytes();
+    let len = bytes.len();
+    if len == 0 {
+        return OriStr::EMPTY;
+    }
+
+    if !bytes.is_ascii() {
+        return OriStr::from_owned(&unsafe { s_ref.as_str() }.to_lowercase());
+    }
+
+    if s_ref.is_sso() {
+        let mut sso = unsafe { s_ref.sso };
+        for b in &mut sso.bytes[..len] {
+            b.make_ascii_lowercase();
+        }
+        return OriStr { sso };
+    }
+
+    let heap = unsafe { &s_ref.heap };
+    if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+        let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
+        data.make_ascii_lowercase();
+        return *s_ref;
+    }
+
+    let mut result = Vec::with_capacity(len);
+    result.extend(bytes.iter().map(u8::to_ascii_lowercase));
+    OriStr::from_bytes(&result)
 }
 
 /// Replace all occurrences of `from` with `to` in a string.
+///
+/// COW optimization: if `from` and `to` have the same byte length and the
+/// source is a uniquely-owned heap string, replacements are done in place.
 #[no_mangle]
 pub extern "C" fn ori_str_replace(
     s: *const OriStr,
     from: *const OriStr,
     to: *const OriStr,
 ) -> OriStr {
-    let (s, from, to) = unsafe { (deref_str(s), deref_str(from), deref_str(to)) };
-    OriStr::from_owned(s.replace(from, to))
+    let s_ref = if s.is_null() {
+        return OriStr::EMPTY;
+    } else {
+        unsafe { &*s }
+    };
+    let from_str = unsafe { deref_str(from) };
+    let to_str = unsafe { deref_str(to) };
+
+    // Same-length replacement on unique heap → in-place
+    if from_str.len() == to_str.len() && !from_str.is_empty() && !s_ref.is_sso() {
+        let heap = unsafe { &s_ref.heap };
+        if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+            let len = s_ref.len();
+            let data = unsafe { std::slice::from_raw_parts_mut(heap.data, len) };
+            let from_bytes = from_str.as_bytes();
+            let to_bytes = to_str.as_bytes();
+            let pat_len = from_bytes.len();
+            let mut i = 0;
+            while i + pat_len <= len {
+                if &data[i..i + pat_len] == from_bytes {
+                    data[i..i + pat_len].copy_from_slice(to_bytes);
+                    i += pat_len;
+                } else {
+                    i += 1;
+                }
+            }
+            return *s_ref;
+        }
+    }
+
+    // General case: use Rust's replace and wrap result
+    let s_str = unsafe { s_ref.as_str() };
+    OriStr::from_bytes(s_str.replace(from_str, to_str).as_bytes())
 }
 
 /// Repeat a string `count` times.
+///
+/// Always allocates a new buffer with exact capacity (no COW — the result
+/// is always a new string).
 #[no_mangle]
 pub extern "C" fn ori_str_repeat(s: *const OriStr, count: i64) -> OriStr {
-    let s = unsafe { deref_str(s) };
-    OriStr::from_owned(s.repeat(count.max(0) as usize))
+    let s_ref = if s.is_null() {
+        return OriStr::EMPTY;
+    } else {
+        unsafe { &*s }
+    };
+    let bytes = s_ref.as_bytes();
+    let len = bytes.len();
+    let n = count.max(0) as usize;
+
+    if n == 0 || len == 0 {
+        return OriStr::EMPTY;
+    }
+    if n == 1 {
+        return *s_ref;
+    }
+
+    let total = len.saturating_mul(n);
+
+    // Fits in SSO
+    if total <= SSO_MAX_LEN {
+        let mut sso = OriStrSSO {
+            bytes: [0u8; 23],
+            flags: SSO_FLAG | total as u8,
+        };
+        for i in 0..n {
+            sso.bytes[i * len..(i + 1) * len].copy_from_slice(bytes);
+        }
+        return OriStr { sso };
+    }
+
+    // Heap: allocate exact capacity
+    let data = ori_rc_alloc(total, 1);
+    for i in 0..n {
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), data.add(i * len), len);
+        }
+    }
+    OriStr {
+        heap: OriStrHeap {
+            len: total as i64,
+            cap: total as i64,
+            data,
+        },
+    }
+}
+
+/// Append a single character to a string.
+///
+/// Follows the same COW protocol as `ori_str_concat`:
+/// 1. If result fits in SSO → SSO (no allocation)
+/// 2. If heap, unique, has capacity → append in place
+/// 3. If heap, unique, no capacity → realloc
+/// 4. Otherwise → allocate new
+#[no_mangle]
+pub extern "C" fn ori_str_push_char(s: *const OriStr, ch: u32) -> OriStr {
+    let s_ref = if s.is_null() {
+        &OriStr::EMPTY
+    } else {
+        unsafe { &*s }
+    };
+
+    // Encode the char to UTF-8
+    let c = char::from_u32(ch).unwrap_or(char::REPLACEMENT_CHARACTER);
+    let mut buf = [0u8; 4];
+    let encoded = c.encode_utf8(&mut buf);
+    let ch_bytes = encoded.as_bytes();
+    let ch_len = ch_bytes.len();
+
+    let s_bytes = s_ref.as_bytes();
+    let s_len = s_bytes.len();
+    let combined = s_len + ch_len;
+
+    // Case 1: fits in SSO
+    if combined <= SSO_MAX_LEN {
+        let mut sso = OriStrSSO {
+            bytes: [0u8; 23],
+            flags: SSO_FLAG | combined as u8,
+        };
+        sso.bytes[..s_len].copy_from_slice(s_bytes);
+        sso.bytes[s_len..combined].copy_from_slice(ch_bytes);
+        return OriStr { sso };
+    }
+
+    // Cases 2-3: heap and uniquely owned
+    if !s_ref.is_sso() {
+        let heap = unsafe { &s_ref.heap };
+        if !heap.data.is_null() && ori_rc_is_unique(heap.data) {
+            if (heap.cap as usize) >= combined {
+                // Case 2: has capacity
+                unsafe {
+                    std::ptr::copy_nonoverlapping(ch_bytes.as_ptr(), heap.data.add(s_len), ch_len);
+                }
+                return OriStr {
+                    heap: OriStrHeap {
+                        len: combined as i64,
+                        cap: heap.cap,
+                        data: heap.data,
+                    },
+                };
+            }
+            // Case 3: realloc
+            let new_cap = next_capacity(heap.cap as usize, combined);
+            let new_data = ori_rc_realloc(heap.data, s_len, new_cap, 1);
+            unsafe {
+                std::ptr::copy_nonoverlapping(ch_bytes.as_ptr(), new_data.add(s_len), ch_len);
+            }
+            return OriStr {
+                heap: OriStrHeap {
+                    len: combined as i64,
+                    cap: new_cap as i64,
+                    data: new_data,
+                },
+            };
+        }
+    }
+
+    // Case 4: allocate new
+    let new_cap = next_capacity(0, combined);
+    let new_data = ori_rc_alloc(new_cap, 1);
+    unsafe {
+        std::ptr::copy_nonoverlapping(s_bytes.as_ptr(), new_data, s_len);
+        std::ptr::copy_nonoverlapping(ch_bytes.as_ptr(), new_data.add(s_len), ch_len);
+    }
+    OriStr {
+        heap: OriStrHeap {
+            len: combined as i64,
+            cap: new_cap as i64,
+            data: new_data,
+        },
+    }
 }
 
 /// Compare two integers (for sorting, etc.)
@@ -3981,7 +4612,7 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
 /// Skips `argv[0]` (program name) per the Ori spec: `@main(args)` receives
 /// only user-supplied arguments. Returns `OriList { len, cap, data }` by value.
 ///
-/// Each element is an `OriStr { len: i64, data: *const u8 }` (16 bytes).
+/// Each element is an `OriStr` (24 bytes). Short arguments use SSO.
 /// String data is copied to owned allocations so the caller doesn't depend
 /// on the lifetime of the original `argv` strings.
 #[no_mangle]
@@ -4000,9 +4631,6 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriLi
     }
 
     let count = (argc - 1) as usize; // skip argv[0]
-                                     // Allocate contiguous array for OriStr elements (16 bytes each).
-                                     // Uses ori_rc_alloc so the list data has an RC header, consistent
-                                     // with all other list data allocations.
     let total = count * std::mem::size_of::<OriStr>();
     let data = ori_rc_alloc(total, std::mem::align_of::<OriStr>());
     if data.is_null() {
@@ -4017,31 +4645,9 @@ pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriLi
     for i in 0..count {
         // SAFETY: argv is valid for argc entries; we access argv[i+1]
         let c_str = unsafe { CStr::from_ptr(*argv.add(i + 1)) };
-        let bytes = c_str.to_bytes();
-        let len = bytes.len();
-
-        // Copy string data to owned allocation
-        let str_data = if len > 0 {
-            let str_layout = std::alloc::Layout::array::<u8>(len)
-                .unwrap_or_else(|_| std::alloc::Layout::new::<u8>());
-            // SAFETY: Layout is valid
-            let ptr = unsafe { std::alloc::alloc(str_layout) };
-            if !ptr.is_null() {
-                // SAFETY: bytes and ptr are valid for len bytes
-                unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len) };
-            }
-            ptr
-        } else {
-            std::ptr::null_mut()
-        };
-
+        let element = OriStr::from_bytes(c_str.to_bytes());
         // SAFETY: elements[i] is within the allocated array
-        unsafe {
-            elements.add(i).write(OriStr {
-                len: len as i64,
-                data: str_data,
-            });
-        }
+        unsafe { elements.add(i).write(element) };
     }
 
     OriList {

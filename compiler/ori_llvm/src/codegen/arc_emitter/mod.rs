@@ -41,7 +41,8 @@ pub use context::CodegenContext;
 use context::{is_boxed_enum_field, EmittedValue, InvokeMode};
 
 use ori_arc::ir::{
-    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue, PrimOp, ValueRepr,
+    ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId, LitValue, PrimOp, RcStrategy,
+    ValueRepr,
 };
 use ori_arc::ArcClassification;
 use ori_ir::{Name, StringInterner};
@@ -256,11 +257,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // Save current builder position (we're about to create a new function)
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
+        let saved_emitter_func = self.current_function;
 
         // Generate the drop function (handles declaration, caching, and body)
         let func_id = drop_gen::generate_drop_fn(self, ty, &drop_info);
 
-        // Restore builder position
+        // Restore builder position and emitter's current function
+        self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);
@@ -287,13 +290,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             return self.builder.get_function_ptr(func_id);
         }
 
-        // Save builder state
+        // Save builder state and emitter's current function
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
+        let saved_emitter_func = self.current_function;
 
         let func_id = self.generate_elem_dec_fn_body(element_type);
 
-        // Restore builder state
+        // Restore builder state and emitter's current function
+        self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);
@@ -321,6 +326,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
         self.builder.set_current_function(func_id);
+        self.current_function = func_id;
 
         let elem_ptr = self.builder.get_param(func_id, 0);
 
@@ -353,13 +359,15 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             return self.builder.get_function_ptr(func_id);
         }
 
-        // Save builder state
+        // Save builder state and emitter's current function
         let saved_pos = self.builder.save_position();
         let saved_func = self.builder.current_function();
+        let saved_emitter_func = self.current_function;
 
         let func_id = self.generate_elem_inc_fn_body(element_type);
 
-        // Restore builder state
+        // Restore builder state and emitter's current function
+        self.current_function = saved_emitter_func;
         self.builder.restore_position(saved_pos);
         if let Some(f) = saved_func {
             self.builder.set_current_function(f);
@@ -387,6 +395,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         let entry = self.builder.append_block(func_id, "entry");
         self.builder.position_at_end(entry);
         self.builder.set_current_function(func_id);
+        self.current_function = func_id;
 
         let elem_ptr = self.builder.get_param(func_id, 0);
 
@@ -829,7 +838,13 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                     }
                 })
                 .collect();
-            self.builder.call(func_id, &coerced_args, "call")
+            // Large struct returns (Str, List, Map) use sret convention.
+            if crate::codegen::runtime_decl::rt_fn_needs_sret(callee_name_str) {
+                let ret_ty = self.resolve_type(func.var_type(dst));
+                self.call_with_sret(func_id, &coerced_args, ret_ty, "call")
+            } else {
+                self.builder.call(func_id, &coerced_args, "call")
+            }
         } else {
             let msg = format!(
                 "unresolved function `{callee_name_str}` in apply — missing mono instance?"
@@ -918,7 +933,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     ///
     /// For tagged union payload fields (Result, Enum), the LLVM storage type
     /// may differ from the expected type (e.g., `int` payload stored in a
-    /// `{i64, ptr}` slot of `Result<int, str>`). These use alloca + GEP + load
+    /// `{i64, i64, ptr}` slot of `Result<int, str>`). These use alloca + GEP + load
     /// for type-safe extraction through pointer reinterpretation.
     fn emit_project(
         &mut self,
@@ -1125,12 +1140,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             } => {
                 // Defensive fallback: after expand_reuse, Reuse instructions are
                 // eliminated — the fast path uses Set/SetTag and the slow path uses
-                // Construct. If Reuse appears (e.g., expansion was skipped), fall
-                // back to fresh construction.
-                tracing::debug!("ArcIrEmitter: Reuse instruction not expanded — using Construct");
+                // Construct. If Reuse appears (e.g., expansion was skipped because
+                // Reset/Reuse span different blocks), fall back to: dec the original
+                // buffer (held by token) + fresh construction.
+                tracing::debug!(
+                    "ArcIrEmitter: Reuse instruction not expanded — using Construct fallback"
+                );
+
+                // Dec the original buffer held by the token. Without this, the
+                // Reset'd buffer leaks (Reset claimed ownership but Reuse didn't
+                // reclaim it).
+                if let Some(repr) = func.var_repr(*token) {
+                    let strategy = RcStrategy::from_var(repr, self.pool, func.var_type(*token));
+                    self.emit_rc_dec(*token, strategy, func);
+                }
+
                 let val = self.emit_construct(*ty, ctor, args);
                 self.def_var_repr(*dst, val, func);
-                let _ = token;
             }
 
             ArcInstr::Set { base, field, value } => {
@@ -1224,29 +1250,19 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             LitValue::Unit => self.builder.const_i64(0),
             LitValue::String(name) => {
                 let s = self.interner.lookup(*name);
-                // Use ori_str_from_raw to create an RC-managed heap copy of
-                // the string literal. This ensures the data pointer has a
-                // valid RC header for ARC RcInc/RcDec operations.
+                // Use ori_str_from_raw to create an SSO or RC-managed heap
+                // copy of the string literal.
                 let global = self.builder.build_global_string_ptr(s, "str");
                 let len = self.builder.const_i64(s.len() as i64);
                 let func_id = self.builder.runtime_fn("ori_str_from_raw");
+                let str_ty = self.resolve_type(ori_types::Idx::STR);
                 self.builder
-                    .call(func_id, &[global, len], "str.val")
+                    .call_with_sret(func_id, &[global, len], str_ty, "str.val")
                     .unwrap_or_else(|| {
                         // Fallback: build inline struct (no RC safety)
-                        let str_ty = self.builder.register_type(
-                            self.builder
-                                .scx()
-                                .type_struct(
-                                    &[
-                                        self.builder.scx().type_i64().into(),
-                                        self.builder.scx().type_ptr().into(),
-                                    ],
-                                    false,
-                                )
-                                .into(),
-                        );
-                        self.builder.build_struct(str_ty, &[len, global], "str.val")
+                        let cap = self.builder.const_i64(s.len() as i64);
+                        self.builder
+                            .build_struct(str_ty, &[len, cap, global], "str.val")
                     })
             }
             LitValue::Duration { value, unit } => {
@@ -1337,6 +1353,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     }
 
     /// Call a function with sret (struct return via hidden pointer).
+    ///
+    /// The sret alloca is placed in the entry block (via `create_entry_alloca`)
+    /// to ensure it dominates all uses, even in loop bodies or branch targets.
     fn call_with_sret(
         &mut self,
         func_id: FunctionId,
@@ -1344,7 +1363,9 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         ret_ty: LLVMTypeId,
         name: &str,
     ) -> Option<ValueId> {
-        let sret_alloca = self.builder.alloca(ret_ty, "sret.tmp");
+        let sret_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "sret.tmp", ret_ty);
         let mut full_args = Vec::with_capacity(1 + args.len());
         full_args.push(sret_alloca);
         full_args.extend_from_slice(args);
@@ -1516,13 +1537,24 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             value
         };
 
-        // Decompose spec string: extract len (field 0) and data (field 1)
-        let spec_len = self.builder.extract_value(spec_str, 0, "fmt.spec_len")?;
-        let spec_ptr = self.builder.extract_value(spec_str, 1, "fmt.spec_ptr")?;
+        // Decompose spec string via SSO-safe runtime helpers.
+        // Field extraction is WRONG for SSO strings (field 0 = inline bytes, not len).
+        let spec_str_ptr = self.str_to_ptr(spec_str, "fmt.spec");
+        let len_fn = self.builder.runtime_fn("ori_str_len");
+        let spec_len = self
+            .builder
+            .call(len_fn, &[spec_str_ptr], "fmt.spec_len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let data_fn = self.builder.runtime_fn("ori_str_data");
+        let spec_ptr = self
+            .builder
+            .call(data_fn, &[spec_str_ptr], "fmt.spec_ptr")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
 
-        // Call runtime: ori_format_*(value, spec_ptr, spec_len)
+        // Call runtime: ori_format_*(value, spec_ptr, spec_len) → Str via sret
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
         self.builder
-            .call(func_id, &[value_arg, spec_ptr, spec_len], "fmt")
+            .call_with_sret(func_id, &[value_arg, spec_ptr, spec_len], str_ty, "fmt")
     }
 
     // -----------------------------------------------------------------------
@@ -1531,8 +1563,8 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// Call a string runtime function: `ori_str_concat`, `ori_str_eq`, `ori_str_ne`.
     ///
-    /// String values are `{ i64, ptr }` structs passed by pointer to the runtime.
-    /// `returns_str` controls the return type: `true` → `{ i64, ptr }`, `false` → `i1`.
+    /// String values are `{ i64, i64, ptr }` structs passed by pointer to the runtime.
+    /// `returns_str` controls the return type: `true` → sret `{ i64, i64, ptr }`, `false` → `i1`.
     fn emit_str_runtime_call(
         &mut self,
         func_name: &'static str,
@@ -1553,16 +1585,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             .create_entry_alloca(self.current_function, "str_op.rhs", str_ty);
         self.builder.store(rhs, rhs_ptr);
 
-        let result = self.builder.call(func_id, &[lhs_ptr, rhs_ptr], func_name);
-
         if returns_str {
-            // ori_str_concat returns { i64, ptr } — load it from the alloca
-            result.unwrap_or_else(|| {
-                tracing::warn!("ArcIrEmitter: string runtime call returned no value");
-                self.builder.const_i64(0)
-            })
+            // ori_str_concat uses sret convention (24-byte return)
+            self.builder
+                .call_with_sret(func_id, &[lhs_ptr, rhs_ptr], str_ty, func_name)
+                .unwrap_or_else(|| {
+                    tracing::warn!("ArcIrEmitter: string runtime call returned no value");
+                    self.builder.const_i64(0)
+                })
         } else {
-            // ori_str_eq / ori_str_ne return i1 (bool)
+            // ori_str_eq / ori_str_ne return i1 (bool) — direct return
+            let result = self.builder.call(func_id, &[lhs_ptr, rhs_ptr], func_name);
             result.unwrap_or_else(|| self.builder.const_bool(false))
         }
     }

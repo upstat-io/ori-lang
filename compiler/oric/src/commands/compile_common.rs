@@ -110,27 +110,6 @@ pub fn check_source(
     ))
 }
 
-/// Run the codegen audit on an LLVM module (debug builds only).
-///
-/// Returns `Err(message)` if the audit finds errors. Gated behind
-/// `ORI_AUDIT_CODEGEN=1` via `dbg_do!` — no-op in release builds.
-#[cfg(feature = "llvm")]
-fn run_codegen_audit(module: &ori_llvm::inkwell::module::Module<'_>) -> Result<(), String> {
-    // Shadow the variable to satisfy the macro's expansion in release builds
-    let _ = module;
-    crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
-        let audit_report = ori_llvm::verify::audit_module(module);
-        audit_report.emit_to_stderr();
-        if audit_report.has_errors() {
-            return Err(format!(
-                "RC audit found {} error(s) — aborting",
-                audit_report.error_count()
-            ));
-        }
-    });
-    Ok(())
-}
-
 /// Compile source to LLVM IR.
 ///
 /// Takes checked parse and type results and generates LLVM IR via:
@@ -143,7 +122,9 @@ fn run_codegen_audit(module: &ori_llvm::inkwell::module::Module<'_>) -> Result<(
 ///
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
 ///
-/// Returns `Err` if the codegen audit (debug-only) detects RC lifecycle violations.
+/// Returns `Err` if LLVM IR verification fails or the codegen audit detects
+/// RC lifecycle violations. The IR dump runs before verification, so the
+/// annotated LLVM IR is visible on stderr even when the module is invalid.
 #[cfg(feature = "llvm")]
 pub fn compile_to_llvm<'ctx>(
     context: &'ctx Context,
@@ -159,7 +140,7 @@ pub fn compile_to_llvm<'ctx>(
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    let llvm_module = super::codegen_pipeline::run_codegen_pipeline(
+    super::codegen_pipeline::run_codegen_pipeline(
         context,
         db,
         parse_result,
@@ -170,21 +151,7 @@ pub fn compile_to_llvm<'ctx>(
         module_name,
         "", // No symbol prefix for single-file compilation
         &[],
-    );
-
-    // Phase dump: LLVM IR after codegen (gated behind ORI_DUMP_AFTER_LLVM=1 or ORI_DEBUG_LLVM=1)
-    if crate::llvm_dump::llvm_dump_requested() {
-        crate::llvm_dump::dump_llvm_ir(
-            &llvm_module.print_to_string().to_string_lossy(),
-            pool,
-            db.interner(),
-            source_path,
-        );
-    }
-
-    run_codegen_audit(&llvm_module)?;
-
-    Ok(llvm_module)
+    )
 }
 
 /// Compile source to LLVM IR with explicit module name and import declarations.
@@ -241,7 +208,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         })
         .collect();
 
-    let llvm_module = super::codegen_pipeline::run_codegen_pipeline(
+    super::codegen_pipeline::run_codegen_pipeline(
         context,
         db,
         parse_result,
@@ -252,19 +219,5 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         module_name,
         module_name, // Multi-file: symbol prefix matches module name
         &import_sigs,
-    );
-
-    // Phase dump: LLVM IR after codegen (gated behind ORI_DUMP_AFTER_LLVM=1 or ORI_DEBUG_LLVM=1)
-    if crate::llvm_dump::llvm_dump_requested() {
-        crate::llvm_dump::dump_llvm_ir(
-            &llvm_module.print_to_string().to_string_lossy(),
-            pool,
-            interner,
-            source_path,
-        );
-    }
-
-    run_codegen_audit(&llvm_module)?;
-
-    Ok(llvm_module)
+    )
 }

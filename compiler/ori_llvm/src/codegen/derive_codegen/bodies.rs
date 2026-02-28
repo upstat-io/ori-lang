@@ -342,7 +342,7 @@ pub(super) fn compile_default_construct<'a>(
     let setup = setup_derive_function(fc, trait_kind, type_name, type_idx, type_name_str);
 
     // `const_zero` on a struct type recursively zeros all fields:
-    // int → 0, float → 0.0, bool → false, ptr → null, str → {0, null}
+    // int → 0, float → 0.0, bool → false, ptr → null, str → {0, 0, null}
     let struct_llvm_ty = fc.resolve_type(type_idx);
     let result = fc.builder_mut().const_zero(struct_llvm_ty);
 

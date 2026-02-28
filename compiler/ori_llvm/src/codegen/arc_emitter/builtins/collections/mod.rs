@@ -155,6 +155,13 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
+    ("list", "sort_stable", borrow: false) => {
+        if let TypeInfo::List { element } = ctx.type_info {
+            emitter.emit_list_sort_stable_cow(ctx.arg_vals[0], *element)
+        } else {
+            None
+        }
+    },
     ("list", "set", borrow: false) => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
@@ -372,7 +379,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Alloca+store a string value and return the pointer.
     ///
     /// Runtime string methods take `*const OriStr`, but LLVM values are
-    /// `{ i64, ptr }` aggregates. This helper allocates stack space, stores
+    /// `{ i64, i64, ptr }` aggregates. This helper allocates stack space, stores
     /// the aggregate, and returns the pointer for the runtime call.
     pub(crate) fn str_to_ptr(&mut self, val: ValueId, name: &str) -> ValueId {
         let str_ty = self.resolve_type(ori_types::Idx::STR);
