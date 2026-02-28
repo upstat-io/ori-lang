@@ -25,7 +25,7 @@
 //! None of the handlers in this module call `extract_rc_data_ptrs`. Each
 //! strategy knows its own layout and extracts pointers directly:
 //!
-//! - `HeapPointer`: collection layout switch (List field 2, Map fields 2+3)
+//! - `HeapPointer`: collection layout switch (List/Map/Set field 2)
 //! - `FatPointer`: always field 1 (the `data_ptr` half)
 //! - `Closure`: field 1 (`env_ptr`) with null-check
 //! - `AggregateFields`: struct/tuple field traversal via [`inc_value_rc`] / [`dec_value_rc`]
@@ -188,39 +188,46 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
     }
 
-    /// Emit `ori_buffer_rc_dec` for a map value.
+    /// Emit `ori_map_buffer_rc_dec` for a map value.
     ///
-    /// Maps have two separate data buffers (keys and values). Each is
-    /// independently RC-managed with its own element-dec function.
+    /// Maps use a single combined data buffer `[keys...|vals...]` with one RC
+    /// header. The runtime function handles cleaning up both key and value
+    /// children at their respective offsets.
     fn emit_buffer_rc_dec_map(&mut self, val: super::ValueId, resolved: ori_types::Idx) {
         let Some(len) = self.builder.extract_value(val, 0, "rc.len") else {
             return;
         };
-        // Maps use len as cap (no separate capacity tracking)
-        let cap = len;
+        let Some(cap) = self.builder.extract_value(val, 1, "rc.cap") else {
+            return;
+        };
+        let Some(data) = self.builder.extract_value(val, 2, "rc.data_ptr") else {
+            return;
+        };
 
         let key_type = self.pool.map_key(resolved);
         let val_type = self.pool.map_value(resolved);
 
-        // Dec keys buffer
-        if let Some(keys) = self.builder.extract_value(val, 2, "rc.keys_ptr") {
-            let key_size = self.element_store_size(key_type);
-            let key_size_val = self.builder.const_i64(key_size as i64);
-            let key_dec_fn = self.get_or_generate_elem_dec_fn(key_type);
-            let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
-            self.builder
-                .call(func_id, &[keys, len, cap, key_size_val, key_dec_fn], "");
-        }
+        let key_size = self.element_store_size(key_type);
+        let val_size = self.element_store_size(val_type);
+        let key_size_val = self.builder.const_i64(key_size as i64);
+        let val_size_val = self.builder.const_i64(val_size as i64);
+        let key_dec_fn = self.get_or_generate_elem_dec_fn(key_type);
+        let val_dec_fn = self.get_or_generate_elem_dec_fn(val_type);
 
-        // Dec values buffer
-        if let Some(vals) = self.builder.extract_value(val, 3, "rc.vals_ptr") {
-            let val_size = self.element_store_size(val_type);
-            let val_size_val = self.builder.const_i64(val_size as i64);
-            let val_dec_fn = self.get_or_generate_elem_dec_fn(val_type);
-            let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
-            self.builder
-                .call(func_id, &[vals, len, cap, val_size_val, val_dec_fn], "");
-        }
+        let func_id = self.builder.runtime_fn("ori_map_buffer_rc_dec");
+        self.builder.call(
+            func_id,
+            &[
+                data,
+                cap,
+                len,
+                key_size_val,
+                val_size_val,
+                key_dec_fn,
+                val_dec_fn,
+            ],
+            "",
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -481,11 +488,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
             Tag::Map => {
-                if let Some(k) = self.builder.extract_value(val, 2, "rc_inc.keys") {
-                    self.call_rc_inc_all(&[k], count);
-                }
-                if let Some(v) = self.builder.extract_value(val, 3, "rc_inc.vals") {
-                    self.call_rc_inc_all(&[v], count);
+                // Single data buffer at field 2 — same as List/Set
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                    self.call_rc_inc_all(&[dp], count);
                 }
             }
 

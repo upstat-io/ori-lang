@@ -24,7 +24,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// | List   | `{i64, i64, ptr}`              | field 2            |
     /// | Set    | `{i64, i64, ptr}`              | field 2            |
     /// | Str    | `{i64, i64, ptr}` (SSO union)  | field 2 (SSO→null) |
-    /// | Map    | `{i64, i64, ptr, ptr}`         | field 2, field 3   |
+    /// | Map    | `{i64, i64, ptr}`              | field 2            |
     /// | Struct | `{field0, field1, ...}`         | recurse per field  |
     /// | Tuple  | `{elem0, elem1, ...}`          | recurse per elem   |
     /// | Option | `{i64 tag, T payload}`         | recurse into inner |
@@ -61,18 +61,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 }
             }
             Tag::Map => {
-                // {i64 len, i64 cap, ptr keys, ptr vals} — keys at 2, vals at 3
-                let mut ptrs = Vec::with_capacity(2);
-                if let Some(keys) = self.builder.extract_value(val, 2, "rc.keys_ptr") {
-                    ptrs.push(keys);
-                }
-                if let Some(vals) = self.builder.extract_value(val, 3, "rc.vals_ptr") {
-                    ptrs.push(vals);
-                }
-                if ptrs.is_empty() {
-                    vec![val]
+                // {i64 len, i64 cap, ptr data} — single data buffer at field 2
+                if let Some(ptr) = self.builder.extract_value(val, 2, "rc.data_ptr") {
+                    vec![ptr]
                 } else {
-                    ptrs
+                    vec![val]
                 }
             }
             Tag::Struct => self.extract_rc_from_struct_fields(val, resolved),

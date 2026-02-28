@@ -18,7 +18,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Map methods
     // -----------------------------------------------------------------------
 
-    /// Emit `map.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr keys, ptr vals}`.
+    /// Emit `map.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
     pub(crate) fn emit_map_length(&mut self, receiver: ValueId) -> Option<ValueId> {
         self.builder.extract_value(receiver, 0, "map.len")
     }
@@ -32,8 +32,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.contains_key(key)` — linear scan through string keys.
     ///
-    /// Calls `ori_map_contains_key(keys_ptr, len, needle_ptr)`.
-    /// Map layout: `{i64 len, i64 cap, ptr keys, ptr vals}`.
+    /// Calls `ori_map_contains_key(data, len, needle_ptr)`.
+    /// Map layout: `{i64 len, i64 cap, ptr data}`.
     pub(crate) fn emit_map_contains_key(
         &mut self,
         receiver: ValueId,
@@ -41,9 +41,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_contains_key");
 
-        let keys_ptr = self
+        let data = self
             .builder
-            .extract_value(receiver, 2, "map.keys")
+            .extract_value(receiver, 2, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let len = self
             .builder
@@ -53,7 +53,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let needle_ptr = self.str_to_ptr(key, "contains_key.needle");
         let result = self
             .builder
-            .call(func_id, &[keys_ptr, len, needle_ptr], "contains_key")?;
+            .call(func_id, &[data, len, needle_ptr], "contains_key")?;
 
         // Convert i64 (0/1) to i1 (bool)
         let zero = self.builder.const_i64(0);
@@ -62,14 +62,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.keys()` — extract keys as a new list.
     ///
-    /// Calls `ori_map_keys_to_list(keys_ptr, len, key_size, out_ptr)`.
-    /// Returns `{i64 len, i64 cap, ptr data}` (list struct).
+    /// Calls `ori_map_keys_to_list(data, len, key_size, out_ptr)`.
+    /// Keys start at `data + 0` so data is directly the keys array.
     pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
 
-        let keys_ptr = self
+        let data = self
             .builder
-            .extract_value(receiver, 2, "map.keys")
+            .extract_value(receiver, 2, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
         let len = self
             .builder
@@ -85,29 +85,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .create_entry_alloca(self.current_function, "keys.out", list_ty);
 
         self.builder
-            .call(func_id, &[keys_ptr, len, key_size_val, out_alloca], "keys");
+            .call(func_id, &[data, len, key_size_val, out_alloca], "keys");
 
         Some(self.builder.load(list_ty, out_alloca, "keys.val"))
     }
 
     /// Emit `map.values()` — extract values as a new list.
     ///
-    /// Calls `ori_map_values_to_list(vals_ptr, len, val_size, out_ptr)`.
-    /// Returns `{i64 len, i64 cap, ptr data}` (list struct).
-    pub(crate) fn emit_map_values(&mut self, receiver: ValueId, val_ty: Idx) -> Option<ValueId> {
+    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size, out_ptr)`.
+    /// Values start at `data + cap * key_size`.
+    pub(crate) fn emit_map_values(
+        &mut self,
+        receiver: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_values_to_list");
 
-        let vals_ptr = self
-            .builder
-            .extract_value(receiver, 3, "map.vals")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let len = self
-            .builder
-            .extract_value(receiver, 0, "map.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
-
-        let val_size = self.element_store_size(val_ty);
-        let val_size_val = self.builder.const_i64(val_size as i64);
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
 
         let list_ty = self.list_struct_type();
         let out_alloca =
@@ -116,7 +112,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.call(
             func_id,
-            &[vals_ptr, len, val_size_val, out_alloca],
+            &[data, cap, len, key_size_val, val_size_val, out_alloca],
             "values",
         );
 
@@ -125,32 +121,21 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.get(key)` — returns `Option<V>` via sret.
     ///
-    /// Calls `ori_map_get(keys, vals, len, needle_ptr, val_size, out_ptr)`.
+    /// Calls `ori_map_get(data, cap, len, needle_ptr, key_size, val_size, out_ptr)`.
     /// Returns `{i64 tag, V value}` — tag 0=Some, 1=None.
     pub(crate) fn emit_map_get(
         &mut self,
         receiver: ValueId,
         key: ValueId,
+        key_ty: Idx,
         val_ty: Idx,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_get");
 
-        let keys = self
-            .builder
-            .extract_value(receiver, 2, "map.keys")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let vals = self
-            .builder
-            .extract_value(receiver, 3, "map.vals")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let len = self
-            .builder
-            .extract_value(receiver, 0, "map.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
 
         let needle_ptr = self.str_to_ptr(key, "get.needle");
-        let val_size = self.element_store_size(val_ty);
-        let val_size_val = self.builder.const_i64(val_size as i64);
 
         // Option<V> layout: {i64 tag, V value}
         let val_llvm_ty = self.resolve_type(val_ty);
@@ -167,28 +152,36 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.call(
             func_id,
-            &[keys, vals, len, needle_ptr, val_size_val, out_alloca],
+            &[
+                data,
+                cap,
+                len,
+                needle_ptr,
+                key_size_val,
+                val_size_val,
+                out_alloca,
+            ],
             "get",
         );
 
         Some(self.builder.load(option_ty, out_alloca, "get.val"))
     }
 
-    /// Extract map keys, vals, len and compute key/val sizes from type info.
+    /// Extract map data, cap, len and compute key/val sizes from type info.
     fn extract_map_components(
         &mut self,
         receiver: ValueId,
         key_ty: Idx,
         val_ty: Idx,
     ) -> (ValueId, ValueId, ValueId, ValueId, ValueId) {
-        let keys = self
+        let data = self
             .builder
-            .extract_value(receiver, 2, "map.keys")
+            .extract_value(receiver, 2, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
-        let vals = self
+        let cap = self
             .builder
-            .extract_value(receiver, 3, "map.vals")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
+            .extract_value(receiver, 1, "map.cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
         let len = self
             .builder
             .extract_value(receiver, 0, "map.len")
@@ -199,30 +192,18 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let val_size_val = self
             .builder
             .const_i64(self.element_store_size(val_ty) as i64);
-        (keys, vals, len, key_size_val, val_size_val)
+        (data, cap, len, key_size_val, val_size_val)
     }
 
-    /// Build the LLVM struct type `{i64, i64, ptr, ptr}` for map sret returns.
+    /// Build the LLVM struct type `{i64, i64, ptr}` for map sret returns.
     fn map_struct_type(&mut self) -> LLVMTypeId {
-        self.builder.register_type(
-            self.builder
-                .scx()
-                .type_struct(
-                    &[
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_i64().into(),
-                        self.builder.scx().type_ptr().into(),
-                        self.builder.scx().type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
-        )
+        // Same as list/set — {i64 len, i64 cap, ptr data}
+        self.list_struct_type()
     }
 
     /// Emit `map.insert(key, value)` — returns a new map via sret.
     ///
-    /// Calls `ori_map_insert(keys, vals, len, key_ptr, val_ptr, key_size, val_size, out_ptr)`.
+    /// Calls `ori_map_insert(data, cap, len, key_ptr, val_ptr, key_size, val_size, out_ptr)`.
     pub(crate) fn emit_map_insert(
         &mut self,
         receiver: ValueId,
@@ -233,7 +214,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_insert");
 
-        let (keys, vals, len, key_size_val, val_size_val) =
+        let (data, cap, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty);
 
         let key_ptr = self.str_to_ptr(key, "insert.key");
@@ -247,8 +228,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                keys,
-                vals,
+                data,
+                cap,
                 len,
                 key_ptr,
                 val_ptr,
@@ -264,7 +245,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.remove(key)` — returns a new map via sret.
     ///
-    /// Calls `ori_map_remove(keys, vals, len, needle_ptr, key_size, val_size, out_ptr)`.
+    /// Calls `ori_map_remove(data, cap, len, needle_ptr, key_size, val_size, out_ptr)`.
     pub(crate) fn emit_map_remove(
         &mut self,
         receiver: ValueId,
@@ -274,7 +255,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_remove");
 
-        let (keys, vals, len, key_size_val, val_size_val) =
+        let (data, cap, len, key_size_val, val_size_val) =
             self.extract_map_components(receiver, key_ty, val_ty);
 
         let needle_ptr = self.str_to_ptr(key, "remove.needle");
@@ -287,8 +268,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                keys,
-                vals,
+                data,
+                cap,
                 len,
                 needle_ptr,
                 key_size_val,
@@ -301,12 +282,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(map_ty, out_alloca, "remove.val"))
     }
 
-    /// Emit `map.iter()` — call `ori_iter_from_map(keys, vals, len, ks, vs, owns, k_dec, v_dec)`.
+    /// Emit `map.iter()` — call `ori_iter_from_map(data, cap, len, ks, vs, owns, k_dec, v_dec)`.
     ///
-    /// Map layout: `{i64 len, i64 cap, ptr keys, ptr vals}`.
+    /// Map layout: `{i64 len, i64 cap, ptr data}`.
     /// Yields `(K, V)` tuples as concatenated key+value bytes.
-    /// The iterator takes ownership of one RC reference to each of the keys
-    /// and values buffers, releasing them via `ori_rc_dec` when dropped.
+    /// The iterator takes ownership of one RC reference to the data buffer,
+    /// releasing it via `ori_map_buffer_rc_dec` when dropped.
     pub(crate) fn emit_map_iter(
         &mut self,
         receiver: ValueId,
@@ -315,23 +296,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_from_map");
 
-        let keys = self
-            .builder
-            .extract_value(receiver, 2, "map.keys")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let vals = self
-            .builder
-            .extract_value(receiver, 3, "map.vals")
-            .unwrap_or_else(|| self.builder.const_null_ptr());
-        let len = self
-            .builder
-            .extract_value(receiver, 0, "map.len")
-            .unwrap_or_else(|| self.builder.const_i64(0));
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
 
-        let key_size = self.element_store_size(key_ty);
-        let val_size = self.element_store_size(val_ty);
-        let key_size_val = self.builder.const_i64(key_size as i64);
-        let val_size_val = self.builder.const_i64(val_size as i64);
         let owns_data = self.builder.const_bool(true);
         let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
@@ -339,8 +306,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                keys,
-                vals,
+                data,
+                cap,
                 len,
                 key_size_val,
                 val_size_val,

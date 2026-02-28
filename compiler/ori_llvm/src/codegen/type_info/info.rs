@@ -55,7 +55,7 @@ pub enum TypeInfo {
     Ordering,
     /// `[T]` -> {i64 len, i64 cap, ptr data}
     List { element: Idx },
-    /// `{K: V}` -> {i64 len, i64 cap, ptr keys, ptr vals}
+    /// `{K: V}` -> {i64 len, i64 cap, ptr data}
     Map { key: Idx, value: Idx },
     /// `set[T]` -> {i64 len, i64 cap, ptr data}
     Set { element: Idx },
@@ -102,23 +102,11 @@ impl TypeInfo {
             Self::Byte | Self::Ordering => scx.type_i8().into(),
 
             // Str {len, cap, data} and collections {len, cap, data} share the same 24-byte layout
-            Self::Str | Self::List { .. } | Self::Set { .. } => scx
+            Self::Str | Self::List { .. } | Self::Set { .. } | Self::Map { .. } => scx
                 .type_struct(
                     &[
                         scx.type_i64().into(),
                         scx.type_i64().into(),
-                        scx.type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
-
-            Self::Map { .. } => scx
-                .type_struct(
-                    &[
-                        scx.type_i64().into(),
-                        scx.type_i64().into(),
-                        scx.type_ptr().into(),
                         scx.type_ptr().into(),
                     ],
                     false,
@@ -231,11 +219,10 @@ impl TypeInfo {
             // 24-byte types:
             // Str: SSO layout {i64 len, i64 cap, ptr data}
             // List/Set: {i64, i64, ptr}
-            Self::Str | Self::List { .. } | Self::Set { .. } => Some(24),
+            Self::Str | Self::List { .. } | Self::Set { .. } | Self::Map { .. } => Some(24),
 
             // Range: {i64 start, i64 end, i64 step, i64 inclusive} = 32 bytes
-            // Map: {i64, i64, ptr, ptr} = 32 bytes
-            Self::Range | Self::Map { .. } => Some(32),
+            Self::Range => Some(32),
 
             // Dynamic-size types: depend on element/field types
             Self::Tuple { .. } | Self::Struct { .. } | Self::Enum { .. } => None,

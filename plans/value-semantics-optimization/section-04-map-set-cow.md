@@ -1,7 +1,7 @@
 ---
 section: "04"
 title: "Map & Set COW Operations"
-status: not-started
+status: in-progress
 goal: "Every map/set mutation is O(1) amortized when uniquely owned"
 inspired_by:
   - "Swift stdlib/public/core/Dictionary.swift — COW with isUniquelyReferenced"
@@ -10,7 +10,7 @@ depends_on: ["01"]
 sections:
   - id: "04.1"
     title: "Map Layout & COW Strategy"
-    status: not-started
+    status: complete
   - id: "04.2"
     title: "COW Map Insert"
     status: not-started
@@ -94,7 +94,7 @@ Both `keys` and `values` are separate RC'd allocations. For COW, we need both to
 
 **Recommended path:** Option (c) — single allocation with keys then values. This gives a single uniqueness check and keeps keys contiguous for search. The value offset is `cap * key_size`.
 
-- [ ] Redesign `OriMap` layout:
+- [x] Redesign `OriMap` layout:
   ```rust
   pub struct OriMap {
       pub len: i64,
@@ -105,7 +105,7 @@ Both `keys` and `values` are separate RC'd allocations. For COW, we need both to
   }
   ```
 
-- [ ] Add key/value access helpers:
+- [x] Add key/value access helpers:
   ```rust
   impl OriMap {
       #[inline]

@@ -52,8 +52,8 @@ fn map_abi_size_is_indirect() {
     let map_ty = pool.map(Idx::STR, Idx::INT);
     let store = TypeInfoStore::new(&pool);
 
-    // {str: int}: {i64, i64, ptr, ptr} = 32
-    assert_eq!(abi_size(map_ty, &store), 32);
+    // {str: int}: {i64, i64, ptr} = 24
+    assert_eq!(abi_size(map_ty, &store), 24);
 }
 
 #[test]
