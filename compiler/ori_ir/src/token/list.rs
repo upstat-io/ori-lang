@@ -110,6 +110,24 @@ impl TokenList {
         self.tokens.push(token);
     }
 
+    /// Push a token with a pre-computed tag and explicit flags.
+    ///
+    /// Bypasses `discriminant_index()` for tokens where the tag is already
+    /// known (e.g., trivial operator/delimiter tokens resolved by the
+    /// fast path in the lexer driver).
+    #[inline]
+    pub fn push_with_tag(&mut self, token: Token, tag: u8, flags: TokenFlags) {
+        debug_assert_eq!(
+            tag,
+            token.kind.discriminant_index(),
+            "pre-computed tag mismatch for {:?}",
+            token.kind
+        );
+        self.tags.push(tag);
+        self.flags.push(flags);
+        self.tokens.push(token);
+    }
+
     /// Get the number of tokens.
     #[inline]
     pub fn len(&self) -> usize {

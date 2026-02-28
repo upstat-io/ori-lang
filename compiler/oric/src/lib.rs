@@ -56,6 +56,8 @@ macro_rules! static_assert_size {
 }
 
 #[cfg(feature = "llvm")]
+pub mod arc_dot;
+#[cfg(feature = "llvm")]
 pub mod arc_dump;
 #[cfg(feature = "llvm")]
 pub mod arc_lowering;

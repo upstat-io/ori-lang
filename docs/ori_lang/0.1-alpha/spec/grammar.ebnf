@@ -55,8 +55,8 @@ identifier = ( letter | "_" ) { letter | digit | "_" } .
 // --- Keywords ---
 // See: 03-lexical-elements.md § Keywords (for category semantics)
 //
-// Reserved (34): as, break, continue, def, div, do, else, extend, extension, extern,
-//           false, for, if, impl, in, let, loop, match, pub, self, Self, suspend,
+// Reserved (35): as, break, continue, def, div, do, else, extend, extension, extern,
+//           false, for, if, impl, in, let, loop, match, Never, pub, self, Self, suspend,
 //           tests, then, trait, true, type, unsafe, use, uses, void, where, with, yield
 // Reserved (future, 5): asm, inline, static, union, view
 // Context-sensitive (patterns, 9): cache, catch, handler, nursery, parallel, recurse, spawn,
@@ -627,9 +627,9 @@ const_expr = literal
 // See: 18-program-execution.md
 // ============================================================================
 
-main_function = "@main" main_params "->" main_return "=" expression .
+main_function = "@main" main_params "->" main_return "=" expression [ ";" ] .
 main_params   = "()" | "(" "args" ":" "[" "str" "]" ")" .
-main_return   = "void" | "int" .
+main_return   = "void" | "int" | "Never" .
 
 
 // ============================================================================

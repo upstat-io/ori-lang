@@ -8,21 +8,24 @@ fn direct_map_operators() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
 
-    assert_eq!(cooker.cook(RawTag::Plus, 0, 1), TokenKind::Plus);
-    assert_eq!(cooker.cook(RawTag::Minus, 1, 1), TokenKind::Minus);
-    assert_eq!(cooker.cook(RawTag::Star, 2, 1), TokenKind::Star);
-    assert_eq!(cooker.cook(RawTag::Slash, 3, 1), TokenKind::Slash);
-    assert_eq!(cooker.cook(RawTag::Percent, 4, 1), TokenKind::Percent);
-    assert_eq!(cooker.cook(RawTag::Caret, 5, 1), TokenKind::Caret);
-    assert_eq!(cooker.cook(RawTag::Ampersand, 6, 1), TokenKind::Amp);
-    assert_eq!(cooker.cook(RawTag::Pipe, 7, 1), TokenKind::Pipe);
-    assert_eq!(cooker.cook(RawTag::Tilde, 8, 1), TokenKind::Tilde);
-    assert_eq!(cooker.cook(RawTag::Bang, 9, 1), TokenKind::Bang);
-    assert_eq!(cooker.cook(RawTag::Equal, 10, 1), TokenKind::Eq);
-    assert_eq!(cooker.cook(RawTag::Less, 11, 1), TokenKind::Lt);
-    assert_eq!(cooker.cook(RawTag::Greater, 12, 1), TokenKind::Gt);
-    assert_eq!(cooker.cook(RawTag::Dot, 13, 1), TokenKind::Dot);
-    assert_eq!(cooker.cook(RawTag::Question, 14, 1), TokenKind::Question);
+    assert_eq!(cooker.cook(RawTag::Plus, 0, 1).kind, TokenKind::Plus);
+    assert_eq!(cooker.cook(RawTag::Minus, 1, 1).kind, TokenKind::Minus);
+    assert_eq!(cooker.cook(RawTag::Star, 2, 1).kind, TokenKind::Star);
+    assert_eq!(cooker.cook(RawTag::Slash, 3, 1).kind, TokenKind::Slash);
+    assert_eq!(cooker.cook(RawTag::Percent, 4, 1).kind, TokenKind::Percent);
+    assert_eq!(cooker.cook(RawTag::Caret, 5, 1).kind, TokenKind::Caret);
+    assert_eq!(cooker.cook(RawTag::Ampersand, 6, 1).kind, TokenKind::Amp);
+    assert_eq!(cooker.cook(RawTag::Pipe, 7, 1).kind, TokenKind::Pipe);
+    assert_eq!(cooker.cook(RawTag::Tilde, 8, 1).kind, TokenKind::Tilde);
+    assert_eq!(cooker.cook(RawTag::Bang, 9, 1).kind, TokenKind::Bang);
+    assert_eq!(cooker.cook(RawTag::Equal, 10, 1).kind, TokenKind::Eq);
+    assert_eq!(cooker.cook(RawTag::Less, 11, 1).kind, TokenKind::Lt);
+    assert_eq!(cooker.cook(RawTag::Greater, 12, 1).kind, TokenKind::Gt);
+    assert_eq!(cooker.cook(RawTag::Dot, 13, 1).kind, TokenKind::Dot);
+    assert_eq!(
+        cooker.cook(RawTag::Question, 14, 1).kind,
+        TokenKind::Question
+    );
     assert!(cooker.errors().is_empty());
 }
 
@@ -32,26 +35,38 @@ fn compound_operators() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
 
-    assert_eq!(cooker.cook(RawTag::EqualEqual, 0, 2), TokenKind::EqEq);
-    assert_eq!(cooker.cook(RawTag::BangEqual, 3, 2), TokenKind::NotEq);
-    assert_eq!(cooker.cook(RawTag::LessEqual, 6, 2), TokenKind::LtEq);
+    assert_eq!(cooker.cook(RawTag::EqualEqual, 0, 2).kind, TokenKind::EqEq);
+    assert_eq!(cooker.cook(RawTag::BangEqual, 3, 2).kind, TokenKind::NotEq);
+    assert_eq!(cooker.cook(RawTag::LessEqual, 6, 2).kind, TokenKind::LtEq);
     assert_eq!(
-        cooker.cook(RawTag::AmpersandAmpersand, 9, 2),
+        cooker.cook(RawTag::AmpersandAmpersand, 9, 2).kind,
         TokenKind::AmpAmp
     );
-    assert_eq!(cooker.cook(RawTag::PipePipe, 12, 2), TokenKind::PipePipe);
-    assert_eq!(cooker.cook(RawTag::Arrow, 15, 2), TokenKind::Arrow);
-    assert_eq!(cooker.cook(RawTag::FatArrow, 18, 2), TokenKind::FatArrow);
-    assert_eq!(cooker.cook(RawTag::DotDot, 21, 2), TokenKind::DotDot);
-    assert_eq!(cooker.cook(RawTag::DotDotEqual, 24, 3), TokenKind::DotDotEq);
-    assert_eq!(cooker.cook(RawTag::DotDotDot, 28, 3), TokenKind::DotDotDot);
     assert_eq!(
-        cooker.cook(RawTag::ColonColon, 32, 2),
+        cooker.cook(RawTag::PipePipe, 12, 2).kind,
+        TokenKind::PipePipe
+    );
+    assert_eq!(cooker.cook(RawTag::Arrow, 15, 2).kind, TokenKind::Arrow);
+    assert_eq!(
+        cooker.cook(RawTag::FatArrow, 18, 2).kind,
+        TokenKind::FatArrow
+    );
+    assert_eq!(cooker.cook(RawTag::DotDot, 21, 2).kind, TokenKind::DotDot);
+    assert_eq!(
+        cooker.cook(RawTag::DotDotEqual, 24, 3).kind,
+        TokenKind::DotDotEq
+    );
+    assert_eq!(
+        cooker.cook(RawTag::DotDotDot, 28, 3).kind,
+        TokenKind::DotDotDot
+    );
+    assert_eq!(
+        cooker.cook(RawTag::ColonColon, 32, 2).kind,
         TokenKind::DoubleColon
     );
-    assert_eq!(cooker.cook(RawTag::Shl, 35, 2), TokenKind::Shl);
+    assert_eq!(cooker.cook(RawTag::Shl, 35, 2).kind, TokenKind::Shl);
     assert_eq!(
-        cooker.cook(RawTag::QuestionQuestion, 38, 2),
+        cooker.cook(RawTag::QuestionQuestion, 38, 2).kind,
         TokenKind::DoubleQuestion
     );
 }
@@ -63,8 +78,8 @@ fn identifier_interning() {
     let source = "foo";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    let cooked = cooker.cook(RawTag::Ident, 0, 3);
-    match cooked {
+    let result = cooker.cook(RawTag::Ident, 0, 3);
+    match result.kind {
         TokenKind::Ident(name) => assert_eq!(interner.lookup(name), "foo"),
         other => panic!("expected Ident, got {other:?}"),
     }
@@ -75,7 +90,7 @@ fn keyword_resolution() {
     let source = "if";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::Ident, 0, 2), TokenKind::If);
+    assert_eq!(cooker.cook(RawTag::Ident, 0, 2).kind, TokenKind::If);
 }
 
 #[test]
@@ -83,7 +98,7 @@ fn str_type_keyword() {
     let source = "str";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::Ident, 0, 3), TokenKind::StrType);
+    assert_eq!(cooker.cook(RawTag::Ident, 0, 3).kind, TokenKind::StrType);
 }
 
 // === Numeric literals ===
@@ -93,7 +108,7 @@ fn integer_literal() {
     let source = "42";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::Int, 0, 2), TokenKind::Int(42));
+    assert_eq!(cooker.cook(RawTag::Int, 0, 2).kind, TokenKind::Int(42));
 }
 
 #[test]
@@ -101,7 +116,10 @@ fn integer_with_underscores() {
     let source = "1_000_000";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::Int, 0, 9), TokenKind::Int(1_000_000));
+    assert_eq!(
+        cooker.cook(RawTag::Int, 0, 9).kind,
+        TokenKind::Int(1_000_000)
+    );
 }
 
 #[test]
@@ -109,7 +127,7 @@ fn hex_integer() {
     let source = "0xFF";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::HexInt, 0, 4), TokenKind::Int(255));
+    assert_eq!(cooker.cook(RawTag::HexInt, 0, 4).kind, TokenKind::Int(255));
 }
 
 #[test]
@@ -117,7 +135,7 @@ fn binary_integer() {
     let source = "0b1010";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::BinInt, 0, 6), TokenKind::Int(10));
+    assert_eq!(cooker.cook(RawTag::BinInt, 0, 6).kind, TokenKind::Int(10));
 }
 
 #[test]
@@ -125,7 +143,7 @@ fn binary_integer_with_underscores() {
     let source = "0b1111_0000";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::BinInt, 0, 11), TokenKind::Int(240));
+    assert_eq!(cooker.cook(RawTag::BinInt, 0, 11).kind, TokenKind::Int(240));
 }
 
 #[test]
@@ -135,7 +153,7 @@ fn float_literal() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Float, 0, 4),
+        cooker.cook(RawTag::Float, 0, 4).kind,
         TokenKind::Float(3.14f64.to_bits())
     );
 }
@@ -145,10 +163,9 @@ fn integer_overflow() {
     let source = "99999999999999999999999";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(
-        cooker.cook(RawTag::Int, 0, source.len() as u32),
-        TokenKind::Error
-    );
+    let result = cooker.cook(RawTag::Int, 0, source.len() as u32);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -160,7 +177,7 @@ fn duration_milliseconds() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, 5),
+        cooker.cook(RawTag::Duration, 0, 5).kind,
         TokenKind::Duration(100, DurationUnit::Milliseconds)
     );
 }
@@ -171,7 +188,7 @@ fn duration_seconds() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, 2),
+        cooker.cook(RawTag::Duration, 0, 2).kind,
         TokenKind::Duration(5, DurationUnit::Seconds)
     );
 }
@@ -182,7 +199,7 @@ fn duration_hours() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, 2),
+        cooker.cook(RawTag::Duration, 0, 2).kind,
         TokenKind::Duration(2, DurationUnit::Hours)
     );
 }
@@ -193,7 +210,7 @@ fn size_kilobytes() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Size, 0, 3),
+        cooker.cook(RawTag::Size, 0, 3).kind,
         TokenKind::Size(4, SizeUnit::Kilobytes)
     );
 }
@@ -204,7 +221,7 @@ fn size_bytes() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Size, 0, 4),
+        cooker.cook(RawTag::Size, 0, 4).kind,
         TokenKind::Size(100, SizeUnit::Bytes)
     );
 }
@@ -218,7 +235,7 @@ fn decimal_duration_seconds() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, 4),
+        cooker.cook(RawTag::Duration, 0, 4).kind,
         TokenKind::Duration(1_500_000_000, DurationUnit::Nanoseconds)
     );
     assert!(cooker.errors().is_empty());
@@ -231,7 +248,7 @@ fn decimal_duration_milliseconds() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, 5),
+        cooker.cook(RawTag::Duration, 0, 5).kind,
         TokenKind::Duration(2_500_000, DurationUnit::Nanoseconds)
     );
     assert!(cooker.errors().is_empty());
@@ -244,7 +261,7 @@ fn decimal_duration_hours() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, 5),
+        cooker.cook(RawTag::Duration, 0, 5).kind,
         TokenKind::Duration(8_100_000_000_000, DurationUnit::Nanoseconds)
     );
     assert!(cooker.errors().is_empty());
@@ -257,7 +274,7 @@ fn decimal_duration_half_second() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, 4),
+        cooker.cook(RawTag::Duration, 0, 4).kind,
         TokenKind::Duration(500_000_000, DurationUnit::Nanoseconds)
     );
 }
@@ -269,7 +286,7 @@ fn decimal_duration_many_digits() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Duration, 0, source.len() as u32),
+        cooker.cook(RawTag::Duration, 0, source.len() as u32).kind,
         TokenKind::Duration(1_123_456_789, DurationUnit::Nanoseconds)
     );
 }
@@ -280,7 +297,9 @@ fn decimal_duration_nanoseconds_error() {
     let source = "1.5ns";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::Duration, 0, 5), TokenKind::Error);
+    let result = cooker.cook(RawTag::Duration, 0, 5);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -291,7 +310,7 @@ fn decimal_size_kilobytes() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Size, 0, 5),
+        cooker.cook(RawTag::Size, 0, 5).kind,
         TokenKind::Size(1_500, SizeUnit::Bytes)
     );
     assert!(cooker.errors().is_empty());
@@ -304,7 +323,7 @@ fn decimal_size_megabytes() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Size, 0, 6),
+        cooker.cook(RawTag::Size, 0, 6).kind,
         TokenKind::Size(250_000, SizeUnit::Bytes)
     );
 }
@@ -315,7 +334,9 @@ fn decimal_size_bytes_error() {
     let source = "0.5b";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::Size, 0, 4), TokenKind::Error);
+    let result = cooker.cook(RawTag::Size, 0, 4);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -326,8 +347,8 @@ fn string_simple() {
     let source = r#""hello""#;
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    let cooked = cooker.cook(RawTag::String, 0, source.len() as u32);
-    match cooked {
+    let result = cooker.cook(RawTag::String, 0, source.len() as u32);
+    match result.kind {
         TokenKind::String(name) => assert_eq!(interner.lookup(name), "hello"),
         other => panic!("expected String, got {other:?}"),
     }
@@ -338,8 +359,8 @@ fn string_with_escapes() {
     let source = r#""hello\nworld""#;
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    let cooked = cooker.cook(RawTag::String, 0, source.len() as u32);
-    match cooked {
+    let result = cooker.cook(RawTag::String, 0, source.len() as u32);
+    match result.kind {
         TokenKind::String(name) => assert_eq!(interner.lookup(name), "hello\nworld"),
         other => panic!("expected String, got {other:?}"),
     }
@@ -353,7 +374,7 @@ fn char_simple() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Char, 0, source.len() as u32),
+        cooker.cook(RawTag::Char, 0, source.len() as u32).kind,
         TokenKind::Char('a')
     );
 }
@@ -364,7 +385,7 @@ fn char_escape() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
     assert_eq!(
-        cooker.cook(RawTag::Char, 0, source.len() as u32),
+        cooker.cook(RawTag::Char, 0, source.len() as u32).kind,
         TokenKind::Char('\n')
     );
 }
@@ -377,7 +398,9 @@ fn error_tags_produce_error_kind() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
 
-    assert_eq!(cooker.cook(RawTag::InvalidByte, 0, 1), TokenKind::Error);
+    let result = cooker.cook(RawTag::InvalidByte, 0, 1);
+    assert_eq!(result.kind, TokenKind::Error);
+    assert!(result.had_error);
     assert_eq!(cooker.errors().len(), 1);
 }
 
@@ -389,24 +412,39 @@ fn delimiters() {
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
 
-    assert_eq!(cooker.cook(RawTag::LeftParen, 0, 1), TokenKind::LParen);
-    assert_eq!(cooker.cook(RawTag::RightParen, 1, 1), TokenKind::RParen);
-    assert_eq!(cooker.cook(RawTag::LeftBracket, 2, 1), TokenKind::LBracket);
-    assert_eq!(cooker.cook(RawTag::RightBracket, 3, 1), TokenKind::RBracket);
-    assert_eq!(cooker.cook(RawTag::LeftBrace, 4, 1), TokenKind::LBrace);
-    assert_eq!(cooker.cook(RawTag::RightBrace, 5, 1), TokenKind::RBrace);
-    assert_eq!(cooker.cook(RawTag::Comma, 6, 1), TokenKind::Comma);
-    assert_eq!(cooker.cook(RawTag::Colon, 7, 1), TokenKind::Colon);
-    assert_eq!(cooker.cook(RawTag::Semicolon, 8, 1), TokenKind::Semicolon);
-    assert_eq!(cooker.cook(RawTag::At, 9, 1), TokenKind::At);
-    assert_eq!(cooker.cook(RawTag::Hash, 10, 1), TokenKind::Hash);
+    assert_eq!(cooker.cook(RawTag::LeftParen, 0, 1).kind, TokenKind::LParen);
     assert_eq!(
-        cooker.cook(RawTag::Underscore, 11, 1),
+        cooker.cook(RawTag::RightParen, 1, 1).kind,
+        TokenKind::RParen
+    );
+    assert_eq!(
+        cooker.cook(RawTag::LeftBracket, 2, 1).kind,
+        TokenKind::LBracket
+    );
+    assert_eq!(
+        cooker.cook(RawTag::RightBracket, 3, 1).kind,
+        TokenKind::RBracket
+    );
+    assert_eq!(cooker.cook(RawTag::LeftBrace, 4, 1).kind, TokenKind::LBrace);
+    assert_eq!(
+        cooker.cook(RawTag::RightBrace, 5, 1).kind,
+        TokenKind::RBrace
+    );
+    assert_eq!(cooker.cook(RawTag::Comma, 6, 1).kind, TokenKind::Comma);
+    assert_eq!(cooker.cook(RawTag::Colon, 7, 1).kind, TokenKind::Colon);
+    assert_eq!(
+        cooker.cook(RawTag::Semicolon, 8, 1).kind,
+        TokenKind::Semicolon
+    );
+    assert_eq!(cooker.cook(RawTag::At, 9, 1).kind, TokenKind::At);
+    assert_eq!(cooker.cook(RawTag::Hash, 10, 1).kind, TokenKind::Hash);
+    assert_eq!(
+        cooker.cook(RawTag::Underscore, 11, 1).kind,
         TokenKind::Underscore
     );
-    assert_eq!(cooker.cook(RawTag::Dollar, 12, 1), TokenKind::Dollar);
+    assert_eq!(cooker.cook(RawTag::Dollar, 12, 1).kind, TokenKind::Dollar);
     assert_eq!(
-        cooker.cook(RawTag::HashBracket, 13, 2),
+        cooker.cook(RawTag::HashBracket, 13, 2).kind,
         TokenKind::HashBracket
     );
 }
@@ -416,7 +454,10 @@ fn hashbang_mapping() {
     let source = "#!foo";
     let interner = StringInterner::new();
     let mut cooker = TokenCooker::new(source.as_bytes(), &interner);
-    assert_eq!(cooker.cook(RawTag::HashBang, 0, 2), TokenKind::HashBang);
+    assert_eq!(
+        cooker.cook(RawTag::HashBang, 0, 2).kind,
+        TokenKind::HashBang
+    );
     assert!(cooker.errors().is_empty());
 }
 

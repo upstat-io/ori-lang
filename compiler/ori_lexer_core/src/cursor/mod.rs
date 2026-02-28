@@ -12,120 +12,6 @@
 //! A null at `pos < source_len` is an interior null (error token);
 //! a null at `pos >= source_len` is the sentinel (EOF).
 
-/// Returns the earliest (minimum) of two optional positions.
-///
-/// Used by the memchr-based scanning methods to combine results from
-/// separate memchr calls when we need to search for more bytes than
-/// `memchr3` supports (which handles at most 3 needles).
-fn earliest_of(a: Option<usize>, b: Option<usize>) -> Option<usize> {
-    match (a, b) {
-        (Some(x), Some(y)) => Some(x.min(y)),
-        (Some(x), None) | (None, Some(x)) => Some(x),
-        (None, None) => None,
-    }
-}
-
-/// Count leading whitespace bytes (space `0x20` or tab `0x09`) using scalar loop.
-///
-/// Reference implementation for property testing. Returns the number of
-/// consecutive whitespace bytes from the start of `buf`.
-#[cfg(test)]
-fn scalar_count_whitespace(buf: &[u8]) -> usize {
-    buf.iter().take_while(|&&b| b == b' ' || b == b'\t').count()
-}
-
-/// Count leading whitespace bytes (space `0x20` or tab `0x09`) using SWAR.
-///
-/// Processes 8 bytes at a time by loading them as a little-endian `u64` and
-/// using carry-free zero-byte detection to find the first non-whitespace byte.
-/// Falls back to scalar for the remaining 0–7 byte tail.
-///
-/// The sentinel byte (`0x00`) is neither space nor tab, so scanning terminates
-/// naturally at EOF without explicit bounds checking beyond the `i + 8 <= len`
-/// guard for the SWAR loop.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "reference impl kept for property testing against scalar version"
-    )
-)]
-#[allow(
-    unsafe_code,
-    reason = "unaligned u64 reads required for SWAR byte-parallel processing"
-)]
-fn swar_count_whitespace(buf: &[u8]) -> usize {
-    /// Detects which bytes in a `u64` are zero, returning a mask with the high
-    /// bit (`0x80`) set in each zero byte lane.
-    ///
-    /// Uses carry-free detection: masks each byte to 7 bits, adds `0x7F` per
-    /// lane (max result `0xFE`, no carry across bytes), then ORs with the
-    /// original to catch `0x80`. Inverts to get zero-byte positions.
-    ///
-    /// This avoids the borrow-propagation bug in Mycroft's formula, where
-    /// `(v - 0x0101..01)` can carry between adjacent byte lanes.
-    #[inline]
-    const fn byte_zero_mask(v: u64) -> u64 {
-        const LO7: u64 = 0x7F7F_7F7F_7F7F_7F7F;
-        const HI: u64 = 0x8080_8080_8080_8080;
-        // (v & 0x7F..7F) + 0x7F..7F: high bit set in each lane where masked byte >= 1.
-        // Max per-byte value: 0x7F + 0x7F = 0xFE — no carry into adjacent byte.
-        // OR with v: also catches bytes where only bit 7 was set (0x80).
-        // Invert: high bit set where byte WAS zero.
-        !((v & LO7).wrapping_add(LO7) | v) & HI
-    }
-
-    const SPACES: u64 = 0x2020_2020_2020_2020;
-    const TABS: u64 = 0x0909_0909_0909_0909;
-    const HI: u64 = 0x8080_8080_8080_8080;
-
-    let len = buf.len();
-    let mut i = 0;
-
-    // SWAR loop: process 8 bytes at a time.
-    while i + 8 <= len {
-        // SAFETY: We verified `i + 8 <= len`, so `buf[i..i+8]` is in bounds.
-        // We use `read_unaligned` because the cursor position is not guaranteed
-        // to be 8-byte aligned.
-        let chunk = unsafe { buf.as_ptr().add(i).cast::<u64>().read_unaligned() };
-
-        // XOR with space pattern: zero bytes where byte IS a space.
-        let xor_space = chunk ^ SPACES;
-        // XOR with tab pattern: zero bytes where byte IS a tab.
-        let xor_tab = chunk ^ TABS;
-
-        // Detect zero bytes in each XOR result (= positions that matched).
-        let space_mask = byte_zero_mask(xor_space);
-        let tab_mask = byte_zero_mask(xor_tab);
-
-        // Combine: high bit set where byte IS whitespace (space OR tab).
-        let ws_mask = space_mask | tab_mask;
-
-        // Invert: high bit set where byte is NOT whitespace.
-        let non_ws = !ws_mask & HI;
-
-        if non_ws != 0 {
-            // Found a non-whitespace byte. Its position (in bytes) is
-            // trailing_zeros / 8 (each byte lane is 8 bits wide).
-            return i + (non_ws.trailing_zeros() as usize / 8);
-        }
-
-        // All 8 bytes were whitespace — continue.
-        i += 8;
-    }
-
-    // Scalar tail: process remaining 0–7 bytes.
-    while i < len {
-        let b = buf[i];
-        if b != b' ' && b != b'\t' {
-            return i;
-        }
-        i += 1;
-    }
-
-    i
-}
-
 /// Zero-cost cursor over a sentinel-terminated byte buffer.
 ///
 /// Created via [`SourceBuffer::cursor()`](crate::SourceBuffer::cursor).
@@ -429,6 +315,120 @@ impl<'a> Cursor<'a> {
         }
         self.pos - start
     }
+}
+
+/// Returns the earliest (minimum) of two optional positions.
+///
+/// Used by the memchr-based scanning methods to combine results from
+/// separate memchr calls when we need to search for more bytes than
+/// `memchr3` supports (which handles at most 3 needles).
+fn earliest_of(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(x.min(y)),
+        (Some(x), None) | (None, Some(x)) => Some(x),
+        (None, None) => None,
+    }
+}
+
+/// Count leading whitespace bytes (space `0x20` or tab `0x09`) using scalar loop.
+///
+/// Reference implementation for property testing. Returns the number of
+/// consecutive whitespace bytes from the start of `buf`.
+#[cfg(test)]
+fn scalar_count_whitespace(buf: &[u8]) -> usize {
+    buf.iter().take_while(|&&b| b == b' ' || b == b'\t').count()
+}
+
+/// Count leading whitespace bytes (space `0x20` or tab `0x09`) using SWAR.
+///
+/// Processes 8 bytes at a time by loading them as a little-endian `u64` and
+/// using carry-free zero-byte detection to find the first non-whitespace byte.
+/// Falls back to scalar for the remaining 0–7 byte tail.
+///
+/// The sentinel byte (`0x00`) is neither space nor tab, so scanning terminates
+/// naturally at EOF without explicit bounds checking beyond the `i + 8 <= len`
+/// guard for the SWAR loop.
+#[cfg_attr(
+    not(test),
+    allow(
+        dead_code,
+        reason = "reference impl kept for property testing against scalar version"
+    )
+)]
+#[allow(
+    unsafe_code,
+    reason = "unaligned u64 reads required for SWAR byte-parallel processing"
+)]
+fn swar_count_whitespace(buf: &[u8]) -> usize {
+    /// Detects which bytes in a `u64` are zero, returning a mask with the high
+    /// bit (`0x80`) set in each zero byte lane.
+    ///
+    /// Uses carry-free detection: masks each byte to 7 bits, adds `0x7F` per
+    /// lane (max result `0xFE`, no carry across bytes), then ORs with the
+    /// original to catch `0x80`. Inverts to get zero-byte positions.
+    ///
+    /// This avoids the borrow-propagation bug in Mycroft's formula, where
+    /// `(v - 0x0101..01)` can carry between adjacent byte lanes.
+    #[inline]
+    const fn byte_zero_mask(v: u64) -> u64 {
+        const LO7: u64 = 0x7F7F_7F7F_7F7F_7F7F;
+        const HI: u64 = 0x8080_8080_8080_8080;
+        // (v & 0x7F..7F) + 0x7F..7F: high bit set in each lane where masked byte >= 1.
+        // Max per-byte value: 0x7F + 0x7F = 0xFE — no carry into adjacent byte.
+        // OR with v: also catches bytes where only bit 7 was set (0x80).
+        // Invert: high bit set where byte WAS zero.
+        !((v & LO7).wrapping_add(LO7) | v) & HI
+    }
+
+    const SPACES: u64 = 0x2020_2020_2020_2020;
+    const TABS: u64 = 0x0909_0909_0909_0909;
+    const HI: u64 = 0x8080_8080_8080_8080;
+
+    let len = buf.len();
+    let mut i = 0;
+
+    // SWAR loop: process 8 bytes at a time.
+    while i + 8 <= len {
+        // SAFETY: We verified `i + 8 <= len`, so `buf[i..i+8]` is in bounds.
+        // We use `read_unaligned` because the cursor position is not guaranteed
+        // to be 8-byte aligned.
+        let chunk = unsafe { buf.as_ptr().add(i).cast::<u64>().read_unaligned() };
+
+        // XOR with space pattern: zero bytes where byte IS a space.
+        let xor_space = chunk ^ SPACES;
+        // XOR with tab pattern: zero bytes where byte IS a tab.
+        let xor_tab = chunk ^ TABS;
+
+        // Detect zero bytes in each XOR result (= positions that matched).
+        let space_mask = byte_zero_mask(xor_space);
+        let tab_mask = byte_zero_mask(xor_tab);
+
+        // Combine: high bit set where byte IS whitespace (space OR tab).
+        let ws_mask = space_mask | tab_mask;
+
+        // Invert: high bit set where byte is NOT whitespace.
+        let non_ws = !ws_mask & HI;
+
+        if non_ws != 0 {
+            // Found a non-whitespace byte. Its position (in bytes) is
+            // trailing_zeros / 8 (each byte lane is 8 bits wide).
+            return i + (non_ws.trailing_zeros() as usize / 8);
+        }
+
+        // All 8 bytes were whitespace — continue.
+        i += 8;
+    }
+
+    // Scalar tail: process remaining 0–7 bytes.
+    while i < len {
+        let b = buf[i];
+        if b != b' ' && b != b'\t' {
+            return i;
+        }
+        i += 1;
+    }
+
+    i
 }
 
 #[cfg(test)]

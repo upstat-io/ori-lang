@@ -40,6 +40,18 @@ pub enum FindingKind {
     /// `ori_rc_dec` was called on a pointer *before* it was passed to a COW function.
     CowInputDecBeforeCall { ptr_name: String, cow_fn: String },
 
+    // 04.4 — Safety Checks
+    /// A call to a panic/assert runtime function (safety check).
+    SafetyCheckCall { callee: String },
+    /// A conditional branch targeting a panic block (safety guard).
+    SafetyCheckBranch { panic_block: String },
+    /// Per-function summary: check count and instruction count.
+    /// Density (checks per 100 instructions) is derived: `check_count * 100 / instruction_count`.
+    SafetyCheckSummary {
+        check_count: usize,
+        instruction_count: usize,
+    },
+
     // 04.3 — ABI
     /// A call to a runtime function has the wrong number of arguments.
     RuntimeArgCountMismatch {
@@ -88,6 +100,14 @@ impl AuditReport {
             .count()
     }
 
+    /// Count findings at `Note` severity.
+    pub fn note_count(&self) -> usize {
+        self.findings
+            .iter()
+            .filter(|f| f.severity == Severity::Note)
+            .count()
+    }
+
     /// True if any finding is at `Error` severity.
     pub fn has_errors(&self) -> bool {
         self.findings.iter().any(|f| f.severity == Severity::Error)
@@ -107,8 +127,11 @@ impl AuditReport {
             .iter()
             .filter(|f| f.severity == Severity::Warning)
             .count();
-        if errors > 0 || warnings > 0 {
-            eprintln!("codegen audit summary: {errors} error(s), {warnings} warning(s)");
+        let notes = self.note_count();
+        if errors > 0 || warnings > 0 || notes > 0 {
+            eprintln!(
+                "codegen audit summary: {errors} error(s), {warnings} warning(s), {notes} note(s)"
+            );
         }
     }
 }

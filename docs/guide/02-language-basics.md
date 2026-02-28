@@ -60,7 +60,6 @@ let b = -17;
 let c = 1_000_000;      // Underscores for readability
 let d = 0xFF;           // Hexadecimal (255)
 let e = 0b1010;         // Binary (10)
-let f = 0o755;          // Octal (493)
 ```
 
 **Floats** (`float`) follow IEEE 754 double-precision semantics:
@@ -404,20 +403,22 @@ let full = `{first}, {second}!`;       // "Hello, World!"
 
 From highest to lowest:
 
-1. `.` `[]` `()` `?` — access, index, call, propagate
-2. `!` `-` `~` — unary operators
-3. `*` `/` `%` `div` — multiplicative
-4. `+` `-` — additive
-5. `<<` `>>` — shift
-6. `..` `..=` `by` — range
-7. `<` `>` `<=` `>=` — comparison
-8. `==` `!=` — equality
-9. `&` — bitwise and
-10. `^` — bitwise xor
-11. `|` — bitwise or
-12. `&&` — logical and
-13. `||` — logical or
-14. `??` — coalesce
+1. `.` `[]` `()` `?` `as` `as?` — access, index, call, propagate, conversion
+2. `**` — power
+3. `!` `-` `~` — unary operators
+4. `*` `/` `%` `div` — multiplicative
+5. `+` `-` — additive
+6. `<<` `>>` — shift
+7. `..` `..=` `by` — range
+8. `<` `>` `<=` `>=` — comparison
+9. `==` `!=` — equality
+10. `&` — bitwise and
+11. `^` — bitwise xor
+12. `|` — bitwise or
+13. `&&` — logical and
+14. `||` — logical or
+15. `??` — coalesce
+16. `|>` — pipe
 
 When in doubt, use parentheses:
 
@@ -642,12 +643,11 @@ let y = 42;  // This is a syntax error - no inline comments
 Use special markers for documentation:
 
 ```ori
-// #Description
 // Calculates the area of a circle
 //
-// @param radius The radius of the circle (must be positive)
-// !Panics if radius is negative
-// >area(radius: 5.0) -> 78.54
+// * radius: The radius of the circle (must be positive)
+// ! Panics if radius is negative
+// > area(radius: 5.0) -> 78.54
 
 @area (radius: float) -> float
     pre(radius >= 0.0 | "radius must be non-negative")
@@ -721,8 +721,8 @@ type Item = { name: str, price: float, quantity: int }
         Item { name: "Mouse", price: 25.0, quantity: 2 },
         Item { name: "Cable", price: 10.0, quantity: 3 },
     ];
-    print(msg: `Subtotal: ${subtotal(items: cart):.2}`);
-    print(msg: `Total:    ${calculate_total(items: cart):.2}`);
+    print(msg: `Subtotal: {subtotal(items: cart):.2}`);
+    print(msg: `Total:    {calculate_total(items: cart):.2}`);
 }
 ```
 
