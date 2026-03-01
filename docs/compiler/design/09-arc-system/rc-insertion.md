@@ -7,177 +7,135 @@ section: "ARC System"
 
 # RC Insertion
 
-The RC insertion pass places `RcInc` and `RcDec` instructions precisely using liveness analysis results. This is the **Perceus algorithm**: every heap-allocated value is freed exactly once at its last use, and additional uses get `RcInc`. The pass transforms ARC IR functions in-place, inserting RC operations that the LLVM backend will later lower to runtime calls.
+## The Placement Problem
 
-**Source**: `compiler/ori_arc/src/rc_insert/mod.rs`, `insert.rs`, `annotate.rs`, `edge_cleanup.rs`
+Given a program with reference-counted values, where exactly should increment and decrement operations go? This is the RC placement problem, and there are several approaches with different tradeoffs:
 
-## Algorithm: Perceus (Liveness-Based RC Insertion)
+**Scope-based placement** is the simplest: increment when a variable enters scope, decrement when it leaves. This is what Objective-C's manual retain/release and early Swift implementations did. It is correct but wasteful — a variable that is used once at the top of a long function holds its refcount for the entire scope, even though it could be freed immediately after its single use.
 
-Entry point: `insert_rc_ops_with_ownership(func, classifier, liveness, ownership, sigs, pool)`
+**Eager placement** inserts an increment at every reference creation and a decrement at every reference destruction. This is what CPython does. It is precise in one sense (every reference is tracked) but generates enormous numbers of RC operations, most of which cancel out.
 
-The algorithm processes each block with a backward scan, maintaining a running live set initialized from `live_out`:
+**Liveness-based placement** is the approach developed for the [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) algorithm (Reinking, Xie, de Moura, Leijen, 2021): decrement at the precise point of **last use** (when the variable transitions from live to dead), and increment only when a variable is used **more than once** (to keep it alive past the first consumption). This produces the minimum number of RC operations for a given ownership assignment.
+
+Ori uses Perceus-style liveness-based RC insertion. The pass transforms ARC IR functions in-place, inserting `RcInc` and `RcDec` instructions that the LLVM backend later lowers to runtime calls.
+
+## The Perceus Algorithm
+
+The algorithm processes each basic block with a backward scan, maintaining a running set of live variables initialized from `live_out`. The backward direction is natural: to determine whether a use is the last one, you need to know what future uses exist, which means scanning from the end toward the beginning.
 
 ### Step 1: Terminator Uses
 
-Variables used in the terminator that are already in the live set get `RcInc` -- they must survive past the terminator into successor blocks. New uses are added to the live set.
+Variables used in the terminator that are already in the live set get `RcInc` — they must survive past the terminator into successor blocks, so the extra reference is needed. New uses are added to the live set.
 
 Special cases:
-- **Return**: The returned variable is treated as an owned position. Borrowed parameters and borrowed-derived variables at return positions get `RcInc` to transfer ownership to the caller.
-- **Invoke**: Per-argument ownership is read from the pre-computed `arg_ownership` field. Borrowing arguments (external C runtime functions, or callee params marked `Borrowed`) are added to `live` but skip `RcInc` -- the callee borrows without consuming.
+- **Return**: The returned variable occupies an owned position. Borrowed parameters and borrowed-derived variables at return positions get `RcInc` to transfer ownership to the caller.
+- **Invoke**: Per-argument ownership is read from the pre-computed `arg_ownership` field. Borrowing arguments are added to `live` but skip `RcInc` — the callee borrows without consuming.
 
 ### Step 2: Instruction Backward Pass
 
 For each instruction in reverse order:
 
-**Definitions**: If the defined variable (`dst`) is not in the live set, it is dead immediately -- emit `RcDec` after the definition. Otherwise, remove it from the live set (its definition satisfies its liveness).
+**Definitions**: If the defined variable (`dst`) is not in the live set, it is dead immediately — emit `RcDec` after the definition. Otherwise, remove it from the live set (its definition satisfies its liveness).
 
-**Borrowing uses** (PrimOps, scalar projections, all-borrowed Apply): The operation reads its arguments without consuming them. Arguments not in the live set are at their last use -- emit `RcDec` after the borrowing operation. Arguments already in the live set need no `RcInc` because the operation does not hold a reference.
+**Borrowing uses** (PrimOps, scalar projections, all-borrowed Apply): The operation reads its arguments without consuming them. Arguments not in the live set are at their last use — emit `RcDec` after the borrowing operation. Arguments already in the live set need no `RcInc`.
 
-**Consuming uses** (Construct, PartialApply, Apply with owned args, ApplyIndirect): The operation takes ownership of its arguments. If an argument is already in the live set, emit `RcInc` (multi-use -- the value must survive past this consumption). Duplicate arguments in the same instruction (e.g., `Apply { args: [x, x] }`) get exactly one `RcInc` for the second occurrence.
+**Consuming uses** (Construct, PartialApply, Apply with owned args, ApplyIndirect): The operation takes ownership of its arguments. If an argument is already in the live set, emit `RcInc` (the value must survive past this consumption). Duplicate arguments in the same instruction get exactly one `RcInc` for the second occurrence.
 
 ### Step 3: Block and Function Parameters
 
-After processing the body, any block parameter not in the live set gets `RcDec` (unused parameter -- the value was passed but never read). For the entry block, function parameters with `Ownership::Owned` that are not in the live set also get `RcDec`.
+After processing the body, any block parameter not in the live set gets `RcDec` (unused parameter — passed but never read). For the entry block, function parameters with `Ownership::Owned` that are not in the live set also get `RcDec`.
 
-### Step 3.5: Invoke Dst Definitions
+### Invoke Dst Definitions
 
 Invoke `dst` variables defined at a block's entry (via predecessor Invoke terminators) are treated like block parameters: if not in the live set, they get `RcDec`.
 
-### Result
-
-The new body is built in reverse during the backward walk, then reversed at the end to produce the correct forward order. Span information is preserved and aligned with the new instruction sequence.
-
 ## Borrowed Parameter Handling
 
-Borrowed parameters (from borrow inference) and variables derived from them receive special treatment:
+Borrowed parameters receive special treatment that is central to the Perceus algorithm's effectiveness:
 
-- **Borrowed params** completely skip all RC tracking -- no `RcInc`, no `RcDec`, not added to the live set. The only exception is at `Return`: returning a borrowed param transfers ownership to the caller, requiring `RcInc`.
+- **Borrowed params** skip all RC tracking — no `RcInc`, no `RcDec`, not added to the live set. The only exception is at `Return`: returning a borrowed param transfers ownership to the caller, requiring `RcInc`.
 
-- **Borrowed-derived variables** (projections or aliases of borrowed params, tracked via `DerivedOwnership::BorrowedFrom`) skip normal RC tracking but get `RcInc` at **owned positions** -- places where the value will be stored on the heap:
+- **Borrowed-derived variables** (projections or aliases of borrowed params) skip normal RC tracking but get `RcInc` at **owned positions** — places where the value will be stored on the heap:
   - `Construct` arguments
   - `PartialApply` captures (unless the capture is at a borrowed callee position and the closure does not escape)
   - `Apply`/`ApplyIndirect` arguments at owned positions
   - `Return` values
 
-The `needs_rc_trackable()` helper returns `false` for borrowed params, borrowed-derived vars, and scalars.
-
-## Borrowing vs Consuming Instructions
-
-The `is_borrowing_instr()` function classifies instructions:
-
-**Borrowing** (read without consuming):
-- `PrimOp` -- arithmetic, comparison, logical, string ops. Exception: `Binary(Add)` on list-typed operands is consuming (COW list concat).
-- `Project` with scalar result -- extracts a field without consuming the parent. Non-scalar projections transfer ownership.
-- `Apply` with all-borrowed `arg_ownership` -- external C runtime functions and borrowing builtins.
-
-**Consuming** (ownership transfer):
-- `Construct`, `PartialApply` -- store args on the heap.
-- `Apply`, `ApplyIndirect` with owned args -- transfer to callee.
-- `Project` with non-scalar result -- transfers ownership from parent to field.
-
-## Closure Capture Analysis
+### Closure Capture Optimization
 
 When `PartialApply` captures a borrowed-derived variable, the normal rule requires `RcInc` (the closure stores the value). But this can be safely skipped when both conditions hold:
 
-1. The callee expects the corresponding parameter as `Borrowed` (it will not store or escape the value).
-2. The closure does not escape the current block (`dst` is not in `live_out`).
+1. The callee expects the corresponding parameter as `Borrowed`
+2. The closure does not escape the current block (`dst` is not in `live_out`)
 
-In this case, the captured value remains alive through its borrow root (a function parameter with lifetime spanning the entire function). This follows Lean 4's `Borrow.lean` pattern for closure captures.
+In this case, the captured value remains alive through its borrow root. This follows [Lean 4](https://github.com/leanprover/lean4)'s `Borrow.lean` pattern for closure captures.
 
-## Argument Ownership Annotation
+## Borrowing vs Consuming Classification
 
-Entry point: `annotate_arg_ownership(func, sigs, interner, builtins, pool)`
+The algorithm must classify each instruction by how it uses its arguments:
 
-Before RC insertion runs, `annotate_arg_ownership()` populates the `arg_ownership` field on every `Apply` and `Invoke` instruction. This is the single point where external-callee detection and per-param ownership lookup happen. All downstream passes read from the field rather than re-deriving ownership.
+| Classification | Instructions | Behavior |
+|---------------|-------------|----------|
+| Borrowing | PrimOps, scalar projections, all-borrowed Apply | Read without consuming; last-use gets `RcDec` |
+| Consuming | Construct, PartialApply, owned Apply/Invoke, ApplyIndirect | Take ownership; multi-use gets `RcInc` |
 
-### Classification Rules
-
-- **Ori functions with known signatures**: Per-param ownership from `AnnotatedSig` (Borrowed or Owned).
-- **External C runtime** (`ori_*` prefix, not in sigs): All arguments Borrowed -- they do not participate in Perceus ownership.
-- **Borrowing builtins** (`len`, `is_empty`, etc.): All arguments Borrowed -- compiled inline by the LLVM emitter.
-- **COW receiver-only methods** (`remove`, `union`, etc.): Receiver Owned, other args Borrowed.
-- **Unknown callees**: Conservative all-Owned.
-
-### COW List Overrides
-
-After initial classification, `apply_consuming_overrides()` checks whether the receiver is a list type. If so:
-
-- **Consuming receiver methods** (`push`, `pop`, `reverse`, `sort`, etc.): arg[0] is marked Owned. The runtime handles the old buffer's RC internally.
-- **Consuming second-arg methods** (`add`, `concat`): arg[1] is also marked Owned. The runtime takes ownership of list2's buffer.
-
-These overrides are type-qualified: `"add"` and `"concat"` are shared names -- borrowing for strings, consuming for lists.
+One notable exception: `Binary(Add)` on list-typed operands is classified as consuming (COW list concatenation), not borrowing.
 
 ## Edge Cleanup
 
-After per-block RC insertion, variables that are live at a predecessor's exit but not live at a successor's entry create "edge gaps" -- they need `RcDec` at the transition. The `insert_edge_cleanup()` pass handles these gaps.
+After per-block RC insertion, variables that are live at a predecessor's exit but not live at a successor's entry create "edge gaps" — they need `RcDec` at the transition. Three cases arise:
 
-### Single-predecessor blocks
+**Single-predecessor blocks**: `RcDec` instructions are prepended to the successor block's body.
 
-`RcDec` instructions are prepended to the block's body.
+**Multi-predecessor with identical gaps**: All predecessors strand the same variables. `RcDec` is prepended to the successor block.
 
-### Multi-predecessor blocks with identical gaps
+**Multi-predecessor with differing gaps**: Different predecessors strand different variables. A **trampoline block** (critical edge splitting) is created for each edge that needs cleanup:
 
-All predecessors have the same set of stranded variables -- `RcDec` is prepended to the block's body.
-
-### Multi-predecessor blocks with differing gaps
-
-Different predecessors have different stranded variable sets. A **trampoline block** is created for each edge that needs cleanup (critical edge splitting):
-
-```text
-Before:                          After:
-  pred_A ──→ succ                  pred_A ──→ trampoline_A ──→ succ
-  pred_B ──→ succ                  pred_B ──→ succ  (no gap)
-
-  trampoline_A:
+```mermaid
+flowchart LR
+    A["pred_A"] --> T["trampoline
     RcDec v1
-    RcDec v3
-    Jump succ
+    RcDec v3"]
+    T --> S["successor"]
+    B["pred_B"] --> S
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+
+    class A,B,T,S native
 ```
 
-If the successor has block parameters, the trampoline accepts and forwards them so the edge split is transparent to the rest of the IR.
+If the successor has block parameters, the trampoline accepts and forwards them so the edge split is transparent.
 
 ## External Invoke Cleanup
 
-Entry point: `insert_external_invoke_cleanup(func, classifier, liveness, pool)`
+A companion post-pass handles `Invoke` terminators with borrowing arguments. The main Perceus pass keeps borrowing args alive through the call (adds to `live`, skips `RcInc`). The cleanup pass inserts `RcDec` at the start of the normal successor block for borrowing args whose last use is the Invoke — args still needed later are decremented at their actual last-use point by the normal Perceus logic.
 
-A companion post-pass for Invoke terminators with borrowing arguments. Together with the per-arg borrowing detection in `process_terminator_uses`, this implements correct RC at Invoke call sites:
+This pass uses the **original** (pre-RC-insertion) liveness data, which correctly reflects user-code liveness without RC operation interference.
 
-1. `process_terminator_uses` identifies borrowing args and adds them to `live` (keeps them alive through the call) but skips `RcInc`.
+## RcStrategy Assignment
 
-2. `insert_external_invoke_cleanup` inserts `RcDec` at the start of the normal successor block for borrowing args whose **last use** is the Invoke. Args still in `live_out` are needed later and will be decremented at their actual last-use point by the normal Perceus logic.
+Each `RcInc` and `RcDec` instruction carries an `RcStrategy` that tells the LLVM backend exactly how to emit the operation. The strategy is computed from `ValueRepr` during RC insertion and embedded in the instruction — the LLVM emitter pattern-matches directly without any Pool queries.
 
-This pass uses the **original** (pre-RC-insertion) liveness data, which correctly reflects user-code liveness without RC op interference.
+| Strategy | What It Does |
+|----------|-------------|
+| `HeapPointer` | Direct `ori_rc_inc`/`ori_rc_dec` on the pointer |
+| `FatPointer` | Extract data pointer from field 1, then inc/dec |
+| `Closure` | Extract env_ptr, null-check (bare functions have no env), then inc/dec |
+| `AggregateFields` | Traverse RC fields recursively |
+| `InlineEnum` | Tag-switch, per-variant field handling |
 
-## RcStrategy
+## Prior Art
 
-Each `RcInc` and `RcDec` instruction carries an `RcStrategy` that tells the LLVM backend how to emit the RC operation:
+**[Koka](https://github.com/koka-lang/koka)** and the [Perceus paper](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) (Reinking et al., 2021) are the direct source. The paper formalizes the liveness-based RC insertion algorithm and proves that it produces the minimum number of RC operations for a given ownership assignment. Ori implements the algorithm as described, with extensions for borrowed-derived variables and closure capture optimization.
 
-- **HeapPointer**: Standard heap-allocated value -- call `ori_rc_inc`/`ori_rc_dec` on the pointer.
-- **Closure**: Fat pointer (function pointer + environment) -- extract env_ptr from field 1, null-check, then inc/dec.
-- **InlineEnum**: Enum with mixed scalar/ref variants -- check tag before inc/dec.
-- **AggregateFields**: Struct with mixed scalar/ref fields -- inc/dec each RC field individually.
+**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/RC.lean`) implements a similar liveness-based RC insertion. Lean's version predates the Perceus paper and was developed independently by Ullrich and de Moura (2019). The algorithms are functionally equivalent — both use backward liveness to place RC at last-use points.
 
-The strategy is computed from `ValueRepr` (determined by `compute_var_reprs()`) and the type pool. The `rc_strategy()` helper resolves this per-variable, with a `HeapPointer` fallback when Pool is unavailable (test-only path).
+**[Swift](https://github.com/swiftlang/swift)** (`lib/SILOptimizer/ARC/`) takes a different approach: Swift inserts RC eagerly during SILGen and then optimizes them away using bidirectional dataflow analysis. This is the opposite strategy — "insert liberally, eliminate aggressively" vs Perceus's "insert precisely from the start." Swift's approach works well for Swift's ownership model but generates more intermediate work for the optimizer.
 
-## Pipeline Integration
+## Design Tradeoffs
 
-```text
-annotate_arg_ownership()              -- populates arg_ownership on Apply/Invoke
-    |
-    v
-insert_rc_ops_with_ownership()        -- core Perceus backward walk
-    |
-    v
-insert_external_invoke_cleanup()      -- Invoke borrowed-arg post-cleanup
-    |
-    v
-insert_edge_cleanup()                 -- inter-block edge gap RcDec
-```
+**Precise insertion vs liberal-then-eliminate.** Perceus inserts RC at the minimum points determined by liveness, while Swift inserts eagerly and eliminates redundancies. Perceus produces better initial results but makes the insertion pass more complex. Ori chose Perceus because the downstream passes (reset/reuse, RC elimination) benefit from starting with a minimal set — there is less noise to filter through.
 
-A `debug_assert!` verifies that the IR contains no existing `RcInc`/`RcDec` before insertion -- running RC insertion twice is a pipeline ordering error.
+**Backward walk with reverse.** The algorithm builds the new instruction body in reverse during the backward walk, then reverses at the end. The alternative (forward walk with lookahead) would avoid the reverse but require computing "next use" information, which is essentially liveness by another name. The backward walk is cleaner.
 
-## References
-
-- Lean 4: `src/Lean/Compiler/IR/RC.lean` -- liveness-based RC insertion
-- Koka: Perceus paper (Reinking et al. 2021), Section 3.2 -- precise reference counting
-- Swift: `lib/SILOptimizer/ARC/` -- bidirectional RC elimination
+**Classification at insertion time.** The borrowing vs consuming classification is computed during RC insertion rather than being pre-computed. This means the classification logic is co-located with the insertion code, making it easier to understand and modify. The tradeoff is that the classification runs for every instruction — pre-computing would avoid repeated work for instructions that appear in multiple contexts (e.g., `Apply` in both borrowing and consuming modes).

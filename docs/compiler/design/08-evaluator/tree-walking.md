@@ -7,200 +7,197 @@ section: "Evaluator"
 
 # Tree Walking Interpretation
 
-The Ori evaluator uses tree-walking interpretation, where the canonical IR is traversed and evaluated directly without compilation to bytecode.
+## What Is Tree-Walking Interpretation?
 
-## How It Works
+A tree-walking interpreter evaluates a program by recursively traversing its abstract syntax tree and computing results at each node. When it encounters `a + b`, it recursively evaluates `a` to get a value, recursively evaluates `b` to get a value, then adds them. When it encounters `if c then t else e`, it evaluates `c`, checks whether it is true, and recursively evaluates either `t` or `e`. The evaluation function's structure mirrors the grammar's structure — one case per syntactic construct, recursive calls for sub-expressions.
 
-Tree-walking interpretation:
-1. Receives canonical IR (`CanonResult` containing `CanExpr` nodes)
-2. Recursively walks the tree via `eval_can(CanId)` in `interpreter/can_eval.rs`
-3. Evaluates each node, producing a Value
-4. Returns final value
+This approach dates to McCarthy's original 1960 definition of Lisp, where `eval` was a recursive function over S-expressions. It remains the standard way to define a language's semantics precisely — the **definitional interpreter** approach. Denotational semantics, operational semantics, and interpreter-based language specifications all describe this same recursive structure. When a language specification says "the value of `if e1 then e2 else e3` is the value of `e2` if `e1` evaluates to true, otherwise the value of `e3`," it is describing exactly what a tree-walking interpreter does.
 
-All evaluation goes through `eval_can(CanId)` as the sole entry point. The canonical IR (`CanExpr`)
-is a sugar-free representation — spread operators, template strings, named arguments, and other
-syntactic sugar are desugared during canonicalization. Pattern matching is handled by decision tree
-evaluation via `exec/decision_tree.rs`.
+### The Execution Strategy Spectrum
+
+Tree-walking sits at one end of a spectrum of execution strategies. Understanding the full spectrum clarifies why Ori chose tree-walking for development and AOT compilation for production:
+
+| Strategy | How It Works | Speed | Startup | Examples |
+|----------|-------------|-------|---------|----------|
+| **Tree-walking** | Recursive dispatch on AST nodes | Slowest | Instant | Ori (dev), early Ruby, Roc REPL |
+| **Bytecode VM** | Compile to bytecodes, dispatch loop | 5-20x faster | Fast | CPython, Lua, Ruby 1.9+, Erlang |
+| **JIT compilation** | Compile hot paths to machine code at runtime | 10-100x faster | Warm-up delay | V8, JVM HotSpot, LuaJIT, PyPy |
+| **AOT compilation** | Compile entire program to machine code ahead of time | Fastest | Compile step | Ori (prod), GCC, Rust, Go, Zig |
+
+Each step down the table trades simplicity and startup speed for steady-state performance. Tree-walking interpreters are the simplest to build and maintain but the slowest to execute. AOT compilers produce the fastest executables but require a full compilation step. Bytecode VMs and JITs sit between, balancing complexity and performance.
+
+Ori bypasses the middle of this spectrum: tree-walking for development (where instant startup and debuggability matter more than throughput), AOT via LLVM for production (where maximum performance matters). This avoids the engineering cost of designing a bytecode instruction set and maintaining a bytecode compiler — complexity that would deliver only modest improvements for the development workflow.
+
+### Why Not a Bytecode VM?
+
+A bytecode VM would provide 5-20x speedup over tree-walking. For Ori's development use case, this speedup rarely matters:
+
+- **Test suites** are typically I/O-bound (file loading, Salsa caching) rather than CPU-bound
+- **Type checking** dominates compile time; evaluation is a small fraction
+- **The REPL and playground** evaluate short programs where interpretation overhead is imperceptible
+- **Production performance** comes from LLVM, which provides 100-1000x speedup over tree-walking — making a bytecode VM an intermediate step with limited value
+
+The engineering cost of a bytecode VM is substantial: instruction set design, a compiler from CanExpr to bytecodes, a dispatch loop (switch-threaded, direct-threaded, or computed-goto), a value stack, and all the associated debugging infrastructure. This cost buys performance improvements primarily for long-running interpreted programs — a use case Ori handles with AOT compilation instead.
+
+## Ori's Tree-Walking Design
+
+### The Entry Point: `eval_can`
+
+All evaluation flows through a single entry point:
 
 ```rust
 impl Interpreter<'_> {
-    /// Entry point for canonical expression evaluation with stack safety.
     pub fn eval_can(&mut self, can_id: CanId) -> EvalResult {
         ensure_sufficient_stack(|| self.eval_can_inner(can_id))
     }
 }
 ```
 
-The `CanExpr` type is `Copy` (24 bytes), so the kind is copied out of the arena before
-dispatching. This releases the immutable borrow on `self.canon`, allowing recursive
-`self.eval_can()` calls in each arm.
+The `ensure_sufficient_stack` wrapper (from the `stacker` crate) checks that the native thread stack has enough space for the recursive call. If the stack is running low, it allocates a new segment. This prevents stack overflows on deeply nested expressions — a real concern for tree-walking interpreters, which use the host language's call stack as the evaluation stack.
 
-## Canonical Expression Dispatch
+### The Copy-Out Pattern
 
-The `eval_can_inner()` method handles all `CanExpr` variants exhaustively (no `_ =>` catch-all). Currently 54 variants. The kind is copied out of the arena before dispatching to release the immutable borrow:
+The inner dispatch function uses a critical pattern that deserves detailed explanation:
 
 ```rust
 fn eval_can_inner(&mut self, can_id: CanId) -> EvalResult {
     let kind = *self.canon_ref().arena.kind(can_id);
 
     match kind {
-        // Literals — direct value construction
         CanExpr::Int(n) => Ok(Value::int(n)),
-        CanExpr::Float(bits) => Ok(Value::Float(f64::from_bits(bits))),
-        CanExpr::Bool(b) => Ok(Value::Bool(b)),
-        CanExpr::Str(name) => Ok(Value::string_static(self.interner.lookup_static(name))),
-        CanExpr::Char(c) => Ok(Value::Char(c)),
-        CanExpr::Duration { value, unit } => { /* nanosecond conversion */ }
-        CanExpr::Size { value, unit } => { /* byte conversion */ }
-        CanExpr::Unit => Ok(Value::Void),
-
-        // Compile-time constant (from ConstantPool)
-        CanExpr::Constant(id) => Ok(const_to_value(self.canon_ref().constants.get(id), self.interner)),
-
-        // Identifiers — environment lookup, then type ref fallback
-        CanExpr::Ident(name) => { /* env.lookup(name), then TypeRef fallback */ }
-        CanExpr::Const(name) => { /* constant reference: $name */ }
-        CanExpr::TypeRef(name) => { /* resolved at canonicalization time */ }
-        CanExpr::FunctionRef(name) => { /* function reference: @name */ }
-        CanExpr::FunctionExp { kind, props } => { /* print, panic, todo, etc. */ }
-
-        // Binary/Unary/Cast — dual dispatch (primitives direct, user types via traits)
-        CanExpr::Binary { left, op, right } => self.eval_can_binary(can_id, left, op, right),
-        CanExpr::Unary { op, operand } => { /* evaluate_unary dispatch */ }
-        CanExpr::Cast { expr, target, fallible } => { /* type cast: as / as? */ }
-
-        // Control flow
-        CanExpr::If { cond, then, else_ } => { /* eval cond, branch */ }
-        CanExpr::Block(range) => { /* eval statements, return last */ }
-        CanExpr::Loop { body } => { /* loop with break value */ }
-        CanExpr::For { binding, iter, body, yields } => { /* iterator-based loop */ }
-        CanExpr::While { cond, body } => { /* condition-checked loop */ }
-
-        // Pattern matching via decision trees
-        CanExpr::Match { scrutinee, tree_id } => self.eval_can_match(can_id, scrutinee, tree_id),
-
-        // Let bindings with pattern destructuring
-        CanExpr::Let { pattern, value, .. } => { /* bind_can_pattern */ }
-
-        // Calls and methods
-        CanExpr::Call { func, args } => { /* eval func, eval args, dispatch */ }
-        CanExpr::MethodCall { receiver, method, args } => { /* method dispatch chain */ }
-
-        // Collections
-        CanExpr::List(range) => { /* eval elements into Vec */ }
-        CanExpr::Map(entries) => { /* eval key-value pairs */ }
-        CanExpr::Tuple(range) => { /* eval elements into tuple */ }
-
-        // Error handling
-        CanExpr::Try(expr) => { /* error propagation: expr? */ }
-        CanExpr::Unsafe(expr) => { /* transparent — evaluates inner expression */ }
-        CanExpr::WithCapability { capability, provider, body } => { /* with Cap = x in body */ }
-        CanExpr::FormatWith { expr, spec } => { /* format value with spec string */ }
-
-        // ... remaining variants (StructLit, FieldAccess, Index, Lambda, etc.)
+        // ... 50+ variants
     }
 }
 ```
 
-### Literals
+The first line **copies** the `CanExpr` value out of the arena before dispatching. This is not an accident — it is essential for correctness. Here is why:
 
-Literal values in canonical IR are already desugared — no `Literal` enum wrapper. Each literal type is a direct `CanExpr` variant with the value inline:
+`self.canon_ref()` borrows `self` immutably to access the canonical IR. If we matched directly on `self.canon_ref().arena.kind(can_id)`, the immutable borrow on `self` would persist for the entire match body. But each match arm needs to call `self.eval_can()` recursively, which requires a mutable borrow on `self`. Holding an immutable and mutable borrow simultaneously violates Rust's borrowing rules.
 
-- `CanExpr::Int(i64)` → `Value::int(n)` (uses factory for small-int optimization)
-- `CanExpr::Float(u64)` → `Value::Float(f64::from_bits(bits))`
-- `CanExpr::Str(Name)` → `Value::string_static(interned_str)` (zero-copy from interner)
-- `CanExpr::Constant(ConstId)` → looked up in `ConstantPool` (pre-folded at compile time)
+The copy-out pattern resolves this: copy the 24-byte `CanExpr` value (which is `Copy`) onto the stack, immediately releasing the immutable borrow on `self`. Now each match arm can freely call `self.eval_can()` and other `&mut self` methods. The 24-byte copy is trivially cheap — it fits in three 64-bit registers.
 
-### Identifiers and Type References
+This pattern is Ori-specific but the underlying problem is universal. Any tree-walking interpreter written in a language with strict aliasing or ownership rules (Rust, C++ with strict aliasing, linear types) must solve the "read the tree, then mutate the evaluator" tension. Copying the dispatch tag out of the tree is the simplest and cheapest solution.
 
-Two identifier variants exist in canonical IR:
+### Exhaustive Dispatch
 
-- `CanExpr::Ident(name)` — Standard identifier. Checks the environment first, then falls back to `TypeRef` for user-defined types with associated functions (e.g., `Point.origin()`).
-- `CanExpr::TypeRef(name)` — Resolved during canonicalization. Eliminates name resolution from the evaluator (phase boundary discipline). Still checks the environment first for variable shadowing.
+The `eval_can_inner` function matches **exhaustively** on all `CanExpr` variants — there is no `_ =>` catch-all arm. This is a deliberate safety measure: when a new variant is added to `CanExpr` (during language evolution), the Rust compiler forces every match site to handle it. A catch-all arm would silently pass through unhandled variants, potentially producing wrong results rather than compile errors.
 
-### Binary Operations
+The dispatch covers roughly 54 variants, organized by category:
 
-Binary operators use a dual-dispatch strategy:
-- **Primitive types** (int, float, bool, str, Duration, Size, etc.) use direct evaluation via `evaluate_binary` for performance
-- **User-defined types** dispatch through operator trait methods (`Add::add`, `Sub::subtract`, `Mul::multiply`, etc.)
-- **Short-circuit**: `&&` and `||` evaluate left operand first; skip right if result is determined
+**Literals** — direct value construction, no recursion:
+- `Int(i64)`, `Float(u64)`, `Bool(bool)`, `Str(Name)`, `Char(char)`, `Unit`
+- `Duration { value, unit }`, `Size { value, unit }` — unit conversion at evaluation time
+- `Constant(ConstId)` — lookup in the pre-computed `ConstantPool`
 
-### Method Calls and Associated Functions
+**References** — environment lookup or type reference:
+- `Ident(name)` — variable lookup in the scope chain
+- `Const(name)` — immutable constant reference
+- `TypeRef(name)` — resolved type reference (for associated function calls like `Point.origin()`)
+- `FunctionRef(name)` — named function reference
+- `SelfRef` — `self` in method bodies
 
-Method calls dispatch based on the receiver type:
+**Operators** — dual dispatch (primitives direct, user types via traits):
+- `Binary { left, op, right }` — delegated to `eval_can_binary()`
+- `Unary { op, operand }` — negation, logical not, bitwise not
+- `Cast { expr, target, fallible }` — type casts (`as` / `as?`)
 
-- **`TypeRef` receivers** (associated function calls): `Point.origin()` — receiver is not passed as argument, dispatches to user-defined or built-in associated functions
-- **Instance methods**: receiver is evaluated and passed as first argument through the method dispatch chain (built-in → collection → trait impl → user method)
+**Control flow** — delegated to `control_flow.rs`:
+- `If { cond, then, else_ }` — conditional branching
+- `Block(range)` — evaluate statements in order, return last
+- `Loop { body }` — infinite loop with `break` value
+- `For { binding, iter, body, yields }` — iterator-based loop
+- `While { cond, body }` — condition-checked loop
+- `Match { scrutinee, tree_id }` — decision tree evaluation
 
-### Function Calls
+**Calls and methods**:
+- `Call { func, args }` — evaluate callee and arguments, then dispatch
+- `MethodCall { receiver, method, args }` — method dispatch chain
 
-Function call evaluation:
-1. Evaluate the callee expression to get a `Value::Function(FunctionValue)` or `Value::Builtin`
-2. Evaluate all argument expressions (canonical IR — no named args, already reordered by desugaring)
-3. Create a child interpreter with cloned call stack + pushed frame
-4. Bind parameters in the child's environment
-5. Evaluate the function body via `eval_can(body_can_id)`
+**Collections** — evaluate elements into containers:
+- `List(range)`, `Map(entries)`, `Tuple(range)`
 
-### Let Bindings and Pattern Destructuring
+**Bindings and access**:
+- `Let { pattern, value, .. }` — pattern destructuring with `bind_can_pattern()`
+- `FieldAccess { expr, field }`, `Index { expr, index }`, `Range { start, end, step, inclusive }`
+- `StructLit`, `Lambda`, `Assign`
 
-`CanExpr::Let { pattern, value, .. }` evaluates the initializer via `eval_can(value)`, then binds via `bind_can_pattern()`. The canonical binding pattern (`CanBindingPattern`) supports Name, Wildcard, Tuple, Struct, and List destructuring.
+**Error handling and capabilities**:
+- `Try(expr)` — error propagation (`?` operator)
+- `Unsafe(expr)` — transparent wrapper (evaluates inner expression)
+- `WithCapability { capability, provider, body }` — `with Cap = x in body`
 
-### Control Flow
+### Decision Tree Evaluation
 
-- **If**: `CanExpr::If { cond, then, else_ }` — evaluates condition, branches. Missing `else_` yields `Value::Void`.
-- **For loops**: `CanExpr::For { binding, iter, body, yields }` — creates an iterator, binds each element, evaluates body. `yields: true` collects results into a list.
-- **While loops**: `CanExpr::While { cond, body }` — condition-checked loop with `break`/`continue` support via `ControlAction`.
-- **Loop**: `CanExpr::Loop { body }` — infinite loop, exited via `break(value)`.
+Match expressions do not use sequential arm testing. The [canonicalization phase](../07-canonicalization/pattern-compilation.md) compiles patterns into **decision trees** using the Maranget 2008 algorithm. The evaluator walks these trees:
 
-### Match Expressions (Decision Trees)
+- **Leaf** — binds captured variables and evaluates the arm body
+- **Guard** — evaluates a guard expression; on failure, falls through to `on_fail`
+- **Switch** — tests the scrutinee at a path (enum tag, bool value, list length) and follows the matching edge
+- **Fail** — non-exhaustive match error (should be caught by exhaustiveness checking at compile time)
 
-Match expressions use **compiled decision trees** (Maranget 2008 algorithm), not sequential arm testing. The `CanExpr::Match { scrutinee, tree_id }` variant references a `DecisionTree` from the `DecisionTreePool`.
+This approach avoids the O(patterns × depth) worst case of sequential testing. Each switch node splits the search space, and the tree's depth is bounded by the pattern depth rather than the number of arms.
 
-Decision tree evaluation (`exec/decision_tree.rs`) walks the tree:
-- **Leaf** — Binds captured variables and evaluates the arm body
-- **Guard** — Evaluates a guard expression; on failure, falls through to `on_fail`
-- **Switch** — Tests the scrutinee at a path (e.g., enum tag, bool value, list length) and follows the matching edge
-- **Fail** — Non-exhaustive match error (should be caught by exhaustiveness checking)
+### Function Call Evaluation
 
-### Pattern Matching for Variants
+Function calls follow a consistent protocol:
 
-**Variant vs Binding Disambiguation:** Uppercase pattern names are treated as variant constructors, lowercase as bindings:
-- `Some` → variant pattern (matches `Value::Variant { name: "Some", ... }`)
-- `x` → binding pattern (binds value to `x`)
+1. **Evaluate the callee** to get a callable value (`Function`, `FunctionVal`, `VariantConstructor`, `NewtypeConstructor`)
+2. **Evaluate all arguments** — canonical IR has already reordered named arguments to positional form
+3. **Push a call frame** onto the call stack (for recursion depth tracking and backtrace capture)
+4. **Create a child interpreter** with the callee's arena (arena threading for cross-module calls)
+5. **Bind parameters** in the child's environment
+6. **Evaluate the body** via `eval_can(body_can_id)`
+7. **Pop the call frame** (via RAII `ScopedInterpreter` — guaranteed even on panic)
 
-## Advantages of Tree-Walking
+The child interpreter creation is the most distinctive step. Each `FunctionValue` carries a `SharedArena` reference to the arena where its body expressions live. The evaluator creates a new `Interpreter` bound to that arena, inheriting the user method registry (via `SharedMutableRegistry`) but with its own scope stack. This ensures expression ID lookups always hit the correct arena.
 
-1. **Simple implementation** - Direct mapping from AST to execution
-2. **Good error messages** - Source spans available at runtime
-3. **Easy debugging** - Can inspect state at any point
-4. **No compilation step** - Immediate execution
+### Literal Evaluation
 
-## Disadvantages
+Literals in canonical IR are already desugared — no `Literal` enum wrapper. Each literal type is a direct `CanExpr` variant with the value inline:
 
-1. **Slower than bytecode** - Interpretation overhead
-2. **Memory overhead** - AST in memory during execution
-3. **No optimizations** - Limited optimization opportunities
+- `CanExpr::Int(i64)` → `Value::int(n)` — wraps in `ScalarInt` for checked arithmetic
+- `CanExpr::Float(u64)` → `Value::Float(f64::from_bits(bits))` — stored as bit pattern for Salsa compatibility
+- `CanExpr::Str(Name)` → `Value::string_static(interned_str)` — zero-copy from the interner via `Cow::Borrowed`
+- `CanExpr::Constant(ConstId)` → looked up in the `ConstantPool` (pre-folded at compile time by constant folding)
 
-## Performance Considerations
+The float bit-pattern encoding is worth noting: floats are stored as `u64` in the canonical IR because `f64` does not implement `Eq` or `Hash` (due to NaN), which would prevent `CanExpr` from being used in Salsa's query system. The `from_bits` conversion at evaluation time is a no-op on all modern architectures.
 
-Tree-walking is sufficient for:
-- Small to medium programs
-- Development and testing
-- REPL interactions
+### Binary Operator Dispatch
 
-For production, consider:
-- JIT compilation
-- Bytecode VM
-- Ahead-of-time compilation
+Binary operators use a tiered dispatch strategy:
 
-## Tail Call Optimization
+1. **Short-circuit first**: `&&` and `||` evaluate the left operand, and skip the right if the result is determined
+2. **Comparison operators**: `==`, `!=`, `<`, `<=`, `>`, `>=` use direct evaluation for primitives
+3. **Mixed-type operations**: `int * Duration`, `int * Size` — detected and handled directly because primitives do not implement operator trait methods
+4. **Primitive arithmetic**: `int + int`, `float * float`, etc. — direct evaluation without method lookup
+5. **User-type operators**: if none of the above applies, dispatch through operator trait methods (`Add::add`, etc.)
 
-Currently, Ori does not implement tail call optimization. Deep recursion can cause stack overflow:
+This tiered approach avoids the overhead of method resolution for the common case (primitive operations) while supporting user-defined operator overloading for custom types.
 
-```ori
-// This will overflow for large n
-@factorial (n: int) -> int =
-    if n <= 1 then 1 else n * factorial(n - 1)
-```
+## Prior Art
 
-Future work: implement trampolining or continuation-passing for TCO.
+**Roc's `eval` module** is the closest structural analog. Like Ori, Roc evaluates a canonicalized IR (not the raw AST) via tree-walking. Roc's canonical expressions are defined in `can::expr::Expr` — a sugar-free enum similar to Ori's `CanExpr`. Both interpreters use exhaustive matching with no catch-all arms. The key difference is that Roc's interpreter is integrated with its compilation infrastructure, while Ori's `ori_eval` is deliberately standalone.
+
+**GHC's Core evaluator** walks a tiny functional calculus (System FC) with roughly 10 expression forms. This demonstrates the power of aggressive desugaring — Haskell's rich surface syntax maps to a handful of core constructs. Ori's canonical IR is larger (~54 variants) because it preserves more operational detail (distinct loop forms, try expressions, format specifiers) rather than encoding everything as function application.
+
+**Zig's comptime interpreter** in [`Sema.zig`](https://github.com/ziglang/zig/blob/master/src/Sema.zig) evaluates compile-time expressions by walking ZIR (Zig Intermediate Representation). Like Ori's `ConstEval` mode, it operates with budget limits and restricted capabilities. Zig's interpreter is more tightly integrated with semantic analysis — it runs during type checking rather than as a separate phase.
+
+**Lua 5.0's original interpreter** (before the register-based VM) used a tree-walking approach similar to Ori's. Lua's transition to a register-based bytecode VM in 5.0 delivered roughly 2x speedup, demonstrating the performance ceiling of tree-walking for a general-purpose scripting language. Ori addresses this differently — via AOT compilation rather than a bytecode VM.
+
+## Design Tradeoffs
+
+**Exhaustive match vs catch-all.** Exhaustive matching on 54+ variants creates large match expressions that are harder to read than a short match with a `_ => unreachable!()` catch-all. But the safety benefit is significant: adding a new `CanExpr` variant immediately surfaces every evaluation site that needs updating. This is the same reasoning that Rust uses for requiring exhaustive enum matches — the compile-time cost prevents runtime bugs.
+
+**Copy-out vs borrow splitting.** An alternative to copying `CanExpr` out of the arena would be to split the `Interpreter` struct so that the canonical IR is accessed through a separate reference that does not conflict with the mutable `self` borrow. This would avoid the copy but require restructuring the interpreter's data layout. At 24 bytes per copy, the current approach has negligible overhead and keeps the struct design simple.
+
+**Single `eval_can` vs visitor pattern.** Some interpreters use a visitor pattern where each expression type has an `accept()` method that dispatches to a visitor. This is common in Java-based interpreters (following the pattern in Nystrom's *Crafting Interpreters*). Ori uses a single match expression instead — more idiomatic in Rust, avoids dynamic dispatch, and keeps the evaluation logic co-located rather than scattered across accept methods.
+
+**`ensure_sufficient_stack` vs explicit trampoline.** The `stacker` crate's stack extension is a pragmatic choice. A trampoline (converting recursion to an explicit stack of continuations) would give full control over stack usage but requires significant restructuring of the evaluation logic. The stacker approach preserves the natural recursive structure while preventing stack overflows.
+
+## Related Documents
+
+- [Evaluator Overview](index.md) — Architecture, method dispatch, evaluation modes
+- [Environment](environment.md) — Variable scoping and closure capture
+- [Value System](value-system.md) — Runtime value representation
+- [Canonicalization](../07-canonicalization/index.md) — The phase that produces CanExpr
+- [Pattern Compilation](../07-canonicalization/pattern-compilation.md) — How match patterns become decision trees

@@ -7,47 +7,30 @@ section: "ARC System"
 
 # Liveness Analysis
 
-Liveness analysis computes which variables are **live** (will be read in the future) at every basic block boundary. This information drives RC insertion: a variable's last use is where its `RcDec` goes, and additional uses require `RcInc`.
+## What Does "Live" Mean?
 
-The implementation is standard backward dataflow with fixed-point iteration.
+A variable is **live** at a program point if its value will be read at some point in the future. If a variable is not live — if no future instruction will ever read it — then its value is dead and any resources it holds can be released.
 
-**Source**: `compiler/ori_arc/src/liveness/mod.rs`
+Liveness analysis is one of the most fundamental algorithms in compiler construction. It was first formalized in the context of register allocation (Chaitin, 1981) — a register holding a dead value can be reused for something else. In the ARC system, liveness serves an analogous purpose: a dead reference-counted value can be freed. The `RcDec` goes at the point where a variable transitions from live to dead — its **last use**.
+
+The algorithm is a textbook backward dataflow analysis (Appel, "Modern Compiler Implementation," Section 10.1; Aho, Lam, Sethi, and Ullman, "Compilers: Principles, Techniques, and Tools," Section 9.2.5). Information flows backward through the control flow graph: a variable used in block B is live at the exit of every block that can reach B. The analysis computes a fixed point by iterating until the live-in and live-out sets stabilize.
 
 ## Algorithm
 
-Entry point: `compute_liveness(func, classifier) -> BlockLiveness`
+### Step 1: Compute Gen/Kill Sets
 
-### Step 1: Precompute Gen/Kill
+For each basic block, a forward scan computes two sets:
 
-For each block, compute gen and kill sets with a forward scan:
+- **gen(B)** = variables used in B before being defined. These are the variables that B "needs" from its predecessors.
+- **kill(B)** = variables defined in B (including block parameters). These are definitions that shadow any prior liveness.
 
-- **gen(B)** = variables used before being defined in B. These are the variables that block B "needs" from its predecessors.
-- **kill(B)** = variables defined in B, including block parameters. These are the variables whose definitions in B shadow any prior liveness.
+Only RC-requiring variables are tracked — scalars (int, float, bool, etc.) are excluded because they never need `RcInc`/`RcDec`. The classifier makes this determination, keeping the sets small.
 
-Block parameters are treated as definitions (they go into `kill`). Invoke `dst` variables are treated as definitions at the normal successor's entry, not at the invoking block -- a precomputed `invoke_defs` map handles this.
+`Invoke` terminators require special handling: their `dst` variable is defined at the normal successor block's entry (not at the invoking block), since the definition only materializes if the call succeeds. A precomputed `invoke_defs` map associates each normal successor with its Invoke-defined variables.
 
-Only RC-requiring variables are tracked. Scalar variables (int, float, bool, etc.) are excluded because they never need `RcInc`/`RcDec`. The classifier (`ArcClassification::needs_rc()`) makes this determination.
+### Step 2: Postorder Traversal
 
-```
-fn compute_gen_kill(block, func, classifier, invoke_defs) -> (gen, kill):
-    kill = {block params} ∪ {invoke dsts defined at this block's entry}
-    gen = {}
-
-    for instr in block.body (forward):
-        for var in instr.used_vars():
-            if needs_rc(var) and var not in kill:
-                gen.insert(var)
-        if instr defines dst and needs_rc(dst):
-            kill.insert(dst)
-
-    for var in terminator.used_vars():
-        if needs_rc(var) and var not in kill:
-            gen.insert(var)
-```
-
-### Step 2: Postorder Iteration
-
-Compute a postorder traversal of the CFG. For backward dataflow, postorder processes successors before predecessors, which provides good convergence behavior.
+Compute a postorder traversal of the CFG. For backward dataflow, processing in postorder visits successors before predecessors, which provides good convergence — typically reaching the fixed point in 2-3 iterations for acyclic control flow, and a few more for loops.
 
 ### Step 3: Fixed-Point Iteration
 
@@ -56,8 +39,8 @@ Iterate until no sets change:
 ```
 repeat:
     changed = false
-    for block_idx in postorder:
-        live_out(B) = union of live_in(S) for each successor S
+    for block in postorder:
+        live_out(B) = ∪ live_in(S) for each successor S of B
         live_in(B)  = gen(B) ∪ (live_out(B) - kill(B))
 
         if live_in or live_out changed:
@@ -65,9 +48,9 @@ repeat:
 until not changed
 ```
 
-Block parameter flow is handled implicitly: `Jump` arguments are uses in the predecessor (captured by `gen` via `ArcTerminator::used_vars()`), and block params are definitions in the successor (in `kill`). No explicit parameter substitution is needed.
+Block parameter flow is handled implicitly: `Jump` arguments are uses in the predecessor (captured by `gen` via `used_vars()`), and block params are definitions in the successor (in `kill`). No explicit parameter substitution is needed.
 
-## Output
+### Output
 
 ```
 struct BlockLiveness {
@@ -78,58 +61,57 @@ struct BlockLiveness {
 type LiveSet = FxHashSet<ArcVarId>;
 ```
 
-`live_in[b]` is the set of variables live at the entry of block `b`. `live_out[b]` is the set of variables live at the exit of block `b`. Both are indexed by `ArcBlockId::index()`.
-
-The implementation uses `FxHashSet` for simplicity. A bitset indexed by `ArcVarId::raw()` would be faster for large functions but adds complexity -- this can be optimized later if profiling shows it matters.
-
 ## Refined Liveness
 
-Standard liveness says "variable X is live here" but does not distinguish between "X is live because it will be read" and "X is live only because it needs an `RcDec`." This distinction is critical for reset/reuse optimization: a variable that is only live-for-drop can be safely reset without risking a use-after-free, whereas a variable that is live-for-use cannot.
+Standard liveness answers "is variable X live here?" but does not distinguish **why** it is live. This distinction is critical for reset/reuse optimization.
 
-Entry point: `compute_refined_liveness(func, classifier) -> (Vec<RefinedLiveness>, BlockLiveness)`
+Consider a variable `x` that has been decremented (`RcDec`) but is still "live" because a later block also decrements it (dead code, or the `RcDec` is on a different control flow path). Standard liveness says `x` is live, so it cannot be reused. But `x` is only live because it needs cleanup — no instruction will ever *read* its value again. It is safe to reset `x` and reuse its allocation.
 
-```
-struct RefinedLiveness {
-    live_for_use:  LiveSet,  // variable will be read as an operand
-    live_for_drop: LiveSet,  // variable only needs RcDec (not read)
-}
-```
+Refined liveness splits the live set into two categories:
 
-### Algorithm
+| Category | Meaning | Reuse Safety |
+|----------|---------|-------------|
+| `live_for_use` | Variable will be read as an operand | Cannot reuse — value is needed |
+| `live_for_drop` | Variable only needs `RcDec` | Safe to reuse — only cleanup pending |
 
-After computing standard liveness, a second backward pass per block classifies *why* each variable is live:
+### Refinement Algorithm
 
-1. **Seed**: All `live_out` variables start in `live_for_drop` (conservative).
+After computing standard liveness, a second backward pass per block classifies why each variable is live:
+
+1. **Seed**: All `live_out` variables start as `live_for_drop` (conservative assumption).
 
 2. **Terminator scan**: Variables used by the terminator as operands are promoted from `live_for_drop` to `live_for_use`.
 
 3. **Backward body walk**: For each instruction in reverse:
-   - `RcDec { var }`: The variable stays in `live_for_drop` (unless already promoted to `live_for_use`).
-   - Any other instruction: Variables used as operands are promoted from `live_for_drop` to `live_for_use`.
+   - `RcDec { var }`: The variable stays `live_for_drop` (unless already promoted).
+   - Any other instruction using the variable as an operand: promote to `live_for_use`.
 
-At join points (blocks with multiple predecessors), `live_for_use` wins conservatively -- if any successor path reads the variable, it is treated as live-for-use at the join.
-
-The function returns both the refined classification and the standard `BlockLiveness`, avoiding a redundant fixed-point iteration when callers need both.
+At join points (blocks with multiple predecessors), `live_for_use` wins conservatively — if any successor path reads the variable, it is treated as `live_for_use` at the join.
 
 ## Usage in the Pipeline
 
-Liveness is computed **twice** in the ARC pipeline:
+Liveness is computed **twice** in the ARC pipeline, serving different purposes each time:
 
-### First call: Before RC insertion
+### First Call: Before RC Insertion
 
-Drives placement of `RcInc` and `RcDec`. The RC insertion pass (Perceus algorithm) uses `live_out` to initialize a running live set per block, then walks instructions backward. Variables not in the live set at their definition point get `RcDec` (dead immediately). Variables already in the live set at a use point get `RcInc` (multi-use).
+Drives placement of `RcInc` and `RcDec`. The Perceus algorithm uses `live_out` to initialize a running live set per block, then walks instructions backward. Variables not in the live set at their definition point are dead immediately and get `RcDec`. Variables already in the live set at a use point need `RcInc` (multi-use).
 
-### Second call: After RC insertion
+### Second Call: After RC Insertion
 
 Re-computes liveness on the post-RC CFG (which now contains `RcInc`/`RcDec` instructions). The refined liveness from this second pass drives reset/reuse detection: only variables classified as `live_for_drop` (not `live_for_use`) are candidates for in-place reuse.
 
-## Invoke Handling
+## Prior Art
 
-The `Invoke` terminator is a function call that may throw (similar to LLVM's `invoke`). Its `dst` variable is defined at the normal successor's entry, not at the invoking block. A precomputed `invoke_defs` map (`collect_invoke_defs()`) associates each normal successor block with the Invoke `dst` variables defined there, so that gen/kill correctly accounts for these definitions.
+**Appel's "Modern Compiler Implementation"** (Section 10.1) is the standard reference for backward dataflow liveness analysis. Ori's implementation follows the textbook algorithm directly, with the optimization of pre-computing gen/kill sets to avoid recomputation during iteration.
 
-## References
+**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/LiveVars.lean`) uses liveness for the same purpose — driving RC insertion via the Perceus algorithm. Lean's implementation is functionally equivalent to Ori's standard liveness, though Lean does not implement refined liveness (Lean's reuse detection uses a different safety criterion).
 
-- Lean 4: `src/Lean/Compiler/IR/LiveVars.lean` -- liveness for RC insertion
-- Koka: Perceus paper, Section 3.2 -- liveness-based RC insertion
-- Appel: "Modern Compiler Implementation", Section 10.1 -- backward dataflow analysis
-- Swift: `lib/SILOptimizer/ARC/` -- ownership SSA and liveness
+**[Koka](https://github.com/koka-lang/koka)** (Perceus paper, Section 3.2) describes liveness-based RC insertion as the foundation of precise reference counting. The paper formalizes the relationship between liveness and RC placement that Ori implements.
+
+## Design Tradeoffs
+
+**HashSet vs bitset.** The implementation uses `FxHashSet<ArcVarId>` for live sets. A bitset indexed by `ArcVarId::raw()` would be faster for large functions (O(1) per union/intersection/difference on word-aligned chunks), but adds complexity. The hash set is simpler and performs well for typical function sizes. This is a straightforward optimization point if profiling identifies liveness as a bottleneck.
+
+**Two-pass refinement vs single-pass.** Refined liveness runs as a second pass after standard liveness, rather than being integrated into the main fixed-point iteration. This is slightly more work (two passes instead of one), but keeps the standard liveness implementation clean and reusable — the first call (before RC insertion) does not need refined liveness, so computing it there would be wasted work.
+
+**Scalar exclusion.** Excluding scalar variables from liveness tracking reduces the set sizes (roughly halving them for typical programs) but requires the classifier at every liveness computation. This is a clear win — smaller sets mean faster convergence and less memory — but it couples liveness to the type classification system.
