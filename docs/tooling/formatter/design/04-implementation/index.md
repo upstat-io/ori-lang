@@ -141,7 +141,7 @@ pub const ALWAYS_STACKED: usize = usize::MAX;
 When `width()` returns `ALWAYS_STACKED`, the formatter skips inline rendering and goes directly to stacked format.
 
 **Always-stacked constructs:**
-- `run`, `try` (sequential blocks)
+- `{ }` blocks, `try` (sequential blocks)
 - `match` (arms always stack)
 - `recurse`, `parallel`, `spawn`, `catch`
 - `nursery`
@@ -217,7 +217,7 @@ The formatter uses three rendering modes:
 
 1. **Inline** (`emit_inline`): Single-line, all content on current line
 2. **Broken** (`emit_broken`): Multi-line, content breaks according to construct rules
-3. **Stacked** (`emit_stacked`): Always multi-line, for run/try/match/etc.
+3. **Stacked** (`emit_stacked`): Always multi-line, for blocks/try/match/etc.
 
 ```rust
 pub fn format(&mut self, expr_id: ExprId) {

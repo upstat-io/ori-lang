@@ -43,7 +43,7 @@ Compiler-recognized constructs with special syntax:
 
 | Construct | Document |
 |-----------|----------|
-| `run` / `try` | [Patterns](patterns.md#run-and-try) |
+| `{ }` blocks / `try` | [Patterns](patterns.md#blocks-and-try) |
 | `match` | [Patterns](patterns.md#match) |
 | `recurse` | [Patterns](patterns.md#recurse) |
 | `parallel` / `spawn` | [Patterns](patterns.md#parallel-and-spawn) |
@@ -69,7 +69,7 @@ Aggregate data structures:
 For any construct, the formatter follows this decision process:
 
 ```
-1. Is this an always-stacked construct (run, try, match arms)?
+1. Is this an always-stacked construct (blocks, try, match arms)?
    YES → Use stacked format
    NO  → Continue
 

@@ -18,24 +18,22 @@ compiler/
 ├── ori_diagnostic/               # Core diagnostic types (separate crate)
 │   └── src/
 │       ├── lib.rs                    # Module organization and re-exports
-│       ├── error_code.rs             # ErrorCode enum, as_str(), Display
-│       ├── diagnostic.rs             # Diagnostic, Label, Severity, Applicability, Suggestion
-│       ├── guarantee.rs              # ErrorGuaranteed type-level proof
-│       ├── queue.rs                  # DiagnosticQueue for deduplication/limits
-│       ├── span_utils.rs             # Line/column computation from spans
+│       ├── error_code/mod.rs         # ErrorCode enum, as_str(), Display
+│       ├── diagnostic/mod.rs         # Diagnostic, Label, Severity, Applicability, Suggestion
+│       ├── guarantee/mod.rs          # ErrorGuaranteed type-level proof
+│       ├── queue/mod.rs              # DiagnosticQueue for deduplication/limits
+│       ├── span_utils/mod.rs         # Line/column computation from spans
 │       ├── errors/                   # Embedded error documentation for --explain
 │       │   ├── mod.rs                    # ErrorDocs registry
-│       │   ├── E0001.md                  # Error documentation files
-│       │   ├── E0002.md
-│       │   └── ...                       # (64 error codes documented, 117 defined)
+│       │   └── E*.md                     # Error documentation files
 │       ├── emitter/
 │       │   ├── mod.rs                    # Emitter trait, trailing_comma() helper
-│       │   ├── terminal.rs               # Terminal output
-│       │   ├── json.rs                   # JSON output
-│       │   └── sarif.rs                  # SARIF format (BTreeSet for rule dedup)
+│       │   ├── terminal/mod.rs           # Terminal output
+│       │   ├── json/mod.rs               # JSON output
+│       │   └── sarif/mod.rs              # SARIF format (BTreeSet for rule dedup)
 │       └── fixes/
 │           ├── mod.rs                    # Code fix system
-│           └── registry.rs               # Fix registry
+│           └── registry/mod.rs           # Fix registry
 └── oric/src/
     ├── problem/                  # Problem types (specific to compiler phases)
     │   ├── mod.rs                    # Module re-exports (LexProblem, SemanticProblem, eval_error_to_diagnostic)

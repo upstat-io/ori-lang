@@ -47,6 +47,12 @@ This check is cheap (one load + one compare + one predictable branch), but:
 
 Static uniqueness analysis proves at compile time that certain values are always unique, allowing the codegen to emit only the fast path — no check, no branch, no slow path code.
 
+**Downstream benefits — this section unlocks two major optimizations beyond COW elimination:**
+
+1. **Automatic FBIP inference**: The existing `#fbip` attribute requires manual annotation. With static uniqueness, the compiler automatically identifies functions where all allocations are reused — the FBIP diagnostic pass (`ori_arc/src/fbip/mod.rs`) becomes a FBIP *optimizer*. Functions that achieve `CowMode::StaticUnique` on all operations are implicitly FBIP without the attribute. The `#fbip` attribute remains as an opt-in enforcement mechanism (compile error if the function *can't* achieve FBIP), but most functions get FBIP automatically.
+
+2. **Strengthened noalias guarantees**: LLVM Codegen Fixes H3 adds `noalias` on all value-semantic parameters (sound unconditionally from language semantics). Static uniqueness analysis *additionally* proves uniqueness for heap-allocated values within a function — enabling LLVM to reason that even heap-derived pointers don't alias across COW boundaries. This unlocks vectorization of sequential COW mutations that H3 alone cannot.
+
 **Reference implementations:**
 - **Lean 4** `Borrow.lean`: Iterative fixpoint. All params start as `Borrowed`. If a param escapes (returned, stored), promote to `Owned`. Repeat until stable. ~330 lines.
 - **Koka** `Parc.hs`: Reverse-liveness analysis. Track owned vs borrowed per variable. If last use → owned (no dup). If shared → borrowed (dup before use). ~800 lines.
@@ -366,8 +372,11 @@ When a collection operation is annotated with `CowMode::StaticUnique`, the codeg
 - [ ] Codegen emits only slow path for StaticShared (if any)
 - [ ] Metrics: count of eliminated checks per function
 - [ ] Benchmark: provably-unique list push loop shows no runtime branch
+- [ ] Automatic FBIP: functions with all-StaticUnique operations are identified as FBIP without `#fbip` attribute
+- [ ] FBIP diagnostic pass reports achieved/missed using uniqueness info (not just reset/reuse pairing)
+- [ ] noalias on heap-derived pointers: codegen emits `noalias` on pointers to StaticUnique values at COW operation sites
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
 - [ ] Dual-execution equivalence: StaticUnique produces identical results to Dynamic
 
-**Exit Criteria:** A benchmark function that creates a list and pushes 10,000 elements in a loop has ALL COW checks eliminated (verified via metrics output and LLVM IR inspection). The generated code for the push loop contains no `ori_rc_is_unique` call and no branch to a slow path. Performance matches a hand-written C program that appends to a `realloc`-grown buffer.
+**Exit Criteria:** A benchmark function that creates a list and pushes 10,000 elements in a loop has ALL COW checks eliminated (verified via metrics output and LLVM IR inspection). The generated code for the push loop contains no `ori_rc_is_unique` call and no branch to a slow path. Performance matches a hand-written C program that appends to a `realloc`-grown buffer. The FBIP diagnostic correctly identifies the function as fully FBIP without the `#fbip` attribute.

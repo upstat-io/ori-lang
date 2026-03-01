@@ -213,15 +213,19 @@ fn eval_string_binary(a: &str, b: &str, op: BinaryOp) -> EvalResult {
 }
 
 /// Binary operations on lists.
-fn eval_list_binary(a: &Heap<Vec<Value>>, b: &Heap<Vec<Value>>, op: BinaryOp) -> EvalResult {
+fn eval_list_binary(
+    a: &ori_patterns::ListData,
+    b: &ori_patterns::ListData,
+    op: BinaryOp,
+) -> EvalResult {
     match op {
         BinaryOp::Add => {
-            let mut result = (**a).clone();
+            let mut result = a[..].to_vec();
             result.extend_from_slice(b);
             Ok(Value::list(result))
         }
-        BinaryOp::Eq => Ok(Value::Bool(**a == **b)),
-        BinaryOp::NotEq => Ok(Value::Bool(**a != **b)),
+        BinaryOp::Eq => Ok(Value::Bool(a[..] == b[..])),
+        BinaryOp::NotEq => Ok(Value::Bool(a[..] != b[..])),
         _ => Err(invalid_binary_op_for("lists", op).into()),
     }
 }

@@ -1,7 +1,7 @@
 //! Method dispatch for collection types (list, str, map, range, set).
 
 use ori_ir::Name;
-use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
+use ori_patterns::{no_such_method, EvalResult, IteratorValue, ListData, Value};
 
 use super::compare::{compare_lists, compare_values, equals_values, hash_value, ordering_to_value};
 use super::helpers::{
@@ -17,70 +17,40 @@ pub fn dispatch_list_method(
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
-    let Value::List(items) = receiver else {
+    let Value::List(mut list) = receiver else {
         unreachable!("dispatch_list_method called with non-list receiver")
     };
 
     let n = ctx.names;
 
     // Note: Value clones in this function are cheap - Value uses Arc for heap types.
+    // Read-only methods work through ListData's Deref<Target=[Value]>.
     if method == n.len || method == n.length {
-        len_to_value(items.len(), "list")
+        len_to_value(list.len(), "list")
     } else if method == n.is_empty {
-        Ok(Value::Bool(items.is_empty()))
+        Ok(Value::Bool(list.is_empty()))
     } else if method == n.first {
-        Ok(items.first().cloned().map_or(Value::None, Value::some))
+        Ok(list.first().cloned().map_or(Value::None, Value::some))
     } else if method == n.last || method == n.pop {
-        Ok(items.last().cloned().map_or(Value::None, Value::some))
+        Ok(list.last().cloned().map_or(Value::None, Value::some))
     } else if method == n.contains {
         require_args("contains", 1, args.len())?;
-        Ok(Value::Bool(items.contains(&args[0])))
+        Ok(Value::Bool(list.contains(&args[0])))
     } else if method == n.push {
         require_args("push", 1, args.len())?;
-        let mut result = (*items).clone();
         let mut args = args;
-        result.push(args.swap_remove(0));
-        Ok(Value::list(result))
+        list.push(args.swap_remove(0));
+        Ok(Value::List(list))
     } else if method == n.set {
-        require_args("set", 2, args.len())?;
-        let index = require_int_arg("set", &args, 0)?;
-        let uindex = usize::try_from(index)
-            .map_err(|_| ori_patterns::wrong_arg_type("set", "non-negative int"))?;
-        if uindex >= items.len() {
-            return Err(ori_patterns::wrong_arg_type("set", "index within bounds").into());
-        }
-        let mut result = (*items).clone();
-        let mut args = args;
-        result[uindex] = args.swap_remove(1);
-        Ok(Value::list(result))
+        list_set(list, args)
     } else if method == n.insert {
-        require_args("insert", 2, args.len())?;
-        let index = require_int_arg("insert", &args, 0)?;
-        let uindex = usize::try_from(index)
-            .map_err(|_| ori_patterns::wrong_arg_type("insert", "non-negative int"))?;
-        if uindex > items.len() {
-            return Err(ori_patterns::wrong_arg_type("insert", "index within bounds").into());
-        }
-        let mut result = (*items).clone();
-        let mut args = args;
-        result.insert(uindex, args.swap_remove(1));
-        Ok(Value::list(result))
+        list_insert(list, args)
     } else if method == n.remove {
-        require_args("remove", 1, args.len())?;
-        let index = require_int_arg("remove", &args, 0)?;
-        let uindex = usize::try_from(index)
-            .map_err(|_| ori_patterns::wrong_arg_type("remove", "non-negative int"))?;
-        if uindex >= items.len() {
-            return Err(ori_patterns::wrong_arg_type("remove", "index within bounds").into());
-        }
-        let mut result = (*items).clone();
-        result.remove(uindex);
-        Ok(Value::list(result))
+        list_remove(list, &args)
     } else if method == n.reverse {
         require_args("reverse", 0, args.len())?;
-        let mut result = (*items).clone();
-        result.reverse();
-        Ok(Value::list(result))
+        list.reverse();
+        Ok(Value::List(list))
     } else if method == n.sort || method == n.sort_stable {
         let name = if method == n.sort {
             "sort"
@@ -88,39 +58,46 @@ pub fn dispatch_list_method(
             "sort_stable"
         };
         require_args(name, 0, args.len())?;
-        sort_list(&items, ctx)
+        sort_list(list, ctx)
     } else if method == n.add || method == n.concat {
         require_args("concat", 1, args.len())?;
         let other = require_list_arg("concat", &args, 0)?;
-        let mut result = (*items).clone();
-        result.extend_from_slice(other);
-        Ok(Value::list(result))
+        list.extend_from_slice(other);
+        Ok(Value::List(list))
+    // Zero-copy slice operations — share the same Arc backing buffer
+    } else if method == n.slice {
+        list_slice(&list, &args)
+    } else if method == n.take {
+        list_take(&list, &args)
+    } else if method == n.skip || method == n.drop_ {
+        let name = if method == n.skip { "skip" } else { "drop" };
+        list_skip(&list, &args, name)
     } else if method == n.compare {
         require_args("compare", 1, args.len())?;
         let other = require_list_arg("compare", &args, 0)?;
-        let ord = compare_lists(&items, other, ctx.interner)?;
+        let ord = compare_lists(&list, other, ctx.interner)?;
         Ok(ordering_to_value(ord))
     // Eq trait - deep element-wise equality
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
         let other = require_list_arg("equals", &args, 0)?;
-        list_equals(&items, other, ctx)
+        list_equals(&list, other, ctx)
     // Hashable trait - recursive element hash
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
-        Ok(Value::int(hash_value(&Value::List(items), ctx.interner)?))
+        Ok(Value::int(hash_value(&Value::List(list), ctx.interner)?))
     // Iterable trait - create iterator
     } else if method == n.iter {
         require_args("iter", 0, args.len())?;
-        Ok(Value::iterator(IteratorValue::from_list(items)))
+        Ok(Value::iterator(IteratorValue::from_list_data(&list)))
     // Clone trait - deep clone of list
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
-        Ok(Value::list((*items).clone()))
+        Ok(Value::list(list[..].to_vec()))
     // Debug trait - shows list structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        let parts: Vec<String> = items.iter().map(debug_value).collect();
+        let parts: Vec<String> = list.iter().map(debug_value).collect();
         Ok(Value::string(format!("[{}]", parts.join(", "))))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "list").into())
@@ -130,7 +107,7 @@ pub fn dispatch_list_method(
 /// Dispatch methods on string values.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
+    reason = "args: Vec<Value> for consistent dispatch signature across collection types"
 )]
 pub fn dispatch_string_method(
     receiver: Value,
@@ -138,7 +115,7 @@ pub fn dispatch_string_method(
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
-    let Value::Str(s) = receiver else {
+    let Value::Str(mut s) = receiver else {
         unreachable!("dispatch_string_method called with non-string receiver")
     };
 
@@ -169,7 +146,26 @@ pub fn dispatch_string_method(
     } else if method == n.add || method == n.concat {
         require_args("concat", 1, args.len())?;
         let other = require_str_arg("concat", &args, 0)?;
-        let result = format!("{}{}", &**s, other);
+        s.make_mut().to_mut().push_str(other);
+        Ok(Value::Str(s))
+    } else if method == n.substring || method == n.slice {
+        let name = if method == n.substring {
+            "substring"
+        } else {
+            "slice"
+        };
+        require_args(name, 2, args.len())?;
+        let start = require_int_arg(name, &args, 0)?;
+        let end = require_int_arg(name, &args, 1)?;
+        let ustart = usize::try_from(start)
+            .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
+        let uend = usize::try_from(end)
+            .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
+        // Operate on char indices for Unicode correctness
+        let chars: Vec<char> = s.chars().collect();
+        let uend = uend.min(chars.len());
+        let ustart = ustart.min(uend);
+        let result: String = chars[ustart..uend].iter().collect();
         Ok(Value::string(result))
     // Comparable trait - lexicographic (Unicode codepoint)
     } else if method == n.compare {
@@ -273,7 +269,7 @@ pub fn dispatch_range_method(
 /// Dispatch methods on map values.
 #[expect(
     clippy::needless_pass_by_value,
-    reason = "Consistent method dispatch signature"
+    reason = "args: Vec<Value> for consistent dispatch signature across collection types"
 )]
 pub fn dispatch_map_method(
     receiver: Value,
@@ -281,7 +277,7 @@ pub fn dispatch_map_method(
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
-    let Value::Map(ref map) = receiver else {
+    let Value::Map(map) = receiver else {
         unreachable!("dispatch_map_method called with non-map receiver")
     };
 
@@ -296,32 +292,31 @@ pub fn dispatch_map_method(
         let key = require_str_arg("contains_key", &args, 0)?;
         Ok(Value::Bool(map.contains_key(key)))
     } else if method == n.keys {
-        // Clone Cow<str> keys to create Value::Str - required for owned return
         let keys: Vec<Value> = map.keys().map(|k| Value::string(k.clone())).collect();
         Ok(Value::list(keys))
     } else if method == n.values {
-        // Clone values for return list. Cheap: Value uses Arc for heap types.
         let values: Vec<Value> = map.values().cloned().collect();
         Ok(Value::list(values))
     } else if method == n.iter {
         require_args("iter", 0, args.len())?;
-        Ok(Value::iterator(IteratorValue::from_map(map)))
+        Ok(Value::iterator(IteratorValue::from_map(&map)))
     // Eq trait - deep value equality (order-independent)
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
+        let receiver = Value::Map(map);
         let eq = equals_values(&receiver, &args[0], ctx.interner)?;
         Ok(Value::Bool(eq))
     // Hashable trait - order-independent XOR of entry hashes
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
-        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
+        Ok(Value::int(hash_value(&Value::Map(map), ctx.interner)?))
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
-        Ok(receiver)
+        Ok(Value::Map(map))
     // Debug trait - shows map structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(debug_value(&receiver)))
+        Ok(Value::string(debug_value(&Value::Map(map))))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "map").into())
     }
@@ -334,7 +329,7 @@ pub fn dispatch_set_method(
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
-    let Value::Set(ref items) = receiver else {
+    let Value::Set(mut items) = receiver else {
         unreachable!("dispatch_set_method called with non-set receiver")
     };
 
@@ -342,7 +337,7 @@ pub fn dispatch_set_method(
 
     if method == n.iter {
         require_args("iter", 0, args.len())?;
-        // from_value always succeeds for Value::Set (returns Some)
+        let receiver = Value::Set(items);
         match IteratorValue::from_value(&receiver) {
             Some(iter) => Ok(Value::iterator(iter)),
             None => unreachable!("Set is always iterable"),
@@ -361,74 +356,69 @@ pub fn dispatch_set_method(
         Ok(Value::Bool(items.contains_key(&key)))
     } else if method == n.insert {
         require_args("insert", 1, args.len())?;
-        let mut result: std::collections::BTreeMap<String, Value> = (**items).clone();
         let mut args = args;
         let elem = args.swap_remove(0);
         let key = elem
             .to_map_key()
             .map_err(|_| ori_patterns::wrong_arg_type("insert", "hashable value"))?;
-        result.insert(key, elem);
-        Ok(Value::set(result))
+        items.make_mut().insert(key, elem);
+        Ok(Value::Set(items))
     } else if method == n.remove {
         require_args("remove", 1, args.len())?;
         let key = args[0]
             .to_map_key()
             .map_err(|_| ori_patterns::wrong_arg_type("remove", "hashable value"))?;
-        let mut result: std::collections::BTreeMap<String, Value> = (**items).clone();
-        result.remove(&key);
-        Ok(Value::set(result))
+        items.make_mut().remove(&key);
+        Ok(Value::Set(items))
     } else if method == n.union {
         require_args("union", 1, args.len())?;
         let Value::Set(ref other) = args[0] else {
             return Err(ori_patterns::wrong_arg_type("union", "Set").into());
         };
-        let mut result: std::collections::BTreeMap<String, Value> = (**items).clone();
+        let m = items.make_mut();
         for (k, v) in other.iter() {
-            result.entry(k.clone()).or_insert_with(|| v.clone());
+            m.entry(k.clone()).or_insert_with(|| v.clone());
         }
-        Ok(Value::set(result))
+        Ok(Value::Set(items))
     } else if method == n.intersection {
         require_args("intersection", 1, args.len())?;
         let Value::Set(ref other) = args[0] else {
             return Err(ori_patterns::wrong_arg_type("intersection", "Set").into());
         };
-        let result: std::collections::BTreeMap<String, Value> = items
-            .iter()
-            .filter(|(k, _)| other.contains_key(k.as_str()))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        Ok(Value::set(result))
+        items
+            .make_mut()
+            .retain(|k, _| other.contains_key(k.as_str()));
+        Ok(Value::Set(items))
     } else if method == n.difference {
         require_args("difference", 1, args.len())?;
         let Value::Set(ref other) = args[0] else {
             return Err(ori_patterns::wrong_arg_type("difference", "Set").into());
         };
-        let result: std::collections::BTreeMap<String, Value> = items
-            .iter()
-            .filter(|(k, _)| !other.contains_key(k.as_str()))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
-        Ok(Value::set(result))
+        items
+            .make_mut()
+            .retain(|k, _| !other.contains_key(k.as_str()));
+        Ok(Value::Set(items))
     } else if method == n.to_list || method == n.into {
         require_args("to_list", 0, args.len())?;
         Ok(Value::list(items.values().cloned().collect()))
     // Clone trait - deep clone of set
     } else if method == n.clone_ {
         require_args("clone", 0, args.len())?;
-        Ok(receiver)
+        Ok(Value::Set(items))
     // Eq trait - deep value equality
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
+        let receiver = Value::Set(items);
         let eq = equals_values(&receiver, &args[0], ctx.interner)?;
         Ok(Value::Bool(eq))
     // Hashable trait - order-independent XOR of element hashes
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
-        Ok(Value::int(hash_value(&receiver, ctx.interner)?))
+        Ok(Value::int(hash_value(&Value::Set(items), ctx.interner)?))
     // Debug trait - shows set structure
     } else if method == n.debug {
         require_args("debug", 0, args.len())?;
-        Ok(Value::string(debug_value(&receiver)))
+        Ok(Value::string(debug_value(&Value::Set(items))))
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }
@@ -436,12 +426,83 @@ pub fn dispatch_set_method(
 
 // List method helpers
 
+/// Set element at index (materializes slice if needed, then COW).
+fn list_set(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
+    require_args("set", 2, args.len())?;
+    let index = require_int_arg("set", &args, 0)?;
+    let uindex = usize::try_from(index)
+        .map_err(|_| ori_patterns::wrong_arg_type("set", "non-negative int"))?;
+    if uindex >= list.len() {
+        return Err(ori_patterns::wrong_arg_type("set", "index within bounds").into());
+    }
+    list.set(uindex, args.swap_remove(1));
+    Ok(Value::List(list))
+}
+
+/// Insert element at index (materializes slice if needed, then COW).
+fn list_insert(mut list: ListData, mut args: Vec<Value>) -> EvalResult {
+    require_args("insert", 2, args.len())?;
+    let index = require_int_arg("insert", &args, 0)?;
+    let uindex = usize::try_from(index)
+        .map_err(|_| ori_patterns::wrong_arg_type("insert", "non-negative int"))?;
+    if uindex > list.len() {
+        return Err(ori_patterns::wrong_arg_type("insert", "index within bounds").into());
+    }
+    list.insert(uindex, args.swap_remove(1));
+    Ok(Value::List(list))
+}
+
+/// Remove element at index (materializes slice if needed, then COW).
+fn list_remove(mut list: ListData, args: &[Value]) -> EvalResult {
+    require_args("remove", 1, args.len())?;
+    let index = require_int_arg("remove", args, 0)?;
+    let uindex = usize::try_from(index)
+        .map_err(|_| ori_patterns::wrong_arg_type("remove", "non-negative int"))?;
+    if uindex >= list.len() {
+        return Err(ori_patterns::wrong_arg_type("remove", "index within bounds").into());
+    }
+    list.remove(uindex);
+    Ok(Value::List(list))
+}
+
+/// Extract a zero-copy sublist from `start` to `end` (clamped to bounds).
+fn list_slice(list: &ListData, args: &[Value]) -> EvalResult {
+    require_args("slice", 2, args.len())?;
+    let start = require_int_arg("slice", args, 0)?;
+    let end = require_int_arg("slice", args, 1)?;
+    let ustart = usize::try_from(start)
+        .map_err(|_| ori_patterns::wrong_arg_type("slice", "non-negative int"))?;
+    let uend = usize::try_from(end)
+        .map_err(|_| ori_patterns::wrong_arg_type("slice", "non-negative int"))?;
+    Ok(Value::List(list.slice(ustart, uend)))
+}
+
+/// Take the first `n` elements as a zero-copy slice.
+fn list_take(list: &ListData, args: &[Value]) -> EvalResult {
+    require_args("take", 1, args.len())?;
+    let count = require_int_arg("take", args, 0)?;
+    let n = usize::try_from(count)
+        .map_err(|_| ori_patterns::wrong_arg_type("take", "non-negative int"))?;
+    Ok(Value::List(list.take(n)))
+}
+
+/// Skip the first `n` elements as a zero-copy slice.
+fn list_skip(list: &ListData, args: &[Value], name: &str) -> EvalResult {
+    require_args(name, 1, args.len())?;
+    let count = require_int_arg(name, args, 0)?;
+    let n = usize::try_from(count)
+        .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
+    Ok(Value::List(list.skip(n)))
+}
+
 /// Sort a list by comparing element values, propagating comparison errors.
-fn sort_list(items: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
-    let mut result = items.to_vec();
+///
+/// Takes ownership of the `ListData` to enable COW: if the list has
+/// a single reference (RC==1), the sort happens in-place with no allocation.
+fn sort_list(mut list: ListData, ctx: &DispatchCtx<'_>) -> EvalResult {
     let interner = ctx.interner;
     let mut err: Option<ori_patterns::EvalError> = None;
-    result.sort_by(|a, b| {
+    list.sort_by(|a, b| {
         if err.is_some() {
             return std::cmp::Ordering::Equal;
         }
@@ -456,7 +517,7 @@ fn sort_list(items: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
     if let Some(e) = err {
         return Err(e.into());
     }
-    Ok(Value::list(result))
+    Ok(Value::List(list))
 }
 
 /// Deep element-wise equality comparison between two lists.

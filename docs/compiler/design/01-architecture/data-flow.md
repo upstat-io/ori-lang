@@ -36,11 +36,17 @@ flowchart TB
 ```rust
 pub struct TokenList {
     tokens: Vec<Token>,
-    spans: Vec<Span>,
+    /// Parallel array of discriminant tags (u8), one per token.
+    /// tags[i] == tokens[i].kind.discriminant_index()
+    tags: Vec<u8>,
+    /// Parallel array of per-token metadata flags, one per token.
+    /// Captures whitespace/trivia context for each token.
+    flags: Vec<TokenFlags>,
 }
 
 pub struct Token {
     kind: TokenKind,
+    span: Span,
     // Identifiers store interned Name
 }
 ```
@@ -57,12 +63,13 @@ Example:
 
 -> TokenList {
      tokens: [
-       Token { kind: Let },
-       Token { kind: Ident(Name(0)) },  // "x" interned
-       Token { kind: Eq },
-       Token { kind: Int(42) },
+       Token { kind: Let, span: Span(0,3) },
+       Token { kind: Ident(Name(0)), span: Span(4,5) },  // "x" interned
+       Token { kind: Eq, span: Span(6,7) },
+       Token { kind: Int(42), span: Span(8,10) },
      ],
-     spans: [Span(0,3), Span(4,5), Span(6,7), Span(8,10)]
+     tags: [TAG_LET, TAG_IDENT, TAG_EQ, TAG_INT],
+     flags: [TokenFlags::default(); 4],
    }
 ```
 

@@ -1,7 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/landing/Hero.astro';
-import CodeShowcase from '../components/landing/CodeShowcase.astro';
 import Features from '../components/landing/Features.astro';
 import VirtuousCycle from '../components/landing/VirtuousCycle.astro';
 import GetStarted from '../components/landing/GetStarted.astro';
@@ -41,7 +40,7 @@ const faqSchema = {
       name: 'How does Ori handle memory management?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Ori uses Automatic Reference Counting (ARC) for memory management. There\'s no garbage collector and no borrow checker. Closures capture by value, and there are no shared mutable references, ensuring memory safety through value semantics.'
+        text: 'Ori uses Automatic Reference Counting (ARC) with value semantics. There\'s no garbage collector and no borrow checker. Value semantics mean no pointers and no aliasing, which ensures memory safety and gives the compiler optimization freedom that pointer-based languages can\'t access — the same structural advantage that lets Fortran outperform C on numerical workloads.'
       }
     },
     {
@@ -58,28 +57,27 @@ const faqSchema = {
 
 <BaseLayout
   title="Ori — Code That Proves Itself"
-  description="Ori is a statically-typed programming language with mandatory testing, dependency-aware integrity, and explicit effects. Every function tested. Every change traced. Every effect explicit. Free and open source."
-  keywords="Ori programming language, mandatory testing language, static typing, type inference, dependency tracking, code verification, effect system, capabilities, ARC memory management, functional programming, open source programming language"
+  description="Ori is a high-level language with low-level speed. Statically-typed with mandatory testing, dependency-aware integrity, and explicit effects. Every function tested. Every change traced. Every effect explicit. Free and open source."
+  keywords="Ori programming language, mandatory testing language, static typing, type inference, dependency tracking, code verification, effect system, capabilities, ARC memory management, value semantics, performance, no aliasing, functional programming, open source programming language"
 >
   <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} slot="head" />
 
-  <Hero />
-  <CodeShowcase>
+  <Hero>
     <Playground
       client:visible
       config={{
         showToolbar: true,
         showOutput: true,
-        height: '560px',
+        height: '100%',
         enableShare: false,
         enableExamples: true,
         readUrlHash: false,
-        fontSize: 14,
+        fontSize: 13,
         layout: 'vertical',
-        maxFormatWidth: 60,
+        maxFormatWidth: 50,
       }}
     />
-  </CodeShowcase>
+  </Hero>
   <Features />
   <VirtuousCycle />
   <GetStarted />

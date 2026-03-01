@@ -34,7 +34,7 @@ The LSP server is implemented at `tools/ori-lsp/` using:
 ## Goals
 
 1. **Single implementation, multiple clients** — One LSP server serves VS Code, Neovim, and any LSP-compatible editor
-2. **Integrated** — Leverages existing compiler infrastructure (`ori_fmt`, `ori_typeck`, etc.)
+2. **Integrated** — Leverages existing compiler infrastructure (`ori_fmt`, `ori_types`, etc.)
 3. **Incremental** — Start with essential features, expand over time
 
 ## Reference Implementations
@@ -170,7 +170,7 @@ We use `tower-lsp` for:
 
 ## Design Principles
 
-1. **Leverage existing infrastructure** — Use `ori_fmt` for formatting, `ori_typeck` for type info
+1. **Leverage existing infrastructure** — Use `ori_fmt` for formatting, `ori_types` for type info
 2. **Async with tower-lsp** — Concurrent request handling via Tokio
 3. **DashMap for documents** — Thread-safe concurrent document storage
 4. **Full document sync** — Simple full-text sync (incremental sync planned)

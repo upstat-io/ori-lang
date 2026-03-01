@@ -13,35 +13,59 @@ The Ori parser transforms a token stream into a flat, arena-allocated AST. It us
 
 ```
 compiler/ori_parse/src/
-├── lib.rs                  # Parser struct, public API, parse_module()
-├── cursor.rs               # Token cursor abstraction
-├── context.rs              # ParseContext bitfield for context-sensitive parsing
-├── outcome.rs              # ParseOutcome (4-way result) + backtracking macros
-├── recovery.rs             # TokenSet bitset and synchronization
-├── series.rs               # Series combinator for comma-separated lists
-├── snapshot.rs             # Parser snapshots for speculative parsing
-├── error.rs                # ParseError, ErrorContext, ParseWarning
-├── incremental.rs          # Incremental parsing for IDE reuse
+├── lib.rs                      # Parser struct, public API, parse_module()
+├── cursor/mod.rs               # Token cursor abstraction
+├── context/mod.rs              # ParseContext bitfield for context-sensitive parsing
+├── outcome/mod.rs              # ParseOutcome (4-way result) + backtracking macros
+├── recovery/mod.rs             # TokenSet bitset and synchronization
+├── series/mod.rs               # Series combinator for comma-separated lists
+├── snapshot/mod.rs             # Parser snapshots for speculative parsing
+├── foreign_keywords/mod.rs     # Foreign keyword detection (return, var, etc.)
+├── error/                      # Parse error infrastructure
+│   ├── mod.rs                      # Re-exports
+│   ├── parse_error.rs              # ParseError struct
+│   ├── kind.rs                     # ParseErrorKind enum
+│   ├── context.rs                  # ErrorContext for recovery
+│   ├── details.rs                  # Error detail helpers
+│   ├── mistakes.rs                 # Common mistake detection
+│   └── warning.rs                  # ParseWarning
+├── incremental/                # Incremental parsing for IDE reuse
+│   ├── mod.rs                      # Entry point
+│   ├── copier.rs                   # Unchanged declaration copying
+│   ├── cursor.rs                   # Incremental cursor
+│   └── decl.rs                     # Declaration-level incrementality
 └── grammar/
-    ├── mod.rs              # Grammar module organization
-    ├── expr/               # Expression parsing
-    │   ├── mod.rs              # Entry point, Pratt parser for binary operators
-    │   ├── operators.rs        # Binding power table, operator matching
-    │   ├── patterns.rs         # Block expressions and control flow parsing
-    │   ├── postfix.rs          # Call, method call, field, index, try, cast
-    │   └── primary.rs          # Literals, identifiers, lambdas, let bindings
-    ├── item/               # Top-level declarations
-    │   ├── mod.rs              # Re-exports
-    │   ├── function.rs         # Function/test parsing
-    │   ├── type_decl.rs        # Struct, sum, newtype declarations
-    │   ├── trait_def.rs        # Trait definitions
-    │   ├── impl_def.rs         # Impl blocks and def impl
-    │   ├── use_def.rs          # Import statements
-    │   ├── extend.rs           # Extension blocks
-    │   ├── generics.rs         # Generic parameters, bounds, where clauses
-    │   └── config.rs           # Config variable ($NAME = value)
-    ├── ty.rs               # Type annotation parsing
-    └── attr.rs             # Attribute parsing (#derive, #test, #skip)
+    ├── mod.rs                  # Grammar module organization
+    ├── expr/                   # Expression parsing
+    │   ├── mod.rs                  # Entry point, Pratt parser for binary operators
+    │   ├── operators.rs            # Binding power table, operator matching
+    │   ├── blocks.rs               # Block expression parsing
+    │   ├── patterns/               # Pattern/control flow parsing
+    │   │   ├── mod.rs                  # Match, for, loop, try
+    │   │   └── match_patterns.rs       # Match pattern parsing
+    │   ├── postfix.rs              # Call, method call, field, index, try, cast
+    │   └── primary/                # Primary expressions
+    │       ├── mod.rs                  # Dispatch
+    │       ├── literals.rs             # Numeric, string, char literals
+    │       ├── collections.rs          # List, map, set, tuple literals
+    │       ├── bindings.rs             # Let bindings, destructuring
+    │       ├── control_flow.rs         # If/then/else, for/yield
+    │       ├── specials.rs             # Unsafe, embed, compile_error
+    │       └── helpers.rs              # Shared helpers
+    ├── item/                   # Top-level declarations
+    │   ├── mod.rs                  # Re-exports
+    │   ├── function/mod.rs         # Function/test parsing
+    │   ├── type_decl.rs            # Struct, sum, newtype declarations
+    │   ├── trait_def.rs            # Trait definitions
+    │   ├── impl_def/mod.rs         # Impl blocks and def impl
+    │   ├── use_def.rs              # Import statements
+    │   ├── extend.rs               # Extension blocks
+    │   ├── extension_import.rs     # Extension import statements
+    │   ├── extern_def.rs           # FFI extern blocks
+    │   ├── generics/mod.rs         # Generic parameters, bounds, where clauses
+    │   └── config/mod.rs           # Config variable ($NAME = value)
+    ├── ty/mod.rs               # Type annotation parsing
+    └── attr/mod.rs             # Attribute parsing (#derive, #test, #skip)
 ```
 
 Dependencies:
@@ -83,7 +107,6 @@ impl ParseContext {
     const IN_PATTERN: Self = Self(0b0_0000_0001);
     const IN_TYPE: Self = Self(0b0_0000_0010);
     const NO_STRUCT_LIT: Self = Self(0b0_0000_0100);
-    const CONST_EXPR: Self = Self(0b0_0000_1000);
     const IN_LOOP: Self = Self(0b0_0001_0000);
     const ALLOW_YIELD: Self = Self(0b0_0010_0000);
     const IN_FUNCTION: Self = Self(0b0_0100_0000);
@@ -160,7 +183,7 @@ Binary operator precedence uses a Pratt binding power table. Operators are liste
 | Level | Operators | Associativity | Binding Power |
 |-------|-----------|---------------|---------------|
 | 1 | `.` `[]` `()` `?` `as` `as?` | Left | — (Postfix) |
-| 2 | `**` | Right | — (Power) |
+| 2 | `**` | Right | — (Not yet implemented) |
 | 3 | `!` `-` `~` | Right | — (Unary) |
 | 4 | `*` `/` `%` `div` `@` | Left | (23, 24) |
 | 5 | `+` `-` | Left | (21, 22) |
@@ -174,9 +197,9 @@ Binary operator precedence uses a Pratt binding power table. Operators are liste
 | 13 | `&&` | Left | (5, 6) |
 | 14 | `\|\|` | Left | (3, 4) |
 | 15 | `??` | Right | (2, 1) |
-| 16 | `\|>` | Left | (—) |
+| 16 | `\|>` | Left | — (Not yet implemented) |
 
-**Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary). `**` and `|>` are handled outside the main Pratt loop due to their unique associativity and binding rules.
+**Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary). `**` (power) and `|>` (pipe) are defined in the grammar spec but not yet implemented in the lexer or parser — they have no token representation and will cause parse errors if used.
 
 
 ## Salsa Integration

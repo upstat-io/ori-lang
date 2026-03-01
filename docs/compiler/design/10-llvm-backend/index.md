@@ -38,9 +38,9 @@ The backend follows patterns from `rustc_codegen_llvm`, using a two-layer archit
         │   - Orchestrates function body compilation          │
         │   - ABI handling (sret, parameter passing)          │
         ├─────────────────────────────────────────────────────┤
-        │   ExprLowerer                                       │
-        │   - Expression dispatch (lower_* methods)           │
-        │   - Scope management (persistent-map scoping)       │
+        │   ArcIrEmitter                                      │
+        │   - ARC IR instruction dispatch (emit_* methods)    │
+        │   - Dead-block elimination, scope management        │
         └─────────────────────────────────────────────────────┘
 ```
 
@@ -53,7 +53,7 @@ The backend follows patterns from `rustc_codegen_llvm`, using a two-layer archit
 | `TypeLayoutResolver` | Per-compilation | Resolves `Idx` to LLVM `BasicTypeEnum` via `TypeInfoStore` + `SimpleCx` |
 | `IrBuilder` | Per-module | ID-based instruction builder wrapping inkwell |
 | `FunctionCompiler` | Per-module | Function declaration, ABI, runtime declarations |
-| `ExprLowerer` | Per-function | Expression lowering coordinator with scoped locals |
+| `ArcIrEmitter` | Per-function | ARC IR instruction dispatch with dead-block elimination |
 
 ## Type Mappings
 
@@ -119,19 +119,12 @@ for func in module.functions() {
 
 ### Phase 2: Definition
 
-Each function body is compiled. For **Tier 1** (expression lowering without ARC):
-
-1. Create entry basic block
-2. Bind parameters to LLVM values
-3. Compile function body expression via `ExprLowerer`
-4. Build return instruction
-
-For **Tier 2** (ARC codegen), the function goes through the full ARC pipeline:
+Each function body is compiled through the ARC pipeline (the sole codegen path):
 
 1. Lower canonical IR to ARC IR (`ori_arc::lower`)
 2. Run the unified ARC pipeline via `ori_arc::run_arc_pipeline()`
    - Borrow inference, liveness, RC insertion, reset/reuse, expansion, elimination
-3. Emit ARC IR instructions as LLVM IR via `ArcEmitter`
+3. Emit ARC IR instructions as LLVM IR via `ArcIrEmitter`
 
 The `run_arc_pipeline()` entry point enforces correct pass ordering — consumers never sequence passes manually.
 
@@ -208,16 +201,17 @@ let for_loop_ctx = LoopContext {
 
 ## Runtime Functions
 
-The backend links against runtime functions for operations that require heap allocation or complex logic. These are provided by `libori_rt`. All declarations live in `codegen/runtime_decl/runtime_functions.rs` as a single source-of-truth `RT_FUNCTIONS` table.
+The backend links against runtime functions for operations that require heap allocation or complex logic. These are provided by `libori_rt`. All declarations live in `codegen/runtime_decl/runtime_functions.rs` as a single source-of-truth `RT_FUNCTIONS` table (~132 functions).
 
-| Category | Functions |
+| Category | Examples (not exhaustive) |
 |----------|-----------|
 | Output | `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool` |
 | Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float` |
 | String SSO | `ori_str_concat_sso` (SSO-aware concat), `ori_str_from_char` |
 | Collections | `ori_list_new`, `ori_list_free`, `ori_list_len` |
 | List COW | `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`, `ori_list_insert_cow`, `ori_list_remove_cow` |
-| Map COW | `ori_map_insert_cow`, `ori_map_remove_cow` |
+| List Slicing | `ori_list_slice`, `ori_list_slice_take`, `ori_list_slice_drop` (seamless slices with runtime encoding) |
+| Map COW | `ori_map_insert_cow`, `ori_map_remove_cow`, `ori_map_contains_key`, `ori_map_get` |
 | Set COW | `ori_set_insert_cow`, `ori_set_remove_cow`, `ori_set_union_cow`, `ori_set_intersection_cow`, `ori_set_difference_cow` |
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
 | Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_is_unique` |
@@ -225,6 +219,7 @@ The backend links against runtime functions for operations that require heap all
 | Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`, `ori_assert_eq_float` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
 | Iterators | `ori_iter_from_list`, `ori_iter_from_range`, `ori_iter_from_str`, `ori_iter_next`, `ori_iter_drop` |
+| Formatting | `ori_format_int`, `ori_format_float`, `ori_format_str`, `ori_interpolate` |
 | Entry | `ori_run_main`, `ori_args_from_argv` |
 
 ### Codegen Verification
@@ -290,7 +285,7 @@ Options: `ORI_AUDIT_STRICT=1` (pessimistic mode), `ORI_AUDIT_FUNCTION=<name>` (f
 | `rc_value_traversal.rs` | Recursive value traversal for RC operations |
 | `terminators.rs` | Block terminator emission (Return, Branch, Switch, Invoke) |
 | `value_emission.rs` | Value loading, storing, and literal emission |
-| `builtins/` | Built-in method codegen: `primitives.rs`, `compound_traits.rs`, `list_traits.rs`, `iterator.rs` |
+| `builtins/` | Built-in method codegen: `primitives.rs`, `compound_traits.rs`, `list_traits.rs`, `iterator.rs`, `option_result.rs`, `prelude.rs`, `traits.rs`, `trampolines.rs` |
 | `builtins/collections/` | Collection codegen: `list_builtins.rs`, `list_cow.rs`, `map_set_builtins.rs`, `string_builtins.rs` |
 
 ### Verification (`verify/`)
@@ -317,7 +312,7 @@ Options: `ORI_AUDIT_STRICT=1` (pessimistic mode), `ORI_AUDIT_FUNCTION=<name>` (f
 | `runtime.rs` | Runtime library discovery |
 | `multi_file/mod.rs` | Multi-file compilation |
 | `wasm/` | WebAssembly: `mod.rs`, `config.rs`, `optimize.rs`, `wasi.rs` |
-| `incremental/` | Caching and parallel compilation |
+| `incremental/` | Caching and parallel compilation: `cache/` (function caching), `arc_cache/` (ARC IR caching), `deps/` (dependency tracking), `function_deps/` (function dependencies), `function_hash/` (function hashing), `hash/` (general hashing), `parallel/` (parallel execution with `executor.rs`) |
 | `syslib/mod.rs` | System library detection |
 
 ## Development

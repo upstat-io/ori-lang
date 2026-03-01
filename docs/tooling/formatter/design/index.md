@@ -28,7 +28,7 @@ The Ori formatter follows the philosophy established by Go's `gofmt`:
 - **Line width limit**: gofmt has none; Ori enforces 100 characters
 - **Width-based breaking**: gofmt trusts source; Ori breaks automatically at width
 - **Indentation**: gofmt uses tabs; Ori uses 4 spaces
-- **Always-stacked constructs**: Ori has `run`, `try`, `match`, etc.
+- **Always-stacked constructs**: Ori has `{ }` blocks, `try`, `match`, etc.
 
 ## Design Principles
 
@@ -57,7 +57,7 @@ There are no arbitrary thresholds like "break if more than 3 parameters." Instea
 - If it exceeds the width limit, break according to construct-specific rules
 
 Exceptions exist only for constructs that are *always* stacked regardless of width:
-- `run` / `try` — sequential blocks always stack
+- `{ }` blocks / `try` — sequential blocks always stack
 - `match` — arms always stack (scrutinee on first line)
 
 ### Breaking Rules (Layer 4)
@@ -70,7 +70,7 @@ The formatter implements 7 named breaking rules (plus shared helper functions) f
 4. **`ChainedElseIfRule`** — Kotlin-style (first `if` with assignment)
 5. **`NestedForRule`** — Rust-style indentation for nested `for`
 6. **`ParenthesesRule`** — Preserve user parens, add when needed for clarity
-7. **`FunctionSeq helpers`** — Query functions for try, match, generic `FunctionSeq`
+7. **`FunctionSeq helpers`** — Query functions for `try`, `match`, generic `FunctionSeq`
 8. **`LoopRule`** — Complex body (try/match/for) forces break
 
 ## Documentation Sections
@@ -86,7 +86,7 @@ The formatter implements 7 named breaking rules (plus shared helper functions) f
 - [Constructs Overview](02-constructs/) — Per-construct formatting rules
 - [Declarations](02-constructs/declarations.md) — Functions, types, traits, impls
 - [Expressions](02-constructs/expressions.md) — Calls, chains, conditionals, lambdas
-- [Patterns](02-constructs/patterns.md) — run, try, match, recurse, parallel
+- [Patterns](02-constructs/patterns.md) — blocks, try, match, recurse, parallel
 - [Collections](02-constructs/collections.md) — Lists, maps, tuples, structs
 
 ### Layers
@@ -120,7 +120,7 @@ The formatter supports incremental formatting via `incremental/mod.rs`. When onl
 | Component | Location | Purpose |
 |-----------|----------|---------|
 | `ori_fmt` | `compiler/ori_fmt/` | Core formatting logic |
-| `ori_lsp` | `compiler/ori_lsp/` | LSP server (formatting, diagnostics, hover) |
+| `ori-lsp` | `tools/ori-lsp/` | LSP server (formatting, diagnostics, hover) |
 
 **Playground**: Format-on-Run — code formats automatically when user clicks Run. LSP compiled to WASM provides real-time diagnostics and hover in Monaco.
 
@@ -153,7 +153,7 @@ The normative formatting rules are defined in [spec/16-formatting.md](/docs/ori_
 
 ### Always Stacked
 
-- `run` / `try` blocks
+- `{ }` blocks / `try` blocks
 - `match` arms
 - `recurse`
 - `parallel` / `spawn`

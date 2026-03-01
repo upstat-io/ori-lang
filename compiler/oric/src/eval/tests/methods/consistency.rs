@@ -67,6 +67,9 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "to_str"),
     // Iterable — iter() returns Iterator<T>, not expressible in current IR ReturnSpec
     ("str", "iter"),
+    // Slice/substring — eval has these but IR registry doesn't
+    ("str", "slice"),
+    ("str", "substring"),
     // error — Traceable trait and accessors, not in IR registry
     ("error", "clone"),
     ("error", "debug"),
@@ -574,12 +577,10 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("list", "prepend"),
     ("list", "product"),
     ("list", "reduce"),
-    ("list", "skip"),
     ("list", "skip_while"),
     ("list", "sort_by"),
     ("list", "sorted"),
     ("list", "sum"),
-    ("list", "take"),
     ("list", "take_while"),
     ("list", "unique"),
     ("list", "window"),
@@ -612,9 +613,7 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("str", "parse_int"),
     ("str", "repeat"),
     ("str", "replace"),
-    ("str", "slice"),
     ("str", "split"),
-    ("str", "substring"),
     ("str", "to_float"),
     ("str", "to_int"),
     ("str", "trim_end"),

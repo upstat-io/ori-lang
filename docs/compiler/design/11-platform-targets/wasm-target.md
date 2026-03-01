@@ -88,7 +88,7 @@ ori_eval ──┬── ori_patterns
            ├── ori_ir
            └── ori_stack (no-op on WASM)
 
-ori_typeck ─┬── ori_types
+ori_types ──┬── ori_types (pool, infer, check)
             └── ori_parse ── ori_lexer
 
 ori_fmt

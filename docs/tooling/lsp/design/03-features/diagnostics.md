@@ -193,7 +193,7 @@ pub fn compute_diagnostics(doc: &DocumentState) -> Vec<Diagnostic> {
 
     // Type errors (only if parsing succeeded enough)
     if let Some(ref module) = parse_result.module {
-        let type_result = ori_typeck::check(module);
+        let type_result = ori_types::check(module);
         for error in type_result.errors {
             diagnostics.push(type_error_to_diagnostic(&doc.text, error));
         }

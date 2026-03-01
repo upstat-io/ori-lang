@@ -148,7 +148,7 @@ interface Hover {
 
 Implementation:
 1. Find AST node at position
-2. Look up type from `ori_typeck`
+2. Look up type from `ori_types`
 3. Format as markdown:
    ```markdown
    ```ori
