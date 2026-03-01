@@ -15,7 +15,7 @@ sections:
     status: complete
   - id: "07.2"
     title: "Intraprocedural Analysis"
-    status: not-started
+    status: complete
   - id: "07.3"
     title: "Interprocedural Analysis"
     status: not-started
@@ -146,7 +146,7 @@ Within a single function, determine which variables are provably unique at each 
 
 6. **Control flow join**: At merge points (if/else, match), take the lattice join of all incoming states.
 
-- [ ] Implement forward dataflow analysis:
+- [x] Implement forward dataflow analysis:
   ```rust
   pub fn analyze_uniqueness(func: &ArcFunction) -> UniquenessMap {
       let mut states = UniquenessMap::new();
@@ -187,11 +187,11 @@ Within a single function, determine which variables are provably unique at each 
   }
   ```
 
-- [ ] **Dead variable tracking**: A variable that is never used after a point is effectively consumed. If it was the only reference, its value becomes unreferenced (RC drops to 0). The analysis should track liveness to identify when a variable becomes dead and its value is consumed.
+- [x] **Dead variable tracking**: A variable that is never used after a point is effectively consumed. If it was the only reference, its value becomes unreferenced (RC drops to 0). The analysis should track liveness to identify when a variable becomes dead and its value is consumed.
 
   **Integration with existing liveness**: The ARC pipeline already has liveness analysis (`ori_arc/src/rc_insert/`). Reuse this information.
 
-- [ ] Unit tests:
+- [x] Unit tests:
   - Fresh allocation → `Unique`
   - `let b = a` → both `Shared`
   - `let a = a.push(x)` → new `a` is `Unique`

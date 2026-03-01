@@ -37,6 +37,8 @@
 //! - Roc `morphic_lib/analyze.rs`: full alias analysis with `UpdateMode`
 //! - Swift `ARCSequenceOpts.cpp`: dataflow with lattice-based RC state
 
+pub mod intra;
+
 use std::fmt;
 
 use rustc_hash::FxHashMap;
@@ -162,7 +164,7 @@ impl fmt::Display for CowMode {
 ///
 /// Backed by a `HashMap<ArcVarId, Uniqueness>`. Variables not present
 /// in the map are implicitly `MaybeShared` (conservative default).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct UniquenessMap {
     states: FxHashMap<ArcVarId, Uniqueness>,
 }
