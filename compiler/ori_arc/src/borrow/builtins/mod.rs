@@ -217,6 +217,34 @@ pub fn all_cow_method_names(interner: &StringInterner) -> FxHashSet<Name> {
     names
 }
 
+/// Method names that return values **sharing backing storage** with the receiver.
+///
+/// Unlike COW methods (which always return `Unique` results), these methods
+/// create views into the receiver's data. The returned value shares the
+/// receiver's refcounted backing buffer, so its uniqueness is `MaybeShared`.
+///
+/// Used by [`crate::uniqueness::inter::build_cow_summaries`] as the
+/// `shared_method_names` argument.
+///
+/// Sorted alphabetically.
+const SHARING_METHOD_NAMES: &[&str] = &[
+    "slice",     // list.slice — shares list backing
+    "substring", // str.substring — shares string backing
+];
+
+/// Collect interned [`Name`]s for methods that share backing with their receiver.
+///
+/// These methods return values that reference the receiver's heap data,
+/// so their return uniqueness is `MaybeShared` (not `Unique` like COW methods).
+///
+/// See [`SHARING_METHOD_NAMES`] for the full list.
+pub fn sharing_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    SHARING_METHOD_NAMES
+        .iter()
+        .map(|name| interner.intern(name))
+        .collect()
+}
+
 /// Pre-computed interned sets for ARC ownership annotation.
 ///
 /// Groups the builtin method name sets that

@@ -31,7 +31,15 @@ fn run_full_pipeline(
         },
         pool,
     );
-    crate::run_arc_pipeline(func, classifier, &sigs, pool, &interner);
+    let uniqueness_summaries = FxHashMap::default();
+    crate::run_arc_pipeline(
+        func,
+        classifier,
+        &sigs,
+        pool,
+        &interner,
+        &uniqueness_summaries,
+    );
 }
 
 /// Verifies the correct pipeline order: expand BEFORE eliminate.

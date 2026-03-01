@@ -29,6 +29,7 @@ use smallvec::{smallvec, SmallVec};
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::Idx;
 
+use crate::uniqueness::CowAnnotations;
 use crate::Ownership;
 
 // Call-site argument ownership
@@ -392,6 +393,18 @@ pub struct ArcFunction {
     /// skip trampoline wrapper generation.
     #[cfg_attr(feature = "cache", serde(default))]
     pub num_captures: usize,
+    /// Per-instruction COW mode annotations from uniqueness analysis.
+    ///
+    /// Maps `(block_index, instr_index)` to [`CowMode`] for each COW
+    /// operation. The LLVM arc emitter queries this to decide whether to
+    /// emit only the fast path (`StaticUnique`), only the slow path
+    /// (`StaticShared`), or the full runtime check (`Dynamic`).
+    ///
+    /// Populated by the ARC pipeline (after uniqueness analysis). Empty
+    /// until then. Skipped during cache serialization — derived from the
+    /// analysis, not an independent data source.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub cow_annotations: CowAnnotations,
 }
 
 // Tests

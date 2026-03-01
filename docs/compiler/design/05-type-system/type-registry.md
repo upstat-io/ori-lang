@@ -9,16 +9,6 @@ section: "Type System"
 
 The type registry system stores user-defined types (structs, enums, newtypes), trait definitions and implementations, and built-in method declarations. Three registries work together: `TypeRegistry`, `TraitRegistry`, and `MethodRegistry`.
 
-## Location
-
-```
-compiler/ori_types/src/registry/
-├── mod.rs       # Re-exports
-├── types.rs     # TypeRegistry — struct/enum/newtype storage
-├── traits.rs    # TraitRegistry — trait definitions and implementations
-└── methods.rs   # MethodRegistry — built-in method resolution
-```
-
 ## TypeRegistry
 
 The `TypeRegistry` stores user-defined type definitions and provides lookup by name, by `Idx`, and by variant name.

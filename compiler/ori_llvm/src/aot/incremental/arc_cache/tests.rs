@@ -33,6 +33,7 @@ fn sample_arc_function() -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: ori_arc::CowAnnotations::default(),
     }
 }
 

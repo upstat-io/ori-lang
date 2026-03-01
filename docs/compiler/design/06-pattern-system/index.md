@@ -9,9 +9,11 @@ section: "Pattern System"
 
 Ori's pattern system provides compiler-level constructs for control flow, concurrency, and resource management. These are distinct from regular function calls because they require special syntax or static analysis.
 
-## Lean Core, Rich Libraries
+## What Makes Ori's Pattern System Distinctive
 
-The pattern system follows the "Lean Core, Rich Libraries" principle:
+### Lean Core, Rich Libraries Boundary
+
+The pattern registry only contains constructs that genuinely require compiler support — special syntax, scoped bindings, capability awareness, or concurrency semantics. Data transformation (`map`, `filter`, `fold`) stays in stdlib as regular method calls. This keeps the compiler surface area small while the stdlib grows independently.
 
 | In Compiler | In Stdlib |
 |-------------|-----------|
@@ -20,63 +22,47 @@ The pattern system follows the "Lean Core, Rich Libraries" principle:
 | `parallel`, `spawn`, `timeout` (concurrency) | |
 | `cache`, `with` (capability-aware resources) | |
 
-Data transformation moved to stdlib because `items.map(transform: fn)` is just a method call—no special compiler support needed. The compiler focuses on constructs that genuinely require special handling.
+### Zero-Cost Enum Dispatch
 
-## Location
+The `PatternRegistry` uses a `Pattern` enum with ZST variants instead of `HashMap<Name, Arc<dyn PatternDefinition>>`. Each pattern type is a zero-sized struct created inline in match arms — no heap allocation, no vtable indirection, no HashMap lookup. The compiler enforces exhaustive handling of all patterns at compile time.
 
+### Scoped Binding Injection
+
+Patterns can introduce identifiers that are only visible within specific property expressions. The `recurse` pattern introduces `self` scoped to the `step` property; the type checker reads `ScopedBinding` metadata from the pattern trait to set up the correct type environment. This enables recursive self-reference without polluting the surrounding scope.
+
+### Decision Tree Exhaustiveness
+
+Match exhaustiveness checking reuses the compiled decision tree from canonicalization rather than re-analyzing source patterns. A reachable `Fail` node or missing constructors in a `Switch` signals non-exhaustive coverage; unreachable arms are flagged as redundant. This approach is sound because the decision tree faithfully encodes the pattern matrix's coverage.
+
+### PatternExecutor Abstraction
+
+Patterns evaluate through a `PatternExecutor` trait rather than coupling directly to the evaluator. This abstraction enables testing patterns in isolation, allows the evaluator to evolve independently, and provides a clean boundary between pattern semantics and evaluation machinery.
+
+### Pattern Evaluation Pipeline
+
+```mermaid
+flowchart TB
+    AST["Parser
+    FunctionExpKind variant"]
+    TC["Type Checker
+    required_props + scoped_bindings
+    metadata from PatternDefinition"]
+    REG["PatternRegistry.get()
+    FunctionExpKind → Pattern enum"]
+    PAT["Pattern::evaluate()
+    static dispatch to ZST impl"]
+    CTX["EvalContext
+    property access + span tracking"]
+    EXEC["PatternExecutor
+    eval · call · lookup_capability
+    call_method · bind_var"]
+
+    AST --> TC
+    AST --> REG
+    REG --> PAT
+    PAT --> CTX
+    PAT --> EXEC
 ```
-compiler/ori_patterns/src/
-├── lib.rs              # Core interfaces and re-exports
-├── registry/           # Pattern registration
-│   └── mod.rs
-├── signature/          # Pattern signatures
-│   └── mod.rs
-├── errors/             # Pattern errors
-│   ├── mod.rs
-│   └── diagnostics/mod.rs  # Diagnostic integration
-├── test_helpers/mod.rs # Shared test utilities
-├── builtins/           # Built-in patterns
-│   ├── mod.rs              # Re-exports
-│   ├── print/mod.rs        # PrintPattern implementation
-│   ├── panic/mod.rs        # PanicPattern implementation (returns Never)
-│   ├── catch/mod.rs        # CatchPattern implementation
-│   ├── todo/mod.rs         # TodoPattern implementation (returns Never)
-│   └── unreachable/mod.rs  # UnreachablePattern implementation (returns Never)
-├── recurse/            # recurse pattern
-│   └── mod.rs
-├── parallel/           # parallel pattern
-│   └── mod.rs
-├── spawn/              # spawn pattern
-│   └── mod.rs
-├── timeout/            # timeout pattern
-│   └── mod.rs
-├── cache/              # cache pattern
-│   └── mod.rs
-├── with_pattern/       # with pattern (RAII resource management)
-│   └── mod.rs
-├── channel.rs          # channel pattern (message passing, stub)
-├── fusion/             # Pattern fusion infrastructure
-│   └── mod.rs
-├── method_key/         # Method key types
-│   └── mod.rs
-├── user_methods/       # User-defined method support
-│   └── mod.rs
-└── value/              # Runtime value system
-    ├── mod.rs              # Value enum and factory methods
-    ├── scalar_int.rs       # Scalar integer representation
-    ├── heap/mod.rs         # Heap<T> wrapper for Arc enforcement
-    ├── list_data/mod.rs    # ListData: zero-copy list slicing (offset+length into shared Vec)
-    ├── composite/mod.rs    # FunctionValue, StructValue, RangeValue
-    ├── error_value/mod.rs  # Error value representation
-    └── iterator/mod.rs     # Iterator value types and adapters
-```
-
-## Design Goals
-
-1. **Minimal** - Only what requires compiler support
-2. **Declarative** - Express intent, not mechanism
-3. **Composable** - Patterns can be combined
-4. **Extensible** - New patterns can be added via registry
 
 ## Compiler Pattern Categories
 

@@ -9,28 +9,6 @@ section: "Type System"
 
 The type pool is the central data structure of Ori's type system. It stores all types using a Structure-of-Arrays (SoA) layout for cache efficiency, with automatic interning to ensure each unique type is stored exactly once.
 
-## Location
-
-```
-compiler/ori_types/src/
-├── idx.rs           # Idx handle type
-├── tag.rs           # Tag discriminant
-├── item.rs          # Item storage record
-├── flags.rs         # TypeFlags bitfield
-└── pool/
-    ├── mod.rs       # Pool struct, core implementation
-    ├── accessors.rs # Query methods (type lookups, variable state)
-    ├── descriptor.rs # Type descriptor operations
-    ├── construct/   # Type construction (directory)
-    │   └── mod.rs       # Interning + dedup
-    ├── format/      # Human-readable formatting (directory)
-    │   └── mod.rs       # Type display for diagnostics
-    ├── re_intern/   # Re-interning utilities
-    │   └── mod.rs
-    └── substitute/  # Type substitution
-        └── mod.rs
-```
-
 ## Design Rationale
 
 Traditional type system designs use recursive `enum` types with heap allocation:
