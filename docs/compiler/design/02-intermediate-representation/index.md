@@ -7,387 +7,167 @@ section: "Intermediate Representation"
 
 # Intermediate Representation Overview
 
-The Ori compiler uses a carefully designed intermediate representation (IR) optimized for:
+The Ori compiler uses three intermediate representations, each optimized for a different phase of compilation:
 
-- **Memory efficiency** via arena allocation
-- **Fast comparison** via string interning
-- **Salsa compatibility** via flat, comparable types
-- **Visitor pattern** for AST traversal
-
-## IR Components
-
-The IR lives in its own crate `ori_ir`, which has no dependencies on other compiler crates (only on performance libraries `rustc-hash` and `parking_lot`) and is used by all other compiler crates.
-
-```
-compiler/ori_ir/src/
-├── lib.rs                  # Module exports, static_assert_size! macro
-├── ast/                    # Expression and statement types
-│   ├── mod.rs                  # Module re-exports
-│   ├── expr.rs                 # ExprKind variants
-│   ├── stmt.rs                 # Statement types
-│   ├── operators.rs            # Operator enums
-│   ├── collections.rs          # Collection literals
-│   ├── items/                  # Top-level item definitions
-│   └── patterns/               # Pattern constructs (seq, exp, binding)
-├── canon/                  # Canonical IR (sugar-free, type-annotated)
-│   ├── mod.rs                  # Module re-exports
-│   ├── expr.rs                 # CanExpr variants
-│   ├── arena.rs                # CanArena (SoA storage for canonical nodes)
-│   ├── ids.rs                  # CanId, CanRange, range types
-│   ├── patterns.rs             # DecisionTree, FlatPattern, PatternMatrix
-│   └── pools.rs                # ConstantPool, DecisionTreePool
-├── token/                  # Token system
-│   ├── mod.rs                  # Token struct, re-exports
-│   ├── kind.rs                 # TokenKind enum
-│   ├── list.rs                 # TokenList (3 parallel arrays)
-│   ├── tag.rs                  # Discriminant tag constants
-│   ├── index.rs                # Token indexing traits
-│   ├── capture.rs              # Token capture utilities
-│   └── units.rs                # DurationUnit, SizeUnit
-├── derives/                # Derived trait definitions
-│   ├── mod.rs                  # DerivedTrait enum, DerivedMethodInfo
-│   └── strategy.rs             # Derivation strategies (FieldOp, CombineOp)
-├── arena/                  # Expression arena
-│   ├── mod.rs                  # ExprArena (SoA layout)
-│   └── range_builders.rs       # Direct-append API for side tables
-├── expr_id/mod.rs          # ExprId, StmtId, ParsedTypeId, MatchPatternId
-├── type_id/mod.rs          # TypeId (flat u32 index, no sharding)
-├── name/mod.rs             # Name newtype
-├── span/mod.rs             # Source location tracking
-├── interner/mod.rs         # String interning (16-shard RwLock)
-├── parsed_type/mod.rs      # ParsedType for type annotations
-├── builtin_constants/mod.rs # Built-in constant definitions
-├── builtin_type/mod.rs     # Built-in type definitions
-├── builtin_methods/mod.rs  # Built-in method definitions
-├── comment/mod.rs          # Comment handling
-├── metadata/mod.rs         # ModuleExtra for formatter/IDE metadata
-├── incremental/mod.rs      # Incremental parsing support
-├── traits/mod.rs           # Spanned, Named, Typed traits
-├── format_spec.rs          # FormatSpec for string formatting
-├── pattern_resolution.rs   # PatternKey, PatternResolution (typeck → eval bridge)
-└── visitor.rs              # AST visitor pattern
+```mermaid
+flowchart TB
+    source["Source Text"] --> ast["Raw AST
+(ExprArena + ExprId)"]
+    ast --> canon["Canonical IR
+(CanArena + CanId)"]
+    canon --> interp["ori_eval
+(interpreter)"]
+    canon --> arc["ARC IR
+(ArcFunction + ArcInstr)"]
+    arc --> llvm["ori_llvm
+(native binary)"]
 ```
 
-## Key Design Decisions
+Most compilers have one or two IRs. Ori has three because it serves two backends from a single pipeline — the canonical IR is the bridge that eliminates duplicated work, while the ARC IR handles concerns specific to native code generation.
 
-### 1. Flat AST (No Boxing)
+## What Makes Ori's IR Design Distinctive
 
-Traditional ASTs use heap allocation:
+### Three-Tier IR System
 
-```rust
-// Traditional (heap-allocated)
-enum Expr {
-    Binary { left: Box<Expr>, op: Op, right: Box<Expr> },
-    Call { func: Box<Expr>, args: Vec<Box<Expr>> },
-}
-```
+| IR | Crate | Purpose | Key Type |
+|----|-------|---------|----------|
+| **Raw AST** | `ori_ir` | Parser output — preserves source structure and sugar | `ExprKind` + `ExprId` |
+| **Canonical IR** | `ori_ir` (canon module) | Sugar-free, type-annotated, decision-tree compiled | `CanExpr` + `CanId` |
+| **ARC IR** | `ori_arc` | Basic-block form with explicit RC operations | `ArcInstr` + `ArcVarId` |
 
-Ori uses arena allocation:
+Each IR has its own arena and index types — `ExprId` cannot accidentally index into `CanArena`, and `CanId` cannot index into ARC blocks. The type system enforces IR boundaries at compile time.
 
-```rust
-// Ori (arena-allocated)
-struct Expr {
-    kind: ExprKind,
-    span: Span,
-}
+### Struct-of-Arrays Arena
 
-enum ExprKind {
-    Binary { left: ExprId, op: Op, right: ExprId },
-    Call { func: ExprId, args: Vec<ExprId> },
-}
-
-// ExprId is just a u32 index into ExprArena
-struct ExprId(u32);
-```
-
-See [Flat AST](flat-ast.md) for details.
-
-### 2. Arena Allocation
-
-Expressions live in a struct-of-arrays layout for cache efficiency. Expression kinds and spans are stored in separate parallel `Vec`s, with additional side-table vectors for variable-length data (parameters, match arms, etc.):
+The AST arena uses a struct-of-arrays layout rather than a traditional array-of-structs:
 
 ```rust
 struct ExprArena {
-    // Parallel arrays (indexed by ExprId)
-    expr_kinds: Vec<ExprKind>,   // 24 bytes each
-    expr_spans: Vec<Span>,       // 8 bytes each
-
-    // Side tables (indexed by range types)
-    expr_lists: Vec<ExprId>,     // Flattened call args, list elements, etc.
-    stmts: Vec<Stmt>,            // Statements
-    params: Vec<Param>,          // Function parameters
-    // ... 20+ more side-table vectors for arms, patterns, etc.
-}
-
-impl ExprArena {
-    fn alloc(&mut self, kind: ExprKind, span: Span) -> ExprId {
-        let id = ExprId(self.expr_kinds.len() as u32);
-        self.expr_kinds.push(kind);
-        self.expr_spans.push(span);
-        id
-    }
+    expr_kinds: Vec<ExprKind>,   // 24 bytes each — primary data
+    expr_spans: Vec<Span>,       // 8 bytes each — source locations
+    // ... 20+ side-table vectors for variable-length data
 }
 ```
 
-Most operations only read `expr_kinds` (24 bytes per entry), keeping spans (8 bytes) out of the cache line. The arena also provides a direct-append API (`start_params()`/`push_param()`/`finish_params()`) for zero-allocation list building into side tables.
+Most operations only touch `expr_kinds` (type checking, evaluation, canonicalization). Spans are only needed for error reporting. By separating them, the hot path reads 24-byte entries instead of 32-byte entries — a 25% improvement in cache line utilization.
 
-See [Arena Allocation](arena-allocation.md) for details.
-
-### 3. Expression Ranges
-
-All expression lists use `ExprRange` (8 bytes), a compact range type pointing into the arena's side tables:
+Variable-length data (call arguments, list elements, match arms) uses compact range types instead of `Vec`:
 
 ```rust
-/// Range into an arena side table.
-pub struct ExprRange {
+struct ExprRange {
     start: u32,
-    len: u16,
+    len: u16,    // max 65,535 elements per list
+}
+// 8 bytes total — points into a flattened side-table vector
+```
+
+This keeps `ExprKind` at a fixed 24 bytes regardless of how many children an expression has.
+
+See [Arena Allocation](arena-allocation.md) and [Flat AST](flat-ast.md) for details.
+
+### Pool-Based Type Interning
+
+Types are interned into a `Pool` and referenced by `Idx(u32)`. Every unique type exists exactly once, enabling O(1) equality via index comparison:
+
+```rust
+struct Item {
+    tag: Tag,   // 1 byte — type kind discriminant (u8)
+    data: u32,  // 4 bytes — meaning depends on tag
+}
+
+struct Pool {
+    items: Vec<Item>,            // All types (parallel arrays)
+    flags: Vec<TypeFlags>,       // Pre-computed metadata
+    hashes: Vec<u64>,            // Stable hashes
+    extra: Vec<u32>,             // Variable-length data
+    intern_map: FxHashMap<u64, Idx>,  // Deduplication
+    var_states: Vec<VarState>,   // Type variable state
 }
 ```
 
-**Memory layout:** 8 bytes total. The `define_range!` macro generates `.new()`, `.is_empty()`, `.len()`, and `EMPTY` for all range types.
+The `Tag(u8)` discriminant enables tag-driven dispatch — checking whether a type is a primitive, container, function, or variable is a single integer comparison. `TypeFlags` propagate from children to parents via bitwise OR, so checking whether a deeply nested type contains any unresolved variables is O(1).
 
-### 4. String Interning
+Primitives are pre-interned at fixed indices (`INT=0`, `FLOAT=1`, ..., `ORDERING=11`), matching between `TypeId` (parser level) and `Idx` (type checker level).
 
-All identifiers are interned to u32 indices via a 16-shard concurrent interner:
+Inspired by Zig's `InternPool`, Rust's `rustc_type_ir` (TypeFlags), and Lean 4's `IRType`.
+
+See [Type Representation](type-representation.md) for the full design.
+
+### Concurrent String Interning
+
+All identifiers are interned to `Name(u32)` — 4 bytes instead of 24 bytes for `String`, with O(1) comparison. The interner uses 16 lock-striped shards for concurrent access:
 
 ```rust
-struct Name(u32);  // Bits 31-28: shard index (0-15), bits 27-0: local index
+struct Name(u32);  // Bits 31-28: shard, bits 27-0: local index
 
 struct StringInterner {
     shards: [RwLock<InternShard>; 16],
-    total_count: AtomicUsize,
-}
-
-struct InternShard {
-    map: FxHashMap<&'static str, u32>,
-    strings: Vec<&'static str>,  // Leaked via Box::leak() for 'static lifetime
-}
-
-impl StringInterner {
-    fn intern(&self, s: &str) -> Name { ... }       // Thread-safe
-    fn try_intern(&self, s: &str) -> Result<Name, InternError> { ... }
-    fn try_intern_owned(&self, s: String) -> Result<Name, InternError> { ... }
-    fn intern_owned(&self, s: String) -> Name { ... } // Avoids re-allocation for owned strings
-    fn lookup(&self, name: Name) -> &str { ... }
 }
 ```
 
-The interner pre-interns ~60 keywords and common identifiers (`if`, `else`, `let`, `fn`, `Option`, `Result`, etc.) at construction time for predictable `Name` values. `InternError::ShardOverflow` is returned by the fallible variants when a shard exceeds its capacity.
-
-`SharedInterner(Arc<StringInterner>)` wraps the interner for cross-thread sharing (e.g., the test runner shares one interner across all parallel test threads). `SharedArena(Arc<ExprArena>)` provides the same pattern for cross-module arena references.
+~60 keywords and common identifiers are pre-interned at construction time for predictable `Name` values. `SharedInterner(Arc<StringInterner>)` enables zero-cost sharing across parallel test threads.
 
 See [String Interning](string-interning.md) for details.
 
-### 5. TypeId in ori_ir
+## Canonical IR: The Backend Bridge
 
-The `ori_ir` crate contains only `TypeId`, a flat `u32` index used as the parser-level type representation. It has ~14 pre-interned constants for primitive types:
+The canonical IR deserves special attention because it's the key to Ori's dual-backend architecture. It transforms the raw AST in three ways:
+
+1. **Desugaring** — Named calls → positional, template literals → concat, spreads → method calls (7 sugar forms)
+2. **Pattern compilation** — Match expressions → decision trees (Maranget 2008 algorithm)
+3. **Constant folding** — Compile-time expressions → `ConstantPool` entries
 
 ```rust
-#[repr(transparent)]
-pub struct TypeId(u32);
-
-impl TypeId {
-    pub const INT: TypeId = TypeId(0);
-    pub const FLOAT: TypeId = TypeId(1);
-    pub const BOOL: TypeId = TypeId(2);
-    pub const STR: TypeId = TypeId(3);
-    // ... through ORDERING = 11
-
-    pub const INFER: TypeId = TypeId(12);     // Placeholder during inference
-    pub const SELF_TYPE: TypeId = TypeId(13); // Self type in trait/impl contexts
-
-    pub const FIRST_COMPOUND: u32 = 64;      // First dynamically allocated compound type
+struct CanonResult {
+    arena: CanArena,                    // Canonical expressions
+    constants: ConstantPool,            // Pre-evaluated constants
+    decision_trees: DecisionTreePool,   // Compiled pattern matches
+    roots: Vec<CanonRoot>,              // Function/test entry points
+    problems: Vec<PatternProblem>,      // Exhaustiveness violations
 }
 ```
 
-The actual `Type` enum, `TypeData`, type interning, `StructType`, `EnumType`, and `TypeRegistry` all live in the `ori_types` crate, not in `ori_ir`. See [Type Representation](type-representation.md) for details.
+Every `CanNode` carries its resolved type, so neither backend needs to re-infer. The interpreter evaluates `CanExpr` directly; the LLVM path lowers `CanExpr` to ARC IR first.
 
-### 6. Canonical IR
+`SharedCanonResult` wraps `CanonResult` in `Arc` for zero-copy sharing across consumers — the evaluator, test runner, `check` command, and LLVM backend all read from the same cached instance.
 
-The `canon/` module contains the canonical IR (`CanExpr`), a sugar-free, type-annotated intermediate representation consumed by both the interpreter (`ori_eval`) and the ARC/LLVM backend (`ori_arc`):
+## ID Types and Sentinel Values
 
-- `canon/mod.rs` — `CanExpr`, `CanId`, `CanRange` (distinct index space from `ExprId`/`ExprRange`)
-- `canon/tree.rs` — `DecisionTree`, `FlatPattern`, `PatternMatrix` for compiled pattern matching
+Several types use the ID pattern for indirection:
 
-### 7. Pattern Resolution
+| Type | Size | Storage | Sentinel |
+|------|------|---------|----------|
+| `ExprId(u32)` | 4B | `ExprArena` | `INVALID = u32::MAX` |
+| `CanId(u32)` | 4B | `CanArena` | — |
+| `ArcVarId(u32)` | 4B | `ArcFunction` | — |
+| `Name(u32)` | 4B | `StringInterner` | `EMPTY = 0` |
+| `TypeId(u32)` | 4B | `ori_types` pool | `ERROR = 8` |
+| `Idx(u32)` | 4B | `Pool` | `NONE = u32::MAX` |
 
-The `pattern_resolution.rs` module provides types that bridge the type checker and evaluator:
-
-- `PatternKey` — identifies a match pattern in the AST (either a top-level arm or nested pattern)
-- `PatternResolution` — type-checker resolution of ambiguous `Binding` patterns (e.g., resolving `Pending` to a unit variant)
-
-These live in `ori_ir` because both `ori_types` and `ori_eval` need them.
-
-## Salsa Compatibility
-
-All IR types derive the traits required by Salsa:
-
-```rust
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct Module { ... }
-
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct ExprArena { ... }
-
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub struct TokenList { ... }
-```
-
-This enables:
-- Memoization of query results
-- Early cutoff when outputs unchanged
-- Dependency tracking across queries
-
-## Visitor Pattern
-
-The IR includes a visitor pattern for AST traversal:
-
-```rust
-pub trait Visitor {
-    fn visit_expr(&mut self, expr: &Expr, arena: &ExprArena);
-    fn visit_function(&mut self, func: &Function);
-    fn visit_type(&mut self, ty: &TypeDef);
-    // ...
-}
-
-pub fn walk_module(visitor: &mut impl Visitor, module: &Module, arena: &ExprArena) {
-    for func in &module.functions {
-        visitor.visit_function(func);
-        walk_expr(visitor, func.body, arena);
-    }
-    // ...
-}
-```
-
-Used for:
-- Type checking traversal
-- Pretty printing
-- Code analysis
-
-## Type IDs
-
-Several types use ID patterns for indirection:
-
-| Type | ID | Storage |
-|------|-----|---------|
-| `Expr` | `ExprId(u32)` | `ExprArena` |
-| `Stmt` | `StmtId(u32)` | `ExprArena` (stmt_list) |
-| `ParsedType` | `ParsedTypeId(u32)` | `ExprArena` (type_list) |
-| `MatchPattern` | `MatchPatternId(u32)` | `ExprArena` (pattern_list) |
-| `String` | `Name(u32)` | `StringInterner` |
-| `Type` | `TypeId(u32)` | `ori_types` type pool |
-| `TypeVar` | `TypeVar(u32)` | `InferenceContext` |
-
-All ID types use `INVALID = u32::MAX` as their sentinel value:
-```rust
-impl ExprId {
-    pub const INVALID: ExprId = ExprId(u32::MAX);
-    pub fn is_valid(self) -> bool { self.0 != u32::MAX }
-}
-```
-
-Benefits:
-- O(1) comparison (compare IDs, not contents)
-- Memory sharing (same ID = same content)
-- Salsa-friendly (IDs are hashable)
-
-### TypeId Layout
-
-TypeId is a flat `u32` index with no sharding. Primitive types have fixed indices that match `ori_types::Idx`:
-
-| Index | Constant | Description |
-|-------|----------|-------------|
-| 0 | `INT` | Signed integer (range: [-2⁶³, 2⁶³-1]) |
-| 1 | `FLOAT` | IEEE 754 double-precision |
-| 2 | `BOOL` | Boolean |
-| 3 | `STR` | UTF-8 string |
-| 4 | `CHAR` | Unicode scalar value |
-| 5 | `BYTE` | Unsigned integer (range: [0, 255]) |
-| 6 | `UNIT` (alias: `VOID`) | Unit type |
-| 7 | `NEVER` | Bottom type |
-| 8 | `ERROR` | Error placeholder |
-| 9 | `DURATION` | Duration (nanoseconds) |
-| 10 | `SIZE` | Size (bytes/count) |
-| 11 | `ORDERING` | Less / Equal / Greater |
-| 12 | `INFER` | Inference placeholder (not stored in type pool) |
-| 13 | `SELF_TYPE` | Self type marker (not stored in type pool) |
-| 64+ | `FIRST_COMPOUND` | Dynamically allocated compound types |
-
-## Derived Trait Definitions
-
-The `derives.rs` module contains types used by both the type checker and evaluator for `#[derive(...)]` support:
-
-```rust
-/// A derived trait that can be auto-implemented.
-pub enum DerivedTrait {
-    Eq,         // Structural equality
-    Clone,      // Field-by-field cloning
-    Hashable,   // Hash computation
-    Printable,  // String representation
-    Debug,      // Debug representation
-    Default,    // Default value construction
-    Comparable, // Total ordering
-}
-
-/// Information about a derived method.
-pub struct DerivedMethodInfo {
-    pub trait_kind: DerivedTrait,
-    pub field_names: Vec<Name>,  // Struct fields (in order)
-}
-```
-
-These types live in `ori_ir` (rather than `ori_types` or `ori_eval`) to avoid circular dependencies---both the type checker and evaluator need these definitions, and `ori_ir` has no dependencies.
+All IDs are `Copy + Eq + Hash` — cheap to pass, compare, and store in Salsa queries.
 
 ## Size Assertions
 
-To prevent accidental size regressions in frequently-allocated types, the compiler uses compile-time size assertions. The `static_assert_size!` macro is defined in `ori_ir` and used across all crates:
-
-```rust
-// In ori_ir/src/lib.rs
-#[macro_export]
-macro_rules! static_assert_size {
-    ($ty:ty, $size:expr) => {
-        const _: [(); $size] = [(); ::std::mem::size_of::<$ty>()];
-    };
-}
-
-// In ori_ir type files
-#[cfg(target_pointer_width = "64")]
-mod size_asserts {
-    ori_ir::static_assert_size!(Span, 8);
-    ori_ir::static_assert_size!(Token, 24);
-    ori_ir::static_assert_size!(TokenKind, 16);
-    ori_ir::static_assert_size!(Expr, 32);
-    ori_ir::static_assert_size!(ExprKind, 24);
-    ori_ir::static_assert_size!(CanExpr, 24);
-}
-
-// In ori_types
-#[cfg(target_pointer_width = "64")]
-mod size_asserts {
-    ori_ir::static_assert_size!(Type, 32);
-}
-```
-
-Current sizes (64-bit):
+Frequently-allocated types have compile-time size assertions to prevent accidental regressions:
 
 | Type | Size | Notes |
 |------|------|-------|
-| `Span` | 8 bytes | Two u32 offsets |
-| `Token` | 24 bytes | TokenKind + Span |
-| `TokenKind` | 16 bytes | Largest variant payload + discriminant |
-| `Expr` | 32 bytes | ExprKind (24) + Span (8) |
-| `ExprKind` | 24 bytes | Compact enum via ExprId indirection and ranges |
-| `CanExpr` | 24 bytes | Canonical IR expression (sugar-free) |
-| `Type` | 32 bytes | In ori_types type pool |
-| `TypeVar` | 4 bytes | Just a u32 wrapper |
+| `Span` | 8B | Two u32 offsets |
+| `Token` | 24B | TokenKind + Span |
+| `TokenKind` | 16B | Largest variant payload + discriminant |
+| `ExprKind` | 24B | Compact via ExprId indirection and ranges |
+| `CanExpr` | 24B | Sugar-free canonical expression |
+| `Item` | 5B | Tag(1) + data(4), may pad to 8 |
 
-If any of these sizes change, compilation fails with a clear error message, allowing intentional review of the change.
+The `static_assert_size!` macro catches any change at compile time, forcing intentional review.
+
+## Salsa Compatibility
+
+All IR types derive `Clone, Eq, PartialEq, Hash, Debug` — the traits required by Salsa for memoization and early cutoff. The flat arena and interned ID patterns make this natural: comparing two `ExprArena` values is comparing two `Vec`s of small structs, not traversing pointer-heavy trees.
 
 ## Related Documents
 
-- [Flat AST](flat-ast.md) - Why we avoid boxing
-- [Arena Allocation](arena-allocation.md) - How expressions are stored
-- [String Interning](string-interning.md) - Identifier deduplication
-- [Type Representation](type-representation.md) - How types are encoded
+- [Flat AST](flat-ast.md) — Why arena + ID over Box, with memory layout comparison
+- [Arena Allocation](arena-allocation.md) — SoA layout, capacity heuristics, SharedArena
+- [String Interning](string-interning.md) — 16-shard concurrent interner, pre-interned keywords
+- [Type Representation](type-representation.md) — Pool, Tag, Item, TypeFlags, extra array layouts

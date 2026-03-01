@@ -265,6 +265,55 @@ fn consuming_receiver_only_not_in_borrowing() {
     }
 }
 
+// all_cow_method_names tests
+
+#[test]
+fn all_cow_method_names_unions_both_sets() {
+    let interner = StringInterner::default();
+    let all = all_cow_method_names(&interner);
+    let receiver = consuming_receiver_builtin_names(&interner);
+    let receiver_only = consuming_receiver_only_builtin_names(&interner);
+
+    // Every name from both sets must be in the union.
+    for name in &receiver {
+        assert!(
+            all.contains(name),
+            "all_cow_method_names missing consuming_receiver name"
+        );
+    }
+    for name in &receiver_only {
+        assert!(
+            all.contains(name),
+            "all_cow_method_names missing consuming_receiver_only name"
+        );
+    }
+
+    // The union must not have more names than the two sets combined.
+    // (Some names like "remove" appear in both, so the union may be smaller.)
+    assert!(all.len() <= receiver.len() + receiver_only.len());
+    // But it must be at least as large as the larger set.
+    assert!(all.len() >= receiver.len());
+    assert!(all.len() >= receiver_only.len());
+}
+
+#[test]
+fn all_cow_method_names_includes_map_set_operations() {
+    // Verify that map/set COW operations are included in the union.
+    // These come from consuming_receiver_only and must not be missed when
+    // building COW summaries for uniqueness analysis.
+    let interner = StringInterner::default();
+    let all = all_cow_method_names(&interner);
+
+    for &method in &["difference", "intersection", "union", "remove"] {
+        let name = interner.intern(method);
+        assert!(
+            all.contains(&name),
+            "\"{method}\" must be in all_cow_method_names — \
+             it's a COW operation whose result is always Unique"
+        );
+    }
+}
+
 #[test]
 fn set_binary_ops_in_consuming_receiver_only() {
     // Set binary operations consume the receiver but only read the second set.

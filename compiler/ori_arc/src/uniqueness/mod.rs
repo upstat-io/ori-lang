@@ -176,6 +176,11 @@ pub struct UniquenessSummary {
     ///
     /// Currently all `MaybeShared` (callers may share), but included for
     /// future interprocedural parameter refinement.
+    ///
+    /// **Note:** For builtin/COW summaries (from [`inter::build_cow_summaries`]),
+    /// this is empty — only `return_val` is meaningful. Do not index into
+    /// `params` without checking length first; use `.get(i)` or guard with
+    /// `if i < summary.params.len()`.
     pub params: Vec<Uniqueness>,
 
     /// Uniqueness of the function's return value.

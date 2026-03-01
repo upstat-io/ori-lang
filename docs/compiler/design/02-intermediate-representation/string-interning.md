@@ -277,10 +277,8 @@ pub fn type_name_with_interner<I: StringLookup>(&self, interner: &I) -> Cow<'sta
 This pattern allows the value crate to resolve struct type names without depending
 on the full interner implementation.
 
-## Limitations
+## Design Tradeoffs
 
-1. **Interned strings are never freed** - The interner only grows
-2. **Requires interner access** - Must pass interner to display names
-3. **Global state** - Interner must be accessible throughout compilation
+1. **Interned strings are never freed** — The interner only grows. Strings are leaked via `Box::leak()` for `'static` lifetime. This is intentional: the interner lives for the compilation session, and freeing individual strings would require reference counting that defeats the purpose.
 
-These are acceptable tradeoffs for the performance benefits.
+2. **Displaying names requires interner access** — `Name(42)` is meaningless without the interner to resolve it. The `StringLookup` trait and `db.interner()` pattern make this ergonomic across crate boundaries, but callers must still thread interner access to any code that formats names for error messages or debug output.

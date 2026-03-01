@@ -201,6 +201,22 @@ pub fn consuming_receiver_only_builtin_names(interner: &StringInterner) -> FxHas
         .collect()
 }
 
+/// Collect interned [`Name`]s for ALL COW methods (union of consuming-receiver
+/// and consuming-receiver-only sets).
+///
+/// This is the single integration point for uniqueness analysis: both
+/// [`consuming_receiver_builtin_names`] (list COW: `push`, `sort`, …) and
+/// [`consuming_receiver_only_builtin_names`] (map/set COW: `remove`, `union`, …)
+/// are COW operations whose results are always `Unique` (RC == 1).
+///
+/// Pass the result to [`crate::uniqueness::inter::build_cow_summaries`] as the
+/// `cow_method_names` argument.
+pub fn all_cow_method_names(interner: &StringInterner) -> FxHashSet<Name> {
+    let mut names = consuming_receiver_builtin_names(interner);
+    names.extend(consuming_receiver_only_builtin_names(interner));
+    names
+}
+
 /// Pre-computed interned sets for ARC ownership annotation.
 ///
 /// Groups the builtin method name sets that
