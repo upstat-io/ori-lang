@@ -157,15 +157,37 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// For List/Set/Map: extracts len, cap, and data pointer(s), then calls
     /// `ori_buffer_rc_dec` which correctly handles element iteration and
     /// buffer freeing. For other heap types: falls back to `ori_rc_dec`.
+    ///
+    /// When drop hints indicate the collection is provably unique (RC == 1),
+    /// emits a call to `ori_buffer_drop_unique` / `ori_map_buffer_drop_unique`
+    /// instead, skipping the atomic RC decrement entirely.
     fn emit_rc_dec_heap(&mut self, var: ArcVarId, func: &ArcFunction) {
         let val = self.var(var);
         let ty = func.var_type(var);
         let resolved = self.pool.resolve_fully(ty);
         let tag = self.pool.tag(resolved);
 
+        // Check drop hints: if this RcDec is on a provably unique collection,
+        // use the fast unique-drop path (no atomic RC decrement).
+        let is_unique = func
+            .drop_hints
+            .is_unique_drop(self.current_block_idx, self.current_instr_idx);
+
         match tag {
-            Tag::List | Tag::Set => self.emit_buffer_rc_dec_list_or_set(val, resolved, tag),
-            Tag::Map => self.emit_buffer_rc_dec_map(val, resolved),
+            Tag::List | Tag::Set => {
+                if is_unique {
+                    self.emit_buffer_drop_unique_list_or_set(val, resolved, tag);
+                } else {
+                    self.emit_buffer_rc_dec_list_or_set(val, resolved, tag);
+                }
+            }
+            Tag::Map => {
+                if is_unique {
+                    self.emit_buffer_drop_unique_map(val, resolved);
+                } else {
+                    self.emit_buffer_rc_dec_map(val, resolved);
+                }
+            }
             _ => {
                 let drop_fn = self.get_or_generate_drop_fn(ty);
                 self.call_rc_dec_all(&[val], drop_fn);
@@ -234,6 +256,85 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let val_dec_fn = self.get_or_generate_elem_dec_fn(val_type);
 
         let func_id = self.builder.runtime_fn("ori_map_buffer_rc_dec");
+        self.builder.call(
+            func_id,
+            &[
+                data,
+                cap,
+                len,
+                key_size_val,
+                val_size_val,
+                key_dec_fn,
+                val_dec_fn,
+            ],
+            "",
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Unique-drop handlers (skip atomic RC dec for provably unique collections)
+    // -----------------------------------------------------------------------
+
+    /// Emit `ori_buffer_drop_unique` for a provably unique list or set.
+    ///
+    /// Same argument extraction as `emit_buffer_rc_dec_list_or_set`, but calls
+    /// the unique-drop function which skips the atomic RC decrement.
+    fn emit_buffer_drop_unique_list_or_set(
+        &mut self,
+        val: super::ValueId,
+        resolved: ori_types::Idx,
+        tag: Tag,
+    ) {
+        let Some(data) = self.builder.extract_value(val, 2, "udrop.data_ptr") else {
+            return;
+        };
+        let Some(len) = self.builder.extract_value(val, 0, "udrop.len") else {
+            return;
+        };
+        let Some(cap) = self.builder.extract_value(val, 1, "udrop.cap") else {
+            return;
+        };
+
+        let elem_type = if tag == Tag::List {
+            self.pool.list_elem(resolved)
+        } else {
+            self.pool.set_elem(resolved)
+        };
+        let elem_size = self.element_store_size(elem_type);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
+
+        let func_id = self.builder.runtime_fn("ori_buffer_drop_unique");
+        self.builder
+            .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+    }
+
+    /// Emit `ori_map_buffer_drop_unique` for a provably unique map.
+    ///
+    /// Same argument extraction as `emit_buffer_rc_dec_map`, but calls
+    /// the unique-drop function which skips the atomic RC decrement.
+    fn emit_buffer_drop_unique_map(&mut self, val: super::ValueId, resolved: ori_types::Idx) {
+        let Some(len) = self.builder.extract_value(val, 0, "udrop.len") else {
+            return;
+        };
+        let Some(cap) = self.builder.extract_value(val, 1, "udrop.cap") else {
+            return;
+        };
+        let Some(data) = self.builder.extract_value(val, 2, "udrop.data_ptr") else {
+            return;
+        };
+
+        let key_type = self.pool.map_key(resolved);
+        let val_type = self.pool.map_value(resolved);
+
+        let key_size = self.element_store_size(key_type);
+        let val_size = self.element_store_size(val_type);
+        let key_size_val = self.builder.const_i64(key_size as i64);
+        let val_size_val = self.builder.const_i64(val_size as i64);
+        let key_dec_fn = self.get_or_generate_elem_dec_fn(key_type);
+        let val_dec_fn = self.get_or_generate_elem_dec_fn(val_type);
+
+        let func_id = self.builder.runtime_fn("ori_map_buffer_drop_unique");
         self.builder.call(
             func_id,
             &[

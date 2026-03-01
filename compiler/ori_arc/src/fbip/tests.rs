@@ -8,7 +8,7 @@ use crate::lower::ArcProblem;
 use crate::test_helpers::{b, make_func, owned_param, v};
 use crate::ArcClassifier;
 
-use super::{analyze_fbip, check_fbip_enforcement};
+use super::{analyze_fbip, check_fbip_enforcement, is_auto_fbip};
 
 /// Function with a Reset/Reuse pair → achieved, `is_fbip` = true.
 #[test]
@@ -280,4 +280,71 @@ fn enforcement_scalar_only_no_violation() {
         result.is_none(),
         "scalar-only function has no missed reuse → no violation"
     );
+}
+
+// -- is_auto_fbip tests --
+
+#[test]
+fn auto_fbip_all_static_unique() {
+    use crate::uniqueness::{CowAnnotations, CowMode};
+
+    let mut func = make_func(
+        vec![],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR],
+    );
+
+    let mut annotations = CowAnnotations::new();
+    annotations.set(0, 0, CowMode::StaticUnique);
+    annotations.set(0, 1, CowMode::StaticUnique);
+    func.cow_annotations = annotations;
+
+    assert!(is_auto_fbip(&func));
+}
+
+#[test]
+fn auto_fbip_with_dynamic_is_false() {
+    use crate::uniqueness::{CowAnnotations, CowMode};
+
+    let mut func = make_func(
+        vec![],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::STR],
+    );
+
+    let mut annotations = CowAnnotations::new();
+    annotations.set(0, 0, CowMode::StaticUnique);
+    annotations.set(0, 1, CowMode::Dynamic);
+    func.cow_annotations = annotations;
+
+    assert!(!is_auto_fbip(&func));
+}
+
+#[test]
+fn auto_fbip_empty_annotations_is_false() {
+    let func = make_func(
+        vec![],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![],
+            terminator: ArcTerminator::Return { value: v(0) },
+        }],
+        vec![Idx::INT],
+    );
+
+    assert!(!is_auto_fbip(&func));
 }

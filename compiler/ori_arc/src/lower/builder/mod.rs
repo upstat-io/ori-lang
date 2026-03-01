@@ -321,6 +321,7 @@ impl ArcIrBuilder {
             is_fbip,
             num_captures: 0,
             cow_annotations: crate::uniqueness::CowAnnotations::default(),
+            drop_hints: crate::uniqueness::DropHints::default(),
         }
     }
 }

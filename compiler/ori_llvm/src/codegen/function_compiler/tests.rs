@@ -603,6 +603,7 @@ fn make_arc_func(
         is_fbip: false,
         num_captures: 0,
         cow_annotations: ori_arc::CowAnnotations::default(),
+        drop_hints: ori_arc::DropHints::default(),
     }
 }
 

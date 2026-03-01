@@ -7,302 +7,345 @@ section: "Pattern System"
 
 # Adding New Patterns
 
-This guide explains how to add new patterns to the Ori compiler.
+## When Should Something Be a Pattern?
 
-## Overview
+Before adding a new pattern to the compiler, the first question is whether it should be a pattern at all. Most language features belong in the standard library as regular functions or methods. Patterns are reserved for constructs that genuinely require compiler support — and the bar for "genuinely requires" is high.
 
-Adding a new pattern requires changes across multiple crates:
+A construct should be a compiler pattern only if it needs one or more of these capabilities:
 
-1. Add enum variant to `FunctionExpKind` in `ori_ir`
-2. Create pattern struct implementing `PatternDefinition` in `ori_patterns`
-3. Add variant to `Pattern` enum + implement trait delegation + add match arm in registry
-4. Update parser to recognize the pattern name
-5. Add tests and documentation
+**Scoped binding injection.** The construct introduces identifiers that are only visible in specific sub-expressions. `recurse` introduces `self` scoped to `step`. A library function cannot inject bindings into its caller's scope — only the type checker can extend the type environment for specific property expressions.
 
-## Step 1: Add Enum Variant
+**Lazy property evaluation.** The construct must evaluate some properties conditionally or repeatedly. `recurse` evaluates `step` in a loop. `cache` evaluates `op` only on cache miss. Regular function arguments are evaluated eagerly before the call — there's no way for a library function to receive an unevaluated expression and decide when to evaluate it (short of requiring the caller to wrap it in a lambda, which changes the syntax).
 
-In `compiler/ori_ir/src/ast/patterns/exp.rs`:
+**Capability awareness.** The construct needs to check for or consume compiler-tracked capabilities. `cache` requires the `Cache` capability. `print` dispatches through the `Print` capability. The capability system is a compiler concept that library code cannot interact with directly.
+
+**Concurrency semantics.** The construct requires structured concurrency guarantees (join semantics, cancellation, timeout enforcement) that cannot be expressed as a regular function call without runtime support.
+
+**Divergence typing.** The construct produces the `Never` type. `panic`, `todo`, and `unreachable` must return `Never` to enable type-safe divergence. Only the type checker can assign `Never` to an expression.
+
+If a construct can be implemented as a method call with no special bindings, no lazy evaluation, no capabilities, and no divergence, it belongs in the standard library. Data transformation operations (`map`, `filter`, `fold`, `find`, `sort`, `reverse`, `take`, `skip`) all fall in this category.
+
+## The Multi-Crate Change
+
+Adding a pattern requires coordinated changes across multiple crates. This is intentional — the friction ensures each pattern addition is a deliberate architectural decision rather than a casual extension. The crates involved are:
+
+```mermaid
+flowchart LR
+    IR["ori_ir
+    FunctionExpKind enum"]
+    PAT["ori_patterns
+    PatternDefinition impl
+    Pattern enum + registry"]
+    PARSE["ori_parse
+    pattern name recognition"]
+    TYPES["ori_types
+    type checking logic"]
+    EVAL["ori_eval
+    evaluator integration"]
+
+    IR --> PAT
+    IR --> PARSE
+    IR --> TYPES
+    IR --> EVAL
+    PAT --> EVAL
+
+    classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
+    classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
+    classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
+
+    class IR frontend
+    class PARSE frontend
+    class TYPES frontend
+    class PAT canon
+    class EVAL interpreter
+```
+
+## Step-by-Step Walkthrough
+
+The following walks through adding a hypothetical `retry` pattern that retries an operation with exponential backoff. This is a realistic example — it needs lazy evaluation (retry the operation multiple times) and potentially capability awareness (for timers).
+
+### Step 1: Add the AST Variant
+
+Every pattern has a corresponding variant in `FunctionExpKind`, the enum that the parser produces and the rest of the pipeline consumes. This lives in `ori_ir` because it's a shared data type between all compiler phases:
 
 ```rust
-/// Kind of function_exp pattern.
+// compiler/ori_ir/src/ast/patterns/exp/mod.rs
+
 #[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
 pub enum FunctionExpKind {
-    // Compiler patterns (require special syntax or static analysis)
-    Recurse,
-    Parallel,
-    Spawn,
-    Timeout,
-    Cache,
-    With,
-    // Fundamental built-ins (I/O, control flow, error recovery)
-    Print,
-    Panic,
-    Catch,
-    // Developer convenience (diverge with diagnostics)
-    Todo,
-    Unreachable,
-    // Channel constructors (parsed from identifier, not lexer keywords)
-    Channel,
-    ChannelIn,
-    ChannelOut,
-    ChannelAll,
-    Take,  // <-- Add new variant
+    // ... existing variants ...
+    Retry,  // ← new variant
 }
 ```
 
-## Step 2: Create Pattern Struct
+The variant is deliberately minimal — no payload, no configuration. The pattern's properties (`operation`, `max_attempts`, `delay`) come from the AST's `NamedExpr` list, not from the enum variant.
 
-Create a new file in `compiler/ori_patterns/src/`:
+Adding this variant will cause compile errors everywhere `FunctionExpKind` is matched exhaustively — the parser, type checker, evaluator, and formatter all need updates. This is the enum dispatch guarantee in action: the Rust compiler tells you every location that needs to handle the new pattern.
+
+### Step 2: Create the Pattern Implementation
+
+Create the pattern struct and implement `PatternDefinition`:
 
 ```rust
-// take.rs
+// compiler/ori_patterns/src/retry.rs
 
 use crate::{EvalContext, EvalResult, PatternDefinition, PatternExecutor, Value};
 
-/// take(over: items, count: n) - Take first n items
-pub struct TakePattern;
+/// retry(operation:, max_attempts:, delay:) — retry with exponential backoff.
+pub struct RetryPattern;
 
-impl PatternDefinition for TakePattern {
+impl PatternDefinition for RetryPattern {
     fn name(&self) -> &'static str {
-        "take"
+        "retry"
     }
 
     fn required_props(&self) -> &'static [&'static str] {
-        &["over", "count"]
+        &["operation"]
     }
 
-    // Note: type checking is handled by ori_types, not by patterns.
-    // The type checker uses required_props() and scoped_bindings() metadata
-    // to drive inference for this pattern's properties.
+    fn optional_props(&self) -> &'static [&'static str] {
+        &["max_attempts", "delay"]
+    }
 
     fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult {
-        // Evaluate properties
-        let over = ctx.eval_prop("over", exec)?;
-        let count = ctx.eval_prop("count", exec)?.as_int()? as usize;
+        let max = match ctx.eval_prop_opt("max_attempts", exec) {
+            Some(Ok(v)) => v.as_int()? as usize,
+            Some(Err(e)) => return Err(e),
+            None => 3,  // default: 3 attempts
+        };
 
-        // Get list from over
-        let list = over.as_list()?;
+        let mut last_error = None;
+        for attempt in 0..max {
+            match ctx.eval_prop("operation", exec) {
+                Ok(value) => return Ok(value),
+                Err(e) => {
+                    last_error = Some(e);
+                    // In interpreter: no actual delay (like timeout)
+                    // Compiled output would use actual timer
+                }
+            }
+        }
 
-        // Take first n elements
-        let result: Vec<_> = list.iter()
-            .take(count)
-            .cloned()
-            .collect();
-
-        Ok(Value::list(result))
+        // All attempts failed — return last error
+        Err(last_error.unwrap())
     }
 }
 ```
 
-## Step 3: Add to Module
+Key design decisions in this implementation:
 
-Update `compiler/ori_patterns/src/lib.rs`:
+- `operation` is **required** (every retry needs something to retry)
+- `max_attempts` and `delay` are **optional** with sensible defaults
+- `operation` is evaluated **lazily** — `eval_prop` is called in a loop, re-evaluating the expression each time
+- The interpreter does not enforce actual delays — like `timeout`, real delay enforcement is deferred to the compiled output
+- Error handling preserves the last error for diagnostics
 
+### Step 3: Register in the Pattern System
+
+Three changes in `ori_patterns`:
+
+**Export the module** in `lib.rs`:
 ```rust
-mod take;
-
-pub use take::TakePattern;
+mod retry;
+pub use retry::RetryPattern;
 ```
 
-## Step 4: Register in Registry
-
-Update `compiler/ori_patterns/src/registry/mod.rs`:
-
+**Add the enum variant** in `registry/mod.rs`:
 ```rust
-// Add variant to Pattern enum
 pub enum Pattern {
     // ... existing variants ...
-    Take(TakePattern),
+    Retry(RetryPattern),
 }
+```
 
-// Add delegation in PatternDefinition impl for Pattern
+**Add delegation** in the `PatternDefinition` impl for `Pattern` — each trait method needs a new match arm:
+```rust
 impl PatternDefinition for Pattern {
     fn name(&self) -> &'static str {
         match self {
             // ... existing arms ...
-            Pattern::Take(p) => p.name(),
+            Pattern::Retry(p) => p.name(),
         }
     }
-    // ... same for all other trait methods (required_props, evaluate, etc.)
+    // Same for required_props, optional_props, evaluate, etc.
 }
+```
 
-// Add match arm in get()
-impl PatternRegistry {
-    pub fn get(&self, kind: FunctionExpKind) -> Pattern {
-        match kind {
-            // ... existing patterns ...
-            FunctionExpKind::Take => Pattern::Take(TakePattern),
-        }
+**Add the registry lookup** in `PatternRegistry::get()`:
+```rust
+pub fn get(&self, kind: FunctionExpKind) -> Pattern {
+    match kind {
+        // ... existing arms ...
+        FunctionExpKind::Retry => Pattern::Retry(RetryPattern),
     }
 }
 ```
 
-## Step 5: Update Parser
+### Step 4: Update the Parser
 
-In `compiler/ori_parse/src/grammar/expr/patterns.rs`, add the pattern name to the function_exp parser:
+The parser recognizes pattern names as context-sensitive keywords. Add the new pattern name to the function expression parser:
 
 ```rust
-fn parse_function_exp(&mut self) -> Option<FunctionExpKind> {
-    let name = self.expect_identifier()?;
-    match name.as_str() {
+// compiler/ori_parse/src/grammar/expr/patterns.rs
+
+fn parse_function_exp_kind(&mut self, name: &str) -> Option<FunctionExpKind> {
+    match name {
         "recurse" => Some(FunctionExpKind::Recurse),
         "parallel" => Some(FunctionExpKind::Parallel),
         // ... existing patterns ...
-        "take" => Some(FunctionExpKind::Take),
+        "retry" => Some(FunctionExpKind::Retry),
         _ => None,
     }
 }
 ```
 
-## Step 6: Add Tests
+### Step 5: Add Type Checking
 
-Create test file or add to existing tests:
+Type checking for patterns lives in `ori_types`, not in the pattern itself. For most patterns, the generic metadata-driven type checking is sufficient — the type checker reads `required_props()` and `optional_props()` and checks that the right properties are present with compatible types.
 
-```rust
-#[test]
-fn test_take_basic() {
-    let result = eval("take(over: [1, 2, 3, 4, 5], count: 3)");
-    assert_eq!(result, Value::list(vec![1, 2, 3]));
-}
-
-#[test]
-fn test_take_empty() {
-    let result = eval("take(over: [], count: 3)");
-    assert_eq!(result, Value::list(vec![]));
-}
-
-#[test]
-fn test_take_more_than_available() {
-    let result = eval("take(over: [1, 2], count: 5)");
-    assert_eq!(result, Value::list(vec![1, 2]));
-}
-```
-
-## Step 7: Add Documentation
-
-Update `docs/ori_lang/0.1-alpha/spec/10-patterns.md`:
-
-```markdown
-### take
-
-Takes the first n elements from a collection.
-
-**Signature:**
-```
-take(over: [T], count: int) -> [T]
-```
-
-**Arguments:**
-- `.over:` - Collection to take from
-- `.count:` - Number of elements to take
-
-**Example:**
-```ori
-take(over: [1, 2, 3, 4, 5], count: 3)  // [1, 2, 3]
-```
-```
-
-## Pattern Categories
-
-### function_exp Patterns
-
-Registered patterns using the `PatternDefinition` trait:
+For patterns with unusual type requirements, add custom logic:
 
 ```rust
-impl PatternDefinition for MyPattern {
-    fn name(&self) -> &'static str { "my_pattern" }
-    fn required_props(&self) -> &'static [&'static str] { &["arg1", "arg2"] }
-    fn evaluate(&self, ctx: &EvalContext, exec: &mut dyn PatternExecutor) -> EvalResult { ... }
-}
-```
+// compiler/ori_types/src/infer/expr/sequences.rs
 
-### Block Expression Constructs
-
-Control flow constructs (block expressions, `try`, `match`) are NOT in the pattern registry. They are:
-- Defined as AST nodes in `ori_ir/src/ast/patterns/seq.rs`
-- Type-checked directly in `ori_types`
-- Evaluated directly in `ori_eval`
-
-Do NOT add control flow constructs to the `PatternRegistry`.
-
-## Optional Features
-
-### Optional Properties
-
-```rust
-fn optional_props(&self) -> &'static [&'static str] {
-    &["limit", "offset"]
-}
-```
-
-### Scoped Bindings
-
-For patterns that introduce identifiers (like `recurse` with `self`):
-
-```rust
-fn scoped_bindings(&self) -> &'static [ScopedBinding] {
-    &[ScopedBinding {
-        name: "item",
-        for_props: &["transform"],
-        type_from: ScopedBindingType::SameAs("over"),
-    }]
-}
-```
-
-### Pattern Fusion
-
-If your pattern can fuse with others for performance:
-
-```rust
-fn can_fuse_with(&self, next: &dyn PatternDefinition) -> bool {
-    next.name() == "filter"
-}
-
-fn fuse_with(
-    &self,
-    next: &dyn PatternDefinition,
-    self_ctx: &EvalContext,
-    next_ctx: &EvalContext,
-) -> Option<FusedPattern> {
-    if next.name() == "filter" {
-        Some(FusedPattern::TakeFilter { ... })
-    } else {
-        None
+fn infer_function_exp(&mut self, kind: FunctionExpKind, ...) -> Idx {
+    match kind {
+        // ... existing patterns ...
+        FunctionExpKind::Retry => {
+            // operation must return Result<T, E>
+            // max_attempts must be int
+            // delay must be Duration
+            // result type is Result<T, E>
+            self.infer_retry(props)
+        }
     }
 }
 ```
 
+### Step 6: Add Tests
+
+Tests should cover basic usage, edge cases, and error conditions:
+
+```rust
+#[test]
+fn test_retry_succeeds_first_attempt() {
+    let result = eval("retry(operation: Ok(42))");
+    assert_eq!(result, Value::ok(Value::int(42)));
+}
+
+#[test]
+fn test_retry_succeeds_after_failures() {
+    // Use a stateful operation that fails twice then succeeds
+    let result = eval(r#"
+        let mut count = 0
+        retry(
+            operation: {
+                count += 1
+                if count < 3 then Err("not yet")
+                else Ok(count)
+            },
+            max_attempts: 5,
+        )
+    "#);
+    assert_eq!(result, Value::ok(Value::int(3)));
+}
+
+#[test]
+fn test_retry_exhausts_attempts() {
+    let result = eval(r#"
+        retry(
+            operation: Err("always fails"),
+            max_attempts: 3,
+        )
+    "#);
+    assert!(result.is_err());
+}
+```
+
+## Construct Boundaries: What Is NOT a Pattern
+
+It's equally important to understand what should NOT be added to the pattern registry.
+
+### Block Expression Constructs
+
+Control flow constructs (`{ }` blocks, `try { }`, `match expr { }`) are NOT patterns. They are:
+- Defined as AST nodes in `ori_ir`
+- Type-checked directly in `ori_types`
+- Evaluated directly in `ori_eval`
+
+These constructs have fundamentally different syntax (block bodies, arms, scrutinees) that doesn't fit the named-property model of patterns. Do not add control flow constructs to the `PatternRegistry`.
+
+### Collection Methods
+
+Data transformation operations like `map`, `filter`, `fold`, `find`, `take`, `skip`, `sort`, `reverse` are collection methods in the standard library, not patterns. They compose naturally as method calls:
+
+```ori
+// These are method calls, not patterns
+items.map(transform: x -> x * 2)
+items.filter(predicate: x -> x > 0)
+items.fold(initial: 0, op: (acc, x) -> acc + x)
+```
+
+These don't need scoped bindings, lazy evaluation, capabilities, or divergence typing. They work perfectly as regular methods.
+
+### Simple Functions
+
+If a construct can be implemented as a regular function with no special compiler support, it should be. For example, `retry` could potentially be a library function if it accepted a closure:
+
+```ori
+// Library version (if we don't need lazy re-evaluation)
+@retry (op: () -> Result<T, E>, max_attempts: int = 3) -> Result<T, E> = { ... }
+```
+
+The pattern version is justified only if the property-based syntax (`retry(operation: expr)`) is significantly more ergonomic than the closure-based syntax, or if the pattern needs capabilities or scoped bindings that a regular function cannot provide.
+
 ## Checklist
 
-Before submitting:
+Before submitting a new pattern:
 
-- [ ] Added `FunctionExpKind` variant in `ori_ir`
-- [ ] Created pattern struct in `ori_patterns`
-- [ ] Implemented `PatternDefinition` trait with correct signatures
-- [ ] Added variant to `Pattern` enum with trait delegation + match arm in registry
-- [ ] Updated parser to recognize pattern name
-- [ ] Type checking in `ori_types` handles the new pattern's properties
-- [ ] Evaluation handles edge cases
-- [ ] Unit tests cover basic usage
-- [ ] Unit tests cover error cases
-- [ ] Documentation added to spec
-- [ ] All crates compile (`cargo build -p ori_ir -p ori_patterns -p ori_parse`)
+- [ ] **Justified** — the construct genuinely needs compiler support (scoped bindings, lazy evaluation, capabilities, concurrency, or divergence)
+- [ ] **`FunctionExpKind` variant** added in `ori_ir`
+- [ ] **Pattern struct** created in `ori_patterns` as a ZST
+- [ ] **`PatternDefinition` trait** implemented with correct `required_props`, `optional_props`, `scoped_bindings`
+- [ ] **`Pattern` enum variant** added with trait delegation in each method
+- [ ] **Registry `get()` arm** added
+- [ ] **Parser** recognizes the pattern name
+- [ ] **Type checking** in `ori_types` handles the pattern's type requirements
+- [ ] **Evaluator** integration if needed beyond generic dispatch
+- [ ] **Unit tests** cover basic usage, edge cases, and error conditions
+- [ ] **All crates compile** — `cargo build -p ori_ir -p ori_patterns -p ori_parse -p ori_types -p ori_eval`
+- [ ] **Documentation** added to the language spec
 
 ## Common Mistakes
 
-1. **Forgetting to update all locations** - Pattern needs changes in `ori_ir`, `ori_patterns`, `ori_parse`
-2. **Wrong trait signature** - Use `required_props()` not `arguments()`
-3. **Not using context types** - Use `EvalContext`/`PatternExecutor`, not raw evaluator
-4. **Missing parser update** - Pattern won't parse without adding to parser
-5. **Thread safety** - All patterns must be `Send + Sync` (ZSTs are automatically)
+**Forgetting to update all match sites.** The enum dispatch system catches this — the Rust compiler will error on every non-exhaustive match. But it's worth running `cargo check` across all crates early to see all the locations at once.
 
-## Note on Stdlib Methods
+**Putting type checking logic in the pattern.** `PatternDefinition` has no `type_check()` method. Type checking belongs in `ori_types`, which reads the pattern's metadata. If you find yourself wanting to add type inference to a pattern, add it to `ori_types/src/infer/expr/sequences.rs` instead.
 
-Data transformation operations like `map`, `filter`, `fold`, `find`, `take`, `skip` are actually **collection methods** in stdlib, not patterns. They don't require compiler support.
+**Using raw evaluator APIs instead of PatternExecutor.** Patterns should only interact with the evaluator through `EvalContext` and `PatternExecutor`. Direct access to `Evaluator` internals creates coupling that breaks the abstraction boundary.
 
-Only add to the pattern registry if your construct genuinely needs:
-- Special syntax not expressible as a method call
-- Scoped bindings (introducing new identifiers)
-- Capability-aware behavior
-- Concurrency semantics
-- Control flow manipulation
+**Adding data transformations as patterns.** `map`, `filter`, `fold`, `take`, `skip`, `sort` — these are collection methods, not patterns. If your construct doesn't need scoped bindings, lazy evaluation, or capability tracking, it belongs in the standard library.
+
+**Not handling the interpreter stub case.** Some patterns (like `timeout`, `parallel`) can't be fully implemented in the tree-walking interpreter. Provide an honest stub that evaluates the core operation and emits a `tracing::warn!()` about the missing functionality. Don't silently ignore the pattern.
+
+## Prior Art
+
+### Rust — Adding Compiler Intrinsics
+
+[Rust](https://github.com/rust-lang/rust) adds intrinsics by declaring them in `core::intrinsics`, adding recognition in `rustc_codegen_ssa`, and implementing code generation in each backend (LLVM, Cranelift). Like Ori, this requires coordinated changes across multiple crates. Unlike Ori, Rust intrinsics bypass the type system's normal trait resolution — they're recognized by `DefId`, not by pattern matching on syntax.
+
+### GHC — Adding Built-in Functions
+
+[GHC](https://gitlab.haskell.org/ghc/ghc) adds primops by editing `primops.txt.pp`, a specification file that generates Haskell code for the type checker, code generator, and documentation. This is more automated than Ori's manual multi-crate approach — the specification file is the single source of truth, and code generation ensures consistency. Ori achieves consistency through the `PatternDefinition` trait (metadata in one place) and Rust's exhaustive matching (compile errors for missing cases).
+
+### Zig — Adding Builtins
+
+[Zig](https://github.com/ziglang/zig) adds builtins by adding an entry to the `builtin_fns` array with a name, parameter count, and evaluation function pointer. This is simpler than Ori's approach (one location vs. five) but provides fewer guarantees — there's no exhaustive matching to catch missing handlers, and no trait system to enforce consistent metadata.
+
+## Design Tradeoffs
+
+**Multi-crate friction vs. single-file simplicity.** Ori's pattern system requires changes in 5 crates to add a pattern. A single-crate design (all pattern logic in one file) would be simpler but would violate the compiler's layering: `ori_ir` defines types, `ori_parse` builds AST, `ori_types` infers types, `ori_patterns` defines behavior, `ori_eval` executes. Each crate has a single responsibility, and the cost of cross-crate coordination is the price of that separation.
+
+**Closed enum vs. open registration.** The closed `Pattern` enum means every pattern addition is a compile-time decision. An open registry (like a `HashMap<String, Box<dyn PatternDefinition>>`) would allow runtime extension — potentially even user-defined patterns loaded from plugins. Ori chooses the closed approach because patterns are safety-critical compiler constructs (they affect type checking, control flow, and capability tracking), not user-extensible behavior. The exhaustive matching guarantee is worth more than runtime extensibility for this use case.
+
+**Metadata-driven type checking vs. pattern-owned type checking.** The pattern declares metadata; `ori_types` handles inference. This centralizes type checking logic but means complex patterns need custom code in `ori_types`. If patterns owned their type checking, adding a pattern would be more self-contained, but type checking logic would be scattered across `ori_patterns` and harder to maintain consistently.

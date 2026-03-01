@@ -14,55 +14,55 @@ Every file to be rewritten, grouped by section. Check off as completed.
 
 ## Section 01: Architecture (4 files)
 
-- [ ] `01-architecture/index.md`
-- [ ] `01-architecture/pipeline.md`
-- [ ] `01-architecture/salsa-integration.md`
-- [ ] `01-architecture/data-flow.md`
+- [x] `01-architecture/index.md` — Full book treatment: conceptual foundations, classical approaches, prior art with links, dark Mermaid
+- [x] `01-architecture/pipeline.md` — Full book treatment: push vs pull, fork point design, prior art (Rust/GHC/Go/Zig)
+- [x] `01-architecture/salsa-integration.md` — Full book treatment: incremental computation foundations, design tradeoffs, prior art (rust-analyzer/Roslyn/Make)
+- [x] `01-architecture/data-flow.md` — Full book treatment: progressive refinement, parallel arrays, ownership flow, design tradeoffs
 
 ## Section 02: Intermediate Representation (5 files)
 
-- [ ] `02-intermediate-representation/index.md`
-- [ ] `02-intermediate-representation/flat-ast.md`
-- [ ] `02-intermediate-representation/arena-allocation.md`
-- [ ] `02-intermediate-representation/string-interning.md`
-- [ ] `02-intermediate-representation/type-representation.md`
+- [x] `02-intermediate-representation/index.md` — Full book treatment: conceptual foundations (what are IRs, classical approaches), three-tier design, dark Mermaid, prior art (Zig/rustc/Lean/GHC/Roslyn)
+- [x] `02-intermediate-representation/flat-ast.md` — Full book treatment: tree vs flat, ExprId/ExprRange design, SoA memory layout, prior art (Zig/Roslyn/Swift/Tree-sitter)
+- [x] `02-intermediate-representation/arena-allocation.md` — Full book treatment: region-based memory (Tofte & Talpin), bump/typed/ID-based arenas, SoA cache math, prior art (Zig/rustc/V8/LLVM/ECS)
+- [x] `02-intermediate-representation/string-interning.md` — Full book treatment: LISP symbol tables, sharding strategies, Name encoding, prior art (rustc/Go/Java/Lua/V8)
+- [x] `02-intermediate-representation/type-representation.md` — Full book treatment: enum trees vs interned pools, Tag range architecture, Merkle hashing, TypeFlags propagation, prior art (Zig InternPool/rustc TyKind/GHC/Lean 4)
 
 ## Section 03: Lexer (2 files)
 
-- [ ] `03-lexer/index.md`
-- [ ] `03-lexer/token-design.md`
+- [x] `03-lexer/index.md` — Full book treatment: conceptual foundations (what is lexical analysis, classical approaches, generated vs hand-written), two-layer architecture, template literals, greater-than splitting, dark Mermaid, prior art (Rust/Go/Zig/TS/Clang/GHC)
+- [x] `03-lexer/token-design.md` — Full book treatment: conceptual foundations (what are tokens, representation design space), TokenKind enum design, TokenFlags, TokenList parallel arrays, literal design, prior art (Rust/Zig/TS/Roslyn/GHC)
 
 ## Section 04: Parser (5 files)
 
-- [ ] `04-parser/index.md`
-- [ ] `04-parser/pratt-parser.md`
-- [ ] `04-parser/error-recovery.md`
-- [ ] `04-parser/grammar-modules.md`
-- [ ] `04-parser/incremental-parsing.md`
+- [x] `04-parser/index.md` — Full book treatment: conceptual foundations (what is parsing, classical approaches — recursive descent, LR, Pratt, PEG, combinators), Ori's distinctive choices, dark Mermaid, prior art with links (Rust/Go/Zig/TS/Elm/Roc/Roslyn/tree-sitter/GHC/Clang)
+- [x] `04-parser/pratt-parser.md` — Full book treatment: conceptual foundations (operator precedence problem, recursive descent chain, Pratt's 1973 insight, shunting-yard), binding power model with worked examples, associativity encoding, static OPER_TABLE, compound operator synthesis, prior art
+- [x] `04-parser/error-recovery.md` — Full book treatment: conceptual foundations (error recovery problem, panic mode, phrase-level, Burke-Fisher, progress tracking), four-way ParseOutcome, backtracking macros, TokenSet bitfield, synchronization, prior art (Elm/Parsec/Roc/Rust/Roslyn/tree-sitter/Clang)
+- [x] `04-parser/grammar-modules.md` — Full book treatment: conceptual foundations (parser organization, monolithic vs modular), module-per-construct design, series combinator, soft keywords, return type conventions, cross-module dependency diagram, prior art
+- [x] `04-parser/incremental-parsing.md` — Full book treatment: conceptual foundations (IDE problem, granularity spectrum, red-green trees, tree-sitter, Salsa), declaration-level reuse algorithm, arena independence, Salsa composition, prior art (tree-sitter/Roslyn/TS/rust-analyzer/Zig/GHC)
 
 ## Section 05: Type System (6 files)
 
-- [ ] `05-type-system/index.md`
-- [ ] `05-type-system/pool-architecture.md`
-- [ ] `05-type-system/type-inference.md`
-- [ ] `05-type-system/unification.md`
-- [ ] `05-type-system/type-environment.md`
-- [ ] `05-type-system/type-registry.md`
+- [x] `05-type-system/index.md` — Full book treatment: conceptual foundations (type system design space, HM history, inference strategies), what makes Ori distinctive, dark Mermaid architecture + multi-pass diagrams, prior art with links (Damas-Milner/Zig/rustc/GHC/Lean 4/Elm/Roc), design tradeoffs
+- [x] `05-type-system/pool-architecture.md` — Full book treatment: conceptual foundations (type interning, hash-consing tradition, SoA vs AoS), Merkle hash propagation, Item/extra layout, VarState lifecycle, TypeFlags propagation, prior art with links (Zig InternPool/rustc TyKind/GHC Uniques/V8/ECS), design tradeoffs
+- [x] `05-type-system/type-inference.md` — Full book treatment: conceptual foundations (Curry/Hindley/Milner/Damas history, Algorithm W vs J, bidirectional checking, constraint-based), InferEngine architecture, worked examples (let binding, let-polymorphism, collections, match), capability tracking, prior art with links (Damas-Milner/Pierce-Turner/Kiselyov/Elm/Roc), design tradeoffs
+- [x] `05-type-system/unification.md` — Full book treatment: conceptual foundations (Robinson 1965, union-find, occurs check, substitution maps vs linking), core algorithm walkthrough, flag-gated occurs check, rank system with generalization/instantiation, Never/Error handling, prior art with links (Robinson/Tarjan/Martelli-Montanari/Kiselyov/OCaml/GHC), design tradeoffs
+- [x] `05-type-system/type-environment.md` — Full book treatment: conceptual foundations (symbol tables, scope chain approaches, functional vs mutable), Rc-linked design with CoW, shadowing, polymorphic bindings, scope usage patterns, edit-distance suggestions, prior art with links (ML/OCaml/GHC/rustc/Elm), design tradeoffs
+- [x] `05-type-system/type-registry.md` — Full book treatment: conceptual foundations (nominal vs structural typing, typeclasses, method resolution), three registries architecture, TypeKind/TraitEntry/ImplEntry, object safety, method resolution order, registration ordering, prior art with links (Haskell/Rust/Swift/Go), design tradeoffs
 
 ## Section 06: Pattern System (5 files)
 
-- [ ] `06-pattern-system/index.md`
-- [ ] `06-pattern-system/pattern-trait.md`
-- [ ] `06-pattern-system/pattern-registry.md`
-- [ ] `06-pattern-system/pattern-fusion.md`
-- [ ] `06-pattern-system/adding-patterns.md`
+- [x] `06-pattern-system/index.md` — Full book treatment: conceptual foundations (compiler-level patterns, partitioning problem, classical approaches), what makes Ori distinctive, dark Mermaid, match pattern system, prior art with links (Lisp/Rust/Haskell/Zig/Go/Koka), design tradeoffs
+- [x] `06-pattern-system/pattern-trait.md` — Full book treatment: conceptual foundations (trait-based abstraction for compiler constructs, interface design), focused trait hierarchy, context types, scoped bindings, worked examples (recurse, timeout), prior art with links (GHC/Rust/Clang/Zig), design tradeoffs
+- [x] `06-pattern-system/pattern-registry.md` — Full book treatment: conceptual foundations (dispatch strategies — HashMap, trait object, visitor, enum, function pointers), enum dispatch design, registry architecture, prior art with links (Rust/GHC/Zig/Roslyn), design tradeoffs
+- [x] `06-pattern-system/pattern-fusion.md` — Full book treatment: conceptual foundations (fusion/deforestation history — Wadler 1988, Gill 1993, stream fusion 2007), fusible combinations, data structures, prior art with links (GHC/Rust/Java/Futhark/Polly), design tradeoffs
+- [x] `06-pattern-system/adding-patterns.md` — Full book treatment: conceptual foundations (when should something be a pattern, construct boundaries), step-by-step walkthrough with worked example, prior art with links (Rust/GHC/Zig), design tradeoffs
 
 ## Section 07: Canonicalization (4 files)
 
-- [ ] `07-canonicalization/index.md`
+- [x] `07-canonicalization/index.md` — Full book treatment: conceptual foundations (IR spectrum, when to canonicalize, classical approaches), what makes it distinctive (single-pass, type-level sugar elimination, Arc-shared trees, TypeRef phase boundary), architecture with dark Mermaid, crate organization, prior art with links (Roc/Elm/GHC/Rust/Zig), design tradeoffs
 - [x] `07-canonicalization/desugaring.md` — Full book treatment: conceptual foundations, prior art, theory-to-implementation
-- [ ] `07-canonicalization/pattern-compilation.md`
-- [ ] `07-canonicalization/constant-folding.md`
+- [x] `07-canonicalization/pattern-compilation.md` — Full book treatment: conceptual foundations (Augustsson 1985, Wadler 1987, Maranget 2008, backtracking vs decision trees vs DAGs), two-phase flatten/compile architecture, worked example with guard, path-based navigation, nested type tracking, prior art with links (Wadler/Augustsson/Maranget/Rust/Elm/GHC/Gleam/Koka), design tradeoffs
+- [x] `07-canonicalization/constant-folding.md` — Full book treatment: conceptual foundations (partial evaluation, Futamura 1971, compile-time evaluation spectrum), inline vs separate pass, constness classification, pure operators, integer/float/duration/size folding with overflow handling, dead branch elimination, ConstantPool with content addressing and bit-pattern floats, prior art with links (GCC/LLVM/Zig/Roc/Rust/Elm), design tradeoffs
 
 ## Section 08: Evaluator (5 files)
 
@@ -140,4 +140,4 @@ Every file to be rewritten, grouped by section. Check off as completed.
 
 ---
 
-**Total: 76 files** (2 done, 74 remaining)
+**Total: 76 files** (32 done, 44 remaining)

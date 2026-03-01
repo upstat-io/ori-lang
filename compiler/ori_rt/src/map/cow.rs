@@ -54,6 +54,7 @@ pub extern "C" fn ori_map_insert_cow(
     key_eq: extern "C" fn(*const u8, *const u8) -> bool,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || key.is_null() || value.is_null() {
@@ -70,17 +71,21 @@ pub extern "C" fn ori_map_insert_cow(
 
     if let Some(idx) = found_idx {
         // Key exists — overwrite value
-        cow_insert_existing(data, n, c, ks, vs, idx, value, key_inc, val_inc, out_ptr);
+        cow_insert_existing(
+            data, n, c, ks, vs, idx, value, key_inc, val_inc, cow_mode, out_ptr,
+        );
     } else {
         // New key — append
-        cow_insert_new(data, n, c, ks, vs, key, value, key_inc, val_inc, out_ptr);
+        cow_insert_new(
+            data, n, c, ks, vs, key, value, key_inc, val_inc, cow_mode, out_ptr,
+        );
     }
 }
 
 /// COW insert when key already exists at `idx` — overwrite value.
 #[expect(
     clippy::too_many_arguments,
-    reason = "COW map parameters cannot be grouped — data/len/cap/key_size/val_size/idx/value/inc fns are all independent scalars from the split-buffer layout"
+    reason = "COW map parameters cannot be grouped — data/len/cap/key_size/val_size/idx/value/inc fns/cow_mode are all independent scalars from the split-buffer layout"
 )]
 fn cow_insert_existing(
     data: *mut u8,
@@ -92,9 +97,12 @@ fn cow_insert_existing(
     value: *const u8,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
-    if !data.is_null() && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = !data.is_null() && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         // FAST PATH: unique — overwrite value in place
         unsafe {
             let val_dst = data.add(cap * ks + idx * vs);
@@ -138,7 +146,7 @@ fn cow_insert_existing(
 /// COW insert for a new key — append to end.
 #[expect(
     clippy::too_many_arguments,
-    reason = "COW map parameters cannot be grouped — data/len/cap/key_size/val_size/key/value/inc fns are all independent scalars from the split-buffer layout"
+    reason = "COW map parameters cannot be grouped — data/len/cap/key_size/val_size/key/value/inc fns/cow_mode are all independent scalars from the split-buffer layout"
 )]
 fn cow_insert_new(
     data: *mut u8,
@@ -150,12 +158,15 @@ fn cow_insert_new(
     value: *const u8,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     let new_len = len + 1;
 
     // FAST PATH: unique owner — can mutate in place
-    if !data.is_null() && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = !data.is_null() && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         if cap >= new_len {
             // Has capacity — write key + value in place
             unsafe {
@@ -259,6 +270,7 @@ pub extern "C" fn ori_map_remove_cow(
     key_eq: extern "C" fn(*const u8, *const u8) -> bool,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || key.is_null() {
@@ -280,10 +292,13 @@ pub extern "C" fn ori_map_remove_cow(
     let new_len = n - 1;
     let tail = n - idx - 1; // entries after the removed one
 
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = !data.is_null() && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+
     // Special case: removing last entry → empty sentinel
     if new_len == 0 {
         if !data.is_null() {
-            if ori_rc_is_unique(data) {
+            if is_unique {
                 ori_rc_free(data, OriMap::buffer_size(c, ks, vs), 8);
             } else {
                 ori_rc_dec(data, None);
@@ -294,7 +309,7 @@ pub extern "C" fn ori_map_remove_cow(
     }
 
     // FAST PATH: unique owner — shift left in place
-    if !data.is_null() && ori_rc_is_unique(data) {
+    if is_unique {
         unsafe {
             if tail > 0 {
                 // Shift keys left (overlapping)
@@ -387,6 +402,7 @@ pub extern "C" fn ori_map_update_cow(
     key_eq: extern "C" fn(*const u8, *const u8) -> bool,
     key_inc: Option<extern "C" fn(*mut u8)>,
     val_inc: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || key.is_null() || new_value.is_null() {
@@ -406,6 +422,6 @@ pub extern "C" fn ori_map_update_cow(
 
     // Key found — delegate to the existing "overwrite value at idx" logic
     cow_insert_existing(
-        data, n, c, ks, vs, idx, new_value, key_inc, val_inc, out_ptr,
+        data, n, c, ks, vs, idx, new_value, key_inc, val_inc, cow_mode, out_ptr,
     );
 }

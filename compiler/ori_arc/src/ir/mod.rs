@@ -29,7 +29,7 @@ use smallvec::{smallvec, SmallVec};
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::Idx;
 
-use crate::uniqueness::CowAnnotations;
+use crate::uniqueness::{CowAnnotations, DropHints};
 use crate::Ownership;
 
 // Call-site argument ownership
@@ -405,6 +405,16 @@ pub struct ArcFunction {
     /// analysis, not an independent data source.
     #[cfg_attr(feature = "cache", serde(skip))]
     pub cow_annotations: CowAnnotations,
+    /// Per-instruction drop hints for unique collection drops.
+    ///
+    /// Identifies `RcDec` instructions where the target collection is
+    /// provably unique (RC == 1), allowing the LLVM emitter to call
+    /// `ori_buffer_drop_unique` instead of `ori_buffer_rc_dec`.
+    ///
+    /// Computed at the end of the ARC pipeline (after RC elimination).
+    /// Skipped during cache serialization — derived data.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub drop_hints: DropHints,
 }
 
 // Tests

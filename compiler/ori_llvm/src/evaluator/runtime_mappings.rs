@@ -54,6 +54,11 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_list_contains_str",
     "ori_list_materialize_slice",
     "ori_list_rc_inc",
+    // Unique-drop for collections — AOT only; JIT uses native RC
+    "ori_buffer_drop_unique",
+    "ori_map_buffer_drop_unique",
+    // Collection buffer reuse — AOT only; JIT uses native allocation
+    "ori_list_reset_buffer",
     "ori_list_reverse",
     "ori_list_slice",
     "ori_list_slice_drop",

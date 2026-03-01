@@ -319,6 +319,98 @@ fn map_buffer_cleanup(
     ori_rc_free(data, total, 8);
 }
 
+/// Drop a collection buffer that is known to be uniquely owned (RC == 1).
+///
+/// Skips the atomic RC decrement entirely. Directly calls `elem_dec_fn` on
+/// each element (if non-null), then frees the buffer via `ori_rc_free`.
+///
+/// # Safety
+///
+/// The caller guarantees RC == 1 (from static uniqueness analysis). Calling
+/// this on a shared buffer (RC > 1) is undefined behavior: other references
+/// will become dangling.
+///
+/// Seamless slices cannot use this function — their cap encodes a byte offset
+/// to the original buffer, not an allocation size. The caller must fall back
+/// to `ori_buffer_rc_dec` for slices.
+#[no_mangle]
+pub extern "C" fn ori_buffer_drop_unique(
+    data: *mut u8,
+    len: i64,
+    cap: i64,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data.is_null() {
+        return;
+    }
+
+    // Defense-in-depth: slices must not reach this path.
+    debug_assert!(
+        !is_slice_cap(cap),
+        "ori_buffer_drop_unique called on a seamless slice (cap={cap})"
+    );
+
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data.cast_const(), "ori_buffer_drop_unique");
+
+    if rc_trace_enabled() {
+        rc_trace_dec(data.cast_const(), 0);
+    }
+
+    let es = elem_size.max(1) as usize;
+    let n = len.max(0) as usize;
+
+    // Clean up element children (e.g., dec RC on strings inside [str]).
+    if let Some(f) = elem_dec_fn {
+        for i in 0..n {
+            call_drop_fn(f, unsafe { data.add(i * es) });
+        }
+    }
+
+    // Free the buffer — no atomic dec needed, we know RC == 1.
+    let total = cap.max(0) as usize * es;
+    ori_rc_free(data, total, 8);
+}
+
+/// Drop a map buffer that is known to be uniquely owned (RC == 1).
+///
+/// Skips the atomic RC decrement. Directly cleans up keys and values,
+/// then frees the combined buffer.
+///
+/// # Safety
+///
+/// Same as [`ori_buffer_drop_unique`]: caller guarantees RC == 1.
+#[no_mangle]
+pub extern "C" fn ori_map_buffer_drop_unique(
+    data: *mut u8,
+    cap: i64,
+    len: i64,
+    key_size: i64,
+    val_size: i64,
+    key_dec_fn: Option<extern "C" fn(*mut u8)>,
+    val_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    if data.is_null() {
+        return;
+    }
+
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(data.cast_const(), "ori_map_buffer_drop_unique");
+
+    if rc_trace_enabled() {
+        rc_trace_dec(data.cast_const(), 0);
+    }
+
+    let ks = key_size.max(1) as usize;
+    let vs = val_size.max(1) as usize;
+    let n = len.max(0) as usize;
+    let c = cap.max(0) as usize;
+
+    // Clean up key and value children.
+    map_buffer_cleanup(data, c, n, ks, vs, key_dec_fn, val_dec_fn);
+}
+
 /// Slice-aware RC increment for collection buffers.
 ///
 /// If `cap` indicates a seamless slice (`is_slice_cap(cap) == true`),

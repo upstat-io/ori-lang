@@ -11,7 +11,7 @@ sidebar_path: "/docs/compiler-design"
 
 ## What This Document Covers
 
-This is the design documentation for the Ori compiler — a ~195,000-line Rust codebase that compiles a statically-typed, expression-based language with Hindley-Milner type inference, automatic reference counting, and capability-based effects. The compiler features a dual backend: a tree-walking interpreter for rapid development and a full LLVM pipeline for native binaries and WebAssembly.
+This is the design documentation for the Ori compiler — a multi-crate Rust codebase that compiles a statically-typed, expression-based language with Hindley-Milner type inference, automatic reference counting, and capability-based effects. The compiler features a dual backend: a tree-walking interpreter for rapid development and a full LLVM pipeline for native binaries and WebAssembly.
 
 These documents serve the same purpose as a compiler textbook's case study chapters: they explain not just *what* each component does, but *why* it was designed that way, what alternatives were considered, and how the pieces fit together. Each section opens with the general compiler concept — what problem it solves, what the classical approaches are — then shows how Ori applies and adapts those ideas.
 

@@ -202,7 +202,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_push_cow",
-        // data, len, cap, elem_ptr, elem_size, elem_align, inc_fn, out_ptr
+        // data, len, cap, elem_ptr, elem_size, elem_align, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -211,6 +211,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -218,7 +219,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_pop_cow",
-        // data, len, cap, elem_size, elem_align, inc_fn, out_ptr
+        // data, len, cap, elem_size, elem_align, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -226,6 +227,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -233,7 +235,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_set_cow",
-        // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, out_ptr
+        // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -243,6 +245,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -250,7 +253,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_insert_cow",
-        // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, out_ptr
+        // data, len, cap, index, elem_ptr, elem_size, elem_align, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -260,6 +263,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -267,7 +271,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_remove_cow",
-        // data, len, cap, index, elem_size, elem_align, inc_fn, out_ptr
+        // data, len, cap, index, elem_size, elem_align, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -276,6 +280,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -283,7 +288,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_concat_cow",
-        // data1, len1, cap1, data2, len2, cap2, elem_size, elem_align, inc_fn, out_ptr
+        // data1, len1, cap1, data2, len2, cap2, elem_size, elem_align, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -294,6 +299,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -301,7 +307,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_reverse_cow",
-        // data, len, cap, elem_size, elem_align, inc_fn, out_ptr
+        // data, len, cap, elem_size, elem_align, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -309,6 +315,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::I64,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -316,7 +323,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_sort_cow",
-        // data, len, cap, elem_size, elem_align, compare_fn, inc_fn, out_ptr
+        // data, len, cap, elem_size, elem_align, compare_fn, inc_fn, cow_mode, out_ptr
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -325,6 +332,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -332,7 +340,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_list_sort_stable_cow",
-        // Same signature as ori_list_sort_cow (stable TimSort variant)
+        // Same signature as ori_list_sort_cow (stable TimSort variant, with cow_mode)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -341,6 +349,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -422,7 +431,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_insert_cow",
-        // (data, len, cap, key, value, key_size, val_size, key_eq, key_inc, val_inc, out_ptr)
+        // (data, len, cap, key, value, key_size, val_size, key_eq, key_inc, val_inc, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -434,6 +443,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -441,7 +451,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_remove_cow",
-        // (data, len, cap, key, key_size, val_size, key_eq, key_inc, val_inc, out_ptr)
+        // (data, len, cap, key, key_size, val_size, key_eq, key_inc, val_inc, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -452,6 +462,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -511,7 +522,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_insert_cow",
-        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -521,6 +532,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -528,7 +540,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_remove_cow",
-        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -538,6 +550,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -545,7 +558,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_union_cow",
-        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -556,6 +569,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -563,7 +577,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_intersection_cow",
-        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -574,6 +588,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -581,7 +596,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_set_difference_cow",
-        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -592,6 +607,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::I64,
             Ty::Ptr,
             Ty::Ptr,
+            Ty::I32,
             Ty::Ptr,
         ],
         ret: None,
@@ -882,6 +898,49 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
         ret: None,
         attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
+    },
+    // Unique-drop for list/set buffers: skip atomic RC dec, directly
+    // clean elements + free. Same signature as ori_buffer_rc_dec.
+    RtFn {
+        name: "ori_buffer_drop_unique",
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
+    },
+    // Unique-drop for map buffers: skip atomic RC dec, directly
+    // clean keys + values + free.
+    // (data, cap, len, key_size, val_size, key_dec_fn, val_dec_fn)
+    RtFn {
+        name: "ori_map_buffer_drop_unique",
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
+    },
+    // Collection buffer reuse: reset a list/set buffer for new elements.
+    // Checks uniqueness internally — if unique, reuses buffer; if shared,
+    // decs old and allocates fresh.
+    // (old_data, old_len, old_cap, new_len, elem_size, elem_dec_fn, out_cap) -> ptr
+    RtFn {
+        name: "ori_list_reset_buffer",
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: Some(Ty::Ptr),
+        attrs: &[Attr::Nounwind],
     },
     RtFn {
         name: "ori_rc_live_count",

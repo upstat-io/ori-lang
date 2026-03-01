@@ -11,27 +11,18 @@ sidebar_path: "/docs/spec"
 
 Version 0.1-alpha
 
-## Design Principle
+## Structure
 
-**Lean Core, Rich Libraries.** The language core defines only constructs requiring special syntax or static analysis. Data transformation and utilities are standard library methods.
+This specification follows ISO/IEC document conventions:
 
-| Core (compiler) | Library (stdlib) |
-|-----------------|------------------|
-| `run`, `try`, `match`, `recurse` | `map`, `filter`, `fold`, `find` |
-| `parallel`, `spawn`, `timeout` | `retry`, `validate` |
-| `cache`, `with` | Collection methods |
+- [Foreword](foreword.md) and [Introduction](introduction.md) provide context and design philosophy.
+- [Clauses 1–4](01-scope.md) define scope, normative references, terminology, and conformance.
+- [Clauses 5–27](05-notation.md) define the language.
+- [Annexes A–E](annex-a-grammar.md) provide grammar, operator rules, built-in functions, formatting, and system considerations.
+- [Bibliography](bibliography.md) lists informative references.
 
-See [Patterns](10-patterns.md) for core constructs. See [Built-in Functions](11-built-in-functions.md) for library methods.
+See the [table of contents](README.md) for the complete clause listing.
 
 ## Status
 
 Alpha. Breaking changes expected.
-
-## Conformance
-
-Implementations must:
-- Accept conforming programs
-- Reject non-conforming programs with diagnostics
-- Produce specified behavior
-
-Extensions must not alter conforming program behavior.

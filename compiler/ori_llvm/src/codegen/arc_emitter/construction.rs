@@ -205,4 +205,93 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             }
         }
     }
+
+    /// Emit a `CollectionReuse` instruction.
+    ///
+    /// Calls `ori_list_reset_buffer` to either reuse the old buffer (if
+    /// uniquely owned) or allocate fresh (if shared). Then stores new
+    /// elements and builds the result struct.
+    pub(super) fn emit_collection_reuse(
+        &mut self,
+        old_var: ori_arc::ir::ArcVarId,
+        ty: Idx,
+        ctor: &CtorKind,
+        args: &[ori_arc::ir::ArcVarId],
+    ) -> ValueId {
+        let old_val = self.var(old_var);
+        let llvm_ty = self.resolve_type(ty);
+        let new_len = args.len();
+
+        // Determine element type from the collection type.
+        let type_info = self.type_info.get(ty);
+        let elem_idx = match (ctor, &type_info) {
+            (CtorKind::ListLiteral, super::super::type_info::TypeInfo::List { element })
+            | (CtorKind::SetLiteral, super::super::type_info::TypeInfo::Set { element }) => {
+                *element
+            }
+            _ => Idx::INT,
+        };
+
+        let elem_llvm_ty = self.resolve_type(elem_idx);
+        let elem_size = self.element_store_size(elem_idx);
+
+        // Extract old {len, cap, data} from old_var.
+        let old_data = self
+            .builder
+            .extract_value(old_val, 2, "reuse.old_data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let old_len = self
+            .builder
+            .extract_value(old_val, 0, "reuse.old_len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let old_cap = self
+            .builder
+            .extract_value(old_val, 1, "reuse.old_cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        // Build call args for ori_list_reset_buffer.
+        let new_len_val = self.builder.const_i64(new_len as i64);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+        let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_idx);
+
+        // Alloca for out_cap (caller-provided output parameter).
+        let i64_ty = self.builder.i64_type();
+        let out_cap_alloca = self.builder.alloca(i64_ty, "reuse.out_cap");
+
+        // Call ori_list_reset_buffer.
+        let reset_fn = self.builder.runtime_fn("ori_list_reset_buffer");
+        let new_data = self
+            .builder
+            .call(
+                reset_fn,
+                &[
+                    old_data,
+                    old_len,
+                    old_cap,
+                    new_len_val,
+                    elem_size_val,
+                    elem_dec_fn,
+                    out_cap_alloca,
+                ],
+                "reuse.data",
+            )
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+
+        // Store each new element into the returned buffer.
+        let arg_vals: Vec<ValueId> = args.iter().map(|a| self.var(*a)).collect();
+        for (i, &val) in arg_vals.iter().enumerate() {
+            let idx = self.builder.const_i64(i as i64);
+            let elem_ptr = self
+                .builder
+                .gep(elem_llvm_ty, new_data, &[idx], "reuse.elem_ptr");
+            self.builder.store(val, elem_ptr);
+        }
+
+        // Load the output capacity.
+        let result_cap = self.builder.load(i64_ty, out_cap_alloca, "reuse.cap");
+
+        // Build result struct: {i64 len, i64 cap, ptr data}
+        self.builder
+            .build_struct(llvm_ty, &[new_len_val, result_cap, new_data], "reuse.list")
+    }
 }
