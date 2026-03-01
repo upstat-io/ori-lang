@@ -9,39 +9,6 @@ section: "Parser"
 
 The Ori parser organizes grammar rules into separate modules for maintainability. The authoritative grammar is in [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf). Each production maps to parsing functions in the modules below.
 
-## Module Structure
-
-```
-compiler/ori_parse/src/
-├── lib.rs                  # Parser struct, entry point
-├── error.rs                # Error types
-├── foreign_keywords/       # Cross-language transition help
-│   ├── mod.rs              # Foreign keyword lookup (binary search table)
-│   └── tests.rs
-└── grammar/
-    ├── mod.rs              # Re-exports
-    ├── expr/               # Expression parsing (split into submodules)
-    │   ├── mod.rs              # Entry point, Pratt parser for binary operators
-    │   ├── operators.rs        # Binding power table, operator matching
-    │   ├── primary.rs          # Literals, identifiers, lambdas, let bindings
-    │   ├── postfix.rs          # Call, method call, field, index, try, cast
-    │   └── patterns.rs         # block, try, match, for, function_exp
-    ├── item/               # Top-level items (split into submodules)
-    │   ├── mod.rs              # Re-exports
-    │   ├── use_def.rs          # Import/use statements
-    │   ├── config.rs           # Config variable parsing
-    │   ├── function.rs         # Function and test definitions
-    │   ├── trait_def.rs        # Trait definitions
-    │   ├── impl_def.rs         # Impl blocks, def impl blocks
-    │   ├── type_decl.rs        # Type declarations (struct, sum, newtype)
-    │   ├── extend.rs           # Extend blocks
-    │   ├── extension_import.rs # Extension import statements
-    │   ├── extern_def.rs       # Extern blocks (FFI declarations)
-    │   └── generics.rs         # Generic params, bounds, where clauses
-    ├── ty.rs               # Type annotations
-    └── attr.rs             # Attributes
-```
-
 ## Module Responsibilities
 
 ### expr/ — Expressions
@@ -277,21 +244,21 @@ These identifiers are valid in Ori outside declaration position -- the error is 
 
 ## Cross-Module Dependencies
 
-```
-         lib.rs (entry: parse_module)
-            │
-            ▼
-     ┌──────┴──────┐
-     │             │
-  item/         expr/
-     │             │
-     ├─────────────┤
-     │             │
-   ty.rs     patterns.rs
-     │             │
-     └──────┬──────┘
-            │
-         attr.rs
+```mermaid
+flowchart TB
+    lib["lib.rs
+(parse_module)"] --> item["item/
+(declarations)"]
+    lib --> expr["expr/
+(expressions)"]
+    item --> expr
+    item --> ty["ty.rs
+(type annotations)"]
+    expr --> patterns["patterns.rs
+(match, for, block)"]
+    item --> attr["attr.rs
+(attributes)"]
+    expr --> attr
 ```
 
 - `lib.rs` calls `item/` for top-level declarations

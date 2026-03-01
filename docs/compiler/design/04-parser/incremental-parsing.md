@@ -9,27 +9,44 @@ section: "Parser"
 
 The Ori parser supports incremental reuse of unchanged declarations from a previous parse. When a user edits a file in an IDE, only the declarations that overlap with the edited region are re-parsed — the rest are copied from the old AST with adjusted spans.
 
-## Motivation
+## What Makes Ori's Incremental Parsing Distinctive
 
-In IDE scenarios, most edits affect a single function body. Re-parsing the entire file on every keystroke wastes work. Incremental parsing identifies unchanged declarations and copies them from the old AST, adjusting spans to account for text insertions/deletions.
+### Declaration-Level Granularity
+
+Most incremental parsers operate at either the token level (tree-sitter) or the file level (Salsa). Ori targets the middle ground: **declaration-level reuse**. Each top-level declaration (function, type, trait, impl, etc.) is an isolation boundary — a change inside a function body cannot affect the parse of sibling declarations. This gives O(k) parsing where k = changed declarations, versus O(n) for full reparse.
+
+| Approach | Speed | Complexity | Correctness |
+|----------|-------|------------|-------------|
+| Full re-parse | O(n) always | Simple | Trivially correct |
+| **Declaration-level reuse** (Ori) | **O(k)** where k = changed decls | Moderate | Correct by span isolation |
+| Token-level reuse (tree-sitter) | O(log n) | Very high | Requires error-tolerant grammar |
+
+### Arena-Independent Deep Copy
+
+Reused declarations aren't shared between old and new arenas — they're deep-copied with remapped `ExprId`s. This keeps old and new arenas fully independent, avoiding lifetime entanglement and enabling the old `ParseOutput` to be dropped freely. The copy adjusts all spans by the edit delta in a single pass.
+
+### Composable with Salsa
+
+The incremental parser operates below Salsa's file-level caching. Salsa handles cross-file dependencies; the incremental parser handles intra-file reuse. When a file changes, Salsa invalidates the file's parse query, which calls `parse_incremental()` — reusing most declarations while still producing a fresh `ParseOutput` for Salsa to cache.
 
 ## Architecture
 
-```
-TextChange { start, old_len, new_len }
-    │
-    ▼
-ChangeMarker { affected_start, affected_end, delta }
-    │
-    ├── SyntaxCursor: navigates old AST by span position
-    │       │
-    │       ▼
-    │   DeclRef { kind, index, span } — reference to old declaration
-    │
-    └── AstCopier: deep-copies declarations with span adjustment
-            │
-            ▼
-        New Module + new ExprArena (mixed old-copied + fresh-parsed)
+```mermaid
+flowchart TB
+    change["TextChange
+(start, old_len, new_len)"] --> marker["ChangeMarker
+(affected region + delta)"]
+    marker --> cursor["SyntaxCursor
+(navigates old declarations)"]
+    cursor --> decision{Intersects
+change?}
+    decision -->|No| copy["AstCopier
+(deep copy + span adjust)"]
+    decision -->|Yes| reparse["Re-parse
+from tokens"]
+    copy --> result["New Module +
+ExprArena"]
+    reparse --> result
 ```
 
 ## Components
@@ -103,20 +120,7 @@ pub struct AstCopier<'a> {
 }
 ```
 
-Copy methods exist for each declaration type:
-
-| Method | Input | Output |
-|--------|-------|--------|
-| `copy_function()` | `&Function` | `Function` with remapped `ExprId`s |
-| `copy_test()` | `&TestDef` | `TestDef` with remapped `ExprId`s |
-| `copy_type_decl()` | `&TypeDecl` | `TypeDecl` with remapped `ExprId`s |
-| `copy_trait()` | `&TraitDef` | `TraitDef` with remapped `ExprId`s |
-| `copy_impl()` | `&ImplDef` | `ImplDef` with remapped `ExprId`s |
-| `copy_def_impl()` | `&DefImplDef` | `DefImplDef` with remapped `ExprId`s |
-| `copy_extend()` | `&ExtendDef` | `ExtendDef` with remapped `ExprId`s |
-| `copy_const()` | `&ConstDef` | `ConstDef` with remapped `ExprId`s |
-
-Each copy recursively allocates new `ExprId`s in the destination arena, so the old and new arenas remain independent.
+Copy methods exist for each declaration type (`copy_function()`, `copy_test()`, `copy_type_decl()`, `copy_trait()`, `copy_impl()`, `copy_def_impl()`, `copy_extend()`, `copy_const()`). Each recursively allocates new `ExprId`s in the destination arena, so the old and new arenas remain independent.
 
 ## Algorithm
 
@@ -126,19 +130,7 @@ Each copy recursively allocates new `ExprId`s in the destination arena, so the o
 
 ### 2. Parse with Reuse
 
-`parse_module_incremental()` processes the token stream:
-
-```
-for each position in token stream:
-    if SyntaxCursor finds a declaration at this position:
-        if declaration is OUTSIDE the change region:
-            → COPY via AstCopier (adjust spans, remap ExprIds)
-            → Skip tokens past the declaration span
-        else:
-            → RE-PARSE fresh from the token stream
-    else:
-        → RE-PARSE fresh from the token stream
-```
+`parse_module_incremental()` processes the token stream. For each position, it checks whether the `SyntaxCursor` finds a declaration that falls outside the change region. If so, the declaration is copied via `AstCopier`; otherwise, it's re-parsed fresh from the token stream.
 
 Imports are always re-parsed because they affect module resolution globally.
 
@@ -171,22 +163,24 @@ impl IncrementalStats {
 }
 ```
 
-`CursorStats` tracks lookup performance:
+`CursorStats` tracks lookup performance (lookups, skipped, intersected).
 
-```rust
-pub struct CursorStats {
-    pub lookups: usize,
-    pub skipped: usize,
-    pub intersected: usize,
-}
+## Running Benchmarks
+
+```bash
+# Incremental vs full reparse at various file sizes
+cargo bench -p oric --bench parser -- "incremental"
+
+# Reuse rate by edit position (start, middle, end of file)
+cargo bench -p oric --bench parser -- "incremental_reuse"
 ```
 
-## Limitations
+## Design Tradeoffs
 
 - **Imports are always re-parsed** — They affect global resolution and are typically few in number.
 - **Single-edit model** — The current design handles one `TextChange` per incremental parse. Multiple concurrent edits require coalescing into a single change.
 - **Metadata not merged** — Incremental parsing does not yet merge `ModuleExtra` (comments, blank lines). For full metadata support, a separate lex-with-comments pass is needed.
-- **Arena independence** — Copied declarations get new `ExprId`s in the new arena. The old arena and module are not modified.
+- **Arena independence** — Copied declarations get new `ExprId`s in the new arena. The old arena and module are not modified. This is intentional — arena sharing would require lifetime entanglement that complicates the Salsa integration.
 
 ## Usage
 
@@ -204,15 +198,3 @@ let new_output = ori_parse::parse_incremental(
     change,
 );
 ```
-
-## Design Rationale
-
-This approach trades implementation complexity for parsing speed in IDE scenarios. The key trade-off:
-
-| Approach | Speed | Complexity | Correctness |
-|----------|-------|------------|-------------|
-| Full re-parse | O(n) always | Simple | Trivially correct |
-| Declaration-level reuse (current) | O(k) where k = changed decls | Moderate | Correct by span isolation |
-| Token-level reuse (e.g., tree-sitter) | O(log n) | Very high | Requires error-tolerant grammar |
-
-Declaration-level reuse offers a good balance: most IDE edits touch 1-2 declarations, so the majority of the file is reused. The implementation complexity is manageable because declarations are natural isolation boundaries — a change inside a function body cannot affect the parse of sibling functions.
