@@ -20,13 +20,18 @@ Canonicalize → Lower (CanExpr → ARC IR) → [Batch Pipeline] → LLVM Codege
                          └──────────────────────┤
                          ┌──────────────────────┤
                          │ Per-function pipeline │  (run_arc_pipeline)
-                         │  1. infer_derived_ownership()  — per-variable ownership
-                         │  2. DominatorTree::build()     — dominator tree
-                         │  3. compute_refined_liveness() — liveness + aliasing
-                         │  4. insert_rc_ops_with_ownership() — RC insertion
-                         │  5. detect_reset_reuse_cfg()   — reset/reuse detection
-                         │  6. expand_reset_reuse()       — reuse expansion
-                         │  7. eliminate_rc_ops_dataflow() — RC elimination
+                         │  1. compute_var_reprs()             — value representations
+                         │  2. infer_derived_ownership()       — per-variable ownership
+                         │  3. compute_refined_liveness()      — liveness + aliasing
+                         │  4. insert_rc_ops_with_ownership()  — RC insertion
+                         │  5. insert_external_invoke_cleanup()— invoke edge cleanup
+                         │  6. DominatorTree::build()          — dominator tree (post-RC)
+                         │  7. PostDominatorTree::build()      — post-dominator tree
+                         │  8. compute_refined_liveness()      — re-liveness (post-RC CFG)
+                         │  9. detect_reset_reuse_cfg()        — reset/reuse detection
+                         │ 10. expand_reset_reuse()            — reuse expansion
+                         │ 11. propagate_rc_identity()         — RC identity normalization
+                         │ 12. eliminate_rc_ops_dataflow()      — RC elimination
                          └──────────────────────┘
 ```
 
@@ -92,7 +97,7 @@ Extends borrow/own tracking from parameters to **all local variables** (`infer_d
 
 ### Dominator Tree (Per-Function)
 
-`DominatorTree::build()` constructs the dominator tree over the function's CFG. Reset/reuse detection uses dominance to verify that a dec dominates the candidate construct — without dominance, the reuse would be unsound on some control-flow paths.
+`DominatorTree::build()` and `PostDominatorTree::build()` construct dominator trees over the function's CFG. These are built **after** RC insertion because edge cleanup during insertion can split edges and append trampoline blocks, which would invalidate any earlier dominator analysis. Reset/reuse detection uses dominance to verify that a dec dominates the candidate construct — without dominance, the reuse would be unsound on some control-flow paths. Refined liveness is also recomputed at this point so cross-block detection sees the post-insertion CFG.
 
 ### Liveness Analysis
 

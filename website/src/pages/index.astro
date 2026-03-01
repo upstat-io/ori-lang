@@ -1,7 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Hero from '../components/landing/Hero.astro';
-import CodeShowcase from '../components/landing/CodeShowcase.astro';
 import Features from '../components/landing/Features.astro';
 import VirtuousCycle from '../components/landing/VirtuousCycle.astro';
 import GetStarted from '../components/landing/GetStarted.astro';
@@ -63,23 +62,22 @@ const faqSchema = {
 >
   <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} slot="head" />
 
-  <Hero />
-  <CodeShowcase>
+  <Hero>
     <Playground
       client:visible
       config={{
         showToolbar: true,
         showOutput: true,
-        height: '560px',
+        height: '100%',
         enableShare: false,
         enableExamples: true,
         readUrlHash: false,
-        fontSize: 14,
+        fontSize: 13,
         layout: 'vertical',
-        maxFormatWidth: 60,
+        maxFormatWidth: 50,
       }}
     />
-  </CodeShowcase>
+  </Hero>
   <Features />
   <VirtuousCycle />
   <GetStarted />

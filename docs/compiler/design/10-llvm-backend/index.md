@@ -201,16 +201,17 @@ let for_loop_ctx = LoopContext {
 
 ## Runtime Functions
 
-The backend links against runtime functions for operations that require heap allocation or complex logic. These are provided by `libori_rt`. All declarations live in `codegen/runtime_decl/runtime_functions.rs` as a single source-of-truth `RT_FUNCTIONS` table.
+The backend links against runtime functions for operations that require heap allocation or complex logic. These are provided by `libori_rt`. All declarations live in `codegen/runtime_decl/runtime_functions.rs` as a single source-of-truth `RT_FUNCTIONS` table (~132 functions).
 
-| Category | Functions |
+| Category | Examples (not exhaustive) |
 |----------|-----------|
 | Output | `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool` |
 | Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float` |
 | String SSO | `ori_str_concat_sso` (SSO-aware concat), `ori_str_from_char` |
 | Collections | `ori_list_new`, `ori_list_free`, `ori_list_len` |
 | List COW | `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`, `ori_list_insert_cow`, `ori_list_remove_cow` |
-| Map COW | `ori_map_insert_cow`, `ori_map_remove_cow` |
+| List Slicing | `ori_list_slice`, `ori_list_slice_take`, `ori_list_slice_drop` (seamless slices with runtime encoding) |
+| Map COW | `ori_map_insert_cow`, `ori_map_remove_cow`, `ori_map_contains_key`, `ori_map_get` |
 | Set COW | `ori_set_insert_cow`, `ori_set_remove_cow`, `ori_set_union_cow`, `ori_set_intersection_cow`, `ori_set_difference_cow` |
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
 | Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_is_unique` |
@@ -218,6 +219,7 @@ The backend links against runtime functions for operations that require heap all
 | Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`, `ori_assert_eq_float` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
 | Iterators | `ori_iter_from_list`, `ori_iter_from_range`, `ori_iter_from_str`, `ori_iter_next`, `ori_iter_drop` |
+| Formatting | `ori_format_int`, `ori_format_float`, `ori_format_str`, `ori_interpolate` |
 | Entry | `ori_run_main`, `ori_args_from_argv` |
 
 ### Codegen Verification
