@@ -2,32 +2,46 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { marked } from 'marked';
 
+// Parse date from tag name: v2026.02.28.1-alpha → 2026-02-28
+function tagDate(tag: string): string | null {
+  const m = tag.match(/^v(\d{4})\.(\d{2})\.(\d{2})\./);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+
 // Fetch GitHub releases at build time
 let releases: Array<{ tag: string; date: string; url: string; body: string }> = [];
 try {
-  const res = await fetch('https://api.github.com/repos/upstat-io/ori-lang/releases', {
+  const res = await fetch('https://api.github.com/repos/upstat-io/ori-lang/releases?per_page=100', {
     headers: { 'Accept': 'application/vnd.github+json' },
   });
   if (res.ok) {
     const data = await res.json();
-    // Deduplicate: keep only the latest release per calendar day
+    // Deduplicate by tag date (not published_at) — avoids UTC midnight mismatch
     const byDay = new Map<string, typeof data[0]>();
     for (const release of data) {
-      const day = release.published_at?.slice(0, 10) ?? release.created_at?.slice(0, 10);
+      const day = tagDate(release.tag_name);
       if (!day || !release.body?.trim()) continue;
       if (!byDay.has(day)) {
         byDay.set(day, release);
       }
-      // First seen = latest (API returns newest first)
+      // First seen per day = latest (API returns newest first)
     }
-    releases = [...byDay.values()].map((r) => ({
-      tag: r.tag_name,
-      date: new Date(r.published_at ?? r.created_at).toLocaleDateString('en-US', {
-        year: 'numeric', month: 'long', day: 'numeric',
-      }),
-      url: r.html_url,
-      body: marked.parse(r.body, { async: false }) as string,
-    }));
+    // Sort by tag date descending, take latest 5
+    releases = [...byDay.values()]
+      .sort((a, b) => {
+        const da = tagDate(a.tag_name) ?? '';
+        const db = tagDate(b.tag_name) ?? '';
+        return db.localeCompare(da);
+      })
+      .slice(0, 5)
+      .map((r) => ({
+        tag: r.tag_name,
+        date: new Date(tagDate(r.tag_name)! + 'T00:00:00').toLocaleDateString('en-US', {
+          year: 'numeric', month: 'long', day: 'numeric',
+        }),
+        url: r.html_url,
+        body: marked.parse(r.body, { async: false }) as string,
+      }));
   }
 } catch {
   // Graceful fallback — page still builds without releases

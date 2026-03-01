@@ -18,10 +18,11 @@
 mod control_flow;
 mod function_exp;
 mod operators;
+mod trace;
 
 use ori_ir::canon::{CanExpr, CanId, CanRange, CanonResult};
 use ori_ir::{Name, Span};
-use ori_patterns::{ControlAction, EvalError, EvalResult, TraceEntryData, Value};
+use ori_patterns::{ControlAction, EvalError, EvalResult, Value};
 use ori_stack::ensure_sufficient_stack;
 use smallvec::SmallVec;
 
@@ -62,86 +63,6 @@ impl Interpreter<'_> {
     #[inline]
     pub(super) fn can_span(&self, can_id: CanId) -> Span {
         self.canon_ref().arena.span(can_id)
-    }
-
-    /// Inject a trace entry into an error value at a `?` operator site.
-    ///
-    /// If the value is `Value::Err(Value::Error(...))`, appends a `TraceEntryData`
-    /// recording the current function name and source location. Non-error values
-    /// are returned unchanged.
-    ///
-    /// Uses `Heap::make_mut` for copy-on-write: when the error is uniquely owned
-    /// (common case — errors propagate linearly through `?`), the trace entry
-    /// is appended in place with no cloning.
-    fn inject_trace_entry(&self, mut value: Value, can_id: CanId) -> Value {
-        // Guard: only Err(Error(...)) values carry traces
-        if !matches!(&value, Value::Err(inner) if matches!(&**inner, Value::Error(_))) {
-            return value;
-        }
-
-        // Build the function name from the call stack
-        let function_name = self.call_stack.current_frame().map_or_else(
-            || "<top-level>".to_string(),
-            |f| self.interner.lookup(f.name).to_string(),
-        );
-
-        // Compute line/column from span byte offset
-        let span = self.can_span(can_id);
-        let (line, column) = self.line_col_from_offset(span.start);
-
-        let file = self
-            .source_file_path
-            .as_deref()
-            .cloned()
-            .unwrap_or_else(|| "<unknown>".to_string());
-
-        let entry = TraceEntryData {
-            function: function_name,
-            file,
-            line,
-            column,
-        };
-
-        // Copy-on-write through two Heap layers: Err(Heap<Value>) → Error(Heap<ErrorValue>)
-        if let Value::Err(ref mut outer) = value {
-            if let Value::Error(ref mut ev_heap) = *outer.make_mut() {
-                ev_heap.make_mut().push_trace(entry);
-            }
-        }
-        value
-    }
-
-    /// Compute 1-based line and column from a byte offset in the source text.
-    ///
-    /// Counts newlines in `source_text[..offset]` to determine line number,
-    /// then computes column from the last newline position. If no source text
-    /// is available, returns `(0, 0)`.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "u32↔usize: source offsets and line/column numbers fit in u32"
-    )]
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "column = (end - last_newline) + 1: last_newline ≤ end by construction"
-    )]
-    fn line_col_from_offset(&self, offset: u32) -> (u32, u32) {
-        let Some(src) = &self.source_text else {
-            return (0, 0);
-        };
-        let offset = offset as usize;
-        let bytes = src.as_bytes();
-        let end = offset.min(bytes.len());
-
-        let mut line: u32 = 1;
-        let mut last_newline: usize = 0;
-        for (i, &b) in bytes[..end].iter().enumerate() {
-            if b == b'\n' {
-                line = line.wrapping_add(1);
-                last_newline = i.wrapping_add(1);
-            }
-        }
-        let column = (end - last_newline) as u32 + 1;
-        (line, column)
     }
 
     /// Evaluate a list of canonical expressions from a `CanRange`.
@@ -284,7 +205,7 @@ impl Interpreter<'_> {
                 let value = self.eval_can(receiver)?;
 
                 // Built-in types: fast path with # (hash length) support
-                if super::is_builtin_indexable(&value) {
+                if super::operator_dispatch::is_builtin_indexable(&value) {
                     let length = expr::get_collection_length(&value)
                         .map_err(|e| Self::attach_span(e.into(), span))?;
                     let idx = self.eval_can_with_hash_length(index, length)?;

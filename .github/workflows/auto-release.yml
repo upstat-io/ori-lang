@@ -88,9 +88,11 @@ jobs:
           git tag "${{ steps.tag.outputs.tag }}"
           git push origin "${{ steps.tag.outputs.tag }}"
 
-      - name: Gather commit log
+      - name: Gather release context
         if: steps.tag.outputs.skip != 'true'
         id: commits
+        env:
+          GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
 
@@ -98,18 +100,29 @@ jobs:
           PREV_TAG=$(git tag --sort=-creatordate | grep '^v' | sed -n '2p')
 
           if [[ -n "$PREV_TAG" ]]; then
+            PREV_DATE=$(git log -1 --format=%aI "$PREV_TAG")
             LOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
-            DIFF_STAT=$(git diff "${PREV_TAG}..HEAD" --stat | tail -1)
           else
+            PREV_DATE=""
             LOG=$(git log --pretty=format:"- %s (%h)" --no-merges -20)
-            DIFF_STAT=""
+          fi
+
+          # Fetch merged PR descriptions — the richest context available
+          if [[ -n "$PREV_DATE" ]]; then
+            PR_BODIES=$(gh pr list --state merged --base master --limit 20 \
+              --json number,title,body,mergedAt \
+              --jq "[.[] | select(.mergedAt >= \"$PREV_DATE\")] | .[] | \"## PR #\\(.number): \\(.title)\\n\\(.body // \"(no description)\")\\n\"")
+          else
+            PR_BODIES=$(gh pr list --state merged --base master --limit 5 \
+              --json number,title,body \
+              --jq '.[] | "## PR #\(.number): \(.title)\n\(.body // "(no description)")\n"')
           fi
 
           echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
-          # Write to file to avoid shell quoting issues
+          # Write to files to avoid shell quoting issues
           echo "$LOG" > /tmp/commit-log.txt
-          echo "$DIFF_STAT" > /tmp/diff-stat.txt
+          echo "$PR_BODIES" > /tmp/pr-bodies.txt
 
       - name: Generate AI release notes
         if: steps.tag.outputs.skip != 'true'
@@ -118,7 +131,7 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
           COMMIT_LOG=$(cat /tmp/commit-log.txt)
-          DIFF_STAT=$(cat /tmp/diff-stat.txt)
+          PR_BODIES=$(cat /tmp/pr-bodies.txt)
           TAG="${{ steps.tag.outputs.tag }}"
           PREV_TAG="${{ steps.commits.outputs.prev_tag }}"
 
@@ -127,25 +140,43 @@ jobs:
           import asyncio, sys, os
 
           COMMIT_LOG = """${COMMIT_LOG}"""
-          DIFF_STAT = """${DIFF_STAT}"""
+          PR_BODIES = """${PR_BODIES}"""
           TAG = "${TAG}"
           PREV_TAG = "${PREV_TAG}" or "beginning"
 
-          PROMPT = f"""You are writing release notes for "Ori", a statically-typed, expression-based programming language compiler. Given the commit log below, write concise, user-friendly release notes in markdown.
+          PROMPT = f"""You are writing release notes for **Ori** ({TAG}), an alpha-stage statically-typed, expression-based programming language with HM type inference, ARC memory management, and capability-based effects. The audience is developers and language enthusiasts following the project.
 
-          Rules:
-          - Group changes into sections: **Features**, **Bug Fixes**, **Improvements**, **Internal** (only if meaningful)
-          - Omit empty sections
+          Write detailed, informative release notes in markdown. Do NOT wrap in \`\`\`markdown fences.
+
+          ## Format
+
+          Start with a 1-2 sentence summary blurb describing the theme of this release.
+
+          Then group changes into sections (omit empty ones):
+          - **Features** — new user-facing capabilities
+          - **Bug Fixes** — corrected behavior
+          - **Improvements** — enhancements to existing features, performance, error messages
+          - **Compiler Internals** — refactoring, architecture changes, code quality (always include if applicable — compiler development IS the product at alpha stage)
+
+          For each bullet:
+          - **Bold title** followed by 1-2 sentences explaining what changed and why it matters
           - Use past tense ("Added", "Fixed", "Improved")
-          - Keep each bullet to one line
-          - Skip merge commits and CI-only changes
-          - If there are no user-facing changes, just say "Internal improvements and maintenance."
-          - Do NOT wrap in \`\`\`markdown fences
+          - Reference affected areas (e.g., type checker, evaluator, LLVM codegen, parser)
+
+          ## Rules
+          - The PR descriptions are your PRIMARY source — they contain human-written summaries of what changed and why
+          - The commit log is supplementary — use it to catch anything the PRs missed
+          - Never say "Internal improvements and maintenance" — every change gets a meaningful description
+          - Skip "nightly" automation PRs — focus on substantive changes
+          - Do not reproduce test plan checklists — focus on what changed, not how it was tested
+
+          ## Input
+
+          Pull request descriptions (primary source):
+          {PR_BODIES}
 
           Commit log ({PREV_TAG}..{TAG}):
-          {COMMIT_LOG}
-
-          Diff stats: {DIFF_STAT}"""
+          {COMMIT_LOG}"""
 
           async def main():
               from copilot import CopilotClient, PermissionHandler
@@ -187,8 +218,29 @@ jobs:
               asyncio.run(main())
           except Exception as e:
               print(f"::warning::AI release notes failed ({e}), falling back to commit log")
+              # Categorize commits by conventional commit prefix
+              sections = {"Features": [], "Bug Fixes": [], "Improvements": [], "Other": []}
+              for line in COMMIT_LOG.strip().split("\n"):
+                  line = line.strip()
+                  if not line or not line.startswith("- "):
+                      continue
+                  subject = line[2:]  # strip "- " prefix
+                  if subject.startswith("feat"):
+                      sections["Features"].append(line)
+                  elif subject.startswith("fix"):
+                      sections["Bug Fixes"].append(line)
+                  elif subject.startswith("refactor") or subject.startswith("perf"):
+                      sections["Improvements"].append(line)
+                  else:
+                      sections["Other"].append(line)
+              body = ""
+              for section, items in sections.items():
+                  if items:
+                      body += f"## {section}\n\n" + "\n".join(items) + "\n\n"
+              if not body.strip():
+                  body = "## Changes\n\n" + COMMIT_LOG
               with open("/tmp/release-notes.txt", "w") as f:
-                  f.write(f"## Changes\n\n{COMMIT_LOG}")
+                  f.write(body.strip())
           PYEOF
 
       - name: Create release
