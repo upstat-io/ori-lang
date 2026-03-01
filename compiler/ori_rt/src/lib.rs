@@ -67,11 +67,12 @@ pub mod string;
 // Existing code (iterator, format, tests) uses `crate::ori_rc_alloc`,
 // `crate::OriStr`, etc. These glob re-exports maintain backward compatibility
 // so `crate::item_name` paths continue to work.
+//
+// Note: `map` and `set` are not glob-reexported because both contain a
+// `pub mod cow` submodule which would create an ambiguous `cow` name.
 pub use io::*;
 pub use list::*;
-pub use map::*;
 pub use rc::*;
-pub use set::*;
 pub use string::*;
 
 // Re-export pub(crate) items used by ori_run_main.

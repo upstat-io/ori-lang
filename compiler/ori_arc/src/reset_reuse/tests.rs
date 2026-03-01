@@ -367,7 +367,7 @@ fn fresh_token_id() {
 
 // ── Cross-block reset/reuse tests ──────────────────────────
 
-use crate::graph::DominatorTree;
+use crate::graph::{DominatorTree, PostDominatorTree};
 use crate::liveness::compute_refined_liveness;
 
 use super::detect_reset_reuse_cfg;
@@ -376,8 +376,9 @@ fn run_detect_cfg(mut func: ArcFunction) -> ArcFunction {
     let pool = Pool::new();
     let classifier = ArcClassifier::new(&pool);
     let dom = DominatorTree::build(&func);
+    let post_dom = PostDominatorTree::build(&func);
     let (refined, _) = compute_refined_liveness(&func, &classifier);
-    detect_reset_reuse_cfg(&mut func, &classifier, &dom, &refined, &pool);
+    detect_reset_reuse_cfg(&mut func, &classifier, &dom, &post_dom, &refined, &pool);
     func
 }
 
@@ -527,6 +528,234 @@ fn cross_block_aliasing_prevents() {
         .flat_map(|bl| bl.body.iter())
         .any(|i| matches!(i, ArcInstr::Reset { .. }));
     assert!(!has_reset, "should not pair when aliasing exists");
+}
+
+/// Cross-block diamond: Construct only on one branch → no pairing.
+///
+/// B0: RcDec(v0), Branch → B1/B2
+/// B1: Construct(STR)
+/// B2: Return (no Construct)
+///
+/// B1 does NOT post-dominate B0 (B0 can exit via B2), so no Reset/Reuse.
+/// Without the post-dominance check, this would leak memory on the B0→B2 path.
+#[test]
+fn cross_block_diamond_no_pair() {
+    let func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    },
+                    ArcInstr::RcDec {
+                        var: v(0),
+                        strategy: RcStrategy::HeapPointer,
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(0) },
+            },
+        ],
+        vec![Idx::STR, Idx::BOOL, Idx::STR],
+    );
+
+    let result = run_detect_cfg(func);
+
+    // No Reset should be created — B1 does not post-dominate B0.
+    let has_reset = result
+        .blocks
+        .iter()
+        .flat_map(|bl| bl.body.iter())
+        .any(|i| matches!(i, ArcInstr::Reset { .. }));
+    assert!(
+        !has_reset,
+        "diamond with Construct on one branch must NOT pair (would leak on other branch)"
+    );
+
+    // RcDec should remain in B0.
+    let has_dec = result.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::RcDec { .. }));
+    assert!(has_dec, "RcDec must remain when no pairing");
+}
+
+/// Cross-block linear chain: B0 → B1 → B2 (Construct) → Return.
+/// B2 post-dominates B0, so pairing is safe.
+#[test]
+fn cross_block_linear_chain_pairs() {
+    // B0: RcDec(v0), Jump → B1
+    // B1: (empty), Jump → B2
+    // B2: Construct(STR), Return
+    let func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![ArcInstr::RcDec {
+                    var: v(0),
+                    strategy: RcStrategy::HeapPointer,
+                }],
+                terminator: ArcTerminator::Jump {
+                    target: b(1),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(2),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                }],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+        ],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let result = run_detect_cfg(func);
+
+    // Reset should be created in B0 (B2 post-dominates B0).
+    let has_reset = result.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Reset { .. }));
+    assert!(has_reset, "linear chain: B2 post-dominates B0 → Reset");
+
+    // Reuse should be created in B2.
+    let has_reuse = result.blocks[2]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Reuse { .. }));
+    assert!(has_reuse, "linear chain: Construct should become Reuse");
+}
+
+/// Cross-block diamond with merge: B0 → B1/B2, both → B3 (Construct) → Return.
+/// B3 post-dominates B0, so pairing is safe.
+#[test]
+fn cross_block_diamond_with_merge_pairs() {
+    // B0: RcDec(v0), Branch → B1/B2
+    // B1: Jump → B3
+    // B2: Jump → B3
+    // B3: Construct(STR), Return
+    let func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![
+                    ArcInstr::Let {
+                        dst: v(1),
+                        ty: Idx::BOOL,
+                        value: ArcValue::Literal(LitValue::Bool(true)),
+                    },
+                    ArcInstr::RcDec {
+                        var: v(0),
+                        strategy: RcStrategy::HeapPointer,
+                    },
+                ],
+                terminator: ArcTerminator::Branch {
+                    cond: v(1),
+                    then_block: b(1),
+                    else_block: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Jump {
+                    target: b(3),
+                    args: vec![],
+                },
+            },
+            ArcBlock {
+                id: b(3),
+                params: vec![],
+                body: vec![ArcInstr::Construct {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                }],
+                terminator: ArcTerminator::Return { value: v(2) },
+            },
+        ],
+        vec![Idx::STR, Idx::BOOL, Idx::STR],
+    );
+
+    let result = run_detect_cfg(func);
+
+    // Reset should be created in B0 (B3 post-dominates B0).
+    let has_reset = result.blocks[0]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Reset { .. }));
+    assert!(
+        has_reset,
+        "diamond with merge: B3 post-dominates B0 → Reset"
+    );
+
+    // Reuse should be in B3.
+    let has_reuse = result.blocks[3]
+        .body
+        .iter()
+        .any(|i| matches!(i, ArcInstr::Reuse { .. }));
+    assert!(
+        has_reuse,
+        "diamond with merge: Construct should become Reuse in B3"
+    );
 }
 
 /// Cross-block: all existing intra-block tests still pass after cfg detection.

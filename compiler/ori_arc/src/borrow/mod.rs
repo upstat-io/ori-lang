@@ -46,7 +46,8 @@ mod derived;
 mod per_scc;
 
 pub use builtins::{
-    borrowing_builtin_names, consuming_receiver_builtin_names, consuming_second_arg_builtin_names,
+    borrowing_builtin_names, consuming_receiver_builtin_names,
+    consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names,
     BuiltinOwnershipSets,
 };
 pub use callees::extract_callees;

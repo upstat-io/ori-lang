@@ -37,8 +37,8 @@
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashSet;
 
-use crate::graph::DominatorTree;
-use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, ValueRepr};
+use crate::graph::{DominatorTree, PostDominatorTree};
+use crate::ir::{ArcBlockId, ArcFunction, ArcInstr, ArcVarId, CtorKind, ValueRepr};
 use crate::liveness::RefinedLiveness;
 use crate::ArcClassification;
 
@@ -133,11 +133,17 @@ fn detect_in_block(
             }
 
             match candidate {
-                ArcInstr::Construct { ty, .. } if *ty == dec_ty => {
+                ArcInstr::Construct { ty, ctor, .. } if *ty == dec_ty => {
+                    // Skip collection constructors: their data lives in a
+                    // separate RC'd buffer, not inline struct fields. The
+                    // fast-path Set instruction assumes struct GEP layout,
+                    // which doesn't apply to List/Map/Set buffers.
+                    if is_collection_ctor(ctor) {
+                        continue;
+                    }
                     // Check that dec_var is NOT used in the Construct's args.
                     // (If it is, there's an alias and reuse is unsafe.)
                     if candidate.uses_var(dec_var) {
-                        // dec_var appears in args → skip this Construct.
                         continue;
                     }
 
@@ -236,6 +242,7 @@ pub fn detect_reset_reuse_cfg(
     func: &mut ArcFunction,
     classifier: &dyn ArcClassification,
     dom_tree: &DominatorTree,
+    post_dom_tree: &PostDominatorTree,
     refined: &[RefinedLiveness],
     pool: &Pool,
 ) {
@@ -266,12 +273,41 @@ pub fn detect_reset_reuse_cfg(
         "cross-block reset/reuse: scanning dominated blocks"
     );
 
-    // Step 3: For each unpaired RcDec, walk dominated blocks to find a matching Construct.
+    // Step 3: Find cross-block matches and apply replacements.
+    let matches = find_cross_block_matches(func, &unpaired_decs, dom_tree, post_dom_tree, refined);
+
+    if matches.is_empty() {
+        return;
+    }
+
+    tracing::debug!(
+        cross_block_pairs = matches.len(),
+        "cross-block reset/reuse: applying transformations"
+    );
+
+    // Step 4: Apply cross-block replacements.
+    for m in &matches {
+        apply_cross_block_match(func, m, classifier, pool);
+    }
+}
+
+/// Walk dominated blocks for each unpaired `RcDec` to find a matching `Construct`.
+///
+/// A match requires: same type, no aliasing (`dec_var` not live-for-use),
+/// and the construct block post-dominates the dec block (ensuring the
+/// reuse token is consumed on all paths).
+fn find_cross_block_matches(
+    func: &ArcFunction,
+    unpaired_decs: &[(usize, usize, ArcVarId, Idx)],
+    dom_tree: &DominatorTree,
+    post_dom_tree: &PostDominatorTree,
+    refined: &[RefinedLiveness],
+) -> Vec<CrossBlockMatch> {
     let num_blocks = func.blocks.len();
     let mut paired_constructs: FxHashSet<(usize, usize)> = FxHashSet::default();
     let mut matches: Vec<CrossBlockMatch> = Vec::new();
 
-    for &(dec_block_idx, dec_instr_idx, dec_var, dec_ty) in &unpaired_decs {
+    for &(dec_block_idx, dec_instr_idx, dec_var, dec_ty) in unpaired_decs {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "ARC IR block counts fit in u32"
@@ -283,26 +319,24 @@ pub fn detect_reset_reuse_cfg(
         for &target_block_id in &dominated {
             let target_idx = target_block_id.index();
 
-            // Skip the dec's own block (intra-block already handled).
             if target_idx == dec_block_idx {
                 continue;
             }
 
-            // Check aliasing: if dec_var is live-for-use in this block,
-            // it might be read, so we can't safely reset it.
             if target_idx < refined.len() && refined[target_idx].live_for_use.contains(&dec_var) {
-                // Variable is read in this subtree — cannot pair.
                 break;
             }
 
-            // Scan block for an unpaired Construct of matching type.
-            let target_body = &func.blocks[target_idx].body;
-            for (ci, instr) in target_body.iter().enumerate() {
+            for (ci, instr) in func.blocks[target_idx].body.iter().enumerate() {
                 if paired_constructs.contains(&(target_idx, ci)) {
                     continue;
                 }
-                if let ArcInstr::Construct { ty, .. } = instr {
-                    if *ty == dec_ty && !instr.uses_var(dec_var) {
+                if let ArcInstr::Construct { ty, ctor, .. } = instr {
+                    if *ty == dec_ty
+                        && !is_collection_ctor(ctor)
+                        && !instr.uses_var(dec_var)
+                        && post_dom_tree.post_dominates(target_block_id, dec_block_id)
+                    {
                         matches.push(CrossBlockMatch {
                             dec_block: dec_block_idx,
                             dec_instr: dec_instr_idx,
@@ -323,47 +357,52 @@ pub fn detect_reset_reuse_cfg(
         }
     }
 
-    if matches.is_empty() {
-        return;
-    }
+    matches
+}
 
-    tracing::debug!(
-        cross_block_pairs = matches.len(),
-        "cross-block reset/reuse: applying transformations"
-    );
+/// Apply a single cross-block `RcDec`→`Reset` / `Construct`→`Reuse` replacement.
+fn apply_cross_block_match(
+    func: &mut ArcFunction,
+    m: &CrossBlockMatch,
+    classifier: &dyn ArcClassification,
+    pool: &Pool,
+) {
+    let dec_ty = func.var_type(m.dec_var);
+    let repr = repr_for_type(classifier, pool, dec_ty);
+    let token = func.fresh_var_repr(dec_ty, repr);
 
-    // Step 4: Apply cross-block replacements.
-    for m in matches {
-        let dec_ty = func.var_type(m.dec_var);
-        let repr = repr_for_type(classifier, pool, dec_ty);
-        let token = func.fresh_var_repr(dec_ty, repr);
-
-        // Extract Construct details.
-        let (dst, ty, ctor, args) = match &func.blocks[m.construct_block].body[m.construct_instr] {
-            ArcInstr::Construct {
-                dst,
-                ty,
-                ctor,
-                args,
-            } => (*dst, *ty, *ctor, args.clone()),
-            _ => unreachable!("paired construct must be a Construct"),
-        };
-
-        // Replace RcDec → Reset in the dec's block.
-        func.blocks[m.dec_block].body[m.dec_instr] = ArcInstr::Reset {
-            var: m.dec_var,
-            token,
-        };
-
-        // Replace Construct → Reuse in the target block.
-        func.blocks[m.construct_block].body[m.construct_instr] = ArcInstr::Reuse {
-            token,
+    let (dst, ty, ctor, args) = match &func.blocks[m.construct_block].body[m.construct_instr] {
+        ArcInstr::Construct {
             dst,
             ty,
             ctor,
             args,
-        };
-    }
+        } => (*dst, *ty, *ctor, args.clone()),
+        _ => unreachable!("paired construct must be a Construct"),
+    };
+
+    func.blocks[m.dec_block].body[m.dec_instr] = ArcInstr::Reset {
+        var: m.dec_var,
+        token,
+    };
+
+    func.blocks[m.construct_block].body[m.construct_instr] = ArcInstr::Reuse {
+        token,
+        dst,
+        ty,
+        ctor,
+        args,
+    };
+}
+
+/// Collection constructors use a separate RC'd buffer layout, not inline
+/// struct fields. The `Set` fast-path in expansion assumes struct GEP, so
+/// these constructors must be excluded from Reset/Reuse pairing.
+fn is_collection_ctor(ctor: &CtorKind) -> bool {
+    matches!(
+        ctor,
+        CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral
+    )
 }
 
 /// Compute [`ValueRepr`] for a type from classifier + pool.

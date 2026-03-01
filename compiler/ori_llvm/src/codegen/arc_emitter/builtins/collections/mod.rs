@@ -210,7 +210,11 @@ declare_builtins! { emitter, ctx;
     ("map", "is_empty", borrow: true) => emitter.emit_map_is_empty(ctx.arg_vals[0]),
     ("map", "contains_key", borrow: true) => {
         if ctx.arg_vals.len() >= 2 {
-            emitter.emit_map_contains_key(ctx.arg_vals[0], ctx.arg_vals[1])
+            if let TypeInfo::Map { key, .. } = ctx.type_info {
+                emitter.emit_map_contains_key(ctx.arg_vals[0], ctx.arg_vals[1], *key)
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -240,7 +244,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("map", "insert", borrow: true) => {
+    ("map", "insert", borrow: false) => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 emitter.emit_map_insert(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value)
@@ -258,7 +262,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("map", "remove", borrow: true) => {
+    ("map", "remove", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
                 emitter.emit_map_remove(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value)
@@ -285,7 +289,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "insert", borrow: true) => {
+    ("Set", "insert", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 emitter.emit_set_insert(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -296,7 +300,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "remove", borrow: true) => {
+    ("Set", "remove", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 emitter.emit_set_remove(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -307,7 +311,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "union", borrow: true) => {
+    ("Set", "union", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 emitter.emit_set_union(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -318,7 +322,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "intersection", borrow: true) => {
+    ("Set", "intersection", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 emitter.emit_set_intersection(ctx.arg_vals[0], ctx.arg_vals[1], *element)
@@ -329,7 +333,7 @@ declare_builtins! { emitter, ctx;
             None
         }
     },
-    ("Set", "difference", borrow: true) => {
+    ("Set", "difference", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
                 emitter.emit_set_difference(ctx.arg_vals[0], ctx.arg_vals[1], *element)

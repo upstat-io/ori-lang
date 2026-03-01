@@ -3,8 +3,12 @@
 //! Sets use the same boxed layout as lists (contiguous array of elements).
 //! Elements are compared with memcmp (byte-by-byte equality).
 //!
-//! All set operations return new sets via sret pattern — no in-place mutation
-//! yet (COW set operations planned for §04.5).
+//! # Submodules
+//!
+//! - `cow` — COW mutation functions (`ori_set_insert_cow`, etc.) with consuming
+//!   semantics: fast path mutates in place when RC==1, slow path copies.
+
+pub mod cow;
 
 use crate::list::write_array_to_list;
 
@@ -306,7 +310,7 @@ unsafe fn raw_bytes_eq(a: *const u8, b: *const u8, len: usize) -> bool {
 }
 
 /// Write a set struct `{i64 len, i64 cap, ptr data}` to `out_ptr`.
-fn write_set_struct(out_ptr: *mut u8, len: i64, data: *mut u8) {
+pub(crate) fn write_set_struct(out_ptr: *mut u8, len: i64, data: *mut u8) {
     unsafe {
         out_ptr.cast::<i64>().write(len);
         out_ptr.cast::<i64>().add(1).write(len); // cap = len

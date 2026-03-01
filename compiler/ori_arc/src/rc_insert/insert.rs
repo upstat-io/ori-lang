@@ -274,7 +274,11 @@ fn process_block_rc(
         // Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — primitive ops are
         // non-consuming; Dec inserted at last borrowing use.
         if is_borrowing_instr(instr, ctx) {
+            let mut seen = FxHashSet::default();
             for &arg in &instr.used_vars() {
+                if !seen.insert(arg) {
+                    continue;
+                }
                 if needs_rc_trackable(arg, ctx) && !live.contains(&arg) {
                     new_body.push(ArcInstr::RcDec {
                         var: arg,

@@ -385,8 +385,8 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     // Map — single-buffer layout: data = [keys...|vals...]
     RtFn {
         name: "ori_map_contains_key",
-        // (data, len, needle) -> i64
-        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        // (data, len, needle, key_size, key_eq) -> i64
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::Ptr],
         ret: Some(Ty::I64),
         attrs: &[],
     },
@@ -406,7 +406,7 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     },
     RtFn {
         name: "ori_map_get",
-        // (data, cap, len, needle, key_size, val_size, out_ptr)
+        // (data, cap, len, needle, key_size, val_size, key_eq, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -414,14 +414,15 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
         attrs: &[],
     },
     RtFn {
-        name: "ori_map_insert",
-        // (data, cap, len, key, val_ptr, key_size, val_size, out_ptr)
+        name: "ori_map_insert_cow",
+        // (data, len, cap, key, value, key_size, val_size, key_eq, key_inc, val_inc, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -430,14 +431,17 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
         attrs: &[],
     },
     RtFn {
-        name: "ori_map_remove",
-        // (data, cap, len, needle, key_size, val_size, out_ptr)
+        name: "ori_map_remove_cow",
+        // (data, len, cap, key, key_size, val_size, key_eq, key_inc, val_inc, out_ptr)
         params: &[
             Ty::Ptr,
             Ty::I64,
@@ -445,6 +449,9 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
             Ty::Ptr,
             Ty::I64,
             Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
             Ty::Ptr,
         ],
         ret: None,
@@ -499,6 +506,94 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
     RtFn {
         name: "ori_set_difference",
         params: &[Ty::Ptr, Ty::I64, Ty::Ptr, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_set_insert_cow",
+        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_set_remove_cow",
+        // (data, len, cap, elem, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_set_union_cow",
+        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_set_intersection_cow",
+        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
+        name: "ori_set_difference_cow",
+        // (d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, out_ptr)
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
         ret: None,
         attrs: &[],
     },

@@ -91,16 +91,22 @@ pub fn expand_reset_reuse(
     classifier: &dyn ArcClassification,
     pool: Option<&ori_types::Pool>,
 ) {
-    // Only process original blocks — newly added blocks are already expanded.
-    let original_block_count = func.blocks.len();
+    let blocks_before = func.blocks.len();
+    let mut block_idx = 0;
 
-    for block_idx in 0..original_block_count {
+    // Process all blocks, including newly appended ones. When a block
+    // contains multiple Reset/Reuse pairs, expanding the first pair moves
+    // later instructions (including subsequent pairs) into a merge block
+    // appended beyond the original block count. This loop visits those
+    // new blocks to expand any remaining pairs.
+    while block_idx < func.blocks.len() {
         try_expand_block(func, block_idx, classifier, pool);
+        block_idx += 1;
     }
 
     tracing::debug!(
         function = func.name.raw(),
-        blocks_before = original_block_count,
+        blocks_before,
         blocks_after = func.blocks.len(),
         "constructor reuse expansion complete"
     );
@@ -137,21 +143,7 @@ fn try_expand_block(
     let (erased_indices, claimed) =
         erase_proj_increments(&func.blocks[block_idx].body[..pair.reset_idx], &proj_map);
 
-    // Apply erasures to the actual block body.
-    // Remove in reverse order to preserve indices.
-    {
-        let body = &mut func.blocks[block_idx].body;
-        for &idx in erased_indices.iter().rev() {
-            body.remove(idx);
-        }
-        // Update the span list to match.
-        let spans = &mut func.spans[block_idx];
-        for &idx in erased_indices.iter().rev() {
-            if idx < spans.len() {
-                spans.remove(idx);
-            }
-        }
-    }
+    apply_erasures(func, block_idx, &erased_indices);
 
     // Re-find the pair (indices shifted due to erasures).
     let Some(pair) = find_reset_reuse_pair(&func.blocks[block_idx]) else {
@@ -237,7 +229,10 @@ fn try_expand_block(
     func.spans[block_idx].truncate(pair.reset_idx);
     func.spans[block_idx].push(None); // IsShared span
 
-    // 10. Push new blocks.
+    // 10. Propagate merge substitution to all existing blocks.
+    propagate_merge_substitution(func, merge_block.as_ref(), pair.reuse_dst);
+
+    // 11. Push new blocks.
     func.push_block(fast_block);
     func.push_block(slow_block);
     if let Some(mb) = merge_block {
@@ -265,6 +260,15 @@ fn find_reset_reuse_pair(block: &ArcBlock) -> Option<ResetReusePair> {
                 } = candidate
                 {
                     if *t == token_var {
+                        // Defense-in-depth: collection ctors are gated at
+                        // detection time (reset_reuse::is_collection_ctor),
+                        // so this should be unreachable. Kept as a safety net.
+                        if matches!(
+                            ctor,
+                            CtorKind::ListLiteral | CtorKind::MapLiteral | CtorKind::SetLiteral
+                        ) {
+                            continue;
+                        }
                         return Some(ResetReusePair {
                             reset_idx: i,
                             reuse_idx: j,
@@ -383,6 +387,44 @@ fn move_between_to_prefix(func: &mut ArcFunction, block_idx: usize, pair: &Reset
     }
 }
 
+// Erasure and substitution helpers
+
+/// Remove erased instructions (and their spans) from a block.
+///
+/// Indices are removed in reverse order to preserve earlier indices.
+fn apply_erasures(func: &mut ArcFunction, block_idx: usize, erased_indices: &[usize]) {
+    let body = &mut func.blocks[block_idx].body;
+    for &idx in erased_indices.iter().rev() {
+        body.remove(idx);
+    }
+    let spans = &mut func.spans[block_idx];
+    for &idx in erased_indices.iter().rev() {
+        if idx < spans.len() {
+            spans.remove(idx);
+        }
+    }
+}
+
+/// Substitute `reuse_dst → merge_param` in all pre-existing blocks.
+///
+/// The merge block itself already uses `merge_param`, but successor blocks
+/// reachable from the merge block's terminator (e.g., Invoke destinations)
+/// still reference `reuse_dst`. This ensures consistency.
+fn propagate_merge_substitution(
+    func: &mut ArcFunction,
+    merge_block: Option<&ArcBlock>,
+    reuse_dst: ArcVarId,
+) {
+    let Some(mb) = merge_block else { return };
+    let merge_param = mb.params[0].0;
+    for block in &mut func.blocks {
+        for instr in &mut block.body {
+            instr.substitute_var(reuse_dst, merge_param);
+        }
+        block.terminator.substitute_var(reuse_dst, merge_param);
+    }
+}
+
 // Fast-path construction (§09.3 + §09.5)
 
 /// Configuration for building fast/slow path blocks.
@@ -489,7 +531,15 @@ fn build_slow_path(
     });
 
     // Restore erased incs for claimed fields (§09.4).
-    for (&_field, &proj_var) in ctx.claimed {
+    // Sort by field index for deterministic IR output — FxHashMap iteration
+    // order is not stable across runs.
+    let mut claimed_sorted: Vec<(u32, ArcVarId)> = ctx
+        .claimed
+        .iter()
+        .map(|(&field, &var)| (field, var))
+        .collect();
+    claimed_sorted.sort_unstable_by_key(|(field, _)| *field);
+    for (_, proj_var) in claimed_sorted {
         body.push(ArcInstr::RcInc {
             var: proj_var,
             count: 1,

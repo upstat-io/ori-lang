@@ -80,9 +80,9 @@ use rustc_hash::FxHashMap;
 
 pub use borrow::{
     apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names,
-    consuming_second_arg_builtin_names, extract_callees, infer_borrow_fixed_point,
-    infer_borrow_single, infer_borrows_scc, infer_derived_ownership, initialize_single_borrowed,
-    BuiltinOwnershipSets,
+    consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names, extract_callees,
+    infer_borrow_fixed_point, infer_borrow_single, infer_borrows_scc, infer_derived_ownership,
+    initialize_single_borrowed, BuiltinOwnershipSets,
 };
 pub use classify::ArcClassifier;
 pub use decision_tree::{
@@ -96,7 +96,7 @@ pub use expand_reuse::expand_reset_reuse;
 pub use fbip::check_fbip_enforcement;
 pub use graph::call_graph::CallGraph;
 pub use graph::scc::{compute_sccs, topological_order, Scc};
-pub use graph::DominatorTree;
+pub use graph::{DominatorTree, PostDominatorTree};
 pub use ir::{
     compute_var_reprs, ArcBlock, ArcBlockId, ArcFunction, ArcInstr, ArcParam, ArcTerminator,
     ArcValue, ArcVarId, ArgOwnership, CtorKind, LitValue, PrimOp, RcStrategy, ValueRepr,
@@ -138,11 +138,25 @@ pub fn run_arc_pipeline(
     func.var_reprs = ir::compute_var_reprs(func, classifier, pool);
 
     let ownership = borrow::infer_derived_ownership(func, sigs);
-    let dom_tree = graph::DominatorTree::build(func);
-    let (refined, liveness) = liveness::compute_refined_liveness(func, classifier);
+    let (_, liveness) = liveness::compute_refined_liveness(func, classifier);
     rc_insert::insert_rc_ops_with_ownership(func, classifier, &liveness, &ownership, sigs, pool);
     rc_insert::insert_external_invoke_cleanup(func, classifier, &liveness, pool);
-    reset_reuse::detect_reset_reuse_cfg(func, classifier, &dom_tree, &refined, pool);
+
+    // Build dom/post-dom trees AFTER RC insertion. Edge cleanup can split
+    // edges and append trampoline blocks, which invalidates any earlier
+    // dominator analysis. Refined liveness is also recomputed so cross-block
+    // detection sees the post-insertion CFG.
+    let dom_tree = graph::DominatorTree::build(func);
+    let post_dom_tree = graph::PostDominatorTree::build(func);
+    let (refined_post_rc, _) = liveness::compute_refined_liveness(func, classifier);
+    reset_reuse::detect_reset_reuse_cfg(
+        func,
+        classifier,
+        &dom_tree,
+        &post_dom_tree,
+        &refined_post_rc,
+        pool,
+    );
     expand_reuse::expand_reset_reuse(func, classifier, Some(pool));
 
     // Normalize RC identities before elimination: rewrite RcInc/RcDec on
