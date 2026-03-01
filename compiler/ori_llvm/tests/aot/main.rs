@@ -9,6 +9,7 @@ pub mod cli;
 pub mod codegen;
 pub mod collections_ext;
 pub mod conversions;
+pub mod cow_map_set;
 pub mod cross;
 pub mod depth;
 pub mod derives;

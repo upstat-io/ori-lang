@@ -43,15 +43,12 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
     "contains",
     "contains_key",
     "count",
-    "difference",
     "ends_with",
     "equals",
     "f",
     "first",
     "get",
     "hash",
-    "insert",
-    "intersection",
     "into",
     "is_empty",
     "is_equal",
@@ -67,7 +64,6 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
     "last",
     "len",
     "length",
-    "remove",
     "repeat",
     "replace",
     "reverse",
@@ -80,7 +76,6 @@ const BORROWING_METHOD_NAMES: &[&str] = &[
     "to_str",
     "to_uppercase",
     "trim",
-    "union",
     "unwrap",
     "unwrap_err",
     "unwrap_or",
@@ -126,6 +121,25 @@ const CONSUMING_SECOND_ARG_METHOD_NAMES: &[&str] = &[
     "concat", // list.concat(other)
 ];
 
+/// COW methods that consume ONLY the receiver; non-receiver args are borrowed.
+///
+/// These are Map/Set COW methods where the runtime takes ownership of the
+/// receiver's buffer but only reads other arguments (comparison keys, read-only
+/// collections). Contrast with `CONSUMING_RECEIVER_METHOD_NAMES` where List
+/// methods also transfer inserted elements.
+///
+/// In `compute_arg_ownership`, these methods produce `[Owned, Borrowed, ...]`
+/// instead of the default all-Owned, preventing RC leaks on comparison keys
+/// and read-only collection arguments.
+///
+/// Sorted alphabetically.
+const CONSUMING_RECEIVER_ONLY_METHOD_NAMES: &[&str] = &[
+    "difference",   // set.difference(other) — other is read-only
+    "intersection", // set.intersection(other) — other is read-only
+    "remove",       // map/set.remove(key) — key is comparison-only
+    "union",        // set.union(other) — other is read-only
+];
+
 /// Collect interned [`Name`]s for all builtin methods that borrow their receiver.
 ///
 /// Returns the set of method names (not type-qualified) that borrow inference
@@ -169,9 +183,23 @@ pub fn consuming_second_arg_builtin_names(interner: &StringInterner) -> FxHashSe
         .collect()
 }
 
+/// Collect interned [`Name`]s for COW methods that consume only the receiver.
+///
+/// Non-receiver arguments are borrowed (comparison keys, read-only collections).
+/// Used by `compute_arg_ownership` to produce `[Owned, Borrowed, ...]` instead
+/// of the default all-Owned.
+///
+/// See [`CONSUMING_RECEIVER_ONLY_METHOD_NAMES`] for the full list.
+pub fn consuming_receiver_only_builtin_names(interner: &StringInterner) -> FxHashSet<Name> {
+    CONSUMING_RECEIVER_ONLY_METHOD_NAMES
+        .iter()
+        .map(|name| interner.intern(name))
+        .collect()
+}
+
 /// Pre-computed interned sets for ARC ownership annotation.
 ///
-/// Groups the three builtin method name sets that
+/// Groups the builtin method name sets that
 /// [`annotate_arg_ownership`](crate::rc_insert::annotate_arg_ownership)
 /// needs. Constructing this once avoids redundant `intern()` work across
 /// multiple function compilations.
@@ -182,6 +210,12 @@ pub struct BuiltinOwnershipSets {
     pub consuming_receiver: FxHashSet<Name>,
     /// COW list methods that also consume their second argument (e.g., `add`, `concat`).
     pub consuming_second_arg: FxHashSet<Name>,
+    /// COW methods that consume only the receiver; other args are borrowed.
+    ///
+    /// For Map/Set operations like `remove(key)` and `union(other)`, the
+    /// receiver is consumed (COW handles its RC) but the key/other-set is
+    /// only read for comparison — its RC must be decremented by the caller.
+    pub consuming_receiver_only: FxHashSet<Name>,
 }
 
 impl BuiltinOwnershipSets {
@@ -191,6 +225,7 @@ impl BuiltinOwnershipSets {
             borrowing: borrowing_builtin_names(interner),
             consuming_receiver: consuming_receiver_builtin_names(interner),
             consuming_second_arg: consuming_second_arg_builtin_names(interner),
+            consuming_receiver_only: consuming_receiver_only_builtin_names(interner),
         }
     }
 }
@@ -319,11 +354,12 @@ mod tests {
     }
 
     #[test]
-    fn insert_in_both_borrowing_and_consuming() {
-        // "insert" is borrowing for Map/Set but consuming for List (COW).
+    fn insert_not_in_borrowing() {
+        // "insert" is COW consuming for all collection types (list, map, set).
+        // All args are owned (key/value/elem transferred to collection).
         assert!(
-            BORROWING_METHOD_NAMES.contains(&"insert"),
-            "\"insert\" must be in BORROWING — map/set.insert() borrows"
+            !BORROWING_METHOD_NAMES.contains(&"insert"),
+            "\"insert\" must NOT be in BORROWING — COW consuming for all types"
         );
         assert!(
             CONSUMING_RECEIVER_METHOD_NAMES.contains(&"insert"),
@@ -332,15 +368,20 @@ mod tests {
     }
 
     #[test]
-    fn remove_in_both_borrowing_and_consuming() {
-        // "remove" is borrowing for Map/Set but consuming for List (COW).
+    fn remove_in_consuming_receiver_only() {
+        // "remove" consumes the receiver (COW) but only reads the key/element
+        // for comparison — non-receiver args must be Borrowed to prevent leaks.
         assert!(
-            BORROWING_METHOD_NAMES.contains(&"remove"),
-            "\"remove\" must be in BORROWING — map/set.remove() borrows"
+            !BORROWING_METHOD_NAMES.contains(&"remove"),
+            "\"remove\" must NOT be in BORROWING — COW consuming for all types"
+        );
+        assert!(
+            CONSUMING_RECEIVER_ONLY_METHOD_NAMES.contains(&"remove"),
+            "\"remove\" must be in CONSUMING_RECEIVER_ONLY — key is comparison-only"
         );
         assert!(
             CONSUMING_RECEIVER_METHOD_NAMES.contains(&"remove"),
-            "\"remove\" must be in CONSUMING — list.remove() is COW consuming"
+            "\"remove\" must be in CONSUMING_RECEIVER — list.remove() is COW consuming"
         );
     }
 
@@ -405,6 +446,67 @@ mod tests {
                 CONSUMING_RECEIVER_METHOD_NAMES.contains(&method),
                 "\"{method}\" is in CONSUMING_SECOND_ARG but not CONSUMING_RECEIVER — \
                  a method can't consume arg[1] without also consuming the receiver"
+            );
+        }
+    }
+
+    // consuming_receiver_only tests
+
+    #[test]
+    fn consuming_receiver_only_method_names_sorted() {
+        for window in CONSUMING_RECEIVER_ONLY_METHOD_NAMES.windows(2) {
+            assert!(
+                window[0] < window[1],
+                "CONSUMING_RECEIVER_ONLY_METHOD_NAMES not sorted: {:?} >= {:?}",
+                window[0],
+                window[1],
+            );
+        }
+    }
+
+    #[test]
+    fn consuming_receiver_only_method_names_no_duplicates() {
+        let mut seen = std::collections::HashSet::new();
+        for &name in CONSUMING_RECEIVER_ONLY_METHOD_NAMES {
+            assert!(
+                seen.insert(name),
+                "duplicate in CONSUMING_RECEIVER_ONLY_METHOD_NAMES: {name:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn consuming_receiver_only_builtin_names_returns_correct_count() {
+        let interner = StringInterner::default();
+        let names = consuming_receiver_only_builtin_names(&interner);
+        assert_eq!(
+            names.len(),
+            CONSUMING_RECEIVER_ONLY_METHOD_NAMES.len(),
+            "interned set should have same count as const array (no duplicates)"
+        );
+    }
+
+    #[test]
+    fn consuming_receiver_only_not_in_borrowing() {
+        // These methods are COW consuming for all types — they must NOT be in
+        // BORROWING, which would make all args (including the receiver) borrowed.
+        for &method in CONSUMING_RECEIVER_ONLY_METHOD_NAMES {
+            assert!(
+                !BORROWING_METHOD_NAMES.contains(&method),
+                "\"{method}\" is in CONSUMING_RECEIVER_ONLY but also in BORROWING — \
+                 a COW-consuming method cannot borrow its receiver"
+            );
+        }
+    }
+
+    #[test]
+    fn set_binary_ops_in_consuming_receiver_only() {
+        // Set binary operations consume the receiver but only read the second set.
+        for &method in &["union", "intersection", "difference"] {
+            assert!(
+                CONSUMING_RECEIVER_ONLY_METHOD_NAMES.contains(&method),
+                "\"{method}\" must be in CONSUMING_RECEIVER_ONLY — \
+                 second set is read-only, not consumed"
             );
         }
     }

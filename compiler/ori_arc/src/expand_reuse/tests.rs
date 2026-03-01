@@ -637,3 +637,73 @@ fn fast_path_dec_unclaimed_field() {
         fast_block.body
     );
 }
+
+// Test 11: Two Reset/Reuse pairs in the same block — both must be expanded
+
+#[test]
+fn two_pairs_same_block() {
+    // Two pairs in one block:
+    //   Reset{v0, t0}; Reuse{t0, v2, STR, ...};
+    //   Reset{v1, t1}; Reuse{t1, v3, STR, ...};
+    //   Return{v3}
+    //
+    // Before the fix, only the first pair was expanded (the second pair
+    // ended up in a merge block beyond the original block count and was
+    // never visited). After the fix, both pairs are fully expanded.
+    let func = make_func(
+        vec![owned_param(0, Idx::STR), owned_param(1, Idx::STR)],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Reset {
+                    var: v(0),
+                    token: v(4),
+                },
+                ArcInstr::Reuse {
+                    token: v(4),
+                    dst: v(2),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![],
+                },
+                ArcInstr::Reset {
+                    var: v(1),
+                    token: v(5),
+                },
+                ArcInstr::Reuse {
+                    token: v(5),
+                    dst: v(3),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Struct(Name::from_raw(11)),
+                    args: vec![],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(3) },
+        }],
+        vec![Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR, Idx::STR],
+    );
+
+    let result = run_expand(func);
+
+    // After expansion: zero Reset, zero Reuse.
+    let reset_count = count_instrs(&result, |i| matches!(i, ArcInstr::Reset { .. }));
+    let reuse_count = count_instrs(&result, |i| matches!(i, ArcInstr::Reuse { .. }));
+
+    assert_eq!(
+        reset_count, 0,
+        "all Reset instructions should be expanded, found {reset_count}"
+    );
+    assert_eq!(
+        reuse_count, 0,
+        "all Reuse instructions should be expanded, found {reuse_count}"
+    );
+
+    // Should have at least 2 IsShared checks (one per pair).
+    let is_shared_count = count_instrs(&result, |i| matches!(i, ArcInstr::IsShared { .. }));
+    assert!(
+        is_shared_count >= 2,
+        "expected at least 2 IsShared checks, got {is_shared_count}"
+    );
+}

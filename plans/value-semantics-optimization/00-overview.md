@@ -1,7 +1,7 @@
 ---
 plan: "value-semantics-optimization"
 title: "Value Semantics Optimization: Exhaustive Implementation Plan"
-status: not-started
+status: in-progress
 supersedes: []
 references:
   - "plans/aot_codegen_pipeline/"

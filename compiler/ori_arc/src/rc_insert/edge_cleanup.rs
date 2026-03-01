@@ -12,7 +12,7 @@ use crate::ir::{
 };
 use crate::liveness::BlockLiveness;
 use crate::ArcClassification;
-use ori_types::Pool;
+use ori_types::{Idx, Pool};
 
 use super::rc_strategy_direct;
 
@@ -137,30 +137,7 @@ pub(super) fn insert_edge_cleanup(
 
     // Apply edge splits: create trampoline blocks with Dec instructions.
     for &(pred_idx, succ_block_id, ref vars) in &edge_splits {
-        let trampoline_id = func.next_block_id();
-        let trampoline_body: Vec<ArcInstr> = vars
-            .iter()
-            .map(|&v| ArcInstr::RcDec {
-                var: v,
-                strategy: rc_strategy_direct(func, pool, v),
-            })
-            .collect();
-
-        func.push_block(ArcBlock {
-            id: trampoline_id,
-            params: vec![],
-            body: trampoline_body,
-            terminator: ArcTerminator::Jump {
-                target: succ_block_id,
-                args: vec![],
-            },
-        });
-
-        redirect_edges(
-            &mut func.blocks[pred_idx].terminator,
-            succ_block_id,
-            trampoline_id,
-        );
+        apply_edge_split(func, pred_idx, succ_block_id, vars, pool);
     }
 
     if !block_decs.is_empty() || !edge_splits.is_empty() {
@@ -170,6 +147,59 @@ pub(super) fn insert_edge_cleanup(
             "edge cleanup applied"
         );
     }
+}
+
+/// Create a trampoline block between `pred` and `succ` with `RcDec` instructions.
+///
+/// If the successor has block params, the trampoline accepts and forwards them
+/// so the edge split is transparent to the rest of the IR.
+fn apply_edge_split(
+    func: &mut ArcFunction,
+    pred_idx: usize,
+    succ_block_id: ArcBlockId,
+    vars: &[ArcVarId],
+    pool: Option<&Pool>,
+) {
+    let trampoline_id = func.next_block_id();
+    let trampoline_body: Vec<ArcInstr> = vars
+        .iter()
+        .map(|&v| ArcInstr::RcDec {
+            var: v,
+            strategy: rc_strategy_direct(func, pool, v),
+        })
+        .collect();
+
+    // Forward successor block params through fresh trampoline params.
+    // Clone param types first to release the immutable borrow on func.blocks
+    // before calling fresh_var (which borrows func mutably).
+    let succ_param_types: Vec<Idx> = func.blocks[succ_block_id.index()]
+        .params
+        .iter()
+        .map(|&(_, ty)| ty)
+        .collect();
+    let (trampoline_params, forward_args): (Vec<_>, Vec<_>) = succ_param_types
+        .iter()
+        .map(|&ty| {
+            let fresh = func.fresh_var(ty);
+            ((fresh, ty), fresh)
+        })
+        .unzip();
+
+    func.push_block(ArcBlock {
+        id: trampoline_id,
+        params: trampoline_params,
+        body: trampoline_body,
+        terminator: ArcTerminator::Jump {
+            target: succ_block_id,
+            args: forward_args,
+        },
+    });
+
+    redirect_edges(
+        &mut func.blocks[pred_idx].terminator,
+        succ_block_id,
+        trampoline_id,
+    );
 }
 
 /// Redirect all edges in a terminator from `old_target` to `new_target`.
@@ -255,6 +285,7 @@ pub fn insert_external_invoke_cleanup(
             let block_live_out = &liveness.live_out[block.id.index()];
 
             // Read per-arg ownership from the IR (populated by annotate_arg_ownership).
+            let mut seen = FxHashSet::default();
             let last_use_args: Vec<ArcVarId> = args
                 .iter()
                 .enumerate()
@@ -262,6 +293,7 @@ pub fn insert_external_invoke_cleanup(
                     arg_ownership.get(i).copied() == Some(ArgOwnership::Borrowed)
                         && classifier.needs_rc(func.var_type(arg))
                         && !block_live_out.contains(&arg)
+                        && seen.insert(arg)
                 })
                 .map(|(_, &arg)| arg)
                 .collect();

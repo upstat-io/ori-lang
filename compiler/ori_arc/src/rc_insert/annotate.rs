@@ -22,12 +22,17 @@ use ori_types::Pool;
 /// Builtin methods (e.g., `len`, `is_empty`) that are known to borrow their
 /// receiver also get all-borrowed — they're compiled inline by the LLVM
 /// emitter and don't consume their arguments.
+///
+/// COW methods that consume only the receiver (e.g., `remove`, `union`) get
+/// `[Owned, Borrowed, ...]` — the receiver is consumed by the COW runtime,
+/// but other arguments (comparison keys, read-only collections) are borrowed.
 fn compute_arg_ownership(
     callee: ori_ir::Name,
     arg_count: usize,
     sigs: &FxHashMap<ori_ir::Name, crate::ownership::AnnotatedSig>,
     interner: &ori_ir::StringInterner,
     borrowing_builtins: &FxHashSet<ori_ir::Name>,
+    consuming_receiver_only: &FxHashSet<ori_ir::Name>,
 ) -> Vec<ArgOwnership> {
     // External C runtime: not in sigs, name starts with `ori_`.
     if !sigs.contains_key(&callee) {
@@ -40,6 +45,13 @@ fn compute_arg_ownership(
         // Builtin method with borrowing receiver (e.g., len, is_empty).
         if borrowing_builtins.contains(&callee) {
             return vec![ArgOwnership::Borrowed; arg_count];
+        }
+        // COW method consuming only the receiver (e.g., remove, union).
+        // Non-receiver args are borrowed (comparison keys, read-only sets).
+        if consuming_receiver_only.contains(&callee) && arg_count > 0 {
+            let mut ownership = vec![ArgOwnership::Borrowed; arg_count];
+            ownership[0] = ArgOwnership::Owned;
+            return ownership;
         }
         // Unknown non-external: conservative owned.
         return vec![ArgOwnership::Owned; arg_count];
@@ -87,6 +99,10 @@ fn compute_arg_ownership(
 /// `builtins.consuming_second_arg` identifies COW list methods (e.g., `add`,
 /// `concat`) where the runtime also consumes the second argument (list2).
 /// When the receiver is `List` and `args.len() >= 2`, arg[1] is also `Owned`.
+///
+/// `builtins.consuming_receiver_only` identifies COW methods (e.g., `remove`,
+/// `union`) that consume the receiver but only read/compare other arguments.
+/// These produce `[Owned, Borrowed, ...]` in `compute_arg_ownership`.
 #[expect(clippy::implicit_hasher, reason = "FxHashMap is the canonical hasher")]
 pub fn annotate_arg_ownership(
     func: &mut ArcFunction,
@@ -108,8 +124,14 @@ pub fn annotate_arg_ownership(
                 ..
             } = instr
             {
-                *arg_ownership =
-                    compute_arg_ownership(*callee, args.len(), sigs, interner, &builtins.borrowing);
+                *arg_ownership = compute_arg_ownership(
+                    *callee,
+                    args.len(),
+                    sigs,
+                    interner,
+                    &builtins.borrowing,
+                    &builtins.consuming_receiver_only,
+                );
                 apply_consuming_overrides(
                     *callee,
                     args,
@@ -130,8 +152,14 @@ pub fn annotate_arg_ownership(
             ..
         } = &mut block.terminator
         {
-            *arg_ownership =
-                compute_arg_ownership(*callee, args.len(), sigs, interner, &builtins.borrowing);
+            *arg_ownership = compute_arg_ownership(
+                *callee,
+                args.len(),
+                sigs,
+                interner,
+                &builtins.borrowing,
+                &builtins.consuming_receiver_only,
+            );
             apply_consuming_overrides(
                 *callee,
                 args,
@@ -177,7 +205,8 @@ fn apply_consuming_overrides(
 
     let receiver_var = args[0];
     let receiver_idx = var_types[receiver_var.index()];
-    if pool.tag(receiver_idx) != ori_types::Tag::List {
+    let resolved_receiver = pool.resolve_fully(receiver_idx);
+    if pool.tag(resolved_receiver) != ori_types::Tag::List {
         return;
     }
 

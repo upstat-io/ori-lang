@@ -123,6 +123,8 @@ fn main() {
                     config.backend = oric::test::Backend::LLVM;
                 } else if arg == "--backend=interpreter" {
                     config.backend = oric::test::Backend::Interpreter;
+                } else if arg == "--incremental" {
+                    config.incremental = true;
                 } else if !arg.starts_with('-') && path.is_none() {
                     path = Some(arg.clone());
                 }
@@ -309,6 +311,7 @@ fn print_usage() {
     println!("  --verbose, -v       Show detailed output");
     println!("  --no-parallel       Run tests sequentially");
     println!("  --backend=<name>    Use backend: interpreter (default), llvm");
+    println!("  --incremental       Skip tests for unchanged functions");
     println!();
     println!("Format options:");
     println!("  --check             Check if files are formatted (exit 1 if not)");
