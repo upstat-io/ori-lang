@@ -65,6 +65,7 @@ compiler/ori_patterns/src/
     ├── mod.rs              # Value enum and factory methods
     ├── scalar_int.rs       # Scalar integer representation
     ├── heap/mod.rs         # Heap<T> wrapper for Arc enforcement
+    ├── list_data/mod.rs    # ListData: zero-copy list slicing (offset+length into shared Vec)
     ├── composite/mod.rs    # FunctionValue, StructValue, RangeValue
     ├── error_value/mod.rs  # Error value representation
     └── iterator/mod.rs     # Iterator value types and adapters
