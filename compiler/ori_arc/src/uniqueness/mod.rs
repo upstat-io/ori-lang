@@ -227,9 +227,11 @@ impl UniquenessMap {
     ///
     /// For each variable present in either map, the result is the join
     /// of both states. Variables only in `other` are joined with the
-    /// implicit `MaybeShared`. Variables only in `self` are unaffected:
-    /// joining with the implicit `MaybeShared` (⊤) from `other` is
-    /// idempotent.
+    /// implicit `MaybeShared`. Variables only in `self` are unaffected.
+    /// This is correct in SSA form: any variable reachable at a join
+    /// point dominates all predecessors, so it is present in all maps.
+    /// Variables unique to one predecessor are unreachable after the
+    /// join and thus harmless.
     pub fn join_from(&mut self, other: &Self) {
         for (&var, &state) in &other.states {
             self.join(var, state);
