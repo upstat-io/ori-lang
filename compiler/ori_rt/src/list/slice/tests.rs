@@ -501,7 +501,7 @@ fn cow_insert_on_slice_materializes() {
     // Insert 55 at index 1
     let new_val: i64 = 55;
     let mut insert_out = [0u8; 24];
-    crate::list::cow::ori_list_insert_cow(
+    crate::list::cow_structural::ori_list_insert_cow(
         s_data,
         s_len,
         s_cap,
@@ -537,7 +537,7 @@ fn cow_remove_on_slice_materializes() {
 
     // Remove index 1 (element 30)
     let mut remove_out = [0u8; 24];
-    crate::list::cow::ori_list_remove_cow(
+    crate::list::cow_structural::ori_list_remove_cow(
         s_data,
         s_len,
         s_cap,
