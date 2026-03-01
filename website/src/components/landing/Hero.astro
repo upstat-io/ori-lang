@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../../BUILD_NUMBER'), 'utf-8').trim();
+const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').trim();
 ---
 
 <section class="hero">
