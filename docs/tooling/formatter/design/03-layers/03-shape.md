@@ -281,7 +281,7 @@ impl Formatter {
         let width = self.width_calc.width(expr_id);
 
         if width == ALWAYS_STACKED {
-            // Special constructs (run, try, match)
+            // Special constructs (blocks, try, match)
             self.emit_stacked(expr_id);
         } else if shape.fits(width) {
             // Fits inline

@@ -147,6 +147,42 @@ Key characteristics:
 - Module caching for imports
 - Parallel test execution
 
+### 6. ARC Analysis (`ori_arc`)
+
+**Input**: `CanonResult` + `Pool`
+**Output**: `Vec<ArcFunction>` (ARC IR with RC operations)
+
+The ARC pipeline transforms canonical IR into a basic-block IR with explicit reference counting:
+
+```
+CanExpr → lower → ArcFunction
+  → borrow inference (Owned/Borrowed params)
+  → derived ownership (all locals)
+  → dominator tree
+  → liveness + refined liveness
+  → RC insertion (RcInc/RcDec)
+  → reset/reuse detection
+  → expand reset/reuse
+  → RC elimination (dead RC removal)
+  → cross-block RC elimination
+```
+
+Key characteristics:
+- Three-way type classification: `Scalar` / `DefiniteRef` / `PossibleRef`
+- Backend-independent — no LLVM dependency
+- Borrow signatures cached per session
+
+### 7. LLVM Codegen (`ori_llvm`)
+
+**Input**: `Vec<ArcFunction>` + `Pool` + type info
+**Output**: Native binary or JIT execution
+
+Two-pass compilation:
+1. **Declare**: Walk functions → `FunctionAbi` → declare with calling conventions/attributes
+2. **Define**: Walk ARC IR → `ArcIrEmitter` → LLVM IR
+
+The `ArcIrEmitter` translates each ARC IR instruction to LLVM instructions, handling RC operations, closures, built-in methods, and derive codegen.
+
 ## Query Dependencies
 
 ```mermaid
@@ -156,8 +192,12 @@ flowchart TB
     B --> D["typed()"]
     C --> D
     D --> E["evaluated()"]
-    E -->|"internally"| F["canonicalize (lower_module)"]
+    E -->|"internally"| F["canonicalize"]
     F --> G["eval canonical IR"]
+    D --> H["canonicalize (AOT path)"]
+    H --> I["ARC pipeline (ori_arc)"]
+    I --> J["LLVM codegen (ori_llvm)"]
+    J --> K["native binary"]
 ```
 
 When `SourceFile` changes:
@@ -166,7 +206,7 @@ When `SourceFile` changes:
 3. If parsed unchanged, `typed()` uses cached result
 4. If typed unchanged, `evaluated()` uses cached result
 
-### 6. Pattern Checking (inside `check` command)
+### 8. Pattern Checking (inside `check` command)
 
 Canonicalization also runs in the `check` command — independently of `evaluated()` — to detect pattern problems before execution:
 
@@ -194,6 +234,8 @@ This detects non-exhaustive matches and redundant arms at check time, without ru
 | Parser | Syntax errors | Skip/recover | Module + errors |
 | Typeck | Type mismatches | Continue | Types + errors |
 | Canon | Pattern problems | Accumulate | CanonResult + PatternProblems |
+| ARC | Classification errors | Abort | Vec\<ArcFunction\> |
+| LLVM | Codegen errors | Abort | Native binary |
 | Eval | Runtime errors | Stop | Value or error |
 
 ## Error Accumulation

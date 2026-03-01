@@ -19,8 +19,8 @@ The Ori formatter uses a layered architecture inspired by modern formatters (rus
 │  • Main Formatter struct and public API                         │
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 4: Breaking Rules (rules/)                               │
-│  • 8 Ori-specific rules for special constructs                  │
-│  • Method chains, short bodies, boolean breaks, etc.            │
+│  • 8 Ori-specific rules (1 integrated, 7 infrastructure-only)   │
+│  • Only ParenthesesRule is invoked by the formatter              │
 ├─────────────────────────────────────────────────────────────────┤
 │  Layer 3: Shape Tracking (shape/)                               │
 │  • Width tracking through recursion                             │
@@ -43,7 +43,7 @@ The Ori formatter uses a layered architecture inspired by modern formatters (rus
 | 1 | `spacing/` | Token spacing (space, none, newline) | `SpaceAction`, `TokenCategory`, `RulesMap` |
 | 2 | `packing/` | Container packing decisions | `Packing`, `ConstructKind`, `Separator` |
 | 3 | `shape/` | Width tracking through recursion | `Shape` |
-| 4 | `rules/` | Ori-specific breaking rules | 8 rule structs |
+| 4 | `rules/` | Ori-specific breaking rules | 8 rule structs (1 integrated: `ParenthesesRule`) |
 | 5 | `formatter/` | Orchestration and rendering | `Formatter` |
 
 ## Data Flow
@@ -187,23 +187,23 @@ ori_fmt/src/
 │   ├── configs.rs     # Config variables
 │   ├── comments.rs    # Comment handling
 │   ├── tests_fmt.rs   # Test formatting
-│   └── parsed_types.rs# Parsed type formatting
-├── comments.rs        # Comment preservation
-├── context.rs         # FormatContext<E> (column/indent tracking)
-├── emitter.rs         # StringEmitter output abstraction
+│   └── parsed_types/mod.rs # Parsed type formatting
+├── comments/mod.rs    # Comment preservation
+├── context/mod.rs     # FormatContext<E> (column/indent tracking)
+├── emitter/mod.rs     # StringEmitter output abstraction
 ├── width/             # Width calculation (WidthCalculator)
 │   ├── mod.rs         # WidthCalculator with LRU cache
 │   ├── calls.rs       # Function/method call widths
 │   ├── collections.rs # List/map/tuple widths
-│   ├── compounds.rs   # Compound expression widths
+│   ├── compounds/mod.rs # Compound expression widths
 │   ├── control.rs     # Control flow widths
-│   ├── helpers.rs     # Width helper functions
-│   ├── literals.rs    # Literal widths
-│   ├── operators.rs   # Operator widths
-│   ├── patterns.rs    # Pattern widths
+│   ├── helpers/mod.rs # Width helper functions
+│   ├── literals/mod.rs # Literal widths
+│   ├── operators/mod.rs # Operator widths
+│   ├── patterns/mod.rs # Pattern widths
 │   ├── wrappers.rs    # Wrapper type widths
 │   └── tests.rs
-└── incremental.rs     # Incremental formatting (future)
+└── incremental/mod.rs # Incremental formatting
 ```
 
 ## Relationship to Spec

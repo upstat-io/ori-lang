@@ -28,22 +28,25 @@ When a closure captures no variables, the `env_ptr` field is null. The lambda fu
 
 ### Closures With Captures
 
-When a closure captures variables, a heap-allocated environment struct is created containing the captured values at their native types:
+When a closure captures variables, a heap-allocated (via `ori_rc_alloc`) environment struct is created. The environment struct always includes a `drop_fn` pointer at field 0, followed by captured values at their native types:
 
 ```
 env_ptr ───────────────▶ Environment Struct:
-                         ┌────────────────┬────────────────┬───────┐
-                         │ capture0 (T0)  │ capture1 (T1)  │ ...   │
-                         └────────────────┴────────────────┴───────┘
+                         ┌────────────────┬────────────────┬────────────────┬───────┐
+                         │ drop_fn (ptr)  │ capture0 (T0)  │ capture1 (T1)  │ ...   │
+                         └────────────────┴────────────────┴────────────────┴───────┘
+                           field 0           field 1           field 2
 ```
 
-Each capture is stored at its native LLVM type (not coerced to i64). The lambda function unpacks captures from the environment struct using `struct_gep` with the correct field types.
+The `drop_fn` is a per-closure generated function that RC-decrements all reference-counted captures when the environment's reference count reaches zero. Only captures with `needs_rc(cap_ty) == true` (e.g., `[int]`, `str`, closures) receive RC decrements in the drop function.
+
+Each capture is stored at its native LLVM type (not coerced to i64). The lambda function unpacks captures from the environment struct using `struct_gep` at fields `1..N` (skipping the drop_fn at field 0).
 
 ## Compilation
 
-### Lambda Compilation (`lower_lambda`)
+### Lambda Compilation (`emit_partial_apply`)
 
-The `lower_lambda` function in `codegen/lower_calls.rs` compiles a lambda expression into a fat-pointer closure. The steps are:
+The `emit_partial_apply` method in `codegen/arc_emitter/closures.rs` compiles a `PartialApply` ARC IR instruction into a fat-pointer closure. The steps are:
 
 1. **Capture analysis**: Walk the lambda body to find free variables (variables used but not bound as parameters). Each capture includes the variable's `Name`, current `ValueId`, and type `Idx`.
 2. **Get type info**: Read the lambda's `TypeInfo::Function` to determine actual parameter and return types.
@@ -53,18 +56,19 @@ The `lower_lambda` function in `codegen/lower_calls.rs` compiles a lambda expres
 6. **Build fat pointer**: Construct `{ fn_ptr, env_ptr }` where `env_ptr` is null if no captures, or a heap-allocated environment struct otherwise.
 
 ```rust
-// Pseudocode for lambda compilation
-fn lower_lambda(params, body) -> { ptr, ptr } {
-    let captures = find_captures(body, params);
+// Pseudocode for lambda compilation (via ARC pipeline)
+fn emit_partial_apply(params, body) -> { ptr, ptr } {
+    let captures = collect_captures(body, params);
 
     // Lambda signature: (ptr env, actual params...) -> actual_ret_type
     let lambda_fn = declare_function("__lambda_N", [ptr, P1, P2, ...], R);
 
     // In lambda body: unpack captures from env struct via struct_gep
+    // Fields 1..N are captures (field 0 is drop_fn)
     if !captures.is_empty() {
         let env_ptr = get_param(lambda_fn, 0);
         for (i, capture) in captures {
-            let field_ptr = struct_gep(env_struct_ty, env_ptr, i);
+            let field_ptr = struct_gep(env_struct_ty, env_ptr, i + 1);
             let val = load(field_ty, field_ptr);
             scope.bind(capture.name, val);
         }
@@ -73,13 +77,18 @@ fn lower_lambda(params, body) -> { ptr, ptr } {
     // Compile body, emit return at native type
     compile_body(body);
 
-    // Build environment
+    // Build environment (heap-allocated, RC-tracked)
     let env_ptr = if captures.is_empty() {
         null_ptr
     } else {
-        let env = alloca(env_struct_type);
+        let drop_fn = generate_closure_drop_fn(env_struct_type, captures);
+        let env = ori_rc_alloc(size_of(env_struct_type));
+        // Field 0: drop function pointer
+        let drop_ptr = struct_gep(env_struct_ty, env, 0);
+        store(drop_fn, drop_ptr);
+        // Fields 1..N: captured values
         for (i, capture) in captures {
-            let ptr = struct_gep(env_struct_ty, env, i);
+            let ptr = struct_gep(env_struct_ty, env, i + 1);
             store(capture.value, ptr);
         }
         env
@@ -90,17 +99,17 @@ fn lower_lambda(params, body) -> { ptr, ptr } {
 }
 ```
 
-### Closure Calling (`lower_closure_call`)
+### Closure Calling (`emit_apply_indirect`)
 
-When calling a closure stored in a variable, the calling convention is uniform regardless of whether captures exist:
+When calling a closure stored in a variable via an `ApplyIndirect` ARC IR instruction, the calling convention is uniform regardless of whether captures exist:
 
 1. **Extract** `fn_ptr` and `env_ptr` from the fat pointer via `extract_value`
 2. **Prepend** `env_ptr` as the first argument
 3. **Call indirectly** through `fn_ptr` with actual types from `TypeInfo::Function`
 
 ```rust
-// Pseudocode for closure call
-fn lower_closure_call(closure_val: { ptr, ptr }, args) -> R {
+// Pseudocode for closure call (via ARC pipeline)
+fn emit_apply_indirect(closure_val: { ptr, ptr }, args) -> R {
     let fn_ptr = extract_value(closure_val, 0);  // fn_ptr
     let env_ptr = extract_value(closure_val, 1);  // env_ptr
 
@@ -114,21 +123,32 @@ fn lower_closure_call(closure_val: { ptr, ptr }, args) -> R {
 
 No tag-bit checking is needed because the calling convention is uniform: all lambda functions accept `ptr %env` as their first parameter, whether or not they use it.
 
+## Non-Capturing Lambda Fast Path
+
+For lambdas that capture no variables, the compiler skips environment allocation entirely. The lambda function pointer is reused directly (cached in `non_capturing_lambdas`), and the `env_ptr` in the fat pointer is set to null. This avoids wrapper generation overhead for simple function-as-value patterns.
+
+## Closure Wrapper Functions
+
+For capturing lambdas, a wrapper function `_ori_partial_N` is generated to bridge calling conventions. The wrapper unpacks captures from the environment struct, then calls the underlying lambda with the correct parameter types. This indirection allows the fat pointer calling convention to remain uniform while each lambda's internal signature matches its actual parameter types.
+
 ## Capture Analysis
 
-The `find_captures` method on `ExprLowerer` walks the lambda body recursively to identify free variables. Each capture includes three pieces of information:
+Capture analysis is performed during ARC lowering (in `ori_arc`), not during LLVM emission. The `collect_captures` method on `ArcLowerer` walks the lambda body recursively to identify free variables:
 
 ```rust
-fn find_captures(&mut self, body: CanId, params: CanParamRange) -> Vec<(Name, ValueId, Idx)> {
+fn collect_captures(
+    &self, body: CanId, params: &[Name],
+    captures: &mut Vec<(Name, ArcVarId)>, seen: &mut HashSet<Name>,
+) {
     // Walk body, collect identifiers that:
     // 1. Are NOT lambda parameters
     // 2. ARE in the current scope (captured from enclosing scope)
     // 3. Haven't been seen yet (avoid duplicates)
-    // Returns (name, current_value, type_index) triples
+    // Returns (name, arc_var_id) pairs
 }
 ```
 
-The type index (`Idx`) is needed to build the environment struct with native-typed fields, so each capture is stored at its correct LLVM type rather than being coerced to `i64`.
+Captures become the first parameters of the lambda's `ArcFunction`. The ARC IR `PartialApply` instruction records which outer variables are captured. The LLVM `emit_partial_apply` then generates the environment struct with native-typed fields.
 
 Supported expression types for capture analysis:
 - Identifiers (primary capture source)
@@ -151,15 +171,16 @@ The `IrBuilder` provides methods for working with closure fat pointers:
 ## Limitations
 
 - Captured values are stored at native types (no coercion), but the environment struct layout is ephemeral and not accessible across compilation units
-- No closure deallocation currently (relies on program termination or ARC for cleanup)
+- Environment structs are RC-tracked via `ori_rc_alloc`/`ori_rc_dec`; the generated `drop_fn` handles capture cleanup when the refcount reaches zero
 - Closures always use `fastcc` calling convention for the lambda function
 
 ## Source Files
 
 | File | Purpose |
 |------|---------|
-| `codegen/lower_lambdas.rs` | `lower_lambda`, `find_captures`, capture analysis |
-| `codegen/lower_calls.rs` | `lower_closure_call`, call dispatch |
-| `codegen/ir_builder.rs` | `closure_type()`, `extract_value`, `build_struct`, `call_indirect` |
-| `codegen/arc_emitter.rs` | ARC emission for closure values (retain/release env) |
-| `codegen/lower_literals.rs` | Function-as-value wrapping (non-lambda function references as fat pointers) |
+| `codegen/arc_emitter/closures.rs` | `emit_partial_apply`, closure creation, environment allocation, wrapper generation |
+| `codegen/arc_emitter/apply.rs` | `emit_apply`, `emit_apply_indirect`, call dispatch (direct + indirect through closures) |
+| `codegen/ir_builder/` | `closure_type()`, `extract_value`, `build_struct`, `call_indirect` (split across `aggregates.rs`, `calls.rs`, `memory.rs`) |
+| `codegen/arc_emitter/rc_ops.rs` | RC operations for closure environments (retain/release env_ptr) |
+| `codegen/arc_emitter/drop_gen.rs` | Drop function generation for closure environment structs |
+| `codegen/arc_emitter/value_emission.rs` | Literal and function-as-value emission |

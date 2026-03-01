@@ -217,18 +217,11 @@ fn step_path_ref(value: &Value, instruction: PathInstruction) -> Result<Resolved
             }
         }
 
-        // ListRest constructs a new list — must return Owned.
+        // ListRest uses zero-copy skip — shares backing buffer.
         PathInstruction::ListRest(start_idx) => {
             let start = start_idx as usize;
             match value {
-                Value::List(items) => {
-                    let rest = if start <= items.len() {
-                        items[start..].to_vec()
-                    } else {
-                        Vec::new()
-                    };
-                    Ok(Resolved::Owned(Value::list(rest)))
-                }
+                Value::List(items) => Ok(Resolved::Owned(Value::List(items.skip(start)))),
                 _ => Err(EvalError::new(format!(
                     "cannot extract list rest from {value:?}"
                 ))),

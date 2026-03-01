@@ -2,9 +2,7 @@
 
 use std::fmt::Write;
 
-use ori_patterns::{
-    wrong_arg_count, wrong_arg_type, EvalError, EvalResult, Heap, ScalarInt, Value,
-};
+use ori_patterns::{wrong_arg_count, wrong_arg_type, EvalError, EvalResult, ScalarInt, Value};
 
 /// All built-in methods registered in the evaluator's direct dispatch.
 ///
@@ -189,6 +187,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "concat"),
     ("list", "contains"),
     ("list", "debug"),
+    ("list", "drop"),
     ("list", "equals"),
     ("list", "first"),
     ("list", "hash"),
@@ -203,8 +202,11 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("list", "remove"),
     ("list", "reverse"),
     ("list", "set"),
+    ("list", "skip"),
+    ("list", "slice"),
     ("list", "sort"),
     ("list", "sort_stable"),
+    ("list", "take"),
     // map
     ("map", "clone"),
     ("map", "contains_key"),
@@ -239,7 +241,9 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "length"),
     ("str", "repeat"),
     ("str", "replace"),
+    ("str", "slice"),
     ("str", "starts_with"),
+    ("str", "substring"),
     ("str", "to_lowercase"),
     ("str", "to_str"),
     ("str", "to_uppercase"),
@@ -313,7 +317,7 @@ pub fn require_list_arg<'a>(
     method: &str,
     args: &'a [Value],
     index: usize,
-) -> Result<&'a Heap<Vec<Value>>, EvalError> {
+) -> Result<&'a [Value], EvalError> {
     match args.get(index) {
         Some(Value::List(l)) => Ok(l),
         _ => Err(wrong_arg_type(method, "list")),

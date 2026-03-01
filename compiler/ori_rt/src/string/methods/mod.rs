@@ -1,12 +1,89 @@
 //! String transformation and predicate methods.
 //!
-//! Contains `contains`, `starts_with`, `ends_with`, `trim`, `to_uppercase`,
-//! `to_lowercase`, `replace`, `repeat`, `push_char`, and `next_char`.
+//! Contains `substring`, `contains`, `starts_with`, `ends_with`, `trim`,
+//! `to_uppercase`, `to_lowercase`, `replace`, `repeat`, `push_char`,
+//! and `next_char`.
 
 use crate::next_capacity;
-use crate::rc::{ori_rc_alloc, ori_rc_is_unique, ori_rc_realloc};
+use crate::rc::{ori_rc_alloc, ori_rc_inc, ori_rc_is_unique, ori_rc_realloc};
+use crate::slice_encoding::{is_slice_cap, make_slice_cap, slice_byte_offset};
 
 use super::{deref_str, OriCharResult, OriStr, OriStrHeap, OriStrSSO, SSO_FLAG, SSO_MAX_LEN};
+
+/// Create a substring as a seamless slice (zero-copy for heap strings).
+///
+/// For **SSO strings**: copies the bytes into a new SSO or heap string
+/// (SSO strings have no heap buffer to share — they're inline).
+///
+/// For **heap strings**: creates a seamless slice view. The slice shares
+/// the original buffer's data via RC increment. No bytes are copied.
+///
+/// # Parameters
+/// - `s`: pointer to the source string
+/// - `start`: byte offset of the first byte (inclusive)
+/// - `end`: byte offset past the last byte (exclusive)
+///
+/// # Preconditions
+/// - `start` and `end` should be valid UTF-8 boundaries
+/// - `0 <= start <= end <= len(s)`
+#[no_mangle]
+pub extern "C" fn ori_str_substring(s: *const OriStr, start: i64, end: i64) -> OriStr {
+    if s.is_null() {
+        return OriStr::EMPTY;
+    }
+    let s_ref = unsafe { &*s };
+    let s_len = s_ref.len() as i64;
+
+    // Clamp and validate range
+    let start = start.max(0).min(s_len);
+    let end = end.max(start).min(s_len);
+    let result_len = (end - start) as usize;
+
+    if result_len == 0 {
+        return OriStr::EMPTY;
+    }
+
+    // SSO path: can't slice inline storage — copy bytes
+    if s_ref.is_sso() {
+        let bytes = s_ref.as_bytes();
+        return OriStr::from_bytes(&bytes[start as usize..end as usize]);
+    }
+
+    // Heap path: create a seamless slice
+    let heap = unsafe { &s_ref.heap };
+    if heap.data.is_null() {
+        return OriStr::EMPTY;
+    }
+
+    // If result fits in SSO, copy is cheaper than RC management
+    if result_len <= SSO_MAX_LEN {
+        let bytes =
+            unsafe { std::slice::from_raw_parts(heap.data.add(start as usize), result_len) };
+        return OriStr::from_sso(bytes);
+    }
+
+    // Compute the original allocation's data pointer and total byte offset.
+    let (original_data, total_byte_offset) = if is_slice_cap(heap.cap) {
+        let existing_offset = slice_byte_offset(heap.cap);
+        let orig = unsafe { heap.data.sub(existing_offset) };
+        (orig, existing_offset + start as usize)
+    } else {
+        (heap.data, start as usize)
+    };
+
+    // Increment RC on the original buffer (new slice reference)
+    ori_rc_inc(original_data);
+
+    let slice_data = unsafe { original_data.add(total_byte_offset) };
+
+    OriStr {
+        heap: OriStrHeap {
+            len: result_len as i64,
+            cap: make_slice_cap(total_byte_offset),
+            data: slice_data,
+        },
+    }
+}
 
 /// Check if a string contains a substring.
 #[no_mangle]
@@ -31,17 +108,25 @@ pub extern "C" fn ori_str_ends_with(s: *const OriStr, suffix: *const OriStr) -> 
 
 /// Trim whitespace from both ends of a string.
 ///
-/// Returns a new `OriStr` containing the trimmed content. Uses SSO when
-/// the trimmed result is <= 23 bytes (avoids intermediate `String` allocation).
+/// For heap strings, returns a seamless slice (zero-copy) of the trimmed
+/// region. For SSO strings, returns a new SSO copy of the trimmed bytes.
+/// Uses `ori_str_substring` for the actual slice creation.
 #[no_mangle]
 pub extern "C" fn ori_str_trim(s: *const OriStr) -> OriStr {
-    let s_ref = if s.is_null() {
+    if s.is_null() {
         return OriStr::EMPTY;
-    } else {
-        unsafe { &*s }
-    };
-    let trimmed = unsafe { s_ref.as_str() }.trim();
-    OriStr::from_bytes(trimmed.as_bytes())
+    }
+    let s_ref = unsafe { &*s };
+    let bytes = s_ref.as_bytes();
+    let start = bytes
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map_or(start, |i| i + 1);
+    ori_str_substring(s, start as i64, end as i64)
 }
 
 /// Convert a string to uppercase.
@@ -385,3 +470,6 @@ pub extern "C" fn ori_str_next_char(data: *const u8, len: i64, byte_offset: i64)
         next_offset: byte_offset + width,
     }
 }
+
+#[cfg(test)]
+mod tests;

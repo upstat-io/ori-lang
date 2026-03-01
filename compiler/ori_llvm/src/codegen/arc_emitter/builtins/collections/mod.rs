@@ -43,6 +43,20 @@ declare_builtins! { emitter, ctx;
         }
     },
     ("str", "trim", borrow: true) => emitter.emit_str_unary_call("ori_str_trim", ctx.arg_vals[0]),
+    ("str", "substring", borrow: true) => {
+        if ctx.arg_vals.len() >= 3 {
+            emitter.emit_str_substring(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2])
+        } else {
+            None
+        }
+    },
+    ("str", "slice", borrow: true) => {
+        if ctx.arg_vals.len() >= 3 {
+            emitter.emit_str_substring(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2])
+        } else {
+            None
+        }
+    },
     ("str", "to_uppercase", borrow: true) => emitter.emit_str_unary_call("ori_str_to_uppercase", ctx.arg_vals[0]),
     ("str", "to_lowercase", borrow: true) => emitter.emit_str_unary_call("ori_str_to_lowercase", ctx.arg_vals[0]),
     ("str", "replace", borrow: true) => {
@@ -189,6 +203,39 @@ declare_builtins! { emitter, ctx;
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
                 emitter.emit_list_remove_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("list", "slice", borrow: true) => {
+        if ctx.arg_vals.len() >= 3 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                emitter.emit_list_slice(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("list", "take", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                emitter.emit_list_take_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    },
+    ("list", "drop", borrow: true) => {
+        if ctx.arg_vals.len() >= 2 {
+            if let TypeInfo::List { element } = ctx.type_info {
+                emitter.emit_list_drop_slice(ctx.arg_vals[0], ctx.arg_vals[1], *element)
             } else {
                 None
             }

@@ -5,8 +5,9 @@
 
 use crate::next_capacity;
 use crate::rc::{ori_rc_alloc, ori_rc_dec, ori_rc_free, ori_rc_is_unique, ori_rc_realloc};
+use crate::slice_encoding::{is_slice_cap, slice_original_data};
 
-use super::{inc_copied_elements, write_list_output};
+use super::{dec_list_buffer, inc_copied_elements, write_list_output};
 
 /// Helper: copy list2's RC'd elements, incrementing child RC.
 fn copy_list2_elements(
@@ -31,14 +32,22 @@ fn copy_list2_elements(
 /// no child cleanup is needed. We just need to either free the buffer
 /// (last reference) or decrement the RC (other references remain).
 ///
+/// For slices, decs the original buffer's RC instead.
+///
 /// Uses `ori_rc_is_unique` at disposal time (not the initial snapshot) to
 /// handle self-concat (`x + x`) where a prior dec on data1 (same buffer)
 /// may have reduced the RC.
 #[inline]
-fn dec_consumed_list2(data2: *mut u8, alloc_size: usize, ea: usize) {
+fn dec_consumed_list2(data2: *mut u8, cap2: i64, es: usize, ea: usize) {
     if data2.is_null() {
         return;
     }
+    if is_slice_cap(cap2) {
+        let original = slice_original_data(data2, cap2);
+        ori_rc_dec(original, None);
+        return;
+    }
+    let alloc_size = cap2.max(0) as usize * es;
     if ori_rc_is_unique(data2) {
         // Last reference — free the buffer directly.
         // No drop_fn needed: elements already moved/inc'd by the caller.
@@ -88,22 +97,22 @@ pub extern "C" fn ori_list_concat_cow(
     let ea = elem_align.max(1) as usize;
     let n1 = len1.max(0) as usize;
     let n2 = len2.max(0) as usize;
-    let c2 = cap2.max(0) as usize;
     let new_len = n1 + n2;
-    let data2_unique = ori_rc_is_unique(data2);
+    // Slices are never "unique" — their data is interior to another buffer.
+    let data2_unique = !is_slice_cap(cap2) && ori_rc_is_unique(data2);
 
     // Empty concatenation
     if new_len == 0 {
         unsafe { write_list_output(out_ptr, 0, 0, std::ptr::null_mut()) };
-        ori_rc_dec(data1, None);
-        ori_rc_dec(data2, None);
+        dec_list_buffer(data1, cap1);
+        dec_list_buffer(data2, cap2);
         return;
     }
 
     // list2 is empty — return list1 unchanged, consume list2
     if n2 == 0 {
         unsafe { write_list_output(out_ptr, len1, cap1, data1) };
-        ori_rc_dec(data2, None);
+        dec_list_buffer(data2, cap2);
         return;
     }
 
@@ -112,21 +121,21 @@ pub extern "C" fn ori_list_concat_cow(
         if data2_unique {
             // TAKEOVER: list2 is unique — transfer its buffer directly (O(1))
             unsafe { write_list_output(out_ptr, len2, cap2, data2) };
-            ori_rc_dec(data1, None);
+            dec_list_buffer(data1, cap1);
             return;
         }
-        // list2 is shared — copy into fresh buffer
+        // list2 is shared or slice — copy into fresh buffer
         let new_cap = next_capacity(0, new_len);
         let new_data = ori_rc_alloc(new_cap * es, ea);
         copy_list2_elements(new_data, data2, n2, es, false, inc_fn);
-        ori_rc_dec(data1, None);
-        ori_rc_dec(data2, None);
+        dec_list_buffer(data1, cap1);
+        dec_list_buffer(data2, cap2);
         unsafe { write_list_output(out_ptr, n2 as i64, new_cap as i64, new_data) };
         return;
     }
 
-    // FAST PATH: list1 unique — reuse its buffer
-    if ori_rc_is_unique(data1) {
+    // FAST PATH: list1 unique, non-slice — reuse its buffer
+    if !is_slice_cap(cap1) && ori_rc_is_unique(data1) {
         let old_cap = cap1.max(0) as usize;
         if old_cap >= new_len {
             // Has capacity — memcpy list2 elements after list1
@@ -138,7 +147,7 @@ pub extern "C" fn ori_list_concat_cow(
                 data2_unique,
                 inc_fn,
             );
-            dec_consumed_list2(data2, c2 * es, ea);
+            dec_consumed_list2(data2, cap2, es, ea);
             unsafe { write_list_output(out_ptr, new_len as i64, cap1, data1) };
             return;
         }
@@ -146,7 +155,7 @@ pub extern "C" fn ori_list_concat_cow(
         let new_cap = next_capacity(old_cap, new_len);
         let new_data = ori_rc_realloc(data1, old_cap * es, new_cap * es, ea);
         if new_data.is_null() {
-            dec_consumed_list2(data2, c2 * es, ea);
+            dec_consumed_list2(data2, cap2, es, ea);
             unsafe { write_list_output(out_ptr, len1, cap1, data1) };
             return;
         }
@@ -158,12 +167,12 @@ pub extern "C" fn ori_list_concat_cow(
             data2_unique,
             inc_fn,
         );
-        dec_consumed_list2(data2, c2 * es, ea);
+        dec_consumed_list2(data2, cap2, es, ea);
         unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
         return;
     }
 
-    // SLOW PATH: list1 shared — allocate new buffer, copy both
+    // SLOW PATH: list1 shared or slice — allocate new buffer, copy both
     let new_cap = next_capacity(0, new_len);
     let new_data = ori_rc_alloc(new_cap * es, ea);
     unsafe { std::ptr::copy_nonoverlapping(data1, new_data, n1 * es) };
@@ -176,8 +185,8 @@ pub extern "C" fn ori_list_concat_cow(
         inc_fn,
     );
     inc_copied_elements(new_data, n1, es, inc_fn);
-    ori_rc_dec(data1, None);
-    dec_consumed_list2(data2, c2 * es, ea);
+    dec_list_buffer(data1, cap1);
+    dec_consumed_list2(data2, cap2, es, ea);
     unsafe { write_list_output(out_ptr, new_len as i64, new_cap as i64, new_data) };
 }
 
@@ -222,8 +231,8 @@ pub extern "C" fn ori_list_reverse_cow(
         return;
     }
 
-    // FAST PATH: unique owner — swap in place
-    if ori_rc_is_unique(data) {
+    // FAST PATH: unique owner, non-slice — swap in place
+    if !is_slice_cap(cap) && ori_rc_is_unique(data) {
         // Swap pairs from both ends working inward
         let mut tmp = vec![0u8; es];
         let mut lo = 0usize;
@@ -264,8 +273,8 @@ pub extern "C" fn ori_list_reverse_cow(
     // Inc RC for all copied elements
     inc_copied_elements(new_data, n, es, inc_fn);
 
-    // Release old buffer
-    ori_rc_dec(data, None);
+    // Release old buffer (slice-aware)
+    dec_list_buffer(data, cap);
 
     unsafe {
         out_ptr.cast::<i64>().write(n as i64);
@@ -375,8 +384,8 @@ fn list_sort_cow_impl(
         indices.sort_unstable_by(cmp);
     }
 
-    // FAST PATH: unique owner — permute in place
-    if ori_rc_is_unique(data) {
+    // FAST PATH: unique owner, non-slice — permute in place
+    if !is_slice_cap(cap) && ori_rc_is_unique(data) {
         apply_permutation_in_place(data, &indices, es);
         unsafe {
             out_ptr.cast::<i64>().write(len);
@@ -398,8 +407,8 @@ fn list_sort_cow_impl(
     // Inc RC for all copied elements
     inc_copied_elements(new_data, n, es, inc_fn);
 
-    // Release old buffer
-    ori_rc_dec(data, None);
+    // Release old buffer (slice-aware)
+    dec_list_buffer(data, cap);
 
     unsafe {
         out_ptr.cast::<i64>().write(n as i64);

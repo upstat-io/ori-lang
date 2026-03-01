@@ -215,10 +215,12 @@ The `_with_config` variants are the preferred API. The raw-parameter versions re
 Collects methods from impl blocks, including default trait methods:
 
 ```rust
-pub fn collect_impl_methods(
+fn collect_impl_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: &HashMap<Name, Value>,
+    captures: &Arc<FxHashMap<Name, Value>>,
+    canon: Option<&SharedCanonResult>,
+    interner: &StringInterner,
     registry: &mut UserMethodRegistry,
 ) {
     // Build trait map for default method lookup
@@ -254,10 +256,12 @@ pub fn collect_impl_methods(
 Collects methods from extend blocks (trait extensions):
 
 ```rust
-pub fn collect_extend_methods(
+fn collect_extend_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: &HashMap<Name, Value>,
+    captures: &Arc<FxHashMap<Name, Value>>,
+    canon: Option<&SharedCanonResult>,
+    interner: &StringInterner,
     registry: &mut UserMethodRegistry,
 ) {
     for extend_def in &module.extends {

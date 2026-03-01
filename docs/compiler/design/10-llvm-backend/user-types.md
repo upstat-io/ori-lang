@@ -131,43 +131,26 @@ Methods are compiled as functions with their original name. This means method re
 
 ## Method Call Compilation
 
-Method calls (`receiver.method(args)`) are compiled by `lower_method_call` in `codegen/lower_calls.rs`.
+Method calls are compiled through the ARC pipeline. The ARC lowerer resolves method calls to `Apply` (direct) or `ApplyIndirect` (closure) instructions, which the `ArcIrEmitter` then emits as LLVM IR via `codegen/arc_emitter/apply.rs`. Built-in method dispatch is handled by `codegen/arc_emitter/builtins/`.
 
 ### Dispatch Order
 
-The `lower_method_call` function uses a four-tier dispatch strategy:
+Method dispatch uses a multi-tier strategy:
 
 1. **Built-in methods**: Type-specific inline codegen (e.g., `list.len()`, `str.contains()`)
 2. **Type-qualified method lookup**: Resolve receiver type index to a type name, then look up `(type_name, method_name)` in the `method_functions` map
 3. **Bare-name fallback**: Check the `functions` map by method name alone
 4. **LLVM module lookup**: Search for runtime functions by name in the LLVM module
 
-```rust
-pub(crate) fn lower_method_call(
-    &mut self,
-    receiver: CanId,
-    method: Name,
-    args: CanRange,
-) -> Option<ValueId> {
-    let recv_type = self.expr_type(receiver);
-    let recv_val = self.lower(receiver)?;
+```
+ARC lowering (ori_arc):
+  receiver.method(args) → Apply { dst, func: resolved_method, args: [receiver, ...args] }
 
-    // 1. Try built-in method dispatch
-    if let Some(result) = self.lower_builtin_method(recv_val, recv_type, &method_str, args) {
-        return Some(result);
-    }
-
-    // 2. Type-qualified method lookup
-    if let Some(&type_name) = self.type_idx_to_name.get(&recv_type) {
-        if let Some((func_id, abi)) = self.method_functions.get(&(type_name, method)) {
-            return self.emit_method_call(func_id, &abi, recv_val, args, "method_call");
-        }
-    }
-
-    // 3. Bare-name fallback
-    // 4. LLVM module lookup
-    // ...
-}
+LLVM emission (arc_emitter/apply.rs):
+  emit_apply(dst, func, args)
+    1. Check built-in dispatch (arc_emitter/builtins/)
+    2. Look up declared function by mangled name
+    3. Emit call with ABI-aware parameter passing
 ```
 
 ### Method Call ABI
@@ -189,17 +172,18 @@ In the LLVM backend, struct field access appears as `extract_value` operations o
 2. **Type Registration**: `register_user_types()` eagerly resolves `TypeEntry` values via `TypeLayoutResolver`
 3. **Runtime Declaration**: Declare runtime functions in the LLVM module
 4. **Function Compilation**: `FunctionCompiler` declares and defines function bodies
-5. **Expression Lowering**: `ExprLowerer` handles method calls, field access, etc.
+5. **ARC IR Emission**: `ArcIrEmitter` handles method calls, field access, etc. via ARC IR instructions
 
 ## Source Files
 
 | File | Purpose |
 |------|---------|
-| `codegen/type_info.rs` | `TypeInfo` enum (including `TypeInfo::Struct`), `TypeInfoStore`, `TypeLayoutResolver` |
-| `codegen/type_registration.rs` | `register_user_types()` -- eager resolution from `TypeEntry` |
-| `codegen/lower_calls.rs` | `lower_method_call` -- method dispatch and calling |
-| `codegen/lower_collections.rs` | Struct literal construction, field access lowering |
-| `evaluator.rs` | Pipeline orchestration, creates `TypeInfoStore` and `TypeLayoutResolver` |
+| `codegen/type_info/` | `TypeInfo` enum (including `TypeInfo::Struct`), `TypeInfoStore`, `TypeLayoutResolver` |
+| `codegen/type_registration/` | `register_user_types()` -- eager resolution from `TypeEntry` |
+| `codegen/arc_emitter/apply.rs` | `emit_apply` -- method dispatch and calling via ARC IR |
+| `codegen/arc_emitter/builtins/` | Built-in method inline codegen (collections, primitives, traits) |
+| `codegen/arc_emitter/construction.rs` | Struct/enum construction emission |
+| `evaluator/` | Pipeline orchestration, creates `TypeInfoStore` and `TypeLayoutResolver` |
 
 ## Limitations
 

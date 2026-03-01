@@ -90,12 +90,12 @@ pub struct EvalContext<'a> {
     pub interner: &'a StringInterner,
     pub arena: &'a ExprArena,
     pub props: &'a [NamedExpr],  // Properties as named expression slice
-    pub span: Span,
+    // Note: span is computed on-demand via first_prop_span() / prop_span()
 }
 
 impl EvalContext<'_> {
-    /// Get a required property expression.
-    pub fn get_prop(&self, name: &str) -> Option<ExprId>;
+    /// Get a required property expression. Returns Err if missing.
+    pub fn get_prop(&self, name: &str) -> Result<ExprId, EvalError>;
 
     /// Get an optional property expression.
     pub fn get_prop_opt(&self, name: &str) -> Option<ExprId>;
@@ -106,7 +106,10 @@ impl EvalContext<'_> {
     /// Evaluate with span attachment for error reporting.
     pub fn eval_prop_spanned(&self, name: &str, exec: &mut dyn PatternExecutor) -> EvalResult;
 
-    /// Get the span of a property for error messages.
+    /// Get the span of the first property (for error positioning).
+    pub fn first_prop_span(&self) -> Option<Span>;
+
+    /// Get the span of a specific property for error messages.
     pub fn prop_span(&self, name: &str) -> Option<Span>;
 
     /// Create an error with the property's span.
@@ -116,7 +119,7 @@ impl EvalContext<'_> {
 
 ### PatternExecutor
 
-Abstraction layer between patterns and the evaluator:
+Abstraction layer between patterns and the evaluator. All name parameters use interned `Name` (not `&str`) for performance:
 
 ```rust
 pub trait PatternExecutor {
@@ -126,17 +129,17 @@ pub trait PatternExecutor {
     /// Call a function value with arguments.
     fn call(&mut self, func: &Value, args: Vec<Value>) -> EvalResult;
 
-    /// Look up a capability by name.
-    fn lookup_capability(&self, name: &str) -> Option<Value>;
+    /// Look up a capability by interned name.
+    fn lookup_capability(&self, name: Name) -> Option<Value>;
 
-    /// Call a method on a value.
-    fn call_method(&mut self, receiver: Value, method: &str, args: Vec<Value>) -> EvalResult;
+    /// Call a method on a value by interned method name.
+    fn call_method(&mut self, receiver: Value, method: Name, args: Vec<Value>) -> EvalResult;
 
-    /// Look up a variable by name.
-    fn lookup_var(&self, name: &str) -> Option<Value>;
+    /// Look up a variable by interned name.
+    fn lookup_var(&self, name: Name) -> Option<Value>;
 
-    /// Bind a variable in the current scope.
-    fn bind_var(&mut self, name: &str, value: Value);
+    /// Bind a variable in the current scope by interned name.
+    fn bind_var(&mut self, name: Name, value: Value);
 }
 ```
 
