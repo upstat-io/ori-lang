@@ -7,197 +7,135 @@ section: "ARC System"
 
 # Borrow Inference
 
-Borrow inference determines whether each function parameter is **borrowed** (the callee does not retain the value -- no RC operations needed at the call site) or **owned** (the callee may retain the value -- the caller must `rc_inc` before the call, and the callee must `rc_dec` when done).
+## The Cost of Conservative Ownership
 
-This is a **per-module global pass** that analyzes all functions simultaneously via fixed-point iteration on strongly connected components (SCCs). It runs once before the per-function pipeline and produces an `AnnotatedSig` for every function, which downstream passes (derived ownership, RC insertion) consume.
+In a naive reference counting system, every function call site performs the same ritual: increment the reference count of each argument before the call (so the callee can use it), and decrement after the call returns (to release the caller's reference). For a function like `len(list)` — which only reads the list to count its elements and never stores, returns, or transfers it — these two atomic operations are pure waste. The callee borrows the value temporarily and gives it back; the reference count never actually needs to change.
 
-The implementation follows Lean 4's approach (`src/Lean/Compiler/IR/Borrow.lean`).
+The question is: how does the compiler know which parameters are merely borrowed and which are truly consumed? Without analysis, the answer is "assume the worst" — treat every parameter as potentially consumed, and pay the RC cost at every call site. This is what CPython does, and it is a significant contributor to Python's overhead.
 
-**Source**: `compiler/ori_arc/src/borrow/mod.rs`, `per_scc.rs`, `derived.rs`, `callees.rs`, `builtins/mod.rs`
+**Borrow inference** is the analysis that answers this question automatically. It examines each function's body to determine whether each parameter is only read (Borrowed) or may be stored, returned, or otherwise retained (Owned). The result is an `AnnotatedSig` per function that downstream passes — derived ownership, RC insertion — use to skip RC operations at call sites for borrowed parameters.
 
-## Algorithm: SCC-Based with Fixed-Point
+The concept originates from [Lean 4](https://github.com/leanprover/lean4)'s compiler (`src/Lean/Compiler/IR/Borrow.lean`), which pioneered SCC-based interprocedural borrow inference for a functional language with reference counting.
 
-Entry point: `infer_borrows_scc(functions, classifier, borrowing_builtins) -> FxHashMap<Name, AnnotatedSig>`
+### Why Interprocedural?
 
-### Step 1: Decompose
-
-Build an inter-procedural call graph from all functions in the module. Extract direct callees from `Apply`, `PartialApply`, and `Invoke` instructions (indirect calls via `ApplyIndirect` are excluded -- their callees are unknown at compile time). Compute SCCs using Tarjan's algorithm.
-
-### Step 2: Initialize
-
-All non-scalar parameters start as `Borrowed`. Scalar parameters (int, float, bool, etc.) start as `Owned` because they have no reference count -- there is nothing to borrow. The classifier (`ArcClassification::is_scalar()`) makes this determination.
+A per-function analysis could determine that a function's body only reads a parameter, but it cannot know whether the callees it passes that parameter to will retain it. Consider:
 
 ```
-fn initialize_single_borrowed(func, classifier) -> AnnotatedSig {
-    for each param:
-        if classifier.is_scalar(param.ty):
-            ownership = Owned    // no RC needed
-        else:
-            ownership = Borrowed // optimistic default
-}
+@store_in_global (x: [int]) -> void = ...  // stores x somewhere
+@process (list: [int]) -> void = { store_in_global(list:) }
 ```
 
-### Step 3: Per-SCC Analysis (Topological Order)
+Looking at `process` alone, the parameter `list` appears to be merely passed to another function. But `store_in_global` retains it, so `process` must treat `list` as Owned. This requires knowing `store_in_global`'s ownership signature — which requires analyzing `store_in_global` first.
 
-SCCs are processed in topological order -- callees before callers. This ensures that when analyzing a function, all of its non-recursive callees already have finalized signatures.
+For mutually recursive functions, this creates a chicken-and-egg problem: each function's ownership depends on the others'. The solution is fixed-point iteration within strongly connected components (SCCs) of the call graph.
 
-- **Non-recursive SCCs** (single function, no self-call): Single-pass analysis via `infer_borrow_single()`. The function's body is scanned once; any parameter usage that requires ownership triggers promotion from Borrowed to Owned.
+## Algorithm: SCC-Based Fixed-Point
 
-- **Recursive SCCs** (mutual recursion): Fixed-point iteration within the SCC via `infer_borrow_fixed_point()`. All SCC members are initialized as Borrowed, then repeatedly scanned until no parameter changes ownership. Each iteration sees the latest in-progress signatures of co-members via `local_sigs`, while external callees use their stable final sigs from `external_sigs`.
+The algorithm has four phases:
 
-### Step 4: Convergence
+### Phase 1: Call Graph Decomposition
 
-Ownership is **monotonic**: parameters can only move from Borrowed to Owned, never backwards. With N total parameters in an SCC, convergence is guaranteed in at most N + 1 iterations. Each iteration must promote at least one parameter; when none change, the analysis has reached its fixed point. A `debug_assert!` verifies this bound.
+Build an interprocedural call graph from all functions in the module. Extract direct callees from `Apply`, `PartialApply`, and `Invoke` instructions (indirect calls via `ApplyIndirect` are excluded — their callees are unknown at compile time). Compute SCCs using Tarjan's algorithm, producing a topological ordering of components.
 
-## Parameter Promotion Rules
+### Phase 2: Initialize
 
-The core analysis (`update_ownership_inner`) scans all instructions and terminators in a function. A parameter is promoted from Borrowed to Owned when any of the following holds:
+All non-scalar parameters start as `Borrowed` — the optimistic assumption that no parameter needs ownership. Scalar parameters (int, float, bool, etc.) start as `Owned` because they have no reference count — there is nothing to borrow. The classifier determines this.
 
-### Returned from the function
+### Phase 3: Topological Processing
 
-If a parameter (or an alias of it) appears as the value in a `Return` terminator, the caller transfers ownership to its caller -- the parameter must be Owned.
+SCCs are processed in topological order — callees before callers. This ensures that when analyzing a function, all of its non-recursive callees already have finalized signatures.
 
-### Passed to an owned parameter at a call site
+- **Non-recursive SCCs** (single function, no self-call): single-pass analysis. The function body is scanned once; any parameter usage requiring ownership triggers promotion.
 
-If a parameter is passed as an argument to another function at a position where the callee's `AnnotatedSig` marks the parameter as Owned, the caller must transfer ownership. Unknown callees (not in the sigs map and not in the borrowing builtins set) conservatively mark all arguments as Owned.
+- **Recursive SCCs** (mutual recursion): fixed-point iteration. All SCC members are initialized as Borrowed, then repeatedly scanned until no parameter changes ownership. Each iteration uses the latest in-progress signatures of co-members, while external callees use their stable final signatures.
 
-### Stored in a Construct (owned position)
+### Phase 4: Convergence
 
-`Construct` instructions build structs, enums, and closures. All arguments are stored in heap-allocated memory and must be Owned -- the constructed value takes ownership.
+Ownership is **monotonic**: parameters can only move from Borrowed to Owned, never backwards. With N total parameters in an SCC, convergence is guaranteed in at most N + 1 iterations — each iteration must promote at least one parameter, and when none change, the analysis has reached its fixed point.
 
-### Passed to a PartialApply
+## Promotion Rules
 
-`PartialApply` captures arguments into a closure environment. Captured values are stored on the heap, requiring Owned semantics.
+The core analysis scans all instructions and terminators. A parameter is promoted from Borrowed to Owned when any of the following holds:
 
-### Passed to an ApplyIndirect
+**Returned from the function.** If a parameter (or an alias) appears as the value in a `Return` terminator, the function transfers ownership to its caller.
 
-Indirect calls through closures have unknown callee signatures. All arguments are conservatively promoted to Owned.
+**Passed to an owned parameter.** If a parameter is passed as an argument to another function at a position where the callee's signature marks the parameter as Owned, ownership must transfer. Unknown callees conservatively mark all arguments as Owned.
 
-### Projected and then used in an owned position
+**Stored in a Construct.** `Construct` instructions build structs, enums, and closures. All arguments are stored in heap-allocated memory — the constructed value takes ownership.
 
-When `Project { dst, value }` extracts a field from a value and the extracted `dst` is itself used in an owned position (returned, stored, etc.), the source `value` must also be Owned. Otherwise the caller might free the struct while the projected field is still live. This propagation is transitive and handled naturally by the fixed-point iteration.
+**Passed to a PartialApply.** Captured into a closure environment. Captured values are stored on the heap, requiring Owned semantics.
 
-### Passed to a tail call at an owned position
+**Passed to an ApplyIndirect.** Indirect calls through closures have unknown callee signatures. All arguments are conservatively promoted to Owned.
 
-When a function tail-calls another function and passes a currently-Borrowed parameter to an Owned position, the parameter must be promoted. Without this, RC insertion would need to insert an `RcDec` after the tail call, which would break the tail call optimization (the caller's stack frame must not exist after the tail call).
+**Projected then used in an owned position.** When `Project { dst, value }` extracts a field and the extracted `dst` is used in an owned position (returned, stored, etc.), the source `value` must also be Owned — otherwise the caller might free the struct while the projected field is still live. This propagation is transitive and handled naturally by the fixed-point iteration.
 
-## Alias Resolution
+**Passed to a tail call at an owned position.** A tail call passes a Borrowed parameter to an Owned position — the parameter must be promoted. Without this, RC insertion would need to insert an `RcDec` after the tail call, breaking tail call optimization.
 
-Parameters may be aliased via `Let { dst, value: Var(src) }` instructions. Before checking whether a variable is a parameter, the analysis resolves alias chains: `v2 -> v1 -> v0 (param)`. This ensures that code like `let v1 = param; Construct([v1])` correctly promotes `param` to Owned.
+### Alias Resolution
 
-A defensive 64-step limit guards against pathological or cyclic alias maps. In practice, alias chains are 1-3 deep.
+Parameters may be aliased via `Let { dst, value: Var(src) }` instructions. Before checking whether a variable is a parameter, the analysis resolves alias chains transitively: `v2 → v1 → v0 (param)`. This ensures that `let v1 = param; Construct([v1])` correctly promotes `param`.
 
-## Borrowing vs Consuming Instructions
+## Derived Ownership
 
-The borrow analysis distinguishes two categories of instructions based on how they use their arguments:
+After parameter-level borrow inference, **derived ownership** extends tracking to all local variables via a single forward pass (no fixed-point needed — SSA form guarantees each variable is defined exactly once).
 
-### Borrowing (read-only)
+The classification:
 
-These instructions read their arguments without taking ownership:
+| Category | Source | Meaning |
+|----------|--------|---------|
+| `Owned` | Function call results, literals, block parameters, `Select` results | Caller owns; normal RC tracking |
+| `BorrowedFrom(var)` | Projection or alias of a borrowed variable | Transitively borrowed; skip RC tracking |
+| `Fresh` | `Construct`, `PartialApply` results | Newly created, RC == 1; enables aggressive reuse pairing |
 
-- **PrimOp** (arithmetic, comparison, logical, string ops) -- except list `Add`, which is a COW operation
-- **Project** with scalar result -- extracts a field without consuming the parent
-- **Apply** with all-borrowed args -- external C runtime functions and borrowing builtins
-
-### Consuming (ownership transfer)
-
-These instructions take ownership of their arguments:
-
-- **Construct** -- stores args in heap-allocated struct/enum
-- **PartialApply** -- captures args into closure environment
-- **Apply** with owned args -- transfers to callee
-- **ApplyIndirect** -- unknown callee, conservative owned
-
-## Derived Ownership (`infer_derived_ownership`)
-
-After parameter-level borrow inference determines which function parameters are Borrowed vs Owned, derived ownership extends this tracking to **all local variables** in a function. This is a single forward pass over SSA blocks -- no fixed-point iteration needed because SSA form guarantees each variable is defined exactly once.
-
-**Source**: `compiler/ori_arc/src/borrow/derived.rs`
-
-### Classification Rules
-
-- **Owned** -- function call results (`Apply`, `ApplyIndirect`), literals, block parameters (which receive values via jump arguments), `Select` results
-- **BorrowedFrom(ArcVarId)** -- projection (`Project`) or alias (`Let { value: Var(x) }`) of a borrowed variable. Transitively resolved: if `value` borrows from X, the projection also borrows from X
-- **Fresh** -- newly constructed values (`Construct`, `PartialApply`) with refcount = 1. This enables more aggressive reset/reuse pairing because the first `RcDec` is guaranteed to deallocate
-
-### Cross-Block Propagation
-
-The per-block `compute_borrows()` helper tracks borrowed-derived variables within a single block. The global `infer_derived_ownership()` provides cross-block coverage: when a variable derived from a borrowed parameter flows across a block boundary (defined in B0, used in B1), the per-block approach loses track, but the global `DerivedOwnership` vector correctly identifies it as `BorrowedFrom`.
-
-## Output Types
-
-```
-enum Ownership {
-    Borrowed,  // callee will not retain -- no RC at call site
-    Owned,     // callee may retain -- caller must rc_inc
-}
-
-enum DerivedOwnership {
-    Owned,                    // call result, literal, block param
-    BorrowedFrom(ArcVarId),   // projection/alias of borrowed variable
-    Fresh,                    // refcount = 1 (Construct, PartialApply)
-}
-
-struct AnnotatedParam {
-    name: Name,       // interned parameter name
-    ty: Idx,          // type pool index
-    ownership: Ownership,
-}
-
-struct AnnotatedSig {
-    params: Vec<AnnotatedParam>,  // per-param ownership
-    return_type: Idx,             // return type pool index
-}
-```
+The key insight: `BorrowedFrom` is transitive. If `v1` borrows from parameter `p`, and `v2 = Project(v1, field)`, then `v2` also borrows from `p`. The forward pass resolves these chains.
 
 ## Built-in Ownership
 
-The borrow analysis must know about built-in methods that the LLVM backend compiles inline (they do not appear as user functions and have no entries in the sigs map).
+The analysis must know about built-in methods that the LLVM backend compiles inline (they have no user-function entries in the sigs map).
 
-**Source**: `compiler/ori_arc/src/borrow/builtins/mod.rs`
+| Category | Behavior | Examples |
+|----------|----------|---------|
+| Borrowing builtins | All args borrowed | `len`, `is_empty`, `contains`, `first`, `last`, `equals`, `compare`, `hash`, `clone`, `to_str`, ~40 total |
+| Consuming receiver | Receiver owned, others borrowed | `push`, `pop`, `insert`, `remove`, `reverse`, `sort` (COW list methods) |
+| Consuming second arg | Receiver + arg[1] owned | `add`, `concat` (COW list concat — runtime takes both buffers) |
+| Consuming receiver only | Receiver owned, others borrowed | Map/Set `remove`, `difference`, `intersection`, `union` |
 
-### `borrowing_builtin_names()`
-
-Methods that always borrow their receiver: `len`, `is_empty`, `contains`, `first`, `last`, `equals`, `compare`, `hash`, `clone`, `to_str`, `split`, `trim`, `starts_with`, `ends_with`, and others (~40 total). These are read-only operations that produce independent results.
-
-### `consuming_receiver_builtin_names()`
-
-COW list methods that consume the receiver: `push`, `pop`, `insert`, `remove`, `reverse`, `sort`, `sort_stable`, `add`, `concat`. The runtime handles the old buffer's RC lifecycle internally -- the ARC pipeline must NOT emit an additional `RcDec` for the receiver.
-
-### `consuming_second_arg_builtin_names()`
-
-COW list methods that also consume their second argument (list2): `add`, `concat`. The runtime takes ownership of list2's buffer.
-
-### `consuming_receiver_only_builtin_names()`
-
-Map/Set COW methods where only the receiver is consumed; other args (comparison keys, read-only collections) are borrowed: `remove`, `difference`, `intersection`, `union`.
-
-### `BuiltinOwnershipSets`
-
-Pre-computed struct grouping all four interned name sets. Constructed once per session to avoid redundant `intern()` work across multiple function compilations.
+These are pre-computed into a `BuiltinOwnershipSets` struct (interned names) constructed once per session.
 
 ## Pipeline Integration
 
-```text
-infer_borrows_scc()              -- global, per-module
-    |
-    v
-apply_borrows()                  -- writes ownership back to ArcFunction params
-    |
-    v
-infer_derived_ownership()        -- per-function, single forward pass
-    |
-    v
-annotate_arg_ownership()         -- populates per-arg ownership on Apply/Invoke
-    |
-    v
-insert_rc_ops_with_ownership()   -- RC insertion reads all of the above
+```mermaid
+flowchart TB
+    Infer["infer_borrows_scc()
+    Global, per-module"] --> Apply["apply_borrows()
+    Write ownership to params"]
+    Apply --> Derived["infer_derived_ownership()
+    Per-function, forward pass"]
+    Derived --> Annotate["annotate_arg_ownership()
+    Populate per-arg on Apply/Invoke"]
+    Annotate --> Insert["insert_rc_ops_with_ownership()
+    RC insertion reads all above"]
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+
+    class Infer,Apply,Derived,Annotate,Insert native
 ```
 
 Borrow inference results are cached per session. When a function body has not changed, its cached `AnnotatedSig` is reused without re-running inference.
 
-## References
+## Prior Art
 
-- Lean 4: `src/Lean/Compiler/IR/Borrow.lean` -- SCC-based borrow inference
-- Koka: Perceus paper (Reinking et al. 2021) -- liveness-based RC insertion
-- Swift: `lib/SILOptimizer/ARC/` -- bidirectional RC elimination, ownership SSA
+**[Lean 4](https://github.com/leanprover/lean4)** (`src/Lean/Compiler/IR/Borrow.lean`) is the direct inspiration. Lean's borrow inference uses the same SCC-based fixed-point approach with monotonic promotion from Borrowed to Owned. Ori's implementation follows Lean's algorithm closely, with additions for COW collection methods and closure capture optimization.
+
+**[Koka](https://github.com/koka-lang/koka)** (`src/Core/Borrowed.hs`) performs a similar analysis as part of its Perceus implementation. Koka's approach is simpler — it does not perform full SCC decomposition but instead uses a two-pass strategy — which works for Koka's effect-handler-based architecture but would miss opportunities in Ori's more general call graph.
+
+**[Swift](https://github.com/swiftlang/swift)** approaches the problem differently: Swift's ownership model is partly expressed in the source language through move semantics and `consuming`/`borrowing` annotations, rather than inferred purely by the compiler. Swift's SIL optimizer (`lib/SILOptimizer/ARC/`) then optimizes the explicit annotations, while Ori infers everything automatically.
+
+## Design Tradeoffs
+
+**Optimistic vs pessimistic initialization.** Starting all parameters as Borrowed (optimistic) and promoting to Owned produces the best results — fewer parameters end up Owned than if starting Owned and trying to demote. The tradeoff is that the fixed-point must iterate until no more promotions occur, rather than converging immediately. In practice, convergence is fast (typically 2-3 iterations per SCC).
+
+**Interprocedural vs per-function.** Interprocedural analysis produces better results but has higher compile-time cost. A per-function analysis would be O(n) in the function count; the SCC-based approach adds Tarjan's algorithm (O(V + E)) and fixed-point iteration within each SCC. The cost is justified because the RC eliminations it enables are worth more than the analysis time.
+
+**Conservative for unknowns.** Unknown callees (not in the sigs map, not in the builtin sets) get all-Owned arguments. This is correct but pessimistic — it means FFI calls and dynamically dispatched calls always pay full RC cost. A future extension could allow ownership annotations on FFI declarations.

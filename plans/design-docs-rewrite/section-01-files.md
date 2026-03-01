@@ -66,11 +66,11 @@ Every file to be rewritten, grouped by section. Check off as completed.
 
 ## Section 08: Evaluator (5 files)
 
-- [ ] `08-evaluator/index.md`
-- [ ] `08-evaluator/tree-walking.md`
-- [ ] `08-evaluator/environment.md`
-- [ ] `08-evaluator/value-system.md`
-- [ ] `08-evaluator/module-loading.md`
+- [x] `08-evaluator/index.md` — Full book treatment: conceptual foundations (what is evaluation, execution strategies, tree-walking vs bytecode vs JIT vs AOT), what makes Ori distinctive (canonical IR input, Salsa-free core, pre-interned names, strategy-based derives, arena threading), dark Mermaid architecture + evaluation flow, method dispatch chain diagram, evaluation modes table, prior art (Roc/Lean 4/Zig/GHC/Ruby YARV), design tradeoffs
+- [x] `08-evaluator/tree-walking.md` — Full book treatment: conceptual foundations (tree-walking history from McCarthy 1960, execution strategy spectrum table), copy-out pattern with borrow analysis, exhaustive dispatch on 54+ variants by category, decision tree evaluation, function call protocol, literal/binary/operator dispatch tiers, prior art (Roc/GHC Core/Zig comptime/Lua), design tradeoffs
+- [x] `08-evaluator/environment.md` — Full book treatment: conceptual foundations (environments in PL theory, scope approaches table, closure capture strategies), Rc/RefCell design rationale, FxHashMap for Name keys, parent chain vs scope stack, RAII guards with Drop, mutability model, prior art (OCaml/Miri/Roc/GHC STG/V8), design tradeoffs
+- [x] `08-evaluator/value-system.md` — Full book treatment: conceptual foundations (representation design space — tagged unions, object hierarchies, unboxed, NaN-boxing), Value enum by allocation strategy, Heap<T> wrapper with pub(super) enforcement, ScalarInt checked arithmetic, Cow strings for zero-copy, split Option/Result variants, prior art (Lua TValue/CPython PyObject/V8/Roc/GHC), design tradeoffs
+- [x] `08-evaluator/module-loading.md` — Full book treatment: conceptual foundations (module systems, static vs dynamic), two-crate split, import resolution Mermaid flow, 8-step loading pipeline, module alias/namespace registration, test module access, circular import detection via Salsa, prior art (Rust/Python/Go/Haskell/Node.js), design tradeoffs
 
 ## Section 09: ARC System (10 files)
 
@@ -140,4 +140,4 @@ Every file to be rewritten, grouped by section. Check off as completed.
 
 ---
 
-**Total: 76 files** (32 done, 44 remaining)
+**Total: 76 files** (37 done, 39 remaining)

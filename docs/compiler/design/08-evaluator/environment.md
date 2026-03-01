@@ -1,37 +1,61 @@
 ---
 title: "Environment"
-description: "Ori Compiler Design — Environment"
+description: "Ori Compiler Design — Environment and Scoping"
 order: 801
 section: "Evaluator"
 ---
 
 # Environment
 
-The Environment manages variable bindings during evaluation. It uses a stack of scopes for lexical scoping.
+## What Is an Environment?
 
-## Location
+In programming language theory, an **environment** is a mapping from names to values. When a program says `let x = 42` and later references `x`, the environment is the data structure that remembers "x means 42." This concept is so fundamental that it appears in the very first formal definitions of programming language semantics — Landin's 1964 SECD machine had an explicit Environment component, and the lambda calculus uses substitution (a mathematical environment) as its core evaluation mechanism.
 
-```
-compiler/ori_eval/src/environment.rs
-```
+The interesting design questions are not about what an environment does — that is straightforward — but about how it handles **scope**, **mutation**, **closures**, and **lifetime**. These four concerns interact in ways that force real tradeoffs.
 
-## Structure
+### Scope: Who Can See What?
 
-The environment uses a parent-linked scope chain with `Rc<RefCell<_>>` wrapped in `LocalScope<T>`:
+**Lexical scoping** (also called static scoping) means that a name's meaning is determined by where it appears in the source text, not by the runtime call stack. This is the dominant scoping discipline today — C, Java, Python, Rust, Haskell, JavaScript (with `let`/`const`), Go, and nearly every modern language use lexical scoping. The alternative, **dynamic scoping** (Emacs Lisp, early Lisp, Bash), determines a name's meaning by looking up the call stack at runtime, making it impossible to determine a function's behavior by reading its source code alone.
+
+Within lexical scoping, implementations differ in how they represent the scope chain:
+
+| Approach | How It Works | Used By |
+|----------|-------------|---------|
+| **Flat map per scope** | Each scope has its own hash map; lookup walks the scope chain | Ori, many interpreters |
+| **Persistent map** | Scopes share structure via persistent data structures | Haskell (GHC), some ML compilers |
+| **De Bruijn indices** | Names replaced by numeric depth + offset at compile time | Lambda calculus implementations, Lean |
+| **Stack frames** | Variables at fixed offsets in stack memory | C, Rust, compiled languages |
+| **Display registers** | Array indexed by scope depth for O(1) access | Some Algol/Pascal implementations |
+
+Tree-walking interpreters almost universally use the flat-map approach because it is the simplest and requires no preprocessing step. Compiled languages use stack frames because they are the fastest at runtime. The persistent map approach is elegant for functional languages where environments are immutable and shared.
+
+### Closures: When Functions Outlive Their Scope
+
+A closure is a function bundled with the environment where it was defined. When a lambda captures variables from its enclosing scope, those variables must remain accessible even after the enclosing scope has been exited. This creates a fundamental tension: how do you keep captured bindings alive when the scope that created them is gone?
+
+The two main strategies are:
+
+- **Capture by reference** — the closure holds a pointer to the original binding. If the binding changes, the closure sees the new value. Used by JavaScript, Python, C# (for mutable captures). Requires keeping the original scope alive (or allocating captured variables on the heap).
+- **Capture by value** — the closure copies the binding's value at creation time. Changes to the original binding do not affect the closure. Used by Ori, C++ (`[=]`), and pure functional languages.
+
+Ori captures by value because it aligns with Ori's value semantics: values are self-contained, copying is cheap (primitives are inline, collections use `Arc`-based sharing), and there is no shared mutable state between a closure and its enclosing scope.
+
+## Ori's Environment Design
+
+### Data Structures
+
+The environment uses a parent-linked scope chain with `Rc<RefCell<_>>` wrapped in a `LocalScope<T>` newtype:
 
 ```rust
-/// Single-threaded scope wrapper (Rc<RefCell<T>>)
+/// Single-threaded scope wrapper.
 #[repr(transparent)]
 pub struct LocalScope<T>(Rc<RefCell<T>>);
 
 pub struct Scope {
-    /// Variable bindings (FxHashMap for faster Name hashing)
     bindings: FxHashMap<Name, Binding>,
-    /// Parent scope for lexical scoping
     parent: Option<LocalScope<Scope>>,
 }
 
-/// A variable binding with mutability tracking
 struct Binding {
     value: Value,
     mutability: Mutability,
@@ -43,312 +67,210 @@ pub enum Mutability {
 }
 
 pub struct Environment {
-    /// Stack of scopes (for push/pop during evaluation)
     scopes: Vec<LocalScope<Scope>>,
-    /// Global scope (always accessible)
     global: LocalScope<Scope>,
 }
 ```
 
-**Key design decisions:**
-- `LocalScope<T>` uses `Rc<RefCell<T>>` (not `Arc`) for single-threaded interpreter
-- `FxHashMap` provides faster hashing for `Name` keys
-- Parent chain enables closure capture lookup
-- `Mutability` prevents reassignment of `$` constants
+Three design choices deserve explanation:
 
-## Operations
+**`LocalScope<T>` is `Rc<RefCell<T>>`, not `Arc<RwLock<T>>`.** The interpreter is single-threaded — there is no concurrent access to scopes during evaluation. Using `Rc` instead of `Arc` avoids atomic reference counting overhead (~2-5x cheaper for inc/dec operations). Using `RefCell` instead of `RwLock` avoids mutex overhead. The `#[repr(transparent)]` annotation ensures the newtype has zero memory overhead.
 
-### Creating Environment
+**`FxHashMap<Name, Binding>` for bindings.** `Name` is a 32-bit interned index, and `FxHashMap` (from the `rustc-hash` crate) uses a fast non-cryptographic hash function optimized for small integer keys. This is significantly faster than `HashMap` with the default `SipHash` hasher for the common case of looking up interned names.
+
+**Parent chain, not scope stack.** Each `Scope` holds an `Option<LocalScope<Scope>>` pointing to its parent. This means closure capture works by sharing `Scope` nodes — a closure can hold a reference to a scope in the middle of the chain, keeping it alive even after the environment has popped past it. A flat scope stack without parent pointers would require copying all visible bindings at closure creation time.
+
+### Core Operations
+
+**Variable binding** inserts into the current scope's hash map:
 
 ```rust
-impl Environment {
-    pub fn new() -> Self {
-        let global = LocalScope::new(Scope::new());
-        Self {
-            scopes: vec![global.clone()],
-            global,
-        }
-    }
+pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
+    self.bindings.insert(name, Binding { value, mutability });
 }
 ```
 
-### Variable Binding
+This allows shadowing — defining a name that already exists in an outer scope creates a new binding in the current scope, leaving the outer binding untouched.
+
+**Variable lookup** walks the parent chain from the current scope outward:
 
 ```rust
-impl Scope {
-    /// Define a variable with specified mutability
-    pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
-        self.bindings.insert(name, Binding { value, mutability });
+pub fn lookup(&self, name: Name) -> Option<Value> {
+    if let Some(binding) = self.bindings.get(&name) {
+        return Some(binding.value.clone());
     }
-
-    /// Look up a variable (checks parent chain)
-    pub fn lookup(&self, name: Name) -> Option<Value> {
-        if let Some(binding) = self.bindings.get(&name) {
-            return Some(binding.value.clone());
-        }
-        if let Some(parent) = &self.parent {
-            return parent.borrow().lookup(name);
-        }
-        None
+    if let Some(parent) = &self.parent {
+        return parent.borrow().lookup(name);
     }
-
-    /// Assign to a mutable variable.
-    /// Returns `AssignError::Immutable` if the variable is immutable,
-    /// or `AssignError::Undefined` if the variable is not found.
-    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
-        if let Some(binding) = self.bindings.get_mut(&name) {
-            if !binding.mutability.is_mutable() {
-                return Err(AssignError::Immutable);
-            }
-            binding.value = value;
-            return Ok(());
-        }
-        if let Some(parent) = &self.parent {
-            return parent.borrow_mut().assign(name, value);
-        }
-        Err(AssignError::Undefined)
-    }
-}
-
-/// Error type for variable assignment failures.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AssignError {
-    /// Variable exists but is immutable.
-    Immutable,
-    /// Variable not found in any scope.
-    Undefined,
+    None
 }
 ```
+
+This is O(depth) in the worst case, but typical scope depths are shallow (5-10 levels), so the linear scan is fast in practice. The alternative — maintaining a flat hash map of all visible bindings — would give O(1) lookup but require copying on every scope push/pop.
+
+**Variable assignment** also walks the parent chain, but additionally checks mutability:
+
+```rust
+pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
+    if let Some(binding) = self.bindings.get_mut(&name) {
+        if !binding.mutability.is_mutable() {
+            return Err(AssignError::Immutable);
+        }
+        binding.value = value;
+        return Ok(());
+    }
+    if let Some(parent) = &self.parent {
+        return parent.borrow_mut().assign(name, value);
+    }
+    Err(AssignError::Undefined)
+}
+```
+
+Assignment walks up the chain to find the binding and modify it in place. If the binding is immutable (`let $x = ...`), the assignment fails with `AssignError::Immutable`. If the name is not found in any scope, it fails with `AssignError::Undefined`. This two-error-variant design gives precise error messages — "cannot assign to immutable constant x" vs "undefined variable x."
 
 ### Scope Management
 
+The `Environment` manages a stack of scopes for block entry/exit:
+
 ```rust
-impl Environment {
-    pub fn push_scope(&mut self) {
-        let current = self.scopes.last().cloned();
-        let new_scope = LocalScope::new(match current {
-            Some(parent) => Scope::with_parent(parent),
-            None => Scope::new(),
-        });
-        self.scopes.push(new_scope);
-    }
+pub fn push_scope(&mut self) {
+    let current = self.scopes.last().cloned();
+    let new_scope = LocalScope::new(match current {
+        Some(parent) => Scope::with_parent(parent),
+        None => Scope::new(),
+    });
+    self.scopes.push(new_scope);
+}
 
-    pub fn pop_scope(&mut self) {
-        if self.scopes.len() > 1 {
-            self.scopes.pop();
-        }
-    }
-
-    pub fn push_scope_with(&mut self, captured: Scope) {
-        // For closures - start with captured environment
-        self.scopes.push(captured);
+pub fn pop_scope(&mut self) {
+    if self.scopes.len() > 1 {
+        self.scopes.pop();
     }
 }
 ```
 
-### Variable Access
+The scope stack is separate from the parent chain — `push_scope()` creates a new scope whose parent is the current top of the stack. This dual structure exists because closures need parent chain traversal (for captured variable access) while block scoping needs stack push/pop (for entering and exiting blocks).
 
-The `Environment` delegates to the current scope (top of the stack) for all variable operations. The `Scope` handles parent-chain traversal for lookups and assignments:
+### Closure Capture
+
+When a lambda is created, the interpreter captures all visible bindings as a flat `FxHashMap<Name, Value>`:
 
 ```rust
-impl Environment {
-    /// Define a variable in the current scope.
-    pub fn define(&mut self, name: Name, value: Value, mutability: Mutability) {
-        self.scopes.last()
-            .unwrap_or(&self.global)
-            .borrow_mut()
-            .define(name, value, mutability);
-    }
+pub fn capture(&self) -> FxHashMap<Name, Value> {
+    let mut captures = FxHashMap::default();
+    // Collect from all scopes, innermost-first
+    // (inner bindings shadow outer ones)
+    captures
+}
+```
 
-    /// Look up a variable (delegates to current scope's parent chain).
-    pub fn lookup(&self, name: Name) -> Option<Value> {
-        self.scopes.last()
-            .unwrap_or(&self.global)
-            .borrow()
-            .lookup(name)
-    }
+This **flattening** is a deliberate design choice. The alternative — having the closure hold a reference to the scope chain — would avoid the copy but create complex lifetime dependencies between closures and the environments that created them. By flattening to a `FxHashMap`, closure capture is a value operation: the closure owns its captured bindings, and the original environment can be freely modified or destroyed.
 
-    /// Assign to a mutable variable. Returns `AssignError` on failure.
-    pub fn assign(&mut self, name: Name, value: Value) -> Result<(), AssignError> {
-        self.scopes.last()
-            .unwrap_or(&self.global)
-            .borrow_mut()
-            .assign(name, value)
-    }
+For module-level functions, captures are shared across all functions via `Arc<FxHashMap<Name, Value>>` — avoiding redundant copies when registering dozens of functions from the same module.
 
-    /// Define a global variable (immutable).
-    pub fn define_global(&mut self, name: Name, value: Value) {
-        self.global.borrow_mut().define(name, value, Mutability::Immutable);
-    }
+### RAII Scope Guards
 
-    /// Get the current scope depth.
-    pub fn depth(&self) -> usize {
-        self.scopes.len()
-    }
+Scope management must be panic-safe. If an evaluation panics inside a block, the scope pushed for that block must still be popped. Ori uses RAII guards to guarantee this:
 
-    /// Create a child environment that shares the global scope
-    /// but has its own local scope stack.
-    pub fn child(&self) -> Self {
-        let global = self.global.clone();
-        Environment {
-            scopes: vec![global.clone()],
-            global,
-        }
+```rust
+pub struct ScopedInterpreter<'g, 'i> {
+    interpreter: &'g mut Interpreter<'i>,
+}
+
+impl Drop for ScopedInterpreter<'_, '_> {
+    fn drop(&mut self) {
+        self.interpreter.env_mut().pop_scope();
     }
 }
 ```
 
-## Scoping Rules
+The guard pushes a scope on creation and pops it on drop — even if the evaluation panics, the scope is cleaned up. Both `ori_eval::Interpreter` and `oric::Evaluator` provide guards, with `Deref`/`DerefMut` implementations for transparent access.
 
-### Lexical Scoping
+The guard API offers several convenience methods:
 
-Variables are looked up in the lexical scope:
+```rust
+// Direct guard usage
+let mut scoped = interpreter.scoped();
+scoped.env.define(name, value, Mutability::Immutable);
+let result = scoped.eval(body)?;
+// scope automatically popped here
+
+// Closure-based
+self.with_env_scope(|scoped| {
+    scoped.env.define(name, value, Mutability::Immutable);
+    scoped.eval(body)
+})
+
+// Single binding convenience
+self.with_binding(name, value, Mutability::Immutable, |s| s.eval(body))
+
+// Pattern match bindings (all immutable)
+self.with_match_bindings(bindings, |s| s.eval(arm_body))
+```
+
+### Mutability Model
+
+Ori inverts the common default: `let` creates a mutable binding, and `let $` creates an immutable one:
 
 ```ori
-let x = 1;
+let x = 0          // Mutable — can be reassigned
+let $y = 10        // Immutable constant — assignment is an error
 
-@foo () -> int = x + 1;  // x refers to outer x
-
-let result = {
-    let x = 10;         // Shadows outer x
-    x + 1               // Uses inner x = 10
-};
-// result = 11, outer x unchanged
+x = x + 1          // OK
+y = y + 1          // error E1012: cannot assign to immutable constant y
 ```
 
-### Shadowing
+The environment tracks mutability per binding and enforces it at assignment time, not at definition time. This is a runtime check in the interpreter; the type checker also validates it statically.
 
-Inner scopes can shadow outer bindings:
+### Function Scopes
 
-```rust
-fn eval_let(&mut self, name: Name, value: ExprId, body: ExprId) -> Result<Value, EvalError> {
-    let value = self.eval_expr(value)?;
-
-    self.env.push_scope();
-    self.env.define(name, value, Mutability::Immutable);  // May shadow outer binding
-
-    let result = self.eval_expr(body);
-
-    self.env.pop_scope();  // Shadowing ends
-    result
-}
-```
-
-### Closures
-
-Closures capture their environment:
-
-```ori
-let multiplier = 2
-let double = x -> x * multiplier  // Captures multiplier
-double(5)  // 10
-```
-
-```rust
-fn eval_lambda(&mut self, params: &[Name], body: ExprId) -> Result<Value, EvalError> {
-    // Capture current environment as a flat map of all visible bindings
-    let captured = self.env.capture();
-
-    Ok(Value::Function(FunctionValue::new(
-        params.to_vec(),
-        captured,
-        self.arena.clone(),
-    )))
-}
-
-impl Environment {
-    /// Capture all visible bindings as a flat `FxHashMap<Name, Value>`.
-    /// Returns a map of all visible bindings that can be used
-    /// when the closure is called later.
-    pub fn capture(&self) -> FxHashMap<Name, Value> {
-        // Collects bindings from all scopes, innermost-first
-        // (inner bindings shadow outer ones via entry API)
-        let mut captures = FxHashMap::default();
-        // ... recursive collection from scope chain
-        captures
-    }
-}
-```
-
-## Mutation
-
-Variables are mutable by default. Use the `$` prefix in a `let` binding to create an immutable constant:
-
-```ori
-let x = 0;          // Mutable variable
-let $y = 10;        // Immutable constant
-
-x = x + 1;          // OK
-y = y + 1;          // error E1012: cannot assign to immutable constant y
-```
-
-```rust
-fn eval_assign(&mut self, name: Name, value: ExprId) -> Result<Value, EvalError> {
-    let value = self.eval_expr(value)?;
-    self.env.assign(name, value)?;
-    Ok(Value::Void)
-}
-```
-
-## Function Scopes
-
-Functions get their own scope:
+When calling a function, the evaluator creates a new scope chain rooted in the function's captured environment:
 
 ```rust
 fn call_function(&mut self, func: &FunctionValue, args: Vec<Value>) -> Result<Value, EvalError> {
     // Start with captured environment (for closures)
     self.env.push_scope_with(func.captured_env.clone());
 
-    // Bind parameters
+    // Bind parameters (immutable — params cannot be reassigned)
     for (param, arg) in func.params.iter().zip(args) {
         self.env.define(*param, arg, Mutability::Immutable);
     }
 
-    let result = self.eval_expr(func.body);
+    let result = self.eval_can(func.can_body);
 
     self.env.pop_scope();
     result
 }
 ```
 
-## For Loop Scopes
+Function parameters are always immutable — they cannot be reassigned within the function body. This is enforced by defining them with `Mutability::Immutable`.
 
-For loops create a scope for the iteration variable:
+## Prior Art
 
-```rust
-fn eval_for(&mut self, var: Name, iter: ExprId, body: ExprId) -> Result<Value, EvalError> {
-    let items = self.eval_expr(iter)?.as_list()?;
+**OCaml's environment** uses persistent maps (balanced binary trees) that share structure between scopes. This is more memory-efficient for deeply nested scopes but slower for lookup (O(log n) vs O(1) amortized for hash maps). Ori chose hash maps because scope depths are shallow in practice, making lookup speed more important than sharing efficiency.
 
-    for item in items.iter() {
-        self.env.push_scope();
-        self.env.define(var, item.clone(), Mutability::Immutable);
-        self.eval_expr(body)?;
-        self.env.pop_scope();
-    }
+**Rust's MIR interpreter** (Miri) uses a flat memory model with allocations indexed by `AllocId`. Variables are stored at specific offsets within stack-frame allocations, mirroring compiled code's stack layout. This is faster for execution but requires more complex scope management — Ori's hash-map approach is simpler and sufficient for an interpreter.
 
-    Ok(Value::Void)
-}
-```
+**Roc's environment** also uses flat maps for scope management during evaluation. Like Ori, Roc captures by value for closures. The primary difference is that Roc's variable representations are more tightly integrated with its type system, while Ori's `Value` enum is a fully separate type from the type checker's representations.
 
-## Debugging
+**GHC's STG machine** uses a fundamentally different model — closures carry pointers to heap-allocated thunks, and the environment is implicit in the closure's free-variable list. This model supports lazy evaluation, which Ori does not need.
 
-Print environment state:
+**V8's JavaScript engine** faces a harder version of the scope problem because JavaScript closures capture by reference and variables can be modified by any closure that captured them. V8 solves this with "context" objects (heap-allocated scope frames) that persist as long as any closure references them. Ori avoids this complexity entirely through capture-by-value.
 
-```rust
-impl Environment {
-    pub fn debug_print(&self) {
-        for (i, scope) in self.scopes.iter().enumerate() {
-            eprintln!("Scope {}:", i);
-            for (name, value) in &scope.bindings {
-                eprintln!("  {} = {:?}", name, value);
-            }
-        }
-    }
-}
-```
+## Design Tradeoffs
 
-## Memory Considerations
+**`Rc<RefCell>` vs direct ownership.** The scope chain uses `Rc<RefCell<Scope>>` for shared ownership. An alternative would be to own scopes directly in a `Vec<Scope>` and use indices for parent references. This would avoid reference counting overhead but would prevent closures from holding references to specific scopes (closures would need to copy all bindings eagerly). The current design defers the copy to `capture()` time, which is called only when creating lambdas and module functions.
 
-- Values are cloned when captured in closures
-- Arc-wrapped values (List, String, etc.) share memory
-- Scope cleanup happens immediately on pop
+**Capture-by-value vs capture-by-reference.** Ori captures by value (copying bindings into the closure at creation time). Capture-by-reference would be more efficient for closures that capture many variables but only read a few, but would require keeping scope frames alive and introduce shared mutable state — contradicting Ori's value semantics design.
+
+**Flat capture map vs structured scope chain.** When capturing for a closure, Ori flattens all visible bindings into a single `FxHashMap`. An alternative would be to capture a reference to the scope chain itself, preserving its structure. Flattening is simpler and makes closures fully self-contained (no dependency on the original scope chain's lifetime), at the cost of copying more bindings than strictly necessary.
+
+**Global scope as special case.** The `Environment` maintains both a `scopes` stack and a separate `global` scope. Globals are defined via `define_global()` and are always accessible. This means module-level definitions (functions, types, constructors) live in the global scope and are not affected by scope push/pop during evaluation. The alternative — treating the bottom of the scope stack as the global scope — would simplify the data structure but complicate the invariant that popping a scope never removes global definitions.
+
+## Related Documents
+
+- [Evaluator Overview](index.md) — Architecture and evaluation modes
+- [Tree Walking](tree-walking.md) — How `eval_can` uses the environment
+- [Value System](value-system.md) — What gets stored in bindings
+- [Module Loading](module-loading.md) — How module functions are registered in the environment
+- [Type Environment](../05-type-system/type-environment.md) — The type checker's parallel scope mechanism
