@@ -2,6 +2,9 @@
 title: "Overview"
 description: "Ori Compiler Design — Ori Compiler Design Documentation"
 order: 0
+sidebar_title: "Compiler Design"
+sidebar_order: 2
+sidebar_path: "/docs/compiler-design"
 ---
 
 # Overview
@@ -65,6 +68,9 @@ The Ori compiler is a Rust-based incremental compiler built on the Salsa framewo
 - **`ori_canon`** - Canonical IR lowering (desugaring, pattern compilation, constant folding)
 - **`ori_arc`** - ARC analysis (CanExpr → ARC IR lowering, borrow inference, RC insertion/elimination, reset/reuse, FBIP diagnostics)
 - **`ori_eval`** - Core evaluator components (Environment, operators)
+- **`ori_fmt`** - Source code formatter (5-layer architecture)
+- **`ori_llvm`** - LLVM backend for JIT/AOT compilation
+- **`ori_rt`** - Runtime library for AOT-compiled binaries (C-ABI, zero compiler deps)
 - **`oric`** - CLI orchestrator, Salsa queries, evaluator, reporting
 
 The compiler features:
@@ -79,21 +85,20 @@ The compiler features:
 
 | Component | Lines of Code | Purpose |
 |-----------|--------------|---------|
-| Type System | ~40,000 | Pool, inference, unification, registries, checking |
-| LLVM Backend | ~42,000 | JIT and AOT code generation |
-| ARC Analysis | ~30,000 | RC optimization, borrow inference, reuse |
-| Evaluator | ~18,000 | Tree-walking interpreter |
-| Parser | ~24,000 | Recursive descent parsing |
-| IR | ~18,000 | AST types, arena, visitor, interning |
-| Formatter | ~15,000 | Code formatting engine |
-| Runtime | ~15,000 | AOT runtime library (`ori_rt`) |
-| Patterns | ~13,000 | Pattern system and builtins |
-| Lexer | ~10,000 | DFA-based tokenization (core + wrapper) |
-| Canonicalization| ~8,000 | Desugaring and pattern compilation |
-| Diagnostics | ~5,000 | Error reporting, DiagnosticQueue, fixes |
-| CLI & Queries | ~27,000 | `oric` orchestrator and Salsa queries |
-| Tests | ~65,000 | Integration and conformance tests |
-| **Total** | **~330,000** | |
+| LLVM Backend | ~30,000 | JIT and AOT code generation |
+| Type System | ~28,000 | Pool, inference, unification, registries, checking |
+| ARC System | ~23,000 | RC optimization, borrow inference, reset/reuse |
+| CLI & Queries | ~19,000 | `oric` orchestrator and Salsa queries |
+| Parser | ~18,000 | Recursive descent parsing |
+| Evaluator | ~14,000 | Tree-walking interpreter |
+| IR | ~13,000 | AST types, arena, visitor, interning |
+| Runtime | ~12,000 | AOT runtime library (`ori_rt`) |
+| Formatter | ~11,000 | Code formatting engine |
+| Patterns | ~10,000 | Pattern system and builtins |
+| Lexer | ~8,000 | DFA-based tokenization (core + wrapper) |
+| Canonicalization| ~6,000 | Desugaring and pattern compilation |
+| Diagnostics | ~4,000 | Error reporting, DiagnosticQueue, fixes |
+| **Total** | **~195,000** | |
 
 ## Compilation Pipeline
 
@@ -102,24 +107,29 @@ flowchart TB
     A["SourceFile (Salsa input)"] -->|"tokens() query"| B["TokenList"]
     B -->|"parsed() query"| C["ParseResult { Module, ExprArena, errors }"]
     C -->|"typed() query"| D["TypedModule { expr_types, errors }"]
-    D -->|"canonicalize"| E2["CanonResult { CanArena, DecisionTrees, PatternProblems }"]
-    E2 -->|"evaluated() query"| E["ModuleEvalResult { Value, EvalOutput }"]
-    E2 -->|"ARC pipeline"| F1["ARC IR (borrow, liveness, RC, reuse)"]
-    F1 -->|"LLVM codegen"| F["LLVM IR → Native Binary"]
+    D -->|"canonicalize"| E["CanonResult { CanArena, DecisionTrees }"]
+    E -->|"evaluated() query"| F["ModuleEvalResult { Value, EvalOutput }"]
+    E -->|"ARC pipeline"| G["ARC IR (borrow, liveness, RC, reuse)"]
+    G -->|"LLVM codegen"| H["LLVM IR → Native Binary"]
+
+    style E fill:#f9f,stroke:#333,stroke-width:2px
+    style G fill:#ff9,stroke:#333,stroke-width:2px
 ```
 
-Each step is a Salsa query with automatic caching. If the input doesn't change, the cached output is returned immediately.
+Each step is a Salsa query with automatic caching. If the input doesn't change, the cached output is returned immediately. After canonicalization, the pipeline **forks**: the evaluator (`ori_eval`) interprets the canonical IR directly, while the ARC system (`ori_arc`) lowers it to a basic-block SSA IR with explicit reference counting before LLVM codegen.
 
 ## Documentation Sections
 
-### Architecture
+### Pipeline Stages (in compilation order)
+
+#### Architecture (Section 01)
 
 - [Architecture Overview](01-architecture/index.md) - High-level compiler structure
 - [Compilation Pipeline](01-architecture/pipeline.md) - Query-based pipeline design
 - [Salsa Integration](01-architecture/salsa-integration.md) - Incremental compilation framework
 - [Data Flow](01-architecture/data-flow.md) - How data moves through the compiler
 
-### Intermediate Representation
+#### Intermediate Representation (Section 02)
 
 - [IR Overview](02-intermediate-representation/index.md) - Data structures for compilation
 - [Flat AST](02-intermediate-representation/flat-ast.md) - Arena-based expression storage
@@ -127,12 +137,12 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [String Interning](02-intermediate-representation/string-interning.md) - Identifier deduplication
 - [Type Representation](02-intermediate-representation/type-representation.md) - Runtime type encoding
 
-### Lexer
+#### Lexer (Section 03)
 
 - [Lexer Overview](03-lexer/index.md) - Tokenization design
 - [Token Design](03-lexer/token-design.md) - Token types and structure
 
-### Parser
+#### Parser (Section 04)
 
 - [Parser Overview](04-parser/index.md) - Parsing architecture
 - [Pratt Parser](04-parser/pratt-parser.md) - Binding power table and operator precedence
@@ -140,7 +150,7 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [Grammar Modules](04-parser/grammar-modules.md) - Module organization and naming
 - [Incremental Parsing](04-parser/incremental-parsing.md) - IDE reuse of unchanged declarations
 
-### Type System
+#### Type System (Section 05)
 
 - [Type System Overview](05-type-system/index.md) - Type checking architecture
 - [Pool Architecture](05-type-system/pool-architecture.md) - SoA storage, interning, type construction
@@ -149,7 +159,7 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [Type Environment](05-type-system/type-environment.md) - Scope-based type tracking
 - [Type Registry](05-type-system/type-registry.md) - User-defined types, traits, methods
 
-### Pattern System
+#### Pattern System (Section 06)
 
 - [Pattern System Overview](06-pattern-system/index.md) - Pattern architecture
 - [Pattern Trait](06-pattern-system/pattern-trait.md) - PatternDefinition interface
@@ -157,53 +167,87 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [Pattern Fusion](06-pattern-system/pattern-fusion.md) - Optimization passes
 - [Adding Patterns](06-pattern-system/adding-patterns.md) - How to add new patterns
 
-### Canonicalization
+#### Canonicalization (Section 07)
 
-- [Canonicalization Overview](06b-canonicalization/index.md) - Canonical IR lowering architecture
-- [Desugaring](06b-canonicalization/desugaring.md) - Syntactic sugar elimination
-- [Pattern Compilation](06b-canonicalization/pattern-compilation.md) - Decision tree construction
-- [Constant Folding](06b-canonicalization/constant-folding.md) - Compile-time evaluation
-- [ARC Analysis](06b-canonicalization/arc-analysis.md) - Type classification, borrow inference, RC insertion
+- [Canonicalization Overview](07-canonicalization/index.md) - Canonical IR lowering architecture
+- [Desugaring](07-canonicalization/desugaring.md) - Syntactic sugar elimination
+- [Pattern Compilation](07-canonicalization/pattern-compilation.md) - Decision tree construction
+- [Constant Folding](07-canonicalization/constant-folding.md) - Compile-time evaluation
 
-### Evaluator
+#### Evaluator (Section 08)
 
-- [Evaluator Overview](07-evaluator/index.md) - Interpretation architecture
-- [Tree Walking](07-evaluator/tree-walking.md) - Execution strategy
-- [Environment](07-evaluator/environment.md) - Variable scoping
-- [Value System](07-evaluator/value-system.md) - Runtime value representation
-- [Module Loading](07-evaluator/module-loading.md) - Import resolution
+- [Evaluator Overview](08-evaluator/index.md) - Interpretation architecture
+- [Tree Walking](08-evaluator/tree-walking.md) - Execution strategy
+- [Environment](08-evaluator/environment.md) - Variable scoping
+- [Value System](08-evaluator/value-system.md) - Runtime value representation
+- [Module Loading](08-evaluator/module-loading.md) - Import resolution
 
-### Diagnostics
+#### ARC System (Section 09)
 
-- [Diagnostics Overview](08-diagnostics/index.md) - Error reporting system
-- [Problem Types](08-diagnostics/problem-types.md) - Error categorization
-- [Code Fixes](08-diagnostics/code-fixes.md) - Automatic fix suggestions
-- [Emitters](08-diagnostics/emitters.md) - Output format handlers
+- [ARC System Overview](09-arc-system/index.md) - ARC pipeline overview, module structure
+- [ARC IR](09-arc-system/arc-ir.md) - IR definitions, type classification
+- [Lowering](09-arc-system/lowering.md) - CanExpr → ARC IR
+- [Borrow Inference](09-arc-system/borrow-inference.md) - Global ownership inference
+- [Liveness](09-arc-system/liveness.md) - Backward dataflow liveness analysis
+- [RC Insertion](09-arc-system/rc-insertion.md) - Perceus algorithm RC placement
+- [Reset/Reuse](09-arc-system/reset-reuse.md) - In-place constructor reuse
+- [RC Elimination](09-arc-system/rc-elimination.md) - Redundant RC pair removal
+- [Drop Descriptors](09-arc-system/drop-descriptors.md) - Per-type drop generation
+- [Decision Trees](09-arc-system/decision-trees.md) - Pattern compilation in ARC IR
 
-### Testing
-
-- [Testing Overview](09-testing/index.md) - Test system architecture
-- [Test Discovery](09-testing/test-discovery.md) - Finding test functions
-- [Test Runner](09-testing/test-runner.md) - Parallel test execution
-
-### LLVM Backend
+#### LLVM Backend (Section 10)
 
 - [LLVM Backend Overview](10-llvm-backend/index.md) - JIT and AOT code generation architecture
 - [AOT Compilation](10-llvm-backend/aot.md) - Native executable and WebAssembly generation
 - [Closures](10-llvm-backend/closures.md) - Closure representation and calling conventions
 - [User-Defined Types](10-llvm-backend/user-types.md) - Struct types, impl blocks, method dispatch
+- [ARC Emitter](10-llvm-backend/arc-emitter.md) - ARC IR → LLVM IR translation
+- [Builtins Codegen](10-llvm-backend/builtins-codegen.md) - Built-in function LLVM generation
+- [Codegen Verification](10-llvm-backend/codegen-verification.md) - Audit pipeline and RC balance checking
 
-### Platform Targets
+### Subsystem Sections
 
-- [Platform Targets Overview](11-platform-targets/index.md) - Native vs WASM compilation
-- [Conditional Compilation](11-platform-targets/conditional-compilation.md) - Platform-specific code patterns
-- [WASM Target](11-platform-targets/wasm-target.md) - WebAssembly considerations
-- [Recursion Limits](11-platform-targets/recursion-limits.md) - Stack safety implementation
+#### Runtime (Section 11)
+
+- [Runtime Overview](11-runtime/index.md) - `ori_rt` runtime library overview
+- [Reference Counting](11-runtime/reference-counting.md) - RC header layout and tracing
+- [Collections & COW](11-runtime/collections-cow.md) - Copy-on-write collection semantics
+- [String SSO](11-runtime/string-sso.md) - Small string optimization
+- [Data Structures](11-runtime/data-structures.md) - List, map, set memory layouts
+
+#### Formatter (Section 12)
+
+- [Formatter Overview](12-formatter/index.md) - 5-layer formatting architecture
+- [Spacing](12-formatter/spacing.md) - O(1) token spacing lookup
+- [Packing](12-formatter/packing.md) - Container single-line vs multi-line decisions
+- [Rules](12-formatter/rules.md) - Breaking rules and priority
+
+### Cross-Cutting Sections
+
+#### Diagnostics (Section 13)
+
+- [Diagnostics Overview](13-diagnostics/index.md) - Error reporting system
+- [Problem Types](13-diagnostics/problem-types.md) - Error categorization
+- [Code Fixes](13-diagnostics/code-fixes.md) - Automatic fix suggestions
+- [Emitters](13-diagnostics/emitters.md) - Output format handlers
+
+#### Testing (Section 14)
+
+- [Testing Overview](14-testing/index.md) - Test system architecture
+- [Test Discovery](14-testing/test-discovery.md) - Finding test functions
+- [Test Runner](14-testing/test-runner.md) - Parallel test execution
+
+#### Platform Targets (Section 15)
+
+- [Platform Targets Overview](15-platform-targets/index.md) - Native vs WASM compilation
+- [Conditional Compilation](15-platform-targets/conditional-compilation.md) - Platform-specific code patterns
+- [WASM Target](15-platform-targets/wasm-target.md) - WebAssembly considerations
+- [Recursion Limits](15-platform-targets/recursion-limits.md) - Stack safety implementation
 
 ### Appendices
 
 - [Salsa Patterns](appendices/A-salsa-patterns.md) - Common Salsa usage patterns
-- [Memory Management](appendices/B-memory-management.md) - Allocation strategies
+- [Memory Management](appendices/B-compiler-memory.md) - Compiler-internal allocation strategies
 - [Error Codes](appendices/C-error-codes.md) - Complete error code reference
 - [Debugging](appendices/D-debugging.md) - Debug flags and tracing
 - [Coding Guidelines](appendices/E-coding-guidelines.md) - Code style, testing, best practices

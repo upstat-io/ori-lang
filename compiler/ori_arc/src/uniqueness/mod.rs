@@ -225,7 +225,9 @@ impl UniquenessMap {
     ///
     /// For each variable present in either map, the result is the join
     /// of both states. Variables only in `other` are joined with the
-    /// implicit `MaybeShared`.
+    /// implicit `MaybeShared`. Variables only in `self` are unaffected:
+    /// joining with the implicit `MaybeShared` (⊤) from `other` is
+    /// idempotent.
     pub fn join_from(&mut self, other: &Self) {
         for (&var, &state) in &other.states {
             self.join(var, state);

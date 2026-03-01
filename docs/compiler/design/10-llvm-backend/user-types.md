@@ -1,7 +1,7 @@
 ---
 title: "User-Defined Types and Impl Blocks"
 description: "Compilation of user-defined struct types, impl blocks, and method dispatch in the LLVM backend"
-order: 3
+order: 1002
 section: "LLVM Backend"
 ---
 
