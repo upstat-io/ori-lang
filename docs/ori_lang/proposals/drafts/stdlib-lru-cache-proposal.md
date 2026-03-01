@@ -258,8 +258,8 @@ type LRUCache<K, V> = {
 @get_or_insert_async<K: Eq + Hashable, V> (
     self,
     key: K,
-    compute: () -> V uses Async,
-) -> (LRUCache<K, V>, V) uses Async =
+    compute: () -> V uses Suspend,
+) -> (LRUCache<K, V>, V) uses Suspend =
     match self.entries[key] {
         Some((value, _)) -> {
             let (updated, _) = self.get(key: key);

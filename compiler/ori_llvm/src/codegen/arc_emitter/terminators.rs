@@ -196,7 +196,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             let result = match &ret_abi.passing {
                 ReturnPassing::Sret { .. } => {
                     let ret_ty = self.resolve_type(ret_abi.ty);
-                    let sret_alloca = self.builder.alloca(ret_ty, "sret.tmp");
+                    let sret_alloca =
+                        self.builder
+                            .create_entry_alloca(self.current_function, "sret.tmp", ret_ty);
                     let mut full_args = vec![sret_alloca];
                     full_args.extend_from_slice(&passed_args);
                     self.call_or_invoke_llvm(func_id, &full_args, mode, "call");

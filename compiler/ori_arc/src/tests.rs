@@ -19,7 +19,18 @@ fn run_full_pipeline(
 ) {
     let sigs = FxHashMap::default();
     let interner = ori_ir::StringInterner::new();
-    crate::annotate_arg_ownership(func, &sigs, &interner, &FxHashSet::default());
+    crate::annotate_arg_ownership(
+        func,
+        &sigs,
+        &interner,
+        &crate::BuiltinOwnershipSets {
+            borrowing: FxHashSet::default(),
+            consuming_receiver: FxHashSet::default(),
+            consuming_second_arg: FxHashSet::default(),
+            consuming_receiver_only: FxHashSet::default(),
+        },
+        pool,
+    );
     crate::run_arc_pipeline(func, classifier, &sigs, pool, &interner);
 }
 
@@ -267,4 +278,78 @@ fn full_pipeline_on_reuse_pattern() {
     let dom_tree = DominatorTree::build(&func);
     let (refined, _) = compute_refined_liveness(&func, &classifier);
     let _fbip_report = analyze_fbip(&func, &classifier, &dom_tree, &refined);
+}
+
+/// Pipeline output must be identical across multiple runs on the same input.
+///
+/// Guards against non-deterministic iteration of `FxHashMap`/`FxHashSet`
+/// leaking into IR ordering. Runs the full pipeline N times on clones of
+/// the same input and asserts bitwise equality of the resulting `ArcFunction`.
+#[test]
+fn pipeline_determinism() {
+    // Use the reuse-pattern IR (same as full_pipeline_on_reuse_pattern)
+    // because it exercises expand_reuse, which iterates claimed-field maps.
+    let base = make_func(
+        vec![ArcParam {
+            var: v(0),
+            ty: Idx::STR,
+            ownership: Ownership::Owned,
+        }],
+        Idx::STR,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![
+                ArcInstr::Project {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    value: v(0),
+                    field: 0,
+                },
+                ArcInstr::Project {
+                    dst: v(2),
+                    ty: Idx::STR,
+                    value: v(0),
+                    field: 1,
+                },
+                ArcInstr::Apply {
+                    dst: v(3),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![v(1)],
+                    arg_ownership: vec![ArgOwnership::Owned],
+                },
+                ArcInstr::Construct {
+                    dst: v(4),
+                    ty: Idx::STR,
+                    ctor: CtorKind::Struct(Name::from_raw(10)),
+                    args: vec![v(3), v(2)],
+                },
+            ],
+            terminator: ArcTerminator::Return { value: v(4) },
+        }],
+        vec![
+            Idx::STR, // v0: param
+            Idx::STR, // v1: head
+            Idx::STR, // v2: tail
+            Idx::STR, // v3: new_head
+            Idx::STR, // v4: result
+        ],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+
+    let mut reference = base.clone();
+    run_full_pipeline(&mut reference, &classifier, &pool);
+
+    // Run 10 additional times and compare.
+    for i in 1..=10 {
+        let mut trial = base.clone();
+        run_full_pipeline(&mut trial, &classifier, &pool);
+        assert_eq!(
+            reference, trial,
+            "pipeline run #{i} produced different output — non-deterministic IR"
+        );
+    }
 }

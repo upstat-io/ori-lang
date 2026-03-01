@@ -79,15 +79,21 @@ The compiler features:
 
 | Component | Lines of Code | Purpose |
 |-----------|--------------|---------|
-| IR | ~4,500 | AST types, arena, visitor, interning |
-| Evaluator | ~5,500 | Tree-walking interpreter |
-| Type System | ~24,000 | Pool, inference, unification, registries, checking |
-| Parser | ~3,200 | Recursive descent parsing |
-| Patterns | ~3,000 | Pattern system and builtins |
-| Diagnostics | ~2,800 | Error reporting, DiagnosticQueue, fixes |
-| Lexer | ~700 | DFA-based tokenization |
-| Tests | ~1,100 | Test discovery, execution, error matching |
-| **Total** | **~30,000** | |
+| Type System | ~40,000 | Pool, inference, unification, registries, checking |
+| LLVM Backend | ~42,000 | JIT and AOT code generation |
+| ARC Analysis | ~30,000 | RC optimization, borrow inference, reuse |
+| Evaluator | ~18,000 | Tree-walking interpreter |
+| Parser | ~24,000 | Recursive descent parsing |
+| IR | ~18,000 | AST types, arena, visitor, interning |
+| Formatter | ~15,000 | Code formatting engine |
+| Runtime | ~15,000 | AOT runtime library (`ori_rt`) |
+| Patterns | ~13,000 | Pattern system and builtins |
+| Lexer | ~10,000 | DFA-based tokenization (core + wrapper) |
+| Canonicalization| ~8,000 | Desugaring and pattern compilation |
+| Diagnostics | ~5,000 | Error reporting, DiagnosticQueue, fixes |
+| CLI & Queries | ~27,000 | `oric` orchestrator and Salsa queries |
+| Tests | ~65,000 | Integration and conformance tests |
+| **Total** | **~330,000** | |
 
 ## Compilation Pipeline
 
@@ -216,11 +222,15 @@ The compiler is organized as a multi-crate workspace:
 | `ori_parse` | `compiler/ori_parse/src/` | Recursive descent parser |
 | `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
 | `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
-| `ori_canon` | `compiler/ori_canon/src/` | Canonical IR lowering: desugaring, pattern compilation (decision trees), constant folding, exhaustiveness checking |
-| `ori_arc` | `compiler/ori_arc/src/` | ARC analysis: CanExpr → ARC IR, borrow inference, RC insertion/elimination, reset/reuse, FBIP |
+| `ori_fmt` | `compiler/ori_fmt/src/` | Source code formatter (5-layer architecture) |
+| `ori_canon` | `compiler/ori_canon/src/` | Canonical IR lowering: desugaring, pattern compilation, constant folding |
+| `ori_arc` | `compiler/ori_arc/src/` | ARC analysis: borrow inference, RC insertion/elimination, reset/reuse |
 | `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation |
-| `ori_stack` | `compiler/ori_stack/src/` | Stack management (stacker on native, no-op on WASM) |
+| `ori_rt` | `compiler/ori_rt/src/` | Runtime library for AOT-compiled binaries |
+| `ori_stack` | `compiler/ori_stack/src/` | Stack safety utilities (stacker integration) |
+| `ori_compiler` | `compiler/ori_compiler/src/` | Salsa-free compiler driver for WASM/testing |
 | `oric` | `compiler/oric/src/` | CLI, Salsa queries, eval orchestration, reporting |
+| `ori-lsp` | `tools/ori-lsp/src/` | Language Server Protocol support |
 
 **Note:** `oric` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.
 

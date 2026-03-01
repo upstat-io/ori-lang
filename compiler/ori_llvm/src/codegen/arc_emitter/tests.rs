@@ -1073,8 +1073,15 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
     let mut builder = IrBuilder::new(&scx);
     declare_runtime(&mut builder);
 
-    // Str LLVM type: {i64, ptr}
-    let str_llvm = scx.type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false);
+    // Str LLVM type: {i64 len, i64 cap, ptr data}
+    let str_llvm = scx.type_struct(
+        &[
+            scx.type_i64().into(),
+            scx.type_i64().into(),
+            scx.type_ptr().into(),
+        ],
+        false,
+    );
     let str_param_ty = builder.register_type(str_llvm.into());
     let str_ret_ty = builder.register_type(str_llvm.into());
     let host = builder.declare_function("test_fat_dec", &[str_param_ty], str_ret_ty);
@@ -1139,7 +1146,7 @@ fn rc_dec_fat_pointer_extracts_data_ptr() {
 
     let ir = scx.llmod.print_to_string().to_string();
 
-    // FatPointer Dec extracts data_ptr at field 1
+    // FatPointer Dec extracts data_ptr at field 2 (SSO layout: {len, cap, data})
     assert!(
         ir.contains("rc_dec.fat_data"),
         "Expected extractvalue for str data_ptr:\n{ir}"

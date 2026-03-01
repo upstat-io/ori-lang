@@ -32,8 +32,8 @@ fn primitive_abi_sizes() {
 fn composite_abi_sizes() {
     let (_pool, store) = test_store();
 
-    // str: {i64, ptr} = 16
-    assert_eq!(abi_size(Idx::STR, &store), 16);
+    // str: {i64, i64, ptr} = 24
+    assert_eq!(abi_size(Idx::STR, &store), 24);
 }
 
 #[test]
@@ -52,8 +52,8 @@ fn map_abi_size_is_indirect() {
     let map_ty = pool.map(Idx::STR, Idx::INT);
     let store = TypeInfoStore::new(&pool);
 
-    // {str: int}: {i64, i64, ptr, ptr} = 32
-    assert_eq!(abi_size(map_ty, &store), 32);
+    // {str: int}: {i64, i64, ptr} = 24
+    assert_eq!(abi_size(map_ty, &store), 24);
 }
 
 #[test]
@@ -82,8 +82,8 @@ fn large_tuple_exceeds_threshold() {
     let tup = pool.tuple(&[Idx::INT, Idx::FLOAT, Idx::STR]);
     let store = TypeInfoStore::new(&pool);
 
-    // (int, float, str) = 8 + 8 + 16 = 32
-    assert_eq!(abi_size(tup, &store), 32);
+    // (int, float, str) = 8 + 8 + 24 = 40
+    assert_eq!(abi_size(tup, &store), 40);
 }
 
 #[test]
@@ -122,9 +122,10 @@ fn param_passing_direct_for_small_types() {
         compute_param_passing(Idx::INT, &store),
         ParamPassing::Direct
     );
+    // Str is 24 bytes (SSO layout) — exceeds 16-byte Direct threshold
     assert_eq!(
         compute_param_passing(Idx::STR, &store),
-        ParamPassing::Direct
+        ParamPassing::Indirect { alignment: 8 }
     );
 }
 
@@ -161,9 +162,10 @@ fn return_passing_direct_for_small_types() {
         compute_return_passing(Idx::INT, &store),
         ReturnPassing::Direct
     );
+    // Str is 24 bytes (SSO layout) — returned via sret pointer
     assert_eq!(
         compute_return_passing(Idx::STR, &store),
-        ReturnPassing::Direct
+        ReturnPassing::Sret { alignment: 8 }
     );
 }
 
@@ -376,7 +378,7 @@ fn borrowed_scalar_stays_direct() {
 #[test]
 fn owned_definiteref_uses_size_based() {
     let (_pool, store) = test_store();
-    // str (16 bytes, ≤ threshold) + Owned → Direct (size-based)
+    // str (24 bytes, > 16-byte threshold) + Owned → Indirect (size-based)
     assert_eq!(
         compute_param_passing_with_ownership(
             Idx::STR,
@@ -384,7 +386,7 @@ fn owned_definiteref_uses_size_based() {
             Ownership::Owned,
             ArcClass::DefiniteRef,
         ),
-        ParamPassing::Direct
+        ParamPassing::Indirect { alignment: 8 }
     );
 }
 
@@ -538,6 +540,10 @@ fn abi_with_ownership_none_falls_through() {
     };
 
     // No borrow info → falls through to standard compute_function_abi
+    // Str is 24 bytes (SSO layout), so Indirect
     let abi = compute_function_abi_with_ownership(&sig, &store, None, &classifier);
-    assert_eq!(abi.params[0].passing, ParamPassing::Direct);
+    assert_eq!(
+        abi.params[0].passing,
+        ParamPassing::Indirect { alignment: 8 }
+    );
 }

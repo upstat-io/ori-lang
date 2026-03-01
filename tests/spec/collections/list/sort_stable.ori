@@ -1,0 +1,64 @@
+// list.sort_stable() — stable TimSort.
+// Preserves equal-element relative order.
+
+use std.testing { assert_eq }
+
+@stable_ints () -> [int] = {
+    [3, 1, 4, 1, 5, 9, 2, 6].sort_stable()
+}
+
+@test_ints tests @stable_ints () -> void = {
+    assert_eq(
+        actual: stable_ints(),
+        expected: [1, 1, 2, 3, 4, 5, 6, 9],
+    )
+}
+
+@stable_strs () -> [str] = {
+    ["banana", "apple", "cherry"].sort_stable()
+}
+
+@test_strs tests @stable_strs () -> void = {
+    assert_eq(
+        actual: stable_strs(),
+        expected: ["apple", "banana", "cherry"],
+    )
+}
+
+@stable_empty () -> [int] = {
+    let empty: [int] = [];
+    empty.sort_stable()
+}
+
+@test_empty tests @stable_empty () -> void = {
+    assert_eq(actual: stable_empty(), expected: [])
+}
+
+@stable_one () -> [int] = [42].sort_stable();
+
+@test_one tests @stable_one () -> void = {
+    assert_eq(actual: stable_one(), expected: [42])
+}
+
+@stable_cow () -> ([int], [int]) = {
+    let nums = [3, 1, 2];
+    let sorted = nums.sort_stable();
+    (nums, sorted)
+}
+
+@test_cow tests @stable_cow () -> void = {
+    let (orig, sorted) = stable_cow();
+    assert_eq(actual: orig, expected: [3, 1, 2]);
+    assert_eq(actual: sorted, expected: [1, 2, 3])
+}
+
+@stable_neg () -> [int] = {
+    [-3, 0, 5, -1, 2].sort_stable()
+}
+
+@test_neg tests @stable_neg () -> void = {
+    assert_eq(
+        actual: stable_neg(),
+        expected: [-3, -1, 0, 2, 5],
+    )
+}

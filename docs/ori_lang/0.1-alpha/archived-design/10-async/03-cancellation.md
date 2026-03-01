@@ -10,7 +10,7 @@ Ori uses **cooperative cancellation** via a `Context` object. Tasks check for ca
 
 ```ori
 // The check_cancelled call throws if cancelled
-@long_operation (context: Context) -> Result<Data, Error> uses Async, Http = try(
+@long_operation (context: Context) -> Result<Data, Error> uses Suspend, Http = try(
     let data1 = fetch_part1(
         .context: context,
     )?,
@@ -59,7 +59,7 @@ Contexts form a hierarchy. Cancelling a parent cancels all children:
 
 ```ori
 // If parent_context times out, both tasks are cancelled
-@main () -> void uses Async, Clock = run(
+@main () -> void uses Suspend, Clock = run(
     let parent_context = Context.with_timeout(60s),
 
     parallel(
@@ -77,7 +77,7 @@ Child contexts can have shorter (but not longer) timeouts:
 
 ```ori
 // Child timeout must be <= parent timeout
-@operation_a (context: Context) -> Result<Data, Error> uses Async = run(
+@operation_a (context: Context) -> Result<Data, Error> uses Suspend = run(
     child_context = context.with_timeout(10s),
     sub_operation(
         .context: child_context,
@@ -95,7 +95,7 @@ Use `check_cancelled()` to check if cancellation was requested:
 
 ```ori
 // check_cancelled returns Err(Cancelled) if cancelled
-@long_computation (context: Context) -> Result<Data, Error> uses Async = try(
+@long_computation (context: Context) -> Result<Data, Error> uses Suspend = try(
     let step1 = perform_step1()?,
     context.check_cancelled()?,
 
@@ -135,7 +135,7 @@ Check for cancellation:
 
 ```ori
 // Check for cancellation each iteration
-@process_items (context: Context, items: [Item]) -> Result<[Result<ProcessedItem, Error>], Error> uses Async = run(
+@process_items (context: Context, items: [Item]) -> Result<[Result<ProcessedItem, Error>], Error> uses Suspend = run(
     let results = [],
     for item in items do run(
         context.check_cancelled()?,
@@ -173,7 +173,7 @@ child_context = context.with_timeout(5s)
 The `timeout` pattern automatically manages context:
 
 ```ori
-@bounded_fetch (url: str) -> Result<Data, Error> uses Async, Http, Clock = timeout(
+@bounded_fetch (url: str) -> Result<Data, Error> uses Suspend, Http, Clock = timeout(
     .operation: Http.get(url),
     .after: 30s,
     .on_timeout: Err(TimeoutError { url: url })
@@ -183,7 +183,7 @@ The `timeout` pattern automatically manages context:
 This is equivalent to:
 
 ```ori
-@bounded_fetch (url: str) -> Result<Data, Error> uses Async, Http, Clock = run(
+@bounded_fetch (url: str) -> Result<Data, Error> uses Suspend, Http, Clock = run(
     let context = Context.with_timeout(30s),
     let result = Http.get_with_context(
         .context: context,
@@ -199,14 +199,14 @@ This is equivalent to:
 Timeouts nest naturally:
 
 ```ori
-@outer () -> Result<Data, Error> uses Async, Http, Clock = timeout(
+@outer () -> Result<Data, Error> uses Suspend, Http, Clock = timeout(
     .operation: inner(),
     .after: 60s,
     .on_timeout: Err(OuterTimeout {})
 )
 
 // Effective timeout is min(10s, remaining outer timeout)
-@inner () -> Result<Data, Error> uses Async, Http, Clock = timeout(
+@inner () -> Result<Data, Error> uses Suspend, Http, Clock = timeout(
     .operation: fetch_data(),
     .after: 10s,
     .on_timeout: Err(InnerTimeout {}),
@@ -220,7 +220,7 @@ Timeouts nest naturally:
 ### Retry with Cancellation
 
 ```ori
-@reliable_fetch (context: Context, url: str) -> Result<Data, Error> uses Async, Http, Clock = retry(
+@reliable_fetch (context: Context, url: str) -> Result<Data, Error> uses Suspend, Http, Clock = retry(
     .operation: run(
         context.check_cancelled()?,
         Http.get(
@@ -241,7 +241,7 @@ When one task fails, others are cancelled:
 
 ```ori
 // If any task fails or context is cancelled, other tasks are cancelled
-@fetch_all (context: Context) -> Result<(Data, Data, Data), Error> uses Async, Http = run(
+@fetch_all (context: Context) -> Result<(Data, Data, Data), Error> uses Suspend, Http = run(
     let results = parallel(
         .a: fetch_a(
             .context: context,
@@ -263,7 +263,7 @@ Break long operations into cancellable chunks:
 
 ```ori
 // Check for cancellation after each chunk
-@process_large_file (context: Context, path: str) -> Result<Summary, Error> uses Async, FileSystem = try(
+@process_large_file (context: Context, path: str) -> Result<Summary, Error> uses Suspend, FileSystem = try(
     let file = FileSystem.open(
         .path: path,
     )?,
@@ -294,7 +294,7 @@ Create a context that cancels on OS signals:
 ```ori
 // SIGTERM or SIGINT will cancel the context
 // Tasks should check and shut down gracefully
-@main () -> void uses Async, Signal = run(
+@main () -> void uses Suspend, Signal = run(
     let context = Context.with_signal(SIGTERM, SIGINT),
 
     parallel(
@@ -314,7 +314,7 @@ Use `with` for cleanup that must run even on cancellation:
 
 ```ori
 // The release function always runs
-@process_with_cleanup (context: Context) -> Result<Data, Error> uses Async, Network = with(
+@process_with_cleanup (context: Context) -> Result<Data, Error> uses Suspend, Network = with(
     .acquire: Network.open_connection(),
     .use: connection ->
         loop(
@@ -336,7 +336,7 @@ Give tasks time to clean up:
 ```ori
 // On signal, context is cancelled
 // Tasks have a grace period to finish cleanup
-@main () -> void uses Async, Signal = run(
+@main () -> void uses Suspend, Signal = run(
     let context = Context.with_signal(SIGTERM),
 
     // Run main work
@@ -360,7 +360,7 @@ Give tasks time to clean up:
 Context can carry values through the call chain:
 
 ```ori
-@handle_request (request: Request) -> Response uses Async, Http, Clock = run(
+@handle_request (request: Request) -> Response uses Suspend, Http, Clock = run(
     let context = Context.new()
         .with_value("request_id", request.id)
         .with_value("user_id", request.user_id)
@@ -372,7 +372,7 @@ Context can carry values through the call chain:
     ),
 )
 
-@process_request (context: Context, request: Request) -> Response uses Async, Log = run(
+@process_request (context: Context, request: Request) -> Response uses Suspend, Log = run(
     let request_id = context.get_value("request_id"),
     Log.info(
         .message: "Processing request: " + request_id,
@@ -388,7 +388,7 @@ Context can carry values through the call chain:
 Context is ideal for distributed tracing:
 
 ```ori
-@traced_operation (context: Context) -> Result<Data, Error> uses Async, Log = run(
+@traced_operation (context: Context) -> Result<Data, Error> uses Suspend, Log = run(
     let trace_id = context.get_value("trace_id"),
     let span_id = generate_span_id(),
 
@@ -435,7 +435,7 @@ Cooperative cancellation means:
 
 ```ori
 // Resource is always released, even on cancellation
-@safe_operation (context: Context) -> Result<Data, Error> uses Async = with(
+@safe_operation (context: Context) -> Result<Data, Error> uses Suspend = with(
     .acquire: get_resource(),
     .use: resource ->
         loop(
@@ -469,7 +469,7 @@ Cooperative cancellation means:
 
 ```ori
 // Good: check between operations
-@long_task (context: Context) -> Result<Data, Error> uses Async = try(
+@long_task (context: Context) -> Result<Data, Error> uses Suspend = try(
     step1(),
     context.check_cancelled()?,
     step2(),
@@ -479,7 +479,7 @@ Cooperative cancellation means:
 )
 
 // Bad: no cancellation checks, might run even after cancellation requested
-@long_task_no_check () -> Result<Data, Error> uses Async = try(
+@long_task_no_check () -> Result<Data, Error> uses Suspend = try(
     step1(),
     step2(),
     step3(),
@@ -491,17 +491,17 @@ Cooperative cancellation means:
 
 ```ori
 // Good: context flows through
-@top (context: Context) -> Result<Data, Error> uses Async =
+@top (context: Context) -> Result<Data, Error> uses Suspend =
     middle(
         .context: context,
     )
 
-@middle (context: Context) -> Result<Data, Error> uses Async =
+@middle (context: Context) -> Result<Data, Error> uses Suspend =
     bottom(
         .context: context,
     )
 
-@bottom (context: Context) -> Result<Data, Error> uses Async = try(
+@bottom (context: Context) -> Result<Data, Error> uses Suspend = try(
     context.check_cancelled()?,
     do_work(),
 )
@@ -511,7 +511,7 @@ Cooperative cancellation means:
 
 ```ori
 // Good: specific timeouts for different operations
-@process (context: Context) -> Result<Data, Error> uses Async, Database, Http, Clock = run(
+@process (context: Context) -> Result<Data, Error> uses Suspend, Database, Http, Clock = run(
     // Database query: short timeout
     let db_context = context.with_timeout(5s),
     let data = Database.query(
@@ -535,7 +535,7 @@ Cooperative cancellation means:
 ### Handle Cancellation Gracefully
 
 ```ori
-@graceful (context: Context) -> Result<Data, Error> uses Async, Log = run(
+@graceful (context: Context) -> Result<Data, Error> uses Suspend, Log = run(
     let result = try(
         work(
             .context: context,
@@ -574,7 +574,7 @@ warning[W0300]: long operation without cancellation check
 ### Context Not Passed
 
 ```
-error[E0301]: function with Async capability called without context
+error[E0301]: function with Suspend capability called without context
   --> src/main.ori:15:10
    |
 15 |     result = long_operation()

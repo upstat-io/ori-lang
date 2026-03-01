@@ -330,7 +330,7 @@ Causes a compile-time error with the given message. Valid only in contexts that 
 @bad () -> void = compile_error(msg: "always fails");
 ```
 
-See [Conditional Compilation](24-conditional-compilation.md) for conditional compilation semantics.
+See [Conditional Compilation](25-conditional-compilation.md) for conditional compilation semantics.
 
 ### embed
 

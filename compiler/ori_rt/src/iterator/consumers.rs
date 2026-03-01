@@ -35,13 +35,13 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
     // Start with capacity 8, grow by doubling
     let mut cap: usize = 8;
     let mut len: usize = 0;
-    let mut data = crate::ori_alloc(cap * es, 8);
+    let mut data = crate::ori_rc_alloc(cap * es, 8);
 
     let mut elem_buf = [0u8; MAX_ELEM_SIZE];
     while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
         if len >= cap {
             let new_cap = cap * 2;
-            let new_data = crate::ori_realloc(data, cap * es, new_cap * es, 8);
+            let new_data = crate::ori_rc_realloc(data, cap * es, new_cap * es, 8);
             if new_data.is_null() {
                 break;
             }

@@ -297,11 +297,11 @@ pub fn fmt_terminator(
     }
 }
 
-// Private formatting helpers
+// Formatting helpers — `pub(crate)` for reuse by `arc_dot`.
 
 /// Format a literal or variable value (rhs of a Let instruction).
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-fn fmt_value(out: &mut String, value: &ArcValue, interner: &StringInterner) {
+pub(crate) fn fmt_value(out: &mut String, value: &ArcValue, interner: &StringInterner) {
     match value {
         ArcValue::Var(v) => write!(out, "%{}", v.raw()).unwrap(),
         ArcValue::Literal(lit) => fmt_literal(out, lit, interner),
@@ -335,7 +335,7 @@ fn fmt_value(out: &mut String, value: &ArcValue, interner: &StringInterner) {
 
 /// Format a literal constant.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-fn fmt_literal(out: &mut String, lit: &LitValue, interner: &StringInterner) {
+pub(crate) fn fmt_literal(out: &mut String, lit: &LitValue, interner: &StringInterner) {
     match lit {
         LitValue::Int(n) => write!(out, "{n}").unwrap(),
         LitValue::Float(bits) => {
@@ -364,7 +364,7 @@ fn fmt_literal(out: &mut String, lit: &LitValue, interner: &StringInterner) {
 }
 
 /// Format a constructor kind.
-fn fmt_ctor(ctor: &CtorKind, interner: &StringInterner) -> String {
+pub(crate) fn fmt_ctor(ctor: &CtorKind, interner: &StringInterner) -> String {
     match ctor {
         CtorKind::Struct(name) => format!("Struct({})", interner.lookup(*name)),
         CtorKind::EnumVariant { enum_name, variant } => {
@@ -380,7 +380,7 @@ fn fmt_ctor(ctor: &CtorKind, interner: &StringInterner) -> String {
 
 /// Format arguments as `(%0, %1, %2)`.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-fn fmt_args_simple(out: &mut String, args: &[ArcVarId], func: &ArcFunction) {
+pub(crate) fn fmt_args_simple(out: &mut String, args: &[ArcVarId], func: &ArcFunction) {
     write!(out, "(").unwrap();
     for (i, arg) in args.iter().enumerate() {
         if i > 0 {
@@ -393,7 +393,7 @@ fn fmt_args_simple(out: &mut String, args: &[ArcVarId], func: &ArcFunction) {
 
 /// Format arguments with per-argument ownership: `(%0 [own], %1 [borrow])`.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
-fn fmt_args_with_ownership(
+pub(crate) fn fmt_args_with_ownership(
     out: &mut String,
     args: &[ArcVarId],
     arg_ownership: &[ArgOwnership],

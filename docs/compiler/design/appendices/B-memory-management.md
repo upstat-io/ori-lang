@@ -111,6 +111,60 @@ Why Arc:
 - Multiple references to same list
 - Safe concurrent access
 
+## AOT Runtime Memory Management (`ori_rt`)
+
+The AOT runtime (`compiler/ori_rt/`) manages heap-allocated values with reference counting and Copy-on-Write (COW) semantics. It is a standalone crate with zero compiler dependencies.
+
+### Reference Counting
+
+All heap-allocated values share a common RC header (`OriRcHeader`). The runtime provides:
+
+- `ori_rc_alloc` / `ori_rc_free` — allocate/free with RC header
+- `ori_rc_inc` / `ori_rc_dec` — increment/decrement with drop callback
+- `ori_rc_is_unique` — check if refcount == 1 (enables COW fast path)
+
+### Copy-on-Write (COW)
+
+Collection mutation operations use COW semantics: when the reference count is 1 (unique owner), the operation mutates in-place; when shared (RC > 1), it allocates a new copy.
+
+```
+ori_list_push_cow(list, elem, ...)
+    ├─ RC == 1?  → FAST PATH: mutate in-place, O(1) amortized
+    └─ RC > 1?   → SLOW PATH: copy buffer, append, dec old RC
+```
+
+COW operations exist for all collection types:
+
+| Collection | COW Operations |
+|------------|---------------|
+| List | `push_cow`, `pop_cow`, `set_cow`, `insert_cow`, `remove_cow` |
+| Map | `insert_cow`, `remove_cow`, `update_cow` |
+| Set | `insert_cow`, `remove_cow`, `union_cow`, `intersection_cow`, `difference_cow` |
+| String | `concat_sso` (SSO-aware concatenation) |
+
+Each COW function accepts an optional element RC increment callback (`inc_fn`) for deep-copying elements that themselves are reference-counted.
+
+### String SSO (Small String Optimization)
+
+Strings use Small String Optimization: strings up to 22 bytes are stored inline in the `OriStr` struct without heap allocation. The `OriStr` struct uses a tagged representation where a flag byte distinguishes inline from heap-allocated storage.
+
+```
+Inline (≤22 bytes):  [len | flag=INLINE | data .................]
+Heap   (>22 bytes):  [len | flag=HEAP   | ptr → RC header + data]
+```
+
+SSO eliminates allocation for the common case of short strings (identifiers, single characters, small messages).
+
+### Map Layout
+
+`OriMap` uses a single-buffer parallel-array layout for COW readiness:
+
+```
+[OriRcHeader | key₀ key₁ ... | val₀ val₁ ... | len | capacity]
+```
+
+Keys and values are stored in separate contiguous regions within the same allocation, enabling bulk copy during COW operations. Lookup is linear scan (suitable for small maps; hash table upgrade is a future optimization).
+
 ## SharedRegistry vs SharedMutableRegistry
 
 The compiler uses two registry patterns:

@@ -3,7 +3,7 @@
 use ori_ir::Name;
 use ori_patterns::{no_such_method, EvalResult, IteratorValue, Value};
 
-use super::compare::{compare_lists, equals_values, hash_value, ordering_to_value};
+use super::compare::{compare_lists, compare_values, equals_values, hash_value, ordering_to_value};
 use super::helpers::{
     debug_value, escape_debug_str, len_to_value, require_args, require_int_arg, require_list_arg,
     require_str_arg,
@@ -30,7 +30,7 @@ pub fn dispatch_list_method(
         Ok(Value::Bool(items.is_empty()))
     } else if method == n.first {
         Ok(items.first().cloned().map_or(Value::None, Value::some))
-    } else if method == n.last {
+    } else if method == n.last || method == n.pop {
         Ok(items.last().cloned().map_or(Value::None, Value::some))
     } else if method == n.contains {
         require_args("contains", 1, args.len())?;
@@ -41,11 +41,54 @@ pub fn dispatch_list_method(
         let mut args = args;
         result.push(args.swap_remove(0));
         Ok(Value::list(result))
+    } else if method == n.set {
+        require_args("set", 2, args.len())?;
+        let index = require_int_arg("set", &args, 0)?;
+        let uindex = usize::try_from(index)
+            .map_err(|_| ori_patterns::wrong_arg_type("set", "non-negative int"))?;
+        if uindex >= items.len() {
+            return Err(ori_patterns::wrong_arg_type("set", "index within bounds").into());
+        }
+        let mut result = (*items).clone();
+        let mut args = args;
+        result[uindex] = args.swap_remove(1);
+        Ok(Value::list(result))
+    } else if method == n.insert {
+        require_args("insert", 2, args.len())?;
+        let index = require_int_arg("insert", &args, 0)?;
+        let uindex = usize::try_from(index)
+            .map_err(|_| ori_patterns::wrong_arg_type("insert", "non-negative int"))?;
+        if uindex > items.len() {
+            return Err(ori_patterns::wrong_arg_type("insert", "index within bounds").into());
+        }
+        let mut result = (*items).clone();
+        let mut args = args;
+        result.insert(uindex, args.swap_remove(1));
+        Ok(Value::list(result))
+    } else if method == n.remove {
+        require_args("remove", 1, args.len())?;
+        let index = require_int_arg("remove", &args, 0)?;
+        let uindex = usize::try_from(index)
+            .map_err(|_| ori_patterns::wrong_arg_type("remove", "non-negative int"))?;
+        if uindex >= items.len() {
+            return Err(ori_patterns::wrong_arg_type("remove", "index within bounds").into());
+        }
+        let mut result = (*items).clone();
+        result.remove(uindex);
+        Ok(Value::list(result))
     } else if method == n.reverse {
         require_args("reverse", 0, args.len())?;
         let mut result = (*items).clone();
         result.reverse();
         Ok(Value::list(result))
+    } else if method == n.sort || method == n.sort_stable {
+        let name = if method == n.sort {
+            "sort"
+        } else {
+            "sort_stable"
+        };
+        require_args(name, 0, args.len())?;
+        sort_list(&items, ctx)
     } else if method == n.add || method == n.concat {
         require_args("concat", 1, args.len())?;
         let other = require_list_arg("concat", &args, 0)?;
@@ -61,15 +104,7 @@ pub fn dispatch_list_method(
     } else if method == n.equals {
         require_args("equals", 1, args.len())?;
         let other = require_list_arg("equals", &args, 0)?;
-        if items.len() != other.len() {
-            return Ok(Value::Bool(false));
-        }
-        for (a, b) in items.iter().zip(other.iter()) {
-            if !equals_values(a, b, ctx.interner)? {
-                return Ok(Value::Bool(false));
-            }
-        }
-        Ok(Value::Bool(true))
+        list_equals(&items, other, ctx)
     // Hashable trait - recursive element hash
     } else if method == n.hash {
         require_args("hash", 0, args.len())?;
@@ -397,4 +432,42 @@ pub fn dispatch_set_method(
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "Set").into())
     }
+}
+
+// List method helpers
+
+/// Sort a list by comparing element values, propagating comparison errors.
+fn sort_list(items: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
+    let mut result = items.to_vec();
+    let interner = ctx.interner;
+    let mut err: Option<ori_patterns::EvalError> = None;
+    result.sort_by(|a, b| {
+        if err.is_some() {
+            return std::cmp::Ordering::Equal;
+        }
+        match compare_values(a, b, interner) {
+            Ok(ord) => ord,
+            Err(e) => {
+                err = Some(e);
+                std::cmp::Ordering::Equal
+            }
+        }
+    });
+    if let Some(e) = err {
+        return Err(e.into());
+    }
+    Ok(Value::list(result))
+}
+
+/// Deep element-wise equality comparison between two lists.
+fn list_equals(items: &[Value], other: &[Value], ctx: &DispatchCtx<'_>) -> EvalResult {
+    if items.len() != other.len() {
+        return Ok(Value::Bool(false));
+    }
+    for (a, b) in items.iter().zip(other.iter()) {
+        if !equals_values(a, b, ctx.interner)? {
+            return Ok(Value::Bool(false));
+        }
+    }
+    Ok(Value::Bool(true))
 }

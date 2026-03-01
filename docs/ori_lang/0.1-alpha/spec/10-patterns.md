@@ -424,7 +424,7 @@ Execute tasks, wait for all to settle. Creates one task per list element.
 
 ```ori
 parallel(
-    tasks: [() -> T uses Async],
+    tasks: [() -> T uses Suspend],
     max_concurrent: Option<int> = None,
     timeout: Option<Duration> = None,
 ) -> [Result<T, E>]
@@ -679,7 +679,7 @@ type CancellationReason =
 The `is_cancelled()` built-in function returns `bool`, available in async contexts:
 
 ```ori
-@long_task () -> Result<Data, Error> uses Async = {
+@long_task () -> Result<Data, Error> uses Suspend = {
     for item in items do {
         if is_cancelled() then break Err(CancellationError { ... });
         process(item)

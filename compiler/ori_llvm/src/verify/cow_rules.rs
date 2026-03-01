@@ -18,15 +18,9 @@ use rustc_hash::FxHashSet;
 use inkwell::module::Module;
 use inkwell::values::InstructionOpcode;
 
-use super::abi_check::callee_name;
 use super::rc_balance::operand_name;
 use super::report::{AuditFinding, AuditReport, FindingKind, Severity};
 use super::AuditOptions;
-
-/// Returns true if the function name matches a COW runtime function.
-fn is_cow_function(name: &str) -> bool {
-    name.starts_with("ori_") && name.ends_with("_cow")
-}
 
 /// Run COW sequencing checks on all functions in a module.
 pub fn check_module(module: &Module<'_>, options: &AuditOptions, report: &mut AuditReport) {
@@ -88,7 +82,7 @@ fn process_call(
     decremented: &mut FxHashSet<String>,
     report: &mut AuditReport,
 ) {
-    let Some(callee) = callee_name(inst) else {
+    let Some(callee) = super::callee_name(inst) else {
         return;
     };
 
@@ -97,7 +91,7 @@ fn process_call(
         if let Some(ptr_name) = operand_name(inst, 0) {
             decremented.insert(ptr_name);
         }
-    } else if is_cow_function(&callee) {
+    } else if super::is_cow_function(&callee) {
         // COW data_ptr is always argument index 0
         if let Some(ptr_name) = operand_name(inst, 0) {
             // Rule 3: Check if pointer was dec'd before COW

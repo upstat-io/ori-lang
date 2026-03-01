@@ -91,7 +91,7 @@ parse_some_expr()            // Some(value)
 parse_none()                 // None
 
 // Bindings
-parse_let()                  // let x = value, let mut x = value
+parse_let()                  // let x = value, let $x = value (immutable)
 parse_binding_pattern()      // Destructuring: (a, b), { x, y }, [head, ..rest]
 
 // Lambdas

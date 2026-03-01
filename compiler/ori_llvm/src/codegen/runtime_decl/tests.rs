@@ -106,27 +106,36 @@ fn lazy_declaration_preserves_attributes() {
 }
 
 #[test]
-fn str_functions_return_struct_type() {
+fn str_functions_use_sret_convention() {
     let ctx = Context::create();
     let scx = SimpleCx::new(&ctx, "test_str_types");
     let mut builder = IrBuilder::new(&scx);
 
     declare_runtime(&mut builder);
 
-    // ori_str_concat returns { i64, ptr } (string type)
+    let ir = scx.llmod.print_to_string().to_string();
+
+    // String-returning functions use sret convention (24-byte OriStr > 16-byte
+    // x86-64 SysV register return threshold). The sret pointer is the first
+    // parameter, and the LLVM return type is void.
     let concat = scx.llmod.get_function("ori_str_concat").unwrap();
-    let ret_ty = concat.get_type().get_return_type().unwrap();
     assert!(
-        ret_ty.is_struct_type(),
-        "ori_str_concat should return a struct type, got {ret_ty}"
+        concat.get_type().get_return_type().is_none(),
+        "ori_str_concat should return void (sret), got {:?}",
+        concat.get_type().get_return_type()
     );
 
-    // ori_str_from_int also returns { i64, ptr }
     let from_int = scx.llmod.get_function("ori_str_from_int").unwrap();
-    let ret_ty = from_int.get_type().get_return_type().unwrap();
     assert!(
-        ret_ty.is_struct_type(),
-        "ori_str_from_int should return a struct type, got {ret_ty}"
+        from_int.get_type().get_return_type().is_none(),
+        "ori_str_from_int should return void (sret), got {:?}",
+        from_int.get_type().get_return_type()
+    );
+
+    // The sret attribute should appear in the IR for string functions
+    assert!(
+        ir.contains("sret"),
+        "string-returning functions should have sret attribute in IR:\n{ir}"
     );
 }
 

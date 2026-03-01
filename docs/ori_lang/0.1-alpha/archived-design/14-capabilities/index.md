@@ -10,7 +10,7 @@ Capabilities are Ori's solution to three related tensions:
 - **Mandatory testing** - Every function must have tests
 - **No magic DI** - Dependencies should be explicit
 - **Side effects** - Real programs need I/O, network, time, etc.
-- **Async tracking** - Know which functions may suspend
+- **Suspend tracking** - Know which functions may suspend
 
 The capability system makes effects explicit in function signatures while providing clean mechanisms for testing and async tracking.
 
@@ -53,9 +53,9 @@ trait Http {
 
 ---
 
-## The Async Capability
+## The Suspend Capability
 
-A key insight: **the `Async` capability explicitly tracks suspension**.
+A key insight: **the `Suspend` capability explicitly tracks suspension**.
 
 Traditional languages use `async/await`:
 ```rust
@@ -67,18 +67,18 @@ async fn process() -> Result<Output, Error> {
 }
 ```
 
-Ori uses an explicit `Async` capability:
+Ori uses an explicit `Suspend` capability:
 ```ori
-// Ori: Async capability explicitly declares suspension
-@fetch () -> Result<Data, Error> uses Http, Async = ...
-@process () -> Result<Output, Error> uses Http, Async =
+// Ori: Suspend capability explicitly declares suspension
+@fetch () -> Result<Data, Error> uses Http, Suspend = ...
+@process () -> Result<Output, Error> uses Http, Suspend =
     let data = fetch()?,
     ...
 ```
 
-Both approaches have the same "propagation tax" - callers must know about effects. But the `Async` capability gives you more:
+Both approaches have the same "propagation tax" - callers must know about effects. But the `Suspend` capability gives you more:
 
-| What You Get | async/await | uses Async |
+| What You Get | async/await | uses Suspend |
 |--------------|-------------|------------|
 | Propagation info | Yes | Yes |
 | Easy testing | No | Yes (sync mocks) |
@@ -88,12 +88,12 @@ Both approaches have the same "propagation tax" - callers must know about effect
 
 ### Sync vs Async
 
-The presence or absence of `Async` is explicit:
+The presence or absence of `Suspend` is explicit:
 ```ori
-// With Async: non-blocking, may suspend
-@fetch () -> Result<Data, Error> uses Http, Async = Http.get(url)?
+// With Suspend: non-blocking, may suspend
+@fetch () -> Result<Data, Error> uses Http, Suspend = Http.get(url)?
 
-// Without Async: blocking, runs to completion
+// Without Suspend: blocking, runs to completion
 @fetch_sync () -> Result<Data, Error> uses Http = Http.get(url)?
 ```
 

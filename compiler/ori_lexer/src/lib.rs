@@ -44,6 +44,7 @@ mod cooker;
 mod keywords;
 pub mod lex_error;
 mod parse_helpers;
+mod trivial;
 mod unicode_confusables;
 mod what_is_next;
 
@@ -56,6 +57,7 @@ use ori_ir::{
 };
 use ori_lexer_core::{EncodingIssueKind, RawScanner, RawTag, SourceBuffer};
 use tracing::{debug, trace};
+use trivial::try_trivial;
 
 /// Output from lexing with comment capture and metadata.
 ///
@@ -183,11 +185,11 @@ pub struct LexResult {
 
 /// Lex source code into tokens and accumulated errors.
 ///
-/// Delegates to [`lex_with_comments()`] to avoid duplicating the driver loop.
-/// Comments and formatting metadata are discarded; only the token stream
-/// and errors are kept.
+/// Uses the fast path that skips comment classification, newline/blank-line
+/// position tracking, and doc comment detection. For metadata (comments,
+/// formatting info), use [`lex_with_comments()`].
 pub fn lex_full(source: &str, interner: &StringInterner) -> LexResult {
-    let output = lex_with_comments(source, interner);
+    let output = lex_driver::<true>(source, interner);
     LexResult {
         tokens: output.tokens,
         errors: output.errors,
@@ -215,21 +217,51 @@ pub fn lex(source: &str, interner: &StringInterner) -> TokenList {
 /// - Newlines (for line counting)
 ///
 /// Each token carries [`TokenFlags`] metadata capturing whitespace/trivia context.
+pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
+    lex_driver::<true>(source, interner)
+}
+
+/// Unified lexer driver parameterized on metadata collection.
+///
+/// When `WITH_METADATA` is `true`, collects comments, newline/blank-line
+/// positions, and doc comment tracking (`IS_DOC` flag, detached doc warnings).
+/// When `false`, only produces tokens + errors — the fast path for parsing.
+///
+/// Uses const generics so LLVM monomorphizes two versions from the same source,
+/// preserving optimization context (inlining decisions, register allocation)
+/// while eliminating dead metadata branches at compile time.
 #[expect(
     clippy::too_many_lines,
     reason = "lexer main loop with token classification"
 )]
-pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
-    debug!(source_len = source.len(), "lexing started");
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "lexer driver: inherent complexity from token classification + metadata branches"
+)]
+fn lex_driver<const WITH_METADATA: bool>(source: &str, interner: &StringInterner) -> LexOutput {
+    debug!(
+        source_len = source.len(),
+        with_metadata = WITH_METADATA,
+        "lexing started"
+    );
 
     let buf = SourceBuffer::new(source);
     let mut scanner = RawScanner::new(buf.cursor());
     let mut cooker = TokenCooker::new(buf.as_bytes(), interner);
-    let mut output = LexOutput::with_capacity(source.len());
+    let mut output = if WITH_METADATA {
+        LexOutput::with_capacity(source.len())
+    } else {
+        LexOutput {
+            tokens: TokenList::with_capacity(source.len() / 2 + 1),
+            comments: CommentList::new(),
+            blank_lines: Vec::new(),
+            newlines: Vec::new(),
+            errors: Vec::new(),
+            warnings: Vec::new(),
+        }
+    };
 
     // Convert encoding issues detected by SourceBuffer into LexErrors.
-    // These provide more specific diagnostics than the raw scanner's generic
-    // InvalidByte tokens (e.g., "UTF-8 BOM" vs "invalid byte 0xEF").
     for issue in buf.encoding_issues() {
         let issue_span = Span::new(issue.pos, issue.pos + issue.len);
         output.errors.push(match issue.kind {
@@ -241,16 +273,12 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     }
 
     let mut offset: u32 = 0;
-    let mut last_significant_was_newline = false;
-
-    // Trivia tracking for TokenFlags
     let mut pending_flags = TokenFlags::EMPTY;
 
-    // Detached doc comment tracking: pending doc comment waiting for a declaration
+    // Metadata-only state (dead code eliminated when WITH_METADATA=false)
+    let mut last_significant_was_newline = false;
     let mut pending_doc: Option<(Span, lex_error::DocMarker)> = None;
     let mut had_blank_line_since_doc = false;
-
-    // IS_DOC flag: set on the next cooked token after a doc comment
     let mut pending_is_doc = false;
 
     loop {
@@ -263,51 +291,49 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
         let token_span = make_span(offset, raw.len);
 
         match raw.tag {
-            // Accumulate trivia flags for the next significant token
             RawTag::Whitespace => {
                 pending_flags.set(TokenFlags::SPACE_BEFORE);
             }
 
-            // Comments: capture + classify, also accumulate trivia flag
             RawTag::LineComment => {
-                let slice = &source[offset as usize..(offset + raw.len) as usize];
-                let content_str = if slice.len() > 2 { &slice[2..] } else { "" };
-                let (kind, normalized) = classify_and_normalize_comment(content_str);
-                let content = interner.intern(&normalized);
-                output
-                    .comments
-                    .push(Comment::new(content, token_span, kind));
+                if WITH_METADATA {
+                    let slice = &source[offset as usize..(offset + raw.len) as usize];
+                    let content_str = if slice.len() > 2 { &slice[2..] } else { "" };
+                    let (kind, normalized) = classify_and_normalize_comment(content_str);
+                    let content = interner.intern(&normalized);
+                    output
+                        .comments
+                        .push(Comment::new(content, token_span, kind));
 
-                // Track doc comments for detached detection + IS_DOC flag
-                if kind.is_doc() {
-                    let marker = doc_comment_marker(kind);
-                    if pending_doc.is_some() && had_blank_line_since_doc {
-                        // Previous doc comment had a blank line gap — emit warning
-                        if let Some((doc_span, doc_marker)) = pending_doc.take() {
-                            output.warnings.push(DetachedDocWarning {
-                                span: doc_span,
-                                marker: doc_marker,
-                            });
+                    if kind.is_doc() {
+                        let marker = doc_comment_marker(kind);
+                        if pending_doc.is_some() && had_blank_line_since_doc {
+                            if let Some((doc_span, doc_marker)) = pending_doc.take() {
+                                output.warnings.push(DetachedDocWarning {
+                                    span: doc_span,
+                                    marker: doc_marker,
+                                });
+                            }
                         }
+                        pending_doc = Some((token_span, marker));
+                        had_blank_line_since_doc = false;
+                        pending_is_doc = true;
                     }
-                    pending_doc = Some((token_span, marker));
-                    had_blank_line_since_doc = false;
-                    pending_is_doc = true;
-                }
 
+                    last_significant_was_newline = false;
+                }
                 pending_flags.set(TokenFlags::TRIVIA_BEFORE);
-                last_significant_was_newline = false;
             }
 
-            // Newlines: emit + track
             RawTag::Newline => {
-                output.newlines.push(token_span.start);
+                if WITH_METADATA {
+                    output.newlines.push(token_span.start);
 
-                if last_significant_was_newline {
-                    output.blank_lines.push(token_span.start);
-                    // A blank line after a doc comment means it may be detached
-                    if pending_doc.is_some() {
-                        had_blank_line_since_doc = true;
+                    if last_significant_was_newline {
+                        output.blank_lines.push(token_span.start);
+                        if pending_doc.is_some() {
+                            had_blank_line_since_doc = true;
+                        }
                     }
                 }
 
@@ -315,49 +341,64 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
                 output
                     .tokens
                     .push_with_flags(Token::new(TokenKind::Newline, token_span), flags);
-                // After a newline, the next token is at line start
                 pending_flags =
                     TokenFlags::from_bits(TokenFlags::NEWLINE_BEFORE | TokenFlags::LINE_START);
-                last_significant_was_newline = true;
+
+                if WITH_METADATA {
+                    last_significant_was_newline = true;
+                }
             }
 
-            // Interior null bytes: already reported via SourceBuffer
-            // encoding_issues() with a specific diagnostic. Skip the
-            // scanner's token to avoid duplicate errors.
             RawTag::InteriorNull => {}
 
             // Cook everything else
             _ => {
-                last_significant_was_newline = false;
-                let kind = cooker.cook(raw.tag, offset, raw.len);
-                trace!(offset, raw_tag = ?raw.tag, ?kind, "cooked token");
+                if WITH_METADATA {
+                    last_significant_was_newline = false;
+                }
 
-                // Check for detached doc comments: if pending doc exists and
-                // the next non-trivia token is NOT a declaration keyword, warn.
-                if let Some((doc_span, doc_marker)) = pending_doc.take() {
-                    if had_blank_line_since_doc || !is_declaration_start(&kind) {
-                        output.warnings.push(DetachedDocWarning {
-                            span: doc_span,
-                            marker: doc_marker,
-                        });
+                // Try the trivial fast path: operators and delimiters that
+                // map 1:1 from RawTag to TokenKind with no data or side effects.
+                // Bypasses cook() and discriminant_index() entirely.
+                let (kind, tag, had_error, was_contextual) =
+                    if let Some((kind, tag)) = try_trivial(raw.tag) {
+                        (kind, tag, false, false)
+                    } else {
+                        let result = cooker.cook(raw.tag, offset, raw.len);
+                        trace!(offset, raw_tag = ?raw.tag, kind = ?result.kind, "cooked token");
+                        (
+                            result.kind,
+                            result.tag,
+                            result.had_error,
+                            result.contextual_kw,
+                        )
+                    };
+
+                if WITH_METADATA {
+                    if let Some((doc_span, doc_marker)) = pending_doc.take() {
+                        if had_blank_line_since_doc || !is_declaration_start(&kind) {
+                            output.warnings.push(DetachedDocWarning {
+                                span: doc_span,
+                                marker: doc_marker,
+                            });
+                        }
                     }
-                    // else: correctly attached, no warning
                 }
 
                 let mut flags = finalize_flags(pending_flags);
-                if cooker.last_cook_had_error() {
+                if had_error {
                     flags.set(TokenFlags::HAS_ERROR);
                 }
-                if cooker.last_cook_was_contextual_kw() {
+                if was_contextual {
                     flags.set(TokenFlags::CONTEXTUAL_KW);
                 }
-                if pending_is_doc {
+                if WITH_METADATA && pending_is_doc {
                     flags.set(TokenFlags::IS_DOC);
                     pending_is_doc = false;
                 }
                 output
                     .tokens
-                    .push_with_flags(Token::new(kind, token_span), flags);
+                    .push_with_tag(Token::new(kind, token_span), tag, flags);
                 pending_flags = TokenFlags::EMPTY;
             }
         }
@@ -366,11 +407,13 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
     }
 
     // If a doc comment is still pending at EOF, it's detached
-    if let Some((doc_span, doc_marker)) = pending_doc {
-        output.warnings.push(DetachedDocWarning {
-            span: doc_span,
-            marker: doc_marker,
-        });
+    if WITH_METADATA {
+        if let Some((doc_span, doc_marker)) = pending_doc {
+            output.warnings.push(DetachedDocWarning {
+                span: doc_span,
+                marker: doc_marker,
+            });
+        }
     }
 
     // Add EOF token
@@ -385,15 +428,11 @@ pub fn lex_with_comments(source: &str, interner: &StringInterner) -> LexOutput {
         .tokens
         .push_with_flags(Token::new(TokenKind::Eof, eof_span), eof_flags);
 
-    // Append accumulated cooker errors to the output (preserving encoding issue
-    // errors already pushed during SourceBuffer construction).
     output.errors.extend(cooker.into_errors());
 
     debug!(
         tokens = output.tokens.len(),
-        comments = output.comments.len(),
         errors = output.errors.len(),
-        warnings = output.warnings.len(),
         "lexing complete"
     );
 

@@ -191,7 +191,7 @@ A task observes cancellation at these points:
 
 | Checkpoint | Description |
 |------------|-------------|
-| Suspension points | Async calls, channel operations |
+| Suspension points | Suspending calls, channel operations |
 | Loop iterations | Start of each `for` or `loop` iteration |
 | Pattern entry | Entry to `run`, `try`, `match`, `parallel`, `nursery` |
 

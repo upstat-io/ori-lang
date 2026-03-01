@@ -332,7 +332,7 @@ This pseudo-entry indicates where the error crossed task boundaries, helping dis
 Each task in `parallel(...)` or `nursery(...)` maintains its own trace. When errors are collected:
 
 ```ori
-@process_all (items: [int]) -> [Result<int, Error>] uses Async =
+@process_all (items: [int]) -> [Result<int, Error>] uses Suspend =
     parallel(tasks: items.map(i -> () -> process(i)));
 
 // Each result's trace shows:

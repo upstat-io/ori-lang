@@ -656,12 +656,12 @@ trait Print {
 @main () -> void = print(msg: "Hello, World!");
 ```
 
-## The Async Capability
+## The Suspend Capability
 
-`Async` is a marker capability that indicates a function may suspend (perform non-blocking I/O):
+`Suspend` is a marker capability that indicates a function may suspend (perform non-blocking I/O):
 
 ```ori
-@fetch_many (urls: [str]) -> [Result<str, Error>] uses Http, Async =
+@fetch_many (urls: [str]) -> [Result<str, Error>] uses Http, Suspend =
     parallel(
         tasks: for url in urls yield () -> Http.get(url: url),
         max_concurrent: 10,
@@ -674,7 +674,7 @@ Unlike other languages:
 - You don't mark individual expressions as async
 - The capability declaration is sufficient
 
-Functions with `Async` can call functions without it, but not vice versa (unless you provide a blocking implementation).
+Functions with `Suspend` can call functions without it, but not vice versa (unless you provide a blocking implementation).
 
 ## Pure Functions
 
@@ -1085,7 +1085,7 @@ with Cap1 = Impl1, Cap2 = Impl2 in expression
 | `Logger` | Logging | `debug`, `info`, `warn`, `error` |
 | `Env` | Environment | `get` |
 | `Print` | Console output | `print`, `println` (has default) |
-| `Async` | Non-blocking I/O | (marker capability) |
+| `Suspend` | Non-blocking I/O | (marker capability) |
 
 ## What's Next
 

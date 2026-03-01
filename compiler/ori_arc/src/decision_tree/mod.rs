@@ -24,6 +24,7 @@
 
 pub mod compile;
 pub(crate) mod emit;
+mod emit_switches;
 pub mod flatten;
 
 // Re-export decision tree types from ori_ir (the shared types crate).

@@ -139,12 +139,6 @@ compiler/
 │       ├── ir.rs             # ARC IR types
 │       ├── drop.rs           # Drop insertion
 │       └── lower/            # ARC lowering passes
-│           ├── mod.rs        # Lowering orchestration
-│           ├── expr.rs       # Expression lowering
-│           ├── control_flow.rs # Control flow lowering
-│           ├── patterns.rs   # Pattern lowering
-│           ├── calls.rs      # Call lowering
-│           └── collections.rs # Collection lowering
 ├── ori_fmt/                  # Source code formatter (5-layer architecture)
 │   └── src/
 │       ├── lib.rs            # Public API, tabs_to_spaces()
@@ -152,62 +146,33 @@ compiler/
 │       ├── packing/          # Layer 2: Container packing decisions
 │       ├── shape/            # Layer 3: Width tracking
 │       ├── rules/            # Layer 4: Breaking rules (8 rules)
-│       ├── formatter/        # Layer 5: Orchestration
-│       ├── width/            # Width calculation
-│       ├── declarations/     # Module-level formatting
-│       ├── comments/         # Comment preservation
-│       └── ...               # Other formatting modules
+│       └── formatter/        # Layer 5: Orchestration
 ├── ori_stack/                # Stack safety utilities
 │   └── src/
 │       └── lib.rs            # grow_stack(), stack checks
 ├── ori_rt/                   # Runtime library (for AOT compilation)
 │   └── src/
 │       └── lib.rs            # Runtime support functions
+├── ori_compiler/             # Salsa-free compiler driver
+│   └── src/
+│       ├── lib.rs            # Driver API
+│       └── pipeline.rs       # Single-pass compilation logic
 ├── ori_llvm/                 # LLVM backend (native code generation)
 │   └── src/
 │       ├── lib.rs            # Module exports
 │       ├── context.rs        # SimpleCx - LLVM context wrapper
 │       ├── evaluator.rs      # LlvmEvaluator - JIT execution
 │       ├── runtime.rs        # Runtime support
-│       ├── codegen/          # Code generation
-│       │   ├── mod.rs        # Codegen orchestration
-│       │   ├── ir_builder.rs # IrBuilder - main LLVM IR construction
-│       │   ├── function_compiler.rs # Function compilation
-│       │   ├── expr_lowerer.rs # Expression lowering
-│       │   ├── arc_emitter.rs # ARC operation emission
-│       │   ├── type_registration.rs # Type mapping (Ori → LLVM)
-│       │   ├── type_info.rs  # Type layout information
-│       │   ├── runtime_decl.rs # Runtime function declarations
-│       │   ├── lower_*.rs    # Lowering: calls, collections, constructs, control flow, etc.
-│       │   ├── scope.rs      # Scope management
-│       │   ├── abi.rs        # ABI conventions
-│       │   └── value_id.rs   # Value tracking
-│       ├── aot/              # Ahead-of-time compilation (linker, mangling)
-│       └── tests/            # Test suite
+│       └── codegen/          # Code generation
 └── oric/                     # CLI orchestrator + Salsa queries
     └── src/
         ├── lib.rs            # Module organization
         ├── main.rs           # CLI dispatcher (thin: delegates to commands/)
         ├── commands/         # Command handlers (extracted from main.rs)
-        │   ├── mod.rs        # Re-exports all command functions
-        │   ├── run.rs        # run_file()
-        │   ├── test.rs       # run_tests()
-        │   ├── check.rs      # check_file()
-        │   ├── compile.rs    # compile_file()
-        │   ├── explain.rs    # explain_error(), parse_error_code()
-        │   └── debug.rs      # parse_file(), lex_file()
         ├── db.rs             # Salsa database definition
         ├── query/            # Salsa query definitions
-        ├── typeck.rs         # Type checking orchestration (delegates to ori_types)
-        ├── eval/             # High-level evaluator (wraps ori_eval)
-        │   ├── mod.rs        # Re-exports, value module
-        │   ├── output.rs     # EvalOutput, ModuleEvalResult
-        │   ├── evaluator/    # Evaluator wrapper
-        │   │   ├── mod.rs    # Evaluator struct
-        │   │   ├── builder.rs # EvaluatorBuilder
-        │   │   └── module_loading.rs # Module loading, prelude
-        │   └── module/       # Import resolution
-        │       └── import.rs # Module import handling
+        ├── typeck.rs         # Type checking orchestration
+        ├── eval/             # High-level evaluator
         ├── test/             # Test runner
         └── debug.rs          # Debug flags
 ```
@@ -218,36 +183,39 @@ compiler/
 ori_ir (base — no compiler crate dependencies)
     ├── ori_diagnostic ──→ ori_ir
     ├── ori_lexer_core → ori_lexer ──→ ori_ir
-    ├── ori_parse ──→ ori_ir, ori_lexer
+    ├── ori_parse ──→ ori_ir, ori_lexer, ori_stack
     ├── ori_types ──→ ori_ir, ori_diagnostic
-    ├── ori_patterns ──→ ori_ir (NOT ori_types — values are type-agnostic)
-    ├── ori_eval ──→ ori_ir, ori_patterns (NOT ori_types — evaluator is untyped)
+    ├── ori_patterns ──→ ori_ir
+    ├── ori_eval ──→ ori_ir, ori_patterns
     ├── ori_arc ──→ ori_ir, ori_types
-    ├── ori_canon ──→ ori_ir, ori_types, ori_arc (NOT ori_patterns)
+    ├── ori_canon ──→ ori_ir, ori_types, ori_arc
+    ├── ori_fmt ──→ ori_ir, ori_parse
+    ├── ori_compiler ──→ ALL (Salsa-free driver)
     └── oric ──→ ALL (orchestrator)
 
-ori_llvm (excluded from main workspace — build with `cargo bl`/`cargo blr`)
+ori_llvm (excluded from main workspace)
     └── depends on: ori_ir, ori_types, ori_parse, ori_patterns, ori_arc, ori_rt
 ```
 
 **Key dependency invariants:**
 - `ori_patterns` depends only on `ori_ir`, not `ori_types` — the Value system and pattern evaluation are type-agnostic
-- `ori_eval` depends on `ori_patterns` (for Value types and pattern dispatch), not directly on `ori_types`
-- `ori_canon` depends on `ori_arc` (for decision tree types), not on `ori_patterns`
+- `ori_eval` depends on `ori_patterns`, not directly on `ori_types`
+- `ori_canon` depends on `ori_arc`, not on `ori_patterns`
 
 **Layered architecture:**
-- `ori_ir`: Core IR types, canonical IR definitions (no compiler crate dependencies)
+- `ori_ir`: Core IR types, canonical IR definitions
 - `ori_lexer_core`: Low-level byte scanner, raw tokenization
-- `ori_lexer`: Token cooking, string interning (wraps `ori_lexer_core`)
-- `ori_types`: Type system, type checking (Pool, InferEngine, registries)
-- `ori_patterns`: Pattern definitions, Value types, EvalError (single source of truth)
-- `ori_eval`: Core tree-walking interpreter (Interpreter, Environment, exec, method dispatch)
-- `ori_canon`: Canonical IR lowering (desugaring, pattern compilation, constant folding)
-- `ori_arc`: ARC analysis (type classification, borrow inference, RC insertion)
-- `ori_fmt`: Source code formatter (AST pretty-printing)
-- `ori_stack`: Stack safety utilities (stacker integration)
+- `ori_lexer`: Token cooking, string interning
+- `ori_types`: Type system, type checking
+- `ori_patterns`: Pattern definitions, Value types, EvalError
+- `ori_eval`: Core tree-walking interpreter
+- `ori_canon`: Canonical IR lowering
+- `ori_arc`: ARC analysis (reference counting optimization)
+- `ori_fmt`: Source code formatter
+- `ori_stack`: Stack safety utilities
 - `ori_rt`: Runtime library for AOT-compiled binaries
-- `oric`: CLI orchestrator with Salsa queries, type checker, high-level Evaluator wrapper
+- `ori_compiler`: Salsa-free compiler driver for WASM/testing
+- `oric`: CLI orchestrator with Salsa queries
 - `ori_llvm`: LLVM backend for native code generation (excluded from main workspace)
 
 Pure functions live in library crates; Salsa queries live in `oric`.
@@ -429,6 +397,7 @@ All patterns are zero-sized types (ZSTs) wrapped in a `Pattern` enum, providing:
 | `ori_fmt` | Source code formatter: 5-layer architecture (spacing, packing, shape, rules, orchestration) |
 | `ori_stack` | Stack safety utilities: stacker integration for deep recursion |
 | `ori_rt` | Runtime library: support functions for AOT-compiled binaries |
+| `ori_compiler` | Salsa-free compiler driver for WASM/testing |
 | `ori_llvm` | LLVM backend: IrBuilder, SimpleCx, JIT execution, native codegen |
 | `oric` | CLI orchestrator, Salsa queries, high-level Evaluator, patterns |
 

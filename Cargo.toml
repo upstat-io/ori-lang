@@ -27,7 +27,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.1.0-alpha.10"
+version = "2026.2.28-alpha.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"
@@ -100,6 +100,13 @@ similar_names = "allow"
 # Use: cargo build --profile release-lto
 # ~20% faster binaries, ~3.5x longer build vs --release.
 [profile.release-lto]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
+# PGO-optimized release profile. Used by scripts/pgo-build.sh.
+# RUSTFLAGS supplies -Cprofile-generate or -Cprofile-use on top.
+[profile.release-pgo]
 inherits = "release"
 lto = "fat"
 codegen-units = 1

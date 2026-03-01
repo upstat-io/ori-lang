@@ -1,16 +1,16 @@
 # Async via Capabilities
 
-This document covers Ori's approach to asynchronous programming: the explicit `Async` capability instead of async/await syntax.
+This document covers Ori's approach to asynchronous programming: the explicit `Suspend` capability instead of async/await syntax.
 
 ---
 
 ## Overview
 
-Ori takes a different approach to async than most languages. Instead of an `async` type modifier and `.await` syntax, **async behavior is tracked through an explicit `Async` capability**.
+Ori takes a different approach to async than most languages. Instead of an `async` type modifier and `.await` syntax, **async behavior is tracked through an explicit `Suspend` capability**.
 
 ```ori
-// Async capability explicitly declares "this function may suspend"
-@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+// Suspend capability explicitly declares "this function may suspend"
+@fetch_user (id: int) -> Result<User, Error> uses Http, Suspend =
     let response = Http.get(
         .url: "/users/" + str(id),
     )?,
@@ -47,9 +47,9 @@ This propagation tells you something true: somewhere in the call chain, there's 
 
 ---
 
-## Ori's Approach: The Async Capability
+## Ori's Approach: The Suspend Capability
 
-In Ori, the `uses` clause already propagates up the call stack. Instead of an `async` keyword, we have an explicit `Async` capability:
+In Ori, the `uses` clause already propagates up the call stack. Instead of an `async` keyword, we have an explicit `Suspend` capability:
 
 1. **Same propagation** you'd have with `async` anyway
 2. **Plus** explicit dependencies
@@ -58,8 +58,8 @@ In Ori, the `uses` clause already propagates up the call stack. Instead of an `a
 5. **Plus** clear sync vs async distinction
 
 ```ori
-// Async capability explicitly declares suspension
-@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+// Suspend capability explicitly declares suspension
+@fetch_user (id: int) -> Result<User, Error> uses Http, Suspend =
     let response = Http.get(
         .url: "/users/" + str(id),
     )?,
@@ -67,14 +67,14 @@ In Ori, the `uses` clause already propagates up the call stack. Instead of an `a
         .input: response,
     ))
 
-// Caller must declare both Http and Async (same as async propagation)
-@get_dashboard (id: int) -> Result<Dashboard, Error> uses Http, Async =
+// Caller must declare both Http and Suspend (same as async propagation)
+@get_dashboard (id: int) -> Result<Dashboard, Error> uses Http, Suspend =
     let user = fetch_user(
         .id: id,
     )?,
     Dashboard { user: user, ... }
 
-// Tests provide mock - sync, no Async needed!
+// Tests provide mock - sync, no Suspend needed!
 @test_fetch_user tests @fetch_user () -> void =
     with Http = MockHttp { responses: {"/users/1": user_json} } in
     run(
@@ -88,7 +88,7 @@ In Ori, the `uses` clause already propagates up the call stack. Instead of an `a
     )
 ```
 
-Note: Tests don't need `Async` because MockHttp is synchronous - it returns immediately without suspending.
+Note: Tests don't need `Suspend` because MockHttp is synchronous - it returns immediately without suspending.
 
 ---
 
@@ -128,16 +128,16 @@ With traditional async:
     ).await?.body.parse_json()
 ```
 
-With the Async capability:
+With the Suspend capability:
 ```ori
-// Clean syntax - Http.get returns Result directly, Async declares suspension
-@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+// Clean syntax - Http.get returns Result directly, Suspend declares suspension
+@fetch_user (id: int) -> Result<User, Error> uses Http, Suspend =
     Http.get(
         .url: "/users/" + str(id),
     )?.parse()
 
 // Natural chaining - no .await interrupting the flow
-@fetch_json (url: str) -> Result<Json, Error> uses Http, Async =
+@fetch_json (url: str) -> Result<Json, Error> uses Http, Suspend =
     Http.get(
         .url: url,
     )?.body.parse_json()
@@ -147,16 +147,16 @@ With the Async capability:
 
 ## How It Works
 
-### The Async Capability
+### The Suspend Capability
 
-`Async` is a capability that represents the ability to suspend execution:
+`Suspend` is a capability that represents the ability to suspend execution:
 
 ```ori
-// Async is a marker capability - it has no methods
-trait Async {}
+// Suspend is a marker capability - it has no methods
+trait Suspend {}
 ```
 
-When you declare `uses Async`, you're explicitly stating: "this function may suspend execution."
+When you declare `uses Suspend`, you're explicitly stating: "this function may suspend execution."
 
 ### Sync vs Async Operations
 
@@ -168,30 +168,30 @@ trait Http {
     @post (url: str, body: str) -> Result<Response, Error>
 }
 
-// With Async: Http.get may suspend (non-blocking)
-@fetch_async (url: str) -> Result<Data, Error> uses Http, Async =
+// With Suspend: Http.get may suspend (non-blocking)
+@fetch_async (url: str) -> Result<Data, Error> uses Http, Suspend =
     Http.get(
         .url: url,
     )?.body
 
-// Without Async: Http.get blocks until complete (synchronous)
+// Without Suspend: Http.get blocks until complete (synchronous)
 @fetch_blocking (url: str) -> Result<Data, Error> uses Http =
     Http.get(
         .url: url,
     )?.body
 ```
 
-The presence or absence of `Async` tells you exactly what to expect:
-- `uses Http, Async` → Non-blocking, may suspend
+The presence or absence of `Suspend` tells you exactly what to expect:
+- `uses Http, Suspend` → Non-blocking, may suspend
 - `uses Http` → Blocking, waits for completion
 
 ### Suspension is Explicit
 
-Suspension is NOT implicit - it's explicitly declared via the `Async` capability:
+Suspension is NOT implicit - it's explicitly declared via the `Suspend` capability:
 
 ```ori
-@fetch_data (url: str) -> Result<Data, Error> uses Http, Async = run(
-    // Http.get may suspend because we declared 'uses Async'
+@fetch_data (url: str) -> Result<Data, Error> uses Http, Suspend = run(
+    // Http.get may suspend because we declared 'uses Suspend'
     let response = Http.get(
         .url: url,
     )?,
@@ -205,7 +205,7 @@ Suspension is NOT implicit - it's explicitly declared via the `Async` capability
 )
 ```
 
-No `.await` needed - the `Async` capability declaration makes suspension explicit at the function level rather than at every call site.
+No `.await` needed - the `Suspend` capability declaration makes suspension explicit at the function level rather than at every call site.
 
 ### Propagation Rules
 
@@ -246,7 +246,7 @@ Without `.await`, how do you run operations concurrently? Use the `parallel` pat
 ### Sequential (Default)
 
 ```ori
-@fetch_both (id: int) -> Result<(User, Posts), Error> uses Http, Async = run(
+@fetch_both (id: int) -> Result<(User, Posts), Error> uses Http, Suspend = run(
     // These run sequentially - first user, then posts
     let user = fetch_user(
         .id: id,
@@ -261,7 +261,7 @@ Without `.await`, how do you run operations concurrently? Use the `parallel` pat
 ### Concurrent with `parallel`
 
 ```ori
-@fetch_both (id: int) -> Result<{ user: User, posts: Posts }, Error> uses Http, Async =
+@fetch_both (id: int) -> Result<{ user: User, posts: Posts }, Error> uses Http, Suspend =
     // These run concurrently
     parallel(
         .user: fetch_user(
@@ -275,14 +275,14 @@ Without `.await`, how do you run operations concurrently? Use the `parallel` pat
 
 The `parallel` pattern:
 - Takes named operations as lambdas/thunks
-- Runs them concurrently (requires `Async`)
+- Runs them concurrently (requires `Suspend`)
 - Returns a struct with the results
 - Inherits capability requirements from its operations
 
 ### Concurrent with Limits
 
 ```ori
-@fetch_all (urls: [str]) -> [Result<Data, Error>] uses Http, Async = parallel(
+@fetch_all (urls: [str]) -> [Result<Data, Error>] uses Http, Suspend = parallel(
     .tasks: map(
         .over: urls,
         .transform: url -> fetch(
@@ -306,8 +306,8 @@ let data = fetch().await?;  // .await extracts value
 ```
 
 ```ori
-// Ori: Async capability is explicit
-@fetch () -> Result<Data, Error> uses Http, Async = ...
+// Ori: Suspend capability is explicit
+@fetch () -> Result<Data, Error> uses Http, Suspend = ...
 // No .await needed
 let data = fetch()?
 ```
@@ -321,8 +321,8 @@ const data = await fetch();
 ```
 
 ```ori
-// Ori: Async capability declaration
-@fetch () -> Result<Data, Error> uses Http, Async = Http.get(
+// Ori: Suspend capability declaration
+@fetch () -> Result<Data, Error> uses Http, Suspend = Http.get(
     .url: url,
 )?
 let data = fetch()?
@@ -339,20 +339,20 @@ data, err := fetch()
 ```
 
 ```ori
-// Ori without Async: same blocking behavior
+// Ori without Suspend: same blocking behavior
 @fetch () -> Result<Data, Error> uses Http = Http.get(
     .url: url,
 )?
 let data = fetch()?
 
-// Ori with Async: non-blocking, may suspend
-@fetch () -> Result<Data, Error> uses Http, Async = Http.get(
+// Ori with Suspend: non-blocking, may suspend
+@fetch () -> Result<Data, Error> uses Http, Suspend = Http.get(
     .url: url,
 )?
 let data = fetch()?
 ```
 
-The difference: Ori makes the sync/async distinction **explicit** via the `Async` capability.
+The difference: Ori makes the sync/async distinction **explicit** via the `Suspend` capability.
 
 ---
 
@@ -375,8 +375,8 @@ test('fetch user', async () => {
 ### Ori: Sync Mocks, No Async Needed
 
 ```ori
-// Production code uses Http + Async (non-blocking)
-@fetch_user (id: int) -> Result<User, Error> uses Http, Async =
+// Production code uses Http + Suspend (non-blocking)
+@fetch_user (id: int) -> Result<User, Error> uses Http, Suspend =
     Http.get(
         .url: "/users/" + str(id),
     )?.parse()
@@ -397,7 +397,7 @@ test('fetch user', async () => {
     )
 ```
 
-Notice: the test doesn't declare `Async` because MockHttp is synchronous. It returns the mocked response immediately without any suspension. This is natural - mocks don't need to simulate network delays.
+Notice: the test doesn't declare `Suspend` because MockHttp is synchronous. It returns the mocked response immediately without any suspension. This is natural - mocks don't need to simulate network delays.
 
 No mocking frameworks. No runtime hacks. No special test configuration. Just provide a sync implementation.
 
@@ -405,12 +405,12 @@ No mocking frameworks. No runtime hacks. No special test configuration. Just pro
 
 ## Patterns That Work with Async
 
-All patterns work naturally with the Async capability:
+All patterns work naturally with the Suspend capability:
 
 ### `retry` - Retry Failed Operations
 
 ```ori
-@reliable_fetch (url: str) -> Result<Data, Error> uses Http, Async = retry(
+@reliable_fetch (url: str) -> Result<Data, Error> uses Http, Suspend = retry(
     .operation: Http.get(
         .url: url,
     ),
@@ -425,7 +425,7 @@ All patterns work naturally with the Async capability:
 ### `timeout` - Bound Operation Time
 
 ```ori
-@bounded_fetch (url: str) -> Result<Data, Error> uses Http, Async = timeout(
+@bounded_fetch (url: str) -> Result<Data, Error> uses Http, Suspend = timeout(
     .operation: Http.get(
         .url: url,
     ),
@@ -438,7 +438,7 @@ All patterns work naturally with the Async capability:
 
 ```ori
 // Sequential - still async (may suspend between iterations)
-@fetch_all_seq (urls: [str]) -> [Result<Data, Error>] uses Http, Async =
+@fetch_all_seq (urls: [str]) -> [Result<Data, Error>] uses Http, Suspend =
     map(
         .over: urls,
         .transform: url -> Http.get(
@@ -447,7 +447,7 @@ All patterns work naturally with the Async capability:
     )
 
 // Concurrent - async with parallelism
-@fetch_all_par (urls: [str]) -> [Result<Data, Error>] uses Http, Async = parallel(
+@fetch_all_par (urls: [str]) -> [Result<Data, Error>] uses Http, Suspend = parallel(
     .tasks: map(
         .over: urls,
         .transform: url -> Http.get(
@@ -461,7 +461,7 @@ All patterns work naturally with the Async capability:
 ### `try` for Error Handling
 
 ```ori
-@complex_operation (id: int) -> Result<Output, Error> uses Http, Async = try(
+@complex_operation (id: int) -> Result<Output, Error> uses Http, Suspend = try(
     let user = fetch_user(
         .id: id,
     )?,
@@ -482,7 +482,7 @@ All patterns work naturally with the Async capability:
 
 The capability approach has one trade-off: **implementation details "leak" into the type signature**.
 
-If `fetch_user` uses Http and Async, and `get_dashboard` calls `fetch_user`, then `get_dashboard` must also declare `uses Http, Async`. Callers know that somewhere in the call chain, HTTP is involved and the function may suspend.
+If `fetch_user` uses Http and Suspend, and `get_dashboard` calls `fetch_user`, then `get_dashboard` must also declare `uses Http, Suspend`. Callers know that somewhere in the call chain, HTTP is involved and the function may suspend.
 
 **But this is the same trade-off as async/await.** In Rust, if you call an async function, your function must be async. In JavaScript, if you await something, your function must be async. The "leaking" happens either way.
 
@@ -493,29 +493,29 @@ The question is: **if you're paying this cost anyway, why not get more value?**
 @get_dashboard (user_id: int) -> async Result<Dashboard, Error>
 
 // With capabilities: leaks what it uses, AND you can mock it, AND sync/async is explicit
-@get_dashboard (user_id: int) -> Result<Dashboard, Error> uses Http, Async
+@get_dashboard (user_id: int) -> Result<Dashboard, Error> uses Http, Suspend
 ```
 
 ---
 
 ## Summary
 
-| Aspect | Traditional Async | Ori Async Capability |
+| Aspect | Traditional Async | Ori Suspend Capability |
 |--------|------------------|------------------------|
-| Syntax | `async fn`, `.await` | `uses Http, Async` |
+| Syntax | `async fn`, `.await` | `uses Http, Suspend` |
 | Return type | `async T` | `T` |
 | Propagation | `async` bubbles up | `uses` bubbles up |
 | Testing | Hard (need mocks) | Easy (sync mocks) |
-| Suspension | Per-call (`.await`) | Per-function (`Async`) |
+| Suspension | Per-call (`.await`) | Per-function (`Suspend`) |
 | Sync vs Async | Different APIs | Same API, different capabilities |
 | Concurrency | Manual with `.await` | `parallel` pattern |
 
-The `Async` capability approach gives you:
+The `Suspend` capability approach gives you:
 - **Cleaner types** - no `async` wrapper
 - **Natural chaining** - no `.await` interrupting flow
-- **Easy testing** - sync mocks don't need Async
+- **Easy testing** - sync mocks don't need Suspend
 - **Explicit dependencies** - know what effects your code has
-- **Clear sync/async distinction** - `uses Http` vs `uses Http, Async`
+- **Clear sync/async distinction** - `uses Http` vs `uses Http, Suspend`
 
 All for the same propagation cost you'd pay with async/await anyway.
 

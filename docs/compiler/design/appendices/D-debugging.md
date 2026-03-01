@@ -18,15 +18,49 @@ Setup: `compiler/oric/src/tracing_setup.rs`, initialized in `main()`.
 
 ## Environment Variables
 
+### Tracing
+
 | Variable | Purpose | Example |
 |----------|---------|---------|
 | `ORI_LOG` | Filter string (`RUST_LOG` syntax) | `ORI_LOG=debug` |
 | `ORI_LOG_TREE` | Enable hierarchical tree output | `ORI_LOG_TREE=1` |
 | `RUST_LOG` | Fallback if `ORI_LOG` not set | `RUST_LOG=debug` |
-| `ORI_DEBUG_LLVM` | Print LLVM IR to stderr before JIT compilation | `ORI_DEBUG_LLVM=1` |
 
 When neither `ORI_LOG` nor `RUST_LOG` is set, only warnings and above are shown.
 This ensures zero noise in normal usage.
+
+### Phase Dumps
+
+Phase dump variables emit intermediate representations to stderr. Zero cost in release builds.
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `ORI_DUMP_AFTER_PARSE` | Dump AST after parsing | `ORI_DUMP_AFTER_PARSE=1 ori check file.ori` |
+| `ORI_DUMP_AFTER_TYPECK` | Dump typed IR after type checking | `ORI_DUMP_AFTER_TYPECK=1 ori check file.ori` |
+| `ORI_DUMP_AFTER_ARC` | Dump ARC IR with RC strategy annotations | `ORI_DUMP_AFTER_ARC=1 ori build file.ori` |
+| `ORI_DUMP_AFTER_LLVM` | Dump annotated LLVM IR (superset of `ORI_DEBUG_LLVM`) | `ORI_DUMP_AFTER_LLVM=1 ori build file.ori` |
+| `ORI_EMIT_ARC_DOT` | Emit GraphViz DOT of ARC IR CFG | `ORI_EMIT_ARC_DOT=1 ori build file.ori 2> arc.dot` |
+| `ORI_DEBUG_LLVM` | Legacy alias for `ORI_DUMP_AFTER_LLVM` | `ORI_DEBUG_LLVM=1` |
+
+### Codegen Audit
+
+In-pipeline LLVM IR verification, gated behind environment variables. Walks the in-memory LLVM IR (via inkwell) to detect RC lifecycle bugs, COW sequencing violations, and ABI mismatches.
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `ORI_AUDIT_CODEGEN` | Enable codegen audit pass | `ORI_AUDIT_CODEGEN=1 ori build file.ori` |
+| `ORI_AUDIT_STRICT` | Pessimistic mode (elevates warnings, treats COW as always-freeing) | `ORI_AUDIT_CODEGEN=1 ORI_AUDIT_STRICT=1 ori build file.ori` |
+| `ORI_AUDIT_FUNCTION` | Filter audit to functions matching a substring | `ORI_AUDIT_CODEGEN=1 ORI_AUDIT_FUNCTION=main ori build file.ori` |
+
+### Runtime Debug (AOT binaries)
+
+These variables are read by the compiled AOT binary at runtime, not by the compiler.
+
+| Variable | Purpose | Example |
+|----------|---------|---------|
+| `ORI_TRACE_RC` | RC event trace (alloc/inc/dec/free with attribution) | `ORI_TRACE_RC=1 ./binary` |
+| `ORI_RT_DEBUG` | Runtime assertions (header validation, bounds) | `ORI_RT_DEBUG=1 ./binary` |
+| `ORI_CHECK_LEAKS` | Leak check with attribution at exit | `ORI_CHECK_LEAKS=1 ./binary` |
 
 ## Filter Syntax
 
@@ -115,6 +149,44 @@ When adding tracing to new compiler code:
 - **Phase completion**: `tracing::debug!("phase X complete")`
 
 Always `skip` large or non-Debug arguments (arenas, engines, pools).
+
+## Diagnostic Scripts
+
+The `diagnostics/` directory provides standalone scripts for common debugging workflows. All support `--help`, `--no-color`/`--color`.
+
+| Script | Purpose | Example |
+|--------|---------|---------|
+| `diagnose-aot.sh` | All-in-one: build + run + leak check + RC stats + IR | `diagnostics/diagnose-aot.sh file.ori --valgrind` |
+| `dual-exec-debug.sh` | Interpreter vs AOT comparison (auto-dumps on mismatch) | `diagnostics/dual-exec-debug.sh file.ori --verbose` |
+| `dual-exec-verify.sh` | Batch interpreter vs LLVM verification | `diagnostics/dual-exec-verify.sh --test-only` |
+| `rc-stats.sh` | RC balance per function (flags imbalances) | `diagnostics/rc-stats.sh file.ori` |
+| `codegen-audit.sh` | Static RC + COW + ABI analysis | `diagnostics/codegen-audit.sh file.ori --strict` |
+| `ir-dump.sh` | Annotated LLVM IR (`--raw` for undecorated) | `diagnostics/ir-dump.sh file.ori` |
+| `ir-diff.sh` | Side-by-side IR comparison of two programs | `diagnostics/ir-diff.sh a.ori b.ori` |
+| `disasm-ori.sh` | Native disassembly with Ori demangling | `diagnostics/disasm-ori.sh file.ori` |
+| `valgrind-aot.sh` | Valgrind memory error detection | `diagnostics/valgrind-aot.sh file.ori` |
+| `check-debug-flags.sh` | Validates all `ORI_*` flag consistency | `diagnostics/check-debug-flags.sh` |
+
+### ARC DOT Visualization
+
+The `ORI_EMIT_ARC_DOT=1` flag emits GraphViz DOT format of the ARC IR control flow graph. The `oric/src/arc_dot/` module generates DOT output with:
+
+- Basic blocks as graph nodes with instruction listings
+- Control flow edges (branches, jumps, switches) as directed edges
+- RC operations highlighted for visual inspection
+
+```bash
+ORI_EMIT_ARC_DOT=1 ori build file.ori 2> arc.dot
+dot -Tsvg arc.dot -o arc.svg
+```
+
+### Performance Baseline
+
+```bash
+./scripts/perf-baseline.sh [--release]
+```
+
+Records benchmark results for regression tracking.
 
 ## Panic Debugging
 

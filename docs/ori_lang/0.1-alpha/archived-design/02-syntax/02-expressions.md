@@ -301,7 +301,7 @@ loop(
 ### Loop with Break
 
 ```ori
-@consume_channel (channel: Channel<int>) -> int uses Async = run(
+@consume_channel (channel: Channel<int>) -> int uses Suspend = run(
     let mut sum = 0,
     loop(
         match(channel.receive(),
@@ -322,7 +322,7 @@ loop(
 | `continue` | Skip to next iteration |
 
 ```ori
-@process_with_skip (channel: Channel<Item>) -> void uses Async = loop(
+@process_with_skip (channel: Channel<Item>) -> void uses Suspend = loop(
     match(channel.receive(),
         Some(item) ->
             // skip this item
@@ -340,7 +340,7 @@ loop(
 
 **Channel consumer:**
 ```ori
-@worker (work_channel: Channel<Job>, results_channel: Channel<Result<Output, Error>>) -> void uses Async = loop(
+@worker (work_channel: Channel<Job>, results_channel: Channel<Result<Output, Error>>) -> void uses Suspend = loop(
     match(work_channel.receive(),
         Some(job) -> results_channel.send(
             .value: process(
@@ -354,7 +354,7 @@ loop(
 
 **Polling with cancellation:**
 ```ori
-@poll_until_cancelled (context: Context) -> void uses Async, Clock = loop(
+@poll_until_cancelled (context: Context) -> void uses Suspend, Clock = loop(
     if context.is_cancelled() then break,
     perform_check(),
     Clock.sleep(

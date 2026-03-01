@@ -70,6 +70,55 @@ fn peek2_near_end_returns_zero() {
     assert_eq!(cursor.peek2(), 0);
 }
 
+// === Peek at cache-line boundary ===
+//
+// When (source_len + 1) % 64 == 0, the buffer has zero post-sentinel padding.
+// peek/peek2 must still be safe at the sentinel position.
+
+#[test]
+fn peek_at_sentinel_63_byte_source() {
+    // 63 bytes → padded_len = 64, sentinel at buf[63], zero padding after sentinel.
+    let source: String = "x".repeat(63);
+    let buf = SourceBuffer::new(&source);
+    let mut cursor = buf.cursor();
+    cursor.advance_n(63); // at sentinel
+    assert!(cursor.is_eof());
+    assert_eq!(cursor.peek(), 0); // must not panic
+}
+
+#[test]
+fn peek2_at_sentinel_63_byte_source() {
+    let source: String = "x".repeat(63);
+    let buf = SourceBuffer::new(&source);
+    let mut cursor = buf.cursor();
+    cursor.advance_n(63);
+    assert!(cursor.is_eof());
+    assert_eq!(cursor.peek2(), 0); // must not panic
+}
+
+#[test]
+fn peek_at_sentinel_127_byte_source() {
+    // 127 bytes → padded_len = 128, sentinel at buf[127], zero padding after sentinel.
+    let source: String = "x".repeat(127);
+    let buf = SourceBuffer::new(&source);
+    let mut cursor = buf.cursor();
+    cursor.advance_n(127);
+    assert!(cursor.is_eof());
+    assert_eq!(cursor.peek(), 0);
+}
+
+#[test]
+fn peek2_at_sentinel_62_byte_source() {
+    // 62 bytes → padded_len = 64, only 1 byte of post-sentinel padding.
+    // peek() is safe (reads padding[0]), but peek2() needs padding[1].
+    let source: String = "x".repeat(62);
+    let buf = SourceBuffer::new(&source);
+    let mut cursor = buf.cursor();
+    cursor.advance_n(62);
+    assert!(cursor.is_eof());
+    assert_eq!(cursor.peek2(), 0); // must not panic
+}
+
 // === EOF Detection ===
 
 #[test]

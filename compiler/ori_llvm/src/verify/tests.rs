@@ -406,6 +406,323 @@ fn cow_dec_before_call_detected() {
     assert_eq!(cow_findings[0].severity, Severity::Error);
 }
 
+// ── Safety check density ────────────────────────────────────────────
+
+/// 04.4: Empty function produces no safety findings.
+#[test]
+fn safety_empty_function_clean() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_safety_empty");
+
+    let fn_type = ctx.void_type().fn_type(&[], false);
+    let func = module.add_function("empty_fn", fn_type, None);
+    let entry = ctx.append_basic_block(func, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(entry);
+    builder.build_return(None).unwrap();
+
+    let report = audit_module(&module);
+    let safety: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.kind,
+                FindingKind::SafetyCheckCall { .. }
+                    | FindingKind::SafetyCheckBranch { .. }
+                    | FindingKind::SafetyCheckSummary { .. }
+            )
+        })
+        .collect();
+    assert!(
+        safety.is_empty(),
+        "empty function should have no safety findings, got: {safety:?}"
+    );
+}
+
+/// 04.4: Direct call to `ori_panic` is detected as a safety check.
+#[test]
+fn safety_panic_call_detected() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_safety_panic");
+
+    let ptr_type = ctx.ptr_type(AddressSpace::default());
+
+    // Declare ori_panic
+    let panic_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+    let ori_panic = module.add_function("ori_panic", panic_type, None);
+
+    // Function that calls ori_panic
+    let fn_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+    let func = module.add_function("panicking", fn_type, None);
+    let entry = ctx.append_basic_block(func, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(entry);
+
+    let param = func.get_nth_param(0).unwrap().into_pointer_value();
+    builder.build_call(ori_panic, &[param.into()], "").unwrap();
+    builder.build_return(None).unwrap();
+
+    let report = audit_module(&module);
+    let calls: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckCall { .. }))
+        .collect();
+    assert!(!calls.is_empty(), "should detect ori_panic call");
+    assert_eq!(calls[0].severity, Severity::Note);
+    if let FindingKind::SafetyCheckCall { callee } = &calls[0].kind {
+        assert_eq!(callee, "ori_panic");
+    }
+
+    // Should also have a summary
+    let summaries: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckSummary { .. }))
+        .collect();
+    assert!(!summaries.is_empty(), "should have safety summary");
+}
+
+/// 04.4: `ori_assert_eq_int` is detected as a safety check.
+#[test]
+fn safety_assert_eq_int_detected() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_safety_assert");
+
+    let i64_type = ctx.i64_type();
+
+    // Declare ori_assert_eq_int
+    let assert_type = ctx
+        .void_type()
+        .fn_type(&[i64_type.into(), i64_type.into()], false);
+    let assert_fn = module.add_function("ori_assert_eq_int", assert_type, None);
+
+    // Function that calls ori_assert_eq_int
+    let fn_type = ctx.void_type().fn_type(&[], false);
+    let func = module.add_function("asserting", fn_type, None);
+    let entry = ctx.append_basic_block(func, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(entry);
+
+    let one = i64_type.const_int(1, false);
+    builder
+        .build_call(assert_fn, &[one.into(), one.into()], "")
+        .unwrap();
+    builder.build_return(None).unwrap();
+
+    let report = audit_module(&module);
+    let calls: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckCall { .. }))
+        .collect();
+    assert!(!calls.is_empty(), "should detect ori_assert_eq_int");
+    if let FindingKind::SafetyCheckCall { callee } = &calls[0].kind {
+        assert_eq!(callee, "ori_assert_eq_int");
+    }
+}
+
+/// 04.4: Conditional branch to a panic block is detected.
+#[test]
+fn safety_conditional_branch_to_panic_block() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_safety_branch");
+
+    let ptr_type = ctx.ptr_type(AddressSpace::default());
+
+    // Declare ori_panic
+    let panic_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+    let ori_panic = module.add_function("ori_panic", panic_type, None);
+
+    // Function: branch cond ? normal : panic_bb
+    let fn_type = ctx
+        .void_type()
+        .fn_type(&[ctx.bool_type().into(), ptr_type.into()], false);
+    let func = module.add_function("guarded", fn_type, None);
+    let entry = ctx.append_basic_block(func, "entry");
+    let panic_bb = ctx.append_basic_block(func, "panic_bb");
+    let cont_bb = ctx.append_basic_block(func, "continue");
+
+    let builder = ctx.create_builder();
+
+    // Entry: conditional branch
+    builder.position_at_end(entry);
+    let cond = func.get_nth_param(0).unwrap().into_int_value();
+    let msg = func.get_nth_param(1).unwrap().into_pointer_value();
+    builder
+        .build_conditional_branch(cond, cont_bb, panic_bb)
+        .unwrap();
+
+    // Panic block: call ori_panic + unreachable
+    builder.position_at_end(panic_bb);
+    builder.build_call(ori_panic, &[msg.into()], "").unwrap();
+    builder.build_unreachable().unwrap();
+
+    // Continue: return
+    builder.position_at_end(cont_bb);
+    builder.build_return(None).unwrap();
+
+    let report = audit_module(&module);
+
+    // Should detect the branch to panic_bb
+    let branches: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckBranch { .. }))
+        .collect();
+    assert!(
+        !branches.is_empty(),
+        "should detect conditional branch to panic block"
+    );
+    assert_eq!(branches[0].severity, Severity::Note);
+    if let FindingKind::SafetyCheckBranch { panic_block } = &branches[0].kind {
+        assert_eq!(panic_block, "panic_bb");
+    }
+}
+
+/// 04.4: Density calculation is correct.
+#[test]
+fn safety_density_calculation() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_safety_density");
+
+    let ptr_type = ctx.ptr_type(AddressSpace::default());
+
+    // Declare ori_panic
+    let panic_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+    let ori_panic = module.add_function("ori_panic", panic_type, None);
+
+    // Function with known instruction count: alloca + call + ret = 3 instructions
+    // 1 safety check → density = 1/3 * 100 ≈ 33.3
+    let fn_type = ctx.void_type().fn_type(&[], false);
+    let func = module.add_function("density_test", fn_type, None);
+    let entry = ctx.append_basic_block(func, "entry");
+    let builder = ctx.create_builder();
+    builder.position_at_end(entry);
+
+    let alloca = builder.build_alloca(ptr_type, "tmp").unwrap();
+    builder.build_call(ori_panic, &[alloca.into()], "").unwrap();
+    builder.build_return(None).unwrap();
+
+    let report = audit_module(&module);
+    let summaries: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckSummary { .. }))
+        .collect();
+    assert!(!summaries.is_empty(), "should have density summary");
+    if let FindingKind::SafetyCheckSummary {
+        check_count,
+        instruction_count,
+    } = &summaries[0].kind
+    {
+        assert_eq!(*check_count, 1);
+        assert_eq!(*instruction_count, 3); // alloca + call + ret
+                                           // density = 1/3 * 100 ≈ 33.3 — verified via description string
+        assert!(
+            summaries[0].description.contains("33.3"),
+            "density description should contain 33.3, got: {}",
+            summaries[0].description
+        );
+    }
+}
+
+/// 04.4: Function filter applies to safety checks.
+#[test]
+fn safety_function_filter_applies() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_safety_filter");
+
+    let ptr_type = ctx.ptr_type(AddressSpace::default());
+
+    // Declare ori_panic
+    let panic_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+    let ori_panic = module.add_function("ori_panic", panic_type, None);
+
+    // Two functions with panic calls
+    for name in &["target_fn", "other_fn"] {
+        let fn_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+        let func = module.add_function(name, fn_type, None);
+        let entry = ctx.append_basic_block(func, "entry");
+        let builder = ctx.create_builder();
+        builder.position_at_end(entry);
+
+        let param = func.get_nth_param(0).unwrap().into_pointer_value();
+        builder.build_call(ori_panic, &[param.into()], "").unwrap();
+        builder.build_return(None).unwrap();
+    }
+
+    // With filter: only target_fn
+    let opts = AuditOptions {
+        strict: false,
+        function_filter: Some("target".to_owned()),
+    };
+    let report = audit_module_with_options(&module, &opts);
+    let calls: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckCall { .. }))
+        .collect();
+    assert_eq!(calls.len(), 1, "filter should only match target_fn");
+    assert_eq!(calls[0].function_name, "target_fn");
+}
+
+/// 04.4: Unconditional branch to a panic block is NOT a safety check branch.
+#[test]
+fn safety_unconditional_branch_not_detected() {
+    let ctx = Context::create();
+    let module = ctx.create_module("test_safety_uncond");
+
+    let ptr_type = ctx.ptr_type(AddressSpace::default());
+
+    // Declare ori_panic
+    let panic_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+    let ori_panic = module.add_function("ori_panic", panic_type, None);
+
+    // Function: entry unconditionally jumps to panic block
+    let fn_type = ctx.void_type().fn_type(&[ptr_type.into()], false);
+    let func = module.add_function("always_panic", fn_type, None);
+    let entry = ctx.append_basic_block(func, "entry");
+    let panic_bb = ctx.append_basic_block(func, "panic_bb");
+
+    let builder = ctx.create_builder();
+
+    // Entry: unconditional branch to panic block
+    builder.position_at_end(entry);
+    builder.build_unconditional_branch(panic_bb).unwrap();
+
+    // Panic block: call ori_panic + unreachable
+    builder.position_at_end(panic_bb);
+    let param = func.get_nth_param(0).unwrap().into_pointer_value();
+    builder.build_call(ori_panic, &[param.into()], "").unwrap();
+    builder.build_unreachable().unwrap();
+
+    let report = audit_module(&module);
+
+    // Should detect the call but NOT a branch finding
+    let branches: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckBranch { .. }))
+        .collect();
+    assert!(
+        branches.is_empty(),
+        "unconditional branch should NOT be a safety check branch, got: {branches:?}"
+    );
+
+    // But should still detect the call itself
+    let calls: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| matches!(f.kind, FindingKind::SafetyCheckCall { .. }))
+        .collect();
+    assert!(
+        !calls.is_empty(),
+        "should still detect the call to ori_panic"
+    );
+}
+
 /// Report summary methods work correctly.
 #[test]
 fn report_summary() {

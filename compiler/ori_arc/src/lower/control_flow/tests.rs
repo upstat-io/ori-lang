@@ -423,8 +423,8 @@ fn type_store_size_primitives() {
     assert_eq!(pool_type_store_size(Idx::UNIT, &pool, 0), 0, "unit = void");
     assert_eq!(
         pool_type_store_size(Idx::STR, &pool, 0),
-        16,
-        "str = {{i64, ptr}}"
+        24,
+        "str = {{i64, i64, ptr}} (SSO)"
     );
     assert_eq!(
         pool_type_store_size(Idx::DURATION, &pool, 0),
@@ -450,9 +450,9 @@ fn type_store_size_containers() {
     let opt_bool = pool.option(Idx::BOOL);
     assert_eq!(pool_type_store_size(opt_bool, &pool, 0), 9, "Option<bool>");
 
-    // Result<int, str> = {i64 tag, max(8, 16)} = 8 + 16 = 24
+    // Result<int, str> = {i64 tag, max(8, 24)} = 8 + 24 = 32
     let res = pool.result(Idx::INT, Idx::STR);
-    assert_eq!(pool_type_store_size(res, &pool, 0), 24, "Result<int, str>");
+    assert_eq!(pool_type_store_size(res, &pool, 0), 32, "Result<int, str>");
 
     // Tuple (int, bool) = 8 + 1 = 9
     let tup = pool.tuple(&[Idx::INT, Idx::BOOL]);

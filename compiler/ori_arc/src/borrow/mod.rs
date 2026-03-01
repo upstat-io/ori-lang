@@ -45,7 +45,11 @@ mod callees;
 mod derived;
 mod per_scc;
 
-pub use builtins::borrowing_builtin_names;
+pub use builtins::{
+    borrowing_builtin_names, consuming_receiver_builtin_names,
+    consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names,
+    BuiltinOwnershipSets,
+};
 pub use callees::extract_callees;
 pub use derived::infer_derived_ownership;
 pub use per_scc::{infer_borrow_fixed_point, infer_borrow_single, initialize_single_borrowed};

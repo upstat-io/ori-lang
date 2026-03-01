@@ -73,6 +73,9 @@ jobs:
           fi
           echo "Build number: $(cat BUILD_NUMBER)"
 
+      - name: Sync Cargo versions from BUILD_NUMBER
+        run: ./scripts/sync-version.sh
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -140,6 +143,9 @@ jobs:
           fi
           echo "Build number: $(cat BUILD_NUMBER)"
 
+      - name: Sync Cargo versions from BUILD_NUMBER
+        run: ./scripts/sync-version.sh
+
       - name: Install LLVM
         run: |
           brew install llvm@${{ env.LLVM_VERSION }}
@@ -185,9 +191,21 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Derive build number
+      - name: Derive build number from tag
         shell: bash
-        run: ./scripts/bump-build.sh
+        run: |
+          # Extract full version from tag: v2026.02.27.2-alpha → 2026.02.27.2-alpha
+          BUILD="${GITHUB_REF_NAME#v}"
+          if [[ -n "$BUILD" ]]; then
+            echo "$BUILD" > BUILD_NUMBER
+          else
+            ./scripts/bump-build.sh  # Fallback
+          fi
+          echo "Build number: $(cat BUILD_NUMBER)"
+
+      - name: Sync Cargo versions from BUILD_NUMBER
+        shell: bash
+        run: ./scripts/sync-version.sh
 
       - name: Download LLVM
         run: |
