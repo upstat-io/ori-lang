@@ -1,0 +1,131 @@
+// COW (Copy-on-Write) behavioral equivalence tests for sets.
+// Verifies that set mutations produce correct results and
+// that shared owners are not affected by COW operations.
+
+use std.testing { assert_eq }
+
+// --- Insert unique owner ---
+
+@insert_unique () -> int = {
+    let s: Set<int> = [1, 2].iter().collect();
+    let s = s.insert(3);
+    s.len()
+}
+
+@test_insert_unique tests @insert_unique () -> void = {
+    assert_eq(actual: insert_unique(), expected: 3)
+}
+
+// --- Insert shared owner (COW) ---
+
+@insert_shared () -> (int, int) = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b = a;
+    let b = b.insert(3);
+    (a.len(), b.len())
+}
+
+@test_insert_shared tests @insert_shared () -> void = {
+    let (original_len, modified_len) = insert_shared();
+    assert_eq(actual: original_len, expected: 2);
+    assert_eq(actual: modified_len, expected: 3)
+}
+
+// --- Remove unique owner ---
+
+@remove_unique () -> (int, bool) = {
+    let s: Set<int> = [1, 2, 3].iter().collect();
+    let s = s.remove(2);
+    (s.len(), s.contains(2))
+}
+
+@test_remove_unique tests @remove_unique () -> void = {
+    let (len, has_two) = remove_unique();
+    assert_eq(actual: len, expected: 2);
+    assert_eq(actual: has_two, expected: false)
+}
+
+// --- Remove shared owner (COW) ---
+
+@remove_shared () -> (int, int, bool) = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b = a;
+    let b = b.remove(1);
+    (a.len(), b.len(), a.contains(1))
+}
+
+@test_remove_shared tests @remove_shared () -> void = {
+    let (a_len, b_len, a_has_one) = remove_shared();
+    assert_eq(actual: a_len, expected: 3);
+    assert_eq(actual: b_len, expected: 2);
+    assert_eq(actual: a_has_one, expected: true)
+}
+
+// --- Union ---
+
+@union_sets () -> int = {
+    let a: Set<int> = [1, 2].iter().collect();
+    let b: Set<int> = [2, 3].iter().collect();
+    let c = a.union(b);
+    c.len()
+}
+
+@test_union_sets tests @union_sets () -> void = {
+    assert_eq(actual: union_sets(), expected: 3)
+}
+
+// --- Intersection ---
+
+@intersection_sets () -> int = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [2, 3, 4].iter().collect();
+    let c = a.intersection(b);
+    c.len()
+}
+
+@test_intersection_sets tests @intersection_sets () -> void = {
+    assert_eq(actual: intersection_sets(), expected: 2)
+}
+
+// --- Difference ---
+
+@difference_sets () -> int = {
+    let a: Set<int> = [1, 2, 3].iter().collect();
+    let b: Set<int> = [2, 3, 4].iter().collect();
+    let c = a.difference(b);
+    c.len()
+}
+
+@test_difference_sets tests @difference_sets () -> void = {
+    assert_eq(actual: difference_sets(), expected: 1)
+}
+
+// --- Multi-fork ---
+
+@multi_fork () -> (int, int, int) = {
+    let base: Set<int> = [1, 2, 3].iter().collect();
+    let f1 = base.insert(4);
+    let f2 = base.remove(1);
+    (base.len(), f1.len(), f2.len())
+}
+
+@test_multi_fork tests @multi_fork () -> void = {
+    let (base_len, f1_len, f2_len) = multi_fork();
+    assert_eq(actual: base_len, expected: 3);
+    assert_eq(actual: f1_len, expected: 4);
+    assert_eq(actual: f2_len, expected: 2)
+}
+
+// --- Loop accumulation ---
+
+@loop_insert () -> int = {
+    let s: Set<int> = [].iter().collect();
+    for i in 0..10 do {
+        s = s.insert(i);
+    };
+    s.len()
+}
+
+@test_loop_insert tests @loop_insert () -> void = {
+    assert_eq(actual: loop_insert(), expected: 10)
+}
