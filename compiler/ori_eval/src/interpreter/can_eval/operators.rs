@@ -72,15 +72,17 @@ impl Interpreter<'_> {
         let right_val = self.eval_can(right)?;
 
         // Primitive types use direct evaluation
-        if super::super::is_primitive_value(&left_val)
-            && super::super::is_primitive_value(&right_val)
+        if super::super::operator_dispatch::is_primitive_value(&left_val)
+            && super::super::operator_dispatch::is_primitive_value(&right_val)
         {
             return evaluate_binary(left_val, right_val, op)
                 .map_err(|e| Self::attach_span(e, span));
         }
 
         // User-defined types: dispatch through method system
-        if let Some(method) = super::super::binary_op_to_method(op, self.op_names) {
+        if let Some(method) =
+            super::super::operator_dispatch::binary_op_to_method(op, self.op_names)
+        {
             return self.eval_method_call(left_val, method, vec![right_val]);
         }
 
@@ -97,11 +99,12 @@ impl Interpreter<'_> {
         let value = self.eval_can(operand)?;
         let span = self.can_span(expr_id);
 
-        if super::super::is_primitive_value(&value) {
+        if super::super::operator_dispatch::is_primitive_value(&value) {
             return evaluate_unary(value, op).map_err(|e| Self::attach_span(e, span));
         }
 
-        if let Some(method) = super::super::unary_op_to_method(op, self.op_names) {
+        if let Some(method) = super::super::operator_dispatch::unary_op_to_method(op, self.op_names)
+        {
             return self.eval_method_call(value, method, vec![]);
         }
 
