@@ -58,7 +58,7 @@ Every file receives this treatment where applicable:
 | 05-type-system | **Done** | Full book treatment: all 6 files rewritten |
 | 06-pattern-system | **Done** | Full book treatment: all 5 files rewritten |
 | 07-canonicalization | **Done** | Full book treatment: all 4 files rewritten |
-| 08-evaluator | Not started | |
+| 08-evaluator | **Done** | Full book treatment: all 5 files rewritten |
 | 09-arc-system | Not started | |
 | 10-llvm-backend | Not started | |
 | 11-runtime | Not started | |
