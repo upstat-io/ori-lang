@@ -26,8 +26,8 @@ The `std.crypto` module provides:
 
 | Module | Description |
 |--------|-------------|
-| [std.crypto.cipher](cipher.md) | Symmetric encryption |
-| [std.crypto.rand](rand.md) | Cryptographically secure random |
+| std.crypto.cipher | Symmetric encryption |
+| std.crypto.rand | Cryptographically secure random |
 
 ---
 

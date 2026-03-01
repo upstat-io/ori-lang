@@ -345,39 +345,39 @@ error[E1202]: type `NotHttp` does not implement trait `Http`
 
 ---
 
-## Async Capability Interaction
+## Suspend Capability Interaction
 
-### Async Binding Prohibition
+### Suspend Binding Prohibition
 
-`Async` is a marker capability — it has no methods and cannot be provided via `with...in`. Attempting to bind `Async` is a compile-time error:
+`Suspend` is a marker capability — it has no methods and cannot be provided via `with...in`. Attempting to bind `Suspend` is a compile-time error:
 
 ```ori
-// ERROR: Async cannot be bound with `with...in`
-with Async = SomeImpl in
+// ERROR: Suspend cannot be bound with `with...in`
+with Suspend = SomeImpl in
     async_fn()
 ```
 
 Error:
 ```
-error[E1203]: `Async` capability cannot be explicitly bound
+error[E1203]: `Suspend` capability cannot be explicitly bound
   --> src/main.ori:1:6
    |
-1  | with Async = SomeImpl in
-   |      ^^^^^ `Async` is a marker capability
+1  | with Suspend = SomeImpl in
+   |      ^^^^^^^ `Suspend` is a marker capability
    |
-   = note: `Async` context is provided by the runtime or concurrency patterns
+   = note: `Suspend` context is provided by the runtime or concurrency patterns
    = help: use `parallel`, `spawn`, or `nursery` to create async contexts
 ```
 
-### Async Context Creation
+### Suspend Context Creation
 
-`Async` context is provided by:
+`Suspend` context is provided by:
 - The runtime for `@main () uses Suspend`
 - Concurrency patterns: `parallel`, `spawn`, `nursery`
 
 ```ori
 @main () -> void uses Suspend = {
-    // Async context exists here
+    // Suspend context exists here
     parallel(tasks: [...]),  // Creates sub-contexts for tasks
 }
 ```
@@ -489,7 +489,7 @@ impl Http for ProdHttp { ... }
 1. **Parser**: Extend `with_expr` grammar to support comma-separated bindings
 2. **Type checker**: Implement capability resolution with priority order
 3. **Type checker**: Add variance checking for capability requirements
-4. **Type checker**: Prohibit `Async` in `with...in` bindings
+4. **Type checker**: Prohibit `Suspend` in `with...in` bindings
 5. **Error reporting**: Add error codes E1200-E1203 with helpful messages
 
 ### Test Cases
@@ -499,7 +499,7 @@ impl Http for ProdHttp { ... }
 3. Capability variance (more can call fewer)
 4. Missing capability error
 5. Type mismatch for capability binding
-6. Async binding prohibition
+6. Suspend binding prohibition
 7. Resolution priority (inner > outer > imported > local)
 
 ---
@@ -514,7 +514,7 @@ impl Http for ProdHttp { ... }
 4. Update priority resolution order (5 levels)
 5. Add capability variance rules
 6. Add explicit declaration requirement
-7. Add Async binding prohibition
+7. Add Suspend binding prohibition
 
 ### Update `grammar.ebnf`
 
@@ -541,6 +541,6 @@ capability_binding = identifier "=" expression .
 | Variance | More caps can call fewer (not reverse) |
 | Declaration | Must be explicit, no inference |
 | Unbound | Error if no `with` or `def impl` |
-| Async | Marker capability, cannot be bound via `with...in` |
+| Suspend | Marker capability, cannot be bound via `with...in` |
 | Type check | Binding must implement capability trait |
 | Calling | `CapabilityName.method(...)` namespace syntax |

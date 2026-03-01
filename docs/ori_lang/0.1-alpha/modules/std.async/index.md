@@ -6,7 +6,7 @@ Capability-based async utilities and concurrency primitives.
 use std.async { spawn, join, timeout, select }
 ```
 
-**Requires:** `Async` capability for async operations
+**Requires:** `Suspend` capability for async operations
 
 ---
 
@@ -19,7 +19,7 @@ The `std.async` module provides capability-based asynchronous programming:
 - Select for multiple futures
 - Async synchronization
 
-Ori uses **capability-based async** rather than async/await syntax. Functions that perform async operations declare the `Async` capability in their signature with `uses Async`. The runtime automatically manages suspension and resumption — no explicit `.await` calls are needed.
+Ori uses **capability-based async** rather than async/await syntax. Functions that perform async operations declare the `Suspend` capability in their signature with `uses Suspend`. The runtime automatically manages suspension and resumption — no explicit `.await` calls are needed.
 
 > **Note:** `Channel<T>` is built-in (see [prelude](../prelude.md)). This module provides additional async utilities.
 
@@ -30,7 +30,7 @@ Ori uses **capability-based async** rather than async/await syntax. Functions th
 ### @spawn
 
 ```ori
-@spawn<T> (f: () -> T uses Async) -> Task<T>
+@spawn<T> (f: () -> T uses Suspend) -> Task<T>
 ```
 
 Spawns an async task.
@@ -48,7 +48,7 @@ let result = task.result()
 ### @join
 
 ```ori
-@join<T> (tasks: [Task<T>]) -> [T] uses Async
+@join<T> (tasks: [Task<T>]) -> [T] uses Suspend
 ```
 
 Waits for all tasks to complete.
@@ -65,7 +65,7 @@ let results = join(tasks)
 ### @join_any
 
 ```ori
-@join_any<T> (tasks: [Task<T>]) -> (T, [Task<T>]) uses Async
+@join_any<T> (tasks: [Task<T>]) -> (T, [Task<T>]) uses Suspend
 ```
 
 Waits for first task to complete, returns result and remaining tasks.
@@ -90,7 +90,7 @@ type Task<T>
 A handle to a spawned async task.
 
 **Methods:**
-- `result() -> T uses Async` — Wait for completion and get result
+- `result() -> T uses Suspend` — Wait for completion and get result
 - `cancel() -> void` — Request cancellation
 - `is_done() -> bool` — Check if completed
 
@@ -101,7 +101,7 @@ A handle to a spawned async task.
 ### @timeout
 
 ```ori
-@timeout<T> (f: () -> T uses Async, duration: Duration) -> Result<T, TimeoutError> uses Async
+@timeout<T> (f: () -> T uses Suspend, duration: Duration) -> Result<T, TimeoutError> uses Suspend
 ```
 
 Wraps an async operation with a timeout.
@@ -122,7 +122,7 @@ match result {
 ### @deadline
 
 ```ori
-@deadline<T> (f: () -> T uses Async, time: DateTime) -> Result<T, TimeoutError> uses Async
+@deadline<T> (f: () -> T uses Suspend, time: DateTime) -> Result<T, TimeoutError> uses Suspend
 ```
 
 Wraps an async operation with an absolute deadline.
@@ -142,7 +142,7 @@ let result = deadline(|| long_operation(), must_finish_by)
 ### @select
 
 ```ori
-@select<T> (tasks: [() -> T uses Async]) -> (int, T) uses Async
+@select<T> (tasks: [() -> T uses Suspend]) -> (int, T) uses Suspend
 ```
 
 Waits for first operation to complete, returns index and result.
@@ -163,7 +163,7 @@ print("Got result from source " + str(index))
 ### @select_with
 
 ```ori
-@select_with (branches: ...) -> T uses Async
+@select_with (branches: ...) -> T uses Suspend
 ```
 
 Select with different operation types.
@@ -195,7 +195,7 @@ use std.async { Semaphore }
 
 let sem = Semaphore.new(10)  // Max 10 concurrent
 
-@limited_fetch (url: str) -> Result<Data, Error> uses Async = {
+@limited_fetch (url: str) -> Result<Data, Error> uses Suspend = {
     sem.acquire()
     let result = fetch(url)
     sem.release()
@@ -206,7 +206,7 @@ let sem = Semaphore.new(10)  // Max 10 concurrent
 
 **Methods:**
 - `new(permits: int) -> Semaphore` — Create with permit count
-- `acquire() -> void uses Async` — Acquire permit (waits if none available)
+- `acquire() -> void uses Suspend` — Acquire permit (waits if none available)
 - `try_acquire() -> bool` — Try to acquire without waiting
 - `release() -> void` — Release permit
 
@@ -248,7 +248,7 @@ use std.async { OnceCell }
 
 let config: OnceCell<Config> = OnceCell.new()
 
-@get_config () -> Config uses Async =
+@get_config () -> Config uses Suspend =
     config.get_or_init(|| load_config())
 ```
 
@@ -259,7 +259,7 @@ let config: OnceCell<Config> = OnceCell.new()
 ### @sleep
 
 ```ori
-@sleep (duration: Duration) -> void uses Async
+@sleep (duration: Duration) -> void uses Suspend
 ```
 
 Pauses for duration.
@@ -267,7 +267,7 @@ Pauses for duration.
 ```ori
 use std.async { sleep }
 
-@retry_with_backoff<T> (f: () -> Result<T, Error> uses Async, attempts: int) -> Result<T, Error> uses Async =
+@retry_with_backoff<T> (f: () -> Result<T, Error> uses Suspend, attempts: int) -> Result<T, Error> uses Suspend =
     // Fold through attempts, keeping last error or first success
     (0..attempts).fold(
         initial: Err(Error.from("no attempts")),
@@ -294,7 +294,7 @@ use std.async { sleep }
 ```ori
 use std.async { Semaphore, spawn, join }
 
-@fetch_all (urls: [str], max_concurrent: int) -> [Result<Data, Error>] uses Async = {
+@fetch_all (urls: [str], max_concurrent: int) -> [Result<Data, Error>] uses Suspend = {
     let sem = Semaphore.new(max_concurrent)
     let tasks = urls | map(_, url -> spawn(|| {
         sem.acquire()
@@ -312,7 +312,7 @@ use std.async { Semaphore, spawn, join }
 ```ori
 use std.async { select, timeout }
 
-@fetch_with_fallback (primary: str, backup: str) -> Result<Data, Error> uses Async = {
+@fetch_with_fallback (primary: str, backup: str) -> Result<Data, Error> uses Suspend = {
     let (_, result) = select([
         || timeout(|| fetch(primary), 5s),
         || timeout(|| fetch(backup), 10s),
@@ -330,8 +330,8 @@ use std.async { spawn, join }
 @process_batch<T, R> (
     items: [T],
     workers: int,
-    process: T -> R uses Async
-) -> [R] uses Async = {
+    process: T -> R uses Suspend
+) -> [R] uses Suspend = {
     let chunks = items.chunks(items.len() / workers + 1)
     let tasks = chunks | map(_, chunk ->
         spawn(|| map(chunk, process) | join(_))
@@ -346,5 +346,5 @@ use std.async { spawn, join }
 ## See Also
 
 - [Channel](../prelude.md) — Built-in channels
-- [Design: Async](../../design/10-async/) — Async design
+- [Design: Async](../../archived-design/10-async/) — Async design
 - [Capabilities](../../spec/14-capabilities.md) — Async capabilities

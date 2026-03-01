@@ -74,4 +74,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.ORILANG_RELEASE_TOKEN }}
         run: |
-          gh pr merge --auto --merge --delete-branch=false
+          PR=$(gh pr list --base master --head dev --state open --json number --jq '.[0].number')
+          gh pr merge "$PR" --auto --merge --delete-branch=false

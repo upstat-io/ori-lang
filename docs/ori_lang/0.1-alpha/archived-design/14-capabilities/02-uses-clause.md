@@ -327,14 +327,14 @@ Lambdas created in a `uses` context can use those capabilities:
 
 ## Capabilities and Async
 
-Capabilities work with async functions. The `Async` capability explicitly marks functions that may suspend:
+Capabilities work with async functions. The `Suspend` capability explicitly marks functions that may suspend:
 
 ```ori
 trait Http {
     @get (url: str) -> Result<str, Error>
 }
 
-@fetch_user (id: str) -> Result<User, Error> uses Http, Async = try(
+@fetch_user (id: str) -> Result<User, Error> uses Http, Suspend = try(
     let json = Http.get(
         .url: "/users/" + id,
     )?,
@@ -355,7 +355,7 @@ trait Http {
     )
 ```
 
-See [Async via Capabilities](../10-async/01-async-await.md) for details on how `uses Async` tracks suspension.
+See [Async via Capabilities](../10-async/01-async-await.md) for details on how `uses Suspend` tracks suspension.
 
 ---
 

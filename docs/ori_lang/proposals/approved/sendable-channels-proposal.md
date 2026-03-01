@@ -75,7 +75,7 @@ Rust's `Send` and `Sync` traits provide compile-time safety:
 Ori already has advantages:
 - Closures capture by value (no reference cycles)
 - No shared mutable references
-- `Async` capability makes suspension explicit
+- `Suspend` capability makes suspension explicit
 
 This proposal builds on these foundations to provide **compile-time data race freedom** with **role enforcement**.
 

@@ -448,7 +448,7 @@ User.from_json("{\"name\":\"Alice\",\"age\":30}")
 
 ## Async Traits
 
-> **Note:** Ori uses capability-based async via `uses Async` instead of `async` type modifiers. See [Capabilities](../14-capabilities/index.md).
+> **Note:** Ori uses capability-based async via `uses Suspend` instead of `async` type modifiers. See [Capabilities](../14-capabilities/index.md).
 
 ### AsyncIterable — Async Iteration
 
@@ -462,7 +462,7 @@ trait AsyncIterable {
 **Purpose:** Enable async iteration over a source that may suspend.
 
 ```ori
-@process (stream: dyn AsyncIterable<Item = Message>) -> void uses Async =
+@process (stream: dyn AsyncIterable<Item = Message>) -> void uses Suspend =
     for msg in stream do handle(msg)
 ```
 
@@ -473,14 +473,14 @@ trait AsyncIterable {
 ```ori
 trait AsyncIterator {
     type Item
-    @next (self) -> Option<Self.Item> uses Async
+    @next (self) -> Option<Self.Item> uses Suspend
 }
 ```
 
-**Purpose:** Lazy async iteration protocol. The `next()` method may suspend (requires `Async` capability).
+**Purpose:** Lazy async iteration protocol. The `next()` method may suspend (requires `Suspend` capability).
 
 ```ori
-@collect_all<I> (iter: I) -> [I.Item] uses Async where I: AsyncIterator = run(
+@collect_all<I> (iter: I) -> [I.Item] uses Suspend where I: AsyncIterator = run(
     let mut results = [],
     loop(
         match(iter.next(),
@@ -492,7 +492,7 @@ trait AsyncIterator {
 )
 ```
 
-**Note:** The key difference from `Iterator` is that `next()` uses the `Async` capability, allowing the iterator to suspend between items.
+**Note:** The key difference from `Iterator` is that `next()` uses the `Suspend` capability, allowing the iterator to suspend between items.
 
 ---
 
