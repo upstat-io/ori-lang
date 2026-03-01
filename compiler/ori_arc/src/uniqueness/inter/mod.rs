@@ -37,7 +37,7 @@ use rustc_hash::FxHashMap;
 use crate::graph::call_graph::CallGraph;
 use crate::graph::scc::compute_sccs;
 use crate::ir::{ArcFunction, ArcTerminator};
-use crate::liveness::compute_liveness;
+use crate::liveness::{compute_liveness, BlockLiveness};
 use crate::ArcClassification;
 
 use super::intra::analyze_with_summaries;
@@ -89,13 +89,29 @@ pub fn analyze_program(
 }
 
 /// Analyze a non-recursive function and produce its summary.
+///
+/// Computes liveness internally. For SCC fixpoint loops where liveness is
+/// invariant across iterations, use [`summarize_with_liveness`] instead.
 fn analyze_single_function(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     summaries: &FxHashMap<Name, UniquenessSummary>,
 ) -> UniquenessSummary {
     let liveness = compute_liveness(func, classifier);
-    let result = analyze_with_summaries(func, classifier, &liveness, summaries);
+    summarize_with_liveness(func, classifier, &liveness, summaries)
+}
+
+/// Analyze a function with precomputed liveness and produce its summary.
+///
+/// Liveness depends only on `func` and `classifier`, not on `summaries`,
+/// so it can be computed once and reused across fixpoint iterations.
+fn summarize_with_liveness(
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+    liveness: &BlockLiveness,
+    summaries: &FxHashMap<Name, UniquenessSummary>,
+) -> UniquenessSummary {
+    let result = analyze_with_summaries(func, classifier, liveness, summaries);
     let return_val = compute_return_uniqueness(func, &result);
 
     tracing::debug!(
@@ -138,17 +154,32 @@ fn analyze_recursive_scc(
         }
     }
 
+    // Precompute liveness for all SCC members. Liveness depends only on
+    // func + classifier (invariant across iterations), not on summaries.
+    // This avoids N*(K-1) redundant recomputations for N members, K iterations.
+    let liveness_cache: FxHashMap<Name, BlockLiveness> = scc
+        .members
+        .iter()
+        .filter_map(|&name| {
+            func_by_name
+                .get(&name)
+                .map(|&func| (name, compute_liveness(func, classifier)))
+        })
+        .collect();
+
     let mut iteration = 0u32;
     loop {
         iteration += 1;
         let mut changed = false;
 
         for &name in &scc.members {
-            let Some(&func) = func_by_name.get(&name) else {
+            let (Some(&func), Some(liveness)) =
+                (func_by_name.get(&name), liveness_cache.get(&name))
+            else {
                 continue;
             };
 
-            let new_summary = analyze_single_function(func, classifier, all_summaries);
+            let new_summary = summarize_with_liveness(func, classifier, liveness, all_summaries);
 
             if all_summaries.get(&name) != Some(&new_summary) {
                 all_summaries.insert(name, new_summary);
@@ -203,8 +234,10 @@ fn compute_return_uniqueness(
 /// # Arguments
 ///
 /// * `cow_method_names` — set of method `Name`s that are COW operations
-///   (e.g., `push`, `insert`, `pop`, `reverse`, `sort`). These should
-///   come from [`crate::borrow::consuming_receiver_builtin_names`].
+///   (e.g., `push`, `insert`, `pop`, `reverse`, `sort`, `remove`, `union`).
+///   Use [`crate::borrow::all_cow_method_names`] to get the union of all
+///   COW method sets (both `consuming_receiver_builtin_names` for list COW
+///   and `consuming_receiver_only_builtin_names` for map/set COW).
 /// * `shared_method_names` — set of method `Name`s that return shared
 ///   values (e.g., `slice`, `substring`). These share backing storage.
 #[expect(
@@ -221,7 +254,9 @@ pub fn build_cow_summaries(
         summaries.insert(
             name,
             UniquenessSummary {
-                params: Vec::new(), // Param count varies; not used for return analysis.
+                // Empty: builtin summaries only use `return_val`. Callers must not
+                // index into `params` — see UniquenessSummary field docs.
+                params: Vec::new(),
                 return_val: Uniqueness::Unique,
                 preserves_freshness: true,
             },
@@ -232,6 +267,7 @@ pub fn build_cow_summaries(
         summaries.insert(
             name,
             UniquenessSummary {
+                // Empty: builtin summaries only use `return_val`.
                 params: Vec::new(),
                 return_val: Uniqueness::MaybeShared,
                 preserves_freshness: false,

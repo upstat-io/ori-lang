@@ -206,30 +206,35 @@ pub struct ExprId(pub u32);
 
 Example memory layout for `1 + 2 * 3`:
 
+```mermaid
+block-beta
+    columns 5
+    block:arena["ExprArena — contiguous in memory"]:5
+        a0["[0] Literal(1)"]
+        a1["[1] Literal(2)"]
+        a2["[2] Literal(3)"]
+        a3["[3] Binary(*, 1, 2)"]
+        a4["[4] Binary(+, 0, 3)"]
+    end
 ```
-ExprArenaexprs:
-┌─────────────────────────────────────────────────────────────┐
-│ [0] Literal(1) │ [1] Literal(2) │ [2] Literal(3) │ ...    │
-│ [3] Binary(*,1,2) │ [4] Binary(+,0,3) │                    │
-└─────────────────────────────────────────────────────────────┘
 
-All expressions contiguous in memory!
+Compare to a Box-based AST, where each expression is a separate heap allocation connected by pointers:
+
+```mermaid
+flowchart BT
+    lit1["Literal(1)"]
+    lit2["Literal(2)"]
+    lit3["Literal(3)"]
+    mul["Binary(*)"]
+    add["Binary(+)"]
+
+    mul -- "Box" --> lit2
+    mul -- "Box" --> lit3
+    add -- "Box" --> lit1
+    add -- "Box" --> mul
 ```
 
-Compare to Box-based:
-```
-Heap (scattered):
-┌───────────┐     ┌───────────┐     ┌───────────┐
-│ Literal(1)│     │ Literal(2)│     │ Literal(3)│
-└───────────┘     └───────────┘     └───────────┘
-      ↑                 ↑                 ↑
-      └────────────┬────┴────────┬────────┘
-              ┌────┴────┐   ┌────┴────┐
-              │ Binary* │   │ Binary+ │
-              └─────────┘   └─────────┘
-
-Expressions scattered across heap!
-```
+The arena layout keeps all expressions contiguous — sequential traversal reads memory linearly instead of chasing pointers across the heap.
 
 ## Limitations
 

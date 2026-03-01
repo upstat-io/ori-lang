@@ -138,12 +138,18 @@ fn analyze_inner(
         .collect();
 
     // Initialize entry block: function parameters are MaybeShared.
+    // Computed once — entry state is invariant across fixpoint iterations.
     let entry_idx = func.entry.index();
-    for param in &func.params {
-        if needs_rc(param.var, func, classifier) {
-            block_in[entry_idx].set(param.var, Uniqueness::MaybeShared);
+    let entry_in = {
+        let mut state = UniquenessMap::with_capacity(capacity);
+        for param in &func.params {
+            if needs_rc(param.var, func, classifier) {
+                state.set(param.var, Uniqueness::MaybeShared);
+            }
         }
-    }
+        state
+    };
+    block_in[entry_idx] = entry_in.clone();
 
     let mut iteration = 0u32;
     loop {
@@ -152,7 +158,7 @@ fn analyze_inner(
 
         for &block_idx in &rpo {
             let new_in = if block_idx == entry_idx {
-                block_in[entry_idx].clone()
+                entry_in.clone()
             } else {
                 join_predecessors(block_idx, func, &predecessors, &block_out, summaries)
             };

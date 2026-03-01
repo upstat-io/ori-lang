@@ -80,7 +80,7 @@ use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
 pub use borrow::{
-    apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names,
+    all_cow_method_names, apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names,
     consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names, extract_callees,
     infer_borrow_fixed_point, infer_borrow_single, infer_borrows_scc, infer_derived_ownership,
     initialize_single_borrowed, BuiltinOwnershipSets,
