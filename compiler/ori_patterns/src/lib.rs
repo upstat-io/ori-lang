@@ -60,7 +60,7 @@ pub use registry::{Pattern, PatternRegistry};
 pub use signature::{DefaultValue, FunctionSignature, OptionalArg, PatternSignature};
 pub use user_methods::{MethodEntry, UserMethod, UserMethodRegistry};
 pub use value::{
-    ErrorValue, FunctionValFn, FunctionValue, Heap, IteratorValue, MemoizedFunctionValue,
+    ErrorValue, FunctionValFn, FunctionValue, Heap, IteratorValue, ListData, MemoizedFunctionValue,
     OrderingValue, RangeValue, ScalarInt, StringLookup, StructLayout, StructValue, TraceEntryData,
     Value,
 };
@@ -300,7 +300,7 @@ impl<'a> EvalContext<'a> {
 #[derive(Clone)]
 pub enum Iterable {
     /// A list of values.
-    List(Heap<Vec<Value>>),
+    List(ListData),
     /// A range of integers.
     Range(RangeValue),
 }

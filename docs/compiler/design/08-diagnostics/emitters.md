@@ -176,22 +176,17 @@ Machine-readable JSON output:
 ### Implementation
 
 ```rust
-pub struct JsonEmitter {
-    diagnostics: Vec<serde_json::Value>,
+pub struct JsonEmitter<W: Write> {
+    writer: W,     // Streaming output (no buffering all diagnostics)
+    first: bool,   // Tracks whether to emit comma separator
 }
 
-impl DiagnosticEmitter for JsonEmitter {
+// Builds JSON manually (no serde dependency) and streams each diagnostic
+impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
     fn emit(&mut self, diag: &Diagnostic) {
-        self.diagnostics.push(json!({
-            "code": diag.code.to_string(),
-            "severity": diag.severity.to_string(),
-            "message": diag.message,
-            "labels": diag.labels.iter().map(|l| json!({
-                "span": { "start": l.span.start, "end": l.span.end },
-                "message": l.message,
-                "isPrimary": l.is_primary,
-            })).collect::<Vec<_>>(),
-            "notes": diag.notes,
+        // Manually writes JSON with escaped strings, including:
+        // code, severity, message, labels (with span/message/isPrimary),
+        // notes,
             "suggestions": diag.suggestions,
             "structuredSuggestions": diag.structured_suggestions.iter().map(|s| json!({
                 "message": s.message,

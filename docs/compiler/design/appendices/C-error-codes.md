@@ -106,6 +106,7 @@ An expression has a different type than expected in the given context.
 | E4001 | Unsupported ARC Expr | Unsupported expression in ARC IR lowering | |
 | E4002 | Unsupported ARC Pattern | Unsupported pattern in ARC IR lowering | |
 | E4003 | ARC Internal Error | ARC internal error (invariant violation) | |
+| E4004 | FBIP Enforcement | FBIP constraint violation in ARC IR | |
 | **Codegen / LLVM (E5xxx)** |
 | E5001 | LLVM Verification | LLVM module verification failed (ICE) | |
 | E5002 | Optimization Failed | Optimization pipeline failed | |
@@ -396,6 +397,18 @@ error[E4003]: ARC internal error (invariant violation)
   |
   = note: this is a bug in the ARC analysis pass
 ```
+
+### E4004: FBIP Enforcement Violation
+
+```
+error[E4004]: FBIP constraint violation
+ --> src/main.ori:5:10
+  |
+5 |     let x = modify(data)
+  |             ^^^^^^^^^^^^ FBIP-annotated function violates functional-but-in-place constraint
+```
+
+FBIP (Functional But In-Place) enforcement checks that `#fbip`-annotated functions satisfy in-place mutation constraints. This diagnostic is emitted during the ARC analysis pass when reuse opportunities are missed.
 
 ## Codegen / LLVM Errors (E5xxx)
 

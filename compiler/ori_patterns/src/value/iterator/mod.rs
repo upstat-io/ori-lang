@@ -590,13 +590,25 @@ impl IteratorValue {
         }
     }
 
+    /// Create a list iterator from a `ListData`, respecting its offset/len window.
+    ///
+    /// The iterator shares the same Arc-backed buffer, with `front` and `back`
+    /// set to the `ListData`'s visible range.
+    pub fn from_list_data(list: &super::list_data::ListData) -> Self {
+        IteratorValue::List {
+            items: list.backing().clone(),
+            front: list.offset(),
+            back: list.offset().saturating_add(list.len()),
+        }
+    }
+
     /// Convert an iterable `Value` to an `IteratorValue`, if possible.
     ///
     /// Used by `flatten` to turn each yielded value into a sub-iterator.
     /// Returns `None` for non-iterable values (int, bool, etc.).
     pub fn from_value(val: &Value) -> Option<Self> {
         match val {
-            Value::List(items) => Some(Self::from_list(items.clone())),
+            Value::List(list) => Some(Self::from_list_data(list)),
             Value::Map(map) => Some(Self::from_map(map)),
             Value::Str(s) => Some(Self::from_string(s.clone())),
             Value::Range(r) => Some(Self::from_range(r.start, r.end, r.step, r.inclusive)),

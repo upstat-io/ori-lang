@@ -77,6 +77,7 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) escape: Name,
     pub(crate) replace: Name,
     pub(crate) repeat: Name,
+    pub(crate) substring: Name,
 
     // Collection (list-specific)
     pub(crate) first: Name,
@@ -84,8 +85,12 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) pop: Name,
     pub(crate) push: Name,
     pub(crate) set: Name,
+    pub(crate) slice: Name,
     pub(crate) sort: Name,
     pub(crate) sort_stable: Name,
+    pub(crate) take: Name,
+    pub(crate) skip: Name,
+    pub(crate) drop_: Name,
 
     // Collection (map-specific)
     pub(crate) contains_key: Name,
@@ -201,14 +206,19 @@ impl BuiltinMethodNames {
             escape: interner.intern("escape"),
             replace: interner.intern("replace"),
             repeat: interner.intern("repeat"),
+            substring: interner.intern("substring"),
             // List
             first: interner.intern("first"),
             last: interner.intern("last"),
             pop: interner.intern("pop"),
             push: interner.intern("push"),
             set: interner.intern("set"),
+            slice: interner.intern("slice"),
             sort: interner.intern("sort"),
             sort_stable: interner.intern("sort_stable"),
+            take: interner.intern("take"),
+            skip: interner.intern("skip"),
+            drop_: interner.intern("drop"),
             // Map
             contains_key: interner.intern("contains_key"),
             keys: interner.intern("keys"),
