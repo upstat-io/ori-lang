@@ -70,6 +70,7 @@ pub mod rc_elim;
 pub mod rc_identity;
 pub mod rc_insert;
 pub mod reset_reuse;
+pub mod uniqueness;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;
@@ -112,6 +113,7 @@ pub use rc_insert::{
     annotate_arg_ownership, insert_external_invoke_cleanup, insert_rc_ops_with_ownership,
 };
 pub use reset_reuse::detect_reset_reuse_cfg;
+pub use uniqueness::{CowMode, Uniqueness, UniquenessMap};
 
 /// Run the full ARC optimization pipeline on a single function.
 ///
