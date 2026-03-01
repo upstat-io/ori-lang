@@ -11,6 +11,38 @@ use super::helpers::{
 };
 use super::DispatchCtx;
 
+/// Decode an internal map key back to a `Value`.
+///
+/// Map keys are stored with type prefixes (e.g., `"s:hello"`, `"i:42"`) via
+/// `Value::to_map_key()`. This reverses the encoding for user-facing methods
+/// like `keys()` and `entries()`.
+fn decode_map_key(key: &str) -> Value {
+    match key.split_once(':') {
+        Some(("s", rest)) => Value::string(rest.to_string()),
+        Some(("i", rest)) => rest
+            .parse::<i64>()
+            .map_or_else(|_| Value::string(key.to_string()), Value::int),
+        Some(("f", rest)) => rest
+            .parse::<f64>()
+            .map_or_else(|_| Value::string(key.to_string()), Value::Float),
+        Some(("b", rest)) => rest
+            .parse::<bool>()
+            .map_or_else(|_| Value::string(key.to_string()), Value::Bool),
+        Some(("c", rest)) => {
+            let mut chars = rest.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) => Value::Char(c),
+                _ => Value::string(key.to_string()),
+            }
+        }
+        Some(("y", rest)) => rest
+            .parse::<u8>()
+            .map_or_else(|_| Value::string(key.to_string()), Value::Byte),
+        // Complex keys (Duration, Size, nested) — fall back to raw string
+        _ => Value::string(key.to_string()),
+    }
+}
+
 /// Dispatch methods on string values.
 #[expect(
     clippy::needless_pass_by_value,
@@ -123,7 +155,7 @@ pub fn dispatch_string_method(
         require_args("repeat", 1, args.len())?;
         let count = require_int_arg("repeat", &args, 0)?;
         let n_usize = usize::try_from(count)
-            .map_err(|_| ori_patterns::EvalError::new("repeat count must be non-negative"))?;
+            .map_err(|_| ori_patterns::wrong_arg_type("repeat", "non-negative int"))?;
         Ok(Value::string(s.repeat(n_usize)))
     // Into trait: str -> Error (wraps string as error message)
     } else if method == n.into {
@@ -174,17 +206,13 @@ pub fn dispatch_range_method(
 }
 
 /// Dispatch methods on map values.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "args: Vec<Value> for consistent dispatch signature across collection types"
-)]
 pub fn dispatch_map_method(
     receiver: Value,
     method: Name,
     args: Vec<Value>,
     ctx: &DispatchCtx<'_>,
 ) -> EvalResult {
-    let Value::Map(map) = receiver else {
+    let Value::Map(mut map) = receiver else {
         unreachable!("dispatch_map_method called with non-map receiver")
     };
 
@@ -194,16 +222,50 @@ pub fn dispatch_map_method(
         len_to_value(map.len(), "map")
     } else if method == n.is_empty {
         Ok(Value::Bool(map.is_empty()))
-    } else if method == n.contains_key {
+    } else if method == n.contains_key || method == n.contains {
         require_args("contains_key", 1, args.len())?;
-        let key = require_str_arg("contains_key", &args, 0)?;
-        Ok(Value::Bool(map.contains_key(key)))
+        let key = args[0]
+            .to_map_key()
+            .map_err(|_| ori_patterns::wrong_arg_type("contains_key", "hashable value"))?;
+        Ok(Value::Bool(map.contains_key(&key)))
+    } else if method == n.get {
+        require_args("get", 1, args.len())?;
+        let key = args[0]
+            .to_map_key()
+            .map_err(|_| ori_patterns::wrong_arg_type("get", "hashable value"))?;
+        match map.get(&key) {
+            Some(v) => Ok(Value::some(v.clone())),
+            None => Ok(Value::None),
+        }
+    } else if method == n.insert {
+        require_args("insert", 2, args.len())?;
+        let mut args = args;
+        let value = args.swap_remove(1);
+        let key = args[0]
+            .to_map_key()
+            .map_err(|_| ori_patterns::wrong_arg_type("insert", "hashable value"))?;
+        map.make_mut().insert(key, value);
+        Ok(Value::Map(map))
+    } else if method == n.remove {
+        require_args("remove", 1, args.len())?;
+        let key = args[0]
+            .to_map_key()
+            .map_err(|_| ori_patterns::wrong_arg_type("remove", "hashable value"))?;
+        map.make_mut().remove(&key);
+        Ok(Value::Map(map))
     } else if method == n.keys {
-        let keys: Vec<Value> = map.keys().map(|k| Value::string(k.clone())).collect();
+        let keys: Vec<Value> = map.keys().map(|k| decode_map_key(k)).collect();
         Ok(Value::list(keys))
     } else if method == n.values {
         let values: Vec<Value> = map.values().cloned().collect();
         Ok(Value::list(values))
+    } else if method == n.entries {
+        require_args("entries", 0, args.len())?;
+        let pairs: Vec<Value> = map
+            .iter()
+            .map(|(k, v)| Value::tuple(vec![decode_map_key(k), v.clone()]))
+            .collect();
+        Ok(Value::list(pairs))
     } else if method == n.iter {
         require_args("iter", 0, args.len())?;
         Ok(Value::iterator(IteratorValue::from_map(&map)))
