@@ -83,7 +83,7 @@ Key characteristics:
 - **No interning or keyword resolution** — The raw scanner sees identifiers and keywords identically (`RawTag::Ident`)
 
 ```rust
-// RawTag is a u8 enum with 68 variants (gaps in numbering for future expansion)
+// RawTag is a u8 enum with ~80 variants (gaps in numbering for future expansion)
 #[repr(u8)]
 pub enum RawTag {
     Ident, Int, Float, HexInt, BinInt, String, Char, Duration, Size,
@@ -207,15 +207,15 @@ Reserved keywords are resolved via a length-bucketed lookup table. The cooker fi
 
 ### Soft Keywords
 
-Nine pattern keywords are context-sensitive — they are only recognized as keywords when immediately followed by `(`:
+Six pattern keywords are context-sensitive — they are only recognized as keywords when immediately followed by `(`:
 
 ```
-cache, catch, handler, nursery, parallel, recurse, spawn, timeout, try
+cache, catch, parallel, recurse, spawn, timeout
 ```
 
 Resolution uses a three-stage filter:
 1. **Length + first byte** — Eliminates >99% of identifiers before any string comparison
-2. **String match** — Checks against the 9 known soft keywords
+2. **String match** — Checks against the 6 known soft keywords
 3. **Lookahead** — Skips horizontal whitespace (` `, `\t`) but NOT newlines, checks for `(`
 
 Resolved soft keywords have the `CONTEXTUAL_KW` flag set in `TokenFlags`.

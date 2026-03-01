@@ -31,7 +31,8 @@ pub fn eval_ident(name: Name, env: &Environment, interner: &StringInterner) -> E
 /// Get the length of a collection for `HashLength` resolution.
 pub fn get_collection_length(value: &Value) -> Result<i64, EvalError> {
     let len = match value {
-        Value::List(items) | Value::Tuple(items) => items.len(),
+        Value::List(list) => list.len(),
+        Value::Tuple(items) => items.len(),
         Value::Str(s) => s.chars().count(),
         Value::Map(map) => map.len(),
         _ => return Err(cannot_get_length(value.type_name())),

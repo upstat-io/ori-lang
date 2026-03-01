@@ -159,22 +159,22 @@ impl Interpreter<'_> {
     ) -> EvalResult {
         match method {
             CollectionMethod::Map => match receiver {
-                Value::List(items) => self.eval_list_map(items.as_ref(), args),
+                Value::List(ref items) => self.eval_list_map(items, args),
                 Value::Range(range) => self.eval_range_map(&range, args),
                 _ => Err(map_requires_collection().into()),
             },
             CollectionMethod::Filter => match receiver {
-                Value::List(items) => self.eval_list_filter(items.as_ref(), args),
+                Value::List(ref items) => self.eval_list_filter(items, args),
                 Value::Range(range) => self.eval_range_filter(&range, args),
                 _ => Err(filter_requires_collection().into()),
             },
             CollectionMethod::Fold => match receiver {
-                Value::List(items) => self.eval_list_fold(items.as_ref(), args),
+                Value::List(ref items) => self.eval_list_fold(items, args),
                 Value::Range(range) => self.eval_range_fold(&range, args),
                 _ => Err(fold_requires_collection().into()),
             },
             CollectionMethod::Find => match receiver {
-                Value::List(items) => self.eval_list_find(items.as_ref(), args),
+                Value::List(ref items) => self.eval_list_find(items, args),
                 _ => Err(find_requires_list().into()),
             },
             CollectionMethod::Collect => match receiver {
@@ -182,15 +182,15 @@ impl Interpreter<'_> {
                 _ => Err(collect_requires_range().into()),
             },
             CollectionMethod::Any => match receiver {
-                Value::List(items) => self.eval_list_any(items.as_ref(), args),
+                Value::List(ref items) => self.eval_list_any(items, args),
                 _ => Err(any_requires_list().into()),
             },
             CollectionMethod::All => match receiver {
-                Value::List(items) => self.eval_list_all(items.as_ref(), args),
+                Value::List(ref items) => self.eval_list_all(items, args),
                 _ => Err(all_requires_list().into()),
             },
             CollectionMethod::Join => match receiver {
-                Value::List(items) => self.eval_list_join(items.as_ref(), args),
+                Value::List(ref items) => self.eval_list_join(items, args),
                 _ => Err(join_requires_list().into()),
             },
             CollectionMethod::MapEntries => match receiver {

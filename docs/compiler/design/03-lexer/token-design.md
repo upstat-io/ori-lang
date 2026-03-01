@@ -29,8 +29,8 @@ Asm, Inline, Static, Union, View
 **Context-sensitive keywords** (resolved via lookahead or parser context):
 
 ```rust
-// Pattern matching (9)
-Cache, Catch, Handler, Nursery, Parallel, Recurse, Spawn, Timeout, Try
+// Pattern matching (6)
+Cache, Catch, Parallel, Recurse, Spawn, Timeout
 
 // Pattern arguments (10)
 Body, Buffer, Default, Expr, Map, OnError, Over, Pre, Post, State
@@ -59,7 +59,7 @@ Star,    // *
 Slash,   // /
 Percent, // %
 Div,     // div (floor division)
-StarStar, // ** (power)
+// Note: ** (power) is spec'd but has no token — not yet implemented
 
 // Comparison
 EqEq,    // ==
@@ -84,13 +84,13 @@ LtLt,    // <<
 // Special
 Arrow,          // ->
 FatArrow,       // =>
-PipeGt,         // |> (pipe)
+// Note: |> (pipe) is spec'd but has no token — not yet implemented
 Question,       // ?
 DoubleQuestion, // ?? (coalesce)
 DotDot,         // ..
 DotDotEq,       // ..=
 DotDotDot,      // ...
-At,             // @ (matmul)
+At,             // @ (function sigil in declarations, matmul operator in expressions)
 ```
 
 ### Delimiters
@@ -109,7 +109,7 @@ Colon,       // :
 DoubleColon, // ::
 Semicolon,   // ; (required for statement termination and certain item definitions)
 Dot,         // .
-At,          // @ (sigil)
+At,          // @ (same token — dual role: sigil and operator)
 Hash,        // # (length shorthand / attribute)
 Underscore,  // _ (wildcard)
 Dollar,      // $ (sigil)
@@ -166,8 +166,8 @@ pub enum TokenKind {
     // Keywords (no data)
     Let, If, Else, Then, /* ... */
 
-    // Soft keywords (no data, resolved contextually)
-    Cache, Catch, Parallel, Spawn, Recurse, Timeout,
+    // Soft keywords (no data, resolved contextually — 6 total)
+    Cache, Catch, Parallel, Recurse, Spawn, Timeout,
 
     // Operators (no data)
     Plus, Minus, Star, /* ... */

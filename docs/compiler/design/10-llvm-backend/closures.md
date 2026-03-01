@@ -28,16 +28,19 @@ When a closure captures no variables, the `env_ptr` field is null. The lambda fu
 
 ### Closures With Captures
 
-When a closure captures variables, a heap-allocated environment struct is created containing the captured values at their native types:
+When a closure captures variables, a heap-allocated (via `ori_rc_alloc`) environment struct is created. The environment struct always includes a `drop_fn` pointer at field 0, followed by captured values at their native types:
 
 ```
 env_ptr ───────────────▶ Environment Struct:
-                         ┌────────────────┬────────────────┬───────┐
-                         │ capture0 (T0)  │ capture1 (T1)  │ ...   │
-                         └────────────────┴────────────────┴───────┘
+                         ┌────────────────┬────────────────┬────────────────┬───────┐
+                         │ drop_fn (ptr)  │ capture0 (T0)  │ capture1 (T1)  │ ...   │
+                         └────────────────┴────────────────┴────────────────┴───────┘
+                           field 0           field 1           field 2
 ```
 
-Each capture is stored at its native LLVM type (not coerced to i64). The lambda function unpacks captures from the environment struct using `struct_gep` with the correct field types.
+The `drop_fn` is a per-closure generated function that RC-decrements all reference-counted captures when the environment's reference count reaches zero. Only captures with `needs_rc(cap_ty) == true` (e.g., `[int]`, `str`, closures) receive RC decrements in the drop function.
+
+Each capture is stored at its native LLVM type (not coerced to i64). The lambda function unpacks captures from the environment struct using `struct_gep` at fields `1..N` (skipping the drop_fn at field 0).
 
 ## Compilation
 
@@ -61,10 +64,11 @@ fn emit_partial_apply(params, body) -> { ptr, ptr } {
     let lambda_fn = declare_function("__lambda_N", [ptr, P1, P2, ...], R);
 
     // In lambda body: unpack captures from env struct via struct_gep
+    // Fields 1..N are captures (field 0 is drop_fn)
     if !captures.is_empty() {
         let env_ptr = get_param(lambda_fn, 0);
         for (i, capture) in captures {
-            let field_ptr = struct_gep(env_struct_ty, env_ptr, i);
+            let field_ptr = struct_gep(env_struct_ty, env_ptr, i + 1);
             let val = load(field_ty, field_ptr);
             scope.bind(capture.name, val);
         }
@@ -73,13 +77,18 @@ fn emit_partial_apply(params, body) -> { ptr, ptr } {
     // Compile body, emit return at native type
     compile_body(body);
 
-    // Build environment
+    // Build environment (heap-allocated, RC-tracked)
     let env_ptr = if captures.is_empty() {
         null_ptr
     } else {
-        let env = alloca(env_struct_type);
+        let drop_fn = generate_closure_drop_fn(env_struct_type, captures);
+        let env = ori_rc_alloc(size_of(env_struct_type));
+        // Field 0: drop function pointer
+        let drop_ptr = struct_gep(env_struct_ty, env, 0);
+        store(drop_fn, drop_ptr);
+        // Fields 1..N: captured values
         for (i, capture) in captures {
-            let ptr = struct_gep(env_struct_ty, env, i);
+            let ptr = struct_gep(env_struct_ty, env, i + 1);
             store(capture.value, ptr);
         }
         env
@@ -113,6 +122,14 @@ fn emit_apply_indirect(closure_val: { ptr, ptr }, args) -> R {
 ```
 
 No tag-bit checking is needed because the calling convention is uniform: all lambda functions accept `ptr %env` as their first parameter, whether or not they use it.
+
+## Non-Capturing Lambda Fast Path
+
+For lambdas that capture no variables, the compiler skips environment allocation entirely. The lambda function pointer is reused directly (cached in `non_capturing_lambdas`), and the `env_ptr` in the fat pointer is set to null. This avoids wrapper generation overhead for simple function-as-value patterns.
+
+## Closure Wrapper Functions
+
+For capturing lambdas, a wrapper function `_ori_partial_N` is generated to bridge calling conventions. The wrapper unpacks captures from the environment struct, then calls the underlying lambda with the correct parameter types. This indirection allows the fat pointer calling convention to remain uniform while each lambda's internal signature matches its actual parameter types.
 
 ## Capture Analysis
 
@@ -154,7 +171,7 @@ The `IrBuilder` provides methods for working with closure fat pointers:
 ## Limitations
 
 - Captured values are stored at native types (no coercion), but the environment struct layout is ephemeral and not accessible across compilation units
-- No closure deallocation currently (relies on program termination or ARC for cleanup)
+- Environment structs are RC-tracked via `ori_rc_alloc`/`ori_rc_dec`; the generated `drop_fn` handles capture cleanup when the refcount reaches zero
 - Closures always use `fastcc` calling convention for the lambda function
 
 ## Source Files

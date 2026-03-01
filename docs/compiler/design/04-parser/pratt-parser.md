@@ -89,9 +89,7 @@ pub(super) mod bp {
 }
 ```
 
-**Note:** The `**` (power) and `|>` (pipe) operators are NOT in this Pratt table.
-- `**` binds tighter than unary but looser than postfix. It is parsed by a dedicated `parse_power_expr()` function between `parse_unary_expr()` and `parse_postfix_expr()`, using right-recursive descent.
-- `|>` has the lowest precedence of all binary operators (level 16) and is parsed by a dedicated loop in `parse_pipe_expr()` which calls the Pratt parser.
+**Note:** The `**` (power) and `|>` (pipe) operators are defined in the grammar spec but are **not yet implemented** in the parser. Neither has a token in the lexer (`StarStar` and `PipeGt` do not exist in `TokenKind`), and no `parse_power_expr()` or `parse_pipe_expr()` functions exist. These operators will be added in a future release.
 
 
 Range operators use a single binding power constant rather than a pair because they are non-associative — `1..10..20` is a parse error. A `parsed_range` flag prevents chaining.

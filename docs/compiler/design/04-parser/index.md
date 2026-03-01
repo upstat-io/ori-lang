@@ -107,7 +107,6 @@ impl ParseContext {
     const IN_PATTERN: Self = Self(0b0_0000_0001);
     const IN_TYPE: Self = Self(0b0_0000_0010);
     const NO_STRUCT_LIT: Self = Self(0b0_0000_0100);
-    const CONST_EXPR: Self = Self(0b0_0000_1000);
     const IN_LOOP: Self = Self(0b0_0001_0000);
     const ALLOW_YIELD: Self = Self(0b0_0010_0000);
     const IN_FUNCTION: Self = Self(0b0_0100_0000);
@@ -184,7 +183,7 @@ Binary operator precedence uses a Pratt binding power table. Operators are liste
 | Level | Operators | Associativity | Binding Power |
 |-------|-----------|---------------|---------------|
 | 1 | `.` `[]` `()` `?` `as` `as?` | Left | — (Postfix) |
-| 2 | `**` | Right | — (Power) |
+| 2 | `**` | Right | — (Not yet implemented) |
 | 3 | `!` `-` `~` | Right | — (Unary) |
 | 4 | `*` `/` `%` `div` `@` | Left | (23, 24) |
 | 5 | `+` `-` | Left | (21, 22) |
@@ -198,9 +197,9 @@ Binary operator precedence uses a Pratt binding power table. Operators are liste
 | 13 | `&&` | Left | (5, 6) |
 | 14 | `\|\|` | Left | (3, 4) |
 | 15 | `??` | Right | (2, 1) |
-| 16 | `\|>` | Left | (—) |
+| 16 | `\|>` | Left | — (Not yet implemented) |
 
-**Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary). `**` and `|>` are handled outside the main Pratt loop due to their unique associativity and binding rules.
+**Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary). `**` (power) and `|>` (pipe) are defined in the grammar spec but not yet implemented in the lexer or parser — they have no token representation and will cause parse errors if used.
 
 
 ## Salsa Integration
