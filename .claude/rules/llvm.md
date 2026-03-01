@@ -1,37 +1,25 @@
 ---
 paths:
-  - "**/ori_llvm/**"
+  - "**ori_llvm**"
 ---
-
-**NO WORKAROUNDS/HACKS/SHORTCUTS.** Proper fixes only. When unsure, STOP and ask. Fact-check against spec. Consult `~/projects/reference_repos/lang_repos/` (includes Swift for ARC, Koka for effects, Lean 4 for RC).
-
-**Ori tooling is under construction** — bugs are usually in compiler, not user code. This is one system: every piece must fit for any piece to work. Fix every issue you encounter — no "unrelated", no "out of scope", no "pre-existing." If it's broken, research why and fix it.
 
 # LLVM Backend
 
-LLVM 17 required. Path in `.cargo/config.toml`.
-
-## Commands
-
-- Build: `cargo bl` (debug), `cargo blr` (release)
-- Clippy: `cargo cll`
-- Tests: `./llvm-test.sh` (unit), `./test-all.sh` (full)
+- LLVM 17 required | path in `.cargo/config.toml`
+- Build: `cargo bl` (debug) | `cargo blr` (release)
+- Clippy: `cargo cll` | Tests: `./llvm-test.sh` (unit) | `./test-all.sh` (full)
 - **Always build both `oric` AND `ori_rt`** — Cargo only builds rlib; staticlib must be explicit
 
 ## MANDATORY: Test with Release Binary
 
-**After ANY `ori_llvm`/`ori_rt` changes, test release:** `cargo blr` → `./test-all.sh`
-Debug and release can differ due to FastISel behavior (see below). Never consider LLVM work done after debug-only testing.
+- **After ANY `ori_llvm`/`ori_rt` changes**: `cargo blr` then `./test-all.sh`
+- Debug and release differ due to FastISel behavior (see below) — never consider LLVM work done after debug-only testing
 
 ## Architecture
 
-**Two-pass compilation:**
-1. **Declare**: Walk functions → compute `FunctionAbi` → declare with calling conventions/attributes
-2. **Define**: Walk again → lower through ARC pipeline (CanExpr → ARC IR → `ArcIrEmitter` → LLVM IR)
-
-**Pipeline**: `declare_all()` → `define_all()` → `compile_tests()` → `compile_impls()` → `compile_derives()` → `generate_main_wrapper()`
-
-**ARC codegen is the only path.** All functions (JIT and AOT) go through `CanExpr → ARC IR → ArcIrEmitter → LLVM IR` with full RC lifecycle management.
+- **Two-pass compilation**: (1) Declare: walk functions → `FunctionAbi` → declare with calling conventions/attributes. (2) Define: walk again → ARC pipeline (CanExpr → ARC IR → `ArcIrEmitter` → LLVM IR)
+- **Pipeline**: `declare_all()` → `define_all()` → `compile_tests()` → `compile_impls()` → `compile_derives()` → `generate_main_wrapper()`
+- **ARC codegen is the only path** — all functions go through `CanExpr → ARC IR → ArcIrEmitter → LLVM IR`
 
 ## Key Abstractions
 
@@ -46,15 +34,12 @@ Debug and release can differ due to FastISel behavior (see below). Never conside
 ## Critical Rules
 
 ### FastISel Aggregate Bug
-**NEVER `load %BigStruct, ptr` for structs >16 bytes in JIT code.** Use per-field `struct_gep` + `load` + `insert_value`. See `FunctionCompiler::load_indirect_param()`.
-- **Symptom**: SIGSEGV in release only, identical IR in both builds
-- **Cause**: FastISel mishandles large aggregate spills; release runtime callees expose overlap
-- Entry-block allocas, `noredzone`, calling convention changes do NOT fix this
+- **NEVER `load %BigStruct, ptr` for structs >16 bytes in JIT** — use per-field `struct_gep` + `load` + `insert_value`. See `FunctionCompiler::load_indirect_param()`
+- Symptom: SIGSEGV in release only, identical IR in both builds
+- Cause: FastISel mishandles large aggregate spills; entry-block allocas / `noredzone` / calling convention changes do NOT fix
 
 ### Loop Latch Pattern
-```
-entry → header → body → latch → header (or exit)
-```
+- `entry → header → body → latch → header (or exit)`
 - **`continue` → latch** (NOT header) — skipping latch = infinite loop
 - **`break` → exit**
 
@@ -65,14 +50,14 @@ entry → header → body → latch → header (or exit)
 
 ## Derive Codegen
 
-`codegen/derive_codegen/` — sync point with evaluator/type-checker. All 7 derived traits via strategy dispatch:
-- `ForEachField` → Eq, Comparable, Hashable
-- `FormatFields` → Printable, Debug
-- `CloneFields` → Clone | `DefaultConstruct` → Default
+- `codegen/derive_codegen/` — sync point with evaluator/type-checker | all 7 derived traits via strategy dispatch:
+  - `ForEachField` → Eq, Comparable, Hashable
+  - `FormatFields` → Printable, Debug
+  - `CloneFields` → Clone | `DefaultConstruct` → Default
 
 ## Type-Qualified Mangling
 
-`Point.distance` → `_ori_Point$distance` | `Line.distance` → `_ori_Line$distance`
+- `Point.distance` → `_ori_Point$distance` | `Line.distance` → `_ori_Line$distance`
 
 ## Debugging
 
@@ -83,28 +68,16 @@ entry → header → body → latch → header (or exit)
 | `ORI_DUMP_AFTER_ARC=1` | ARC IR with RC strategy annotations |
 | `ORI_LOG=ori_llvm=debug` | Codegen event log (function-level) |
 | `ORI_LOG=ori_llvm=trace` | Per-instruction detail (very verbose) |
-| `ORI_TRACE_RC=1 ./binary` | Runtime RC event trace (alloc/inc/dec/free) |
-| `ORI_RT_DEBUG=1 ./binary` | Runtime assertions (header validation, bounds checks) |
-| `ORI_CHECK_LEAKS=1 ./binary` | Leak check with attribution on exit |
 | `ORI_AUDIT_CODEGEN=1` | In-pipeline RC/COW/ABI audit (add `ORI_AUDIT_STRICT=1` for pessimistic) |
 
-**Diagnostic scripts** (`diagnostics/`) — use these FIRST for LLVM/AOT bugs:
-- `diagnostics/ir-dump.sh <file.ori>` — annotated LLVM IR dump
-- `diagnostics/ir-diff.sh <a.ori> <b.ori>` — compare IR between two programs
-- `diagnostics/rc-stats.sh <file.ori>` — RC operation balance per function (flags over-release/leaks)
-- `diagnostics/codegen-audit.sh <file.ori>` — static RC balance, COW correctness, ABI conformance (`--strict`, `--function <name>`)
-- `diagnostics/diagnose-aot.sh <file.ori>` — all-in-one: build + run + leak check + RC stats + IR (add `--valgrind` for memory errors)
-- `diagnostics/dual-exec-debug.sh <file.ori>` — compare interpreter vs AOT output; auto-dumps IR + RC stats on mismatch
-
-**In-pipeline audit** (`ORI_AUDIT_CODEGEN=1`): Rust-based LLVM IR verification during compilation. Checks RC alloc/dec balance, COW sequencing, ABI arg counts, large aggregate loads. `ORI_AUDIT_STRICT=1` for pessimistic mode; `ORI_AUDIT_FUNCTION=name` to filter.
-
-**Triage**: Verification fail = our codegen bug. Optimization crash = `opt -verify-each -opt-bisect-limit=N`. Runtime segfault = check ABI/GEP/aggregate loads. Compare with `clang -emit-llvm -S -O0` for reference IR.
-
-Tests run **sequentially** (not parallel) due to `Context::create()` contention.
+- **Runtime**: `ORI_TRACE_RC=1` | `ORI_RT_DEBUG=1` | `ORI_CHECK_LEAKS=1` (on compiled binary)
+- **Diagnostic scripts**: `diagnostics/ir-dump.sh` | `ir-diff.sh` | `rc-stats.sh` | `codegen-audit.sh` | `diagnose-aot.sh` | `dual-exec-debug.sh` (see compiler.md for full list)
+- **Triage**: Verification fail = our codegen bug | optimization crash = `opt -verify-each -opt-bisect-limit=N` | runtime segfault = check ABI/GEP/aggregate loads | compare with `clang -emit-llvm -S -O0`
+- Tests run **sequentially** (not parallel) due to `Context::create()` contention
 
 ## Verification
 
-Verify at multiple points: per-function (`fn_val.verify(true)`), pre-optimization, post-optimization. Dump IR on failure.
+- Verify at multiple points: per-function (`fn_val.verify(true)`), pre-optimization, post-optimization | dump IR on failure
 
 ## Key Files
 

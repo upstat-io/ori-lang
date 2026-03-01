@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.rs"
+  - "*.rs"
 ---
 
 # Code Hygiene Rules
@@ -15,13 +15,9 @@ paths:
 6. Inherent `impl` blocks (immediately after their type)
 7. Trait `impl` blocks (immediately after inherent impls)
 8. Free functions
-9. `#[cfg(test)] mod tests;` at bottom (declaration only — test body lives in sibling `tests.rs`)
+9. `#[cfg(test)] mod tests;` at bottom (declaration only — body in sibling `tests.rs`)
 
-**Allowed `#[cfg(test)]` exceptions in source files** (NOT violations of the sibling pattern):
-- Helper functions that need private access: `#[cfg(test)] fn make_test_pool() -> Pool { ... }`
-- Test-only imports: `#[cfg(test)] use crate::test_helpers::MockExecutor;`
-- Compile-time assertions: `#[cfg(test)] const _: () = { assert!(size_of::<Item>() <= 8); };`
-- Shared test utility modules: `#[cfg(test)] pub(crate) mod test_helpers;`
+**Allowed `#[cfg(test)]` in source**: helper fns needing private access, test-only imports, const assertions, `pub(crate) mod test_helpers;`
 
 ## Import Organization (3 groups, blank-line separated)
 
@@ -38,7 +34,7 @@ paths:
 5. **Conversion/consumption**: `into_*`, `to_*`
 6. **Private helpers**: in call-order grouping, not alphabetical
 
-Within each group: pub before pub(crate) before private (loose, not strict).
+Within each group: pub before pub(crate) before private (loose).
 
 ## Naming
 
@@ -50,60 +46,50 @@ Within each group: pub before pub(crate) before private (loose, not strict).
 - Factory: `new`, `with_*`
 
 **Variables** — scope-scaled:
-- 1 char in scopes <= 3 lines: `c`, `i`, `n`, `b`
-- 2-4 chars in scopes <= 15 lines: `ch`, `tok`, `pos`, `len`, `src`, `buf`, `err`, `kw`
-- Descriptive (5+ chars) in larger scopes: `token_span`, `base_offset`, `content_str`
-- Standard abbreviations: `pos`, `len`, `ch`, `tok`, `src`, `buf`, `err`, `idx`, `kw`, `ctx`
+- 1 char in <= 3 lines: `c`, `i`, `n`, `b`
+- 2-4 chars in <= 15 lines: `ch`, `tok`, `pos`, `len`, `src`, `buf`, `err`, `kw`
+- Descriptive in larger scopes: `token_span`, `base_offset`, `content_str`
 
 ## Struct/Enum Field Ordering
 
-1. Primary data (the core state)
+1. Primary data (core state)
 2. Secondary/derived data
 3. Configuration/options
 4. Flags/booleans last
 
-Inline comments on struct fields when purpose isn't obvious from the name.
+Inline comments on struct fields when purpose isn't obvious.
 
 ## Comments
 
-**Always**:
-- `//!` module doc on every file
-- `///` on all `pub` items
-- Comment WHY, not WHAT
-- `debug_assert!` to document preconditions (executable > prose)
-
-**Never**:
-- Decorative banners (`// ───`, `// ===`, `// ***`, `// ---`)
-- Comments restating what code does
-- Commented-out code
-- `// TODO` without actionable context
-
-**Section labels** in large enums/matches: plain `// Section name` without decoration.
+- `//!` module doc on every file; `///` on all `pub` items
+- Comment WHY, not WHAT; `debug_assert!` for preconditions
+- No decorative banners (`// ===`, `// ---`, `// ***`)
+- No comments restating code, no commented-out code, no bare `// TODO`
+- Section labels in large enums/matches: plain `// Section name`
 
 ## Derive vs Manual
 
 - **Derive** when impl is standard (field-by-field equality, hash, debug)
-- **Manual** only when behavior differs from derive (custom Debug output, selective fields, etc.)
-- If you can't articulate WHY the manual impl differs from derive, use derive
+- **Manual** only when behavior differs from derive
+- If you can't articulate WHY manual differs, use derive
 
 ## Visibility
 
 - Private by default; minimize pub surface
 - `pub(crate)` for cross-module internal use
-- No dead pub items (pub but unused outside crate)
-- No dead code (functions, imports, enum variants never used)
+- No dead pub items; no dead code
 
 ## File Size
 
-- **500 line recommended limit** for source files (excluding `tests.rs`)
-- When adding code that would exceed 500 lines, **split first** — don't add then plan to split later
-- When touching a file already over 500 lines, take the opportunity to split it
-- Split by extracting logical groups into submodules: related methods, type groups, match arm handlers
-- Tests always in sibling `tests.rs` (use `scripts/extract_tests.py` for extraction)
+- **500 line limit** for source files (excluding `tests.rs`)
+- Exceeding 500 lines: **split first**, don't add then plan to split
+- Touching a file over 500 lines: take the opportunity to split
+- Split by extracting logical groups into submodules
+- Tests always in sibling `tests.rs` (use `scripts/extract_tests.py`)
 
 ## Style
 
 - No `#[allow(clippy)]` without `reason = "..."` (use `#[expect]` when possible)
-- Functions < 100 lines (strongly prefer shorter — target < 50; dispatch tables exempt)
+- Functions < 100 lines (target < 50; dispatch tables exempt)
 - Consistent patterns across similar code within same file
 - No dead/commented-out code

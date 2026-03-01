@@ -1,23 +1,16 @@
 ---
 paths:
-  - "plans/roadmap/**"
-  - ".claude/commands/*-roadmap.md"
-  - ".claude/skills/continue-roadmap/**"
+  - "**roadmap**"
 ---
 
 # Roadmap Rules
 
-## No Emojis
-
-**Never use emojis in roadmap files, roadmap commands, or roadmap skills.** Use plain text markers instead:
+**No emojis.** Use plain text markers:
 
 | Instead of | Use |
 |------------|-----|
-| Checkmark emoji | `[done]` |
-| Yellow circle emoji | `[partial]` |
-| Red X emoji | `[todo]` |
-| Warning emoji | `WARNING:` or omit (the label like `BUG FOUND` is already clear) |
-| Search/magnifying glass emoji | Omit (the label like `WEAK TESTS` is already clear) |
+| Checkmark/circle/X emojis | `[done]`, `[partial]`, `[todo]` |
+| Warning/search emojis | Omit — labels like `BUG FOUND`, `WEAK TESTS` are self-explanatory |
 | Any status emoji | `[approved]`, `[draft]`, `[missing]`, etc. |
 
-Status annotations use **uppercase labels** (e.g., `REGRESSION`, `WRONG TEST`, `STALE TEST`, `BUG FOUND`, `NEEDS TESTS`, `WEAK TESTS`) — the label itself conveys severity without emoji decoration.
+Status annotations: **UPPERCASE labels** (`REGRESSION`, `WRONG TEST`, `STALE TEST`, `BUG FOUND`, `NEEDS TESTS`, `WEAK TESTS`).

@@ -55,6 +55,71 @@ use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
 use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
 
+/// DFS helper for RPO computation. Visits successors then appends self
+/// to post-order list. Defined at module level to satisfy `items_after_statements`.
+fn rpo_dfs(
+    func: &ArcFunction,
+    idx: usize,
+    visited: &mut [bool],
+    post_order: &mut Vec<usize>,
+    dead: &rustc_hash::FxHashSet<usize>,
+) {
+    if idx >= func.blocks.len() || visited[idx] || dead.contains(&idx) {
+        return;
+    }
+    visited[idx] = true;
+
+    match &func.blocks[idx].terminator {
+        ArcTerminator::Jump { target, .. } => {
+            rpo_dfs(func, target.index(), visited, post_order, dead);
+        }
+        ArcTerminator::Branch {
+            then_block,
+            else_block,
+            ..
+        } => {
+            rpo_dfs(func, then_block.index(), visited, post_order, dead);
+            rpo_dfs(func, else_block.index(), visited, post_order, dead);
+        }
+        ArcTerminator::Switch { cases, default, .. } => {
+            for &(_, target) in cases {
+                rpo_dfs(func, target.index(), visited, post_order, dead);
+            }
+            rpo_dfs(func, default.index(), visited, post_order, dead);
+        }
+        ArcTerminator::Invoke { normal, unwind, .. } => {
+            rpo_dfs(func, normal.index(), visited, post_order, dead);
+            rpo_dfs(func, unwind.index(), visited, post_order, dead);
+        }
+        ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {}
+    }
+
+    post_order.push(idx);
+}
+
+/// Compute Reverse Post-Order (RPO) traversal of ARC function blocks.
+///
+/// RPO guarantees that a block's dominators (and thus variable definitions
+/// from preceding blocks) are visited before the block itself. This is
+/// critical after `expand_reuse`, which appends fast/slow/merge blocks at
+/// the end of the block array — their Invoke terminators target existing
+/// blocks with lower indices, creating forward references if iterated in
+/// array order.
+fn compute_block_rpo(func: &ArcFunction, dead: &rustc_hash::FxHashSet<usize>) -> Vec<usize> {
+    let n = func.blocks.len();
+    let mut visited = vec![false; n];
+    let mut post_order = Vec::with_capacity(n);
+    rpo_dfs(
+        func,
+        func.entry.index(),
+        &mut visited,
+        &mut post_order,
+        dead,
+    );
+    post_order.reverse();
+    post_order
+}
+
 // ---------------------------------------------------------------------------
 // ArcIrEmitter
 // ---------------------------------------------------------------------------
@@ -92,6 +157,10 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Compare thunks have signature `fn(*const u8, *const u8) -> i32` (-1/0/1)
     /// and are used by `ori_list_sort_cow`.
     compare_thunk_cache: FxHashMap<Idx, FunctionId>,
+    /// Cache: element type `Idx` → already-generated equality thunk `FunctionId`.
+    /// Equality thunks have signature `fn(*const u8, *const u8) -> bool` (i1)
+    /// and are used by map/set COW operations for key/element comparison.
+    eq_thunk_cache: FxHashMap<Idx, FunctionId>,
     /// The LLVM function being compiled.
     current_function: FunctionId,
     /// Shared function-resolution lookup tables.
@@ -130,6 +199,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             elem_dec_fn_cache: FxHashMap::default(),
             elem_inc_fn_cache: FxHashMap::default(),
             compare_thunk_cache: FxHashMap::default(),
+            eq_thunk_cache: FxHashMap::default(),
             current_function,
             ctx,
             partial_apply_counter: 0,
@@ -399,18 +469,23 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             phi_nodes.push(block_phis);
         }
 
-        // Emit each block's body and terminator.
+        // Emit each block's body and terminator in Reverse Post-Order (RPO).
+        //
+        // RPO ensures that a block's dominator (and thus the variable definitions
+        // from preceding blocks) is visited first. This is critical after
+        // `expand_reuse`, which appends fast/slow/merge blocks at the end of the
+        // block array — their Invoke terminators may target existing blocks with
+        // lower array indices, creating forward references if emitted in array order.
+        //
         // Dead unwind blocks are skipped entirely — no LLVM block was created.
         // Live unwind blocks start with a landing pad. Two flavors:
         // - **Cleanup** (terminator = Resume): `landingpad cleanup`, RC cleanup, resume
         // - **Catch** (terminator = Jump): `landingpad catch null`, free exception via
         //   `ori_catch_cleanup`, then jump to catch handler. Used by `catch(expr:)`.
+        let rpo = compute_block_rpo(func, &dead_unwind);
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
-        for block in &func.blocks {
-            // Dead unwind block: no LLVM block exists, skip entirely
-            if dead_unwind.contains(&block.id.index()) {
-                continue;
-            }
+        for &block_idx in &rpo {
+            let block = &func.blocks[block_idx];
 
             self.builder.position_at_end(self.block(block.id));
 
@@ -447,6 +522,21 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 &landingpad_values,
                 func,
             );
+        }
+
+        // Terminate blocks that RPO didn't visit (unreachable from entry).
+        // These blocks were pre-created as LLVM blocks but never filled with
+        // instructions. LLVM requires every block to have a terminator.
+        {
+            let visited: rustc_hash::FxHashSet<usize> = rpo.iter().copied().collect();
+            for (i, llvm_block) in self.block_map.iter().enumerate() {
+                if let Some(block_id) = llvm_block {
+                    if !visited.contains(&i) {
+                        self.builder.position_at_end(*block_id);
+                        self.builder.unreachable();
+                    }
+                }
+            }
         }
 
         // Patch phi incoming values

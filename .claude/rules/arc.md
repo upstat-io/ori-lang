@@ -1,24 +1,19 @@
 ---
 paths:
-  - "**/ori_arc/**"
-  - "**/arc_emitter/**"
+  - "**arc**"
 ---
-
-**NO WORKAROUNDS/HACKS/SHORTCUTS.** Proper fixes only. When unsure, STOP and ask. Fact-check against spec. Consult `~/projects/reference_repos/lang_repos/` (includes Swift for ARC, Koka for effects, Lean 4 for RC).
-
-**Ori tooling is under construction** — bugs are usually in compiler, not user code. This is one system: every piece must fit for any piece to work. Fix every issue you encounter — no "unrelated", no "out of scope", no "pre-existing." If it's broken, research why and fix it.
 
 # ARC Optimization
 
 ## Design
 
-Inspired by Lean 4's LCNF IR and three-way type classification (`Scalar`/`DefiniteRef`/`PossibleRef`). Backend-independent — `ori_arc` has no LLVM dependency. The `arc_emitter` in `ori_llvm` translates ARC IR to LLVM IR.
-
-**Sole codegen path**: As of 2026-02-24, the ARC pipeline is the only codegen path. The previous Tier 1 (`ExprLowerer`) was removed entirely (~11K lines deleted). All LLVM code generation goes through ARC IR. See `plans/aot_codegen_pipeline/` for the full 12-section plan that unified the pipeline.
+- Inspired by Lean 4 LCNF IR | three-way classification: `Scalar`/`DefiniteRef`/`PossibleRef`
+- Backend-independent — `ori_arc` has no LLVM dependency | `arc_emitter` in `ori_llvm` translates ARC IR to LLVM IR
+- **Sole codegen path** (since 2026-02-24) — previous Tier 1 `ExprLowerer` removed (~11K lines). All LLVM codegen goes through ARC IR. See `plans/aot_codegen_pipeline/`
 
 ## Pipeline
 
-Canonical pass ordering (do NOT reorder or skip passes):
+Canonical pass ordering (do NOT reorder or skip):
 
 ```
 CanExpr → lower → ArcFunction
@@ -33,7 +28,8 @@ CanExpr → lower → ArcFunction
   → cross-block RC elimination (inc/dec pairs across basic blocks)
 ```
 
-Entry points: `run_arc_pipeline()` (single function), `run_arc_pipeline_all()` (batch with borrow application). Borrow signatures are cached per session — recompilation of unchanged function bodies reuses cached sigs.
+- Entry: `run_arc_pipeline()` (single fn) | `run_arc_pipeline_all()` (batch with borrow application)
+- Borrow sigs cached per session — unchanged function bodies reuse cached sigs
 
 ## Key Types
 
@@ -100,102 +96,35 @@ Entry points: `run_arc_pipeline()` (single function), `run_arc_pipeline_all()` (
 
 ## Critical Rules
 
-### No Invisible Gaps
+- **No invisible gaps** — never stub with silent dummy values. Use `todo!("emit_<instr_name>")`, not silent `{ null, null }`. Use `assert!(data.is_empty(), "feature X not yet supported")`, not `let _data = ...`
+- **Vertical slice testing** — every ARC IR instruction with LLVM emission must have an AOT test: Ori source → ARC lowering → borrow inference → RC insertion → LLVM emission → execution
+- **Classification correctness** — `ArcClass` drives all RC behavior. Misclassification is catastrophic:
+  - Scalar as DefiniteRef → unnecessary RC ops (perf bug)
+  - DefiniteRef as Scalar → missing RC ops (use-after-free / leak)
+  - `PossibleRef` after monomorphization → compiler bug
+- **Pipeline ordering** — pass order in `run_arc_pipeline()` is load-bearing:
+  - Borrow inference before RC insertion (ownership drives placement)
+  - Liveness before RC insertion (dead vars skip dec)
+  - Reset/reuse before expansion (detection before lowering)
+  - RC elimination last (removes redundancies from earlier passes)
+  - Do NOT add passes without updating `run_arc_pipeline()`. Do NOT call out of order.
 
-**Never stub with silent dummy values.** When an ARC instruction emission is not yet implemented:
-- Use `todo!("emit_<instr_name>")` — NOT silent `{ null, null }` or zero values
-- If a lowering pass returns data that won't be consumed, use `assert!(data.is_empty(), "feature X not yet supported")` — NOT `let _data = ...`
-**Rationale**: Silent stubs produce wrong output that passes tests. `todo!()` crashes with a clear message. `_var` discards suppress compiler warnings that would signal incomplete work. Invisible gaps compound — by the time you discover them, multiple layers need fixing simultaneously.
+## Debugging
 
-### Vertical Slice Testing
-
-Every ARC IR instruction that has LLVM emission code must have an AOT test exercising the **full pipeline**: Ori source → ARC lowering → borrow inference → RC insertion → LLVM emission → execution. Unit tests for individual passes are necessary but not sufficient.
-
-### Classification Correctness
-
-`ArcClass` determines all RC behavior. Misclassification is catastrophic:
-- **Scalar classified as DefiniteRef**: Unnecessary RC ops (performance bug)
-- **DefiniteRef classified as Scalar**: Missing RC ops (use-after-free / memory leak)
-- After monomorphization, `PossibleRef` should never appear — it's a compiler bug
-
-### Pipeline Ordering
-
-The pass order in `run_arc_pipeline()` is load-bearing. Passes depend on prior pass output:
-- Borrow inference before RC insertion (ownership drives inc/dec placement)
-- Liveness before RC insertion (dead variables don't need dec)
-- Reset/reuse before expansion (detection before lowering)
-- RC elimination last (removes redundancies introduced by earlier passes)
-
-Do NOT add passes without updating `run_arc_pipeline()`. Do NOT call passes out of order.
+- **Tracing**: `ORI_LOG=ori_arc=debug` (function entry/exit, loops, lambdas, match, merges) | `ori_arc=trace` (per-expression lowering, scope bindings) | add `ORI_LOG_TREE=1` for hierarchical view
+- **Phase dump**: `ORI_DUMP_AFTER_ARC=1 ori build file.ori` — ARC IR with RC strategy annotations
+- **Runtime RC**: `ORI_TRACE_RC=1 ./binary` | `ORI_RT_DEBUG=1 ./binary` | `ORI_CHECK_LEAKS=1 ./binary`
+- **Codegen audit**: `ORI_AUDIT_CODEGEN=1 ori build file.ori` (add `ORI_AUDIT_STRICT=1` | `ORI_AUDIT_FUNCTION=name`)
+- **Diagnostic scripts**: `diagnostics/rc-stats.sh` | `codegen-audit.sh` | `diagnose-aot.sh` | `dual-exec-debug.sh` (see compiler.md for full list)
+- **Loop not terminating?** `ori_arc=debug` → break/continue jumps + mutable var counts
+- **Wrong var after if/match?** `ori_arc=trace` → mutable var merge divergence
+- **Lambda captures wrong?** `ori_arc=debug` → capture count, `trace` → each captured name
 
 ## Reference Repos
 
 - **Lean 4**: `lean4/src/Lean/Compiler/IR/RC.lean` (RC insertion), `Borrow.lean` (borrow inference), `ExpandResetReuse.lean` (reuse)
 - **Swift**: `swift/lib/SILOptimizer/ARC/` (ARC optimization), `swift/lib/SIL/` (SIL IR)
 - **Koka**: `koka/src/Core/Borrowed.hs` (borrow analysis), `koka/src/Core/CheckFBIP.hs` (FBIP)
-
-## Debugging / Tracing
-
-**Always use `ORI_LOG` first when debugging ARC issues.** The ARC lowering pipeline is fully instrumented with conditional `tracing` macros — zero-cost when disabled.
-
-### Quick Reference
-
-```bash
-# ARC IR lowering (CanExpr → ARC IR)
-ORI_LOG=ori_arc=debug ori build file.ori          # Function entry/exit, loops, lambdas, match, merges
-ORI_LOG=ori_arc=trace ori build file.ori          # Per-expression lowering, scope bindings, assigns
-ORI_LOG=ori_arc=debug ORI_LOG_TREE=1 ori build f.ori  # Hierarchical view of lowering phases
-
-# ARC IR emission (ARC IR → LLVM IR)
-ORI_LOG=ori_llvm=trace ori build file.ori         # ARC emission detail
-ORI_DUMP_AFTER_LLVM=1 ori build file.ori           # Annotated LLVM IR (Ori names, RC/COW ops)
-ORI_DUMP_AFTER_ARC=1 ori build file.ori            # ARC IR with RC strategy annotations
-
-# Combined: see both lowering and emission
-ORI_LOG=ori_arc=debug,ori_llvm=trace ori build file.ori
-
-# Diagnostic scripts (USE THESE for quick RC debugging)
-ORI_TRACE_RC=1 ./binary                           # Runtime RC event trace (alloc/inc/dec/free)
-ORI_RT_DEBUG=1 ./binary                            # Runtime assertions (header validation, bounds checks)
-ORI_CHECK_LEAKS=1 ./binary                         # Leak check with attribution on exit
-
-# In-pipeline codegen audit (Rust-level, runs during compilation)
-ORI_AUDIT_CODEGEN=1 ori build file.ori            # RC balance, COW sequencing, ABI arg counts
-ORI_AUDIT_STRICT=1 ORI_AUDIT_CODEGEN=1 ori build file.ori  # Pessimistic: COW=freeing, params=RC-managed
-ORI_AUDIT_FUNCTION=name ORI_AUDIT_CODEGEN=1 ori build file.ori  # Filter to specific function
-
-# Diagnostic scripts (USE THESE for quick RC debugging)
-diagnostics/rc-stats.sh file.ori                  # RC balance per function (flags over-release/leaks)
-diagnostics/codegen-audit.sh file.ori             # Static RC balance, COW correctness, ABI checks (--strict)
-diagnostics/diagnose-aot.sh file.ori              # All-in-one: build + leak check + RC stats + IR
-diagnostics/dual-exec-debug.sh file.ori           # Interpreter vs AOT comparison (auto-dumps on mismatch)
-```
-
-### What Each Level Shows (ori_arc)
-
-| Level | Events |
-|-------|--------|
-| `debug` | Function lowering enter/exit (block/var/lambda/problem counts), loop entry (header/body/exit blocks, mutable var count), for-iterator/for-option/for-yield dispatch, match entry (arm count), lambda lowering (param/capture count), break/continue jumps, mutable var merge summary |
-| `trace` | Every `lower_expr` call (id, current BB), pattern bindings (name, var, mutable flag), mutable assignment rebinds (old var → new var), let-pattern bindings, per-variable merge divergence, scope bind/lookup |
-
-### Tracing Instrumented Files
-
-| File | What's traced |
-|------|--------------|
-| `lower/mod.rs` | `lower_function_can` entry/exit, per-param bindings |
-| `lower/expr/mod.rs` | Every `lower_expr` dispatch (id + basic block) |
-| `lower/control_flow/mod.rs` | Block, if, loop, for (range/iterator/option), break, continue, assign, let, match |
-| `lower/control_flow/for_yield.rs` | For-yield dispatch (option vs iterator strategy) |
-| `lower/calls/mod.rs` | Direct/indirect calls, method calls, lambda lowering with captures |
-| `lower/patterns/mod.rs` | Pattern name bindings with mutability |
-| `lower/scope/mod.rs` | Mutable variable merge (per-var divergence + summary) |
-
-### Tips
-
-- **Loop not terminating?** Use `ori_arc=debug` to see break/continue jumps and mutable var counts at loop boundaries.
-- **Wrong variable value after if/match?** Use `ori_arc=trace` to see mutable var merge — which vars diverge and get block params.
-- **Lambda captures wrong?** Use `ori_arc=debug` to see capture count and `ori_arc=trace` to see each captured name.
-- **SSA block params wrong?** Use `ori_arc=trace` with `ORI_LOG_TREE=1` to see the full lowering tree with block parameter threading.
 
 ## Key Files
 

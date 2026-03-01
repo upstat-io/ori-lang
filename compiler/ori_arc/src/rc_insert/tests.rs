@@ -1692,6 +1692,7 @@ fn external_invoke_args_get_dec() {
             borrowing: FxHashSet::default(),
             consuming_receiver: FxHashSet::default(),
             consuming_second_arg: FxHashSet::default(),
+            consuming_receiver_only: FxHashSet::default(),
         },
         &pool,
     );
@@ -1762,6 +1763,7 @@ fn external_invoke_scalar_arg_no_dec() {
             borrowing: FxHashSet::default(),
             consuming_receiver: FxHashSet::default(),
             consuming_second_arg: FxHashSet::default(),
+            consuming_receiver_only: FxHashSet::default(),
         },
         &pool,
     );
@@ -2445,4 +2447,184 @@ fn int_add_still_scalar_no_rc() {
         0,
         "int Add should have zero RC ops"
     );
+}
+
+// ── Duplicate arg dedup tests ──────────────────────────
+
+/// Duplicate borrowing arg — `PrimOp { args: [v0, v0] }` should produce
+/// exactly 1 `RcDec`, not 2 (double-free).
+///
+/// A `PrimOp` borrows its args. When the same variable appears twice in the
+/// arg list and it's at its last use, the backward walk would emit 2 `RcDec`
+/// without dedup — a double-free. The `seen` set prevents this.
+#[test]
+fn duplicate_borrowing_arg_single_dec() {
+    // fn(x: str) -> int { x == x }
+    //
+    // v0: str (owned param)
+    // v1: int (result of PrimOp Eq [v0, v0])
+    //
+    // v0 appears twice in the PrimOp args. It's at its last use (not in
+    // the return), so it should get exactly 1 RcDec.
+    let func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::INT,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Let {
+                dst: v(1),
+                ty: Idx::INT,
+                value: ArcValue::PrimOp {
+                    op: crate::ir::PrimOp::Binary(ori_ir::BinaryOp::Eq),
+                    args: vec![v(0), v(0)],
+                },
+            }],
+            terminator: ArcTerminator::Return { value: v(1) },
+        }],
+        vec![Idx::STR, Idx::INT],
+    );
+
+    let result = run_rc_insert(func);
+
+    // Exactly 1 RcDec for v0 — not 2.
+    assert_eq!(
+        count_dec(&result, 0, v(0)),
+        1,
+        "duplicate PrimOp arg should produce exactly 1 RcDec, not 2"
+    );
+}
+
+/// Duplicate borrowed Invoke args — `Invoke { args: [v0, v0], ownership:
+/// [Borrowed, Borrowed] }` should produce exactly 1 cleanup `RcDec` at the
+/// normal successor, not 2 (double-free).
+#[test]
+fn duplicate_invoke_borrowed_arg_single_cleanup() {
+    // fn(x: str) -> str { invoke f(x, x) → normal b1, unwind b2 }
+    //
+    // v0: str (owned param)
+    // v1: str (invoke result)
+    //
+    // Both Invoke args are v0, both marked Borrowed. v0 is at its last use
+    // (not live-out of block 0). The invoke cleanup pass should emit exactly
+    // 1 RcDec for v0 at the normal successor, not 2.
+    let func = make_func(
+        vec![owned_param(0, Idx::STR)],
+        Idx::STR,
+        vec![
+            ArcBlock {
+                id: b(0),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Invoke {
+                    dst: v(1),
+                    ty: Idx::STR,
+                    func: Name::from_raw(99),
+                    args: vec![v(0), v(0)],
+                    arg_ownership: vec![ArgOwnership::Borrowed, ArgOwnership::Borrowed],
+                    normal: b(1),
+                    unwind: b(2),
+                },
+            },
+            ArcBlock {
+                id: b(1),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Return { value: v(1) },
+            },
+            ArcBlock {
+                id: b(2),
+                params: vec![],
+                body: vec![],
+                terminator: ArcTerminator::Resume,
+            },
+        ],
+        vec![Idx::STR, Idx::STR],
+    );
+
+    let pool = Pool::new();
+    let classifier = ArcClassifier::new(&pool);
+    let liveness = compute_liveness(&func, &classifier);
+
+    let mut result = func;
+    insert_external_invoke_cleanup(&mut result, &classifier, &liveness, &pool);
+
+    // Normal successor (b1) should have exactly 1 RcDec for v0 — not 2.
+    assert_eq!(
+        count_dec(&result, 1, v(0)),
+        1,
+        "duplicate borrowed Invoke arg should produce exactly 1 cleanup RcDec, not 2"
+    );
+}
+
+// ── Type resolution in annotation tests ────────────────
+
+/// Consuming-receiver override through a linked type variable.
+///
+/// When a receiver's type is `Var → Link → List<int>`, `pool.tag()` returns
+/// `Tag::Var` unless `resolve_fully` is called first. Without resolution,
+/// the consuming-receiver override is silently skipped and arg[0] stays
+/// `Borrowed` instead of `Owned` — preventing the ARC pipeline from emitting
+/// the correct RC for COW list methods.
+#[test]
+fn consuming_receiver_through_alias() {
+    use crate::borrow::BuiltinOwnershipSets;
+    use ori_ir::StringInterner;
+
+    let mut pool = Pool::new();
+    let interner = StringInterner::new();
+
+    // Create List<int> via a type variable link:
+    // Var(id=0) → Link → List<int>
+    let list_int = pool.list(Idx::INT);
+    let var = pool.fresh_var();
+    let var_id = pool.data(var);
+    *pool.var_state_mut(var_id) = ori_types::VarState::Link { target: list_int };
+
+    // Callee name for a consuming-receiver method (e.g., "push").
+    let push_name = interner.intern("push");
+
+    // Build a function with: Apply { func: "push", args: [v0, v1] }
+    // where v0 has the linked Var type (should resolve to List<int>).
+    let mut func = make_func(
+        vec![owned_param(0, var), owned_param(1, Idx::INT)],
+        var,
+        vec![ArcBlock {
+            id: b(0),
+            params: vec![],
+            body: vec![ArcInstr::Apply {
+                dst: v(2),
+                ty: var,
+                func: push_name,
+                args: vec![v(0), v(1)],
+                arg_ownership: vec![],
+            }],
+            terminator: ArcTerminator::Return { value: v(2) },
+        }],
+        vec![var, Idx::INT, var],
+    );
+
+    let sigs = FxHashMap::default();
+    let mut builtins = BuiltinOwnershipSets {
+        borrowing: FxHashSet::default(),
+        consuming_receiver: FxHashSet::default(),
+        consuming_second_arg: FxHashSet::default(),
+        consuming_receiver_only: FxHashSet::default(),
+    };
+    builtins.consuming_receiver.insert(push_name);
+
+    annotate_arg_ownership(&mut func, &sigs, &interner, &builtins, &pool);
+
+    // After annotation, arg[0] (the receiver) should be Owned because
+    // the resolved type is List<int> and "push" is a consuming-receiver method.
+    let body_instr = &func.blocks[0].body[0];
+    if let ArcInstr::Apply { arg_ownership, .. } = body_instr {
+        assert_eq!(
+            arg_ownership[0],
+            ArgOwnership::Owned,
+            "consuming-receiver override should apply through type variable link"
+        );
+    } else {
+        panic!("expected Apply instruction");
+    }
 }

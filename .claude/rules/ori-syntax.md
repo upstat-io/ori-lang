@@ -1,8 +1,6 @@
 ---
 paths:
-  - "**/*.ori"
-  - "**/library/**"
-  - "**/test**"
+  - "**"
 ---
 
 # Ori Quick Reference

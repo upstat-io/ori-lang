@@ -362,47 +362,6 @@ pub @quadruple (x: int) -> int = double(x: double(x: x));
 
 If you change `double`, both `test_double` AND `test_quadruple` run. Why? Because `quadruple` depends on `double` — a bug in `double` could break `quadruple`.
 
-### Checking Impact Before Changes
-
-Use the Ori CLI to see what a change would affect:
-
-```bash
-ori impact helpers.ori::double
-```
-
-Output:
-
-```
-Functions that would be affected by changes to @double:
-  helpers.ori::double
-  math.ori::quadruple
-
-Tests that would run:
-  helpers.ori::test_double
-  math.ori::test_quadruple
-```
-
-This helps you understand the blast radius before making changes.
-
-### Tracing Test Failures
-
-When a test fails, Ori can trace it back to the source:
-
-```bash
-ori why test_quadruple
-```
-
-Output:
-
-```
-test_quadruple failed because:
-  → quadruple calls double
-  → double was changed in commit abc123
-  → double now returns x * 3 instead of x * 2
-```
-
-This makes debugging faster — you know exactly what changed and what broke.
-
 ## Running Tests
 
 ### During Development
@@ -671,8 +630,6 @@ ori check --no-test         # Compile only
 ori check --strict          # Fail build on test failure (CI)
 ori test                    # Run all tests
 ori test --only-targeted    # Only targeted tests
-ori impact fn_name          # Show change impact
-ori why test_name           # Trace test failure
 ```
 
 ## What's Next

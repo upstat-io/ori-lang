@@ -1,11 +1,7 @@
 ---
 paths:
-  - "**/ori_ir/**"
+  - "**ori_ir**"
 ---
-
-**NO WORKAROUNDS/HACKS/SHORTCUTS.** Proper fixes only. When unsure, STOP and ask. Fact-check against spec. Consult `~/projects/reference_repos/lang_repos/` (includes Swift for ARC, Koka for effects, Lean 4 for RC).
-
-**Ori tooling is under construction** — bugs are usually in compiler, not user code. This is one system: every piece must fit for any piece to work. Fix every issue you encounter — no "unrelated", no "out of scope", no "pre-existing." If it's broken, research why and fix it.
 
 # IR (AST)
 
@@ -28,56 +24,32 @@ paths:
 
 ## Range Types
 - `ExprRange { start: u32, len: u16 }` = 8 bytes
-- `define_range!` macro: `.new()`, `.is_empty()`, `.len()`, `EMPTY`
+- `define_range!` macro: `.new()` `.is_empty()` `.len()` `EMPTY`
 
 ## Span
-- 8 bytes: `start: u32, end: u32`
-- `Span::DUMMY` for generated code
+- 8 bytes: `start: u32, end: u32` | `Span::DUMMY` for generated code
 
 ## Name Interning
-- `Name(u32)` with sharded layout
-- `Name::EMPTY` at (shard=0, local=0)
+- `Name(u32)` with sharded layout | `Name::EMPTY` at (shard=0, local=0)
 
 ## Visitor
 - `Visitor<'ast>` trait + `walk_*()` functions
 - Visitor mutates own state; AST immutable
 
-## Debugging / Tracing
-
-The `ori_ir` crate does not use tracing directly (it's a data structure crate). Debug IR issues through consuming crates:
-
-```bash
-ORI_LOG=oric=debug ori check file.ori               # See Salsa query flow (tokens→parsed→typed)
-ORI_LOG=ori_types=trace ori check file.ori          # See how IR nodes are consumed by type checker
-ORI_LOG=ori_eval=trace ori run file.ori             # See how IR nodes are consumed by evaluator
-```
-
-### Phase Dumps (inspect IR at each stage)
-```bash
-ORI_DUMP_AFTER_PARSE=1 ori check file.ori           # AST after parsing
-ORI_DUMP_AFTER_TYPECK=1 ori check file.ori          # Typed IR after type checking
-ORI_DUMP_AFTER_ARC=1 ori build file.ori             # ARC IR with RC strategies
-ORI_DUMP_AFTER_LLVM=1 ori build file.ori            # Annotated LLVM IR
-```
-
-**Tips**:
-- TypeId mismatch? Check `type_id.rs` alignment with `ori_types::Idx` (primitives 0-11 must match)
-- Wrong ExprId? Use `ori_types=trace` to see which expression IDs the type checker processes
-- Arena issue? Add temporary `tracing::debug!` calls to the IR code you're debugging
-
 ## DerivedTrait (Source of Truth)
+- `derives/mod.rs` defines `DerivedTrait` -- canonical list of all derivable traits
+- Current variants: Eq, Clone, Hashable, Printable, Debug, Default, Comparable
+- **Sync points** (all must update when adding a variant):
+  - `ori_types/check/registration/` -- trait + impl registration
+  - `ori_eval/interpreter/derived_methods.rs` -- runtime dispatch
+  - `ori_eval/derives/mod.rs` -- derive processing pipeline
+  - `ori_llvm/codegen/derive_codegen.rs` -- LLVM IR generation
+- **DO NOT** modify without updating all sync points | see CLAUDE.md "Adding a New Derived Trait"
 
-`derives/mod.rs` defines `DerivedTrait` — the **canonical list of all derivable traits**. This enum is consumed by 4 downstream crates. It is the single source of truth.
-
-**Current variants**: Eq, Clone, Hashable, Printable, Debug, Default, Comparable
-
-**Sync points** (all must be updated when adding a variant):
-- `ori_types/check/registration/` — trait + impl registration
-- `ori_eval/interpreter/derived_methods.rs` — runtime dispatch
-- `ori_eval/derives/mod.rs` — derive processing pipeline
-- `ori_llvm/codegen/derive_codegen.rs` — LLVM IR generation
-
-**DO NOT** modify `DerivedTrait` without updating all sync points. See CLAUDE.md "Adding a New Derived Trait" checklist.
+## Tracing
+- `ori_ir` is a data structure crate -- no direct tracing | debug through consuming crates
+- Phase dumps: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR)
+- For LLVM IR debugging (especially derive codegen), see llvm.md
 
 ## Key Files
 - `arena/`: ExprArena, ranges
@@ -87,7 +59,3 @@ ORI_DUMP_AFTER_LLVM=1 ori build file.ori            # Annotated LLVM IR
 - `visitor.rs`: Visitor trait
 - `derives/`: DerivedTrait enum (source of truth for all derivable traits)
 - `builtin_methods/`: Built-in method name constants
-
-## LLVM Debugging
-
-For LLVM IR debugging workflow (especially derive codegen issues that originate in `ori_ir`), see @llvm.md

@@ -1,11 +1,7 @@
 ---
 paths:
-  - "**/ori_types/**"
+  - "**ori_types**"
 ---
-
-**NO WORKAROUNDS/HACKS/SHORTCUTS.** Proper fixes only. When unsure, STOP and ask. Fact-check against spec. Consult `~/projects/reference_repos/lang_repos/` (includes Swift for ARC, Koka for effects, Lean 4 for RC).
-
-**Ori tooling is under construction** — bugs are usually in compiler, not user code. This is one system: every piece must fit for any piece to work. Fix every issue you encounter — no "unrelated", no "out of scope", no "pre-existing." If it's broken, research why and fix it.
 
 # Type System (V2)
 
@@ -18,25 +14,25 @@ paths:
 - O(1) equality: `idx1 == idx2` (interning deduplication)
 
 ## TypeId vs Idx
-- `TypeId` (`ori_ir`): Parser-level type index. Same layout as Idx for primitives 0-11.
-- `Idx` (`ori_types`): Type checker pool handle. Used by unification, inference, registries.
-- Bridge: `resolve_type_id()` maps TypeId→Idx (identity for primitives)
+- `TypeId` (`ori_ir`): Parser-level type index | same layout as Idx for primitives 0-11
+- `Idx` (`ori_types`): Type checker pool handle | used by unification, inference, registries
+- Bridge: `resolve_type_id()` maps TypeId -> Idx (identity for primitives)
 
 ## Type Variants (via Tag)
-- Primitives: `Int`, `Float`, `Bool`, `Str`, `Char`, `Byte`, `Unit`, `Never`, `Duration`, `Size`, `Ordering`
-- Simple containers: `List`, `Option`, `Set`, `Channel`, `Range` (data = child Idx)
-- Two-child: `Map`, `Result` (data = index into extra array)
-- Complex: `Function`, `Tuple`, `Struct`, `Enum` (extra array with length prefix)
-- Named: `Named`, `Applied`, `Alias`
-- Variables: `Var`, `BoundVar`, `RigidVar`
+- Primitives: `Int` `Float` `Bool` `Str` `Char` `Byte` `Unit` `Never` `Duration` `Size` `Ordering`
+- Simple containers: `List` `Option` `Set` `Channel` `Range` (data = child Idx)
+- Two-child: `Map` `Result` (data = index into extra array)
+- Complex: `Function` `Tuple` `Struct` `Enum` (extra array with length prefix)
+- Named: `Named` `Applied` `Alias`
+- Variables: `Var` `BoundVar` `RigidVar`
 - Schemes: `Scheme`
-- Special: `Projection`, `ModuleNs`, `Infer`, `SelfType`
+- Special: `Projection` `ModuleNs` `Infer` `SelfType`
 
 ## TypeFlags (Pre-Computed Metadata)
 - Computed once at interning time, O(1) queries
-- Presence: `HAS_VAR`, `HAS_ERROR`, `HAS_INFER`, etc.
-- Category: `IS_PRIMITIVE`, `IS_CONTAINER`, `IS_FUNCTION`, etc.
-- Optimization: `NEEDS_SUBST`, `IS_RESOLVED`, `IS_MONO`
+- Presence: `HAS_VAR` `HAS_ERROR` `HAS_INFER` etc.
+- Category: `IS_PRIMITIVE` `IS_CONTAINER` `IS_FUNCTION` etc.
+- Optimization: `NEEDS_SUBST` `IS_RESOLVED` `IS_MONO`
 
 ## Inference Engine
 - `InferEngine`: Mutable state wrapping `Pool`
@@ -48,42 +44,20 @@ paths:
 ## Registries
 - `TypeRegistry`: User-defined types (struct, enum, newtype, alias)
 - `TraitRegistry`: Traits and implementations
-- `MethodRegistry`: Unified lookup (builtin → inherent → trait)
+- `MethodRegistry`: Unified lookup (builtin -> inherent -> trait)
 
 ## Module Checker
 - `check_module()`: Full module-level type checking
-- Registration passes → signature collection → body checking
+- Registration passes -> signature collection -> body checking
 - Salsa-compatible via `TypeCheckResult`
 
 ## Salsa Compatibility
 - All types: `Clone, Eq, PartialEq, Hash, Debug`
-- No `Arc<Mutex<T>>` or fn pointers
-- Deterministic (no random/time/IO)
+- No `Arc<Mutex<T>>` or fn pointers | deterministic (no random/time/IO)
 
-## Debugging / Tracing
-
-**Always use `ORI_LOG` first when debugging type issues.** Tracing target: `ori_types`.
-
-```bash
-ORI_LOG=ori_types=debug ori check file.ori          # Phase boundaries, module checking
-ORI_LOG=ori_types=trace ori check file.ori          # Per-expression inference (hot path)
-ORI_LOG=ori_types=trace ORI_LOG_TREE=1 ori check file.ori  # Hierarchical call tree
-ORI_LOG=ori_types=debug,oric=debug ori check file.ori      # Types + Salsa query execution
-```
-
-**Instrumented functions** (`debug` level): `check_module()`, `check_module_impl()`, `collect_signatures()`, `check_function_bodies()`, `check_test_bodies()`, `check_impl_bodies()`
-**Instrumented functions** (`trace` level): `infer_expr()`, `check_expr()` — per-expression, very verbose
-**Manual events**: `push_error()` logs type errors at debug level
-
-### Phase Dump
-```bash
-ORI_DUMP_AFTER_TYPECK=1 ori check file.ori          # Dump typed IR (type pool state after checking)
-```
-
-**Tips**:
-- Type mismatch? Use `ORI_LOG=ori_types=debug` to see which function body triggers the error
-- Inference wrong? Use `ORI_LOG=ori_types=trace ORI_LOG_TREE=1` to trace the full inference chain
-- Salsa re-execution? Add `oric=debug` to see `WillExecute` events for the `typed()` query
+## Tracing
+- Target: `ori_types` | `ORI_LOG=ori_types=debug` (phases) | `=trace` (per-expression) | `ORI_LOG_TREE=1` for call tree
+- Phase dump: `ORI_DUMP_AFTER_TYPECK=1` | see compiler.md for full debugging reference
 
 ## Key Files
 - `pool/mod.rs`: Pool, interning, query methods
