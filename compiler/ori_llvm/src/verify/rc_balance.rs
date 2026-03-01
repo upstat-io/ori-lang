@@ -25,7 +25,6 @@ use rustc_hash::FxHashMap;
 use inkwell::module::Module;
 use inkwell::values::InstructionOpcode;
 
-use super::abi_check::callee_name;
 use super::report::{AuditFinding, AuditReport, FindingKind, Severity};
 use super::AuditOptions;
 
@@ -82,13 +81,6 @@ impl RcTracker {
             }
         }
     }
-}
-
-/// Returns true if the function name matches a COW runtime function.
-///
-/// COW functions follow the pattern `ori_list_*_cow`, `ori_set_*_cow`, etc.
-fn is_cow_function(name: &str) -> bool {
-    name.starts_with("ori_") && name.ends_with("_cow")
 }
 
 /// Extract the SSA name of a pointer operand at the given index.
@@ -213,7 +205,7 @@ fn process_call(
     options: &AuditOptions,
     report: &mut AuditReport,
 ) {
-    let Some(callee) = callee_name(inst) else {
+    let Some(callee) = super::callee_name(inst) else {
         return;
     };
 
@@ -262,7 +254,7 @@ fn process_call(
                 }
             }
         }
-        _ if is_cow_function(&callee) => {
+        _ if super::is_cow_function(&callee) => {
             // COW data_ptr is always argument index 0
             if let Some(ptr_name) = operand_name(inst, 0) {
                 tracker.record_cow_consumed(&ptr_name, &callee);

@@ -208,19 +208,37 @@ let for_loop_ctx = LoopContext {
 
 ## Runtime Functions
 
-The backend links against runtime functions for operations that require heap allocation or complex logic. These are provided by `libori_rt`:
+The backend links against runtime functions for operations that require heap allocation or complex logic. These are provided by `libori_rt`. All declarations live in `codegen/runtime_decl/runtime_functions.rs` as a single source-of-truth `RT_FUNCTIONS` table.
 
 | Category | Functions |
 |----------|-----------|
 | Output | `ori_print`, `ori_print_int`, `ori_print_float`, `ori_print_bool` |
 | Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float` |
+| String SSO | `ori_str_concat_sso` (SSO-aware concat), `ori_str_from_char` |
 | Collections | `ori_list_new`, `ori_list_free`, `ori_list_len` |
+| List COW | `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`, `ori_list_insert_cow`, `ori_list_remove_cow` |
+| Map COW | `ori_map_insert_cow`, `ori_map_remove_cow` |
+| Set COW | `ori_set_insert_cow`, `ori_set_remove_cow`, `ori_set_union_cow`, `ori_set_intersection_cow`, `ori_set_difference_cow` |
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
-| Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count` |
+| Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_is_unique` |
 | Panic | `ori_panic`, `ori_panic_cstr`, `ori_register_panic_handler` |
 | Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`, `ori_assert_eq_float` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
+| Iterators | `ori_iter_from_list`, `ori_iter_from_range`, `ori_iter_from_str`, `ori_iter_next`, `ori_iter_drop` |
 | Entry | `ori_run_main`, `ori_args_from_argv` |
+
+### Codegen Verification
+
+The `verify/` module provides an in-pipeline LLVM IR audit pass, gated behind `ORI_AUDIT_CODEGEN=1`:
+
+| Check | Module | Purpose |
+|-------|--------|---------|
+| RC balance | `rc_balance` | Tracks alloc→inc→dec→free lifecycle per allocation |
+| COW rules | `cow_rules` | Validates COW input sequencing (no reuse before uniqueness check) |
+| ABI check | `abi_check` | Verifies arg counts, detects large aggregate loads, nounwind+invoke conflicts |
+| Safety checks | `safety_checks` | Panic/assert call density analysis |
+
+Options: `ORI_AUDIT_STRICT=1` (pessimistic mode), `ORI_AUDIT_FUNCTION=<name>` (filter to one function).
 
 ## Documentation Sections
 
@@ -234,53 +252,73 @@ The backend links against runtime functions for operations that require heap all
 
 | File | Purpose |
 |------|---------|
-| `context.rs` | `SimpleCx` -- minimal LLVM context (module, common types) |
-| `evaluator.rs` | JIT evaluation, module loading, pipeline orchestration |
+| `context/mod.rs` | `SimpleCx` -- minimal LLVM context (module, common types) |
+| `evaluator/mod.rs` | JIT evaluation, module loading, pipeline orchestration |
+| `evaluator/compile.rs` | Compilation pipeline (ARC lowering → LLVM emission) |
+| `evaluator/runtime_mappings.rs` | JIT symbol resolution for runtime functions |
 | `runtime.rs` | Runtime library (`libori_rt`) implementation |
+| `monomorphize/mod.rs` | Generic function monomorphization |
 
 ### Code Generation (`codegen/`)
 
 | File / Directory | Purpose |
 |------------------|---------|
-| `type_info/mod.rs` | `TypeInfo` enum, `TypeInfoStore`, `TypeLayoutResolver` |
-| `ir_builder/mod.rs` | `IrBuilder` -- ID-based LLVM instruction builder (9 submodules: aggregates, arithmetic, calls, comparisons, constants, control_flow, conversions, memory, phi_types_blocks) |
-| `scope/mod.rs` | Persistent-map variable scoping with O(1) clone |
+| `type_info/` | `TypeInfo` enum (`info.rs`), `TypeInfoStore` + `TypeLayoutResolver` (`store.rs`) |
+| `ir_builder/` | `IrBuilder` -- ID-based LLVM instruction builder (9 submodules: aggregates, arithmetic, calls, comparisons, constants, control_flow, conversions, memory, phi_types_blocks) |
 | `value_id/mod.rs` | `ValueId`, `BlockId`, `FunctionId`, `LLVMTypeId` opaque handles |
-| `function_compiler/mod.rs` | Function declaration, ABI, body compilation orchestration |
+| `function_compiler/` | Function declaration (`mod.rs`), body compilation (`define_phase.rs`), entry point generation (`entry_point.rs`), nounwind analysis (`nounwind.rs`), impl/trait methods (`impls.rs`) |
 | `abi/mod.rs` | ABI computation (parameter passing, sret returns) |
-| `runtime_decl/mod.rs` | Runtime function declarations in LLVM module |
+| `runtime_decl/` | Runtime function declarations: `mod.rs` (lazy API), `runtime_functions.rs` (RT_FUNCTIONS table) |
 | `type_registration/mod.rs` | `register_user_types()` -- eager type resolution from `TypeEntry` |
-| `expr_lowerer.rs` | `ExprLowerer` -- expression dispatch coordinator |
-| `lower_literals.rs` | Literals, identifiers, constants |
-| `lower_operators.rs` | Binary/unary ops, cast, short-circuit |
-| `lower_control_flow.rs` | If, loop, block, break, continue, match |
-| `lower_for_loop.rs` | Dedicated for-loop lowering (range, list, str, option, set, map) |
-| `lower_error_handling.rs` | Ok, Err, Some, None, Try (`?` operator) |
-| `lower_collections.rs` | List, map, tuple, struct, range, field, index |
-| `lower_calls.rs` | Call, MethodCall, Lambda (fat-pointer closures) |
-| `lower_lambdas.rs` | Lambda/closure lowering |
-| `lower_constructs.rs` | Block expressions (FunctionSeq IR), FunctionExp, SelfRef, Await |
-| `lower_conversion_builtins.rs` | `str()`, `int()`, `float()`, `byte()`, `assert_eq()` conversions |
-| `lower_iterator_trampolines.rs` | Iterator trampolines |
-| `lower_builtin_methods/` | Built-in method dispatch (9 files: collections, helpers, inner_dispatch, iterator, option, primitives, result, tuple, mod) |
-| `lower_collection_methods/` | Loop-based collection method implementation (list, map, set) |
-| `derive_codegen/` | Derived trait code generation (bodies, field_ops, string_helpers, mod) |
-| `arc_emitter.rs` | ARC IR emission (retain/release/drop) |
+| `derive_codegen/` | Derived trait code generation (`bodies.rs`, `field_ops.rs`, `string_helpers.rs`) |
+| `arc_emitter/` | ARC IR → LLVM IR emission (see below) |
 
-### AOT
+### ARC Emitter (`codegen/arc_emitter/`)
 
 | File | Purpose |
 |------|---------|
-| `aot/target.rs` | Target configuration and machine creation |
-| `aot/object.rs` | Object file emission |
-| `aot/mangle.rs` | Symbol mangling/demangling |
-| `aot/debug/` | Debug information (DWARF/CodeView) |
-| `aot/passes.rs` | Optimization pipeline |
-| `aot/linker/` | Platform-agnostic linker driver |
-| `aot/runtime.rs` | Runtime library discovery |
-| `aot/multi_file.rs` | Multi-file compilation |
-| `aot/wasm.rs` | WebAssembly configuration |
-| `aot/incremental/` | Caching and parallel compilation |
+| `mod.rs` | `ArcIrEmitter`: main emission loop, instruction dispatch, dead-block elimination |
+| `apply.rs` | Function call emission (Apply, ApplyIndirect, PartialApply) |
+| `closures.rs` | Closure creation and environment capture |
+| `construction.rs` | Construct instruction emission (structs, enums, tuples) |
+| `context.rs` | `CodegenContext`: shared state across emission |
+| `drop_gen.rs` | `DropFunctionGenerator`: per-type LLVM drop functions (cached by mangled name) |
+| `element_fn_gen.rs` | Element RC callback function generation (for COW collection operations) |
+| `operators.rs` | Binary/unary operator emission |
+| `rc_helpers.rs` | RC operation helpers (inc, dec, is_unique) |
+| `rc_ops.rs` | RcInc, RcDec, IsShared instruction emission |
+| `rc_value_traversal.rs` | Recursive value traversal for RC operations |
+| `terminators.rs` | Block terminator emission (Return, Branch, Switch, Invoke) |
+| `value_emission.rs` | Value loading, storing, and literal emission |
+| `builtins/` | Built-in method codegen: `primitives.rs`, `compound_traits.rs`, `list_traits.rs`, `iterator.rs` |
+| `builtins/collections/` | Collection codegen: `list_builtins.rs`, `list_cow.rs`, `map_set_builtins.rs`, `string_builtins.rs` |
+
+### Verification (`verify/`)
+
+| File | Purpose |
+|------|---------|
+| `mod.rs` | Audit entry point, options, environment variable constants |
+| `rc_balance.rs` | RC lifecycle tracking (alloc→inc→dec→free) |
+| `cow_rules.rs` | COW sequencing validation |
+| `abi_check.rs` | Argument count, aggregate load, nounwind+invoke checks |
+| `safety_checks.rs` | Panic/assert call density analysis |
+| `report.rs` | `AuditReport` aggregation and formatting |
+
+### AOT (`aot/`)
+
+| File / Directory | Purpose |
+|------------------|---------|
+| `target.rs` | Target configuration and machine creation |
+| `object.rs` | Object file emission |
+| `mangle.rs` | Symbol mangling/demangling |
+| `debug/` | Debug information: `builder.rs` (DWARF/CodeView), `builder_scope.rs`, `config.rs`, `context.rs`, `line_map.rs` |
+| `passes/` | Optimization pipeline: `mod.rs` (pass manager), `config.rs` (pass configuration) |
+| `linker/` | Platform-agnostic linker driver: `mod.rs`, `gcc.rs`, `msvc.rs` |
+| `runtime.rs` | Runtime library discovery |
+| `multi_file/mod.rs` | Multi-file compilation |
+| `wasm/` | WebAssembly: `mod.rs`, `config.rs`, `optimize.rs`, `wasi.rs` |
+| `incremental/` | Caching and parallel compilation |
+| `syslib/mod.rs` | System library detection |
 
 ## Development
 

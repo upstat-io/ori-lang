@@ -8,7 +8,7 @@
 //! IR), ARC IR is a basic-block SSA-like form. The output follows LLVM IR / Rust
 //! MIR conventions: `fn @name(params) -> ret`, `bb0:`, `%var: type = instr`.
 
-mod instr;
+pub(crate) mod instr;
 
 use std::fmt::Write;
 
@@ -33,7 +33,7 @@ pub fn dump_arc_ir(
     interner: &StringInterner,
     path: &str,
 ) {
-    let borrowing_builtins = ori_arc::borrowing_builtin_names(interner);
+    let builtins = ori_arc::BuiltinOwnershipSets::new(interner);
     let mut out = String::with_capacity(16384);
 
     // Collect and sort function names for deterministic output order.
@@ -60,7 +60,7 @@ pub fn dump_arc_ir(
             annotated_sigs,
             interner,
             pool,
-            &borrowing_builtins,
+            &builtins,
         );
 
         for func in &funcs {

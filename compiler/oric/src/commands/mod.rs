@@ -18,6 +18,8 @@ pub mod build;
 pub mod build_options;
 mod check;
 #[cfg(feature = "llvm")]
+mod codegen_pipeline;
+#[cfg(feature = "llvm")]
 mod compile_common;
 mod debug;
 mod demangle;

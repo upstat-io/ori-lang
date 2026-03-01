@@ -89,8 +89,11 @@ impl SourceBuffer {
         let source_bytes = source.as_bytes();
         let source_len = source_bytes.len();
 
-        // Round up to next 64-byte boundary (minimum: source + 1 sentinel byte).
-        let padded_len = (source_len + 1 + CACHE_LINE - 1) & !(CACHE_LINE - 1);
+        // Round up to next 64-byte boundary (minimum: source + sentinel + 2 padding).
+        // The +3 guarantees at least 2 zero bytes after the sentinel so that
+        // peek() (pos+1) and peek2() (pos+2) are safe at any cursor position,
+        // including the sentinel itself.
+        let padded_len = (source_len + 3 + CACHE_LINE - 1) & !(CACHE_LINE - 1);
 
         // Allocate zero-filled buffer, then copy source bytes.
         // The sentinel (buf[source_len]) and padding are already 0x00.

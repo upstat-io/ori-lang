@@ -1,6 +1,6 @@
 [package]
 name = "ori_rt"
-version = "0.1.0-alpha.8"
+version = "2026.2.28-alpha.1"
 edition = "2021"
 description = "Ori runtime library for AOT-compiled programs"
 license = "MIT OR Apache-2.0"

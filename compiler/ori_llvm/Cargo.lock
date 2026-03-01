@@ -343,7 +343,7 @@ checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "ori_arc"
-version = "0.1.0-alpha.10"
+version = "2026.2.28-alpha.1"
 dependencies = [
  "bincode",
  "ori_ir",
@@ -356,14 +356,14 @@ dependencies = [
 
 [[package]]
 name = "ori_diagnostic"
-version = "0.1.0-alpha.10"
+version = "2026.2.28-alpha.1"
 dependencies = [
  "ori_ir",
 ]
 
 [[package]]
 name = "ori_ir"
-version = "0.1.0-alpha.10"
+version = "2026.2.28-alpha.1"
 dependencies = [
  "parking_lot",
  "rustc-hash",
@@ -372,7 +372,7 @@ dependencies = [
 
 [[package]]
 name = "ori_llvm"
-version = "0.1.0-alpha.10"
+version = "2026.2.28-alpha.1"
 dependencies = [
  "bincode",
  "im",
@@ -394,18 +394,18 @@ dependencies = [
 
 [[package]]
 name = "ori_rt"
-version = "0.1.0-alpha.8"
+version = "2026.2.28-alpha.1"
 
 [[package]]
 name = "ori_stack"
-version = "0.1.0-alpha.10"
+version = "2026.2.28-alpha.1"
 dependencies = [
  "stacker",
 ]
 
 [[package]]
 name = "ori_types"
-version = "0.1.0-alpha.10"
+version = "2026.2.28-alpha.1"
 dependencies = [
  "bitflags",
  "ori_diagnostic",

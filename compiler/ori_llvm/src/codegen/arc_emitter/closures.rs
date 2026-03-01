@@ -292,8 +292,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let has_sret = matches!(callee_abi.return_abi.passing, ReturnPassing::Sret { .. });
         let is_void = matches!(callee_abi.return_abi.passing, ReturnPassing::Void);
 
-        // Declare wrapper function
-        let wrapper_func_id = if is_void || has_sret {
+        // Declare wrapper function.
+        // When the callee uses sret (large return), the wrapper still returns
+        // the struct directly — it bridges from the callee's sret convention
+        // to a direct return for indirect callers. LLVM's codegen will lower
+        // the wrapper's `ret` to sret at the ABI level if needed.
+        let wrapper_func_id = if is_void {
             self.builder
                 .declare_void_function(&wrapper_name, &wrapper_param_types)
         } else {

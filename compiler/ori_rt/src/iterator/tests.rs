@@ -7,7 +7,7 @@ use super::*;
 #[test]
 fn list_iter_basic() {
     let data: [i64; 3] = [10, 20, 30];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
 
     let mut out: i64 = 0;
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 1);
@@ -23,7 +23,7 @@ fn list_iter_basic() {
 
 #[test]
 fn list_iter_empty() {
-    let iter = ori_iter_from_list(ptr::null(), 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, None);
 
     let mut out: i64 = 0;
     assert_eq!(ori_iter_next(iter, (&raw mut out).cast(), 8), 0);
@@ -99,7 +99,7 @@ fn take_from_range() {
 #[test]
 fn skip_from_list() {
     let data: [i64; 5] = [10, 20, 30, 40, 50];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 5, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, None);
     let iter = ori_iter_skip(iter, 3);
 
     let mut out: i64 = 0;
@@ -125,7 +125,7 @@ extern "C" fn double_i64(env: *mut u8, in_ptr: *const u8, out_ptr: *mut u8) {
 #[test]
 fn map_doubles() {
     let data: [i64; 3] = [1, 2, 3];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
     let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8);
 
     let mut out: i64 = 0;
@@ -153,7 +153,7 @@ extern "C" fn is_even(env: *mut u8, elem_ptr: *const u8) -> bool {
 #[test]
 fn filter_even() {
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 6, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, None);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
 
     let mut out: i64 = 0;
@@ -173,7 +173,7 @@ fn filter_even() {
 #[test]
 fn enumerate_list() {
     let data: [i64; 3] = [10, 20, 30];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
     let iter = ori_iter_enumerate(iter);
 
     // Output: (i64 index, i64 element) = 16 bytes
@@ -201,7 +201,7 @@ fn count_range() {
 #[test]
 fn count_filtered() {
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 6, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, None);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
     assert_eq!(ori_iter_count(iter, 8), 3);
 }
@@ -225,10 +225,10 @@ fn collect_range() {
         assert_eq!(val, i as i64);
     }
 
-    // Free the collected data
+    // Free the collected data (RC-managed via ori_list_alloc_data)
     if !data_ptr.is_null() {
         let cap = unsafe { out.as_ptr().cast::<i64>().add(1).read() };
-        crate::ori_free(data_ptr, cap as usize * 8, 8);
+        crate::ori_list_free_data(data_ptr, cap, 8);
     }
 }
 
@@ -238,7 +238,7 @@ fn collect_range() {
 fn map_filter_take() {
     // [1,2,3,4,5,6,7,8,9,10].iter().map(x -> x*2).filter(x -> x > 10).take(3)
     let data: [i64; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 10, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 10, 0, 8, None);
     let iter = ori_iter_map(iter, double_i64, ptr::null_mut(), 8);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8); // all doubled are even
     let iter = ori_iter_take(iter, 3);
@@ -265,20 +265,20 @@ extern "C" fn gt_3(env: *mut u8, elem_ptr: *const u8) -> bool {
 #[test]
 fn any_found() {
     let data: [i64; 5] = [1, 2, 3, 4, 5];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 5, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, None);
     assert_eq!(ori_iter_any(iter, gt_3, ptr::null_mut(), 8), 1);
 }
 
 #[test]
 fn any_not_found() {
     let data: [i64; 3] = [1, 2, 3];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
     assert_eq!(ori_iter_any(iter, gt_3, ptr::null_mut(), 8), 0);
 }
 
 #[test]
 fn any_empty() {
-    let iter = ori_iter_from_list(ptr::null(), 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, None);
     assert_eq!(ori_iter_any(iter, gt_3, ptr::null_mut(), 8), 0);
 }
 
@@ -287,20 +287,20 @@ fn any_empty() {
 #[test]
 fn all_true() {
     let data: [i64; 3] = [4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
     assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 1);
 }
 
 #[test]
 fn all_false() {
     let data: [i64; 3] = [4, 2, 6];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
     assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 0);
 }
 
 #[test]
 fn all_empty() {
-    let iter = ori_iter_from_list(ptr::null(), 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, None);
     assert_eq!(ori_iter_all(iter, gt_3, ptr::null_mut(), 8), 1); // vacuously true
 }
 
@@ -309,7 +309,7 @@ fn all_empty() {
 #[test]
 fn find_found() {
     let data: [i64; 5] = [1, 2, 3, 4, 5];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 5, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 5, 0, 8, None);
 
     // Option<i64> = { i64 tag, i64 payload } = 16 bytes
     // ARC enum convention: Some=0, None=1
@@ -325,7 +325,7 @@ fn find_found() {
 #[test]
 fn find_not_found() {
     let data: [i64; 3] = [1, 2, 3];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 3, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 3, 0, 8, None);
 
     // ARC enum convention: Some=0, None=1
     let mut out = [0u8; 16];
@@ -347,7 +347,7 @@ extern "C" fn increment_counter(env: *mut u8, _elem_ptr: *const u8) {
 #[test]
 fn for_each_counts() {
     let data: [i64; 4] = [10, 20, 30, 40];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 4, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 4, 0, 8, None);
 
     let mut counter: i64 = 0;
     ori_iter_for_each(iter, increment_counter, (&raw mut counter).cast(), 8);
@@ -356,7 +356,7 @@ fn for_each_counts() {
 
 #[test]
 fn for_each_empty() {
-    let iter = ori_iter_from_list(ptr::null(), 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, None);
     let mut counter: i64 = 0;
     ori_iter_for_each(iter, increment_counter, (&raw mut counter).cast(), 8);
     assert_eq!(counter, 0);
@@ -376,7 +376,7 @@ extern "C" fn sum_fold(env: *mut u8, acc_ptr: *const u8, elem_ptr: *const u8, ou
 #[test]
 fn fold_sum() {
     let data: [i64; 4] = [1, 2, 3, 4];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 4, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 4, 0, 8, None);
 
     let init: i64 = 0;
     let mut result: i64 = 0;
@@ -394,7 +394,7 @@ fn fold_sum() {
 
 #[test]
 fn fold_empty() {
-    let iter = ori_iter_from_list(ptr::null(), 0, 8);
+    let iter = ori_iter_from_list(ptr::null_mut(), 0, 0, 8, None);
 
     let init: i64 = 42;
     let mut result: i64 = 0;
@@ -414,7 +414,7 @@ fn fold_empty() {
 fn fold_with_filter() {
     // [1,2,3,4,5,6].filter(even).fold(0, +) = 2+4+6 = 12
     let data: [i64; 6] = [1, 2, 3, 4, 5, 6];
-    let iter = ori_iter_from_list(data.as_ptr().cast(), 6, 8);
+    let iter = ori_iter_from_list(data.as_ptr() as *mut u8, 6, 0, 8, None);
     let iter = ori_iter_filter(iter, is_even, ptr::null_mut(), 8);
 
     let init: i64 = 0;
@@ -437,8 +437,8 @@ fn fold_with_filter() {
 fn zip_equal_length() {
     let left: [i64; 3] = [1, 2, 3];
     let right: [i64; 3] = [10, 20, 30];
-    let l = ori_iter_from_list(left.as_ptr().cast(), 3, 8);
-    let r = ori_iter_from_list(right.as_ptr().cast(), 3, 8);
+    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 3, 0, 8, None);
+    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 3, 0, 8, None);
     let iter = ori_iter_zip(l, r, 8);
 
     // Output: (i64, i64) = 16 bytes
@@ -458,8 +458,8 @@ fn zip_equal_length() {
 fn zip_unequal_length() {
     let left: [i64; 3] = [1, 2, 3];
     let right: [i64; 2] = [10, 20];
-    let l = ori_iter_from_list(left.as_ptr().cast(), 3, 8);
-    let r = ori_iter_from_list(right.as_ptr().cast(), 2, 8);
+    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 3, 0, 8, None);
+    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 2, 0, 8, None);
     let iter = ori_iter_zip(l, r, 8);
 
     let mut out: [i64; 2] = [0, 0];
@@ -486,8 +486,8 @@ fn zip_count() {
 fn chain_two_lists() {
     let left: [i64; 2] = [1, 2];
     let right: [i64; 3] = [3, 4, 5];
-    let l = ori_iter_from_list(left.as_ptr().cast(), 2, 8);
-    let r = ori_iter_from_list(right.as_ptr().cast(), 3, 8);
+    let l = ori_iter_from_list(left.as_ptr() as *mut u8, 2, 0, 8, None);
+    let r = ori_iter_from_list(right.as_ptr() as *mut u8, 3, 0, 8, None);
     let iter = ori_iter_chain(l, r);
 
     let mut out: i64 = 0;

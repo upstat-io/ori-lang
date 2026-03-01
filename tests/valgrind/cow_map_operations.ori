@@ -1,0 +1,73 @@
+// Valgrind test: COW (Copy-on-Write) map operations.
+// Exercises COW insert, remove, get, contains_key with both string and
+// int keys, shared ownership (original unchanged), chained operations,
+// and loop-based accumulation to verify RC lifecycle correctness.
+
+@main () -> int = {
+    // insert: unique owner (in-place fast path)
+    let m1 = {"a": 1}.insert("b", 2);
+    let insert_ok = m1.len() == 2 && m1.get("b").unwrap() == 2;
+
+    // insert: shared owner (COW slow path — original must be unchanged)
+    let base = {"x": 10, "y": 20};
+    let fork = base.insert("z", 30);
+    let cow_insert_ok = base.len() == 2 && fork.len() == 3;
+
+    // insert: overwrite existing key (shared)
+    let m2 = {"a": 1, "b": 2};
+    let m3 = m2.insert("a", 99);
+    let overwrite_ok = m2.get("a").unwrap() == 1 && m3.get("a").unwrap() == 99;
+
+    // remove: unique owner (in-place)
+    let m4 = {"a": 1, "b": 2, "c": 3}.remove("b");
+    let remove_ok = m4.len() == 2 && !m4.contains_key("b");
+
+    // remove: shared owner (COW)
+    let m5 = {"a": 1, "b": 2};
+    let m6 = m5.remove("a");
+    let cow_remove_ok = m5.len() == 2 && m6.len() == 1 && m5.contains_key("a");
+
+    // remove nonexistent key (no crash, no leak)
+    let m7 = {"a": 1}.remove("z");
+    let remove_miss_ok = m7.len() == 1;
+
+    // int keys: insert and get
+    let m8 = {1: 100, 2: 200};
+    let m9 = m8.insert(3, 300);
+    let int_key_ok = m8.len() == 2 && m9.len() == 3
+        && m9.get(1).unwrap() == 100 && m9.get(3).unwrap() == 300;
+
+    // chained operations
+    let m10 = {"a": 1}.insert("b", 2).insert("c", 3).remove("a");
+    let chain_ok = m10.len() == 2 && !m10.contains_key("a");
+
+    // multiple forks from same base (3 live references to shared buffer)
+    let shared = {"k": 42};
+    let f1 = shared.insert("a", 1);
+    let f2 = shared.insert("b", 2);
+    let f3 = shared.remove("k");
+    let multi_fork_ok = shared.len() == 1 && f1.len() == 2
+        && f2.len() == 2 && f3.len() == 0;
+
+    // loop insert: 100 entries with int keys
+    let acc: {int: int} = {};
+    for i in 0..100 do {
+        acc = acc.insert(i, i * 10);
+    };
+    let loop_ok = acc.len() == 100 && acc.get(50).unwrap() == 500;
+
+    // keys() and values() after COW mutation
+    let m11 = {"a": 10, "b": 20}.insert("c", 30);
+    let keys_ok = m11.keys().len() == 3;
+    let vals_ok = m11.values().len() == 3;
+
+    // empty map insert
+    let m12: {str: int} = {};
+    let m13 = m12.insert("first", 1);
+    let empty_ok = m12.is_empty() && m13.len() == 1;
+
+    if insert_ok && cow_insert_ok && overwrite_ok && remove_ok
+        && cow_remove_ok && remove_miss_ok && int_key_ok && chain_ok
+        && multi_fork_ok && loop_ok && keys_ok && vals_ok && empty_ok
+    then 0 else 1
+}

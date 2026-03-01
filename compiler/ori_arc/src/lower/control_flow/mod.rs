@@ -13,6 +13,7 @@ use ori_ir::{Name, Span};
 use ori_types::Idx;
 use rustc_hash::FxHashMap;
 
+mod for_loops;
 mod for_yield;
 mod loops;
 #[cfg(test)]

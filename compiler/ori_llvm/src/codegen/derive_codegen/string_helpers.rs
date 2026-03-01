@@ -13,7 +13,12 @@ use super::super::type_info::TypeInfo;
 use super::super::value_id::{LLVMTypeId, ValueId};
 use super::emit_method_call_for_derive;
 
-/// Emit a string literal as an Ori str value `{i64 len, ptr data}`.
+/// Emit a string literal as an Ori str value via `ori_str_from_raw`.
+///
+/// Uses the runtime to create a proper SSO string (≤ 23 bytes inline)
+/// or RC-managed heap string (> 23 bytes). This avoids creating
+/// `{len, cap, global_ptr}` structs whose data pointer lacks an RC header,
+/// which would be UB if passed to COW operations like `ori_str_concat`.
 pub(super) fn emit_str_literal<'a>(
     fc: &mut FunctionCompiler<'_, 'a, 'a, '_>,
     s: &str,
@@ -24,8 +29,15 @@ pub(super) fn emit_str_literal<'a>(
         .builder_mut()
         .build_global_string_ptr(s, &format!("{name}.data"));
     let len = fc.builder_mut().const_i64(s.len() as i64);
+    let from_raw = fc.builder_mut().runtime_fn("ori_str_from_raw");
     fc.builder_mut()
-        .build_struct(str_ty_id, &[len, data_ptr], name)
+        .call_with_sret(from_raw, &[data_ptr, len], str_ty_id, name)
+        .unwrap_or_else(|| {
+            // Fallback for JIT path where sret may be unavailable
+            let cap = fc.builder_mut().const_i64(s.len() as i64);
+            fc.builder_mut()
+                .build_struct(str_ty_id, &[len, cap, data_ptr], name)
+        })
 }
 
 /// Call `ori_str_concat(a: ptr, b: ptr) -> str` (alloca+store pattern).
@@ -43,7 +55,7 @@ pub(super) fn emit_str_concat<'a>(
 
     let concat_fn = fc.builder_mut().runtime_fn("ori_str_concat");
     fc.builder_mut()
-        .call(concat_fn, &[lhs_alloca, rhs_alloca], name)
+        .call_with_sret(concat_fn, &[lhs_alloca, rhs_alloca], str_ty_id, name)
         .unwrap_or_else(|| emit_str_literal(fc, "", "empty", str_ty_id))
 }
 
@@ -65,19 +77,19 @@ pub(super) fn emit_field_to_string<'a>(
         TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => {
             let f = fc.builder_mut().runtime_fn("ori_str_from_int");
             fc.builder_mut()
-                .call(f, &[val], name)
+                .call_with_sret(f, &[val], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<int>", name, str_ty_id))
         }
         TypeInfo::Float => {
             let f = fc.builder_mut().runtime_fn("ori_str_from_float");
             fc.builder_mut()
-                .call(f, &[val], name)
+                .call_with_sret(f, &[val], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<float>", name, str_ty_id))
         }
         TypeInfo::Bool => {
             let f = fc.builder_mut().runtime_fn("ori_str_from_bool");
             fc.builder_mut()
-                .call(f, &[val], name)
+                .call_with_sret(f, &[val], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<bool>", name, str_ty_id))
         }
         TypeInfo::Str => {
@@ -96,7 +108,7 @@ pub(super) fn emit_field_to_string<'a>(
             let char_as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
             let f = fc.builder_mut().runtime_fn("ori_str_from_int");
             fc.builder_mut()
-                .call(f, &[char_as_i64], name)
+                .call_with_sret(f, &[char_as_i64], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<char>", name, str_ty_id))
         }
         TypeInfo::Byte | TypeInfo::Ordering => {
@@ -104,7 +116,7 @@ pub(super) fn emit_field_to_string<'a>(
             let as_i64 = fc.builder_mut().sext(val, i64_ty, &format!("{name}.sext"));
             let f = fc.builder_mut().runtime_fn("ori_str_from_int");
             fc.builder_mut()
-                .call(f, &[as_i64], name)
+                .call_with_sret(f, &[as_i64], str_ty_id, name)
                 .unwrap_or_else(|| emit_str_literal(fc, "<byte>", name, str_ty_id))
         }
         TypeInfo::Struct { .. } => {

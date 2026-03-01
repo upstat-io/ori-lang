@@ -171,29 +171,61 @@ The `drop` module generates declarative drop descriptors for LLVM codegen:
 
 ```
 compiler/ori_arc/src/
-├── lib.rs              # Pipeline entry (run_arc_pipeline, run_arc_pipeline_all), ArcClass
-├── ir.rs               # ARC IR types (ArcFunction, ArcBlock, ArcInstr, ArcTerminator, ArcVarId)
-├── classify.rs         # ArcClassifier: Pool → ArcClass mapping with cache + cycle detection
-├── decision_tree.rs    # DecisionTree, PatternMatrix, FlatPattern, TestKind, TestValue
-├── borrow.rs           # Borrow inference (fixed-point) and borrow application
-├── ownership.rs        # Ownership enums (Borrowed/Owned, DerivedOwnership)
-├── liveness.rs         # Backward liveness analysis (standard + refined with aliasing)
-├── rc_insert.rs        # RC insertion (Perceus)
-├── rc_elim.rs          # RC elimination (bidirectional)
-├── reset_reuse.rs      # Reset/Reuse detection
-├── expand_reuse.rs     # Reuse expansion (two-path codegen)
-├── drop.rs             # Drop descriptor generation
-├── fbip.rs             # FBIP diagnostics (read-only)
-├── graph.rs            # CFG utilities (dominator tree, predecessors)
-├── test_helpers.rs     # Shared test factories (test-only)
-└── lower/              # CanExpr → ARC IR lowering
-    ├── mod.rs          # ArcIrBuilder, lower_function_can entry point
-    ├── expr.rs         # ArcLowerer: expression dispatch
-    ├── calls.rs        # Function/method calls, lambdas, invoke/apply classification
-    ├── collections.rs  # List/map/set/struct/enum construction, field access
-    ├── control_flow.rs # if/else, match, try, loops, break/continue, assign
-    ├── patterns.rs     # Pattern binding destructuring
-    └── scope.rs        # ArcScope: name bindings, mutable tracking, SSA merge
+├── lib.rs                  # Pipeline entry (run_arc_pipeline, run_arc_pipeline_all), ArcClass
+├── ir/                     # ARC IR types
+│   ├── mod.rs              # ArcFunction, ArcBlock, ArcVarId, ArcTerminator, core types
+│   ├── instr.rs            # ArcInstr enum + accessor methods (used_vars, substitute_var)
+│   └── repr.rs             # ArcVarRepr, RcStrategy, type representation helpers
+├── classify/mod.rs         # ArcClassifier: Pool → ArcClass mapping with cache + cycle detection
+├── decision_tree/          # Pattern match → decision tree compilation
+│   ├── mod.rs              # DecisionTree, PatternMatrix, FlatPattern, TestKind, TestValue
+│   ├── compile/            # Tree compilation
+│   │   ├── mod.rs          # Main compilation algorithm
+│   │   ├── single_ctor.rs  # Single-constructor optimization
+│   │   └── specialize.rs   # Matrix specialization
+│   ├── emit.rs             # Decision tree → ARC IR emission
+│   ├── emit_switches.rs    # Switch-based emission for multi-arm matches
+│   └── flatten.rs          # Pattern flattening
+├── borrow/                 # Borrow inference (fixed-point) and borrow application
+│   ├── mod.rs              # Main inference loop, apply_borrows
+│   ├── builtins.rs         # Built-in function borrow signatures
+│   ├── callees.rs          # Callee analysis for inter-procedural inference
+│   ├── derived.rs          # Derived ownership for local variables
+│   └── per_scc.rs          # Per-SCC analysis for mutually recursive functions
+├── ownership/mod.rs        # Ownership enums (Borrowed/Owned, DerivedOwnership)
+├── liveness/mod.rs         # Backward liveness analysis (standard + refined with aliasing)
+├── rc_insert/              # RC insertion (Perceus)
+│   ├── mod.rs              # Entry point, RcContext
+│   ├── annotate.rs         # Ownership annotation for RC decisions
+│   ├── edge_cleanup.rs     # Critical edge splitting for RC placement
+│   └── insert.rs           # Core insertion algorithm
+├── rc_elim/                # RC elimination (bidirectional dataflow)
+│   ├── mod.rs              # Entry point
+│   └── eliminate.rs        # Redundant RcInc/RcDec pair removal
+├── rc_identity/mod.rs      # RC identity analysis (alias tracking)
+├── reset_reuse/mod.rs      # Reset/Reuse detection
+├── expand_reuse/mod.rs     # Reuse expansion (two-path codegen)
+├── drop/mod.rs             # Drop descriptor generation
+├── fbip/mod.rs             # FBIP diagnostics (read-only)
+├── graph/                  # CFG and call graph utilities
+│   ├── mod.rs              # Dominator tree, predecessors, postorder
+│   ├── call_graph/mod.rs   # Inter-procedural call graph
+│   └── scc/mod.rs          # Strongly connected components (Tarjan's)
+├── test_helpers.rs         # Shared test factories (test-only)
+└── lower/                  # CanExpr → ARC IR lowering
+    ├── mod.rs              # ArcIrBuilder, lower_function_can entry point
+    ├── builder.rs          # BlockBuilder, instruction emission helpers
+    ├── expr/mod.rs         # ArcLowerer: expression dispatch
+    ├── calls/mod.rs        # Function/method calls, lambdas, invoke/apply classification
+    ├── collections/mod.rs  # List/map/set/struct/enum construction, field access
+    ├── constructs.rs       # Block expressions, function sequences
+    ├── control_flow/       # Control flow lowering
+    │   ├── mod.rs          # if/else, match, try, break/continue, assign
+    │   ├── for_loops.rs    # For-in loop lowering (range, list, str, map, set)
+    │   ├── for_yield.rs    # For-yield (list comprehension) lowering
+    │   └── loops.rs        # Infinite loop lowering
+    ├── patterns/mod.rs     # Pattern binding destructuring
+    └── scope/mod.rs        # ArcScope: name bindings, mutable tracking, SSA merge
 ```
 
 ## Prior Art

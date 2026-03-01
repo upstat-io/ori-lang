@@ -59,7 +59,7 @@ let (producer, consumer) = channel_in<int>(buffer: 10);
 - Use when: Aggregating results from multiple workers
 
 ```ori
-@aggregate_results (worker_count: int) -> [Result<int, Error>] uses Async = {
+@aggregate_results (worker_count: int) -> [Result<int, Error>] uses Suspend = {
     let (producer, consumer) = channel_in<Result<int, Error>>(buffer: 100);
 
     nursery(
@@ -105,7 +105,7 @@ let (producer, consumer) = channel_out<int>(buffer: 10);
 - Use when: Distributing work to multiple workers
 
 ```ori
-@distribute_work (items: [Item], worker_count: int) -> void uses Async = {
+@distribute_work (items: [Item], worker_count: int) -> void uses Suspend = {
     let (producer, consumer) = channel_out<Item>(buffer: 100);
 
     nursery(
@@ -126,7 +126,7 @@ let (producer, consumer) = channel_out<int>(buffer: 10);
     );
 }
 
-@worker (input: CloneableConsumer<Item>) -> void uses Async = {
+@worker (input: CloneableConsumer<Item>) -> void uses Suspend = {
     loop {
         match input.receive() {
             Some(item) -> {
@@ -266,7 +266,7 @@ type WorkResult = { id: int, output: str }
 @process_with_pool (
     items: [WorkItem],
     worker_count: int,
-) -> [WorkResult] uses Async = {
+) -> [WorkResult] uses Suspend = {
     let (work_producer, work_consumer) = channel_out<WorkItem>(buffer: 100);
     let (result_producer, result_consumer) = channel_in<WorkResult>(buffer: 100);
 
@@ -304,7 +304,7 @@ type WorkResult = { id: int, output: str }
 @pool_worker (
     work: CloneableConsumer<WorkItem>,
     results: CloneableProducer<WorkResult>,
-) -> void uses Async = {
+) -> void uses Suspend = {
     for item in work do {
         let output = process_work(item: item);
         results.send(value: WorkResult { id: item.id, output });
@@ -324,7 +324,7 @@ type Stage1Output = { data: str }
 type Stage2Output = { data: str, processed: bool }
 type FinalOutput = { data: str, processed: bool, validated: bool }
 
-@pipeline (input: [str]) -> [FinalOutput] uses Async = {
+@pipeline (input: [str]) -> [FinalOutput] uses Suspend = {
     // Create channels between stages
     let (stage1_out, stage2_in) = channel<Stage1Output>(buffer: 50);
     let (stage2_out, stage3_in) = channel<Stage2Output>(buffer: 50);
@@ -378,7 +378,7 @@ type FinalOutput = { data: str, processed: bool, validated: bool }
 Distribute work, then aggregate:
 
 ```ori
-@fan_out_fan_in (items: [int], worker_count: int) -> int uses Async = {
+@fan_out_fan_in (items: [int], worker_count: int) -> int uses Suspend = {
     // Fan-out channel
     let (distribute, workers) = channel_out<int>(buffer: 100);
 
@@ -425,7 +425,7 @@ type Token = {}
     work: CloneableConsumer<WorkItem>,
     tokens: Consumer<Token>,
     results: CloneableProducer<WorkResult>,
-) -> void uses Async = {
+) -> void uses Suspend = {
     for item in work do {
         // Wait for a token before processing
         let _ = tokens.receive();
@@ -437,7 +437,7 @@ type Token = {}
 @token_generator (
     tokens: Producer<Token>,
     rate: int,  // tokens per second
-) -> void uses Async, Clock = {
+) -> void uses Suspend, Clock = {
     loop {
         tokens.send(value: Token {});
         sleep(duration: 1s / rate);
@@ -499,7 +499,7 @@ If a producer encounters an error, close the channel and signal:
 ```ori
 @producer_with_errors (
     output: Producer<Result<int, Error>>,
-) -> void uses Async = {
+) -> void uses Suspend = {
     for i in 0..10 do {
         let result = might_fail(value: i);
         match result {
@@ -520,7 +520,7 @@ If a producer encounters an error, close the channel and signal:
 ```ori
 @consume_with_errors (
     input: Consumer<Result<int, Error>>,
-) -> (int, [Error]) uses Async = {
+) -> (int, [Error]) uses Suspend = {
     let sum = 0;
     let errors: [Error] = [];
 

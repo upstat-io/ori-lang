@@ -193,7 +193,7 @@ Boolean literals are `true` and `false`.
 
 ## Semicolons
 
-Not required. Newlines terminate statements. Commas separate elements within delimiters.
+Required to terminate statements within blocks (`{ ... }`). Outside of blocks, newlines terminate top-level declarations. The last expression in a block without a semicolon is treated as the block's return value. Commas separate elements within delimiters.
 
 ## Trailing Commas
 

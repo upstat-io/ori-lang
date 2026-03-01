@@ -155,26 +155,29 @@ pub struct ParseOutput {
 
 ## Expression Precedence
 
-Binary operator precedence uses a Pratt binding power table. Higher values bind tighter. See [Pratt Parser](pratt-parser.md) for details.
+Binary operator precedence uses a Pratt binding power table. Operators are listed from highest to lowest precedence (Level 1 binds tightest). See [Pratt Parser](pratt-parser.md) for details.
 
-| Prec | Operators | Associativity | Binding Power |
-|------|-----------|---------------|---------------|
-| 1 | `??` | Right | (2, 1) |
-| 2 | `\|\|` | Left | (3, 4) |
-| 3 | `&&` | Left | (5, 6) |
-| 4 | `\|` | Left | (7, 8) |
-| 5 | `^` | Left | (9, 10) |
-| 6 | `&` | Left | (11, 12) |
-| 7 | `==` `!=` | Left | (13, 14) |
+| Level | Operators | Associativity | Binding Power |
+|-------|-----------|---------------|---------------|
+| 1 | `.` `[]` `()` `?` `as` `as?` | Left | — (Postfix) |
+| 2 | `**` | Right | — (Power) |
+| 3 | `!` `-` `~` | Right | — (Unary) |
+| 4 | `*` `/` `%` `div` `@` | Left | (23, 24) |
+| 5 | `+` `-` | Left | (21, 22) |
+| 6 | `<<` `>>` | Left | (19, 20) |
+| 7 | `..` `..=` `by` | Left | 17 (Range) |
 | 8 | `<` `>` `<=` `>=` | Left | (15, 16) |
-| 9 | `..` `..=` | Non-assoc | 17 |
-| 10 | `<<` `>>` | Left | (19, 20) |
-| 11 | `+` `-` | Left | (21, 22) |
-| 12 | `*` `/` `%` `div` | Left | (23, 24) |
-| 13 | Unary `-` `!` `~` | Right | — |
-| 14 | `.` `[]` `()` `?` `as` | Left | — |
+| 9 | `==` `!=` | Left | (13, 14) |
+| 10 | `&` | Left | (11, 12) |
+| 11 | `^` | Left | (9, 10) |
+| 12 | `\|` | Left | (7, 8) |
+| 13 | `&&` | Left | (5, 6) |
+| 14 | `\|\|` | Left | (3, 4) |
+| 15 | `??` | Right | (2, 1) |
+| 16 | `\|>` | Left | (—) |
 
-**Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary).
+**Note:** `>>` and `>=` are synthesized from adjacent `>` tokens. See [Token Design](../03-lexer/token-design.md#lexer-parser-token-boundary). `**` and `|>` are handled outside the main Pratt loop due to their unique associativity and binding rules.
+
 
 ## Salsa Integration
 

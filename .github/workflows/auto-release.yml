@@ -2,7 +2,7 @@ name: Auto Release
 
 # Automatically tag and release on every merge to master — but ONLY after CI passes.
 # Uses CalVer: v2026.02.27.N-alpha (UTC date + daily build counter + release stage).
-# The release stage (alpha, beta, rc) comes from the RELEASE_STAGE file.
+# The release stage (alpha, beta, rc) is extracted from the BUILD_NUMBER file.
 # No commits to master — just tags the merge commit directly.
 
 on:
@@ -52,10 +52,13 @@ jobs:
       - name: Derive release tag
         id: tag
         run: |
-          # Read release stage from the single source of truth
+          # Read release stage from BUILD_NUMBER (the single source of truth)
           STAGE=""
-          if [[ -f RELEASE_STAGE ]]; then
-            STAGE=$(tr -d '[:space:]' < RELEASE_STAGE)
+          if [[ -f BUILD_NUMBER ]]; then
+            BUILD_CONTENT=$(tr -d '[:space:]' < BUILD_NUMBER)
+            if [[ "$BUILD_CONTENT" == *-* ]]; then
+              STAGE="${BUILD_CONTENT#*-}"
+            fi
           fi
 
           TODAY=$(date -u +"%Y.%m.%d")

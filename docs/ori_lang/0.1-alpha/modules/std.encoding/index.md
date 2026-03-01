@@ -25,9 +25,9 @@ The `std.encoding` module provides:
 
 | Module | Description |
 |--------|-------------|
-| [base64](base64.md) | Base64 encoding |
-| [hex](hex.md) | Hexadecimal encoding |
-| [url](url.md) | URL percent-encoding |
+| base64 | Base64 encoding |
+| hex | Hexadecimal encoding |
+| url | URL percent-encoding |
 
 ---
 
