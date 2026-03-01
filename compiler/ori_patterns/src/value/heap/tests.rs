@@ -58,11 +58,11 @@ fn try_into_inner_after_drop_succeeds() {
 #[test]
 fn make_mut_unique_ref_mutates_in_place() {
     let mut h = Heap::new(vec![1, 2, 3]);
-    let ptr_before = h.as_ptr();
+    let arc_ptr_before = Arc::as_ptr(&h.0);
     assert_eq!(Arc::strong_count(&h.0), 1);
     h.make_mut().push(4);
-    // Same allocation — no clone happened
-    assert_eq!(h.as_ptr(), ptr_before);
+    // Same Arc allocation — no clone happened (Vec buffer may reallocate, that's fine)
+    assert_eq!(Arc::as_ptr(&h.0), arc_ptr_before);
     assert_eq!(*h, vec![1, 2, 3, 4]);
 }
 
@@ -104,9 +104,9 @@ fn make_mut_after_share_dropped_is_in_place() {
     assert_eq!(Arc::strong_count(&h.0), 2);
     drop(shared); // RC back to 1
     assert_eq!(Arc::strong_count(&h.0), 1);
-    let ptr_before = h.as_ptr();
+    let arc_ptr_before = Arc::as_ptr(&h.0);
     h.make_mut().push(4);
-    // In-place — no clone needed since RC is back to 1
-    assert_eq!(h.as_ptr(), ptr_before);
+    // In-place — no clone needed since RC is back to 1 (Vec buffer may reallocate, that's fine)
+    assert_eq!(Arc::as_ptr(&h.0), arc_ptr_before);
     assert_eq!(*h, vec![1, 2, 3, 4]);
 }
