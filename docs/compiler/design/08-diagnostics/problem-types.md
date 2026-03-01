@@ -26,22 +26,16 @@ Type checking errors use `TypeCheckError` from `ori_types` directly, rendered by
 
 ### LexProblem (E0xxx)
 
+`LexProblem` covers lex-time **warnings** only. Lex *errors* (`LexError`/`LexErrorKind`) are rendered directly via `render_lex_error()` without going through `LexProblem`:
+
 ```rust
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum LexProblem {
-    InvalidCharacter {
+    /// A detached doc comment warning.
+    DetachedDocComment {
         span: Span,
-        ch: char,
+        marker: DocMarker,
     },
-    UnterminatedString {
-        span: Span,
-    },
-    Confusable {
-        span: Span,
-        found: char,
-        suggested: char,
-    },
-    // ...
 }
 ```
 
