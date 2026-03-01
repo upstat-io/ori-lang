@@ -24,7 +24,7 @@ pub use nounwind::PreparedFunction;
 
 use std::cell::Cell;
 
-use ori_arc::{AnnotatedSig, ArcClassifier};
+use ori_arc::{AnnotatedSig, ArcClassifier, UniquenessSummary};
 use ori_ir::{Function, Name, Span, StringInterner};
 use ori_types::{FunctionSig, Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -74,6 +74,8 @@ pub struct FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
     debug_context: Option<&'a DebugContext<'ctx>>,
     /// Pre-computed builtin ownership sets for ARC annotation.
     builtin_ownership: ori_arc::BuiltinOwnershipSets,
+    /// Interprocedural uniqueness summaries for COW check elimination.
+    uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
@@ -96,6 +98,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
         annotated_sigs: &'a FxHashMap<Name, AnnotatedSig>,
         arc_classifier: &'a ArcClassifier<'tcx>,
         debug_context: Option<&'a DebugContext<'ctx>>,
+        uniqueness_summaries: FxHashMap<Name, UniquenessSummary>,
     ) -> Self {
         let builtin_ownership = ori_arc::BuiltinOwnershipSets::new(interner);
         Self {
@@ -112,6 +115,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> FunctionCompiler<'a, 'scx, 'ctx, 'tcx> {
             arc_classifier,
             debug_context,
             builtin_ownership,
+            uniqueness_summaries,
         }
     }
 

@@ -574,6 +574,7 @@ fn collect_deduplicates_types() {
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: crate::uniqueness::CowAnnotations::default(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -624,6 +625,7 @@ fn collect_multiple_types() {
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: crate::uniqueness::CowAnnotations::default(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);
@@ -671,6 +673,7 @@ fn collect_skips_scalar_rc_dec() {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: crate::uniqueness::CowAnnotations::default(),
     };
 
     let infos = collect_drop_infos(&[func], &c, &pool);

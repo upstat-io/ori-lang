@@ -9,12 +9,6 @@ section: "Type System"
 
 The type environment tracks variable-to-type bindings during type checking. It uses an `Rc`-based parent chain for efficient scope management, with all types stored as `Idx` handles into the pool.
 
-## Location
-
-```
-compiler/ori_types/src/infer/env/mod.rs
-```
-
 ## Structure
 
 ```rust

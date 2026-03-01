@@ -9,164 +9,114 @@ section: "Type System"
 
 The Ori type system provides strict static typing with Hindley-Milner type inference, extended with rank-based let-polymorphism, capability tracking, and user-defined types. The entire type system lives in a single crate, `ori_types`, built around a unified pool architecture.
 
-## Location
+## What Makes Ori's Type System Distinctive
 
-```
-compiler/ori_types/src/
-├── lib.rs                    # Module exports, Salsa compatibility assertions
-├── idx.rs                    # Idx — 32-bit type handle (the canonical type reference)
-├── tag.rs                    # Tag — 1-byte type kind discriminant
-├── item.rs                   # Item — compact (Tag, u32) pair stored in pool
-├── flags.rs                  # TypeFlags — pre-computed bitflags for O(1) queries
-├── pool/                     # Unified type storage (SoA layout)
-│   ├── mod.rs                    # Pool struct, queries, variable state management
-│   ├── construct/                # Type construction (directory)
-│   │   └── mod.rs                    # Type construction methods (interning + dedup)
-│   └── format/                   # Type formatting (directory)
-│       └── mod.rs                    # Human-readable type formatting for diagnostics
-├── unify/                    # Unification engine
-│   ├── mod.rs                    # UnifyEngine — link-based union-find
-│   ├── rank/                     # Rank system (directory)
-│   │   └── mod.rs                    # Rank system for let-polymorphism
-│   └── error/                    # Unification errors (directory)
-│       └── mod.rs                    # UnifyError, UnifyContext
-├── infer/                    # Inference engine
-│   ├── mod.rs                    # InferEngine — orchestrates inference
-│   ├── expr/                     # Expression inference (directory, 13+ files)
-│   │   ├── mod.rs                    # infer_expr() dispatch
-│   │   ├── calls.rs, methods.rs, operators.rs, ...
-│   │   └── identifiers.rs, structs.rs, collections.rs, ...
-│   └── env/                      # Type environment (directory)
-│       └── mod.rs                    # TypeEnv — Rc-based scope chain
-├── check/                    # Module-level type checker
-│   ├── mod.rs                    # ModuleChecker — multi-pass orchestration
-│   ├── api/mod.rs                # Public API
-│   ├── signatures/mod.rs         # Pass 1: function signature collection
-│   ├── bodies/mod.rs             # Pass 2-4: function/test/impl body checking
-│   ├── registration/             # Pass 0: type/trait/impl registration
-│   │   ├── mod.rs                    # Registration orchestration
-│   │   ├── builtin_types.rs          # Built-in type registration
-│   │   ├── user_types.rs             # User-defined type registration
-│   │   ├── traits.rs                 # Trait registration
-│   │   ├── impls.rs                  # Impl registration
-│   │   ├── derived.rs                # Derived impl registration
-│   │   ├── consts.rs                 # Config variable registration
-│   │   └── type_resolution.rs        # Type resolution utilities
-│   ├── well_known/               # Well-known names and trait sets
-│   │   ├── mod.rs                    # WellKnownNames cache
-│   │   └── trait_set.rs              # Pre-defined trait groupings
-│   ├── object_safety.rs         # Object safety checking
-│   └── integration_tests.rs     # Type checker integration tests
-├── registry/                 # Type, trait, and method registries
-│   ├── mod.rs                    # Re-exports
-│   ├── types.rs                  # TypeRegistry — struct/enum/newtype storage
-│   ├── traits.rs                 # TraitRegistry — trait definitions and impls
-│   └── methods.rs                # MethodRegistry — built-in method resolution
-├── output/                   # Type checker output
-│   └── mod.rs                    # TypedModule, FunctionSig, PatternResolution
-└── type_error/               # Error infrastructure
-    └── mod.rs                    # TypeCheckError, TypeErrorKind, ErrorContext
+### Pool-Based Type Interning
+
+Traditional type systems use recursive `enum` types with heap allocation (`Box<Type>`, `Vec<Type>`). Ori stores all types in a flat pool using a Structure-of-Arrays layout, where each type is a 5-byte `Item(Tag, u32)` referenced by a 4-byte `Idx` handle:
+
+```rust
+pub struct Pool {
+    items: Vec<Item>,              // tag + data per type
+    flags: Vec<TypeFlags>,         // pre-computed metadata
+    hashes: Vec<u64>,              // for dedup verification
+    extra: Vec<u32>,               // variable-length data (func params, tuple elems)
+    intern_map: FxHashMap<u64, Idx>,  // hash → Idx deduplication
+    var_states: Vec<VarState>,     // type variable state (separate from items)
+}
 ```
 
-## Design Goals
+Every unique type exists exactly once — same `Idx` means same type, giving O(1) equality. Cache locality is excellent: the hot `items` array is densely packed 5-byte entries. Variable-length data (function parameters, tuple elements) lives in the `extra` array, keeping `Item` fixed-size.
 
-1. **Sound type system** — No runtime type errors for well-typed programs
-2. **Full inference** — Minimal type annotations required (function signatures only)
-3. **Good error messages** — Rich context with origin tracking and suggestions
-4. **Capability tracking** — Side effects tracked in function types
-5. **Efficient representation** — Arena-allocated, interned, cache-friendly
+Inspired by Zig's `InternPool` and Roc's type storage.
+
+### Tag-Driven Dispatch with O(1) TypeFlags
+
+Every type carries a 1-byte `Tag` discriminant (organized by semantic range: primitives 0–15, containers 16–47, complex types 48–79, variables 96–111) and a pre-computed `TypeFlags(u32)` bitfield. Flags propagate from children to parents during construction via `PROPAGATE_MASK`, enabling powerful O(1) queries without traversal:
+
+```rust
+// Skip occurs check if type has no variables — O(1)
+if !pool.flags(idx).contains(TypeFlags::HAS_VAR) {
+    return false;
+}
+```
+
+Flag categories: **presence** (`HAS_VAR`, `HAS_ERROR`, `HAS_INFER`), **category** (`IS_PRIMITIVE`, `IS_CONTAINER`, `IS_FUNCTION`), **optimization** (`NEEDS_SUBST`, `IS_RESOLVED`, `IS_MONO`), **capability** (`HAS_CAPABILITY`, `IS_PURE`, `HAS_IO`).
+
+### Link-Based Union-Find (Not Substitution Maps)
+
+Textbook HM implementations use a substitution map (`HashMap<VarId, Type>`) that grows monotonically. Ori uses **direct linking** through the pool's `VarState` — when variable `T0` unifies with `int`, the engine sets `var_states[T0] = Link { target: Idx::INT }`. No separate map needed. Path compression during `resolve()` achieves O(α(n)) amortized complexity.
+
+### Rank-Based Let-Polymorphism
+
+Type variables are created at a scope-depth rank (`Rank(u16)`). When exiting a `let` binding scope, unbound variables at the current rank are generalized into type schemes. This is simpler and more efficient than the level-based approach used in some implementations:
+
+```
+Rank 2 (module level):
+  let id = x -> x         ← infer at rank 3
+                           ← generalize at rank 3: forall T. T -> T
+  let a = id(42)           ← instantiate with fresh vars at rank 2
+  let b = id("hello")      ← instantiate with fresh vars at rank 2
+```
+
+### Immediate Unification
+
+Constraints are solved as they are generated during AST traversal, not collected and solved later. This simplifies the implementation while fully supporting HM inference — errors are reported at the point of occurrence, and substitutions are available immediately for subsequent inference.
+
+### Capability Tracking in the Type System
+
+Side effects are tracked as capabilities on function types. The `InferEngine` maintains two capability sets — `current_capabilities` (from the function's `uses` clause) and `provided_capabilities` (from `with...in` expressions) — and verifies capability availability at each call site.
 
 ## Architecture
 
-The type system is organized into four layers:
+```mermaid
+flowchart TB
+    pool["Pool
+(SoA type storage)
+items + flags + hashes + extra"]
+    registries["Registries
+TypeRegistry + TraitRegistry
++ MethodRegistry"]
+    infer["InferEngine
+UnifyEngine + TypeEnv
++ error accumulation"]
+    checker["ModuleChecker
+multi-pass orchestration"]
 
-```
-┌─────────────────────────────────────────────────────┐
-│ Pool (Unified Type Storage)                         │
-│ ├─ items: Vec<Item>        (tag + data per type)    │
-│ ├─ flags: Vec<TypeFlags>   (pre-computed metadata)  │
-│ ├─ hashes: Vec<u64>        (for deduplication)      │
-│ ├─ extra: Vec<u32>         (variable-length data)   │
-│ ├─ intern_map: FxHashMap   (hash → Idx dedup)       │
-│ ├─ resolutions: FxHashMap  (Named/Applied → concrete)│
-│ └─ var_states: Vec<VarState> (type variable state)  │
-├─────────────────────────────────────────────────────┤
-│ Registries (Semantic Information)                    │
-│ ├─ TypeRegistry  (structs, enums, aliases)          │
-│ ├─ TraitRegistry (traits, impls, super_traits)      │
-│ └─ MethodRegistry (trait method lookup delegation)   │
-├─────────────────────────────────────────────────────┤
-│ InferEngine (Hindley-Milner Inference)              │
-│ ├─ UnifyEngine   (union-find with path compression) │
-│ ├─ TypeEnv       (name → scheme bindings)           │
-│ └─ Error accumulation (comprehensive diagnostics)   │
-├─────────────────────────────────────────────────────┤
-│ ModuleChecker (Multi-Pass Type Checking)            │
-│ ├─ Pass 0: Registration (types, traits, impls)      │
-│ ├─ Pass 1: Function signatures                      │
-│ ├─ Pass 2: Function bodies                          │
-│ ├─ Pass 3: Test bodies                              │
-│ └─ Pass 4: Impl method bodies                       │
-└─────────────────────────────────────────────────────┘
+    checker --> infer
+    checker --> registries
+    infer --> pool
+    registries --> pool
 ```
 
-## Type Checking Flow
+### Multi-Pass Type Checking
 
-```
-ParseResult { Module, ExprArena }
-    │
-    │ create ModuleChecker
-    ▼
-ModuleChecker {
-    pool: Pool,                  // Type storage
-    types: TypeRegistry,         // User-defined types
-    traits: TraitRegistry,       // Traits & implementations
-    methods: MethodRegistry,     // Built-in methods
-}
-    │
-    │ multi-pass type checking
-    ▼
-TypedModule {
-    expr_types: Vec<Idx>,        // Type per expression
-    functions: Vec<FunctionSig>, // Checked signatures
-    types: Vec<TypeEntry>,       // Registered types
-    errors: Vec<TypeCheckError>, // Accumulated errors
-    pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
-    impl_sigs: Vec<(Name, FunctionSig)>,  // Impl method signatures for codegen
-}
+```mermaid
+flowchart TB
+    input["ParseResult
+(Module + ExprArena)"] --> p0
+    p0["Pass 0: Registration
+types, traits, impls,
+derives, config vars"] --> p1
+    p1["Pass 1: Signatures
+collect all function sigs
+(enables mutual recursion)"] --> p2
+    p2["Pass 2: Function Bodies
+infer + check each body"] --> p3
+    p3["Pass 3: Test Bodies
+(implicit void return)"] --> p4
+    p4["Pass 4: Impl Methods
+(Self type bound)"] --> output
+    output["TypedModule
+expr_types + signatures
++ errors + pattern_resolutions"]
 ```
 
-## TypeCheckResult
+## Core Types
 
-The top-level result returned by the type checker query wraps `TypedModule` with an `ErrorGuaranteed` token that provides a compile-time proof that error reporting was not forgotten:
+### Idx — The Canonical Type Handle
 
-```rust
-pub struct TypeCheckResult {
-    pub typed: TypedModule,
-    pub error_guarantee: Option<ErrorGuaranteed>,
-}
-
-impl TypeCheckResult {
-    pub fn ok(typed: TypedModule) -> Self;          // No errors (asserts errors is empty)
-    pub fn err(typed: TypedModule, guarantee: ErrorGuaranteed) -> Self;
-    pub fn from_typed(typed: TypedModule) -> Self;  // Auto-detects presence of errors
-    pub fn has_errors(&self) -> bool;
-    pub fn errors(&self) -> &[TypeCheckError];
-}
-```
-
-`ErrorGuaranteed` is `Some` when at least one error was emitted during type checking. This pattern (from rustc) ensures downstream code cannot accidentally ignore type errors.
-
-## Core Type Handle: Idx
-
-Every type is represented as a 4-byte `Idx` — a transparent wrapper around `u32`. This is the canonical type reference used throughout the compiler.
-
-```rust
-#[repr(transparent)]
-pub struct Idx(u32);  // Copy, Clone, Eq, PartialEq, Hash
-```
-
-Primitive types occupy fixed indices 0–11:
+Every type is a 4-byte `Idx(u32)`. Primitive types occupy fixed indices 0–11:
 
 | Index | Type | Index | Type |
 |-------|------|-------|------|
@@ -177,105 +127,43 @@ Primitive types occupy fixed indices 0–11:
 | 4 | `char` | 10 | `Size` |
 | 5 | `byte` | 11 | `Ordering` |
 
-Indices 12–63 are reserved for future primitives. Dynamic types (functions, lists, user-defined) start at index 64.
+Indices 12–63 are reserved. Dynamic types start at index 64.
 
-## Type Kind: Tag
+### Tag — Type Kind Discriminant
 
-Each type has a 1-byte `Tag` discriminant organized by semantic range:
+1-byte discriminant organized by semantic range:
 
-| Range | Category | Example Tags |
-|-------|----------|-------------|
+| Range | Category | Examples |
+|-------|----------|---------|
 | 0–15 | Primitives | `Int`, `Float`, `Bool`, `Str`, `Unit`, `Never` |
 | 16–31 | Simple containers | `List`, `Option`, `Set`, `Channel`, `Range` |
 | 32–47 | Two-child containers | `Map`, `Result` |
 | 48–79 | Complex types | `Function`, `Tuple`, `Struct`, `Enum` |
 | 80–95 | Named types | `Named`, `Applied`, `Alias` |
 | 96–111 | Type variables | `Var`, `BoundVar`, `RigidVar` |
-| 112–127 | Type schemes | `Scheme` |
-| 240–255 | Special | `Projection`, `ModuleNs`, `Infer`, `SelfType` |
 
-## Pre-computed Metadata: TypeFlags
+## TypeCheckResult
 
-Every type carries a `TypeFlags` bitfield (u32) computed at construction time. This enables O(1) queries without traversal:
-
-**Presence flags:** `HAS_VAR`, `HAS_ERROR`, `HAS_INFER`, `HAS_SELF`, `HAS_PROJECTION`
-**Category flags:** `IS_PRIMITIVE`, `IS_CONTAINER`, `IS_FUNCTION`, `IS_COMPOSITE`
-**Optimization flags:** `NEEDS_SUBST`, `IS_RESOLVED`, `IS_MONO`, `IS_COPYABLE`
-**Capability flags:** `HAS_CAPABILITY`, `IS_PURE`, `HAS_IO`, `HAS_ASYNC`
-
-Flags propagate from children to parents during construction via `PROPAGATE_MASK`, so checking whether a complex type contains any variables is O(1).
-
-## ModuleChecker
-
-The `ModuleChecker` orchestrates multi-pass type checking for a module:
+The top-level result wraps `TypedModule` with an `ErrorGuaranteed` token — a compile-time proof that error reporting was not forgotten (pattern from rustc):
 
 ```rust
-pub struct ModuleChecker<'a> {
-    // === Immutable Context ===
-    arena: &'a ExprArena,
-    interner: &'a StringInterner,
-
-    // === Type Storage ===
-    pool: Pool,
-
-    // === Name Cache ===
-    well_known: WellKnownNames,             // Pre-interned type names for O(1) resolution
-
-    // === Registries ===
-    types: TypeRegistry,                    // User-defined types
-    traits: TraitRegistry,                  // Traits & impls
-    methods: MethodRegistry,                // Method resolution
-
-    // === Import State ===
-    import_env: TypeEnv,                    // Imported function bindings
-    module_aliases: FxHashMap<Name, Vec<FunctionSig>>,  // Qualified access (e.g., http.get)
-
-    // === Function Signatures ===
-    signatures: FxHashMap<Name, FunctionSig>,
-    base_env: Option<TypeEnv>,              // Frozen after Pass 1
-
-    // === Expression Types ===
-    expr_types: Vec<Idx>,                   // Output: type per expression
-
-    // === Scope Context ===
-    current_function: Option<Idx>,          // Current function's type (for `recurse`)
-    current_impl_self: Option<Idx>,         // Current impl's Self type
-    current_capabilities: FxHashSet<Name>,  // `uses` clause capabilities
-    provided_capabilities: FxHashSet<Name>, // `with...in` capabilities
-    const_types: FxHashMap<Name, Idx>,      // Module-level constant types
-
-    // === Diagnostics ===
-    errors: Vec<TypeCheckError>,            // Accumulated errors
-    warnings: Vec<TypeCheckWarning>,        // Accumulated warnings
-
-    // === Pattern Resolutions ===
-    pattern_resolutions: Vec<(PatternKey, PatternResolution)>,
-
-    // === Impl Method Signatures ===
-    impl_sigs: Vec<(Name, FunctionSig)>,    // Impl method signatures for codegen
+pub struct TypeCheckResult {
+    pub typed: TypedModule,
+    pub error_guarantee: Option<ErrorGuaranteed>,
 }
 ```
 
-### Multi-Pass Architecture
+`ErrorGuaranteed` is `Some` when at least one error was emitted. Downstream code cannot accidentally ignore type errors.
 
-**Pass 0 — Registration:**
-- 0a: Register built-in types (Ordering, etc.)
-- 0b: Register user-defined types (structs, enums, newtypes)
-- 0c: Register traits and implementations
-- 0d: Register derived implementations
-- 0e: Register config variables
+## Method Resolution
 
-**Pass 1 — Function Signatures:**
-Collect all function signatures before checking bodies. This enables mutual recursion and forward references. The base environment is frozen after this pass.
+Method calls resolve through a three-level dispatch:
 
-**Pass 2 — Function Bodies:**
-Type check each function body against its declared signature using `InferEngine`.
+1. **Built-in methods** — Compiler-defined methods on primitive/container types (dispatches on type tag + method name)
+2. **Inherent methods** — `impl Type { ... }` blocks
+3. **Trait methods** — `impl Trait for Type { ... }` blocks
 
-**Pass 3 — Test Bodies:**
-Type check test function bodies (implicit `void` return type).
-
-**Pass 4 — Impl Method Bodies:**
-Type check implementation method bodies with `Self` type bound.
+The `TYPECK_BUILTIN_METHODS` constant array (~100+ entries, sorted by type and method name) serves as the manifest of all built-in methods.
 
 ## Type Rules
 
@@ -292,9 +180,7 @@ Type check implementation method bodies with `Self` type bound.
 
 ```
 int + int       → int       (primitive fast path)
-float + float   → float     (primitive fast path)
 str + str       → str       (concatenation)
-int < int       → bool      (comparison)
 T == T          → bool      (where T: Eq)
 T + U           → T::Output (where T: Add<U>)
 ```
@@ -308,27 +194,9 @@ if cond then t else e
   result : T
 ```
 
-## Method Resolution
-
-Method calls resolve through a three-level dispatch:
-
-1. **Built-in methods** — Compiler-defined methods on primitive/container types (via `resolve_builtin_method()`)
-2. **Inherent methods** — `impl Type { ... }` blocks
-3. **Trait methods** — `impl Trait for Type { ... }` blocks
-
-The `MethodRegistry` delegates trait-based method lookup to `TraitRegistry`. Built-in method resolution is handled separately by `resolve_builtin_method()` in `infer/expr/methods.rs`, which dispatches on type tag and method name. Each built-in method declares its return type relationship to the receiver:
-
-```rust
-pub enum BuiltinMethodKind {
-    Fixed(Idx),           // Fixed return type (e.g., len() → int)
-    Element,              // Returns element type (e.g., list.first() → T?)
-    Transform(MethodTransform),  // Transforms receiver type
-}
-```
-
 ## Salsa Compatibility
 
-All exported types derive `Clone, Eq, PartialEq, Hash, Debug` for seamless integration with Salsa's memoization. Compile-time assertions verify compatibility:
+All exported types derive `Clone, Eq, PartialEq, Hash, Debug`. Compile-time assertions verify compatibility:
 
 ```rust
 assert_salsa_compatible!(Idx, Tag, TypeFlags, Rank);

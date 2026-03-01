@@ -9,17 +9,43 @@ section: "Canonicalization"
 
 The canonicalization phase (`ori_canon` crate) transforms the type-checked AST into a sugar-free, type-annotated intermediate representation. This canonical IR (`CanExpr`) sits between the type checker and both backends — the tree-walking evaluator (`ori_eval`) and the ARC/LLVM codegen pipeline (`ori_arc` + `ori_llvm`).
 
-## Pipeline Position
+## What Makes Ori's Canonicalization Distinctive
 
-```text
-Source → Lex → Parse → Type Check → Canonicalize ─┬─→ ori_eval  (interprets CanExpr)
-                                      (ori_canon)   └─→ ori_arc   (lowers CanExpr → ARC IR)
+### Single-Pass Four-in-One Lowering
+
+The `Lowerer` performs desugaring, pattern compilation, constant folding, and type attachment in a single traversal of the AST. There are no separate passes — when the lowerer encounters a sugar variant it desugars inline, when it builds an arithmetic node it immediately attempts constant folding, and every output node gets its resolved type attached. This eliminates redundant tree walks while keeping each transformation's logic in its own module.
+
+### Type-Level Sugar Elimination
+
+`CanExpr` is a **distinct type** from `ExprKind` — sugar variants like `CallNamed`, `TemplateLiteral`, and `ListWithSpread` physically cannot be represented in the canonical form. If a backend tries to match on a sugar variant, it gets a compile error. This makes it impossible for backends to accidentally miss a desugaring case, unlike approaches that use the same AST type throughout.
+
+### Arc-Shared Decision Trees
+
+Decision trees are stored in a `DecisionTreePool` and wrapped in `Arc` for O(1) cloning. Both the tree-walking evaluator and the LLVM codegen share the exact same tree instances without copying. This matters because decision trees can be large for complex match expressions, and both backends need them simultaneously.
+
+### Content-Addressed Constants
+
+The `ConstantPool` uses content-addressing to deduplicate compile-time values. Pre-interned sentinels (`unit`, `true`, `false`, `0`, `1`, `""`) get O(1) access. Folding happens opportunistically during lowering — after constructing a `Binary`, `Unary`, or `If` node, `try_fold()` immediately checks if it can be replaced with a `Constant(ConstantId)`.
+
+### Pipeline Position
+
+```mermaid
+flowchart TB
+    TC["Type Check"]
+    CANON["Canonicalize
+    desugar + patterns +
+    const fold + type attach"]
+    EVAL["ori_eval
+    interprets CanExpr"]
+    ARC["ori_arc
+    lowers CanExpr → ARC IR"]
+
+    TC --> CANON
+    CANON --> EVAL
+    CANON --> ARC
 ```
 
-Canonicalization is **not** a separate Salsa query. It runs:
-- Inside `evaluated()` for the interpreter path
-- Inside `check_source()` for the AOT/LLVM path
-- Inside the `check` command for pattern problem detection
+Canonicalization is **not** a separate Salsa query. It runs inside `evaluated()` for the interpreter path, inside `check_source()` for the AOT/LLVM path, and inside the `check` command for pattern problem detection.
 
 ## What Happens During Lowering
 
@@ -114,25 +140,6 @@ Arc-wrapped decision trees for O(1) cloning across evaluator and codegen:
 pub struct DecisionTreePool {
     trees: Vec<Arc<DecisionTree>>,
 }
-```
-
-## Module Structure
-
-```
-compiler/ori_canon/src/
-├── lib.rs                  # Crate root, re-exports
-├── lower/                  # Lowerer: AST → canonical IR
-│   ├── mod.rs              # Lowerer struct, entry point
-│   ├── expr.rs             # Expression lowering
-│   ├── collections.rs      # Collection literal lowering
-│   ├── patterns.rs         # Pattern lowering within match
-│   ├── sequences.rs        # Sequence/block lowering
-│   └── misc.rs             # Miscellaneous lowering helpers
-├── desugar/mod.rs          # Sugar elimination (7 variants)
-├── patterns/mod.rs         # Pattern → decision tree compilation
-├── const_fold/mod.rs       # Compile-time constant evaluation
-├── exhaustiveness/mod.rs   # Pattern exhaustiveness & redundancy checking
-└── validate.rs             # Canonical IR integrity validation (debug)
 ```
 
 ## Multi-Clause Function Handling

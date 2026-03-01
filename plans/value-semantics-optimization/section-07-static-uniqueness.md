@@ -21,7 +21,7 @@ sections:
     status: complete
   - id: "07.4"
     title: "Integration with ARC Pipeline"
-    status: not-started
+    status: complete
   - id: "07.5"
     title: "COW Check Elimination"
     status: not-started
@@ -282,7 +282,7 @@ Within a single function, determine which variables are provably unique at each 
 
 **File(s):** `compiler/ori_arc/src/lib.rs`
 
-- [ ] Add uniqueness analysis as a pass in `run_arc_pipeline()`:
+- [x] Add uniqueness analysis as a pass in `run_arc_pipeline()`:
   ```rust
   pub fn run_arc_pipeline(program: &ArcProgram) -> ArcProgram {
       // ... existing passes ...
@@ -296,9 +296,9 @@ Within a single function, determine which variables are provably unique at each 
   }
   ```
 
-- [ ] **Ordering**: Uniqueness analysis runs AFTER borrow inference (it uses borrow info to determine parameter ownership) and BEFORE COW check elimination (it provides the uniqueness info that drives elimination).
+- [x] **Ordering**: Uniqueness analysis runs AFTER borrow inference (it uses borrow info to determine parameter ownership) and BEFORE COW check elimination (it provides the uniqueness info that drives elimination).
 
-- [ ] Pass uniqueness info through to codegen via annotations on the ARC IR:
+- [x] Pass uniqueness info through to codegen via annotations on the ARC IR:
   ```rust
   /// Annotation on a COW operation: whether the runtime check can be eliminated.
   pub enum CowMode {
