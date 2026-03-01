@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Static Uniqueness Analysis"
-status: not-started
+status: in-progress
 goal: "Compile-time proof of uniqueness eliminates runtime COW checks for provably unique values"
 inspired_by:
   - "Lean 4 Compiler/IR/Borrow.lean — iterative fixpoint borrow/ownership inference"
@@ -12,7 +12,7 @@ depends_on: ["01", "02", "03", "04", "05", "06"]
 sections:
   - id: "07.1"
     title: "Uniqueness Lattice"
-    status: not-started
+    status: complete
   - id: "07.2"
     title: "Intraprocedural Analysis"
     status: not-started
@@ -77,7 +77,7 @@ Define the abstract domain for uniqueness analysis:
          Shared
 ```
 
-- [ ] Define the uniqueness lattice:
+- [x] Define the uniqueness lattice:
   ```rust
   /// Abstract uniqueness state for a value.
   #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,7 +110,7 @@ Define the abstract domain for uniqueness analysis:
   }
   ```
 
-- [ ] Define `UniquenessMap`:
+- [x] Define `UniquenessMap`:
   ```rust
   /// Maps each variable in a function to its uniqueness state.
   pub struct UniquenessMap {
