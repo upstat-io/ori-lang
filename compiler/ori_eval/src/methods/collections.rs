@@ -155,7 +155,7 @@ pub fn dispatch_string_method(
         require_args("repeat", 1, args.len())?;
         let count = require_int_arg("repeat", &args, 0)?;
         let n_usize = usize::try_from(count)
-            .map_err(|_| ori_patterns::EvalError::new("repeat count must be non-negative"))?;
+            .map_err(|_| ori_patterns::wrong_arg_type("repeat", "non-negative int"))?;
         Ok(Value::string(s.repeat(n_usize)))
     // Into trait: str -> Error (wraps string as error message)
     } else if method == n.into {

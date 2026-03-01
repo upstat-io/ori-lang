@@ -11,6 +11,7 @@
 
 mod consumers;
 mod next;
+mod stateful;
 
 use ori_patterns::IteratorValue;
 

@@ -53,6 +53,8 @@ mod format;
 mod function_call;
 mod interned_names;
 mod method_dispatch;
+mod operator_dispatch;
+mod prelude;
 pub mod resolvers;
 mod scope_guard;
 
@@ -70,7 +72,7 @@ use crate::eval_mode::{EvalMode, ModeState};
 use crate::print_handler::SharedPrintHandler;
 use crate::{Environment, Mutability, SharedMutableRegistry, UserMethodRegistry, Value};
 use ori_ir::canon::SharedCanonResult;
-use ori_ir::{BinaryOp, ExprArena, ExprId, Name, SharedArena, StringInterner, UnaryOp};
+use ori_ir::{ExprArena, ExprId, Name, SharedArena, StringInterner};
 use ori_patterns::{
     recursion_limit_exceeded, ControlAction, EvalError, EvalResult, PatternExecutor,
 };
@@ -455,92 +457,6 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// Register a `function_val` (type conversion function).
-    pub fn register_function_val(
-        &mut self,
-        name: &str,
-        func: crate::FunctionValFn,
-        display_name: &'static str,
-    ) {
-        let name = self.interner.intern(name);
-        self.env
-            .define_global(name, Value::FunctionVal(func, display_name));
-    }
-
-    /// Register all `function_val` (type conversion) functions and built-in values.
-    ///
-    /// Includes:
-    /// - Type conversion functions like int(x), str(x), float(x) (positional args per spec)
-    /// - Built-in enum variants like Less, Equal, Greater (Ordering type)
-    pub fn register_prelude(&mut self) {
-        use crate::{
-            function_val_byte, function_val_error, function_val_float, function_val_hash_combine,
-            function_val_int, function_val_repeat, function_val_str, function_val_thread_id,
-        };
-        tracing::debug!("registering prelude");
-
-        // Type conversion functions (positional args allowed per spec)
-        self.register_function_val("str", function_val_str, "str");
-        self.register_function_val("int", function_val_int, "int");
-        self.register_function_val("float", function_val_float, "float");
-        self.register_function_val("byte", function_val_byte, "byte");
-
-        // Error constructor (Traceable errors with trace storage)
-        self.register_function_val("Error", function_val_error, "Error");
-
-        // Iterator constructors
-        self.register_function_val("repeat", function_val_repeat, "repeat");
-
-        // Hash utility (wrapping arithmetic — can't be pure Ori due to overflow)
-        self.register_function_val("hash_combine", function_val_hash_combine, "hash_combine");
-
-        // Thread/parallel introspection (internal use)
-        self.register_function_val("thread_id", function_val_thread_id, "thread_id");
-
-        // Built-in Ordering enum variants (Less, Equal, Greater)
-        // These are first-class Ordering values, used by compare() and comparison operators
-        let less_name = self.interner.intern("Less");
-        let equal_name = self.interner.intern("Equal");
-        let greater_name = self.interner.intern("Greater");
-
-        self.env.define_global(less_name, Value::ordering_less());
-        self.env.define_global(equal_name, Value::ordering_equal());
-        self.env
-            .define_global(greater_name, Value::ordering_greater());
-
-        // Built-in format spec enum variants (§3.16 Formattable)
-        self.register_format_variants();
-    }
-
-    /// Register `Alignment`, `Sign`, and `FormatType` enum variants as globals.
-    ///
-    /// These unit variants are used by the `Formattable` trait's `FormatSpec` struct.
-    /// Uses the generic `Value::Variant` representation (not a dedicated Value variant)
-    /// since format spec types are only used in formatting, not in hot-path operators.
-    fn register_format_variants(&mut self) {
-        let alignment = self.interner.intern("Alignment");
-        for name in ["Left", "Center", "Right"] {
-            let n = self.interner.intern(name);
-            self.env
-                .define_global(n, Value::variant(alignment, n, vec![]));
-        }
-
-        let sign = self.interner.intern("Sign");
-        for name in ["Plus", "Minus", "Space"] {
-            let n = self.interner.intern(name);
-            self.env.define_global(n, Value::variant(sign, n, vec![]));
-        }
-
-        let format_type = self.interner.intern("FormatType");
-        for name in [
-            "Binary", "Octal", "Hex", "HexUpper", "Exp", "ExpUpper", "Fixed", "Percent",
-        ] {
-            let n = self.interner.intern(name);
-            self.env
-                .define_global(n, Value::variant(format_type, n, vec![]));
-        }
-    }
-
     /// Get captured print output.
     ///
     /// Returns all output written via print/println since the last clear.
@@ -553,95 +469,6 @@ impl<'a> Interpreter<'a> {
     /// Clear captured print output.
     pub fn clear_print_output(&self) {
         self.print_handler.clear();
-    }
-}
-
-/// Check if a value is a primitive type that uses built-in operator evaluation.
-///
-/// Primitive types (int, float, bool, str, char, byte, Duration, Size) use direct
-/// evaluation via `evaluate_binary`. User-defined types dispatch through operator
-/// trait methods (`Add::add`, `Sub::subtract`, `Mul::multiply`, etc.).
-fn is_primitive_value(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::Int(_)
-            | Value::Float(_)
-            | Value::Bool(_)
-            | Value::Str(_)
-            | Value::Char(_)
-            | Value::Byte(_)
-            | Value::Duration(_)
-            | Value::Size(_)
-            | Value::List(_)
-            | Value::Tuple(_)
-            | Value::Map(_)
-            | Value::Some(_)
-            | Value::None
-            | Value::Ok(_)
-            | Value::Err(_)
-            | Value::Range(_)
-    )
-}
-
-/// Check if a value is a built-in indexable type (list, map, str, tuple).
-///
-/// These types use the fast-path direct indexing with `#` hash-length support.
-/// User-defined types dispatch through `Index` trait methods instead.
-fn is_builtin_indexable(value: &Value) -> bool {
-    matches!(
-        value,
-        Value::List(_) | Value::Map(_) | Value::Str(_) | Value::Tuple(_)
-    )
-}
-
-/// Map a binary operator to its pre-interned trait method name.
-///
-/// Returns `Some(Name)` for operators that have trait implementations,
-/// or `None` for comparison, logical, range, and null-coalescing operators
-/// which use direct evaluation.
-fn binary_op_to_method(op: BinaryOp, names: OpNames) -> Option<Name> {
-    match op {
-        // Arithmetic operators
-        BinaryOp::Add => Some(names.add),
-        BinaryOp::Sub => Some(names.subtract),
-        BinaryOp::Mul => Some(names.multiply),
-        // Note: "divide" not "div" because `div` is a keyword (floor division operator)
-        BinaryOp::Div => Some(names.divide),
-        BinaryOp::FloorDiv => Some(names.floor_divide),
-        BinaryOp::Mod => Some(names.remainder),
-        // Bitwise operators
-        BinaryOp::BitAnd => Some(names.bit_and),
-        BinaryOp::BitOr => Some(names.bit_or),
-        BinaryOp::BitXor => Some(names.bit_xor),
-        BinaryOp::Shl => Some(names.shift_left),
-        BinaryOp::Shr => Some(names.shift_right),
-        BinaryOp::MatMul => Some(names.mat_mul),
-        // Comparison, logical, range, and null-coalescing operators
-        // use direct evaluation (no trait method)
-        BinaryOp::Eq
-        | BinaryOp::NotEq
-        | BinaryOp::Lt
-        | BinaryOp::LtEq
-        | BinaryOp::Gt
-        | BinaryOp::GtEq
-        | BinaryOp::And
-        | BinaryOp::Or
-        | BinaryOp::Range
-        | BinaryOp::RangeInclusive
-        | BinaryOp::Coalesce => None,
-    }
-}
-
-/// Map a unary operator to its pre-interned trait method name.
-///
-/// Returns `Some(Name)` for operators that have trait implementations,
-/// or `None` for the Try operator which doesn't have a trait.
-fn unary_op_to_method(op: UnaryOp, names: OpNames) -> Option<Name> {
-    match op {
-        UnaryOp::Neg => Some(names.negate),
-        UnaryOp::Not => Some(names.not),
-        UnaryOp::BitNot => Some(names.bit_not),
-        UnaryOp::Try => None, // Try operator doesn't have a trait
     }
 }
 
