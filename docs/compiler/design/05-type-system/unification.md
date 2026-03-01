@@ -13,9 +13,11 @@ Unification finds whether two types can be made equal by binding type variables.
 
 ```
 compiler/ori_types/src/unify/
-├── mod.rs    # UnifyEngine — core unification
-├── rank.rs   # Rank system for let-polymorphism
-└── error.rs  # UnifyError, UnifyContext
+├── mod.rs              # UnifyEngine — core unification
+├── rank/mod.rs         # Rank system for let-polymorphism
+├── error/mod.rs        # UnifyError, UnifyContext
+├── generalization.rs   # Type generalization logic
+└── substitute.rs       # Substitution helpers
 ```
 
 ## UnifyEngine

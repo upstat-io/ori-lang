@@ -187,23 +187,23 @@ ori_fmt/src/
 │   ├── configs.rs     # Config variables
 │   ├── comments.rs    # Comment handling
 │   ├── tests_fmt.rs   # Test formatting
-│   └── parsed_types.rs# Parsed type formatting
-├── comments.rs        # Comment preservation
-├── context.rs         # FormatContext<E> (column/indent tracking)
-├── emitter.rs         # StringEmitter output abstraction
+│   └── parsed_types/mod.rs # Parsed type formatting
+├── comments/mod.rs    # Comment preservation
+├── context/mod.rs     # FormatContext<E> (column/indent tracking)
+├── emitter/mod.rs     # StringEmitter output abstraction
 ├── width/             # Width calculation (WidthCalculator)
 │   ├── mod.rs         # WidthCalculator with LRU cache
 │   ├── calls.rs       # Function/method call widths
 │   ├── collections.rs # List/map/tuple widths
-│   ├── compounds.rs   # Compound expression widths
+│   ├── compounds/mod.rs # Compound expression widths
 │   ├── control.rs     # Control flow widths
-│   ├── helpers.rs     # Width helper functions
-│   ├── literals.rs    # Literal widths
-│   ├── operators.rs   # Operator widths
-│   ├── patterns.rs    # Pattern widths
+│   ├── helpers/mod.rs # Width helper functions
+│   ├── literals/mod.rs # Literal widths
+│   ├── operators/mod.rs # Operator widths
+│   ├── patterns/mod.rs # Pattern widths
 │   ├── wrappers.rs    # Wrapper type widths
 │   └── tests.rs
-└── incremental.rs     # Incremental formatting (future)
+└── incremental/mod.rs # Incremental formatting
 ```
 
 ## Relationship to Spec

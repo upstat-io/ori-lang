@@ -41,9 +41,9 @@ Each capture is stored at its native LLVM type (not coerced to i64). The lambda 
 
 ## Compilation
 
-### Lambda Compilation (`lower_lambda`)
+### Lambda Compilation (`emit_partial_apply`)
 
-The `lower_lambda` function in `codegen/lower_calls.rs` compiles a lambda expression into a fat-pointer closure. The steps are:
+The `emit_partial_apply` method in `codegen/arc_emitter/closures.rs` compiles a `PartialApply` ARC IR instruction into a fat-pointer closure. The steps are:
 
 1. **Capture analysis**: Walk the lambda body to find free variables (variables used but not bound as parameters). Each capture includes the variable's `Name`, current `ValueId`, and type `Idx`.
 2. **Get type info**: Read the lambda's `TypeInfo::Function` to determine actual parameter and return types.
@@ -53,9 +53,9 @@ The `lower_lambda` function in `codegen/lower_calls.rs` compiles a lambda expres
 6. **Build fat pointer**: Construct `{ fn_ptr, env_ptr }` where `env_ptr` is null if no captures, or a heap-allocated environment struct otherwise.
 
 ```rust
-// Pseudocode for lambda compilation
-fn lower_lambda(params, body) -> { ptr, ptr } {
-    let captures = find_captures(body, params);
+// Pseudocode for lambda compilation (via ARC pipeline)
+fn emit_partial_apply(params, body) -> { ptr, ptr } {
+    let captures = collect_captures(body, params);
 
     // Lambda signature: (ptr env, actual params...) -> actual_ret_type
     let lambda_fn = declare_function("__lambda_N", [ptr, P1, P2, ...], R);
@@ -90,17 +90,17 @@ fn lower_lambda(params, body) -> { ptr, ptr } {
 }
 ```
 
-### Closure Calling (`lower_closure_call`)
+### Closure Calling (`emit_apply_indirect`)
 
-When calling a closure stored in a variable, the calling convention is uniform regardless of whether captures exist:
+When calling a closure stored in a variable via an `ApplyIndirect` ARC IR instruction, the calling convention is uniform regardless of whether captures exist:
 
 1. **Extract** `fn_ptr` and `env_ptr` from the fat pointer via `extract_value`
 2. **Prepend** `env_ptr` as the first argument
 3. **Call indirectly** through `fn_ptr` with actual types from `TypeInfo::Function`
 
 ```rust
-// Pseudocode for closure call
-fn lower_closure_call(closure_val: { ptr, ptr }, args) -> R {
+// Pseudocode for closure call (via ARC pipeline)
+fn emit_apply_indirect(closure_val: { ptr, ptr }, args) -> R {
     let fn_ptr = extract_value(closure_val, 0);  // fn_ptr
     let env_ptr = extract_value(closure_val, 1);  // env_ptr
 
@@ -116,19 +116,22 @@ No tag-bit checking is needed because the calling convention is uniform: all lam
 
 ## Capture Analysis
 
-The `find_captures` method on `ExprLowerer` walks the lambda body recursively to identify free variables. Each capture includes three pieces of information:
+Capture analysis is performed during ARC lowering (in `ori_arc`), not during LLVM emission. The `collect_captures` method on `ArcLowerer` walks the lambda body recursively to identify free variables:
 
 ```rust
-fn find_captures(&mut self, body: CanId, params: CanParamRange) -> Vec<(Name, ValueId, Idx)> {
+fn collect_captures(
+    &self, body: CanId, params: &[Name],
+    captures: &mut Vec<(Name, ArcVarId)>, seen: &mut HashSet<Name>,
+) {
     // Walk body, collect identifiers that:
     // 1. Are NOT lambda parameters
     // 2. ARE in the current scope (captured from enclosing scope)
     // 3. Haven't been seen yet (avoid duplicates)
-    // Returns (name, current_value, type_index) triples
+    // Returns (name, arc_var_id) pairs
 }
 ```
 
-The type index (`Idx`) is needed to build the environment struct with native-typed fields, so each capture is stored at its correct LLVM type rather than being coerced to `i64`.
+Captures become the first parameters of the lambda's `ArcFunction`. The ARC IR `PartialApply` instruction records which outer variables are captured. The LLVM `emit_partial_apply` then generates the environment struct with native-typed fields.
 
 Supported expression types for capture analysis:
 - Identifiers (primary capture source)
@@ -158,8 +161,9 @@ The `IrBuilder` provides methods for working with closure fat pointers:
 
 | File | Purpose |
 |------|---------|
-| `codegen/lower_lambdas.rs` | `lower_lambda`, `find_captures`, capture analysis |
-| `codegen/lower_calls.rs` | `lower_closure_call`, call dispatch |
-| `codegen/ir_builder.rs` | `closure_type()`, `extract_value`, `build_struct`, `call_indirect` |
-| `codegen/arc_emitter.rs` | ARC emission for closure values (retain/release env) |
-| `codegen/lower_literals.rs` | Function-as-value wrapping (non-lambda function references as fat pointers) |
+| `codegen/arc_emitter/closures.rs` | `emit_partial_apply`, closure creation, environment allocation, wrapper generation |
+| `codegen/arc_emitter/apply.rs` | `emit_apply`, `emit_apply_indirect`, call dispatch (direct + indirect through closures) |
+| `codegen/ir_builder/` | `closure_type()`, `extract_value`, `build_struct`, `call_indirect` (split across `aggregates.rs`, `calls.rs`, `memory.rs`) |
+| `codegen/arc_emitter/rc_ops.rs` | RC operations for closure environments (retain/release env_ptr) |
+| `codegen/arc_emitter/drop_gen.rs` | Drop function generation for closure environment structs |
+| `codegen/arc_emitter/value_emission.rs` | Literal and function-as-value emission |

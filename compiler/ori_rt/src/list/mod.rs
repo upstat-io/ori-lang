@@ -13,13 +13,16 @@
 mod cow;
 mod cow_sort;
 mod query;
+pub mod slice;
 
 pub use cow::*;
 pub use cow_sort::*;
 pub use query::*;
+pub use slice::*;
 
 use crate::next_capacity;
-use crate::rc::{ori_rc_alloc, ori_rc_free, ori_rc_realloc};
+use crate::rc::{ori_rc_alloc, ori_rc_dec, ori_rc_free, ori_rc_realloc};
+use crate::slice_encoding::{is_slice_cap, slice_original_data};
 
 /// Ori list representation: { i64 len, i64 cap, *mut u8 data }
 ///
@@ -340,6 +343,26 @@ pub(crate) unsafe fn write_list_output(out_ptr: *mut u8, len: i64, cap: i64, dat
     out_ptr.cast::<i64>().write(len);
     out_ptr.cast::<i64>().add(1).write(cap);
     out_ptr.add(16).cast::<*mut u8>().write(data);
+}
+
+/// Decrement a list buffer's refcount, handling seamless slices.
+///
+/// For regular buffers (`cap >= 0`), decs `data`'s RC directly.
+/// For slices (`cap < 0`), computes the original buffer's data pointer and
+/// decs that instead. Does NOT perform element cleanup — this is a
+/// buffer-level RC dec only, used by COW functions that have already
+/// handled element RC via `inc_copied_elements`.
+#[inline]
+pub(crate) fn dec_list_buffer(data: *mut u8, cap: i64) {
+    if data.is_null() {
+        return;
+    }
+    if is_slice_cap(cap) {
+        let original = slice_original_data(data, cap);
+        ori_rc_dec(original, None);
+    } else {
+        ori_rc_dec(data, None);
+    }
 }
 
 /// Increment RC for each copied element in a data buffer.

@@ -20,9 +20,12 @@ sections:
     title: "Stack Promotion Codegen"
     status: not-started
   - id: "08.4"
-    title: "Escape-Aware ARC Pipeline Integration"
+    title: "Bump Allocation for Non-Escaping Dynamic Values"
     status: not-started
   - id: "08.5"
+    title: "Escape-Aware ARC Pipeline Integration"
+    status: not-started
+  - id: "08.6"
     title: "Completion Checklist"
     status: not-started
 ---
@@ -211,7 +214,64 @@ When escape analysis marks an allocation as `NoEscape`, generate stack allocatio
 
 ---
 
-## 08.4 Escape-Aware ARC Pipeline Integration
+## 08.4 Bump Allocation for Non-Escaping Dynamic Values
+
+**File(s):** `compiler/ori_repr/src/escape/bump.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/alloc.rs`
+
+Stack promotion (§08.3) works for fixed-size values, but not for dynamic-size collections (lists, maps, strings with unknown length). These still need heap allocation — but they don't need `malloc`/`free` if they don't escape.
+
+**Strategy:** Emit a function-local bump allocator for non-escaping dynamic values. Bump allocation is a pointer increment — faster than any general-purpose allocator. The entire bump region is freed at function return (single `free` or stack unwinding).
+
+This directly closes the "custom allocators" gap with Zig: Zig lets programmers manually pass arena allocators. Ori does it automatically based on escape analysis.
+
+- [ ] Define bump allocation decision:
+  ```rust
+  pub enum AllocStrategy {
+      /// Standard heap allocation via ori_rc_alloc
+      Heap,
+      /// Stack allocation via alloca (fixed-size, NoEscape)
+      Stack,
+      /// Bump allocation from function-local arena (dynamic-size, NoEscape)
+      Bump,
+  }
+  ```
+
+- [ ] Select strategy based on escape state and size:
+  - `NoEscape` + fixed-size → `Stack` (§08.3)
+  - `NoEscape` + dynamic-size → `Bump`
+  - `ArgEscape` or `GlobalEscape` → `Heap`
+
+- [ ] Emit bump allocator prologue/epilogue in LLVM IR:
+  ```llvm
+  ; Function prologue — allocate bump region
+  %bump.base = call ptr @ori_bump_alloc(i64 4096)  ; initial 4KB region
+  %bump.ptr = alloca ptr                            ; current bump pointer
+  store ptr %bump.base, ptr %bump.ptr
+
+  ; Bump allocation (instead of ori_rc_alloc):
+  %current = load ptr, ptr %bump.ptr
+  %next = getelementptr i8, ptr %current, i64 %size
+  store ptr %next, ptr %bump.ptr
+  ; %current is the allocated pointer — no RC header needed
+
+  ; Function epilogue — free entire region
+  call void @ori_bump_free(ptr %bump.base)
+  ```
+
+- [ ] Handle growth: if bump region is exhausted, allocate a new linked region. The `ori_bump_alloc` / `ori_bump_free` functions in `ori_rt` manage a linked list of regions.
+
+- [ ] **No RC operations**: Bump-allocated values have no refcount header. All RC inc/dec/is_unique operations are elided (same as stack-promoted values).
+
+- [ ] **Interaction with COW**: Bump-allocated collections are always unique (no sharing possible), so all COW checks are `StaticUnique` — fast path only. This combines with VSO §07 for maximum effect.
+
+- [ ] Unit tests:
+  - Function with temporary list (unknown size from input) → bump-allocated, no `ori_rc_alloc`
+  - Function returning list → standard heap allocation (escapes)
+  - Bump region growth: function allocating >4KB of temporaries → linked regions, single cleanup
+
+---
+
+## 08.5 Escape-Aware ARC Pipeline Integration
 
 **File(s):** `compiler/ori_arc/src/rc_insert/mod.rs`, `compiler/ori_arc/src/lib.rs`
 
@@ -238,16 +298,18 @@ Feed escape information into the ARC pipeline so it can skip RC operations.
 
 ---
 
-## 08.5 Completion Checklist
+## 08.6 Completion Checklist
 
 - [ ] `let list = [1, 2, 3]; len(list)` — list is stack-promoted (no heap alloc)
 - [ ] `let s = str(42); print(s)` — string is stack-promoted if `print` borrows
 - [ ] `let point = Point { x: 1, y: 2 }; point.x + point.y` — struct on stack (no RC header)
-- [ ] Values returned from functions are NOT stack-promoted (correctly identified as escaping)
+- [ ] Dynamic-size non-escaping collection → bump-allocated (no `ori_rc_alloc`)
+- [ ] Bump-allocated values have no RC operations and all COW checks are `StaticUnique`
+- [ ] Values returned from functions are NOT stack/bump-promoted (correctly identified as escaping)
 - [ ] Closures that capture values correctly mark those values as escaping
 - [ ] `./test-all.sh` green
-- [ ] `./scripts/valgrind-aot.sh` clean (no use-after-free from premature stack deallocation)
+- [ ] `./scripts/valgrind-aot.sh` clean (no use-after-free from premature stack deallocation or bump region reuse)
 - [ ] `./scripts/dual-exec-verify.sh` passes (eval and AOT produce identical results)
 - [ ] Zero `ori_rc_alloc` calls for functions that only use non-escaping values
 
-**Exit Criteria:** A function that creates a temporary list, computes its length, and returns the length generates ZERO `ori_rc_alloc`/`ori_rc_dec` calls in LLVM IR. Verified by `grep -c "ori_rc" function.ll` returning 0. Valgrind reports 0 heap allocations for this function.
+**Exit Criteria:** A function that creates a temporary list, computes its length, and returns the length generates ZERO `ori_rc_alloc`/`ori_rc_dec` calls in LLVM IR. Verified by `grep -c "ori_rc" function.ll` returning 0. A function with a dynamic-size temporary collection uses `ori_bump_alloc` instead of `ori_rc_alloc`. Valgrind reports 0 heap leaks (bump regions properly freed).

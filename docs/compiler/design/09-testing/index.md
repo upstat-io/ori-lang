@@ -13,12 +13,21 @@ The Ori test system provides test discovery, parallel execution, and coverage tr
 
 ```
 compiler/oric/src/test/
-├── mod.rs                    # Module exports
-├── runner/mod.rs             # Test execution
-├── discovery/mod.rs          # Test finding
-├── result/mod.rs             # Test result types
-├── change_detection/mod.rs   # Incremental test execution (TestRunCache, FunctionChangeMap)
-└── error_matching.rs         # ExpectedError matching for compile_fail tests
+├── mod.rs                        # Module exports
+├── runner/
+│   ├── mod.rs                        # Test execution dispatch
+│   ├── arc_lowering.rs               # ARC lowering for LLVM test compilation
+│   ├── llvm_backend.rs               # LLVM backend test execution
+│   └── test_execution.rs             # Core test execution logic
+├── discovery/mod.rs              # Test finding
+├── result/mod.rs                 # Test result types
+├── change_detection/mod.rs       # Incremental test execution (TestRunCache, FunctionChangeMap)
+└── error_matching.rs             # ExpectedError matching for compile_fail tests
+
+compiler/oric/src/testing/
+├── mod.rs                        # Test utilities module
+├── harness/mod.rs                # Test harness for integration tests
+└── mocks/mod.rs                  # Mock implementations for testing
 ```
 
 ## Design Goals
@@ -66,21 +75,21 @@ Test multiple functions:
 
 ## Test Attributes
 
-### #[skip("reason")]
+### #skip("reason")]
 
 Skip a test:
 
 ```ori
-#[skip("not implemented yet")]
+#skip("not implemented yet")]
 @test_future_feature () -> void = ...
 ```
 
-### #[compile_fail("error")]
+### #compile_fail("error")]
 
 Expect compilation to fail:
 
 ```ori
-#[compile_fail("type mismatch")]
+#compile_fail("type mismatch")]
 @test_type_error () -> void = {
     let x: int = "not an int";
 }
@@ -92,21 +101,21 @@ The `compile_fail` attribute supports rich error specifications:
 
 ```ori
 // Simple message matching (legacy)
-#[compile_fail("type mismatch")]
+#compile_fail("type mismatch")]
 
 // Error code matching
-#[compile_fail(code: "E2001")]
+#compile_fail(code: "E2001")]
 
 // Combined matching
-#[compile_fail(code: "E2001", message: "type mismatch")]
+#compile_fail(code: "E2001", message: "type mismatch")]
 
 // Position-specific matching
-#[compile_fail(message: "error", line: 5)]
-#[compile_fail(message: "error", line: 5, column: 10)]
+#compile_fail(message: "error", line: 5)]
+#compile_fail(message: "error", line: 5, column: 10)]
 
 // Multiple expected errors (multiple attributes)
-#[compile_fail("type mismatch")]
-#[compile_fail("unknown identifier")]
+#compile_fail("type mismatch")]
+#compile_fail("unknown identifier")]
 @test_multiple_errors () -> void = ...
 ```
 
@@ -137,12 +146,12 @@ pub fn matches_expected(
 ) -> bool;
 ```
 
-### #[fail("message")]
+### #fail("message")]
 
 Expect test to fail at runtime:
 
 ```ori
-#[fail("assertion failed")]
+#fail("assertion failed")]
 @test_expected_failure () -> void =
     assert(cond: false)
 ```
@@ -174,7 +183,7 @@ Each test produces one of four outcomes:
 |---------|---------|-------------------|
 | `Passed` | Test passed (including matched `compile_fail` expectations) | No |
 | `Failed(String)` | Test failed with error message | Yes |
-| `Skipped(String)` | Test skipped with reason (via `#[skip]`) | No |
+| `Skipped(String)` | Test skipped with reason (via `#skip`) | No |
 | `SkippedUnchanged` | Test skipped because all targets are unchanged since last run | No |
 | `LlvmCompileFail(String)` | LLVM compilation of file failed — test could not run | No (tracked separately) |
 
@@ -229,7 +238,7 @@ discover_tests_in(path)
     → type_check_with_imports_source_and_interner
     → run_compile_fail_tests (error matching only, no eval)
     → run_regular_tests (interpreter or LLVM)
-    → apply_fail_wrapper for tests with #[fail]
+    → apply_fail_wrapper for tests with #fail
 ```
 
 ### Error Matching Algorithm

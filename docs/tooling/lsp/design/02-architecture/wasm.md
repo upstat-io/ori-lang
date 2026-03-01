@@ -30,7 +30,7 @@ rustup target add wasm32-unknown-unknown
 ### Build Command
 
 ```bash
-# From compiler/ori_lsp/
+# From tools/ori-lsp/
 wasm-pack build --target web --out-dir ../../playground/wasm-lsp/pkg
 ```
 

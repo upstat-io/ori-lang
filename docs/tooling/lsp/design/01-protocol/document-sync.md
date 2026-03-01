@@ -278,7 +278,7 @@ fn get_types(&mut self, uri: &Url) -> Option<&TypeContext> {
 
     if doc.types.is_none() {
         if let Some(ast) = &doc.ast {
-            let result = ori_typeck::check(ast);
+            let result = ori_types::check(ast);
             doc.types = Some(result.context);
         }
     }

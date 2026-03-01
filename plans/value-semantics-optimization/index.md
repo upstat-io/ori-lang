@@ -71,7 +71,7 @@ BTreeMap, ordered map, linear scan
 ---
 
 ### Section 05: Seamless Slices
-**File:** `section-05-seamless-slices.md` | **Status:** Not Started
+**File:** `section-05-seamless-slices.md` | **Status:** Complete
 
 ```
 slice, seamless slice, zero-copy, view, borrow

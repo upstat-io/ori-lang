@@ -58,6 +58,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .call_with_sret(func_id, &[ptr], str_ty, func_name)
     }
 
+    /// Emit `str.substring(start, end)` — `(str, i64, i64) -> str` runtime call.
+    ///
+    /// Creates a zero-copy seamless slice for heap strings (RC inc on original).
+    /// SSO strings are copied (no shareable heap buffer).
+    pub(crate) fn emit_str_substring(
+        &mut self,
+        receiver: ValueId,
+        start: ValueId,
+        end: ValueId,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_str_substring");
+        let ptr = self.str_to_ptr(receiver, "substring.self");
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        self.builder
+            .call_with_sret(func_id, &[ptr, start, end], str_ty, "ori_str_substring")
+    }
+
     /// Emit `str.replace(from, to)` — `(str, str, str) -> str` runtime call.
     pub(crate) fn emit_str_replace(
         &mut self,

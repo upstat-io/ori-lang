@@ -40,9 +40,23 @@ compiler/ori_types/src/
 │       └── mod.rs                    # TypeEnv — Rc-based scope chain
 ├── check/                    # Module-level type checker
 │   ├── mod.rs                    # ModuleChecker — multi-pass orchestration
-│   ├── signatures.rs             # Pass 1: function signature collection
-│   ├── bodies.rs                 # Pass 2-4: function/test/impl body checking
-│   └── registration.rs          # Pass 0: type/trait/impl registration
+│   ├── api/mod.rs                # Public API
+│   ├── signatures/mod.rs         # Pass 1: function signature collection
+│   ├── bodies/mod.rs             # Pass 2-4: function/test/impl body checking
+│   ├── registration/             # Pass 0: type/trait/impl registration
+│   │   ├── mod.rs                    # Registration orchestration
+│   │   ├── builtin_types.rs          # Built-in type registration
+│   │   ├── user_types.rs             # User-defined type registration
+│   │   ├── traits.rs                 # Trait registration
+│   │   ├── impls.rs                  # Impl registration
+│   │   ├── derived.rs                # Derived impl registration
+│   │   ├── consts.rs                 # Config variable registration
+│   │   └── type_resolution.rs        # Type resolution utilities
+│   ├── well_known/               # Well-known names and trait sets
+│   │   ├── mod.rs                    # WellKnownNames cache
+│   │   └── trait_set.rs              # Pre-defined trait groupings
+│   ├── object_safety.rs         # Object safety checking
+│   └── integration_tests.rs     # Type checker integration tests
 ├── registry/                 # Type, trait, and method registries
 │   ├── mod.rs                    # Re-exports
 │   ├── types.rs                  # TypeRegistry — struct/enum/newtype storage

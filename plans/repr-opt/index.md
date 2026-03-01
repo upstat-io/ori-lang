@@ -132,6 +132,8 @@ connection graph, CgNode, CgEdge, PointsTo, Deferred
 intraprocedural, interprocedural, function summary
 FunctionEscapeSummary, param_escapes, return_aliases
 stack allocation, no RC header, eliminate ori_rc_alloc
+bump allocation, bump allocator, arena, AllocStrategy
+ori_bump_alloc, ori_bump_free, dynamic-size, non-escaping
 Go escape analysis, Swift StackPromotion, Java scalar replacement
 Lean4 Borrow.lean, ori_arc borrow inference
 ```

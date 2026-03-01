@@ -18,11 +18,17 @@ compiler/ori_types/src/
 ├── item.rs          # Item storage record
 ├── flags.rs         # TypeFlags bitfield
 └── pool/
-    ├── mod.rs       # Pool struct, queries, variable state
+    ├── mod.rs       # Pool struct, core implementation
+    ├── accessors.rs # Query methods (type lookups, variable state)
+    ├── descriptor.rs # Type descriptor operations
     ├── construct/   # Type construction (directory)
     │   └── mod.rs       # Interning + dedup
-    └── format/      # Human-readable formatting (directory)
-        └── mod.rs       # Type display for diagnostics
+    ├── format/      # Human-readable formatting (directory)
+    │   └── mod.rs       # Type display for diagnostics
+    ├── re_intern/   # Re-interning utilities
+    │   └── mod.rs
+    └── substitute/  # Type substitution
+        └── mod.rs
 ```
 
 ## Design Rationale

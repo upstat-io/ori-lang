@@ -64,7 +64,7 @@ pub mod set;
     dead_code,
     reason = "Slice encoding primitives — consumers added in §05.2-05.5"
 )]
-pub(crate) mod slice;
+pub(crate) mod slice_encoding;
 pub mod string;
 
 // Re-export all public items from submodules.
