@@ -2,6 +2,9 @@
 title: "Overview"
 description: "Ori Formatter Design — Implementation Guide"
 order: 0
+sidebar_title: "Formatter"
+sidebar_order: 3
+sidebar_path: "/docs/formatter"
 ---
 
 # Overview
