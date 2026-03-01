@@ -381,7 +381,7 @@ Guards (`if` conditions on arms) are **not** considered for exhaustiveness — t
 
 ### Diagnostics
 
-Pattern problems are reported as `SemanticProblem::NonExhaustiveMatch` and `SemanticProblem::RedundantPattern` in the `check` command. See [Pattern Compilation](../06b-canonicalization/pattern-compilation.md) for the full algorithm.
+Pattern problems are reported as `SemanticProblem::NonExhaustiveMatch` and `SemanticProblem::RedundantPattern` in the `check` command. See [Pattern Compilation](../07-canonicalization/pattern-compilation.md) for the full algorithm.
 
 ## Related Documents
 
@@ -389,4 +389,4 @@ Pattern problems are reported as `SemanticProblem::NonExhaustiveMatch` and `Sema
 - [Pattern Registry](pattern-registry.md) - Registration system
 - [Pattern Fusion](pattern-fusion.md) - Fusion optimization (FusedPattern enum)
 - [Adding Patterns](adding-patterns.md) - How to add new patterns
-- [Pattern Compilation](../06b-canonicalization/pattern-compilation.md) - Decision tree construction and exhaustiveness
+- [Pattern Compilation](../07-canonicalization/pattern-compilation.md) - Decision tree construction and exhaustiveness

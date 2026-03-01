@@ -2,6 +2,9 @@
 title: "Overview"
 description: "Ori Language Specification"
 order: 0
+sidebar_title: "Specification"
+sidebar_order: 1
+sidebar_path: "/docs/spec"
 ---
 
 # Ori Language Specification
