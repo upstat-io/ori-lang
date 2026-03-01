@@ -353,6 +353,11 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
                 self.emit_prepared_lambda(lambda);
             }
 
+            // Lambda compilation changes builder.current_function to the last
+            // lambda's FunctionId. Reset it to the parent so entry-block allocas
+            // (sret temporaries, indirect param storage) land in the right function.
+            self.builder.set_current_function(func.func_id);
+
             // Emit parent function
             let mut emitter = ArcIrEmitter::new(
                 self.builder,

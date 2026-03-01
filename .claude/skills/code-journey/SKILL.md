@@ -153,7 +153,7 @@ ORI_LOG=ori_lexer=debug,ori_parse=debug,ori_types=debug,ori_canon=debug cargo ru
 
 # LLVM IR dump (unoptimized — this is what OUR codegen emits)
 rm -rf ~/.cache/ori 2>/dev/null
-ORI_DEBUG_LLVM=1 ./target/debug/ori run --compile plans/code-journeys/journeyN.ori > "$JTMP/llvm_ir.txt" 2>&1
+ORI_DUMP_AFTER_LLVM=1 ./target/debug/ori run --compile plans/code-journeys/journeyN.ori > "$JTMP/llvm_ir.txt" 2>&1
 
 # LLVM warnings
 rm -rf ~/.cache/ori 2>/dev/null
@@ -590,7 +590,7 @@ The overview.md must contain:
 | `ORI_LOG=ori_canon=debug` | Canon IR node counts, decision trees |
 | `ORI_LOG=ori_eval=trace` | Per-expression evaluation |
 | `ORI_LOG=ori_eval=debug` | Prelude registration |
-| `ORI_DEBUG_LLVM=1` | Full LLVM IR dump to stderr |
+| `ORI_DUMP_AFTER_LLVM=1` | Full LLVM IR dump to stderr |
 | `ORI_LOG=ori_llvm=debug` | ARC pipeline, borrow inference, codegen details |
 | `ORI_LOG=warn` | All warnings (type checker + LLVM codegen) |
 

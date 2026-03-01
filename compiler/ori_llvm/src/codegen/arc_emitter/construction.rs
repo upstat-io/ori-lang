@@ -111,6 +111,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             CtorKind::MapLiteral => {
                 // Map literal: args are [key0, val0, key1, val1, ...]
+                // Single-buffer layout: [key0..keyN | val0..valN]
                 let count = arg_vals.len() / 2;
                 let type_info = self.type_info.get(ty);
                 let (key_idx, val_idx) = match &type_info {
@@ -123,41 +124,44 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let val_size = self.element_store_size(val_idx);
 
                 let count_val = self.builder.const_i64(count as i64);
-                let key_esize = self.builder.const_i64(key_size as i64);
-                let val_esize = self.builder.const_i64(val_size as i64);
 
+                // Allocate single combined buffer: count * (key_size + val_size)
+                let total_size = count as u64 * (key_size + val_size);
                 let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
+                let total_val = self.builder.const_i64(total_size as i64);
+                let one = self.builder.const_i64(1);
 
-                let keys_ptr = self
+                let data_ptr = self
                     .builder
-                    .call(alloc_fn, &[count_val, key_esize], "map.keys")
+                    .call(alloc_fn, &[one, total_val], "map.data")
                     .unwrap_or_else(|| self.builder.const_null_ptr());
 
-                let vals_ptr = self
+                // Compute values region start: data + count * key_size
+                let i8_ty = self
                     .builder
-                    .call(alloc_fn, &[count_val, val_esize], "map.vals")
-                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                    .register_type(self.builder.scx().type_i8().into());
+                let vals_offset = self.builder.const_i64((count as u64 * key_size) as i64);
+                let vals_start = self
+                    .builder
+                    .gep(i8_ty, data_ptr, &[vals_offset], "map.vals");
 
-                // Store keys and values into their respective arrays
+                // Store keys at data[0..] and values at data[count*key_size..]
                 for i in 0..count {
                     let idx = self.builder.const_i64(i as i64);
                     let key_ptr = self
                         .builder
-                        .gep(key_llvm_ty, keys_ptr, &[idx], "map.key_ptr");
+                        .gep(key_llvm_ty, data_ptr, &[idx], "map.key_ptr");
                     self.builder.store(arg_vals[i * 2], key_ptr);
 
                     let val_ptr = self
                         .builder
-                        .gep(val_llvm_ty, vals_ptr, &[idx], "map.val_ptr");
+                        .gep(val_llvm_ty, vals_start, &[idx], "map.val_ptr");
                     self.builder.store(arg_vals[i * 2 + 1], val_ptr);
                 }
 
-                // Build map struct: {i64 count, i64 cap, ptr keys, ptr vals}
-                self.builder.build_struct(
-                    llvm_ty,
-                    &[count_val, count_val, keys_ptr, vals_ptr],
-                    "map",
-                )
+                // Build map struct: {i64 count, i64 cap, ptr data}
+                self.builder
+                    .build_struct(llvm_ty, &[count_val, count_val, data_ptr], "map")
             }
 
             CtorKind::SetLiteral => {

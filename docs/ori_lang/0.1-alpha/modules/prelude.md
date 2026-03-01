@@ -277,20 +277,20 @@ These traits are in the prelude:
 
 ## Marker Capabilities
 
-### Async
+### Suspend
 
 ```ori
-trait Async {}
+trait Suspend {}
 ```
 
-A marker capability that indicates a function may suspend execution. Unlike resource capabilities (like `Http` or `FileSystem`), `Async` has no methods — it's a compile-time signal that affects how the runtime handles the function.
+A marker capability that indicates a function may suspend execution. Unlike resource capabilities (like `Http` or `FileSystem`), `Suspend` has no methods — it's a compile-time signal that affects how the runtime handles the function.
 
 ```ori
-// With Async: non-blocking, may suspend
-@fetch_user (id: str) -> Result<User, Error> uses Http, Async =
+// With Suspend: non-blocking, may suspend
+@fetch_user (id: str) -> Result<User, Error> uses Http, Suspend =
     Http.get("/users/" + id)?.parse()
 
-// Without Async: blocking, runs to completion
+// Without Suspend: blocking, runs to completion
 @fetch_user_sync (id: str) -> Result<User, Error> uses Http =
     Http.get("/users/" + id)?.parse()
 ```
@@ -298,18 +298,18 @@ A marker capability that indicates a function may suspend execution. Unlike reso
 **Key properties:**
 - Empty trait — no methods to implement
 - Declares that a function may suspend (yield control to runtime)
-- Propagates through call chains (if `f` calls `g` which `uses Async`, then `f` must also declare `uses Async` or provide the capability)
-- Enables sync mocks in tests — mock implementations that don't declare `Async` run synchronously
+- Propagates through call chains (if `f` calls `g` which `uses Suspend`, then `f` must also declare `uses Suspend` or provide the capability)
+- Enables sync mocks in tests — mock implementations that don't declare `Suspend` run synchronously
 
 **Sync vs Async:**
 
-| With `uses Async` | Without `uses Async` |
-|-------------------|----------------------|
+| With `uses Suspend` | Without `uses Suspend` |
+|---------------------|------------------------|
 | Non-blocking | Blocking |
 | May suspend | Runs to completion |
 | Requires async runtime | Runs synchronously |
 
-See [Async via Capabilities](../design/10-async/01-async-await.md) for detailed explanation.
+See [Async via Capabilities](../archived-design/10-async/01-async-await.md) for detailed explanation.
 
 ---
 
@@ -317,4 +317,4 @@ See [Async via Capabilities](../design/10-async/01-async-await.md) for detailed 
 
 - [Types Specification](../spec/06-types.md)
 - [Built-in Functions](../spec/11-built-in-functions.md)
-- [Traits](../design/04-traits/)
+- [Traits](../archived-design/04-traits/)

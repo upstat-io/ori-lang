@@ -196,7 +196,7 @@ If the operation takes longer than the specified duration, it's cancelled and re
 For more control over concurrent tasks, use `nursery`:
 
 ```ori
-@process_batch (items: [Item]) -> BatchResult uses Async, Logger = {
+@process_batch (items: [Item]) -> BatchResult uses Suspend, Logger = {
     let results = nursery(
         body: n -> {
             for item in items do
@@ -353,7 +353,7 @@ Unlike `parallel`, nurseries allow spawning tasks based on intermediate results:
 ### Nursery with Parallel Subtasks
 
 ```ori
-@process_batches (batches: [[Item]]) -> [[Result<Output, Error>]] uses Async = {
+@process_batches (batches: [[Item]]) -> [[Result<Output, Error>]] uses Suspend = {
     nursery(
         body: n -> for batch in batches do
             n.spawn(task: () -> parallel(
@@ -638,7 +638,7 @@ type HealthCheck = {
 }
 
 // Placeholder
-@sleep (duration: Duration) -> void uses Async = ();
+@sleep (duration: Duration) -> void uses Suspend = ();
 ```
 
 ## Quick Reference

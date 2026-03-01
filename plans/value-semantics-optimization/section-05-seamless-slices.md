@@ -1,7 +1,7 @@
 ---
 section: "05"
 title: "Seamless Slices"
-status: not-started
+status: in-progress
 goal: "Slicing a list or string produces a zero-copy view that shares the underlying buffer"
 inspired_by:
   - "Roc OWNERSHIP.md — seamless slices with SEAMLESS_SLICE_BIT in length field"
@@ -11,7 +11,7 @@ depends_on: ["01"]
 sections:
   - id: "05.1"
     title: "Slice Encoding Design"
-    status: not-started
+    status: complete
   - id: "05.2"
     title: "List Slices"
     status: not-started
@@ -86,7 +86,7 @@ When `cap < 0`, the data pointer does NOT point to the start of an RC allocation
 
 ### Slice Representation
 
-- [ ] Define slice constants:
+- [x] Define slice constants: (2026-02-28) — `compiler/ori_rt/src/slice/mod.rs`
   ```rust
   /// The sign bit of `cap` marks a seamless slice.
   /// A slice's data pointer is offset into another allocation's buffer.
@@ -114,7 +114,7 @@ When `cap < 0`, the data pointer does NOT point to the start of an RC allocation
   }
   ```
 
-- [ ] **Invariant**: A slice's data pointer is always `original_data + offset` where:
+- [x] **Invariant**: A slice's data pointer is always `original_data + offset` where: (2026-02-28) — verified by `slice_original_data_computes_correct_base` and `slice_of_slice_offset_accumulation` tests
   - `original_data` is the start of the original allocation's data region
   - `offset` is stored in the lower bits of `cap`
   - `original_data - RC_HEADER_SIZE` is the RC header location

@@ -12,11 +12,11 @@ ori_lang/
 │   ├── drafts/     # Proposals under consideration
 │   ├── approved/   # Accepted proposals
 │   └── rejected/   # Declined proposals
-└── {version}/      # Versioned documentation
-    ├── spec/       # Language specification (normative)
-    ├── design/     # Design rationale (informative)
-    ├── guide/      # User guide (tutorial)
-    └── modules/    # Standard library documentation
+└── {version}/              # Versioned documentation
+    ├── spec/               # Language specification (normative)
+    ├── archived-design/    # Design rationale (archived, informative)
+    ├── modules/            # Standard library documentation
+    └── design/             # Architecture notes
 ```
 
 ## Versions
@@ -69,12 +69,11 @@ When the language changes, ALL parts update together in a new version.
 
 ### Current Version (0.1-alpha)
 
-- [Language Specification](0.1-alpha/spec/index.md)
-- [Design Documentation](0.1-alpha/design/00-index.md)
+- [Language Specification](0.1-alpha/spec/README.md)
 - [Standard Library](0.1-alpha/modules/std/)
 
 ## Contributing
 
-Documentation guidelines and synchronization rules are defined in `.claude/rules/ori-lang-docs.md`.
+Documentation guidelines and synchronization rules are defined in `.claude/rules/ori-lang.md`.
 
 **Key rule:** Changes to any document type may require updates to others. Always keep spec, design, guide, and modules in sync.

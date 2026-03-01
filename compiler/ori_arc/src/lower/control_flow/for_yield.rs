@@ -292,8 +292,11 @@ impl ArcLowerer<'_> {
             self.builder.terminate_jump(header_block, vec![]);
         }
 
-        // Exit: extract final list from heap wrapper.
+        // Exit: drop the iterator handle, then extract the final list.
         self.builder.position_at(exit_block);
+        let iter_drop = self.interner.intern("ori_iter_drop");
+        self.builder
+            .emit_apply(Idx::UNIT, iter_drop, vec![iter_val], None);
         let list_take = self.interner.intern("ori_list_take");
         self.builder
             .emit_apply(result_ty, list_take, vec![list_ptr], None)
@@ -332,9 +335,7 @@ pub(crate) fn pool_type_store_size(ty: Idx, pool: &ori_types::Pool, depth: u32) 
         Tag::Bool | Tag::Byte => 1,
         Tag::Char => 4,
         Tag::Unit => 0,
-        Tag::Str => 16,             // {i64, ptr}
-        Tag::List | Tag::Set => 24, // {i64, i64, ptr}
-        Tag::Map => 32,             // {i64, i64, ptr, ptr}
+        Tag::Str | Tag::List | Tag::Set | Tag::Map => 24, // {i64, i64, ptr}
         Tag::Struct => pool
             .struct_fields(ty)
             .iter()

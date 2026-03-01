@@ -16,40 +16,36 @@ This document describes the design of tokens in the Ori lexer — the types, met
 Reserved words with specific meaning. The lexer resolves these from identifiers via length-bucketed lookup:
 
 ```rust
-// Control flow
-Let, If, Else, Then, For, In, Do, Loop, Break, Continue, Yield
+// Reserved Keywords (35)
+As, Break, Continue, Def, Div, Do, Else, Extend, Extension, Extern,
+False, For, If, Impl, In, Let, Loop, Match, Never, Pub, Self_, SelfType,
+Suspend, Tests, Then, Trait, True, Type, Unsafe, Use, Uses, Void, Where,
+With, Yield
 
-// Declarations
-Type, Trait, Impl, Pub, Use, Mut, Def, Extend, Extension
-
-// Values
-True, False, Self_, SelfType
-
-// Pattern keywords
-Match, With, Run, Try
-
-// Testing
-Tests, Skip
-
-// Type system
-Dyn, Where, Uses, As
+// Reserved (future, 5)
+Asm, Inline, Static, Union, View
 ```
 
-**Soft keywords** (context-sensitive, only when followed by `(`):
+**Context-sensitive keywords** (resolved via lookahead or parser context):
 
 ```rust
-Cache, Catch, Parallel, Spawn, Recurse, Timeout
+// Pattern matching (9)
+Cache, Catch, Handler, Nursery, Parallel, Recurse, Spawn, Timeout, Try
+
+// Pattern arguments (10)
+Body, Buffer, Default, Expr, Map, OnError, Over, Pre, Post, State
+
+// Other context-sensitive
+From, Without, Args, By, Max, Embed, HasEmbed
+
+// Built-in types (5)
+Bool, Byte, Float, Int, Str
+
+// Built-in constructors (4)
+Channel, ChannelAll, ChannelIn, ChannelOut
 ```
 
-**Reserved-future keywords** (produce an error, lex as identifier for recovery):
-
-```rust
-// asm, inline, static, union, view
-```
-
-**Note:** `Fn` and `While` are NOT keywords in Ori. Functions use `@name` syntax, and there is no while loop (use `loop` with `break`).
-
-**Note:** `Return` exists in `TokenKind` as a reserved keyword despite Ori having no `return` statement. It is recognized during lexing so the parser can produce a targeted error message when users coming from other languages type `return` — rather than a confusing generic parse error.
+**Note:** `Return` exists in `TokenKind` as a reserved keyword despite Ori having no `return` statement. It is recognized during lexing so the parser can produce a targeted error message when users coming from other languages type `return`.
 
 ### Operators
 
@@ -62,18 +58,16 @@ Minus,   // -
 Star,    // *
 Slash,   // /
 Percent, // %
+Div,     // div (floor division)
+StarStar, // ** (power)
 
 // Comparison
-Eq,      // =
 EqEq,    // ==
-NotEq,   // != (RawTag: BangEqual, TokenKind: NotEq)
+NotEq,   // !=
 Lt,      // <
 Gt,      // >
 LtEq,    // <=
 // Note: >= and >> are NOT lexed as single tokens (see § Greater-Than Design)
-// TokenKind::GtEq and TokenKind::Shr exist for AST representation only —
-// the parser synthesizes them from adjacent Gt tokens, they never appear
-// in the lexer's token stream.
 
 // Logical
 And,     // &&
@@ -90,11 +84,13 @@ LtLt,    // <<
 // Special
 Arrow,          // ->
 FatArrow,       // =>
+PipeGt,         // |> (pipe)
 Question,       // ?
-DoubleQuestion, // ??
+DoubleQuestion, // ?? (coalesce)
 DotDot,         // ..
 DotDotEq,       // ..=
 DotDotDot,      // ...
+At,             // @ (matmul)
 ```
 
 ### Delimiters
@@ -111,15 +107,17 @@ RBrace,      // }
 Comma,       // ,
 Colon,       // :
 DoubleColon, // ::
-Semicolon,   // ; (error-detection only — triggers "Ori uses newlines" suggestion)
+Semicolon,   // ; (required for statement termination and certain item definitions)
 Dot,         // .
-At,          // @
-Hash,        // #
-HashBracket, // #[ (combined token for attributes)
-Underscore,  // _ (standalone wildcard, distinct from identifiers containing underscores)
-Dollar,      // $
+At,          // @ (sigil)
+Hash,        // # (length shorthand / attribute)
+Underscore,  // _ (wildcard)
+Dollar,      // $ (sigil)
 Newline,     // \n (significant for statement separation)
 ```
+
+**Note:** Semicolons are required in Ori when the preceding expression or item body does not end with a closing brace `}`. This follows a rule similar to Rust but applied more broadly to functions and type definitions.
+
 
 ### Literals
 

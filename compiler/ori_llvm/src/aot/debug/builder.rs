@@ -469,7 +469,7 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
 
     // -- Ori-specific type helpers --
 
-    /// Create debug info for Ori's string type: { len: int, data: ptr }.
+    /// Create debug info for Ori's string type: { len: int, cap: int, data: ptr }.
     ///
     /// # Errors
     ///
@@ -488,15 +488,22 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
                 line: 0,
             },
             FieldInfo {
-                name: "data",
-                ty: ptr_ty,
+                name: "cap",
+                ty: int_ty,
                 size_bits: 64,
                 offset_bits: 64,
                 line: 0,
             },
+            FieldInfo {
+                name: "data",
+                ty: ptr_ty,
+                size_bits: 64,
+                offset_bits: 128,
+                line: 0,
+            },
         ];
 
-        Ok(self.create_struct_type("str", 0, 128, 64, &fields))
+        Ok(self.create_struct_type("str", 0, 192, 64, &fields))
     }
 
     /// Create debug info for Option<T>: { tag: byte, payload: T }.

@@ -4,7 +4,7 @@
 
 **Code That Proves Itself**
 
-A statically-typed, expression-based language with mandatory testing, causality tracking, and explicit effects.
+A statically-typed, expression-based language with mandatory testing and explicit effects.
 
 [Website](https://ori-lang.com) | [Playground](https://ori-lang.com/playground) | [Getting Started](#quick-start) | [Specification](https://ori-lang.com/docs/spec/01-notation) | [Examples](examples/) | [Contributing](CONTRIBUTING.md)
 
@@ -68,33 +68,6 @@ Tests are in the dependency graph. Change `@parse`, and tests for `@compile` (wh
 ```
 
 Change `@parse` → compiler runs `@test_parse` AND `@test_compile`.
-
-### Causality Tracking
-
-Ori tracks the impact of every change through your codebase.
-
-**Before you change — know the blast radius:**
-
-```bash
-$ ori impact @parse
-If @parse changes:
-  @compile        → uses @parse directly
-  @run_program    → uses @compile
-  @format_output  → uses @compile
-
-  12 functions affected
-```
-
-**After something breaks — trace it to the source:**
-
-```bash
-$ ori why @compile
-@compile broke because:
-  → @parse changed (src/parser.ori:42)
-    - line 42: changed return type from Ast to Result<Ast, Error>
-```
-
-Know what breaks before you break it. Know why it broke after.
 
 ### Explicit Effects & Trivial Mocking
 

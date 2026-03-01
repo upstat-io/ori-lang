@@ -115,6 +115,13 @@ flags! {
     /// Usage: `ORI_DUMP_AFTER_LLVM=1 ori build file.ori`
     ORI_DUMP_AFTER_LLVM
 
+    /// Emit `GraphViz` DOT output of ARC IR control-flow graphs to stderr.
+    ///
+    /// Each function becomes a digraph with basic blocks as table nodes and
+    /// RC operations color-highlighted. Pipe to file and render with `dot`.
+    /// Usage: `ORI_EMIT_ARC_DOT=1 ori build file.ori 2> arc.dot`
+    ORI_EMIT_ARC_DOT
+
     // === Verification ===
 
     /// Run in-pipeline RC audit on emitted LLVM IR.
@@ -163,4 +170,41 @@ flags! {
     ///
     /// Usage: `ORI_CHECK_LEAKS=1 ori run file.ori`
     ORI_CHECK_LEAKS
+}
+
+// Compile-time sync check: verify that audit env var names in `oric::debug_flags`
+// match the canonical constants in `ori_llvm::verify`. If either side renames a
+// flag, this assertion fails at compile time.
+#[cfg(feature = "llvm")]
+const _: () = {
+    assert!(
+        const_str_eq(ORI_AUDIT_CODEGEN, ori_llvm::verify::ENV_AUDIT_CODEGEN),
+        "ORI_AUDIT_CODEGEN constant drifted between oric and ori_llvm"
+    );
+    assert!(
+        const_str_eq(ORI_AUDIT_STRICT, ori_llvm::verify::ENV_AUDIT_STRICT),
+        "ORI_AUDIT_STRICT constant drifted between oric and ori_llvm"
+    );
+    assert!(
+        const_str_eq(ORI_AUDIT_FUNCTION, ori_llvm::verify::ENV_AUDIT_FUNCTION),
+        "ORI_AUDIT_FUNCTION constant drifted between oric and ori_llvm"
+    );
+};
+
+/// Const-compatible string equality (stable Rust lacks `const PartialEq` for `&str`).
+#[cfg(feature = "llvm")]
+const fn const_str_eq(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }

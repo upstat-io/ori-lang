@@ -15,21 +15,27 @@ The Ori lexer converts source text into a stream of tokens. It uses a **two-laye
 compiler/
 ├── ori_lexer_core/src/         # Layer 1: Raw scanner (zero ori_* deps)
 │   ├── lib.rs                  # Public exports, crate docs
-│   ├── tag.rs                  # RawTag enum (#[repr(u8)])
-│   ├── raw_scanner.rs          # Byte-level state machine
-│   ├── cursor.rs               # Cursor for byte navigation
-│   └── source_buffer.rs        # UTF-8 validation + sentinel byte
+│   ├── tag/mod.rs              # RawTag enum (#[repr(u8)])
+│   ├── raw_scanner/            # Byte-level state machine
+│   │   ├── mod.rs              # RawScanner, main dispatch loop
+│   │   ├── numbers.rs          # Numeric literal scanning (int, float, hex, bin)
+│   │   ├── operators.rs        # Operator and punctuation scanning
+│   │   ├── strings.rs          # String and char literal scanning (SIMD)
+│   │   └── templates.rs        # Template literal scanning (depth tracking)
+│   ├── cursor/mod.rs           # Cursor for byte navigation
+│   └── source_buffer/mod.rs    # UTF-8 validation + sentinel byte
 │
 └── ori_lexer/src/              # Layer 2: Cooking + driver
     ├── lib.rs                  # Public API: lex(), lex_with_comments(), LexOutput
-    ├── cooker.rs               # TokenCooker: RawTag → TokenKind
-    ├── keywords.rs             # Keyword resolution (reserved + soft + future)
-    ├── cook_escape.rs          # Spec-strict escape processing
-    ├── lex_error.rs            # LexError types (WHERE+WHAT+WHY+HOW)
-    ├── comments.rs             # Comment classification (doc vs regular)
-    ├── parse_helpers.rs        # Numeric literal parsing utilities
-    ├── unicode_confusables.rs  # Unicode → ASCII suggestions
-    └── what_is_next.rs         # Context-aware error suggestions
+    ├── cooker/mod.rs           # TokenCooker: RawTag → TokenKind
+    ├── keywords/mod.rs         # Keyword resolution (reserved + soft + future)
+    ├── cook_escape/mod.rs      # Spec-strict escape processing
+    ├── lex_error/mod.rs        # LexError types (WHERE+WHAT+WHY+HOW)
+    ├── comments/mod.rs         # Comment classification (doc vs regular)
+    ├── trivial/mod.rs          # Trivial token scanning (whitespace, newlines)
+    ├── parse_helpers/mod.rs    # Numeric literal parsing utilities
+    ├── unicode_confusables/mod.rs  # Unicode → ASCII suggestions
+    └── what_is_next/mod.rs     # Context-aware error suggestions
 ```
 
 ### Dependencies
@@ -201,15 +207,15 @@ Reserved keywords are resolved via a length-bucketed lookup table. The cooker fi
 
 ### Soft Keywords
 
-Six pattern keywords are context-sensitive — they are only recognized as keywords when immediately followed by `(`:
+Nine pattern keywords are context-sensitive — they are only recognized as keywords when immediately followed by `(`:
 
 ```
-cache, catch, parallel, spawn, recurse, timeout
+cache, catch, handler, nursery, parallel, recurse, spawn, timeout, try
 ```
 
 Resolution uses a three-stage filter:
 1. **Length + first byte** — Eliminates >99% of identifiers before any string comparison
-2. **String match** — Checks against the 6 known soft keywords
+2. **String match** — Checks against the 9 known soft keywords
 3. **Lookahead** — Skips horizontal whitespace (` `, `\t`) but NOT newlines, checks for `(`
 
 Resolved soft keywords have the `CONTEXTUAL_KW` flag set in `TokenFlags`.
@@ -406,7 +412,7 @@ The lexer recognizes common patterns from other languages and provides targeted 
 
 | Pattern | Detection | Suggestion |
 |---------|-----------|------------|
-| `;` | Semicolons | "Ori uses newlines for statement separation" |
+| `;` | Semicolons | "Semicolons are required only when an expression/item doesn't end with `}`" |
 | `===` | Triple equals | "Use `==` for equality" |
 | `++` / `--` | Increment/decrement | "Use `x += 1` / `x -= 1`" |
 | `? :` | Ternary operator | "Use `if ... then ... else ...`" |

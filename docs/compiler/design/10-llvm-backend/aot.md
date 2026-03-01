@@ -178,9 +178,13 @@ The `--runtime-path` CLI flag provides explicit override for custom deployments.
 | Category | Functions |
 |----------|-----------|
 | Memory | `ori_alloc`, `ori_free`, `ori_realloc` |
-| Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_count` |
-| Strings | `ori_str_concat`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float`, `ori_str_compare`, `ori_str_hash`, `ori_str_next_char` |
+| Reference Counting | `ori_rc_alloc`, `ori_rc_free`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_is_unique` |
+| Strings | `ori_str_concat`, `ori_str_concat_sso`, `ori_str_eq`, `ori_str_ne`, `ori_str_from_int`, `ori_str_from_bool`, `ori_str_from_float`, `ori_str_from_char`, `ori_str_compare`, `ori_str_hash`, `ori_str_next_char` |
 | Collections | `ori_list_new`, `ori_list_free`, `ori_list_len`, `ori_list_alloc_data`, `ori_list_free_data` |
+| List COW | `ori_list_push_cow`, `ori_list_pop_cow`, `ori_list_set_cow`, `ori_list_insert_cow`, `ori_list_remove_cow` |
+| Map COW | `ori_map_insert_cow`, `ori_map_remove_cow` |
+| Set COW | `ori_set_insert_cow`, `ori_set_remove_cow`, `ori_set_union_cow`, `ori_set_intersection_cow`, `ori_set_difference_cow` |
+| Iterators | `ori_iter_from_list`, `ori_iter_from_range`, `ori_iter_from_str`, `ori_iter_next`, `ori_iter_drop` |
 | Panic | `ori_panic`, `ori_panic_cstr`, `ori_register_panic_handler` |
 | Assertions | `ori_assert`, `ori_assert_eq_int`, `ori_assert_eq_bool`, `ori_assert_eq_str`, `ori_assert_eq_float` |
 | Comparison | `ori_compare_int`, `ori_min_int`, `ori_max_int` |
@@ -192,15 +196,22 @@ The `--runtime-path` CLI flag provides explicit override for custom deployments.
 The runtime defines C-compatible data structures for interoperation:
 
 ```c
-// Ori string: { i64 len, *const u8 data }
-struct OriStr { int64_t len; const uint8_t* data; }
+// Reference-counted header (prefixed to all heap allocations)
+struct OriRcHeader { int64_t refcount; int64_t size; }
+
+// Ori string (SSO: inline ≤22 bytes, heap otherwise)
+// Tagged union: flag byte distinguishes inline from heap storage
+struct OriStr { int64_t len; /* flag + inline data or heap ptr */ }
 
 // Ori list: { i64 len, i64 cap, *mut u8 data }
 struct OriList { int64_t len; int64_t cap; uint8_t* data; }
 
-// Reference-counted header: { i64 refcount, i64 size }
-struct RcHeader { int64_t refcount; int64_t size; }
+// Ori map: single-buffer parallel arrays
+// [OriRcHeader | key₀ key₁ ... | val₀ val₁ ... | len | capacity]
+// Keys and values stored in separate contiguous regions within one allocation
 ```
+
+All collection mutation operations use COW (Copy-on-Write) semantics: when the reference count is 1, the operation mutates in-place; when shared, it allocates a new copy. Each COW function accepts an optional element RC increment callback for deep-copying reference-counted elements.
 
 ### Linking Configuration
 
@@ -440,12 +451,12 @@ ori build --jobs=auto main.ori # Auto-detect core count
 | `target.rs` | Target triple parsing, CPU/feature detection |
 | `object.rs` | Object file emission (ELF/Mach-O/COFF/WASM) |
 | `mangle.rs` | Symbol mangling (`Mangler`) and demangling |
-| `debug/` | DWARF/CodeView debug info generation (7 files: builder, builder_scope, config, context, line_map, mod, tests) |
-| `passes.rs` | LLVM new pass manager optimization pipeline |
+| `debug/` | DWARF/CodeView debug info generation (`builder.rs`, `builder_scope.rs`, `config.rs`, `context.rs`, `line_map.rs`) |
+| `passes/` | Optimization pipeline: `mod.rs` (pass manager), `config.rs` (pass configuration) |
 | `runtime.rs` | Runtime library discovery (`RuntimeConfig`) |
-| `syslib.rs` | System library detection |
-| `multi_file.rs` | Dependency graph and multi-file compilation |
-| `wasm.rs` | WebAssembly configuration |
+| `syslib/mod.rs` | System library detection |
+| `multi_file/mod.rs` | Dependency graph and multi-file compilation |
+| `wasm/` | WebAssembly: `mod.rs`, `config.rs`, `optimize.rs`, `wasi.rs` |
 
 ### Linker (`aot/linker/`)
 
@@ -471,9 +482,17 @@ ori build --jobs=auto main.ori # Auto-detect core count
 
 ### Runtime Library (`ori_rt/`)
 
-| File | Purpose |
-|------|---------|
-| `lib.rs` | C-ABI runtime functions (memory, strings, panic, etc.) |
+| File / Directory | Purpose |
+|------------------|---------|
+| `lib.rs` | Memory allocation (`ori_alloc`, `ori_free`, `ori_realloc`), entry points |
+| `io.rs` | I/O, panic, and assertion functions |
+| `rc/` | Reference counting: `mod.rs` (alloc, free, inc, dec, is_unique), `collections.rs` (collection-specific RC), `debug.rs` (tracing) |
+| `list/` | List operations: `mod.rs` (creation, access), `cow.rs` (COW mutations), `cow_sort.rs` (COW sort), `query.rs` (search, contains) |
+| `map/` | Map operations: `mod.rs` (creation, access), `cow.rs` (COW mutations) |
+| `set/` | Set operations: `mod.rs` (creation, access), `cow.rs` (COW mutations including union/intersection/difference) |
+| `string/` | String operations: `mod.rs` (SSO creation, access), `ops.rs` (concat, comparison, hash), `methods.rs` (split, trim, etc.), `convert.rs` (from_int, from_float, etc.) |
+| `iterator/` | Iterator runtime: `mod.rs` (IterState, constructors, adapters), `consumers.rs` (collect, fold, count) |
+| `format/mod.rs` | Format spec parsing and value formatting |
 
 ### CLI Commands (`oric/src/commands/`)
 

@@ -25,8 +25,6 @@
 //!   (Section 12). See [`run_borrow_inference`] for the Salsa integration point.
 
 #[cfg(feature = "llvm")]
-use crate::dbg_do;
-#[cfg(feature = "llvm")]
 use std::path::Path;
 
 #[cfg(feature = "llvm")]
@@ -38,13 +36,11 @@ use ori_llvm::inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use ori_types::{FunctionSig, Idx, Pool, TypeCheckResult};
 #[cfg(feature = "llvm")]
-use oric::ir::{Name, StringInterner};
+use oric::ir::Name;
 #[cfg(feature = "llvm")]
 use oric::parser::ParseOutput;
 #[cfg(feature = "llvm")]
 use oric::{CompilerDb, Db, SourceFile};
-#[cfg(feature = "llvm")]
-use rustc_hash::FxHashMap;
 
 /// Information about an imported function for codegen.
 #[cfg(feature = "llvm")]
@@ -114,371 +110,6 @@ pub fn check_source(
     ))
 }
 
-/// Result of borrow inference: annotated signatures + pre-lowered ARC cache.
-///
-/// The `arc_cache` contains pre-lowered `ArcFunction`s grouped by parent
-/// function. These are consumed by `prepare_all_cached` during codegen,
-/// eliminating the redundant second lowering pass.
-#[cfg(feature = "llvm")]
-struct BorrowInferenceResult {
-    /// Borrow-annotated function signatures from SCC analysis.
-    sigs: FxHashMap<Name, ori_arc::AnnotatedSig>,
-    /// Pre-lowered ARC functions: parent → (`ArcFunction`, lambdas).
-    arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)>,
-    /// Monomorphized generic functions (reused by codegen to avoid recomputation).
-    mono_functions: Vec<ori_llvm::monomorphize::MonoFunction>,
-}
-
-/// Run ARC borrow inference on all non-generic module functions.
-///
-/// Lowers each function to ARC IR and runs per-SCC Salsa-tracked borrow
-/// inference queries. Returns both the annotated signatures and a cache of
-/// pre-lowered ARC functions for zero-copy consumption by codegen.
-///
-/// # Flow
-///
-/// 1. Lower each function to ARC IR
-/// 2. Clone into flat map for Salsa, keep grouped cache for codegen
-/// 3. Create [`ArcModuleInput`] Salsa input from lowered functions
-/// 4. Query [`arc_scc_decomposition`] for SCC structure
-/// 5. Query [`infer_borrow_scc`] per SCC (creates Salsa dependency edges)
-/// 6. Return `(annotated_sigs, arc_cache)`
-///
-/// Salsa memoizes per-SCC results. On recompilation, only SCCs with changed
-/// function bodies are re-analyzed. Early cutoff skips dependent SCCs when
-/// borrow signatures are unchanged.
-#[cfg(feature = "llvm")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "pipeline helper — each param is a distinct data flow input from the compilation stages"
-)]
-fn run_borrow_inference(
-    db: &CompilerDb,
-    parse_result: &ParseOutput,
-    function_sigs: &[FunctionSig],
-    canon: &CanonResult,
-    interner: &StringInterner,
-    pool: &Pool,
-    source_path: &str,
-    mono_instances: &[ori_types::MonoInstance],
-) -> BorrowInferenceResult {
-    use crate::query::arc_queries::{arc_scc_decomposition, infer_borrow_scc, ArcModuleInput};
-
-    // 1. Lower functions to ARC IR.
-    // We build both a grouped cache (parent → lambdas) for codegen and a flat
-    // map for Salsa. The flat map is cloned from the grouped data before being
-    // consumed by ArcModuleInput::sorted_functions.
-    let mut arc_cache: FxHashMap<Name, (ori_arc::ArcFunction, Vec<ori_arc::ArcFunction>)> =
-        FxHashMap::default();
-    let mut arc_problems = Vec::new();
-
-    for (func, sig) in parse_result
-        .module
-        .functions
-        .iter()
-        .zip(function_sigs.iter())
-    {
-        if sig.is_generic() {
-            continue;
-        }
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            func.name,
-            sig,
-            func.name,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            None,
-        );
-        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
-    }
-
-    // Lower monomorphized generic functions.
-    // The JIT runner already does this (runner/mod.rs), but the AOT path was
-    // missing it — mono function names would be absent from annotated_sigs,
-    // causing the warn! fallback to all-Owned in define_function_body_arc_with_subst.
-    let mono_functions = ori_llvm::monomorphize::collect_mono_functions(
-        mono_instances,
-        function_sigs,
-        interner,
-        pool,
-    );
-    for mono_fn in &mono_functions {
-        let (arc_fn, lambdas) = crate::arc_lowering::lower_to_arc(
-            mono_fn.mangled_name,
-            &mono_fn.sig,
-            mono_fn.original_name,
-            canon,
-            interner,
-            pool,
-            &mut arc_problems,
-            Some(&mono_fn.body_type_map),
-        );
-        arc_cache.insert(arc_fn.name, (arc_fn, lambdas));
-    }
-
-    if !arc_problems.is_empty() {
-        use crate::problem::codegen::{emit_codegen_diagnostics, CodegenDiagnostics};
-        let mut acc = CodegenDiagnostics::new();
-        acc.add_arc_problems(&arc_problems);
-        if emit_codegen_diagnostics(acc) {
-            return BorrowInferenceResult {
-                sigs: FxHashMap::default(),
-                arc_cache: FxHashMap::default(),
-                mono_functions: Vec::new(),
-            };
-        }
-    }
-
-    // 2. Build flat map for Salsa (clone from grouped cache).
-    // The clone cost is negligible vs borrow inference + LLVM codegen,
-    // and it replaces a full second lowering pass.
-    let mut arc_functions_map: FxHashMap<Name, ori_arc::ArcFunction> = FxHashMap::default();
-    for (parent, lambdas) in arc_cache.values() {
-        arc_functions_map.insert(parent.name, parent.clone());
-        for lambda in lambdas {
-            arc_functions_map.insert(lambda.name, lambda.clone());
-        }
-    }
-
-    // 3. Create ArcModuleInput Salsa input.
-    debug_assert!(
-        db.pool_cache()
-            .get(&std::path::PathBuf::from(source_path))
-            .is_some(),
-        "Pool not cached for source_path '{source_path}' — path may diverge from file.path(db)"
-    );
-
-    let sorted_functions = ArcModuleInput::sorted_functions(arc_functions_map);
-    let module = ArcModuleInput::new(db, std::path::PathBuf::from(source_path), sorted_functions);
-
-    tracing::debug!(
-        function_count = module.functions(db).len(),
-        "created ArcModuleInput for Salsa borrow inference"
-    );
-
-    // 4. Query SCC decomposition (Salsa-tracked).
-    let decomp = arc_scc_decomposition(db, module);
-
-    // 5. Query per-SCC borrow inference and collect results.
-    let mut annotated_sigs = FxHashMap::default();
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "SCC count bounded by function count, fits in u32"
-    )]
-    for i in 0..decomp.len() {
-        let result = infer_borrow_scc(db, module, i as u32);
-        for (name, sig) in result.iter() {
-            annotated_sigs.insert(*name, sig.clone());
-        }
-    }
-
-    tracing::debug!(
-        sig_count = annotated_sigs.len(),
-        scc_count = decomp.len(),
-        "Salsa borrow inference complete"
-    );
-
-    BorrowInferenceResult {
-        sigs: annotated_sigs,
-        arc_cache,
-        mono_functions,
-    }
-}
-
-/// Run the codegen pipeline on a pre-checked module.
-///
-/// Shared implementation for [`compile_to_llvm`] and [`compile_to_llvm_with_imports`].
-/// The pipeline:
-/// 1. Declares runtime functions
-/// 2. Registers user-defined types
-/// 3. Runs ARC borrow inference (per-SCC Salsa queries)
-/// 4. Two-pass function compilation (declare, then define)
-/// 5. Monomorphization of generic functions
-/// 6. Impl method and derived trait compilation
-/// 7. Main wrapper generation
-///
-/// `symbol_prefix` controls symbol mangling: `""` for single-file (no module
-/// prefix on symbols), or the module name for multi-file compilation.
-/// `import_sigs` declares external symbols from other modules; pass `&[]` for
-/// single-file compilation.
-#[cfg(feature = "llvm")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "private pipeline helper — params match the data flow from both public compile functions"
-)]
-#[allow(unsafe_code, reason = "LLVM C API requires unsafe FFI calls")]
-fn run_codegen_pipeline<'ctx>(
-    context: &'ctx Context,
-    db: &CompilerDb,
-    parse_result: &ParseOutput,
-    type_result: &TypeCheckResult,
-    pool: &'ctx Pool,
-    canon: &CanonResult,
-    source_path: &str,
-    module_name: &str,
-    symbol_prefix: &str,
-    import_sigs: &[(Name, FunctionSig)],
-) -> ori_llvm::inkwell::module::Module<'ctx> {
-    use ori_llvm::codegen::function_compiler::FunctionCompiler;
-    use ori_llvm::codegen::ir_builder::IrBuilder;
-    use ori_llvm::codegen::type_info::{TypeInfoStore, TypeLayoutResolver};
-    use ori_llvm::codegen::type_registration;
-    use ori_llvm::SimpleCx;
-
-    use std::mem::ManuallyDrop;
-
-    let interner = db.interner();
-
-    // ManuallyDrop + raw-pointer reborrow to work around a borrow checker
-    // limitation: FunctionCompiler's lifetime parameters tie the compilation
-    // block's borrow of `scx` to the return lifetime, preventing us from
-    // consuming `scx` afterward. The raw-pointer roundtrip creates a detached
-    // reference whose borrow doesn't leak out of the block. Sound because `scx`
-    // lives for the entire function and compilation borrows end at the block
-    // boundary.
-    let scx = ManuallyDrop::new(SimpleCx::new(context, module_name));
-
-    {
-        // SAFETY: Detached reference to scx — see comment above.
-        let scx_ref: &SimpleCx<'_> = unsafe { &*std::ptr::from_ref(&*scx) };
-
-        let store = TypeInfoStore::new(pool);
-        let resolver = TypeLayoutResolver::new(&store, scx_ref, Some(interner));
-        let mut builder = IrBuilder::new(scx_ref);
-
-        // Runtime functions are declared lazily via `builder.runtime_fn(name)`.
-        // No eager `declare_runtime()` call needed — each function is declared
-        // on first use during codegen and cached thereafter.
-
-        // 1. Register user-defined types
-        type_registration::register_user_types(&resolver, &type_result.typed.types);
-
-        // 3. Run ARC borrow inference pipeline (per-SCC Salsa queries)
-        // Returns both annotated sigs and pre-lowered ARC functions to
-        // eliminate the redundant second lowering pass during codegen.
-        let function_sigs = oric::typeck::build_function_sigs(parse_result, type_result);
-        let classifier = ori_arc::ArcClassifier::new(pool);
-        let BorrowInferenceResult {
-            sigs: annotated_sigs,
-            mut arc_cache,
-            mono_functions,
-        } = run_borrow_inference(
-            db,
-            parse_result,
-            &function_sigs,
-            canon,
-            interner,
-            pool,
-            source_path,
-            &type_result.typed.mono_instances,
-        );
-
-        // Phase dump: ARC IR after lowering + pipeline (gated behind ORI_DUMP_AFTER_ARC=1)
-        dbg_do!(crate::debug_flags::ORI_DUMP_AFTER_ARC, {
-            crate::arc_dump::dump_arc_ir(
-                &arc_cache,
-                &annotated_sigs,
-                &classifier,
-                pool,
-                interner,
-                source_path,
-            );
-        });
-
-        // 4. Two-pass function compilation with borrow annotations
-        let mut fc = FunctionCompiler::new(
-            &mut builder,
-            &store,
-            &resolver,
-            interner,
-            pool,
-            symbol_prefix,
-            &annotated_sigs,
-            &classifier,
-            None, // Debug info wiring deferred to AOT pipeline integration
-        );
-
-        // Declare imports (no-op when import_sigs is empty for single-file compilation)
-        if !import_sigs.is_empty() {
-            fc.declare_imports(import_sigs);
-        }
-        fc.declare_all(&parse_result.module.functions, &function_sigs);
-
-        // 4b. Declare monomorphized generic functions (reused from borrow inference)
-        fc.declare_mono_functions(&mono_functions);
-
-        // 5. Compile impl methods (still inline — they use type-qualified
-        // canon lookup paths and are not pre-lowered for borrow inference)
-        if !parse_result.module.impls.is_empty() {
-            fc.compile_impls(
-                &parse_result.module.impls,
-                &type_result.typed.impl_sigs,
-                canon,
-                &parse_result.module.traits,
-            );
-        }
-
-        // 5b. Compile derived trait methods
-        if parse_result
-            .module
-            .types
-            .iter()
-            .any(|t| !t.derives.is_empty())
-        {
-            fc.compile_derives(&parse_result.module, &type_result.typed.types);
-        }
-
-        // 6. Two-pass function compilation for sound nounwind analysis:
-        //    a) Lower all functions to ARC IR (no LLVM emission)
-        //    b) Build complete nounwind set via fixed-point analysis
-        //    c) Emit LLVM IR using the complete nounwind set
-        let mut prepared = fc.prepare_all_cached(
-            &parse_result.module.functions,
-            &function_sigs,
-            canon,
-            &mut arc_cache,
-        );
-
-        // 6b. Prepare monomorphized function bodies from pre-lowered cache.
-        prepared.extend(fc.prepare_mono_cached(&mono_functions, canon, &mut arc_cache));
-
-        // 6c. Build complete nounwind set and emit LLVM IR
-        fc.compute_nounwind_set(&prepared);
-        fc.emit_prepared_functions(prepared);
-
-        // 7. Generate C main() entry point wrapper for @main (AOT only)
-        // Also detect @panic handler for registration in main()
-        let panic_name = parse_result
-            .module
-            .functions
-            .iter()
-            .find(|f| interner.lookup(f.name) == "panic")
-            .map(|f| f.name);
-
-        for (func, sig) in parse_result
-            .module
-            .functions
-            .iter()
-            .zip(function_sigs.iter())
-        {
-            if sig.is_main {
-                fc.generate_main_wrapper(func.name, sig, panic_name);
-                break;
-            }
-        }
-    }
-
-    // SAFETY: ManuallyDrop is used only to suppress the borrow checker.
-    // The compilation block's borrows have ended; we extract the module
-    // by reading the field (Module implements Clone via LLVMCloneModule).
-    // We can't call into_inner() because SimpleCx has other fields that
-    // would be moved while the ManuallyDrop still exists, so we clone
-    // the module instead.
-    scx.llmod.clone()
-}
-
 /// Compile source to LLVM IR.
 ///
 /// Takes checked parse and type results and generates LLVM IR via:
@@ -490,6 +121,10 @@ fn run_codegen_pipeline<'ctx>(
 /// (e.g., determining which return types need the sret calling convention).
 ///
 /// The `CanonResult` provides canonical IR for both `ori_arc` and `ori_llvm`.
+///
+/// Returns `Err` if LLVM IR verification fails or the codegen audit detects
+/// RC lifecycle violations. The IR dump runs before verification, so the
+/// annotated LLVM IR is visible on stderr even when the module is invalid.
 #[cfg(feature = "llvm")]
 pub fn compile_to_llvm<'ctx>(
     context: &'ctx Context,
@@ -499,13 +134,13 @@ pub fn compile_to_llvm<'ctx>(
     pool: &'ctx Pool,
     canon: &CanonResult,
     source_path: &str,
-) -> ori_llvm::inkwell::module::Module<'ctx> {
+) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     let module_name = Path::new(source_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("module");
 
-    let llvm_module = run_codegen_pipeline(
+    super::codegen_pipeline::run_codegen_pipeline(
         context,
         db,
         parse_result,
@@ -516,32 +151,7 @@ pub fn compile_to_llvm<'ctx>(
         module_name,
         "", // No symbol prefix for single-file compilation
         &[],
-    );
-
-    // Phase dump: LLVM IR after codegen (gated behind ORI_DUMP_AFTER_LLVM=1 or ORI_DEBUG_LLVM=1)
-    if crate::llvm_dump::llvm_dump_requested() {
-        crate::llvm_dump::dump_llvm_ir(
-            &llvm_module.print_to_string().to_string_lossy(),
-            pool,
-            db.interner(),
-            source_path,
-        );
-    }
-
-    // RC audit (gated on ORI_AUDIT_CODEGEN=1, debug builds only)
-    crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
-        let audit_report = ori_llvm::verify::audit_module(&llvm_module);
-        audit_report.emit_to_stderr();
-        if audit_report.has_errors() {
-            eprintln!(
-                "RC audit found {} error(s) — aborting",
-                audit_report.error_count()
-            );
-            std::process::exit(1);
-        }
-    });
-
-    llvm_module
+    )
 }
 
 /// Compile source to LLVM IR with explicit module name and import declarations.
@@ -573,7 +183,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
     imported_functions: &[ImportedFunctionInfo],
     arc_cache: Option<&ori_llvm::aot::incremental::ArcIrCache>,
     module_hash: Option<ori_llvm::aot::incremental::ContentHash>,
-) -> ori_llvm::inkwell::module::Module<'ctx> {
+) -> Result<ori_llvm::inkwell::module::Module<'ctx>, String> {
     // arc_cache and module_hash reserved for future ARC IR disk caching
     // integration with the Salsa path (Section 12.14 watch-mode).
     let _ = (arc_cache, module_hash);
@@ -598,7 +208,7 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         })
         .collect();
 
-    let llvm_module = run_codegen_pipeline(
+    super::codegen_pipeline::run_codegen_pipeline(
         context,
         db,
         parse_result,
@@ -609,30 +219,5 @@ pub fn compile_to_llvm_with_imports<'ctx>(
         module_name,
         module_name, // Multi-file: symbol prefix matches module name
         &import_sigs,
-    );
-
-    // Phase dump: LLVM IR after codegen (gated behind ORI_DUMP_AFTER_LLVM=1 or ORI_DEBUG_LLVM=1)
-    if crate::llvm_dump::llvm_dump_requested() {
-        crate::llvm_dump::dump_llvm_ir(
-            &llvm_module.print_to_string().to_string_lossy(),
-            pool,
-            interner,
-            source_path,
-        );
-    }
-
-    // RC audit (gated on ORI_AUDIT_CODEGEN=1, debug builds only)
-    crate::dbg_do!(crate::debug_flags::ORI_AUDIT_CODEGEN, {
-        let audit_report = ori_llvm::verify::audit_module(&llvm_module);
-        audit_report.emit_to_stderr();
-        if audit_report.has_errors() {
-            eprintln!(
-                "RC audit found {} error(s) — aborting",
-                audit_report.error_count()
-            );
-            std::process::exit(1);
-        }
-    });
-
-    llvm_module
+    )
 }

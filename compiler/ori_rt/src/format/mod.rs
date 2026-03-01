@@ -19,7 +19,7 @@ pub extern "C" fn ori_format_int(n: i64, spec_ptr: *const u8, spec_len: i64) -> 
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
     let parsed = parse_format_spec(spec_str);
     let result = format_int(n, &parsed);
-    OriStr::from_owned(result)
+    OriStr::from_owned(&result)
 }
 
 /// Format a float with a format specification.
@@ -28,7 +28,7 @@ pub extern "C" fn ori_format_float(f: f64, spec_ptr: *const u8, spec_len: i64) -
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
     let parsed = parse_format_spec(spec_str);
     let result = format_float(f, &parsed);
-    OriStr::from_owned(result)
+    OriStr::from_owned(&result)
 }
 
 /// Format a string with a format specification.
@@ -38,7 +38,7 @@ pub extern "C" fn ori_format_str(s: *const OriStr, spec_ptr: *const u8, spec_len
     let spec_str = unsafe { spec_from_raw(spec_ptr, spec_len) };
     let parsed = parse_format_spec(spec_str);
     let result = fmt_str(input, &parsed);
-    OriStr::from_owned(result)
+    OriStr::from_owned(&result)
 }
 
 /// Format a boolean with a format specification.
@@ -48,7 +48,7 @@ pub extern "C" fn ori_format_bool(b: bool, spec_ptr: *const u8, spec_len: i64) -
     let parsed = parse_format_spec(spec_str);
     let s = if b { "true" } else { "false" };
     let result = fmt_str(s, &parsed);
-    OriStr::from_owned(result)
+    OriStr::from_owned(&result)
 }
 
 /// Format a char (as i32 codepoint) with a format specification.
@@ -58,7 +58,7 @@ pub extern "C" fn ori_format_char(c: i32, spec_ptr: *const u8, spec_len: i64) ->
     let parsed = parse_format_spec(spec_str);
     let ch = char::from_u32(c as u32).unwrap_or('\u{FFFD}');
     let result = fmt_str(&ch.to_string(), &parsed);
-    OriStr::from_owned(result)
+    OriStr::from_owned(&result)
 }
 
 // =============================================================================

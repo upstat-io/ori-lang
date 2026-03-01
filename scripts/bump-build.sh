@@ -7,34 +7,78 @@
 # UTC date (via --first-parent to count only merge/direct commits).
 # No persistent state needed — the git log IS the counter.
 #
-# The release stage (alpha, beta, rc, or empty for stable) is read from
-# the RELEASE_STAGE file at the repo root.
+# The release stage (alpha, beta, rc, or empty for stable) is extracted
+# from the current BUILD_NUMBER content.
 #
 # Usage:
-#   ./scripts/bump-build.sh          # Write BUILD_NUMBER
-#   ./scripts/bump-build.sh --check  # Dry-run: show what it would write
+#   ./scripts/bump-build.sh                   # Write BUILD_NUMBER
+#   ./scripts/bump-build.sh --check           # Dry-run: show what it would write
+#   ./scripts/bump-build.sh --set-stage beta  # Change release stage
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_FILE="$ROOT_DIR/BUILD_NUMBER"
-STAGE_FILE="$ROOT_DIR/RELEASE_STAGE"
 
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 CHECK_MODE=false
-if [[ "${1:-}" == "--check" ]]; then
-    CHECK_MODE=true
-fi
+NEW_STAGE=""
 
-# Read release stage (alpha, beta, rc, or empty for stable)
-STAGE=""
-if [[ -f "$STAGE_FILE" ]]; then
-    STAGE=$(tr -d '[:space:]' < "$STAGE_FILE")
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --check)
+            CHECK_MODE=true
+            shift
+            ;;
+        --set-stage)
+            if [[ -z "${2:-}" ]]; then
+                echo -e "${RED}ERROR${NC}: --set-stage requires an argument (alpha, beta, rc, stable)"
+                exit 1
+            fi
+            NEW_STAGE="$2"
+            if [[ "$NEW_STAGE" != "alpha" && "$NEW_STAGE" != "beta" && "$NEW_STAGE" != "rc" && "$NEW_STAGE" != "stable" ]]; then
+                echo -e "${RED}ERROR${NC}: Invalid stage '$NEW_STAGE'. Must be: alpha, beta, rc, stable"
+                exit 1
+            fi
+            shift 2
+            ;;
+        *)
+            echo -e "${RED}ERROR${NC}: Unknown option: $1"
+            echo "Usage: $0 [--check] [--set-stage STAGE]"
+            exit 1
+            ;;
+    esac
+done
+
+# Extract current stage from BUILD_NUMBER (e.g., "2026.02.28.1-alpha" -> "alpha")
+# Defaults to "alpha" if BUILD_NUMBER doesn't exist or has no stage.
+extract_stage() {
+    if [[ -f "$BUILD_FILE" ]]; then
+        local content
+        content=$(tr -d '[:space:]' < "$BUILD_FILE")
+        if [[ "$content" == *-* ]]; then
+            echo "${content#*-}"
+            return
+        fi
+    fi
+    echo "alpha"
+}
+
+# Determine the stage to use
+if [[ -n "$NEW_STAGE" ]]; then
+    STAGE="$NEW_STAGE"
+    # "stable" means no suffix
+    if [[ "$STAGE" == "stable" ]]; then
+        STAGE=""
+    fi
+else
+    STAGE=$(extract_stage)
 fi
 
 # Today's date in UTC

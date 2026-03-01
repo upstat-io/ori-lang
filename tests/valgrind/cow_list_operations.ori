@@ -1,0 +1,43 @@
+// Valgrind test: COW (Copy-on-Write) list operations.
+// Exercises COW push, insert, remove, sort, reverse, concat (+)
+// and chained operations to verify RC lifecycle correctness.
+
+@main () -> int = {
+    // push: unique owner (in-place)
+    let a = [1, 2, 3].push(4);
+    let push_ok = a.length() == 4 && a.first().unwrap() == 1;
+
+    // insert: at beginning (the former double-free case)
+    let b = [2, 3].insert(0, 1);
+    let insert_ok = b.length() == 3 && b.first().unwrap() == 1;
+
+    // remove: at beginning
+    let c = [1, 2, 3].remove(0);
+    let remove_ok = c.length() == 2 && c.first().unwrap() == 2;
+
+    // reverse + sort
+    let d = [3, 1, 2].sort();
+    let sort_ok = d.first().unwrap() == 1;
+
+    let e = [3, 1, 2].reverse();
+    let rev_ok = e.first().unwrap() == 2;
+
+    // concat via + (the Binary(Add) consuming fix)
+    let f = [1, 2] + [3, 4];
+    let concat_ok = f.length() == 4 && f.last().unwrap() == 4;
+
+    // Chained: push then concat (the double-free bug case)
+    let g = [1, 2].push(3) + [4, 5];
+    let chain_ok = g.length() == 5 && g.first().unwrap() == 1;
+
+    // Loop push: amortized growth
+    let xs: [int] = [];
+    for i in 0..100 do {
+        xs = xs.push(i);
+    };
+    let loop_ok = xs.length() == 100;
+
+    if push_ok && insert_ok && remove_ok && sort_ok && rev_ok
+        && concat_ok && chain_ok && loop_ok
+    then 0 else 1
+}

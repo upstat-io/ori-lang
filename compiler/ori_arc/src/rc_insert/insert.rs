@@ -104,7 +104,7 @@ pub(crate) fn insert_rc_ops(
         .into_iter()
         .flat_map(FxHashSet::into_iter)
         .collect();
-    super::insert_edge_cleanup(
+    super::edge_cleanup::insert_edge_cleanup(
         func,
         classifier,
         liveness,
@@ -202,7 +202,7 @@ pub fn insert_rc_ops_with_ownership(
         func.spans[block_idx] = new_spans;
     }
 
-    super::insert_edge_cleanup(
+    super::edge_cleanup::insert_edge_cleanup(
         func,
         classifier,
         liveness,
@@ -274,7 +274,11 @@ fn process_block_rc(
         // Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — primitive ops are
         // non-consuming; Dec inserted at last borrowing use.
         if is_borrowing_instr(instr, ctx) {
+            let mut seen = FxHashSet::default();
             for &arg in &instr.used_vars() {
+                if !seen.insert(arg) {
+                    continue;
+                }
                 if needs_rc_trackable(arg, ctx) && !live.contains(&arg) {
                     new_body.push(ArcInstr::RcDec {
                         var: arg,
@@ -352,7 +356,7 @@ fn process_block_rc(
 /// - The callee's `AnnotatedSig` marks the corresponding param as `Borrowed`
 ///
 /// Borrowing args: add to `live` (keep alive through call) but no `RcInc`.
-/// The companion post-pass [`insert_external_invoke_cleanup`](super::cleanup::insert_external_invoke_cleanup)
+/// The companion post-pass [`insert_external_invoke_cleanup`](super::edge_cleanup::insert_external_invoke_cleanup)
 /// handles the `RcDec` for args whose last use is a borrowing Invoke position.
 ///
 /// Ref: Lean 4 `src/Lean/Compiler/IR/RC.lean` — caller checks callee param

@@ -22,6 +22,16 @@ Formal language definition. Tools must conform.
 | [14](14-capabilities.md) | Capabilities |
 | [15](15-memory-model.md) | Memory model |
 | [16](16-formatting.md) | Formatting |
+| [17](17-blocks-and-scope.md) | Blocks and scope |
+| [18](18-program-execution.md) | Program execution |
+| [19](19-control-flow.md) | Control flow |
+| [20](20-errors-and-panics.md) | Errors and panics |
+| [21](21-constant-expressions.md) | Constant expressions |
+| [22](22-system-considerations.md) | System considerations |
+| [23](23-concurrency-model.md) | Concurrency model |
+| [24](24-ffi.md) | Foreign function interface |
+| [25](25-conditional-compilation.md) | Conditional compilation |
+| [27](27-reflection.md) | Reflection |
 
 ## Terminology
 

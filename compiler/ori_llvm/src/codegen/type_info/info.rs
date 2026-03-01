@@ -45,7 +45,7 @@ pub enum TypeInfo {
     Unit,
     /// `never` -> i64 (LLVM void cannot be stored/passed/phi'd)
     Never,
-    /// `str` -> {i64 len, ptr data}
+    /// `str` -> {i64 len, i64 cap, ptr data}
     Str,
     /// `duration` -> i64 (nanoseconds)
     Duration,
@@ -55,7 +55,7 @@ pub enum TypeInfo {
     Ordering,
     /// `[T]` -> {i64 len, i64 cap, ptr data}
     List { element: Idx },
-    /// `{K: V}` -> {i64 len, i64 cap, ptr keys, ptr vals}
+    /// `{K: V}` -> {i64 len, i64 cap, ptr data}
     Map { key: Idx, value: Idx },
     /// `set[T]` -> {i64 len, i64 cap, ptr data}
     Set { element: Idx },
@@ -101,29 +101,12 @@ impl TypeInfo {
             Self::Char => scx.type_i32().into(),
             Self::Byte | Self::Ordering => scx.type_i8().into(),
 
-            // Str: {i64 len, ptr data}
-            Self::Str => scx
-                .type_struct(&[scx.type_i64().into(), scx.type_ptr().into()], false)
-                .into(),
-
-            // Collections
-            Self::List { .. } | Self::Set { .. } => scx
+            // Str {len, cap, data} and collections {len, cap, data} share the same 24-byte layout
+            Self::Str | Self::List { .. } | Self::Set { .. } | Self::Map { .. } => scx
                 .type_struct(
                     &[
                         scx.type_i64().into(),
                         scx.type_i64().into(),
-                        scx.type_ptr().into(),
-                    ],
-                    false,
-                )
-                .into(),
-
-            Self::Map { .. } => scx
-                .type_struct(
-                    &[
-                        scx.type_i64().into(),
-                        scx.type_i64().into(),
-                        scx.type_ptr().into(),
                         scx.type_ptr().into(),
                     ],
                     false,
@@ -230,18 +213,16 @@ impl TypeInfo {
 
             // 16-byte types:
             // Function: fat-pointer closure { ptr, ptr }
-            // Str: {i64, ptr}
             // Option/Result: {i64, T} — uniform i64 tag + payload = 16 bytes
-            Self::Function { .. } | Self::Str | Self::Option { .. } | Self::Result { .. } => {
-                Some(16)
-            }
+            Self::Function { .. } | Self::Option { .. } | Self::Result { .. } => Some(16),
 
-            // List/Set: {i64, i64, ptr} = 24 bytes
-            Self::List { .. } | Self::Set { .. } => Some(24),
+            // 24-byte types:
+            // Str: SSO layout {i64 len, i64 cap, ptr data}
+            // List/Set: {i64, i64, ptr}
+            Self::Str | Self::List { .. } | Self::Set { .. } | Self::Map { .. } => Some(24),
 
             // Range: {i64 start, i64 end, i64 step, i64 inclusive} = 32 bytes
-            // Map: {i64, i64, ptr, ptr} = 32 bytes
-            Self::Range | Self::Map { .. } => Some(32),
+            Self::Range => Some(32),
 
             // Dynamic-size types: depend on element/field types
             Self::Tuple { .. } | Self::Struct { .. } | Self::Enum { .. } => None,

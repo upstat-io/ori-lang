@@ -1,7 +1,7 @@
 [package]
 name = "ori_lexer_core"
 description = "Low-level tokenizer for Ori (standalone, zero ori_* dependencies)"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -165,6 +165,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         };
 
         let func_id = self.builder.runtime_fn(func_name);
-        self.builder.call(func_id, &[receiver], "to_str")
+        let str_ty = self.resolve_type(ori_types::Idx::STR);
+        self.builder
+            .call_with_sret(func_id, &[receiver], str_ty, "to_str")
     }
 }

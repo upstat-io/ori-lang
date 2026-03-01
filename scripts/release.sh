@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# Prepare a new release by updating version across all manifests
+# Prepare a new release by bumping the build number and syncing all manifests.
+#
+# This is a thin wrapper around bump-build.sh and sync-version.sh.
+# BUILD_NUMBER is the single source of truth for all versions.
 #
 # Usage:
-#   ./scripts/release.sh           # Auto-increment alpha (0.1.0-alpha.1 → 0.1.0-alpha.2)
-#   ./scripts/release.sh 0.2.0     # Explicit version (for major/minor bumps)
-#
-# This script:
-# 1. Determines the new version (auto-increment or explicit)
-# 2. Updates the workspace Cargo.toml version
-# 3. Runs sync-version.sh to propagate to all manifests
-# 4. Prints next steps (review, test, commit, tag, push)
+#   ./scripts/release.sh                    # Bump build number, sync manifests
+#   ./scripts/release.sh --set-stage beta   # Change stage to beta, bump, sync
+#   ./scripts/release.sh --check            # Dry-run: show what would change
+#   ./scripts/release.sh --yes              # Skip interactive confirmation (CI)
 
 set -euo pipefail
 
@@ -19,91 +18,47 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
+YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
 usage() {
-    echo "Usage: $0 [OPTIONS] [version]"
+    echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  -y, --yes   Skip interactive confirmation (for CI)"
-    echo "  -h, --help  Show this help message"
-    echo ""
-    echo "If no version specified, auto-increments the pre-release number:"
-    echo "  0.1.0-alpha.1  →  0.1.0-alpha.2"
-    echo "  0.1.0-alpha.9  →  0.1.0-alpha.10"
-    echo "  0.1.0-beta.3   →  0.1.0-beta.4"
+    echo "  --set-stage STAGE  Change release stage (alpha, beta, rc, stable)"
+    echo "  --check            Dry-run: show what would change without writing"
+    echo "  -y, --yes          Skip interactive confirmation (for CI)"
+    echo "  -h, --help         Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0              # Auto-increment nightly"
-    echo "  $0 --yes        # Auto-increment without confirmation (CI)"
-    echo "  $0 0.1.0-beta.1 # Start beta phase"
-    echo "  $0 0.2.0        # Stable release"
-    echo ""
-    echo "Version format: MAJOR.MINOR.PATCH[-PRERELEASE]"
+    echo "  $0                       # Bump build number (same stage)"
+    echo "  $0 --set-stage beta      # Transition to beta, bump build"
+    echo "  $0 --set-stage stable    # Transition to stable release"
+    echo "  $0 --yes                 # Non-interactive (CI)"
     exit 1
-}
-
-# Get current version from workspace Cargo.toml
-get_current_version() {
-    grep -E '^version\s*=' "$ROOT_DIR/Cargo.toml" | head -1 | sed 's/.*=\s*"\([^"]*\)".*/\1/'
-}
-
-# Auto-increment pre-release number
-# 0.1.0-alpha.1 → 0.1.0-alpha.2
-# 0.1.0-beta.9 → 0.1.0-beta.10
-auto_increment_version() {
-    local current="$1"
-
-    # Check if it has a pre-release suffix with a number
-    if [[ "$current" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-([a-zA-Z]+)\.([0-9]+)$ ]]; then
-        local base="${BASH_REMATCH[1]}"
-        local prerelease="${BASH_REMATCH[2]}"
-        local num="${BASH_REMATCH[3]}"
-        local new_num=$((num + 1))
-        echo "${base}-${prerelease}.${new_num}"
-    else
-        echo -e "${RED}ERROR${NC}: Cannot auto-increment version '$current'" >&2
-        echo "Auto-increment only works with versions like: 0.1.0-alpha.1, 0.1.0-beta.2" >&2
-        echo "Use an explicit version instead: $0 <version>" >&2
-        exit 1
-    fi
-}
-
-# Validate semver format (basic check)
-validate_version() {
-    local version="$1"
-    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-        echo -e "${RED}ERROR${NC}: Invalid version format: $version"
-        echo "Expected: MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-PRERELEASE"
-        echo "Examples: 0.1.0, 0.1.0-alpha.1, 1.0.0-beta.2"
-        exit 1
-    fi
-}
-
-# Update version in workspace Cargo.toml
-update_workspace_version() {
-    local version="$1"
-    local cargo_toml="$ROOT_DIR/Cargo.toml"
-
-    # Update the version line in [workspace.package] section
-    sed -i "s/^version = \"[^\"]*\"/version = \"$version\"/" "$cargo_toml"
-
-    echo -e "${GREEN}UPDATED${NC}: workspace Cargo.toml -> $version"
 }
 
 main() {
     local auto_confirm=false
-    local explicit_version=""
+    local check_mode=false
+    local bump_args=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -h|--help) usage ;;
             -y|--yes) auto_confirm=true; shift ;;
-            -*) echo -e "${RED}ERROR${NC}: Unknown option: $1"; usage ;;
-            *) explicit_version="$1"; shift ;;
+            --check) check_mode=true; bump_args+=(--check); shift ;;
+            --set-stage)
+                if [[ -z "${2:-}" ]]; then
+                    echo -e "${RED}ERROR${NC}: --set-stage requires an argument"
+                    exit 1
+                fi
+                bump_args+=(--set-stage "$2")
+                shift 2
+                ;;
+            *) echo -e "${RED}ERROR${NC}: Unknown option: $1"; usage ;;
         esac
     done
 
@@ -122,42 +77,41 @@ main() {
         exit 1
     fi
 
-    # Get current version
-    local current_version
-    current_version=$(get_current_version)
+    # Show current state
+    local current_build="(none)"
+    if [[ -f "$ROOT_DIR/BUILD_NUMBER" ]]; then
+        current_build=$(tr -d '[:space:]' < "$ROOT_DIR/BUILD_NUMBER")
+    fi
+    echo -e "${BOLD}Current build:${NC} $current_build"
+    echo ""
 
-    # Determine new version
-    local new_version
-    if [[ -z "$explicit_version" ]]; then
-        # Auto-increment
-        new_version=$(auto_increment_version "$current_version")
-        echo -e "${CYAN}Auto-incrementing version...${NC}"
-    else
-        new_version="$explicit_version"
+    # Step 1: Bump build number
+    echo "=== Bumping build number ==="
+    "$SCRIPT_DIR/bump-build.sh" "${bump_args[@]}"
+
+    if $check_mode; then
+        echo ""
+        echo "=== Checking version sync ==="
+        "$SCRIPT_DIR/sync-version.sh" --check
+        return
     fi
 
-    # Validate
-    validate_version "$new_version"
+    # Confirm before syncing (skip with --yes)
+    local new_build
+    new_build=$(tr -d '[:space:]' < "$ROOT_DIR/BUILD_NUMBER")
 
-    echo ""
-    echo -e "${BOLD}Current version:${NC} $current_version"
-    echo -e "${BOLD}New version:${NC}     $new_version"
-    echo ""
-
-    # Confirm (skip with --yes)
     if ! $auto_confirm; then
-        read -p "Proceed with version bump? [y/N] " -n 1 -r
+        echo ""
+        read -p "Sync all manifests to $new_build? [y/N] " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            echo "Aborted."
+            echo "Aborted. BUILD_NUMBER was updated but manifests were not synced."
+            echo "Run './scripts/sync-version.sh' to sync, or restore BUILD_NUMBER."
             exit 1
         fi
     fi
 
-    echo ""
-    echo "=== Updating workspace version ==="
-    update_workspace_version "$new_version"
-
+    # Step 2: Sync all manifests
     echo ""
     echo "=== Syncing all manifests ==="
     "$SCRIPT_DIR/sync-version.sh"
@@ -173,21 +127,21 @@ main() {
         echo "   git diff"
         echo ""
         echo "2. Run full test suite:"
-        echo "   ./test-all"
+        echo "   ./test-all.sh"
         echo ""
         echo "3. Commit and tag:"
-        echo -e "   ${YELLOW}git add -A && git commit -m \"chore: release v$new_version\"${NC}"
-        echo -e "   ${YELLOW}git tag v$new_version${NC}"
+        echo -e "   ${YELLOW}git add -A && git commit -m \"chore: release v$new_build\"${NC}"
+        echo -e "   ${YELLOW}git tag v$new_build${NC}"
         echo -e "   ${YELLOW}git push origin master --tags${NC}"
         echo ""
         echo "The release workflow will automatically:"
-        echo "  • Build binaries for Linux, macOS, Windows"
-        echo "  • Create GitHub release (marked as nightly/pre-release)"
-        echo "  • Generate checksums and release notes"
+        echo "  - Build binaries for Linux, macOS, Windows"
+        echo "  - Create GitHub release (marked as pre-release if alpha/beta/rc)"
+        echo "  - Generate checksums and release notes"
     fi
 
     echo ""
-    echo -e "${GREEN}Version bump complete!${NC}"
+    echo -e "${GREEN}Release preparation complete!${NC}"
 }
 
 main "$@"

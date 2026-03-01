@@ -20,6 +20,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 FIXTURES_DIR="$SCRIPT_DIR/fixtures"
 VERBOSE=0
 
@@ -37,6 +38,14 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# --- Build compiler with LLVM support ---
+echo "Building compiler (cargo bl)..."
+if ! (cd "$ROOT_DIR" && cargo bl) 2>&1; then
+    echo "Error: cargo bl failed — cannot run diagnostic tests without LLVM-enabled binary" >&2
+    exit 2
+fi
+echo ""
 
 # --- Color codes ---
 if [[ -t 1 ]]; then
@@ -224,6 +233,22 @@ echo ""
 printf "${C_BOLD}check-debug-flags.sh${C_NC}\n"
 run_test "all debug flags consistent" \
     "$SCRIPT_DIR/check-debug-flags.sh"
+echo ""
+
+# ─── valgrind-aot.sh ──────────────────────────────────────────────
+printf "${C_BOLD}valgrind-aot.sh${C_NC}\n"
+run_test_output_contains "valgrind-aot.sh --help shows usage" "Usage:" \
+    "$SCRIPT_DIR/valgrind-aot.sh" --help
+# Skip actual Valgrind execution (may not be installed, slow)
+echo ""
+
+# ─── dual-exec-verify.sh ────────────────────────────────────────
+printf "${C_BOLD}dual-exec-verify.sh${C_NC}\n"
+run_test_output_contains "dual-exec-verify.sh --help shows usage" "Usage:" \
+    "$SCRIPT_DIR/dual-exec-verify.sh" --help
+run_test_expect_fail "dual-exec-verify.sh with nonexistent path" \
+    "$SCRIPT_DIR/dual-exec-verify.sh" --no-color /nonexistent/path
+# Skip actual batch execution (requires both binaries + full test suite)
 echo ""
 
 # ─── Error handling ───────────────────────────────────────────────

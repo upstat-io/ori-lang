@@ -61,36 +61,6 @@ fn estimated_type_size(ty: &AnyTypeEnum<'_>) -> u64 {
     }
 }
 
-/// Extract the name of the callee from the last operand of a call/invoke.
-///
-/// LLVM convention: the last operand of a call instruction is the callee.
-pub(super) fn callee_name(inst: inkwell::values::InstructionValue<'_>) -> Option<String> {
-    let n = inst.get_num_operands();
-    if n == 0 {
-        return None;
-    }
-    let op = inst.get_operand(n - 1)?;
-    match op {
-        inkwell::values::Operand::Value(v) => {
-            // For direct calls, the last operand is the callee function pointer.
-            if !v.is_pointer_value() {
-                return None;
-            }
-            let name = v
-                .into_pointer_value()
-                .get_name()
-                .to_string_lossy()
-                .into_owned();
-            if name.is_empty() {
-                None
-            } else {
-                Some(name)
-            }
-        }
-        inkwell::values::Operand::Block(_) => None,
-    }
-}
-
 /// Run all ABI checks on a module.
 pub fn check_module(module: &Module<'_>, options: &AuditOptions, report: &mut AuditReport) {
     let mut func = module.get_first_function();
@@ -155,7 +125,7 @@ fn check_call(
     inst: inkwell::values::InstructionValue<'_>,
     report: &mut AuditReport,
 ) {
-    if let Some(callee) = callee_name(inst) {
+    if let Some(callee) = super::callee_name(inst) {
         check_runtime_arg_count(fn_name, &callee, inst, report);
     }
 }
@@ -166,7 +136,7 @@ fn check_invoke(
     inst: inkwell::values::InstructionValue<'_>,
     report: &mut AuditReport,
 ) {
-    if let Some(callee) = callee_name(inst) {
+    if let Some(callee) = super::callee_name(inst) {
         // Check arg count for invoke too
         check_runtime_arg_count(fn_name, &callee, inst, report);
 

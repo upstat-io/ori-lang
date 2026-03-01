@@ -435,7 +435,7 @@ This keeps capability checking simple and predictable.
 
 ### Async in Defaults
 
-Default expressions may use `Async` operations if the function declares `uses Suspend`:
+Default expressions may use `Suspend` operations if the function declares `uses Suspend`:
 
 ```ori
 @process (config: Config = load_config()?) -> Result<Output, Error> uses Suspend, FileSystem

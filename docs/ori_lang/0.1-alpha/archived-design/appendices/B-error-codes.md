@@ -28,7 +28,7 @@ E[Category][Number]
 | `EF` | Function | Function-related errors |
 | `EC` | Config | Configuration errors |
 | `EI` | Import | Module and import errors |
-| `EA` | Async | Async capability errors |
+| `EA` | Async | Suspend capability errors |
 | `ES` | Test | Testing errors |
 | `EW` | Warning | Warnings (non-fatal) |
 
@@ -643,19 +643,19 @@ add(
 
 ---
 
-### EF005: Missing Async Capability
+### EF005: Missing Suspend Capability
 
-**Description:** Function calls code that may suspend without declaring `uses Async`.
+**Description:** Function calls code that may suspend without declaring `uses Suspend`.
 
 ```ori
-@fetch (url: str) -> Result<str, Error> uses Http, Async = ...
-// EF005: missing Async capability
+@fetch (url: str) -> Result<str, Error> uses Http, Suspend = ...
+// EF005: missing Suspend capability
 @use_fetch () -> str = fetch(
     .url: "...",
 )
 ```
 
-**Fix:** Add `uses Async` to function signature, or provide capability with `with`.
+**Fix:** Add `uses Suspend` to function signature, or provide capability with `with`.
 
 ---
 

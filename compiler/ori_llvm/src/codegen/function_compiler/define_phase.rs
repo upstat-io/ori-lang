@@ -129,6 +129,11 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             self.compile_lambda_arc(&mut lambda);
         }
 
+        // Lambda compilation changes builder.current_function to the last
+        // lambda's FunctionId. Reset it to the parent so entry-block allocas
+        // (sret temporaries, indirect param storage) land in the right function.
+        self.builder.set_current_function(func_id);
+
         // Shared ARC processing: borrow annotations -> arg ownership -> pipeline
         self.process_arc_function(name, &mut arc_func);
 
@@ -256,7 +261,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             arc_func,
             self.annotated_sigs,
             self.interner,
-            &self.borrowing_builtins,
+            &self.builtin_ownership,
+            self.pool,
         );
         let arc_problems = ori_arc::run_arc_pipeline(
             arc_func,
@@ -337,7 +343,8 @@ impl<'scx: 'ctx, 'ctx> FunctionCompiler<'_, 'scx, 'ctx, '_> {
             lambda,
             self.annotated_sigs,
             self.interner,
-            &self.borrowing_builtins,
+            &self.builtin_ownership,
+            self.pool,
         );
         let arc_problems = ori_arc::run_arc_pipeline(
             lambda,
