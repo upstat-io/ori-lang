@@ -113,8 +113,9 @@ pub use rc_insert::{
     annotate_arg_ownership, insert_external_invoke_cleanup, insert_rc_ops_with_ownership,
 };
 pub use reset_reuse::detect_reset_reuse_cfg;
-pub use uniqueness::intra::{analyze_intraprocedural, UniquenessResult};
-pub use uniqueness::{CowMode, Uniqueness, UniquenessMap};
+pub use uniqueness::inter::{analyze_program, build_cow_summaries};
+pub use uniqueness::intra::{analyze_intraprocedural, analyze_with_summaries, UniquenessResult};
+pub use uniqueness::{CowMode, Uniqueness, UniquenessMap, UniquenessSummary};
 
 /// Run the full ARC optimization pipeline on a single function.
 ///
