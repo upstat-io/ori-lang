@@ -58,7 +58,7 @@ An async context is established by:
 - **The runtime** — when `@main` declares `uses Suspend`, the runtime provides the initial async context
 - **Concurrency patterns** — `parallel`, `spawn`, and `nursery` create nested async contexts for their spawned tasks
 
-A function declaring `uses Suspend` **requires** an async context to execute — it does not establish one. The `Async` capability indicates the function may suspend, requiring a scheduler to manage resumption.
+A function declaring `uses Suspend` **requires** an async context to execute — it does not establish one. The `Suspend` capability indicates the function may suspend, requiring a scheduler to manage resumption.
 
 ### Suspension Point
 
@@ -85,14 +85,14 @@ This provides **predictable interleaving** — developers can reason about atomi
 Programs using concurrency patterns (`parallel`, `spawn`, `nursery`) must have `@main` declare `uses Suspend`:
 
 ```ori
-// Correct: main declares Async
+// Correct: main declares Suspend
 @main () -> void uses Suspend = {
     parallel(tasks: [task_a(), task_b()])
 }
 
-// ERROR: main uses concurrency without Async
+// ERROR: main uses concurrency without Suspend
 @main () -> void = {
-    parallel(tasks: [task_a(), task_b()]),  // Error: requires Async capability
+    parallel(tasks: [task_a(), task_b()]),  // Error: requires Suspend capability
 }
 ```
 
@@ -217,7 +217,7 @@ When values cross task boundaries (via spawn or channel send), reference count o
         tasks: items.map(item -> () -> process(item: item)),
     )
 
-// Async function calling async function
+// Suspend function calling suspend function
 @outer () -> int uses Suspend = inner()
 @inner () -> int uses Suspend = fetch_data()
 
@@ -241,7 +241,7 @@ When values cross task boundaries (via spawn or channel send), reference count o
     parallel(tasks: [() -> {counter = counter + 1}])
 }
 
-// ERROR: main uses concurrency without Async
+// ERROR: main uses concurrency without Suspend
 @bad_main () -> void = parallel(tasks: [task_a()])
 ```
 
@@ -261,7 +261,7 @@ Create new spec section covering:
 
 ### Updates to `14-capabilities.md`
 
-Clarify that `Async` is a marker capability indicating suspension possibility, with reference to the concurrency model spec.
+Clarify that `Suspend` is a marker capability indicating suspension possibility, with reference to the concurrency model spec.
 
 ### Updates to `10-patterns.md`
 

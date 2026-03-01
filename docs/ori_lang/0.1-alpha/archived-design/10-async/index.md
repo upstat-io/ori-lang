@@ -17,14 +17,14 @@ This section covers Ori's concurrency model: capability-based async tracking, st
 
 ## Overview
 
-Ori takes a unique approach to async: **an explicit `Async` capability instead of async/await syntax**.
+Ori takes a unique approach to async: **an explicit `Suspend` capability instead of async/await syntax**.
 
 ```ori
-// Async capability explicitly declares "may suspend"
-@fetch_user (user_id: int) -> Result<User, Error> uses Http, Async =
+// Suspend capability explicitly declares "may suspend"
+@fetch_user (user_id: int) -> Result<User, Error> uses Http, Suspend =
     Http.get("/users/" + str(user_id))?.parse()
 
-@fetch_all (user_ids: [int]) -> [User] uses Http, Async = parallel(
+@fetch_all (user_ids: [int]) -> [User] uses Http, Suspend = parallel(
     .tasks: map(
         .over: user_ids,
         .transform: user_id -> fetch_user(
@@ -35,11 +35,11 @@ Ori takes a unique approach to async: **an explicit `Async` capability instead o
 )
 ```
 
-### Why the Async Capability?
+### Why the Suspend Capability?
 
 Traditional async/await has a "propagation tax" - `async` bubbles up the call stack. But you get nothing for this cost except the ability to suspend.
 
-Ori's insight: **you're paying the propagation cost anyway**. The `uses Async` propagates just like `async` would. But with capabilities you also get:
+Ori's insight: **you're paying the propagation cost anyway**. The `uses Suspend` propagates just like `async` would. But with capabilities you also get:
 
 - Easy testing via sync mock implementations
 - Explicit dependency tracking
@@ -49,15 +49,15 @@ Ori's insight: **you're paying the propagation cost anyway**. The `uses Async` p
 | Approach | Propagates | Testing | Clean Types | Sync/Async Clear |
 |----------|------------|---------|-------------|------------------|
 | `async/await` | Yes | Hard | No | Yes |
-| `uses Async` | Yes | Easy | Yes | Yes |
+| `uses Suspend` | Yes | Easy | Yes | Yes |
 
 ### Key Concepts
 
 | Concept | Description |
 |---------|-------------|
-| `uses Async` | Explicitly declares function may suspend |
-| `uses Http` | Uses HTTP (blocking if no Async) |
-| `uses Http, Async` | Uses HTTP (non-blocking, may suspend) |
+| `uses Suspend` | Explicitly declares function may suspend |
+| `uses Http` | Uses HTTP (blocking if no Suspend) |
+| `uses Http, Suspend` | Uses HTTP (non-blocking, may suspend) |
 | `parallel` | Pattern for concurrent execution |
 | `Context` | Carries timeout and cancellation |
 | `Channel<T>` | Typed communication between tasks |
@@ -66,7 +66,7 @@ Ori's insight: **you're paying the propagation cost anyway**. The `uses Async` p
 
 ```ori
 // Sequential - one at a time, but still async (may suspend)
-@fetch_seq (user_ids: [int]) -> [User] uses Http, Async = run(
+@fetch_seq (user_ids: [int]) -> [User] uses Http, Suspend = run(
     let users = [],
     for user_id in user_ids do
         users = users + [fetch_user(
@@ -76,7 +76,7 @@ Ori's insight: **you're paying the propagation cost anyway**. The `uses Async` p
 )
 
 // Concurrent - all at once
-@fetch_par (user_ids: [int]) -> [User] uses Http, Async = parallel(
+@fetch_par (user_ids: [int]) -> [User] uses Http, Suspend = parallel(
     .tasks: map(
         .over: user_ids,
         .transform: user_id -> fetch_user(

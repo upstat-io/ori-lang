@@ -251,7 +251,7 @@ Destructors cannot be async:
 
 ```ori
 impl Drop for Resource {
-    @drop (self) -> void uses Async = ...;  // ERROR: drop cannot be async
+    @drop (self) -> void uses Suspend = ...;  // ERROR: drop cannot be async
 }
 ```
 
@@ -259,7 +259,7 @@ For async cleanup, use explicit methods:
 
 ```ori
 impl AsyncResource {
-    @close (self) -> void uses Async = ...;  // Explicit async cleanup
+    @close (self) -> void uses Suspend = ...;  // Explicit async cleanup
 }
 
 impl Drop for AsyncResource {

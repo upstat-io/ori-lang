@@ -6,7 +6,7 @@ HTTP client and server.
 use std.net.http { Client, get, post, Server, Request, Response }
 ```
 
-**Capability required:** `Http`, `Async`
+**Capability required:** `Http`, `Suspend`
 
 ---
 

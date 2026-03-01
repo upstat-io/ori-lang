@@ -10,7 +10,7 @@ Ori enforces **structured concurrency**: all concurrent tasks must be awaited, a
 
 ```ori
 // Structured: parallel waits for all tasks
-@fetch_all () -> [Data] uses Http, Async = parallel(
+@fetch_all () -> [Data] uses Http, Suspend = parallel(
     .tasks: [fetch_a(), fetch_b(), fetch_c()]
 )
 
@@ -38,13 +38,13 @@ Think of it like structured programming for concurrency: just as functions retur
 ### The Concurrency Hierarchy
 
 ```ori
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     // main waits for process_all
     let result = process_all(),
     print(result),
 )
 
-@process_all () -> [Data] uses Async = run(
+@process_all () -> [Data] uses Suspend = run(
     // process_all waits for parallel
     let data = parallel(
         .tasks: [task_a(), task_b(), task_c()],
@@ -93,7 +93,7 @@ Ori simply doesn't allow detached tasks:
 If you need concurrent work, use `parallel`:
 
 ```ori
-@good () -> void uses Async = run(
+@good () -> void uses Suspend = run(
     // Explicitly wait for all concurrent work
     parallel(
         .main_work: handle_request(),
@@ -114,7 +114,7 @@ If you need concurrent work, use `parallel`:
 Named tasks with struct result:
 
 ```ori
-@fetch_dashboard (user_id: int) -> Dashboard uses Http, Async = run(
+@fetch_dashboard (user_id: int) -> Dashboard uses Http, Suspend = run(
     let data = parallel(
         .user: get_user(user_id),
         .posts: get_posts(user_id),
@@ -131,7 +131,7 @@ Named tasks with struct result:
 List of tasks:
 
 ```ori
-@fetch_all (urls: [str]) -> [Data] uses Http, Async = parallel(
+@fetch_all (urls: [str]) -> [Data] uses Http, Suspend = parallel(
     .tasks: map(
         .over: urls,
         .transform: url -> fetch(
@@ -146,7 +146,7 @@ List of tasks:
 Control maximum concurrent tasks:
 
 ```ori
-@fetch_many (urls: [str]) -> [Data] uses Http, Async = parallel(
+@fetch_many (urls: [str]) -> [Data] uses Http, Suspend = parallel(
     .tasks: map(
         .over: urls,
         .transform: url -> fetch(
@@ -168,7 +168,7 @@ Why limit concurrency?
 By default, `parallel` fails fast - one failure stops everything:
 
 ```ori
-@fetch_both () -> Result<(Data, Data), Error> uses Http, Async = parallel(
+@fetch_both () -> Result<(Data, Data), Error> uses Http, Suspend = parallel(
     // if this fails, the other task is cancelled
     .a: fetch_a(),
     .b: fetch_b(),
@@ -178,7 +178,7 @@ By default, `parallel` fails fast - one failure stops everything:
 Collect all errors instead:
 
 ```ori
-@fetch_all (urls: [str]) -> [Result<Data, Error>] uses Http, Async = parallel(
+@fetch_all (urls: [str]) -> [Result<Data, Error>] uses Http, Suspend = parallel(
     .tasks: map(
         .over: urls,
         .transform: url -> fetch(
@@ -195,7 +195,7 @@ Collect all errors instead:
 Add a timeout to parallel operations:
 
 ```ori
-@fetch_with_limit () -> Result<Data, Error> uses Http, Clock, Async = parallel(
+@fetch_with_limit () -> Result<Data, Error> uses Http, Clock, Suspend = parallel(
     .a: fetch_slow(),
     .b: fetch_fast(),
     // cancel all if not done in 5 seconds
@@ -212,7 +212,7 @@ Add a timeout to parallel operations:
 When a function returns, all tasks it started have completed:
 
 ```ori
-@process () -> Result uses Async = run(
+@process () -> Result uses Suspend = run(
     parallel(
         .task_a: slow_operation(),
         .task_b: fast_operation(),
@@ -228,7 +228,7 @@ When a function returns, all tasks it started have completed:
 Cancelling a parent cancels all children:
 
 ```ori
-@outer () -> void uses Clock, Async = run(
+@outer () -> void uses Clock, Suspend = run(
     timeout(
         .operation: inner(),
         .after: 5s,
@@ -237,7 +237,7 @@ Cancelling a parent cancels all children:
 )
 
 // All tasks are cancelled if outer times out
-@inner () -> void uses Async = parallel(
+@inner () -> void uses Suspend = parallel(
     .a: task_a(),
     .b: task_b(),
     .c: task_c(),
@@ -249,7 +249,7 @@ Cancelling a parent cancels all children:
 Errors bubble up through the hierarchy:
 
 ```ori
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     let result = top_level(),
     match(result,
         Ok(data) -> print(
@@ -262,13 +262,13 @@ Errors bubble up through the hierarchy:
 )
 
 // Errors propagate up the hierarchy
-@top_level () -> Result<Data, Error> uses Async = parallel(
+@top_level () -> Result<Data, Error> uses Suspend = parallel(
     .a: middle_a(),
     .b: middle_b(),
 )
 
 // Errors from leaf functions propagate to top_level
-@middle_a () -> Result<Data, Error> uses Async = parallel(
+@middle_a () -> Result<Data, Error> uses Suspend = parallel(
     .x: leaf_x(),
     .y: leaf_y(),
 )
@@ -285,13 +285,13 @@ Instead of fire-and-forget, make background work explicit:
 ```ori
 // BAD: fire-and-forget (not allowed)
 // ERROR: spawn is not allowed
-@handle_request () -> Response uses Http, Async = run(
+@handle_request () -> Response uses Http, Suspend = run(
     spawn(log_analytics()),
     compute_response(),
 )
 
 // GOOD: explicit concurrent work
-@handle_request () -> Response uses Http, Async = run(
+@handle_request () -> Response uses Http, Suspend = run(
     let results = parallel(
         .response: compute_response(),
         .analytics: log_analytics(),
@@ -306,7 +306,7 @@ Use `with` for cleanup instead of spawning cleanup tasks:
 
 ```ori
 // The release function always runs, even on cancellation
-@process_file (path: str) -> Result<Data, Error> uses FileSystem, Async = with(
+@process_file (path: str) -> Result<Data, Error> uses FileSystem, Suspend = with(
     .acquire: open_file(
         .path: path,
     ),
@@ -324,7 +324,7 @@ Use `with` for cleanup instead of spawning cleanup tasks:
 For processing a queue of work:
 
 ```ori
-@process_queue (items: [Item]) -> [Result<ProcessedItem, Error>] uses Async = parallel(
+@process_queue (items: [Item]) -> [Result<ProcessedItem, Error>] uses Suspend = parallel(
     .tasks: map(
         .over: items,
         .transform: item -> process(
@@ -340,7 +340,7 @@ For processing a queue of work:
 For recurring tasks, use explicit loops:
 
 ```ori
-@periodic_check (interval: Duration) -> void uses Clock, Async =
+@periodic_check (interval: Duration) -> void uses Clock, Suspend =
     loop(
         perform_check(),
         sleep(interval)
@@ -350,7 +350,7 @@ For recurring tasks, use explicit loops:
 Call it within structured concurrency:
 
 ```ori
-@main () -> void uses Http, Clock, Async = parallel(
+@main () -> void uses Http, Clock, Suspend = parallel(
     .server: run_server(),
     .health_check: periodic_check(30s),
     .metrics: periodic_metrics(1m)
@@ -366,7 +366,7 @@ Call it within structured concurrency:
 For services that run "forever," structure them at the top level:
 
 ```ori
-@main () -> void uses Http, Clock, Async = parallel(
+@main () -> void uses Http, Clock, Suspend = parallel(
     .http_server: run_http_server(),
     .background_jobs: run_job_processor(),
     .metrics_collector: run_metrics()
@@ -380,7 +380,7 @@ For services that run "forever," structure them at the top level:
 Use context-based cancellation for clean shutdown:
 
 ```ori
-@main () -> void uses Http, Async = run(
+@main () -> void uses Http, Suspend = run(
     let ctx = Context.with_signal(SIGTERM),
     parallel(
         .server: run_server(ctx),
@@ -412,7 +412,7 @@ Ori requires explicit waiting:
 
 ```ori
 // must complete before return
-@handle () -> void uses Async = parallel(
+@handle () -> void uses Suspend = parallel(
     .main: main_task(),
     .background: background_task(),
 )
@@ -434,7 +434,7 @@ Ori async functions must declare capabilities:
 
 ```ori
 @handle () -> str = run(
-    // ERROR: calling async function without Async capability
+    // ERROR: calling async function without Suspend capability
     background_task(),
     "done",
 )
@@ -455,7 +455,7 @@ Ori has no `spawn`:
 
 ```ori
 // both must complete
-@main () -> void uses Async = parallel(
+@main () -> void uses Suspend = parallel(
     .main: main_work(),
     .background: background_task(),
 )
@@ -493,7 +493,7 @@ Ori intentionally has **no escape hatch** for detached tasks. If you need truly 
 
 ```ori
 // Explicit long-running service
-@main () -> void uses Http, Async = parallel(
+@main () -> void uses Http, Suspend = parallel(
     .api: api_server(),
     .background: background_service()
 )
@@ -562,7 +562,7 @@ parallel(
 ### Handle Both Success and Failure
 
 ```ori
-@robust_fetch () -> [Data] uses Http, Async = run(
+@robust_fetch () -> [Data] uses Http, Suspend = run(
     let results = parallel(
         .tasks: map(
             .over: urls,
@@ -602,16 +602,16 @@ error[E0200]: cannot spawn detached task
            )
 ```
 
-### Missing Async Capability
+### Missing Suspend Capability
 
 ```
 error[E0201]: missing capability for async operation
   --> src/main.ori:8:5
    |
 8  |     parallel(
-   |     ^^^^^^^^ requires Async capability
+   |     ^^^^^^^^ requires Suspend capability
    |
-   = note: add `uses Async` to function signature
+   = note: add `uses Suspend` to function signature
 ```
 
 ### Capability Not Propagated
@@ -621,9 +621,9 @@ error[E0202]: capability not propagated
   --> src/main.ori:10:5
    |
 10 |     return some_async_fn()
-   |            ^^^^^^^^^^^^^^^ calls function with Async capability
+   |            ^^^^^^^^^^^^^^^ calls function with Suspend capability
    |
-   = note: caller must also declare `uses Async` capability
+   = note: caller must also declare `uses Suspend` capability
 ```
 
 ---

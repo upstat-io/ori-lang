@@ -85,7 +85,7 @@ Modules define capability traits that functions use to declare their effects:
 | `std.env` | `Env` | Environment variables |
 | `std.math.rand` | `Random` | Random number generation |
 | `std.cache` | `Cache` | Key-value caching |
-| prelude | `Async` | Marks functions that may suspend |
+| prelude | `Suspend` | Marks functions that may suspend |
 
 Pure modules (no capabilities required):
 - `std.time` date/duration math (only `Clock.now()` needs capability)

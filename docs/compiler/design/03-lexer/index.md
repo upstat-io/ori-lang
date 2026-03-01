@@ -15,21 +15,27 @@ The Ori lexer converts source text into a stream of tokens. It uses a **two-laye
 compiler/
 ├── ori_lexer_core/src/         # Layer 1: Raw scanner (zero ori_* deps)
 │   ├── lib.rs                  # Public exports, crate docs
-│   ├── tag.rs                  # RawTag enum (#[repr(u8)])
-│   ├── raw_scanner.rs          # Byte-level state machine
-│   ├── cursor.rs               # Cursor for byte navigation
-│   └── source_buffer.rs        # UTF-8 validation + sentinel byte
+│   ├── tag/mod.rs              # RawTag enum (#[repr(u8)])
+│   ├── raw_scanner/            # Byte-level state machine
+│   │   ├── mod.rs              # RawScanner, main dispatch loop
+│   │   ├── numbers.rs          # Numeric literal scanning (int, float, hex, bin)
+│   │   ├── operators.rs        # Operator and punctuation scanning
+│   │   ├── strings.rs          # String and char literal scanning (SIMD)
+│   │   └── templates.rs        # Template literal scanning (depth tracking)
+│   ├── cursor/mod.rs           # Cursor for byte navigation
+│   └── source_buffer/mod.rs    # UTF-8 validation + sentinel byte
 │
 └── ori_lexer/src/              # Layer 2: Cooking + driver
     ├── lib.rs                  # Public API: lex(), lex_with_comments(), LexOutput
-    ├── cooker.rs               # TokenCooker: RawTag → TokenKind
-    ├── keywords.rs             # Keyword resolution (reserved + soft + future)
-    ├── cook_escape.rs          # Spec-strict escape processing
-    ├── lex_error.rs            # LexError types (WHERE+WHAT+WHY+HOW)
-    ├── comments.rs             # Comment classification (doc vs regular)
-    ├── parse_helpers.rs        # Numeric literal parsing utilities
-    ├── unicode_confusables.rs  # Unicode → ASCII suggestions
-    └── what_is_next.rs         # Context-aware error suggestions
+    ├── cooker/mod.rs           # TokenCooker: RawTag → TokenKind
+    ├── keywords/mod.rs         # Keyword resolution (reserved + soft + future)
+    ├── cook_escape/mod.rs      # Spec-strict escape processing
+    ├── lex_error/mod.rs        # LexError types (WHERE+WHAT+WHY+HOW)
+    ├── comments/mod.rs         # Comment classification (doc vs regular)
+    ├── trivial/mod.rs          # Trivial token scanning (whitespace, newlines)
+    ├── parse_helpers/mod.rs    # Numeric literal parsing utilities
+    ├── unicode_confusables/mod.rs  # Unicode → ASCII suggestions
+    └── what_is_next/mod.rs     # Context-aware error suggestions
 ```
 
 ### Dependencies

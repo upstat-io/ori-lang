@@ -3,6 +3,7 @@
 /target-llvm/
 **/target/
 **/build/
+!compiler/oric/src/commands/build/
 
 # Cargo lock for libraries (keep for binaries)
 # Cargo.lock  # We keep this since we have a binary
