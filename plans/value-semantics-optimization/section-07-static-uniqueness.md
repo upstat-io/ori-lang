@@ -18,7 +18,7 @@ sections:
     status: complete
   - id: "07.3"
     title: "Interprocedural Analysis"
-    status: not-started
+    status: complete
   - id: "07.4"
     title: "Integration with ARC Pipeline"
     status: not-started
@@ -202,7 +202,7 @@ Within a single function, determine which variables are provably unique at each 
 
 ## 07.3 Interprocedural Analysis
 
-**File(s):** `compiler/ori_arc/src/uniqueness/inter.rs` (new)
+**File(s):** `compiler/ori_arc/src/uniqueness/inter/mod.rs` (new)
 
 **Algorithm (SCC-based fixpoint — matches existing borrow inference pattern):**
 
@@ -216,7 +216,7 @@ Within a single function, determine which variables are provably unique at each 
       - If the function returns a captured value → return is `MaybeShared`
 4. For recursive SCCs, iterate until the analysis converges (fixpoint).
 
-- [ ] Define function-level uniqueness summary:
+- [x] Define function-level uniqueness summary:
   ```rust
   /// Summary of a function's uniqueness behavior.
   pub struct UniquenessSummary {
@@ -230,7 +230,7 @@ Within a single function, determine which variables are provably unique at each 
   }
   ```
 
-- [ ] Implement SCC-based interprocedural analysis:
+- [x] Implement SCC-based interprocedural analysis:
   ```rust
   pub fn analyze_program(program: &ArcProgram) -> HashMap<FuncId, UniquenessSummary> {
       let call_graph = build_call_graph(program);
@@ -262,7 +262,7 @@ Within a single function, determine which variables are provably unique at each 
   }
   ```
 
-- [ ] **Collection method summaries**: Built-in collection methods (push, pop, etc.) have known summaries:
+- [x] **Collection method summaries**: Built-in collection methods (push, pop, etc.) have known summaries:
   - `list.push(elem)` → returns `Unique` (COW guarantees fresh result)
   - `list.concat(other)` → returns `Unique`
   - `list.slice(s, e)` → returns `MaybeShared` (slice shares backing)
@@ -271,7 +271,7 @@ Within a single function, determine which variables are provably unique at each 
 
   These are hardcoded summaries, not derived from analysis.
 
-- [ ] Unit tests:
+- [x] Unit tests:
   - Non-recursive function returning fresh allocation → `Unique` return
   - Function returning parameter → `MaybeShared` return
   - Recursive function building list → fixpoint converges, return `Unique`

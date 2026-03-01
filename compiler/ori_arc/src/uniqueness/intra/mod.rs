@@ -32,6 +32,7 @@
 //! (`Apply` → `MaybeShared`) and refined by interprocedural analysis (§07.3)
 //! with hardcoded collection method summaries.
 
+use ori_ir::Name;
 use rustc_hash::FxHashMap;
 
 use crate::graph::{compute_postorder, compute_predecessors};
@@ -39,7 +40,7 @@ use crate::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcValue, ArcVarId};
 use crate::liveness::BlockLiveness;
 use crate::ArcClassification;
 
-use super::{Uniqueness, UniquenessMap};
+use super::{Uniqueness, UniquenessMap, UniquenessSummary};
 
 /// Result of intraprocedural uniqueness analysis for a single function.
 ///
@@ -63,9 +64,8 @@ type LastUseMap = FxHashMap<ArcVarId, usize>;
 
 /// Analyze uniqueness within a single function using forward dataflow.
 ///
-/// Computes per-block entry/exit [`UniquenessMap`]s via fixed-point iteration
-/// in reverse postorder. Uses liveness information for the dead-variable
-/// optimization (alias → move when source is dead after the alias point).
+/// Standalone version that treats all function call results as `MaybeShared`.
+/// Use [`analyze_with_summaries`] for interprocedural refinement.
 ///
 /// # Arguments
 ///
@@ -76,6 +76,37 @@ pub fn analyze_intraprocedural(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     liveness: &BlockLiveness,
+) -> UniquenessResult {
+    analyze_inner(func, classifier, liveness, &FxHashMap::default())
+}
+
+/// Analyze uniqueness with interprocedural callee summaries.
+///
+/// Like [`analyze_intraprocedural`], but uses `summaries` to refine `Apply`
+/// and `Invoke` call results: if the callee has a known summary, its return
+/// value uniqueness is used instead of the conservative `MaybeShared`.
+///
+/// This is the version used by [`super::inter::analyze_program`] during
+/// SCC-based interprocedural analysis.
+#[expect(
+    clippy::implicit_hasher,
+    reason = "FxHashMap is the concrete type used throughout ori_arc"
+)]
+pub fn analyze_with_summaries(
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+    liveness: &BlockLiveness,
+    summaries: &FxHashMap<Name, UniquenessSummary>,
+) -> UniquenessResult {
+    analyze_inner(func, classifier, liveness, summaries)
+}
+
+/// Inner implementation shared by standalone and summary-aware analysis.
+fn analyze_inner(
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+    liveness: &BlockLiveness,
+    summaries: &FxHashMap<Name, UniquenessSummary>,
 ) -> UniquenessResult {
     let num_blocks = func.blocks.len();
     tracing::debug!(
@@ -123,7 +154,7 @@ pub fn analyze_intraprocedural(
             let new_in = if block_idx == entry_idx {
                 block_in[entry_idx].clone()
             } else {
-                join_predecessors(block_idx, func, &predecessors, &block_out)
+                join_predecessors(block_idx, func, &predecessors, &block_out, summaries)
             };
 
             let new_out = transfer_block(
@@ -132,6 +163,7 @@ pub fn analyze_intraprocedural(
                 classifier,
                 &new_in,
                 &last_use_maps[block_idx],
+                summaries,
             );
 
             if new_in != block_in[block_idx] || new_out != block_out[block_idx] {
@@ -165,15 +197,16 @@ fn join_predecessors(
     func: &ArcFunction,
     predecessors: &[Vec<usize>],
     block_out: &[UniquenessMap],
+    summaries: &FxHashMap<Name, UniquenessSummary>,
 ) -> UniquenessMap {
     let preds = &predecessors[block_idx];
     if preds.is_empty() {
         return UniquenessMap::new();
     }
 
-    let mut result = map_incoming(block_idx, preds[0], func, block_out);
+    let mut result = map_incoming(block_idx, preds[0], func, block_out, summaries);
     for &pred_idx in &preds[1..] {
-        let incoming = map_incoming(block_idx, pred_idx, func, block_out);
+        let incoming = map_incoming(block_idx, pred_idx, func, block_out, summaries);
         result.join_from(&incoming);
     }
     result
@@ -182,13 +215,14 @@ fn join_predecessors(
 /// Compute the incoming state from a single predecessor to a target block.
 ///
 /// Takes the predecessor's exit state and maps jump arguments to the
-/// target block's parameters. Invoke `dst` is set to `MaybeShared`
-/// at the normal successor (function call result).
+/// target block's parameters. Invoke `dst` uniqueness is determined by
+/// the callee's summary (if available) or defaults to `MaybeShared`.
 fn map_incoming(
     target_idx: usize,
     pred_idx: usize,
     func: &ArcFunction,
     block_out: &[UniquenessMap],
+    summaries: &FxHashMap<Name, UniquenessSummary>,
 ) -> UniquenessMap {
     let pred_block = &func.blocks[pred_idx];
     let target_block = &func.blocks[target_idx];
@@ -203,9 +237,16 @@ fn map_incoming(
                 }
             }
         }
-        ArcTerminator::Invoke { dst, normal, .. } if normal.index() == target_idx => {
-            // Function call result: conservative (refined by §07.3).
-            incoming.set(*dst, Uniqueness::MaybeShared);
+        ArcTerminator::Invoke {
+            dst,
+            normal,
+            func: callee,
+            ..
+        } if normal.index() == target_idx => {
+            let return_uniq = summaries
+                .get(callee)
+                .map_or(Uniqueness::MaybeShared, |s| s.return_val);
+            incoming.set(*dst, return_uniq);
         }
         _ => {}
     }
@@ -222,11 +263,14 @@ fn transfer_block(
     classifier: &dyn ArcClassification,
     block_in: &UniquenessMap,
     last_use: &LastUseMap,
+    summaries: &FxHashMap<Name, UniquenessSummary>,
 ) -> UniquenessMap {
     let block = &func.blocks[block_idx];
     let mut state = block_in.clone();
     for (pos, instr) in block.body.iter().enumerate() {
-        transfer_instr(&mut state, instr, pos, func, classifier, last_use);
+        transfer_instr(
+            &mut state, instr, pos, func, classifier, last_use, summaries,
+        );
     }
     state
 }
@@ -235,7 +279,8 @@ fn transfer_block(
 ///
 /// Updates the uniqueness map based on the instruction's semantics:
 /// fresh allocations → `Unique`, aliases with dead source → move,
-/// aliases with live source → both `Shared`, calls → `MaybeShared`.
+/// aliases with live source → both `Shared`, calls → callee summary
+/// or `MaybeShared`.
 fn transfer_instr(
     state: &mut UniquenessMap,
     instr: &ArcInstr,
@@ -243,6 +288,7 @@ fn transfer_instr(
     func: &ArcFunction,
     classifier: &dyn ArcClassification,
     last_use: &LastUseMap,
+    summaries: &FxHashMap<Name, UniquenessSummary>,
 ) {
     match instr {
         // Variable alias: move or sharing depending on source liveness.
@@ -284,14 +330,23 @@ fn transfer_instr(
             }
         }
 
-        // Function calls and projections: conservative MaybeShared.
-        // Interprocedural analysis (§07.3) refines call results.
-        // Projections borrow from the parent — may be shared.
-        // IsShared: always produces a boolean (scalar), so `needs_rc(dst)`
-        // returns false and this arm is a no-op. Kept for defensive
-        // correctness if IsShared's result type changes in future IR.
-        ArcInstr::Apply { dst, .. }
-        | ArcInstr::ApplyIndirect { dst, .. }
+        // Direct function call: use callee summary if available.
+        // COW operations always return Unique; user functions may vary.
+        ArcInstr::Apply {
+            dst, func: callee, ..
+        } => {
+            if needs_rc(*dst, func, classifier) {
+                let return_uniq = summaries
+                    .get(callee)
+                    .map_or(Uniqueness::MaybeShared, |s| s.return_val);
+                state.set(*dst, return_uniq);
+            }
+        }
+
+        // Indirect calls, projections, and IsShared: conservative MaybeShared.
+        // Indirect calls have unknown callees. Projections borrow from parent.
+        // IsShared produces a scalar (no-op via needs_rc check).
+        ArcInstr::ApplyIndirect { dst, .. }
         | ArcInstr::Project { dst, .. }
         | ArcInstr::IsShared { dst, .. } => {
             if needs_rc(*dst, func, classifier) {
