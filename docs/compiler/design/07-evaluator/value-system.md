@@ -60,9 +60,9 @@ pub enum Value {
 
     // Heap Types (use Heap<T> for enforced Arc usage)
     Str(Heap<Cow<'static, str>>),  // Cow::Borrowed for interned, Cow::Owned for runtime
-    List(Heap<Vec<Value>>),
-    Map(Heap<BTreeMap<String, Value>>),  // BTreeMap with String keys for deterministic iteration
-    Set(Heap<BTreeMap<String, Value>>), // BTreeMap (NOT HashSet) for deterministic order
+    List(ListData),                     // Zero-copy slicing via offset/length into Arc-backed Vec
+    Map(Heap<BTreeMap<String, Value>>),  // String keys via to_map_key() for deterministic iteration
+    Set(Heap<BTreeMap<String, Value>>), // String keys, BTreeMap (NOT HashSet) for deterministic order
     Tuple(Heap<Vec<Value>>),
     Range(Heap<RangeValue>),
 

@@ -257,9 +257,9 @@ pub enum Value {
 
     // Heap types
     Str(Heap<Cow<'static, str>>), // Cow for zero-copy interned strings
-    List(Heap<Vec<Value>>),
-    Map(Heap<BTreeMap<Value, Value>>),  // BTreeMap for deterministic iteration
-    Set(Heap<BTreeMap<Value, ()>>),     // BTreeMap (NOT HashSet) for deterministic order
+    List(ListData),                     // Zero-copy slicing via offset/length windowing
+    Map(Heap<BTreeMap<String, Value>>),  // String keys via to_map_key() conversion
+    Set(Heap<BTreeMap<String, Value>>),  // String keys, BTreeMap for deterministic order
     Tuple(Heap<Vec<Value>>),
     Range(Heap<RangeValue>),
 

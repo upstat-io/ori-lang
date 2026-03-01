@@ -147,7 +147,7 @@ Express *what* you want, not *how*. First-class patterns replace error-prone loo
 
 ### Performance From Semantics
 
-No garbage collector. No borrow checker. ARC memory with value semantics.
+A high-level language with low-level speed. No garbage collector. No borrow checker. ARC memory with value semantics.
 
 Value semantics mean no pointers and no shared mutable state. This prevents aliasing bugs — but it also gives the compiler optimization freedom that pointer-based languages structurally cannot access.
 

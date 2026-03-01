@@ -116,7 +116,7 @@ struct ExprArena {
     expr_lists: Vec<ExprId>,     // Flattened call args, list elements, etc.
     stmts: Vec<Stmt>,            // Statements
     params: Vec<Param>,          // Function parameters
-    // ... 15+ more side-table vectors for arms, patterns, etc.
+    // ... 20+ more side-table vectors for arms, patterns, etc.
 }
 
 impl ExprArena {
@@ -173,7 +173,7 @@ impl StringInterner {
 }
 ```
 
-The interner pre-interns ~40 keywords and common identifiers (`if`, `else`, `let`, `fn`, `Option`, `Result`, etc.) at construction time for predictable `Name` values. `InternError::ShardOverflow` is returned by the fallible variants when a shard exceeds its capacity.
+The interner pre-interns ~60 keywords and common identifiers (`if`, `else`, `let`, `fn`, `Option`, `Result`, etc.) at construction time for predictable `Name` values. `InternError::ShardOverflow` is returned by the fallible variants when a shard exceeds its capacity.
 
 `SharedInterner(Arc<StringInterner>)` wraps the interner for cross-thread sharing (e.g., the test runner shares one interner across all parallel test threads). `SharedArena(Arc<ExprArena>)` provides the same pattern for cross-module arena references.
 

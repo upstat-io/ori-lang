@@ -740,9 +740,9 @@ impl Interpreter<'_> {
                         self.bind_can_pattern(&sub_pat, val.clone())?;
                     }
                     if let Some((rest_name, rest_mut)) = rest {
-                        let rest_values = values[pat_ids.len()..].to_vec();
+                        let rest_list = values.skip(pat_ids.len());
                         self.env
-                            .define(*rest_name, Value::list(rest_values), *rest_mut);
+                            .define(*rest_name, Value::List(rest_list), *rest_mut);
                     }
                     Ok(Value::Void)
                 } else {

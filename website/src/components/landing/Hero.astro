@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUILD_NUMBER'), 'utf-8').trim();
+const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../../BUILD_NUMBER'), 'utf-8').trim();
 ---
 
 <section class="hero">
@@ -10,7 +10,7 @@ const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUIL
     <span class="status-badge">v{version}</span>
     <h1 class="hero-title">Code That Proves Itself</h1>
     <p class="hero-subtitle">
-      Expression-based. Type-inferred. Effect-aware. Tests are mandatory and live in the dependency graph. Memory is automatic with no GC or borrow checker. Value semantics make it safe and fast. If it compiles, it's verified. If you change it, you'll know what broke.
+      Every function tested. Every change traced. Every effect explicit.
     </p>
     <div class="hero-actions">
       <a href="/playground" class="btn btn-primary">Try Playground</a>
