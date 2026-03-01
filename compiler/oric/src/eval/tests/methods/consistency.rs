@@ -849,13 +849,13 @@ fn format_type_variants_synced_with_types_registration() {
 /// Scans the source file for the string array in `register_format_variants()`.
 #[test]
 fn format_type_variants_synced_with_eval_registration() {
-    let src = read_workspace_file("ori_eval/src/interpreter/mod.rs");
+    let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
     for name in ir_format_type_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
             "FormatType variant `{name}` missing from ori_eval registration \
-             (register_format_variants in interpreter/mod.rs)"
+             (register_format_variants in interpreter/prelude.rs)"
         );
     }
 }
@@ -879,13 +879,13 @@ fn alignment_variants_synced_with_types_registration() {
 /// `ori_ir::Align` variants.
 #[test]
 fn alignment_variants_synced_with_eval_registration() {
-    let src = read_workspace_file("ori_eval/src/interpreter/mod.rs");
+    let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
     for name in ir_align_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
             "Alignment variant `{name}` missing from ori_eval registration \
-             (register_format_variants in interpreter/mod.rs)"
+             (register_format_variants in interpreter/prelude.rs)"
         );
     }
 }
@@ -909,13 +909,13 @@ fn sign_variants_synced_with_types_registration() {
 /// `ori_ir::Sign` variants.
 #[test]
 fn sign_variants_synced_with_eval_registration() {
-    let src = read_workspace_file("ori_eval/src/interpreter/mod.rs");
+    let src = read_workspace_file("ori_eval/src/interpreter/prelude.rs");
     for name in ir_sign_names() {
         let pattern = format!("\"{name}\"");
         assert!(
             src.contains(&pattern),
             "Sign variant `{name}` missing from ori_eval registration \
-             (register_format_variants in interpreter/mod.rs)"
+             (register_format_variants in interpreter/prelude.rs)"
         );
     }
 }

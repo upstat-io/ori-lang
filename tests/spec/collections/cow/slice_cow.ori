@@ -1,0 +1,133 @@
+// COW (Copy-on-Write) behavioral equivalence tests for slices.
+// Verifies that slice operations produce correct results,
+// that slices are independent from their sources, and that
+// mutations on slices do not affect the original.
+
+use std.testing { assert_eq }
+
+// --- Basic slice ---
+
+@basic_slice () -> [int] = {
+    [1, 2, 3, 4, 5].slice(1, 4)
+}
+
+@test_basic_slice tests @basic_slice () -> void = {
+    assert_eq(actual: basic_slice(), expected: [2, 3, 4])
+}
+
+// --- Slice independence from source ---
+
+@slice_independence () -> ([int], [int]) = {
+    let list = [1, 2, 3, 4, 5];
+    let sliced = list.slice(1, 4);
+    let modified = sliced.push(6);
+    (sliced, modified)
+}
+
+@test_slice_independence tests @slice_independence () -> void = {
+    let (original_slice, modified) = slice_independence();
+    assert_eq(actual: original_slice, expected: [2, 3, 4]);
+    assert_eq(actual: modified, expected: [2, 3, 4, 6])
+}
+
+// --- Source unchanged after slice mutation ---
+
+@source_unchanged () -> ([int], [int]) = {
+    let source = [10, 20, 30, 40, 50];
+    let sliced = source.slice(0, 3);
+    let sliced = sliced.push(99);
+    (source, sliced)
+}
+
+@test_source_unchanged tests @source_unchanged () -> void = {
+    let (source, modified_slice) = source_unchanged();
+    assert_eq(actual: source, expected: [10, 20, 30, 40, 50]);
+    assert_eq(actual: modified_slice, expected: [10, 20, 30, 99])
+}
+
+// --- Take ---
+
+@take_elements () -> [int] = {
+    [1, 2, 3, 4, 5].take(3)
+}
+
+@test_take_elements tests @take_elements () -> void = {
+    assert_eq(actual: take_elements(), expected: [1, 2, 3])
+}
+
+@take_then_push () -> ([int], [int]) = {
+    let taken = [1, 2, 3, 4, 5].take(2);
+    let modified = taken.push(99);
+    (taken, modified)
+}
+
+@test_take_then_push tests @take_then_push () -> void = {
+    let (taken, modified) = take_then_push();
+    assert_eq(actual: taken, expected: [1, 2]);
+    assert_eq(actual: modified, expected: [1, 2, 99])
+}
+
+// --- Skip (drop) ---
+
+@skip_elements () -> [int] = {
+    [1, 2, 3, 4, 5].skip(2)
+}
+
+@test_skip_elements tests @skip_elements () -> void = {
+    assert_eq(actual: skip_elements(), expected: [3, 4, 5])
+}
+
+@skip_then_push () -> ([int], [int]) = {
+    let skipped = [1, 2, 3, 4, 5].skip(3);
+    let modified = skipped.push(99);
+    (skipped, modified)
+}
+
+@test_skip_then_push tests @skip_then_push () -> void = {
+    let (skipped, modified) = skip_then_push();
+    assert_eq(actual: skipped, expected: [4, 5]);
+    assert_eq(actual: modified, expected: [4, 5, 99])
+}
+
+// --- Slice of slice ---
+
+@nested_slice () -> [int] = {
+    let list = [1, 2, 3, 4, 5, 6, 7, 8];
+    let first = list.slice(1, 7);
+    first.slice(1, 4)
+}
+
+@test_nested_slice tests @nested_slice () -> void = {
+    assert_eq(actual: nested_slice(), expected: [3, 4, 5])
+}
+
+// --- Empty slice ---
+
+@empty_slice () -> [int] = {
+    [1, 2, 3].slice(1, 1)
+}
+
+@test_empty_slice tests @empty_slice () -> void = {
+    assert_eq(actual: empty_slice(), expected: [])
+}
+
+// --- Full slice (0..len) ---
+
+@full_slice () -> [int] = {
+    let list = [1, 2, 3];
+    list.slice(0, 3)
+}
+
+@test_full_slice tests @full_slice () -> void = {
+    assert_eq(actual: full_slice(), expected: [1, 2, 3])
+}
+
+// --- Take more than available ---
+
+@take_clamped () -> [int] = {
+    [1, 2, 3].take(100)
+}
+
+@test_take_clamped tests @take_clamped () -> void = {
+    assert_eq(actual: take_clamped(), expected: [1, 2, 3])
+}

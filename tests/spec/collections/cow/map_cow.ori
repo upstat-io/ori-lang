@@ -1,0 +1,145 @@
+// COW (Copy-on-Write) behavioral equivalence tests for maps.
+// Verifies that map mutations produce correct results and
+// that shared owners are not affected by COW operations.
+
+use std.testing { assert_eq }
+
+// --- Insert unique owner ---
+
+@insert_unique () -> {str: int} = {
+    {"a": 1}.insert("b", 2)
+}
+
+@test_insert_unique tests @insert_unique () -> void = {
+    assert_eq(actual: insert_unique().len(), expected: 2)
+}
+
+// --- Insert shared owner (COW) ---
+
+@insert_shared () -> ({str: int}, {str: int}) = {
+    let base = {"x": 10, "y": 20};
+    let fork = base.insert("z", 30);
+    (base, fork)
+}
+
+@test_insert_shared tests @insert_shared () -> void = {
+    let (original, modified) = insert_shared();
+    assert_eq(actual: original.len(), expected: 2);
+    assert_eq(actual: modified.len(), expected: 3);
+    assert_eq(actual: modified.get("z"), expected: Some(30))
+}
+
+// --- Insert overwrite (shared) ---
+
+@insert_overwrite () -> ({str: int}, {str: int}) = {
+    let a = {"a": 1, "b": 2};
+    let b = a.insert("a", 99);
+    (a, b)
+}
+
+@test_insert_overwrite tests @insert_overwrite () -> void = {
+    let (original, modified) = insert_overwrite();
+    assert_eq(actual: original.get("a"), expected: Some(1));
+    assert_eq(actual: modified.get("a"), expected: Some(99))
+}
+
+// --- Remove unique owner ---
+
+@remove_unique () -> {str: int} = {
+    {"a": 1, "b": 2, "c": 3}.remove("b")
+}
+
+@test_remove_unique tests @remove_unique () -> void = {
+    let m = remove_unique();
+    assert_eq(actual: m.len(), expected: 2);
+    assert_eq(actual: m.contains_key("b"), expected: false)
+}
+
+// --- Remove shared owner (COW) ---
+
+@remove_shared () -> ({str: int}, {str: int}) = {
+    let a = {"a": 1, "b": 2};
+    let b = a.remove("a");
+    (a, b)
+}
+
+@test_remove_shared tests @remove_shared () -> void = {
+    let (original, modified) = remove_shared();
+    assert_eq(actual: original.len(), expected: 2);
+    assert_eq(actual: original.contains_key("a"), expected: true);
+    assert_eq(actual: modified.len(), expected: 1);
+    assert_eq(actual: modified.contains_key("a"), expected: false)
+}
+
+// --- Multi-fork ---
+
+@multi_fork () -> ({str: int}, {str: int}, {str: int}, {str: int}) = {
+    let base = {"k": 42};
+    let f1 = base.insert("a", 1);
+    let f2 = base.insert("b", 2);
+    let f3 = base.remove("k");
+    (base, f1, f2, f3)
+}
+
+@test_multi_fork tests @multi_fork () -> void = {
+    let (base, f1, f2, f3) = multi_fork();
+    assert_eq(actual: base.len(), expected: 1);
+    assert_eq(actual: f1.len(), expected: 2);
+    assert_eq(actual: f2.len(), expected: 2);
+    assert_eq(actual: f3.len(), expected: 0)
+}
+
+// --- Chained operations ---
+
+@chained_ops () -> {str: int} = {
+    {"a": 1}.insert("b", 2).insert("c", 3).remove("a")
+}
+
+@test_chained_ops tests @chained_ops () -> void = {
+    let m = chained_ops();
+    assert_eq(actual: m.len(), expected: 2);
+    assert_eq(actual: m.contains_key("a"), expected: false);
+    assert_eq(actual: m.get("b"), expected: Some(2));
+    assert_eq(actual: m.get("c"), expected: Some(3))
+}
+
+// --- Loop accumulation ---
+
+@loop_insert () -> {int: int} = {
+    let acc: {int: int} = {};
+    for i in 0..10 do {
+        acc = acc.insert(i, i * 10);
+    };
+    acc
+}
+
+@test_loop_insert tests @loop_insert () -> void = {
+    let m = loop_insert();
+    assert_eq(actual: m.len(), expected: 10);
+    assert_eq(actual: m.get(5), expected: Some(50))
+}
+
+// --- Keys and values after COW ---
+
+@keys_after_cow () -> int = {
+    let m = {"a": 10, "b": 20}.insert("c", 30);
+    m.keys().len()
+}
+
+@test_keys_after_cow tests @keys_after_cow () -> void = {
+    assert_eq(actual: keys_after_cow(), expected: 3)
+}
+
+// --- Empty map insert ---
+
+@empty_insert () -> ({str: int}, {str: int}) = {
+    let empty: {str: int} = {};
+    let filled = empty.insert("first", 1);
+    (empty, filled)
+}
+
+@test_empty_insert tests @empty_insert () -> void = {
+    let (empty, filled) = empty_insert();
+    assert_eq(actual: empty.is_empty(), expected: true);
+    assert_eq(actual: filled.len(), expected: 1)
+}
