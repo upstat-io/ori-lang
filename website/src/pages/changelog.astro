@@ -1,5 +1,37 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import { marked } from 'marked';
+
+// Fetch GitHub releases at build time
+let releases: Array<{ tag: string; date: string; url: string; body: string }> = [];
+try {
+  const res = await fetch('https://api.github.com/repos/upstat-io/ori-lang/releases', {
+    headers: { 'Accept': 'application/vnd.github+json' },
+  });
+  if (res.ok) {
+    const data = await res.json();
+    // Deduplicate: keep only the latest release per calendar day
+    const byDay = new Map<string, typeof data[0]>();
+    for (const release of data) {
+      const day = release.published_at?.slice(0, 10) ?? release.created_at?.slice(0, 10);
+      if (!day || !release.body?.trim()) continue;
+      if (!byDay.has(day)) {
+        byDay.set(day, release);
+      }
+      // First seen = latest (API returns newest first)
+    }
+    releases = [...byDay.values()].map((r) => ({
+      tag: r.tag_name,
+      date: new Date(r.published_at ?? r.created_at).toLocaleDateString('en-US', {
+        year: 'numeric', month: 'long', day: 'numeric',
+      }),
+      url: r.html_url,
+      body: marked.parse(r.body, { async: false }) as string,
+    }));
+  }
+} catch {
+  // Graceful fallback — page still builds without releases
+}
 ---
 
 <BaseLayout
@@ -13,6 +45,26 @@ import BaseLayout from '../layouts/BaseLayout.astro';
       <p class="changelog-subtitle">
         Recent changes and updates to the Ori language and compiler.
       </p>
+    </section>
+
+    {releases.length > 0 && (
+      <section class="release-notes">
+        <h2 class="release-notes-heading">Release Notes</h2>
+        {releases.map((release, i) => (
+          <details class="release-card" open={i === 0}>
+            <summary class="release-header">
+              <span class="release-version">{release.tag}</span>
+              <span class="release-date">{release.date}</span>
+              <a href={release.url} class="release-link" target="_blank" rel="noopener">View on GitHub &rarr;</a>
+            </summary>
+            <div class="release-body" set:html={release.body} />
+          </details>
+        ))}
+      </section>
+    )}
+
+    <section class="commits-section">
+      <h2 class="commits-heading">Commits</h2>
       <div class="stats" id="stats">
         <div class="stat">
           <span class="stat-value" id="feat-count">-</span>
@@ -31,15 +83,14 @@ import BaseLayout from '../layouts/BaseLayout.astro';
           <span class="stat-label">Docs</span>
         </div>
       </div>
-    </section>
-
-    <section class="changelog-filters">
-      <div class="filter-group">
-        <button class="filter-btn active" data-filter="all">All</button>
-        <button class="filter-btn" data-filter="feat">Features</button>
-        <button class="filter-btn" data-filter="fix">Fixes</button>
-        <button class="filter-btn" data-filter="docs">Docs</button>
-        <button class="filter-btn" data-filter="refactor">Refactor</button>
+      <div class="changelog-filters">
+        <div class="filter-group">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="feat">Features</button>
+          <button class="filter-btn" data-filter="fix">Fixes</button>
+          <button class="filter-btn" data-filter="docs">Docs</button>
+          <button class="filter-btn" data-filter="refactor">Refactor</button>
+        </div>
       </div>
     </section>
 
@@ -285,7 +336,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   }
 
   .changelog-hero h1 {
-    font-size: var(--text-5xl);
+    font-size: clamp(var(--text-4xl), 5vw, 4rem);
     font-weight: var(--weight-bold);
     background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
     -webkit-background-clip: text;
@@ -305,6 +356,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     justify-content: center;
     gap: var(--space-6);
     flex-wrap: wrap;
+    margin-bottom: var(--space-6);
   }
 
   .stat {
@@ -327,6 +379,19 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   .stat-label {
     font-size: var(--text-sm);
     color: var(--color-text-muted);
+  }
+
+  .commits-section {
+    max-width: 800px;
+    margin: var(--space-8) auto 0;
+  }
+
+  .commits-heading {
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-4);
+    text-align: center;
   }
 
   .changelog-filters {
@@ -408,16 +473,12 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     padding: var(--space-2) var(--space-3);
-    transition: all var(--transition-fast);
   }
 
-  :global(.entry-card:hover) {
-    background: var(--color-bg-tertiary);
-  }
 
   :global(.entry-type) {
     flex-shrink: 0;
-    min-width: 62px;
+    width: 70px;
     font-size: 10px;
     font-weight: var(--weight-medium);
     padding: 2px 6px;
@@ -425,6 +486,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     text-transform: uppercase;
     letter-spacing: 0.02em;
     text-align: center;
+    box-sizing: border-box;
   }
 
   :global(.type-feat) {
@@ -454,15 +516,19 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
   :global(.entry-scope) {
     flex-shrink: 0;
-    min-width: 60px;
+    width: 90px;
     font-size: 10px;
     font-weight: var(--weight-medium);
-    padding: 2px 6px;
+    padding: 2px 8px;
     border-radius: var(--radius-sm);
     background: var(--color-bg-tertiary);
     color: var(--color-text-muted);
     font-family: var(--font-mono);
     text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    box-sizing: border-box;
   }
 
   :global(.entry-scope:empty) {
@@ -587,6 +653,157 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     border-color: var(--color-border-hover);
   }
 
+  .release-notes {
+    max-width: 800px;
+    margin: 0 auto var(--space-10);
+  }
+
+  .release-notes-heading {
+    font-size: var(--text-4xl);
+    font-weight: var(--weight-bold);
+    color: var(--color-text-primary);
+    margin-bottom: var(--space-6);
+    text-align: center;
+  }
+
+  .release-card {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-4);
+    transition: border-color var(--transition-fast);
+  }
+
+  .release-card[open] {
+    border-color: var(--color-border);
+  }
+
+  .release-header:hover {
+    background: var(--color-bg-tertiary);
+  }
+
+  .release-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    transition: background var(--transition-fast);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+
+  .release-header::-webkit-details-marker {
+    display: none;
+  }
+
+  .release-header::before {
+    content: '▸';
+    flex-shrink: 0;
+    color: var(--color-text-muted);
+    transition: transform var(--transition-fast);
+  }
+
+  .release-card[open] > .release-header::before {
+    transform: rotate(90deg);
+  }
+
+  .release-version {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-accent);
+    background: rgba(59, 130, 246, 0.1);
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+  }
+
+  .release-date {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .release-link {
+    margin-left: auto;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+  }
+
+  .release-link:hover {
+    color: var(--color-accent);
+  }
+
+  .release-body {
+    padding: 0 var(--space-5) var(--space-5);
+    font-size: var(--text-sm);
+    line-height: 1.7;
+    color: var(--color-text-secondary);
+  }
+
+  .release-body :global(h1),
+  .release-body :global(h2),
+  .release-body :global(h3) {
+    color: var(--color-text-primary);
+    font-weight: var(--weight-semibold);
+    margin-top: var(--space-4);
+    margin-bottom: var(--space-2);
+  }
+
+  .release-body :global(h2) {
+    font-size: var(--text-lg);
+  }
+
+  .release-body :global(h3) {
+    font-size: var(--text-base);
+  }
+
+  .release-body :global(ul),
+  .release-body :global(ol) {
+    padding-left: var(--space-5);
+    margin-bottom: var(--space-3);
+  }
+
+  .release-body :global(li) {
+    margin-bottom: var(--space-1);
+  }
+
+  .release-body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--color-bg-code);
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+  }
+
+  .release-body :global(pre) {
+    background: var(--color-bg-code);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    margin-bottom: var(--space-3);
+  }
+
+  .release-body :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+
+  .release-body :global(p) {
+    margin-bottom: var(--space-2);
+  }
+
+  .release-body :global(a) {
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+
+  .release-body :global(a:hover) {
+    text-decoration: underline;
+  }
+
   @media (max-width: 768px) {
     .changelog-hero h1 {
       font-size: var(--text-4xl);
@@ -604,6 +821,16 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
     :global(.entry-hash) {
       order: 2;
+    }
+
+    .release-header {
+      flex-wrap: wrap;
+    }
+
+    .release-link {
+      width: 100%;
+      margin-left: 0;
+      margin-top: var(--space-1);
     }
   }
 </style>
