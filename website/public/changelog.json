@@ -1,4 +1,10 @@
 [
+  {"date": "2026-03-01", "type": "feat", "scope": "eval", "message": "add map methods (get, insert, remove, entries, contains) and complete COW parity", "hash": "e81a9e2"},
+  {"date": "2026-03-01", "type": "refactor", "message": "extract submodules for file size compliance", "hash": "e36d370"},
+  {"date": "2026-02-28", "type": "fix", "scope": "website", "message": "resolve BUILD_NUMBER path for CI, add release notes to changelog", "hash": "dfc8947"},
+  {"date": "2026-02-28", "type": "refactor", "scope": "patterns", "message": "extract Value submodules for file size compliance", "hash": "f3f9dd8"},
+  {"date": "2026-02-28", "type": "fix", "message": "compare Arc pointer identity instead of Vec buffer in COW tests", "hash": "ef72c85"},
+  {"date": "2026-02-28", "type": "feat", "scope": "website", "message": "two-column hero with inline playground, sync design docs", "hash": "c0a26b5"},
   {"date": "2026-02-28", "type": "feat", "scope": "eval", "message": "implement zero-copy list slicing with ListData type", "hash": "babb12e"},
   {"date": "2026-02-28", "type": "feat", "message": "implement seamless slices with runtime encoding and LLVM codegen", "hash": "308a29e"},
   {"date": "2026-02-28", "type": "fix", "scope": "ci", "message": "unblock nightly by tracking build module and fixing auto-merge", "hash": "89e9aea"},
@@ -92,11 +98,5 @@
   {"date": "2026-02-21", "type": "feat", "scope": "rt", "message": "add atomic refcount operations and ARC optimization plan", "hash": "b94a753"},
   {"date": "2026-02-21", "type": "feat", "scope": "llvm", "message": "add LLVM iterator Phase 2 — consumers and adapters", "hash": "3a8c3ad"},
   {"date": "2026-02-21", "type": "fix", "scope": "parser", "message": "add missing tokens to STMT_BOUNDARY recovery set", "hash": "26df697"},
-  {"date": "2026-02-21", "type": "docs", "message": "migrate pre_check/post_check references to pre()/post() syntax", "hash": "54cc4e9"},
-  {"date": "2026-02-21", "type": "feat", "scope": "parser", "message": "implement compound assignment operators with parse-time desugaring", "hash": "e8397e7"},
-  {"date": "2026-02-21", "type": "refactor", "scope": "parser", "message": "add error contexts and tighten visibility", "hash": "46812b5"},
-  {"date": "2026-02-21", "type": "docs", "message": "add MatMul operator spec, new proposals, and roadmap updates", "hash": "1db10d4"},
-  {"date": "2026-02-21", "type": "refactor", "scope": "parser", "message": "split oversized files, add operator macro and error context", "hash": "8f83f7f"},
-  {"date": "2026-02-21", "type": "feat", "scope": "parser", "message": "implement pre()/post() function-level contract parsing", "hash": "09881f2"},
-  {"date": "2026-02-21", "type": "refactor", "message": "relocate diagnostic conversion to source crates, add ori_compiler, sync docs", "hash": "2e37a41"}
+  {"date": "2026-02-21", "type": "docs", "message": "migrate pre_check/post_check references to pre()/post() syntax", "hash": "54cc4e9"}
 ]
