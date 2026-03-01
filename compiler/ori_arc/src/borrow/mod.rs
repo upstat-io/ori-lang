@@ -247,6 +247,10 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
 /// of co-members, while external callees use their stable final sigs.
 ///
 /// Returns `true` if any parameter's ownership changed.
+#[expect(
+    clippy::too_many_lines,
+    reason = "dispatch table over ArcInstr + ArcTerminator variants"
+)]
 pub(super) fn update_ownership_inner(
     func: &ArcFunction,
     my_sig: &mut AnnotatedSig,
@@ -297,6 +301,14 @@ pub(super) fn update_ownership_inner(
                 }
 
                 ArcInstr::PartialApply { args, .. } | ArcInstr::Construct { args, .. } => {
+                    for &arg in args {
+                        changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
+                    }
+                }
+
+                ArcInstr::CollectionReuse { old_var, args, .. } => {
+                    // old_var is consumed (recycled buffer); args are stored elements.
+                    changed |= try_mark_param_owned(*old_var, func, my_sig, &aliases);
                     for &arg in args {
                         changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                     }

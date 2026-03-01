@@ -117,7 +117,8 @@ pub use reset_reuse::detect_reset_reuse_cfg;
 pub use uniqueness::inter::{analyze_program, build_cow_summaries};
 pub use uniqueness::intra::{analyze_intraprocedural, analyze_with_summaries, UniquenessResult};
 pub use uniqueness::{
-    compute_cow_annotations, CowAnnotations, CowMode, Uniqueness, UniquenessMap, UniquenessSummary,
+    compute_cow_annotations, compute_drop_hints, CowAnnotations, CowMode, DropHints, Uniqueness,
+    UniquenessMap, UniquenessSummary,
 };
 
 /// Run the full ARC optimization pipeline on a single function.
@@ -196,6 +197,11 @@ pub fn run_arc_pipeline(
 
     rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
 
+    // Drop hints: identify RcDec instructions on provably unique collections.
+    // Runs AFTER RC elimination (indices are final). The LLVM emitter uses
+    // these hints to call ori_buffer_drop_unique instead of ori_buffer_rc_dec.
+    func.drop_hints = uniqueness::compute_drop_hints(func, pool);
+
     // FBIP enforcement: check #fbip-annotated functions for missed reuse.
     let mut problems = Vec::new();
     if func.is_fbip {
@@ -209,6 +215,17 @@ pub fn run_arc_pipeline(
         {
             problems.push(problem);
         }
+    }
+
+    // Auto FBIP detection: functions with all COW operations proven
+    // StaticUnique achieve FBIP without the `#fbip` attribute.
+    if fbip::is_auto_fbip(func) {
+        let func_name = interner.lookup(func.name);
+        tracing::debug!(
+            function = func_name,
+            cow_ops = func.cow_annotations.len(),
+            "auto FBIP: all COW operations are StaticUnique"
+        );
     }
     problems
 }

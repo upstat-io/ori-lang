@@ -12,7 +12,7 @@ use rustc_hash::FxHashMap;
 
 use super::intra;
 use super::{CowMode, UniquenessSummary};
-use crate::ir::ArcInstr;
+use crate::ir::{ArcInstr, ArcTerminator};
 use crate::liveness::BlockLiveness;
 use crate::ArcClassification;
 
@@ -170,6 +170,25 @@ pub fn compute_cow_annotations(
                 &last_use_maps[block_idx],
                 summaries,
             );
+        }
+
+        // Check the block terminator for Invoke COW calls.
+        // Invoke is a terminator (not a body instruction) but can call COW methods.
+        // Use `block.body.len()` as the instruction index — one past the last
+        // body instruction, matching the convention in the LLVM emitter.
+        if let ArcTerminator::Invoke {
+            func: callee, args, ..
+        } = &block.terminator
+        {
+            if cow_method_names.contains(callee) && !args.is_empty() {
+                total_cow_ops += 1;
+                let receiver = args[0];
+                let mode = state.cow_mode(receiver);
+                if mode != CowMode::Dynamic {
+                    eliminated += 1;
+                }
+                annotations.set(block_idx, block.body.len(), mode);
+            }
         }
     }
 

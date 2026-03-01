@@ -38,12 +38,14 @@
 //! - Swift `ARCSequenceOpts.cpp`: dataflow with lattice-based RC state
 
 mod annotations;
+pub mod drop_hints;
 pub mod inter;
 pub mod intra;
 mod lattice;
 mod summary;
 
 pub use annotations::{compute_cow_annotations, CowAnnotations};
+pub use drop_hints::{compute_drop_hints, DropHints};
 pub use lattice::{CowMode, Uniqueness};
 pub use summary::UniquenessSummary;
 

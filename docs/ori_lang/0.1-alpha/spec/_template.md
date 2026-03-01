@@ -1,26 +1,33 @@
-# Section Title
+# N Section Title
 
 One-line definition of what this section covers.
 
-> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § SECTION_NAME
+> **Grammar:** See [Annex A](annex-a-grammar.md) §A.SECTION_NAME
 
-## Subsection
+## N.1 Subsection
 
 Brief description. Technical terms in _italics_ on first use. Syntax in `backticks`.
 
-- Constraint using must/may keywords.
+- Constraint using shall/may keywords.
 - Another constraint.
 
-```ori
-// Valid
-valid_example()
+EXAMPLE
 
-// Invalid - reason
+```ori
+// Conforming
+valid_example()
+```
+
+EXAMPLE  The following is not valid because [reason]:
+
+```ori
 invalid_example()  // error: explanation
 ```
 
-## Another Subsection
+NOTE  Clarifying information.
+
+## N.2 Another Subsection
 
 Description continues with same style.
 
-See [Related Section](XX-related.md) for more details.
+See [Clause M](MM-related.md) for details.

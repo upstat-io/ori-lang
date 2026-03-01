@@ -87,6 +87,7 @@ pub extern "C" fn ori_list_concat_cow(
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -99,7 +100,9 @@ pub extern "C" fn ori_list_concat_cow(
     let n2 = len2.max(0) as usize;
     let new_len = n1 + n2;
     // Slices are never "unique" — their data is interior to another buffer.
-    let data2_unique = !is_slice_cap(cap2) && ori_rc_is_unique(data2);
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let data2_unique =
+        !is_slice_cap(cap2) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data2)));
 
     // Empty concatenation
     if new_len == 0 {
@@ -135,7 +138,9 @@ pub extern "C" fn ori_list_concat_cow(
     }
 
     // FAST PATH: list1 unique, non-slice — reuse its buffer
-    if !is_slice_cap(cap1) && ori_rc_is_unique(data1) {
+    let data1_unique =
+        !is_slice_cap(cap1) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data1)));
+    if data1_unique {
         let old_cap = cap1.max(0) as usize;
         if old_cap >= new_len {
             // Has capacity — memcpy list2 elements after list1
@@ -211,6 +216,7 @@ pub extern "C" fn ori_list_reverse_cow(
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -232,7 +238,10 @@ pub extern "C" fn ori_list_reverse_cow(
     }
 
     // FAST PATH: unique owner, non-slice — swap in place
-    if !is_slice_cap(cap) && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique =
+        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         // Swap pairs from both ends working inward
         let mut tmp = vec![0u8; es];
         let mut lo = 0usize;
@@ -313,10 +322,11 @@ pub extern "C" fn ori_list_sort_cow(
     elem_align: i64,
     compare_fn: extern "C" fn(*const u8, *const u8) -> i32,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     list_sort_cow_impl(
-        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, out_ptr, false,
+        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, cow_mode, out_ptr, false,
     );
 }
 
@@ -331,10 +341,11 @@ pub extern "C" fn ori_list_sort_stable_cow(
     elem_align: i64,
     compare_fn: extern "C" fn(*const u8, *const u8) -> i32,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     list_sort_cow_impl(
-        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, out_ptr, true,
+        data, len, cap, elem_size, elem_align, compare_fn, inc_fn, cow_mode, out_ptr, true,
     );
 }
 
@@ -351,6 +362,7 @@ fn list_sort_cow_impl(
     elem_align: i64,
     compare_fn: extern "C" fn(*const u8, *const u8) -> i32,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
     stable: bool,
 ) {
@@ -385,7 +397,10 @@ fn list_sort_cow_impl(
     }
 
     // FAST PATH: unique owner, non-slice — permute in place
-    if !is_slice_cap(cap) && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique =
+        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         apply_permutation_in_place(data, &indices, es);
         unsafe {
             out_ptr.cast::<i64>().write(len);

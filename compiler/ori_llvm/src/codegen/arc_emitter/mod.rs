@@ -174,6 +174,11 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Deferred phi incoming values: `block_index` → `[(param_index, value, source_block)]`.
     /// Collected during terminator emission, applied after all blocks are emitted.
     phi_incoming: Vec<(usize, usize, ValueId, BlockId)>,
+    /// Current block index in the ARC IR function (set during emission).
+    /// Used by COW emitters to query `CowAnnotations` for the current instruction.
+    pub(crate) current_block_idx: usize,
+    /// Current instruction index within the current block (set during emission).
+    pub(crate) current_instr_idx: usize,
 }
 
 impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
@@ -206,7 +211,21 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             var_map: Vec::new(),
             block_map: Vec::new(),
             phi_incoming: Vec::new(),
+            current_block_idx: 0,
+            current_instr_idx: 0,
         }
+    }
+
+    /// Get the current instruction's COW mode as an LLVM `i32` constant.
+    ///
+    /// Queries the `ArcFunction`'s `cow_annotations` for the current
+    /// `(block_idx, instr_idx)` coordinate. Returns `Dynamic` (0) when
+    /// no annotation exists — this is the safe default (runtime RC check).
+    pub(crate) fn cow_mode_const(&mut self, arc_func: &ArcFunction) -> ValueId {
+        let mode = arc_func
+            .cow_annotations
+            .get(self.current_block_idx, self.current_instr_idx);
+        self.builder.const_i32(mode as i32)
     }
 
     /// Resolve an `Idx` to an `LLVMTypeId`.
@@ -511,9 +530,14 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 }
             }
 
-            for instr in &block.body {
+            for (instr_idx, instr) in block.body.iter().enumerate() {
+                self.current_block_idx = block_idx;
+                self.current_instr_idx = instr_idx;
                 self.emit_instr(instr, func);
             }
+            // Set instruction index for terminator: one past the last body
+            // instruction, matching the convention in compute_cow_annotations.
+            self.current_instr_idx = block.body.len();
             self.emit_terminator(
                 &block.terminator,
                 block.id,
@@ -692,6 +716,17 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
                 args,
             } => {
                 let val = self.emit_construct(*ty, ctor, args);
+                self.def_var_repr(*dst, val, func);
+            }
+
+            ArcInstr::CollectionReuse {
+                old_var,
+                dst,
+                ty,
+                ctor,
+                args,
+            } => {
+                let val = self.emit_collection_reuse(*old_var, *ty, ctor, args);
                 self.def_var_repr(*dst, val, func);
             }
 

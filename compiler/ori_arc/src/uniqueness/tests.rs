@@ -1,5 +1,12 @@
+use ori_ir::Name;
+use ori_types::Idx;
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use super::*;
-use crate::ir::ArcVarId;
+use crate::ir::{ArcBlock, ArcBlockId, ArcInstr, ArcTerminator, ArcValue, ArcVarId, CtorKind};
+use crate::liveness::compute_liveness;
+use crate::test_helpers::{make_func, owned_param, v};
+use crate::{ArcClass, ArcClassification};
 
 // -- Uniqueness lattice properties --
 
@@ -285,4 +292,326 @@ fn iter_yields_all_tracked_vars() {
     assert_eq!(items[0], (ArcVarId::new(0), Uniqueness::Unique));
     assert_eq!(items[1], (ArcVarId::new(1), Uniqueness::Shared));
     assert_eq!(items[2], (ArcVarId::new(2), Uniqueness::MaybeShared));
+}
+
+// -- compute_cow_annotations tests --
+
+/// Test classifier: `Idx::STR` (index 3) is `DefiniteRef`, everything else Scalar.
+struct TestClassifier;
+
+impl ArcClassification for TestClassifier {
+    fn arc_class(&self, idx: Idx) -> ArcClass {
+        if idx == Idx::STR {
+            ArcClass::DefiniteRef
+        } else {
+            ArcClass::Scalar
+        }
+    }
+}
+
+/// Type shorthand: RC'd type (str).
+const RC: Idx = Idx::STR;
+
+/// COW method name (interned as `Name`).
+const PUSH_NAME: Name = Name::from_raw(42);
+
+fn block(id: u32, body: Vec<ArcInstr>, terminator: ArcTerminator) -> ArcBlock {
+    ArcBlock {
+        id: ArcBlockId::new(id),
+        params: Vec::new(),
+        body,
+        terminator,
+    }
+}
+
+fn construct(dst: u32) -> ArcInstr {
+    ArcInstr::Construct {
+        dst: v(dst),
+        ty: RC,
+        ctor: CtorKind::ListLiteral,
+        args: Vec::new(),
+    }
+}
+
+fn cow_apply(dst: u32, receiver: u32) -> ArcInstr {
+    ArcInstr::Apply {
+        dst: v(dst),
+        ty: RC,
+        func: PUSH_NAME,
+        args: vec![v(receiver)],
+        arg_ownership: Vec::new(),
+    }
+}
+
+fn ret(var: u32) -> ArcTerminator {
+    ArcTerminator::Return { value: v(var) }
+}
+
+/// Create an Invoke terminator calling a COW method (like push).
+/// `dst` receives the result, `receiver` is the COW target.
+fn cow_invoke(dst: u32, receiver: u32, normal: u32, unwind: u32) -> ArcTerminator {
+    ArcTerminator::Invoke {
+        dst: v(dst),
+        ty: RC,
+        func: PUSH_NAME,
+        args: vec![v(receiver)],
+        arg_ownership: Vec::new(),
+        normal: ArcBlockId::new(normal),
+        unwind: ArcBlockId::new(unwind),
+    }
+}
+
+fn cow_names() -> FxHashSet<Name> {
+    let mut s = FxHashSet::default();
+    s.insert(PUSH_NAME);
+    s
+}
+
+fn cow_summaries() -> FxHashMap<Name, UniquenessSummary> {
+    let mut m = FxHashMap::default();
+    m.insert(
+        PUSH_NAME,
+        UniquenessSummary {
+            params: Vec::new(),
+            return_val: Uniqueness::Unique,
+            preserves_freshness: true,
+        },
+    );
+    m
+}
+
+#[test]
+fn fresh_list_push_is_static_unique() {
+    // v0 = Construct([])   → Unique
+    // v1 = Apply(push, v0) → push consumes unique list, returns unique
+    // Return(v1)
+    let func = make_func(
+        vec![],
+        RC,
+        vec![block(0, vec![construct(0), cow_apply(1, 0)], ret(1))],
+        vec![RC, RC],
+    );
+    let classifier = TestClassifier;
+    let liveness = compute_liveness(&func, &classifier);
+    let summaries = cow_summaries();
+    let cow_method_names = cow_names();
+
+    let annotations =
+        compute_cow_annotations(&func, &classifier, &liveness, &summaries, &cow_method_names);
+
+    // The push at (block 0, instr 1) should be StaticUnique because v0 is
+    // a freshly constructed list (Unique).
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations.get(0, 1), CowMode::StaticUnique);
+}
+
+#[test]
+fn param_list_push_is_dynamic() {
+    // v0 = param (list)     → MaybeShared (can't prove unique for params)
+    // v1 = Apply(push, v0)  → dynamic check needed
+    // Return(v1)
+    let func = make_func(
+        vec![owned_param(0, RC)],
+        RC,
+        vec![block(0, vec![cow_apply(1, 0)], ret(1))],
+        vec![RC, RC],
+    );
+    let classifier = TestClassifier;
+    let liveness = compute_liveness(&func, &classifier);
+    let summaries = cow_summaries();
+    let cow_method_names = cow_names();
+
+    let annotations =
+        compute_cow_annotations(&func, &classifier, &liveness, &summaries, &cow_method_names);
+
+    // The push at (block 0, instr 0) should be Dynamic because v0 is a
+    // parameter with unknown uniqueness.
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations.get(0, 0), CowMode::Dynamic);
+}
+
+#[test]
+fn chained_pushes_on_fresh_list_all_static_unique() {
+    // v0 = Construct([])     → Unique
+    // v1 = Apply(push, v0)   → StaticUnique (v0 is unique)
+    // v2 = Apply(push, v1)   → StaticUnique (push returns unique via summary)
+    // Return(v2)
+    let func = make_func(
+        vec![],
+        RC,
+        vec![block(
+            0,
+            vec![construct(0), cow_apply(1, 0), cow_apply(2, 1)],
+            ret(2),
+        )],
+        vec![RC, RC, RC],
+    );
+    let classifier = TestClassifier;
+    let liveness = compute_liveness(&func, &classifier);
+    let summaries = cow_summaries();
+    let cow_method_names = cow_names();
+
+    let annotations =
+        compute_cow_annotations(&func, &classifier, &liveness, &summaries, &cow_method_names);
+
+    // Both pushes should be StaticUnique: first because v0 is fresh,
+    // second because push's summary says return is Unique.
+    assert_eq!(annotations.len(), 2);
+    assert_eq!(annotations.get(0, 1), CowMode::StaticUnique);
+    assert_eq!(annotations.get(0, 2), CowMode::StaticUnique);
+    assert_eq!(annotations.static_unique_count(), 2);
+}
+
+#[test]
+fn shared_list_push_is_dynamic() {
+    // v0 = Construct([])    → Unique
+    // v1 = Let(v0)          → v0 becomes Shared (aliased)
+    // v2 = Apply(push, v0)  → Dynamic (v0 was aliased)
+    // Return(v2)
+    let func = make_func(
+        vec![],
+        RC,
+        vec![block(
+            0,
+            vec![
+                construct(0),
+                ArcInstr::Let {
+                    dst: v(1),
+                    ty: RC,
+                    value: ArcValue::Var(v(0)),
+                },
+                cow_apply(2, 0),
+            ],
+            ret(2),
+        )],
+        vec![RC, RC, RC],
+    );
+    let classifier = TestClassifier;
+    let liveness = compute_liveness(&func, &classifier);
+    let summaries = cow_summaries();
+    let cow_method_names = cow_names();
+
+    let annotations =
+        compute_cow_annotations(&func, &classifier, &liveness, &summaries, &cow_method_names);
+
+    // The push at (block 0, instr 2) should NOT be StaticUnique because v0
+    // was aliased by v1 = Let(v0).
+    assert_eq!(annotations.len(), 1);
+    assert_ne!(annotations.get(0, 2), CowMode::StaticUnique);
+}
+
+#[test]
+fn unannotated_instruction_defaults_to_dynamic() {
+    let annotations = CowAnnotations::new();
+    // Any instruction not in the map defaults to Dynamic.
+    assert_eq!(annotations.get(0, 0), CowMode::Dynamic);
+    assert_eq!(annotations.get(99, 99), CowMode::Dynamic);
+}
+
+#[test]
+fn cow_annotations_metrics() {
+    // 3 pushes: 2 on fresh values (StaticUnique), 1 on param (Dynamic)
+    // v0 = param
+    // v1 = Construct([])
+    // v2 = Apply(push, v0)  → Dynamic
+    // v3 = Apply(push, v1)  → StaticUnique
+    // v4 = Apply(push, v3)  → StaticUnique (push returns unique)
+    // Return(v4)
+    let func = make_func(
+        vec![owned_param(0, RC)],
+        RC,
+        vec![block(
+            0,
+            vec![
+                construct(1),
+                cow_apply(2, 0),
+                cow_apply(3, 1),
+                cow_apply(4, 3),
+            ],
+            ret(4),
+        )],
+        vec![RC, RC, RC, RC, RC],
+    );
+    let classifier = TestClassifier;
+    let liveness = compute_liveness(&func, &classifier);
+    let summaries = cow_summaries();
+    let cow_method_names = cow_names();
+
+    let annotations =
+        compute_cow_annotations(&func, &classifier, &liveness, &summaries, &cow_method_names);
+
+    assert_eq!(annotations.len(), 3);
+    assert_eq!(annotations.static_unique_count(), 2);
+    assert_eq!(annotations.static_shared_count(), 0);
+}
+
+#[test]
+fn invoke_terminator_cow_is_annotated() {
+    // COW calls emitted as Invoke terminators (unwindable) must also be
+    // annotated — not just body Apply instructions.
+    //
+    // bb0:
+    //   v0 = Construct([])       → Unique
+    //   Invoke push(v0) → bb1 / bb2   (terminator, not body instruction)
+    // bb1:
+    //   Return(v1)
+    // bb2:
+    //   Resume
+    let func = make_func(
+        vec![],
+        RC,
+        vec![
+            block(0, vec![construct(0)], cow_invoke(1, 0, 1, 2)),
+            block(1, vec![], ret(1)),
+            block(2, vec![], ArcTerminator::Resume),
+        ],
+        vec![RC, RC],
+    );
+    let classifier = TestClassifier;
+    let liveness = compute_liveness(&func, &classifier);
+    let summaries = cow_summaries();
+    let cow_method_names = cow_names();
+
+    let annotations =
+        compute_cow_annotations(&func, &classifier, &liveness, &summaries, &cow_method_names);
+
+    // The Invoke at (block 0, body.len() = 1) should be StaticUnique because
+    // v0 is a freshly constructed list.
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations.get(0, 1), CowMode::StaticUnique);
+}
+
+#[test]
+fn invoke_terminator_param_cow_is_dynamic() {
+    // Same as above but receiver is a parameter — should be Dynamic.
+    //
+    // bb0:
+    //   v0 = param
+    //   Invoke push(v0) → bb1 / bb2
+    // bb1:
+    //   Return(v1)
+    // bb2:
+    //   Resume
+    let func = make_func(
+        vec![owned_param(0, RC)],
+        RC,
+        vec![
+            block(0, vec![], cow_invoke(1, 0, 1, 2)),
+            block(1, vec![], ret(1)),
+            block(2, vec![], ArcTerminator::Resume),
+        ],
+        vec![RC, RC],
+    );
+    let classifier = TestClassifier;
+    let liveness = compute_liveness(&func, &classifier);
+    let summaries = cow_summaries();
+    let cow_method_names = cow_names();
+
+    let annotations =
+        compute_cow_annotations(&func, &classifier, &liveness, &summaries, &cow_method_names);
+
+    // The Invoke at (block 0, body.len() = 0) should be Dynamic because
+    // v0 is a parameter with unknown uniqueness.
+    assert_eq!(annotations.len(), 1);
+    assert_eq!(annotations.get(0, 0), CowMode::Dynamic);
 }

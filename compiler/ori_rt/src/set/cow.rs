@@ -81,6 +81,7 @@ pub extern "C" fn ori_set_insert_cow(
     elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem.is_null() {
@@ -101,7 +102,9 @@ pub extern "C" fn ori_set_insert_cow(
     let new_len = n + 1;
 
     // FAST PATH: unique owner — can mutate in place
-    if !data.is_null() && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = !data.is_null() && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         if c >= new_len {
             // Has capacity — write element in place
             unsafe {
@@ -182,6 +185,7 @@ pub extern "C" fn ori_set_remove_cow(
     elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem.is_null() {
@@ -203,10 +207,13 @@ pub extern "C" fn ori_set_remove_cow(
     let new_len = n - 1;
     let tail = n - idx - 1; // elements after the removed one
 
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = !data.is_null() && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+
     // Special case: removing last element → empty sentinel
     if new_len == 0 {
         if !data.is_null() {
-            if ori_rc_is_unique(data) {
+            if is_unique {
                 ori_rc_free(data, c * es, ea);
             } else {
                 ori_rc_dec(data, None);
@@ -217,7 +224,7 @@ pub extern "C" fn ori_set_remove_cow(
     }
 
     // FAST PATH: unique owner — shift left in place
-    if !data.is_null() && ori_rc_is_unique(data) {
+    if is_unique {
         if tail > 0 {
             unsafe {
                 std::ptr::copy(data.add((idx + 1) * es), data.add(idx * es), tail * es);
@@ -284,6 +291,7 @@ pub extern "C" fn ori_set_union_cow(
     elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -331,7 +339,9 @@ pub extern "C" fn ori_set_union_cow(
     let result_len = n1 + new_count;
 
     // FAST PATH: unique owner — extend in place
-    if ori_rc_is_unique(d1) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(d1));
+    if is_unique {
         let (buf, out_cap) = if cap1 >= result_len {
             (d1, cap1)
         } else {
@@ -420,6 +430,7 @@ pub extern "C" fn ori_set_intersection_cow(
     elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -432,10 +443,14 @@ pub extern "C" fn ori_set_intersection_cow(
     let n2 = l2.max(0) as usize;
     let cap1 = c1.max(0) as usize;
 
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    // Note: d1 null check must come first; cow_mode=1 with null is invalid
+    let d1_is_unique = !d1.is_null() && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(d1)));
+
     // Either set empty → result is empty (identity: A∩∅ = ∅)
     if n1 == 0 || d1.is_null() || n2 == 0 || d2.is_null() {
         if !d1.is_null() {
-            if ori_rc_is_unique(d1) {
+            if d1_is_unique {
                 ori_rc_free(d1, cap1 * es, ea);
             } else {
                 ori_rc_dec(d1, None);
@@ -446,7 +461,7 @@ pub extern "C" fn ori_set_intersection_cow(
     }
 
     // FAST PATH: unique owner — compact in place
-    if ori_rc_is_unique(d1) {
+    if d1_is_unique {
         let mut write = 0usize;
         for read in 0..n1 {
             let elem = unsafe { d1.add(read * es) };
@@ -530,6 +545,7 @@ pub extern "C" fn ori_set_difference_cow(
     elem_align: i64,
     elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -556,7 +572,9 @@ pub extern "C" fn ori_set_difference_cow(
     }
 
     // FAST PATH: unique owner — compact in place
-    if ori_rc_is_unique(d1) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique = cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(d1));
+    if is_unique {
         let mut write = 0usize;
         for read in 0..n1 {
             let elem = unsafe { d1.add(read * es) };

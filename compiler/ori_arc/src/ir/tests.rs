@@ -424,6 +424,7 @@ fn arc_function_var_type_single() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
 }
@@ -464,6 +465,7 @@ fn arc_function_var_type_multiple() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     };
     assert_eq!(func.var_type(ArcVarId::new(0)), Idx::INT);
     assert_eq!(func.var_type(ArcVarId::new(1)), Idx::STR);
@@ -877,6 +879,7 @@ fn fresh_var_sequential_ids() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     };
 
     let v1 = func.fresh_var(Idx::STR);
@@ -921,6 +924,7 @@ fn test_arc_ir_roundtrip() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     };
 
     let bytes = bincode::serialize(&func).unwrap_or_else(|e| panic!("serialize failed: {e}"));
@@ -1110,6 +1114,7 @@ fn next_block_id_and_push() {
         is_fbip: false,
         num_captures: 0,
         cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     };
 
     assert_eq!(func.next_block_id(), ArcBlockId::new(1));
