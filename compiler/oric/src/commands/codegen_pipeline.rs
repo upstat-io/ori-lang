@@ -305,12 +305,12 @@ pub(super) fn run_codegen_pipeline<'ctx>(
         // Runs AFTER borrow inference (needs ownership annotations) and BEFORE
         // per-function ARC pipeline (which uses summaries for CowMode annotation).
         let uniqueness_summaries = {
-            let all_funcs: Vec<&ori_arc::ArcFunction> = arc_cache
+            let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
                 .values()
                 .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+                .cloned()
                 .collect();
-            let flat: Vec<ori_arc::ArcFunction> = all_funcs.into_iter().cloned().collect();
-            ori_arc::run_uniqueness_analysis(&flat, &classifier, interner)
+            ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
         };
 
         // 4. Two-pass function compilation with borrow annotations
