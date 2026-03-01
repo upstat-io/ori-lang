@@ -9,17 +9,17 @@ This document covers Ori's channel system: typed channels for communication, sen
 Channels are Ori's mechanism for communication between concurrent tasks. They are typed, bounded, and the only way to share data between tasks.
 
 ```ori
-@producer (channel: Channel<int>) -> void uses Async =
+@producer (channel: Channel<int>) -> void uses Suspend =
     for index in 0..10 do channel.send(
         .value: index,
     )
 
-@consumer (channel: Channel<int>) -> [int] uses Async = collect(
+@consumer (channel: Channel<int>) -> [int] uses Suspend = collect(
     .source: channel.receive(),
     .until: channel.closed,
 )
 
-@main () -> void uses Async = run(
+@main () -> void uses Suspend = run(
     let channel = Channel<int>.new(
         .buffer: 5,
     ),
@@ -131,7 +131,7 @@ value = channel.receive()
 ### Example: Producer-Consumer
 
 ```ori
-@producer (channel: Channel<int>) -> void uses Async = run(
+@producer (channel: Channel<int>) -> void uses Suspend = run(
     for index in 1..100 do channel.send(
         .value: index,
     ),
@@ -139,7 +139,7 @@ value = channel.receive()
     channel.close(),
 )
 
-@consumer (channel: Channel<int>) -> int uses Async = run(
+@consumer (channel: Channel<int>) -> int uses Suspend = run(
     let sum = 0,
     loop(
         match(channel.receive(),
@@ -174,7 +174,7 @@ channel.receive()
 ### Fan-Out: One Producer, Multiple Consumers
 
 ```ori
-@distribute_work (items: [Item]) -> [Result<ProcessedItem, Error>] uses Async = run(
+@distribute_work (items: [Item]) -> [Result<ProcessedItem, Error>] uses Suspend = run(
     let work_channel = Channel<Item>.new(
         .buffer: 100,
     ),
@@ -206,7 +206,7 @@ channel.receive()
     result_channel.collect(),
 )
 
-@worker (work: Channel<Item>, results: Channel<Result<ProcessedItem, Error>>) -> void uses Async = run(
+@worker (work: Channel<Item>, results: Channel<Result<ProcessedItem, Error>>) -> void uses Suspend = run(
     loop(
         match(work.receive(),
             Some(item) -> results.send(
@@ -223,7 +223,7 @@ channel.receive()
 ### Fan-In: Multiple Producers, One Consumer
 
 ```ori
-@aggregate_sources (sources: [Source]) -> [Data] uses Async = run(
+@aggregate_sources (sources: [Source]) -> [Data] uses Suspend = run(
     let data_channel = Channel<Data>.new(
         .buffer: 100,
     ),
@@ -257,7 +257,7 @@ channel.receive()
 ### Pipeline: Chained Processing
 
 ```ori
-@pipeline (input: [int]) -> [int] uses Async = run(
+@pipeline (input: [int]) -> [int] uses Suspend = run(
     let channel1 = Channel<int>.new(
         .buffer: 10,
     ),
@@ -289,7 +289,7 @@ channel.receive()
     ),
 )
 
-@transform<T> (input: Channel<T>, output: Channel<T>, function: T -> T) -> void uses Async = run(
+@transform<T> (input: Channel<T>, output: Channel<T>, function: T -> T) -> void uses Suspend = run(
     loop(
         match(input.receive(),
             Some(value) -> output.send(
@@ -306,7 +306,7 @@ channel.receive()
 Wait on multiple channels:
 
 ```ori
-@multiplex (channel1: Channel<int>, channel2: Channel<str>) -> void uses Async = run(
+@multiplex (channel1: Channel<int>, channel2: Channel<str>) -> void uses Suspend = run(
     loop(
         select(
             channel1.receive() -> value -> print(
@@ -354,7 +354,7 @@ Ori has no `Mutex`, `Lock`, or shared mutable variables:
 shared_counter = Mutex<int>.new(0)
 
 // ERROR: cannot share mutable reference
-@bad (shared: &mut int) -> void uses Async = ...
+@bad (shared: &mut int) -> void uses Suspend = ...
 ```
 
 ### How to Share State
@@ -369,7 +369,7 @@ Instead of shared mutable state, use:
 
 ```ori
 // Instead of shared counter, use channel
-@count_items (items: [Item]) -> int uses Async = run(
+@count_items (items: [Item]) -> int uses Suspend = run(
     let count_channel = Channel<int>.new(
         .buffer: 100,
     ),
@@ -398,7 +398,7 @@ Instead of shared mutable state, use:
     ),
 )
 
-@count_chunk_and_send (items: [Item], channel: Channel<int>) -> void uses Async = run(
+@count_chunk_and_send (items: [Item], channel: Channel<int>) -> void uses Suspend = run(
     let count = filter(
         .over: items,
         .predicate: item -> item.is_valid(),
@@ -412,7 +412,7 @@ Instead of shared mutable state, use:
 ### Example: Parallel Processing Without Locks
 
 ```ori
-@process_documents (documents: [str]) -> [ProcessedDoc] uses Async = run(
+@process_documents (documents: [str]) -> [ProcessedDoc] uses Suspend = run(
     // Process documents in parallel
     let results = parallel(
         .tasks: map(
@@ -468,13 +468,13 @@ Bounded buffers provide natural backpressure:
 
 ```ori
 // Blocks when buffer full, slowing producer
-@fast_producer (channel: Channel<int>) -> void uses Async =
+@fast_producer (channel: Channel<int>) -> void uses Suspend =
     for index in 0..1000000 do channel.send(
         .value: index,
     )
 
 // Consumer pace limits producer
-@slow_consumer (channel: Channel<int>) -> void uses Async = run(
+@slow_consumer (channel: Channel<int>) -> void uses Suspend = run(
     loop(
         let value = channel.receive(),
         process_slowly(
@@ -493,7 +493,7 @@ Bounded buffers provide natural backpressure:
 Use context with channel operations:
 
 ```ori
-@send_with_timeout (context: Context, channel: Channel<Data>, value: Data) -> Result<void, Error> uses Async =
+@send_with_timeout (context: Context, channel: Channel<Data>, value: Data) -> Result<void, Error> uses Suspend =
     timeout(
         .operation: channel.send(
             .value: value,
@@ -502,7 +502,7 @@ Use context with channel operations:
         .on_timeout: Err(SendTimeout {}),
     )
 
-@receive_with_timeout (context: Context, channel: Channel<Data>) -> Result<Data, Error> uses Async =
+@receive_with_timeout (context: Context, channel: Channel<Data>) -> Result<Data, Error> uses Suspend =
     timeout(
         .operation: channel.receive(),
         .after: 5s,
@@ -513,7 +513,7 @@ Use context with channel operations:
 ### Graceful Shutdown with Channels
 
 ```ori
-@worker (context: Context, work: Channel<Job>, results: Channel<Result<JobResult, Error>>) -> void uses Async = run(
+@worker (context: Context, work: Channel<Job>, results: Channel<Result<JobResult, Error>>) -> void uses Suspend = run(
     loop(
         // Check for cancellation
         if context.is_cancelled() then break,
@@ -592,7 +592,7 @@ channel = Channel<Job>.new(
 
 ```ori
 // Good: explicit close signals completion
-@producer (channel: Channel<int>) -> void uses Async = run(
+@producer (channel: Channel<int>) -> void uses Suspend = run(
     for index in items do channel.send(
         .value: index,
     ),
@@ -601,7 +601,7 @@ channel = Channel<Job>.new(
 )
 
 // Bad: consumers wait forever because channel is never closed
-@producer_bad (channel: Channel<int>) -> void uses Async =
+@producer_bad (channel: Channel<int>) -> void uses Suspend =
     for index in items do channel.send(
         .value: index,
     )

@@ -25,9 +25,9 @@ The `std.compress` module provides:
 
 | Module | Description |
 |--------|-------------|
-| [gzip](gzip.md) | Gzip compression |
-| [zlib](zlib.md) | Zlib compression |
-| [zip](zip.md) | Zip archives |
+| gzip | Gzip compression |
+| zlib | Zlib compression |
+| zip | Zip archives |
 
 ---
 

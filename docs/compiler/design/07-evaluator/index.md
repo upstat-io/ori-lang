@@ -39,7 +39,8 @@ compiler/ori_eval/src/
 │   ├── mod.rs                    # EVAL_BUILTIN_METHODS constant, BuiltinMethodNames
 │   ├── collections.rs            # List, map, set, tuple, range methods
 │   ├── compare.rs                # Comparison and equality methods
-│   ├── helpers.rs                # Shared iterator helpers (map, filter, fold, etc.)
+│   ├── error/mod.rs              # Error type methods
+│   ├── helpers/mod.rs            # Shared iterator helpers (map, filter, fold, etc.)
 │   ├── numeric.rs                # Int, float, byte arithmetic and conversion
 │   ├── ordering.rs               # Ordering type methods
 │   ├── units.rs                  # Duration and Size methods
@@ -70,7 +71,7 @@ compiler/ori_eval/src/
 ```
 compiler/oric/src/eval/
 ├── mod.rs                    # Re-exports, value module alias
-├── output.rs                 # EvalOutput, ModuleEvalResult
+├── output/mod.rs             # EvalOutput, ModuleEvalResult
 ├── evaluator/                # Evaluator wrapper
 │   ├── mod.rs                    # Evaluator struct (wraps Interpreter)
 │   ├── builder.rs                # EvaluatorBuilder

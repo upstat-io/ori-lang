@@ -16,7 +16,7 @@ Capabilities are traits representing effects or suspension.
 ```ori
 @fetch (url: str) -> Result<Response, Error> uses Http = Http.get(url);
 
-@save (data: str) -> Result<void, Error> uses FileSystem, Async =
+@save (data: str) -> Result<void, Error> uses FileSystem, Suspend =
     FileSystem.write(path: "/data.txt", content: data);
 ```
 

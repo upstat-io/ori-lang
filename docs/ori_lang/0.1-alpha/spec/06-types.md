@@ -649,7 +649,7 @@ type CloneableConsumer<T: Sendable>  // Consumer that implements Clone
 
 ```ori
 impl<T: Sendable> Producer<T> {
-    @send (self, value: T) -> void uses Async;  // Consumes value
+    @send (self, value: T) -> void uses Suspend;  // Consumes value
     @close (self) -> void;
     @is_closed (self) -> bool;
 }
@@ -661,7 +661,7 @@ Sending a value transfers ownership. The value cannot be used after send.
 
 ```ori
 impl<T: Sendable> Consumer<T> {
-    @receive (self) -> Option<T> uses Async;
+    @receive (self) -> Option<T> uses Suspend;
     @is_closed (self) -> bool;
 }
 

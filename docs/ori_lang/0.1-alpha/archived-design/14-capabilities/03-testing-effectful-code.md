@@ -383,11 +383,11 @@ impl Random for FixedRandom {
 
 ### Testing Async Code with Sync Mocks
 
-The biggest benefit of capability-based async: **tests use sync mocks and don't need the Async capability**.
+The biggest benefit of capability-based async: **tests use sync mocks and don't need the Suspend capability**.
 
 ```ori
-// Production code uses Http + Async (non-blocking)
-@fetch_user (id: str) -> Result<User, Error> uses Http, Async =
+// Production code uses Http + Suspend (non-blocking)
+@fetch_user (id: str) -> Result<User, Error> uses Http, Suspend =
     Http.get(
         .url: "/users/" + id,
     )?.parse()
@@ -412,7 +412,7 @@ impl Http for MockHttp {
 ### Sync Tests for Async Code
 
 ```ori
-// Test doesn't need Async because MockHttp is synchronous
+// Test doesn't need Suspend because MockHttp is synchronous
 @test_fetch tests @fetch_user () -> void =
     with Http = MockHttp { responses: {"/users/1": "{...}"} } in
     run(
@@ -428,7 +428,7 @@ impl Http for MockHttp {
     )
 ```
 
-Note: The test doesn't declare `uses Async` because MockHttp returns immediately without suspending. This is a key advantage of capability-based async over traditional async/await - tests run synchronously.
+Note: The test doesn't declare `uses Suspend` because MockHttp returns immediately without suspending. This is a key advantage of capability-based async over traditional async/await - tests run synchronously.
 
 ---
 

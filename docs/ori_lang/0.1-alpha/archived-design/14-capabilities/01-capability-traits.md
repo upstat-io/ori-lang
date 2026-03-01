@@ -32,11 +32,11 @@ They use the same `trait` syntax as any other trait, but by convention represent
 
 ---
 
-## The Async Capability
+## The Suspend Capability
 
-A key feature: **the `Async` capability explicitly tracks suspension**.
+A key feature: **the `Suspend` capability explicitly tracks suspension**.
 
-When you want a function to be non-blocking (may suspend), you declare `uses Async` alongside your I/O capabilities:
+When you want a function to be non-blocking (may suspend), you declare `uses Suspend` alongside your I/O capabilities:
 
 ```ori
 trait Http {
@@ -44,11 +44,11 @@ trait Http {
     @post (url: str, body: str) -> Result<Response, Error>
 }
 
-// With Async: non-blocking, may suspend
-@fetch_user (id: str) -> Result<User, Error> uses Http, Async =
+// With Suspend: non-blocking, may suspend
+@fetch_user (id: str) -> Result<User, Error> uses Http, Suspend =
     Http.get("/users/" + id)?.parse()
 
-// Without Async: blocking, runs to completion
+// Without Suspend: blocking, runs to completion
 @fetch_user_sync (id: str) -> Result<User, Error> uses Http =
     Http.get("/users/" + id)?.parse()
 ```
@@ -60,8 +60,8 @@ This is cleaner than traditional async/await:
 @fetch_user (id: str) -> async Result<User, Error> =
     http_get("/users/" + id).await?.parse()
 
-// Ori: clean types, Async capability is explicit
-@fetch_user (id: str) -> Result<User, Error> uses Http, Async =
+// Ori: clean types, Suspend capability is explicit
+@fetch_user (id: str) -> Result<User, Error> uses Http, Suspend =
     Http.get("/users/" + id)?.parse()
 ```
 
@@ -92,12 +92,12 @@ trait Database {
 }
 ```
 
-### When to Use Async
+### When to Use Suspend
 
-The `Async` capability is typically used with I/O capabilities:
+The `Suspend` capability is typically used with I/O capabilities:
 
 ```ori
-// I/O capabilities - typically paired with Async for non-blocking behavior
+// I/O capabilities - typically paired with Suspend for non-blocking behavior
 trait Http {
     @get (url: str) -> Result<Response, Error>
 }
@@ -107,22 +107,22 @@ trait FileSystem {
 }
 
 // Non-blocking HTTP
-@fetch (url: str) -> Result<Data, Error> uses Http, Async =
+@fetch (url: str) -> Result<Data, Error> uses Http, Suspend =
     Http.get(
         .url: url,
     )?
 
 // Non-blocking file read
-@read_config () -> Result<str, Error> uses FileSystem, Async =
+@read_config () -> Result<str, Error> uses FileSystem, Suspend =
     FileSystem.read(
         .path: "/config.json",
     )
 ```
 
-Some capabilities don't need `Async` because they're inherently fast:
+Some capabilities don't need `Suspend` because they're inherently fast:
 
 ```ori
-// Clock - reading time is instant, no need for Async
+// Clock - reading time is instant, no need for Suspend
 trait Clock {
     @now () -> Timestamp
 }
@@ -132,7 +132,7 @@ trait Random {
     @int (min: int, max: int) -> int
 }
 
-// These don't need Async
+// These don't need Suspend
 @get_time () -> Timestamp uses Clock = Clock.now()
 @roll_dice () -> int uses Random =
     Random.int(
