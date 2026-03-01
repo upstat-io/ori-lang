@@ -31,16 +31,15 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
 
   .hero-inner {
     display: grid;
-    grid-template-columns: 2fr 3fr;
+    grid-template-columns: 1fr;
     gap: var(--space-10);
     max-width: var(--max-width);
     margin: 0 auto;
     padding: 0 var(--space-6);
-    align-items: center;
   }
 
   .hero-text {
-    text-align: left;
+    text-align: center;
   }
 
   .status-badge {
@@ -79,10 +78,12 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
     display: flex;
     gap: var(--space-4);
     flex-wrap: wrap;
+    justify-content: center;
   }
 
   .hero-playground {
     height: 580px;
+    width: 100%;
   }
 
   .btn {
@@ -116,26 +117,6 @@ const version = fs.readFileSync(path.resolve('..', 'BUILD_NUMBER'), 'utf-8').tri
     background: var(--color-bg-elevated);
     color: var(--color-text-primary);
     border-color: var(--color-border-hover);
-  }
-
-  @media (max-width: 1120px) {
-    .hero-inner {
-      grid-template-columns: 1fr;
-    }
-
-    .hero-text {
-      text-align: center;
-    }
-
-    .hero-actions {
-      justify-content: center;
-    }
-
-    .hero-playground {
-      max-width: 720px;
-      margin: 0 auto;
-      width: 100%;
-    }
   }
 
   @media (max-width: 640px) {

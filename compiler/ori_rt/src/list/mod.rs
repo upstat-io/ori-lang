@@ -12,11 +12,13 @@
 
 mod cow;
 mod cow_sort;
+mod cow_structural;
 mod query;
 pub mod slice;
 
 pub use cow::*;
 pub use cow_sort::*;
+pub use cow_structural::*;
 pub use query::*;
 pub use slice::*;
 
