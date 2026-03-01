@@ -8,7 +8,8 @@
 //!
 //! - [`helpers`]: Argument validation and shared utilities
 //! - [`numeric`]: Methods on `int` and `float` types
-//! - [`collections`]: Methods on `list`, `str`, `map`, and `range` types
+//! - [`list`]: Methods on `list` type
+//! - [`collections`]: Methods on `str`, `map`, `range`, and `set` types
 //! - [`variants`]: Methods on `Option`, `Result`, `bool`, `char`, `byte`, and `newtype`
 //! - [`units`]: Methods on `Duration` and `Size` types
 //! - [`ordering`]: Methods on `Ordering` type
@@ -18,6 +19,7 @@ mod collections;
 pub(crate) mod compare;
 mod error;
 pub(crate) mod helpers;
+mod list;
 mod numeric;
 mod ordering;
 mod units;
@@ -403,7 +405,7 @@ pub(crate) fn dispatch_builtin_method(
         Value::Bool(_) => variants::dispatch_bool_method(receiver, method, args, ctx),
         Value::Char(_) => variants::dispatch_char_method(receiver, method, args, ctx),
         Value::Byte(_) => variants::dispatch_byte_method(receiver, method, args, ctx),
-        Value::List(_) => collections::dispatch_list_method(receiver, method, args, ctx),
+        Value::List(_) => list::dispatch_list_method(receiver, method, args, ctx),
         Value::Str(_) => collections::dispatch_string_method(receiver, method, args, ctx),
         Value::Map(_) => collections::dispatch_map_method(receiver, method, args, ctx),
         Value::Range(_) => collections::dispatch_range_method(receiver, method, args, ctx),

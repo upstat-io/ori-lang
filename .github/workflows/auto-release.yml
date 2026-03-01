@@ -2,7 +2,8 @@ name: Auto Release
 
 # Automatically tag and release on every merge to master — but ONLY after CI passes.
 # Uses CalVer: v2026.02.27.N-alpha (UTC date + daily build counter + release stage).
-# The version is read directly from BUILD_NUMBER (the single source of truth).
+# The daily counter (N) is derived from git history via bump-build.sh, so multiple
+# merges on the same day correctly get .1, .2, .3, etc.
 # No commits to master — just tags the merge commit directly.
 
 on:
@@ -52,7 +53,11 @@ jobs:
       - name: Derive release tag
         id: tag
         run: |
-          # BUILD_NUMBER is the single source of truth — use it directly
+          # Derive build number from git history — handles daily counter increment.
+          # bump-build.sh counts first-parent commits to master since midnight UTC,
+          # so the 2nd merge of the day gets .2, 3rd gets .3, etc.
+          ./scripts/bump-build.sh
+
           if [[ ! -f BUILD_NUMBER ]]; then
             echo "::error::BUILD_NUMBER file not found on master"
             exit 1
