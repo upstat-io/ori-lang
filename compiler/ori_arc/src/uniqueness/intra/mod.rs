@@ -330,7 +330,8 @@ pub(crate) fn transfer_instr(
             value: ArcValue::PrimOp { .. },
             ..
         }
-        | ArcInstr::Reuse { dst, .. } => {
+        | ArcInstr::Reuse { dst, .. }
+        | ArcInstr::CollectionReuse { dst, .. } => {
             if needs_rc(*dst, func, classifier) {
                 state.mark_unique(*dst);
             }

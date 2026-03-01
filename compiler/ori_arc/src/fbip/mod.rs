@@ -264,5 +264,25 @@ pub fn check_fbip_enforcement(
     }
 }
 
+/// Check whether a function achieves automatic FBIP through static uniqueness.
+///
+/// A function is "auto FBIP" if **all** of its COW operations are annotated
+/// as [`CowMode::StaticUnique`](crate::uniqueness::CowMode::StaticUnique) —
+/// meaning every collection mutation is provably in-place without runtime
+/// RC checks. This is stronger than `#fbip` enforcement (which checks
+/// reset/reuse pairing): auto FBIP means zero COW overhead, period.
+///
+/// Returns `true` if the function has at least one COW operation and all
+/// are `StaticUnique`. Functions with no COW operations return `false`
+/// (they're trivially allocation-free, but "FBIP" specifically refers to
+/// functional-but-in-place mutation patterns).
+pub fn is_auto_fbip(func: &ArcFunction) -> bool {
+    let annotations = &func.cow_annotations;
+    if annotations.is_empty() {
+        return false;
+    }
+    annotations.static_unique_count() == annotations.len()
+}
+
 #[cfg(test)]
 mod tests;

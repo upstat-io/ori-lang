@@ -18,7 +18,7 @@ const guide = defineCollection({
 });
 
 const spec = defineCollection({
-  loader: glob({ pattern: '{index,[0-9][0-9]-*}.md', base: '../docs/ori_lang/0.1-alpha/spec' }),
+  loader: glob({ pattern: '{index,foreword,introduction,bibliography,[0-9][0-9]-*,annex-*}.md', base: '../docs/ori_lang/0.1-alpha/spec' }),
   schema: docsSchema,
 });
 
