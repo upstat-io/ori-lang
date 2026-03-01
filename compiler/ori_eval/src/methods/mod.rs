@@ -96,10 +96,12 @@ pub(crate) struct BuiltinMethodNames {
 
     // Collection (map-specific)
     pub(crate) contains_key: Name,
+    pub(crate) get: Name,
     pub(crate) keys: Name,
     pub(crate) values: Name,
+    pub(crate) entries: Name,
 
-    // Collection (set-specific)
+    // Collection (map + set shared)
     pub(crate) insert: Name,
     pub(crate) remove: Name,
     pub(crate) union: Name,
@@ -223,9 +225,11 @@ impl BuiltinMethodNames {
             drop_: interner.intern("drop"),
             // Map
             contains_key: interner.intern("contains_key"),
+            get: interner.intern("get"),
             keys: interner.intern("keys"),
             values: interner.intern("values"),
-            // Set
+            entries: interner.intern("entries"),
+            // Map + Set shared
             insert: interner.intern("insert"),
             remove: interner.intern("remove"),
             union: interner.intern("union"),

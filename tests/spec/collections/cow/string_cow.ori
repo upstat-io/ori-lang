@@ -1,0 +1,114 @@
+// COW (Copy-on-Write) behavioral equivalence tests for strings.
+// Verifies that string mutations produce correct results and
+// that shared owners are not affected by COW operations.
+
+use std.testing { assert_eq }
+
+// --- Concat unique owner ---
+
+@concat_unique () -> str = {
+    let s = "hello";
+    let s = s.concat(" ");
+    let s = s.concat("world");
+    s
+}
+
+@test_concat_unique tests @concat_unique () -> void = {
+    assert_eq(actual: concat_unique(), expected: "hello world")
+}
+
+// --- Concat shared owner (COW) ---
+
+@concat_shared () -> (str, str) = {
+    let a = "hello";
+    let b = a;
+    let b = b.concat(" world");
+    (a, b)
+}
+
+@test_concat_shared tests @concat_shared () -> void = {
+    let (original, modified) = concat_shared();
+    assert_eq(actual: original, expected: "hello");
+    assert_eq(actual: modified, expected: "hello world")
+}
+
+// --- Multi-fork string concat ---
+
+@multi_fork_concat () -> (str, str, str) = {
+    let base = "hello";
+    let f1 = base.concat(" world");
+    let f2 = base.concat("!");
+    (base, f1, f2)
+}
+
+@test_multi_fork_concat tests @multi_fork_concat () -> void = {
+    let (base, f1, f2) = multi_fork_concat();
+    assert_eq(actual: base, expected: "hello");
+    assert_eq(actual: f1, expected: "hello world");
+    assert_eq(actual: f2, expected: "hello!")
+}
+
+// --- Concat chain ---
+
+@concat_chain () -> str = {
+    "a".concat("b").concat("c").concat("d")
+}
+
+@test_concat_chain tests @concat_chain () -> void = {
+    assert_eq(actual: concat_chain(), expected: "abcd")
+}
+
+// --- String + operator ---
+
+@string_add () -> str = {
+    "foo" + "bar"
+}
+
+@test_string_add tests @string_add () -> void = {
+    assert_eq(actual: string_add(), expected: "foobar")
+}
+
+@string_add_shared () -> (str, str) = {
+    let a = "foo";
+    let b = a;
+    let c = b + "bar";
+    (a, c)
+}
+
+@test_string_add_shared tests @string_add_shared () -> void = {
+    let (original, concatenated) = string_add_shared();
+    assert_eq(actual: original, expected: "foo");
+    assert_eq(actual: concatenated, expected: "foobar")
+}
+
+// --- Loop accumulation ---
+
+@loop_concat () -> str = {
+    let s = "";
+    for i in 0..5 do {
+        s = s + str(i);
+    };
+    s
+}
+
+@test_loop_concat tests @loop_concat () -> void = {
+    assert_eq(actual: loop_concat(), expected: "01234")
+}
+
+// --- Substring and trim (read-only, but verify correct results) ---
+
+@substring_result () -> str = {
+    "hello world".substring(0, 5)
+}
+
+@test_substring_result tests @substring_result () -> void = {
+    assert_eq(actual: substring_result(), expected: "hello")
+}
+
+@trim_result () -> str = {
+    "  hello  ".trim()
+}
+
+@test_trim_result tests @trim_result () -> void = {
+    assert_eq(actual: trim_result(), expected: "hello")
+}
