@@ -22,48 +22,56 @@ The evaluator is split between two crates:
 
 ```
 compiler/ori_eval/src/
-├── lib.rs                    # Module exports, re-exports from ori_patterns
-├── module_registration.rs    # Salsa-free module registration (impl, extend, constructors)
-├── environment.rs            # Environment, Scope, LocalScope
-├── errors.rs                 # EvalError factory functions
-├── eval_mode.rs              # EvalMode (Interpret/TestRun/ConstEval), ModeState
-├── diagnostics.rs            # CallStack, CallFrame, EvalBacktrace, EvalCounters
-├── operators.rs              # Binary operator dispatch
-├── unary_operators.rs        # Unary operator dispatch
-├── function_val.rs           # Type conversions (int, float, str, byte)
-├── user_methods.rs           # UserMethodRegistry for user-defined methods
-├── print_handler.rs          # Print output capture (stdout/buffer handlers)
-├── shared.rs                 # SharedRegistry, SharedMutableRegistry
-├── method_key.rs             # MethodKey newtype
-├── methods/                  # Built-in method dispatch (split by domain)
-│   ├── mod.rs                    # EVAL_BUILTIN_METHODS constant, BuiltinMethodNames
-│   ├── collections.rs            # List, map, set, tuple, range methods
-│   ├── compare.rs                # Comparison and equality methods
-│   ├── error/mod.rs              # Error type methods
-│   ├── helpers/mod.rs            # Shared iterator helpers (map, filter, fold, etc.)
-│   ├── numeric.rs                # Int, float, byte arithmetic and conversion
-│   ├── ordering.rs               # Ordering type methods
-│   ├── units.rs                  # Duration and Size methods
-│   └── variants.rs               # Option, Result, Variant methods
-├── exec/                     # Expression execution utilities
-│   ├── mod.rs                    # Module exports
-│   ├── expr.rs                   # Identifiers, indexing, field access, ranges
-│   ├── call.rs                   # Function call evaluation, argument binding
-│   ├── control.rs                # Pattern matching, loop actions, assignment
-│   └── decision_tree.rs          # Decision tree evaluation for multi-clause functions
-└── interpreter/              # Core interpreter
-    ├── mod.rs                    # Interpreter struct, pre-interned name caches
-    ├── builder.rs                # InterpreterBuilder
-    ├── can_eval.rs               # eval_can(CanId) — canonical IR evaluation dispatch
-    ├── scope_guard.rs            # RAII scope management
-    ├── function_call.rs          # User function calls
-    ├── method_dispatch.rs        # Method resolution, iterator helpers
-    ├── derived_methods.rs        # Derived trait method evaluation
-    └── resolvers/                # Method resolution chain
-        ├── mod.rs                    # MethodDispatcher, MethodResolver trait
-        ├── user_registry.rs          # UserRegistryResolver (user + derived)
-        ├── collection.rs             # CollectionMethodResolver (map, filter, fold)
-        └── builtin.rs                # BuiltinMethodResolver
+├── lib.rs                        # Module exports, re-exports from ori_patterns
+├── module_registration/mod.rs    # Salsa-free module registration (impl, extend, constructors)
+├── environment/mod.rs            # Environment, Scope, LocalScope
+├── errors.rs                     # EvalError factory functions
+├── eval_mode/mod.rs              # EvalMode (Interpret/TestRun/ConstEval), ModeState
+├── diagnostics/mod.rs            # CallStack, CallFrame, EvalBacktrace, EvalCounters
+├── operators.rs                  # Binary operator dispatch
+├── unary_operators.rs            # Unary operator dispatch
+├── function_val.rs               # Type conversions (int, float, str, byte)
+├── user_methods.rs               # UserMethodRegistry for user-defined methods
+├── print_handler/mod.rs          # Print output capture (stdout/buffer handlers)
+├── shared.rs                     # SharedRegistry, SharedMutableRegistry
+├── method_key.rs                 # MethodKey newtype
+├── derives/mod.rs                # Derive processing pipeline
+├── methods/                      # Built-in method dispatch (split by domain)
+│   ├── mod.rs                        # EVAL_BUILTIN_METHODS constant, BuiltinMethodNames
+│   ├── collections.rs                # List, map, set, tuple, range methods
+│   ├── compare.rs                    # Comparison and equality methods
+│   ├── error/mod.rs                  # Error type methods
+│   ├── helpers/mod.rs                # Shared iterator helpers (map, filter, fold, etc.)
+│   ├── numeric.rs                    # Int, float, byte arithmetic and conversion
+│   ├── ordering.rs                   # Ordering type methods
+│   ├── units.rs                      # Duration and Size methods
+│   └── variants.rs                   # Option, Result, Variant methods
+├── exec/                         # Expression execution utilities
+│   ├── mod.rs                        # Module exports
+│   ├── expr.rs                       # Identifiers, indexing, field access, ranges
+│   ├── call/mod.rs                   # Function call evaluation, argument binding
+│   ├── control.rs                    # Pattern matching, loop actions, assignment
+│   └── decision_tree/mod.rs          # Decision tree evaluation for multi-clause functions
+└── interpreter/                  # Core interpreter
+    ├── mod.rs                        # Interpreter struct, pre-interned name caches
+    ├── builder.rs                    # InterpreterBuilder
+    ├── can_eval.rs                   # eval_can(CanId) — canonical IR evaluation dispatch
+    ├── interned_names.rs             # Pre-interned name caches
+    ├── format.rs                     # Format spec handling
+    ├── scope_guard/mod.rs            # RAII scope management
+    ├── function_call.rs              # User function calls
+    ├── derived_methods.rs            # Derived trait method evaluation
+    ├── method_dispatch/              # Method resolution and iterator support
+    │   ├── mod.rs                        # Method dispatch dispatch
+    │   └── iterator/                     # Iterator-specific dispatch
+    │       ├── mod.rs                        # Iterator method dispatch
+    │       ├── next.rs                       # next/next_back implementation
+    │       └── consumers.rs                  # Consumer methods (fold, find, any, all, etc.)
+    └── resolvers/                    # Method resolution chain
+        ├── mod.rs                        # MethodDispatcher, MethodResolver trait
+        ├── user_registry/mod.rs          # UserRegistryResolver (user + derived)
+        ├── collection/mod.rs             # CollectionMethodResolver (map, filter, fold)
+        └── builtin/mod.rs                # BuiltinMethodResolver
 ```
 
 ### High-Level Evaluator (`oric/src/eval/`)
@@ -702,18 +710,22 @@ pub fn register_module_functions(
 );
 
 /// Collect methods from impl blocks into a registry.
-pub fn collect_impl_methods(
+fn collect_impl_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: &HashMap<Name, Value>,
+    captures: &Arc<FxHashMap<Name, Value>>,
+    canon: Option<&SharedCanonResult>,
+    interner: &StringInterner,
     registry: &mut UserMethodRegistry,
 );
 
 /// Collect methods from extend blocks into a registry.
-pub fn collect_extend_methods(
+fn collect_extend_methods(
     module: &Module,
     arena: &SharedArena,
-    captures: &HashMap<Name, Value>,
+    captures: &Arc<FxHashMap<Name, Value>>,
+    canon: Option<&SharedCanonResult>,
+    interner: &StringInterner,
     registry: &mut UserMethodRegistry,
 );
 

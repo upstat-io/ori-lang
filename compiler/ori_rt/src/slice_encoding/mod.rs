@@ -7,8 +7,9 @@
 //! - `cap < 0`  → seamless slice (lower 63 bits = byte offset to original data)
 //!
 //! A slice's data pointer points *into* another allocation's data region.
-//! The RC header for the *original* allocation is at `original_data - 8`,
-//! where `original_data = slice_data - byte_offset`.
+//! The RC header for the *original* allocation starts at
+//! `original_data - RC_HEADER_SIZE` (16 bytes), where
+//! `original_data = slice_data - byte_offset`.
 //!
 //! Inspired by Roc's seamless slices (OWNERSHIP.md) and Go's slice model.
 
@@ -60,7 +61,7 @@ pub(crate) fn make_slice_cap(byte_offset: usize) -> i64 {
 /// and its cap (which encodes the byte offset), returns the start of the
 /// original allocation's data region.
 ///
-/// The RC header is at `result - 8` (standard 8-byte RC header layout).
+/// The RC header starts at `result - 16` (standard 16-byte RC header layout).
 ///
 /// # Safety
 /// - `slice_data` must be a valid pointer into an RC-managed allocation

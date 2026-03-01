@@ -65,10 +65,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Closure: null-check env_ptr
             Tag::Function => self.emit_rc_inc_closure(val, count),
 
-            // Collections
+            // Collections: slice-aware RC inc via ori_list_rc_inc(data, cap)
             Tag::List | Tag::Set => {
                 if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
-                    self.call_rc_inc_all(&[dp], count);
+                    let cap = self
+                        .builder
+                        .extract_value(val, 1, "rc_inc.cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
+                    self.call_list_rc_inc(dp, cap, count);
                 } else {
                     self.call_rc_inc_all(&[val], count);
                 }

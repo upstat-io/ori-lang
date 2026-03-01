@@ -99,6 +99,97 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             "list.iter",
         )
     }
+    /// Emit `list.slice(start, end)` — zero-copy seamless slice.
+    ///
+    /// Creates a view into the original buffer. No elements are copied.
+    /// The original buffer's RC is incremented (the slice references it).
+    pub(crate) fn emit_list_slice(
+        &mut self,
+        receiver: ValueId,
+        start: ValueId,
+        end: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_list_slice");
+
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let elem_size_val = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let list_ty = self.list_struct_type();
+        let out = self
+            .builder
+            .create_entry_alloca(self.current_function, "slice.out", list_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, cap, start, end, elem_size_val, out],
+            "slice",
+        );
+
+        Some(self.builder.load(list_ty, out, "slice.val"))
+    }
+
+    /// Emit `list.take(n)` — zero-copy first-N elements slice.
+    ///
+    /// Equivalent to `list.slice(0, n)`. No elements are copied.
+    pub(crate) fn emit_list_take_slice(
+        &mut self,
+        receiver: ValueId,
+        n: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_list_slice_take");
+
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let elem_size_val = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let list_ty = self.list_struct_type();
+        let out = self
+            .builder
+            .create_entry_alloca(self.current_function, "take.out", list_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, cap, n, elem_size_val, out],
+            "take",
+        );
+
+        Some(self.builder.load(list_ty, out, "take.val"))
+    }
+
+    /// Emit `list.drop(n)` — zero-copy skip-first-N elements slice.
+    ///
+    /// Equivalent to `list.slice(n, len)`. No elements are copied.
+    pub(crate) fn emit_list_drop_slice(
+        &mut self,
+        receiver: ValueId,
+        n: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_list_slice_drop");
+
+        let (data_ptr, len, cap) = self.extract_list_fields(receiver);
+        let elem_size_val = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        let list_ty = self.list_struct_type();
+        let out = self
+            .builder
+            .create_entry_alloca(self.current_function, "drop.out", list_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, cap, n, elem_size_val, out],
+            "drop",
+        );
+
+        Some(self.builder.load(list_ty, out, "drop.val"))
+    }
 }
 
 // ---------------------------------------------------------------------------

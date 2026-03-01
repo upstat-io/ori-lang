@@ -220,7 +220,7 @@ impl PatternDefinition for MyPattern {
 
 Control flow constructs (block expressions, `try`, `match`) are NOT in the pattern registry. They are:
 - Defined as AST nodes in `ori_ir/src/ast/patterns/seq.rs`
-- Type-checked directly in `ori_typeck`
+- Type-checked directly in `ori_types`
 - Evaluated directly in `ori_eval`
 
 Do NOT add control flow constructs to the `PatternRegistry`.

@@ -147,7 +147,7 @@ impl DocumentState {
         let parse_result = ori_parse::parse(&self.text);
 
         let (types, type_errors) = if let Some(ref ast) = parse_result.module {
-            let check_result = ori_typeck::check(ast);
+            let check_result = ori_types::check(ast);
             (Some(check_result.context), check_result.errors)
         } else {
             (None, vec![])
