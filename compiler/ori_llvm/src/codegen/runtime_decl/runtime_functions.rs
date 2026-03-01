@@ -791,6 +791,57 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         ret: Some(Ty::Str),
         attrs: &[],
     },
+    // Slice operations
+    RtFn {
+        name: "ori_list_slice",
+        // data, len, cap, start, end, elem_size, out_ptr
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_list_slice_take",
+        // data, len, cap, n, elem_size, out_ptr
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_list_slice_drop",
+        // data, len, cap, n, elem_size, out_ptr
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_list_materialize_slice",
+        // data, len, cap, elem_size, elem_align, inc_fn, out_ptr
+        params: &[
+            Ty::Ptr,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::I64,
+            Ty::Ptr,
+            Ty::Ptr,
+        ],
+        ret: None,
+        attrs: &[Attr::Nounwind],
+    },
+    RtFn {
+        name: "ori_str_substring",
+        params: &[Ty::Ptr, Ty::I64, Ty::I64],
+        ret: Some(Ty::Str),
+        attrs: &[],
+    },
     // Reference counting (ARC-safe attributes are CRITICAL — see section 11.3)
     RtFn {
         name: "ori_rc_alloc",
@@ -815,6 +866,14 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
         ret: None,
         attrs: &[Attr::Nounwind],
+    },
+    // Slice-aware RC inc for list/set data buffers.
+    // If cap has slice flag, finds original buffer and inc's that.
+    RtFn {
+        name: "ori_list_rc_inc",
+        params: &[Ty::Ptr, Ty::I64],
+        ret: None,
+        attrs: &[Attr::Nounwind, Attr::MemArgmemRW],
     },
     // Buffer-aware RC dec for collection data buffers.
     // (data, len, cap, elem_size, elem_dec_fn)

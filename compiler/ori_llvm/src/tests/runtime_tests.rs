@@ -325,21 +325,28 @@ fn test_rc_inc_dec_lifecycle() {
 }
 
 #[test]
-fn test_rc_header_is_8_bytes() {
-    // V2: strong_count is a single i64 (8 bytes), not 16-byte RcHeader
-    let data = runtime::ori_rc_alloc(16, 8);
+fn test_rc_header_is_16_bytes() {
+    // V3: header is [data_size: i64 | strong_count: i64] = 16 bytes
+    let data = runtime::ori_rc_alloc(32, 8);
     assert!(!data.is_null());
 
     // The strong_count is at data - 8. Verify the offset:
-    // base = data - 8, data = base + 8
-    let base = unsafe { data.sub(8) };
-    let rc_from_base = unsafe { *(base.cast::<i64>()) };
+    let rc_ptr = unsafe { data.sub(8) };
+    let rc_from_base = unsafe { *(rc_ptr.cast::<i64>()) };
     assert_eq!(rc_from_base, 1, "strong_count at data_ptr - 8 should be 1");
 
-    extern "C" fn drop_16(data_ptr: *mut u8) {
-        runtime::ori_rc_free(data_ptr, 16, 8);
+    // The data_size is at data - 16. Verify the stored size:
+    let size_ptr = unsafe { data.sub(16) };
+    let data_size = unsafe { *(size_ptr.cast::<i64>()) };
+    assert_eq!(data_size, 32, "data_size at data_ptr - 16 should be 32");
+
+    // ori_rc_data_size should return the same value
+    assert_eq!(runtime::ori_rc_data_size(data.cast_const()), 32);
+
+    extern "C" fn drop_32(data_ptr: *mut u8) {
+        runtime::ori_rc_free(data_ptr, 32, 8);
     }
-    runtime::ori_rc_dec(data, Some(drop_16));
+    runtime::ori_rc_dec(data, Some(drop_32));
 }
 
 #[test]

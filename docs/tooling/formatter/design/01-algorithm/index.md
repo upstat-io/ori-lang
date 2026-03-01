@@ -26,7 +26,7 @@ function format(node):
 Each AST node type defines:
 1. **Inline rendering** — How to render on a single line
 2. **Broken rendering** — How to render when broken across lines
-3. **Always-stacked** — Whether to skip inline attempt (for `run`, `try`, `match` arms, etc.)
+3. **Always-stacked** — Whether to skip inline attempt (for `{ }` blocks, `try`, `match` arms, etc.)
 
 ## Two-Phase Approach
 
@@ -73,7 +73,7 @@ Some constructs bypass the width check and always use stacked format:
 
 | Construct | Reason |
 |-----------|--------|
-| `run` / `try` | Sequential blocks; stacking shows execution order |
+| `{ }` blocks / `try` | Sequential blocks; stacking shows execution order |
 | `match` arms | Pattern matching; one arm per line aids readability |
 | `recurse` | Named parameters pattern |
 | `parallel` / `spawn` | Concurrency patterns |

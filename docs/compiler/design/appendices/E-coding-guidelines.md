@@ -287,7 +287,7 @@ Dependencies flow downward:
 ```
 oric (orchestration)
     ↓
-ori_typeck, ori_eval, ori_patterns
+ori_types, ori_eval, ori_patterns
     ↓
 ori_parse
     ↓

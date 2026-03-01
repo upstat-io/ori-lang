@@ -40,6 +40,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         match tag {
             Tag::List | Tag::Set => {
                 // {i64 len, i64 cap, ptr data} — data at field 2
+                // NOTE: For RC inc, slices need ori_list_rc_inc(data, cap) instead of
+                // ori_rc_inc(data). The HeapPointer strategy's emit_rc_inc_heap calls
+                // call_rc_inc_all on these pointers, which is incorrect for slices.
+                // The AggregateFields strategy (inc_value_rc) handles this correctly.
+                // See emit_rc_inc_heap for the slice-aware override.
                 if let Some(ptr) = self.builder.extract_value(val, 2, "rc.data_ptr") {
                     vec![ptr]
                 } else {

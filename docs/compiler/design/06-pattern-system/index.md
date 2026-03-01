@@ -32,14 +32,16 @@ compiler/ori_patterns/src/
 ├── signature/          # Pattern signatures
 │   └── mod.rs
 ├── errors/             # Pattern errors
-│   └── mod.rs
+│   ├── mod.rs
+│   └── diagnostics/mod.rs  # Diagnostic integration
+├── test_helpers/mod.rs # Shared test utilities
 ├── builtins/           # Built-in patterns
 │   ├── mod.rs              # Re-exports
-│   ├── print.rs            # PrintPattern implementation
-│   ├── panic.rs            # PanicPattern implementation (returns Never)
-│   ├── catch.rs            # CatchPattern implementation
-│   ├── todo.rs             # TodoPattern implementation (returns Never)
-│   └── unreachable.rs      # UnreachablePattern implementation (returns Never)
+│   ├── print/mod.rs        # PrintPattern implementation
+│   ├── panic/mod.rs        # PanicPattern implementation (returns Never)
+│   ├── catch/mod.rs        # CatchPattern implementation
+│   ├── todo/mod.rs         # TodoPattern implementation (returns Never)
+│   └── unreachable/mod.rs  # UnreachablePattern implementation (returns Never)
 ├── recurse/            # recurse pattern
 │   └── mod.rs
 ├── parallel/           # parallel pattern
@@ -61,8 +63,11 @@ compiler/ori_patterns/src/
 │   └── mod.rs
 └── value/              # Runtime value system
     ├── mod.rs              # Value enum and factory methods
-    ├── heap.rs             # Heap<T> wrapper for Arc enforcement
-    └── composite.rs        # FunctionValue, StructValue, RangeValue
+    ├── scalar_int.rs       # Scalar integer representation
+    ├── heap/mod.rs         # Heap<T> wrapper for Arc enforcement
+    ├── composite/mod.rs    # FunctionValue, StructValue, RangeValue
+    ├── error_value/mod.rs  # Error value representation
+    └── iterator/mod.rs     # Iterator value types and adapters
 ```
 
 ## Design Goals

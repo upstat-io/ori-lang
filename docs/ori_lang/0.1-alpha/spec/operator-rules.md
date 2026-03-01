@@ -42,7 +42,7 @@ MAINTENANCE
 - Add new operators: copy existing block, modify rules
 - Modify behavior: update relevant => rules
 - Type changes: update -> rules and inference rules
-- Keep in sync with: grammar.ebnf, ori_typeck/src/operators.rs, ori_eval/src/interpreter/mod.rs
+- Keep in sync with: grammar.ebnf, ori_types/src/infer/expr/operators.rs, ori_eval/src/interpreter/mod.rs
 ```
 
 ---

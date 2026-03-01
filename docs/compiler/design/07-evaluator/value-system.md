@@ -14,9 +14,11 @@ The Value enum represents runtime values in the Ori evaluator.
 ```
 compiler/ori_patterns/src/value/
 ├── mod.rs            # Value enum, OrderingValue, factory methods
-├── heap.rs           # Heap<T> wrapper for Arc enforcement
-└── composite/        # Composite value types
-    └── mod.rs        # FunctionValue, StructValue, RangeValue
+├── scalar_int.rs     # ScalarInt newtype (checked arithmetic)
+├── heap/mod.rs       # Heap<T> wrapper for Arc enforcement
+├── composite/mod.rs  # FunctionValue, StructValue, RangeValue
+├── error_value/mod.rs # ErrorValue with trace support
+└── iterator/mod.rs   # IteratorValue enum (lazy iterator states)
 ```
 
 ## Heap<T> Wrapper
@@ -59,8 +61,8 @@ pub enum Value {
     // Heap Types (use Heap<T> for enforced Arc usage)
     Str(Heap<Cow<'static, str>>),  // Cow::Borrowed for interned, Cow::Owned for runtime
     List(Heap<Vec<Value>>),
-    Map(Heap<BTreeMap<Value, Value>>),  // BTreeMap for deterministic iteration
-    Set(Heap<BTreeMap<Value, ()>>),     // BTreeMap (NOT HashSet) for deterministic order
+    Map(Heap<BTreeMap<String, Value>>),  // BTreeMap with String keys for deterministic iteration
+    Set(Heap<BTreeMap<String, Value>>), // BTreeMap (NOT HashSet) for deterministic order
     Tuple(Heap<Vec<Value>>),
     Range(Heap<RangeValue>),
 
@@ -426,11 +428,11 @@ pub struct StructValue {
     /// Type name
     pub type_name: Name,
 
-    /// Field values by name
-    pub fields: Heap<HashMap<Name, Value>>,
+    /// Field values in layout order (positional, not named)
+    pub fields: Arc<Vec<Value>>,
 
-    /// Field layout for ordering
-    pub layout: StructLayout,
+    /// Layout for O(1) field access by name
+    pub layout: Arc<StructLayout>,
 }
 ```
 

@@ -20,44 +20,52 @@ The IR lives in its own crate `ori_ir`, which has no dependencies on other compi
 
 ```
 compiler/ori_ir/src/
-├── lib.rs              # Module exports, static_assert_size! macro
-├── ast/                # Expression and statement types
-│   ├── mod.rs              # Module re-exports
-│   ├── expr.rs             # ExprKind variants
-│   ├── stmt.rs             # Statement types
-│   ├── operators.rs        # Operator enums
-│   ├── ranges.rs           # Range types for arena allocation
-│   ├── collections.rs      # Collection literals
-│   ├── items/              # Top-level item definitions
-│   │   ├── function.rs         # Function, TestDef
-│   │   ├── imports.rs          # UseDef, ImportPath
-│   │   ├── types.rs            # TypeDecl, TypeDeclKind
-│   │   └── traits.rs          # TraitDef, ImplDef, ExtendDef
-│   └── patterns/           # Pattern constructs
-│       ├── seq.rs              # FunctionSeq (block expressions: blocks, try, match)
-│       ├── exp.rs              # FunctionExp (recurse, parallel, etc.)
-│       └── binding.rs          # Match patterns and arms
-├── canon/              # Canonical IR (sugar-free, type-annotated)
-│   ├── mod.rs              # CanExpr, CanId, CanRange
-│   └── tree.rs             # DecisionTree, FlatPattern, PatternMatrix
-├── pattern_resolution.rs # PatternKey, PatternResolution (type-checker → evaluator bridge)
-├── arena.rs            # Expression arena
-├── builtin_constants.rs # Built-in constant definitions
-├── builtin_type.rs     # Built-in type definitions
-├── builtin_methods.rs  # Built-in method definitions
-├── expr_id.rs          # ExprId, StmtId, ParsedTypeId, MatchPatternId
-├── type_id.rs          # TypeId (flat u32 index, no sharding)
-├── name.rs             # Name interning
-├── parsed_type.rs      # ParsedType for type annotations
-├── derives.rs          # DerivedTrait, DerivedMethodInfo
-├── token.rs            # Token definitions
-├── visitor.rs          # AST visitor pattern
-├── interner.rs         # String interning (16-shard RwLock)
-├── comment.rs          # Comment handling
-├── metadata.rs         # ModuleExtra for formatter/IDE metadata
-├── incremental.rs      # Incremental parsing support
-├── traits.rs           # Spanned, Named, Typed traits
-└── span.rs             # Source location tracking
+├── lib.rs                  # Module exports, static_assert_size! macro
+├── ast/                    # Expression and statement types
+│   ├── mod.rs                  # Module re-exports
+│   ├── expr.rs                 # ExprKind variants
+│   ├── stmt.rs                 # Statement types
+│   ├── operators.rs            # Operator enums
+│   ├── collections.rs          # Collection literals
+│   ├── items/                  # Top-level item definitions
+│   └── patterns/               # Pattern constructs (seq, exp, binding)
+├── canon/                  # Canonical IR (sugar-free, type-annotated)
+│   ├── mod.rs                  # Module re-exports
+│   ├── expr.rs                 # CanExpr variants
+│   ├── arena.rs                # CanArena (SoA storage for canonical nodes)
+│   ├── ids.rs                  # CanId, CanRange, range types
+│   ├── patterns.rs             # DecisionTree, FlatPattern, PatternMatrix
+│   └── pools.rs                # ConstantPool, DecisionTreePool
+├── token/                  # Token system
+│   ├── mod.rs                  # Token struct, re-exports
+│   ├── kind.rs                 # TokenKind enum
+│   ├── list.rs                 # TokenList (3 parallel arrays)
+│   ├── tag.rs                  # Discriminant tag constants
+│   ├── index.rs                # Token indexing traits
+│   ├── capture.rs              # Token capture utilities
+│   └── units.rs                # DurationUnit, SizeUnit
+├── derives/                # Derived trait definitions
+│   ├── mod.rs                  # DerivedTrait enum, DerivedMethodInfo
+│   └── strategy.rs             # Derivation strategies (FieldOp, CombineOp)
+├── arena/                  # Expression arena
+│   ├── mod.rs                  # ExprArena (SoA layout)
+│   └── range_builders.rs       # Direct-append API for side tables
+├── expr_id/mod.rs          # ExprId, StmtId, ParsedTypeId, MatchPatternId
+├── type_id/mod.rs          # TypeId (flat u32 index, no sharding)
+├── name/mod.rs             # Name newtype
+├── span/mod.rs             # Source location tracking
+├── interner/mod.rs         # String interning (16-shard RwLock)
+├── parsed_type/mod.rs      # ParsedType for type annotations
+├── builtin_constants/mod.rs # Built-in constant definitions
+├── builtin_type/mod.rs     # Built-in type definitions
+├── builtin_methods/mod.rs  # Built-in method definitions
+├── comment/mod.rs          # Comment handling
+├── metadata/mod.rs         # ModuleExtra for formatter/IDE metadata
+├── incremental/mod.rs      # Incremental parsing support
+├── traits/mod.rs           # Spanned, Named, Typed traits
+├── format_spec.rs          # FormatSpec for string formatting
+├── pattern_resolution.rs   # PatternKey, PatternResolution (typeck → eval bridge)
+└── visitor.rs              # AST visitor pattern
 ```
 
 ## Key Design Decisions
@@ -329,7 +337,7 @@ pub struct DerivedMethodInfo {
 }
 ```
 
-These types live in `ori_ir` (rather than `ori_typeck` or `ori_eval`) to avoid circular dependencies---both the type checker and evaluator need these definitions, and `ori_ir` has no dependencies.
+These types live in `ori_ir` (rather than `ori_types` or `ori_eval`) to avoid circular dependencies---both the type checker and evaluator need these definitions, and `ori_ir` has no dependencies.
 
 ## Size Assertions
 

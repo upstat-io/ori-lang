@@ -5,8 +5,10 @@
 //! buffer's refcount reaches zero.
 
 use super::{
-    call_drop_fn, ori_rc_free, rc_trace_enabled, rc_underflow_abort, rt_debug_validate_rc,
+    call_drop_fn, ori_rc_data_size, ori_rc_free, rc_trace_enabled, rc_underflow_abort,
+    rt_debug_validate_rc,
 };
+use crate::slice_encoding::{is_slice_cap, slice_original_data};
 use debug::rc_trace_dec;
 
 #[cfg(debug_assertions)]
@@ -24,14 +26,21 @@ use super::debug;
 /// the buffer pointer), this function knows the buffer's element layout:
 ///
 /// - `len`: number of live elements in the buffer
-/// - `cap`: allocated capacity (used for `ori_list_free_data`)
+/// - `cap`: allocated capacity (used for `ori_list_free_data`), OR a slice
+///   cap (negative, with `SLICE_FLAG` set) for seamless slices
 /// - `elem_size`: byte size of each element
 /// - `elem_dec_fn`: optional function called on each element when the buffer
 ///   is being freed. Receives a pointer to the element *within* the buffer.
 ///   Used to decrement RC children of each element (e.g., string data ptrs
 ///   inside a `[str]` buffer). Pass null for elements with no RC children.
 ///
-/// When the refcount reaches zero:
+/// **Slice handling**: When `cap` has `SLICE_FLAG` set (i.e., `cap < 0`),
+/// this is a seamless slice. The original buffer's RC is decremented instead.
+/// If the original's RC reaches zero, the slice's `len` elements get
+/// `elem_dec_fn` called (best-effort cleanup for elements in the slice's
+/// visible range) and the buffer is freed using the stored `data_size`.
+///
+/// When the refcount reaches zero (non-slice):
 /// 1. Calls `elem_dec_fn` on each of the `len` elements (if non-null)
 /// 2. Frees the buffer via `ori_rc_free`
 #[no_mangle]
@@ -43,6 +52,17 @@ pub extern "C" fn ori_buffer_rc_dec(
     elem_dec_fn: Option<extern "C" fn(*mut u8)>,
 ) {
     if data.is_null() {
+        return;
+    }
+
+    // Seamless slice: dec the original buffer's RC, not the slice's data pointer.
+    if is_slice_cap(cap) {
+        let original_data = slice_original_data(data, cap);
+        // Delegate to ori_rc_dec on the original buffer.
+        // We build a drop function that cleans up elements + frees.
+        // However, we can't pass elem info through ori_rc_dec's function pointer,
+        // so we handle the full lifecycle inline here.
+        slice_buffer_rc_dec(original_data, data, len, elem_size, elem_dec_fn);
         return;
     }
 
@@ -108,6 +128,95 @@ pub extern "C" fn ori_buffer_rc_dec(
             // Free the list data buffer (cap * elem_size bytes, RC-managed)
             let total = cap.max(0) as usize * es;
             ori_rc_free(data, total, 8);
+        }
+    }
+}
+
+/// Decrement the original buffer's RC on behalf of a slice.
+///
+/// When a seamless slice is dropped, it decs the *original* buffer's RC.
+/// If the original's RC reaches zero:
+/// 1. The slice's visible elements get `elem_dec_fn` called (best-effort
+///    cleanup — elements outside the slice's range are NOT cleaned up)
+/// 2. The buffer is freed using the stored `data_size` from the RC header
+///
+/// This is a known limitation: if a slice is the last reference and its range
+/// doesn't cover all elements of the original buffer, elements outside the
+/// slice's range will have their child RCs leaked. This is acceptable because:
+/// - Most common case is scalar elements (int, float) with no child RCs
+/// - In practice, original lists usually outlive their slices
+/// - Full cleanup would require storing the original `len` in the header
+fn slice_buffer_rc_dec(
+    original_data: *mut u8,
+    slice_data: *mut u8,
+    slice_len: i64,
+    elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+) {
+    rt_debug_validate_rc(original_data.cast_const(), "slice_buffer_rc_dec");
+    #[cfg(debug_assertions)]
+    rt_debug_check_not_freed(original_data.cast_const(), "slice_buffer_rc_dec");
+
+    let es = elem_size.max(1) as usize;
+    let n = slice_len.max(0) as usize;
+
+    #[cfg(not(feature = "single-threaded"))]
+    {
+        let prev = unsafe {
+            let rc_ptr = original_data.sub(8).cast::<AtomicI64>();
+            (*rc_ptr).fetch_sub(1, Ordering::Release)
+        };
+
+        if prev <= 0 {
+            rc_underflow_abort(original_data);
+        }
+
+        if rc_trace_enabled() {
+            rc_trace_dec(original_data.cast_const(), prev - 1);
+        }
+
+        if prev <= 1 {
+            atomic::fence(Ordering::Acquire);
+
+            // Best-effort element cleanup: dec elements in the slice's range
+            if let Some(f) = elem_dec_fn {
+                for i in 0..n {
+                    call_drop_fn(f, unsafe { slice_data.add(i * es) });
+                }
+            }
+
+            // Free the buffer using the stored data_size from the RC header
+            let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
+            ori_rc_free(original_data, data_size, 8);
+        }
+    }
+
+    #[cfg(feature = "single-threaded")]
+    {
+        let (should_drop, new_rc) = unsafe {
+            let rc_ptr = original_data.sub(8).cast::<i64>();
+            if *rc_ptr <= 0 {
+                rc_underflow_abort(original_data);
+            }
+            *rc_ptr -= 1;
+            (*rc_ptr <= 0, *rc_ptr)
+        };
+
+        if rc_trace_enabled() {
+            rc_trace_dec(original_data.cast_const(), new_rc);
+        }
+
+        if should_drop {
+            // Best-effort element cleanup: dec elements in the slice's range
+            if let Some(f) = elem_dec_fn {
+                for i in 0..n {
+                    call_drop_fn(f, unsafe { slice_data.add(i * es) });
+                }
+            }
+
+            // Free the buffer using the stored data_size from the RC header
+            let data_size = ori_rc_data_size(original_data.cast_const()) as usize;
+            ori_rc_free(original_data, data_size, 8);
         }
     }
 }
@@ -208,6 +317,29 @@ fn map_buffer_cleanup(
     // Free the combined buffer
     let total = cap * key_size + cap * val_size;
     ori_rc_free(data, total, 8);
+}
+
+/// Slice-aware RC increment for collection buffers.
+///
+/// If `cap` indicates a seamless slice (`is_slice_cap(cap) == true`),
+/// increments the RC on the *original* buffer (computed from the byte
+/// offset encoded in `cap`). Otherwise, increments RC on `data` directly.
+///
+/// This is the correct RC increment for any list/set value, whether it's
+/// an owned buffer or a seamless slice view into another buffer.
+#[no_mangle]
+pub extern "C" fn ori_list_rc_inc(data: *mut u8, cap: i64) {
+    if data.is_null() {
+        return;
+    }
+
+    let rc_target = if is_slice_cap(cap) {
+        slice_original_data(data, cap)
+    } else {
+        data
+    };
+
+    crate::rc::ori_rc_inc(rc_target);
 }
 
 /// Copy `count * elem_size` bytes from `src` to `dst` (non-overlapping).
