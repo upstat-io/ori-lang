@@ -295,15 +295,16 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
 
     // -- ARC-specific Types --
 
-    /// Create debug info for an ARC heap allocation: `RC<T> = { strong_count: i64, data: T }`.
+    /// Create debug info for an ARC heap allocation:
+    /// `RC<T> = { data_size: i64, strong_count: i64, data: T }`.
     ///
     /// This represents the heap layout of a reference-counted value.
-    /// The 8-byte `strong_count` header precedes the actual data.
+    /// The 16-byte header (`data_size` + `strong_count`) precedes the data.
     ///
     /// # Errors
     ///
     /// Returns `DebugInfoError::BasicTypeCreation` if LLVM fails to create
-    /// the underlying int type for `strong_count`.
+    /// the underlying int type for the header fields.
     pub fn create_rc_heap_type(
         &self,
         inner_type: DIType<'ctx>,
@@ -314,22 +315,29 @@ impl<'ctx> DebugInfoBuilder<'ctx> {
 
         let fields = [
             FieldInfo {
-                name: "strong_count",
+                name: "data_size",
                 ty: int_ty,
                 size_bits: 64,
                 offset_bits: 0,
                 line: 0,
             },
             FieldInfo {
+                name: "strong_count",
+                ty: int_ty,
+                size_bits: 64,
+                offset_bits: 64, // 8-byte offset
+                line: 0,
+            },
+            FieldInfo {
                 name: "data",
                 ty: inner_type,
                 size_bits: inner_size_bits,
-                offset_bits: 64, // 8-byte header
+                offset_bits: 128, // 16-byte header
                 line: 0,
             },
         ];
 
-        let total_size = 64 + inner_size_bits;
+        let total_size = 128 + inner_size_bits;
         let type_name = format!("RC<{inner_name}>");
         Ok(self.create_struct_type(&type_name, 0, total_size, 64, &fields))
     }

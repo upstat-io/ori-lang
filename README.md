@@ -145,6 +145,24 @@ Express *what* you want, not *how*. First-class patterns replace error-prone loo
 }
 ```
 
+### Performance From Semantics
+
+A high-level language with low-level speed. No garbage collector. No borrow checker. ARC memory with value semantics.
+
+Value semantics mean no pointers and no shared mutable state. This prevents aliasing bugs — but it also gives the compiler optimization freedom that pointer-based languages structurally cannot access.
+
+```ori
+@transform (items: [int]) -> [int] =
+    items.iter()
+        .filter(predicate: x -> x > 0)
+        .map(transform: x -> x * 2)
+        .collect()
+```
+
+The compiler knows no parameters can ever alias — auto-vectorization and loop optimizations apply without `restrict` annotations or borrow proofs. This is the same structural advantage that lets Fortran [outperform C](https://benchmarksgame-team.pages.debian.net/benchmarksgame/) on numerical workloads. Functional operations like the chain above compile to in-place mutations through [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/)-style reset/reuse — no intermediate allocations. Functions without capabilities are provably pure, enabling the compiler to memoize, reorder, or eliminate calls automatically.
+
+The same design choices that make Ori verifiable make it optimizable.
+
 ## Quick Start
 
 Install Ori (latest nightly):
@@ -228,6 +246,7 @@ Ori makes verification automatic — the compiler enforces what discipline alone
 | Mock with frameworks | Mock with capabilities |
 | Runtime errors | Compile-time guarantees |
 | Hidden effects | Explicit capabilities |
+| Manual optimization hints | Optimization from semantics |
 
 ### The Virtuous Cycle
 

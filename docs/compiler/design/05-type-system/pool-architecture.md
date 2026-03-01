@@ -18,11 +18,17 @@ compiler/ori_types/src/
 ├── item.rs          # Item storage record
 ├── flags.rs         # TypeFlags bitfield
 └── pool/
-    ├── mod.rs       # Pool struct, queries, variable state
+    ├── mod.rs       # Pool struct, core implementation
+    ├── accessors.rs # Query methods (type lookups, variable state)
+    ├── descriptor.rs # Type descriptor operations
     ├── construct/   # Type construction (directory)
     │   └── mod.rs       # Interning + dedup
-    └── format/      # Human-readable formatting (directory)
-        └── mod.rs       # Type display for diagnostics
+    ├── format/      # Human-readable formatting (directory)
+    │   └── mod.rs       # Type display for diagnostics
+    ├── re_intern/   # Re-interning utilities
+    │   └── mod.rs
+    └── substitute/  # Type substitution
+        └── mod.rs
 ```
 
 ## Design Rationale
@@ -236,13 +242,13 @@ pub fn hash(&self, idx: Idx) -> u64
 // Functions
 pub fn function_param_count(&self, idx: Idx) -> usize
 pub fn function_param(&self, idx: Idx, i: usize) -> Idx
-pub fn function_params(&self, idx: Idx) -> &[u32]
+pub fn function_params(&self, idx: Idx) -> Vec<Idx>   // allocating — returns typed Idx values
 pub fn function_return(&self, idx: Idx) -> Idx
 
 // Tuples
 pub fn tuple_elem_count(&self, idx: Idx) -> usize
 pub fn tuple_elem(&self, idx: Idx, i: usize) -> Idx
-pub fn tuple_elems(&self, idx: Idx) -> &[u32]
+pub fn tuple_elems(&self, idx: Idx) -> Vec<Idx>        // allocating — returns typed Idx values
 
 // Containers
 pub fn list_elem(&self, idx: Idx) -> Idx
@@ -253,13 +259,13 @@ pub fn result_ok(&self, idx: Idx) -> Idx
 pub fn result_err(&self, idx: Idx) -> Idx
 
 // Schemes
-pub fn scheme_vars(&self, idx: Idx) -> &[u32]
+pub fn scheme_vars(&self, idx: Idx) -> &[u32]          // borrowing — raw u32 pool indices
 pub fn scheme_body(&self, idx: Idx) -> Idx
 
 // Applied types
 pub fn applied_name(&self, idx: Idx) -> Name
 pub fn applied_arg_count(&self, idx: Idx) -> usize
-pub fn applied_args(&self, idx: Idx) -> &[u32]
+pub fn applied_args(&self, idx: Idx) -> Vec<Idx>       // allocating — returns typed Idx values
 ```
 
 ## Type Variable State

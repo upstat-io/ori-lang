@@ -18,9 +18,12 @@ sections:
     title: "Fix M9 — Range overflow for ..=INT_MAX"
     status: not-started
   - id: "02.4"
-    title: "Design M2 — nsw flags / checked arithmetic"
+    title: "Add H3 — noalias on all value-semantic parameters"
     status: not-started
   - id: "02.5"
+    title: "Design M2 — nsw flags / checked arithmetic"
+    status: not-started
+  - id: "02.6"
     title: "Completion Checklist"
     status: not-started
 ---
@@ -119,7 +122,42 @@ Inclusive range `1..=n` computes `end + step` to convert to exclusive bound. For
 
 ---
 
-## 02.4 Design M2 — nsw Flags / Checked Arithmetic
+## 02.4 Add H3 — noalias on All Value-Semantic Parameters
+
+**Severity:** HIGH (optimization enabler, not correctness)
+**File(s):** `compiler/ori_llvm/src/codegen/function_compiler/mod.rs`, `compiler/ori_llvm/src/codegen/ir_builder/calls.rs`
+
+Ori's value semantics guarantee that no two function parameters can alias — there are no pointers, no shared mutable references. LLVM's `noalias` attribute encodes exactly this guarantee, unlocking:
+- **Loop vectorization**: `LoopVectorize` won't vectorize loads/stores through potentially-aliasing pointers
+- **LICM**: Loop-invariant code motion needs `noalias` to hoist loads out of loops
+- **GVN**: Global value numbering can eliminate redundant loads when no aliasing is possible
+- **BasicAA**: LLVM's basic alias analysis uses `noalias` to return `MustAlias`/`NoAlias` results
+
+**Current state:** `noalias` is only emitted on sret parameters and `ori_rc_alloc` return values. Regular function parameters — which are ALL non-aliasing by language semantics — get no annotation.
+
+**What to do:**
+- In `function_compiler/mod.rs` where function parameters are emitted, call `add_noalias_attribute()` on every parameter that has a pointer-based LLVM representation (structs passed by pointer, collections, strings). Scalar parameters (i64, f64, i1) don't need it — they're passed by value.
+- This is sound unconditionally in Ori. Unlike Rust (which had to disable noalias due to `&mut` + `UnsafeCell` interactions), Ori has no escape hatch from value semantics.
+
+**Implementation (~50 lines):**
+```rust
+// In function_compiler/mod.rs, after parameter setup:
+for (i, param) in func.params.iter().enumerate() {
+    let param_idx = if has_sret { i + 1 } else { i };
+    if self.is_pointer_param(param) {
+        self.builder.add_noalias_attribute(func_id, param_idx);
+    }
+}
+```
+
+- [ ] Add `noalias` to all pointer-type function parameters
+- [ ] Verify with `opt -passes=print-alias-summary` that LLVM recognizes no-alias relationships
+- [ ] Benchmark: collection-heavy function shows vectorization in LLVM IR (`<4 x i64>` operations)
+- [ ] Verify: no test regressions (this is a sound annotation — correctness should not change)
+
+---
+
+## 02.5 Design M2 — nsw Flags / Checked Arithmetic
 
 **Journey:** J1 (confirmed J1-J12) | **Severity:** MEDIUM
 **File(s):** `compiler/ori_llvm/src/codegen/` (arithmetic instruction emission)
@@ -141,14 +179,15 @@ Emit `llvm.sadd.with.overflow` / `ssub.with.overflow` / `smul.with.overflow` int
 
 ---
 
-## 02.5 Completion Checklist
+## 02.6 Completion Checklist
 
 - [ ] No `load` of uninitialized memory in any generated IR (M14 fixed)
 - [ ] All runtime function declarations have correct `nounwind` attributes
 - [ ] No function marked `nounwind` transitively calls a panicking runtime function
+- [ ] All pointer-type function parameters have `noalias` attribute (H3)
 - [ ] `1..=0` range works correctly (empty inclusive range edge case)
 - [ ] Integer arithmetic semantics decision documented and implemented
 - [ ] `./scripts/valgrind-aot.sh` — 0 errors
 - [ ] `./test-all.sh` green
 
-**Exit Criteria:** `opt -passes=verify` on generated IR for all 12 journeys reports 0 errors. Valgrind reports 0 invalid reads/writes. nounwind analysis is conservative-correct.
+**Exit Criteria:** `opt -passes=verify` on generated IR for all 12 journeys reports 0 errors. Valgrind reports 0 invalid reads/writes. nounwind analysis is conservative-correct. All user-defined functions have `noalias` on pointer-type parameters.

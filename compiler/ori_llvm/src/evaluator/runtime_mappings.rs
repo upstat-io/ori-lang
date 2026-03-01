@@ -52,7 +52,12 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_list_last",
     "ori_list_contains_int",
     "ori_list_contains_str",
+    "ori_list_materialize_slice",
+    "ori_list_rc_inc",
     "ori_list_reverse",
+    "ori_list_slice",
+    "ori_list_slice_drop",
+    "ori_list_slice_take",
     // Map methods — AOT uses runtime calls; JIT uses native Rust dispatch
     "ori_map_buffer_rc_dec",
     "ori_map_contains_key",
@@ -84,6 +89,7 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_str_split",
     "ori_str_to_lowercase",
     "ori_str_to_uppercase",
+    "ori_str_substring",
     "ori_str_trim",
     // Boxed list construction — AOT wraps list structs in RC boxes; JIT uses native Vecs
     "ori_list_box_new",

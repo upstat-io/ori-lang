@@ -19,9 +19,8 @@ pub(super) fn resolve_list_method(
         "first" | "last" | "pop" | "get" => Some(engine.pool_mut().option(elem)),
         "iter" => Some(engine.pool_mut().double_ended_iterator(elem)),
         "reverse" | "sort" | "sort_stable" | "sorted" | "unique" | "flatten" | "push"
-        | "append" | "prepend" | "concat" | "clone" | "set" | "insert" | "remove" => {
-            Some(receiver_ty)
-        }
+        | "append" | "prepend" | "concat" | "clone" | "set" | "insert" | "remove" | "slice"
+        | "take" | "skip" | "drop" => Some(receiver_ty),
         "compare" => Some(Idx::ORDERING),
         "join" | "debug" => Some(Idx::STR),
         "enumerate" => {
@@ -36,8 +35,8 @@ pub(super) fn resolve_list_method(
             Some(engine.pool_mut().list(pair))
         }
         "map" | "filter" | "flat_map" | "find" | "any" | "all" | "fold" | "reduce" | "for_each"
-        | "take" | "skip" | "take_while" | "skip_while" | "chunk" | "window" | "min" | "max"
-        | "sum" | "product" | "min_by" | "max_by" | "sort_by" | "group_by" | "partition" => {
+        | "take_while" | "skip_while" | "chunk" | "window" | "min" | "max" | "sum" | "product"
+        | "min_by" | "max_by" | "sort_by" | "group_by" | "partition" => {
             // Higher-order methods — return type depends on closure argument.
             // For now return fresh var; proper HO method inference is a follow-up.
             Some(engine.pool_mut().fresh_var())

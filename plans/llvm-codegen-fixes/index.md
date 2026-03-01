@@ -32,6 +32,7 @@ phi_types_blocks, param_index, param_count, inkwell
 ```
 M14, None, uninitialized, payload, alloca, poison, LLVM UB
 H2, nounwind, unsound, runtime function, ori_iter_from_list, ori_iter_next
+H3, noalias, parameter, value semantics, aliasing, vectorization, LICM, GVN
 M2, nsw, nuw, overflow, wrapping, checked arithmetic, sadd.with.overflow
 M9, inclusive range, ..=, INT_MAX, end + step, overflow
 ```

@@ -2,33 +2,45 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUILD_NUMBER'), 'utf-8').trim();
+const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../../BUILD_NUMBER'), 'utf-8').trim();
 ---
 
 <section class="hero">
   <div class="hero-inner">
-    <span class="status-badge">v{version}</span>
-    <h1 class="hero-title">Code That Proves Itself</h1>
-    <p class="hero-subtitle">
-      Expression-based. Type-inferred. Effect-aware. Tests are mandatory and live in the dependency graph. Memory is automatic with no GC or borrow checker. If it compiles, it's verified. If you change it, you'll know what broke.
-    </p>
-    <div class="hero-actions">
-      <a href="/playground" class="btn btn-primary">Try Playground</a>
-      <a href="/guide/01-getting-started" class="btn btn-secondary">Read Docs</a>
+    <div class="hero-text">
+      <span class="status-badge">v{version}</span>
+      <h1 class="hero-title">Code That Proves Itself</h1>
+      <p class="hero-subtitle">
+        Every function tested. Every change traced. Every effect explicit.
+      </p>
+      <div class="hero-actions">
+        <a href="/guide/01-getting-started" class="btn btn-primary">Read Docs</a>
+        <a href="https://github.com/upstat-io/ori-lang" class="btn btn-secondary">GitHub</a>
+      </div>
+    </div>
+    <div class="hero-playground">
+      <slot />
     </div>
   </div>
 </section>
 
 <style>
   .hero {
-    padding: var(--space-16) 0 var(--space-16);
-    text-align: center;
+    padding: var(--space-16) 0;
   }
 
   .hero-inner {
-    max-width: 720px;
+    display: grid;
+    grid-template-columns: 2fr 3fr;
+    gap: var(--space-10);
+    max-width: var(--max-width);
     margin: 0 auto;
     padding: 0 var(--space-6);
+    align-items: center;
+  }
+
+  .hero-text {
+    text-align: left;
   }
 
   .status-badge {
@@ -46,8 +58,9 @@ const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUIL
   }
 
   .hero-title {
-    font-size: var(--text-5xl);
+    font-size: clamp(var(--text-4xl), 5vw, 4rem);
     font-weight: var(--weight-bold);
+    line-height: 1.1;
     background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-success) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -60,16 +73,16 @@ const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUIL
     color: var(--color-text-secondary);
     line-height: var(--leading-relaxed);
     margin-bottom: var(--space-8);
-    max-width: 720px;
-    margin-left: auto;
-    margin-right: auto;
   }
 
   .hero-actions {
     display: flex;
     gap: var(--space-4);
-    justify-content: center;
     flex-wrap: wrap;
+  }
+
+  .hero-playground {
+    height: 580px;
   }
 
   .btn {
@@ -105,6 +118,26 @@ const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUIL
     border-color: var(--color-border-hover);
   }
 
+  @media (max-width: 1120px) {
+    .hero-inner {
+      grid-template-columns: 1fr;
+    }
+
+    .hero-text {
+      text-align: center;
+    }
+
+    .hero-actions {
+      justify-content: center;
+    }
+
+    .hero-playground {
+      max-width: 720px;
+      margin: 0 auto;
+      width: 100%;
+    }
+  }
+
   @media (max-width: 640px) {
     .hero {
       padding: var(--space-16) 0 var(--space-12);
@@ -112,6 +145,10 @@ const version = fs.readFileSync(path.resolve(import.meta.dirname, '../../../BUIL
 
     .hero-title {
       font-size: var(--text-4xl);
+    }
+
+    .hero-playground {
+      height: 400px;
     }
   }
 </style>

@@ -46,7 +46,9 @@ pub fn compare_values(
         | (Value::Ok(a_inner), Value::Ok(b_inner))
         | (Value::Err(a_inner), Value::Err(b_inner)) => compare_values(a_inner, b_inner, interner),
         // List comparison: lexicographic
-        (Value::List(a_items), Value::List(b_items)) => compare_lists(a_items, b_items, interner),
+        (Value::List(a_items), Value::List(b_items)) => {
+            compare_lists(&a_items[..], &b_items[..], interner)
+        }
         // Tuple comparison: lexicographic
         (Value::Tuple(a_elems), Value::Tuple(b_elems)) => compare_lists(a_elems, b_elems, interner),
         // Ordering comparison
@@ -139,8 +141,20 @@ pub fn equals_values(a: &Value, b: &Value, interner: &StringInterner) -> Result<
         (Value::Ok(a), Value::Ok(b)) | (Value::Err(a), Value::Err(b)) => {
             equals_values(a, b, interner)
         }
-        // List/Tuple — element-wise equality
-        (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => {
+        // List — element-wise equality
+        (Value::List(a), Value::List(b)) => {
+            if a.len() != b.len() {
+                return Ok(false);
+            }
+            for (ai, bi) in a.iter().zip(b.iter()) {
+                if !equals_values(ai, bi, interner)? {
+                    return Ok(false);
+                }
+            }
+            Ok(true)
+        }
+        // Tuple — element-wise equality
+        (Value::Tuple(a), Value::Tuple(b)) => {
             if a.len() != b.len() {
                 return Ok(false);
             }
@@ -244,8 +258,16 @@ pub fn hash_value(v: &Value, interner: &StringInterner) -> Result<i64, EvalError
             let inner_hash = hash_value(inner, interner)?;
             Ok(hash_combine(3, inner_hash))
         }
-        // List/Tuple: fold with hash_combine
-        Value::List(items) | Value::Tuple(items) => {
+        // List: fold with hash_combine
+        Value::List(items) => {
+            let mut h = 0_i64;
+            for item in items.iter() {
+                h = hash_combine(h, hash_value(item, interner)?);
+            }
+            Ok(h)
+        }
+        // Tuple: fold with hash_combine
+        Value::Tuple(items) => {
             let mut h = 0_i64;
             for item in items.iter() {
                 h = hash_combine(h, hash_value(item, interner)?);

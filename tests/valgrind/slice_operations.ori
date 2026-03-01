@@ -1,0 +1,66 @@
+// Valgrind test: Seamless slice operations.
+// Exercises list.slice, list.take, list.drop, str.substring, str.trim,
+// slice chaining, slice mutation (COW materialization), and RC lifecycle
+// when slices outlive or are dropped before the original.
+
+@main () -> int = {
+    // list.slice: basic
+    let xs = [10, 20, 30, 40, 50];
+    let s1 = xs.slice(start: 1, end: 4);
+    let slice_ok = s1.length() == 3 && s1.first().unwrap() == 20 && s1.last().unwrap() == 40;
+
+    // list.take: first N elements
+    let s2 = xs.take(count: 3);
+    let take_ok = s2.length() == 3 && s2.first().unwrap() == 10 && s2.last().unwrap() == 30;
+
+    // list.drop: skip N elements
+    let s3 = xs.drop(count: 2);
+    let drop_ok = s3.length() == 3 && s3.first().unwrap() == 30 && s3.last().unwrap() == 50;
+
+    // slice of empty range
+    let s4 = xs.slice(start: 2, end: 2);
+    let empty_ok = s4.length() == 0;
+
+    // slice of full range
+    let s5 = xs.slice(start: 0, end: 5);
+    let full_ok = s5.length() == 5 && s5.first().unwrap() == 10;
+
+    // chaining: take then drop (slice of a slice)
+    let s6 = xs.take(count: 4).drop(count: 1);
+    let chain_ok = s6.length() == 3 && s6.first().unwrap() == 20 && s6.last().unwrap() == 40;
+
+    // original survives after slicing
+    let orig_ok = xs.length() == 5 && xs.first().unwrap() == 10;
+
+    // str.substring: basic
+    let $msg = "hello world";
+    let $sub1 = msg.substring(start: 0, end: 5);
+    let str_sub_ok = sub1 == "hello";
+
+    // str.substring: middle
+    let $sub2 = msg.substring(start: 6, end: 11);
+    let str_mid_ok = sub2 == "world";
+
+    // str.slice: alias for substring
+    let $sub3 = msg.slice(start: 0, end: 5);
+    let str_slice_ok = sub3 == "hello";
+
+    // str.trim: returns slice or SSO copy
+    let $padded = "  trimmed  ";
+    let $trimmed = padded.trim();
+    let trim_ok = trimmed == "trimmed";
+
+    // COW on slice: push materializes
+    let cow_list = [1, 2, 3, 4, 5];
+    let cow_slice = cow_list.slice(start: 1, end: 4);
+    let cow_pushed = cow_slice.push(99);
+    let cow_ok = cow_pushed.length() == 4 && cow_pushed.last().unwrap() == 99
+        && cow_slice.length() == 3;
+
+    // Verify all checks passed
+    if slice_ok && take_ok && drop_ok && empty_ok && full_ok && chain_ok
+        && orig_ok && str_sub_ok && str_mid_ok && str_slice_ok && trim_ok
+        && cow_ok
+        then 0
+        else 1
+}

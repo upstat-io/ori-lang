@@ -47,12 +47,27 @@ compiler/
 ├── ori_lexer_core/            # Low-level scanner (raw tokenization)
 │   └── src/
 │       ├── lib.rs            # Module exports
-│       ├── raw_scanner.rs    # RawScanner, byte-level tokenization
-│       ├── source_buffer.rs  # SourceBuffer, cursor management
-│       ├── cursor.rs         # Cursor utilities
-│       └── tag.rs            # RawTag definitions
-├── ori_lexer/                # Tokenization (logos-based, wraps ori_lexer_core)
-│   └── src/lib.rs            # lex() function, token processing
+│       ├── raw_scanner/      # RawScanner, byte-level tokenization
+│       │   ├── mod.rs        # Core scanner loop
+│       │   ├── numbers.rs    # Number literal scanning
+│       │   ├── operators.rs  # Operator scanning
+│       │   ├── strings.rs    # String/char literal scanning
+│       │   └── templates.rs  # Template literal scanning
+│       ├── source_buffer/mod.rs # SourceBuffer, cursor management
+│       ├── cursor/mod.rs     # Cursor utilities
+│       └── tag/mod.rs        # RawTag definitions
+├── ori_lexer/                # Token cooking (wraps ori_lexer_core)
+│   └── src/
+│       ├── lib.rs            # lex() function, token processing
+│       ├── cooker/mod.rs     # Token cooking (raw → cooked)
+│       ├── keywords/mod.rs   # Keyword resolution
+│       ├── comments/mod.rs   # Comment handling
+│       ├── cook_escape/mod.rs # Escape sequence processing
+│       ├── lex_error/mod.rs  # Lexer error types
+│       ├── parse_helpers/mod.rs # Number/literal parsing
+│       ├── trivial/mod.rs    # Trivial token handling
+│       ├── unicode_confusables/mod.rs # Unicode homoglyph detection
+│       └── what_is_next/mod.rs # Lookahead helpers
 ├── ori_parse/                # Recursive descent parser
 │   └── src/
 │       ├── lib.rs            # Parser struct, parse() entry point
@@ -119,26 +134,46 @@ compiler/
 ├── ori_canon/                # Canonical IR lowering (AST → sugar-free IR)
 │   └── src/
 │       ├── lib.rs            # Module exports, public API
-│       ├── lower.rs          # lower_module() entry point, Lowerer
-│       ├── desugar.rs        # Named calls → positional, templates → concat
-│       ├── patterns.rs       # Pattern compilation (Maranget 2008 → decision trees)
-│       ├── const_fold.rs     # Compile-time constant folding
+│       ├── lower/            # Lowerer: AST → canonical IR
+│       │   ├── mod.rs        # Lowerer struct, entry point
+│       │   ├── expr.rs       # Expression lowering
+│       │   ├── collections.rs # Collection literal lowering
+│       │   ├── patterns.rs   # Pattern lowering within match
+│       │   ├── sequences.rs  # Sequence/block lowering
+│       │   └── misc.rs       # Miscellaneous helpers
+│       ├── desugar/mod.rs    # Named calls → positional, templates → concat
+│       ├── patterns/mod.rs   # Pattern compilation (Maranget 2008 → decision trees)
+│       ├── const_fold/mod.rs # Compile-time constant folding
+│       ├── exhaustiveness/mod.rs # Pattern exhaustiveness & redundancy checking
 │       └── validate.rs       # Post-lowering validation
 ├── ori_arc/                  # ARC analysis (reference counting optimization)
 │   └── src/
-│       ├── lib.rs            # Module exports
-│       ├── classify.rs       # Type classification (owned vs borrowed)
-│       ├── borrow.rs         # Borrow inference
-│       ├── rc_insert.rs      # Reference count insertion
-│       ├── rc_elim.rs        # Redundant RC elimination
-│       ├── reset_reuse.rs    # Reset/reuse optimization
-│       ├── expand_reuse.rs   # Reuse expansion
-│       ├── liveness.rs       # Liveness analysis
-│       ├── ownership.rs      # Ownership tracking
-│       ├── graph.rs          # Control flow graph
-│       ├── ir.rs             # ARC IR types
-│       ├── drop.rs           # Drop insertion
-│       └── lower/            # ARC lowering passes
+│       ├── lib.rs            # Pipeline entry, ArcClass, classification trait
+│       ├── ir/               # ARC IR definitions
+│       │   ├── mod.rs        # ArcFunction, ArcBlock, ArcVarId
+│       │   ├── instr.rs      # ArcInstr enum
+│       │   └── repr.rs       # IR display/debug
+│       ├── lower/            # CanExpr → ARC IR lowering
+│       │   ├── mod.rs        # ArcLowerer, ArcIrBuilder
+│       │   ├── builder.rs    # IR builder utilities
+│       │   ├── expr/mod.rs   # Expression lowering
+│       │   ├── calls/mod.rs  # Function calls + lambda lowering
+│       │   ├── collections/mod.rs # Collection lowering
+│       │   ├── constructs.rs # Struct/enum construction
+│       │   ├── control_flow/ # Control flow lowering
+│       │   ├── patterns/mod.rs # Pattern lowering
+│       │   └── scope/mod.rs  # Scope management
+│       ├── borrow/           # Borrow inference (Owned vs Borrowed)
+│       ├── ownership/mod.rs  # Derived ownership for all locals
+│       ├── liveness/mod.rs   # Liveness analysis
+│       ├── rc_insert/        # RC operation insertion
+│       ├── rc_elim/          # Redundant RC elimination
+│       ├── rc_identity/mod.rs # RC identity tracking
+│       ├── reset_reuse/mod.rs # Reset/reuse detection
+│       ├── drop/mod.rs       # Per-type drop info
+│       ├── fbip/mod.rs       # Functional-but-in-place analysis
+│       ├── decision_tree/    # Pattern match → decision trees
+│       └── graph/            # Dominator tree, call graph, SCC
 ├── ori_fmt/                  # Source code formatter (5-layer architecture)
 │   └── src/
 │       ├── lib.rs            # Public API, tabs_to_spaces()
@@ -152,7 +187,16 @@ compiler/
 │       └── lib.rs            # grow_stack(), stack checks
 ├── ori_rt/                   # Runtime library (for AOT compilation)
 │   └── src/
-│       └── lib.rs            # Runtime support functions
+│       ├── lib.rs            # Module exports, OriRcHeader, OriStr
+│       ├── rc/               # Reference counting (alloc, inc, dec, free)
+│       ├── list/             # List operations + COW mutations
+│       ├── map/              # Map operations + COW mutations
+│       ├── set/              # Set operations + COW mutations
+│       ├── string/           # String operations (SSO-aware)
+│       ├── iterator/         # Iterator runtime support
+│       ├── format/mod.rs     # Value formatting
+│       ├── io.rs             # I/O operations
+│       └── slice_encoding/mod.rs # Slice encoding helpers
 ├── ori_compiler/             # Salsa-free compiler driver
 │   └── src/
 │       ├── lib.rs            # Driver API

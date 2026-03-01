@@ -6,6 +6,8 @@ order: 1
 
 # Conditional Compilation
 
+> **Note:** This document describes conditional compilation within the Ori **compiler itself** (Rust `#[cfg]` attributes). For Ori's **language-level** conditional compilation (`#target()`/`#cfg()` attributes on Ori source code), the AST and parser infrastructure exists but enforcement in the type checker, evaluator, and codegen is **not yet implemented** — items with conditional attributes are currently compiled and executed regardless of target/config.
+
 The Ori compiler uses Rust's `#[cfg]` attributes to compile different code paths for different target platforms.
 
 ## Target Detection

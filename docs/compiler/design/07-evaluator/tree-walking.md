@@ -37,7 +37,7 @@ dispatching. This releases the immutable borrow on `self.canon`, allowing recurs
 
 ## Canonical Expression Dispatch
 
-The `eval_can_inner()` method handles all `CanExpr` variants exhaustively (no `_ =>` catch-all). Currently 48 variants. The kind is copied out of the arena before dispatching to release the immutable borrow:
+The `eval_can_inner()` method handles all `CanExpr` variants exhaustively (no `_ =>` catch-all). Currently 54 variants. The kind is copied out of the arena before dispatching to release the immutable borrow:
 
 ```rust
 fn eval_can_inner(&mut self, can_id: CanId) -> EvalResult {

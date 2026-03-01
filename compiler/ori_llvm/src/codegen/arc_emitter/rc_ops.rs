@@ -25,7 +25,7 @@
 //! None of the handlers in this module call `extract_rc_data_ptrs`. Each
 //! strategy knows its own layout and extracts pointers directly:
 //!
-//! - `HeapPointer`: collection layout switch (List/Map/Set field 2)
+//! - `HeapPointer`: slice-aware for List/Set (data+cap → `ori_list_rc_inc`); Map field 2
 //! - `FatPointer`: always field 1 (the `data_ptr` half)
 //! - `Closure`: field 1 (`env_ptr`) with null-check
 //! - `AggregateFields`: struct/tuple field traversal via [`inc_value_rc`] / [`dec_value_rc`]
@@ -123,14 +123,33 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Inc a heap-allocated collection (List, Map, Set, etc.).
     ///
-    /// Extracts the data pointer(s) from known collection layouts and calls
-    /// `ori_rc_inc` on each. For unknown types, treats the value itself as
-    /// the RC pointer.
+    /// For List/Set: uses slice-aware `ori_list_rc_inc(data, cap)` which
+    /// handles seamless slices (where `data` is interior to another buffer).
+    /// For other types: extracts data pointer(s) and calls `ori_rc_inc`.
     fn emit_rc_inc_heap(&mut self, var: ArcVarId, count: u32, func: &ArcFunction) {
         let val = self.var(var);
         let ty = func.var_type(var);
-        let ptrs = self.extract_rc_data_ptrs(val, ty);
-        self.call_rc_inc_all(&ptrs, count);
+        let resolved = self.pool.resolve_fully(ty);
+        let tag = self.pool.tag(resolved);
+
+        match tag {
+            Tag::List | Tag::Set => {
+                // Slice-aware: extract data + cap, call ori_list_rc_inc
+                if let Some(dp) = self.builder.extract_value(val, 2, "rc_inc.data") {
+                    let cap = self
+                        .builder
+                        .extract_value(val, 1, "rc_inc.cap")
+                        .unwrap_or_else(|| self.builder.const_i64(0));
+                    self.call_list_rc_inc(dp, cap, count);
+                } else {
+                    self.call_rc_inc_all(&[val], count);
+                }
+            }
+            _ => {
+                let ptrs = self.extract_rc_data_ptrs(val, ty);
+                self.call_rc_inc_all(&ptrs, count);
+            }
+        }
     }
 
     /// Dec a heap-allocated collection.
@@ -438,6 +457,23 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             for _ in 0..count {
                 self.builder.call(func_id, &[ptr], "");
             }
+        }
+    }
+
+    /// Call `ori_list_rc_inc(data, cap)` — slice-aware RC inc for list/set.
+    ///
+    /// Unlike `call_rc_inc_all` which calls `ori_rc_inc(data)` directly,
+    /// this passes `cap` so the runtime can check `is_slice_cap(cap)` and
+    /// find the original allocation's RC header for slices.
+    pub(super) fn call_list_rc_inc(
+        &mut self,
+        data: super::ValueId,
+        cap: super::ValueId,
+        count: u32,
+    ) {
+        let func_id = self.builder.runtime_fn("ori_list_rc_inc");
+        for _ in 0..count {
+            self.builder.call(func_id, &[data, cap], "");
         }
     }
 

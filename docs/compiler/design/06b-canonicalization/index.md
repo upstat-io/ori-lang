@@ -120,13 +120,19 @@ pub struct DecisionTreePool {
 
 ```
 compiler/ori_canon/src/
-├── lib.rs              # Crate root, re-exports
-├── lower.rs            # Lowerer: AST → canonical IR
-├── desugar.rs          # Sugar elimination (7 variants)
-├── patterns.rs         # Pattern → decision tree compilation
-├── const_fold.rs       # Compile-time constant evaluation
-├── exhaustiveness.rs   # Pattern exhaustiveness & redundancy checking
-└── validate.rs         # Canonical IR integrity validation (debug)
+├── lib.rs                  # Crate root, re-exports
+├── lower/                  # Lowerer: AST → canonical IR
+│   ├── mod.rs              # Lowerer struct, entry point
+│   ├── expr.rs             # Expression lowering
+│   ├── collections.rs      # Collection literal lowering
+│   ├── patterns.rs         # Pattern lowering within match
+│   ├── sequences.rs        # Sequence/block lowering
+│   └── misc.rs             # Miscellaneous lowering helpers
+├── desugar/mod.rs          # Sugar elimination (7 variants)
+├── patterns/mod.rs         # Pattern → decision tree compilation
+├── const_fold/mod.rs       # Compile-time constant evaluation
+├── exhaustiveness/mod.rs   # Pattern exhaustiveness & redundancy checking
+└── validate.rs             # Canonical IR integrity validation (debug)
 ```
 
 ## Multi-Clause Function Handling

@@ -50,7 +50,7 @@ Enumeration of all container types (22 kinds):
 ```rust
 pub enum ConstructKind {
     // Always Stacked (Spec lines 78-90)
-    RunTopLevel,    // run { ... } at function body level
+    BlockTopLevel,  // { ... } block at function body level
     Try,            // try { ... }
     Match,          // match expr { ... }
     Recurse,        // recurse(...)
@@ -78,7 +78,7 @@ pub enum ConstructKind {
     ListComplex,    // [foo(), bar()] - structs/calls
 
     // Context-Dependent
-    RunNested,      // run { ... } inside expression
+    BlockNested,    // { ... } block inside expression
     MatchArms,      // match arm list (always one per line)
 }
 ```
@@ -313,9 +313,9 @@ impl ConstructKind {
         !matches!(self, SumVariants)  // Only sum variants use |
     }
 
-    /// Check if run construct (top-level or nested)
-    pub fn is_run(self) -> bool {
-        matches!(self, RunTopLevel | RunNested)
+    /// Check if block construct (top-level or nested)
+    pub fn is_block(self) -> bool {
+        matches!(self, BlockTopLevel | BlockNested)
     }
 
     /// Human-readable name for debugging

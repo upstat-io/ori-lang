@@ -31,6 +31,7 @@ mod composite;
 mod error_value;
 mod heap;
 pub(crate) mod iterator;
+mod list_data;
 mod scalar_int;
 
 use std::borrow::Cow;
@@ -44,6 +45,7 @@ pub use composite::{FunctionValue, MemoizedFunctionValue, RangeValue, StructLayo
 pub use error_value::{ErrorValue, TraceEntryData};
 pub use heap::Heap;
 pub use iterator::IteratorValue;
+pub use list_data::ListData;
 pub use scalar_int::ScalarInt;
 
 /// Ordering value representing comparison results.
@@ -137,7 +139,10 @@ pub enum Value {
     /// (`Cow::Borrowed`) while still supporting runtime-created strings (`Cow::Owned`).
     Str(Heap<Cow<'static, str>>),
     /// List of values.
-    List(Heap<Vec<Value>>),
+    ///
+    /// Uses `ListData` for zero-copy slicing: `slice`/`take`/`skip` share
+    /// the backing Arc buffer instead of copying elements.
+    List(ListData),
     /// Map from string keys to values.
     ///
     /// Uses `BTreeMap` for deterministic iteration order, which enables
@@ -280,7 +285,7 @@ impl Value {
     /// ```
     #[inline]
     pub fn list(items: Vec<Value>) -> Self {
-        Value::List(Heap::new(items))
+        Value::List(ListData::owned(items))
     }
 
     /// Create a map value with String keys from a `BTreeMap`.
@@ -575,7 +580,7 @@ impl Value {
     /// Try to convert to a list.
     pub fn as_list(&self) -> Option<&[Value]> {
         match self {
-            Value::List(items) => Some(items),
+            Value::List(list) => Some(list),
             _ => None,
         }
     }
@@ -763,7 +768,10 @@ impl Value {
             (Value::Some(a), Value::Some(b))
             | (Value::Ok(a), Value::Ok(b))
             | (Value::Err(a), Value::Err(b)) => a.equals(b),
-            (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => {
+            (Value::List(a), Value::List(b)) => {
+                a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
+            }
+            (Value::Tuple(a), Value::Tuple(b)) => {
                 a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x.equals(y))
             }
             (Value::Set(a), Value::Set(b)) => {
@@ -818,7 +826,7 @@ impl fmt::Debug for Value {
             Value::Char(c) => write!(f, "Char({c:?})"),
             Value::Byte(b) => write!(f, "Byte({b:?})"),
             Value::Void => write!(f, "Void"),
-            Value::List(items) => write!(f, "List({:?})", &**items),
+            Value::List(items) => write!(f, "List({:?})", &items[..]),
             Value::Map(map) => write!(f, "Map({:?})", &**map),
             Value::Set(items) => write!(f, "Set({:?})", items.values().collect::<Vec<_>>()),
             Value::Tuple(items) => write!(f, "Tuple({:?})", &**items),
@@ -1002,7 +1010,8 @@ impl PartialEq for Value {
             (Value::Some(a), Value::Some(b))
             | (Value::Ok(a), Value::Ok(b))
             | (Value::Err(a), Value::Err(b)) => a == b,
-            (Value::List(a), Value::List(b)) | (Value::Tuple(a), Value::Tuple(b)) => a == b,
+            (Value::List(a), Value::List(b)) => a == b,
+            (Value::Tuple(a), Value::Tuple(b)) => a == b,
             (Value::Duration(a), Value::Duration(b)) => a == b,
             (Value::Size(a), Value::Size(b)) => a == b,
             (Value::Ordering(a), Value::Ordering(b)) => a == b,
@@ -1087,7 +1096,12 @@ impl std::hash::Hash for Value {
             Value::Size(s) => s.hash(state),
             Value::Ordering(ord) => ord.hash(state),
             Value::Some(v) | Value::Ok(v) | Value::Err(v) => v.hash(state),
-            Value::List(items) | Value::Tuple(items) => {
+            Value::List(items) => {
+                for item in items.iter() {
+                    item.hash(state);
+                }
+            }
+            Value::Tuple(items) => {
                 for item in items.iter() {
                     item.hash(state);
                 }

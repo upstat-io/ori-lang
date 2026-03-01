@@ -16,11 +16,23 @@ compiler/ori_types/src/infer/
 ├── mod.rs        # InferEngine struct, configuration, error handling
 ├── expr/         # Per-expression inference (directory, 13+ files)
 │   ├── mod.rs        # infer_expr() dispatch
-│   ├── calls.rs      # Function call inference
-│   ├── methods.rs    # Method call inference
+│   ├── calls/        # Function call inference
+│   │   ├── mod.rs        # Call dispatch
+│   │   ├── call_inference.rs # infer_call, infer_call_named
+│   │   ├── constraints.rs    # Call constraint resolution
+│   │   ├── impl_lookup.rs    # Impl method lookup
+│   │   ├── method_call.rs    # infer_method_call, infer_method_call_named
+│   │   ├── monomorphization.rs # Monomorphization
+│   │   └── traits.rs         # Trait method resolution
+│   ├── methods/      # Built-in method resolution
+│   │   ├── mod.rs            # Method dispatch entry
+│   │   └── resolve_by_type.rs # Type-specific method dispatch
 │   ├── operators.rs  # Binary/unary operator inference
 │   ├── identifiers.rs # Variable/function resolution
-│   ├── structs.rs    # Struct literal inference
+│   ├── structs/      # Struct literal inference
+│   │   ├── mod.rs            # Struct literal dispatch
+│   │   └── field_access.rs   # Field access inference
+│   ├── context.rs    # ContextKind for error reporting
 │   ├── collections.rs # List, map, set, tuple literals
 │   ├── control_flow.rs # if/match/loop expressions
 │   ├── blocks.rs     # Block/sequence inference
@@ -115,9 +127,8 @@ pub fn check_expr(
 | `List { elems }` | Unify all elements, return `[T]` |
 | `Map { entries }` | Unify all keys and values, return `{K: V}` |
 | `Tuple { elems }` | Infer each element, return tuple type |
-| `Block { stmts, expr }` | Infer statements in sequence, return last expr |
-| `Run { stmts }` | Sequential pattern — infer each, return last |
-| `Try { stmts }` | Like run, but wraps in `result` and enables `?` |
+| `Block { stmts, result }` | Infer statements in sequence, return last expr |
+| `Try { stmts, result }` | Like block, but wraps in `Result` and enables `?` |
 
 ### Identifier Resolution
 
