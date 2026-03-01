@@ -287,6 +287,9 @@ fn transfer_instr(
         // Function calls and projections: conservative MaybeShared.
         // Interprocedural analysis (§07.3) refines call results.
         // Projections borrow from the parent — may be shared.
+        // IsShared: always produces a boolean (scalar), so `needs_rc(dst)`
+        // returns false and this arm is a no-op. Kept for defensive
+        // correctness if IsShared's result type changes in future IR.
         ArcInstr::Apply { dst, .. }
         | ArcInstr::ApplyIndirect { dst, .. }
         | ArcInstr::Project { dst, .. }
