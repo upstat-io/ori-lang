@@ -301,6 +301,18 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             crate::arc_dot::emit_arc_dot(&arc_cache, &annotated_sigs, &classifier, pool, interner);
         });
 
+        // 3b. Interprocedural uniqueness analysis (COW check elimination).
+        // Runs AFTER borrow inference (needs ownership annotations) and BEFORE
+        // per-function ARC pipeline (which uses summaries for CowMode annotation).
+        let uniqueness_summaries = {
+            let all_funcs: Vec<&ori_arc::ArcFunction> = arc_cache
+                .values()
+                .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+                .collect();
+            let flat: Vec<ori_arc::ArcFunction> = all_funcs.into_iter().cloned().collect();
+            ori_arc::run_uniqueness_analysis(&flat, &classifier, interner)
+        };
+
         // 4. Two-pass function compilation with borrow annotations
         let mut fc = FunctionCompiler::new(
             &mut builder,
@@ -312,6 +324,7 @@ pub(super) fn run_codegen_pipeline<'ctx>(
             &annotated_sigs,
             &classifier,
             None, // Debug info wiring deferred to AOT pipeline integration
+            uniqueness_summaries,
         );
 
         // Declare imports (no-op when import_sigs is empty for single-file compilation)

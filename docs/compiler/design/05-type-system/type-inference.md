@@ -9,41 +9,6 @@ section: "Type System"
 
 Ori uses Hindley-Milner (HM) type inference, extended with rank-based let-polymorphism, capability tracking, and pattern resolution. The `InferEngine` orchestrates inference for individual expressions, while `ModuleChecker` coordinates module-level type checking.
 
-## Location
-
-```
-compiler/ori_types/src/infer/
-├── mod.rs        # InferEngine struct, configuration, error handling
-├── expr/         # Per-expression inference (directory, 13+ files)
-│   ├── mod.rs        # infer_expr() dispatch
-│   ├── calls/        # Function call inference
-│   │   ├── mod.rs        # Call dispatch
-│   │   ├── call_inference.rs # infer_call, infer_call_named
-│   │   ├── constraints.rs    # Call constraint resolution
-│   │   ├── impl_lookup.rs    # Impl method lookup
-│   │   ├── method_call.rs    # infer_method_call, infer_method_call_named
-│   │   ├── monomorphization.rs # Monomorphization
-│   │   └── traits.rs         # Trait method resolution
-│   ├── methods/      # Built-in method resolution
-│   │   ├── mod.rs            # Method dispatch entry
-│   │   └── resolve_by_type.rs # Type-specific method dispatch
-│   ├── operators.rs  # Binary/unary operator inference
-│   ├── identifiers.rs # Variable/function resolution
-│   ├── structs/      # Struct literal inference
-│   │   ├── mod.rs            # Struct literal dispatch
-│   │   └── field_access.rs   # Field access inference
-│   ├── context.rs    # ContextKind for error reporting
-│   ├── collections.rs # List, map, set, tuple literals
-│   ├── control_flow.rs # if/match/loop expressions
-│   ├── blocks.rs     # Block/sequence inference
-│   ├── sequences.rs  # Expression sequences
-│   ├── constructors.rs # Variant/newtype constructors
-│   ├── concurrency.rs # Spawn/channel expressions
-│   └── type_resolution.rs # Type annotation resolution
-└── env/          # Type environment (directory)
-    └── mod.rs        # TypeEnv — Rc-based scope chain
-```
-
 ## InferEngine
 
 ```rust

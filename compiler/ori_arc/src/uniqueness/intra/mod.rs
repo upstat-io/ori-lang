@@ -60,7 +60,7 @@ pub struct UniquenessResult {
 ///
 /// - `usize::MAX`: variable is used in the terminator or `live_out`
 /// - Other value: index of the last instruction in the block body that uses it
-type LastUseMap = FxHashMap<ArcVarId, usize>;
+pub(crate) type LastUseMap = FxHashMap<ArcVarId, usize>;
 
 /// Analyze uniqueness within a single function using forward dataflow.
 ///
@@ -287,7 +287,7 @@ fn transfer_block(
 /// fresh allocations → `Unique`, aliases with dead source → move,
 /// aliases with live source → both `Shared`, calls → callee summary
 /// or `MaybeShared`.
-fn transfer_instr(
+pub(crate) fn transfer_instr(
     state: &mut UniquenessMap,
     instr: &ArcInstr,
     pos: usize,
@@ -388,7 +388,7 @@ fn transfer_instr(
 ///
 /// `usize::MAX` means the variable is used in the terminator or `live_out`.
 /// Otherwise, the value is the index of the last body instruction that uses it.
-fn precompute_last_use(
+pub(crate) fn precompute_last_use(
     block: &crate::ir::ArcBlock,
     live_out: &crate::liveness::LiveSet,
 ) -> LastUseMap {
@@ -428,7 +428,11 @@ fn is_last_use(var: ArcVarId, pos: usize, last_use: &LastUseMap) -> bool {
 
 /// Check whether a variable's type requires reference counting.
 #[inline]
-fn needs_rc(var: ArcVarId, func: &ArcFunction, classifier: &dyn ArcClassification) -> bool {
+pub(crate) fn needs_rc(
+    var: ArcVarId,
+    func: &ArcFunction,
+    classifier: &dyn ArcClassification,
+) -> bool {
     let idx = var.index();
     if idx < func.var_types.len() {
         classifier.needs_rc(func.var_types[idx])

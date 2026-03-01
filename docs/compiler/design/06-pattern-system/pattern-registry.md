@@ -9,12 +9,6 @@ section: "Pattern System"
 
 The PatternRegistry provides pattern lookup via the `Pattern` enum, using static dispatch instead of trait objects or HashMaps.
 
-## Location
-
-```
-compiler/ori_patterns/src/registry/mod.rs
-```
-
 ## Architecture
 
 The registry uses a **`Pattern` enum** as the central dispatch point. Each variant wraps a concrete pattern type (a ZST), and the enum itself implements `PatternDefinition` by delegating to the inner type:

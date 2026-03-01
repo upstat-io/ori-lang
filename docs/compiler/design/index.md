@@ -7,24 +7,45 @@ sidebar_order: 2
 sidebar_path: "/docs/compiler-design"
 ---
 
-# Overview
+# Ori Compiler Design
 
-This documentation describes the architecture and design decisions of the Ori compiler.
+## What This Document Covers
 
-## Design Principle: Lean Core, Rich Libraries
+This is the design documentation for the Ori compiler — a ~195,000-line Rust codebase that compiles a statically-typed, expression-based language with Hindley-Milner type inference, automatic reference counting, and capability-based effects. The compiler features a dual backend: a tree-walking interpreter for rapid development and a full LLVM pipeline for native binaries and WebAssembly.
 
-The compiler implements only constructs that require **special syntax** or **static analysis**. Everything else belongs in the standard library.
+These documents serve the same purpose as a compiler textbook's case study chapters: they explain not just *what* each component does, but *why* it was designed that way, what alternatives were considered, and how the pieces fit together. Each section opens with the general compiler concept — what problem it solves, what the classical approaches are — then shows how Ori applies and adapts those ideas.
 
-| Location | What | Why |
-|----------|------|-----|
-| **Compiler** | blocks (`{ }`), `try`, `match`, `recurse`, `parallel`, `spawn`, `timeout`, `cache`, `with` | Require special syntax, bindings, `self()`, concurrency primitives, or capability checking |
-| **Stdlib** | `map`, `filter`, `fold`, `find`, `retry`, `validate` | Standard method calls on collections; no special compiler support needed |
+## The Anatomy of a Compiler
 
-This keeps the compiler small (~30K lines), focused, and maintainable. The stdlib can evolve without compiler changes. When considering new features, ask: *"Does this need special syntax or static analysis?"* If no, it's a library function.
+A compiler is a program that translates source code from one language to another — typically from a high-level language humans write to a low-level form machines execute. Every compiler, regardless of language, must solve the same fundamental problems:
 
-## Expression-Based Design
+1. **Lexical analysis** — Breaking source text into tokens (words, operators, punctuation)
+2. **Parsing** — Organizing tokens into a tree structure that reflects the program's grammar
+3. **Semantic analysis** — Checking that the program makes sense (types match, variables are defined, etc.)
+4. **Optimization** — Transforming the program to run faster or use less memory without changing its meaning
+5. **Code generation** — Producing the target output (machine code, bytecode, another language)
 
-Ori is an **expression-based language**. Every construct produces a value, and the last expression in any block becomes that block's value. There is no `return` keyword.
+What makes each compiler interesting is the specific tradeoffs it makes at each stage. A compiler for a dynamically-typed language might skip semantic analysis entirely. A JIT compiler might skip optimization in favor of startup speed. A research compiler might explore novel type systems at the cost of compilation time.
+
+Ori's compiler makes several distinctive choices across these stages that are worth understanding before diving into the details.
+
+## What Makes Ori's Compiler Distinctive
+
+### Dual Backend with Shared Canonical IR
+
+Most compilers have one backend. Ori has two: a tree-walking interpreter for `ori run` (instant feedback during development) and a full LLVM pipeline for `ori build` (native performance for production). Both consume the same canonical IR — a sugar-free, type-annotated intermediate representation produced by a single canonicalization pass. This means desugaring, pattern compilation, and constant folding happen exactly once, regardless of which backend executes the result.
+
+### Incremental Everything via Salsa
+
+The compiler is built on the [Salsa](https://salsa-rs.netlify.app/) framework, which provides automatic incremental computation. Every phase — lexing, parsing, type checking, evaluation — is a Salsa query whose result is memoized. When a source file changes, only the affected queries re-execute. This matters for IDE integration: editing one function doesn't re-type-check the entire module.
+
+### ARC Memory Management (Not GC, Not Borrow Checking)
+
+Ori uses automatic reference counting with compile-time optimizations inspired by [Perceus](https://www.microsoft.com/en-us/research/publication/perceus-garbage-free-reference-counting-with-reuse/) (Reinking et al., 2021) and [Lean 4](https://leanprover.github.io/). The ARC system performs borrow inference, liveness analysis, RC insertion/elimination, and reset/reuse — all as compiler passes over a dedicated ARC IR. This sits between the simplicity of garbage collection (no borrow checker for users to fight) and the determinism of manual memory management (no GC pauses).
+
+### Expression-Based with No Return
+
+Ori is expression-based in the ML/Rust tradition: every construct produces a value, and the last expression in a block is that block's value. There is no `return` keyword — the language deliberately omits it, recognizing `return` only in the lexer to produce a helpful error for users coming from other languages.
 
 | Construct | Value |
 |-----------|-------|
@@ -34,89 +55,83 @@ Ori is an **expression-based language**. Every construct produces a value, and t
 | `{ ... }` block | Last expression (without `;`) is the value |
 | `for...yield` | Collected values form a list |
 
-**Early exit mechanisms:**
-- `?` operator — propagate `Err` or `None` (via `EvalError`)
-- `break [value]` — exit loop, optionally with a value
-- `panic(msg:)` — terminate with `Never` type
+Early exit is handled through `?` (propagate errors), `break` (exit loops), and `panic` (diverge with `Never` type).
 
-The `return` token is recognized by the lexer only to produce a helpful error message for users coming from other languages.
+### Lean Core, Rich Libraries
 
-**Reference languages with expression-based design:**
+The compiler implements only constructs that require special syntax or static analysis. Everything else — data transformation, string utilities, collection operations — belongs in the standard library as regular method calls.
 
-| Language | Notes |
-|----------|-------|
-| **Rust** | Closest model — blocks/`if`/`match` are expressions; `return` exists but rarely used |
-| **Gleam** | No `return` keyword; last expression is value; similar philosophy to Ori |
-| **Roc** | No `return`; purely expression-based; functional |
-| **Ruby** | Everything is an expression; implicit returns |
-| **Elixir** | Last expression is return value; no explicit return |
-| **OCaml/F#** | ML family; all constructs are expressions |
-| **Kotlin** | Lambdas use last expression; `if` is an expression |
-| **Scala** | Expression-oriented; `return` discouraged |
+| In Compiler | In Stdlib |
+|-------------|-----------|
+| `{ }` blocks, `try { }`, `match` (bindings, early return) | `map`, `filter`, `fold`, `find` (collection methods) |
+| `recurse` (self-referential `self()`) | `retry`, `validate` (library functions) |
+| `parallel`, `spawn`, `timeout` (concurrency) | |
+| `cache`, `with` (capability-aware resources) | |
 
-## Overview
+The test is simple: *"Does this need special syntax or static analysis?"* If not, it's a library function. This keeps the compiler focused and allows the stdlib to evolve without compiler changes.
 
-The Ori compiler is a Rust-based incremental compiler built on the Salsa framework. It is organized as a **multi-crate workspace** with clear separation of concerns:
+### Capability-Based Effects
 
-- **`ori_ir`** - Core IR types with no dependencies (AST, arena, interning, derives)
-- **`ori_diagnostic`** - Error reporting system
-- **`ori_lexer_core`** - Low-level lexer primitives (raw scanner, source buffer, token tags)
-- **`ori_lexer`** - Tokenization
-- **`ori_types`** - Type system: Pool, inference engine, unification, registries, checking
-- **`ori_parse`** - Recursive descent parser
-- **`ori_patterns`** - Pattern system, Value types, EvalError (single source of truth)
-- **`ori_canon`** - Canonical IR lowering (desugaring, pattern compilation, constant folding)
-- **`ori_arc`** - ARC analysis (CanExpr → ARC IR lowering, borrow inference, RC insertion/elimination, reset/reuse, FBIP diagnostics)
-- **`ori_eval`** - Core evaluator components (Environment, operators)
-- **`ori_fmt`** - Source code formatter (5-layer architecture)
-- **`ori_llvm`** - LLVM backend for JIT/AOT compilation
-- **`ori_rt`** - Runtime library for AOT-compiled binaries (C-ABI, zero compiler deps)
-- **`oric`** - CLI orchestrator, Salsa queries, evaluator, reporting
-
-The compiler features:
-
-- **Incremental compilation** via Salsa's automatic caching and dependency tracking
-- **Flat AST representation** using arena allocation for memory efficiency
-- **String interning** for O(1) identifier comparison
-- **Extensible pattern system** with registry-based pattern definitions
-- **Comprehensive diagnostics** with code fixes and multiple output formats
-
-## Statistics
-
-| Component | Lines of Code | Purpose |
-|-----------|--------------|---------|
-| LLVM Backend | ~30,000 | JIT and AOT code generation |
-| Type System | ~28,000 | Pool, inference, unification, registries, checking |
-| ARC System | ~23,000 | RC optimization, borrow inference, reset/reuse |
-| CLI & Queries | ~19,000 | `oric` orchestrator and Salsa queries |
-| Parser | ~18,000 | Recursive descent parsing |
-| Evaluator | ~14,000 | Tree-walking interpreter |
-| IR | ~13,000 | AST types, arena, visitor, interning |
-| Runtime | ~12,000 | AOT runtime library (`ori_rt`) |
-| Formatter | ~11,000 | Code formatting engine |
-| Patterns | ~10,000 | Pattern system and builtins |
-| Lexer | ~8,000 | DFA-based tokenization (core + wrapper) |
-| Canonicalization| ~6,000 | Desugaring and pattern compilation |
-| Diagnostics | ~4,000 | Error reporting, DiagnosticQueue, fixes |
-| **Total** | **~195,000** | |
+Side effects are tracked through a capability system. Functions declare what they need (`uses Http, FileSystem`), and callers must provide those capabilities (`with Http = MockHttp in expr`). This enables compile-time effect tracking and trivial mocking in tests — no dependency injection frameworks required.
 
 ## Compilation Pipeline
 
 ```mermaid
 flowchart TB
-    A["SourceFile (Salsa input)"] -->|"tokens() query"| B["TokenList"]
-    B -->|"parsed() query"| C["ParseResult { Module, ExprArena, errors }"]
-    C -->|"typed() query"| D["TypedModule { expr_types, errors }"]
-    D -->|"canonicalize"| E["CanonResult { CanArena, DecisionTrees }"]
-    E -->|"evaluated() query"| F["ModuleEvalResult { Value, EvalOutput }"]
-    E -->|"ARC pipeline"| G["ARC IR (borrow, liveness, RC, reuse)"]
-    G -->|"LLVM codegen"| H["LLVM IR → Native Binary"]
+    A["Source File
+    Salsa input"]
+    B["Token List
+    tokens() query"]
+    C["Parse Result
+    Module + ExprArena"]
+    D["Typed Module
+    expr_types + errors"]
+    E["Canonical IR
+    CanArena + DecisionTrees"]
+    F["Eval Result
+    Value + EvalOutput"]
+    G["ARC IR
+    borrow + liveness + RC"]
+    H["LLVM IR
+    Native Binary"]
 
-    style E fill:#f9f,stroke:#333,stroke-width:2px
-    style G fill:#ff9,stroke:#333,stroke-width:2px
+    A --> B --> C --> D --> E
+    E --> F
+    E --> G --> H
+
+    classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
+    classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
+    classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+
+    class A,B,C,D frontend
+    class E canon
+    class F interpreter
+    class G,H native
 ```
 
-Each step is a Salsa query with automatic caching. If the input doesn't change, the cached output is returned immediately. After canonicalization, the pipeline **forks**: the evaluator (`ori_eval`) interprets the canonical IR directly, while the ARC system (`ori_arc`) lowers it to a basic-block SSA IR with explicit reference counting before LLVM codegen.
+Each step is a Salsa query with automatic memoization. After canonicalization, the pipeline **forks**: the interpreter consumes canonical IR directly, while the ARC system lowers it to a basic-block SSA IR with explicit reference counting before LLVM codegen.
+
+## Compiler Architecture
+
+The compiler is organized as a multi-crate Rust workspace. Dependencies flow strictly downward — later phases depend on earlier ones, never the reverse.
+
+| Crate | Purpose |
+|-------|---------|
+| **`ori_ir`** | Core IR types (AST, arena, interning, derives) — no dependencies |
+| **`ori_diagnostic`** | Error reporting, DiagnosticQueue, suggestions, emitters |
+| **`ori_lexer_core`** | Raw scanner, source buffer, token tags |
+| **`ori_lexer`** | Tokenization (cooking layer over core) |
+| **`ori_parse`** | Recursive descent Pratt parser |
+| **`ori_types`** | Type system: Pool, InferEngine, unification, registries |
+| **`ori_patterns`** | Pattern system, Value types, EvalError |
+| **`ori_canon`** | Canonical IR lowering (desugaring, pattern compilation, constant folding) |
+| **`ori_eval`** | Tree-walking interpreter components |
+| **`ori_arc`** | ARC analysis (borrow inference, RC insertion/elimination, reset/reuse) |
+| **`ori_llvm`** | LLVM backend for JIT and AOT compilation |
+| **`ori_rt`** | Runtime library for AOT binaries (C ABI, zero compiler deps) |
+| **`ori_fmt`** | Source code formatter (5-layer architecture) |
+| **`oric`** | CLI orchestrator, Salsa queries, reporting |
 
 ## Documentation Sections
 
@@ -251,47 +266,3 @@ Each step is a Salsa query with automatic caching. If the input doesn't change, 
 - [Error Codes](appendices/C-error-codes.md) - Complete error code reference
 - [Debugging](appendices/D-debugging.md) - Debug flags and tracing
 - [Coding Guidelines](appendices/E-coding-guidelines.md) - Code style, testing, best practices
-
-## Source Paths
-
-The compiler is organized as a multi-crate workspace:
-
-| Crate | Path | Purpose |
-|-------|------|---------|
-| `ori_ir` | `compiler/ori_ir/src/` | Core IR types (tokens, spans, AST, arena, interning, derives) |
-| `ori_diagnostic` | `compiler/ori_diagnostic/src/` | DiagnosticQueue, error reporting, suggestions, emitters |
-| `ori_lexer_core` | `compiler/ori_lexer_core/src/` | Low-level lexer primitives: raw scanner, source buffer, token tags |
-| `ori_lexer` | `compiler/ori_lexer/src/` | Tokenization via logos |
-| `ori_types` | `compiler/ori_types/src/` | Pool, Idx, InferEngine, ModuleChecker, registries |
-| `ori_parse` | `compiler/ori_parse/src/` | Recursive descent parser |
-| `ori_patterns` | `compiler/ori_patterns/src/` | Pattern definitions, Value types, EvalError, EvalContext |
-| `ori_eval` | `compiler/ori_eval/src/` | Environment, OperatorRegistry (core eval components) |
-| `ori_fmt` | `compiler/ori_fmt/src/` | Source code formatter (5-layer architecture) |
-| `ori_canon` | `compiler/ori_canon/src/` | Canonical IR lowering: desugaring, pattern compilation, constant folding |
-| `ori_arc` | `compiler/ori_arc/src/` | ARC analysis: borrow inference, RC insertion/elimination, reset/reuse |
-| `ori_llvm` | `compiler/ori_llvm/src/` | LLVM backend for JIT/AOT compilation |
-| `ori_rt` | `compiler/ori_rt/src/` | Runtime library for AOT-compiled binaries |
-| `ori_stack` | `compiler/ori_stack/src/` | Stack safety utilities (stacker integration) |
-| `ori_compiler` | `compiler/ori_compiler/src/` | Salsa-free compiler driver for WASM/testing |
-| `oric` | `compiler/oric/src/` | CLI, Salsa queries, eval orchestration, reporting |
-| `ori-lsp` | `tools/ori-lsp/src/` | Language Server Protocol support |
-
-**Note:** `oric` modules (`ir`, `parser`, `diagnostic`, `types`) re-export from source crates for DRY.
-
-### oric Internal Paths
-
-| Component | Path |
-|-----------|------|
-| Library root | `compiler/oric/src/lib.rs` |
-| Salsa database | `compiler/oric/src/db.rs` |
-| Query system | `compiler/oric/src/query/` |
-| Evaluator | `compiler/oric/src/eval/` |
-| Problem types | `compiler/oric/src/problem/` |
-| Diagnostic rendering | `compiler/oric/src/reporting/` |
-| Tests | `compiler/oric/src/test/` |
-
-### Architecture Notes
-
-- **Patterns**: Pattern definitions and Value types are in `ori_patterns`. oric re-exports from this crate.
-- **Environment**: The `Environment` type for variable scoping is in `ori_eval`. oric uses this directly.
-- **Re-exports**: oric modules (`ir`, `types`, `diagnostic`) re-export from their source crates for DRY.

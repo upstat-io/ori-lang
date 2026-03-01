@@ -9,17 +9,6 @@ section: "Type System"
 
 Unification finds whether two types can be made equal by binding type variables. The `UnifyEngine` implements link-based union-find with path compression, providing near-constant-time unification.
 
-## Location
-
-```
-compiler/ori_types/src/unify/
-├── mod.rs              # UnifyEngine — core unification
-├── rank/mod.rs         # Rank system for let-polymorphism
-├── error/mod.rs        # UnifyError, UnifyContext
-├── generalization.rs   # Type generalization logic
-└── substitute.rs       # Substitution helpers
-```
-
 ## UnifyEngine
 
 ```rust

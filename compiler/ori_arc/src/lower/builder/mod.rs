@@ -320,6 +320,7 @@ impl ArcIrBuilder {
             spans,
             is_fbip,
             num_captures: 0,
+            cow_annotations: crate::uniqueness::CowAnnotations::default(),
         }
     }
 }

@@ -122,6 +122,16 @@ impl super::OwnedLLVMEvaluator<'_> {
                 self.pool,
             );
 
+            // 5d. Interprocedural uniqueness analysis (COW check elimination).
+            let uniqueness_summaries = {
+                let all_funcs: Vec<ori_arc::ArcFunction> = arc_cache
+                    .values()
+                    .flat_map(|(parent, lambdas)| std::iter::once(parent).chain(lambdas.iter()))
+                    .cloned()
+                    .collect();
+                ori_arc::run_uniqueness_analysis(&all_funcs, &classifier, interner)
+            };
+
             // 6. Two-pass function compilation
             debug!("declaring functions (phase 1)");
             let mut fc = FunctionCompiler::new(
@@ -134,6 +144,7 @@ impl super::OwnedLLVMEvaluator<'_> {
                 annotated_sigs,
                 &classifier,
                 None, // No debug info for JIT
+                uniqueness_summaries,
             );
             fc.declare_all(&module.functions, function_sigs);
 
