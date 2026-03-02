@@ -363,6 +363,44 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(list_struct_ty, out_ptr, "collect.list"))
     }
 
+    /// Emit `__collect_set(iter)` — collect iterator elements into a set.
+    ///
+    /// Same sret pattern as `emit_iter_collect` but calls `ori_iter_collect_set`
+    /// which deduplicates elements via memcmp during collection.
+    pub(in crate::codegen) fn emit_iter_collect_set(
+        &mut self,
+        iter_ptr: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_iter_collect_set");
+
+        let elem_size = self.element_store_size(elem_ty);
+        let elem_size_val = self.builder.const_i64(elem_size as i64);
+
+        // sret pattern: allocate output set struct {i64 len, i64 cap, ptr data}
+        let i64_llvm = self.builder.scx().type_i64().into();
+        let ptr_llvm = self.builder.scx().type_ptr().into();
+        let set_struct = self
+            .builder
+            .scx()
+            .type_struct(&[i64_llvm, i64_llvm, ptr_llvm], false);
+        let set_struct_ty = self.builder.register_type(set_struct.into());
+
+        let out_ptr = self.builder.create_entry_alloca(
+            self.current_function,
+            "collect_set.out",
+            set_struct_ty,
+        );
+
+        self.builder
+            .call(func_id, &[iter_ptr, elem_size_val, out_ptr], "");
+
+        Some(
+            self.builder
+                .load(set_struct_ty, out_ptr, "collect_set.result"),
+        )
+    }
+
     fn emit_iter_count(&mut self, iter_ptr: ValueId, elem_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_iter_count");
 

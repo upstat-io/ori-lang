@@ -14,23 +14,23 @@ stv = "run -p oric --bin ori -- test --verbose"
 # Run Ori tests with filter (usage: cargo stf map)
 stf = "run -p oric --bin ori -- test --filter"
 
-# Run all Rust unit tests across the workspace
-t = "test --workspace"
+# Run all Rust unit tests across the workspace (excludes ori_llvm — needs LLVM 17)
+t = "test --workspace --exclude ori_llvm"
 
 # Run Rust tests with output shown
-tv = "test --workspace -- --nocapture"
+tv = "test --workspace --exclude ori_llvm -- --nocapture"
 
 # Run tests for a specific crate (usage: cargo tc ori_parse)
 tc = "test -p"
 
-# Check all crates
-c = "check --workspace"
+# Check all crates (excludes ori_llvm — needs LLVM 17)
+c = "check --workspace --exclude ori_llvm"
 
-# Build all crates
-b = "build --workspace"
+# Build all crates (excludes ori_llvm — needs LLVM 17)
+b = "build --workspace --exclude ori_llvm"
 
-# Clippy on all crates (lint levels defined in workspace Cargo.toml)
-cl = "clippy --workspace --all-targets -- -D warnings"
+# Clippy on all crates (excludes ori_llvm — needs LLVM 17; use `cargo cll` for LLVM)
+cl = "clippy --workspace --exclude ori_llvm --all-targets -- -D warnings"
 
 # LLVM crates (ori_llvm, ori_rt) are excluded from workspace.
 # LLVM 17 path is configured via LLVM_SYS_170_PREFIX above.
@@ -44,5 +44,5 @@ blr = "build -p oric -p ori_rt --features llvm --release"
 # Run oric with LLVM feature
 rl = "run -p oric --features llvm --bin ori --"
 
-# Clippy on LLVM crates (excluded from workspace, use --manifest-path)
-cll = "clippy --manifest-path compiler/ori_llvm/Cargo.toml --all-targets -- -D warnings"
+# Clippy on LLVM crate
+cll = "clippy -p ori_llvm --all-targets -- -D warnings"

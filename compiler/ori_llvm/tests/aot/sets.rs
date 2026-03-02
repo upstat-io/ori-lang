@@ -1,9 +1,8 @@
 //! Set Method AOT Tests
 //!
 //! Tests for Set<T> method coverage in AOT compilation.
-//! Currently ignored because `iter().collect()` to Set is not yet
-//! implemented in the LLVM backend (`__collect_set` unresolved).
-//! These tests will pass once set collection is implemented.
+//! Set construction via `[...].iter().collect()` → `__collect_set` is
+//! wired in the LLVM backend.
 
 #![allow(
     clippy::needless_raw_string_hashes,
@@ -13,7 +12,6 @@
 use crate::util::assert_aot_success;
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_length() {
     assert_aot_success(
         r#"
@@ -27,7 +25,6 @@ fn test_aot_set_length() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_is_empty() {
     assert_aot_success(
         r#"
@@ -41,7 +38,6 @@ fn test_aot_set_is_empty() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_contains() {
     assert_aot_success(
         r#"
@@ -55,7 +51,6 @@ fn test_aot_set_contains() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_insert() {
     assert_aot_success(
         r#"
@@ -70,7 +65,6 @@ fn test_aot_set_insert() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_remove() {
     assert_aot_success(
         r#"
@@ -85,7 +79,6 @@ fn test_aot_set_remove() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_union() {
     assert_aot_success(
         r#"
@@ -100,7 +93,6 @@ fn test_aot_set_union() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_intersection() {
     assert_aot_success(
         r#"
@@ -115,7 +107,6 @@ fn test_aot_set_intersection() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_difference() {
     assert_aot_success(
         r#"
@@ -130,7 +121,6 @@ fn test_aot_set_difference() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_to_list() {
     assert_aot_success(
         r#"
@@ -144,7 +134,6 @@ fn test_aot_set_to_list() {
 }
 
 #[test]
-#[ignore = "AOT collect-to-set not yet implemented"]
 fn test_aot_set_iter_count() {
     assert_aot_success(
         r#"
