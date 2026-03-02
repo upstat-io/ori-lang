@@ -395,8 +395,12 @@ pub extern "C" fn ori_map_remove_cow(
 ///
 /// Replaces the value for an existing key. If the key is not found, returns
 /// unchanged (no insertion).
-#[no_mangle]
-pub extern "C" fn ori_map_update_cow(
+#[cfg(test)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mirrors extern C COW function signatures"
+)]
+pub(crate) fn ori_map_update_cow(
     data: *mut u8,
     len: i64,
     cap: i64,

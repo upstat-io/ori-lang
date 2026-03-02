@@ -1,5 +1,7 @@
 //! Tests for runtime iterator state machine.
 
+use std::ptr;
+
 use super::*;
 
 // ── List iterator ───────────────────────────────────────────────────────

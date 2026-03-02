@@ -2,9 +2,11 @@
 //!
 //! Handles `length`/`len`, `is_empty`, `concat`, `iter` for List, Str, Map, Set, Range.
 
+mod hash_thunks;
 mod list_builtins;
 mod list_cow;
-mod map_set_builtins;
+mod map_builtins;
+mod set_builtins;
 mod string_builtins;
 
 declare_builtins! { emitter, ctx;
