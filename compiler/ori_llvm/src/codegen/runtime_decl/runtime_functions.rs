@@ -1119,6 +1119,12 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[],
     },
     RtFn {
+        name: "ori_iter_collect_set",
+        params: &[Ty::Ptr, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
         name: "ori_iter_count",
         params: &[Ty::Ptr, Ty::I64],
         ret: Some(Ty::I64),

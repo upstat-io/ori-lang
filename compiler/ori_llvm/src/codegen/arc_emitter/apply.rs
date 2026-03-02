@@ -150,6 +150,19 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             return;
         }
 
+        // Internal protocol: __collect_set(iter).
+        // Type-directed rewrite from `collect()` when target type is Set<T>.
+        // Uses sret pattern like emit_iter_collect but calls ori_iter_collect_set.
+        if callee_name_str == "__collect_set" && !args.is_empty() {
+            let iter_ptr = self.var(args[0]);
+            let iter_ty = func.var_type(args[0]);
+            let elem_ty = self.pool.iterator_elem(iter_ty);
+            if let Some(val) = self.emit_iter_collect_set(iter_ptr, elem_ty) {
+                self.def_var_repr(dst, val, func);
+            }
+            return;
+        }
+
         // ori_list_take uses explicit sret pattern: void(list_ptr, out_ptr).
         // The ARC IR emits Apply "ori_list_take"(list_ptr) expecting a struct return.
         // We handle the sret plumbing here: alloca result struct, call, load.

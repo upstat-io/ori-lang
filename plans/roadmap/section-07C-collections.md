@@ -264,55 +264,55 @@ sections:
   - [x] **Rust Tests**: `ori_eval/src/methods/helpers/mod.rs` — set len in `TYPECK_BUILTIN_METHODS`
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set len tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_length()`
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_length` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_length` (passing) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.is_empty() -> bool` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Rust Tests**: `ori_eval/src/methods/helpers/mod.rs` — set is_empty in `TYPECK_BUILTIN_METHODS`
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set is_empty tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_is_empty()`
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_is_empty` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_is_empty` (passing — `check_collect_to_set` now unifies element type with expected) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.contains(elem) -> bool` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — set contains dispatch
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set contains tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_contains()` via `ori_set_contains` runtime
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_contains` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_contains` (passing) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.insert(elem) -> Set<T>` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — set insert dispatch
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set insert tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_insert()` via `ori_set_insert` runtime (sret)
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_insert` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_insert` (passing) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.remove(elem) -> Set<T>` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — set remove dispatch
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set remove tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_remove()` via `ori_set_remove` runtime (sret)
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_remove` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_remove` (passing) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.union(other) -> Set<T>` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — set union dispatch
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set union tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_union()` via `ori_set_union` runtime (sret)
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_union` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_union` (passing — lexer fix: reserved-future keywords suppressed in method position) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.intersection(other) -> Set<T>` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — set intersection dispatch
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set intersection tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_intersection()` via `ori_set_intersection` runtime (sret)
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_intersection` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_intersection` (passing) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.difference(other) -> Set<T>` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — set difference dispatch
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set difference tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_difference()` via `ori_set_difference` runtime (sret)
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_difference` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_difference` (passing) (2026-03-01)
 
 - [x] **Implement**: `Set<T>.to_list() -> [T]` — modules/prelude.md § Set [done] (2026-02-25)
   - [x] **Evaluator**: `ori_eval/src/methods/collections.rs` — set to_list dispatch
   - [x] **Ori Tests**: `tests/spec/types/set_methods/set_methods.ori` — set to_list tests
   - [x] **LLVM Support**: `ori_llvm/src/codegen/arc_emitter/builtins/collections.rs` — `emit_set_to_list()` via `ori_set_to_list` runtime (sret)
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_to_list` (ignored: blocked on collect-to-set AOT, see §7C.6)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — `test_aot_set_to_list` (passing) (2026-03-01)
 
 ---
 
@@ -401,9 +401,9 @@ sections:
 
 - [ ] **Implement**: Standard `Collect` implementations
   - `impl<T> Collect<T> for [T]` — collect to list
-  - `impl<T> Collect<T> for Set<T>` — collect to set <!-- **BLOCKER**: `__collect_set` not implemented in LLVM backend — blocks all AOT set tests -->
+  - `impl<T> Collect<T> for Set<T>` — collect to set (LLVM `__collect_set` implemented 2026-03-01)
   - [ ] **Ori Tests**: `tests/spec/stdlib/collect_impls.ori`
-  - [ ] **LLVM Support**: LLVM codegen for standard Collect implementations — collect-to-list works; **collect-to-set (`__collect_set`) NOT YET IMPLEMENTED** — this blocks all Set AOT tests since there is no other way to create a Set in AOT
+  - [x] **LLVM Support**: LLVM codegen for standard Collect implementations — collect-to-list (`ori_iter_collect`) and collect-to-set (`ori_iter_collect_set` via `__collect_set` intercept) both implemented (2026-03-01)
   - [ ] **LLVM Rust Tests**: `ori_llvm/tests/iterator_tests.rs` — Collect implementations codegen
   - [x] **AOT Tests**: `ori_llvm/tests/aot/iterators.rs` — `test_list_iter_collect`, `test_iter_chain_collect` (collect to list via `.iter().collect()`)
 
