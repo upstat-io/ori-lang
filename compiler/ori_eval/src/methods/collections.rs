@@ -93,19 +93,7 @@ pub fn dispatch_string_method(
         } else {
             "slice"
         };
-        require_args(name, 2, args.len())?;
-        let start = require_int_arg(name, &args, 0)?;
-        let end = require_int_arg(name, &args, 1)?;
-        let ustart = usize::try_from(start)
-            .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
-        let uend = usize::try_from(end)
-            .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
-        // Operate on char indices for Unicode correctness
-        let chars: Vec<char> = s.chars().collect();
-        let uend = uend.min(chars.len());
-        let ustart = ustart.min(uend);
-        let result: String = chars[ustart..uend].iter().collect();
-        Ok(Value::string(result))
+        eval_str_slice(&s, name, &args)
     // Comparable trait - lexicographic (Unicode codepoint)
     } else if method == n.compare {
         require_args("compare", 1, args.len())?;
@@ -150,6 +138,17 @@ pub fn dispatch_string_method(
         let pattern = require_str_arg("replace", &args, 0)?;
         let replacement = require_str_arg("replace", &args, 1)?;
         Ok(Value::string(s.replace(pattern, replacement)))
+    // split(separator) -> [str]
+    } else if method == n.split {
+        require_args("split", 1, args.len())?;
+        let sep = require_str_arg("split", &args, 0)?;
+        let parts: Vec<Value> = if sep.is_empty() {
+            // Empty separator: split into individual characters
+            s.chars().map(|c| Value::string(c.to_string())).collect()
+        } else {
+            s.split(sep).map(|p| Value::string(p.to_string())).collect()
+        };
+        Ok(Value::list(parts))
     // repeat(count) -> str
     } else if method == n.repeat {
         require_args("repeat", 1, args.len())?;
@@ -164,6 +163,22 @@ pub fn dispatch_string_method(
     } else {
         Err(no_such_method(ctx.interner.lookup(method), "str").into())
     }
+}
+
+/// `substring`/`slice` — extract char-indexed substring.
+fn eval_str_slice(s: &str, name: &str, args: &[Value]) -> EvalResult {
+    require_args(name, 2, args.len())?;
+    let start = require_int_arg(name, args, 0)?;
+    let end = require_int_arg(name, args, 1)?;
+    let ustart = usize::try_from(start)
+        .map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
+    let uend =
+        usize::try_from(end).map_err(|_| ori_patterns::wrong_arg_type(name, "non-negative int"))?;
+    let chars: Vec<char> = s.chars().collect();
+    let uend = uend.min(chars.len());
+    let ustart = ustart.min(uend);
+    let result: String = chars[ustart..uend].iter().collect();
+    Ok(Value::string(result))
 }
 
 /// Dispatch methods on range values.

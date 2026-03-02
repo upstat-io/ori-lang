@@ -12,6 +12,7 @@ use ori_types::{Idx, Tag};
 use super::context::InvokeMode;
 use super::ArcIrEmitter;
 use crate::codegen::abi::{FunctionAbi, ReturnPassing};
+use crate::codegen::type_info::TypeInfo;
 use crate::codegen::value_id::{FunctionId, LLVMTypeId, ValueId};
 
 impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
@@ -168,6 +169,25 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // We handle the sret plumbing here: alloca result struct, call, load.
         if callee_name_str == "ori_list_take" && !args.is_empty() {
             if let Some(val) = self.emit_list_take(args[0], func) {
+                self.def_var_repr(dst, val, func);
+            }
+            return;
+        }
+
+        // Internal protocol: __index(receiver, index).
+        // Desugared from `receiver[index]` by ARC lowering.
+        // List: returns T directly (panics OOB). Map: returns Option<V>.
+        if callee_name_str == "__index" && args.len() >= 2 {
+            let receiver_ty = func.var_type(args[0]);
+            let type_info = self.type_info.get(receiver_ty);
+            let recv = self.var(args[0]);
+            let idx = self.var(args[1]);
+            let result = match &type_info {
+                TypeInfo::List { element } => self.emit_list_index(recv, idx, *element),
+                TypeInfo::Map { key, value } => self.emit_map_get(recv, idx, *key, *value),
+                _ => None,
+            };
+            if let Some(val) = result {
                 self.def_var_repr(dst, val, func);
             }
             return;

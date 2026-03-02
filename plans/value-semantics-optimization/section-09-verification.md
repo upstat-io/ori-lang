@@ -13,7 +13,7 @@ sections:
     status: complete
   - id: "09.2"
     title: "Macro-Benchmark Programs"
-    status: not-started
+    status: complete
   - id: "09.3"
     title: "Memory Safety Verification"
     status: not-started
@@ -165,7 +165,7 @@ Isolated benchmarks measuring the raw performance of individual COW operations.
 
 Real-world-like programs that exercise multiple COW paths.
 
-- [ ] **JSON builder** — Builds a large JSON string via nested concat:
+- [x] **JSON builder** — Builds a large JSON string via nested concat: (2026-03-02)
   ```ori
   // Exercises: string COW, SSO, string concat chains
   fn build_json(entries: [(str, int)]) -> str {
@@ -180,7 +180,7 @@ Real-world-like programs that exercise multiple COW paths.
   }
   ```
 
-- [ ] **Graph BFS** — Builds adjacency lists, explores graph:
+- [x] **Graph BFS** — Builds adjacency lists, explores graph: (2026-03-02)
   ```ori
   // Exercises: list push, list iteration, map insert/get, set insert/contains
   fn bfs(graph: {str: [str]}, start: str) -> [str] {
@@ -191,7 +191,7 @@ Real-world-like programs that exercise multiple COW paths.
   }
   ```
 
-- [ ] **Sort + deduplicate** — Sorts a large list, removes duplicates:
+- [x] **Sort + deduplicate** — Sorts a large list, removes duplicates: (2026-03-02)
   ```ori
   // Exercises: list sort (in-place COW), list comparison, list push
   fn sort_dedup(items: [int]) -> [int] {
@@ -209,7 +209,7 @@ Real-world-like programs that exercise multiple COW paths.
   }
   ```
 
-- [ ] **File processing pipeline** — Read lines, transform, filter, collect:
+- [x] **File processing pipeline** — Read lines, transform, filter, collect: (2026-03-02)
   ```ori
   // Exercises: string split (slices), string trim (slices), list filter, list map
   fn process_lines(input: str) -> [str] {

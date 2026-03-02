@@ -34,6 +34,7 @@ use rustc_hash::FxHashSet;
 /// When adding a new builtin method to the LLVM backend's `declare_builtins!`
 /// with `borrow: true`, also add its name here (if not already present).
 const BORROWING_METHOD_NAMES: &[&str] = &[
+    "__index", // arr[i] / map[k] — reads receiver + key, produces independent result
     "abs",
     "byte",
     "chars",

@@ -71,6 +71,38 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.icmp_ne(result, zero, "contains.bool"))
     }
 
+    /// Emit `list[index]` — bounds-checked element access, returns `T` directly.
+    ///
+    /// Calls `ori_list_get(data, len, index, elem_size, out_ptr)`.
+    /// Panics on out-of-bounds (no Option wrapper — direct element return).
+    pub(crate) fn emit_list_index(
+        &mut self,
+        receiver: ValueId,
+        index: ValueId,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_list_get");
+
+        let (data_ptr, len) = self.extract_list_data_and_len(receiver);
+        let elem_size_val = self
+            .builder
+            .const_i64(self.element_store_size(elem_ty) as i64);
+
+        // Alloca for the element (T, not Option<T>)
+        let elem_llvm_ty = self.resolve_type(elem_ty);
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "index.out", elem_llvm_ty);
+
+        self.builder.call(
+            func_id,
+            &[data_ptr, len, index, elem_size_val, out_alloca],
+            "index",
+        );
+
+        Some(self.builder.load(elem_llvm_ty, out_alloca, "index.val"))
+    }
+
     /// Emit `list.iter()` — call `ori_iter_from_list(data, len, cap, elem_size, elem_dec_fn)`.
     ///
     /// The iterator takes ownership of one RC reference to the list data buffer.
