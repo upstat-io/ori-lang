@@ -733,7 +733,7 @@ Run this test **before** deleting the old functions. Once it passes, the old fun
 | AOT tests | `cargo t -p ori_llvm --test aot` | AOT compilation with RC correct |
 | Spec tests | `cargo st` | End-to-end Ori programs produce correct results |
 | Full suite | `./test-all.sh` | No regressions anywhere |
-| Release build | `cargo blr && ./test-all.sh` | Release mode (FastISel differences) |
+| Release build | `cargo b --release && ./test-all.sh` | Release mode (FastISel differences) |
 | Clippy | `./clippy-all.sh` | No new warnings, no dead code |
 
 ### Specific ARC Behaviors to Verify
@@ -757,7 +757,7 @@ These are the concrete behaviors that depend on the borrowing set being correct:
 - [ ] `./llvm-test.sh` passes
 - [ ] `cargo st` passes
 - [ ] `./test-all.sh` passes
-- [ ] `cargo blr && ./test-all.sh` passes (release mode)
+- [ ] `cargo b --release && ./test-all.sh` passes (release mode)
 - [ ] `./clippy-all.sh` passes
 - [ ] Delete temporary equivalence test after old functions are removed
 - [ ] Final `./test-all.sh` after cleanup
@@ -778,5 +778,5 @@ All of the following must be true before this section is marked complete:
 8. **Equivalence verified:** Old and new borrowing sets produce identical `FxHashSet<Name>` content
 9. **No dependency cycles:** `cargo tree` shows no path from `ori_arc` or `ori_registry` back to `ori_llvm`
 10. **`oric` does not import `ori_llvm::codegen::arc_emitter`** for borrowing data
-11. **All tests pass:** `./test-all.sh` green, including release mode (`cargo blr && ./test-all.sh`)
+11. **All tests pass:** `./test-all.sh` green, including release mode (`cargo b --release && ./test-all.sh`)
 12. **Clippy clean:** `./clippy-all.sh` produces no new warnings

@@ -149,7 +149,7 @@ Float narrowing is only applied under very strict conditions to avoid precision 
 - [ ] Arithmetic on f64 values is NEVER narrowed (conservative by default)
 - [ ] `struct Color { r: float, g: float, b: float }` with values `0.0..1.0` uses f32 fields
 - [ ] `fpext`/`fptrunc` visible at load/store boundaries in LLVM IR
-- [ ] `./scripts/dual-exec-verify.sh` passes (no precision differences)
+- [ ] `./diagnostics/dual-exec-verify.sh` passes (no precision differences)
 - [ ] `./test-all.sh` green
 
 **Exit Criteria:** A program storing constant `0.5` in a struct field uses `float` (f32) in LLVM IR instead of `double` (f64), verified by inspecting generated IR. All floating-point spec tests continue to pass with bit-identical results.

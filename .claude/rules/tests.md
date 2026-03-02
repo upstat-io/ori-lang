@@ -56,7 +56,7 @@ paths:
 - `cargo st tests/spec/types/` — specific category
 - `./test-all.sh` — full suite
 - `./llvm-test.sh` — LLVM unit tests
-- `cargo blr && ./target/release/ori test --backend=llvm tests/`
+- `cargo b --release && ./target/release/ori test --backend=llvm tests/`
 
 ## Attributes
 - `#skip("reason")` — skip with explanation

@@ -28,7 +28,7 @@ Source (.ori)
   │  │
   │  └─ LLVM Codegen (25 of 28 issues)
   │     ├─ Section 01: Critical Correctness (C1-C4)  ← MUST FIX FIRST
-  │     ├─ Section 02: UB & Soundness (M14, H2, M2, M9)
+  │     ├─ Section 02: UB & Soundness (M14, H2, H3, M2, M9)
   │     ├─ Section 03: Exception Handling (H1, M10, M11)
   │     ├─ Section 04: Alignment (M5)
   │     ├─ Section 05: Variant Codegen (M7, M8)
@@ -88,14 +88,15 @@ Phase 0 - Critical Correctness                    [HIGHEST PRIORITY]
 Phase 1 - UB & Soundness
   └─ 02.1: Fix M14 — None variant uninitialized payload
   └─ 02.2: Fix H2 — Audit nounwind for runtime calls
-  └─ 02.3: Fix M9 — Range overflow for ..=INT_MAX
-  └─ 02.4: Design M2 — nsw flags / checked arithmetic
+  └─ 02.3: Fix M9 — Range overflow for ..=INT_MAX (runtime step-sign branch)
+  └─ 02.4: Add H3 — noalias on proven non-aliasing parameters
+  └─ 02.5: Fix M2 — Checked arithmetic (overflow panics)
   Gate: Zero LLVM UB in generated IR; nounwind analysis sound
 
 Phase 2 - Exception Handling & Alignment          [QUICK WINS]
   └─ 03: Exception handling cleanup (H1, M10, M11)
-  └─ 04: Alignment fix (M5 — align 4 → align 8)
-  Gate: No orphaned landing pads; correct alignment on all loads
+  └─ 04: Alignment fix (M5 — DataLayout-driven, target-aware)
+  Gate: No orphaned landing pads; correct alignment on all loads; `opt -passes=verify` clean
 
 Phase 3 - Codegen Quality
   └─ 05: Variant codegen (M7, M8)
@@ -107,14 +108,14 @@ Phase 3 - Codegen Quality
   Gate: IR quality improvements measurable; no regressions
 
 Phase 4 - Verification                            [FINAL]
-  └─ 11: Re-run all 12 journeys, dual-exec verify, valgrind
-  Gate: 12/12 journeys correct, 0 dual-exec mismatches, 0 valgrind errors
+  └─ 11: Re-run all 12 journeys, dual-exec verify, valgrind, IR verifier
+  Gate: 12/12 journeys correct, 0 dual-exec mismatches, 0 valgrind errors, opt -passes=verify clean
 ```
 
 **Why this order:**
 - Phase 0 fixes silent miscompilations and crashes — the most dangerous defects.
 - Phase 1 eliminates UB — programs that "work" today may break with LLVM upgrades.
-- Phase 2 is quick wins (M5 is a trivial alignment constant fix, H1/M11 share code).
+- Phase 2 is quick wins (M5 requires DataLayout-driven ABI alignment but is well-scoped, H1/M11 share code).
 - Phase 3 is quality improvements that benefit every program but don't affect correctness.
 - Phase 4 proves everything works as one system.
 
@@ -125,16 +126,16 @@ Phase 4 - Verification                            [FINAL]
 | Severity | Count | IDs |
 |----------|-------|-----|
 | CRITICAL | 4 | C1, C2, C3, C4 |
-| HIGH | 2 | H1, H2 |
+| HIGH | 3 | H1, H2, H3 |
 | MEDIUM | 14 | M1-M14 |
 | LOW | 7 | L1-L7 |
-| **Total** | **27** | |
+| **Total** | **28** | |
 
 ### By Phase
 
 | Phase | Issues | Count |
 |-------|--------|-------|
-| LLVM Codegen | C1-C4, H1-H2, M2-M14, L3-L7 | 25 |
+| LLVM Codegen | C1-C4, H1-H3, M2-M14, L3-L7 | 25 |
 | Canonicalizer | L1, L2 | 2 |
 | Overall | M1 | 1 |
 

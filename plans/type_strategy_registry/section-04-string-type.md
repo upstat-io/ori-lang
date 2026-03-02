@@ -221,7 +221,7 @@ This is encoded as `receiver_borrows: true` on every `MethodDef` in ori_ir's `BU
 
 ## 04.4 Full STR TypeDef Definition
 
-This is the exact `const` Rust definition for the registry. It references the data model types from Section 01.
+This is the planned `const` Rust definition for the registry, referencing the data model types from Section 01. The first `MethodDef` entry shows all 10 frozen fields; subsequent entries abbreviate fields that share the documented defaults (per frozen decision 13). The final implementation MUST fill in all fields on every entry.
 
 ```rust
 pub const STR: TypeDef = TypeDef {

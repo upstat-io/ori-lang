@@ -8,7 +8,7 @@ paths:
 ## Pipeline
 
 - Parse → TypeCheck → LLVM IR → Object → Link → Executable
-- Build: `cargo bl` (debug) | `cargo blr` (release)
+- Build: `cargo b` (debug) | `cargo b --release` (release)
 - **Always build `ori_rt` alongside `oric`**
 
 ## Runtime Discovery

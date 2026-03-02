@@ -30,6 +30,7 @@ use ori_arc::ir::{
     CtorKind,
 };
 use ori_arc::ownership::Ownership;
+use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::{compute_sccs, CallGraph};
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -74,6 +75,8 @@ fn standalone_reader(name: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -107,6 +110,8 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -139,6 +144,8 @@ fn storer_function(name: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -183,6 +190,8 @@ fn modified_reader(name: Name) -> ArcFunction {
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 

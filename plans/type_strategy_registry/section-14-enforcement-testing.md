@@ -1329,7 +1329,7 @@ Each step must pass before proceeding to the next. Failures at any level must be
 **Level 1: Compilation**
 - [ ] `cargo c` -- all workspace crates compile cleanly
 - [ ] `cargo c -p ori_registry` -- registry crate compiles
-- [ ] `cargo bl` -- LLVM build compiles (includes ori_registry)
+- [ ] `cargo b` -- LLVM build compiles (includes ori_registry)
 
 **Level 2: Unit Tests (per-crate)**
 - [ ] `cargo t -p ori_registry` -- registry integrity + purity tests pass
@@ -1354,7 +1354,7 @@ Each step must pass before proceeding to the next. Failures at any level must be
 - [ ] `./fmt-all.sh` -- formatting clean
 
 **Level 6: Release Verification**
-- [ ] `cargo blr` -- release build compiles
+- [ ] `cargo b --release` -- release build compiles
 - [ ] `./test-all.sh` with release binary -- all tests pass under release optimization
 
 ### Checklist
@@ -1454,7 +1454,7 @@ These guarantees are verified by running the full test suite.
 - [ ] `cargo st` passes with zero failures
 - [ ] `./clippy-all.sh` passes with zero warnings
 - [ ] `./fmt-all.sh` passes (no formatting changes needed)
-- [ ] `cargo blr && ./test-all.sh` passes (release build regression check)
+- [ ] `cargo b --release && ./test-all.sh` passes (release build regression check)
 - [ ] No existing test was deleted, modified, or marked `#[ignore]` to achieve a passing suite
 - [ ] No `#[allow(clippy)]` was added without a `reason = "..."` justification
 - [ ] Code journey passes — eval/AOT match, no CRITICAL findings unaddressed

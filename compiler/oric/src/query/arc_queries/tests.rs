@@ -5,6 +5,7 @@ use ori_arc::ir::{
     CtorKind,
 };
 use ori_arc::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
+use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -36,6 +37,8 @@ fn stub_function(name: Name) -> ArcFunction {
         spans: vec![],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -291,6 +294,8 @@ fn calling_function(name: Name, callee: Name) -> ArcFunction {
         spans: vec![],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -731,6 +736,8 @@ fn pure_reader(name: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -765,6 +772,8 @@ fn param_storer(name: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -800,6 +809,8 @@ fn param_forwarder(name: Name, callee: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -848,6 +859,8 @@ fn modified_reader(name: Name) -> ArcFunction {
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -1207,6 +1220,8 @@ fn incremental_mutual_recursion_body_change_same_sig() {
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     };
 
     let mut new_funcs = vec![
