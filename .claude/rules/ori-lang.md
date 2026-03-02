@@ -16,13 +16,19 @@ paths:
 - If new feature, update spec first
 
 **If changing syntax:**
-- Update `grammar.ebnf`
+- Update `grammar.ebnf` (Annex A companion)
 - Update ALL example code
 - Update `.claude/rules/ori-syntax.md`
 
 **If changing operator behavior:**
-- Update `operator-rules.md`
+- Update `operator-rules.md` (Annex B companion)
 - Verify: `ori_types/infer/expr/`, `ori_eval/interpreter/`
+
+**Spec conventions (ISO/IEC Directives, Part 2):**
+- Use `shall`/`shall not` for requirements (not `must`)
+- Use `NOTE` for informative text (not `> **Note:**`)
+- Use `EXAMPLE` for code examples (not `Valid:`/`Invalid:`)
+- Hierarchical clause numbers: `## N.M Subsection`
 
 ## Never Do
 - Examples that don't match spec

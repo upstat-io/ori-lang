@@ -196,6 +196,24 @@ pub fn fmt_instr(
             fmt_args_simple(out, args, func);
         }
 
+        ArcInstr::CollectionReuse {
+            old_var,
+            dst,
+            ctor,
+            args,
+            ..
+        } => {
+            write!(
+                out,
+                "{} = CollectionReuse {} {}",
+                fmt_var_typed(func, *dst, pool, interner),
+                fmt_var(func, *old_var),
+                fmt_ctor(ctor, interner),
+            )
+            .unwrap();
+            fmt_args_simple(out, args, func);
+        }
+
         ArcInstr::Select {
             dst,
             cond,

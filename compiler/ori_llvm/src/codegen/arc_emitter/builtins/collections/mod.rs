@@ -91,7 +91,8 @@ declare_builtins! { emitter, ctx;
     ("list", "concat", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -102,7 +103,8 @@ declare_builtins! { emitter, ctx;
     ("list", "add", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_list_concat_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -113,7 +115,8 @@ declare_builtins! { emitter, ctx;
     ("list", "push", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_list_push_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -158,21 +161,24 @@ declare_builtins! { emitter, ctx;
     },
     ("list", "reverse", borrow: false) => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_reverse_cow(ctx.arg_vals[0], *element)
+            let cm = emitter.cow_mode_const(ctx.arc_func);
+            emitter.emit_list_reverse_cow(ctx.arg_vals[0], *element, cm)
         } else {
             None
         }
     },
     ("list", "sort", borrow: false) => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_sort_cow(ctx.arg_vals[0], *element)
+            let cm = emitter.cow_mode_const(ctx.arc_func);
+            emitter.emit_list_sort_cow(ctx.arg_vals[0], *element, cm)
         } else {
             None
         }
     },
     ("list", "sort_stable", borrow: false) => {
         if let TypeInfo::List { element } = ctx.type_info {
-            emitter.emit_list_sort_stable_cow(ctx.arg_vals[0], *element)
+            let cm = emitter.cow_mode_const(ctx.arc_func);
+            emitter.emit_list_sort_stable_cow(ctx.arg_vals[0], *element, cm)
         } else {
             None
         }
@@ -180,7 +186,8 @@ declare_builtins! { emitter, ctx;
     ("list", "set", borrow: false) => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_set_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_list_set_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm)
             } else {
                 None
             }
@@ -191,7 +198,8 @@ declare_builtins! { emitter, ctx;
     ("list", "insert", borrow: false) => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_insert_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_list_insert_cow(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *element, cm)
             } else {
                 None
             }
@@ -202,7 +210,8 @@ declare_builtins! { emitter, ctx;
     ("list", "remove", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::List { element } = ctx.type_info {
-                emitter.emit_list_remove_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_list_remove_cow(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -294,7 +303,8 @@ declare_builtins! { emitter, ctx;
     ("map", "insert", borrow: false) => {
         if ctx.arg_vals.len() >= 3 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
-                emitter.emit_map_insert(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_map_insert(ctx.arg_vals[0], ctx.arg_vals[1], ctx.arg_vals[2], *key, *value, cm)
             } else {
                 None
             }
@@ -312,7 +322,8 @@ declare_builtins! { emitter, ctx;
     ("map", "remove", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Map { key, value } = ctx.type_info {
-                emitter.emit_map_remove(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_map_remove(ctx.arg_vals[0], ctx.arg_vals[1], *key, *value, cm)
             } else {
                 None
             }
@@ -339,7 +350,8 @@ declare_builtins! { emitter, ctx;
     ("Set", "insert", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
-                emitter.emit_set_insert(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_set_insert(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -350,7 +362,8 @@ declare_builtins! { emitter, ctx;
     ("Set", "remove", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
-                emitter.emit_set_remove(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_set_remove(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -361,7 +374,8 @@ declare_builtins! { emitter, ctx;
     ("Set", "union", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
-                emitter.emit_set_union(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_set_union(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -372,7 +386,8 @@ declare_builtins! { emitter, ctx;
     ("Set", "intersection", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
-                emitter.emit_set_intersection(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_set_intersection(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }
@@ -383,7 +398,8 @@ declare_builtins! { emitter, ctx;
     ("Set", "difference", borrow: false) => {
         if ctx.arg_vals.len() >= 2 {
             if let TypeInfo::Set { element } = ctx.type_info {
-                emitter.emit_set_difference(ctx.arg_vals[0], ctx.arg_vals[1], *element)
+                let cm = emitter.cow_mode_const(ctx.arc_func);
+                emitter.emit_set_difference(ctx.arg_vals[0], ctx.arg_vals[1], *element, cm)
             } else {
                 None
             }

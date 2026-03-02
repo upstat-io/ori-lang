@@ -1,7 +1,7 @@
 ---
 title: "Appendix A: Salsa Patterns"
 description: "Ori Compiler Design — Appendix A: Salsa Patterns"
-order: 1001
+order: 9001
 section: "Appendices"
 ---
 

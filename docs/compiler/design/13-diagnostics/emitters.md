@@ -1,0 +1,355 @@
+---
+title: "Emitters"
+description: "Ori Compiler Design — Emitters"
+order: 1302
+section: "Diagnostics"
+---
+
+# Emitters
+
+Emitters format diagnostics for different output targets: terminal, JSON, and SARIF.
+
+## DiagnosticEmitter Trait
+
+```rust
+/// Trait for emitting diagnostics in various formats.
+pub trait DiagnosticEmitter {
+    /// Emit a single diagnostic.
+    fn emit(&mut self, diagnostic: &Diagnostic);
+
+    /// Emit multiple diagnostics.
+    fn emit_all(&mut self, diagnostics: &[Diagnostic]) {
+        for diag in diagnostics {
+            self.emit(diag);
+        }
+    }
+
+    /// Flush any buffered output.
+    fn flush(&mut self);
+
+    /// Emit a summary of errors/warnings.
+    fn emit_summary(&mut self, error_count: usize, warning_count: usize);
+}
+```
+
+## Terminal Emitter
+
+Human-readable output with colors:
+
+```
+error[E2001]: type mismatch
+ --> src/mainsi:10:15
+   |
+10 |     let x: int = "hello"
+   |            ---   ^^^^^^^ expected `int`, found `str`
+   |            |
+   |            expected due to this annotation
+   |
+   = help: consider using `int()` to convert
+```
+
+### ColorMode
+
+The `ColorMode` enum controls color output:
+
+```rust
+pub enum ColorMode {
+    /// Automatically detect based on terminal capabilities.
+    Auto,
+    /// Always use colors.
+    Always,
+    /// Never use colors.
+    Never,
+}
+
+impl ColorMode {
+    /// Resolve to a boolean based on terminal detection.
+    pub fn should_use_colors(self, is_tty: bool) -> bool;
+}
+```
+
+### Implementation
+
+The `TerminalEmitter` is generic over `W: Write` and borrows source text for zero-copy snippet rendering. When source text is provided via `with_source()`, it builds a `LineOffsetTable` for O(log L) line/column lookups. Without source text, it falls back to byte-offset output.
+
+```rust
+pub struct TerminalEmitter<'src, W: Write> {
+    writer: W,
+    colors: bool,
+    /// Source text for rendering snippets (borrowed, not cloned).
+    source: Option<&'src str>,
+    /// File path displayed in `-->` location headers.
+    file_path: Option<String>,
+    /// Pre-computed line offset table for O(log L) lookups.
+    line_table: Option<LineOffsetTable>,
+}
+
+impl DiagnosticEmitter for TerminalEmitter {
+    fn emit(&mut self, diag: &Diagnostic) {
+        // Header: error[E2001]: message
+        self.write_header(diag);
+
+        // Labels with source snippets
+        for label in &diag.labels {
+            self.write_label(label);
+        }
+
+        // Notes
+        for note in &diag.notes {
+            self.write_note(note);
+        }
+
+        // Suggestions (human-readable)
+        for suggestion in &diag.suggestions {
+            self.write_suggestion(suggestion);
+        }
+
+        // Structured suggestions (for ori fix)
+        for suggestion in &diag.structured_suggestions {
+            self.write_structured_suggestion(suggestion);
+        }
+
+        writeln!(self.writer).ok();
+    }
+
+    fn flush(&mut self) {
+        // TerminalEmitter writes directly, no buffering
+    }
+
+    fn emit_summary(&mut self, error_count: usize, warning_count: usize) {
+        // e.g., "error: aborting due to 3 previous errors"
+    }
+}
+```
+
+### Color Scheme
+
+Colors are defined as module constants in a `colors` submodule, not as a method on `TerminalEmitter`:
+
+```rust
+mod colors {
+    pub const ERROR: &str = "\x1b[1;31m";     // Bold red
+    pub const WARNING: &str = "\x1b[1;33m";   // Bold yellow
+    pub const NOTE: &str = "\x1b[1;36m";      // Bold cyan
+    pub const HELP: &str = "\x1b[1;32m";      // Bold green
+    pub const BOLD: &str = "\x1b[1m";
+    pub const SECONDARY: &str = "\x1b[1;34m"; // Bold blue
+    pub const RESET: &str = "\x1b[0m";
+}
+```
+
+## JSON Emitter
+
+Machine-readable JSON output:
+
+```json
+{
+  "diagnostics": [
+    {
+      "code": "E2001",
+      "severity": "error",
+      "message": "type mismatch: expected `int`, found `str`",
+      "labels": [
+        {
+          "span": { "start": 150, "end": 157 },
+          "message": "expected `int`",
+          "isPrimary": true
+        }
+      ],
+      "notes": [],
+      "suggestions": ["consider using `int()` to convert"],
+      "structuredSuggestions": [
+        {
+          "message": "convert using `int()`",
+          "substitutions": [
+            { "span": { "start": 150, "end": 150 }, "snippet": "int(" },
+            { "span": { "start": 157, "end": 157 }, "snippet": ")" }
+          ],
+          "applicability": "MaybeIncorrect"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Implementation
+
+```rust
+pub struct JsonEmitter<W: Write> {
+    writer: W,     // Streaming output (no buffering all diagnostics)
+    first: bool,   // Tracks whether to emit comma separator
+}
+
+// Builds JSON manually (no serde dependency) and streams each diagnostic
+impl<W: Write> DiagnosticEmitter for JsonEmitter<W> {
+    fn emit(&mut self, diag: &Diagnostic) {
+        // Manually writes JSON with escaped strings, including:
+        // code, severity, message, labels (with span/message/isPrimary),
+        // notes,
+            "suggestions": diag.suggestions,
+            "structuredSuggestions": diag.structured_suggestions.iter().map(|s| json!({
+                "message": s.message,
+                "substitutions": s.substitutions.iter().map(|sub| json!({
+                    "span": { "start": sub.span.start, "end": sub.span.end },
+                    "snippet": sub.snippet,
+                })).collect::<Vec<_>>(),
+                "applicability": format!("{:?}", s.applicability),
+            })).collect::<Vec<_>>(),
+        }));
+    }
+
+    fn flush(&mut self) {
+        println!("{}", serde_json::to_string_pretty(&json!({
+            "diagnostics": &self.diagnostics
+        })).unwrap());
+    }
+
+    fn emit_summary(&mut self, _error_count: usize, _warning_count: usize) {
+        // Summary is implicit in the JSON output
+    }
+}
+```
+
+## SARIF Emitter
+
+[SARIF](https://sarifweb.azurewebsites.net/) (Static Analysis Results Interchange Format) for static analysis tools:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "oric",
+          "version": "0.1.0",
+          "rules": [
+            {
+              "id": "E2001",
+              "shortDescription": { "text": "Type mismatch" },
+              "helpUri": "https://ori-lang.org/errors/E2001"
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "E2001",
+          "level": "error",
+          "message": { "text": "expected `int`, found `str`" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "src/main.ori" },
+                "region": {
+                  "startLine": 10,
+                  "startColumn": 15,
+                  "endLine": 10,
+                  "endColumn": 22
+                }
+              }
+            }
+          ],
+          "fixes": [
+            {
+              "description": { "text": "convert using `int()`" },
+              "artifactChanges": [
+                {
+                  "artifactLocation": { "uri": "src/main.ori" },
+                  "replacements": [
+                    {
+                      "deletedRegion": { "startLine": 10, "startColumn": 15, "endColumn": 15 },
+                      "insertedContent": { "text": "int(" }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Implementation
+
+```rust
+pub struct SarifEmitter {
+    results: Vec<sarif::Result>,
+    rules: BTreeSet<ErrorCode>,  // BTreeSet for stable rule ordering
+}
+
+impl DiagnosticEmitter for SarifEmitter {
+    fn emit(&mut self, diag: &Diagnostic) {
+        self.rules.insert(diag.code);
+
+        self.results.push(sarif::Result {
+            rule_id: diag.code.to_string(),
+            level: match diag.severity {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+                Severity::Note => "note",
+                Severity::Help => "none",
+            }.into(),
+            message: sarif::Message { text: diag.message.clone() },
+            locations: self.labels_to_locations(&diag.labels),
+            fixes: diag.structured_suggestions.iter()
+                .map(|s| self.convert_suggestion(s))
+                .collect(),
+            ..Default::default()
+        });
+    }
+
+    fn flush(&mut self) {
+        let sarif = sarif::Sarif {
+            version: "2.1.0".into(),
+            runs: vec![sarif::Run {
+                tool: sarif::Tool {
+                    driver: sarif::Driver {
+                        name: "oric".into(),
+                        version: env!("CARGO_PKG_VERSION").into(),
+                        rules: self.build_rules(),
+                    },
+                },
+                results: std::mem::take(&mut self.results),
+            }],
+        };
+
+        println!("{}", serde_json::to_string_pretty(&sarif).unwrap());
+    }
+
+    fn emit_summary(&mut self, _error_count: usize, _warning_count: usize) {
+        // Summary is implicit in SARIF format
+    }
+}
+```
+
+## Choosing an Emitter
+
+```rust
+pub fn create_emitter(format: OutputFormat) -> Box<dyn DiagnosticEmitter> {
+    match format {
+        OutputFormat::Terminal => Box::new(TerminalEmitter::stdout(ColorMode::Auto, true)),
+        OutputFormat::Plain => Box::new(TerminalEmitter::stdout(ColorMode::Never, false)),
+        OutputFormat::Json => Box::new(JsonEmitter::new()),
+        OutputFormat::Sarif => Box::new(SarifEmitter::new()),
+    }
+}
+```
+
+## CLI Usage
+
+```bash
+# Terminal (default)
+ori check src/main.ori
+
+# JSON
+ori check --format=json src/main.ori
+
+# SARIF
+ori check --format=sarif src/main.ori > results.sarif
+```

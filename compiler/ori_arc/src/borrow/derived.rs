@@ -136,6 +136,15 @@ pub fn infer_derived_ownership(
                     }
                 }
 
+                // CollectionReuse recycles a buffer — result is a fresh
+                // allocation (RC = 1, same as Construct).
+                ArcInstr::CollectionReuse { dst, .. } => {
+                    let dst_idx = dst.index();
+                    if dst_idx < num_vars {
+                        ownership[dst_idx] = DerivedOwnership::Fresh;
+                    }
+                }
+
                 // RC/reuse ops don't define new variables (or their dst
                 // is a token which is always Owned).
                 ArcInstr::RcInc { .. }

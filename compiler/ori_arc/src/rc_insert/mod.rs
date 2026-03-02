@@ -35,6 +35,7 @@
 //! - Swift: `lib/SILOptimizer/ARC/`
 
 mod annotate;
+mod block_rc;
 mod edge_cleanup;
 mod insert;
 

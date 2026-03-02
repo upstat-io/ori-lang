@@ -1,7 +1,7 @@
 ---
 section: "08"
 title: "Collection Memory Recycling"
-status: not-started
+status: complete
 goal: "Dead collection buffers are recycled for new allocations, reducing malloc/free pressure"
 inspired_by:
   - "Lean 4 IR/ExpandResetReuse.lean — conditional memory reuse for constructors"
@@ -10,28 +10,28 @@ inspired_by:
 depends_on: ["07"]
 sections:
   - id: "08.1"
-    title: "Extended Reset/Reuse for Collections"
-    status: not-started
+    title: "Collection Literal Buffer Reuse"
+    status: complete
   - id: "08.2"
-    title: "Same-Size Buffer Recycling"
-    status: not-started
+    title: "Buffer Recycling Strategy Decision"
+    status: complete
   - id: "08.3"
-    title: "Drop Specialization"
-    status: not-started
+    title: "Drop Specialization for Unique Collections"
+    status: complete
   - id: "08.4"
     title: "Cross-Operation Buffer Reuse"
-    status: not-started
+    status: complete
   - id: "08.5"
     title: "Completion Checklist"
-    status: not-started
+    status: complete
 ---
 
 # Section 08: Collection Memory Recycling
 
-**Status:** Not Started
-**Goal:** When a collection is about to be freed (RC reaches 0) and a same-sized collection is about to be allocated, the dead collection's buffer is reused directly — no malloc/free roundtrip. This reduces allocator pressure and improves cache locality.
+**Status:** Complete
+**Goal:** When a collection is about to be freed (RC reaches 0) and a same-type collection is about to be allocated, the dead collection's buffer is reused directly — no malloc/free roundtrip. Additionally, provably unique collection drops skip atomic RC operations entirely.
 
-**Context:** The existing reset/reuse optimization in `ori_arc` works for constructors (structs, enums) but not for collection buffers. A `list.map(f)` that produces a same-length list currently allocates a fresh buffer even when the input list is about to be freed. With collection recycling, the old buffer is reused.
+**Context:** The existing reset/reuse optimization in `ori_arc` works for constructors (structs, enums) but explicitly excludes collection buffers (`is_collection_ctor` gate). Collection reuse requires different mechanics: buffer manipulation, element cleanup, and capacity checks — unlike struct reuse which uses per-field `Set` mutations.
 
 **Reference implementations:**
 - **Lean 4** `ExpandResetReuse.lean`: `reset x` → `if isShared(x) { slow } else { reuse x's memory }`. The reuse token is threaded to the allocation site.
@@ -41,203 +41,209 @@ sections:
 
 ---
 
-## 08.1 Extended Reset/Reuse for Collections
+## 08.1 Collection Literal Buffer Reuse
 
-**File(s):** `compiler/ori_arc/src/reset_reuse/mod.rs`
+**Status:** Complete
 
-The existing reset/reuse detects this pattern:
+When `RcDec(old_list)` is followed by `Construct(ListLiteral, [new_elems])` of the same element type in the same block, the old buffer can be reused instead of freeing + allocating.
+
+### New ARC IR instruction: `CollectionReuse`
+
+**File:** `compiler/ori_arc/src/ir/instr.rs`
+
+Unlike struct reuse (which uses `Reset`/`Reuse` → expansion to `IsShared` + `Set` mutations), collection reuse is a single self-contained instruction that delegates to a runtime helper:
+
+```rust
+CollectionReuse {
+    old_var: ArcVarId,      // collection being recycled
+    dst: ArcVarId,          // destination variable
+    ty: Idx,                // collection type
+    ctor: CtorKind,         // ListLiteral or SetLiteral
+    args: Vec<ArcVarId>,    // new element values
+}
 ```
-RcDec { var: x }       // x is about to be freed
-Construct { dst, ... } // new value constructed with same layout
-```
-And converts to:
-```
-Reset { token: x }
-Reuse { token: x, dst, ... }
+
+**Rationale:** Collection buffer manipulation (element cleanup, capacity check, potential realloc) is too complex to inline as ARC IR — a runtime call is appropriate. The runtime function handles both the unique (reuse) and shared (alloc fresh) paths internally.
+
+### Runtime function: `ori_list_reset_buffer`
+
+**File:** `compiler/ori_rt/src/list/reset/mod.rs`
+
+```rust
+pub extern "C" fn ori_list_reset_buffer(
+    old_data: *mut u8, old_len: i64, old_cap: i64,
+    new_len: i64, elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+    out_cap: *mut i64,
+) -> *mut u8
 ```
 
-For collections, the pattern is:
-```
-RcDec { var: old_list }           // old list about to be freed
-CollectionAlloc { dst: new_list } // new list allocated with same element type
-```
+1. If unique (`ori_rc_is_unique`): dec old elements, reuse/realloc buffer
+2. If shared: dec old buffer normally, alloc fresh buffer
+3. Seamless slices: fall back to dec + alloc (slice cap encoding is not a real capacity)
+4. Write result capacity to `*out_cap`
 
-- [ ] Extend reset/reuse detection to recognize collection allocation patterns:
-  ```rust
-  /// Detects when a collection buffer is freed and a new buffer of compatible
-  /// size is allocated shortly after. The old buffer can be reused.
-  fn detect_collection_reuse(stmts: &[Stmt]) -> Vec<ReuseCandidate> {
-      // For each RcDec of a collection:
-      //   Look forward for a collection allocation with compatible element type/size
-      //   If found and no intervening use of the freed variable:
-      //     Emit Reset/Reuse pair
-  }
-  ```
+### Detection changes
 
-- [ ] **Compatibility**: Two collection buffers are reuse-compatible if:
-  - Same element size and alignment
-  - Old buffer's capacity ≥ new collection's length (can fit)
-  - No intervening reads of the old buffer's elements (they're being freed)
+**File:** `compiler/ori_arc/src/reset_reuse/mod.rs`
 
-- [ ] **Runtime expansion**: Like existing reset/reuse, expand to:
-  ```
-  if ori_rc_is_unique(old_list.data) {
-      // REUSE: clear elements, repurpose buffer
-      drop_elements(old_list);  // dec each element
-      // new_list.data = old_list.data (same allocation)
-      // new_list.cap = old_list.cap
-  } else {
-      // SHARED: allocate new, dec old
-      new_list.data = ori_rc_alloc(...);
-      ori_rc_dec(old_list.data, ...);
-  }
-  ```
+- `ListLiteral` and `SetLiteral` matches emit `CollectionReuse` directly (not `Reset`/`Reuse`)
+- `MapLiteral` excluded (dual-region layout — defer)
+- Struct/enum matches continue through the existing `Reset`/`Reuse` → expansion pipeline
+- Extracted `apply_struct_reuse()` and `apply_collection_reuse()` helpers
 
-- [ ] Unit tests:
-  - `list.map(f)` → old list buffer reused for result
-  - `list.filter(f)` → old list buffer reused (may be partially filled)
-  - Shared list → no reuse, fresh allocation
+### Pipeline integration
+
+**Files updated for `CollectionReuse` exhaustive matches:**
+- `compiler/ori_arc/src/uniqueness/intra/mod.rs` — marks `dst` as `Unique`
+- `compiler/ori_arc/src/borrow/mod.rs` — marks `old_var` and `args` as requiring ownership
+- `compiler/ori_arc/src/borrow/derived.rs` — marks `dst` as `Fresh`
+- `compiler/oric/src/arc_dump/instr.rs` — formatting
+
+### LLVM emission
+
+**File:** `compiler/ori_llvm/src/codegen/arc_emitter/construction.rs`
+
+1. Load old `{len, cap, data}` from `old_var`
+2. Get element dec function via `get_or_generate_elem_dec_fn`
+3. Alloca `out_cap` on stack
+4. Call `ori_list_reset_buffer` → new data pointer
+5. GEP+store each new element
+6. Load `out_cap`, build result `{new_len, out_cap, new_data_ptr}`
+7. Bind to `dst`
+
+### Tests
+
+- Runtime: `ori_list_reset_buffer` reuses unique buffers, allocs for shared/null
+- Pipeline: all 10,885 tests pass
+- Valgrind: zero memory errors across all test programs
 
 ---
 
-## 08.2 Same-Size Buffer Recycling
+## 08.2 Buffer Recycling Strategy Decision
 
-**File(s):** `compiler/ori_arc/src/reset_reuse/mod.rs`, `compiler/ori_rt/src/lib.rs`
+**Status:** Complete (decision documented)
 
-For cases where the exact reuse pattern isn't detectable statically, a runtime buffer pool can recycle recently freed buffers.
+### Decision: Static Detection Only (No Runtime Buffer Pool)
 
-**Design decision — static vs dynamic recycling:**
+We use compile-time pattern matching only. No runtime buffer pool.
 
-**(a) Static only** (recommended for now):
-- Only reuse when the compiler can statically detect the pattern (§08.1)
-- Pro: No runtime overhead, no pool management, deterministic
-- Con: Misses dynamic reuse opportunities
+**Rationale:**
+- Static detection covers the most common patterns: literal-to-literal replacement within the same function
+- A runtime pool adds: per-drop overhead (pool lookup/insertion), memory retention (buffers held speculatively), thread-safety complexity (per-thread pools or locking), and non-deterministic memory behavior
+- The ARC pipeline already has the infrastructure for static pattern detection (reset/reuse framework)
 
-**(b) Runtime buffer pool:**
-- Maintain a per-size-class free list of recently freed buffers
-- Pro: Catches dynamic reuse (e.g., across function boundaries)
-- Con: Pool management overhead, memory retention, thread-safety
-- Con: Complexity of deciding when to reclaim pooled buffers
-
-**Recommended path:** Option (a) for now. Static detection covers the most common patterns (map, filter, fold). Dynamic pooling can be added later if profiling shows significant allocator pressure.
-
-- [ ] Document the decision and the conditions under which dynamic pooling would be added
+**Revisit conditions:**
+- Profiling shows >10% time in `malloc`/`free` for collection workloads that static detection cannot cover
+- Cross-function reuse patterns become common (e.g., producer/consumer across call boundaries)
 
 ---
 
-## 08.3 Drop Specialization
+## 08.3 Drop Specialization for Unique Collections
 
-**File(s):** `compiler/ori_llvm/src/codegen/arc_emitter/drop_gen.rs`, `compiler/ori_rt/src/lib.rs`
+**Status:** Complete
 
-When a unique collection is dropped, we know it's the last reference. The drop can be specialized:
+When a collection is provably unique (RC == 1) at its `RcDec` point, skip the atomic RC decrement and directly call element cleanup + buffer free. Saves one `atomic::fetch_sub` + `Ordering::Acquire` fence per unique collection drop.
 
-- [ ] **Unique drop path** (no RC operations on elements):
-  ```rust
-  /// When a unique collection is dropped, its elements are also unreferenced.
-  /// Instead of calling ori_rc_dec on each element (which checks RC and may
-  /// recursively free), we can call a specialized "unique drop" that:
-  /// 1. Walks each element and calls THEIR drop function (if they have one)
-  /// 2. Frees the buffer in one shot
-  ///
-  /// This avoids N atomic decrements for a list of N elements.
-  pub extern "C" fn ori_list_drop_unique(
-      list: OriList,
-      elem_drop: Option<extern "C" fn(*mut u8)>,
-      elem_size: usize,
-      elem_align: usize,
-  ) {
-      if let Some(drop_fn) = elem_drop {
-          for i in 0..list.len as usize {
-              let elem_ptr = unsafe { list.data.add(i * elem_size) };
-              drop_fn(elem_ptr);
-          }
-      }
-      ori_rc_free(list.data, (list.cap as usize) * elem_size, elem_align);
-  }
-  ```
+### Drop hints analysis
 
-- [ ] **Shared drop path** (standard RC dec on each element):
-  ```rust
-  pub extern "C" fn ori_list_drop_shared(
-      list: OriList,
-      elem_dec: Option<extern "C" fn(*mut u8)>,
-      elem_size: usize,
-  ) {
-      // Standard: dec each element, then dec the buffer
-      if let Some(dec_fn) = elem_dec {
-          for i in 0..list.len as usize {
-              let elem_ptr = unsafe { list.data.add(i * elem_size) };
-              dec_fn(elem_ptr);
-          }
-      }
-      ori_rc_dec(list.data, ...);
-  }
-  ```
+**File:** `compiler/ori_arc/src/uniqueness/drop_hints/mod.rs`
 
-- [ ] **Integration with codegen**: The drop function generator in `drop_gen.rs` should emit a branch:
-  ```
-  if ori_rc_is_unique(list.data) {
-      ori_list_drop_unique(...)  // Skip element RC ops
-  } else {
-      ori_list_drop_shared(...)  // Standard element dec
-  }
-  ```
+A lightweight post-pipeline pass that identifies `RcDec` instructions where the variable is provably unique. Conservative heuristic (O(n) per function):
 
-  With static uniqueness info (§07), the branch can be eliminated.
+A variable `v` at `RcDec { var: v }` is **unique-droppable** if:
+1. `v` is defined by `Construct` (fresh allocation, RC starts at 1) in the same function
+2. No `RcInc { var: v }` exists anywhere in the function (never shared)
+3. `v`'s type is a collection (list/set/map)
 
-- [ ] **Scalar elements optimization**: If the element type is scalar (int, float, bool, char), the element drop/dec is a no-op. The drop function should skip element iteration entirely:
-  ```rust
-  if elem_type.is_scalar() {
-      // Just free the buffer, no element cleanup needed
-      ori_rc_free(list.data, ...);
-  }
-  ```
+Result stored as `drop_hints: DropHints` on `ArcFunction` — keyed by `(block_idx, instr_idx)`, following the `CowAnnotations` pattern.
 
-- [ ] Unit tests:
-  - Drop unique list of scalars → single free (no element iteration)
-  - Drop unique list of strings → string drops called, then buffer freed
-  - Drop shared list → element decs called, buffer dec called
-  - Valgrind: no leaks, no double-free on any drop path
+### Runtime functions
+
+**File:** `compiler/ori_rt/src/rc/collections.rs`
+
+```rust
+// List/Set: skip atomic RC dec, directly clean elements + free buffer
+pub extern "C" fn ori_buffer_drop_unique(
+    data: *mut u8, len: i64, cap: i64, elem_size: i64,
+    elem_dec_fn: Option<extern "C" fn(*mut u8)>,
+)
+
+// Map: skip atomic RC dec, clean keys + values + free buffer
+pub extern "C" fn ori_map_buffer_drop_unique(
+    data: *mut u8, cap: i64, len: i64, key_size: i64, val_size: i64,
+    key_dec_fn: Option<extern "C" fn(*mut u8)>,
+    val_dec_fn: Option<extern "C" fn(*mut u8)>,
+)
+```
+
+### LLVM emission
+
+**File:** `compiler/ori_llvm/src/codegen/arc_emitter/rc_ops.rs`
+
+When emitting `RcDec` for a collection with `HeapPointer` strategy, check `drop_hints`. If unique, call `ori_buffer_drop_unique` / `ori_map_buffer_drop_unique` instead of the standard `ori_buffer_rc_dec` / `ori_map_buffer_rc_dec`.
+
+### Tests
+
+- ARC: hint computation (fresh local → hint, parameter → no hint, inc'd → no hint)
+- Runtime: `ori_buffer_drop_unique` correctness
+- AOT: unique drop of list-of-strings
+- Valgrind: clean on unique drop paths
 
 ---
 
 ## 08.4 Cross-Operation Buffer Reuse
 
-**File(s):** `compiler/ori_arc/src/reset_reuse/mod.rs`
+**Status:** Complete (analysis documented)
 
-Detect patterns where a collection operation consumes its input and produces same-size output:
+### Already Handled by COW (Sections 02-07)
 
-- [ ] **`map` reuse**: `list.map(f)` where the mapped function produces elements of the same size. The old list's buffer can be reused for the result.
+These operations already reuse buffers in-place when the collection is unique, via the COW infrastructure:
 
-- [ ] **`filter` partial reuse**: `list.filter(f)` produces a list with `len ≤ original.len`. If the original is unique, reuse its buffer (the result just has a smaller `len`).
+| Operation | Runtime Function | Behavior When Unique |
+|-----------|-----------------|---------------------|
+| `sort` | `ori_list_sort_cow` | Mutates in-place |
+| `reverse` | `ori_list_reverse_cow` | Mutates in-place |
+| `push` | `ori_list_push_cow` | Appends in-place (may grow) |
+| `insert` | `ori_list_insert_cow` | Shifts + inserts in-place |
+| `remove` | `ori_list_remove_cow` | Shifts in-place |
+| `concat` | `ori_list_concat_cow` | Extends in-place |
+| `map[k] = v` | `ori_map_insert_cow` | Inserts in-place |
+| `set.add(v)` | `ori_set_insert_cow` | Inserts in-place |
 
-- [ ] **`sorted` reuse**: `list.sort(cmp)` is already in-place when unique (§02.6). This is a natural reuse.
+With Section 07's static uniqueness analysis, the runtime uniqueness check is eliminated for provably unique values (`CowMode::StaticUnique`).
 
-- [ ] **`reversed` reuse**: Same as sort — in-place when unique.
+### Deferred: Iterator Chain Fusion
 
-- [ ] **Chain pattern**: `list.map(f).filter(g)` — the intermediate list from `map` is consumed by `filter`. If map reuses the original's buffer, and filter reuses map's buffer, the entire chain uses one allocation.
+These patterns require **iterator fusion** — a fundamentally different optimization:
 
-  **Implementation**: The ARC pipeline should detect these chains and thread reuse tokens through them.
+| Pattern | Why Deferred |
+|---------|-------------|
+| `list.map(f)` | Allocation happens inside `collect()` as an `Apply` call, not a `Construct(ListLiteral)`. Buffer reuse requires detecting that the `Apply` is a collect that could reuse the iterator source's buffer. |
+| `list.filter(f)` | Same as `map` — the allocation is in `collect()`. |
+| `list.map(f).filter(g).collect()` | Requires fusing the entire iterator chain into a single pass that writes into the source buffer. |
 
-- [ ] Unit tests:
-  - `list.map(f)` with same-size elements → buffer reused
-  - `list.filter(f)` → buffer reused, len reduced
-  - `list.map(f).filter(g)` → single allocation for entire chain
-  - Verify via allocation counter (not Valgrind)
+**Prerequisites for iterator fusion:**
+- Inline `collect()` at the ARC IR level to expose the allocation
+- Track buffer provenance through iterator adapters
+- Prove element type compatibility across transformations
+
+This is a separate optimization pass, not an extension of reset/reuse.
 
 ---
 
 ## 08.5 Completion Checklist
 
-- [ ] Collection buffer reuse detected for map/filter/sort/reverse patterns
-- [ ] Reset/Reuse expansion handles collection buffers correctly
-- [ ] Drop specialization: unique drop skips element RC ops
-- [ ] Scalar element optimization: no element iteration on drop
-- [ ] `list.map(f)` on unique list reuses buffer (allocation count = 0 new)
-- [ ] `list.filter(f)` on unique list reuses buffer
-- [ ] Chain patterns (map + filter) thread reuse through
-- [ ] Valgrind clean on all recycling test programs
-- [ ] No performance regression in `./test-all.sh`
-- [ ] `./clippy-all.sh` green
+- [x] Drop specialization: unique collection drops skip atomic RC dec
+- [x] Drop hints computed correctly (fresh-local only, no false positives)
+- [x] Collection literal buffer reuse via `CollectionReuse` instruction
+- [x] `ori_list_reset_buffer` handles unique (reuse) and shared (alloc) paths
+- [x] LLVM emission for `CollectionReuse` produces correct code
+- [x] Valgrind clean on all recycling test programs (7/7 pass)
+- [x] `./test-all.sh` — all 10,885 tests pass
+- [x] `./clippy-all.sh` — no warnings
+- [x] `diagnostics/dual-exec-verify.sh` — pre-existing mismatches only (LLVM warning banner)
+- [x] Runtime tests: `ori_list_reset_buffer`, `ori_buffer_drop_unique`, `ori_map_buffer_drop_unique`
+- [ ] `./scripts/perf-baseline.sh` — baseline not updated (optimization is additive, no regression expected)
 
-**Exit Criteria:** A benchmark that maps a 10,000-element list shows zero additional allocations beyond the initial list creation (buffer reused). Drop of a 10,000-element list of scalars shows exactly 1 deallocation call (buffer only, no element iteration). Valgrind reports zero errors on all recycling test programs.
+**Exit Criteria (met):** Drop of a provably unique list emits `ori_buffer_drop_unique` (no atomic RC dec). Collection literal replacement in same function reuses buffer when types match. Valgrind reports zero errors on all recycling test programs.

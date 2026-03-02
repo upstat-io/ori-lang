@@ -1,7 +1,7 @@
 ---
 title: "Appendix D: Debugging"
 description: "Ori Compiler Design — Appendix D: Debugging"
-order: 1004
+order: 9004
 section: "Appendices"
 ---
 

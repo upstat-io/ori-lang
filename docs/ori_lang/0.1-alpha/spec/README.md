@@ -1,51 +1,85 @@
+---
+title: "Ori Language Specification"
+description: "Table of contents and overview"
+order: -10
+sidebar_title: "Specification"
+sidebar_order: 1
+sidebar_path: "/docs/spec"
+---
+
 # Ori Language Specification
 
-Formal language definition. Tools must conform.
+Version 0.1-alpha
 
-## Sections
-
-| Section | Content |
-|---------|---------|
-| [01](01-notation.md) | Notation |
-| [02](02-source-code.md) | Source code |
-| [03](03-lexical-elements.md) | Lexical elements |
-| [04](04-constants.md) | Constants |
-| [05](05-variables.md) | Variables |
-| [06](06-types.md) | Types |
-| [07](07-properties-of-types.md) | Type properties |
-| [08](08-declarations.md) | Declarations |
-| [09](09-expressions.md) | Expressions |
-| [10](10-patterns.md) | Patterns |
-| [11](11-built-in-functions.md) | Built-ins |
-| [12](12-modules.md) | Modules |
-| [13](13-testing.md) | Testing |
-| [14](14-capabilities.md) | Capabilities |
-| [15](15-memory-model.md) | Memory model |
-| [16](16-formatting.md) | Formatting |
-| [17](17-blocks-and-scope.md) | Blocks and scope |
-| [18](18-program-execution.md) | Program execution |
-| [19](19-control-flow.md) | Control flow |
-| [20](20-errors-and-panics.md) | Errors and panics |
-| [21](21-constant-expressions.md) | Constant expressions |
-| [22](22-system-considerations.md) | System considerations |
-| [23](23-concurrency-model.md) | Concurrency model |
-| [24](24-ffi.md) | Foreign function interface |
-| [25](25-conditional-compilation.md) | Conditional compilation |
-| [27](27-reflection.md) | Reflection |
+Tools shall conform to the linked specification documents.
 
 ## Terminology
 
-| Term | Meaning |
-|------|---------|
-| must | Requirement |
-| must not | Prohibition |
-| may | Optional |
-| error | Compile-time failure |
+| Term        | Meaning                                           |
+|-------------|---------------------------------------------------|
+| shall       | Requirement (ISO/IEC Directives, Part 2)          |
+| shall not   | Prohibition                                       |
+| may         | Permission                                        |
+| error       | Compile-time failure                              |
 
-## Structure
+## Front Matter
 
-```
-0.1-alpha/
-├── spec/      ← Normative
-└── archived-design/
-```
+| | Title |
+|---|-------|
+| — | [Foreword](foreword.md) |
+| — | [Introduction](introduction.md) |
+
+## Clauses
+
+| Clause | Title |
+|--------|-------|
+| §1 | [Scope](01-scope.md) |
+| §2 | [Normative references](02-normative-references.md) |
+| §3 | [Terms and definitions](03-terms-and-definitions.md) |
+| §4 | [Conformance](04-conformance.md) |
+| §5 | [Notation](05-notation.md) |
+| §6 | [Source code](06-source-code.md) |
+| §7 | [Lexical elements](07-lexical-elements.md) |
+| §8 | [Types](08-types.md) |
+| §9 | [Properties of types](09-properties-of-types.md) |
+| §10 | [Declarations](10-declarations.md) |
+| §11 | [Blocks and scope](11-blocks-and-scope.md) |
+| §12 | [Constants](12-constants.md) |
+| §13 | [Variables](13-variables.md) |
+| §14 | [Expressions](14-expressions.md) |
+| §15 | [Patterns](15-patterns.md) |
+| §16 | [Control flow](16-control-flow.md) |
+| §17 | [Errors and panics](17-errors-and-panics.md) |
+| §18 | [Modules](18-modules.md) |
+| §19 | [Testing](19-testing.md) |
+| §20 | [Capabilities](20-capabilities.md) |
+| §21 | [Memory model](21-memory-model.md) |
+| §22 | [Concurrency model](22-concurrency-model.md) |
+| §23 | [Program execution](23-program-execution.md) |
+| §24 | [Constant expressions](24-constant-expressions.md) |
+| §25 | [Conditional compilation](25-conditional-compilation.md) |
+| §26 | [Foreign function interface](26-ffi.md) |
+| §27 | [Reflection](27-reflection.md) |
+
+## Annexes
+
+| Annex | Title | Type |
+|-------|-------|------|
+| A | [Formal grammar](annex-a-grammar.md) | Normative |
+| B | [Operator rules](annex-b-operator-rules.md) | Normative |
+| C | [Built-in functions](annex-c-built-in-functions.md) | Normative |
+| D | [Formatting](annex-d-formatting.md) | Informative |
+| E | [System considerations](annex-e-system-considerations.md) | Informative |
+
+## References
+
+| | |
+|---|---|
+| — | [Bibliography](bibliography.md) |
+
+## Companion Files
+
+| File | Description |
+|------|-------------|
+| [grammar.ebnf](grammar.ebnf) | Formal grammar (EBNF) |
+| [operator-rules.md](operator-rules.md) | Operator typing and evaluation rules |

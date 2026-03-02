@@ -243,6 +243,8 @@ fn compute_var_reprs_matches_types() {
         spans: vec![vec![None, None, None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     };
 
     let classifier = ArcClassifier::new(&pool);
@@ -275,6 +277,8 @@ fn compute_var_reprs_empty_function() {
         spans: vec![vec![]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: crate::uniqueness::CowAnnotations::default(),
+        drop_hints: crate::uniqueness::DropHints::default(),
     };
 
     let classifier = ArcClassifier::new(&pool);

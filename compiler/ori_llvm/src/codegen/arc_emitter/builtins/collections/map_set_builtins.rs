@@ -230,6 +230,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         value: ValueId,
         key_ty: Idx,
         val_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_insert_cow");
 
@@ -260,6 +261,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_eq,
                 key_inc,
                 val_inc,
+                cow_mode,
                 out,
             ],
             "insert",
@@ -281,6 +283,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         key: ValueId,
         key_ty: Idx,
         val_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_remove_cow");
 
@@ -309,6 +312,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_eq,
                 key_inc,
                 val_inc,
+                cow_mode,
                 out,
             ],
             "remove",
@@ -425,6 +429,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         elem: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_insert_cow");
 
@@ -442,7 +447,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, inc_fn, out,
+                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out,
             ],
             "set.insert",
         );
@@ -462,6 +467,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         elem: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_remove_cow");
 
@@ -479,7 +485,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, inc_fn, out,
+                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out,
             ],
             "set.remove",
         );
@@ -500,6 +506,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         elem_ty: Idx,
         func_name: &'static str,
         label: &str,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn(func_name);
 
@@ -528,7 +535,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, out,
+                d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out,
             ],
             &format!("set.{label}"),
         );
@@ -542,8 +549,16 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         other: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
-        self.emit_set_binary_op(receiver, other, elem_ty, "ori_set_union_cow", "union")
+        self.emit_set_binary_op(
+            receiver,
+            other,
+            elem_ty,
+            "ori_set_union_cow",
+            "union",
+            cow_mode,
+        )
     }
 
     /// Emit `set.intersection(other)` — COW intersection.
@@ -552,6 +567,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         other: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         self.emit_set_binary_op(
             receiver,
@@ -559,6 +575,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             elem_ty,
             "ori_set_intersection_cow",
             "intersection",
+            cow_mode,
         )
     }
 
@@ -568,6 +585,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         receiver: ValueId,
         other: ValueId,
         elem_ty: Idx,
+        cow_mode: ValueId,
     ) -> Option<ValueId> {
         self.emit_set_binary_op(
             receiver,
@@ -575,6 +593,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             elem_ty,
             "ori_set_difference_cow",
             "difference",
+            cow_mode,
         )
     }
 
