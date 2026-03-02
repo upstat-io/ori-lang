@@ -214,12 +214,17 @@ impl RuntimeConfig {
         };
         input.libraries.push(lib);
 
-        // On Unix, we also need libc and libm
+        // Platform system libraries needed by ori_rt
         #[cfg(unix)]
         {
             input.libraries.push(LinkLibrary::new("c"));
             input.libraries.push(LinkLibrary::new("m"));
             input.libraries.push(LinkLibrary::new("pthread"));
+        }
+        #[cfg(windows)]
+        {
+            // kernel32 provides Windows API basics (memory, threading, I/O)
+            input.libraries.push(LinkLibrary::new("kernel32"));
         }
     }
 

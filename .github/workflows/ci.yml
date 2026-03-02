@@ -170,16 +170,38 @@ jobs:
         os: [macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLVM 17 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm@17
+          echo "LLVM_SYS_170_PREFIX=$(brew --prefix llvm@17)" >> $GITHUB_ENV
+
+      - name: Install LLVM 17 (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $LLVM_URL = "https://github.com/upstat-io/llvm-package-windows/releases/download/v17.0.6/LLVM-17.0.6-win64.7z"
+          Write-Host "Downloading LLVM from $LLVM_URL"
+          curl.exe -fLO $LLVM_URL
+          Write-Host "Extracting LLVM to C:\LLVM..."
+          7z x LLVM-17.0.6-win64.7z -oC:\LLVM
+          echo "LLVM_SYS_170_PREFIX=C:\LLVM" >> $env:GITHUB_ENV
+          echo "C:\LLVM\bin" >> $env:GITHUB_PATH
+
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.os }}
 
       - name: Build
-        run: cargo build --workspace --exclude ori_llvm
+        run: cargo build --workspace
 
       - name: Rust unit tests
-        run: cargo test --workspace --exclude ori_llvm
+        run: cargo test --workspace
 
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
