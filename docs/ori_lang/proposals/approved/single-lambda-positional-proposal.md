@@ -291,7 +291,7 @@ error[E2011]: named arguments required for direct function calls
 ### Files to Update
 
 - `compiler/ori_typeck/src/infer/call.rs` — Add lambda-literal check
-- `docs/ori_lang/0.1-alpha/spec/09-expressions.md` — Document exception
+- `docs/ori_lang/v2026/spec/09-expressions.md` — Document exception
 - `CLAUDE.md` — Update call syntax section
 
 ---

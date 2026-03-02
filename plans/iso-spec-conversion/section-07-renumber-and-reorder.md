@@ -179,7 +179,7 @@ ISO format:
 
 ## 07.5 README Regeneration
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/README.md`
+**File(s):** `docs/ori_lang/v2026/spec/README.md`
 
 The README serves as the master table of contents. It must be regenerated to reflect the new structure.
 
@@ -210,8 +210,8 @@ The README serves as the master table of contents. It must be regenerated to ref
 
 | Annex | Title | Type |
 |-------|-------|------|
-| A | [Formal grammar](annex-a-grammar.md) | Normative |
-| B | [Operator rules](annex-b-operator-rules.md) | Normative |
+| A | [Formal grammar](grammar.md) | Normative |
+| B | [Operator rules](operator-rules.md) | Normative |
 | C | [Built-in functions](annex-c-built-in-functions.md) | Normative |
 | D | [Formatting](annex-d-formatting.md) | Informative |
 | E | [System considerations](annex-e-system-considerations.md) | Informative |
@@ -235,4 +235,4 @@ The README serves as the master table of contents. It must be regenerated to ref
 - [ ] `git log --follow` confirms file history preserved
 - [ ] No files with old numbering remain (except annexes which use letter prefix)
 
-**Exit Criteria:** `ls docs/ori_lang/0.1-alpha/spec/` shows files numbered 01–27 plus foreword, introduction, annexes A–E, bibliography, grammar.ebnf, and README. All headings carry hierarchical numbers.
+**Exit Criteria:** `ls docs/ori_lang/v2026/spec/` shows files numbered 01–27 plus foreword, introduction, annexes A–E, bibliography, grammar.ebnf, and README. All headings carry hierarchical numbers.

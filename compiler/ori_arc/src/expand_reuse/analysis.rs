@@ -54,7 +54,7 @@ pub(super) fn erase_proj_increments(
                         // Erase entirely.
                         erased.push(idx);
                     }
-                    // If count > 1, we'd reduce by 1 — but for 0.1-alpha,
+                    // If count > 1, we'd reduce by 1 — but for 2026,
                     // single-count incs are the common case. Multi-count
                     // would need an edit-in-place, handled in a future pass.
                     claimed.insert(field, proj_var);

@@ -1,0 +1,17 @@
+// Benchmark: List push (unique owner)
+// Exercises: COW fast path — every push is in-place because list is uniquely owned
+// Expected: O(n) total time, ~17 reallocations (doubling), peak memory ~2x final size
+
+@main () -> int = {
+    let n = 100000;
+    let list: [int] = [];
+    let i = 0;
+    loop {
+        if i >= n then break;
+        list = list.push(i);
+        i = i + 1;
+    };
+    // Verify correctness
+    if list.len() == n && list.first().unwrap() == 0 && list.last().unwrap() == 99999
+        then 0 else 1
+}

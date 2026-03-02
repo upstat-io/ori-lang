@@ -132,7 +132,7 @@ Beyond notes and examples, ensure the overall normative/informative distinction 
 
 - [ ] Audit for notes that accidentally contain requirements:
   - A note saying "implementations must..." is wrong — either move to normative text or rephrase as observation
-  - `grep -n 'NOTE.*shall' docs/ori_lang/0.1-alpha/spec/*.md` should return 0
+  - `grep -n 'NOTE.*shall' docs/ori_lang/v2026/spec/*.md` should return 0
 
 ---
 
@@ -145,4 +145,4 @@ Beyond notes and examples, ensure the overall normative/informative distinction 
 - [ ] No note contains a `shall` requirement
 - [ ] Normative/informative distinction stated in front-matter
 
-**Exit Criteria:** `grep -rn '> \*\*Note' docs/ori_lang/0.1-alpha/spec/*.md` returns 0. All code examples preceded by `EXAMPLE` label.
+**Exit Criteria:** `grep -rn '> \*\*Note' docs/ori_lang/v2026/spec/*.md` returns 0. All code examples preceded by `EXAMPLE` label.

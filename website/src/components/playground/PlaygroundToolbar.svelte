@@ -143,17 +143,24 @@
   }
 
   .select {
-    padding: 0.5rem 0.75rem;
-    background: var(--color-bg-tertiary, #1a1b23);
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 0.5rem 2rem 0.5rem 0.75rem;
+    background: var(--color-bg-tertiary, #1a1b23) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%239ca0ab' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E") no-repeat right 0.625rem center;
     color: var(--color-text-primary, #e2e4e9);
     border: 1px solid var(--color-border, #2a2b35);
     border-radius: 4px;
     font-family: inherit;
     font-size: 0.875rem;
     cursor: pointer;
+    outline: none;
   }
 
   .select:hover {
     border-color: var(--color-text-muted, #636874);
+  }
+
+  .select:focus {
+    border-color: var(--color-accent, #569cd6);
   }
 </style>

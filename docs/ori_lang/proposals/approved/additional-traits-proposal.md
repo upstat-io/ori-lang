@@ -12,7 +12,7 @@
 
 This proposal formalizes three core traits: `Printable`, `Default`, and `Traceable`.
 
-The `Iterable`, `Iterator`, `DoubleEndedIterator`, and `Collect` traits are already defined in the [Types specification](../../0.1-alpha/spec/06-types.md#iterator-traits) and are not modified by this proposal.
+The `Iterable`, `Iterator`, `DoubleEndedIterator`, and `Collect` traits are already defined in the [Types specification](../../2026/spec/06-types.md#iterator-traits) and are not modified by this proposal.
 
 ---
 

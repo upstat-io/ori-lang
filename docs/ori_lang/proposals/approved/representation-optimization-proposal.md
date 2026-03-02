@@ -398,7 +398,7 @@ If the compiler had narrowed `x` to `i32`, it would overflow at 2³¹ - 1 (21474
 
 ### Interaction 2: ARC (Reference Counting)
 
-**Spec reference:** [Memory Model](../../0.1-alpha/spec/15-memory-model.md)
+**Spec reference:** [Memory Model](../../2026/spec/15-memory-model.md)
 
 ARC operations (retain/release) are elided for **transitively trivial** types — types whose entire closure of nested types contains no heap-allocated data.
 
@@ -412,7 +412,7 @@ Narrowing `int` from i64 to i32 does not change its triviality (it's always triv
 
 ### Interaction 3: ABI Passing Convention
 
-**Spec reference:** [System Considerations § Platform Support](../../0.1-alpha/spec/22-system-considerations.md)
+**Spec reference:** [System Considerations § Platform Support](../../2026/spec/22-system-considerations.md)
 
 The compiler decides whether to pass function arguments and return values **directly** (in registers) or **indirectly** (via pointer):
 
@@ -473,7 +473,7 @@ Each type has a natural alignment determined by its machine representation:
 
 ### Interaction 5: Value vs. Reference Classification
 
-**Spec reference:** [Memory Model § Value vs Reference Types](../../0.1-alpha/spec/15-memory-model.md#value-vs-reference-types)
+**Spec reference:** [Memory Model § Value vs Reference Types](../../2026/spec/15-memory-model.md#value-vs-reference-types)
 
 The memory model classifies types as:
 
@@ -497,7 +497,7 @@ type BigStruct = { a: int, b: int, c: int, d: int, e: int }
 
 ### Interaction 6: Equality, Comparison, and Hashing
 
-**Spec reference:** [Types § Comparable, Hashable](../../0.1-alpha/spec/06-types.md)
+**Spec reference:** [Types § Comparable, Hashable](../../2026/spec/06-types.md)
 
 Equality, comparison, and hashing must produce identical results regardless of representation.
 
@@ -521,7 +521,7 @@ Equality and hashing recurse through fields. Each field is compared/hashed using
 
 ### Interaction 7: Type Conversions
 
-**Spec reference:** [Types § Conversion Traits](../../0.1-alpha/spec/06-types.md#conversion-traits)
+**Spec reference:** [Types § Conversion Traits](../../2026/spec/06-types.md#conversion-traits)
 
 Conversions (`as`, `as?`, `.into()`) must produce the same result regardless of representation.
 
@@ -573,7 +573,7 @@ The discriminant is loaded as `i8` (Tier 2a) and compared against variant indice
 
 ### Interaction 9: Constant Evaluation
 
-**Spec reference:** [Constant Expressions](../../0.1-alpha/spec/21-constant-expressions.md)
+**Spec reference:** [Constant Expressions](../../2026/spec/21-constant-expressions.md)
 
 Constants are evaluated at compile time using the canonical representation:
 
@@ -605,7 +605,7 @@ x.debug()      // "42" — not "Int32(42)"
 
 ### Interaction 11: FFI Boundaries
 
-**Spec reference:** [FFI](../../0.1-alpha/spec/24-ffi.md)
+**Spec reference:** [FFI](../../2026/spec/24-ffi.md)
 
 FFI operates outside Ori's semantic equivalence guarantee. At FFI boundaries:
 

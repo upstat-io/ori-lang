@@ -8,7 +8,7 @@
 
 ## Errata (added 2026-02-24)
 
-> **Monomorphization Architecture**: The monomorphization pipeline design for Phases 1-5 has been documented in `docs/ori_lang/0.1-alpha/design/monomorphization-architecture.md`. This design was informed by a study of Rust (`rustc`), Swift, Zig, and Lean 4 compilers. Key decision: a unified `GenericArg` enum (matching Rust's `GenericArgKind`) handles both type and const value substitution through all five phases. The current `MonoInstance.type_args: Vec<Idx>` will evolve to `MonoInstance.generic_args: Vec<GenericArg>` at the Phase 1-to-Phase 2 boundary. See the architecture document for full details including pipeline stages, ARC lowering integration, name mangling, and reference compiler comparison.
+> **Monomorphization Architecture**: The monomorphization pipeline design for Phases 1-5 has been documented in `docs/ori_lang/v2026/design/monomorphization-architecture.md`. This design was informed by a study of Rust (`rustc`), Swift, Zig, and Lean 4 compilers. Key decision: a unified `GenericArg` enum (matching Rust's `GenericArgKind`) handles both type and const value substitution through all five phases. The current `MonoInstance.type_args: Vec<Idx>` will evolve to `MonoInstance.generic_args: Vec<GenericArg>` at the Phase 1-to-Phase 2 boundary. See the architecture document for full details including pipeline stages, ARC lowering integration, name mangling, and reference compiler comparison.
 
 ---
 

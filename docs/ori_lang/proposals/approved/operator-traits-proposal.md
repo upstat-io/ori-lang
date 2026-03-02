@@ -428,4 +428,4 @@ Keep operators for built-in types only.
 - Rust: `std::ops` module
 - Haskell: Numeric type classes
 - Swift: Operator declarations
-- Archived design: `docs/ori_lang/0.1-alpha/archived-design/appendices/C-builtin-traits.md`
+- Archived design: `docs/ori_lang/v2026/archived-design/appendices/C-builtin-traits.md`

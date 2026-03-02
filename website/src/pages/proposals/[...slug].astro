@@ -1,0 +1,36 @@
+---
+import { getCollection, render } from 'astro:content';
+import DetailLayout from '../../layouts/DetailLayout.astro';
+
+export async function getStaticPaths() {
+  const proposals = await getCollection('proposals');
+  return proposals.map(entry => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+
+const statusColors: Record<string, string> = {
+  approved: 'success',
+  draft: 'warning',
+  rejected: 'error',
+};
+
+const statusLabels: Record<string, string> = {
+  approved: 'Approved',
+  draft: 'Draft',
+  rejected: 'Rejected',
+};
+---
+
+<DetailLayout
+  title={entry.data.title}
+  description={entry.data.summary}
+  backLink={{ url: '/proposals/', label: 'Proposals' }}
+  statusBadge={{ text: statusLabels[entry.data.status] ?? entry.data.status, color: statusColors[entry.data.status] ?? 'muted' }}
+>
+  <Content />
+</DetailLayout>

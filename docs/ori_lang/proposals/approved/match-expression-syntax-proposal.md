@@ -418,7 +418,7 @@ Patterns are checked against the scrutinee type:
 
 ## Grammar
 
-> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § PATTERNS
+> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/v2026/spec/grammar.md) § PATTERNS
 
 ---
 
@@ -456,7 +456,7 @@ Patterns are checked against the scrutinee type:
 
 ## Spec Changes Required
 
-This proposal formalizes existing behavior. The spec at `docs/ori_lang/0.1-alpha/spec/10-patterns.md` already documents match expressions. Verify that:
+This proposal formalizes existing behavior. The spec at `docs/ori_lang/v2026/spec/10-patterns.md` already documents match expressions. Verify that:
 
 1. All pattern types are documented
 2. Guard syntax is specified
