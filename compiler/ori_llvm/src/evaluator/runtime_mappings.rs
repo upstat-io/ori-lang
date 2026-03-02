@@ -64,6 +64,9 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_list_slice",
     "ori_list_slice_drop",
     "ori_list_slice_take",
+    // Map literal construction — AOT uses runtime calls; JIT builds natively
+    "ori_map_literal_alloc",
+    "ori_map_literal_put",
     // Map methods — AOT uses runtime calls; JIT uses native Rust dispatch
     "ori_map_buffer_rc_dec",
     "ori_map_contains_key",
@@ -72,18 +75,18 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_map_keys_to_list",
     "ori_map_remove_cow",
     "ori_map_values_to_list",
+    // Set literal construction — AOT uses runtime calls; JIT builds natively
+    "ori_set_literal_alloc",
+    "ori_set_literal_put",
     // Set methods — AOT uses runtime calls; JIT uses native Rust dispatch
+    "ori_set_buffer_drop_unique",
+    "ori_set_buffer_rc_dec",
     "ori_set_contains",
-    "ori_set_difference",
     "ori_set_difference_cow",
-    "ori_set_insert",
     "ori_set_insert_cow",
-    "ori_set_intersection",
     "ori_set_intersection_cow",
-    "ori_set_remove",
     "ori_set_remove_cow",
     "ori_set_to_list",
-    "ori_set_union",
     "ori_set_union_cow",
     // String methods — AOT uses runtime calls; JIT uses native Rust dispatch
     "ori_str_contains",

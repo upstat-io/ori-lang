@@ -363,10 +363,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.load(list_struct_ty, out_ptr, "collect.list"))
     }
 
-    /// Emit `__collect_set(iter)` — collect iterator elements into a set.
+    /// Emit `__collect_set(iter)` — collect iterator elements into a hash table set.
     ///
     /// Same sret pattern as `emit_iter_collect` but calls `ori_iter_collect_set`
-    /// which deduplicates elements via memcmp during collection.
+    /// which deduplicates elements via hash probing + eq callbacks.
     pub(in crate::codegen) fn emit_iter_collect_set(
         &mut self,
         iter_ptr: ValueId,
@@ -376,6 +376,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let elem_size = self.element_store_size(elem_ty);
         let elem_size_val = self.builder.const_i64(elem_size as i64);
+
+        // Get eq and hash thunks for the element type
+        let eq_thunk = self
+            .get_or_create_eq_thunk(elem_ty)
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let hash_thunk = self
+            .get_or_create_hash_thunk(elem_ty)
+            .unwrap_or_else(|| self.builder.const_null_ptr());
 
         // sret pattern: allocate output set struct {i64 len, i64 cap, ptr data}
         let i64_llvm = self.builder.scx().type_i64().into();
@@ -392,8 +400,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             set_struct_ty,
         );
 
-        self.builder
-            .call(func_id, &[iter_ptr, elem_size_val, out_ptr], "");
+        self.builder.call(
+            func_id,
+            &[iter_ptr, elem_size_val, eq_thunk, hash_thunk, out_ptr],
+            "",
+        );
 
         Some(
             self.builder

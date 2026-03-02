@@ -161,6 +161,10 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Equality thunks have signature `fn(*const u8, *const u8) -> bool` (i1)
     /// and are used by map/set COW operations for key/element comparison.
     eq_thunk_cache: FxHashMap<Idx, FunctionId>,
+    /// Cache: element type `Idx` → already-generated hash thunk `FunctionId`.
+    /// Hash thunks have signature `fn(*const u8) -> i64` and are used by
+    /// hash table map/set operations for key/element hashing.
+    hash_thunk_cache: FxHashMap<Idx, FunctionId>,
     /// The LLVM function being compiled.
     current_function: FunctionId,
     /// Shared function-resolution lookup tables.
@@ -205,6 +209,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             elem_inc_fn_cache: FxHashMap::default(),
             compare_thunk_cache: FxHashMap::default(),
             eq_thunk_cache: FxHashMap::default(),
+            hash_thunk_cache: FxHashMap::default(),
             current_function,
             ctx,
             partial_apply_counter: 0,

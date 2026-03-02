@@ -199,6 +199,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Extracts `{len, cap, data}` from the collection value, computes
     /// the element size and element-dec function, and calls the runtime.
+    ///
+    /// Lists use `ori_buffer_rc_dec(data, len, cap, elem_size, elem_dec_fn)`.
+    /// Sets use `ori_set_buffer_rc_dec(data, cap, len, elem_size, elem_dec_fn)`
+    /// (cap and len swapped for hash table layout).
     pub(super) fn emit_buffer_rc_dec_list_or_set(
         &mut self,
         val: super::ValueId,
@@ -224,9 +228,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
 
-        let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
-        self.builder
-            .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+        if tag == Tag::Set {
+            // Sets use hash table layout: (data, cap, len, elem_size, elem_dec_fn)
+            let func_id = self.builder.runtime_fn("ori_set_buffer_rc_dec");
+            self.builder
+                .call(func_id, &[data, cap, len, elem_size_val, elem_dec_fn], "");
+        } else {
+            // Lists use packed layout: (data, len, cap, elem_size, elem_dec_fn)
+            let func_id = self.builder.runtime_fn("ori_buffer_rc_dec");
+            self.builder
+                .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+        }
     }
 
     /// Emit `ori_map_buffer_rc_dec` for a map value.
@@ -275,10 +287,15 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     // Unique-drop handlers (skip atomic RC dec for provably unique collections)
     // -----------------------------------------------------------------------
 
-    /// Emit `ori_buffer_drop_unique` for a provably unique list or set.
+    /// Emit `ori_buffer_drop_unique` / `ori_set_buffer_drop_unique` for a
+    /// provably unique list or set.
     ///
     /// Same argument extraction as `emit_buffer_rc_dec_list_or_set`, but calls
     /// the unique-drop function which skips the atomic RC decrement.
+    ///
+    /// Lists use `ori_buffer_drop_unique(data, len, cap, elem_size, elem_dec_fn)`.
+    /// Sets use `ori_set_buffer_drop_unique(data, cap, len, elem_size, elem_dec_fn)`
+    /// (cap and len swapped for hash table layout).
     fn emit_buffer_drop_unique_list_or_set(
         &mut self,
         val: super::ValueId,
@@ -304,9 +321,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_size_val = self.builder.const_i64(elem_size as i64);
         let elem_dec_fn = self.get_or_generate_elem_dec_fn(elem_type);
 
-        let func_id = self.builder.runtime_fn("ori_buffer_drop_unique");
-        self.builder
-            .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+        if tag == Tag::Set {
+            // Sets use hash table layout: (data, cap, len, elem_size, elem_dec_fn)
+            let func_id = self.builder.runtime_fn("ori_set_buffer_drop_unique");
+            self.builder
+                .call(func_id, &[data, cap, len, elem_size_val, elem_dec_fn], "");
+        } else {
+            // Lists use packed layout: (data, len, cap, elem_size, elem_dec_fn)
+            let func_id = self.builder.runtime_fn("ori_buffer_drop_unique");
+            self.builder
+                .call(func_id, &[data, len, cap, elem_size_val, elem_dec_fn], "");
+        }
     }
 
     /// Emit `ori_map_buffer_drop_unique` for a provably unique map.
