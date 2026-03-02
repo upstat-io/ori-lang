@@ -158,6 +158,17 @@ fn builtin_coverage_above_threshold() {
     );
 }
 
+/// ARC pipeline intrinsics that borrow their receiver but bypass the
+/// `BuiltinTable` dispatch chain. These are intercepted at the `Apply`
+/// instruction level in `apply.rs`, not through `try_emit_builtin_method`.
+///
+/// Excluded from the sync test because they legitimately appear in
+/// `ori_arc::BORROWING_METHOD_NAMES` without a corresponding `BuiltinTable`
+/// entry.
+const ARC_BORROWING_INTRINSICS: &[&str] = &[
+    "__index", // arr[i] / map[k] — intercepted in apply.rs
+];
+
 /// The canonical borrowing-builtin set in `ori_arc` must match the effective
 /// set derived from the LLVM `BuiltinTable`.
 ///
@@ -165,6 +176,9 @@ fn builtin_coverage_above_threshold() {
 /// `borrow: true` but not added to `ori_arc::BORROWING_METHOD_NAMES`, borrow
 /// inference won't know about it. Conversely, if a method is removed from the
 /// table but left in `ori_arc`, borrow inference will make incorrect assumptions.
+///
+/// ARC pipeline intrinsics (e.g., `__index`) are excluded — they borrow their
+/// receiver but are intercepted before `BuiltinTable` dispatch.
 #[test]
 fn borrowing_builtins_sync_with_ori_arc() {
     let interner = StringInterner::default();
@@ -175,13 +189,21 @@ fn borrowing_builtins_sync_with_ori_arc() {
     // Set from ori_arc (canonical source for borrow inference)
     let arc_set = ori_arc::borrowing_builtin_names(&interner);
 
+    // Exclude ARC pipeline intrinsics from the arc_set for comparison
+    let intrinsics: HashSet<_> = ARC_BORROWING_INTRINSICS.iter().copied().collect();
+    let arc_set_filtered: rustc_hash::FxHashSet<_> = arc_set
+        .iter()
+        .filter(|n| !intrinsics.contains(interner.lookup(**n)))
+        .copied()
+        .collect();
+
     // Find mismatches
     let in_table_not_arc: Vec<_> = table_set
-        .difference(&arc_set)
+        .difference(&arc_set_filtered)
         .map(|n| interner.lookup(*n).to_string())
         .collect();
 
-    let in_arc_not_table: Vec<_> = arc_set
+    let in_arc_not_table: Vec<_> = arc_set_filtered
         .difference(&table_set)
         .map(|n| interner.lookup(*n).to_string())
         .collect();

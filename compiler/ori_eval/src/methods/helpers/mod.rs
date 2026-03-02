@@ -247,6 +247,7 @@ pub const EVAL_BUILTIN_METHODS: &[(&str, &str)] = &[
     ("str", "repeat"),
     ("str", "replace"),
     ("str", "slice"),
+    ("str", "split"),
     ("str", "starts_with"),
     ("str", "substring"),
     ("str", "to_lowercase"),

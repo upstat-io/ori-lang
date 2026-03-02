@@ -1,0 +1,53 @@
+// Macro-benchmark: Graph BFS
+// Exercises: list push, map insert/get/contains_key, for-loop iteration
+// Builds an adjacency list graph then runs BFS from node 0.
+// COW paths exercised: map insert (graph building), list push (queue + result),
+// map contains_key (visited set — using map as set since Set construction is blocked)
+
+@main () -> int = {
+    // Build a graph: node i connects to i+1, i+2, and wraps around
+    let n = 500;
+    let graph: {int: [int]} = {};
+    let i = 0;
+    loop {
+        if i >= n then break;
+        let neighbors: [int] = [];
+        neighbors = neighbors.push((i + 1) % n);
+        neighbors = neighbors.push((i + 2) % n);
+        neighbors = neighbors.push((i + 7) % n);
+        graph = graph.insert(i, neighbors);
+        i = i + 1;
+    };
+
+    // BFS from node 0
+    let visited: {int: bool} = {};
+    let queue: [int] = [];
+    let result: [int] = [];
+
+    visited = visited.insert(0, true);
+    queue = queue.push(0);
+
+    loop {
+        if queue.is_empty() then break;
+        // Dequeue front: take first element, shift queue
+        let current = queue[0];
+        queue = queue.slice(1, queue.len());
+        result = result.push(current);
+
+        // Get neighbors
+        let neighbors = graph.get(current).unwrap();
+        let j = 0;
+        loop {
+            if j >= neighbors.len() then break;
+            let neighbor = neighbors[j];
+            if !visited.contains_key(neighbor) then {
+                visited = visited.insert(neighbor, true);
+                queue = queue.push(neighbor);
+            };
+            j = j + 1;
+        };
+    };
+
+    // Verify: BFS should visit all n nodes
+    if result.len() == n && visited.len() == n then 0 else 1
+}

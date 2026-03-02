@@ -289,16 +289,18 @@ impl super::OwnedLLVMEvaluator<'_> {
             }
         }
 
-        // 12. Create JIT execution engine
+        // 12. Register runtime symbols + create JIT execution engine
+        // Symbols must be registered BEFORE engine creation so MCJIT's
+        // RuntimeDyld can resolve them during module compilation.
+        runtime_mappings::ensure_runtime_symbols_registered();
+
         // SAFETY: Same detached-reference pattern as above — see step 1 comment.
         debug!("creating JIT execution engine");
         let engine = unsafe {
             let module = &*std::ptr::addr_of!(scx.llmod);
-            let eng = module
+            module
                 .create_jit_execution_engine(OptimizationLevel::None)
-                .map_err(|e| LLVMEvalError::new(e.to_string()))?;
-            runtime_mappings::add_runtime_mappings_to_engine(&eng, module)?;
-            eng
+                .map_err(|e| LLVMEvalError::new(e.to_string()))?
         };
 
         Ok(CompiledTestModule {
