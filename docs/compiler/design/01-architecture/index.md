@@ -292,7 +292,7 @@ flowchart TB
     class ori_llvm,ori_arc,ori_rt native
 ```
 
-> Only key dependency edges shown — all crates ultimately depend on `ori_ir`. `ori_llvm` and `ori_rt` are excluded from the main workspace (require LLVM 17).
+> Only key dependency edges shown — all crates ultimately depend on `ori_ir`. `ori_llvm` and `ori_rt` are workspace members but not in `default-members` (require LLVM 17).
 
 **Key dependency invariants:**
 

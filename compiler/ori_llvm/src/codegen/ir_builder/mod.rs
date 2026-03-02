@@ -88,7 +88,7 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// Last emitted `call` or `invoke` instruction.
     ///
     /// Stored after each `call()` / `invoke()` to allow adding per-call-site
-    /// attributes (e.g., `noalias` on a specific parameter for StaticUnique
+    /// attributes (e.g., `noalias` on a specific parameter for `StaticUnique`
     /// COW operations). Updated on every call; `None` before any call.
     pub(super) last_call_site: Option<CallSiteValue<'ctx>>,
 }
