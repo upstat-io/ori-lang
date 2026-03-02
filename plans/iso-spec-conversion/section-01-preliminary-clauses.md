@@ -46,7 +46,7 @@ sections:
 
 ## 01.1 Foreword
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/foreword.md` (new)
+**File(s):** `docs/ori_lang/v2026/spec/foreword.md` (new)
 
 The Foreword is unnumbered front-matter. In ISO standards it identifies the issuing body, edition history, and relationship to prior versions. For Ori's alpha spec, this is lightweight.
 
@@ -61,7 +61,7 @@ The Foreword is unnumbered front-matter. In ISO standards it identifies the issu
   ```
 
 - [ ] Content to include:
-  - Identification: "This document specifies the Ori programming language, version 0.1-alpha."
+  - Identification: "This document specifies the Ori programming language, version 2026."
   - Status: "This is an alpha specification. Breaking changes are expected."
   - Structure guide: "Clauses 1–4 define scope, references, terminology, and conformance. Clauses 5–27 define the language. Annexes A–E provide supplementary material."
   - Notation: "In this document, clauses and subclauses are numbered hierarchically (e.g., §8.3.2)."
@@ -70,7 +70,7 @@ The Foreword is unnumbered front-matter. In ISO standards it identifies the issu
 
 ## 01.2 Introduction
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/introduction.md` (new, replaces `index.md`)
+**File(s):** `docs/ori_lang/v2026/spec/introduction.md` (new, replaces `index.md`)
 
 The Introduction is unnumbered informative front-matter. It provides the design philosophy and reading guidance currently in `index.md`.
 
@@ -95,7 +95,7 @@ The Introduction is unnumbered informative front-matter. It provides the design 
 
 ## 01.3 Clause 1 — Scope
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/01-scope.md` (new)
+**File(s):** `docs/ori_lang/v2026/spec/01-scope.md` (new)
 
 ISO Clause 1 defines what the document specifies and what it does not. Currently absent from the Ori spec.
 
@@ -126,7 +126,7 @@ ISO Clause 1 defines what the document specifies and what it does not. Currently
 
 ## 01.4 Clause 2 — Normative References
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/02-normative-references.md` (new)
+**File(s):** `docs/ori_lang/v2026/spec/02-normative-references.md` (new)
 
 Lists external standards referenced normatively by the spec. Ori depends on Unicode (for `str`/`char`) and IEEE 754 (for `float`).
 
@@ -151,7 +151,7 @@ Lists external standards referenced normatively by the spec. Ori depends on Unic
 
 ## 01.5 Clause 3 — Terms and Definitions
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/03-terms-and-definitions.md` (new)
+**File(s):** `docs/ori_lang/v2026/spec/03-terms-and-definitions.md` (new)
 
 See Section 03 of this plan for the full extraction process. This clause collects all defined terms used across the spec.
 
@@ -173,7 +173,7 @@ See Section 03 of this plan for the full extraction process. This clause collect
 
 ## 01.6 Clause 4 — Conformance
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/04-conformance.md` (new)
+**File(s):** `docs/ori_lang/v2026/spec/04-conformance.md` (new)
 
 Expand the 4-line conformance section from `index.md` into a proper clause. Model on ISO 9899 §4.
 
@@ -207,4 +207,4 @@ Expand the 4-line conformance section from `index.md` into a proper clause. Mode
 - [ ] `index.md` either removed or converted to redirect stub
 - [ ] No content lost from `index.md` — all migrated to new files
 
-**Exit Criteria:** Six new files created. Running `grep -r "conforming" docs/ori_lang/0.1-alpha/spec/04-conformance.md` returns matches. The `index.md` design philosophy content appears verbatim in `introduction.md`.
+**Exit Criteria:** Six new files created. Running `grep -r "conforming" docs/ori_lang/v2026/spec/04-conformance.md` returns matches. The `index.md` design philosophy content appears verbatim in `introduction.md`.

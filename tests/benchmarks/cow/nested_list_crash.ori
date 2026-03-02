@@ -1,0 +1,15 @@
+// Minimal reproduction of nested list COW crash.
+// Pushing [int] into [[int]] in a loop causes ptr::copy_nonoverlapping panic in AOT.
+
+@main () -> int = {
+    let list: [int] = [];
+    let snapshots: [[int]] = [];
+    let i = 0;
+    loop {
+        if i >= 10 then break;
+        snapshots = snapshots.push(list);
+        list = list.push(i);
+        i = i + 1;
+    };
+    if list.len() == 10 && snapshots.len() == 10 then 0 else 1
+}

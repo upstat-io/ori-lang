@@ -1,5 +1,7 @@
 import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
+import { proposalLoader } from './loaders/proposal-loader';
+import { planSectionLoader } from './loaders/plan-section-loader';
 
 const docsSchema = z.object({
   title: z.string(),
@@ -18,7 +20,7 @@ const guide = defineCollection({
 });
 
 const spec = defineCollection({
-  loader: glob({ pattern: '{index,foreword,introduction,bibliography,[0-9][0-9]-*,annex-*}.md', base: '../docs/ori_lang/0.1-alpha/spec' }),
+  loader: glob({ pattern: '{index,foreword,introduction,bibliography,grammar,operator-rules,[0-9][0-9]-*,annex-*}.md', base: '../docs/ori_lang/v2026/spec' }),
   schema: docsSchema,
 });
 
@@ -37,4 +39,74 @@ const lsp = defineCollection({
   schema: docsSchema,
 });
 
-export const collections = { guide, spec, 'compiler-design': compilerDesign, formatter, lsp };
+const roadmap = defineCollection({
+  loader: glob({ pattern: 'section-*.md', base: '../plans/roadmap' }),
+  schema: z.object({
+    section: z.union([z.number(), z.string()]),
+    title: z.string(),
+    status: z.string(),
+    tier: z.number(),
+    goal: z.string(),
+    spec: z.union([z.string(), z.array(z.string())]).optional(),
+    priority_note: z.string().optional(),
+    sections: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.string(),
+    })),
+  }),
+});
+
+const planSections = defineCollection({
+  loader: planSectionLoader({
+    plans: [
+      { key: 'value-semantics-optimization', base: '../plans/value-semantics-optimization' },
+      { key: 'llvm-codegen-fixes', base: '../plans/llvm-codegen-fixes' },
+      { key: 'merkle-pool-identity', base: '../plans/merkle_pool_identity' },
+      { key: 'ori-eh-personality', base: '../plans/ori-eh-personality' },
+      { key: 'type-strategy-registry', base: '../plans/type_strategy_registry' },
+      { key: 'repr-opt', base: '../plans/repr-opt' },
+      { key: 'compiler-diagnostics', base: '../plans/compiler-diagnostics' },
+    ],
+  }),
+  schema: z.object({
+    plan: z.string(),
+    section: z.union([z.number(), z.string()]),
+    title: z.string(),
+    status: z.string(),
+    goal: z.string().optional(),
+    tier: z.number().optional(),
+    spec: z.union([z.string(), z.array(z.string())]).optional(),
+    inspired_by: z.array(z.string()).optional(),
+    depends_on: z.array(z.string()).optional(),
+    sections: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.string(),
+    })),
+  }),
+});
+
+const blog = defineCollection({
+  loader: glob({ pattern: '*.md', base: '../blog' }),
+  schema: z.object({
+    title: z.string(),
+    date: z.coerce.date(),
+    description: z.string(),
+  }),
+});
+
+const proposals = defineCollection({
+  loader: proposalLoader({ base: '../docs/ori_lang/proposals' }),
+  schema: z.object({
+    title: z.string(),
+    status: z.enum(['approved', 'draft', 'rejected']),
+    author: z.string().optional(),
+    created: z.string().optional(),
+    approved: z.string().optional(),
+    rejected: z.string().optional(),
+    summary: z.string().optional(),
+  }),
+});
+
+export const collections = { guide, spec, 'compiler-design': compilerDesign, formatter, lsp, roadmap, 'plan-sections': planSections, proposals, blog };

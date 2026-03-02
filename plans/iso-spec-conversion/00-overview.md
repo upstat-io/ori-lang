@@ -3,7 +3,7 @@ plan: "iso-spec-conversion"
 title: "ISO/IEC Spec Format Conversion: Exhaustive Implementation Plan"
 status: not-started
 references:
-  - "docs/ori_lang/0.1-alpha/spec/"
+  - "docs/ori_lang/v2026/spec/"
   - "https://www.iso.org/sites/directives/current/part2/index.xhtml"
   - "https://github.com/dotnet/csharpstandard (ECMA-334)"
 ---

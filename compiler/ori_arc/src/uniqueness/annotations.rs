@@ -184,6 +184,13 @@ pub fn compute_cow_annotations(
                 total_cow_ops += 1;
                 let receiver = args[0];
                 let mode = state.cow_mode(receiver);
+                tracing::debug!(
+                    block_idx,
+                    receiver = receiver.raw(),
+                    ?mode,
+                    receiver_uniqueness = %state.get(receiver),
+                    "COW Invoke annotation"
+                );
                 if mode != CowMode::Dynamic {
                     eliminated += 1;
                 }

@@ -444,7 +444,7 @@ pub(crate) fn infer_function_exp(
             super::infer_cache(engine, arena, props)
         }
 
-        // Post-0.1-alpha concurrency — rejected at type checking (E2040)
+        // Post-2026 concurrency — rejected at type checking (E2040)
         FunctionExpKind::Parallel
         | FunctionExpKind::Spawn
         | FunctionExpKind::Timeout

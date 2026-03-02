@@ -1,0 +1,32 @@
+// Benchmark: Comparison — unique vs shared COW paths
+// Runs both unique (fast path) and shared (slow path) to measure the difference
+// The ratio between these two numbers is the "COW speedup factor"
+
+@main () -> int = {
+    // Unique path: O(n) — 10000 elements
+    let unique_list: [int] = [];
+    let i = 0;
+    loop {
+        if i >= 10000 then break;
+        unique_list = unique_list.push(i);
+        i = i + 1;
+    };
+
+    // Shared path: O(n^2) — only 1000 elements (still demonstrates cost)
+    // Create sharing by keeping a reference to the previous version
+    let shared_list: [int] = [];
+    let total_len = 0;
+    let j = 0;
+    loop {
+        if j >= 1000 then break;
+        let snapshot = shared_list;           // Share: forces COW on next push
+        shared_list = shared_list.push(j);    // COW: copies because RC > 1
+        total_len = total_len + snapshot.len();
+        j = j + 1;
+    };
+
+    // Verify: unique has 10000 elements, shared total is sum of 0..999 = 999*1000/2
+    let expected_total = 1000 * (1000 - 1) / 2;
+    if unique_list.len() == 10000 && total_len == expected_total
+        then 0 else 1
+}

@@ -10,265 +10,236 @@ sidebar_path: "/docs/compiler-design/11-runtime"
 
 # Runtime Overview
 
-The `ori_rt` crate is the Ori runtime library for AOT-compiled programs. It provides
-C-ABI functions that LLVM-generated code calls for memory management, reference
-counting, collection operations, string handling, and I/O. The runtime has **zero
-compiler dependencies** -- it links only against the Rust standard library and
-system allocator.
+## What Is a Language Runtime?
+
+Every compiled language needs a bridge between the machine code it produces and the services that code relies on at execution time. This bridge is the **runtime library** — a collection of functions, data structures, and conventions that the compiler's generated code calls into for operations it cannot (or should not) perform inline. The compiler emits `call ori_rc_dec(ptr)`, and somewhere, a real function must exist to handle that call. The runtime is where that function lives.
+
+The scope of a runtime library varies enormously across languages. C's runtime is minimal: `malloc`, `free`, `printf`, and a handful of startup/shutdown functions. The compiler generates self-contained machine code for arithmetic, control flow, and memory access; the runtime provides only what the hardware cannot. At the other extreme, Java's runtime is a full virtual machine — a bytecode interpreter, garbage collector, class loader, JIT compiler, thread scheduler, and standard library, all bundled together. The "compiled" program is bytecode that cannot execute without the runtime present.
+
+Most production languages fall somewhere between these poles. Go's runtime includes a garbage collector and goroutine scheduler but no bytecode interpreter. Rust's runtime is minimal (just the allocator and panic infrastructure) because the borrow checker eliminates the need for runtime memory management. Swift's runtime includes reference counting operations, type metadata for dynamic dispatch, and protocol witness tables — similar in scope to what Ori needs.
+
+### The ARC Runtime Pattern
+
+Languages that use **automatic reference counting** (ARC) as their memory management strategy need a specific kind of runtime. The compiler statically determines where reference count operations must be inserted, but the operations themselves — allocating with a header, incrementing atomically, decrementing with cleanup — are too complex and too shared to inline everywhere. They live in the runtime.
+
+Swift pioneered this pattern in a production setting. The Swift runtime provides `swift_retain` and `swift_release` (the equivalents of `ori_rc_inc` and `ori_rc_dec`), along with type metadata, protocol conformance tables, and heap object management. Lean 4 follows a similar pattern with its `lean_inc_ref` and `lean_dec_ref` functions. In both cases, the compiler's static analysis determines *where* to call these functions, and the runtime provides *what* those functions do.
+
+Ori's `ori_rt` crate follows this pattern: the [ARC analysis pass](../09-arc-system/index.md) determines statically where reference count operations belong, and the runtime provides the atomic increment/decrement implementations, copy-on-write collection mutations, string operations, and I/O primitives that the generated code calls into.
+
+## What Makes Ori's Runtime Distinctive
+
+### Zero Compiler Dependencies
+
+The `ori_rt` crate has **no dependencies on the compiler**. It does not import `ori_ir`, `ori_types`, `ori_parse`, or any other compiler crate. It links only against the Rust standard library and the system allocator. This is not an accident — it is a hard architectural constraint that keeps the runtime minimal and ensures that changes to the compiler's internal representations never ripple into the runtime.
+
+The contract between compiler and runtime is entirely defined by C-ABI function signatures. The LLVM backend emits `call @ori_rc_dec(ptr, drop_fn)`, and the runtime provides a function with that exact name and calling convention. Neither side knows about the other's internal types.
+
+### Dual Build Artifacts
+
+The crate builds as both an `rlib` (Rust library) and a `staticlib` (C-compatible archive):
+
+- **`libori_rt.rlib`** — Used by `ori_llvm` for JIT execution. The LLVM execution engine resolves runtime function addresses directly from the loaded Rust library, enabling `ori run` to call runtime functions without a separate linking step.
+- **`libori_rt.a`** — Linked into AOT-compiled binaries by the system linker. When `ori build` produces a native executable, the linker resolves all `ori_*` symbols against this static archive.
+
+Both artifacts are built by `cargo bl` (debug) or `cargo blr` (release). This dual-output design means the same runtime code serves both the development workflow (JIT) and the production workflow (AOT), eliminating the class of bugs where the JIT runtime behaves differently from the AOT runtime.
+
+### Data Pointer Convention
+
+RC allocations return a **data pointer** — a pointer to the user data region, past the 16-byte header — rather than a pointer to the allocation base. This seemingly small decision has deep consequences:
+
+- Generated code passes data pointers directly to C FFI without adjustment
+- Every RC operation recovers the header by subtracting a fixed offset (`ptr - 16` for the count, `ptr - 8` for the size)
+- The data pointer *is* the value — no wrapping, no indirection, no fat pointer needed
+
+This matches Swift's approach, where `HeapObject*` points to the object data (past the metadata/refcount header), and contrasts with CPython, where `PyObject*` points to the header and callers must offset to reach the data.
+
+### Null Sentinels for Empty Collections
+
+Empty lists, maps, and sets use a **null data pointer** with zero length and zero capacity. No allocation occurs until the first element is added. The runtime makes `ori_rc_inc(null)` and `ori_rc_dec(null)` explicit no-ops, so empty collections flow through the entire RC protocol without special-casing at every call site.
+
+This means creating an empty list is free (24 bytes of zeros on the stack), passing it around is free (no RC operations on null), and dropping it is free (the no-op dec). The first `push` triggers the initial allocation with `MIN_COLLECTION_CAPACITY = 4` elements.
+
+### Consuming COW Semantics
+
+Every mutating collection operation takes **ownership** of the caller's reference to the data buffer. The caller passes its reference in and receives a new `{len, cap, data}` triple through an sret output pointer. After the call, the caller must not access the original buffer.
+
+This consuming protocol enables the fast path: when the reference count is 1, the runtime mutates the buffer in place and returns the same pointer. No copy, no RC changes — the sole reference transfers from input to output. On the slow path (shared buffer), the runtime copies, increments element RCs on the copy, and decrements the old buffer's RC. The consuming protocol makes the fast path a zero-cost operation rather than a copy-then-dec.
+
+### SSO Strings as First-Class Values
+
+Strings of 23 bytes or fewer are stored entirely inline in the 24-byte `OriStr` struct — no heap allocation, no reference counting, no cleanup. An SSO string has the same copy cost as a 24-byte `memcpy` and zero drop cost. This makes short strings (identifiers, error codes, format fragments) as cheap as primitive values in terms of memory management overhead.
 
 ## Architecture
 
-The runtime sits at the bottom of the compilation pipeline. The LLVM backend
-(`ori_llvm`) emits `call` instructions targeting `ori_rt`'s `#[no_mangle] extern "C"`
-functions. These calls are resolved at link time when `libori_rt.a` (staticlib) is
-linked into the final binary, or at JIT time when the rlib is loaded into the
-`ori_llvm` execution engine.
+The runtime sits at the bottom of the compilation pipeline. The LLVM backend emits `call` instructions targeting `ori_rt`'s `#[no_mangle] extern "C"` functions. These calls are resolved at link time (AOT) or symbol resolution time (JIT).
 
+```mermaid
+flowchart TB
+    Source["Source .ori"] --> Parse["Parse"]
+    Parse --> TypeCheck["Type Check"]
+    TypeCheck --> Canon["Canonicalize"]
+    Canon --> ARC["ARC Analysis
+    RC insertion"]
+    ARC --> LLVM["LLVM Codegen
+    call @ori_rc_dec
+    call @ori_list_push_cow
+    call @ori_str_concat"]
+
+    LLVM --> Link["Link against
+    libori_rt.a"]
+    Link --> Binary["Native Binary"]
+
+    LLVM --> JIT["JIT resolve against
+    libori_rt.rlib"]
+    JIT --> Exec["Direct Execution"]
+
+    classDef frontend fill:#1e3a5f,stroke:#60a5fa,color:#dbeafe
+    classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+    classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
+
+    class Source,Parse,TypeCheck frontend
+    class Canon,ARC canon
+    class LLVM,Link,JIT native
+    class Binary,Exec interpreter
 ```
-Ori source  -->  ori_parse  -->  ori_types  -->  ori_llvm  -->  LLVM IR
-                                                                  |
-                                                            links against
-                                                                  |
-                                                              ori_rt (C ABI)
-                                                                  |
-                                                          native binary / JIT
+
+The runtime never calls back into the compiler. Data flows one way: compiled code calls runtime functions, the runtime operates on raw memory, and results are returned through C ABI conventions — return values for small results, sret output pointers for aggregates larger than 16 bytes, or in-place mutation for COW fast paths.
+
+### Module Organization
+
+The runtime is organized into functional modules, each responsible for a category of operations:
+
+```mermaid
+flowchart TB
+    RT["ori_rt"] --> RC["rc/
+    Allocation, inc, dec
+    Uniqueness, tracing
+    Collection RC helpers"]
+
+    RT --> List["list/
+    COW mutations
+    Seamless slices
+    Sort, structural ops
+    Reset/reuse"]
+
+    RT --> Map["map/
+    Split-buffer COW
+    Key lookup
+    Insert, remove, update"]
+
+    RT --> Set["set/
+    Contiguous COW
+    Union, intersection
+    Difference"]
+
+    RT --> Str["string/
+    SSO layout
+    COW concat
+    Methods, conversion"]
+
+    RT --> Fmt["format/
+    Template interpolation
+    Spec parsing
+    Type formatters"]
+
+    RT --> Iter["iterator/
+    Opaque handles
+    Source + adapter variants
+    Consumer operations"]
+
+    RT --> IO["io.rs
+    Print, panic
+    Catch/recover
+    Entry point wrapper"]
+
+    RT --> Slice["slice_encoding/
+    Negative-cap encoding
+    Offset recovery"]
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+
+    class RT,RC,List,Map,Set,Str,Fmt,Iter,IO,Slice native
 ```
 
-The runtime never calls back into the compiler. Data flows one way: compiled code
-calls runtime functions, the runtime operates on raw memory, and results are
-returned through C ABI conventions (return values, sret output pointers, or
-in-place mutation).
+### Function Categories
 
-## Build Modes
+The runtime exports approximately 80 C-ABI functions. They fall into six categories:
 
-The crate builds as both an `rlib` and a `staticlib`:
+| Category | Functions | Purpose |
+|----------|-----------|---------|
+| **Memory** | `ori_alloc`, `ori_free`, `ori_realloc` | Raw allocator wrappers |
+| **Reference Counting** | `ori_rc_alloc`, `ori_rc_inc`, `ori_rc_dec`, `ori_rc_is_unique`, ... | RC lifecycle (see [Reference Counting](./reference-counting.md)) |
+| **Collection COW** | `ori_list_push_cow`, `ori_map_insert_cow`, `ori_set_union_cow`, ... | Copy-on-write mutations (see [Collections & COW](./collections-cow.md)) |
+| **String Operations** | `ori_str_concat`, `ori_str_split`, `ori_str_eq`, ... | SSO-aware string handling (see [String SSO](./string-sso.md)) |
+| **Format** | `ori_format_int`, `ori_format_float`, `ori_format_str`, ... | Template string interpolation |
+| **I/O and Panic** | `ori_print`, `ori_panic`, `ori_run_main`, `ori_catch_recover`, ... | Output, error handling, entry point |
 
-- **rlib** (`libori_rt.rlib`): Used by `ori_llvm` for JIT execution. Rust consumers
-  call the runtime functions directly through normal Rust linking.
-- **staticlib** (`libori_rt.a`): Linked into AOT-compiled binaries. The LLVM
-  backend resolves external symbol references against this archive at link time.
+### C ABI Design Decisions
 
-Both are built by `cargo bl` (debug) or `cargo blr` (release). The crate has no
-dependencies beyond the Rust standard library.
+All runtime functions use `#[no_mangle] extern "C"` for cross-language compatibility. Several design decisions shape the calling conventions:
 
-### Feature Flags
+**sret output pattern.** Functions returning collections write results through an `out_ptr` parameter rather than returning by value. `OriList`, `OriMap`, and `OriStr` are all 24 bytes — above the 16-byte threshold for register return on x86-64 System V ABI. Explicit sret gives the codegen control over the destination address, which is essential for correct integration with LLVM's alloca/store/load pattern.
 
-- **`single-threaded`**: Uses non-atomic refcount operations (`i64` reads/writes
-  instead of `AtomicI64` with `fetch_add`/`fetch_sub`). Saves atomic operation
-  overhead on programs that do not use task parallelism.
+**Function pointer callbacks.** COW operations accept `inc_fn` (element RC increment), `elem_dec_fn` (element RC decrement), `key_eq` (key equality), and comparator callbacks as C function pointers. The LLVM backend generates type-specialized trampolines for each concrete type. This keeps the runtime entirely type-agnostic — it never needs to know what type the elements are, only how to increment, decrement, compare, or drop them.
 
-## Function Categories
+**Consuming semantics.** Every COW mutation function takes ownership of the caller's reference to the data buffer. This is not just a convention — it is load-bearing for correctness. The fast path (unique owner) mutates in place and returns the same pointer without any RC changes. If the convention were borrowing (caller retains its reference), the fast path would need an extra increment to hand back the reference, and the common case would pay an atomic operation it does not need.
 
-### Memory Allocation
+### Build Modes
 
-Low-level allocator wrappers that back all runtime allocations:
+The crate supports one feature flag:
 
-| Function | Purpose |
-|----------|---------|
-| `ori_alloc` | Allocate raw memory (minimum 8-byte alignment) |
-| `ori_free` | Free memory allocated by `ori_alloc` |
-| `ori_realloc` | Resize an allocation, preserving contents |
-
-### Reference Counting (`rc/`)
-
-The ARC lifecycle primitives. All RC-managed allocations use a 16-byte header
-(`[data_size: i64 | strong_count: i64]`) placed before the data pointer. See
-the [Reference Counting](./reference-counting.md) section for details.
-
-| Function | Purpose |
-|----------|---------|
-| `ori_rc_alloc` | Allocate with RC header (initial count = 1) |
-| `ori_rc_inc` | Increment refcount (Relaxed ordering) |
-| `ori_rc_dec` | Decrement refcount; call drop function at zero |
-| `ori_rc_free` | Unconditionally free an RC allocation |
-| `ori_rc_is_unique` | Check RC == 1 (COW gate) |
-| `ori_rc_is_unique_or_null` | Unique or null sentinel (COW helper) |
-| `ori_rc_realloc` | Resize an RC allocation, preserving header |
-| `ori_rc_data_size` | Read stored data size from header |
-| `ori_rc_count` | Read current refcount (diagnostic) |
-| `ori_rc_live_count` | Number of live RC allocations (leak detection) |
-| `ori_buffer_rc_dec` | Decrement buffer RC with per-element cleanup |
-| `ori_map_buffer_rc_dec` | Decrement map buffer RC with key/value cleanup |
-| `ori_list_rc_inc` | Slice-aware RC increment for list buffers |
-| `ori_memcpy_elements` | Bulk copy without RC (caller manages element RC) |
-| `ori_memmove_elements` | Overlapping bulk copy (insert/remove shifting) |
-
-### Collection Operations (`list/`, `map/`, `set/`)
-
-Copy-on-write collection mutations. Every COW function follows consuming semantics:
-it takes ownership of the caller's reference to the data buffer and produces a new
-`{len, cap, data}` triple via an sret output pointer. See the
-[Collections & COW](./collections-cow.md) section for details.
-
-**List COW** (`list/cow.rs`, `list/cow_structural.rs`, `list/cow_sort.rs`):
-
-| Function | Purpose |
-|----------|---------|
-| `ori_list_push_cow` | Append element (in-place if unique) |
-| `ori_list_pop_cow` | Remove last element |
-| `ori_list_set_cow` | Replace element at index |
-| `ori_list_insert_cow` | Insert at index, shifting right |
-| `ori_list_remove_cow` | Remove at index, shifting left |
-| `ori_list_concat_cow` | Concatenate two lists (dual-consuming) |
-| `ori_list_reverse_cow` | Reverse element order |
-| `ori_list_sort_cow` | Unstable sort with comparator |
-| `ori_list_sort_stable_cow` | Stable sort (TimSort) |
-
-**List Slices** (`list/slice.rs`):
-
-| Function | Purpose |
-|----------|---------|
-| `ori_list_slice` | Zero-copy view into existing buffer |
-| `ori_list_slice_take` | First N elements as slice |
-| `ori_list_slice_drop` | Skip N elements, rest as slice |
-| `ori_list_materialize_slice` | Copy slice into standalone owned list |
-
-**Map COW** (`map/cow.rs`):
-
-| Function | Purpose |
-|----------|---------|
-| `ori_map_insert_cow` | Insert or update key-value pair |
-| `ori_map_remove_cow` | Remove entry by key |
-| `ori_map_update_cow` | Replace value for existing key |
-
-**Set COW** (`set/cow.rs`):
-
-| Function | Purpose |
-|----------|---------|
-| `ori_set_insert_cow` | Insert element (no-op if present) |
-| `ori_set_remove_cow` | Remove element |
-| `ori_set_union_cow` | Set union (consuming set1, borrowing set2) |
-| `ori_set_intersection_cow` | Set intersection |
-| `ori_set_difference_cow` | Set difference |
-
-### String Operations (`string/`)
-
-SSO-aware string handling. Strings <= 23 bytes are stored inline (no allocation).
-See the [String SSO](./string-sso.md) section for details.
-
-| Function | Purpose |
-|----------|---------|
-| `ori_str_concat` | COW-aware concatenation (SSO, in-place, or copy) |
-| `ori_str_eq` / `ori_str_ne` | Equality / inequality |
-| `ori_str_compare` | Lexicographic comparison (returns Ordering tag) |
-| `ori_str_hash` | FNV-1a hash |
-| `ori_str_len` / `ori_str_data` | SSO-safe length and data pointer |
-| `ori_str_split` | Split by separator (seamless slices for long pieces) |
-| `ori_str_substring` | Substring as seamless slice (heap) or copy (SSO) |
-| `ori_str_contains` / `starts_with` / `ends_with` | String predicates |
-| `ori_str_trim` | Whitespace trimming (seamless slice when possible) |
-| `ori_str_to_uppercase` / `to_lowercase` | Case conversion (COW in-place for ASCII) |
-| `ori_str_replace` | Pattern replacement (COW in-place for same-length) |
-| `ori_str_repeat` | Repeat N times |
-| `ori_str_push_char` | Append single character (COW protocol) |
-| `ori_str_next_char` | UTF-8 codepoint decoding at byte offset |
-| `ori_str_from_int` / `from_float` / `from_bool` / `from_raw` | Type conversions |
-
-### Format Operations (`format/`)
-
-Template string interpolation for `{value:spec}` expressions:
-
-| Function | Purpose |
-|----------|---------|
-| `ori_format_int` | Format integer with spec (`b`, `o`, `x`, `X`, width, etc.) |
-| `ori_format_float` | Format float (`e`, `E`, `f`, `%`, precision, etc.) |
-| `ori_format_str` | Format string (width, alignment, precision truncation) |
-| `ori_format_bool` | Format boolean |
-| `ori_format_char` | Format character (Unicode codepoint) |
-
-### Iterator Runtime (`iterator/`)
-
-Opaque iterator handles manipulated through C-ABI functions. LLVM code never sees
-the internal `IterState` enum -- all interaction is through pointer-sized handles.
-
-**Constructors**: `ori_iter_from_list`, `ori_iter_from_range`, `ori_iter_from_str`,
-`ori_iter_from_map`
-
-**Adapters**: `ori_iter_map`, `ori_iter_filter`, `ori_iter_take`, `ori_iter_skip`,
-`ori_iter_enumerate`, `ori_iter_zip`, `ori_iter_chain`
-
-**Consumers**: `ori_iter_collect`, `ori_iter_count`, `ori_iter_any`, `ori_iter_all`,
-`ori_iter_find`, `ori_iter_for_each`, `ori_iter_fold`
-
-**Lifecycle**: `ori_iter_next` (advance), `ori_iter_drop` (free handle)
-
-### I/O and Panic (`io.rs`)
-
-| Function | Purpose |
-|----------|---------|
-| `ori_print` / `ori_print_int` / `ori_print_float` / `ori_print_bool` | Stdout output |
-| `ori_panic` / `ori_panic_cstr` | Panic dispatch (user handler -> JIT longjmp -> unwind) |
-| `ori_assert` / `ori_assert_eq_*` | Runtime assertions |
-| `ori_catch_cleanup` / `ori_catch_recover` | Catch/recover for `catch(expr:)` |
-| `ori_register_panic_handler` | Register user `@panic` trampoline |
-| `ori_run_main` | Entry point wrapper with `catch_unwind` |
-| `ori_args_from_argv` | Convert C argc/argv to Ori `[str]` list |
-
-### Comparison Utilities
-
-| Function | Purpose |
-|----------|---------|
-| `ori_compare_int` | Integer comparison (returns -1/0/1) |
-| `ori_min_int` / `ori_max_int` | Integer min/max |
-
-## C ABI Design Decisions
-
-All runtime functions use `#[no_mangle] extern "C"` for FFI compatibility:
-
-- **Data pointers, not struct pointers**: RC allocations return data pointers
-  (past the 16-byte header), not header pointers. This lets LLVM code pass
-  data pointers directly to C FFI without adjustment.
-
-- **sret output pattern**: Functions returning structs larger than 16 bytes
-  (lists, maps, sets as `{len, cap, data}`) write results through an
-  `out_ptr` parameter rather than returning by value. This avoids ABI
-  mismatches across platforms for aggregate return types.
-
-- **Null sentinels for empty collections**: Empty lists, maps, and sets use
-  null data pointers. `ori_rc_inc(null)` and `ori_rc_dec(null)` are no-ops,
-  so empty collections require zero allocation and zero cleanup.
-
-- **Function pointer callbacks**: COW operations accept `inc_fn` (element RC
-  increment), `elem_dec_fn` (element RC decrement), `key_eq` (key equality),
-  and comparator callbacks as C function pointers. The LLVM backend generates
-  type-specialized trampolines for each concrete type.
-
-- **Consuming semantics**: COW mutation functions take ownership of the
-  caller's reference to the data buffer. The caller must not access the
-  original buffer after the call. This enables the fast path (unique owner)
-  to mutate in place without any copies.
-
-## Link to LLVM Backend
-
-The LLVM backend's `arc_emitter` module generates calls to runtime functions.
-For each ARC operation (increment, decrement, COW mutation), the emitter:
-
-1. Looks up the runtime function by name (e.g., `"ori_list_push_cow"`)
-2. Declares it as an external symbol with the correct LLVM function type
-3. Emits a `call` instruction with the appropriate arguments
-4. For COW functions, passes the `inc_fn`/`dec_fn` trampolines that the
-   codegen generates for the specific element type
-
-The emitter generates type-specialized drop functions for each RC type
-(structs, collections with RC children). These drop functions are passed to
-`ori_rc_dec` as the `drop_fn` parameter, which calls them when the refcount
-reaches zero.
+- **`single-threaded`** — Substitutes non-atomic `i64` reads/writes for `AtomicI64` operations. This eliminates atomic operation overhead on programs that do not use task parallelism. The flag is compile-time only — there is no runtime check.
 
 ## Debugging and Diagnostics
 
-The runtime provides three environment-variable-controlled diagnostic modes:
+The runtime provides three environment-variable-controlled diagnostic modes that compose freely:
 
-- **`ORI_TRACE_RC=1`** (or `verbose`): Logs every `alloc/inc/dec/free` event to
-  stderr. Verbose mode adds backtraces. Zero overhead when disabled (cached in
-  `OnceLock`, single atomic load after first check).
+**`ORI_TRACE_RC=1`** logs every RC operation (alloc, inc, dec, free) to stderr with pointer addresses and count transitions. The `verbose` setting adds stack backtraces to each operation. The trace check uses `OnceLock` to read the environment variable once and cache the result — the cost when disabled is a single always-not-taken branch per RC operation.
 
-- **`ORI_RT_DEBUG=1`**: Enables runtime assertions that validate RC headers on
-  every operation. Catches use-after-free, double-free, and corruption. Debug
-  builds also track freed pointers in a `HashSet` for double-free detection.
+```
+[RC] alloc   0x7f8a1c000b70  size=48   count=1
+[RC] inc     0x7f8a1c000b70  count=1->2
+[RC] dec     0x7f8a1c000b70  count=2->1
+[RC] dec     0x7f8a1c000b70  count=1->0  (dropping)
+[RC] free    0x7f8a1c000b70  size=48
+```
 
-- **`ORI_CHECK_LEAKS=1`**: Counts live RC allocations. At program exit, reports
-  the count of unfreed allocations. Debug builds additionally track allocation
-  sites (pointer address, size, alignment) for attribution in the leak report.
+**`ORI_RT_DEBUG=1`** enables runtime assertions that validate RC headers on every operation — catching use-after-free, double-free, and header corruption. Debug builds additionally track freed pointers in a `HashSet` for double-free detection.
 
-These modes compose: `ORI_TRACE_RC=1 ORI_CHECK_LEAKS=1 ORI_RT_DEBUG=1 ./binary`
-enables all three. Exit code 2 indicates a detected leak.
+**`ORI_CHECK_LEAKS=1`** counts live RC allocations via a global atomic counter. At program exit, an `atexit` handler reports unfreed allocations. Exit code 2 indicates a detected leak. Debug builds track allocation sites (pointer, size, alignment) for attribution.
+
+These modes compose: `ORI_TRACE_RC=1 ORI_CHECK_LEAKS=1 ORI_RT_DEBUG=1 ./binary` enables all three simultaneously. All are zero-cost when disabled — the first access caches the environment variable, and subsequent checks are a single branch on a cached boolean.
+
+## Prior Art
+
+**[Swift's runtime](https://github.com/swiftlang/swift/tree/main/stdlib/public/runtime)** is the closest analog. Swift uses ARC with a similar two-word header (metadata pointer + refcount), `swift_retain`/`swift_release` for RC operations, and copy-on-write semantics for its standard library collections (`Array`, `Dictionary`, `Set`). The key differences: Swift's runtime includes type metadata for dynamic dispatch and protocol witness tables — capabilities Ori does not need because it uses monomorphization. Swift's refcount also packs additional bits (pinned flag, unowned count) into the refcount word, while Ori uses a simpler single-counter design.
+
+**[Lean 4's runtime](https://github.com/leanprover/lean4/tree/master/src/runtime)** implements reference counting for a functional language with similar goals. Lean's `lean_object` header contains a refcount and a tag byte for type discrimination. Lean's RC operations (`lean_inc_ref`, `lean_dec_ref`) follow the same Relaxed-increment / Release-decrement / Acquire-fence-before-drop synchronization protocol that Ori uses. Lean also implements reset/reuse optimization at the runtime level — detecting unique ownership and recycling allocations — which Ori handles at the ARC IR level instead.
+
+**[Koka's runtime](https://github.com/koka-lang/koka/tree/master/kklib)** (`kklib`) provides the execution support for Koka's Perceus reference counting. Like Ori, Koka uses a C-compatible runtime with reference counting primitives. Koka's approach is distinctive in that the compiler generates C code rather than LLVM IR, so the runtime is a C library rather than a Rust crate. Koka also uses a thread-local heap with bump allocation, while Ori uses the system allocator.
+
+**[CPython's runtime](https://github.com/python/cpython)** uses non-atomic reference counting (the GIL provides thread safety). CPython's `Py_INCREF`/`Py_DECREF` are conceptually similar to Ori's operations but use a different header layout — the refcount is the *first* field of `PyObject`, and the type pointer follows. CPython's cycle detector (for reference cycles in arbitrary object graphs) has no analog in Ori, where value semantics prevent cycles by construction.
+
+**Rust has almost no runtime.** The Rust standard library provides `alloc::alloc` and the panic infrastructure, but no reference counting primitives — `Arc` is a library type with inline operations, not a runtime service. This minimal approach is possible because the borrow checker eliminates the need for runtime memory management. Ori's runtime is larger because ARC requires runtime support that static ownership analysis does not.
+
+## Design Tradeoffs
+
+**Rust crate vs C library.** Ori's runtime is written in Rust and compiled as a static library, while Koka's `kklib` and Lean 4's runtime are written in C. The Rust choice provides memory safety within the runtime itself (important when the runtime manipulates raw pointers on behalf of generated code), access to Rust's standard library for complex operations (sorting, UTF-8 handling, formatting), and the ability to share the runtime as an `rlib` for JIT mode. The cost is a Rust toolchain dependency for building the runtime.
+
+**Atomic vs non-atomic refcounts.** The default is atomic operations (`AtomicI64`), with a `single-threaded` feature flag for non-atomic mode. The alternative — always non-atomic with a runtime lock for concurrent access — would be simpler but would make concurrent programs pay for lock acquisition on every RC operation. The per-program feature flag lets single-threaded programs avoid atomic overhead entirely, while concurrent programs pay only the atomic operation cost (which is free on x86 due to cache coherency and maps to lightweight barriers on ARM).
+
+**Linear scan vs hash tables for maps.** Ori's map runtime uses linear key scan with an equality callback, not hash tables. This is O(n) per lookup, which is efficient for small maps (the common case) but degrades for large maps. The rationale: hash-based maps would require the runtime to know the key's hash function, adding another callback parameter to every map operation and complicating the COW protocol. Linear scan keeps the implementation simple and makes the common case (maps with fewer than ~20 entries) fast. A future optimization could add hash-based lookup for maps above a size threshold.
+
+**No auto-shrink.** Collections retain their capacity even after elements are removed. This avoids the performance cliff of alternating growth and shrinkage around a capacity boundary (the "ping-pong" problem). The cost is wasted memory for collections that grow large and then shrink. This matches the behavior of Rust's `Vec`, Go's slices, and Java's `ArrayList`.
+
+**Seamless slices via negative capacity.** Rather than introducing a separate slice type, Ori encodes slice state in the capacity field's sign bit. This keeps the `OriList` struct at 24 bytes and means slices flow through the same code paths as regular lists (with a branch at the COW decision point). The alternative — a separate `OriSlice` type — would avoid the branch but require the compiler to track which type each variable holds, complicating the generated code.
+
+## Related Documents
+
+- [Reference Counting](./reference-counting.md) — RC header layout, atomic operations, synchronization model
+- [Collections & COW](./collections-cow.md) — Copy-on-write mutation protocol, list/map/set operations
+- [String SSO](./string-sso.md) — Small string optimization, SSO/heap discrimination, COW string operations
+- [Data Structures](./data-structures.md) — Memory layouts for OriList, OriMap, OriSet, OriStr, iterators
+- [ARC System](../09-arc-system/index.md) — The analysis pass that determines where RC operations are inserted
+- [LLVM Backend](../10-llvm-backend/index.md) — The code generator that emits calls to runtime functions

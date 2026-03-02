@@ -29,6 +29,7 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
         // function — without this, nounwind-downgraded invokes lose their fastcc,
         // causing calling convention mismatches and wrong results.
         call_val.set_call_convention(func.get_call_conventions());
+        self.last_call_site = Some(call_val);
         call_val
             .try_as_basic_value()
             .basic()
@@ -576,5 +577,23 @@ impl<'ctx> IrBuilder<'_, 'ctx> {
             .llcx
             .create_type_attribute(byval_kind, ty.as_any_type_enum());
         f.add_attribute(AttributeLoc::Param(param_index), byval_attr);
+    }
+
+    // -- Per-call-site attributes --
+
+    /// Add `noalias` to a parameter of the most recently emitted call.
+    ///
+    /// Used for COW operations where static uniqueness analysis proves the
+    /// data pointer is uniquely owned (refcount == 1). Unlike function-level
+    /// `noalias` (which applies to all call sites), this is per-call-site —
+    /// only the specific call where uniqueness is proven gets the attribute.
+    ///
+    /// Does nothing if no call has been emitted yet.
+    pub fn mark_last_call_param_noalias(&mut self, param_index: u32) {
+        if let Some(call_site) = self.last_call_site {
+            let noalias_kind = Attribute::get_named_enum_kind_id("noalias");
+            let noalias_attr = self.scx.llcx.create_enum_attribute(noalias_kind, 0);
+            call_site.add_attribute(AttributeLoc::Param(param_index), noalias_attr);
+        }
     }
 }

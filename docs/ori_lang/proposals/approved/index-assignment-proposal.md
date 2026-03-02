@@ -68,7 +68,7 @@ Both the [Index Trait Proposal](../approved/index-trait-proposal.md) and the [Cu
 
 > *"Ori's memory model prefers immutable updates. Index assignment would require mutable references, which Ori avoids."*
 
-This conflates **in-place mutation** (modifying memory through a reference) with **reassignment** (rebinding an identifier to a new value). Per [spec/05-variables.md](../../0.1-alpha/spec/05-variables.md), Ori supports mutable bindings:
+This conflates **in-place mutation** (modifying memory through a reference) with **reassignment** (rebinding an identifier to a new value). Per [spec/05-variables.md](../../2026/spec/05-variables.md), Ori supports mutable bindings:
 
 ```ori
 let x = 0
@@ -292,7 +292,7 @@ This is a semantic contract (not enforced by the compiler) stating that reading 
 
 ## ARC Optimization
 
-Ori uses ARC (Automatic Reference Counting) with copy-on-write semantics, as described in [spec/15-memory-model.md](../../0.1-alpha/spec/15-memory-model.md).
+Ori uses ARC (Automatic Reference Counting) with copy-on-write semantics, as described in [spec/15-memory-model.md](../../2026/spec/15-memory-model.md).
 
 When `list.updated(key: i, value: x)` is called and `list` has a refcount of 1 (i.e., no other binding shares the same backing storage), the runtime can perform the update **in place** rather than copying. This is an existing ARC optimization, not something new introduced by this proposal.
 
@@ -686,8 +686,8 @@ Use a lens-based system where index paths are first-class values that can be com
 
 - [Ori Index Trait Proposal](../approved/index-trait-proposal.md) — existing read-only `Index` trait
 - [Ori Custom Subscripting Proposal](../approved/custom-subscripting-proposal.md) — original motivation for `Index`
-- [Ori spec/05-variables.md](../../0.1-alpha/spec/05-variables.md) — mutability model
-- [Ori spec/15-memory-model.md](../../0.1-alpha/spec/15-memory-model.md) — ARC and value semantics
+- [Ori spec/05-variables.md](../../2026/spec/05-variables.md) — mutability model
+- [Ori spec/15-memory-model.md](../../2026/spec/15-memory-model.md) — ARC and value semantics
 - [Swift Copy-on-Write](https://developer.apple.com/documentation/swift/array) — closest prior art
 - [Rust `IndexMut` trait](https://doc.rust-lang.org/std/ops/trait.IndexMut.html) — reference-based alternative
 - [Kotlin Operator Overloading: Indexed Access](https://kotlinlang.org/docs/operator-overloading.html#indexed-access-operator) — desugaring-based approach

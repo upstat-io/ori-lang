@@ -6,7 +6,7 @@ supersedes: []
 references:
   - "plans/aot_codegen_pipeline/"
   - "plans/roadmap/section-07C-collections.md"
-  - "docs/ori_lang/0.1-alpha/spec/"
+  - "docs/ori_lang/v2026/spec/"
   - "Counting Immutable Beans (Ullrich & de Moura, 2020)"
   - "Perceus: Garbage Free Reference Counting with Reuse (Reinking et al., 2021)"
   - "FBIP: Functional But In-Place (Lorenzen et al., 2023)"

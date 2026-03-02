@@ -74,70 +74,70 @@ Every file to be rewritten, grouped by section. Check off as completed.
 
 ## Section 09: ARC System (10 files)
 
-- [ ] `09-arc-system/index.md`
-- [ ] `09-arc-system/arc-ir.md`
-- [ ] `09-arc-system/lowering.md`
-- [ ] `09-arc-system/borrow-inference.md`
-- [ ] `09-arc-system/liveness.md`
-- [ ] `09-arc-system/rc-insertion.md`
-- [ ] `09-arc-system/reset-reuse.md`
-- [ ] `09-arc-system/rc-elimination.md`
-- [ ] `09-arc-system/drop-descriptors.md`
-- [ ] `09-arc-system/decision-trees.md`
+- [x] `09-arc-system/index.md` — Full book treatment: conceptual foundations (memory management spectrum — manual/GC/ownership/ARC), 8-layer optimization stack, dark Mermaid pipeline diagrams, prior art with links (Lean 4/Koka/Swift/Rust/CPython), design tradeoffs (ARC vs GC, ARC vs ownership, interprocedural vs local)
+- [x] `09-arc-system/arc-ir.md` — Full book treatment: conceptual foundations (why separate IR for RC analysis, SSA-like form), instruction set by category (Mermaid), type classification flowchart, ValueRepr/RcStrategy with rationale, prior art (Lean 4 LCNF/Swift SIL/Rust MIR), design tradeoffs
+- [x] `09-arc-system/lowering.md` — Full book treatment: conceptual foundations (expression trees to CFGs, SSA construction during lowering), architecture Mermaid, SSA merge pattern, lambda lifting, call classification, prior art (Rust MIR/Lean 4 LCNF/Swift SILGen/MLIR), design tradeoffs
+- [x] `09-arc-system/borrow-inference.md` — Full book treatment: conceptual foundations (cost of conservative ownership, why interprocedural), SCC algorithm, promotion rules, derived ownership, built-in ownership table, pipeline Mermaid, prior art (Lean 4 Borrow.lean/Koka Borrowed.hs/Swift), design tradeoffs
+- [x] `09-arc-system/liveness.md` — Full book treatment: conceptual foundations (what "live" means, backward dataflow history), gen/kill, refined liveness for reset/reuse safety, two-call pipeline usage, prior art (Appel/Lean 4/Koka Perceus), design tradeoffs
+- [x] `09-arc-system/rc-insertion.md` — Full book treatment: conceptual foundations (placement problem — scope-based vs eager vs liveness-based), Perceus algorithm steps, borrowed parameter handling, closure capture optimization, edge cleanup Mermaid, prior art (Koka Perceus/Lean 4/Swift), design tradeoffs
+- [x] `09-arc-system/reset-reuse.md` — Full book treatment: conceptual foundations (allocation problem in FP, Ullrich/de Moura 2019, Perceus/FBIP), two-phase detection/expansion, constraints, expansion Mermaid, sub-optimizations, collection recycling, FBIP diagnostics, prior art (Lean 4 ExpandResetReuse/Koka FP2/Swift), design tradeoffs
+- [x] `09-arc-system/rc-elimination.md` — Full book treatment: conceptual foundations (why RC ops cancel out — 4 sources), bidirectional + cross-block algorithm, safety invariant, cascading with example, pipeline position Mermaid, prior art (Lean 4/Swift/DCE general), design tradeoffs
+- [x] `09-arc-system/drop-descriptors.md` — Full book treatment: conceptual foundations (what happens at refcount zero, inline vs function), 6 DropKind variants, API, LLVM generation Mermaid, recursive types, prior art (Rust drop glue/Lean 4/Swift witness tables/CPython), design tradeoffs
+- [x] `09-arc-system/decision-trees.md` — Full book treatment: conceptual foundations (pattern matching at machine level, Maranget 2008), tree node types, pipeline Mermaid, emission to ARC IR, specialization, select inlining, exhaustiveness connection, prior art (Maranget/Augustsson/Wadler/GHC/Rust/Elm), design tradeoffs
 
 ## Section 10: LLVM Backend (7 files)
 
-- [ ] `10-llvm-backend/index.md`
-- [ ] `10-llvm-backend/aot.md`
-- [ ] `10-llvm-backend/closures.md`
-- [ ] `10-llvm-backend/user-types.md`
-- [ ] `10-llvm-backend/arc-emitter.md`
-- [ ] `10-llvm-backend/builtins-codegen.md`
-- [ ] `10-llvm-backend/codegen-verification.md`
+- [x] `10-llvm-backend/index.md` — Full book treatment: conceptual foundations (what is code generation, classical approaches — direct emission, bytecode, LLVM), ARC-first pipeline as sole codegen path, ID-based LLVM abstraction, two-phase compilation with nounwind analysis, EmittedValue tagged representation, dark Mermaid architecture + pipeline diagrams, type mappings table, prior art with links (rustc/Swift SIL/Lean 4 LCNF/Zig/GHC/Julia), design tradeoffs
+- [x] `10-llvm-backend/aot.md` — Full book treatment: conceptual foundations (AOT vs JIT, what goes into building executables), shared pipeline design, target configuration, symbol mangling scheme with examples + escapes, runtime library discovery algorithm, optimization pipeline (NPM, LTO modes), debug information (DWARF/CodeView), linker driver abstraction (GCC/MSVC/WASM), multi-file compilation with dependency graphs, WebAssembly with WASI + JS bindings, incremental compilation, CLI build command, prior art with links (rustc/Go/Zig/Swift/Emscripten), design tradeoffs
+- [x] `10-llvm-backend/closures.md` — Full book treatment: conceptual foundations (closure representation problem, heap-allocated environments, stack closures, defunctionalization, fat pointers), uniform calling convention, ARC-managed environments, capture analysis in ARC IR, fat pointer representation with dark Mermaid, environment struct layout with drop functions, compilation flow (emit_partial_apply/emit_apply_indirect), non-capturing fast path, prior art with links (Go/Swift/Rust/GHC/OCaml/MLton), design tradeoffs
+- [x] `10-llvm-backend/user-types.md` — Full book treatment: conceptual foundations (types to memory layouts, field ordering, tagged unions, pointer indirection, RC integration), TypeInfo enum with all variants, TypeInfoStore lazy population with cycle detection, TypeLayoutResolver with forward references, struct registration flow, impl block compilation, method dispatch order, field access via Project instructions, enum representation, prior art with links (Rust/Zig/Swift/GHC/Go), design tradeoffs
+- [x] `10-llvm-backend/arc-emitter.md` — Full book treatment: conceptual foundations (instruction selection, classical approaches — table-driven, direct emission, template-based), sole codegen path (11K line removal), RPO block emission, dead block elimination, EmittedValue system, RC operation emission with RcStrategy dispatch table, drop function generation with caching + recursive type handling, terminator emission (Return/Jump/Branch/Switch/InvokeMode), ori_arc contract, prior art with links (rustc/Swift SILGen/Lean 4/Zig), design tradeoffs
+- [x] `10-llvm-backend/builtins-codegen.md` — Full book treatment: conceptual foundations (inline codegen vs runtime calls, classical approaches — everything runtime, everything inline, intrinsics, tiered dispatch), declare_builtins! macro dual-artifact generation, sync testing against TYPECK_BUILTIN_METHODS, receiver borrowing metadata, BuiltinCtx, comprehensive submodule coverage (primitives/strings/lists/COW/maps/sets/Option/Result/iterators/traits/compound), BuiltinTable O(1) lookup, adding new builtins, prior art with links (rustc/V8 Torque/GHC primops/Zig), design tradeoffs
+- [x] `10-llvm-backend/codegen-verification.md` — Full book treatment: conceptual foundations (why verify generated code, RC bug characteristics, classical approaches — LLVM verifier, sanitizers, static analysis, model checking), in-pipeline live IR analysis, four independent checks (RC balance with state machine, COW sequencing rules, ABI conformance with large aggregate/arg count/nounwind checks, safety density), strict mode, function filtering, reporting with severity graduation, exit behavior, codegen-audit.sh script, prior art with links (LLVM Verifier/Miri/Swift SIL Verifier/Valgrind/CompCert), design tradeoffs
 
 ## Section 11: Runtime (5 files)
 
-- [ ] `11-runtime/index.md`
-- [ ] `11-runtime/reference-counting.md`
-- [ ] `11-runtime/collections-cow.md`
-- [ ] `11-runtime/string-sso.md`
-- [ ] `11-runtime/data-structures.md`
+- [x] `11-runtime/index.md` — Full book treatment: conceptual foundations (what is a language runtime, ARC runtime pattern), what makes Ori distinctive (zero compiler deps, dual build, data pointer convention, null sentinels, consuming COW, SSO strings), dark Mermaid architecture + module diagrams, C ABI design decisions, debugging modes, prior art with links (Swift/Lean 4/Koka/CPython/Rust), design tradeoffs
+- [x] `11-runtime/reference-counting.md` — Full book treatment: conceptual foundations (RC history from Collins 1960, atomic vs non-atomic), V3 header layout with Mermaid, core operations (alloc/inc/dec/is_unique/realloc/free), Release/Acquire synchronization protocol, collection RC helpers, overflow/underflow protection, tracing, prior art with links (Rust Arc/Swift/Lean 4/CPython), design tradeoffs
+- [x] `11-runtime/collections-cow.md` — Full book treatment: conceptual foundations (COW from Unix fork, uniqueness test), decision flow Mermaid, consuming semantics rationale, element RC callbacks, all list/map/set COW operations with fast/slow paths, dual-consuming concat, index-based sorting, split-buffer map layout with growth complication, seamless slices encoding, capacity management, prior art with links (Swift/Roc/Clojure/Lean 4), design tradeoffs
+- [x] `11-runtime/string-sso.md` — Full book treatment: conceptual foundations (SSO history from C++ libstdc++/libc++, threshold analysis), OriStr union layout with Mermaid, discriminator design (pointer MSB exploitation), SSO mode details, heap mode with seamless slices, promotion/no-demotion, all SSO-aware operations (concat 4-case, split hybrid, substring slice, case conversion 3-tier), prior art with links (libc++/Swift/compact_str/V8), design tradeoffs
+- [x] `11-runtime/data-structures.md` — Full book treatment: conceptual foundations (why layout matters for codegen), all data structure layouts with Mermaid (RC header, OriList, OriMap split-buffer, OriSet, OriStr, OriOption, OriResult, OriPanic), seamless slice encoding with diagrams, iterator runtime (IterState variants, trampolines, lifecycle, RC ownership, scratch buffer), capacity management, prior art with links (Zig InternPool/Swift/Go slices/Lean 4/Roc), design tradeoffs
 
 ## Section 12: Formatter (4 files)
 
-- [ ] `12-formatter/index.md`
-- [ ] `12-formatter/spacing.md`
-- [ ] `12-formatter/packing.md`
-- [ ] `12-formatter/rules.md`
+- [x] `12-formatter/index.md` — Full book treatment: conceptual foundations (what is formatting, gofmt history, algorithm design space — source-preserving/width-based/hybrid, Wadler/Lindig theory), what makes Ori distinctive (5-layer architecture, two-pass O(n), independent nested breaking, user intent preservation, AST-based, zero-config), dark Mermaid architecture + pipeline, CLI/config tables, incremental formatting, CommentIndex, prior art with links (gofmt/Prettier/rustfmt/Gleam/Wadler/Lindig/Black), design tradeoffs
+- [x] `12-formatter/spacing.md` — Full book treatment: conceptual foundations (token spacing problem, N² combinatorics, four classical approaches — grammar-embedded/context-sensitive/declarative tables/document IR), SpaceAction/TokenCategory/TokenMatcher/SpaceRule architecture, priority bands 10–90 with rationale, conflict resolution case studies (unary minus, pipe, construct-paren), RulesMap O(1) lookup design, FormatContext integration, prior art with links (gofmt/Prettier/rustfmt/clang-format), design tradeoffs
+- [x] `12-formatter/packing.md` — Full book treatment: conceptual foundations (container packing problem, twenty-item problem, four classical approaches — fit-or-stack/bin-packing/Wadler document algebra/hybrid), four Packing strategies with examples, ConstructKind classification with dark Mermaid, determine_packing() algorithm, simple vs complex classifier with cognitive load rationale, user intent signals philosophy, independent nested breaking with worked column arithmetic, stacking layout procedure, prior art with links (Gleam/Prettier/gofmt/rustfmt/dart format), design tradeoffs
+- [x] `12-formatter/rules.md` — Full book treatment: conceptual foundations (two-pass algorithm design space — backtracking/document algebra/measure-then-render), WidthCalculator with formulas table and ALWAYS_STACKED sentinel, Shape tracking with independent breaking via for_nested(), all 8 named rules (MethodChain/ShortBody/BooleanBreak/ChainedElseIf/NestedFor/Parentheses/Loop/SeqHelpers), orchestration layer (Formatter dispatch, inline/broken/stacked modes, ModuleFormatter canonical ordering), CommentIndex and doc comment normalization, rule interaction priorities, prior art with links (Wadler/Lindig/Prettier/rustfmt/gofmt/Gleam), design tradeoffs
 
 ## Section 13: Diagnostics (4 files)
 
-- [ ] `13-diagnostics/index.md`
-- [ ] `13-diagnostics/problem-types.md`
-- [ ] `13-diagnostics/code-fixes.md`
-- [ ] `13-diagnostics/emitters.md`
+- [x] `13-diagnostics/index.md` — Full book treatment: conceptual foundations (four generations of diagnostic evolution — minimal/source-snippet/rich/machine-applicable), what makes Ori distinctive (ErrorGuaranteed type-level proof, phase-specific problem types, four-layer DiagnosticQueue filtering, define_error_codes! macro, cross-file labels, compile-time embedded .md docs, #[cold] error constructors), dark Mermaid architecture, core types (Diagnostic/Severity/Label/ErrorCode with full 78-code table/ErrorGuaranteed/DiagnosticQueue/Suggestion/LineOffsetTable), error code design and stability, six-step diagnostic pipeline, error documentation system, prior art with links (rustc/Elm/Roc/TypeScript/Clang/GHC), design tradeoffs
+- [x] `13-diagnostics/problem-types.md` — Full book treatment: conceptual foundations (why phase-specific error types, untyped vs typed error approaches, how structured types improve compiler maintenance), error flow by phase table, all 7 phase error types in detail (LexError/ParseError/TypeError/PatternError/CanonError/EvalError/InternalError), into_diagnostic() pattern, problem type design patterns, prior art with links (rustc/Elm/Roc/GHC/Zig/TypeScript), design tradeoffs
+- [x] `13-diagnostics/code-fixes.md` — Full book treatment: conceptual foundations (evolution from error messages to automated fixes, IDE integration history), Suggestion/Substitution types with Applicability levels, Diagnostic builder integration, CodeFix trait + FixRegistry architecture, fix categories and patterns, LSP integration, current state and gap analysis, prior art with links (rustc Clippy/TypeScript/Elm/Roslyn/IntelliJ), design tradeoffs
+- [x] `13-diagnostics/emitters.md` — Full book treatment: conceptual foundations (output format design space, human-readable vs machine-readable), DiagnosticEmitter trait with method signatures, TerminalEmitter (Ariadne-based, LineOffsetTable, ColorMode, rendering pipeline, cross-file labels, fallback byte-offset path, summary format), JsonEmitter (streaming with begin/end array, no-serde rationale, exact JSON schema), SarifEmitter (buffered approach, deterministic BTreeSet ordering, SARIF 2.1.0 schema, severity mapping), CLI integration pattern, prior art with links (rustc/Clang/GHC/Elm/Roc/Zig), design tradeoffs
 
 ## Section 14: Testing (3 files)
 
-- [ ] `14-testing/index.md`
-- [ ] `14-testing/test-discovery.md`
-- [ ] `14-testing/test-runner.md`
+- [x] `14-testing/index.md` — Full book treatment: conceptual foundations (compiler testing challenges, classical approaches — external harness/inline/doctest/language-integrated/comptime), what makes Ori distinctive (mandatory verification, attached tests with dependency tracking, compile-fail as first-class, runtime failure testing, dual-backend, shared interner, type error isolation), dark Mermaid architecture, all test types with syntax examples, test attributes, test outcomes, mandatory testing philosophy, prior art with links (Rust/Zig/D/Go/Elm/Roc), design tradeoffs
+- [x] `14-testing/test-discovery.md` — Full book treatment: conceptual foundations (test discovery problem, five classical approaches — annotation/convention/registration/directory/hybrid), filesystem-level discovery with AST-level extraction, discovery algorithm with Mermaid, TestFile minimalism, file conventions, two-level architecture, incremental change detection (FunctionChangeMap/TestTargetIndex/TestRunCache), integration with test runner, prior art with links (Rust/Go/pytest/Jest/Zig), design tradeoffs
+- [x] `14-testing/test-runner.md` — Full book treatment: conceptual foundations (test execution architectures — in-process/fork-per-test/external harness/compiler-integrated), what makes Ori distinctive (dual-backend, compile-once-run-many, shared interner, per-file CompilerDb, type error isolation, scoped rayon pool), dark Mermaid architecture, TestRunner config, per-file 10-phase pipeline, compile-fail error matching algorithm, regular test execution (interpreter + LLVM), #fail wrapper, parallel execution design (32 MiB stack rationale), result aggregation, coverage reporting, prior art with links (Rust/Go/Zig/pytest/Jest/elm-test), design tradeoffs
 
 ## Section 15: Platform Targets (4 files)
 
-- [ ] `15-platform-targets/index.md`
-- [ ] `15-platform-targets/conditional-compilation.md`
-- [ ] `15-platform-targets/wasm-target.md`
-- [ ] `15-platform-targets/recursion-limits.md`
+- [x] `15-platform-targets/index.md` — Full book treatment: conceptual foundations (dual execution model, cross-compilation, target configuration), what makes Ori distinctive (builder-pattern TargetConfig, TargetTripleComponents decomposition, 10 supported targets), dark Mermaid architecture, build mode configuration, prior art with links (Rust/Go/Zig/LLVM/GHC), design tradeoffs
+- [x] `15-platform-targets/conditional-compilation.md` — Full book treatment: conceptual foundations (conditional compilation history, preprocessor vs type-safe approaches), two systems (TargetAttr for hardware, CfgAttr for build configuration), attribute syntax with examples, compile-time constants ($target_os etc.), dead branch handling, prior art with links (Rust/Go/Zig/C/D), design tradeoffs
+- [x] `15-platform-targets/wasm-target.md` — Full book treatment: conceptual foundations (WebAssembly history 2015-2019, three approaches to WASM support), two modes (interpreter-in-WASM for playground, LLVM compile-to-WASM for production), WasmConfig/WasmMemoryConfig/WasiConfig hierarchies, post-MVP feature negotiation, playground-wasm architecture with Mermaid, prior art with links (Rust wasm-pack/Go/Zig/Emscripten/AssemblyScript), design tradeoffs
+- [x] `15-platform-targets/recursion-limits.md` — Full book treatment: conceptual foundations (stack overflow problem, five classical solutions — fixed depth/dynamic growth/trampolining/TCO/guard pages), EvalMode-based limits, CallStack architecture, stack frame analysis (8 Rust frames per Ori call), ori_stack crate with stacker, ConstEval budget system, error reporting, prior art with links (Python/Ruby/Java/Go/Rust stacker/Erlang BEAM/Zig comptime), design tradeoffs
 
 ## Appendices (5 files)
 
-- [ ] `appendices/A-salsa-patterns.md`
-- [ ] `appendices/B-compiler-memory.md`
-- [ ] `appendices/C-error-codes.md`
-- [ ] `appendices/D-debugging.md`
-- [ ] `appendices/E-coding-guidelines.md`
+- [x] `appendices/A-salsa-patterns.md` — Full book treatment: conceptual foundations (incremental computation, recomputation problem, classical approaches — Make/Adapton/Salsa/Roslyn/Shake), what Ori uses and doesn't (feature table), CompilerDb/SourceFile setup, query pipeline with dark Mermaid, session-scoped side-caches (PoolCache/CanonCache/ImportsCache), CacheGuard typestate, SharedInterner pattern, durability control, ARC borrow inference multi-level Salsa, prior art with links (Salsa/rust-analyzer/Roslyn/Adapton/Make/Shake), design tradeoffs
+- [x] `appendices/B-compiler-memory.md` — Full book treatment: conceptual foundations (compiler memory strategies — malloc/arena/SoA/pools/GC), ExprArena SoA layout, 16-shard StringInterner with double-checked locking, unified Pool with Merkle hashing, TokenList parallel arrays, copy types, Heap<T> wrapper, SharedRegistry vs SharedMutableRegistry, ori_stack crate, performance annotations (#[inline]/#[track_caller]/#[cold]), prior art with links (Zig InternPool/rustc TyKind/V8 Zone/LLVM BumpPtrAllocator/GHC/Roc), design tradeoffs
+- [x] `appendices/C-error-codes.md` — Full book treatment: error code reference with E<phase><sequence>/W<phase><sequence> naming convention, complete 119-code table organized by phase (Lexer/Parser/TypeChecker/Patterns/ARC/Codegen/Runtime/Internal/Warnings), eight example diagnostics with source snippets, error documentation system (ori --explain, include_str! embedding, .md format), adding new error codes procedure, import/module error unification rationale
+- [x] `appendices/D-debugging.md` — Full book treatment: conceptual foundations (multi-phase pipeline debugging challenges), ORI_LOG tracing system (OnceLock init, EnvFilter, tree mode), all five phase dump flags, codegen audit (four checks with RC state machine Mermaid), runtime instrumentation (ORI_TRACE_RC/ORI_RT_DEBUG/ORI_CHECK_LEAKS), diagnostic scripts, six common debug scenarios, dbg_set!/dbg_do! macros, instrumentation guidelines, prior art with links (rustc/GCC/LLVM/Zig/Go), design tradeoffs
+- [x] `appendices/E-coding-guidelines.md` — Full book treatment: 15-section reference covering phase boundary discipline, memory management patterns, dispatch conventions, API design rules, Salsa compatibility, diagnostics standards, tracing guidelines, testing conventions, performance annotations, style rules, file organization, match extraction, cascading fix detection, phase-specific purity, prior art with links (Rust API Guidelines/Google C++/LLVM/Linux Kernel)
 
 ---
 
-**Total: 76 files** (37 done, 39 remaining)
+**Total: 79 files** (79 done, 0 remaining)

@@ -5,10 +5,12 @@
   let {
     value = $bindable(''),
     fontSize = 14,
+    engaged = false,
     onrun,
   }: {
     value: string;
     fontSize?: number;
+    engaged?: boolean;
     onrun?: () => void;
   } = $props();
 
@@ -23,6 +25,13 @@
     const currentValue = value;
     if (currentEditor && currentValue !== currentEditor.getValue()) {
       currentEditor.setValue(currentValue);
+    }
+  });
+
+  // Toggle scroll capture based on engagement state
+  $effect(() => {
+    if (editor) {
+      editor.updateOptions({ scrollbar: { handleMouseWheel: engaged } });
     }
   });
 
@@ -46,6 +55,7 @@
       fontFamily: "'JetBrains Mono', 'Consolas', 'Monaco', monospace",
       fontLigatures: true,
       minimap: { enabled: false },
+      scrollbar: { handleMouseWheel: false },
       scrollBeyondLastLine: false,
       automaticLayout: true,
       tabSize: 4,

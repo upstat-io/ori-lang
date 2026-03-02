@@ -7,155 +7,124 @@ section: "ARC System"
 
 # Decision Trees
 
-## Overview
+## Pattern Matching at the Machine Level
 
-Pattern match compilation transforms `match` expressions into efficient decision trees
-that test discriminants and branch to the correct arm body. The algorithm is based on
-Maranget (2008), "Compiling Pattern Matching to Good Decision Trees," which produces
-trees that minimize the number of tests needed to reach a decision.
+Pattern matching is a central feature of ML-family languages, but the way programmers write patterns — nested constructors, wildcards, guards, or-patterns — is very different from how machines execute them. A `match` expression with five arms testing nested enum variants cannot be executed as written; it must be compiled into a sequence of tests and branches that a CPU can execute efficiently.
 
-Decision trees are compiled during canonicalization and stored in a shared pool. The ARC
-lowering phase then emits them as basic blocks with Switch, Branch, and Jump terminators.
+The classical approach, developed by Augustsson (1985) and refined by [Maranget (2008)](https://doi.org/10.1017/S0956796808006771) in "Compiling Pattern Matching to Good Decision Trees," transforms pattern matrices into **decision trees** — branching structures where each internal node tests a single discriminant (enum tag, literal value, type tag) and each leaf represents a successful match. The goal is to minimize the number of tests executed on any path from root to leaf.
 
-## Key Types
+Decision trees are compiled during [canonicalization](../07-canonicalization/pattern-compilation.md) and stored in a shared pool (`DecisionTreePool`). The ARC system's role is to **emit** these pre-compiled trees as basic blocks in ARC IR, converting the tree's branching structure into `Switch`, `Branch`, and `Jump` terminators that the LLVM backend can translate directly to machine code.
 
-The core types are defined in `ori_ir::canon::tree` and shared across crates:
+## Decision Tree Structure
 
-### DecisionTree
+The core types are defined in `ori_ir` and shared across crates:
 
-The compiled tree structure. Each node is one of:
+### DecisionTree Nodes
 
-- **Test node**: Tests a variable against a set of values and branches to subtrees.
-  Contains the variable to test, the kind of test (`TestKind`), and a map from test
-  values to child trees, plus a default/fallback subtree.
-- **Leaf node**: A successful match. Contains the arm index and the variable bindings
-  extracted from the matched pattern.
-- **Guard node**: A test node where the branch condition is a user-written guard
-  expression (`if` clause on a match arm). Contains the guard expression, a success
-  subtree, and a failure subtree that falls through to the next candidate.
+Each node in the tree is one of three kinds:
 
-### PatternMatrix
+**Test node.** Tests a variable against a set of values and branches to subtrees. Contains the variable to test, the kind of test (`TestKind`), a map from test values to child trees, and a default/fallback subtree for unmatched cases.
 
-A matrix of pattern rows being compiled. Each row corresponds to a match arm (or a
-remaining candidate after specialization). Columns correspond to the components being
-matched against. The compilation algorithm selects a column, generates tests for it,
-and specializes the matrix for each test outcome.
+**Leaf node.** A successful match. Contains the arm index (which match arm body to execute) and the variable bindings extracted from the matched pattern.
 
-### FlatPattern
+**Guard node.** A test node where the branch condition is a user-written guard expression (`if` clause). Contains the guard expression, a success subtree, and a failure subtree that falls through to the next candidate.
 
-A flattened representation of a pattern after normalization. Nested patterns (e.g.,
-`Some(Point { x, y })`) are decomposed into a sequence of flat tests and bindings.
-This simplifies the compilation algorithm, which operates on flat sequences rather
-than recursive pattern trees.
+### Test Kinds
 
-### TestKind
+| Kind | What It Tests | Example |
+|------|-------------|---------|
+| Tag test | Variant discriminant of a sum type | `Some` vs `None` |
+| Literal test | Equality with a literal value | `0`, `"hello"`, `true` |
+| Guard test | Boolean guard expression | `x if x > 0` |
+| Range test | Membership in a numeric range | `1..10` |
 
-Describes what kind of test to perform:
+### Pattern Matrix
 
-- **Tag test**: Check the variant tag of a sum type (e.g., `Some` vs `None`).
-- **Literal test**: Compare against a literal value (integer, string, boolean).
-- **Guard test**: Evaluate a boolean guard expression.
-- **Range test**: Check membership in a range pattern.
+The compilation input is a **pattern matrix** — rows correspond to match arms, columns correspond to the components being tested. The Maranget algorithm selects a column, generates tests for it, and specializes the matrix for each test outcome, recursing until all matrices are reduced to single-row leaves.
 
-### TestValue
+## Pipeline Position
 
-The concrete value being tested against — a variant tag index, a literal constant,
-or a range boundary. TestValues are the keys in a test node's branch map.
+Decision trees occupy a specific position spanning two phases:
 
-## Pipeline Integration
+```mermaid
+flowchart LR
+    Canon["Canonicalization
+    Compile pattern matrix
+    → DecisionTree"] --> Pool["DecisionTreePool
+    Shared storage"]
+    Pool --> Emit["ARC Lowering
+    Emit tree as
+    basic blocks"]
+    Emit --> LLVM["LLVM Codegen
+    Standard block
+    translation"]
 
-Decision trees occupy a specific position in the compilation pipeline:
+    classDef canon fill:#3b1f6e,stroke:#a78bfa,color:#e9d5ff
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
 
-1. **Canonicalization** (`ori_canon`): The `compile/` module builds decision trees from
-   pattern matrices. Each `match` expression produces a `DecisionTree` that is stored
-   in the `DecisionTreePool`.
+    class Canon,Pool canon
+    class Emit,LLVM native
+```
 
-2. **ARC lowering**: When lowering canonical IR to ARC IR, the emitter reads decision
-   trees from the pool and generates basic blocks.
-
-3. **LLVM codegen**: The ARC IR blocks produced by decision tree emission are translated
-   to LLVM IR like any other basic blocks — no special handling is needed at this stage.
-
-### Relevant Modules
-
-- `compile/` — Builds the decision tree from the pattern matrix using the Maranget
-  algorithm. Selects the best column to split on using a heuristic (typically the
-  column with the most distinct constructors, to maximize information gain per test).
-- `emit.rs` — Emits the decision tree as ARC IR. Walks the tree and creates basic
-  blocks, terminators, and variable bindings.
-- `emit_switches.rs` — Switch-based emission for multi-arm matches. Generates Switch
-  terminators that map discriminant values to target blocks, producing efficient jump
-  tables when the backend supports them.
-- `flatten.rs` — Converts nested patterns to the flat representation used by the
-  compilation algorithm.
-- `specialize.rs` — Matrix specialization for narrowing candidates at each decision
-  point.
+The split is deliberate: pattern compilation is a frontend concern (it depends on type information, exhaustiveness checking, and pattern semantics), while block emission is a backend concern (it produces the control flow graph that ARC analysis operates on). The `DecisionTreePool` is the handoff point between the two.
 
 ## Emission to ARC IR
 
-Each node type in the decision tree maps to an ARC IR construct:
+Each decision tree node maps to an ARC IR construct:
 
-- **Test node** becomes a basic block ending in a `Switch` terminator. The Switch maps
-  each `TestValue` to the block ID of the corresponding subtree's entry block. The
-  default case maps to the fallback subtree.
+**Test node → Switch terminator.** The test variable's discriminant is loaded, and a `Switch` terminator maps each `TestValue` to the block ID of the corresponding subtree's entry. The default case maps to the fallback subtree. When the type's constructors are fully covered and no guard is present, the default is marked `Unreachable`.
 
-- **Leaf node** becomes a basic block ending in a `Jump` terminator to the arm body
-  block. Before the jump, the block contains instructions to bind the extracted
-  variables (copies or moves from the matched value's fields).
+**Leaf node → Jump terminator.** A block containing instructions to bind the extracted variables (via `Project` to extract fields from the matched value, then `Let` to bind them), ending with a `Jump` to the match arm's body block.
 
-- **Guard node** becomes a basic block ending in a `Branch` terminator. The guard
-  expression is evaluated to produce a boolean, and the branch targets the success
-  subtree (guard true) or the failure subtree (guard false, which continues matching
-  against remaining candidates).
+**Guard node → Branch terminator.** The guard expression is evaluated to produce a boolean, and a `Branch` terminator targets the success subtree (guard true) or the failure subtree (guard false, continuing to the next candidate).
 
-Variable bindings extracted during pattern matching are propagated through block
-parameters, ensuring SSA form is maintained across the decision tree's block structure.
+Variable bindings are propagated through block parameters, maintaining SSA form across the decision tree's block structure.
 
-## Specialization Algorithm
+## Specialization
 
-Matrix specialization is the core operation of the Maranget algorithm. At each decision
-point, the algorithm selects a column and generates tests for the distinct constructors
-(or literals) that appear in that column. For each constructor `c`, the matrix is
-specialized:
+Matrix specialization is the core operation of the Maranget algorithm. At each decision point:
 
-1. **Remove** rows whose pattern in the selected column cannot match `c`.
-2. **Simplify** rows whose pattern does match `c` — replace the constructor pattern
-   with its sub-patterns (fields/payloads), expanding the matrix horizontally.
-3. **Wildcard rows** (patterns that match anything) are kept in all specializations,
-   since they match regardless of the constructor.
+1. **Select a column** — using a heuristic that favors columns with many distinct constructors (maximizing information gain per test) and few wildcards (minimizing row duplication).
 
-The result is a smaller matrix for each branch of the test, and the algorithm recurses
-until all matrices are reduced to leaf nodes (single matching arm) or empty (unreachable,
-which should not occur if exhaustiveness checking passed).
+2. **For each constructor `c` in the column:**
+   - **Remove** rows whose pattern cannot match `c`
+   - **Simplify** matching rows by replacing the constructor pattern with its sub-patterns (expanding the matrix horizontally)
+   - **Keep** wildcard rows in all specializations (they match any constructor)
+
+3. **Recurse** on each specialized sub-matrix until all are reduced to single-row leaves (successful match) or empty matrices (unreachable — should not occur after exhaustiveness checking).
 
 ### Single-Constructor Optimization
 
-When a type has exactly one constructor (e.g., a struct, a tuple, or a single-variant
-sum type), the specialization can skip the test entirely. There is only one possible
-outcome, so no branch is needed — the algorithm immediately decomposes the pattern
-into its sub-patterns and continues. This avoids generating a Switch with a single
-arm, which would be a redundant indirect jump.
+When a type has exactly one constructor (structs, tuples, single-variant enums), the test can be skipped entirely. There is only one possible outcome, so no branch is needed — the algorithm immediately decomposes the pattern into sub-patterns and continues. This avoids generating a `Switch` with a single arm, which would be a redundant indirect jump.
 
-### Heuristic Column Selection
+### Select Inlining
 
-The algorithm must choose which column to split on at each step. The heuristic favors
-columns where:
+When a `Switch` has exactly two arms and both target blocks contain only a single assignment, the switch can be replaced with a `Select` instruction — a conditional value selection that maps to LLVM's `select` instruction (a branchless conditional move). This eliminates the branch overhead for trivial two-way matches like `Option` unwrapping.
 
-- The number of distinct constructors is high (more information per test).
-- Wildcard patterns are few (fewer rows propagated to all branches).
-- The column appears leftmost among equally good candidates (stability).
+## Connection to Exhaustiveness
 
-Good column selection directly affects the size of the generated decision tree and the
-number of tests executed at runtime.
+Decision tree compilation is downstream of exhaustiveness checking, which runs during type checking. By the time trees are compiled, every `match` is guaranteed exhaustive. This means:
 
-## Connection to Pattern Exhaustiveness
+- The default case of a fully-covered test is `Unreachable` — the backend can omit it or use it for optimization hints
+- No "missing case" errors can arise during emission
+- Guard expressions are the sole source of runtime fallthrough — guarded arms must always have a failure path to the next candidate
 
-Decision tree compilation is downstream of exhaustiveness checking, which runs during
-type checking. By the time decision trees are compiled, every match expression is
-guaranteed to be exhaustive. This means the compilation algorithm can assume that the
-default/fallback case of a fully-covered test is unreachable, enabling the backend to
-omit the default branch or mark it as `unreachable` for optimization.
+## Prior Art
 
-Guard expressions are the exception: guards can cause a match arm to fail at runtime,
-so the fallback after a guarded arm must always be present, routing to the next
-candidate row.
+**[Maranget (2008)](https://doi.org/10.1017/S0956796808006771)**, "Compiling Pattern Matching to Good Decision Trees," is the foundational reference. The paper describes the matrix specialization algorithm with heuristic column selection that Ori implements. The algorithm produces decision trees that are near-optimal in the number of tests per path.
+
+**[Augustsson (1985)](https://link.springer.com/chapter/10.1007/3-540-15975-4_48)** and **[Wadler (1987)](https://dl.acm.org/doi/10.5555/41554.41556)** developed the earlier pattern compilation algorithms that Maranget's work builds on. Augustsson's algorithm compiles to nested case expressions; Wadler described the relationship between pattern matching and function clauses.
+
+**[GHC](https://gitlab.haskell.org/ghc/ghc)** uses a variant of the Maranget algorithm for Haskell's pattern matching, producing Core case expressions that are later lowered to STG and then Cmm. GHC's implementation handles Haskell-specific features (view patterns, pattern synonyms) that Ori does not need.
+
+**[Rust](https://github.com/rust-lang/rust)** compiles patterns to MIR using a similar matrix-based algorithm. Rust's implementation (`rustc_mir_build/src/thir/pattern/`) handles Rust-specific features (slice patterns, constant patterns, binding modes) and produces MIR `SwitchInt` terminators analogous to ARC IR's `Switch`.
+
+**[Elm](https://github.com/elm/compiler)** uses a decision tree approach for its pattern matching, with the additional constraint that Elm's type system makes all matches total (no runtime failures). This is similar to Ori's guarantee via exhaustiveness checking.
+
+## Design Tradeoffs
+
+**Shared pool vs inline trees.** Decision trees are stored in a `DecisionTreePool` during canonicalization and retrieved by reference during ARC lowering. The alternative — embedding the tree structure directly in the canonical IR — would avoid the pool indirection but would complicate canonical IR with tree-specific types. The pool keeps the canonical IR focused on expressions.
+
+**Two-phase (compile then emit) vs single-phase.** Compiling decision trees during canonicalization and emitting during ARC lowering separates concerns: canonicalization handles pattern semantics, ARC lowering handles control flow. The alternative — compiling and emitting in one phase — would be simpler but would either pull pattern compilation into the ARC system (wrong abstraction level) or push block emission into canonicalization (wrong phase).
+
+**Heuristic column selection.** The choice of which column to split on affects tree size and runtime test count. Maranget's heuristic (prefer columns with many constructors, few wildcards) is simple and effective but not optimal in all cases. More sophisticated heuristics (e.g., considering the depth of sub-trees) could produce smaller trees but at higher compile-time cost.
