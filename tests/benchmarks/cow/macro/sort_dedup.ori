@@ -1,0 +1,51 @@
+// Macro-benchmark: Sort + Deduplicate
+// Exercises: list sort (in-place COW), list push, list indexing, comparison
+// Generates a list with many duplicates, sorts it, then removes consecutive duplicates.
+// COW paths: sort mutates in-place when uniquely owned; push appends in-place.
+
+@main () -> int = {
+    // Generate 10000 elements with values in 0..500 (many duplicates)
+    let n = 10000;
+    let items: [int] = [];
+    let i = 0;
+    loop {
+        if i >= n then break;
+        // Pseudo-random via simple hash: (i * 137 + 31) % 500
+        items = items.push((i * 137 + 31) % 500);
+        i = i + 1;
+    };
+
+    // Sort
+    let sorted = items.sort();
+
+    // Deduplicate: walk sorted list, skip consecutive duplicates
+    let deduped: [int] = [];
+    let prev = -1;
+    let first = true;
+    let j = 0;
+    loop {
+        if j >= sorted.len() then break;
+        let val = sorted[j];
+        if first || val != prev then {
+            deduped = deduped.push(val);
+            first = false;
+        };
+        prev = val;
+        j = j + 1;
+    };
+
+    // Verify: sorted order preserved, all duplicates removed
+    // With 10000 values in 0..500, we expect exactly 500 unique values
+    let ok_count = deduped.len() == 500;
+
+    // Verify sorted order in deduped
+    let ok_sorted = true;
+    let k = 1;
+    loop {
+        if k >= deduped.len() then break;
+        if deduped[k] <= deduped[k - 1] then ok_sorted = false;
+        k = k + 1;
+    };
+
+    if ok_count && ok_sorted then 0 else 1
+}

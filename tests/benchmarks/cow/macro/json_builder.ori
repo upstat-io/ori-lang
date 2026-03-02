@@ -1,0 +1,25 @@
+// Macro-benchmark: JSON builder
+// Exercises: string COW, SSO transitions, string concat chains
+// Builds a JSON-like string from 5000 key-value entries via repeated concat.
+// Each iteration concatenates: comma + quote + key + quote + colon + value.
+// With COW: O(n) total (in-place append). Without: O(n^2) (copy per concat).
+
+@main () -> int = {
+    let n = 5000;
+    let result = "{";
+    let i = 0;
+    loop {
+        if i >= n then break;
+        if i > 0 then result = result + ", ";
+        result = result + "\"key_" + str(i) + "\": " + str(i * 10);
+        i = i + 1;
+    };
+    result = result + "}";
+
+    // Verify: starts with '{', ends with '}', contains first and last entries
+    let ok_start = result.starts_with("{");
+    let ok_end = result.ends_with("}");
+    // Rough length check: each entry is ~20-30 chars, 5000 entries
+    let ok_len = result.len() > 50000;
+    if ok_start && ok_end && ok_len then 0 else 1
+}

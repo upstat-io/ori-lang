@@ -368,6 +368,13 @@ pub(crate) static RT_FUNCTIONS: &[RtFn] = &[
         attrs: &[],
     },
     RtFn {
+        name: "ori_list_get",
+        // (data, len, index, elem_size, out_ptr) — panics on OOB
+        params: &[Ty::Ptr, Ty::I64, Ty::I64, Ty::I64, Ty::Ptr],
+        ret: None,
+        attrs: &[],
+    },
+    RtFn {
         name: "ori_list_contains_int",
         params: &[Ty::Ptr, Ty::I64, Ty::I64],
         ret: Some(Ty::I64),

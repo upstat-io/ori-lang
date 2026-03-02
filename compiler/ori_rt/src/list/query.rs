@@ -4,8 +4,30 @@
 //! read from the list (queries) or produce a new list from immutable
 //! references (functional operations).
 
+use crate::io::ori_panic_cstr;
 use crate::rc::ori_rc_alloc;
 use crate::string::{deref_str, OriStr};
+
+/// Bounds-checked element access: copy `elem_size` bytes at `data[index]` to `out_ptr`.
+///
+/// Panics if `index < 0 || index >= len` (via `ori_panic_cstr`, which unwinds).
+#[no_mangle]
+pub extern "C-unwind" fn ori_list_get(
+    data: *const u8,
+    len: i64,
+    index: i64,
+    elem_size: i64,
+    out_ptr: *mut u8,
+) {
+    if index < 0 || index >= len {
+        ori_panic_cstr(c"index out of bounds".as_ptr());
+    }
+    let es = elem_size.max(1) as usize;
+    let offset = index as usize * es;
+    unsafe {
+        std::ptr::copy_nonoverlapping(data.add(offset), out_ptr, es);
+    }
+}
 
 /// Return the first element of a list, or write a None tag if empty.
 ///

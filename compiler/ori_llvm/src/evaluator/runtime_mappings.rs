@@ -1,11 +1,19 @@
 //! Runtime function and type mappings for LLVM JIT evaluation.
 //!
 //! Maps Ori runtime function names to their native function pointers
-//! and Ori types to LLVM type representations for JIT execution.
+//! so the MCJIT engine can resolve calls to runtime functions.
+//!
+//! # Symbol Resolution in MCJIT
+//!
+//! MCJIT resolves external symbols via `DynamicLibrary::SearchForAddressOfSymbol`,
+//! NOT via `ExecutionEngine::GlobalAddressMap` (which `addGlobalMapping` populates).
+//! Since `ori_rt` is linked statically, runtime function symbols are not in the
+//! process's dynamic symbol table. We use `LLVMAddSymbol` to register them in
+//! LLVM's internal symbol search path, which MCJIT's `RuntimeDyld` does check.
 
-use inkwell::execution_engine::ExecutionEngine;
+use std::ffi::CString;
+use std::sync::Once;
 
-use super::LLVMEvalError;
 use crate::runtime;
 
 /// Runtime functions declared in `runtime_decl` that are intentionally NOT
@@ -54,9 +62,7 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_list_contains_int",
     "ori_list_contains_str",
     "ori_list_materialize_slice",
-    "ori_list_rc_inc",
-    // Unique-drop for collections — AOT only; JIT uses native RC
-    "ori_buffer_drop_unique",
+    // Unique-drop for collections — JIT needs ori_buffer_drop_unique too
     "ori_map_buffer_drop_unique",
     // Collection buffer reuse — AOT only; JIT uses native allocation
     "ori_list_reset_buffer",
@@ -141,7 +147,9 @@ pub(crate) const JIT_MAPPED_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_list_free_data",
     "ori_list_new",
     "ori_list_free",
+    "ori_list_get",
     "ori_list_len",
+    "ori_list_rc_inc",
     "ori_compare_int",
     "ori_min_int",
     "ori_max_int",
@@ -168,20 +176,50 @@ pub(crate) const JIT_MAPPED_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_rc_dec",
     "ori_rc_free",
     "ori_buffer_rc_dec",
+    "ori_buffer_drop_unique",
     "ori_args_from_argv",
     "ori_register_panic_handler",
     "rust_eh_personality",
 ];
 
-/// Add runtime function mappings to an execution engine.
+/// Register all runtime function symbols in LLVM's dynamic library.
 ///
-/// Maps declared function names to actual Rust function addresses so the
-/// JIT engine can resolve calls to runtime functions.
-pub(super) fn add_runtime_mappings_to_engine(
-    engine: &ExecutionEngine<'_>,
-    module: &inkwell::module::Module<'_>,
-) -> Result<(), LLVMEvalError> {
-    let mappings: &[(&str, usize)] = &[
+/// Uses `LLVMAddSymbol` to make runtime functions discoverable by MCJIT's
+/// `RuntimeDyld` during relocation resolution. Called once per process via
+/// `Once` guard — symbols persist for the process lifetime.
+///
+/// This replaces the previous `addGlobalMapping` approach, which populated
+/// `ExecutionEngine::GlobalAddressMap` — a map that MCJIT's `RuntimeDyld`
+/// does NOT check during symbol resolution (it uses `DynamicLibrary` instead).
+pub(super) fn ensure_runtime_symbols_registered() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let mappings = jit_symbol_mappings();
+
+        debug_assert_eq!(
+            mappings.len(),
+            JIT_MAPPED_RUNTIME_FUNCTIONS.len(),
+            "JIT mapping array and JIT_MAPPED_RUNTIME_FUNCTIONS constant have different lengths"
+        );
+
+        for &(name, addr) in &mappings {
+            let c_name = CString::new(name).expect("runtime function name contains null byte");
+            // SAFETY: addr is a valid function pointer obtained from `fn as *const ()`.
+            // LLVMAddSymbol stores the name→address mapping in LLVM's internal
+            // DynamicLibrary, which persists for the process lifetime.
+            unsafe {
+                llvm_sys::support::LLVMAddSymbol(c_name.as_ptr(), addr as *mut std::ffi::c_void);
+            }
+            tracing::trace!(name, addr, "LLVMAddSymbol");
+        }
+
+        tracing::debug!(count = mappings.len(), "registered JIT runtime symbols");
+    });
+}
+
+/// Build the (name, address) mapping table for JIT runtime symbols.
+fn jit_symbol_mappings() -> Vec<(&'static str, usize)> {
+    vec![
         ("ori_print", runtime::ori_print as *const () as usize),
         (
             "ori_print_int",
@@ -226,7 +264,12 @@ pub(super) fn add_runtime_mappings_to_engine(
             "ori_list_free",
             runtime::ori_list_free as *const () as usize,
         ),
+        ("ori_list_get", runtime::ori_list_get as *const () as usize),
         ("ori_list_len", runtime::ori_list_len as *const () as usize),
+        (
+            "ori_list_rc_inc",
+            runtime::ori_list_rc_inc as *const () as usize,
+        ),
         (
             "ori_compare_int",
             runtime::ori_compare_int as *const () as usize,
@@ -300,6 +343,10 @@ pub(super) fn add_runtime_mappings_to_engine(
             runtime::ori_buffer_rc_dec as *const () as usize,
         ),
         (
+            "ori_buffer_drop_unique",
+            runtime::ori_buffer_drop_unique as *const () as usize,
+        ),
+        (
             "ori_args_from_argv",
             runtime::ori_args_from_argv as *const () as usize,
         ),
@@ -311,24 +358,7 @@ pub(super) fn add_runtime_mappings_to_engine(
         // containing `invoke`/`landingpad`. Not in the dynamic symbol table,
         // so MCJIT's dlsym-based resolution can't find it automatically.
         ("rust_eh_personality", rust_eh_personality_addr()),
-    ];
-
-    // Verify the mapping array stays in sync with JIT_MAPPED_RUNTIME_FUNCTIONS.
-    debug_assert_eq!(
-        mappings.len(),
-        JIT_MAPPED_RUNTIME_FUNCTIONS.len(),
-        "JIT mapping array and JIT_MAPPED_RUNTIME_FUNCTIONS constant have different lengths"
-    );
-
-    for &(name, addr) in mappings {
-        if let Some(func) = module.get_function(name) {
-            engine.add_global_mapping(&func, addr);
-        }
-        // Silently skip functions not declared in this module — they may not
-        // be needed if no code calls them.
-    }
-
-    Ok(())
+    ]
 }
 
 /// Get the address of `rust_eh_personality` for JIT symbol mapping.
