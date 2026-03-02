@@ -62,8 +62,8 @@ All Cargo.toml versions are derived from `BUILD_NUMBER` via `sync-version.sh`. W
 | `Cargo.toml` (workspace) | CalVer → Cargo (`2026.2.28-alpha.1`) |
 | `compiler/oric/Cargo.toml` | `version.workspace = true` |
 | `compiler/ori_lexer_core/Cargo.toml` | `version.workspace = true` |
-| `compiler/ori_llvm/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
-| `compiler/ori_rt/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
+| `compiler/ori_llvm/Cargo.toml` | CalVer → Cargo (workspace member, not in default-members) |
+| `compiler/ori_rt/Cargo.toml` | CalVer → Cargo (workspace member, not in default-members) |
 | `tools/ori-lsp/Cargo.toml` | CalVer → Cargo (excluded from workspace) |
 | `website/playground-wasm/Cargo.toml` | CalVer → Cargo (standalone) |
 | `website/src/layouts/BaseLayout.astro` | CalVer → Cargo |

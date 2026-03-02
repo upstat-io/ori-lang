@@ -1,31 +1,31 @@
 ---
 const features = [
   {
+    title: 'Invisible Memory Management',
+    description: 'No garbage collector. No borrow checker. No manual allocation. Eight stacked optimizations turn functional code into in-place mutations — zero compromise between safety and speed.',
+    icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+  },
+  {
     title: 'Mandatory Verification',
-    description: 'Every function requires tests or it doesn\'t compile. Contracts enforce invariants. The compiler refuses to produce code it can\'t verify.',
+    description: 'Every function requires tests or it won\'t compile. Contracts enforce invariants. The compiler ensures coverage, not discipline.',
     icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>`,
   },
   {
-    title: 'Dependency-Aware Integrity',
-    description: 'Tests live in the dependency graph. Change a function and its tests run. Change a function and callers\' tests run too. Fast feedback on what matters.',
+    title: 'Dependency-Aware Testing',
+    description: 'Tests live in the dependency graph. Change a function and every test that depends on it runs automatically.',
     icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>`,
   },
   {
     title: 'Explicit Effects',
-    description: 'Capabilities declare what a function can do. No hidden side effects. Mocking is trivial. Tests are fast because everything is injectable.',
+    description: 'Capabilities declare side effects. No hidden I/O. Mocking is trivial — just provide a different capability with `with...in`.',
     icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
-  },
-  {
-    title: 'ARC-Safe by Design',
-    description: 'No tracing GC. No borrow checker. ARC memory with value semantics — no pointers, no shared mutable state. The same design that prevents aliasing bugs gives the compiler optimization freedom that pointer-based languages can\'t access.',
-    icon: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
   },
 ];
 ---
 
 <section class="features">
   <div class="features-inner">
-    <h2 class="features-heading">The Four Pillars</h2>
+    <h2 class="features-heading">What Makes Ori Different</h2>
     <div class="features-grid">
       {features.map(feature => (
         <div class="feature-card">

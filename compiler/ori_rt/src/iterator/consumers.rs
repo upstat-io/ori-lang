@@ -65,6 +65,76 @@ pub extern "C" fn ori_iter_collect(iter: *mut u8, elem_size: i64, out_ptr: *mut 
     drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
 }
 
+// ── Collect Set ─────────────────────────────────────────────────────────
+
+/// Collect all remaining elements into a new set (deduplicating via memcmp).
+///
+/// Returns a set `{ len: i64, cap: i64, data: *mut u8 }` by writing
+/// to the caller-provided `out_ptr` (sret pattern). Duplicates are
+/// skipped — only the first occurrence is kept.
+#[no_mangle]
+pub extern "C" fn ori_iter_collect_set(iter: *mut u8, elem_size: i64, out_ptr: *mut u8) {
+    if iter.is_null() || out_ptr.is_null() {
+        if !out_ptr.is_null() {
+            unsafe {
+                out_ptr.cast::<i64>().write(0);
+                out_ptr.cast::<i64>().add(1).write(0);
+                out_ptr.add(16).cast::<*mut u8>().write(ptr::null_mut());
+            }
+        }
+        return;
+    }
+
+    let state = unsafe { &mut *iter.cast::<IterState>() };
+    let es = elem_size.max(1) as usize;
+
+    let mut cap: usize = 8;
+    let mut len: usize = 0;
+    let mut data = crate::ori_rc_alloc(cap * es, 8);
+
+    let mut elem_buf = [0u8; MAX_ELEM_SIZE];
+    while unsafe { state.next(elem_buf.as_mut_ptr(), elem_size) } {
+        // Deduplicate: skip if already present
+        let mut found = false;
+        for i in 0..len {
+            let existing = unsafe { data.add(i * es) };
+            if unsafe {
+                std::slice::from_raw_parts(existing, es)
+                    == std::slice::from_raw_parts(elem_buf.as_ptr(), es)
+            } {
+                found = true;
+                break;
+            }
+        }
+        if found {
+            continue;
+        }
+
+        if len >= cap {
+            let new_cap = cap * 2;
+            let new_data = crate::ori_rc_realloc(data, cap * es, new_cap * es, 8);
+            if new_data.is_null() {
+                break;
+            }
+            data = new_data;
+            cap = new_cap;
+        }
+        unsafe {
+            ptr::copy_nonoverlapping(elem_buf.as_ptr(), data.add(len * es), es);
+        }
+        len += 1;
+    }
+
+    // Write set struct { len, cap, data } — cap = len for sets (tight fit)
+    unsafe {
+        out_ptr.cast::<i64>().write(len as i64);
+        out_ptr.cast::<i64>().add(1).write(len as i64);
+        out_ptr.add(16).cast::<*mut u8>().write(data);
+    }
+
+    drop(unsafe { Box::from_raw(iter.cast::<IterState>()) });
+}
+
 // ── Count ───────────────────────────────────────────────────────────────
 
 /// Count the remaining elements in the iterator, consuming it.

@@ -565,7 +565,7 @@ When implementing these features, ensure they also work across module boundaries
 
 - [ ] **Implement**: Set operations <!-- partially done (2026-02-25) -->
   - [x] `Set<T>` type representation: `{i64 len, i64 cap, ptr data}` (same as list — sorted flat array, not hash set)
-  - [ ] Set creation in AOT: `__collect_set` unresolved — **BLOCKER** for all AOT set tests <!-- blocked: collect-to-set -->
+  - [x] Set creation in AOT: `__collect_set` implemented — intercepts in `emit_apply`, calls `ori_iter_collect_set` runtime (2026-03-01)
   - [x] `.len()` → `emit_set_length()` — extract field 0
   - [x] `.is_empty()` → `emit_set_is_empty()` — `len == 0`
   - [x] `.contains(element:)` → `emit_set_contains()` via `ori_set_contains` runtime
@@ -577,7 +577,7 @@ When implementing these features, ensure they also work across module boundaries
   - [x] `.to_list()` → `emit_set_to_list()` via `ori_set_to_list` runtime (sret)
   - [ ] Set iteration: yields `T` elements (set `.iter()` codegen)
   - [x] Runtime functions: 7 functions in `ori_rt/src/lib.rs` + declarations in `runtime_decl/mod.rs`
-  - [ ] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — 10 tests (all ignored: blocked on `__collect_set`)
+  - [x] **AOT Tests**: `ori_llvm/tests/aot/sets.rs` — 10 tests all passing (2026-03-01)
 
 - [ ] **Implement**: Iterator trait codegen <!-- unblocks:3.8 -->
   - [ ] `Iterator` trait: `type Item; @next (self) -> (Option<Self.Item>, Self)`

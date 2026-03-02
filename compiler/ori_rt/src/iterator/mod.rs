@@ -20,8 +20,8 @@ mod consumers;
 
 // Re-export consumer functions at module level (they're `#[no_mangle] extern "C"`)
 pub use consumers::{
-    ori_iter_all, ori_iter_any, ori_iter_collect, ori_iter_count, ori_iter_find, ori_iter_fold,
-    ori_iter_for_each,
+    ori_iter_all, ori_iter_any, ori_iter_collect, ori_iter_collect_set, ori_iter_count,
+    ori_iter_find, ori_iter_fold, ori_iter_for_each,
 };
 
 use std::ptr;

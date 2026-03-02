@@ -268,7 +268,7 @@ Set algebra operations can benefit from COW when one operand is unique.
   - All sync tests pass (`borrowing_builtins_sync_with_ori_arc`)
 - [x] AOT integration tests for map and set operations (2026-02-28)
   - 21 map tests passing (insert, remove, get, contains_key, keys, values, size, is_empty with unique/shared/empty scenarios)
-  - 8 set tests (insert, remove, size, is_empty) — skipped pending Set AOT codegen wiring
+  - 10 set tests all passing — `__collect_set`, lexer union fix, and `check_collect_to_set` bidirectional unification fix (2026-03-01)
   - Fixed `ori_map_get`/`ori_map_contains_key` to pass `key_eq` callback for non-string key types
   - Fixed expand_reuse crash: collection constructors (List/Map/Set) now skipped in Reset/Reuse pairing
   - Fixed LLVM block ordering: RPO emission ensures definitions precede uses across expand_reuse-generated blocks

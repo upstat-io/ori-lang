@@ -17,6 +17,7 @@ pub(crate) const AOT_ONLY_RUNTIME_FUNCTIONS: &[&str] = &[
     "ori_iter_any",
     "ori_iter_chain",
     "ori_iter_collect",
+    "ori_iter_collect_set",
     "ori_iter_count",
     "ori_iter_drop",
     "ori_iter_enumerate",

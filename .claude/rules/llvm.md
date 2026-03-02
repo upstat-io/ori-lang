@@ -6,8 +6,9 @@ paths:
 # LLVM Backend
 
 - LLVM 17 required | path in `.cargo/config.toml`
+- `ori_llvm` and `ori_rt` are workspace members but not in `default-members` — use `-p` or `cargo bl`
 - Build: `cargo bl` (debug) | `cargo blr` (release)
-- Clippy: `cargo cll` | Tests: `./llvm-test.sh` (unit) | `./test-all.sh` (full)
+- Clippy: `cargo cll` (`-p ori_llvm`) | Tests: `cargo test -p ori_llvm` | `./llvm-test.sh` | `./test-all.sh`
 - **Always build both `oric` AND `ori_rt`** — Cargo only builds rlib; staticlib must be explicit
 
 ## MANDATORY: Test with Release Binary
