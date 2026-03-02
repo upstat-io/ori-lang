@@ -35,9 +35,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         Some(self.builder.icmp_eq(len, zero, "map.is_empty"))
     }
 
-    /// Emit `map.contains_key(key)` — linear scan with type-specific equality.
+    /// Emit `map.contains_key(key)` — hash table lookup with type-specific equality.
     ///
-    /// Calls `ori_map_contains_key(data, len, needle, key_size, key_eq)`.
+    /// Calls `ori_map_contains_key(data, cap, len, needle, key_size, key_eq, key_hash)`.
     /// Map layout: `{i64 len, i64 cap, ptr data}`.
     pub(crate) fn emit_map_contains_key(
         &mut self,
@@ -51,6 +51,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(receiver, 2, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
+        let cap = self
+            .builder
+            .extract_value(receiver, 1, "map.cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
         let len = self
             .builder
             .extract_value(receiver, 0, "map.len")
@@ -60,10 +64,11 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_size = self.element_store_size(key_ty);
         let key_size_val = self.builder.const_i64(key_size as i64);
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
 
         let result = self.builder.call(
             func_id,
-            &[data, len, needle_ptr, key_size_val, key_eq],
+            &[data, cap, len, needle_ptr, key_size_val, key_eq, key_hash],
             "contains_key",
         )?;
 
@@ -74,7 +79,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.keys()` — extract keys as a new list.
     ///
-    /// Calls `ori_map_keys_to_list(data, len, key_size, out_ptr)`.
+    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, out_ptr)`.
     /// Keys start at `data + 0` so data is directly the keys array.
     pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
@@ -83,6 +88,10 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(receiver, 2, "map.data")
             .unwrap_or_else(|| self.builder.const_null_ptr());
+        let cap = self
+            .builder
+            .extract_value(receiver, 1, "map.cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
         let len = self
             .builder
             .extract_value(receiver, 0, "map.len")
@@ -97,7 +106,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 .create_entry_alloca(self.current_function, "keys.out", list_ty);
 
         self.builder
-            .call(func_id, &[data, len, key_size_val, out_alloca], "keys");
+            .call(func_id, &[data, cap, len, key_size_val, out_alloca], "keys");
 
         Some(self.builder.load(list_ty, out_alloca, "keys.val"))
     }
@@ -133,7 +142,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `map.get(key)` — returns `Option<V>` via sret.
     ///
-    /// Calls `ori_map_get(data, cap, len, needle, key_size, val_size, key_eq, out_ptr)`.
+    /// Calls `ori_map_get(data, cap, len, needle, key_size, val_size, key_eq, key_hash, out_ptr)`.
     /// Returns `{i64 tag, V value}` — tag 0=Some, 1=None.
     pub(crate) fn emit_map_get(
         &mut self,
@@ -149,6 +158,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let needle_ptr = self.elem_to_ptr(key, key_ty, "get.needle");
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
 
         // Option<V> layout: {i64 tag, V value}
         let val_llvm_ty = self.resolve_type(val_ty);
@@ -173,6 +183,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_size_val,
                 val_size_val,
                 key_eq,
+                key_hash,
                 out_alloca,
             ],
             "get",
@@ -222,7 +233,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Slow path (shared): copies to new buffer.
     ///
     /// Calls `ori_map_insert_cow(data, len, cap, key, value, key_size, val_size,
-    ///         key_eq, key_inc, val_inc, out_ptr)`.
+    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
     pub(crate) fn emit_map_insert(
         &mut self,
         receiver: ValueId,
@@ -240,6 +251,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let key_ptr = self.elem_to_ptr(key, key_ty, "insert.key");
         let val_ptr = self.elem_to_ptr(value, val_ty, "insert.val");
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
         let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
         let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
 
@@ -259,6 +271,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_size_val,
                 val_size_val,
                 key_eq,
+                key_hash,
                 key_inc,
                 val_inc,
                 cow_mode,
@@ -276,7 +289,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Slow path (shared): copies all entries except the removed one.
     ///
     /// Calls `ori_map_remove_cow(data, len, cap, key, key_size, val_size,
-    ///         key_eq, key_inc, val_inc, out_ptr)`.
+    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
     pub(crate) fn emit_map_remove(
         &mut self,
         receiver: ValueId,
@@ -292,6 +305,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         let key_ptr = self.elem_to_ptr(key, key_ty, "remove.key");
         let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
         let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
         let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
 
@@ -310,6 +324,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 key_size_val,
                 val_size_val,
                 key_eq,
+                key_hash,
                 key_inc,
                 val_inc,
                 cow_mode,
@@ -391,7 +406,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         (data_ptr, len, cap)
     }
 
-    /// Emit `set.contains(elem)` — calls `ori_set_contains(data, len, elem_ptr, elem_size)`.
+    /// Emit `set.contains(elem)` — hash table lookup with type-specific equality.
+    ///
+    /// Calls `ori_set_contains(data, cap, len, elem_ptr, elem_size, elem_eq, elem_hash)`.
     pub(crate) fn emit_set_contains(
         &mut self,
         receiver: ValueId,
@@ -400,15 +417,17 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_contains");
 
-        let (data_ptr, len, _cap) = self.extract_set_components(receiver);
+        let (data_ptr, len, cap) = self.extract_set_components(receiver);
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "contains.elem");
         let elem_size = self
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
+        let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
+        let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
 
         let result = self.builder.call(
             func_id,
-            &[data_ptr, len, elem_ptr, elem_size],
+            &[data_ptr, cap, len, elem_ptr, elem_size, elem_eq, elem_hash],
             "set.contains",
         )?;
 
@@ -423,7 +442,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Slow path (shared): copies to new buffer.
     ///
     /// Calls `ori_set_insert_cow(data, len, cap, elem, elem_size, elem_align,
-    ///         elem_eq, inc_fn, out_ptr)`.
+    ///         elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)`.
     pub(crate) fn emit_set_insert(
         &mut self,
         receiver: ValueId,
@@ -437,6 +456,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "insert.elem");
         let (elem_size, elem_align) = self.elem_size_and_align(elem_ty);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
+        let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         let set_ty = self.list_struct_type();
@@ -447,7 +467,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out,
+                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
+                cow_mode, out,
             ],
             "set.insert",
         );
@@ -461,7 +482,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     /// Slow path (shared): copies all except removed.
     ///
     /// Calls `ori_set_remove_cow(data, len, cap, elem, elem_size, elem_align,
-    ///         elem_eq, inc_fn, out_ptr)`.
+    ///         elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)`.
     pub(crate) fn emit_set_remove(
         &mut self,
         receiver: ValueId,
@@ -475,6 +496,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let elem_ptr = self.elem_to_ptr(elem, elem_ty, "remove.elem");
         let (elem_size, elem_align) = self.elem_size_and_align(elem_ty);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
+        let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         let set_ty = self.list_struct_type();
@@ -485,7 +507,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out,
+                data_ptr, len, cap, elem_ptr, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
+                cow_mode, out,
             ],
             "set.remove",
         );
@@ -497,8 +520,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// The receiver (set1) is consumed; the other (set2) is borrowed.
     ///
-    /// Calls `ori_set_{op}_cow(d1, l1, c1, d2, l2, elem_size, elem_align,
-    ///         elem_eq, inc_fn, out_ptr)`.
+    /// Calls `ori_set_{op}_cow(d1, l1, c1, d2, l2, c2, elem_size, elem_align,
+    ///         elem_eq, elem_hash, inc_fn, cow_mode, out_ptr)`.
     fn emit_set_binary_op(
         &mut self,
         receiver: ValueId,
@@ -511,7 +534,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         let func_id = self.builder.runtime_fn(func_name);
 
         let (d1, l1, c1) = self.extract_set_components(receiver);
-        // Second set is borrowed — only need data and len
+        // Second set: need data, len, and cap for hash table lookups
         let d2 = self
             .builder
             .extract_value(other, 2, "set2.data")
@@ -520,9 +543,14 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             .builder
             .extract_value(other, 0, "set2.len")
             .unwrap_or_else(|| self.builder.const_i64(0));
+        let c2 = self
+            .builder
+            .extract_value(other, 1, "set2.cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
 
         let (elem_size, elem_align) = self.elem_size_and_align(elem_ty);
         let elem_eq = self.get_or_create_eq_thunk(elem_ty)?;
+        let elem_hash = self.get_or_create_hash_thunk(elem_ty)?;
         let inc_fn = self.get_or_generate_elem_inc_fn(elem_ty);
 
         let set_ty = self.list_struct_type();
@@ -535,7 +563,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         self.builder.call(
             func_id,
             &[
-                d1, l1, c1, d2, l2, elem_size, elem_align, elem_eq, inc_fn, cow_mode, out,
+                d1, l1, c1, d2, l2, c2, elem_size, elem_align, elem_eq, elem_hash, inc_fn,
+                cow_mode, out,
             ],
             &format!("set.{label}"),
         );
@@ -598,10 +627,12 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     }
 
     /// Emit `set.to_list()` / `set.into()` — copies set data into a new list via sret.
+    ///
+    /// Calls `ori_set_to_list(data, cap, len, elem_size, out_ptr)`.
     pub(crate) fn emit_set_to_list(&mut self, receiver: ValueId, elem_ty: Idx) -> Option<ValueId> {
         let func_id = self.builder.runtime_fn("ori_set_to_list");
 
-        let (data_ptr, len, _cap) = self.extract_set_components(receiver);
+        let (data_ptr, len, cap) = self.extract_set_components(receiver);
         let elem_size = self
             .builder
             .const_i64(self.element_store_size(elem_ty) as i64);
@@ -613,7 +644,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
         self.builder.call(
             func_id,
-            &[data_ptr, len, elem_size, out_alloca],
+            &[data_ptr, cap, len, elem_size, out_alloca],
             "set.to_list",
         );
 
@@ -672,7 +703,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
     ///
     /// Returns a function pointer `ValueId`, or `None` if the element type
     /// is not yet supported for equality comparison.
-    pub(in crate::codegen::arc_emitter::builtins::collections) fn get_or_create_eq_thunk(
+    pub(in crate::codegen::arc_emitter) fn get_or_create_eq_thunk(
         &mut self,
         elem_ty: Idx,
     ) -> Option<ValueId> {
@@ -770,6 +801,122 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
             // Float equality (ordered — NaN != NaN)
             TypeInfo::Float => self.builder.fcmp_oeq(a_val, b_val, "eq"),
             _ => unreachable!("non-primitive passed to gen_primitive_eq"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Hash thunk generation
+    // -----------------------------------------------------------------------
+
+    /// Get or generate an LLVM hash thunk for hashing elements of `elem_ty`.
+    ///
+    /// The thunk has signature `fn(*const u8) -> i64`. Each element type gets
+    /// a specialized function that loads the element by its native LLVM type
+    /// before computing the hash.
+    ///
+    /// For strings, returns a pointer to `ori_str_hash` directly (same signature).
+    /// For primitives, generates an inline hash function.
+    ///
+    /// Returns a function pointer `ValueId`, or `None` if the element type
+    /// is not yet supported for hashing.
+    pub(in crate::codegen::arc_emitter) fn get_or_create_hash_thunk(
+        &mut self,
+        elem_ty: Idx,
+    ) -> Option<ValueId> {
+        // Check cache first
+        if let Some(&func_id) = self.hash_thunk_cache.get(&elem_ty) {
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+
+        let elem_info = self.type_info.get(elem_ty);
+
+        // String hash: `ori_str_hash` has signature fn(ptr) -> i64 — use directly
+        if matches!(&elem_info, TypeInfo::Str) {
+            let func_id = self.builder.runtime_fn("ori_str_hash");
+            self.hash_thunk_cache.insert(elem_ty, func_id);
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+
+        let type_suffix = match &elem_info {
+            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => "int",
+            TypeInfo::Float => "float",
+            TypeInfo::Bool => "bool",
+            TypeInfo::Char => "char",
+            TypeInfo::Byte => "byte",
+            _ => return None,
+        };
+
+        let func_name = format!("_ori_hash_{type_suffix}");
+
+        // Check if already declared in the module (shared across emitters)
+        let ptr_ty = self.builder.ptr_type();
+        let i64_ty = self.builder.i64_type();
+        let func_id = self
+            .builder
+            .get_or_declare_function(&func_name, &[ptr_ty], i64_ty);
+
+        // If the function already has a body, just cache and return
+        if self.builder.function_has_body(func_id) {
+            self.hash_thunk_cache.insert(elem_ty, func_id);
+            return Some(self.builder.get_function_ptr(func_id));
+        }
+
+        // Save builder position
+        let saved_pos = self.builder.save_position();
+        let saved_func = self.builder.current_function();
+
+        // Set up the function
+        self.builder.set_ccc(func_id);
+        self.builder.add_nounwind_attribute(func_id);
+
+        let entry = self.builder.append_block(func_id, "entry");
+        self.builder.position_at_end(entry);
+        self.builder.set_current_function(func_id);
+
+        let a_ptr = self.builder.get_param(func_id, 0);
+
+        // Generate the hash body
+        let result = self.gen_primitive_hash(a_ptr, elem_ty, &elem_info);
+
+        self.builder.ret(result);
+
+        // Restore builder position
+        self.builder.restore_position(saved_pos);
+        if let Some(f) = saved_func {
+            self.builder.set_current_function(f);
+        }
+
+        self.hash_thunk_cache.insert(elem_ty, func_id);
+        Some(self.builder.get_function_ptr(func_id))
+    }
+
+    /// Generate hash body for primitive types.
+    ///
+    /// Loads the value from the pointer and converts to i64:
+    /// - `int`/`Duration`/`Size`: identity (already i64)
+    /// - `bool`/`byte`: load i8, zero-extend to i64
+    /// - `char`: load i32, zero-extend to i64
+    /// - `float`: load f64, bitcast to i64
+    fn gen_primitive_hash(
+        &mut self,
+        a_ptr: ValueId,
+        elem_ty: Idx,
+        elem_info: &TypeInfo,
+    ) -> ValueId {
+        let llvm_ty = self.resolve_type(elem_ty);
+        let a_val = self.builder.load(llvm_ty, a_ptr, "a");
+        let i64_ty = self.builder.i64_type();
+
+        match elem_info {
+            // i64 types — identity hash
+            TypeInfo::Int | TypeInfo::Duration | TypeInfo::Size => a_val,
+            // Sub-i64 types (i8 bool/byte, i32 char) — zero-extend to i64
+            TypeInfo::Bool | TypeInfo::Byte | TypeInfo::Char => {
+                self.builder.zext(a_val, i64_ty, "hash.zext")
+            }
+            // f64 — bitcast to i64
+            TypeInfo::Float => self.builder.bitcast(a_val, i64_ty, "hash.bits"),
+            _ => unreachable!("non-primitive passed to gen_primitive_hash"),
         }
     }
 }

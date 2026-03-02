@@ -118,7 +118,8 @@ enum IterState {
 
     /// Iterates over a map's key-value pairs, yielding `(key, value)` tuples.
     ///
-    /// Data layout: `[key0..keyN | val0..valN]`, values at `data + cap * key_size`.
+    /// Data layout (hash table): `[metadata | keys | values]`. The iterator
+    /// scans metadata for OCCUPIED buckets. `pos` is the current bucket index.
     /// When `owns_data` is true, the iterator holds an RC reference to the
     /// combined data buffer. `Drop` calls `ori_map_buffer_rc_dec` to clean up.
     Map {
@@ -187,10 +188,10 @@ impl Drop for IterState {
                 val_dec_fn,
                 ..
             } => {
-                // Map data buffer uses combined layout [keys...|vals...].
-                // ori_map_buffer_rc_dec decs the refcount, cleans up both key
-                // and value children at their respective offsets, and frees
-                // when rc reaches 0.
+                // Map data buffer uses hash table layout [metadata|keys|values].
+                // ori_map_buffer_rc_dec decs the refcount, scans metadata for
+                // OCCUPIED buckets to clean up key/value children, and frees
+                // the buffer when rc reaches 0.
                 if *owns_data && !data.is_null() {
                     crate::ori_map_buffer_rc_dec(
                         *data,
@@ -489,29 +490,37 @@ impl IterState {
 
     /// Map: yield the next `(key, value)` pair.
     ///
-    /// Data layout: `[key0..keyN | val0..valN]`, values at `data + cap * key_size`.
+    /// Data layout (hash table): `[metadata | keys | values]`.
+    /// Scans metadata starting at bucket `pos` for the next OCCUPIED entry.
     /// Output layout: `[key_bytes | value_bytes]` (concatenated).
     unsafe fn next_map(
         data: *mut u8,
         cap: i64,
-        len: i64,
+        _len: i64,
         pos: &mut i64,
         key_size: i64,
         val_size: i64,
         out_ptr: *mut u8,
     ) -> bool {
-        if *pos >= len {
-            return false;
-        }
+        let c = cap as usize;
         let ks = key_size as usize;
         let vs = val_size as usize;
-        let k_off = *pos as usize * ks;
-        let vals_start = data.add(cap as usize * ks);
-        let v_off = *pos as usize * vs;
-        ptr::copy_nonoverlapping(data.add(k_off), out_ptr, ks);
-        ptr::copy_nonoverlapping(vals_start.add(v_off), out_ptr.add(ks), vs);
-        *pos += 1;
-        true
+        let layout = crate::map::hash_table::HashTableLayout::for_map(c, ks, vs);
+
+        while (*pos as usize) < c {
+            let bucket = *pos as usize;
+            *pos += 1;
+            if crate::map::hash_table::get_meta(data, bucket)
+                == crate::map::hash_table::META_OCCUPIED
+            {
+                let key_ptr = data.add(layout.keys_offset + bucket * ks);
+                let val_ptr = data.add(layout.vals_offset + bucket * vs);
+                ptr::copy_nonoverlapping(key_ptr, out_ptr, ks);
+                ptr::copy_nonoverlapping(val_ptr, out_ptr.add(ks), vs);
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -625,8 +634,8 @@ pub extern "C" fn ori_iter_from_str(s: *const crate::OriStr) -> *mut u8 {
 
 /// Create an iterator over a map's key-value pairs.
 ///
-/// `data` points to the map's combined data buffer `[keys...|vals...]`.
-/// `cap` is the buffer capacity, `len` is the number of entries.
+/// `data` points to the map's hash table buffer `[metadata|keys|values]`.
+/// `cap` is the number of buckets, `len` is the number of entries.
 /// `key_size`/`val_size` are bytes per key/value.
 /// Each element yielded is `[key_bytes | val_bytes]` (concatenated).
 #[no_mangle]

@@ -1,7 +1,8 @@
 //! Set operations for AOT-compiled Ori programs.
 //!
-//! Sets use the same boxed layout as lists (contiguous array of elements).
-//! Elements are compared with memcmp (byte-by-byte equality).
+//! Sets use an open-addressing hash table with the same probing scheme as maps.
+//! Buffer layout: `[metadata (1 byte/bucket) | elements]`.
+//! Elements are compared with `elem_eq` + `elem_hash` callbacks.
 //!
 //! # Submodules
 //!
@@ -11,321 +12,195 @@
 pub mod cow;
 
 use crate::list::write_array_to_list;
+use crate::map::hash_table::{get_meta, probe_find, HashTableLayout, META_EMPTY, META_OCCUPIED};
 
 /// Return an empty set sentinel (no allocation).
 ///
-/// Sets use the same boxed layout as lists — null is the empty sentinel.
+/// Sets use the same `{len, cap, data}` struct as lists — null is the empty sentinel.
 #[no_mangle]
 pub extern "C" fn ori_set_empty() -> *mut u8 {
     std::ptr::null_mut()
 }
 
-/// Check if a set contains an element (memcmp-based).
+/// Check if a set contains an element using hash-based lookup.
 ///
-/// Elements are stored as a contiguous array. Scans linearly, comparing
-/// `elem_size` bytes at each position. Works for all fixed-representation
-/// types (int, float, bool, byte, char, Duration, Size).
+/// Uses `elem_hash` to find the starting bucket, then probes with `elem_eq`.
 /// Returns 1 if found, 0 otherwise.
 #[no_mangle]
 pub extern "C" fn ori_set_contains(
     data: *const u8,
+    cap: i64,
     len: i64,
     needle: *const u8,
     elem_size: i64,
+    elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
+    elem_hash: extern "C" fn(*const u8) -> i64,
 ) -> i64 {
     if data.is_null() || len <= 0 || needle.is_null() || elem_size <= 0 {
         return 0;
     }
     let es = elem_size as usize;
+    let c = cap as usize;
+    let layout = HashTableLayout::for_set(c, es);
+    let hash = elem_hash(needle);
+    let found = unsafe { probe_find(data, c, layout.keys_offset, needle, hash, es, elem_eq) };
+    i64::from(found.is_some())
+}
+
+/// Convert a set to a list.
+///
+/// Scans metadata for OCCUPIED buckets, copies elements to a contiguous list.
+/// Writes `{len, len, data_ptr}` to `out_ptr` (sret pattern).
+#[no_mangle]
+pub extern "C" fn ori_set_to_list(
+    data: *const u8,
+    cap: i64,
+    len: i64,
+    elem_size: i64,
+    out_ptr: *mut u8,
+) {
+    if out_ptr.is_null() {
+        return;
+    }
+    if data.is_null() || len <= 0 {
+        write_array_to_list(std::ptr::null(), 0, elem_size, out_ptr);
+        return;
+    }
+
+    let es = elem_size.max(1) as usize;
+    let c = cap as usize;
     let n = len as usize;
-    for i in 0..n {
-        let elem = unsafe { data.add(i * es) };
-        if unsafe { raw_bytes_eq(elem, needle, es) } {
-            return 1;
-        }
-    }
-    0
-}
+    let layout = HashTableLayout::for_set(c, es);
 
-/// Insert an element into a set, returning a new set via sret.
-///
-/// If the element already exists (memcmp), returns a copy of the original set.
-/// Otherwise appends the element. Writes `{i64 len, i64 cap, ptr data}` to `out_ptr`.
-#[no_mangle]
-pub extern "C" fn ori_set_insert(
-    data: *const u8,
-    len: i64,
-    elem: *const u8,
-    elem_size: i64,
-    out_ptr: *mut u8,
-) {
-    if out_ptr.is_null() || elem.is_null() || elem_size <= 0 {
-        return;
-    }
-    let es = elem_size as usize;
-    let n = len.max(0) as usize;
-
-    // Check if element already exists
-    if !data.is_null() && n > 0 {
-        for i in 0..n {
-            let existing = unsafe { data.add(i * es) };
-            if unsafe { raw_bytes_eq(existing, elem, es) } {
-                // Already present — return copy of original
-                write_set_copy(data, n, es, out_ptr);
-                return;
+    let list_data = crate::rc::ori_rc_alloc(n * es, 8);
+    let mut write_pos = 0usize;
+    for bucket in 0..c {
+        if unsafe { get_meta(data, bucket) } == META_OCCUPIED {
+            unsafe {
+                let src = data.add(layout.keys_offset + bucket * es);
+                std::ptr::copy_nonoverlapping(src, list_data.add(write_pos * es), es);
             }
-        }
-    }
-
-    // Not found — append
-    let new_len = n + 1;
-    let new_data = crate::rc::ori_rc_alloc(new_len * es, 8);
-    if !data.is_null() && n > 0 {
-        unsafe { std::ptr::copy_nonoverlapping(data, new_data, n * es) };
-    }
-    unsafe { std::ptr::copy_nonoverlapping(elem, new_data.add(n * es), es) };
-    write_set_struct(out_ptr, new_len as i64, new_data);
-}
-
-/// Remove an element from a set, returning a new set via sret.
-///
-/// If the element is not found, returns a copy of the original set.
-/// Writes `{i64 len, i64 cap, ptr data}` to `out_ptr`.
-#[no_mangle]
-pub extern "C" fn ori_set_remove(
-    data: *const u8,
-    len: i64,
-    needle: *const u8,
-    elem_size: i64,
-    out_ptr: *mut u8,
-) {
-    if out_ptr.is_null() || elem_size <= 0 {
-        return;
-    }
-    let es = elem_size as usize;
-    let n = len.max(0) as usize;
-
-    if data.is_null() || n == 0 {
-        write_set_struct(out_ptr, 0, std::ptr::null_mut());
-        return;
-    }
-
-    // Find element to remove
-    let mut remove_idx: Option<usize> = None;
-    if !needle.is_null() {
-        for i in 0..n {
-            let existing = unsafe { data.add(i * es) };
-            if unsafe { raw_bytes_eq(existing, needle, es) } {
-                remove_idx = Some(i);
+            write_pos += 1;
+            if write_pos >= n {
                 break;
             }
         }
     }
 
-    let Some(idx) = remove_idx else {
-        // Not found — return copy
-        write_set_copy(data, n, es, out_ptr);
-        return;
-    };
-
-    let new_len = n - 1;
-    if new_len == 0 {
-        write_set_struct(out_ptr, 0, std::ptr::null_mut());
-        return;
+    // Write list struct directly
+    unsafe {
+        out_ptr.cast::<i64>().write(write_pos as i64);
+        out_ptr.cast::<i64>().add(1).write(write_pos as i64); // cap = len
+        out_ptr.add(16).cast::<*mut u8>().write(list_data);
     }
-
-    let new_data = crate::rc::ori_rc_alloc(new_len * es, 8);
-    // Copy elements before idx
-    if idx > 0 {
-        unsafe { std::ptr::copy_nonoverlapping(data, new_data, idx * es) };
-    }
-    // Copy elements after idx
-    let after = n - idx - 1;
-    if after > 0 {
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                data.add((idx + 1) * es),
-                new_data.add(idx * es),
-                after * es,
-            );
-        }
-    }
-    write_set_struct(out_ptr, new_len as i64, new_data);
 }
 
-/// Compute the union of two sets, returning a new set via sret.
+// ── Literal Construction ──────────────────────────────────────────────
+
+/// Allocate a hash table buffer sized for `count` elements.
 ///
-/// Starts with a copy of set1, then appends elements from set2 not already present.
-#[no_mangle]
-pub extern "C" fn ori_set_union(
-    d1: *const u8,
-    l1: i64,
-    d2: *const u8,
-    l2: i64,
-    elem_size: i64,
-    out_ptr: *mut u8,
-) {
-    if out_ptr.is_null() || elem_size <= 0 {
-        return;
-    }
-    let es = elem_size as usize;
-    let n1 = l1.max(0) as usize;
-    let n2 = l2.max(0) as usize;
-
-    if n1 == 0 && n2 == 0 {
-        write_set_struct(out_ptr, 0, std::ptr::null_mut());
-        return;
-    }
-    if n2 == 0 || d2.is_null() {
-        write_set_copy(d1, n1, es, out_ptr);
-        return;
-    }
-    if n1 == 0 || d1.is_null() {
-        write_set_copy(d2, n2, es, out_ptr);
-        return;
-    }
-
-    // Collect: start with all of set1, add unique elements from set2
-    let max_len = n1 + n2;
-    let buf = crate::rc::ori_rc_alloc(max_len * es, 8);
-    unsafe { std::ptr::copy_nonoverlapping(d1, buf, n1 * es) };
-    let mut result_len = n1;
-
-    for i in 0..n2 {
-        let elem = unsafe { d2.add(i * es) };
-        if !set_raw_contains(buf, result_len, elem, es) {
-            unsafe { std::ptr::copy_nonoverlapping(elem, buf.add(result_len * es), es) };
-            result_len += 1;
-        }
-    }
-
-    write_set_struct(out_ptr, result_len as i64, buf);
-}
-
-/// Compute the intersection of two sets, returning a new set via sret.
+/// Computes the power-of-two capacity, allocates the buffer with all metadata
+/// initialized to EMPTY, and writes the capacity to `*out_cap`.
+/// Returns the data pointer (null if count is 0).
 ///
-/// Returns elements present in both sets.
+/// Used by LLVM codegen for set literal construction.
 #[no_mangle]
-pub extern "C" fn ori_set_intersection(
-    d1: *const u8,
-    l1: i64,
-    d2: *const u8,
-    l2: i64,
-    elem_size: i64,
-    out_ptr: *mut u8,
-) {
-    if out_ptr.is_null() || elem_size <= 0 {
-        return;
-    }
-    let es = elem_size as usize;
-    let n1 = l1.max(0) as usize;
-    let n2 = l2.max(0) as usize;
-
-    if n1 == 0 || n2 == 0 || d1.is_null() || d2.is_null() {
-        write_set_struct(out_ptr, 0, std::ptr::null_mut());
-        return;
-    }
-
-    let buf = crate::rc::ori_rc_alloc(n1.min(n2) * es, 8);
-    let mut result_len = 0;
-
-    for i in 0..n1 {
-        let elem = unsafe { d1.add(i * es) };
-        if set_raw_contains(d2, n2, elem, es) {
-            unsafe { std::ptr::copy_nonoverlapping(elem, buf.add(result_len * es), es) };
-            result_len += 1;
+pub extern "C" fn ori_set_literal_alloc(count: i64, elem_size: i64, out_cap: *mut i64) -> *mut u8 {
+    if count <= 0 {
+        if !out_cap.is_null() {
+            unsafe { out_cap.write(0) };
         }
+        return std::ptr::null_mut();
     }
-
-    write_set_struct(out_ptr, result_len as i64, buf);
+    let es = elem_size.max(1) as usize;
+    let cap = crate::map::hash_table::next_hash_capacity(count as usize);
+    let data = alloc_set_hash_buffer(cap, es);
+    if !out_cap.is_null() {
+        unsafe { out_cap.write(cap as i64) };
+    }
+    data
 }
 
-/// Compute the difference of two sets (set1 - set2), returning a new set via sret.
+/// Insert an element into a hash table during literal construction.
 ///
-/// Returns elements in set1 that are NOT in set2.
-#[no_mangle]
-pub extern "C" fn ori_set_difference(
-    d1: *const u8,
-    l1: i64,
-    d2: *const u8,
-    l2: i64,
-    elem_size: i64,
-    out_ptr: *mut u8,
-) {
-    if out_ptr.is_null() || elem_size <= 0 {
-        return;
-    }
-    let es = elem_size as usize;
-    let n1 = l1.max(0) as usize;
-    let n2 = l2.max(0) as usize;
-
-    if n1 == 0 || d1.is_null() {
-        write_set_struct(out_ptr, 0, std::ptr::null_mut());
-        return;
-    }
-    if n2 == 0 || d2.is_null() {
-        write_set_copy(d1, n1, es, out_ptr);
-        return;
-    }
-
-    let buf = crate::rc::ori_rc_alloc(n1 * es, 8);
-    let mut result_len = 0;
-
-    for i in 0..n1 {
-        let elem = unsafe { d1.add(i * es) };
-        if !set_raw_contains(d2, n2, elem, es) {
-            unsafe { std::ptr::copy_nonoverlapping(elem, buf.add(result_len * es), es) };
-            result_len += 1;
-        }
-    }
-
-    write_set_struct(out_ptr, result_len as i64, buf);
-}
-
-/// Convert a set to a list (same layout — just copies the data).
-#[no_mangle]
-pub extern "C" fn ori_set_to_list(data: *const u8, len: i64, elem_size: i64, out_ptr: *mut u8) {
-    write_array_to_list(data, len, elem_size, out_ptr);
-}
-
-/// Internal helper: check if a raw element exists in a data array.
-fn set_raw_contains(data: *const u8, len: usize, needle: *const u8, elem_size: usize) -> bool {
-    for i in 0..len {
-        let existing = unsafe { data.add(i * elem_size) };
-        if unsafe { raw_bytes_eq(existing, needle, elem_size) } {
-            return true;
-        }
-    }
-    false
-}
-
-/// Byte-by-byte equality comparison (no libc dependency).
+/// Hashes the element, finds an empty slot via linear probing, copies the
+/// element into the slot, and marks it OCCUPIED.
 ///
 /// # Safety
-/// Both `a` and `b` must be valid for `len` bytes.
-unsafe fn raw_bytes_eq(a: *const u8, b: *const u8, len: usize) -> bool {
-    let a_slice = std::slice::from_raw_parts(a, len);
-    let b_slice = std::slice::from_raw_parts(b, len);
-    a_slice == b_slice
+/// - `data` must point to a valid hash table buffer allocated by `ori_set_literal_alloc`.
+/// - Caller must ensure no duplicate elements (guaranteed for set literals).
+/// - Caller must ensure load factor is not exceeded.
+#[no_mangle]
+pub extern "C" fn ori_set_literal_put(
+    data: *mut u8,
+    cap: i64,
+    elem: *const u8,
+    elem_size: i64,
+    elem_hash: extern "C" fn(*const u8) -> i64,
+) {
+    if data.is_null() || cap <= 0 {
+        return;
+    }
+    let es = elem_size.max(1) as usize;
+    let c = cap as usize;
+    let layout = HashTableLayout::for_set(c, es);
+
+    let hash = elem_hash(elem);
+    let bucket = unsafe { crate::map::hash_table::probe_find_slot(data, c, hash) };
+
+    unsafe {
+        let dst = data.add(layout.keys_offset + bucket * es);
+        std::ptr::copy_nonoverlapping(elem, dst, es);
+        crate::map::hash_table::set_meta(data, bucket, META_OCCUPIED);
+    }
 }
 
 /// Write a set struct `{i64 len, i64 cap, ptr data}` to `out_ptr`.
-pub(crate) fn write_set_struct(out_ptr: *mut u8, len: i64, data: *mut u8) {
+pub(crate) fn write_set_struct(out_ptr: *mut u8, len: i64, cap: i64, data: *mut u8) {
     unsafe {
         out_ptr.cast::<i64>().write(len);
-        out_ptr.cast::<i64>().add(1).write(len); // cap = len
+        out_ptr.cast::<i64>().add(1).write(cap);
         out_ptr.add(16).cast::<*mut u8>().write(data);
     }
 }
 
-/// Copy a set's data buffer and write the result struct.
-fn write_set_copy(data: *const u8, len: usize, elem_size: usize, out_ptr: *mut u8) {
-    if len == 0 || data.is_null() {
-        write_set_struct(out_ptr, 0, std::ptr::null_mut());
-        return;
+/// Allocate a new hash table set buffer with all metadata initialized to EMPTY.
+pub(crate) fn alloc_set_hash_buffer(cap: usize, elem_size: usize) -> *mut u8 {
+    let layout = HashTableLayout::for_set(cap, elem_size);
+    if layout.total_size == 0 {
+        return std::ptr::null_mut();
     }
-    let total = len * elem_size;
-    let new_data = crate::rc::ori_rc_alloc(total, 8);
-    unsafe { std::ptr::copy_nonoverlapping(data, new_data, total) };
-    write_set_struct(out_ptr, len as i64, new_data);
+    let data = crate::rc::ori_rc_alloc(layout.total_size, 8);
+    if !data.is_null() {
+        unsafe { std::ptr::write_bytes(data, META_EMPTY, layout.metadata_bytes) };
+    }
+    data
+}
+
+/// Internal: check if a hash table set contains an element.
+pub(crate) fn hash_set_contains(
+    data: *const u8,
+    cap: usize,
+    elem_size: usize,
+    needle: *const u8,
+    elem_eq: extern "C" fn(*const u8, *const u8) -> bool,
+    elem_hash: extern "C" fn(*const u8) -> i64,
+) -> bool {
+    if data.is_null() || cap == 0 {
+        return false;
+    }
+    let layout = HashTableLayout::for_set(cap, elem_size);
+    let hash = elem_hash(needle);
+    unsafe {
+        probe_find(
+            data,
+            cap,
+            layout.keys_offset,
+            needle,
+            hash,
+            elem_size,
+            elem_eq,
+        )
+        .is_some()
+    }
 }

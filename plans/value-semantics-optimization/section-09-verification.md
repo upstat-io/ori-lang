@@ -1,7 +1,7 @@
 ---
 section: "09"
 title: "Verification & Benchmarks"
-status: not-started
+status: in-progress
 goal: "Prove the system works correctly, safely, and performantly through exhaustive testing"
 inspired_by:
   - "Koka FIP benchmarks — 0.6-2.5x speedup measurement methodology"
@@ -10,7 +10,7 @@ depends_on: ["01", "02", "03", "04", "05", "06", "07", "08"]
 sections:
   - id: "09.1"
     title: "Micro-Benchmark Suite"
-    status: not-started
+    status: complete
   - id: "09.2"
     title: "Macro-Benchmark Programs"
     status: not-started
@@ -57,7 +57,7 @@ sections:
 
 Isolated benchmarks measuring the raw performance of individual COW operations.
 
-- [ ] **List push benchmark** (`tests/benchmarks/cow/list_push.ori`):
+- [x] **List push benchmark** (`tests/benchmarks/cow/list_push.ori`): (2026-03-02)
   ```ori
   @main () -> void {
       let n = 100000
@@ -74,7 +74,7 @@ Isolated benchmarks measuring the raw performance of individual COW operations.
   **Measure:** Total time, allocations count, peak memory
   **Expected:** O(n) time (~10 reallocations), peak memory ~2x final size
 
-- [ ] **List push shared benchmark** (`tests/benchmarks/cow/list_push_shared.ori`):
+- [x] **List push shared benchmark** (`tests/benchmarks/cow/list_push_shared.ori`): (2026-03-02)
   ```ori
   @main () -> void {
       let n = 10000
@@ -91,7 +91,7 @@ Isolated benchmarks measuring the raw performance of individual COW operations.
   **Measure:** Total time (should be O(n²) since every push copies)
   **Purpose:** Quantify the cost of sharing — this is the worst case
 
-- [ ] **String concat benchmark** (`tests/benchmarks/cow/str_concat.ori`):
+- [x] **String concat benchmark** (`tests/benchmarks/cow/str_concat.ori`): (2026-03-02)
   ```ori
   @main () -> void {
       let n = 100000
@@ -107,7 +107,7 @@ Isolated benchmarks measuring the raw performance of individual COW operations.
   **Measure:** Total time
   **Expected:** O(n) with COW + capacity growth (was O(n²) before)
 
-- [ ] **List slice benchmark** (`tests/benchmarks/cow/list_slice.ori`):
+- [x] **List slice benchmark** (`tests/benchmarks/cow/list_slice.ori`): (2026-03-02)
   ```ori
   @main () -> void {
       let list = range(0, 100000).collect()
@@ -125,7 +125,7 @@ Isolated benchmarks measuring the raw performance of individual COW operations.
   **Measure:** Total time
   **Expected:** O(n) — each slice is O(1) regardless of slice size
 
-- [ ] **Map insert benchmark** (`tests/benchmarks/cow/map_insert.ori`):
+- [x] **Map insert benchmark** (`tests/benchmarks/cow/map_insert.ori`): (2026-03-02)
   ```ori
   @main () -> void {
       let n = 10000
@@ -142,12 +142,12 @@ Isolated benchmarks measuring the raw performance of individual COW operations.
   **Measure:** Total time
   **Expected:** O(n) with COW (was O(n²) before)
 
-- [ ] **Set union benchmark** (`tests/benchmarks/cow/set_union.ori`)
+- [x] **Set union benchmark** (`tests/benchmarks/cow/set_union.ori`) (2026-03-02)
 
-- [ ] **Comparison program** (`tests/benchmarks/cow/compare.ori`):
+- [x] **Comparison program** (`tests/benchmarks/cow/compare.ori`): (2026-03-02)
   Run all benchmarks with and without COW (via feature flag or alternate runtime) to measure the speedup.
 
-- [ ] **Benchmark runner script** (`scripts/cow-benchmark.sh`):
+- [x] **Benchmark runner script** (`scripts/cow-benchmark.sh`): (2026-03-02)
   ```bash
   #!/bin/bash
   # Compiles and runs all COW benchmarks, reporting times
