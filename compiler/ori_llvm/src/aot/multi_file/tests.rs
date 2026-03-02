@@ -211,7 +211,9 @@ fn test_resolve_relative_import_not_found() {
     let err = result.unwrap_err();
     assert!(err.contains("cannot find import"));
     assert!(err.contains("nonexistent.ori"));
-    assert!(err.contains("nonexistent/mod.ori"));
+    // Path separator is platform-dependent (/ on Unix, \ on Windows)
+    let expected_mod = format!("nonexistent{}mod.ori", std::path::MAIN_SEPARATOR);
+    assert!(err.contains(&expected_mod));
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&temp_dir);
