@@ -416,14 +416,26 @@ impl<'src> TokenCooker<'src> {
             }
         }
 
-        // Reserved-future check (still lex as identifier so parser can continue)
+        // Reserved-future check (still lex as identifier so parser can continue).
+        // Skip the error in method position (after `.`) — the dot provides
+        // unambiguous context, e.g. `set.union(other)` is clearly a method call.
+        // This mirrors how soft keywords use lookahead for context sensitivity.
         let had_error = if keywords::could_be_reserved_future(text) {
             if let Some(keyword) = keywords::reserved_future_lookup(text) {
-                self.errors.push(LexError::reserved_future_keyword(
-                    span(offset, len),
-                    keyword,
-                ));
-                true
+                let preceding: &[u8] = &self.source[..offset as usize];
+                let in_method_position = preceding
+                    .iter()
+                    .rposition(|b: &u8| !b.is_ascii_whitespace())
+                    .is_some_and(|i| preceding[i] == b'.');
+                if in_method_position {
+                    false
+                } else {
+                    self.errors.push(LexError::reserved_future_keyword(
+                        span(offset, len),
+                        keyword,
+                    ));
+                    true
+                }
             } else {
                 false
             }
