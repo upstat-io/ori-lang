@@ -225,11 +225,11 @@ jobs:
         with:
           key: ${{ matrix.os }}
 
-      - name: Build
+      - name: Build (all crates incl. LLVM)
         run: cargo build --workspace
 
-      - name: Rust unit tests
-        run: cargo test --workspace
+      - name: Rust unit tests (excl. LLVM AOT — tested on Linux)
+        run: cargo test --workspace --exclude ori_llvm
 
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
