@@ -141,7 +141,7 @@ Four `FunctionExpKind` variants (`Channel`, `ChannelIn`, `ChannelOut`, `ChannelA
 | `unreachable` | Unreachable marker (returns `Never`) | — | `reason` |
 | `channel` | Message passing channel (stub) | `buffer` | — |
 
-Concurrency patterns (`parallel`, `spawn`, `timeout`, `with`, `channel` variants) are defined in the registry but rejected by the type checker as E2040 (post-0.1-alpha features). The evaluator provides honest stub implementations that emit `tracing::warn!()` diagnostics. This approach lets the parser and registry accept valid syntax while deferring full implementation to a later milestone.
+Concurrency patterns (`parallel`, `spawn`, `timeout`, `with`, `channel` variants) are defined in the registry but rejected by the type checker as E2040 (post-2026 features). The evaluator provides honest stub implementations that emit `tracing::warn!()` diagnostics. This approach lets the parser and registry accept valid syntax while deferring full implementation to a later milestone.
 
 ## Usage in the Type Checker
 

@@ -3,7 +3,7 @@
 **CRITICAL: Tests are the source of truth.**
 
 These tests validate that the compiler conforms to the language specification
-defined in `docs/ori_lang/0.1-alpha/spec/`.
+defined in `docs/ori_lang/v2026/spec/`.
 
 ## Philosophy
 

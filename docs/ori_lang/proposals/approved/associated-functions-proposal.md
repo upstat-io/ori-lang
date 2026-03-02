@@ -206,5 +206,5 @@ let d = Duration(seconds: 10)
 
 ## References
 
-- Spec: `docs/ori_lang/0.1-alpha/spec/06-types.md` § Duration, Size
+- Spec: `docs/ori_lang/v2026/spec/06-types.md` § Duration, Size
 - Roadmap: `plans/roadmap/phase-01-type-system.md` § 1.1A Duration/Size factory methods

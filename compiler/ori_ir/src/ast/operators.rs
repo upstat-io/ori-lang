@@ -4,9 +4,9 @@
 //!
 //! # Specification
 //!
-//! - Syntax: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § EXPRESSIONS
-//! - Semantics: `docs/ori_lang/0.1-alpha/spec/operator-rules.md`
-//! - Precedence: `docs/ori_lang/0.1-alpha/spec/operator-rules.md` § Precedence Table
+//! - Syntax: `docs/ori_lang/v2026/spec/grammar.ebnf` § EXPRESSIONS
+//! - Semantics: `docs/ori_lang/v2026/spec/operator-rules.md`
+//! - Precedence: `docs/ori_lang/v2026/spec/operator-rules.md` § Precedence Table
 //!
 //! # Salsa Compatibility
 //! All types have Copy, Clone, Eq, `PartialEq`, Hash, Debug for Salsa requirements.

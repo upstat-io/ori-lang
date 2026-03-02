@@ -206,7 +206,7 @@ For codepoint iteration, use `.chars()`. For grapheme clusters, use the `unicode
 2. Update test file comment to reference correct spec section
 
 **Files:**
-- `docs/ori_lang/0.1-alpha/spec/07-properties-of-types.md`
+- `docs/ori_lang/v2026/spec/07-properties-of-types.md`
 - `tests/spec/traits/core/len.ori`
 
 ### Phase 4: Enable Tests

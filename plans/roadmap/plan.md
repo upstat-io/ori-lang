@@ -6,7 +6,7 @@
 
 Before starting:
 1. Familiarize yourself with `CLAUDE.md` (language quick reference)
-2. Familiarize yourself with `docs/ori_lang/0.1-alpha/spec/` (authoritative spec)
+2. Familiarize yourself with `docs/ori_lang/v2026/spec/` (authoritative spec)
 3. Ensure `./test-all.sh` passes (runs Rust tests, Ori interpreter tests, and LLVM tests)
 
 ### Execution Rules

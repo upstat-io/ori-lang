@@ -1,4 +1,15 @@
 [
+  {"date": "2026-03-01", "type": "docs", "scope": "design", "message": "rewrite evaluator and ARC system design docs", "hash": "df2431e"},
+  {"date": "2026-03-01", "type": "feat", "scope": "arc", "message": "add drop hints, collection recycling, and ISO spec restructure", "hash": "ebff6bf"},
+  {"date": "2026-03-01", "type": "refactor", "scope": "arc", "message": "split uniqueness module and add COW sync test", "hash": "bc4a6b0"},
+  {"date": "2026-03-01", "type": "feat", "scope": "arc", "message": "integrate uniqueness analysis into ARC pipeline", "hash": "f1dfff8"},
+  {"date": "2026-03-01", "type": "refactor", "scope": "arc", "message": "optimize uniqueness fixpoint and unify COW method API", "hash": "0fe94c1"},
+  {"date": "2026-03-01", "type": "feat", "scope": "arc", "message": "add interprocedural uniqueness analysis for COW refinement", "hash": "251beb4"},
+  {"date": "2026-03-01", "type": "refactor", "scope": "arc", "message": "split oversized files and fix uniqueness doc", "hash": "9c70544"},
+  {"date": "2026-03-01", "type": "feat", "scope": "arc", "message": "add intraprocedural uniqueness analysis for COW elimination", "hash": "e63664a"},
+  {"date": "2026-03-01", "type": "refactor", "scope": "arc", "message": "extract submodules and restructure design docs", "hash": "6b0069c"},
+  {"date": "2026-03-01", "type": "feat", "scope": "arc", "message": "add uniqueness lattice for static COW check elimination", "hash": "1648992"},
+  {"date": "2026-03-01", "type": "refactor", "scope": "eval", "message": "extract submodules and fix error factory drift", "hash": "5b8e55a"},
   {"date": "2026-03-01", "type": "feat", "scope": "eval", "message": "add map methods (get, insert, remove, entries, contains) and complete COW parity", "hash": "e81a9e2"},
   {"date": "2026-03-01", "type": "refactor", "message": "extract submodules for file size compliance", "hash": "e36d370"},
   {"date": "2026-02-28", "type": "fix", "scope": "website", "message": "resolve BUILD_NUMBER path for CI, add release notes to changelog", "hash": "dfc8947"},
@@ -87,16 +98,5 @@
   {"date": "2026-02-23", "type": "docs", "scope": "roadmap", "message": "update progress tracking and remove superseded ownership plan", "hash": "2d4905b"},
   {"date": "2026-02-23", "type": "docs", "scope": "plans", "message": "type strategy registry plan and AOT verification updates", "hash": "9272e16"},
   {"date": "2026-02-23", "type": "feat", "scope": "llvm", "message": "comparison trait dispatch and string operator codegen fixes", "hash": "33cfe18"},
-  {"date": "2026-02-23", "type": "feat", "scope": "llvm", "message": "comparison trait dispatch and comprehensive AOT test matrix", "hash": "0bed4d7"},
-  {"date": "2026-02-23", "type": "fix", "scope": "arc", "message": "ARC borrow inference for builtins and iterator type unification", "hash": "ec96429"},
-  {"date": "2026-02-22", "type": "docs", "scope": "plans", "message": "AOT codegen pipeline — exhaustive implementation plan and section details", "hash": "23e9c5e"},
-  {"date": "2026-02-22", "type": "feat", "scope": "arc,llvm", "message": "ARC pipeline hardening — borrowing semantics, inline enum cleanup, tag-check PrimOps", "hash": "c1c1b53"},
-  {"date": "2026-02-22", "type": "feat", "scope": "llvm,arc", "message": "unify AOT codegen pipeline with ARC-aware architecture", "hash": "54d1f96"},
-  {"date": "2026-02-21", "type": "feat", "scope": "llvm", "message": "implement IsShared inline check and Set/SetTag GEP+store", "hash": "9e24194"},
-  {"date": "2026-02-21", "type": "feat", "scope": "llvm", "message": "add drop function generation and unwind/landingpad support", "hash": "3793881"},
-  {"date": "2026-02-21", "type": "fix", "scope": "rt", "message": "runtime hygiene — ownership, soundness, and termination fixes", "hash": "f76d4ba"},
-  {"date": "2026-02-21", "type": "feat", "scope": "rt", "message": "add atomic refcount operations and ARC optimization plan", "hash": "b94a753"},
-  {"date": "2026-02-21", "type": "feat", "scope": "llvm", "message": "add LLVM iterator Phase 2 — consumers and adapters", "hash": "3a8c3ad"},
-  {"date": "2026-02-21", "type": "fix", "scope": "parser", "message": "add missing tokens to STMT_BOUNDARY recovery set", "hash": "26df697"},
-  {"date": "2026-02-21", "type": "docs", "message": "migrate pre_check/post_check references to pre()/post() syntax", "hash": "54cc4e9"}
+  {"date": "2026-02-23", "type": "feat", "scope": "llvm", "message": "comparison trait dispatch and comprehensive AOT test matrix", "hash": "0bed4d7"}
 ]

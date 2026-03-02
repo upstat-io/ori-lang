@@ -7,11 +7,13 @@ import { dirname, join, normalize } from 'path';
 
 // Map source directories to URL base paths
 const COLLECTION_MAPPINGS = [
-  { sourceBase: 'docs/ori_lang/0.1-alpha/spec', urlBase: '/docs/spec' },
+  { sourceBase: 'docs/ori_lang/v2026/spec', urlBase: '/docs/spec' },
   { sourceBase: 'docs/compiler/design', urlBase: '/docs/compiler-design' },
   { sourceBase: 'docs/tooling/formatter/design', urlBase: '/docs/formatter' },
   { sourceBase: 'docs/tooling/lsp/design', urlBase: '/docs/lsp' },
   { sourceBase: 'docs/guide', urlBase: '/guide' },
+  { sourceBase: 'plans/roadmap', urlBase: '/roadmap' },
+  { sourceBase: 'docs/ori_lang/proposals', urlBase: '/proposals' },
 ];
 
 export function remarkMdLinks() {

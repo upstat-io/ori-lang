@@ -105,13 +105,17 @@ pub extern "C" fn ori_list_push_cow(
         return;
     }
 
-    // SLOW PATH: shared or empty — allocate new buffer
-    let base_cap = if data.is_null() {
-        0
+    // SLOW PATH: shared or empty — allocate new buffer.
+    // Use tight-fit capacity (= new_len) instead of doubling the old capacity.
+    // Doubling only benefits the fast path (unique owner, same buffer reused).
+    // On the slow path we're creating a fresh buffer that may itself be shared
+    // on the next iteration, so over-allocating just wastes memory and causes
+    // exponential capacity growth in shared-push loops.
+    let new_cap = if data.is_null() {
+        next_capacity(0, new_len)
     } else {
-        cap.max(0) as usize
+        new_len
     };
-    let new_cap = next_capacity(base_cap, new_len);
     let new_data = ori_rc_alloc(new_cap * es, ea);
 
     // Copy old elements and increment their RC (they're now in a new buffer)

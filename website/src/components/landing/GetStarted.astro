@@ -19,7 +19,7 @@
       </div>
     </div>
     <div class="gs-cta">
-      <a href="/guide/01-getting-started" class="gs-link">Read the full documentation &rarr;</a>
+      <a href="/guide/01-getting-started" class="gs-link">Read the full documentation <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="12" height="12" fill="currentColor" style="vertical-align: -0.125em" aria-hidden="true"><path d="M502.6 278.6c12.5-12.5 12.5-32.8 0-45.3l-160-160c-12.5-12.5-32.8-12.5-45.3 0s-12.5 32.8 0 45.3L402.7 224 32 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l370.7 0-105.4 105.4c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l160-160z"/></svg></a>
     </div>
   </div>
 </section>
@@ -72,6 +72,9 @@
   }
 
   .gs-link {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
     font-size: var(--text-lg);
     font-weight: var(--weight-semibold);
     color: var(--color-accent);

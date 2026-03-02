@@ -85,7 +85,7 @@ Not every `must` is a simple substitution. Context matters:
 
 ## 02.3 Apply to All Spec Files
 
-**File(s):** All `docs/ori_lang/0.1-alpha/spec/*.md` files
+**File(s):** All `docs/ori_lang/v2026/spec/*.md` files
 
 Files ranked by occurrence count (highest first):
 
@@ -152,10 +152,10 @@ The spec defines its own terminology in two places:
 
 ## 02.5 Completion Checklist
 
-- [ ] `grep -rn '\bmust\b' docs/ori_lang/0.1-alpha/spec/*.md` returns only occurrences in code blocks or error messages — zero normative `must` remaining in prose
-- [ ] `grep -rn '\bshall\b' docs/ori_lang/0.1-alpha/spec/*.md` returns ~160 matches (replacing former `must` uses)
+- [ ] `grep -rn '\bmust\b' docs/ori_lang/v2026/spec/*.md` returns only occurrences in code blocks or error messages — zero normative `must` remaining in prose
+- [ ] `grep -rn '\bshall\b' docs/ori_lang/v2026/spec/*.md` returns ~160 matches (replacing former `must` uses)
 - [ ] Terminology tables updated in all locations
 - [ ] No `must not` in normative prose (all converted to `shall not`)
 - [ ] Spot-check 5 files to verify context-appropriate conversion
 
-**Exit Criteria:** Running `grep -Pn '(?<![`/])\bmust\b(?![`])' docs/ori_lang/0.1-alpha/spec/*.md` (excluding code/comments) returns 0 matches in normative prose.
+**Exit Criteria:** Running `grep -Pn '(?<![`/])\bmust\b(?![`])' docs/ori_lang/v2026/spec/*.md` (excluding code/comments) returns 0 matches in normative prose.

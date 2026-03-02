@@ -41,7 +41,7 @@ use std::cell::{Cell, RefCell};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder as InkwellBuilder;
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::values::{BasicValueEnum, CallSiteValue, FunctionValue};
 use rustc_hash::FxHashMap;
 
 use crate::context::SimpleCx;
@@ -85,6 +85,12 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// Avoids redundant LLVM module lookups and arena pushes for
     /// runtime functions. Populated on first use by `runtime_fn()`.
     runtime_cache: FxHashMap<&'static str, FunctionId>,
+    /// Last emitted `call` or `invoke` instruction.
+    ///
+    /// Stored after each `call()` / `invoke()` to allow adding per-call-site
+    /// attributes (e.g., `noalias` on a specific parameter for StaticUnique
+    /// COW operations). Updated on every call; `None` before any call.
+    pub(super) last_call_site: Option<CallSiteValue<'ctx>>,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
@@ -100,6 +106,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             codegen_errors: Cell::new(0),
             codegen_error_descriptions: RefCell::new(Vec::new()),
             runtime_cache: FxHashMap::default(),
+            last_call_site: None,
         }
     }
 

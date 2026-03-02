@@ -331,7 +331,7 @@ match(value,
 - `compiler/oric/src/parser/` — Add postfix `!` parsing
 - `compiler/oric/src/types/` — Type check unwrap expression
 - `compiler/oric/src/interpreter/` — Evaluate unwrap
-- `docs/ori_lang/0.1-alpha/spec/` — Document operator
+- `docs/ori_lang/v2026/spec/` — Document operator
 - `CLAUDE.md` — Quick reference
 
 ---

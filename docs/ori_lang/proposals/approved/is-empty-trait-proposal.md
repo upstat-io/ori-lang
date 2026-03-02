@@ -154,7 +154,7 @@ Added to `07-properties-of-types.md` after the Len Trait section. See spec for a
 2. Update test file comment to reference correct spec section
 
 **Files:**
-- `docs/ori_lang/0.1-alpha/spec/07-properties-of-types.md`
+- `docs/ori_lang/v2026/spec/07-properties-of-types.md`
 - `tests/spec/traits/core/is_empty.ori`
 
 ### Phase 4: Enable Tests

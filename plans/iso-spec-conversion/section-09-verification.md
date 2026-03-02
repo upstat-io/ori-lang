@@ -70,7 +70,7 @@ sections:
 - [ ] Zero `must` in normative prose:
   ```bash
   # Should return 0 matches outside code blocks and error messages
-  grep -Pn '(?<![`/])\bmust\b(?![`])' docs/ori_lang/0.1-alpha/spec/*.md
+  grep -Pn '(?<![`/])\bmust\b(?![`])' docs/ori_lang/v2026/spec/*.md
   ```
 
 - [ ] Confirm `shall` count is ~160 (matching former `must` count)
@@ -88,17 +88,17 @@ sections:
 - [ ] Verify all internal markdown links resolve:
   ```bash
   # Check for links to files that don't exist
-  grep -oP '\]\([^)]+\.md[^)]*\)' docs/ori_lang/0.1-alpha/spec/*.md | \
+  grep -oP '\]\([^)]+\.md[^)]*\)' docs/ori_lang/v2026/spec/*.md | \
     while read -r link; do
       file=$(echo "$link" | sed 's/.*(\([^#)]*\).*/\1/')
-      [ -f "docs/ori_lang/0.1-alpha/spec/$file" ] || echo "BROKEN: $link"
+      [ -f "docs/ori_lang/v2026/spec/$file" ] || echo "BROKEN: $link"
     done
   ```
 
 - [ ] Verify no references to old file names:
   ```bash
   grep -rn '01-notation\|04-constants\|05-variables\|06-types\|07-properties' \
-    docs/ori_lang/0.1-alpha/spec/*.md
+    docs/ori_lang/v2026/spec/*.md
   ```
 
 - [ ] Verify grammar references point to Annex A
@@ -118,8 +118,8 @@ The most critical check: no spec content was lost during conversion.
 - [ ] Verify every original spec section's content exists in the renamed file:
   ```bash
   # For each old→new mapping, verify key content survived
-  grep -c "EBNF" docs/ori_lang/0.1-alpha/spec/05-notation.md  # was 01-notation
-  grep -c "trait" docs/ori_lang/0.1-alpha/spec/09-properties-of-types.md  # was 07
+  grep -c "EBNF" docs/ori_lang/v2026/spec/05-notation.md  # was 01-notation
+  grep -c "trait" docs/ori_lang/v2026/spec/09-properties-of-types.md  # was 07
   # etc.
   ```
 

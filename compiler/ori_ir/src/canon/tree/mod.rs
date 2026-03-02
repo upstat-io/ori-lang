@@ -84,12 +84,12 @@ pub enum TestKind {
     /// Compare a float value (exact bit equality).
     /// Edges are `TestValue::Float` variants.
     ///
-    /// Forward-looking: may not be in 0.1-alpha spec.
+    /// Forward-looking: may not be in 2026 spec.
     FloatEq,
     /// Check if a value falls within an integer range (inclusive).
     /// Edges are `TestValue::IntRange` variants.
     ///
-    /// Forward-looking: may not be in 0.1-alpha spec.
+    /// Forward-looking: may not be in 2026 spec.
     IntRange,
     /// Compare a char value (equality).
     /// Edges are `TestValue::Char` variants.
