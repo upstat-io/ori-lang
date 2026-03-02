@@ -64,8 +64,8 @@ The two `MethodDef` types serve the same purpose but have different structures. 
 |---|---|---|---|---|
 | `receiver` | `BuiltinType` | *(on TypeDef, not MethodDef)* | `TypeTag` (on parent `TypeDef`) | Method lives inside `TypeDef.methods`; the receiver is the TypeDef's `tag` field. No receiver field on registry MethodDef. |
 | `name` | `&'static str` | `name` | `&'static str` | **Identical.** |
-| `params` | `&'static [ParamSpec]` | `params` | `&'static [ParamDef]` | See 13.3 for expressiveness gap. `ParamSpec::SelfType` maps to `ParamDef { tag: TypeTag::SelfType, ... }`. |
-| `returns` | `ReturnSpec` | `returns` | `TypeTag` | See 13.2 for expressiveness gap. `ReturnSpec::SelfType` maps to `TypeTag::SelfType`. `ReturnSpec::Type(BuiltinType::Int)` maps to `TypeTag::Int`. |
+| `params` | `&'static [ParamSpec]` | `params` | `&'static [ParamDef]` | See 13.3 for expressiveness gap. `ParamSpec::SelfType` maps to `ParamDef { ty: ReturnTag::SelfType, ... }`. |
+| `returns` | `ReturnSpec` | `returns` | `ReturnTag` | See 13.2 for expressiveness gap. `ReturnSpec::SelfType` maps to `ReturnTag::SelfType`. `ReturnSpec::Type(BuiltinType::Int)` maps to `ReturnTag::Concrete(TypeTag::Int)`. |
 | `trait_name` | `Option<&'static str>` | `trait_name` | `Option<&'static str>` | **Identical.** Preserved in registry for phases that need trait association (LLVM trait dispatch path). |
 | `receiver_borrows` | `bool` | `receiver` | `Ownership` | `true` maps to `Ownership::Borrow`, `false` maps to `Ownership::Owned`. Renamed to `receiver` (the ownership of the receiver). |
 
@@ -114,10 +114,10 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 | ori_ir::ReturnSpec | Current Usage | ori_registry Equivalent | Sufficient? |
 |---|---|---|---|
-| `SelfType` | `clone`, `abs`, `add`, `sub`, etc. — returns same type as receiver | `TypeTag::SelfType` | Yes. `TypeTag::SelfType` exists for exactly this purpose. |
+| `SelfType` | `clone`, `abs`, `add`, `sub`, etc. — returns same type as receiver | `ReturnTag::SelfType` | Yes. `ReturnTag::SelfType` exists for exactly this purpose. |
 | `Type(BuiltinType::Int)` | `str.len`, `Duration.nanoseconds`, `hash`, etc. — returns specific type | `TypeTag::Int` (or `TypeTag::Bool`, etc.) | Yes. Direct mapping. |
 | `Type(BuiltinType::Ordering)` | `compare` — returns Ordering | `TypeTag::Ordering` | Yes. Direct mapping. |
-| `Void` | Not used in current `BUILTIN_METHODS` (zero entries) | `TypeTag::Void` | Yes. Never needed for the 162 entries being migrated. |
+| `Void` | Not used in current `BUILTIN_METHODS` (zero entries) | `ReturnTag::Unit` | Yes. Never needed for the 162 entries being migrated. |
 | `ElementType` | Not used in current `BUILTIN_METHODS` (zero entries) | N/A | Not needed. Used only for collection methods (List, Iterator, etc.) which are handled by Section 06/07. |
 | `OptionElement` | Not used in current `BUILTIN_METHODS` (zero entries) | N/A | Not needed. Same — collection methods only. |
 | `ListElement` | Not used in current `BUILTIN_METHODS` (zero entries) | N/A | Not needed. Same. |
@@ -136,7 +136,7 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 ### Checklist
 
 - [ ] Verify zero uses of `ElementType`, `OptionElement`, `ListElement`, `InnerType` in `BUILTIN_METHODS`
-- [ ] Verify all `ReturnSpec::SelfType` usages map to `TypeTag::SelfType`
+- [ ] Verify all `ReturnSpec::SelfType` usages map to `ReturnTag::SelfType`
 - [ ] Verify all `ReturnSpec::Type(X)` usages map to the corresponding `TypeTag::X`
 
 ---
@@ -149,7 +149,7 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 | ori_ir::ParamSpec | Current Usage (BUILTIN_METHODS) | ori_registry Equivalent | Sufficient? |
 |---|---|---|---|
-| `SelfType` | `compare(other: Self)`, `add(other: Self)`, `min(other: Self)` | `ParamDef { tag: TypeTag::SelfType, ownership: Ownership::Borrow }` | Yes. `TypeTag::SelfType` maps exactly. |
+| `SelfType` | `compare(other: Self)`, `add(other: Self)`, `min(other: Self)` | `ParamDef { ty: ReturnTag::SelfType, ownership: Ownership::Borrow }` | Yes. `ReturnTag::SelfType` maps exactly. |
 | `Int` | `Duration.mul(n: int)`, `Duration.div(n: int)`, `Size.mul(n: int)`, `Size.div(n: int)` | `ParamDef { tag: TypeTag::Int, ownership: Ownership::Borrow }` | Yes. Direct mapping. |
 | `Str` | `str.contains(s: str)`, `str.starts_with(s: str)`, `str.ends_with(s: str)`, `str.concat(s: str)`, `str.add(s: str)` | `ParamDef { tag: TypeTag::Str, ownership: Ownership::Borrow }` | Yes. Direct mapping. |
 | `Bool` | Not used in current `BUILTIN_METHODS` (zero entries) | `ParamDef { tag: TypeTag::Bool, ... }` | Yes, if ever needed. |
@@ -165,14 +165,14 @@ The complex variants (`Any`, `Closure`, `Bool`) are unused in `BUILTIN_METHODS`.
 ### Decision: ParamDef with TypeTag + Ownership
 
 No compatibility shim needed. The mapping is:
-- `ParamSpec::SelfType` --> `ParamDef { tag: TypeTag::SelfType, ownership: Ownership::Borrow }`
+- `ParamSpec::SelfType` --> `ParamDef { ty: ReturnTag::SelfType, ownership: Ownership::Borrow }`
 - `ParamSpec::Int` --> `ParamDef { tag: TypeTag::Int, ownership: Ownership::Borrow }`
 - `ParamSpec::Str` --> `ParamDef { tag: TypeTag::Str, ownership: Ownership::Borrow }`
 
 ### Checklist
 
 - [ ] Verify zero uses of `ParamSpec::Bool`, `ParamSpec::Any`, `ParamSpec::Closure` in `BUILTIN_METHODS`
-- [ ] Verify all `ParamSpec::SelfType` map to `ParamDef { tag: TypeTag::SelfType, ... }`
+- [ ] Verify all `ParamSpec::SelfType` map to `ParamDef { ty: ReturnTag::SelfType, ... }`
 - [ ] Verify all `ParamSpec::Int` map to `ParamDef { tag: TypeTag::Int, ... }`
 - [ ] Verify all `ParamSpec::Str` map to `ParamDef { tag: TypeTag::Str, ... }`
 

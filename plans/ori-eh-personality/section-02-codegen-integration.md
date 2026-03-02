@@ -27,13 +27,14 @@ sections:
 **Status:** Not Started
 **Goal:** Every reference to `rust_eh_personality` in the LLVM codegen and JIT infrastructure is replaced with `ori_eh_personality`. The emitted LLVM IR contains `personality ptr @ori_eh_personality` on functions with `invoke`/`landingpad`. JIT execution resolves the symbol to the C function in `ori_rt`.
 
-**Context:** The symbol `rust_eh_personality` appears in 4 locations across `ori_llvm`:
-1. Runtime declaration table (`runtime_decl/mod.rs:702`) — declares the symbol to LLVM
-2. ARC emitter personality attachment (`arc_emitter/mod.rs:377`) — attaches to functions
-3. JIT mapped functions list (`evaluator.rs:595`) — registers for JIT resolution
-4. JIT address mapping (`evaluator.rs:729`) — provides runtime address
+**Context:** The symbol `rust_eh_personality` appears in 5 locations across `ori_llvm`:
+1. Runtime declaration table (`runtime_decl/runtime_functions.rs:1417`) — declares the symbol to LLVM
+2. ARC emitter personality attachment (`arc_emitter/mod.rs:303`) — attaches to functions
+3. JIT symbol mapping (`evaluator/runtime_mappings.rs:198`) — registers address for JIT resolution
+4. JIT address helper (`evaluator/runtime_mappings.rs:208`) — provides runtime address
+5. Verify test fixture (`verify/tests.rs:214`) — test helper creating personality function
 
-All 4 must be updated atomically. Missing any one creates a mismatch: LLVM IR references a symbol that doesn't exist, or JIT can't resolve it.
+All 5 must be updated atomically. Missing any one creates a mismatch: LLVM IR references a symbol that doesn't exist, or JIT can't resolve it.
 
 **Depends on:** Section 01 (`ori_eh_personality` must exist before we reference it).
 
@@ -41,11 +42,11 @@ All 4 must be updated atomically. Missing any one creates a mismatch: LLVM IR re
 
 ## 02.1 Runtime Declaration Table
 
-**File(s):** `compiler/ori_llvm/src/codegen/runtime_decl/mod.rs`
+**File(s):** `compiler/ori_llvm/src/codegen/runtime_decl/runtime_functions.rs`
 
 The `RT_FUNCTIONS` table is the single source of truth for all runtime function declarations. Every runtime function used in LLVM IR must be declared here.
 
-- [ ] Rename the entry at line ~700-706:
+- [ ] Rename the entry at line ~1415-1422:
   ```rust
   // Before:
   RtFn {
@@ -53,6 +54,7 @@ The `RT_FUNCTIONS` table is the single source of truth for all runtime function 
       params: &[Ty::I32],
       ret: Some(Ty::I32),
       attrs: &[Attr::Nounwind],
+      jit_allowed: true,
   },
 
   // After:
@@ -61,6 +63,7 @@ The `RT_FUNCTIONS` table is the single source of truth for all runtime function 
       params: &[Ty::I32],
       ret: Some(Ty::I32),
       attrs: &[Attr::Nounwind],
+      jit_allowed: true,
   },
   ```
 
@@ -76,7 +79,7 @@ The `RT_FUNCTIONS` table is the single source of truth for all runtime function 
 
 The ARC emitter attaches the personality function to LLVM functions that contain `invoke`/`landingpad`.
 
-- [ ] Update the `runtime_fn` call at line ~377:
+- [ ] Update the `runtime_fn` call at line ~303:
   ```rust
   // Before:
   let pid = self.builder.runtime_fn("rust_eh_personality");
@@ -91,20 +94,11 @@ The ARC emitter attaches the personality function to LLVM functions that contain
 
 ## 02.3 JIT Symbol Mapping
 
-**File(s):** `compiler/ori_llvm/src/evaluator.rs`
+**File(s):** `compiler/ori_llvm/src/evaluator/runtime_mappings.rs`
 
-The JIT execution engine needs explicit symbol mappings for functions not in the dynamic symbol table. The personality function is one of these.
+The JIT execution engine needs explicit symbol mappings for functions not in the dynamic symbol table. The personality function is one of these. The `jit_symbol_mappings()` function (line ~59) returns a `Vec<(&str, usize)>` of name→address pairs.
 
-- [ ] Update `JIT_MAPPED_RUNTIME_FUNCTIONS` array (line ~595):
-  ```rust
-  // Before:
-  "rust_eh_personality",
-
-  // After:
-  "ori_eh_personality",
-  ```
-
-- [ ] Update the mapping in `add_runtime_mappings_to_engine()` (line ~729):
+- [ ] Update the mapping in `jit_symbol_mappings()` (line ~198):
   ```rust
   // Before:
   ("rust_eh_personality", rust_eh_personality_addr()),
@@ -115,13 +109,15 @@ The JIT execution engine needs explicit symbol mappings for functions not in the
 
   Note the change from `rust_eh_personality_addr()` (local helper) to `runtime::ori_eh_personality_addr()` (from `ori_rt` via Section 01.3). The address now points to the C implementation instead of Rust's personality.
 
+  The `jit_allowed: true` field on the `RtFn` entry (Section 02.1) must match — this is enforced by the `jit_mappings_match_rt_functions` test in `runtime_decl/tests.rs`.
+
 ---
 
 ## 02.4 Remove rust_eh_personality References
 
-**File(s):** `compiler/ori_llvm/src/evaluator.rs`
+**File(s):** `compiler/ori_llvm/src/evaluator/runtime_mappings.rs`, `compiler/ori_llvm/src/verify/tests.rs`
 
-- [ ] Delete the `rust_eh_personality_addr()` helper function (lines ~750-761):
+- [ ] Delete the `rust_eh_personality_addr()` helper function (lines ~202-213 in `runtime_mappings.rs`):
   ```rust
   // DELETE THIS ENTIRE FUNCTION:
   /// Get the address of `rust_eh_personality` for JIT symbol mapping.
@@ -140,14 +136,23 @@ The JIT execution engine needs explicit symbol mappings for functions not in the
 
   This function is replaced by `ori_rt::ori_eh_personality_addr()` which points to the C implementation.
 
-- [ ] Verify with `grep -r "rust_eh_personality" compiler/` returns zero results.
-
-- [ ] Update the comment on the JIT mapping (line ~726-728) to reference Ori's personality:
+- [ ] Update the comment on the JIT mapping (lines ~195-197 in `runtime_mappings.rs`) to reference Ori's personality:
   ```rust
   // Exception handling personality function — required by any function
   // containing `invoke`/`landingpad`. Implemented in C (ori_rt/src/eh_personality.c).
   // Not in the dynamic symbol table, so MCJIT needs explicit mapping.
   ```
+
+- [ ] Update the verify test fixture (line ~214 in `verify/tests.rs`):
+  ```rust
+  // Before:
+  let personality = module.add_function("rust_eh_personality", personality_type, None);
+
+  // After:
+  let personality = module.add_function("ori_eh_personality", personality_type, None);
+  ```
+
+- [ ] Verify with `grep -r "rust_eh_personality" compiler/` returns zero results.
 
 ---
 
@@ -155,9 +160,10 @@ The JIT execution engine needs explicit symbol mappings for functions not in the
 
 - [ ] `grep -r "rust_eh_personality" compiler/` returns 0 results
 - [ ] `grep -r "ori_eh_personality" compiler/ori_llvm/` returns results in:
-  - `codegen/runtime_decl/mod.rs` (declaration)
+  - `codegen/runtime_decl/runtime_functions.rs` (declaration)
   - `codegen/arc_emitter/mod.rs` (personality attachment)
-  - `evaluator.rs` (JIT mapping, 2 locations)
+  - `evaluator/runtime_mappings.rs` (JIT mapping)
+  - `verify/tests.rs` (test fixture)
 - [ ] `ORI_DEBUG_LLVM=1 ori check tests/spec/functions/recursion.ori 2>&1 | grep personality` shows `@ori_eh_personality`
 - [ ] No compilation errors in `ori_llvm`
 - [ ] `cargo cll` (LLVM clippy) clean

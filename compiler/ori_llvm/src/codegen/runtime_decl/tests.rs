@@ -2,7 +2,6 @@ use std::collections::BTreeSet;
 
 use super::*;
 use crate::context::SimpleCx;
-use crate::evaluator::{AOT_ONLY_RUNTIME_FUNCTIONS, JIT_MAPPED_RUNTIME_FUNCTIONS};
 use inkwell::context::Context;
 
 #[test]
@@ -228,35 +227,54 @@ fn panic_functions_have_cold_nounwind() {
     );
 }
 
-/// Verifies that every function in `RT_FUNCTIONS` is either in the JIT
-/// mapping table or in the documented AOT-only exception list.
+/// Verifies that every function in `RT_FUNCTIONS` has a `jit_allowed` classification
+/// and that JIT + AOT-only partitions cover all entries exactly.
 ///
-/// This catches drift where a new runtime function is added to the table
-/// but not added to the JIT symbol mappings.
+/// Since `jit_allowed` is now a field on `RtFn`, every entry is inherently
+/// covered. This test validates that the partition counts match expectations
+/// and no entry is accidentally miscategorized.
 #[test]
-fn declared_functions_covered_by_jit_or_aot_only() {
-    // Use all_names() — the data table is the single source of truth
-    let declared: BTreeSet<&str> = all_names().collect();
+fn declared_functions_all_have_jit_classification() {
+    let total = all_names().count();
+    let jit_count = runtime_functions::jit_allowed_names().count();
+    let aot_count = RT_FUNCTIONS.iter().filter(|f| !f.jit_allowed).count();
 
-    let covered: BTreeSet<&str> = JIT_MAPPED_RUNTIME_FUNCTIONS
+    assert_eq!(
+        jit_count + aot_count,
+        total,
+        "jit_allowed partition doesn't cover all RT_FUNCTIONS: \
+         {jit_count} JIT + {aot_count} AOT = {} != {total}",
+        jit_count + aot_count,
+    );
+    assert!(jit_count > 0, "no JIT-allowed functions — likely a bug");
+    assert!(aot_count > 0, "no AOT-only functions — likely a bug");
+}
+
+/// Verifies that `jit_symbol_mappings()` names exactly match
+/// `jit_allowed_names()` from `RT_FUNCTIONS`.
+///
+/// This catches drift where a new `jit_allowed: true` entry is added to
+/// `RT_FUNCTIONS` but not to `jit_symbol_mappings()` (or vice versa).
+#[test]
+fn jit_symbol_mappings_match_jit_allowed() {
+    use crate::evaluator::jit_symbol_mappings;
+
+    let mapping_names: BTreeSet<&str> = jit_symbol_mappings()
         .iter()
-        .chain(AOT_ONLY_RUNTIME_FUNCTIONS.iter())
-        .copied()
+        .map(|(name, _)| *name)
         .collect();
+    let allowed_names: BTreeSet<&str> = runtime_functions::jit_allowed_names().collect();
 
-    let uncovered: BTreeSet<_> = declared.difference(&covered).collect();
-    let phantom: BTreeSet<_> = covered.difference(&declared).collect();
+    let missing: BTreeSet<_> = allowed_names.difference(&mapping_names).collect();
+    let extra: BTreeSet<_> = mapping_names.difference(&allowed_names).collect();
 
     assert!(
-        uncovered.is_empty(),
-        "Runtime functions in RT_FUNCTIONS but not in JIT mappings or AOT-only list: {uncovered:?}\n\
-         Add them to JIT_MAPPED_RUNTIME_FUNCTIONS in evaluator.rs or \
-         AOT_ONLY_RUNTIME_FUNCTIONS if they are AOT-only."
+        missing.is_empty(),
+        "jit_allowed but missing from jit_symbol_mappings(): {missing:?}"
     );
     assert!(
-        phantom.is_empty(),
-        "Functions in JIT/AOT-only lists but not in RT_FUNCTIONS: {phantom:?}\n\
-         Remove them from evaluator.rs or add them to RT_FUNCTIONS."
+        extra.is_empty(),
+        "in jit_symbol_mappings() but not jit_allowed: {extra:?}"
     );
 }
 

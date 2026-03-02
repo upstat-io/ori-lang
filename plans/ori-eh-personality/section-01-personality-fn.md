@@ -126,8 +126,14 @@ During unwinding, the platform unwinder calls our personality function **twice p
   ```
 
   **Call-site table walker** (~30 lines):
-  Linear scan through call-site entries:
+  Linear scan through call-site entries. **Critical:** use `ip - 1` (not raw IP) for matching.
+  The unwinder provides the *return address* (instruction after the call), but the call-site
+  table maps the *calling instruction* range. Subtracting 1 maps back into the caller's range.
+  Every production personality does this (GCC, Rust, libcxxabi).
   ```
+  // IMPORTANT: adjust IP before matching
+  uintptr_t ip = _Unwind_GetIP(context) - 1;
+
   for each entry:
       start  = read_encoded(call_site_encoding)  // range start (relative to function)
       length = read_encoded(call_site_encoding)  // range length
@@ -159,7 +165,8 @@ During unwinding, the platform unwinder calls our personality function **twice p
   {
       // 1. Get LSDA pointer from context
       // 2. Parse LSDA header
-      // 3. Get current IP, find matching call-site entry
+      // 3. Get current IP via _Unwind_GetIP(context) - 1 (return addr → call site)
+      //    find matching call-site entry
       // 4. Classify action (cleanup vs catch-all)
       // 5. Phase 1 (search): return HANDLER_FOUND for catch-all, CONTINUE for cleanup
       // 6. Phase 2 (cleanup): set GR[0]=exception, GR[1]=selector, IP=landing_pad
@@ -200,16 +207,24 @@ The C file must be compiled and linked into `libori_rt.a`. The standard way to d
 - [ ] Create `compiler/ori_rt/build.rs`:
   ```rust
   fn main() {
-      cc::Build::new()
+      let mut build = cc::Build::new();
+      build
           .file("src/eh_personality.c")
           .flag("-std=c11")
-          .flag("-fno-exceptions")    // C file, no C++ exceptions
-          .flag("-fno-rtti")          // No RTTI
           .warnings(true)
-          .extra_warnings(true)
-          .compile("ori_eh");         // produces libori_eh.a, merged into final lib
+          .extra_warnings(true);
+
+      // These flags are standard on GCC/Clang but may not exist on all
+      // toolchains. flag_if_supported avoids hard failures on exotic compilers.
+      build.flag_if_supported("-fno-exceptions");
+
+      build.compile("ori_eh"); // produces libori_eh.a, merged into final lib
   }
   ```
+
+  Notes:
+  - `-fno-rtti` is omitted — it's a C++ flag, not applicable to C code.
+  - `-fno-exceptions` uses `flag_if_supported` for cross-toolchain portability.
 
   The `cc` crate compiles the C file into a static archive and tells Cargo to link it. When Cargo builds `libori_rt.a` (staticlib), the C object gets bundled in.
 
@@ -244,7 +259,7 @@ The JIT execution engine needs to find `ori_eh_personality` at runtime. Since th
   }
   ```
 
-  This follows the exact same pattern as the existing `rust_eh_personality_addr()` in `evaluator.rs`, but moves the address resolution to `ori_rt` where the symbol lives.
+  This follows the exact same pattern as the existing `rust_eh_personality_addr()` in `evaluator/runtime_mappings.rs`, but moves the address resolution to `ori_rt` where the symbol lives.
 
 - [ ] Verify the function is accessible from `ori_llvm` via `runtime::ori_eh_personality_addr()`.
 

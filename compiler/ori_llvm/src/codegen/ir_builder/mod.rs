@@ -60,6 +60,17 @@ use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueArena, ValueId};
 ///
 /// These are separate to avoid drop-checker issues where `IrBuilder`
 /// and `SimpleCx` are local variables in the same scope.
+/// Whether the LLVM module is being compiled for JIT or AOT execution.
+///
+/// Used to guard `runtime_fn()` / `try_runtime_fn()` against using
+/// AOT-only runtime functions in JIT mode. This prevents silent symbol
+/// resolution failures at MCJIT relocation time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CompilationMode {
+    Jit,
+    Aot,
+}
+
 pub struct IrBuilder<'scx, 'ctx> {
     /// The underlying inkwell builder.
     pub(super) builder: InkwellBuilder<'ctx>,
@@ -91,11 +102,25 @@ pub struct IrBuilder<'scx, 'ctx> {
     /// attributes (e.g., `noalias` on a specific parameter for `StaticUnique`
     /// COW operations). Updated on every call; `None` before any call.
     pub(super) last_call_site: Option<CallSiteValue<'ctx>>,
+    /// Whether this builder is compiling for JIT or AOT.
+    mode: CompilationMode,
 }
 
 impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
-    /// Create a new `IrBuilder`.
+    /// Create a new `IrBuilder` for AOT compilation (default).
     pub fn new(scx: &'scx SimpleCx<'ctx>) -> Self {
+        Self::with_mode(scx, CompilationMode::Aot)
+    }
+
+    /// Create a new `IrBuilder` for JIT compilation.
+    ///
+    /// Runtime function calls are guarded: only functions marked
+    /// `jit_allowed: true` in `RT_FUNCTIONS` can be used.
+    pub fn new_jit(scx: &'scx SimpleCx<'ctx>) -> Self {
+        Self::with_mode(scx, CompilationMode::Jit)
+    }
+
+    fn with_mode(scx: &'scx SimpleCx<'ctx>, mode: CompilationMode) -> Self {
         let builder = scx.llcx.create_builder();
         Self {
             builder,
@@ -107,6 +132,7 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
             codegen_error_descriptions: RefCell::new(Vec::new()),
             runtime_cache: FxHashMap::default(),
             last_call_site: None,
+            mode,
         }
     }
 
@@ -203,8 +229,16 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     ///
     /// # Panics
     ///
-    /// Panics if `name` is not a known runtime function.
+    /// Panics if `name` is not a known runtime function, or if used in JIT
+    /// mode with a function not marked `jit_allowed` in `RT_FUNCTIONS`.
     pub fn runtime_fn(&mut self, name: &'static str) -> FunctionId {
+        if self.mode == CompilationMode::Jit {
+            assert!(
+                super::runtime_decl::runtime_functions::is_jit_allowed(name),
+                "runtime function `{name}` used in JIT mode but not marked \
+                 jit_allowed in RT_FUNCTIONS"
+            );
+        }
         if let Some(&id) = self.runtime_cache.get(name) {
             return id;
         }
@@ -220,11 +254,20 @@ impl<'scx, 'ctx> IrBuilder<'scx, 'ctx> {
     /// panicking. Used by `ArcIrEmitter`'s fallback resolution path where
     /// the callee name comes from ARC IR and may or may not be a runtime
     /// function.
+    ///
+    /// In JIT mode, panics if the resolved function is not `jit_allowed`.
     pub fn try_runtime_fn(&mut self, name: &str) -> Option<FunctionId> {
         if let Some(&id) = self.runtime_cache.get(name) {
             return Some(id);
         }
         let (static_name, id) = super::runtime_decl::try_declare_single(self, name)?;
+        if self.mode == CompilationMode::Jit {
+            assert!(
+                super::runtime_decl::runtime_functions::is_jit_allowed(static_name),
+                "runtime function `{static_name}` used in JIT mode but not marked \
+                 jit_allowed in RT_FUNCTIONS"
+            );
+        }
         self.runtime_cache.insert(static_name, id);
         Some(id)
     }

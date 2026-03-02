@@ -227,7 +227,9 @@ impl ArcLowerer<'_> {
 
         // Header: call __iter_next(iter, elem_ty_marker) → {tag, element}
         self.builder.position_at(header_block);
-        let iter_next = self.interner.intern("__iter_next");
+        let iter_next = self
+            .interner
+            .intern(ori_ir::builtin_constants::protocol::ProtocolBuiltin::IterNext.name());
         // Use INT result type to suppress ARC RC on the wrapper struct.
         // Pass elem_ty marker so the LLVM emitter can size the scratch buffer.
         let elem_ty_marker =
