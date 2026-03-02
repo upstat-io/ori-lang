@@ -1,0 +1,79 @@
+// Valgrind test: sharing and divergence lifecycle.
+// This is the critical lifecycle test: create sharing, mutate copies,
+// verify originals unchanged, verify all buffers freed correctly.
+// Exercises the full COW lifecycle including diamond sharing patterns.
+
+@check_sharing (list: [int]) -> bool = {
+    // list is shared with caller's binding
+    let modified = list.push(99);
+    modified.length() == 4 && list.length() == 3
+}
+
+@main () -> int = {
+    // Basic sharing: assign creates shared reference
+    let original = [1, 2, 3];
+    let copy = original;
+    let mutated = copy.push(4);
+    let basic_ok = original.length() == 3 && copy.length() == 3
+        && mutated.length() == 4;
+
+    // Diamond sharing: one base, multiple forks, each diverges
+    let base = [10, 20, 30];
+    let fork_a = base.push(40);
+    let fork_b = base.push(50);
+    let fork_c = base.set(0, 99);
+    let diamond_ok = base.length() == 3 && base[0] == 10
+        && fork_a.length() == 4 && fork_a[3] == 40
+        && fork_b.length() == 4 && fork_b[3] == 50
+        && fork_c.length() == 3 && fork_c[0] == 99;
+
+    // Deep sharing chain: A → B → C → D, then mutate each
+    let a = [1, 2, 3];
+    let b = a;
+    let c = b;
+    let d = c;
+    let a2 = a.push(10);
+    let b2 = b.push(20);
+    let c2 = c.push(30);
+    let d2 = d.push(40);
+    let chain_ok = a.length() == 3 && b.length() == 3
+        && c.length() == 3 && d.length() == 3
+        && a2[3] == 10 && b2[3] == 20 && c2[3] == 30 && d2[3] == 40;
+
+    // Sharing with strings (heap strings, RC'd)
+    let str_base = ["hello", "world"];
+    let str_copy = str_base;
+    let str_mutated = str_copy.push("test");
+    let str_ok = str_base.length() == 2 && str_mutated.length() == 3
+        && str_base[0] == "hello";
+
+    // Sharing with maps
+    let map_base = {"a": 1, "b": 2};
+    let map_copy = map_base;
+    let map_mutated = map_copy.insert("c", 3);
+    let map_ok = map_base.len() == 2 && map_mutated.len() == 3;
+
+    // Function passing creates sharing
+    let fn_result = check_sharing(list: [1, 2, 3]);
+
+    // Sharing in loop: each iteration creates a fork
+    let loop_base = [0, 0, 0];
+    let results: [[int]] = [];
+    for i in 0..10 do {
+        results = results.push(loop_base.set(0, i));
+    };
+    let loop_ok = loop_base[0] == 0 && results.length() == 10;
+
+    // Sharing then dropping one side, mutating the other
+    let drop_test = {
+        let x = [1, 2, 3, 4, 5];
+        let y = x;
+        // y goes out of scope, x survives
+        x.push(6)
+    };
+    let drop_ok = drop_test.length() == 6 && drop_test[5] == 6;
+
+    if basic_ok && diamond_ok && chain_ok && str_ok && map_ok
+        && fn_result && loop_ok && drop_ok
+    then 0 else 1
+}

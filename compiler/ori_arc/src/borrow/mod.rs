@@ -228,6 +228,57 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
     current
 }
 
+/// Promote borrowed parameters to owned based on callee argument ownership.
+///
+/// Dispatches through three strategies in order:
+/// 1. **Known callee signature** (local SCC or external) — use per-param ownership.
+/// 2. **Protocol builtin** — use `ProtocolBuiltin::arg_ownership()` data.
+/// 3. **Unknown, non-borrowing callee** — conservatively promote all args to owned.
+///
+/// Callees in the `borrowing` set are assumed to borrow all arguments (no promotion).
+///
+/// Used by both `Apply` instructions and `Invoke` terminators — the ownership
+/// promotion logic is identical for both call forms.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "callee ownership dispatch requires context from both caller and callee scopes"
+)]
+fn promote_callee_args(
+    callee: Name,
+    args: &[ArcVarId],
+    func: &ArcFunction,
+    my_sig: &mut AnnotatedSig,
+    local_sigs: &FxHashMap<Name, AnnotatedSig>,
+    external_sigs: &FxHashMap<Name, AnnotatedSig>,
+    builtins: &BuiltinOwnershipSets,
+    aliases: &FxHashMap<ArcVarId, ArcVarId>,
+) -> bool {
+    let mut changed = false;
+    if let Some(callee_sig) = local_sigs
+        .get(&callee)
+        .or_else(|| external_sigs.get(&callee))
+    {
+        for (i, &arg) in args.iter().enumerate() {
+            if i < callee_sig.params.len() && callee_sig.params[i].ownership == Ownership::Owned {
+                changed |= try_mark_param_owned(arg, func, my_sig, aliases);
+            }
+        }
+    } else if !builtins.borrowing.contains(&callee) {
+        if let Some(ownership) = builtins.protocol.get(&callee) {
+            for (i, &arg) in args.iter().enumerate() {
+                if ownership.get(i).copied() == Some(ProtocolArgOwnership::Owned) {
+                    changed |= try_mark_param_owned(arg, func, my_sig, aliases);
+                }
+            }
+        } else {
+            for &arg in args {
+                changed |= try_mark_param_owned(arg, func, my_sig, aliases);
+            }
+        }
+    }
+    changed
+}
+
 /// Core ownership update pass for a single function.
 ///
 /// Scans all instructions and terminators, promoting Borrowed parameters to
@@ -242,10 +293,6 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
 /// of co-members, while external callees use their stable final sigs.
 ///
 /// Returns `true` if any parameter's ownership changed.
-#[expect(
-    clippy::too_many_lines,
-    reason = "dispatch table over ArcInstr + ArcTerminator variants"
-)]
 pub(super) fn update_ownership_inner(
     func: &ArcFunction,
     my_sig: &mut AnnotatedSig,
@@ -253,15 +300,6 @@ pub(super) fn update_ownership_inner(
     external_sigs: &FxHashMap<Name, AnnotatedSig>,
     builtins: &BuiltinOwnershipSets,
 ) -> bool {
-    /// Look up a callee's signature in local then external maps.
-    fn lookup_callee_sig<'a>(
-        callee: Name,
-        local: &'a FxHashMap<Name, AnnotatedSig>,
-        external: &'a FxHashMap<Name, AnnotatedSig>,
-    ) -> Option<&'a AnnotatedSig> {
-        local.get(&callee).or_else(|| external.get(&callee))
-    }
-
     let mut changed = false;
     let aliases = build_alias_map(func);
 
@@ -272,28 +310,16 @@ pub(super) fn update_ownership_inner(
                 ArcInstr::Apply {
                     args, func: callee, ..
                 } => {
-                    if let Some(callee_sig) = lookup_callee_sig(*callee, local_sigs, external_sigs)
-                    {
-                        for (i, &arg) in args.iter().enumerate() {
-                            if i < callee_sig.params.len()
-                                && callee_sig.params[i].ownership == Ownership::Owned
-                            {
-                                changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
-                            }
-                        }
-                    } else if !builtins.borrowing.contains(callee) {
-                        if let Some(ownership) = builtins.protocol.get(callee) {
-                            for (i, &arg) in args.iter().enumerate() {
-                                if ownership.get(i).copied() == Some(ProtocolArgOwnership::Owned) {
-                                    changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
-                                }
-                            }
-                        } else {
-                            for &arg in args {
-                                changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
-                            }
-                        }
-                    }
+                    changed |= promote_callee_args(
+                        *callee,
+                        args,
+                        func,
+                        my_sig,
+                        local_sigs,
+                        external_sigs,
+                        builtins,
+                        &aliases,
+                    );
                 }
 
                 ArcInstr::ApplyIndirect { closure, args, .. } => {
@@ -367,27 +393,16 @@ pub(super) fn update_ownership_inner(
             ArcTerminator::Invoke {
                 args, func: callee, ..
             } => {
-                if let Some(callee_sig) = lookup_callee_sig(*callee, local_sigs, external_sigs) {
-                    for (i, &arg) in args.iter().enumerate() {
-                        if i < callee_sig.params.len()
-                            && callee_sig.params[i].ownership == Ownership::Owned
-                        {
-                            changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
-                        }
-                    }
-                } else if !builtins.borrowing.contains(callee) {
-                    if let Some(ownership) = builtins.protocol.get(callee) {
-                        for (i, &arg) in args.iter().enumerate() {
-                            if ownership.get(i).copied() == Some(ProtocolArgOwnership::Owned) {
-                                changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
-                            }
-                        }
-                    } else {
-                        for &arg in args {
-                            changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
-                        }
-                    }
-                }
+                changed |= promote_callee_args(
+                    *callee,
+                    args,
+                    func,
+                    my_sig,
+                    local_sigs,
+                    external_sigs,
+                    builtins,
+                    &aliases,
+                );
             }
         }
     }

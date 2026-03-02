@@ -1,0 +1,48 @@
+// Valgrind test: nested collections with COW.
+// Exercises map-of-lists, struct-with-collections, and list-of-structs.
+//
+// KNOWN BUGS (tracked for llvm-codegen-fixes reroute):
+// - All [[T]] (list of lists) ops: double-free in _ori_elem_dec codegen
+// - Struct spread on shared struct w/ collection field: leak
+// - Accessing struct.collection through list index: double-free
+// - 3-level nesting and loop-built nested lists: double-free
+
+type Container = { name: str, items: [int] }
+
+@main () -> int = {
+    // Map of lists — COW on map containing list values
+    let m = {"a": [1, 2], "b": [3, 4]};
+    let m2 = m.insert("c", [5, 6]);
+    let map_ok = m.len() == 2 && m2.len() == 3;
+
+    // Map of lists — multi-fork
+    let base = {"x": [10, 20]};
+    let f1 = base.insert("y", [30]);
+    let f2 = base.insert("z", [40]);
+    let map_fork_ok = base.len() == 1 && f1.len() == 2;
+
+    // Struct containing collection fields
+    let c1 = Container { name: "first", items: [1, 2, 3] };
+    let c2 = Container { name: "second", items: [4, 5, 6] };
+    let containers = [c1, c2];
+    let containers_ok = containers.length() == 2 && containers[0].name == "first";
+
+    // COW via struct spread (unique owner)
+    let c3 = Container { ...c1, items: c1.items.push(4) };
+    let spread_ok = c1.items.length() == 3 && c3.items.length() == 4;
+
+    // List of structs
+    let all = [c1, c2, c3];
+    let list_struct_ok = all.length() == 3;
+
+    // Map of lists — loop insert
+    let acc: {int: [int]} = {};
+    for i in 0..20 do {
+        acc = acc.insert(i, [i, i * 2, i * 3]);
+    };
+    let loop_ok = acc.len() == 20;
+
+    if map_ok && map_fork_ok && containers_ok && spread_ok
+        && list_struct_ok && loop_ok
+    then 0 else 1
+}

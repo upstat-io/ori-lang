@@ -1,0 +1,75 @@
+// Valgrind test: iterator collect with COW.
+// Exercises iterator adapters (map, filter, fold, take, skip, chain,
+// enumerate, zip) collecting into new lists, verifying no leaks from
+// intermediate iterator state or collected buffers.
+// Note: string filter collect excluded (known AOT segfault).
+
+@main () -> int = {
+    // Basic collect from range
+    let xs: [int] = (0..10).iter().collect();
+    let range_ok = xs.length() == 10 && xs[0] == 0 && xs[9] == 9;
+
+    // Map + collect
+    let doubled: [int] = [1, 2, 3, 4, 5].iter().map(x -> x * 2).collect();
+    let map_ok = doubled.length() == 5 && doubled[0] == 2 && doubled[4] == 10;
+
+    // Filter + collect (int filter works)
+    let evens: [int] = [1, 2, 3, 4, 5, 6].iter().filter(x -> x % 2 == 0).collect();
+    let filter_ok = evens.length() == 3 && evens[0] == 2 && evens[2] == 6;
+
+    // Map + filter + collect (chained adapters)
+    let result: [int] = (0..20).iter()
+        .map(x -> x * 3)
+        .filter(x -> x % 2 == 0)
+        .collect();
+    let chain_ok = result.length() == 10 && result[0] == 0;
+
+    // Fold (no collect, exercises iterator consumption)
+    let sum = [1, 2, 3, 4, 5].iter().fold(0, (acc, x) -> acc + x);
+    let fold_ok = sum == 15;
+
+    // Take + collect
+    let taken: [int] = (0..100).iter().take(count: 5).collect();
+    let take_ok = taken.length() == 5 && taken[4] == 4;
+
+    // Skip + collect
+    let skipped: [int] = [10, 20, 30, 40, 50].iter().skip(count: 2).collect();
+    let skip_ok = skipped.length() == 3 && skipped[0] == 30;
+
+    // Chain + collect
+    let chained: [int] = [1, 2, 3].iter().chain([4, 5, 6].iter()).collect();
+    let chain_collect_ok = chained.length() == 6 && chained[0] == 1 && chained[5] == 6;
+
+    // Enumerate + collect (produces tuples)
+    let enumerated: [(int, str)] = ["a", "b", "c"].iter().enumerate().collect();
+    let enum_ok = enumerated.length() == 3;
+
+    // Zip + collect
+    let zipped: [(int, int)] = [1, 2, 3].iter().zip([4, 5, 6].iter()).collect();
+    let zip_ok = zipped.length() == 3;
+
+    // Collect from shared list's iterator (original unchanged)
+    let base = [1, 2, 3, 4, 5];
+    let shared = base;
+    let mapped: [int] = shared.iter().map(x -> x + 10).collect();
+    let shared_ok = base.length() == 5 && base[0] == 1
+        && mapped.length() == 5 && mapped[0] == 11;
+
+    // Large collect
+    let big: [int] = (0..1000).iter().map(x -> x * 2).collect();
+    let big_ok = big.length() == 1000 && big[500] == 1000 && big[999] == 1998;
+
+    // Any and all (consume iterator without collecting)
+    let has_five = [1, 2, 3, 4, 5].iter().any(x -> x == 5);
+    let all_pos = [1, 2, 3, 4, 5].iter().all(x -> x > 0);
+    let consume_ok = has_five && all_pos;
+
+    // Count
+    let cnt = [1, 2, 3, 4, 5].iter().filter(x -> x > 2).count();
+    let count_ok = cnt == 3;
+
+    if range_ok && map_ok && filter_ok && chain_ok && fold_ok
+        && take_ok && skip_ok && chain_collect_ok && enum_ok && zip_ok
+        && shared_ok && big_ok && consume_ok && count_ok
+    then 0 else 1
+}

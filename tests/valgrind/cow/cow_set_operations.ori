@@ -1,0 +1,70 @@
+// Valgrind test: COW set operations.
+// Exercises set insert/remove with string elements (RC'd elements in buffer),
+// shared ownership, set operations (union, intersection, difference).
+// Sets are created via [T].iter().collect() with Set<T> type annotation.
+
+@main () -> int = {
+    // Insert to empty set
+    let s1: Set<int> = [].iter().collect();
+    let s2 = s1.insert(1);
+    let empty_ok = s1.len() == 0 && s2.len() == 1 && s2.contains(1);
+
+    // Insert unique owner (in-place)
+    let s3: Set<int> = [1, 2, 3].iter().collect();
+    let s4 = s3.insert(4);
+    let unique_ok = s4.len() == 4 && s4.contains(4);
+
+    // Insert duplicate (no change)
+    let s5: Set<int> = [1, 2, 3].iter().collect();
+    let s6 = s5.insert(2);
+    let dup_ok = s6.len() == 3;
+
+    // Insert shared owner (COW)
+    let base: Set<int> = [10, 20, 30].iter().collect();
+    let shared = base;
+    let fork = shared.insert(40);
+    let cow_ok = base.len() == 3 && fork.len() == 4
+        && !base.contains(40) && fork.contains(40);
+
+    // Remove unique owner (in-place)
+    let s7: Set<int> = [1, 2, 3].iter().collect();
+    let s8 = s7.remove(2);
+    let remove_ok = s8.len() == 2 && !s8.contains(2);
+
+    // Remove shared owner (COW)
+    let s9: Set<int> = [1, 2, 3].iter().collect();
+    let s10 = s9;
+    let s11 = s10.remove(1);
+    let cow_remove_ok = s9.len() == 3 && s11.len() == 2
+        && s9.contains(1) && !s11.contains(1);
+
+    // Remove nonexistent (no crash)
+    let s12: Set<int> = [1, 2].iter().collect();
+    let s13 = s12.remove(99);
+    let miss_ok = s13.len() == 2;
+
+    // String elements (RC'd)
+    let str_set: Set<str> = ["hello", "world"].iter().collect();
+    let str_set2 = str_set.insert("test");
+    let str_ok = str_set.len() == 2 && str_set2.len() == 3
+        && str_set2.contains("test");
+
+    // Multi-fork
+    let root: Set<int> = [1, 2, 3].iter().collect();
+    let f1 = root.insert(4);
+    let f2 = root.insert(5);
+    let f3 = root.remove(1);
+    let multi_ok = root.len() == 3 && f1.len() == 4
+        && f2.len() == 4 && f3.len() == 2;
+
+    // Loop insert
+    let acc: Set<int> = [].iter().collect();
+    for i in 0..100 do {
+        acc = acc.insert(i);
+    };
+    let loop_ok = acc.len() == 100 && acc.contains(50);
+
+    if empty_ok && unique_ok && dup_ok && cow_ok && remove_ok
+        && cow_remove_ok && miss_ok && str_ok && multi_ok && loop_ok
+    then 0 else 1
+}
