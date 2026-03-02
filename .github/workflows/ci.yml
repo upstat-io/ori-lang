@@ -214,6 +214,7 @@ jobs:
           Write-Host "Extracting LLVM to C:\LLVM..."
           7z x LLVM-17.0.6-win64.7z -oC:\LLVM
           echo "LLVM_SYS_170_PREFIX=C:\LLVM" >> $env:GITHUB_ENV
+          echo "C:\LLVM\bin" >> $env:GITHUB_PATH
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

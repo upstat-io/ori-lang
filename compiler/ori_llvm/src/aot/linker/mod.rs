@@ -371,10 +371,20 @@ impl LinkerDriver {
             });
         }
 
-        // Select linker flavor
-        let flavor = input
-            .linker
-            .unwrap_or_else(|| LinkerFlavor::for_target(self.target.components()));
+        // Select linker flavor (with fallback if preferred linker unavailable)
+        let flavor = input.linker.unwrap_or_else(|| {
+            let preferred = LinkerFlavor::for_target(self.target.components());
+            if LinkerDetection::is_available(preferred) {
+                preferred
+            } else {
+                // Fall back to next available linker for this target.
+                // Common case: Windows CI where GNU `link` shadows MSVC's `link.exe`,
+                // but `lld-link` from LLVM is available.
+                LinkerDetection::detect(&self.target)
+                    .preferred()
+                    .unwrap_or(preferred)
+            }
+        });
 
         // Create the appropriate linker using enum dispatch (not trait objects)
         // This provides exhaustiveness checking, static dispatch, and no heap allocation
@@ -647,7 +657,14 @@ impl LinkerDetection {
     fn is_available(flavor: LinkerFlavor) -> bool {
         let program = match flavor {
             LinkerFlavor::Gcc => "cc",
-            LinkerFlavor::Lld => "lld",
+            // On Windows, LLD's MSVC-compatible driver is `lld-link`, not `lld`
+            LinkerFlavor::Lld => {
+                if cfg!(windows) {
+                    "lld-link"
+                } else {
+                    "lld"
+                }
+            }
             LinkerFlavor::Msvc => "link.exe",
             LinkerFlavor::WasmLd => "wasm-ld",
         };
@@ -658,7 +675,20 @@ impl LinkerDetection {
             _ => Command::new(program).arg("--version").output(),
         };
 
-        result.is_ok()
+        match result {
+            Ok(output) => {
+                if flavor == LinkerFlavor::Msvc {
+                    // Verify it's actually MSVC's link.exe, not GNU coreutils `link`.
+                    // MSVC link.exe prints "Microsoft (R) Incremental Linker" on stdout
+                    // when invoked with /?.  GNU link prints a one-line usage message.
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    stdout.contains("Microsoft") || stdout.contains("Incremental Linker")
+                } else {
+                    true
+                }
+            }
+            Err(_) => false,
+        }
     }
 
     /// Get the preferred linker, if any are available.

@@ -77,7 +77,7 @@ impl RuntimeConfig {
     #[must_use]
     pub fn new(library_path: PathBuf) -> Self {
         Self {
-            library_path,
+            library_path: strip_unc_prefix(library_path),
             static_link: true,
         }
     }
@@ -232,4 +232,20 @@ impl RuntimeConfig {
             LibraryKind::Dynamic
         }
     }
+}
+
+/// Strip the Windows extended-length path prefix (`\\?\`).
+///
+/// `Path::canonicalize()` on Windows returns paths like `\\?\D:\a\repo\target\debug`.
+/// External tools (linkers, etc.) can't handle this prefix — it causes garbled paths
+/// in `/LIBPATH:` arguments and `-L` flags. On non-Windows, this is a no-op.
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    path
 }
