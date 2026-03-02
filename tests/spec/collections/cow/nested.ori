@@ -1,0 +1,110 @@
+// COW behavioral equivalence tests for nested collection mutations.
+// Uses map-of-lists pattern to avoid the known [[T]] double-free
+// codegen bug (tracked in llvm-codegen-fixes reroute).
+
+use std.testing { assert_eq, assert }
+
+// --- Map of lists: insert ---
+
+@map_of_lists () -> {str: [int]} = {
+    let m: {str: [int]} = {};
+    let m = m.insert("a", [1, 2, 3]);
+    let m = m.insert("b", [4, 5]);
+    m
+}
+
+@test_map_of_lists tests @map_of_lists () -> void = {
+    let m = map_of_lists();
+    assert_eq(actual: m.len(), expected: 2);
+    assert_eq(actual: m.get("a"), expected: Some([1, 2, 3]));
+    assert_eq(actual: m.get("b"), expected: Some([4, 5]))
+}
+
+// --- Map of lists: COW on map ---
+
+@map_of_lists_cow () -> ({str: [int]}, {str: [int]}) = {
+    let base: {str: [int]} = {"x": [1, 2]};
+    let fork = base.insert("y", [3, 4]);
+    (base, fork)
+}
+
+@test_map_of_lists_cow tests @map_of_lists_cow () -> void = {
+    let (base, fork) = map_of_lists_cow();
+    assert_eq(actual: base.len(), expected: 1);
+    assert_eq(actual: fork.len(), expected: 2)
+}
+
+// --- Map of lists: multi-fork ---
+
+@map_multi_fork () -> ({str: [int]}, {str: [int]}, {str: [int]}) = {
+    let base: {str: [int]} = {"k": [10]};
+    let f1 = base.insert("a", [20]);
+    let f2 = base.insert("b", [30]);
+    (base, f1, f2)
+}
+
+@test_map_multi_fork tests @map_multi_fork () -> void = {
+    let (base, f1, f2) = map_multi_fork();
+    assert_eq(actual: base.len(), expected: 1);
+    assert_eq(actual: f1.len(), expected: 2);
+    assert_eq(actual: f2.len(), expected: 2)
+}
+
+// --- Map of lists: loop accumulation ---
+
+@map_loop_build () -> {int: [int]} = {
+    let acc: {int: [int]} = {};
+    for i in 0..5 do {
+        acc = acc.insert(i, [i, i * 2, i * 3]);
+    };
+    acc
+}
+
+@test_map_loop_build tests @map_loop_build () -> void = {
+    let m = map_loop_build();
+    assert_eq(actual: m.len(), expected: 5);
+    assert_eq(actual: m.get(3), expected: Some([3, 6, 9]))
+}
+
+// --- Map of strings ---
+
+@map_of_strings () -> {int: str} = {
+    let m: {int: str} = {};
+    let m = m.insert(1, "hello");
+    let m = m.insert(2, "world");
+    m
+}
+
+@test_map_of_strings tests @map_of_strings () -> void = {
+    let m = map_of_strings();
+    assert_eq(actual: m.get(1), expected: Some("hello"));
+    assert_eq(actual: m.get(2), expected: Some("world"))
+}
+
+// --- Struct with collection field ---
+
+type Container = { name: str, items: [int] }
+
+@struct_with_list () -> Container = {
+    Container { name: "test", items: [1, 2, 3] }
+}
+
+@test_struct_with_list tests @struct_with_list () -> void = {
+    let c = struct_with_list();
+    assert_eq(actual: c.name, expected: "test");
+    assert_eq(actual: c.items, expected: [1, 2, 3])
+}
+
+// --- Struct spread (unique owner) ---
+
+@struct_spread () -> (Container, Container) = {
+    let c1 = Container { name: "first", items: [1, 2] };
+    let c2 = Container { ...c1, items: c1.items.push(3) };
+    (c1, c2)
+}
+
+@test_struct_spread tests @struct_spread () -> void = {
+    let (c1, c2) = struct_spread();
+    assert_eq(actual: c1.items, expected: [1, 2]);
+    assert_eq(actual: c2.items, expected: [1, 2, 3])
+}

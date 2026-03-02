@@ -516,6 +516,76 @@ fn chain_count() {
     assert_eq!(ori_iter_count(iter, 8), 6);
 }
 
+// ── Seamless slice cleanup ──────────────────────────────────────────────
+//
+// Regression: IterState::List Drop used `*cap > 0` which excluded seamless
+// slices (negative cap due to SLICE_FLAG). The iterator failed to release
+// its RC reference to the backing buffer, causing a memory leak.
+
+#[test]
+fn list_iter_drop_releases_slice_rc() {
+    use crate::rc::{ori_rc_alloc, ori_rc_count, ori_rc_free, ori_rc_inc};
+    use crate::slice_encoding::make_slice_cap;
+
+    // Allocate an RC-managed buffer for 5 × i64 = 40 bytes (RC starts at 1)
+    let data = ori_rc_alloc(40, 8);
+    assert!(!data.is_null());
+    unsafe {
+        for i in 0..5_i64 {
+            data.cast::<i64>().add(i as usize).write(i * 10);
+        }
+    }
+    assert_eq!(ori_rc_count(data.cast_const()), 1);
+
+    // Simulate a slice taking a reference (like ori_list_slice_take does)
+    ori_rc_inc(data);
+    assert_eq!(ori_rc_count(data.cast_const()), 2);
+
+    // Create an iterator over the "slice" — 2 elements starting at byte offset 0
+    let slice_cap = make_slice_cap(0);
+    let iter = ori_iter_from_list(data, 2, slice_cap, 8, None);
+
+    // Drop the iterator — should release the slice's RC reference
+    ori_iter_drop(iter);
+    assert_eq!(
+        ori_rc_count(data.cast_const()),
+        1,
+        "Iterator drop should have decremented RC from 2 to 1"
+    );
+
+    // Clean up the original allocation
+    ori_rc_free(data, 40, 8);
+}
+
+#[test]
+fn list_iter_drop_frees_slice_when_last_ref() {
+    use crate::rc::{ori_rc_alloc, ori_rc_live_count};
+    use crate::slice_encoding::make_slice_cap;
+
+    let before = ori_rc_live_count();
+
+    // Allocate a buffer (RC=1) — the iterator is the sole owner via the slice
+    let data = ori_rc_alloc(24, 8); // 3 × i64
+    unsafe {
+        for i in 0..3_i64 {
+            data.cast::<i64>().add(i as usize).write(i + 1);
+        }
+    }
+    assert_eq!(ori_rc_live_count(), before + 1);
+
+    // Create an iterator with slice cap — sole owner (RC=1)
+    let slice_cap = make_slice_cap(0);
+    let iter = ori_iter_from_list(data, 3, slice_cap, 8, None);
+
+    // Drop the iterator — should free the buffer entirely (RC 1→0)
+    ori_iter_drop(iter);
+    assert_eq!(
+        ori_rc_live_count(),
+        before,
+        "Iterator drop should have freed the backing buffer"
+    );
+}
+
 // ── Null safety ─────────────────────────────────────────────────────────
 
 #[test]

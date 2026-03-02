@@ -241,6 +241,7 @@ fn from_linker_link_failed() {
     let err = ori_llvm::aot::LinkerError::LinkFailed {
         linker: "cc".into(),
         exit_code: Some(1),
+        stdout: String::new(),
         stderr: "undefined reference to `main`".into(),
         command: "cc -o output main.o -lori_rt".into(),
     };

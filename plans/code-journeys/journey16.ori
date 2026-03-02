@@ -1,0 +1,26 @@
+// Journey 16: COW Sharing Semantics
+// Tests: value semantics under sharing — when two bindings
+// reference the same list, modifying one must NOT affect the other
+// (copy-on-write: clone when RC > 1, mutate in-place when RC == 1)
+// Expected: original.length()=3 + modified.length()=4 + original_sum=6 + modified_sum=10 = 23
+
+@main () -> int = {
+    let $original = [1, 2, 3];
+    let modified = original;
+    let modified = modified.push(4);
+
+    let $orig_len = original.length();
+    let $mod_len = modified.length();
+
+    let orig_sum = 0;
+    for x in original do {
+        orig_sum += x;
+    };
+
+    let mod_sum = 0;
+    for x in modified do {
+        mod_sum += x;
+    };
+
+    orig_len + mod_len + orig_sum + mod_sum
+}

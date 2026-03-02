@@ -77,6 +77,7 @@ pub enum LinkerError {
     LinkFailed {
         linker: String,
         exit_code: Option<i32>,
+        stdout: String,
         stderr: String,
         command: String,
     },
@@ -99,12 +100,18 @@ impl fmt::Display for LinkerError {
             Self::LinkFailed {
                 linker,
                 exit_code,
+                stdout,
                 stderr,
                 command,
             } => {
                 write!(f, "linking with '{linker}' failed")?;
                 if let Some(code) = exit_code {
                     write!(f, " (exit code {code})")?;
+                }
+                // MSVC link.exe sends diagnostics (LNK2019, etc.) to stdout.
+                // Show stdout first since it often contains the primary error.
+                if !stdout.is_empty() {
+                    write!(f, "\n\nLinker stdout:\n{stdout}")?;
                 }
                 if !stderr.is_empty() {
                     write!(f, "\n\nLinker stderr:\n{stderr}")?;
@@ -479,15 +486,10 @@ impl LinkerDriver {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-        // Combine stdout and stderr: MSVC link.exe sends error details
-        // (LNK2019 unresolved symbols) to stdout, not stderr.
-        let combined = if stdout.is_empty() {
-            stderr
-        } else if stderr.is_empty() {
-            stdout
-        } else {
-            format!("{stderr}\n{stdout}")
-        };
+        // Combine stdout and stderr for pattern matching: MSVC link.exe sends
+        // error details (LNK2019 unresolved symbols) to stdout, not stderr.
+        // We check both streams for retryable patterns.
+        let combined = format!("{stderr}\n{stdout}");
 
         // Check for retryable errors
         if Self::should_retry(&combined) {
@@ -499,7 +501,8 @@ impl LinkerDriver {
         Err(LinkerError::LinkFailed {
             linker: cmd.get_program().to_string_lossy().into(),
             exit_code: output.status.code(),
-            stderr: combined,
+            stdout,
+            stderr,
             command: format!("{cmd:?}"),
         })
     }

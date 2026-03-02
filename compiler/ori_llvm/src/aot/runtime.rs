@@ -214,27 +214,18 @@ impl RuntimeConfig {
         };
         input.libraries.push(lib);
 
-        // Platform system libraries needed by ori_rt
-        #[cfg(unix)]
+        // Platform system libraries needed by ori_rt (a Rust staticlib).
+        // Detected at build time via `rustc --print native-static-libs` in build.rs.
+        // This replaces hardcoded per-platform lists that drift across toolchain versions.
+        //
+        // Previous hardcoded values (for reference):
+        //   Unix:    c, m, pthread
+        //   Windows: advapi32, bcryptprimitives, kernel32, ntdll, userenv, ws2_32
+        for lib in env!("ORI_RT_NATIVE_LIBS")
+            .split(',')
+            .filter(|s| !s.is_empty())
         {
-            input.libraries.push(LinkLibrary::new("c"));
-            input.libraries.push(LinkLibrary::new("m"));
-            input.libraries.push(LinkLibrary::new("pthread"));
-        }
-        #[cfg(windows)]
-        {
-            // Rust's std depends on these Windows system DLLs when statically linked.
-            // Discoverable via: rustc --print native-static-libs --crate-type staticlib
-            for lib in [
-                "advapi32",         // Security, registry, crypto services
-                "bcryptprimitives", // Cryptographic primitives (std::hash)
-                "kernel32",         // Core Windows API (memory, threading, I/O)
-                "ntdll",            // NT kernel interface
-                "userenv",          // User profile management
-                "ws2_32",           // Windows Sockets 2 (networking)
-            ] {
-                input.libraries.push(LinkLibrary::new(lib));
-            }
+            input.libraries.push(LinkLibrary::new(lib));
         }
     }
 

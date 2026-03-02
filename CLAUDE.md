@@ -62,7 +62,7 @@
 **Runtime debug**: `ORI_TRACE_RC=1` (RC log) | `ORI_RT_DEBUG=1` (assertions) | `ORI_CHECK_LEAKS=1` (leak report)
 **Codegen audit**: `ORI_AUDIT_CODEGEN=1` — RC balance, COW sequencing, ABI args, aggregate loads, safety checks. Zero cost off. `ORI_AUDIT_STRICT=1` (pessimistic) | `ORI_AUDIT_FUNCTION=name` (filter)
 **Always run `./test-all.sh` after compiler changes.**
-**Perf baseline**: `./scripts/perf-baseline.sh [--release]` | **Consistency**: `diagnostics/check-debug-flags.sh`
+**Perf baseline**: `./scripts/perf-baseline.sh [--release] [--include-cow]` | **COW benchmarks**: `./scripts/cow-benchmark.sh [--release] [--include-macro] [--compare baseline.json]` | **Consistency**: `diagnostics/check-debug-flags.sh`
 **Diagnostic scripts** (`diagnostics/`) — all support `--help`, `--no-color`/`--color`:
 - `ir-dump.sh` — LLVM IR (`--raw`) | `ir-diff.sh` — compare two programs | `disasm-ori.sh` — native disassembly
 - `rc-stats.sh` — RC balance per function | `codegen-audit.sh` — static RC/COW/ABI analysis (`--strict`, `--function`)
@@ -80,7 +80,7 @@ CalVer — see `docs/ori_lang/versioning.md` | `docs/development/versioning.md` 
 
 ## Key Paths
 
-`compiler/oric/` — compiler | `docs/ori_lang/v2026/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `docs/ori_lang/versioning.md` — versioning scheme | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT tests | `tests/valgrind/` — Valgrind tests | `tests/benchmarks/` — benchmarks | `diagnostics/` — diagnostic scripts | `plans/roadmap/` — roadmap
+`compiler/oric/` — compiler | `docs/ori_lang/v2026/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `docs/ori_lang/versioning.md` — versioning scheme | `library/std/` — stdlib | `tests/spec/` — conformance | `tests/spec/collections/cow/` — COW spec tests | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT tests | `tests/valgrind/` — Valgrind tests | `tests/valgrind/cow/` — COW Valgrind tests | `tests/benchmarks/` — benchmarks | `tests/benchmarks/cow/` — COW benchmarks (+ `baseline.json`) | `diagnostics/` — diagnostic scripts | `plans/roadmap/` — roadmap
 
 ## Reference Repos (`~/projects/reference_repos/lang_repos/`)
 
