@@ -6,11 +6,11 @@ description = "LLVM backend for the Ori compiler"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"
 
-# Excluded from workspace (requires LLVM 17). LLVM tests run in Docker.
-# Build: cargo bl (debug) / cargo blr (release) / ./docker/llvm/run.sh
+# Not in default-members (requires LLVM 17). Build with: cargo bl / cargo blr
+# LLVM tests: cargo test -p ori_llvm | CI: .github/workflows/ci.yml (llvm job)
 
 [dependencies]
-# Ori crates (relative paths since excluded from workspace)
+# Ori crates
 ori_arc = { path = "../ori_arc", features = ["cache"] }
 ori_ir = { path = "../ori_ir", features = ["cache"] }
 ori_rt = { path = "../ori_rt" }

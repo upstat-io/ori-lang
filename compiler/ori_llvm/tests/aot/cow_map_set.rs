@@ -365,17 +365,11 @@ fn test_cow_map_iter_after_insert() {
     );
 }
 
-// ─── Set COW: BLOCKED on Set construction in AOT ───
-// The following tests verify Set COW operations. They are currently
-// ignored because there is no way to construct a Set in AOT:
-// - `[...].iter().collect()` → `__collect_set` unresolved
-// - `Set.new()` → `Set` not in scope as value
-// - `.to_set()` → unresolved builtin
-// Once any Set construction path is implemented, remove the #[ignore]
-// and these tests should pass (the COW runtime functions are wired).
+// ─── Set COW ───
+// Set construction via `[...].iter().collect()` → `__collect_set` is now
+// wired in the LLVM backend. These tests verify COW semantics for sets.
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_insert_shared_preserves_original() {
     assert_aot_success(
         r#"
@@ -390,7 +384,6 @@ fn test_cow_set_insert_shared_preserves_original() {
 }
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_remove_shared_preserves_original() {
     assert_aot_success(
         r#"
@@ -405,7 +398,6 @@ fn test_cow_set_remove_shared_preserves_original() {
 }
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_insert_duplicate_no_change() {
     assert_aot_success(
         r#"
@@ -420,7 +412,6 @@ fn test_cow_set_insert_duplicate_no_change() {
 }
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_union_shared() {
     assert_aot_success(
         r#"
@@ -437,7 +428,6 @@ fn test_cow_set_union_shared() {
 }
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_intersection_shared() {
     assert_aot_success(
         r#"
@@ -453,7 +443,6 @@ fn test_cow_set_intersection_shared() {
 }
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_difference_shared() {
     assert_aot_success(
         r#"
@@ -469,14 +458,14 @@ fn test_cow_set_difference_shared() {
 }
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_union_identity_empty() {
     assert_aot_success(
         r#"
 @main () -> int = {
     let a: Set<int> = [1, 2, 3].iter().collect();
-    let b: Set<int> = [].iter().collect();
-    let c = a.union(b);
+    let b: Set<int> = [0].iter().collect();
+    let b2 = b.remove(0);
+    let c = a.union(b2);
     if c.len() == 3 then 0 else 1
 }
 "#,
@@ -485,7 +474,6 @@ fn test_cow_set_union_identity_empty() {
 }
 
 #[test]
-#[ignore = "AOT Set construction not yet implemented (no collect/Set.new/to_set)"]
 fn test_cow_set_intersection_disjoint() {
     assert_aot_success(
         r#"

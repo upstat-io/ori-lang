@@ -1239,7 +1239,6 @@ fn concat_sso_sso_to_sso() {
 #[test]
 fn concat_sso_sso_to_heap() {
     let _g = lock_rc();
-    let before = ori_rc_live_count();
     let a = OriStr::from_sso(b"twelve chars!"); // 12 bytes
     let b = OriStr::from_sso(b"twelve chars!"); // 12 bytes → combined 24 > 23
     let result = ori_str_concat(&a, &b);
@@ -1249,7 +1248,14 @@ fn concat_sso_sso_to_heap() {
     );
     assert_eq!(unsafe { result.as_str() }, "twelve chars!twelve chars!");
     assert_eq!(result.len(), 26);
-    assert_eq!(ori_rc_live_count(), before + 1);
+    // Per-allocation RC check avoids races with concurrent tests in other modules.
+    unsafe {
+        assert_eq!(
+            rc::ori_rc_count(result.heap.data),
+            1,
+            "freshly allocated heap string should have RC=1"
+        );
+    }
     free_heap_str(&result);
 }
 
@@ -1257,7 +1263,6 @@ fn concat_sso_sso_to_heap() {
 #[test]
 fn concat_heap_unique_with_capacity_inplace() {
     let _g = lock_rc();
-    let before = ori_rc_live_count();
     // Content must be long enough that a + b > SSO_MAX_LEN (23),
     // otherwise Case 1 (SSO) triggers before Case 2 (in-place).
     let content = b"this exceeds sso limit!"; // 23 bytes
@@ -1267,21 +1272,29 @@ fn concat_heap_unique_with_capacity_inplace() {
         std::ptr::copy_nonoverlapping(content.as_ptr(), a.heap.data, content.len());
         a.heap.len = content.len() as i64;
     }
-    let alloc_count_after_a = ori_rc_live_count();
-    assert_eq!(alloc_count_after_a, before + 1);
+    // Per-allocation RC check avoids races with concurrent tests in other modules
+    // (list/reset, list/slice) that allocate without RC_TEST_LOCK.
+    unsafe {
+        assert_eq!(
+            rc::ori_rc_count(a.heap.data),
+            1,
+            "with_capacity should create one allocation with RC=1"
+        );
+    }
 
     let b = OriStr::from_sso(b"x"); // 23 + 1 = 24 > 23 → forces heap path
     let result = ori_str_concat(&a, &b);
     assert!(!result.is_sso());
     assert_eq!(unsafe { result.as_str() }, "this exceeds sso limit!x");
-    // Should reuse the same allocation — no new alloc
-    assert_eq!(
-        ori_rc_live_count(),
-        alloc_count_after_a,
-        "in-place append should not allocate"
-    );
+    // Should reuse the same allocation — pointer equality proves in-place append.
+    // RC=2 because both `a` and `result` reference the same buffer.
     unsafe {
         assert_eq!(result.heap.data, a.heap.data, "should reuse same buffer");
+        assert_eq!(
+            rc::ori_rc_count(result.heap.data),
+            2,
+            "both a and result should reference the same buffer"
+        );
     }
     free_heap_str(&result);
 }

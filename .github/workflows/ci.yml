@@ -38,7 +38,6 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
-      - run: cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml -- --check
 
   clippy:
     name: Clippy
@@ -53,7 +52,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: clippy
-      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy --workspace --exclude ori_llvm --all-targets -- -D warnings
 
   # Main test suite
   test:
@@ -69,14 +68,14 @@ jobs:
           key: test
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace --exclude ori_llvm
 
       - name: Rust unit tests
         id: rust-tests
         continue-on-error: true
         run: |
           set -o pipefail
-          cargo test --workspace 2>&1 | tee rust-test-output.txt
+          cargo test --workspace --exclude ori_llvm 2>&1 | tee rust-test-output.txt
           # Sum all "X passed" counts from "test result:" lines
           RUST_TESTS=$(grep -oE '[0-9]+ passed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           RUST_FAILED=$(grep -oE '[0-9]+ failed' rust-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
@@ -100,7 +99,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          cargo test --manifest-path compiler/ori_rt/Cargo.toml 2>&1 | tee rt-test-output.txt
+          cargo test -p ori_rt 2>&1 | tee rt-test-output.txt
           RT_TESTS=$(grep -oE '[0-9]+ passed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           RT_FAILED=$(grep -oE '[0-9]+ failed' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           RT_SKIPPED=$(grep -oE '[0-9]+ ignored' rt-test-output.txt | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
@@ -177,10 +176,10 @@ jobs:
           key: ${{ matrix.os }}
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace --exclude ori_llvm
 
       - name: Rust unit tests
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude ori_llvm
 
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
@@ -212,7 +211,7 @@ jobs:
           key: llvm
 
       - name: LLVM clippy
-        run: cargo clippy --manifest-path compiler/ori_llvm/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy -p ori_llvm --all-targets -- -D warnings
         env:
           LLVM_SYS_170_PREFIX: /usr/lib/llvm-17
 
@@ -222,8 +221,8 @@ jobs:
         run: |
           set -o pipefail
           cargo build -p oric -p ori_rt --features llvm -q
-          cargo test --manifest-path compiler/ori_rt/Cargo.toml 2>&1 | tee rt-llvm-output.txt
-          cargo test --manifest-path compiler/ori_llvm/Cargo.toml 2>&1 | tee llvm-test-output.txt
+          cargo test -p ori_rt 2>&1 | tee rt-llvm-output.txt
+          cargo test -p ori_llvm 2>&1 | tee llvm-test-output.txt
           # Sum all "X passed" counts from test output
           LLVM_TESTS=$(cat rt-llvm-output.txt llvm-test-output.txt | grep -oE '[0-9]+ passed' | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
           LLVM_FAILED=$(cat rt-llvm-output.txt llvm-test-output.txt | grep -oE '[0-9]+ failed' | grep -oE '^[0-9]+' | awk '{sum+=$1} END {print sum+0}')
