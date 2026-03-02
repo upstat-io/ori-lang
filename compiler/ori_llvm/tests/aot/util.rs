@@ -461,8 +461,8 @@ pub fn ori_binary() -> PathBuf {
         (false, false) => {
             panic!(
                 "No LLVM-enabled ori binary found.\n\
-                 AOT tests require `ori` built with --features llvm.\n\
-                 Run `cargo bl` (debug) or `cargo blr` (release) first,\n\
+                 AOT tests require `ori` built with LLVM (enabled by default).\n\
+                 Run `cargo build` (debug) or `cargo build --release` (release) first,\n\
                  or use `./llvm-test.sh` which builds automatically.\n\
                  \n\
                  Checked:\n  \

@@ -166,6 +166,6 @@ The JIT execution engine needs explicit symbol mappings for functions not in the
   - `verify/tests.rs` (test fixture)
 - [ ] `ORI_DEBUG_LLVM=1 ori check tests/spec/functions/recursion.ori 2>&1 | grep personality` shows `@ori_eh_personality`
 - [ ] No compilation errors in `ori_llvm`
-- [ ] `cargo cll` (LLVM clippy) clean
+- [ ] `cargo cl` (LLVM clippy) clean
 
 **Exit Criteria:** `ORI_DEBUG_LLVM=1 ori build <any-program-with-invoke>` emits IR containing `personality ptr @ori_eh_personality` on all functions with landing pads. `grep -r "rust_eh_personality" compiler/` returns zero matches. Both JIT and AOT paths resolve the symbol correctly.

@@ -29,7 +29,7 @@ sections:
 # Section 06: Struct & Tuple Layout Optimization
 
 **Status:** Not Started
-**Goal:** Structs and tuples use the minimum possible memory by reordering fields to eliminate padding. A struct `{ a: bool, b: int, c: bool }` currently uses 24 bytes (1 + 7 padding + 8 + 1 + 7 padding); after optimization it uses 10 bytes (8 + 1 + 1 + 0 padding) by putting the `int` first.
+**Goal:** Structs and tuples use the minimum possible memory by reordering fields to minimize padding. A struct `{ a: bool, b: int, c: bool }` currently uses 24 bytes (1 + 7 padding + 8 + 1 + 7 padding); after optimization it uses 16 bytes (8 + 1 + 1 + 6 trailing padding) by putting the `int` first. (Trailing padding to `max_align` is required for correct array element addressing.)
 
 **Context:** The spec (§22) explicitly permits struct field reordering: "Struct field order in memory may differ from declaration order." This is a non-guarantee. Rust's `repr(Rust)` does exactly this — it reorders fields by alignment to minimize padding. Ori should do the same.
 
@@ -172,13 +172,13 @@ Tuples are anonymous structs. Apply the same optimization.
 
 ## 06.5 Completion Checklist
 
-- [ ] `struct { a: bool, b: int, c: bool }` uses 10 bytes not 24
+- [ ] `struct { a: bool, b: int, c: bool }` uses 16 bytes not 24 (field storage = 10, rounded to max_align 8 = 16)
 - [ ] `struct { x: int, y: int }` uses 16 bytes (no change — already optimal)
 - [ ] `(bool, int, bool)` uses same layout as the equivalent struct
 - [ ] `#[repr(C)]` structs use C layout (no reordering)
 - [ ] Field access codegen uses correct offsets from `StructRepr`
 - [ ] Pattern matching on structs works correctly with reordered fields
 - [ ] `./test-all.sh` green
-- [ ] `./scripts/valgrind-aot.sh` clean
+- [ ] `./diagnostics/valgrind-aot.sh` clean
 
-**Exit Criteria:** `sizeof` for `struct { a: bool, b: int, c: bool, d: byte }` is 12 bytes (i64 + i8 + i8 + 2 padding) instead of 32 bytes, verified in LLVM IR. All struct-related spec tests pass.
+**Exit Criteria:** `sizeof` for `struct { a: bool, b: int, c: bool, d: byte }` is 16 bytes (i64 + i8 + i8 + i8 + 5 trailing padding to align 8) instead of 32 bytes, verified in LLVM IR. All struct-related spec tests pass.

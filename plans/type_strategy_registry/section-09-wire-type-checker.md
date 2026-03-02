@@ -572,8 +572,25 @@ fn resolve_computed_return(
         }
         (Tag::DoubleEndedIterator, "rev") => Some(receiver_ty),
 
-        // --- Error computed returns ---
-        (Tag::Error, "trace_entries") => Some(engine.pool_mut().fresh_var()),
+        // --- trace_entries bridge (Error and Result) ---
+        // Current typeck returns unconstrained fresh_var() for both
+        // Error.trace_entries (resolve_by_type.rs:310) and Result.trace_entries
+        // (resolve_by_type.rs:88). Migration constructs [TraceEntry] explicitly.
+        // Requires interner (set_interner must be called in all contexts,
+        // including tests — see test infrastructure task).
+        //
+        // API path: intern_name -> named -> list
+        //   engine.intern_name("TraceEntry") -> Option<Name>  (infer/mod.rs:369)
+        //   engine.pool_mut().named(name) -> Idx               (pool Named type)
+        //   engine.pool_mut().list(elem) -> Idx                (pool List type)
+        (Tag::Error | Tag::Result, "trace_entries") => {
+            // intern_name requires set_interner(). Migration task must update
+            // all test helpers to provide an interner (see tasks below).
+            let name = engine.intern_name("TraceEntry")
+                .expect("trace_entries bridge requires interner — call set_interner() in test setup");
+            let trace_entry = engine.pool_mut().named(name);
+            Some(engine.pool_mut().list(trace_entry))
+        }
 
         _ => None,
     }
@@ -593,12 +610,12 @@ fn resolve_computed_return(
 | `resolve_duration_method` | 641-656 | YES | None | Fully replaced by registry lookup |
 | `resolve_size_method` | 658-672 | YES | None | Fully replaced by registry lookup |
 | `resolve_tuple_method` | 868-877 | YES | None | Fully replaced by registry lookup |
-| `resolve_error_method` | 751-759 | MOSTLY | `trace_entries` -> fresh_var | 1 computed case, rest via registry |
+| `resolve_error_method` | 751-759 | MOSTLY | `trace_entries` -> `[TraceEntry]` (bridge) | 1 computed case (fix bare fresh_var), rest via registry |
 | `resolve_str_method` | 589-611 | MOSTLY | `chars`, `bytes`, `split`, `lines`, `index_of`, `last_index_of`, `to_int`, `parse_int`, `to_float`, `parse_float`, `into` | 11 computed cases |
 | `resolve_channel_method` | 674-687 | MOSTLY | `recv`/`receive`/`try_recv`/`try_receive` -> `Option<T>` | 4 computed cases |
 | `resolve_list_method` | 465-500 | NO | `first`/`last`/`pop`/`get`, `iter`, `enumerate`, `zip`, + 20 HO methods | Complex, many computed |
 | `resolve_option_method` | 502-525 | NO | `ok_or` -> Result, `iter`, HO methods | Several computed |
-| `resolve_result_method` | 527-549 | NO | `ok`, `err`, HO methods | Several computed |
+| `resolve_result_method` | 527-549 | NO | `ok`, `err`, HO methods, `trace_entries` -> `[TraceEntry]` (bridge, same as Error) | Several computed |
 | `resolve_map_method` | 551-572 | NO | `get`, `iter`, `keys`, `values`, `entries` | 5 computed cases |
 | `resolve_set_method` | 574-587 | MOSTLY | `to_list`/`into` -> List<T> | 2 computed cases |
 | `resolve_range_method` | 689-707 | NO | `iter`, `to_list`/`collect` + float rejection | 3 computed + special logic |
@@ -616,7 +633,8 @@ fn resolve_computed_return(
 
 - [ ] Implement new `resolve_builtin_method()` dispatcher with registry lookup
 - [ ] Implement `resolve_computed_return()` for all computed cases
-- [ ] Verify computed returns match current behavior exactly (use existing tests)
+- [ ] **Update test infrastructure:** All `InferEngine` test helpers must call `set_interner()` so that `intern_name("TraceEntry")` succeeds. Current tests (e.g., `tests.rs:2062`) create engines without an interner — these must be updated before the `trace_entries` bridge can land. Create a shared `test_engine()` helper that always provides an interner.
+- [ ] Verify computed returns match current behavior exactly (use existing tests), **except** `trace_entries` which intentionally changes from unconstrained `fresh_var()` to `[TraceEntry]` — update affected tests to assert the new correct type
 - [ ] Delete the 9 trivially-replaced functions after tests pass
 - [ ] Delete the remaining 9 type-specific functions after computed returns are verified
 - [ ] Keep `resolve_named_type_method()` unchanged
@@ -697,7 +715,7 @@ These functions contain ONLY static return type mappings. Every match arm maps t
 "hash" => Idx::INT
 "to_str"|"debug" => Idx::STR
 ```
-**Registry coverage:** ORDERING TypeDef (Section 05) covers all 12 methods.
+**Registry coverage:** ORDERING TypeDef (Section 05) covers all 14 methods.
 
 **7. `resolve_duration_method` (lines 641-656)**
 ```rust
@@ -739,7 +757,7 @@ These functions have a few computed cases that go into `resolve_computed_return(
 
 **10. `resolve_error_method` (lines 751-759)**
 - Static: `message`/`to_str`/`debug`/`trace` -> STR, `has_trace` -> BOOL, `clone`/`with_trace` -> ERROR
-- Computed: `trace_entries` -> `fresh_var()` (handled in `resolve_computed_return`)
+- Computed: `trace_entries` -> `[TraceEntry]` (handled in `resolve_computed_return`; **migration must replace current bare `fresh_var()` with explicit `list(TraceEntry)` construction** — see Section 05 bridge task)
 - **7 static, 1 computed**
 
 **11. `resolve_str_method` (lines 589-611)**

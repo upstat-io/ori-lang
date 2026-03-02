@@ -115,8 +115,8 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 | ori_ir::ReturnSpec | Current Usage | ori_registry Equivalent | Sufficient? |
 |---|---|---|---|
 | `SelfType` | `clone`, `abs`, `add`, `sub`, etc. — returns same type as receiver | `ReturnTag::SelfType` | Yes. `ReturnTag::SelfType` exists for exactly this purpose. |
-| `Type(BuiltinType::Int)` | `str.len`, `Duration.nanoseconds`, `hash`, etc. — returns specific type | `TypeTag::Int` (or `TypeTag::Bool`, etc.) | Yes. Direct mapping. |
-| `Type(BuiltinType::Ordering)` | `compare` — returns Ordering | `TypeTag::Ordering` | Yes. Direct mapping. |
+| `Type(BuiltinType::Int)` | `str.len`, `Duration.nanoseconds`, `hash`, etc. — returns specific type | `ReturnTag::Concrete(TypeTag::Int)` (etc.) | Yes. Wrapped via `From<TypeTag>`. |
+| `Type(BuiltinType::Ordering)` | `compare` — returns Ordering | `ReturnTag::Concrete(TypeTag::Ordering)` | Yes. Wrapped via `From<TypeTag>`. |
 | `Void` | Not used in current `BUILTIN_METHODS` (zero entries) | `ReturnTag::Unit` | Yes. Never needed for the 162 entries being migrated. |
 | `ElementType` | Not used in current `BUILTIN_METHODS` (zero entries) | N/A | Not needed. Used only for collection methods (List, Iterator, etc.) which are handled by Section 06/07. |
 | `OptionElement` | Not used in current `BUILTIN_METHODS` (zero entries) | N/A | Not needed. Same — collection methods only. |
@@ -125,7 +125,7 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 ### Conclusion
 
-**TypeTag is fully sufficient for all 162 entries in BUILTIN_METHODS.** The complex return spec variants (`ElementType`, `OptionElement`, `ListElement`, `InnerType`) are never used in the current `ori_ir` registry. They exist because `ori_ir` anticipated needing them for collection types, but collection types were never added to `BUILTIN_METHODS`. In `ori_registry`, collection types are handled by Sections 06-07, where `ReturnTag` variants (e.g., `ReturnTag::Element`, `ReturnTag::Fresh`) capture the structural return type templates, and the type checker's existing inference logic handles closure-dependent return types.
+**`ReturnTag::Concrete(TypeTag)` is fully sufficient for all 162 entries in BUILTIN_METHODS.** Every `ReturnSpec::Type(X)` maps to `ReturnTag::Concrete(TypeTag::X)` and every `ReturnSpec::SelfType` maps to `ReturnTag::SelfType`. The complex return spec variants (`ElementType`, `OptionElement`, `ListElement`, `InnerType`) are never used in the current `ori_ir` registry. They exist because `ori_ir` anticipated needing them for collection types, but collection types were never added to `BUILTIN_METHODS`. In `ori_registry`, collection types are handled by Sections 06-07, where `ReturnTag` variants (e.g., `ReturnTag::ElementType`, `ReturnTag::Fresh`) capture the structural return type templates, and the type checker's existing inference logic handles closure-dependent return types.
 
 ### Decision: ReturnTag for all return types
 
@@ -136,7 +136,7 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 - [ ] Verify zero uses of `ElementType`, `OptionElement`, `ListElement`, `InnerType` in `BUILTIN_METHODS`
 - [ ] Verify all `ReturnSpec::SelfType` usages map to `ReturnTag::SelfType`
-- [ ] Verify all `ReturnSpec::Type(X)` usages map to the corresponding `TypeTag::X`
+- [ ] Verify all `ReturnSpec::Type(X)` usages map to `ReturnTag::Concrete(TypeTag::X)`
 
 ---
 
@@ -537,7 +537,7 @@ This subsection is the gate check. Every item must pass before Section 13 is mar
 - [ ] `cargo c -p ori_registry` — registry compiles (sanity check)
 - [ ] `cargo c -p oric` — oric compiles with updated consistency.rs
 - [ ] `cargo c --workspace` — full workspace compiles
-- [ ] `cargo bl` — LLVM build compiles (if ori_llvm tests reference moved)
+- [ ] `cargo b` — LLVM build compiles (if ori_llvm tests reference moved)
 
 ### Test Verification
 

@@ -17,8 +17,8 @@ name = "ori"
 path = "src/main.rs"
 
 [features]
-default = []
-llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 17; build via `cargo bl`/`blr` (see .cargo/config.toml)
+default = ["llvm"]
+llvm = ["dep:ori_llvm", "dep:ori_arc"]  # Requires LLVM 17 installed; always on
 
 [dependencies]
 # Incremental compilation - THE FOUNDATION
@@ -35,12 +35,10 @@ ori_eval.workspace = true
 ori_canon.workspace = true
 ori_fmt.workspace = true
 
-# Optional LLVM backend (requires LLVM installed)
-# Path dependency since ori_llvm is excluded from workspace
+# LLVM backend (requires LLVM 17 installed)
 ori_llvm = { path = "../ori_llvm", optional = true }
 
-# Optional ARC analysis (required for LLVM codegen borrow inference)
-# Path dependency since ori_arc is a workspace member but only needed for LLVM
+# ARC analysis (required for LLVM codegen borrow inference)
 ori_arc = { path = "../ori_arc", optional = true }
 
 # Concurrency and hashing
@@ -93,7 +91,6 @@ harness = false
 [[bench]]
 name = "borrow_inference"
 harness = false
-required-features = ["llvm"]
 
 [[bench]]
 name = "pool_interning"

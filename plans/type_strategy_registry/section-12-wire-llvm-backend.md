@@ -338,7 +338,7 @@ fn op_strategy_for_binary(&self, type_tag: TypeTag, op: BinaryOp) -> OpStrategy 
 - [ ] Extract `emit_coalesce()` from the current `Coalesce` arm
 - [ ] Rewrite `emit_binary_op()` to use the dispatch pattern shown above
 - [ ] Delete `is_float` and `is_str` local variables
-- [ ] Verify: `cargo cll` (LLVM clippy) passes
+- [ ] Verify: `cargo cl` (LLVM clippy) passes
 - [ ] Verify: `./llvm-test.sh` passes with identical LLVM IR output
 
 ### Critical detail: UnsignedCmp for bool/byte/char
@@ -519,7 +519,7 @@ fn op_strategy_for_unary(&self, type_tag: TypeTag, op: UnaryOp) -> OpStrategy {
 - [ ] Implement `op_strategy_for_unary()` as a method on `ArcIrEmitter`
 - [ ] Rewrite `emit_unary_op()` to use strategy dispatch
 - [ ] Delete `is_float` local variable
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 - [ ] Verify: `./llvm-test.sh` passes
 
 ---
@@ -636,7 +636,7 @@ Total: 73 entries (verified against file).
 - [ ] Update `declare_builtins!` macro definition — see 12.5
 - [ ] Update all 161 entries across 6 submodules (remove `, borrow: true`)
 - [ ] Remove all references to `receiver_borrowed` in `BuiltinTable` and related code
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 
 ---
 
@@ -721,7 +721,7 @@ macro_rules! declare_builtins {
 - [ ] Update `option_result.rs`: remove `, borrow: true` from 11 entries
 - [ ] Update `iterator.rs`: remove `, borrow: true` from 15 entries
 - [ ] Update `trampolines.rs`: no entries to change (empty declaration), but verify the empty macro invocation compiles
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 
 ### Mechanical transformation
 
@@ -791,7 +791,7 @@ Or equivalent registry query. Only after the callers are migrated can this funct
 - [ ] Delete the function body at `builtins/mod.rs:266-286`
 - [ ] Delete the re-export at `arc_emitter/mod.rs:17` (`pub use builtins::borrowing_builtin_names;`)
 - [ ] If `receiver_borrowed` was the only reason `BuiltinTable.entries` exposed registration details, simplify `BuiltinTable` accordingly
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 
 ---
 
@@ -977,9 +977,9 @@ fn registry_op_strategies_cover_all_operators() {
 ### Build verification
 
 - [ ] `cargo c -p ori_llvm` (standard check)
-- [ ] `cargo cll` (clippy with LLVM feature)
-- [ ] `cargo bl` (debug build: oric + ori_rt)
-- [ ] `cargo blr` (release build: oric + ori_rt)
+- [ ] `cargo cl` (clippy with LLVM feature)
+- [ ] `cargo b` (debug build: oric + ori_rt)
+- [ ] `cargo b --release` (release build: oric + ori_rt)
 
 ### Test verification
 
@@ -1048,8 +1048,8 @@ grep -n 'idx_to_type_tag' compiler/ori_llvm/src/codegen/arc_emitter/mod.rs
 
 Per LLVM backend rules, debug and release can differ due to FastISel behavior. Both must be tested:
 
-- [ ] `cargo bl && ./test-all.sh` (debug)
-- [ ] `cargo blr && ./test-all.sh` (release)
+- [ ] `cargo b && ./test-all.sh` (debug)
+- [ ] `cargo b --release && ./test-all.sh` (release)
 
 ---
 

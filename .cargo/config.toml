@@ -5,44 +5,19 @@
 LLVM_SYS_170_PREFIX = "/usr/lib/llvm-17"
 
 [alias]
-# Run Ori language tests (all tests in tests/ directory)
+# Ori language tests
 st = "run -p oric --bin ori -- test tests/"
-
-# Run Ori tests with verbose output
 stv = "run -p oric --bin ori -- test --verbose"
-
-# Run Ori tests with filter (usage: cargo stf map)
 stf = "run -p oric --bin ori -- test --filter"
 
-# Run all Rust unit tests across the workspace (excludes ori_llvm — needs LLVM 17)
-t = "test --workspace --exclude ori_llvm"
-
-# Run Rust tests with output shown
-tv = "test --workspace --exclude ori_llvm -- --nocapture"
-
-# Run tests for a specific crate (usage: cargo tc ori_parse)
+# Rust unit tests (all crates including ori_llvm)
+t = "test --workspace"
+tv = "test --workspace -- --nocapture"
 tc = "test -p"
 
-# Check all crates (excludes ori_llvm — needs LLVM 17)
-c = "check --workspace --exclude ori_llvm"
+# Build / check / lint (all crates including ori_llvm)
+c = "check --workspace"
+b = "build --workspace"
+cl = "clippy --workspace --all-targets -- -D warnings"
 
-# Build all crates (excludes ori_llvm — needs LLVM 17)
-b = "build --workspace --exclude ori_llvm"
-
-# Clippy on all crates (excludes ori_llvm — needs LLVM 17; use `cargo cll` for LLVM)
-cl = "clippy --workspace --exclude ori_llvm --all-targets -- -D warnings"
-
-# LLVM crates (ori_llvm, ori_rt) are excluded from workspace.
-# LLVM 17 path is configured via LLVM_SYS_170_PREFIX above.
-# `cargo b` (workspace build) does NOT include LLVM — use `bl`/`blr` for LLVM builds.
-# `bl`/`blr` build oric with --features llvm plus ori_rt (needed for AOT linking).
-
-# Build oric + runtime with LLVM feature (local LLVM required)
-bl = "build -p oric -p ori_rt --features llvm"
-blr = "build -p oric -p ori_rt --features llvm --release"
-
-# Run oric with LLVM feature
-rl = "run -p oric --features llvm --bin ori --"
-
-# Clippy on LLVM crate
-cll = "clippy -p ori_llvm --all-targets -- -D warnings"
+# LLVM 17 is a default feature of oric. All commands include LLVM.

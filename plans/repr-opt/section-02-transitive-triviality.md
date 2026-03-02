@@ -223,6 +223,6 @@ When `compute_drop_info()` returns `None`, the LLVM drop function generator must
 - [ ] Consistency test: `ArcClassifier` and `ReprPlan` agree on every type in the Pool
 - [ ] `./test-all.sh` green
 - [ ] `./llvm-test.sh` green
-- [ ] `./scripts/valgrind-aot.sh` clean (no leaks introduced by elision)
+- [ ] `./diagnostics/valgrind-aot.sh` clean (no leaks introduced by elision)
 
 **Exit Criteria:** `ori build` on a program using `Option<int>`, `(int, float)`, and `struct Point { x: int, y: int }` produces LLVM IR with zero `ori_rc_*` calls for these types, verified by `grep -c "ori_rc" output.ll` returning 0 for trivial-only programs.
