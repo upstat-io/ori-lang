@@ -59,8 +59,13 @@ impl MsvcLinker {
     pub fn set_output_kind(&mut self, kind: LinkOutput) {
         match kind {
             LinkOutput::Executable | LinkOutput::PositionIndependentExecutable => {
-                // Default for link.exe
                 self.cmd.arg("/SUBSYSTEM:CONSOLE");
+                // LLVM-emitted objects don't embed /DEFAULTLIB directives (unlike
+                // cl.exe), so we must explicitly request the MSVC C runtime.
+                // The linker finds these via the LIB environment variable.
+                self.cmd.arg("/DEFAULTLIB:libcmt");
+                self.cmd.arg("/DEFAULTLIB:libvcruntime");
+                self.cmd.arg("/DEFAULTLIB:libucrt");
             }
             LinkOutput::SharedLibrary => {
                 self.cmd.arg("/DLL");
