@@ -330,8 +330,7 @@ fn find_toolchain_in_known_paths(host_dir: &str, target_dir: &str) -> Option<Msv
                     .join(year)
                     .join(edition)
                     .join(r"VC\Tools\MSVC");
-                if let Some(tc) =
-                    find_latest_toolchain_in_vc_tools(&vc_tools, host_dir, target_dir)
+                if let Some(tc) = find_latest_toolchain_in_vc_tools(&vc_tools, host_dir, target_dir)
                 {
                     return Some(tc);
                 }
@@ -353,8 +352,8 @@ fn find_latest_toolchain_in_vc_tools(
 ) -> Option<MsvcToolchain> {
     let mut versions: Vec<_> = std::fs::read_dir(vc_tools_base)
         .ok()?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map_or(false, |ft| ft.is_dir()))
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|ft| ft.is_dir()))
         .map(|e| e.path())
         .collect();
 
@@ -389,9 +388,10 @@ fn find_latest_toolchain_in_vc_tools(
 /// Returns a path like `C:\Program Files (x86)\Windows Kits\10\Lib\10.0.26100.0\`.
 fn find_windows_sdk_lib_dir() -> Option<PathBuf> {
     // 1. Environment variables (set by VS dev prompt / ilammy/msvc-dev-cmd)
-    if let (Ok(sdk_dir), Ok(sdk_ver)) =
-        (std::env::var("WindowsSdkDir"), std::env::var("WindowsSDKVersion"))
-    {
+    if let (Ok(sdk_dir), Ok(sdk_ver)) = (
+        std::env::var("WindowsSdkDir"),
+        std::env::var("WindowsSDKVersion"),
+    ) {
         // WindowsSDKVersion often has a trailing backslash
         let ver = sdk_ver.trim_end_matches('\\');
         let path = PathBuf::from(&sdk_dir).join("Lib").join(ver);
@@ -409,8 +409,8 @@ fn find_windows_sdk_lib_dir() -> Option<PathBuf> {
 fn latest_version_dir(base: &Path) -> Option<PathBuf> {
     let mut versions: Vec<_> = std::fs::read_dir(base)
         .ok()?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().map_or(false, |ft| ft.is_dir()))
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_ok_and(|ft| ft.is_dir()))
         .map(|e| e.path())
         .collect();
 
