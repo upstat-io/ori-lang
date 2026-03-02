@@ -89,7 +89,7 @@ pub(crate) use rc::{freed_set, rt_debug_check_not_freed};
 #[cfg(test)]
 pub(crate) use rc::{rc_trace_enabled, rt_debug_validate_rc, MAX_REFCOUNT, RT_DEBUG_FORCE};
 
-use std::ffi::CStr;
+use std::ffi::{c_char, CStr};
 use std::sync::atomic::Ordering;
 
 /// Ori panic payload for stack unwinding (AOT mode).
@@ -256,7 +256,7 @@ pub extern "C" fn ori_max_int(a: i64, b: i64) -> i64 {
     clippy::similar_names,
     reason = "argc/argv are standard C parameter names"
 )]
-pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const i8) -> OriList {
+pub extern "C" fn ori_args_from_argv(argc: i32, argv: *const *const c_char) -> OriList {
     // Empty list if no user args or null argv
     if argc <= 1 || argv.is_null() {
         return OriList {
