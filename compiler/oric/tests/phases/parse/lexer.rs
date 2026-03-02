@@ -1416,3 +1416,30 @@ fn test_reserved_future_keywords_lex_as_ident_with_error() {
         .iter()
         .any(|e| matches!(e.kind, LexErrorKind::ReservedFutureKeyword { .. })));
 }
+
+#[test]
+fn test_reserved_future_keyword_no_error_in_method_position() {
+    let interner = test_interner();
+    // `.union()` in method position should NOT produce an error —
+    // the dot provides unambiguous context (method call, not declaration)
+    let output = lex_with_comments("a.union(b)", &interner);
+
+    assert!(
+        !output.has_errors(),
+        "`.union()` in method position should not produce reserved-future error"
+    );
+    // Should lex as: Ident(a), Dot, Ident(union), LParen, Ident(b), RParen
+    assert!(matches!(output.tokens[2].kind, TokenKind::Ident(_)));
+}
+
+#[test]
+fn test_reserved_future_keyword_no_error_in_method_position_with_whitespace() {
+    let interner = test_interner();
+    // Even with whitespace between `.` and `union`, still method position
+    let output = lex_with_comments("a. union(b)", &interner);
+
+    assert!(
+        !output.has_errors(),
+        "`. union()` with whitespace should not produce reserved-future error"
+    );
+}

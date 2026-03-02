@@ -331,5 +331,5 @@ The LLVM crate is built locally with LLVM 17+:
 Formatting works without special setup:
 
 ```bash
-cargo fmt --manifest-path compiler/ori_llvm/Cargo.toml
+cargo fmt -p ori_llvm
 ```
