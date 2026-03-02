@@ -1,31 +1,42 @@
 ---
-const steps = [
-  { num: 1, label: 'Capabilities', detail: 'Declare effects explicitly' },
-  { num: 2, label: 'Easy Mocking', detail: 'Inject test doubles trivially' },
-  { num: 3, label: 'Fast Tests', detail: 'No real I/O in unit tests' },
-  { num: 4, label: 'Dep-Aware Testing', detail: 'Only run what changed' },
-  { num: 5, label: 'Mandatory Tests', detail: 'Every function verified' },
-  { num: 6, label: 'Code Integrity', detail: 'If it compiles, it works' },
+const root = { label: 'Value Semantics', detail: 'Every variable owns its data. No shared mutation. No aliasing.' };
+
+const branches = [
+  { label: 'Safe Memory', detail: 'No aliasing lets ARC optimize: in-place reuse, borrow inference, copy-on-write — all automatic.' },
+  { label: 'Complete Effects', detail: 'No hidden mutation means capabilities see every side effect. Nothing escapes.' },
+  { label: 'Trivial Mocking', detail: 'Capabilities are injectable. Replace any effect with `with...in`. No frameworks needed.' },
+  { label: 'Safe Refactoring', detail: 'Mandatory tests + dependency tracking = change with confidence. If it compiles, it works.' },
 ];
 ---
 
 <section class="cycle">
   <div class="cycle-inner">
-    <h2 class="cycle-heading">The Virtuous Cycle</h2>
+    <h2 class="cycle-heading">The Design That Compounds</h2>
     <p class="cycle-subtitle">
-      Each design decision reinforces the next, creating a system where verification is practical, not painful.
+      Not independent features bolted together — one design choice with compounding returns.
     </p>
 
-    <div class="cycle-grid">
-      {steps.map((step) => (
-        <div class="cycle-card">
-          <div class="card-number">{step.num}</div>
-          <div class="card-content">
-            <h3 class="card-label">{step.label}</h3>
-            <p class="card-detail">{step.detail}</p>
-          </div>
+    <div class="compound-layout">
+      <div class="root-card">
+        <h3 class="root-label">{root.label}</h3>
+        <p class="root-detail">{root.detail}</p>
+      </div>
+
+      <div class="branch-connector" aria-hidden="true">
+        <div class="connector-stem"></div>
+        <div class="connector-bar">
+          {branches.map(() => <div class="connector-drop"></div>)}
         </div>
-      ))}
+      </div>
+
+      <div class="branch-grid">
+        {branches.map((branch) => (
+          <div class="branch-card">
+            <h3 class="card-label">{branch.label}</h3>
+            <p class="card-detail">{branch.detail}</p>
+          </div>
+        ))}
+      </div>
     </div>
 
   </div>
@@ -61,16 +72,82 @@ const steps = [
     margin-right: auto;
   }
 
-  .cycle-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-4);
+  .compound-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
   }
 
-  .cycle-card {
+  .root-card {
+    text-align: center;
+    padding: var(--space-5) var(--space-8);
+    background: var(--color-bg-primary);
+    border: 2px solid var(--color-accent);
+    border-radius: var(--radius-lg);
+    max-width: 420px;
+    width: 100%;
+  }
+
+  .root-label {
+    font-weight: var(--weight-bold);
+    font-size: var(--text-xl);
+    color: var(--color-accent);
+    margin: 0 0 var(--space-1) 0;
+  }
+
+  .root-detail {
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    margin: 0;
+    line-height: var(--leading-relaxed);
+  }
+
+  .branch-connector {
     display: flex;
-    align-items: flex-start;
-    gap: var(--space-3);
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+  }
+
+  .connector-stem {
+    width: 2px;
+    height: var(--space-6);
+    background: var(--color-border-hover);
+  }
+
+  .connector-bar {
+    display: flex;
+    justify-content: space-around;
+    width: 100%;
+    position: relative;
+  }
+
+  /* horizontal crossbar connecting all drops */
+  .connector-bar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 12.5%;
+    right: 12.5%;
+    height: 2px;
+    background: var(--color-border-hover);
+  }
+
+  .connector-drop {
+    width: 2px;
+    height: var(--space-4);
+    background: var(--color-border-hover);
+  }
+
+  .branch-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-4);
+    width: 100%;
+  }
+
+  .branch-card {
     padding: var(--space-4);
     background: var(--color-bg-primary);
     border: 1px solid var(--color-border);
@@ -78,35 +155,16 @@ const steps = [
     transition: all var(--transition-fast);
   }
 
-  .cycle-card:hover {
+  .branch-card:hover {
     border-color: var(--color-border-hover);
     transform: translateY(-2px);
-  }
-
-  .card-number {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    color: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: var(--text-sm);
-    font-weight: var(--weight-bold);
-    flex-shrink: 0;
-  }
-
-  .card-content {
-    flex: 1;
-    min-width: 0;
   }
 
   .card-label {
     font-weight: var(--weight-semibold);
     font-size: var(--text-base);
     color: var(--color-text-primary);
-    margin: 0 0 var(--space-1) 0;
+    margin: 0 0 var(--space-2) 0;
   }
 
   .card-detail {
@@ -117,13 +175,21 @@ const steps = [
   }
 
   @media (max-width: 900px) {
-    .cycle-grid {
+    .branch-grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+
+    .branch-connector {
+      display: none;
+    }
+
+    .compound-layout {
+      gap: var(--space-6);
     }
   }
 
   @media (max-width: 600px) {
-    .cycle-grid {
+    .branch-grid {
       grid-template-columns: 1fr;
     }
   }
