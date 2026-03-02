@@ -1,13 +1,11 @@
 // Benchmark: Set insert (unique owner)
 // Exercises: COW fast path for set — in-place insert when unique
 // Expected: O(n) with COW
-// Note: .union() is blocked by reserved keyword; using incremental insert instead
-// BLOCKED: LLVM backend missing __collect_set monomorphization — skip for AOT
 
 @main () -> int = {
     let n = 5000;
-    let set_a: Set<int> = [].iter().collect();
-    let i = 0;
+    let set_a: Set<int> = [0].iter().collect();
+    let i = 1;
     loop {
         if i >= n then break;
         set_a = set_a.insert(i);
