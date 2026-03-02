@@ -223,8 +223,18 @@ impl RuntimeConfig {
         }
         #[cfg(windows)]
         {
-            // kernel32 provides Windows API basics (memory, threading, I/O)
-            input.libraries.push(LinkLibrary::new("kernel32"));
+            // Rust's std depends on these Windows system DLLs when statically linked.
+            // Discoverable via: rustc --print native-static-libs --crate-type staticlib
+            for lib in [
+                "advapi32",         // Security, registry, crypto services
+                "bcryptprimitives", // Cryptographic primitives (std::hash)
+                "kernel32",         // Core Windows API (memory, threading, I/O)
+                "ntdll",            // NT kernel interface
+                "userenv",          // User profile management
+                "ws2_32",           // Windows Sockets 2 (networking)
+            ] {
+                input.libraries.push(LinkLibrary::new(lib));
+            }
         }
     }
 
