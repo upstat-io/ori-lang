@@ -10,7 +10,7 @@
 
 use std::cell::Cell;
 use std::cell::RefCell;
-use std::ffi::CStr;
+use std::ffi::{c_char, CStr};
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::{OriPanic, OriStr};
@@ -216,7 +216,7 @@ pub extern "C-unwind" fn ori_panic(s: *const OriStr) {
 ///
 /// Same dispatch order as `ori_panic`: user handler → JIT longjmp → unwind.
 #[no_mangle]
-pub extern "C-unwind" fn ori_panic_cstr(s: *const i8) {
+pub extern "C-unwind" fn ori_panic_cstr(s: *const c_char) {
     let msg = if s.is_null() {
         "panic!".to_string()
     } else {
@@ -304,7 +304,7 @@ pub extern "C-unwind" fn ori_assert(condition: bool) {
 pub extern "C-unwind" fn ori_assert_eq_int(actual: i64, expected: i64) {
     if actual != expected {
         let msg = format!("assertion failed: {actual} != {expected}\0");
-        ori_panic_cstr(msg.as_ptr().cast::<i8>());
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
     }
 }
 
@@ -315,7 +315,7 @@ pub extern "C-unwind" fn ori_assert_eq_int(actual: i64, expected: i64) {
 pub extern "C-unwind" fn ori_assert_eq_bool(actual: bool, expected: bool) {
     if actual != expected {
         let msg = format!("assertion failed: {actual} != {expected}\0");
-        ori_panic_cstr(msg.as_ptr().cast::<i8>());
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
     }
 }
 
@@ -330,7 +330,7 @@ pub extern "C-unwind" fn ori_assert_eq_float(actual: f64, expected: f64) {
     )]
     if actual != expected {
         let msg = format!("assertion failed: {actual} != {expected}\0");
-        ori_panic_cstr(msg.as_ptr().cast::<i8>());
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
     }
 }
 
@@ -352,7 +352,7 @@ pub extern "C-unwind" fn ori_assert_eq_str(actual: *const OriStr, expected: *con
 
     if actual_str != expected_str {
         let msg = format!("assertion failed: \"{actual_str}\" != \"{expected_str}\"\0");
-        ori_panic_cstr(msg.as_ptr().cast::<i8>());
+        ori_panic_cstr(msg.as_ptr().cast::<c_char>());
     }
 }
 
