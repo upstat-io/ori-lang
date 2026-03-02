@@ -202,4 +202,4 @@ Use `Type::method()` (Rust-style) instead of `Type.method()`.
 ## References
 
 - Current implementation: `compiler/ori_typeck/src/infer/call.rs`
-- Spec: `docs/ori_lang/0.1-alpha/spec/08-declarations.md` § Associated Functions
+- Spec: `docs/ori_lang/v2026/spec/08-declarations.md` § Associated Functions

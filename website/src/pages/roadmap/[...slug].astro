@@ -1,0 +1,41 @@
+---
+import { getCollection, render } from 'astro:content';
+import DetailLayout from '../../layouts/DetailLayout.astro';
+
+export async function getStaticPaths() {
+  const roadmap = await getCollection('roadmap');
+  return roadmap.map(entry => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+
+// Count checkboxes in markdown body for progress bar
+const body = entry.body ?? '';
+const checked = (body.match(/- \[x\]/gi) || []).length;
+const total = checked + (body.match(/- \[ \]/g) || []).length;
+const progress = total > 0 ? { done: checked, total } : undefined;
+
+const statusMap: Record<string, { text: string; color: string }> = {
+  'complete': { text: 'Complete', color: 'success' },
+  'in-progress': { text: 'In Progress', color: 'warning' },
+  'in_progress': { text: 'In Progress', color: 'warning' },
+  'not-started': { text: 'Not Started', color: 'muted' },
+  'not_started': { text: 'Not Started', color: 'muted' },
+};
+
+const badge = statusMap[entry.data.status.toLowerCase()] ?? { text: entry.data.status, color: 'muted' };
+---
+
+<DetailLayout
+  title={`Section ${entry.data.section}: ${entry.data.title}`}
+  description={entry.data.goal}
+  backLink={{ url: '/roadmap/', label: 'Roadmap' }}
+  statusBadge={badge}
+  progress={progress}
+>
+  <Content />
+</DetailLayout>

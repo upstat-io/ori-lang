@@ -38,8 +38,8 @@ Style: ISO/IEC Directives, Part 2. Sync rules in `.claude/rules/ori-lang.md`.
 
 **Reference via annex:**
 ```markdown
-> **Grammar:** See [Annex A](annex-a-grammar.md) §A.SECTION_NAME
-> **Rules:** See [Annex B](annex-b-operator-rules.md) §B.OPERATOR_NAME
+> **Grammar:** See [Annex A](grammar.md) §A.SECTION_NAME
+> **Rules:** See [Annex B](operator-rules.md) §B.OPERATOR_NAME
 ```
 
 ## EBNF Conventions
@@ -68,4 +68,4 @@ Style: ISO/IEC Directives, Part 2. Sync rules in `.claude/rules/ori-lang.md`.
 - SYNC: design docs, guide, modules
 
 ## Template
-See `docs/ori_lang/0.1-alpha/spec/_template.md`
+See `docs/ori_lang/v2026/spec/_template.md`

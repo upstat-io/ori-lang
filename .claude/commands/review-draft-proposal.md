@@ -265,7 +265,7 @@ Brief description.
 | Location | What to check | How to search |
 |----------|--------------|---------------|
 | **Other approved proposals** | Reasoning, examples, API references that assume old behavior | `grep -r` in `proposals/approved/` for key terms |
-| **Spec files** | Sections describing affected semantics | `grep -r` in `docs/ori_lang/0.1-alpha/spec/` |
+| **Spec files** | Sections describing affected semantics | `grep -r` in `docs/ori_lang/v2026/spec/` |
 | **Roadmap** | Overview, design pillars, section descriptions | `grep -r` in `plans/roadmap/` |
 | **CLAUDE.md files** | Project instructions referencing old behavior | Check root and `.claude/` CLAUDE.md files |
 | **Rules files** | `.claude/rules/*.md` files with stale assumptions | `grep -r` in `.claude/rules/` |

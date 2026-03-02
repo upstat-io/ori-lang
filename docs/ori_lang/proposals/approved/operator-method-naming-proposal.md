@@ -137,7 +137,7 @@ trait Shr<Rhs = int> {
 1. **library/std/prelude.ori** — Rename methods in trait definitions
 2. **compiler/ori_typeck/src/infer/expressions/operators.rs** — Update `binary_op_to_trait()` and `unary_op_to_trait()`
 3. **compiler/ori_eval/src/interpreter/mod.rs** — Update `binary_op_to_method()`
-4. **docs/ori_lang/0.1-alpha/spec/09-expressions.md** — Update operator traits table
+4. **docs/ori_lang/v2026/spec/09-expressions.md** — Update operator traits table
 5. **docs/ori_lang/proposals/approved/operator-traits-proposal.md** — Update method names
 6. **docs/ori_lang/proposals/approved/duration-size-to-stdlib-proposal.md** — Update method names
 7. **tests/spec/traits/operators/user_defined.ori** — Update test implementations

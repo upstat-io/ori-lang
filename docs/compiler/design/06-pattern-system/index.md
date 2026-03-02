@@ -141,7 +141,7 @@ recurse(
 )
 ```
 
-**Concurrency (post-0.1-alpha):**
+**Concurrency (post-2026):**
 
 ```ori
 parallel(tasks: [fetch(url1), fetch(url2)], max_concurrent: 2)
@@ -149,7 +149,7 @@ spawn(tasks: [log(msg1), log(msg2)])
 timeout(op: slow_computation(), after: 5s)
 ```
 
-**Resource management (post-0.1-alpha):**
+**Resource management (post-2026):**
 
 ```ori
 cache(key: k, op: expensive(), ttl: 5m)

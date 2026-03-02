@@ -121,7 +121,7 @@ Design docs explain **WHY** and **HOW**, not just what:
 - Explain design decisions and trade-offs
 - Document the reasoning behind choices
 - Include diagrams or ASCII art where helpful
-- Reference the spec (`docs/ori_lang/0.1-alpha/spec/`) for normative definitions
+- Reference the spec (`docs/ori_lang/v2026/spec/`) for normative definitions
 
 ### What to Exclude
 

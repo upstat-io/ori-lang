@@ -201,3 +201,44 @@ use std.testing { assert_eq }
     assert_eq(actual: original, expected: [1, 2]);
     assert_eq(actual: concatenated, expected: [1, 2, 3, 4])
 }
+
+// --- Nested collections (element size > 8, alignment differs from size) ---
+
+@nested_list_push () -> [[int]] = {
+    let snapshots: [[int]] = [];
+    let list: [int] = [];
+    let i = 0;
+    loop {
+        if i >= 5 then break;
+        snapshots = snapshots.push(list);
+        list = list.push(i);
+        i = i + 1;
+    };
+    snapshots
+}
+
+@test_nested_list_push tests @nested_list_push () -> void = {
+    let snaps = nested_list_push();
+    assert_eq(actual: snaps.len(), expected: 5);
+    assert_eq(actual: snaps[0], expected: []);
+    assert_eq(actual: snaps[1], expected: [0]);
+    assert_eq(actual: snaps[2], expected: [0, 1]);
+    assert_eq(actual: snaps[3], expected: [0, 1, 2]);
+    assert_eq(actual: snaps[4], expected: [0, 1, 2, 3])
+}
+
+@nested_str_list_push () -> [[str]] = {
+    let groups: [[str]] = [];
+    groups = groups.push(["hello", "world"]);
+    groups = groups.push(["foo"]);
+    groups = groups.push([]);
+    groups
+}
+
+@test_nested_str_list_push tests @nested_str_list_push () -> void = {
+    let g = nested_str_list_push();
+    assert_eq(actual: g.len(), expected: 3);
+    assert_eq(actual: g[0], expected: ["hello", "world"]);
+    assert_eq(actual: g[1], expected: ["foo"]);
+    assert_eq(actual: g[2], expected: [])
+}

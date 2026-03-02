@@ -4,11 +4,18 @@ const currentPath = Astro.url.pathname;
 const learnLinks = [
   { href: '/tutorial/01-basics/01-hello-world', label: 'Tutorial', matchPrefix: '/tutorial/' },
   { href: '/guide/01-getting-started', label: 'Guide', matchPrefix: '/guide/' },
-  { href: '/docs/spec/index', label: 'Compiler Docs', matchPrefix: '/docs/' },
+];
+
+const docsLinks = [
+  { href: '/docs/spec/index', label: 'Language Spec', matchPrefix: '/docs/spec/' },
+  { href: '/docs/compiler-design/index', label: 'Compiler Design', matchPrefix: '/docs/compiler-design/' },
+  { href: '/docs/formatter/index', label: 'Formatter Design', matchPrefix: '/docs/formatter/' },
+  { href: '/docs/lsp/index', label: 'LSP Design', matchPrefix: '/docs/lsp/' },
 ];
 
 const navLinks = [
   { href: '/playground', label: 'Playground', matchPrefix: '/playground' },
+  { href: '/blog', label: 'Blog', matchPrefix: '/blog' },
   { href: '/changelog', label: 'Changelog', matchPrefix: '/changelog' },
   { href: '/roadmap', label: 'Roadmap', matchPrefix: '/roadmap' },
 ];
@@ -20,7 +27,8 @@ const isActive = (link: { href: string; matchPrefix: string | null }) => {
   return currentPath.startsWith(link.matchPrefix);
 };
 
-const isLearnActive = learnLinks.some(link =>
+const allLearnLinks = [...learnLinks, ...docsLinks];
+const isLearnActive = allLearnLinks.some(link =>
   link.matchPrefix ? currentPath.startsWith(link.matchPrefix) : currentPath === link.href
 );
 ---
@@ -60,6 +68,15 @@ const isLearnActive = learnLinks.some(link =>
           </button>
           <div class="dropdown-menu">
             {learnLinks.map(link => (
+              <a
+                href={link.href}
+                class:list={['dropdown-item', { active: isActive(link) }]}
+              >
+                {link.label}
+              </a>
+            ))}
+            <hr class="dropdown-divider" />
+            {docsLinks.map(link => (
               <a
                 href={link.href}
                 class:list={['dropdown-item', { active: isActive(link) }]}
@@ -370,6 +387,12 @@ const isLearnActive = learnLinks.some(link =>
     background: rgba(255, 255, 255, 0.08);
   }
 
+  .dropdown-divider {
+    border: none;
+    border-top: 1px solid var(--color-border);
+    margin: var(--space-1) 0;
+  }
+
   .nav-discuss,
   .nav-github {
     display: flex;
@@ -490,7 +513,7 @@ const isLearnActive = learnLinks.some(link =>
     }
 
     .nav-dropdown.open .dropdown-menu {
-      max-height: 200px;
+      max-height: 400px;
     }
 
     .nav-dropdown:hover .chevron {

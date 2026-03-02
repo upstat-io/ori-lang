@@ -10,79 +10,94 @@ sidebar_path: "/docs/compiler-design/11-runtime/data-structures"
 
 # Data Structures
 
-This document describes the memory layout of the core data types in the Ori
-runtime. Each type is designed for C-ABI compatibility (`#[repr(C)]`),
-efficient COW semantics, and minimal allocation overhead.
+## Why Memory Layout Matters
 
-## RC Header (V3)
+A language runtime's data structures are not abstract types — they are concrete memory layouts that the compiler's code generator must understand precisely. When the LLVM backend emits code to read the length of a list, it generates a `load i64, ptr %list_ptr` at offset 0. When it emits code to check whether a string is SSO, it loads byte 23 and tests the high bit. Every field offset, every alignment constraint, and every encoding convention must be agreed upon by both the code generator and the runtime. A mismatch of even one byte means corruption.
 
-All heap-allocated, reference-counted objects share a 16-byte header placed
-**before** the data pointer:
+This is the fundamental constraint that shapes runtime data structure design: the layouts must be **C-ABI compatible** (`#[repr(C)]` in Rust), meaning the compiler controls field ordering and padding. They must be **small** to minimize passing and copying overhead. And they must be **self-describing enough** that the runtime can operate on them without external metadata — the string must carry its own SSO/heap discriminator, the list must carry its own slice-vs-owned encoding, and the RC header must carry its own allocation size.
 
+This chapter documents the memory layout of every core data type in the Ori runtime: how many bytes each occupies, what lives at each offset, and why the layout was chosen.
+
+## RC Header
+
+All heap-allocated, reference-counted objects share a 16-byte header placed **before** the data pointer. This header is the foundation of the entire memory management system — every list buffer, map buffer, set buffer, and heap string buffer begins with this header.
+
+```mermaid
+flowchart LR
+    subgraph Allocation ["RC-Managed Allocation"]
+        direction LR
+        DS["data_size
+        i64 · 8 bytes
+        offset: base + 0"]
+        SC["strong_count
+        i64 · 8 bytes
+        offset: base + 8"]
+        UD["User Data
+        variable length
+        offset: base + 16"]
+    end
+
+    DS --> SC --> UD
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+    class DS,SC,UD native
 ```
-RC allocation (V3 layout):
-  +------------------+------------------+---------------------+
-  | data_size: i64   | strong_count: i64| data bytes ...      |
-  +------------------+------------------+---------------------+
-  ^                   ^                   ^
-  base (ptr - 16)     ptr - 8             data_ptr (returned by ori_rc_alloc)
-```
 
-| Field          | Offset from data_ptr | Description                           |
-|----------------|---------------------|---------------------------------------|
-| `data_size`    | -16                 | User data size in bytes               |
-| `strong_count` | -8                  | Reference count (atomic i64)          |
+| Field | Offset from data_ptr | Size | Description |
+|-------|---------------------|------|-------------|
+| `data_size` | -16 | 8 bytes | User data size in bytes |
+| `strong_count` | -8 | 8 bytes | Reference count (atomic i64) |
 
-Key properties:
+The critical design choice: **`ori_rc_alloc` returns a pointer to the user data, not the allocation base.** All RC operations recover the header by subtracting from the data pointer. This means data pointers can be passed to C FFI without offset adjustment, and the common operation (accessing data) requires no arithmetic.
 
-- **Data pointer returned**: `ori_rc_alloc` returns the data pointer (past the
-  header), not the base pointer. Data pointers can be passed to C FFI without
-  adjustment.
-- **Single pointer on stack**: No separate header pointer needed. All RC
-  operations (`inc`, `dec`, `count`, `is_unique`) access the count at
-  `data_ptr - 8`.
-- **`data_size` enables seamless slices**: When a slice is the last reference,
-  it can compute the original data pointer and read the allocation size from
-  the header for `ori_rc_free` without external bookkeeping.
-- **Atomic operations**: Multi-threaded mode uses `AtomicI64` with `Relaxed`
-  for `inc`/`is_unique` and `Release` + `Acquire` fence for `dec`. The
-  `single-threaded` feature flag substitutes plain `i64` reads/writes.
-
-The header size is `RC_HEADER_SIZE = 16`. Minimum alignment is 8 bytes
-(enforced by `ori_rc_alloc`).
+Header size is `RC_HEADER_SIZE = 16`. Minimum alignment is 8 bytes, ensuring `strong_count` is naturally aligned for atomic operations on all architectures.
 
 ## OriList
 
 `OriList` is a 24-byte `#[repr(C)]` struct representing a dynamic array:
 
-```
-OriList (24 bytes):
-  +----------+----------+----------+
-  | len: i64 | cap: i64 | data: *  |
-  | [0..7]   | [8..15]  | [16..23] |
-  +----------+----------+----------+
-```
+| Field | Offset | Size | Description |
+|-------|--------|------|-------------|
+| `len` | 0 | 8 bytes | Number of elements |
+| `cap` | 8 | 8 bytes | Capacity (negative = seamless slice) |
+| `data` | 16 | 8 bytes | Pointer to RC-managed buffer (or null) |
 
-| Field  | Type      | Description                                       |
-|--------|-----------|---------------------------------------------------|
-| `len`  | `i64`     | Number of elements currently in the list           |
-| `cap`  | `i64`     | Capacity in elements (negative = seamless slice)   |
-| `data` | `*mut u8` | Pointer to RC-managed data buffer (or null)        |
+Elements are stored contiguously at `data + index * elem_size`. The element size is **not** stored in the struct — it is always passed as a parameter to runtime functions. This keeps the struct at 24 bytes and avoids redundancy (the compiler knows the element size at every call site).
 
-Elements are stored contiguously at `data + index * elem_size`. The element
-size is **not** stored in the struct -- it is always passed as a parameter to
-runtime functions. This keeps the struct at 24 bytes and avoids redundancy.
+### Buffer Layout
 
-### Data Buffer Layout
+```mermaid
+flowchart LR
+    subgraph Stack ["Stack: OriList (24 bytes)"]
+        direction LR
+        Len["len: 3"]
+        Cap["cap: 4"]
+        Data["data →"]
+    end
 
-```
-RC allocation:
-  +-------------+-------------+--------+--------+-----+--------+---------+
-  | data_size   | strong_count| elem0  | elem1  | ... | elemN  | (unused)|
-  | (RC header) | (RC header) | (user data)                    |         |
-  +-------------+-------------+--------+--------+-----+--------+---------+
-                               ^
-                               data pointer
+    subgraph Heap ["Heap: RC Allocation"]
+        direction LR
+        H1["data_size
+        32 bytes"]
+        H2["strong_count
+        1"]
+        E0["elem[0]
+        10"]
+        E1["elem[1]
+        20"]
+        E2["elem[2]
+        30"]
+        EU["(unused)"]
+    end
+
+    Data --> E0
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+    classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
+
+    class Len,Cap,Data native
+    class H1,H2 interpreter
+    class E0,E1,E2,EU native
 ```
 
 ### Empty List
@@ -91,121 +106,138 @@ RC allocation:
 OriList { len: 0, cap: 0, data: null }
 ```
 
-No allocation occurs for empty lists. `ori_rc_inc(null)` and
-`ori_rc_dec(null)` are no-ops. The first element insertion triggers an
-allocation with `MIN_COLLECTION_CAPACITY = 4`.
+No allocation occurs for empty lists. `ori_rc_inc(null)` and `ori_rc_dec(null)` are no-ops. The first element insertion triggers an allocation with `MIN_COLLECTION_CAPACITY = 4`.
 
 ### Seamless Slices
 
 List slices reuse the `OriList` struct with a special encoding in `cap`:
 
 ```
-cap >= 0:  regular list (cap is capacity in elements)
+cap >= 0:  regular list (cap is element capacity)
 cap <  0:  seamless slice
            bit 63 = 1 (SLICE_FLAG = i64::MIN)
            bits 0-62 = byte offset from original allocation's data start
 ```
 
-The slice's `data` pointer points directly to the first slice element within
-the original buffer. To find the original allocation for RC operations:
+The slice's `data` pointer points directly into the original buffer at the first slice element. To find the original allocation's data pointer for RC operations:
 
 ```
 original_data = slice_data - byte_offset
 RC header at original_data - 16
 ```
 
-Properties:
+```mermaid
+flowchart LR
+    subgraph SliceStack ["Stack: Slice OriList (24 bytes)"]
+        direction LR
+        SLen["len: 2"]
+        SCap["cap: SLICE_FLAG|8"]
+        SData["data →"]
+    end
+
+    subgraph OrigHeap ["Heap: Original Allocation (shared)"]
+        direction LR
+        OH1["data_size
+        32"]
+        OH2["count
+        2"]
+        OE0["elem[0]
+        10"]
+        OE1["elem[1]
+        20"]
+        OE2["elem[2]
+        30"]
+        OEU["(unused)"]
+    end
+
+    SData --> OE1
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+    classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
+
+    class SLen,SCap,SData native
+    class OH1,OH2 interpreter
+    class OE0,OE1,OE2,OEU native
+```
+
+Properties of seamless slices:
 - `len` gives the slice length as usual
-- `data` gives direct access to the slice elements
-- RC dec goes through the original buffer (via `slice_original_data`)
-- COW on a slice always takes the slow path (allocates independent buffer)
-- Slices of slices accumulate the byte offset
+- `data` gives direct access to the slice elements (no offset calculation for reads)
+- RC operations go through the original buffer via `slice_original_data`
+- COW on a slice always takes the slow path (allocates an independent buffer)
+- Slices of slices accumulate the byte offset to always point back to the root allocation
 
 ### Allocation Functions
 
-| Function              | Purpose                                          |
-|-----------------------|--------------------------------------------------|
+| Function | Purpose |
+|----------|---------|
 | `ori_list_alloc_data` | Allocate RC-managed buffer for `cap * elem_size` bytes |
-| `ori_list_box_new`    | Wrap `{len, cap, data}` in an RC-managed OriList |
-| `ori_list_new`        | Allocate OriList + data buffer (AOT mode)        |
-| `ori_list_free`       | Free heap-allocated OriList (from `ori_list_new`) |
-| `ori_list_free_data`  | Free data buffer only (stack-struct lists)        |
+| `ori_list_box_new` | Wrap `{len, cap, data}` in an RC-managed OriList |
+| `ori_list_new` | Allocate both OriList struct and data buffer (AOT mode) |
+| `ori_list_free` | Free a heap-allocated OriList struct (from `ori_list_new`) |
+| `ori_list_free_data` | Free the data buffer only (stack-struct lists) |
 
-Also used for sets, which share the same memory layout (`OriList` struct with
-contiguous element storage).
+Sets share the same memory layout and allocation functions — an `OriSet` is an `OriList` with set-specific COW operations.
 
 ## OriMap
 
 `OriMap` is a 24-byte `#[repr(C)]` struct representing an associative array:
 
-```
-OriMap (24 bytes):
-  +----------+----------+----------+
-  | len: i64 | cap: i64 | data: *  |
-  | [0..7]   | [8..15]  | [16..23] |
-  +----------+----------+----------+
-```
+| Field | Offset | Size | Description |
+|-------|--------|------|-------------|
+| `len` | 0 | 8 bytes | Number of entries |
+| `cap` | 8 | 8 bytes | Capacity in entries |
+| `data` | 16 | 8 bytes | Pointer to RC-managed buffer (or null) |
 
 ### Split-Buffer Layout
 
-Maps store keys and values in a **single contiguous RC-managed buffer** with
-keys packed at the front and values packed after the key region:
+Maps store keys and values in a **single contiguous RC-managed buffer** with keys packed at the front and values packed after the key region:
 
-```
-RC-managed buffer:
-  +------+------+-----+------+---------+------+------+-----+------+---------+
-  | key0 | key1 | ... | keyN | (unused)| val0 | val1 | ... | valN | (unused)|
-  +------+------+-----+------+---------+------+------+-----+------+---------+
-  ^                                     ^
-  data + 0                              data + cap * key_size
-  (keys region)                         (values region)
+```mermaid
+flowchart LR
+    subgraph MapStack ["Stack: OriMap (24 bytes)"]
+        direction LR
+        ML["len: 2"]
+        MC["cap: 4"]
+        MD["data →"]
+    end
+
+    subgraph MapHeap ["Heap: Single RC Buffer"]
+        direction LR
+        MH1["data_size
+        64"]
+        MH2["count
+        1"]
+        K0["key[0]"]
+        K1["key[1]"]
+        KU1["(unused)"]
+        KU2["(unused)"]
+        V0["val[0]"]
+        V1["val[1]"]
+        VU1["(unused)"]
+        VU2["(unused)"]
+    end
+
+    MD --> K0
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+    classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
+
+    class ML,MC,MD native
+    class MH1,MH2 interpreter
+    class K0,K1,KU1,KU2,V0,V1,VU1,VU2 native
 ```
 
 Key storage: `data + index * key_size`
 Value storage: `data + cap * key_size + index * val_size`
 Total buffer size: `cap * key_size + cap * val_size`
 
-Advantages:
-- **Single RC header**: One `ori_rc_alloc` covers the entire map. One
-  `ori_rc_is_unique` check determines the COW path.
-- **Cache locality**: Keys are packed together, which helps the linear scan
-  in `find_key` stay in cache.
-- **Simple COW**: A single buffer copy duplicates both keys and values.
+Advantages of the single-buffer design:
+- **One RC header** covers the entire map — one `ori_rc_is_unique` check determines the COW path
+- **Cache locality** for keys — the linear scan in `find_key` stays in cache because keys are packed together
+- **Simple COW** — a single buffer copy duplicates everything
 
-### Type-Agnostic Key Lookup
-
-Maps do not use hash tables. Key lookup uses linear scan with a caller-provided
-equality callback:
-
-```rust
-fn find_key(
-    data: *const u8,
-    len: usize,
-    key_size: usize,
-    needle: *const u8,
-    key_eq: extern "C" fn(*const u8, *const u8) -> bool,
-) -> Option<usize>
-```
-
-The `key_eq` callback is generated by the LLVM codegen for each concrete key
-type. For `int` keys, this compiles to a direct 8-byte comparison. For `str`
-keys, this calls `ori_str_eq`. For user-defined types, it invokes the derived
-`Eq` implementation.
-
-Linear scan is efficient for small maps (the common case in Ori programs).
-
-### Growth Complication
-
-When a map buffer is reallocated with a larger capacity, the values section
-must be **relocated** because `cap * key_size` increases. This is handled in
-`cow_insert_new` using `memmove` (overlapping regions) after realloc:
-
-```
-Before realloc (cap=4):  [k0 k1 _ _ | v0 v1 _ _]
-After  realloc (cap=8):  [k0 k1 _ _ _ _ _ _ | v0 v1 (from old offset)]
-                                               ^-- must memmove to new offset
-Relocated (cap=8):       [k0 k1 _ _ _ _ _ _ | v0 v1 _ _ _ _ _ _]
-```
+The tradeoff is **value relocation** during growth: when the buffer is reallocated with a larger capacity, the values section must be moved because the keys section has expanded. This requires a `memmove` after every realloc (see [Collections & COW](./collections-cow.md) for details).
 
 ### Empty Map
 
@@ -213,25 +245,23 @@ Relocated (cap=8):       [k0 k1 _ _ _ _ _ _ | v0 v1 _ _ _ _ _ _]
 OriMap { len: 0, cap: 0, data: null }
 ```
 
+Like empty lists, empty maps require zero allocation and zero cleanup.
+
 ## OriSet
 
-Sets are built on the same infrastructure as lists, using a contiguous
-`OriList`-style layout with a single element type. Set operations accept either
-`raw_bytes_eq` (memcmp-based for fixed-representation types) or an `elem_eq`
-callback (for COW operations).
+Sets are structurally identical to lists — they use the `OriList` struct with contiguous element storage. The difference is operational: set COW operations accept equality callbacks for membership testing, and set-specific operations (union, intersection, difference) are provided.
 
 ```
-OriSet (24 bytes, same as OriList):
+OriSet (24 bytes, same struct as OriList):
   +----------+----------+----------+
   | len: i64 | cap: i64 | data: *  |
   +----------+----------+----------+
-  data buffer: [elem0 | elem1 | ... | elemN | (unused)]
+  Buffer: [elem0 | elem1 | ... | elemN | (unused)]
 ```
 
 ## OriStr
 
-`OriStr` is a 24-byte `#[repr(C)]` union with two variants. See the
-[String SSO](./string-sso.md) section for the full layout and semantics.
+`OriStr` is a 24-byte `#[repr(C)]` union with two variants, discriminated by the high bit of byte 23. See the [String SSO](./string-sso.md) chapter for the complete layout and semantics.
 
 ```
 OriStr (24 bytes, union):
@@ -241,43 +271,29 @@ OriStr (24 bytes, union):
 
 ## OriOption
 
-`OriOption<T>` represents Ori's `Option<T>` type:
+`OriOption<T>` represents Ori's `Option<T>` type in the runtime:
 
-```
-OriOption<T>:
-  +----------+------------------+
-  | tag: i8  | value: T         |
-  | (1 byte) | (sizeof T bytes) |
-  +----------+------------------+
-```
+| Field | Offset | Size | Description |
+|-------|--------|------|-------------|
+| `tag` | 0 | 1 byte | `0` = None, `1` = Some |
+| (padding) | 1 | varies | Alignment padding for `T` |
+| `value` | aligned | `sizeof(T)` | The value (valid only when `tag == 1`) |
 
-| Tag | Variant | Description                        |
-|-----|---------|------------------------------------|
-| `0` | `None`  | No value; `value` field is unused  |
-| `1` | `Some`  | Value present in `value` field     |
+Total size is `1 + padding + sizeof(T)`, where padding brings the `value` field to `T`'s natural alignment. For `Option<int>` (where `T` = i64 with 8-byte alignment), the layout is 16 bytes: 1 byte tag + 7 bytes padding + 8 bytes value.
 
-The tag is a single byte (`i8`). Total size is `1 + sizeof(T)` plus alignment
-padding required by `T`.
+The tag is a single byte (`i8`), not a pointer-sized integer. This minimizes padding waste for small payload types. The LLVM codegen generates the correct GEP offsets based on the concrete type's alignment requirements.
 
 ## OriResult
 
-`OriResult<T>` represents Ori's `Result<T, E>` type:
+`OriResult<T, E>` represents Ori's `Result<T, E>` type:
 
-```
-OriResult<T, E>:
-  +----------+-------------------------------+
-  | tag: i8  | value: max(sizeof T, sizeof E)|
-  | (1 byte) | (overlapping storage)         |
-  +----------+-------------------------------+
-```
+| Field | Offset | Size | Description |
+|-------|--------|------|-------------|
+| `tag` | 0 | 1 byte | `0` = Ok, `1` = Err |
+| (padding) | 1 | varies | Alignment padding |
+| `value` | aligned | `max(sizeof(T), sizeof(E))` | Overlapping storage |
 
-| Tag | Variant | Description                            |
-|-----|---------|----------------------------------------|
-| `0` | `Ok`    | Success value of type `T` in `value`   |
-| `1` | `Err`   | Error value of type `E` in `value`     |
-
-The value field is sized to the larger of `T` and `E`. The storage is shared
-(union-like). The compiler generates the correct access code based on the tag.
+The value field is sized to the larger of `T` and `E`. The storage is shared (union-like) — `Ok` values and `Err` values occupy the same bytes, distinguished by the tag. The compiler generates the correct access code based on the tag at each use site.
 
 ## OriPanic
 
@@ -289,132 +305,143 @@ pub struct OriPanic {
 }
 ```
 
-Wrapped in `std::panic::panic_any` so the Itanium EH ABI unwinds through
-LLVM-generated `invoke`/`landingpad` pairs, giving cleanup handlers a chance
-to release RC'd resources. The entry point wrapper (`ori_run_main`) catches
-this with `catch_unwind`.
+Wrapped in `std::panic::panic_any` so the Itanium EH ABI unwinds through LLVM-generated `invoke`/`landingpad` pairs. This gives cleanup handlers (generated by the ARC pass) a chance to release RC-managed resources during unwinding. The entry point wrapper (`ori_run_main`) catches the panic with `catch_unwind`.
 
-## Memory Diagrams
+## Iterator Runtime
 
-### List with 3 elements (`[int]`, elem_size = 8)
+Iterators are represented as opaque `Box<IterState>` handles, cast to `*mut u8` for the C ABI. LLVM-generated code never sees the internal `IterState` enum — all interaction goes through pointer-sized handles and C-ABI functions.
 
+### IterState Variants
+
+The `IterState` enum has two categories of variants — **sources** that produce elements from data, and **adapters** that transform elements from another iterator:
+
+```mermaid
+flowchart TB
+    subgraph Sources ["Source Variants"]
+        List["List
+        data, len, pos
+        elem_size, elem_dec_fn"]
+        Range["Range
+        current, end, step
+        inclusive"]
+        Str["Str
+        data, len, byte_offset
+        owns_data"]
+        MapIter["Map
+        data, cap, len, pos
+        key_size, val_size"]
+    end
+
+    subgraph Adapters ["Adapter Variants"]
+        Mapped["Mapped
+        source, transform_fn
+        transform_env, in_size"]
+        Filtered["Filtered
+        source, predicate_fn
+        predicate_env, elem_size"]
+        TakeN["TakeN
+        source, remaining"]
+        SkipN["SkipN
+        source, remaining"]
+        Enumerated["Enumerated
+        source, index"]
+        Zipped["Zipped
+        left, right
+        left_elem_size"]
+        Chained["Chained
+        first, second
+        first_done"]
+    end
+
+    List --> Mapped
+    List --> Filtered
+    Mapped --> TakeN
+    Filtered --> Enumerated
+    Range --> Zipped
+
+    classDef native fill:#5c3a1e,stroke:#f59e0b,color:#fef3c7
+    classDef interpreter fill:#1a4731,stroke:#34d399,color:#d1fae5
+
+    class List,Range,Str,MapIter native
+    class Mapped,Filtered,TakeN,SkipN,Enumerated,Zipped,Chained interpreter
 ```
-Stack (OriList, 24 bytes):
-  +---------+---------+------------------+
-  | len = 3 | cap = 4 | data ---------->-+---+
-  +---------+---------+------------------+   |
-                                             |
-Heap (RC allocation):                        |
-  +-------------+-------------+-----------+--v--------+----------+----------+
-  | size = 32   | count = 1   | elem0 = 10| elem1 = 20| elem2 = 30| (unused) |
-  | (RC header) | (RC header) | 8 bytes   | 8 bytes   | 8 bytes   | 8 bytes  |
-  +-------------+-------------+-----------+-----------+----------+----------+
-```
-
-### Map with 2 entries (`{int: int}`, key_size = 8, val_size = 8)
-
-```
-Stack (OriMap, 24 bytes):
-  +---------+---------+------------------+
-  | len = 2 | cap = 4 | data ---------->-+---+
-  +---------+---------+------------------+   |
-                                             |
-Heap (RC allocation, single buffer):         |
-  +-------------+-------------+---+------+--v---+----+---------+---------+
-  | size = 64   | count = 1   |key0|key1 | _ | _ | val0| val1 | _ | _   |
-  | (RC header) | (RC header) | 8B | 8B  |8B |8B | 8B  | 8B   |8B |8B  |
-  +-------------+-------------+----+-----+---+---+-----+------+---+----+
-                               ^                   ^
-                               data + 0            data + 4 * 8 = data + 32
-                               (keys region)       (values region)
-```
-
-### Seamless Slice (slice of elements 1..3 from above list)
-
-```
-Stack (OriList, 24 bytes):
-  +---------+---------------------+------------------+
-  | len = 2 | cap = SLICE_FLAG|8  | data ---------->-+---+
-  +---------+---------------------+------------------+   |
-                                                         |
-Heap (original allocation, shared):                      |
-  +-------------+-------------+-----------+-----------+--v--------+----------+
-  | size = 32   | count = 2   | elem0 = 10| elem1 = 20| elem2 = 30| (unused) |
-  | (RC header) | (RC header) | 8 bytes   | 8 bytes   | 8 bytes   | 8 bytes  |
-  +-------------+-------------+-----------+-----------+-----------+----------+
-                                           ^
-                                           slice data (offset 8 bytes from original)
-```
-
-## Iterator Runtime (`IterState`)
-
-Iterators are represented as opaque `Box<IterState>` handles, cast to `*mut u8`
-for the C ABI. LLVM code never sees the internal enum -- all interaction goes
-through pointer-sized handles.
-
-### `IterState` Variants
-
-| Variant      | Source/Adapter | Key Fields                                |
-|--------------|---------------|-------------------------------------------|
-| `List`       | Source         | `data, len, pos, cap, elem_size, elem_dec_fn` |
-| `Range`      | Source         | `current, end, step, inclusive`            |
-| `Str`        | Source         | `data, len, byte_offset, owns_data`       |
-| `Map`        | Source         | `data, cap, len, pos, key_size, val_size`  |
-| `Mapped`     | Adapter        | `source, transform_fn, transform_env, in_size` |
-| `Filtered`   | Adapter        | `source, predicate_fn, predicate_env, elem_size` |
-| `TakeN`      | Adapter        | `source, remaining`                       |
-| `SkipN`      | Adapter        | `source, remaining`                       |
-| `Enumerated` | Adapter        | `source, index`                           |
-| `Zipped`     | Adapter        | `left, right, left_elem_size`             |
-| `Chained`    | Adapter        | `first, second, first_done`               |
 
 ### Trampoline Functions
 
 Adapters that accept closures use C-ABI trampoline function pointers:
 
-| Type            | Signature                                   | Used By          |
-|-----------------|---------------------------------------------|------------------|
-| `TransformFn`   | `(env, in_ptr, out_ptr) -> void`            | `Mapped`         |
-| `PredicateFn`   | `(env, elem_ptr) -> bool`                   | `Filtered`, consumers |
-| `ForEachFn`     | `(env, elem_ptr) -> void`                   | `for_each`       |
-| `FoldFn`        | `(env, acc_ptr, elem_ptr, out_ptr) -> void` | `fold`           |
+| Type | Signature | Used By |
+|------|-----------|---------|
+| `TransformFn` | `(env, in_ptr, out_ptr) -> void` | `Mapped` |
+| `PredicateFn` | `(env, elem_ptr) -> bool` | `Filtered`, consumers |
+| `ForEachFn` | `(env, elem_ptr) -> void` | `for_each` |
+| `FoldFn` | `(env, acc_ptr, elem_ptr, out_ptr) -> void` | `fold` |
 
-The `env` parameter is the closure environment pointer (may be null for
-stateless operations). LLVM codegen generates type-specialized trampolines.
+The `env` parameter is the closure environment pointer (may be null for stateless operations). The LLVM backend generates type-specialized trampolines that unpack the environment, cast the element pointers to the correct types, and call the user's closure body.
 
-### Iterator `next()`
+### Iterator Lifecycle
 
-`ori_iter_next(iter, out_ptr, elem_size)` dispatches through the `IterState`
-enum. Adapters use a stack scratch buffer of `MAX_ELEM_SIZE = 256` bytes for
-intermediate values.
+**Creation:** `ori_iter_from_list`, `ori_iter_from_range`, `ori_iter_from_str`, `ori_iter_from_map` allocate a `Box<IterState>` on the heap and return the raw pointer.
+
+**Adaptation:** `ori_iter_map`, `ori_iter_filter`, `ori_iter_take`, etc. allocate a new `Box<IterState>` that wraps the source iterator. The source is consumed — the caller must not use it after passing it to an adapter.
+
+**Advancement:** `ori_iter_next(iter_ptr, out_ptr, elem_size)` dispatches through the `IterState` enum, writes the next element to `out_ptr`, and returns whether an element was produced.
+
+**Consumption:** `ori_iter_collect`, `ori_iter_count`, `ori_iter_fold`, etc. consume the iterator to completion and return a result.
+
+**Cleanup:** `ori_iter_drop(iter_ptr)` calls Rust's `Drop` on the `Box<IterState>`. For source iterators, this decrements the RC of the underlying data. For adapters, this recursively drops the wrapped source iterator, cascading cleanup through the entire adapter chain.
 
 ### RC Ownership
 
-Source-level iterators (`List`, `Str`, `Map`) take ownership of one RC
-reference to their data. The `Drop` impl releases this reference:
+Source iterators take ownership of one RC reference to their data:
 
-- `List`: calls `ori_buffer_rc_dec(data, len, cap, elem_size, elem_dec_fn)`
-- `Str`: calls `ori_buffer_rc_dec(data, 0, len, 1, None)` when `owns_data`
-- `Map`: calls `ori_map_buffer_rc_dec(...)` when `owns_data`
+- **List:** Owns a reference to the data buffer. Drop calls `ori_buffer_rc_dec` to decrement the buffer's RC and clean up element RCs if the buffer is freed.
+- **Str:** Owns a reference to the string's heap buffer (if heap-mode). Drop calls `ori_buffer_rc_dec` when `owns_data` is true.
+- **Map:** Owns a reference to the map's data buffer. Drop calls `ori_map_buffer_rc_dec` for key/value cleanup.
+- **Range:** No RC ownership — ranges are purely computed values.
 
-Adapter variants (`Mapped`, `Filtered`, etc.) contain a `Box<IterState>` that
-Rust automatically drops after the parent's `drop()`, cascading cleanup to
-the source iterator.
+Adapter variants contain a `Box<IterState>` that Rust automatically drops when the adapter is dropped, cascading cleanup to the source.
+
+### Scratch Buffer
+
+Adapters that produce intermediate values (e.g., `Mapped` transforms an element into a new element) use a stack-allocated scratch buffer of `MAX_ELEM_SIZE = 256` bytes. This avoids heap allocation for temporary values during iteration. If an element type exceeds 256 bytes (unlikely in practice), the scratch buffer is dynamically allocated.
 
 ## Capacity Management
 
 ### `MIN_COLLECTION_CAPACITY = 4`
 
-All collections start with capacity 4 upon first insertion. Avoids pathological
-1 -> 2 -> 4 reallocations.
+All collections start with capacity 4 upon first insertion. This avoids the pathological 1 → 2 → 4 reallocation sequence that would otherwise occur for the first three insertions.
 
 ### `next_capacity(current, required) -> usize`
 
-Returns `max(required, current * 2, MIN_COLLECTION_CAPACITY)`. Uses 2x
-doubling for amortized O(1) insertion at the cost of up to 50% wasted capacity.
-Matches Rust's `Vec`, Swift's `Array`, Java's `ArrayList`.
+```
+max(required, current * 2, MIN_COLLECTION_CAPACITY)
+```
+
+Uses 2× doubling for amortized O(1) insertion. At most 50% wasted capacity. Matches Rust's `Vec`, Swift's `Array`, Java's `ArrayList`, and Go's slice growth strategy.
 
 ### No Auto-Shrink
 
-Collections do not automatically shrink. Once allocated, capacity is retained
-even after element removal. This avoids oscillation at capacity boundaries.
+Collections retain capacity after element removal. This avoids oscillation at capacity boundaries where alternating insertions and deletions near a power-of-two boundary would cause pathological reallocation.
+
+## Prior Art
+
+**[Zig's `InternPool`](https://github.com/ziglang/zig/blob/master/src/InternPool.zig)** uses a fundamentally different approach — all values are interned into a single pool with tagged indices. This gives O(1) equality via index comparison but requires indirection for every access. Ori's approach keeps data in dedicated struct layouts, avoiding the indirection cost at the expense of requiring explicit equality implementations.
+
+**[Swift's runtime](https://github.com/swiftlang/swift/tree/main/stdlib/public/runtime)** uses similar tagged-union layouts for Optional and Either types, with layout optimization (null pointer optimization for single-payload enums). Swift's `Array` uses a `ContiguousArrayBuffer` with a refcount header, structurally equivalent to Ori's `OriList`. The main difference is that Swift's buffer header includes additional metadata (element type, reserved flags) while Ori's header is minimal (just size and count).
+
+**[Go's slice header](https://go.dev/blog/slices-intro)** is a 24-byte struct (`{data, len, cap}`) — identical in structure to Ori's `OriList`. Go's slices are also views into underlying arrays, similar to Ori's seamless slices, but Go encodes this relationship through the pointer and capacity directly rather than through a negative-capacity flag. Go's approach requires the garbage collector to trace from the slice pointer to the underlying array; Ori's negative-capacity encoding makes the relationship explicit without GC support.
+
+**[Lean 4's `lean_object`](https://github.com/leanprover/lean4/blob/master/src/runtime/object.h)** uses a header with refcount plus a tag byte for runtime type discrimination. This enables polymorphic code to determine an object's type at runtime — something Ori does not need because the LLVM backend generates type-specialized code for every concrete type.
+
+**[Roc's data structures](https://www.roc-lang.org/)** share the most conceptual similarity with Ori's. Roc's list is a `{data, len, cap}` triple with seamless slice encoding via negative capacity (the direct inspiration for Ori's approach). Roc's string uses SSO with a similar discriminator technique. The convergence is not coincidental — both languages are expression-based, ARC-managed, and value-oriented, leading to similar runtime design choices.
+
+## Design Tradeoffs
+
+**24-byte collections vs smaller.** All three collection types (list, map, set) and strings use 24-byte structs. A 16-byte struct (dropping capacity) would save memory but lose amortized O(1) insertion (every push would need to query the allocation's size). A 32-byte struct (adding element size or hash state) would increase passing and copying overhead. The 24-byte choice matches Go's slice header and is the smallest layout that supports capacity-aware growth.
+
+**Single buffer for maps vs separate key/value arrays.** Maps pack keys and values into one RC-managed buffer. Two separate buffers would eliminate value relocation during growth but double the RC management overhead (two uniqueness checks, two allocations, two frees). The single-buffer design makes the common case (small maps) fast at the cost of a `memmove` during growth.
+
+**Opaque iterator handles vs inline state.** Iterators use heap-allocated `Box<IterState>` handles rather than inlining the state into the caller's stack frame. Inlining would avoid the heap allocation but require the compiler to know the size of every iterator variant at compile time — which changes when adapters are composed. The opaque-handle approach trades one heap allocation per iterator for complete decoupling between the compiler and the runtime's iterator implementation.
+
+**Tag byte vs bitfield for Option/Result.** Using a full byte for the tag wastes 7 bits but simplifies codegen (simple i8 load + compare) and avoids the complexity of bitfield extraction. For `Option<int>`, the 7 bytes of padding between tag and value are dictated by alignment, so the tag's size does not affect the overall struct size.

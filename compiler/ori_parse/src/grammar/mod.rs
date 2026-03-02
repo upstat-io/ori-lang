@@ -20,7 +20,7 @@
 //! - **Error recovery**: Failed parses can recover at synchronization points
 //!
 //! Grammar productions map directly to the formal EBNF in
-//! `docs/ori_lang/0.1-alpha/spec/grammar.ebnf`.
+//! `docs/ori_lang/v2026/spec/grammar.ebnf`.
 //!
 //! # Return Type Conventions
 //!

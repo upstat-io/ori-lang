@@ -344,8 +344,8 @@ The vertical alignment is preserved. The parameter names are actually more promi
 
 - `compiler/oric/src/parser/grammar/expr.rs` — Call argument parsing
 - `compiler/oric/src/lexer.rs` — No changes expected
-- `docs/ori_lang/0.1-alpha/spec/` — Update grammar and examples
-- `docs/ori_lang/0.1-alpha/design/` — Update syntax documentation
+- `docs/ori_lang/v2026/spec/` — Update grammar and examples
+- `docs/ori_lang/v2026/design/` — Update syntax documentation
 - `CLAUDE.md` — Update quick reference
 
 ### Migration Tool

@@ -45,7 +45,7 @@ pub use context::CodegenContext;
 use context::{is_boxed_enum_field, EmittedValue};
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy, ValueRepr};
-use ori_arc::ArcClassification;
+use ori_arc::{ArcClassification, CowMode};
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -228,6 +228,25 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         self.builder.const_i32(mode as i32)
     }
 
+    /// Mark `data_ptr` (param 0) as `noalias` on the last emitted call if
+    /// the current instruction's COW mode is [`CowMode::StaticUnique`].
+    ///
+    /// When static uniqueness analysis proves a collection buffer has
+    /// refcount == 1, no other live pointer can reference it. This lets
+    /// LLVM optimize loads/stores in the COW runtime function without
+    /// alias concerns (same principle as Rust's `noalias` on `&mut T`).
+    ///
+    /// Must be called immediately after the `self.builder.call()` that
+    /// invokes the COW runtime function.
+    pub(crate) fn mark_cow_data_noalias_if_unique(&mut self, arc_func: &ArcFunction) {
+        let mode = arc_func
+            .cow_annotations
+            .get(self.current_block_idx, self.current_instr_idx);
+        if mode == CowMode::StaticUnique {
+            self.builder.mark_last_call_param_noalias(0);
+        }
+    }
+
     /// Resolve an `Idx` to an `LLVMTypeId`.
     fn resolve_type(&mut self, idx: Idx) -> LLVMTypeId {
         let llvm_ty = self.type_resolver.resolve(idx);
@@ -261,16 +280,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// Compute the ABI alignment in bytes for a type index.
     ///
-    /// For sizes >= 8, alignment is 8 (pointer alignment). For smaller types,
-    /// alignment equals the size. Correct for all current Ori types:
-    /// int/float/ptr = 8, char = 4, bool = 1, str/list/map = 8 (struct max-field).
+    /// Uses the type's own alignment (from `TypeInfo::alignment()`) rather
+    /// than deriving it from size. Falls back to `element_store_size` for
+    /// compound types whose alignment depends on field layout.
     pub(crate) fn element_store_align(&self, ty: Idx) -> u64 {
-        let size = self.element_store_size(ty);
-        if size >= 8 {
-            8
-        } else {
-            size.max(1)
-        }
+        let info = self.type_info.get(ty);
+        u64::from(info.alignment())
     }
 
     /// Look up the raw LLVM value for an ARC variable.

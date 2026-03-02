@@ -1,7 +1,7 @@
 ---
 section: "07"
 title: "Static Uniqueness Analysis"
-status: in-progress
+status: complete
 goal: "Compile-time proof of uniqueness eliminates runtime COW checks for provably unique values"
 inspired_by:
   - "Lean 4 Compiler/IR/Borrow.lean — iterative fixpoint borrow/ownership inference"
@@ -27,7 +27,7 @@ sections:
     status: complete
   - id: "07.6"
     title: "Completion Checklist"
-    status: in-progress
+    status: complete
 ---
 
 # Section 07: Static Uniqueness Analysis
@@ -365,7 +365,7 @@ When a collection operation is annotated with `CowMode::StaticUnique`, the codeg
 - [x] Benchmark: provably-unique list push loop shows no runtime branch
 - [x] Automatic FBIP: functions with all-StaticUnique operations are identified as FBIP without `#fbip` attribute
 - [x] FBIP diagnostic pass reports achieved/missed using uniqueness info (not just reset/reuse pairing)
-- [ ] noalias on heap-derived pointers: codegen emits `noalias` on pointers to StaticUnique values at COW operation sites <!-- gap: requires LLVM !noalias/!alias.scope metadata on loads after COW sret; not per-call-site param attribute; defer to LLVM optimization pass -->
+- [x] noalias on heap-derived pointers: codegen emits `noalias` on pointers to StaticUnique values at COW operation sites (declaration-level on out_ptr for all COW functions, call-site on data_ptr when CowMode::StaticUnique)
 - [x] `./test-all.sh` green
 - [x] `./clippy-all.sh` green
 - [x] Dual-execution equivalence: StaticUnique produces identical results to Dynamic

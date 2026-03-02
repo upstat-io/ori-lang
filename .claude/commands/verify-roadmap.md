@@ -55,7 +55,7 @@ Read all section files. Group into batches of 3-4 sections, ordered by section n
 For each batch, launch parallel `general-purpose` subagents using the Task tool with `run_in_background: true`. Each agent receives:
 
 1. The section file path
-2. The spec directory path (`docs/ori_lang/0.1-alpha/spec/`)
+2. The spec directory path (`docs/ori_lang/v2026/spec/`)
 3. Instructions to follow the verification protocol below
 4. A results output path: `plans/roadmap/.verify-results/section-XX-results.md`
 

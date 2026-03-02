@@ -1,17 +1,17 @@
 ---
 name: sync-spec
-description: Update the spec docs/ori_lang/0.1-alpha/spec follow spec format with the changes just made or user instructions
+description: Update the spec docs/ori_lang/v2026/spec follow spec format with the changes just made or user instructions
 allowed-tools: Read, Grep, Glob, Edit, Write
 ---
 
 # Update Ori Language Specification
 
-Update the language specification at `docs/ori_lang/0.1-alpha/spec/` to reflect changes just made or follow user instructions.
+Update the language specification at `docs/ori_lang/v2026/spec/` to reflect changes just made or follow user instructions.
 
 ## Target Directory
 
 ```
-docs/ori_lang/0.1-alpha/spec/
+docs/ori_lang/v2026/spec/
 ```
 
 ## Spec Files
@@ -97,7 +97,7 @@ Functions let you organize your code into reusable pieces.
 
 Brief normative introduction.
 
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § SECTION_NAME
+> **Grammar:** See [grammar.ebnf](grammar.md) § SECTION_NAME
 
 ## Subsection
 
@@ -124,7 +124,7 @@ Normative definitions here.
 **Do not inline EBNF in spec files.** Reference the formal files:
 
 ```markdown
-> **Grammar:** See [grammar.ebnf](grammar.ebnf) § SECTION_NAME
+> **Grammar:** See [grammar.ebnf](grammar.md) § SECTION_NAME
 > **Rules:** See [operator-rules.md](operator-rules.md) § OPERATOR_NAME
 ```
 

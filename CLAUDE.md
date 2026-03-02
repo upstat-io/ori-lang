@@ -7,7 +7,7 @@
 
 **TDD for bugs** — NEVER fix without tests first:
 1. **STOP** — resist urge to immediately change code
-2. **Consult spec** (`docs/ori_lang/0.1-alpha/spec/`) for intended behavior
+2. **Consult spec** (`docs/ori_lang/v2026/spec/`) for intended behavior
 3. **Write MULTIPLE tests**: exact failing case, edge cases, related variations, regression guards
 4. **Verify tests fail** — if they pass, you misunderstand the bug
 5. **Fix the code**
@@ -20,7 +20,7 @@
 - **Ori**: statically-typed expression-based, HM inference, ARC memory, capability effects, mandatory tests. Targets LLVM/WASM. Compiler in Rust (Salsa-based).
 - **NO `return`**: last expression = block value. Exit via `?`/`break`/`panic`. Similar to Rust, Gleam, Roc.
 - **Syntax ref**: `.claude/rules/ori-syntax.md` (auto-loaded for `.ori` files) | `/ori-syntax` skill
-- **Spec authoritative**: `docs/ori_lang/0.1-alpha/spec/` (`grammar.ebnf`, `operator-rules.md`)
+- **Spec authoritative**: `docs/ori_lang/v2026/spec/` (`grammar.ebnf`, `operator-rules.md`)
 
 ### Design Pillars
 1. **Expression-based**: everything is expression; last expr = block value; no `return`
@@ -70,9 +70,16 @@
 - `valgrind-aot.sh [file.ori ...]` — Valgrind memory errors (defaults to `tests/valgrind/`, not in test-all.sh)
 - `dual-exec-verify.sh [test-path]` — batch interpreter vs LLVM (`--test-only`, `--main-only`, `--json`)
 
+## Versioning
+
+CalVer — see `docs/ori_lang/versioning.md` | `docs/development/versioning.md` (full details)
+**Build**: `v<Y>.<M>.<D>.<N>-<Stage>` (e.g. `v2026.03.01.1-Alpha`) | **Source of truth**: `BUILD_NUMBER` file
+**Spec edition**: year-scoped directory `docs/ori_lang/v2026/` — covers all `v2026.*` builds; displayed version injected from `BUILD_NUMBER`
+**Scripts**: `./scripts/bump-build.sh` (derive build number) | `./scripts/sync-version.sh` (sync all manifests)
+
 ## Key Paths
 
-`compiler/oric/` — compiler | `docs/ori_lang/0.1-alpha/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT tests | `tests/valgrind/` — Valgrind tests | `tests/benchmarks/` — benchmarks | `diagnostics/` — diagnostic scripts | `plans/roadmap/` — roadmap
+`compiler/oric/` — compiler | `docs/ori_lang/v2026/spec/` — **spec (authoritative)** | `spec/grammar.ebnf` — syntax | `spec/operator-rules.md` — operator semantics | `docs/ori_lang/proposals/` — proposals | `docs/ori_lang/versioning.md` — versioning scheme | `library/std/` — stdlib | `tests/spec/` — conformance | `compiler/oric/tests/phases/` — phase tests | `compiler/ori_llvm/tests/aot/` — AOT tests | `tests/valgrind/` — Valgrind tests | `tests/benchmarks/` — benchmarks | `diagnostics/` — diagnostic scripts | `plans/roadmap/` — roadmap
 
 ## Reference Repos (`~/projects/reference_repos/lang_repos/`)
 

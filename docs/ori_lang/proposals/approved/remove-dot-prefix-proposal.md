@@ -350,7 +350,7 @@ fetch_user(id: parse_id(input: input))
 
 - `compiler/oric/src/parser/grammar/expr.rs` — Call argument parsing
 - `compiler/oric/src/formatter/` — Formatting rules
-- `docs/ori_lang/0.1-alpha/spec/` — Grammar and examples
+- `docs/ori_lang/v2026/spec/` — Grammar and examples
 - `CLAUDE.md` — Quick reference
 
 ### Migration Tool

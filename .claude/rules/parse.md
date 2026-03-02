@@ -6,7 +6,7 @@ paths:
 # Parser
 
 ## Pre-Implementation
-- Spec first: add grammar to `docs/ori_lang/0.1-alpha/spec/`
+- Spec first: add grammar to `docs/ori_lang/v2026/spec/`
 - Update `grammar.ebnf` | check disambiguation and context flags
 - Create failing tests in `tests/spec/`
 

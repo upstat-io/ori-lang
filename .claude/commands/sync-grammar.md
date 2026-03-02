@@ -1,12 +1,12 @@
 ---
 name: sync-grammar
-description: Update docs/ori_lang/0.1-alpha/spec/grammar.ebnf to match the spec
+description: Update docs/ori_lang/v2026/spec/grammar.ebnf to match the spec
 allowed-tools: Read, Grep, Glob, Edit, Write
 ---
 
 # Update Grammar EBNF
 
-Update `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` to accurately reflect the current language specification.
+Update `docs/ori_lang/v2026/spec/grammar.ebnf` to accurately reflect the current language specification.
 
 ## Overview
 
@@ -15,8 +15,8 @@ The grammar.ebnf file is the **single source of truth** for Ori's formal syntax.
 ## Target Files
 
 ```
-docs/ori_lang/0.1-alpha/spec/grammar.ebnf      # Syntax (EBNF)
-docs/ori_lang/0.1-alpha/spec/operator-rules.md # Semantics (type/eval rules)
+docs/ori_lang/v2026/spec/grammar.ebnf      # Syntax (EBNF)
+docs/ori_lang/v2026/spec/operator-rules.md # Semantics (type/eval rules)
 ```
 
 **Note:** If operator precedence, associativity, or type rules change, update BOTH files.

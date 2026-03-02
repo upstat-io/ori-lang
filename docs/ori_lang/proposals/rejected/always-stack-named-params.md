@@ -212,7 +212,7 @@ Update the formatter to always emit stacked format when encountering `.name:` sy
 
 ### Files Updated
 
-- `docs/ori_lang/0.1-alpha/design/12-tooling/04-formatter.md` — Updated rule and rationale
+- `docs/ori_lang/v2026/design/12-tooling/04-formatter.md` — Updated rule and rationale
 - `CLAUDE.md` — Updated formatting rules summary
 
 ---

@@ -111,7 +111,7 @@ paths:
 ## Bug Debugging Workflow
 
 1. **STOP** — do not jump to fixing
-2. **Consult spec** — `docs/ori_lang/0.1-alpha/spec/` for intended behavior
+2. **Consult spec** — `docs/ori_lang/v2026/spec/` for intended behavior
 3. **Run diagnostics** by symptom:
    - Wrong output → `dual-exec-debug.sh` | Crash/segfault → `diagnose-aot.sh --valgrind`
    - Memory leak → `ORI_CHECK_LEAKS=1` then `rc-stats.sh` | RC corruption → `ORI_TRACE_RC=1` then `codegen-audit.sh --strict`
@@ -160,5 +160,5 @@ paths:
 
 ## Source of Truth
 
-1. `docs/ori_lang/0.1-alpha/spec/` — authoritative
+1. `docs/ori_lang/v2026/spec/` — authoritative
 2. `~/projects/reference_repos/lang_repos/` — Rust, Go, TS, Zig, Gleam, Elm, Roc, Swift, Koka, Lean 4

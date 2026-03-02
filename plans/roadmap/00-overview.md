@@ -167,7 +167,7 @@ Core Complete (1-15) ──→ Section 21A-B (Codegen) → Section 22 (Tooling)
 A section is complete when:
 
 1. **Implemented** — Compiler support in `compiler/oric/`
-2. **Specified** — Spec updated in `docs/ori_lang/0.1-alpha/spec/`
+2. **Specified** — Spec updated in `docs/ori_lang/v2026/spec/`
 3. **Tested** — Tests in `tests/spec/`
 4. **Documented** — CLAUDE.md updated if syntax affected
 
@@ -203,7 +203,7 @@ Milestones align with tiers for consistent tracking.
 
 | Reference | Location |
 |-----------|----------|
-| Spec | `docs/ori_lang/0.1-alpha/spec/` |
+| Spec | `docs/ori_lang/v2026/spec/` |
 | Proposals | `docs/ori_lang/proposals/` |
 | Compiler | `compiler/oric/` |
 | Tests | `tests/spec/` |

@@ -89,7 +89,7 @@ Alternative considered:
 
 ### Specification Updates
 
-Update `docs/ori_lang/0.1-alpha/spec/13-testing.md`:
+Update `docs/ori_lang/v2026/spec/13-testing.md`:
 
 ```diff
 -### Targeted Tests
@@ -156,7 +156,7 @@ This proposal is documentation-only. No compiler modifications are required.
 
 ### Files to Update
 
-1. `docs/ori_lang/0.1-alpha/spec/13-testing.md`
+1. `docs/ori_lang/v2026/spec/13-testing.md`
 2. `docs/ori_lang/proposals/approved/dependency-aware-testing-proposal.md`
 3. `docs/ori_lang/proposals/approved/test-execution-model-proposal.md`
 4. `docs/ori_lang/proposals/approved/incremental-test-execution-proposal.md`

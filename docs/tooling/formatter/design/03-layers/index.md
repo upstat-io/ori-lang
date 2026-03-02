@@ -208,7 +208,7 @@ ori_fmt/src/
 
 ## Relationship to Spec
 
-The formatting spec (`docs/ori_lang/0.1-alpha/spec/16-formatting.md`) defines *what* the canonical format is. This layer architecture explains *how* the implementation achieves that format.
+The formatting spec (`docs/ori_lang/v2026/spec/16-formatting.md`) defines *what* the canonical format is. This layer architecture explains *how* the implementation achieves that format.
 
 | Spec Section | Implementation Layer |
 |--------------|---------------------|
