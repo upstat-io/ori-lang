@@ -1,0 +1,72 @@
+// Valgrind test: COW list element access and shrinking patterns.
+// Exercises .first(), .last(), .take(), .drop() — the Option<T>-returning
+// accessors and list shrinking operations under COW.
+//
+// KNOWN BUGS (tracked for llvm-codegen-fixes reroute):
+// - .pop() leaks buffer (40 bytes per call)
+// - .get(index:) segfaults under Valgrind
+// - heap string first()/last() + unwrap() + equality: use-after-free in cleanup
+
+@main () -> int = {
+    // last() on unique list
+    let a = [1, 2, 3];
+    let last = a.last();
+    let last_ok = last.is_some() && last.unwrap() == 3;
+
+    // first() on unique list
+    let first = a.first();
+    let first_ok = first.is_some() && first.unwrap() == 1;
+
+    // last() on shared list — original unchanged
+    let base = [10, 20, 30];
+    let shared = base;
+    let shared_last = shared.last();
+    let cow_ok = shared_last.unwrap() == 30 && base.length() == 3;
+
+    // first/last on single element
+    let single = [42];
+    let single_first = single.first();
+    let single_last = single.last();
+    let single_ok = single_first.unwrap() == 42 && single_last.unwrap() == 42;
+
+    // first/last on empty list
+    let empty: [int] = [];
+    let empty_first = empty.first();
+    let empty_last = empty.last();
+    let empty_ok = empty_first.is_none() && empty_last.is_none();
+
+    // take (COW shrinking pattern)
+    let xs = [1, 2, 3, 4, 5];
+    let taken = xs.take(count: 3);
+    let take_ok = taken.length() == 3 && taken.last().unwrap() == 3
+        && xs.length() == 5;
+
+    // drop (COW shrinking pattern)
+    let dropped = xs.drop(count: 2);
+    let drop_ok = dropped.length() == 3 && dropped.first().unwrap() == 3
+        && xs.length() == 5;
+
+    // take on shared — original unchanged
+    let base2 = [10, 20, 30, 40, 50];
+    let shared2 = base2;
+    let shrunk = shared2.take(count: 3);
+    let cow_take_ok = base2.length() == 5 && shrunk.length() == 3;
+
+    // Progressive shrinking via take (COW "remove last" pattern)
+    let shrinking = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    for _ in 0..5 do {
+        shrinking = shrinking.take(count: shrinking.length() - 1);
+    };
+    let shrink_ok = shrinking.length() == 5;
+
+    // last() with string elements (SSO-sized only; heap strings
+    // trigger use-after-free in AOT cleanup — tracked for llvm-codegen-fixes)
+    let strs = ["hello", "world", "test"];
+    let str_last = strs.last();
+    let str_ok = str_last.unwrap() == "test";
+
+    if last_ok && first_ok && cow_ok && single_ok && empty_ok
+        && take_ok && drop_ok && cow_take_ok && shrink_ok
+        && str_ok
+    then 0 else 1
+}

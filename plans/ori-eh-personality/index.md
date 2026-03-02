@@ -19,9 +19,10 @@
 ori_eh_personality, personality function, Itanium EH ABI, DWARF, LSDA
 exception handling, unwinding, landingpad, invoke, cleanup, catch-all
 _Unwind_RaiseException, _Unwind_SetGR, _Unwind_SetIP, _URC_INSTALL_CONTEXT
+_UA_FORCE_UNWIND, _Unwind_ForcedUnwind, forced unwind, ip - 1
 ULEB128, SLEB128, call-site table, action table, ttype_index
 gcc_personality_v0.c, rust_eh_personality, __gxx_personality_v0
-ori_rt, build.rs, cc crate, staticlib
+ori_rt, build.rs, cc crate, staticlib, forced_unwind.rs, test_frames_x86_64.S, test_frames_aarch64.S
 ```
 
 ---

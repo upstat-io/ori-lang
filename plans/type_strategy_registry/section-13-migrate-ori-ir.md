@@ -62,12 +62,12 @@ The two `MethodDef` types serve the same purpose but have different structures. 
 
 | ori_ir::MethodDef Field | Type | ori_registry::MethodDef Field | Type | Mapping |
 |---|---|---|---|---|
-| `receiver` | `BuiltinType` | *(on TypeDef, not MethodDef)* | `TypeTag` (on parent `TypeDef`) | Method lives inside `TypeDef.methods`; the receiver is the TypeDef's `tag` field. No receiver field on registry MethodDef. |
+| `receiver` | `BuiltinType` | `receiver` | `Ownership` | Two different concepts with the same field name: ori_ir's `receiver: BuiltinType` identifies WHICH type (now implicit via `TypeDef.tag`); the registry's `receiver: Ownership` describes HOW the receiver is passed (`Borrow`, `Owned`, or `Copy`). |
 | `name` | `&'static str` | `name` | `&'static str` | **Identical.** |
 | `params` | `&'static [ParamSpec]` | `params` | `&'static [ParamDef]` | See 13.3 for expressiveness gap. `ParamSpec::SelfType` maps to `ParamDef { ty: ReturnTag::SelfType, ... }`. |
 | `returns` | `ReturnSpec` | `returns` | `ReturnTag` | See 13.2 for expressiveness gap. `ReturnSpec::SelfType` maps to `ReturnTag::SelfType`. `ReturnSpec::Type(BuiltinType::Int)` maps to `ReturnTag::Concrete(TypeTag::Int)`. |
 | `trait_name` | `Option<&'static str>` | `trait_name` | `Option<&'static str>` | **Identical.** Preserved in registry for phases that need trait association (LLVM trait dispatch path). |
-| `receiver_borrows` | `bool` | `receiver` | `Ownership` | `true` maps to `Ownership::Borrow`, `false` maps to `Ownership::Owned`. Renamed to `receiver` (the ownership of the receiver). |
+| `receiver_borrows` | `bool` | `receiver` | `Ownership` | `true` maps to `Ownership::Borrow`, `false` maps to `Ownership::Owned`. Copy types (int, float, bool, byte, char, Duration, Size, Ordering) use `Ownership::Copy`. Renamed to `receiver` (the ownership of the receiver). |
 
 ### Key Structural Differences
 
@@ -87,7 +87,7 @@ let method = ori_registry::find_method(TypeTag::Int, "abs");
 
 **2. Ownership replaces bool.**
 
-`receiver_borrows: bool` is replaced by `receiver: Ownership` (an enum: `Borrow`, `Owned`, `Copy`). This is strictly more expressive — `Copy` captures the semantic difference between "borrowed because it's a reference type" and "trivially copied because it's a value type." For the current 162 entries in `BUILTIN_METHODS`, every single one has `receiver_borrows: true`, so the mapping is uniform: all map to `Ownership::Borrow`.
+`receiver_borrows: bool` is replaced by `receiver: Ownership` (an enum: `Borrow`, `Owned`, `Copy`). This is strictly more expressive — `Copy` captures the semantic difference between "borrowed because it's a reference type" and "trivially copied because it's a value type." For the current 162 entries in `BUILTIN_METHODS`, every single one has `receiver_borrows: true`. During migration, the registry enriches this: methods on Copy types (int, float, bool, byte, char, Duration, Size, Ordering) use `Ownership::Copy`; methods on Arc types (str, list, map, etc.) that borrow use `Ownership::Borrow`; consuming methods (e.g., `option.unwrap()`, `iterator.collect()`) use `Ownership::Owned`.
 
 **3. `trait_name` is preserved.**
 
@@ -108,7 +108,7 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 ## 13.2 ReturnSpec Expressiveness Gap Analysis
 
-`ori_ir::ReturnSpec` has 7 variants. `ori_registry` uses `TypeTag` for return types. This subsection analyzes whether `TypeTag` is sufficient.
+`ori_ir::ReturnSpec` has 7 variants. `ori_registry` uses `ReturnTag` for return types (see Section 01). For primitive/compound types, `ReturnTag::Concrete(TypeTag)` wraps concrete types; for generic types, richer variants like `ReturnTag::ElementType`, `ReturnTag::OptionOf(TypeProjection)` etc. are used. This subsection analyzes whether the mapping from `ReturnSpec` is straightforward.
 
 ### Variant-by-Variant Analysis
 
@@ -127,11 +127,10 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 **TypeTag is fully sufficient for all 162 entries in BUILTIN_METHODS.** The complex return spec variants (`ElementType`, `OptionElement`, `ListElement`, `InnerType`) are never used in the current `ori_ir` registry. They exist because `ori_ir` anticipated needing them for collection types, but collection types were never added to `BUILTIN_METHODS`. In `ori_registry`, collection types are handled by Sections 06-07, where `ReturnTag` variants (e.g., `ReturnTag::Element`, `ReturnTag::Fresh`) capture the structural return type templates, and the type checker's existing inference logic handles closure-dependent return types.
 
-### Decision: TypeTag for return type, ReturnTag for generics
+### Decision: ReturnTag for all return types
 
-- **Registry `MethodDef.returns`**: `TypeTag` — sufficient for all primitive and compound type methods.
-- **Generic return type templates**: `ReturnTag` variants (e.g., `ReturnTag::Element`, `ReturnTag::Fresh`) on `MethodDef` — declares the structural shape of return types for collection/iterator methods. Higher-order type inference (how closure arguments constrain return types) stays in the type checker's `unify_higher_order_constraints`.
-- **No need for ReturnSpec in ori_registry.** The type is retired.
+- **Registry `MethodDef.returns`**: Always `ReturnTag` (Section 01 frozen schema). For primitive/compound types, this is `ReturnTag::Concrete(TypeTag::Int)` etc. For generic types, richer variants like `ReturnTag::ElementType`, `ReturnTag::OptionOf(TypeProjection::Element)`, `ReturnTag::Fresh` are used (see Section 01).
+- **No need for ReturnSpec in ori_registry.** The legacy `ori_ir::ReturnSpec` type is retired.
 
 ### Checklist
 
@@ -143,38 +142,38 @@ No code changes in `ori_ir` itself for this mapping — `ori_ir::MethodDef` is b
 
 ## 13.3 ParamSpec Expressiveness Gap Analysis
 
-`ori_ir::ParamSpec` has 6 variants. `ori_registry` uses `ParamDef` with `TypeTag` + `Ownership`. This subsection analyzes the mapping.
+`ori_ir::ParamSpec` has 6 variants. `ori_registry` uses `ParamDef` with `ReturnTag` + `Ownership` (see Section 01). This subsection analyzes the mapping.
 
 ### Variant-by-Variant Analysis
 
 | ori_ir::ParamSpec | Current Usage (BUILTIN_METHODS) | ori_registry Equivalent | Sufficient? |
 |---|---|---|---|
 | `SelfType` | `compare(other: Self)`, `add(other: Self)`, `min(other: Self)` | `ParamDef { ty: ReturnTag::SelfType, ownership: Ownership::Borrow }` | Yes. `ReturnTag::SelfType` maps exactly. |
-| `Int` | `Duration.mul(n: int)`, `Duration.div(n: int)`, `Size.mul(n: int)`, `Size.div(n: int)` | `ParamDef { tag: TypeTag::Int, ownership: Ownership::Borrow }` | Yes. Direct mapping. |
-| `Str` | `str.contains(s: str)`, `str.starts_with(s: str)`, `str.ends_with(s: str)`, `str.concat(s: str)`, `str.add(s: str)` | `ParamDef { tag: TypeTag::Str, ownership: Ownership::Borrow }` | Yes. Direct mapping. |
-| `Bool` | Not used in current `BUILTIN_METHODS` (zero entries) | `ParamDef { tag: TypeTag::Bool, ... }` | Yes, if ever needed. |
+| `Int` | `Duration.mul(n: int)`, `Duration.div(n: int)`, `Size.mul(n: int)`, `Size.div(n: int)` | `ParamDef { name: "n", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy }` | Yes. Direct mapping. |
+| `Str` | `str.contains(s: str)`, `str.starts_with(s: str)`, `str.ends_with(s: str)`, `str.concat(s: str)`, `str.add(s: str)` | `ParamDef { name: "s", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }` | Yes. Direct mapping. |
+| `Bool` | Not used in current `BUILTIN_METHODS` (zero entries) | `ParamDef { name: _, ty: ReturnTag::Concrete(TypeTag::Bool), ... }` | Yes, if ever needed. |
 | `Any` | Not used in current `BUILTIN_METHODS` (zero entries) | Not needed for primitives. For generics, the type checker handles polymorphism separately. | Not needed for this migration. |
 | `Closure` | Not used in current `BUILTIN_METHODS` (zero entries) | Not needed for primitives. Iterator/collection closure inference stays in the type checker. | Not needed for this migration. |
 
 ### Conclusion
 
-**ParamDef with TypeTag is fully sufficient for all 162 entries in BUILTIN_METHODS.** Only three ParamSpec variants are actually used: `SelfType` (most common — trait methods and arithmetic), `Int` (Duration/Size multiplication/division), and `Str` (string comparison/contains methods). All three map directly to `ParamDef` with the corresponding `TypeTag`.
+**ParamDef with ReturnTag is fully sufficient for all 162 entries in BUILTIN_METHODS.** Only three ParamSpec variants are actually used: `SelfType` (most common — trait methods and arithmetic), `Int` (Duration/Size multiplication/division), and `Str` (string comparison/contains methods). All three map directly to `ParamDef` with the corresponding `ReturnTag::SelfType` or `ReturnTag::Concrete(TypeTag)`.
 
-The complex variants (`Any`, `Closure`, `Bool`) are unused in `BUILTIN_METHODS`. In `ori_registry`, collection and iterator methods that take closures use `ParamDef` variants for parameter declaration; the actual closure type inference stays in the type checker.
+The complex variants (`Any`, `Closure`, `Bool`) are unused in `BUILTIN_METHODS`. In `ori_registry`, collection and iterator methods that take closures use `ParamDef` with `ReturnTag::Fresh` for parameter declaration; the actual closure type inference stays in the type checker.
 
-### Decision: ParamDef with TypeTag + Ownership
+### Decision: ParamDef with ReturnTag + Ownership
 
 No compatibility shim needed. The mapping is:
-- `ParamSpec::SelfType` --> `ParamDef { ty: ReturnTag::SelfType, ownership: Ownership::Borrow }`
-- `ParamSpec::Int` --> `ParamDef { tag: TypeTag::Int, ownership: Ownership::Borrow }`
-- `ParamSpec::Str` --> `ParamDef { tag: TypeTag::Str, ownership: Ownership::Borrow }`
+- `ParamSpec::SelfType` --> `ParamDef { name: "other", ty: ReturnTag::SelfType, ownership: Ownership::Borrow }`
+- `ParamSpec::Int` --> `ParamDef { name: "n", ty: ReturnTag::Concrete(TypeTag::Int), ownership: Ownership::Copy }`
+- `ParamSpec::Str` --> `ParamDef { name: "s", ty: ReturnTag::Concrete(TypeTag::Str), ownership: Ownership::Borrow }`
 
 ### Checklist
 
 - [ ] Verify zero uses of `ParamSpec::Bool`, `ParamSpec::Any`, `ParamSpec::Closure` in `BUILTIN_METHODS`
 - [ ] Verify all `ParamSpec::SelfType` map to `ParamDef { ty: ReturnTag::SelfType, ... }`
-- [ ] Verify all `ParamSpec::Int` map to `ParamDef { tag: TypeTag::Int, ... }`
-- [ ] Verify all `ParamSpec::Str` map to `ParamDef { tag: TypeTag::Str, ... }`
+- [ ] Verify all `ParamSpec::Int` map to `ParamDef { ty: ReturnTag::Concrete(TypeTag::Int), ... }`
+- [ ] Verify all `ParamSpec::Str` map to `ParamDef { ty: ReturnTag::Concrete(TypeTag::Str), ... }`
 
 ---
 
@@ -196,7 +195,7 @@ This is the core deletion. The module spans 866 lines across two files and defin
 | Type | Replacement | Notes |
 |---|---|---|
 | `ori_ir::builtin_methods::ParamSpec` | `ori_registry::ParamDef` | Different structure (enum vs struct), same purpose |
-| `ori_ir::builtin_methods::ReturnSpec` | `ori_registry::TypeTag` (for returns) | Simpler — no `ElementType`/`OptionElement`/`ListElement`/`InnerType` variants needed |
+| `ori_ir::builtin_methods::ReturnSpec` | `ori_registry::ReturnTag` (wraps `TypeTag` via `Concrete()`) | Superset — adds `ElementType`, `OptionOf`, `ListOf`, `Fresh`, etc. for generic types |
 | `ori_ir::builtin_methods::MethodDef` | `ori_registry::MethodDef` | Different structure (receiver on MethodDef vs on parent TypeDef) |
 
 ### Query Functions Retired

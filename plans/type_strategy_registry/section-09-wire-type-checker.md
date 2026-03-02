@@ -196,7 +196,7 @@ A registry `MethodDef` declares `returns: ReturnTag::Concrete(TypeTag::Option)` 
 
 1. Map `ReturnTag::Concrete(TypeTag::X)` to fixed `Idx` constants or pool-constructed types.
 2. Map `ReturnTag::SelfType` to the receiver type (`receiver_ty`).
-3. Map container-relative tags (`ReturnTag::ElementType`, `ReturnTag::OptionElement`, etc.) to pool-constructed types using the receiver's inner type(s).
+3. Map container-relative tags (`ReturnTag::ElementType`, `ReturnTag::OptionOf(TypeProjection::Element)`, etc.) to pool-constructed types using the receiver's inner type(s).
 4. Map `ReturnTag::Fresh` to `engine.pool_mut().fresh_var()` for higher-order methods.
 
 ### Implementation
@@ -288,24 +288,24 @@ pub(crate) fn return_tag_to_idx(
 
         // === Container-relative types ===
         ReturnTag::ElementType => extract_elem(engine, receiver_ty),
-        ReturnTag::OptionElement => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().option(elem)
+        ReturnTag::OptionOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().option(inner)
         }
-        ReturnTag::ListElement => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().list(elem)
+        ReturnTag::ListOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().list(inner)
         }
-        ReturnTag::IteratorElement => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().iterator(elem)
+        ReturnTag::IteratorOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().iterator(inner)
         }
-        ReturnTag::DoubleEndedIteratorElement => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().double_ended_iterator(elem)
+        ReturnTag::DoubleEndedIteratorOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().double_ended_iterator(inner)
         }
-        ReturnTag::InnerType => extract_inner(engine, receiver_ty),
-        ReturnTag::ErrorType => extract_error(engine, receiver_ty),
+        ReturnTag::OkType => extract_ok(engine, receiver_ty),
+        ReturnTag::ErrType => extract_err(engine, receiver_ty),
         ReturnTag::KeyType => engine.pool().map_key(receiver_ty),
         ReturnTag::ValueType => engine.pool().map_value(receiver_ty),
         ReturnTag::ListKeyValue => {
@@ -323,7 +323,11 @@ pub(crate) fn return_tag_to_idx(
 /// `Channel<T>`, `Range<T>`: returns `T`.
 /// For `Map<K, V>`: returns `K` (the primary element; use map-specific
 /// extraction for V).
-/// For non-containers (primitives, tuples): returns `Idx::ERROR`.
+///
+/// # Panics
+///
+/// ICE if called on a non-container type (primitive, tuple). The caller
+/// must ensure the receiver is a container before calling this function.
 fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
     let tag = engine.pool().tag(receiver_ty);
     match tag {
@@ -335,7 +339,7 @@ fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
         Tag::Range => engine.pool().range_elem(receiver_ty),
         Tag::Map => engine.pool().map_key(receiver_ty),
         Tag::Result => engine.pool().result_ok(receiver_ty),
-        _ => Idx::ERROR,
+        _ => ice!("extract_elem called on non-container type {tag:?}"),
     }
 }
 ```
@@ -345,17 +349,19 @@ fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
 - **`ReturnTag::SelfType`** resolves to the receiver type. For `Clone` trait's `clone()` method on `int`, the return is `ReturnTag::SelfType` which resolves to `Idx::INT`. For `list.clone()`, it resolves to the `List<T>` type. This is the most common return type for trait methods.
 - **`ReturnTag::Fresh`** creates a fresh type variable. This is used for higher-order methods like `map`, `flat_map`, `fold` where the return type depends on the closure argument and cannot be statically determined from the registry alone. The `unify_higher_order_constraints` function in `calls/mod.rs` resolves these variables later.
 - **`extract_elem`** is the key helper -- it extracts the "primary inner type" from any container. For most containers this is the element type `T`. For `Map<K, V>` it returns `K`. Methods that need `V` (like `map.values()`) use direct pool accessors.
-- **`TypeTag::Channel`/`Range`/`Tuple` as return types**: Currently no method returns these types (a Channel method never returns a new Channel; Range methods return List/Iterator/Int/Bool; Tuple is only used in computed return types like `enumerate`). The `Idx::ERROR` fallback is defensive, not a workaround.
+- **`resolve_projection`** maps a `TypeProjection` variant to a pool `Idx` from the receiver type: `Element` → `extract_elem()`, `Key` → `pool.map_key()`, `Value` → `pool.map_value()`, `Ok` → `pool.result_ok()`, `Err` → `pool.result_err()`, `Fixed(tag)` → `tag_to_idx(tag)`. This enables the `OptionOf`/`ListOf`/`IteratorOf`/`DoubleEndedIteratorOf` variants to compose with any projection.
+- **`TypeTag::Channel`/`Range`/`Tuple` as return types**: Currently no method returns these types (a Channel method never returns a new Channel; Range methods return List/Iterator/Int/Bool; Tuple is only used in computed return types like `enumerate`). The `extract_elem` function uses `ice!()` for non-container types per the "no silent fallbacks" rule (frozen decision #7).
 
 ### Tasks
 
 - [ ] Implement `return_tag_to_idx()` in `registry_bridge.rs`
 - [ ] Implement `extract_elem()` helper
-- [ ] Add unit tests: `TypeTag::Int` -> `Idx::INT`, `TypeTag::Float` -> `Idx::FLOAT`, etc. (all primitives)
+- [ ] Implement `resolve_projection()` helper (TypeProjection → Idx)
+- [ ] Add unit tests: `ReturnTag::Concrete(TypeTag::Int)` -> `Idx::INT`, etc. (all primitives)
 - [ ] Add unit test: `ReturnTag::SelfType` -> receiver_ty
-- [ ] Add unit test: `TypeTag::Option` on `List<int>` receiver -> `Option<int>`
-- [ ] Add unit test: `TypeTag::List` on `Set<str>` receiver -> `[str]`
-- [ ] Add unit test: `TypeTag::Iterator` on `List<int>` receiver -> `Iterator<int>`
+- [ ] Add unit test: `ReturnTag::OptionOf(TypeProjection::Element)` on `List<int>` receiver -> `Option<int>`
+- [ ] Add unit test: `ReturnTag::ListOf(TypeProjection::Element)` on `Set<str>` receiver -> `[str]`
+- [ ] Add unit test: `ReturnTag::IteratorOf(TypeProjection::Element)` on `List<int>` receiver -> `Iterator<int>`
 - [ ] Add unit test: `ReturnTag::Fresh` -> fresh var (check it's a `Tag::Var`)
 - [ ] Verify `cargo c -p ori_types` compiles
 
@@ -894,19 +900,20 @@ if tag == Tag::Iterator {
 
 ### Migration Strategy
 
-After the registry is in place, the DEI-only check becomes a registry comparison: "method exists on DoubleEndedIterator but not on Iterator."
+After the registry is in place, the DEI-only check reads the `dei_only` flag directly from the single Iterator `TypeDef` (Section 07 Decision 1). No separate `TypeDef` for `DoubleEndedIterator` exists — all iterator methods live on one `TypeDef`, with `dei_only: true` marking DEI-exclusive methods.
 
 ```rust
 // AFTER: compiler/ori_types/src/infer/expr/calls/mod.rs
 
 // Replace DEI_ONLY_METHODS.contains(&name_str) with:
 fn is_dei_only_method(method_name: &str) -> bool {
-    ori_registry::find_method(TypeTag::DoubleEndedIterator, method_name).is_some()
-        && ori_registry::find_method(TypeTag::Iterator, method_name).is_none()
+    // Look up on DEI tag (sees all methods), then check the flag.
+    ori_registry::find_method(TypeTag::DoubleEndedIterator, method_name)
+        .map_or(false, |m| m.dei_only)
 }
 ```
 
-This is structurally derived from the registry data rather than maintained as a parallel constant. Adding a new DEI-only method to the DoubleEndedIterator TypeDef automatically makes it a DEI-only method -- no manual sync required.
+This is structurally derived from the registry data rather than maintained as a parallel constant. Adding a new method with `dei_only: true` to the Iterator TypeDef automatically makes it DEI-only — no manual sync required. The `find_method` call uses `TypeTag::DoubleEndedIterator` to ensure the full method set is searched (plain `TypeTag::Iterator` would filter out DEI-only methods via the `base_type()` + `dei_only` logic in Section 08).
 
 ### Calling Site Update
 
@@ -934,8 +941,8 @@ The calling site is almost unchanged -- just the predicate source changes from a
 ### Tasks
 
 - [ ] Implement `is_dei_only_method()` using registry lookups
-- [ ] Replace `DEI_ONLY_METHODS.contains(&name_str)` call site in `calls.rs`
-- [ ] Delete `DEI_ONLY_METHODS` constant from `methods.rs`
+- [ ] Replace `DEI_ONLY_METHODS.contains(&name_str)` call site in `calls/mod.rs` (or `calls/method_call.rs`)
+- [ ] Delete `DEI_ONLY_METHODS` constant from `methods/mod.rs`
 - [ ] Verify the 5 current DEI-only methods (`last`, `next_back`, `rev`, `rfind`, `rfold`) are on the DoubleEndedIterator TypeDef but NOT on the Iterator TypeDef in the registry
 - [ ] Verify `cargo st tests/spec/traits/iterator/` passes (DEI rejection diagnostics unchanged)
 - [ ] Verify `cargo t -p ori_types` passes
@@ -1112,7 +1119,7 @@ After full migration, these identifiers must have zero hits outside of test/doc 
 ### 09.2 return_tag_to_idx() Bridge
 - [ ] Implement `return_tag_to_idx()` in `registry_bridge.rs`
 - [ ] Implement `extract_elem()` helper
-- [ ] Unit tests for primitives, SelfType, parameterized, FreshVar
+- [ ] Unit tests for primitives, SelfType, parameterized, Fresh
 - [ ] `cargo c -p ori_types` passes
 
 ### 09.3 Replace Dispatcher

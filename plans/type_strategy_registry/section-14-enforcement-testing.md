@@ -122,7 +122,7 @@ fn all_type_tags_present() {
         .collect();
 
     // Every TypeTag variant that represents a concrete builtin type
-    // must appear in the registry. SelfType and FreshVar live on
+    // must appear in the registry. SelfType and Fresh live on
     // ReturnTag (not TypeTag), so no exclusion is needed here.
     let expected_tags = TypeTag::all_concrete();
 
@@ -214,8 +214,8 @@ fn no_unsupported_eq() {
 ```rust
 /// If a type supports comparison operators (lt, gt, lt_eq, gt_eq), it must
 /// also support equality (eq, neq). Comparison without equality is nonsensical.
-/// Additionally, if cmp (total ordering) is supported, all individual
-/// comparison operators must be supported.
+/// Additionally, if any ordering operator is supported, all four ordering
+/// operators (lt, gt, lt_eq, gt_eq) must be supported.
 #[test]
 fn operator_consistency() {
     for type_def in BUILTIN_TYPES {

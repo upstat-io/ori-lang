@@ -33,7 +33,7 @@ association as pure `const` data in `ori_registry`.
 
 Unlike primitives (Section 03) and strings (Section 04), these types are **generic**.
 A method like `List.first()` does not return a fixed type -- it returns `Option<T>`
-where `T` is the list's element type. The registry's `ReturnSpec` must express these
+where `T` is the list's element type. The registry's `ReturnTag` must express these
 relationships without importing any type-pool machinery. Section 01's data model must
 provide the vocabulary; this section is the stress test.
 
@@ -76,7 +76,10 @@ of truth.
 ### Problem Statement
 
 Primitive methods return fixed types: `int.abs() -> int`, `str.len() -> int`. The
-current `ReturnSpec` enum (defined in `ori_ir/src/builtin_methods/mod.rs`) has:
+current `ReturnSpec` enum in ori_ir (defined in `ori_ir/src/builtin_methods/mod.rs`)
+has a limited set of variants. **Note:** The registry uses `ReturnTag` (not
+`ReturnSpec`) as the canonical name — see Section 01.5 for the frozen definition.
+The ori_ir `ReturnSpec` is the legacy type being replaced. The current ori_ir enum:
 
 ```rust
 pub enum ReturnSpec {
@@ -92,7 +95,7 @@ pub enum ReturnSpec {
 
 This covers simple cases but **cannot express**:
 
-| Method | Return Type | Missing From ReturnSpec |
+| Method | Return Type | Missing From legacy ReturnSpec (ori_ir) |
 |--------|-------------|------------------------|
 | `Map.get(K)` | `Option<V>` | Option of **value** type, not element type |
 | `Map.keys()` | `[K]` | List of **key** type |
@@ -108,105 +111,59 @@ This covers simple cases but **cannot express**:
 | `Result.ok()` | `Option<T>` | Option of ok-type, not err-type |
 | `Result.err()` | `Option<E>` | Option of err-type |
 
-### Decision: Extended ReturnSpec
+### Decision: Extended ReturnTag (canonical name — see Section 01.5)
 
-The registry's `ReturnSpec` (or its replacement in `ori_registry`) must grow to cover
-these cases. The type checker still handles generic instantiation and unification --
-the registry only needs to express the **shape** of the return type relationship.
+The Section 01 `ReturnTag` enum has been extended with all the variants needed for
+generic container methods. **The canonical name is `ReturnTag`** — not `ReturnSpec`
+or `ReturnType`. The `TypeProjection` enum is also defined in Section 01.
 
-#### Proposed Extensions
+The following variants from Section 01 handle the collection cases:
 
 ```rust
-/// Return type specification for registry methods.
-///
-/// These describe the *relationship* between the return type and the
-/// receiver's type parameters. The type checker maps these to concrete
-/// `Idx` values; the registry never touches type pools.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum ReturnSpec {
-    // === Existing (from Section 01) ===
-    /// Returns the same type as the receiver.
-    SelfType,
-    /// Returns a specific fixed builtin type.
-    Fixed(TypeTag),
-    /// Returns void/unit.
-    Void,
+// From Section 01.5 ReturnTag (relevant variants for collections):
+ReturnTag::SelfType,                       // list.clone() -> [T]
+ReturnTag::Concrete(TypeTag),              // list.len() -> int
+ReturnTag::Unit,                           // list.for_each() -> void
+ReturnTag::ElementType,                    // option.unwrap() -> T
+ReturnTag::KeyType,                        // (reserved for map key access)
+ReturnTag::ValueType,                      // (reserved for map value access)
+ReturnTag::OkType,                         // result.unwrap() -> T
+ReturnTag::ErrType,                        // result.unwrap_err() -> E
+ReturnTag::OptionOf(TypeProjection),       // list.first() -> Option<T>
+ReturnTag::ListOf(TypeProjection),         // map.keys() -> [K]
+ReturnTag::IteratorOf(TypeProjection),     // set.iter() -> Iterator<T>
+ReturnTag::DoubleEndedIteratorOf(TypeProjection), // list.iter() -> DEI<T>
+ReturnTag::ListKeyValue,                   // map.entries() -> [(K, V)]
+ReturnTag::MapIterator,                    // map.iter() -> Iterator<(K, V)>
+ReturnTag::ListOfTupleIntElement,          // list.enumerate() -> [(int, T)]
+ReturnTag::Fresh,                          // list.map(f) -> closure-driven
 
-    // === Generic container projections ===
-    /// The element type of a single-param container (List<T> -> T, Set<T> -> T,
-    /// Option<T> -> T, Iterator<T> -> T, Range<T> -> T, Channel<T> -> T).
-    Element,
-    /// The key type of a two-param container (Map<K, V> -> K).
-    KeyType,
-    /// The value type of a two-param container (Map<K, V> -> V).
-    ValueType,
-    /// The ok-type of Result<T, E> -> T.
-    OkType,
-    /// The err-type of Result<T, E> -> E.
-    ErrType,
-
-    // === Wrapped projections ===
-    /// `Option<Element>` -- e.g., List.first(), List.get(), Map.get()
-    OptionOf(TypeProjection),
-    /// `[Element]` -- e.g., Map.keys(), Map.values()
-    ListOf(TypeProjection),
-    /// `Iterator<Element>` -- e.g., Set.iter()
-    IteratorOf(TypeProjection),
-    /// `DoubleEndedIterator<Element>` -- e.g., List.iter(), Range.iter()
-    DoubleEndedIteratorOf(TypeProjection),
-    /// `Result<T, E>` constructed from projections -- e.g., Option.ok_or()
-    ResultOf { ok: TypeProjection, err: TypeProjection },
-
-    // === Higher-order ===
-    /// Return type depends on closure argument. The type checker resolves
-    /// this via `unify_higher_order_constraints` in calls.rs. The registry
-    /// uses `Fresh` to signal "type checker must infer via unification."
-    /// Closure type inference logic stays in ori_types — it's behavioral,
-    /// not declarative data.
-    Fresh,
-
-    // === Composite ===
-    /// `(int, Element)` -- e.g., List.enumerate()
-    TupleOfIntAndElement,
-    /// `[(int, Element)]` -- List.enumerate() when on List
-    ListOfTupleIntElement,
-}
-
-/// Which type parameter to project from the receiver.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum TypeProjection {
-    /// The single element type (T in List<T>, Option<T>, etc.)
-    Element,
-    /// The key type (K in Map<K, V>)
-    Key,
-    /// The value type (V in Map<K, V>)
-    Value,
-    /// The ok-type (T in Result<T, E>)
-    Ok,
-    /// The err-type (E in Result<T, E>)
-    Err,
-    /// A fixed type (not a projection)
-    Fixed(TypeTag),
-}
-
-// NOTE: ClosureFlow was removed from the plan. Higher-order method type inference
-// (how closure arguments constrain return types) is behavioral logic that belongs
-// in the type checker's `unify_higher_order_constraints()`, not declarative data
-// in the registry. Methods like map, flat_map, fold use `ReturnSpec::Fresh` to
-// signal "the type checker must infer the return type via unification."
+// TypeProjection (from Section 01.5):
+TypeProjection::Element,   // T in List<T>, Option<T>, etc.
+TypeProjection::Key,       // K in Map<K, V>
+TypeProjection::Value,     // V in Map<K, V>
+TypeProjection::Ok,        // T in Result<T, E>
+TypeProjection::Err,       // E in Result<T, E>
+TypeProjection::Fixed(TypeTag), // a known concrete type
 ```
+
+**NOTE:** ClosureFlow was removed from the plan. Higher-order method type inference
+(how closure arguments constrain return types) is behavioral logic that belongs
+in the type checker's `unify_higher_order_constraints()`, not declarative data
+in the registry. Methods like map, flat_map, fold use `ReturnTag::Fresh` to
+signal "the type checker must infer the return type via unification."
 
 ### Design Rationale
 
-1. **No type pool dependency.** `ReturnSpec` and `TypeProjection` are
+1. **No type pool dependency.** `ReturnTag` and `TypeProjection` are
    plain enums -- `Copy + const`-constructible. The registry never allocates or
    touches `Idx`.
 
-2. **Sufficient for the type checker.** `ori_types` maps each `ReturnSpec` variant
+2. **Sufficient for the type checker.** `ori_types` maps each `ReturnTag` variant
    to a concrete `Idx` using pool operations (`pool.option(elem)`, etc.). The mapping
    is mechanical and lives in one function in the wiring layer (Section 09).
 
-3. **Sufficient for the evaluator.** `ori_eval` uses `ReturnSpec` to verify dispatch
+3. **Sufficient for the evaluator.** `ori_eval` uses `ReturnTag` to verify dispatch
    coverage. It does not need to resolve generic types -- the type checker already did.
 
 4. **Sufficient for ARC/LLVM.** The ARC pass cares about `receiver: Ownership` (borrow
@@ -215,7 +172,7 @@ pub enum TypeProjection {
 
 5. **Higher-order method inference stays in the type checker.** The type checker's
    `unify_higher_order_constraints()` (in `calls.rs` lines 700-764) handles
-   map/flat_map/fold unification. The registry uses `ReturnSpec::Fresh` to signal
+   map/flat_map/fold unification. The registry uses `ReturnTag::Fresh` to signal
    "type checker must infer this." This keeps inference logic out of the pure-data
    registry.
 
@@ -232,10 +189,10 @@ pub enum TypeProjection {
 
 | Method | Params | Returns | Receiver | Trait | Implemented In |
 |--------|--------|---------|----------|-------|----------------|
-| `len` | -- | `Fixed(Int)` | Borrow | -- | typeck, eval |
-| `count` | -- | `Fixed(Int)` | Borrow | -- | typeck only |
-| `is_empty` | -- | `Fixed(Bool)` | Borrow | -- | typeck, eval |
-| `contains` | `(Element)` | `Fixed(Bool)` | Borrow | -- | typeck, eval |
+| `len` | -- | `Concrete(Int)` | Borrow | -- | typeck, eval |
+| `count` | -- | `Concrete(Int)` | Borrow | -- | typeck only |
+| `is_empty` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
+| `contains` | `(Element)` | `Concrete(Bool)` | Borrow | -- | typeck, eval |
 | `first` | -- | `OptionOf(Element)` | Borrow | -- | typeck, eval |
 | `last` | -- | `OptionOf(Element)` | Borrow | -- | typeck, eval |
 | `get` | `(Int)` | `OptionOf(Element)` | Borrow | -- | typeck only |
@@ -249,7 +206,7 @@ pub enum TypeProjection {
 | `sorted` | -- | `SelfType` | Borrow | -- | typeck only |
 | `unique` | -- | `SelfType` | Borrow | -- | typeck only |
 | `flatten` | -- | `SelfType` | Borrow | -- | typeck only |
-| `join` | `(Str)` | `Fixed(Str)` | Borrow | -- | typeck only |
+| `join` | `(Str)` | `Concrete(Str)` | Borrow | -- | typeck only |
 | `enumerate` | -- | `ListOfTupleIntElement` | Borrow | -- | typeck only |
 | `zip` | `(SelfType)` | `ClosureDriven(...)` | Borrow | -- | typeck only |
 | `map` | `(Closure)` | `ClosureDriven(MapLike)` | Borrow | -- | typeck only |
@@ -277,15 +234,15 @@ pub enum TypeProjection {
 | `group_by` | `(Closure)` | `ClosureDriven(...)` | Borrow | -- | typeck only |
 | `partition` | `(Closure)` | `ClosureDriven(PartitionLike)` | Borrow | -- | typeck only |
 | **Trait: Eq** |
-| `equals` | `(SelfType)` | `Fixed(Bool)` | Borrow | Eq | typeck, eval |
+| `equals` | `(SelfType)` | `Concrete(Bool)` | Borrow | Eq | typeck, eval |
 | **Trait: Comparable** |
-| `compare` | `(SelfType)` | `Fixed(Ordering)` | Borrow | Comparable | typeck, eval |
+| `compare` | `(SelfType)` | `Concrete(Ordering)` | Borrow | Comparable | typeck, eval |
 | **Trait: Hashable** |
-| `hash` | -- | `Fixed(Int)` | Borrow | Hashable | typeck, eval |
+| `hash` | -- | `Concrete(Int)` | Borrow | Hashable | typeck, eval |
 | **Trait: Clone** |
 | `clone` | -- | `SelfType` | Borrow | Clone | typeck, eval |
 | **Trait: Debug** |
-| `debug` | -- | `Fixed(Str)` | Borrow | Debug | typeck, eval |
+| `debug` | -- | `Concrete(Str)` | Borrow | Debug | typeck, eval |
 | **Operator: Add** |
 | `add` | `(SelfType)` | `SelfType` | Borrow | Add | eval only (typeck via ops) |
 | `concat` | `(SelfType)` | `SelfType` | Borrow | -- | eval only |
@@ -296,36 +253,42 @@ pub enum TypeProjection {
 pub const LIST: TypeDef = TypeDef {
     tag: TypeTag::List,
     name: "list",
+    type_params: TypeParamArity::Fixed(1), // T = element
     memory: MemoryStrategy::Arc,
-    type_params: 1, // T = element
     operators: OpDefs {
-        add: OpStrategy::RuntimeCall("ori_list_concat"),
-        eq: OpStrategy::RuntimeCall("ori_list_eq"),
-        cmp: OpStrategy::Unsupported,
-        ..OpDefs::NONE
+        add: OpStrategy::RuntimeCall { fn_name: "ori_list_concat", returns_bool: false },
+        eq:  OpStrategy::RuntimeCall { fn_name: "ori_list_eq", returns_bool: true },
+        neq: OpStrategy::RuntimeCall { fn_name: "ori_list_ne", returns_bool: true },
+        // No ordering operators for List
+        ..OpDefs::UNSUPPORTED
     },
     methods: &LIST_METHODS,
 };
 
+// Note: MethodDef::new() is a sketch convenience constructor taking the 5 most-used fields.
+// Implementation MUST use struct literals with ALL 10 MethodDef fields per frozen decision 13.
+// All list methods share these defaults:
+//   pure: true, backend_required: true, kind: MethodKind::Instance,
+//   dei_only: false, dei_propagation: DeiPropagation::NotApplicable
 const LIST_METHODS: [MethodDef; 50] = [
-    MethodDef::new("len", &[], ReturnSpec::Fixed(TypeTag::Int), Ownership::Borrow, None),
-    MethodDef::new("is_empty", &[], ReturnSpec::Fixed(TypeTag::Bool), Ownership::Borrow, None),
-    MethodDef::new("contains", &[ParamSpec::Element], ReturnSpec::Fixed(TypeTag::Bool),
+    MethodDef::new("len", &[], ReturnTag::Concrete(TypeTag::Int), Ownership::Borrow, None),
+    MethodDef::new("is_empty", &[], ReturnTag::Concrete(TypeTag::Bool), Ownership::Borrow, None),
+    MethodDef::new("contains", &[ParamDef { name: "value", ty: ReturnTag::ElementType, ownership: Ownership::Borrow }], ReturnTag::Concrete(TypeTag::Bool),
                    Ownership::Borrow, None),
-    MethodDef::new("first", &[], ReturnSpec::OptionOf(TypeProjection::Element),
+    MethodDef::new("first", &[], ReturnTag::OptionOf(TypeProjection::Element),
                    Ownership::Borrow, None),
-    MethodDef::new("last", &[], ReturnSpec::OptionOf(TypeProjection::Element),
+    MethodDef::new("last", &[], ReturnTag::OptionOf(TypeProjection::Element),
                    Ownership::Borrow, None),
-    MethodDef::new("iter", &[], ReturnSpec::DoubleEndedIteratorOf(TypeProjection::Element),
+    MethodDef::new("iter", &[], ReturnTag::DoubleEndedIteratorOf(TypeProjection::Element),
                    Ownership::Borrow, Some("Iterable")),
-    MethodDef::new("clone", &[], ReturnSpec::SelfType, Ownership::Borrow, Some("Clone")),
-    MethodDef::new("equals", &[ParamSpec::SelfType], ReturnSpec::Fixed(TypeTag::Bool),
+    MethodDef::new("clone", &[], ReturnTag::SelfType, Ownership::Borrow, Some("Clone")),
+    MethodDef::new("equals", &[ParamDef { name: "other", ty: ReturnTag::SelfType, ownership: Ownership::Borrow }], ReturnTag::Concrete(TypeTag::Bool),
                    Ownership::Borrow, Some("Eq")),
-    MethodDef::new("compare", &[ParamSpec::SelfType], ReturnSpec::Fixed(TypeTag::Ordering),
+    MethodDef::new("compare", &[ParamDef { name: "other", ty: ReturnTag::SelfType, ownership: Ownership::Borrow }], ReturnTag::Concrete(TypeTag::Ordering),
                    Ownership::Borrow, Some("Comparable")),
-    MethodDef::new("hash", &[], ReturnSpec::Fixed(TypeTag::Int),
+    MethodDef::new("hash", &[], ReturnTag::Concrete(TypeTag::Int),
                    Ownership::Borrow, Some("Hashable")),
-    MethodDef::new("debug", &[], ReturnSpec::Fixed(TypeTag::Str),
+    MethodDef::new("debug", &[], ReturnTag::Concrete(TypeTag::Str),
                    Ownership::Borrow, Some("Debug")),
     // ... remaining methods
 ];
@@ -344,29 +307,29 @@ const LIST_METHODS: [MethodDef; 50] = [
 
 | Method | Params | Returns | Receiver | Trait | Implemented In |
 |--------|--------|---------|----------|-------|----------------|
-| `len` | -- | `Fixed(Int)` | Borrow | -- | typeck, eval |
-| `is_empty` | -- | `Fixed(Bool)` | Borrow | -- | typeck, eval |
+| `len` | -- | `Concrete(Int)` | Borrow | -- | typeck, eval |
+| `is_empty` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
 | `get` | `(Key)` | `OptionOf(Value)` | Borrow | -- | typeck only |
-| `contains_key` | `(Key)` | `Fixed(Bool)` | Borrow | -- | typeck, eval |
-| `contains` | `(Key)` | `Fixed(Bool)` | Borrow | -- | typeck only |
+| `contains_key` | `(Key)` | `Concrete(Bool)` | Borrow | -- | typeck, eval |
+| `contains` | `(Key)` | `Concrete(Bool)` | Borrow | -- | typeck only |
 | `insert` | `(Key, Value)` | `SelfType` | Borrow | -- | typeck only |
 | `remove` | `(Key)` | `SelfType` | Borrow | -- | typeck only |
 | `update` | `(Key, Value)` | `SelfType` | Borrow | -- | typeck only |
 | `merge` | `(SelfType)` | `SelfType` | Borrow | -- | typeck only |
 | `keys` | -- | `ListOf(Key)` | Borrow | -- | typeck, eval |
 | `values` | -- | `ListOf(Value)` | Borrow | -- | typeck, eval |
-| `entries` | -- | `ListOfTupleKeyValue` | Borrow | -- | typeck only |
-| `iter` | -- | `IteratorOfTupleKeyValue` | Borrow | Iterable | typeck, eval |
+| `entries` | -- | `ListKeyValue` | Borrow | -- | typeck only |
+| `iter` | -- | `MapIterator` | Borrow | Iterable | typeck, eval |
 | **Trait: Eq** |
-| `equals` | `(SelfType)` | `Fixed(Bool)` | Borrow | Eq | typeck, eval |
+| `equals` | `(SelfType)` | `Concrete(Bool)` | Borrow | Eq | typeck, eval |
 | **Trait: Hashable** |
-| `hash` | -- | `Fixed(Int)` | Borrow | Hashable | typeck, eval |
+| `hash` | -- | `Concrete(Int)` | Borrow | Hashable | typeck, eval |
 | **Trait: Clone** |
 | `clone` | -- | `SelfType` | Borrow | Clone | typeck, eval |
 | **Trait: Debug** |
-| `debug` | -- | `Fixed(Str)` | Borrow | Debug | typeck, eval |
+| `debug` | -- | `Concrete(Str)` | Borrow | Debug | typeck, eval |
 
-### Map-Specific ReturnSpec Requirements
+### Map-Specific ReturnTag Requirements
 
 Map methods need `TypeProjection::Key` and `TypeProjection::Value` to distinguish
 which type parameter they project. This is why `Map.keys()` uses `ListOf(Key)` while
@@ -377,14 +340,14 @@ options:
 
 **Option A: Add compound projections**
 ```rust
-ReturnSpec::ListOfTuple(&[TypeProjection::Key, TypeProjection::Value])
-ReturnSpec::IteratorOfTuple(&[TypeProjection::Key, TypeProjection::Value])
+ReturnTag::ListKeyValue      // [(K, V)]
+ReturnTag::MapIterator       // Iterator<(K, V)>
 ```
 
 **Option B: Use a dedicated variant**
 ```rust
-ReturnSpec::MapEntries,      // always [(K, V)]
-ReturnSpec::MapIterator,     // always Iterator<(K, V)>
+ReturnTag::ListKeyValue,     // always [(K, V)]
+ReturnTag::MapIterator,      // always Iterator<(K, V)>
 ```
 
 **Recommendation:** Option B. There are only two methods (entries, iter) that need
@@ -405,9 +368,9 @@ a trivial translation.
 
 | Method | Params | Returns | Receiver | Trait | Implemented In |
 |--------|--------|---------|----------|-------|----------------|
-| `len` | -- | `Fixed(Int)` | Borrow | -- | typeck, eval |
-| `is_empty` | -- | `Fixed(Bool)` | Borrow | -- | typeck only |
-| `contains` | `(Element)` | `Fixed(Bool)` | Borrow | -- | typeck only |
+| `len` | -- | `Concrete(Int)` | Borrow | -- | typeck, eval |
+| `is_empty` | -- | `Concrete(Bool)` | Borrow | -- | typeck only |
+| `contains` | `(Element)` | `Concrete(Bool)` | Borrow | -- | typeck only |
 | `insert` | `(Element)` | `SelfType` | Borrow | -- | typeck only |
 | `remove` | `(Element)` | `SelfType` | Borrow | -- | typeck only |
 | `iter` | -- | `IteratorOf(Element)` | Borrow | Iterable | typeck, eval |
@@ -417,13 +380,13 @@ a trivial translation.
 | `to_list` | -- | `ListOf(Element)` | Borrow | -- | typeck only |
 | `into` | -- | `ListOf(Element)` | Borrow | Into | typeck, eval |
 | **Trait: Eq** |
-| `equals` | `(SelfType)` | `Fixed(Bool)` | Borrow | Eq | typeck, eval |
+| `equals` | `(SelfType)` | `Concrete(Bool)` | Borrow | Eq | typeck, eval |
 | **Trait: Hashable** |
-| `hash` | -- | `Fixed(Int)` | Borrow | Hashable | typeck, eval |
+| `hash` | -- | `Concrete(Int)` | Borrow | Hashable | typeck, eval |
 | **Trait: Clone** |
 | `clone` | -- | `SelfType` | Borrow | Clone | typeck only |
 | **Trait: Debug** |
-| `debug` | -- | `Fixed(Str)` | Borrow | Debug | typeck, eval |
+| `debug` | -- | `Concrete(Str)` | Borrow | Debug | typeck, eval |
 
 ### Note: Set.iter() Returns Iterator, Not DEI
 
@@ -446,10 +409,10 @@ meaningful "back" to iterate from. The typeck source confirms this
 
 | Method | Params | Returns | Receiver | Trait | Implemented In |
 |--------|--------|---------|----------|-------|----------------|
-| `len` | -- | `Fixed(Int)` | Borrow | -- | typeck, eval |
-| `count` | -- | `Fixed(Int)` | Borrow | -- | typeck only |
-| `is_empty` | -- | `Fixed(Bool)` | Borrow | -- | typeck only |
-| `contains` | `(Element)` | `Fixed(Bool)` | Borrow | -- | typeck, eval |
+| `len` | -- | `Concrete(Int)` | Borrow | -- | typeck, eval |
+| `count` | -- | `Concrete(Int)` | Borrow | -- | typeck only |
+| `is_empty` | -- | `Concrete(Bool)` | Borrow | -- | typeck only |
+| `contains` | `(Element)` | `Concrete(Bool)` | Borrow | -- | typeck, eval |
 | `iter` | -- | `DoubleEndedIteratorOf(Element)` | Borrow | Iterable | typeck, eval |
 | `to_list` | -- | `ListOf(Element)` | Borrow | -- | typeck only |
 | `collect` | -- | `ListOf(Element)` | Borrow | -- | typeck only |
@@ -504,17 +467,17 @@ rejects it. The guard should be **documented** in the registry via a comment or 
 
 | Method | Params | Returns | Receiver | Trait | Implemented In |
 |--------|--------|---------|----------|-------|----------------|
-| `len` | -- | `Fixed(Int)` | Borrow | -- | typeck, eval |
+| `len` | -- | `Concrete(Int)` | Borrow | -- | typeck, eval |
 | **Trait: Eq** |
-| `equals` | `(SelfType)` | `Fixed(Bool)` | Borrow | Eq | typeck, eval |
+| `equals` | `(SelfType)` | `Concrete(Bool)` | Borrow | Eq | typeck, eval |
 | **Trait: Comparable** |
-| `compare` | `(SelfType)` | `Fixed(Ordering)` | Borrow | Comparable | typeck, eval |
+| `compare` | `(SelfType)` | `Concrete(Ordering)` | Borrow | Comparable | typeck, eval |
 | **Trait: Hashable** |
-| `hash` | -- | `Fixed(Int)` | Borrow | Hashable | typeck, eval |
+| `hash` | -- | `Concrete(Int)` | Borrow | Hashable | typeck, eval |
 | **Trait: Clone** |
 | `clone` | -- | `SelfType` | Borrow | Clone | typeck, eval |
 | **Trait: Debug** |
-| `debug` | -- | `Fixed(Str)` | Borrow | Debug | typeck, eval |
+| `debug` | -- | `Concrete(Str)` | Borrow | Debug | typeck, eval |
 
 ### Field Access: Not Methods
 
@@ -551,12 +514,12 @@ pub enum MemoryStrategy {
 
 | Method | Params | Returns | Receiver | Trait | Implemented In |
 |--------|--------|---------|----------|-------|----------------|
-| `is_some` | -- | `Fixed(Bool)` | Borrow | -- | typeck, eval |
-| `is_none` | -- | `Fixed(Bool)` | Borrow | -- | typeck, eval |
+| `is_some` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
+| `is_none` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
 | `unwrap` | -- | `Element` | Own | -- | typeck, eval |
 | `expect` | `(Str)` | `Element` | Own | -- | typeck only |
 | `unwrap_or` | `(Element)` | `Element` | Own | -- | typeck, eval |
-| `ok_or` | `(Any)` | `ResultOf(Element, FreshVar)` | Own | -- | typeck, eval |
+| `ok_or` | `(Any)` | `Fresh` | Own | -- | typeck, eval |
 | `iter` | -- | `IteratorOf(Element)` | Borrow | Iterable | typeck, eval |
 | `map` | `(Closure)` | `ClosureDriven(MapLike)` | Borrow | -- | typeck only |
 | `and_then` | `(Closure)` | `ClosureDriven(FlatMapLike)` | Borrow | -- | typeck only |
@@ -565,15 +528,15 @@ pub enum MemoryStrategy {
 | `or` | `(SelfType)` | `SelfType` | Own | -- | typeck only |
 | `or_else` | `(Closure)` | `ClosureDriven(...)` | Own | -- | typeck only |
 | **Trait: Eq** |
-| `equals` | `(SelfType)` | `Fixed(Bool)` | Borrow | Eq | typeck, eval |
+| `equals` | `(SelfType)` | `Concrete(Bool)` | Borrow | Eq | typeck, eval |
 | **Trait: Comparable** |
-| `compare` | `(SelfType)` | `Fixed(Ordering)` | Borrow | Comparable | typeck, eval |
+| `compare` | `(SelfType)` | `Concrete(Ordering)` | Borrow | Comparable | typeck, eval |
 | **Trait: Hashable** |
-| `hash` | -- | `Fixed(Int)` | Borrow | Hashable | typeck, eval |
+| `hash` | -- | `Concrete(Int)` | Borrow | Hashable | typeck, eval |
 | **Trait: Clone** |
 | `clone` | -- | `SelfType` | Borrow | Clone | typeck, eval |
 | **Trait: Debug** |
-| `debug` | -- | `Fixed(Str)` | Borrow | Debug | typeck, eval |
+| `debug` | -- | `Concrete(Str)` | Borrow | Debug | typeck, eval |
 
 ### Ownership Semantics
 
@@ -594,8 +557,8 @@ critical for the ARC pass: borrowing methods do not decrement the refcount.
 
 | Method | Params | Returns | Receiver | Trait | Implemented In |
 |--------|--------|---------|----------|-------|----------------|
-| `is_ok` | -- | `Fixed(Bool)` | Borrow | -- | typeck, eval |
-| `is_err` | -- | `Fixed(Bool)` | Borrow | -- | typeck, eval |
+| `is_ok` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
+| `is_err` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
 | `unwrap` | -- | `OkType` | Own | -- | typeck, eval |
 | `expect` | `(Str)` | `OkType` | Own | -- | typeck only |
 | `unwrap_or` | `(OkType)` | `OkType` | Own | -- | typeck only |
@@ -607,19 +570,19 @@ critical for the ARC pass: borrowing methods do not decrement the refcount.
 | `map_err` | `(Closure)` | `ClosureDriven(MapLike)` | Borrow | -- | typeck only |
 | `and_then` | `(Closure)` | `ClosureDriven(FlatMapLike)` | Borrow | -- | typeck only |
 | `or_else` | `(Closure)` | `ClosureDriven(FlatMapLike)` | Borrow | -- | typeck only |
-| `has_trace` | -- | `Fixed(Bool)` | Borrow | -- | typeck, eval |
-| `trace` | -- | `Fixed(Str)` | Borrow | -- | typeck, eval |
+| `has_trace` | -- | `Concrete(Bool)` | Borrow | -- | typeck, eval |
+| `trace` | -- | `Concrete(Str)` | Borrow | -- | typeck, eval |
 | `trace_entries` | -- | `ClosureDriven(...)` | Borrow | -- | typeck, eval |
 | **Trait: Eq** |
-| `equals` | `(SelfType)` | `Fixed(Bool)` | Borrow | Eq | typeck, eval |
+| `equals` | `(SelfType)` | `Concrete(Bool)` | Borrow | Eq | typeck, eval |
 | **Trait: Comparable** |
-| `compare` | `(SelfType)` | `Fixed(Ordering)` | Borrow | Comparable | typeck, eval |
+| `compare` | `(SelfType)` | `Concrete(Ordering)` | Borrow | Comparable | typeck, eval |
 | **Trait: Hashable** |
-| `hash` | -- | `Fixed(Int)` | Borrow | Hashable | typeck, eval |
+| `hash` | -- | `Concrete(Int)` | Borrow | Hashable | typeck, eval |
 | **Trait: Clone** |
 | `clone` | -- | `SelfType` | Borrow | Clone | typeck, eval |
 | **Trait: Debug** |
-| `debug` | -- | `Fixed(Str)` | Borrow | Debug | typeck, eval |
+| `debug` | -- | `Concrete(Str)` | Borrow | Debug | typeck, eval |
 
 ### Result-Specific Projections
 
@@ -633,7 +596,7 @@ would be indistinguishable.
 
 `Result.map_err()` is particularly interesting: it transforms the **error** type while
 preserving the **ok** type. This is the inverse of `Result.map()`. The registry
-declares `map_err` with `ReturnSpec::Fresh` and the type checker's existing
+declares `map_err` with `ReturnTag::Fresh` and the type checker's existing
 `unify_higher_order_constraints` handles the inference (which type parameter
 the closure transforms).
 
@@ -645,7 +608,7 @@ the closure transforms).
 
 From the method tables above, the registry needs to express these return type patterns:
 
-| Pattern | Example | ReturnSpec |
+| Pattern | Example | ReturnTag |
 |---------|---------|------------|
 | Fixed type | `List.len() -> int` | `Fixed(TypeTag::Int)` |
 | Same as receiver | `List.reverse() -> [T]` | `SelfType` |
@@ -672,7 +635,7 @@ From the method tables above, the registry needs to express these return type pa
 ### What We Do NOT Need
 
 1. **TypeTag::Element, TypeTag::KeyType, TypeTag::ValueType** -- No. These are
-   `ReturnSpec` / `TypeProjection` concepts, not type tags. TypeTag identifies the
+   `ReturnTag` / `TypeProjection` concepts, not type tags. TypeTag identifies the
    *kind* of a type (Int, List, Map, etc.), not a projection from a generic parameter.
 
 2. **Full type algebra in the registry** -- No. The registry expresses the *shape* of
@@ -680,7 +643,7 @@ From the method tables above, the registry needs to express these return type pa
    using pool operations.
 
 3. **Closure parameter types** -- No (mostly). The registry marks a parameter as
-   `ParamSpec::Closure` without specifying `(T) -> U`. The type checker infers the
+   closure params use `ReturnTag::Fresh` for the parameter type without specifying `(T) -> U`. The type checker infers the
    closure type from context and uses `unify_higher_order_constraints`.
 
 ### ReturnTag::SelfType
@@ -691,7 +654,7 @@ needed.
 
 ### TypeTag::Iterator
 
-Not a TypeTag concern -- `IteratorOf(Element)` in `ReturnSpec` handles this. The type
+Not a TypeTag concern -- `IteratorOf(Element)` in `ReturnTag` handles this. The type
 checker maps it to `pool.iterator(elem)`.
 
 ---
@@ -754,11 +717,11 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 
 - [ ] Add `MemoryStrategy::Structural` variant
 - [ ] Add `TypeProjection` enum (Element, Key, Value, Ok, Err, Fixed)
-- [ ] Extend `ReturnSpec` with generic projections (OptionOf, ListOf, IteratorOf, etc.)
-- [ ] Add `ReturnSpec::Fresh` variant for higher-order methods (closure inference stays in type checker)
-- [ ] Add `MapEntries` and `MapIterator` ReturnSpec variants
-- [ ] Add `ListOfTupleIntElement` ReturnSpec variant
-- [ ] Extend `ParamSpec` with `Element`, `Key`, `Value` for typed generic params
+- [x] Extend `ReturnTag` with generic projections (OptionOf, ListOf, IteratorOf, etc.) — **done in Section 01**
+- [ ] Add `ReturnTag::Fresh` variant for higher-order methods (closure inference stays in type checker)
+- [x] Add `ListKeyValue` and `MapIterator` ReturnTag variants — **done in Section 01**
+- [x] Add `ListOfTupleIntElement` ReturnTag variant — **done in Section 01**
+- [x] Use `ParamDef` with `ReturnTag::ElementType`, `KeyType`, `ValueType` for typed generic params — **canonical form from Section 01**
 - [ ] Verify all variants are `const`-constructible (no allocations)
 - [ ] Write unit tests for each new enum variant's Debug output
 
@@ -767,7 +730,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Define `LIST` const with all 50 methods
 - [ ] Verify method names match `TYPECK_BUILTIN_METHODS` entries for `"list"`
 - [ ] Verify trait methods match `EVAL_BUILTIN_METHODS` entries for `"list"`
-- [ ] Document which methods use `ReturnSpec::Fresh` (higher-order inference)
+- [ ] Document which methods use `ReturnTag::Fresh` (higher-order inference)
 - [ ] Test: `find_method(TypeTag::List, "len")` returns expected MethodDef
 - [ ] Test: `LIST.methods.len() == 50`
 
@@ -811,7 +774,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 - [ ] Define `RESULT` const with all 17 methods
 - [ ] Set `MemoryStrategy::Structural`
 - [ ] Verify ok/err projection distinction: ok() -> OptionOf(Ok), err() -> OptionOf(Err)
-- [ ] Verify `map_err` uses `ReturnSpec::Fresh` (closure inference in type checker)
+- [ ] Verify `map_err` uses `ReturnTag::Fresh` (closure inference in type checker)
 - [ ] Test: `find_method(TypeTag::Result, "ok")` returns `OptionOf(Ok)`
 - [ ] Test: `find_method(TypeTag::Result, "err")` returns `OptionOf(Err)`
 
@@ -835,7 +798,7 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
    corresponding `MethodDef` in the registry. Count verification:
    - list: 50, map: 17, Set: 15, range: 8, tuple: 6, Option: 16, Result: 17
 
-3. **ReturnSpec** is expressive enough to represent all return type patterns found in
+3. **ReturnTag** is expressive enough to represent all return type patterns found in
    `resolve_*_method()` functions, including generic projections and higher-order flows.
 
 4. **`MemoryStrategy::Structural`** exists for types whose memory strategy depends on
@@ -855,20 +818,18 @@ The consistency tests in `consistency.rs` that currently skip `COLLECTION_TYPES`
 These questions must be resolved in Section 01 (Core Data Model) before this section
 can be implemented:
 
-1. **How does `TypeDef` represent type parameter arity?** A simple `type_params: u8`
-   field? Or something richer like `type_params: &[TypeParamDef]` with names?
+1. ~~**How does `TypeDef` represent type parameter arity?**~~ **Resolved:** Section 01 defines `TypeParamArity` enum (`Fixed(u8) | Variadic`) as a field on `TypeDef`.
 
-2. ~~**Where does `ClosureFlow` live?**~~ **Resolved:** ClosureFlow was removed from scope. Higher-order method inference stays in the type checker. Methods use `ReturnSpec::Fresh`.
+2. ~~**Where does `ClosureFlow` live?**~~ **Resolved:** ClosureFlow was removed from scope. Higher-order method inference stays in the type checker. Methods use `ReturnTag::Fresh`.
 
-3. **How does `ReturnSpec::ResultOf` work?** For `Option.ok_or(E) -> Result<T, E>`,
+3. **How does `ReturnTag` handle `Result` construction?** For `Option.ok_or(E) -> Result<T, E>`,
    we need to construct a Result from the inner type (T) and a fresh/argument type (E).
    Does this require a new variant, or can it be expressed as a combination?
 
-4. **`ParamSpec` for generic parameters:** Should `insert` on Map take
-   `ParamSpec::Key, ParamSpec::Value` or just `ParamSpec::Any, ParamSpec::Any`? The
-   former is more precise; the latter is simpler.
+4. **`ParamDef` for generic parameters:** Resolved — use `ParamDef { ty: ReturnTag::KeyType }`,
+   `ParamDef { ty: ReturnTag::ValueType }` for Map methods like `insert`. This is precise
+   and consistent with the Section 01 data model.
 
-5. **Variadic tuples:** `type_params: u8` doesn't work for tuples (variable arity).
-   Special case with `type_params: TypeParamArity::Variadic`?
+5. ~~**Variadic tuples:**~~ **Resolved:** Frozen decision 8 defines `TypeParamArity::Variadic` for tuples.
 
-6. ~~**`map_err` ClosureFlow**~~ **Resolved:** ClosureFlow removed. `map_err` uses `ReturnSpec::Fresh`; the type checker handles which type parameter the closure transforms.
+6. ~~**`map_err` ClosureFlow**~~ **Resolved:** ClosureFlow removed. `map_err` uses `ReturnTag::Fresh`; the type checker handles which type parameter the closure transforms.
