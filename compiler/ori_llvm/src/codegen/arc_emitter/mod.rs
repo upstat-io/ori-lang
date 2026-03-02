@@ -261,16 +261,12 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
 
     /// Compute the ABI alignment in bytes for a type index.
     ///
-    /// For sizes >= 8, alignment is 8 (pointer alignment). For smaller types,
-    /// alignment equals the size. Correct for all current Ori types:
-    /// int/float/ptr = 8, char = 4, bool = 1, str/list/map = 8 (struct max-field).
+    /// Uses the type's own alignment (from `TypeInfo::alignment()`) rather
+    /// than deriving it from size. Falls back to `element_store_size` for
+    /// compound types whose alignment depends on field layout.
     pub(crate) fn element_store_align(&self, ty: Idx) -> u64 {
-        let size = self.element_store_size(ty);
-        if size >= 8 {
-            8
-        } else {
-            size.max(1)
-        }
+        let info = self.type_info.get(ty);
+        u64::from(info.alignment())
     }
 
     /// Look up the raw LLVM value for an ARC variable.
