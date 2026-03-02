@@ -191,7 +191,7 @@ jobs:
     name: ${{ matrix.os }}
     needs: [format, clippy]  # Don't waste CI time if basics fail
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 7
+    timeout-minutes: 12
     strategy:
       fail-fast: false
       matrix:
@@ -233,6 +233,38 @@ jobs:
 
       - name: Ori language tests
         run: cargo run -p oric --bin ori -- test tests/
+
+      - name: AOT smoke test (compile + link + run)
+        shell: bash
+        run: |
+          SMOKE_DIR="${RUNNER_TEMP}/aot_smoke"
+          mkdir -p "$SMOKE_DIR"
+
+          # Write a minimal Ori program that exercises string + print (touches ori_rt)
+          cat > "$SMOKE_DIR/smoke.ori" << 'ORIEOF'
+          @main () -> void = print(msg: "hello from AOT")
+          ORIEOF
+
+          EXE_SUFFIX=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            EXE_SUFFIX=".exe"
+          fi
+
+          BUILD_ARGS=(build "$SMOKE_DIR/smoke.ori" -o "$SMOKE_DIR/smoke${EXE_SUFFIX}")
+
+          # macOS: put Homebrew LLVM on PATH so lld is available
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            LLVM_BIN="$(brew --prefix llvm@17)/bin"
+            if [[ -d "$LLVM_BIN" ]]; then
+              export PATH="$LLVM_BIN:$PATH"
+              if command -v lld >/dev/null 2>&1; then
+                BUILD_ARGS+=(--linker=lld)
+              fi
+            fi
+          fi
+
+          cargo run -p oric --bin ori -- "${BUILD_ARGS[@]}"
+          "$SMOKE_DIR/smoke${EXE_SUFFIX}"
 
   # Single status check for branch protection
   ci-success:

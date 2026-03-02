@@ -1,0 +1,94 @@
+// COW behavioral equivalence tests for list pop operations.
+// Note: pop() has a known AOT leak bug (tracked in llvm-codegen-fixes).
+// Tests verify correctness, not memory safety.
+
+use std.testing { assert_eq, assert }
+
+// --- Basic pop ---
+
+@pop_basic () -> Option<int> = {
+    let list = [1, 2, 3];
+    list.pop()
+}
+
+@test_pop_basic tests @pop_basic () -> void = {
+    assert_eq(actual: pop_basic(), expected: Some(3))
+}
+
+// --- Pop empty list ---
+
+@pop_empty () -> Option<int> = {
+    let list: [int] = [];
+    list.pop()
+}
+
+@test_pop_empty tests @pop_empty () -> void = {
+    assert_eq(actual: pop_empty(), expected: None)
+}
+
+// --- Pop single element ---
+
+@pop_single () -> Option<int> = {
+    [42].pop()
+}
+
+@test_pop_single tests @pop_single () -> void = {
+    assert_eq(actual: pop_single(), expected: Some(42))
+}
+
+// --- Pop shared list (COW) — original unchanged ---
+
+@pop_shared () -> (int, Option<int>) = {
+    let a = [1, 2, 3];
+    let b = a;
+    let result = b.pop();
+    (a.length(), result)
+}
+
+@test_pop_shared tests @pop_shared () -> void = {
+    let (original_len, popped) = pop_shared();
+    assert_eq(actual: original_len, expected: 3);
+    assert_eq(actual: popped, expected: Some(3))
+}
+
+// --- Pop in loop (progressive shrinking) ---
+
+@pop_loop () -> int = {
+    let count = 0;
+    let list = [10, 20, 30, 40, 50];
+    loop {
+        let val = list.pop();
+        if val.is_none() then break;
+        count = count + 1;
+        list = list.take(list.length() - 1);
+    };
+    count
+}
+
+@test_pop_loop tests @pop_loop () -> void = {
+    assert_eq(actual: pop_loop(), expected: 5)
+}
+
+// --- First and last ---
+
+@first_last () -> (Option<int>, Option<int>) = {
+    let list = [10, 20, 30];
+    (list.first(), list.last())
+}
+
+@test_first_last tests @first_last () -> void = {
+    let (first, last) = first_last();
+    assert_eq(actual: first, expected: Some(10));
+    assert_eq(actual: last, expected: Some(30))
+}
+
+@first_last_empty () -> (Option<int>, Option<int>) = {
+    let list: [int] = [];
+    (list.first(), list.last())
+}
+
+@test_first_last_empty tests @first_last_empty () -> void = {
+    let (first, last) = first_last_empty();
+    assert(condition: first.is_none());
+    assert(condition: last.is_none())
+}

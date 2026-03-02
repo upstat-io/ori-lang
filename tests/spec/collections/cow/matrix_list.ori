@@ -1,0 +1,289 @@
+// Correctness test matrix for list COW operations.
+// Covers: empty, single, large (10k), and edge cases not in list_cow.ori.
+
+use std.testing { assert_eq, assert }
+
+// ============ PUSH ============
+
+@push_empty () -> [int] = {
+    let list: [int] = [];
+    list.push(1)
+}
+
+@test_push_empty tests @push_empty () -> void = {
+    assert_eq(actual: push_empty(), expected: [1])
+}
+
+@push_single () -> [int] = {
+    [42].push(43)
+}
+
+@test_push_single tests @push_single () -> void = {
+    assert_eq(actual: push_single(), expected: [42, 43])
+}
+
+@push_large () -> int = {
+    let list: [int] = [];
+    for i in 0..10000 do {
+        list = list.push(i);
+    };
+    list.length()
+}
+
+@test_push_large tests @push_large () -> void = {
+    assert_eq(actual: push_large(), expected: 10000)
+}
+
+// ============ SET ============
+
+@set_single () -> [int] = {
+    [42].set(0, 99)
+}
+
+@test_set_single tests @set_single () -> void = {
+    assert_eq(actual: set_single(), expected: [99])
+}
+
+@set_large () -> (int, int) = {
+    let list: [int] = [];
+    for i in 0..10000 do {
+        list = list.push(i);
+    };
+    let list = list.set(5000, 999);
+    (list.length(), list[5000])
+}
+
+@test_set_large tests @set_large () -> void = {
+    let (len, val) = set_large();
+    assert_eq(actual: len, expected: 10000);
+    assert_eq(actual: val, expected: 999)
+}
+
+// ============ INSERT ============
+
+@insert_empty () -> [int] = {
+    let list: [int] = [];
+    list.insert(0, 42)
+}
+
+@test_insert_empty tests @insert_empty () -> void = {
+    assert_eq(actual: insert_empty(), expected: [42])
+}
+
+@insert_single () -> [int] = {
+    [1].insert(0, 0)
+}
+
+@test_insert_single tests @insert_single () -> void = {
+    assert_eq(actual: insert_single(), expected: [0, 1])
+}
+
+@insert_large () -> (int, int) = {
+    let list: [int] = [];
+    for i in 0..100 do {
+        list = list.push(i);
+    };
+    let list = list.insert(50, 999);
+    (list.length(), list[50])
+}
+
+@test_insert_large tests @insert_large () -> void = {
+    let (len, val) = insert_large();
+    assert_eq(actual: len, expected: 101);
+    assert_eq(actual: val, expected: 999)
+}
+
+// ============ REMOVE ============
+
+@remove_single () -> [int] = {
+    [42].remove(0)
+}
+
+@test_remove_single tests @remove_single () -> void = {
+    assert_eq(actual: remove_single(), expected: [])
+}
+
+@remove_large () -> int = {
+    let list: [int] = [];
+    for i in 0..100 do {
+        list = list.push(i);
+    };
+    let list = list.remove(50);
+    list.length()
+}
+
+@test_remove_large tests @remove_large () -> void = {
+    assert_eq(actual: remove_large(), expected: 99)
+}
+
+// ============ CONCAT ============
+
+@concat_empty_left () -> [int] = {
+    let empty: [int] = [];
+    empty + [1, 2, 3]
+}
+
+@test_concat_empty_left tests @concat_empty_left () -> void = {
+    assert_eq(actual: concat_empty_left(), expected: [1, 2, 3])
+}
+
+@concat_empty_right () -> [int] = {
+    let empty: [int] = [];
+    [1, 2, 3] + empty
+}
+
+@test_concat_empty_right tests @concat_empty_right () -> void = {
+    assert_eq(actual: concat_empty_right(), expected: [1, 2, 3])
+}
+
+@concat_single () -> [int] = {
+    [1] + [2]
+}
+
+@test_concat_single tests @concat_single () -> void = {
+    assert_eq(actual: concat_single(), expected: [1, 2])
+}
+
+@concat_large () -> int = {
+    let a: [int] = [];
+    let b: [int] = [];
+    for i in 0..5000 do {
+        a = a.push(i);
+        b = b.push(i + 5000);
+    };
+    let c = a + b;
+    c.length()
+}
+
+@test_concat_large tests @concat_large () -> void = {
+    assert_eq(actual: concat_large(), expected: 10000)
+}
+
+// ============ REVERSE ============
+
+@reverse_empty () -> [int] = {
+    let list: [int] = [];
+    list.reverse()
+}
+
+@test_reverse_empty tests @reverse_empty () -> void = {
+    assert_eq(actual: reverse_empty(), expected: [])
+}
+
+@reverse_single () -> [int] = {
+    [42].reverse()
+}
+
+@test_reverse_single tests @reverse_single () -> void = {
+    assert_eq(actual: reverse_single(), expected: [42])
+}
+
+@reverse_large () -> (int, int) = {
+    let list: [int] = [];
+    for i in 0..10000 do {
+        list = list.push(i);
+    };
+    let rev = list.reverse();
+    (rev[0], rev[9999])
+}
+
+@test_reverse_large tests @reverse_large () -> void = {
+    let (first, last) = reverse_large();
+    assert_eq(actual: first, expected: 9999);
+    assert_eq(actual: last, expected: 0)
+}
+
+// ============ SORT ============
+
+@sort_empty () -> [int] = {
+    let list: [int] = [];
+    list.sort()
+}
+
+@test_sort_empty tests @sort_empty () -> void = {
+    assert_eq(actual: sort_empty(), expected: [])
+}
+
+@sort_single () -> [int] = {
+    [42].sort()
+}
+
+@test_sort_single tests @sort_single () -> void = {
+    assert_eq(actual: sort_single(), expected: [42])
+}
+
+@sort_large () -> (int, int) = {
+    let list: [int] = [];
+    for i in 0..1000 do {
+        list = list.push(999 - i);
+    };
+    let sorted = list.sort();
+    (sorted[0], sorted[999])
+}
+
+@test_sort_large tests @sort_large () -> void = {
+    let (first, last) = sort_large();
+    assert_eq(actual: first, expected: 0);
+    assert_eq(actual: last, expected: 999)
+}
+
+// ============ SLICE ============
+
+@slice_single () -> [int] = {
+    [42].slice(0, 1)
+}
+
+@test_slice_single tests @slice_single () -> void = {
+    assert_eq(actual: slice_single(), expected: [42])
+}
+
+@slice_large () -> (int, int) = {
+    let list: [int] = [];
+    for i in 0..10000 do {
+        list = list.push(i);
+    };
+    let s = list.slice(2500, 7500);
+    (s.length(), s[0])
+}
+
+@test_slice_large tests @slice_large () -> void = {
+    let (len, first) = slice_large();
+    assert_eq(actual: len, expected: 5000);
+    assert_eq(actual: first, expected: 2500)
+}
+
+// ============ TAKE/DROP ============
+
+@take_empty () -> [int] = {
+    let list: [int] = [];
+    list.take(0)
+}
+
+@test_take_empty tests @take_empty () -> void = {
+    assert_eq(actual: take_empty(), expected: [])
+}
+
+@take_single () -> [int] = {
+    [42].take(1)
+}
+
+@test_take_single tests @take_single () -> void = {
+    assert_eq(actual: take_single(), expected: [42])
+}
+
+@skip_empty () -> [int] = {
+    let list: [int] = [];
+    list.skip(0)
+}
+
+@test_skip_empty tests @skip_empty () -> void = {
+    assert_eq(actual: skip_empty(), expected: [])
+}
+
+@skip_single () -> [int] = {
+    [42].skip(1)
+}
+
+@test_skip_single tests @skip_single () -> void = {
+    assert_eq(actual: skip_single(), expected: [])
+}

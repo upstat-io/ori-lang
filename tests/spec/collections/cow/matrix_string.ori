@@ -1,0 +1,190 @@
+// Correctness test matrix for string COW operations.
+// Covers: SSO, heap unique, heap shared, SSO->heap transition, empty.
+
+use std.testing { assert_eq, assert }
+
+// ============ CONCAT ============
+
+@concat_sso () -> str = {
+    "hi" + " there"
+}
+
+@test_concat_sso tests @concat_sso () -> void = {
+    assert_eq(actual: concat_sso(), expected: "hi there")
+}
+
+@concat_heap_unique () -> str = {
+    let s = "this is a long string that exceeds SSO";
+    s + " appended"
+}
+
+@test_concat_heap_unique tests @concat_heap_unique () -> void = {
+    assert(condition: concat_heap_unique().ends_with(suffix: " appended"))
+}
+
+@concat_heap_shared () -> (str, str) = {
+    let a = "this is a long string that exceeds SSO";
+    let b = a;
+    let b = b + " appended";
+    (a, b)
+}
+
+@test_concat_heap_shared tests @concat_heap_shared () -> void = {
+    let (original, modified) = concat_heap_shared();
+    assert_eq(actual: original, expected: "this is a long string that exceeds SSO");
+    assert(condition: modified.ends_with(suffix: " appended"))
+}
+
+@concat_sso_to_heap () -> str = {
+    // Start SSO, cross to heap
+    let s = "short";
+    let s = s + " but now this string will definitely exceed the SSO threshold";
+    s
+}
+
+@test_concat_sso_to_heap tests @concat_sso_to_heap () -> void = {
+    assert(condition: concat_sso_to_heap().length() > 23)
+}
+
+@concat_empty () -> str = {
+    "" + ""
+}
+
+@test_concat_empty tests @concat_empty () -> void = {
+    assert_eq(actual: concat_empty(), expected: "")
+}
+
+@concat_empty_left () -> str = {
+    "" + "hello"
+}
+
+@test_concat_empty_left tests @concat_empty_left () -> void = {
+    assert_eq(actual: concat_empty_left(), expected: "hello")
+}
+
+// ============ SUBSTRING ============
+
+@substring_sso () -> str = {
+    "hello world".substring(6, 11)
+}
+
+@test_substring_sso tests @substring_sso () -> void = {
+    assert_eq(actual: substring_sso(), expected: "world")
+}
+
+@substring_heap () -> str = {
+    let long = "this is a long string that exceeds SSO threshold easily here";
+    long.substring(10, 21)
+}
+
+@test_substring_heap tests @substring_heap () -> void = {
+    assert_eq(actual: substring_heap(), expected: "long string")
+}
+
+@substring_heap_shared () -> (str, str) = {
+    let s = "this is a long string that exceeds SSO threshold easily";
+    let t = s;
+    let sub = t.substring(0, 4);
+    (s, sub)
+}
+
+@test_substring_heap_shared tests @substring_heap_shared () -> void = {
+    let (original, sub) = substring_heap_shared();
+    assert_eq(actual: original, expected: "this is a long string that exceeds SSO threshold easily");
+    assert_eq(actual: sub, expected: "this")
+}
+
+@substring_empty () -> str = {
+    "hello".substring(2, 2)
+}
+
+@test_substring_empty tests @substring_empty () -> void = {
+    assert_eq(actual: substring_empty(), expected: "")
+}
+
+// ============ TRIM ============
+
+@trim_sso () -> str = {
+    "  hi  ".trim()
+}
+
+@test_trim_sso tests @trim_sso () -> void = {
+    assert_eq(actual: trim_sso(), expected: "hi")
+}
+
+@trim_heap () -> str = {
+    let long = "   this is a long string that exceeds SSO threshold easily   ";
+    long.trim()
+}
+
+@test_trim_heap tests @trim_heap () -> void = {
+    assert_eq(actual: trim_heap(), expected: "this is a long string that exceeds SSO threshold easily")
+}
+
+@trim_empty () -> str = {
+    "".trim()
+}
+
+@test_trim_empty tests @trim_empty () -> void = {
+    assert_eq(actual: trim_empty(), expected: "")
+}
+
+@trim_no_whitespace () -> str = {
+    "hello".trim()
+}
+
+@test_trim_no_whitespace tests @trim_no_whitespace () -> void = {
+    assert_eq(actual: trim_no_whitespace(), expected: "hello")
+}
+
+// ============ TO_UPPERCASE / TO_LOWERCASE ============
+
+@upper_sso () -> str = {
+    "hello".to_uppercase()
+}
+
+@test_upper_sso tests @upper_sso () -> void = {
+    assert_eq(actual: upper_sso(), expected: "HELLO")
+}
+
+@lower_sso () -> str = {
+    "HELLO".to_lowercase()
+}
+
+@test_lower_sso tests @lower_sso () -> void = {
+    assert_eq(actual: lower_sso(), expected: "hello")
+}
+
+@upper_empty () -> str = {
+    "".to_uppercase()
+}
+
+@test_upper_empty tests @upper_empty () -> void = {
+    assert_eq(actual: upper_empty(), expected: "")
+}
+
+// ============ SPLIT ============
+
+@split_basic () -> [str] = {
+    "a,b,c".split(sep: ",")
+}
+
+@test_split_basic tests @split_basic () -> void = {
+    assert_eq(actual: split_basic(), expected: ["a", "b", "c"])
+}
+
+@split_empty () -> [str] = {
+    "".split(sep: ",")
+}
+
+@test_split_empty tests @split_empty () -> void = {
+    assert_eq(actual: split_empty(), expected: [""])
+}
+
+@split_no_match () -> [str] = {
+    "hello".split(sep: ",")
+}
+
+@test_split_no_match tests @split_no_match () -> void = {
+    assert_eq(actual: split_no_match(), expected: ["hello"])
+}

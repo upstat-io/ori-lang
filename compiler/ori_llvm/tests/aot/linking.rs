@@ -566,6 +566,7 @@ fn test_linker_error_display() {
     let err = LinkerError::LinkFailed {
         linker: "cc".to_string(),
         exit_code: Some(1),
+        stdout: String::new(),
         stderr: "undefined reference to 'foo'".to_string(),
         command: "cc -o output main.o".to_string(),
     };
@@ -578,10 +579,25 @@ fn test_linker_error_display() {
     let err = LinkerError::LinkFailed {
         linker: "ld".to_string(),
         exit_code: None,
+        stdout: String::new(),
         stderr: "error".to_string(),
         command: "ld -o out".to_string(),
     };
     assert!(!err.to_string().contains("exit code"));
+
+    // LinkFailed with MSVC-style stdout diagnostics
+    let err = LinkerError::LinkFailed {
+        linker: "link.exe".to_string(),
+        exit_code: Some(1120),
+        stdout: "main.obj : error LNK2019: unresolved external symbol".to_string(),
+        stderr: String::new(),
+        command: "link.exe /OUT:smoke.exe main.obj".to_string(),
+    };
+    let msg = err.to_string();
+    assert!(msg.contains("exit code 1120"));
+    assert!(msg.contains("Linker stdout:"));
+    assert!(msg.contains("LNK2019"));
+    assert!(!msg.contains("Linker stderr:"));
 
     // ResponseFileError
     let err = LinkerError::ResponseFileError {
