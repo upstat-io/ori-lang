@@ -1,0 +1,19 @@
+// Benchmark: List slicing (zero-copy seamless slices)
+// Exercises: Seamless slice creation — O(1) per slice regardless of size
+// Expected: O(n) total time — each slice is O(1), no element copies
+
+@main () -> int = {
+    let list = for i in 0..100000 yield i;
+    let n = 10000;
+    let total = 0;
+    let i = 0;
+    loop {
+        if i >= n then break;
+        let slice = list.slice(i, i + 1000);
+        // Use slice to prevent dead code elimination
+        total = total + slice.len();
+        i = i + 1;
+    };
+    // Each slice has 1000 elements, n slices
+    if total == n * 1000 then 0 else 1
+}
