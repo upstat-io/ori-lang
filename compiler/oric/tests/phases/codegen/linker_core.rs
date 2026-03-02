@@ -146,6 +146,7 @@ mod tests {
         let err = LinkerError::LinkFailed {
             linker: "cc".to_string(),
             exit_code: Some(1),
+            stdout: String::new(),
             stderr: "undefined reference".to_string(),
             command: "cc -o output".to_string(),
         };
@@ -188,6 +189,7 @@ mod tests {
         let err = LinkerError::LinkFailed {
             linker: "ld".to_string(),
             exit_code: None,
+            stdout: String::new(),
             stderr: "error".to_string(),
             command: "ld -o out".to_string(),
         };

@@ -42,6 +42,8 @@ Thumbs.db
 # Rust specific
 **/*.rs.bk
 *.pdb
+librust_out.a
+rust_out.lib
 
 # Local configuration
 .cargo/

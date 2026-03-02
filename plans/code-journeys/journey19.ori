@@ -1,0 +1,29 @@
+// Journey 19: COW Comprehensive Stress Test
+// Tests: all COW collection types in one program with sharing,
+// mutation, iteration, and cross-type operations
+// Expected: list_result + str_result + map_result = 11 + 12 + 5 = 28
+
+@main () -> int = {
+    // List COW: build, share, mutate copy, verify original
+    let $base = [1, 2, 3, 4, 5];
+    let extended = base;
+    let extended = extended.push(6);
+    let $list_result = base.length() + extended.length();
+    // 5 + 6 = 11... wait, let me recalculate
+    // base.length() = 5, extended.length() = 6
+    // list_result = 11
+
+    // String COW: short (SSO) + long (heap), share + concat
+    let $word = "hey";
+    let $sentence = word + " there";
+    let $str_result = word.length() + sentence.length();
+    // 3 + 9 = 12
+
+    // Map COW: create, insert, length
+    let $scores = {"x": 1, "y": 2};
+    let $scores2 = scores.insert(key: "z", value: 3);
+    let $map_result = scores.length() + scores2.length();
+    // 2 + 3 = 5
+
+    list_result + str_result + map_result
+}
