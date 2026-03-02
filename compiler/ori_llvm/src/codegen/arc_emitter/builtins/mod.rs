@@ -76,7 +76,9 @@ macro_rules! declare_builtins {
 
 mod collections;
 mod compound_traits;
+mod compound_type_impls;
 mod iterator;
+mod iterator_consumers;
 mod list_traits;
 mod option_result;
 pub(super) mod prelude;

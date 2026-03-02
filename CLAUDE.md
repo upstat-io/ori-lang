@@ -41,6 +41,7 @@
 - **Diagnostics**: all errors have spans; imperative suggestions; no `panic!` on user errors; accumulate
 - **Testing**: verify behavior not implementation; spec-based; multiple angles (happy, edge, error). **Test files**: sibling `tests.rs` (not inline); `#[cfg(test)] mod tests;` declaration only. `foo.rs` → `foo/tests.rs`; `mod.rs` → `bar/tests.rs`; `lib.rs`/`main.rs` → `tests.rs` in same dir
 - **Performance**: O(n²) → O(n); hash lookups not linear scans; no alloc in hot loops; iterators over indexing
+- **ARM portability**: C string pointers in `ori_rt` use `std::ffi::c_char`, never `i8` — `c_char` is `i8` on x86_64 but `u8` on aarch64
 - **Style**: no `#[allow(clippy)]` without justification; functions < 100 lines (target < 50); no dead/commented code; `//!`/`///` docs
 - **File size**: 500 line limit (excl. tests). Stop and split before exceeding. Extract to submodules. `scripts/extract_tests.py` for test extraction.
 - **Tracing — USE FIRST**: `ORI_LOG` before `println!`. Levels: `error`/`warn`/`debug`/`trace`. Targets: `ori_types`/`ori_eval`/`ori_llvm`/`oric`. `#[tracing::instrument]` on pub APIs. Never `println!`/`eprintln!`. Setup: `compiler/oric/src/tracing_setup.rs`.
@@ -52,9 +53,9 @@
 ## Commands
 
 **Primary**: `./test-all.sh`, `./clippy-all.sh`, `./fmt-all.sh`, `./build-all.sh` (includes LLVM)
-**Tests**: `cargo t` (Rust, excl. LLVM), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
-**Build**: `cargo c`/`cl`/`b`/`fmt` (excl. LLVM), `./llvm-build.sh`, `./llvm-clippy.sh`
-**LLVM/AOT**: `cargo bl` (debug), `cargo blr` (release) — builds oric + ori_rt; `cargo test -p ori_llvm` (LLVM tests); `cargo cll` (LLVM clippy)
+**Tests**: `cargo t` (Rust, incl. LLVM), `cargo st` (Ori), `cargo st tests/spec/path/` (specific), `./llvm-test.sh`
+**Build**: `cargo c`/`cl`/`b`/`fmt` (all crates incl. LLVM)
+**LLVM/AOT**: `cargo b` (debug), `cargo b --release` (release) — LLVM is a default feature; `cargo test -p ori_llvm` (LLVM tests)
 **Release LTO**: `cargo build --profile release-lto` — fat LTO, ~20% faster binary, ~3.5x longer build. Output: `target/release-lto/ori`. Regular `--release` unaffected.
 **Tracing** (USE FIRST): `ORI_LOG=debug ori check file.ori` | `=ori_types=trace ORI_LOG_TREE=1 ori check f.ori` | `=ori_eval=debug ori run file.ori` | `=oric=debug` (Salsa) | Falls back to `RUST_LOG`
 **Phase dumps**: `ORI_DUMP_AFTER_PARSE=1` (AST) | `ORI_DUMP_AFTER_TYPECK=1` (typed IR) | `ORI_DUMP_AFTER_ARC=1` (ARC IR) | `ORI_DUMP_AFTER_LLVM=1` (LLVM IR, superset of `ORI_DEBUG_LLVM`) | `ORI_EMIT_ARC_DOT=1` (GraphViz DOT) — stderr, zero release overhead

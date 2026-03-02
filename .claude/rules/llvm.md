@@ -6,14 +6,14 @@ paths:
 # LLVM Backend
 
 - LLVM 17 required | path in `.cargo/config.toml`
-- `ori_llvm` and `ori_rt` are workspace members but not in `default-members` — use `-p` or `cargo bl`
-- Build: `cargo bl` (debug) | `cargo blr` (release)
-- Clippy: `cargo cll` (`-p ori_llvm`) | Tests: `cargo test -p ori_llvm` | `./llvm-test.sh` | `./test-all.sh`
+- `ori_llvm` and `ori_rt` are in `default-members` — all workspace commands include LLVM
+- Build: `cargo b` (debug) | `cargo b --release` (release)
+- Clippy: `cargo cl` (workspace) | Tests: `cargo test -p ori_llvm` | `./llvm-test.sh` | `./test-all.sh`
 - **Always build both `oric` AND `ori_rt`** — Cargo only builds rlib; staticlib must be explicit
 
 ## MANDATORY: Test with Release Binary
 
-- **After ANY `ori_llvm`/`ori_rt` changes**: `cargo blr` then `./test-all.sh`
+- **After ANY `ori_llvm`/`ori_rt` changes**: `cargo b --release` then `./test-all.sh`
 - Debug and release differ due to FastISel behavior (see below) — never consider LLVM work done after debug-only testing
 
 ## Architecture
@@ -43,6 +43,10 @@ paths:
 - `entry → header → body → latch → header (or exit)`
 - **`continue` → latch** (NOT header) — skipping latch = infinite loop
 - **`break` → exit**
+
+### ARM/aarch64 Portability
+- **`c_char` not `i8`** in `ori_rt`: C string pointers MUST use `std::ffi::c_char`. `c_char` is `i8` on x86_64 but `u8` on aarch64 — hardcoding `i8` breaks ARM. LLVM opaque `ptr` is unaffected (Rust-side only).
+- Test AOT on ARM via GCP `t2a-standard-2` instance or macOS CI (Apple Silicon)
 
 ### Inkwell Pitfalls
 - `build_*` fails without `position_at_end(block)` — always position first

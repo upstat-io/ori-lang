@@ -7,6 +7,8 @@
     reason = "FFI test code requires inline drop functions and raw pointer operations"
 )]
 
+use std::ffi::c_char;
+
 use crate::runtime::{self, OriStr};
 
 fn make_ori_str(s: &[u8]) -> OriStr {
@@ -362,7 +364,7 @@ fn test_ori_args_from_argv_null() {
 fn test_ori_args_from_argv_no_user_args() {
     // argc=1 means only program name → empty list (spec: args excludes program name)
     let prog = b"./my_prog\0";
-    let argv = [prog.as_ptr().cast::<i8>()];
+    let argv = [prog.as_ptr().cast::<c_char>()];
     let list = runtime::ori_args_from_argv(1, argv.as_ptr());
     assert_eq!(list.len, 0);
     assert_eq!(list.cap, 0);
@@ -379,9 +381,9 @@ fn test_ori_args_from_argv_with_args() {
     let arg1 = b"hello\0";
     let arg2 = b"world\0";
     let argv = [
-        prog.as_ptr().cast::<i8>(),
-        arg1.as_ptr().cast::<i8>(),
-        arg2.as_ptr().cast::<i8>(),
+        prog.as_ptr().cast::<c_char>(),
+        arg1.as_ptr().cast::<c_char>(),
+        arg2.as_ptr().cast::<c_char>(),
     ];
     let list = runtime::ori_args_from_argv(3, argv.as_ptr());
     assert_eq!(list.len, 2);

@@ -22,7 +22,7 @@ ParamDef, MethodDef, OpDefs, TypeDef
 pure data, no behavior, no dependencies, const-constructible
 enum, struct, static, compile-time, zero-cost
 receiver, borrow, owned, copy, arc
-IntInstr, FloatInstr, UnsignedCmp, BoolInstr, RuntimeCall, Unsupported
+IntInstr, FloatInstr, UnsignedCmp, BoolLogic, RuntimeCall, Unsupported
 schema, contract, specification, declaration
 SelfType, Iterator, Void, return type
 extensibility, future fields, IterationDef, HashStrategy, DisplayStrategy
@@ -53,7 +53,7 @@ workspace members, cargo check, cargo test
 int, float, bool, byte, char
 INT, FLOAT, BOOL, BYTE, CHAR
 MemoryStrategy::Copy, value type, bitwise copy
-IntInstr, FloatInstr, UnsignedCmp, BoolInstr
+IntInstr, FloatInstr, UnsignedCmp, BoolLogic
 int.f, int.byte, int.abs, int.to_str
 float.floor, float.ceil, float.round, float.abs, float.to_str
 bool.to_str
@@ -160,10 +160,10 @@ resolve_builtin_method, resolve_str_method, resolve_int_method
 resolve_float_method, resolve_bool_method, resolve_byte_method
 resolve_char_method, resolve_list_method, resolve_option_method
 resolve_result_method, resolve_map_method, resolve_set_method
-TYPECK_BUILTIN_METHODS, type_tag_to_idx, return type
+TYPECK_BUILTIN_METHODS, return_tag_to_idx, return type
 unify_higher_order_constraints (stays in ori_types), calls.rs
 DEI_ONLY_METHODS, well_known_generic_types
-infer/expr/methods.rs, check/well_known/mod.rs
+infer/expr/methods/mod.rs, check/well_known/mod.rs
 Tag, Idx, InferEngine, type pool
 ```
 

@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/upstat-io/ori-lang"
 
 # Runtime library for AOT-compiled programs.
-# Build: cargo bl (debug) / cargo blr (release)
+# Build: cargo b (debug) / cargo b --release
 
 # Build both rlib (for Rust consumers like ori_llvm) and staticlib (for AOT linking)
 [lib]

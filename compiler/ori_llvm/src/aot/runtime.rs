@@ -77,7 +77,7 @@ impl RuntimeConfig {
     #[must_use]
     pub fn new(library_path: PathBuf) -> Self {
         Self {
-            library_path,
+            library_path: strip_unc_prefix(library_path),
             static_link: true,
         }
     }
@@ -128,7 +128,7 @@ impl RuntimeConfig {
                 searched.push(exe_dir.to_path_buf());
 
                 // Sibling profile: target/debug/ori -> check target/release/ (and vice versa).
-                // Handles the common case where `cargo bl` (debug) builds the compiler but
+                // Handles the common case where `cargo build` (debug) builds the compiler but
                 // `libori_rt.a` was built in release (or vice versa).
                 if let Some(target_dir) = exe_dir.parent() {
                     for profile in &["release", "debug"] {
@@ -214,12 +214,17 @@ impl RuntimeConfig {
         };
         input.libraries.push(lib);
 
-        // On Unix, we also need libc and libm
+        // Platform system libraries needed by ori_rt
         #[cfg(unix)]
         {
             input.libraries.push(LinkLibrary::new("c"));
             input.libraries.push(LinkLibrary::new("m"));
             input.libraries.push(LinkLibrary::new("pthread"));
+        }
+        #[cfg(windows)]
+        {
+            // kernel32 provides Windows API basics (memory, threading, I/O)
+            input.libraries.push(LinkLibrary::new("kernel32"));
         }
     }
 
@@ -232,4 +237,20 @@ impl RuntimeConfig {
             LibraryKind::Dynamic
         }
     }
+}
+
+/// Strip the Windows extended-length path prefix (`\\?\`).
+///
+/// `Path::canonicalize()` on Windows returns paths like `\\?\D:\a\repo\target\debug`.
+/// External tools (linkers, etc.) can't handle this prefix — it causes garbled paths
+/// in `/LIBPATH:` arguments and `-L` flags. On non-Windows, this is a no-op.
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    path
 }

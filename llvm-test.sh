@@ -15,7 +15,7 @@ set -e
 # AOT tests use ori_binary() to find target/debug/ori or target/release/ori —
 # if the most recent binary lacks LLVM support, all AOT tests fail with E5004.
 echo "Building LLVM-enabled ori binary..."
-cargo build -p oric -p ori_rt --features llvm -q
+cargo build -p oric -p ori_rt -q
 echo "Running ori_rt tests..."
 cargo test -p ori_rt "$@"
 echo "Running LLVM tests..."

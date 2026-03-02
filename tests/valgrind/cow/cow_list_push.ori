@@ -1,0 +1,58 @@
+// Valgrind test: COW list push operations.
+// Exercises push to unique (in-place) and shared (COW clone) lists,
+// empty list sentinel → first allocation, loop growth, multi-fork push.
+
+@main () -> int = {
+    // Push to empty list (sentinel → first allocation)
+    let empty: [int] = [];
+    let from_empty = empty.push(1);
+    let empty_push_ok = from_empty.length() == 1 && from_empty.first().unwrap() == 1;
+
+    // Push to unique owner (in-place fast path)
+    let a = [1, 2, 3];
+    let a2 = a.push(4);
+    let unique_ok = a2.length() == 4 && a2.last().unwrap() == 4;
+
+    // Push to shared owner (COW slow path — original must be unchanged)
+    let base = [10, 20, 30];
+    let shared = base;
+    let pushed = shared.push(40);
+    let cow_ok = base.length() == 3 && pushed.length() == 4
+        && base.last().unwrap() == 30 && pushed.last().unwrap() == 40;
+
+    // Multi-fork push: 3 references to same backing
+    let root = [1, 2];
+    let fork1 = root.push(3);
+    let fork2 = root.push(4);
+    let fork3 = root.push(5);
+    let multi_ok = root.length() == 2
+        && fork1.length() == 3 && fork1.last().unwrap() == 3
+        && fork2.length() == 3 && fork2.last().unwrap() == 4
+        && fork3.length() == 3 && fork3.last().unwrap() == 5;
+
+    // Loop push: amortized growth, many reallocations
+    let xs: [int] = [];
+    for i in 0..500 do {
+        xs = xs.push(i);
+    };
+    let loop_ok = xs.length() == 500 && xs.first().unwrap() == 0
+        && xs.last().unwrap() == 499;
+
+    // Push with string elements (RC'd elements)
+    let strs: [str] = [];
+    let strs = strs.push("hello").push("world").push("test");
+    let str_ok = strs.length() == 3 && strs.first().unwrap() == "hello";
+
+    // Push to shared then push to original (both paths exercised)
+    let orig = [1, 2];
+    let copy = orig;
+    let copy2 = copy.push(3);
+    let orig2 = orig.push(99);
+    let both_ok = orig.length() == 2 && copy.length() == 2
+        && copy2.length() == 3 && orig2.length() == 3
+        && copy2.last().unwrap() == 3 && orig2.last().unwrap() == 99;
+
+    if empty_push_ok && unique_ok && cow_ok && multi_ok && loop_ok
+        && str_ok && both_ok
+    then 0 else 1
+}

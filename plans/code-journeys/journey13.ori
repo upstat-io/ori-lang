@@ -1,0 +1,19 @@
+// Journey 13: COW List Operations
+// Tests: list creation, push (COW fast path when unique),
+// length checking, and basic list iteration with for..in
+// Expected: 1 + 2 + 3 + 4 + 5 + 5 = 20
+// (sum of pushed elements + length after all pushes)
+
+@main () -> int = {
+    let items = [1, 2, 3];
+    let items = items.push(4);
+    let items = items.push(5);
+    let $count = items.length();
+
+    let total = 0;
+    for x in items do {
+        total += x;
+    };
+
+    total + count
+}

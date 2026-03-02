@@ -91,7 +91,7 @@ jobs:
       - name: Build with LLVM
         run: |
           docker run --rm -v ${{ github.workspace }}:/workspace ori-llvm:latest \
-            sh -c "cargo build --release --features llvm -p oric && strip /workspace/target/release/ori"
+            sh -c "cargo build --release -p oric && strip /workspace/target/release/ori"
 
       - name: Package
         run: |
@@ -157,7 +157,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build with LLVM
-        run: cargo build --release --features llvm -p oric --target ${{ matrix.target }}
+        run: cargo build --release -p oric --target ${{ matrix.target }}
 
       - name: Package
         run: |
@@ -228,7 +228,7 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Build with LLVM
-        run: cargo build --release --features llvm -p oric --target x86_64-pc-windows-msvc
+        run: cargo build --release -p oric --target x86_64-pc-windows-msvc
 
       - name: Package
         run: |

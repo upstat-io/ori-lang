@@ -25,6 +25,10 @@ use self::instr::{fmt_instr, fmt_terminator};
 /// then pretty-prints the result. The clone + re-run cost is negligible
 /// (only fires when `ORI_DUMP_AFTER_ARC=1` is set).
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "internal function always called with FxHashMap"
+)]
 pub fn dump_arc_ir(
     arc_cache: &FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>,
     annotated_sigs: &FxHashMap<Name, AnnotatedSig>,

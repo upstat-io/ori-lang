@@ -316,7 +316,7 @@ Pattern expressions in Ori use named arguments. When a required argument is miss
 error[E5005]: runtime library `libori_rt.a` not found
   |
   = note: searched at: /home/user/.local/lib/ori/libori_rt.a
-  = help: build the runtime with `cargo bl` or `cargo blr`
+  = help: build the runtime with `cargo b` or `cargo b --release`
 ```
 
 This error appears when attempting AOT compilation without having built the Ori runtime library first. Unlike most diagnostics, it has no source span because it is not triggered by any particular line of user code. The help text gives the exact command to resolve the issue.

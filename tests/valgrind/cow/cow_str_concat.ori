@@ -1,0 +1,59 @@
+// Valgrind test: heap string concatenation with COW.
+// Exercises heap-allocated string concat, shared string COW,
+// chained concat, loop concat growth, template string interpolation.
+
+@main () -> int = {
+    // Basic heap string concat
+    let $a = "this is a longer string that exceeds SSO limit easily";
+    let $b = " and this is appended";
+    let $c = a + b;
+    let basic_ok = c.starts_with(prefix: "this is") && c.ends_with(suffix: "appended");
+
+    // Shared string — original must be unchanged after concat
+    let $base = "shared base string that is long enough for heap";
+    let $shared = base;
+    let $concatenated = shared + " extra";
+    let cow_ok = base == "shared base string that is long enough for heap"
+        && concatenated.ends_with(suffix: "extra");
+
+    // Chained concat
+    let $d = "one" + " " + "two" + " " + "three" + " " + "four" + " " + "five";
+    let chain_ok = d == "one two three four five";
+
+    // Loop concat (progressive growth)
+    let acc = "";
+    for i in 0..50 do {
+        acc = acc + "x";
+    };
+    let loop_ok = acc.length() == 50;
+
+    // Concat empty strings (no crash, no leak)
+    let $e = "" + "";
+    let $f = "hello" + "";
+    let $g = "" + "world";
+    let empty_ok = e == "" && f == "hello" && g == "world";
+
+    // Multi-fork concat from same base
+    let $root = "base";
+    let $f1 = root + "_one";
+    let $f2 = root + "_two";
+    let $f3 = root + "_three";
+    let multi_ok = root == "base" && f1 == "base_one"
+        && f2 == "base_two" && f3 == "base_three";
+
+    // Template string interpolation (creates concat under the hood)
+    let $name = "world";
+    let $greeting = `hello {name}!`;
+    let template_ok = greeting == "hello world!";
+
+    // Large string concat
+    let big = "";
+    for _ in 0..100 do {
+        big = big + "0123456789";
+    };
+    let big_ok = big.length() == 1000;
+
+    if basic_ok && cow_ok && chain_ok && loop_ok && empty_ok
+        && multi_ok && template_ok && big_ok
+    then 0 else 1
+}

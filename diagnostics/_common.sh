@@ -34,11 +34,11 @@ find_ori_bin() {
             return
         fi
         echo "Error: ORI_BIN='$ORI_BIN' does not have LLVM support" >&2
-        echo "Rebuild with: cargo bl (debug) or cargo blr (release)" >&2
+        echo "Rebuild with: cargo b (debug) or cargo b --release (release)" >&2
         exit 2
     fi
 
-    # Try candidates in order: debug first (cargo bl builds debug with LLVM),
+    # Try candidates in order: debug first (cargo b builds debug with LLVM),
     # then release, then PATH.
     local candidates=(
         "$root_dir/target/debug/ori"
@@ -55,7 +55,7 @@ find_ori_bin() {
 
     echo "Error: no LLVM-enabled ori binary found" >&2
     echo "Tried: ${candidates[*]}" >&2
-    echo "Rebuild with: cargo bl (debug) or cargo blr (release)" >&2
+    echo "Rebuild with: cargo b (debug) or cargo b --release (release)" >&2
     exit 2
 }
 

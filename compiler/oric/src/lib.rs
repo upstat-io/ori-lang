@@ -55,6 +55,12 @@ macro_rules! static_assert_size {
     };
 }
 
+#[cfg(not(feature = "llvm"))]
+compile_error!(
+    "oric requires the `llvm` feature (enabled by default). \
+     Build with: cargo build -p oric"
+);
+
 #[cfg(feature = "llvm")]
 pub mod arc_dot;
 #[cfg(feature = "llvm")]

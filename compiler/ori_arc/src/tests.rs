@@ -5,7 +5,7 @@ use ori_ir::Name;
 use crate::ir::{ArcBlock, ArcFunction, ArcInstr, ArcParam, ArcTerminator, ArgOwnership, CtorKind};
 use crate::ownership::Ownership;
 use crate::test_helpers::{b, count_rc_ops, make_func, v};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use crate::{
     compute_liveness, compute_refined_liveness, expand_reset_reuse, ArcClassifier, DominatorTree,
@@ -23,12 +23,7 @@ fn run_full_pipeline(
         func,
         &sigs,
         &interner,
-        &crate::BuiltinOwnershipSets {
-            borrowing: FxHashSet::default(),
-            consuming_receiver: FxHashSet::default(),
-            consuming_second_arg: FxHashSet::default(),
-            consuming_receiver_only: FxHashSet::default(),
-        },
+        &crate::BuiltinOwnershipSets::empty(),
         pool,
     );
     let uniqueness_summaries = FxHashMap::default();

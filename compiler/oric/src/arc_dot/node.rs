@@ -86,7 +86,7 @@ pub(super) fn render_block_node(
         .unwrap();
     }
 
-    write!(out, "</TABLE>>];\n").unwrap();
+    writeln!(out, "</TABLE>>];").unwrap();
 }
 
 /// Render function parameters as a header node for the function graph.
@@ -129,9 +129,9 @@ pub(super) fn render_param_header(
         .unwrap();
     }
 
-    write!(out, "</TABLE>>];\n").unwrap();
+    writeln!(out, "</TABLE>>];").unwrap();
     // Edge from param header to entry block
-    write!(out, "  params -> bb{} [style=dashed];\n", func.entry.raw()).unwrap();
+    writeln!(out, "  params -> bb{} [style=dashed];", func.entry.raw()).unwrap();
 }
 
 /// Determine the background color for an instruction row.

@@ -40,9 +40,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- Build compiler with LLVM support ---
-echo "Building compiler (cargo bl)..."
-if ! (cd "$ROOT_DIR" && cargo bl) 2>&1; then
-    echo "Error: cargo bl failed — cannot run diagnostic tests without LLVM-enabled binary" >&2
+echo "Building compiler (cargo b)..."
+if ! (cd "$ROOT_DIR" && cargo b) 2>&1; then
+    echo "Error: cargo build failed — cannot run diagnostic tests without LLVM-enabled binary" >&2
     exit 2
 fi
 echo ""

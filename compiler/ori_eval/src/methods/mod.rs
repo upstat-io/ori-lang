@@ -79,6 +79,7 @@ pub(crate) struct BuiltinMethodNames {
     pub(crate) escape: Name,
     pub(crate) replace: Name,
     pub(crate) repeat: Name,
+    pub(crate) split: Name,
     pub(crate) substring: Name,
 
     // Collection (list-specific)
@@ -210,6 +211,7 @@ impl BuiltinMethodNames {
             escape: interner.intern("escape"),
             replace: interner.intern("replace"),
             repeat: interner.intern("repeat"),
+            split: interner.intern("split"),
             substring: interner.intern("substring"),
             // List
             first: interner.intern("first"),

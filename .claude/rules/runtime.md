@@ -13,6 +13,7 @@ paths:
 
 - All functions: `#[no_mangle] extern "C"` | `#[repr(C)]` for FFI types
 - Pointers from LLVM guaranteed valid
+- **`c_char` not `i8`**: C string pointers MUST use `std::ffi::c_char`, never `i8`. `c_char` is `i8` on x86_64 but `u8` on aarch64/ARM — hardcoding `i8` breaks ARM builds. Applies to `ori_panic_cstr`, `ori_args_from_argv`, and any future C string FFI.
 
 ## Type Representations
 

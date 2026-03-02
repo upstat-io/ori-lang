@@ -9,7 +9,7 @@
     reason = "readability in test program literals"
 )]
 
-use crate::util::assert_aot_success;
+use crate::util::{assert_aot_success, compile_and_run_capture};
 
 // ─── List: length ───
 
@@ -444,7 +444,6 @@ fn test_coll_list_last() {
 }
 
 #[test]
-#[ignore = "AOT gap: list[index] subscript not resolved"]
 fn test_coll_list_index() {
     assert_aot_success(
         r#"
@@ -1131,5 +1130,62 @@ fn test_coll_map_values_sum() {
 }
 "#,
         "coll_map_values_sum",
+    );
+}
+
+// ─── List indexing ───
+
+#[test]
+fn test_coll_list_index_variable() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [100, 200, 300];
+    let i = 1;
+    if xs[i] == 200 then 0 else 1
+}
+"#,
+        "coll_list_index_variable",
+    );
+}
+
+#[test]
+fn test_coll_list_index_expression() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let xs = [10, 20, 30, 40, 50];
+    let i = 2;
+    if xs[i + 1] == 40 then 0 else 1
+}
+"#,
+        "coll_list_index_expression",
+    );
+}
+
+#[test]
+fn test_coll_list_index_oob_panics() {
+    let (exit_code, _, _) = compile_and_run_capture(
+        r#"
+@main () -> int = {
+    let xs = [1, 2, 3];
+    xs[5]
+}
+"#,
+    );
+    assert_ne!(exit_code, 0, "OOB index should panic (non-zero exit)");
+}
+
+#[test]
+fn test_coll_map_index() {
+    assert_aot_success(
+        r#"
+@main () -> int = {
+    let m = {"x": 42, "y": 99};
+    let val = m["x"];
+    if val.is_some() && val.unwrap() == 42 then 0 else 1
+}
+"#,
+        "coll_map_index",
     );
 }

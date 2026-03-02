@@ -69,6 +69,8 @@ const EVAL_METHODS_NOT_IN_IR: &[(&str, &str)] = &[
     ("str", "iter"),
     // Slice/substring — eval has these but IR registry doesn't
     ("str", "slice"),
+    // split — returns [str], not expressible in ReturnSpec
+    ("str", "split"),
     ("str", "substring"),
     // error — Traceable trait and accessors, not in IR registry
     ("error", "clone"),
@@ -611,9 +613,6 @@ const TYPECK_METHODS_NOT_IN_EVAL: &[(&str, &str)] = &[
     ("str", "pad_start"),
     ("str", "parse_float"),
     ("str", "parse_int"),
-    ("str", "repeat"),
-    ("str", "replace"),
-    ("str", "split"),
     ("str", "to_float"),
     ("str", "to_int"),
     ("str", "trim_end"),

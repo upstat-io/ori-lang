@@ -18,10 +18,10 @@ sections:
     title: "Fix M9 — Range overflow for ..=INT_MAX"
     status: not-started
   - id: "02.4"
-    title: "Add H3 — noalias on all value-semantic parameters"
+    title: "Add H3 — noalias on proven non-aliasing parameters"
     status: not-started
   - id: "02.5"
-    title: "Design M2 — nsw flags / checked arithmetic"
+    title: "Fix M2 — Checked arithmetic (overflow panics)"
     status: not-started
   - id: "02.6"
     title: "Completion Checklist"
@@ -59,7 +59,7 @@ store i64 1, ptr %variant.tag, align 4     ; tag = 1 (None) — stored
 - **(b) Skip loading uninitialized fields**: Only load fields that were stored. More complex codegen logic but avoids the write.
 - **(c) Use `insertvalue` instead of alloca**: Build the SSA value directly without memory. Also fixes M7. Best long-term but larger change.
 
-**Recommended:** Option (a) as immediate fix, option (c) as part of Section 05 (M7).
+**Recommended:** Option (a) as immediate fix, option (c) as part of Section 05 (M7). Both must use `zeroinitializer` for unset payload fields — this is the consistent invariant across the plan (no `undef` for unused variant payloads).
 
 - [ ] Write test: construct None, verify no poison in IR (check with `opt -passes=verify`)
 - [ ] Zero-initialize allocas for unit variants of payload sum types
@@ -109,73 +109,118 @@ Inclusive range `1..=n` computes `end + step` to convert to exclusive bound. For
 ```
 
 **Fix options:**
-- **(a) Saturating add** (recommended): `%add = call i64 @llvm.sadd.sat.i64(i64 %end, i64 %step)` — saturates at INT_MAX instead of wrapping.
-- **(b) Different loop condition**: Use `<=` comparison instead of `<` to avoid the +1 conversion entirely. More natural for inclusive ranges.
+- **(a) Saturating add**: `%add = call i64 @llvm.sadd.sat.i64(i64 %end, i64 %step)` — saturates at INT_MAX instead of wrapping.
+- **(b) Sign-aware loop condition** (recommended): Use a comparison that matches the step direction, avoiding the +1 conversion entirely. More natural for inclusive ranges.
 - **(c) Overflow check**: Emit `llvm.sadd.with.overflow` and panic on overflow.
 
-**Recommended:** Option (b) — change the loop condition to `icmp sle` to avoid the conversion altogether.
+**Recommended:** Option (b) — use a sign-aware loop condition instead of converting to exclusive bounds.
 
-- [ ] Write test: `for x in 0..=0 do ...` (edge case — single element range)
-- [ ] Write test: range with large values near INT_MAX (may need to test logic, not actual INT_MAX)
-- [ ] Implement fix: use `icmp sle` for inclusive ranges instead of converting to exclusive
-- [ ] Verify: Journey 7 still returns 30
+**Critical: step sign is NOT always compile-time known.** Ori allows variable step expressions (e.g., `for x in 0..12 by step yield x` where `step` is a runtime variable — see `tests/spec/expressions/ranges.ori:304`). The codegen must handle all three cases at runtime:
 
----
+- **step > 0** (ascending): continue while `current <= end` (`icmp sle`)
+- **step < 0** (descending): continue while `current >= end` (`icmp sge`)
+- **step == 0**: panic (infinite loop prevention — `ranges.ori:153` tests syntax only, NOT runtime panic; `assert_panics` test needed)
 
-## 02.4 Add H3 — noalias on All Value-Semantic Parameters
+**Implementation: runtime branch on step sign.**
+```llvm
+; Runtime step-sign dispatch for inclusive ranges:
+%step_positive = icmp sgt i64 %step, 0
+%step_negative = icmp slt i64 %step, 0
+%step_zero = icmp eq i64 %step, 0
+br i1 %step_zero, label %panic_zero_step, label %check_direction
 
-**Severity:** HIGH (optimization enabler, not correctness)
-**File(s):** `compiler/ori_llvm/src/codegen/function_compiler/mod.rs`, `compiler/ori_llvm/src/codegen/ir_builder/calls.rs`
-
-Ori's value semantics guarantee that no two function parameters can alias — there are no pointers, no shared mutable references. LLVM's `noalias` attribute encodes exactly this guarantee, unlocking:
-- **Loop vectorization**: `LoopVectorize` won't vectorize loads/stores through potentially-aliasing pointers
-- **LICM**: Loop-invariant code motion needs `noalias` to hoist loads out of loops
-- **GVN**: Global value numbering can eliminate redundant loads when no aliasing is possible
-- **BasicAA**: LLVM's basic alias analysis uses `noalias` to return `MustAlias`/`NoAlias` results
-
-**Current state:** `noalias` is only emitted on sret parameters and `ori_rc_alloc` return values. Regular function parameters — which are ALL non-aliasing by language semantics — get no annotation.
-
-**What to do:**
-- In `function_compiler/mod.rs` where function parameters are emitted, call `add_noalias_attribute()` on every parameter that has a pointer-based LLVM representation (structs passed by pointer, collections, strings). Scalar parameters (i64, f64, i1) don't need it — they're passed by value.
-- This is sound unconditionally in Ori. Unlike Rust (which had to disable noalias due to `&mut` + `UnsafeCell` interactions), Ori has no escape hatch from value semantics.
-
-**Implementation (~50 lines):**
-```rust
-// In function_compiler/mod.rs, after parameter setup:
-for (i, param) in func.params.iter().enumerate() {
-    let param_idx = if has_sret { i + 1 } else { i };
-    if self.is_pointer_param(param) {
-        self.builder.add_noalias_attribute(func_id, param_idx);
-    }
-}
+check_direction:
+  %cmp_le = icmp sle i64 %current, %end    ; ascending check
+  %cmp_ge = icmp sge i64 %current, %end    ; descending check
+  %continue = select i1 %step_positive, i1 %cmp_le, i1 %cmp_ge
+  br i1 %continue, label %body, label %exit
 ```
 
-- [ ] Add `noalias` to all pointer-type function parameters
-- [ ] Verify with `opt -passes=print-alias-summary` that LLVM recognizes no-alias relationships
-- [ ] Benchmark: collection-heavy function shows vectorization in LLVM IR (`<4 x i64>` operations)
-- [ ] Verify: no test regressions (this is a sound annotation — correctness should not change)
+When the step IS a compile-time constant (the common case), LLVM's constant folding will eliminate the dead branch, producing the same code as a hardcoded `sle`/`sge`. No performance cost for the common case.
+
+- [ ] Write test: `for x in 0..=0 do ...` (edge case — single element range)
+- [ ] Write test: ascending inclusive range near INT_MAX
+- [ ] Write test: `for x in 10..=0 by -1 do ...` (descending inclusive range)
+- [ ] Write test: `for x in 5..=1 by -1 do ...` (descending inclusive with step -1)
+- [ ] Write test: variable step with inclusive range (runtime-dynamic sign)
+- [ ] Write test: zero step panics — `assert_panics(f: () -> for x in 0..=10 by 0 yield x)` (existing `ranges.ori:153` only tests syntax, not runtime behavior)
+- [ ] Implement fix: emit runtime step-sign branch (step > 0 → sle, step < 0 → sge, step == 0 → panic)
+- [ ] Verify: LLVM constant-folds the branch away for literal steps
+- [ ] Verify: Journey 7 still returns 30
+- [ ] Verify: descending inclusive ranges produce correct results matching eval
+- [ ] Verify: variable-step inclusive ranges match eval behavior
 
 ---
 
-## 02.5 Design M2 — nsw Flags / Checked Arithmetic
+## 02.4 Add H3 — noalias on Proven Non-Aliasing Parameters
+
+**Severity:** HIGH (optimization enabler, not correctness)
+**File(s):** `compiler/ori_llvm/src/codegen/function_compiler/mod.rs`, `compiler/ori_llvm/src/codegen/arc_emitter/emitter_utils.rs`
+
+**WARNING: Blanket `noalias` on all pointer params is UNSOUND.** While Ori has value semantics at the language level, pointer parameters in LLVM IR can alias the same underlying RC-managed buffer. Consider:
+
+```ori
+@f (a: [int], b: [int]) -> int = a[0] + b[0]
+
+// Called as:
+let xs = [1, 2, 3];
+f(a: xs, b: xs)    // a and b share the same RC buffer!
+```
+
+At the Ori level, `a` and `b` are independent values. But at the LLVM IR level, before COW triggers a copy, both params point to the same heap allocation. LLVM `noalias` means the pointers do NOT alias — if LLVM reorders a store through `a` before a load through `b` (which `noalias` permits), the result is wrong.
+
+**The existing codebase already handles this correctly.** `emitter_utils.rs:33-50` applies `noalias` only in `CowMode::StaticUnique` contexts — when uniqueness analysis proves refcount == 1. This is the right pattern.
+
+**What to do — extend the existing pattern, not replace it:**
+1. **sret and `ori_rc_alloc` return**: Already `noalias` — correct (fresh allocations can't alias).
+2. **COW `StaticUnique`**: Already `noalias` — correct (proven unique, refcount == 1).
+3. **Function parameters from fresh allocations**: If a parameter is provably freshly constructed at the call site (not passed through from another parameter), it cannot alias other params. This requires interprocedural analysis or annotation propagation.
+4. **All other pointer params**: NOT safe for `noalias` — could share RC buffer.
+
+**Conservative approach (recommended):** Extend `noalias` only to parameters that the ARC pipeline's ownership analysis marks as `Owned` AND that are provably not aliased with other params. This requires integrating with borrow inference results, not blanket annotation.
+
+**Acceptance rule (define before implementing):** Document the exact set of ownership/provenance states that permit `noalias`. Candidate rule: a pointer param gets `noalias` if and only if **(a)** it is an sret or fresh `ori_rc_alloc` return (already done), OR **(b)** it is `CowMode::StaticUnique` at a COW call site (already done), OR **(c)** callee-side analysis proves no other live param in the same function shares the same allocation origin. Any state not explicitly listed here must NOT get `noalias`. This rule must be written into a code comment at the annotation site to prevent interpretation drift during future changes.
+
+**Deferred analysis:** A full escape analysis could prove more params non-aliasing, but this is a significant undertaking. Start with the conservative cases and measure the optimization impact.
+
+- [ ] Audit all current `noalias` usage — verify soundness of existing annotations
+- [ ] Identify parameters provably non-aliasing (fresh allocations at call site, `Owned` without shared source)
+- [ ] Add `noalias` only to proven non-aliasing pointer params (NOT blanket on all pointer params)
+- [ ] Write test: `f(a: xs, b: xs)` — both params alias same buffer, verify correct behavior with and without noalias
+- [ ] Verify with `opt -passes=print-alias-summary` on proven-noalias cases
+- [ ] Verify: no test regressions
+
+---
+
+## 02.5 Fix M2 — Checked Arithmetic (Overflow Panics)
 
 **Journey:** J1 (confirmed J1-J12) | **Severity:** MEDIUM
 **File(s):** `compiler/ori_llvm/src/codegen/` (arithmetic instruction emission)
 
-All integer arithmetic in AOT uses wrapping semantics (`add`, `sub`, `mul` without `nsw`). Ori's spec says integer overflow should panic. Two approaches:
+All integer arithmetic in AOT uses wrapping semantics (`add`, `sub`, `mul` without `nsw`). Ori's spec says integer overflow should panic. The plan's goal is zero LLVM UB — therefore **`nsw` flags are not an option** (`nsw` makes overflow UB, directly contradicting the zero-UB goal).
 
-**Option (a) — `nsw` flags** (simpler):
-Add `nsw` to all signed integer arithmetic. LLVM will optimize based on the no-overflow assumption. If overflow occurs at runtime, it's UB — but Ori programs shouldn't overflow (eval would panic). This matches Rust's release mode behavior.
+**Decision: Checked arithmetic (non-negotiable).**
 
-**Option (b) — Checked arithmetic** (correct):
-Emit `llvm.sadd.with.overflow` / `ssub.with.overflow` / `smul.with.overflow` intrinsics and branch to a panic function on overflow. This matches Rust's debug mode behavior and Ori's spec.
+Emit `llvm.sadd.with.overflow` / `ssub.with.overflow` / `smul.with.overflow` intrinsics and branch to a panic function on overflow. This matches Rust's debug mode behavior and Ori's spec. It is the only approach compatible with this plan's "zero UB" mission.
 
-**Recommended:** Option (b) is correct but invasive. Option (a) is a pragmatic interim. Design decision needed — defer to implementation time.
+**Implementation sketch:**
+```llvm
+; Before (wrapping — silent UB on overflow):
+%r = add i64 %a, %b
 
-- [ ] Decide: `nsw` flags (pragmatic, matches Rust release) vs checked arithmetic (correct, matches spec)
-- [ ] If `nsw`: add `nsw` flag to all `add`, `sub`, `mul` instructions for signed integers
-- [ ] If checked: emit overflow intrinsics + panic branch for all arithmetic
-- [ ] Write test: arithmetic that would overflow, verify behavior matches eval
+; After (checked — panics on overflow):
+%result = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %a, i64 %b)
+%r = extractvalue { i64, i1 } %result, 0
+%overflow = extractvalue { i64, i1 } %result, 1
+br i1 %overflow, label %panic, label %continue
+```
+
+**Note:** A future `--release` flag could switch to `nsw` for performance-critical builds, but the default must match the spec (panic on overflow).
+
+- [ ] Emit `llvm.sadd.with.overflow` / `ssub.with.overflow` / `smul.with.overflow` for all signed integer arithmetic
+- [ ] Generate a shared `_ori_overflow_panic` function that each overflow branch calls
+- [ ] Write test: arithmetic that would overflow, verify AOT panics (matching eval behavior)
+- [ ] Verify: non-overflowing arithmetic generates identical results to eval
 
 ---
 
@@ -184,10 +229,10 @@ Emit `llvm.sadd.with.overflow` / `ssub.with.overflow` / `smul.with.overflow` int
 - [ ] No `load` of uninitialized memory in any generated IR (M14 fixed)
 - [ ] All runtime function declarations have correct `nounwind` attributes
 - [ ] No function marked `nounwind` transitively calls a panicking runtime function
-- [ ] All pointer-type function parameters have `noalias` attribute (H3)
+- [ ] Proven non-aliasing pointer parameters have `noalias` attribute; no blanket annotation (H3)
 - [ ] `1..=0` range works correctly (empty inclusive range edge case)
-- [ ] Integer arithmetic semantics decision documented and implemented
+- [ ] All signed integer arithmetic uses checked overflow intrinsics (panic on overflow)
 - [ ] `./scripts/valgrind-aot.sh` — 0 errors
 - [ ] `./test-all.sh` green
 
-**Exit Criteria:** `opt -passes=verify` on generated IR for all 12 journeys reports 0 errors. Valgrind reports 0 invalid reads/writes. nounwind analysis is conservative-correct. All user-defined functions have `noalias` on pointer-type parameters.
+**Exit Criteria:** `opt -passes=verify` on generated IR for all 12 journeys reports 0 errors. Valgrind reports 0 invalid reads/writes. nounwind analysis is conservative-correct. Proven non-aliasing parameters have `noalias`; no blanket annotation on shared-buffer-capable params.

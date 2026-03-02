@@ -12,7 +12,7 @@ references:
 
 ## Mission
 
-Replace the dependency on Rust's `rust_eh_personality` with Ori's own `ori_eh_personality` function, implemented in C within `ori_rt`. This makes Ori's AOT binaries symbolically independent from Rust's exception handling infrastructure — the generated LLVM IR references `@ori_eh_personality`, and the runtime provides a minimal Itanium EH ABI personality that handles cleanup and catch-all landing pads.
+Replace the dependency on Rust's `rust_eh_personality` with Ori's own `ori_eh_personality` function, implemented in C within `ori_rt`. This makes Ori's generated LLVM IR and compiler source symbolically independent from Rust's exception handling infrastructure — the emitted IR references `@ori_eh_personality`, and the runtime provides a minimal Itanium EH ABI personality that handles cleanup and catch-all landing pads. (Note: `rust_eh_personality` may still appear in `libori_rt.a` from embedded Rust std internals — this is expected and does not affect Ori's generated code.)
 
 **Motivation:** Code Journey 3 (J3) identified that every AOT function containing `invoke`/`landingpad` carries `personality ptr @rust_eh_personality`, making Ori binaries visibly dependent on Rust's unwind infrastructure. Ori is a standalone compiler — its generated code should reference its own symbols.
 
@@ -26,18 +26,19 @@ Replace the dependency on Rust's `rust_eh_personality` with Ori's own `ori_eh_pe
   with invoke/        │      "ori_eh_personality" │  ← was "rust_eh_personality"
   landingpad          │    )                      │
                       │                           │
-                      │  runtime_decl/mod.rs      │
-                      │    RT_FUNCTIONS table:     │
+                      │  runtime_decl/             │
+                      │    runtime_functions.rs:    │
                       │    "ori_eh_personality"    │  ← declaration for LLVM
                       └───────────┬───────────────┘
                                   │
                     ┌─────────────┴─────────────┐
                     │                           │
               JIT path                    AOT path
-              (evaluator.rs)              (linker)
+              (evaluator/                 (linker)
+               runtime_mappings.rs)
                     │                           │
                     ▼                           ▼
-        JIT_MAPPED_RUNTIME_FUNCTIONS    libori_rt.a
+        jit_symbol_mappings()           libori_rt.a
         maps "ori_eh_personality"       contains ori_eh_personality()
         → address of C function         (compiled from eh_personality.c)
         in ori_rt rlib                  via cc crate in build.rs
@@ -76,14 +77,15 @@ Section 03 (Verification)
 Phase 1 — C Personality Function (Section 01)
   └─ 01.1: Write ori_eh_personality in C (LSDA parser + action dispatch)
   └─ 01.2: Add cc crate build.rs to compile C into libori_rt.a
-  └─ 01.3: Export symbol for JIT via #[no_mangle] extern "C" wrapper
-  Gate: `nm libori_rt.a | grep ori_eh_personality` shows the symbol
+  └─ 01.3: Export address getter via extern "C" declaration + pub fn
+  └─ 01.4: C-level forced-unwind test harness (catch skipped, cleanup runs)
+  Gate: `nm libori_rt.a | grep ori_eh_personality` + `cargo test -p ori_rt` passes
 
 Phase 2 — Codegen Integration (Section 02)
-  └─ 02.1: Update RT_FUNCTIONS table (runtime_decl/mod.rs)
+  └─ 02.1: Update RT_FUNCTIONS table (runtime_decl/runtime_functions.rs)
   └─ 02.2: Update arc_emitter personality attachment (arc_emitter/mod.rs)
-  └─ 02.3: Update JIT symbol mapping (evaluator.rs)
-  └─ 02.4: Remove rust_eh_personality_addr() helper
+  └─ 02.3: Update JIT symbol mapping (evaluator/runtime_mappings.rs)
+  └─ 02.4: Remove rust_eh_personality_addr() + update verify/tests.rs
   Gate: `ORI_DEBUG_LLVM=1 ori build test.ori 2>&1 | grep personality`
          shows `@ori_eh_personality`, zero mentions of `rust_eh_personality`
 
@@ -91,8 +93,8 @@ Phase 3 — Verification (Section 03)
   └─ 03.1: Full test suite passes (./test-all.sh)
   └─ 03.2: Code journey re-run (J3 confirms no rust_eh_personality)
   └─ 03.3: Symbol audit (nm/objdump on AOT binary)
-  └─ 03.4: Valgrind clean (./scripts/valgrind-aot.sh)
-  Gate: Zero references to rust_eh_personality in any generated IR or binary
+  └─ 03.4: Valgrind clean (diagnostics/valgrind-aot.sh)
+  Gate: Zero references to rust_eh_personality in compiler source and generated LLVM IR
 ```
 
 **Why this order:**
@@ -104,14 +106,15 @@ Phase 3 — Verification (Section 03)
 
 | Section | Est. Lines | Complexity | Depends On |
 |---------|-----------|------------|------------|
-| 01 C Personality Function | ~180 (C + build.rs) | Medium | — |
+| 01 C Personality Function | ~420 (C + build.rs + 2× asm + test) | Medium | — |
 |   ↳ 01.1 eh_personality.c | ~150 | Medium | — |
-|   ↳ 01.2 build.rs | ~20 | Low | 01.1 |
+|   ↳ 01.2 build.rs | ~25 | Low | 01.1 |
 |   ↳ 01.3 Rust FFI bridge | ~10 | Low | 01.1 |
+|   ↳ 01.4 Forced-unwind test harness | ~260 (2× asm + C + Rust) | Medium | 01.1 |
 | 02 Codegen Integration | ~30 (changes) | Low | 01 |
 |   ↳ 02.1-02.4 Symbol swap | ~30 | Low | 01 |
 | 03 Verification | ~0 (testing) | Low | 02 |
-| **Total new** | **~210** | | |
+| **Total new** | **~480** | | |
 | **Total deleted** | **~15** | | |
 
 ## Known Bugs (Pre-existing)

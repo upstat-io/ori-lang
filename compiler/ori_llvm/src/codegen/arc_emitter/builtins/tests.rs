@@ -44,18 +44,32 @@ const TRAIT_DISPATCH_METHODS: &[&str] = &[
 /// that bypass `TYPECK_BUILTIN_METHODS`. These are valid codegen targets
 /// reached through paths other than `resolve_builtin_method()`:
 ///
-/// - `__iter_next`: Low-level iteration protocol (ARC lowering)
-/// - `__collect_set`: Type-directed collect rewrite (canonical lowering)
+/// - Protocol builtins (`__iter_next`, `__collect_set`): derived from
+///   [`ProtocolBuiltin::ALL`] — adding a new protocol variant here is automatic.
 /// - `to_int`: Identity conversion (int → int in generic paths)
 /// - `add`/`concat`: List operator desugaring (`list + list` → `list.add`)
-const ARC_PIPELINE_METHODS: &[(&str, &str)] = &[
-    ("Iterator", "__collect_set"),
-    ("Iterator", "__iter_next"),
-    ("Ordering", "to_int"),
-    ("int", "to_int"),
-    ("list", "add"),
-    ("list", "concat"),
-];
+fn arc_pipeline_methods() -> Vec<(&'static str, &'static str)> {
+    use ori_ir::builtin_constants::protocol::ProtocolBuiltin;
+    let mut methods: Vec<(&str, &str)> = Vec::new();
+
+    // Protocol builtins — derive from the enum so new variants are automatic.
+    // __index is NOT here: it's an ARC borrowing intrinsic, not a pipeline method
+    // (it doesn't have a receiver type in TYPECK_BUILTIN_METHODS).
+    for &pb in ProtocolBuiltin::ALL {
+        if pb == ProtocolBuiltin::Index {
+            continue; // Handled in arc_borrowing_intrinsics()
+        }
+        methods.push(("Iterator", pb.name()));
+    }
+
+    // Non-protocol pipeline methods.
+    methods.push(("Ordering", "to_int"));
+    methods.push(("int", "to_int"));
+    methods.push(("list", "add"));
+    methods.push(("list", "concat"));
+
+    methods
+}
 
 /// Every `BuiltinTable` entry must be backed by a TYPECK entry, a known
 /// codegen alias, a trait-dispatch method, or an ARC-pipeline method.
@@ -67,7 +81,8 @@ fn no_phantom_builtin_entries() {
     let table = builtin_table();
     let typeck: HashSet<(&str, &str)> = TYPECK_BUILTIN_METHODS.iter().copied().collect();
     let trait_methods: HashSet<&str> = TRAIT_DISPATCH_METHODS.iter().copied().collect();
-    let arc_pipeline: HashSet<(&str, &str)> = ARC_PIPELINE_METHODS.iter().copied().collect();
+    let arc_methods = arc_pipeline_methods();
+    let arc_pipeline: HashSet<(&str, &str)> = arc_methods.iter().copied().collect();
     let aliases: std::collections::HashMap<&str, &str> = CODEGEN_ALIASES.iter().copied().collect();
 
     let mut phantom = Vec::new();
@@ -158,6 +173,27 @@ fn builtin_coverage_above_threshold() {
     );
 }
 
+/// ARC pipeline intrinsics that borrow their receiver but bypass the
+/// Protocol builtins with all-borrowed semantics that appear in
+/// `ori_arc::BORROWING_METHOD_NAMES` but bypass the `BuiltinTable`
+/// dispatch chain. These are intercepted at the `Apply` instruction
+/// level in `apply_protocols.rs`, not through `try_emit_builtin_method`.
+///
+/// Derived from [`ProtocolBuiltin::ALL`] — adding a new all-borrowed
+/// protocol variant here is automatic.
+fn arc_borrowing_intrinsics() -> Vec<&'static str> {
+    use ori_ir::builtin_constants::protocol::{ProtocolArgOwnership, ProtocolBuiltin};
+    ProtocolBuiltin::ALL
+        .iter()
+        .filter(|pb| {
+            pb.arg_ownership()
+                .iter()
+                .all(|o| *o == ProtocolArgOwnership::Borrowed)
+        })
+        .map(|pb| pb.name())
+        .collect()
+}
+
 /// The canonical borrowing-builtin set in `ori_arc` must match the effective
 /// set derived from the LLVM `BuiltinTable`.
 ///
@@ -165,6 +201,9 @@ fn builtin_coverage_above_threshold() {
 /// `borrow: true` but not added to `ori_arc::BORROWING_METHOD_NAMES`, borrow
 /// inference won't know about it. Conversely, if a method is removed from the
 /// table but left in `ori_arc`, borrow inference will make incorrect assumptions.
+///
+/// ARC pipeline intrinsics (e.g., `__index`) are excluded — they borrow their
+/// receiver but are intercepted before `BuiltinTable` dispatch.
 #[test]
 fn borrowing_builtins_sync_with_ori_arc() {
     let interner = StringInterner::default();
@@ -175,13 +214,22 @@ fn borrowing_builtins_sync_with_ori_arc() {
     // Set from ori_arc (canonical source for borrow inference)
     let arc_set = ori_arc::borrowing_builtin_names(&interner);
 
+    // Exclude ARC pipeline intrinsics from the arc_set for comparison
+    let borrowing_intrinsics = arc_borrowing_intrinsics();
+    let intrinsics: HashSet<_> = borrowing_intrinsics.iter().copied().collect();
+    let arc_set_filtered: rustc_hash::FxHashSet<_> = arc_set
+        .iter()
+        .filter(|n| !intrinsics.contains(interner.lookup(**n)))
+        .copied()
+        .collect();
+
     // Find mismatches
     let in_table_not_arc: Vec<_> = table_set
-        .difference(&arc_set)
+        .difference(&arc_set_filtered)
         .map(|n| interner.lookup(*n).to_string())
         .collect();
 
-    let in_arc_not_table: Vec<_> = arc_set
+    let in_arc_not_table: Vec<_> = arc_set_filtered
         .difference(&table_set)
         .map(|n| interner.lookup(*n).to_string())
         .collect();
