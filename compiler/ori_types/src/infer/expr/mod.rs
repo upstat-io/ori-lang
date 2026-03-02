@@ -321,6 +321,10 @@ pub fn check_expr(
             if let Some(ty) =
                 check_collect_to_set(engine, arena, expr_id, *receiver, *method, *args)
             {
+                // Unify the inferred Set<Elem> with the expected Set<T> so the
+                // element type variable resolves (e.g., `[].iter().collect()`
+                // with expected `Set<int>` unifies Elem = int).
+                let _ = engine.check_type(ty, expected, span);
                 return ty;
             }
         }

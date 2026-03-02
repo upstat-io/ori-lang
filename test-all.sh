@@ -3,9 +3,9 @@
 # Usage: ./test-all [-v|--verbose] [-s|--sequential] [--json[=<path>]]
 #
 # This script runs:
-# 1. Rust unit tests (workspace crates)
-# 2. Runtime library tests (ori_rt — not in workspace)
-# 3. Rust unit tests (ori_llvm — not in workspace)
+# 1. Rust unit tests (workspace default members — excludes ori_llvm)
+# 2. Runtime library tests (ori_rt)
+# 3. Rust unit tests (ori_llvm)
 # 4. AOT integration tests (compile-and-run through ori build)
 # 5. WASM playground build check
 # 6. Ori language spec tests (interpreter backend)
@@ -76,7 +76,7 @@ ORI_LLVM_EXIT=0
 
 run_rust_workspace() {
     echo "=== Running Rust unit tests (workspace) ==="
-    if cargo test --workspace 2>&1 > "$RUST_OUTPUT"; then
+    if cargo test --workspace --exclude ori_llvm 2>&1 > "$RUST_OUTPUT"; then
         echo "  ✓ Rust workspace tests passed"
         return 0
     else
@@ -87,7 +87,7 @@ run_rust_workspace() {
 
 run_rust_rt() {
     echo "=== Running runtime library tests (ori_rt) ==="
-    if cargo test --manifest-path compiler/ori_rt/Cargo.toml 2>&1 > "$RUST_RT_OUTPUT"; then
+    if cargo test -p ori_rt 2>&1 > "$RUST_RT_OUTPUT"; then
         echo "  ✓ Runtime library tests passed"
         return 0
     else
@@ -99,8 +99,8 @@ run_rust_rt() {
 run_rust_llvm() {
     echo "=== Running Rust unit tests (ori_llvm) ==="
     # Run ori_llvm lib unit tests + doc-tests (AOT integration tests run separately below)
-    if cargo test --manifest-path compiler/ori_llvm/Cargo.toml --lib 2>&1 > "$RUST_LLVM_OUTPUT" && \
-       cargo test --manifest-path compiler/ori_llvm/Cargo.toml --doc 2>&1 >> "$RUST_LLVM_OUTPUT"; then
+    if cargo test -p ori_llvm --lib 2>&1 > "$RUST_LLVM_OUTPUT" && \
+       cargo test -p ori_llvm --doc 2>&1 >> "$RUST_LLVM_OUTPUT"; then
         echo "  ✓ Rust LLVM tests passed"
         return 0
     else
@@ -111,7 +111,7 @@ run_rust_llvm() {
 
 run_aot() {
     echo "=== Running AOT integration tests ==="
-    if cargo test --manifest-path compiler/ori_llvm/Cargo.toml --test aot 2>&1 > "$AOT_OUTPUT"; then
+    if cargo test -p ori_llvm --test aot 2>&1 > "$AOT_OUTPUT"; then
         echo "  ✓ AOT integration tests passed"
         return 0
     else
@@ -249,9 +249,9 @@ if [[ $PARALLEL -eq 1 ]]; then
     echo ""
 
     # Phase 3: All remaining tests in parallel (no cargo lock contention)
-    # - run_rust_rt: uses --manifest-path (ori_rt unit tests)
-    # - run_rust_llvm: uses --manifest-path --lib (ori_llvm unit tests)
-    # - run_aot: uses --manifest-path --test aot (AOT integration tests)
+    # - run_rust_rt: -p ori_rt (unit tests)
+    # - run_rust_llvm: -p ori_llvm --lib (unit tests)
+    # - run_aot: -p ori_llvm --test aot (AOT integration tests)
     # - run_ori_interpreter: direct binary (./target/debug/ori), no cargo
     # - run_ori_llvm: direct binary (./target/release/ori), no cargo
     run_rust_rt &
