@@ -477,18 +477,29 @@ impl LinkerDriver {
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        // Combine stdout and stderr: MSVC link.exe sends error details
+        // (LNK2019 unresolved symbols) to stdout, not stderr.
+        let combined = if stdout.is_empty() {
+            stderr
+        } else if stderr.is_empty() {
+            stdout
+        } else {
+            format!("{stderr}\n{stdout}")
+        };
 
         // Check for retryable errors
-        if Self::should_retry(&stderr) {
+        if Self::should_retry(&combined) {
             // Retry with adjusted options
-            return self.retry_link(input, &stderr);
+            return self.retry_link(input, &combined);
         }
 
         // Linking failed
         Err(LinkerError::LinkFailed {
             linker: cmd.get_program().to_string_lossy().into(),
             exit_code: output.status.code(),
-            stderr,
+            stderr: combined,
             command: format!("{cmd:?}"),
         })
     }
