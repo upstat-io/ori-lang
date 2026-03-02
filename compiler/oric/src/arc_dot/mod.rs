@@ -1,4 +1,4 @@
-//! ARC IR → GraphViz DOT visualization.
+//! ARC IR → `GraphViz` DOT visualization.
 //!
 //! Emits DOT digraphs for ARC IR control-flow graphs. Each function becomes
 //! a subgraph with basic blocks as table nodes and control flow as colored
@@ -27,6 +27,10 @@ use self::node::{render_block_node, render_param_header};
 /// Clones the pre-lowered functions and re-runs the full ARC pipeline (same
 /// pattern as `arc_dump::dump_arc_ir`) for accurate RC op display.
 #[expect(clippy::unwrap_used, reason = "write! to String is infallible")]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "internal function always called with FxHashMap"
+)]
 pub fn emit_arc_dot(
     arc_cache: &FxHashMap<Name, (ArcFunction, Vec<ArcFunction>)>,
     annotated_sigs: &FxHashMap<Name, AnnotatedSig>,

@@ -2,7 +2,7 @@
 section: "03"
 title: "Verification"
 status: not-started
-goal: "Full test suite green, AOT binaries contain only ori_eh_personality, no behavioral regressions"
+goal: "Full test suite green, Ori-generated LLVM IR references only ori_eh_personality, no behavioral regressions"
 depends_on: ["01", "02"]
 sections:
   - id: "03.1"
@@ -25,7 +25,7 @@ sections:
 # Section 03: Verification
 
 **Status:** Not Started
-**Goal:** Complete confidence that the personality function swap is correct: all existing tests pass, AOT binaries contain only `ori_eh_personality`, no behavioral regressions in eval or AOT paths, and no memory safety issues.
+**Goal:** Complete confidence that the personality function swap is correct: all existing tests pass, Ori's generated LLVM IR references only `ori_eh_personality` (note: `rust_eh_personality` may still appear in `libori_rt.a` from embedded Rust std — this is expected), no behavioral regressions in eval or AOT paths, and no memory safety issues.
 
 **Context:** The personality function is on the critical path of exception handling. If it's implemented incorrectly, panics will crash instead of unwinding, ARC cleanup won't run (causing leaks or use-after-free), and `catch()` will stop working. Testing must cover both the happy path (no exceptions) and the unwind path (panic, catch, ARC cleanup).
 
@@ -38,8 +38,8 @@ sections:
 **File(s):** N/A (running existing tests)
 
 - [ ] `cargo build -p ori_rt` — runtime builds cleanly (both rlib and staticlib)
-- [ ] `cargo bl` — compiler + runtime build succeeds (debug)
-- [ ] `cargo blr` — compiler + runtime build succeeds (release)
+- [ ] `cargo b` — compiler + runtime build succeeds (debug)
+- [ ] `cargo b --release` — compiler + runtime build succeeds (release)
 - [ ] `./test-all.sh` — full test suite passes
   - This covers: Rust unit tests, Ori spec tests (JIT), LLVM unit tests, AOT integration tests
   - Key test categories that exercise exception handling:
@@ -75,10 +75,10 @@ Verify that the symbol swap is complete at every level.
 
 - [ ] **Static library audit** — symbol exists in libori_rt.a:
   ```bash
-  nm compiler/ori_rt/target/debug/libori_rt.a | grep "ori_eh_personality"
+  nm target/debug/libori_rt.a | grep "ori_eh_personality"
   # Expected: T ori_eh_personality (T = text/code section)
 
-  nm compiler/ori_rt/target/debug/libori_rt.a | grep "rust_eh_personality"
+  nm target/debug/libori_rt.a | grep "rust_eh_personality"
   # Expected: still present (from Rust std embedded in staticlib — this is OK)
   # The point is that OUR code references ori_eh_personality, not rust_eh_personality
   ```
@@ -123,7 +123,7 @@ Re-run the code journeys that exercise exception handling to verify behavioral e
 
 - [ ] **Valgrind verification** — no new memory errors from personality function:
   ```bash
-  ./scripts/valgrind-aot.sh
+  diagnostics/valgrind-aot.sh
   # Expected: same results as before (no new errors)
   ```
 
@@ -135,19 +135,28 @@ Re-run the code journeys that exercise exception handling to verify behavioral e
 
   If catch tests allocate RC-managed values that are cleaned up during unwind, the personality function must correctly route through cleanup landing pads for RC decrements to happen.
 
+- [ ] **Forced-unwind safety** (x86-64 + aarch64 Linux) — `cargo test -p ori_rt` forced-unwind tests pass:
+  - `forced_unwind_personality_behavior` — single serialized test verifying both: catch-all LP skipped during `_Unwind_ForcedUnwind`, cleanup LP executed during `_Unwind_ForcedUnwind`
+  - These are C/assembly tests added in Section 01.4 that exercise the personality directly via `_Unwind_ForcedUnwind`. Per-architecture assembly stubs (`test_frames_x86_64.S`, `test_frames_aarch64.S`) are selected by `build.rs` based on `CARGO_CFG_TARGET_ARCH`. The Rust test file gates via `#![cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]`. Skipped cleanly on non-Linux/unsupported-arch targets (0 tests, not failure).
+  - **ARM verification**: spin up a preemptible GCP aarch64 instance, run `cargo test -p ori_rt`, destroy when done. Cross-compilation alone is insufficient — the forced-unwind tests must execute natively to validate personality behavior.
+  - **CI follow-up**: aarch64 verification is manual for this initial implementation. Adding an aarch64 CI runner (GCP spot instance in GitHub Actions, or `qemu-user` with binfmt) should be tracked as a follow-up to prevent regressions.
+
 ---
 
 ## 03.5 Completion Checklist
 
 - [ ] `cargo build -p ori_rt` succeeds
-- [ ] `cargo bl` and `cargo blr` succeed
+- [ ] `cargo b` and `cargo b --release` succeed
 - [ ] `./test-all.sh` green
 - [ ] `./clippy-all.sh` green
-- [ ] Zero `rust_eh_personality` references in compiler source
+- [ ] Zero `rust_eh_personality` references in `compiler/`, `library/`, `tests/`
 - [ ] LLVM IR shows `@ori_eh_personality`
 - [ ] `nm libori_rt.a` shows `ori_eh_personality` symbol
 - [ ] Code journeys J3, J9, J10, J12 produce same results as before
-- [ ] `./scripts/valgrind-aot.sh` no new errors
+- [ ] `diagnostics/valgrind-aot.sh` no new errors
 - [ ] `ORI_CHECK_LEAKS=1` catch tests pass
+- [ ] `cargo test -p ori_rt` forced-unwind tests pass on x86-64 Linux (catch skipped, cleanup ran)
+- [ ] `cargo test -p ori_rt` forced-unwind tests pass on aarch64 Linux (native execution on GCP preemptible instance)
+- [ ] Unsupported targets (non-Linux or unsupported arch): forced-unwind tests cleanly skipped (0 tests, not failure)
 
-**Exit Criteria:** `./test-all.sh` passes (all existing tests green, zero regressions). `grep -r "rust_eh_personality" compiler/` returns 0 matches. `ORI_DEBUG_LLVM=1` on any invoke-bearing program shows `@ori_eh_personality`. Code journeys J3/J9/J10/J12 produce identical eval and AOT results as before this change. `./scripts/valgrind-aot.sh` shows no new memory errors.
+**Exit Criteria:** `./test-all.sh` passes (all existing tests green, zero regressions). `grep -r "rust_eh_personality" compiler/ library/ tests/` returns 0 matches. `ORI_DEBUG_LLVM=1` on any invoke-bearing program shows `@ori_eh_personality`. Code journeys J3/J9/J10/J12 produce identical eval and AOT results as before this change. `diagnostics/valgrind-aot.sh` shows no new memory errors. On x86-64 and aarch64 Linux: `cargo test -p ori_rt` forced-unwind tests pass (catch-all pads skipped, cleanup pads run under `_UA_FORCE_UNWIND`). On unsupported targets (non-Linux or unsupported arch): forced-unwind tests are skipped (0 tests, not failure).

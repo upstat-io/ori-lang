@@ -28,16 +28,22 @@
 //! - [`terminators`] — `ArcTerminator` → LLVM control flow emission
 
 mod apply;
+mod apply_helpers;
+mod apply_protocols;
 mod builtins;
 mod closures;
 mod construction;
 mod context;
+mod drop_enum;
 mod drop_gen;
 mod element_fn_gen;
+mod emitter_utils;
 mod operators;
+mod rc_buffer_ops;
 mod rc_helpers;
 mod rc_ops;
 mod rc_value_traversal;
+mod rpo;
 mod terminators;
 mod value_emission;
 
@@ -45,7 +51,7 @@ pub use context::CodegenContext;
 use context::{is_boxed_enum_field, EmittedValue};
 
 use ori_arc::ir::{ArcFunction, ArcInstr, ArcTerminator, ArcVarId, RcStrategy, ValueRepr};
-use ori_arc::{ArcClassification, CowMode};
+use ori_arc::ArcClassification;
 use ori_ir::StringInterner;
 use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
@@ -53,72 +59,7 @@ use rustc_hash::FxHashMap;
 use super::abi::{FunctionAbi, ParamPassing, ReturnPassing};
 use super::ir_builder::IrBuilder;
 use super::type_info::{TypeInfoStore, TypeLayoutResolver};
-use super::value_id::{BlockId, FunctionId, LLVMTypeId, ValueId};
-
-/// DFS helper for RPO computation. Visits successors then appends self
-/// to post-order list. Defined at module level to satisfy `items_after_statements`.
-fn rpo_dfs(
-    func: &ArcFunction,
-    idx: usize,
-    visited: &mut [bool],
-    post_order: &mut Vec<usize>,
-    dead: &rustc_hash::FxHashSet<usize>,
-) {
-    if idx >= func.blocks.len() || visited[idx] || dead.contains(&idx) {
-        return;
-    }
-    visited[idx] = true;
-
-    match &func.blocks[idx].terminator {
-        ArcTerminator::Jump { target, .. } => {
-            rpo_dfs(func, target.index(), visited, post_order, dead);
-        }
-        ArcTerminator::Branch {
-            then_block,
-            else_block,
-            ..
-        } => {
-            rpo_dfs(func, then_block.index(), visited, post_order, dead);
-            rpo_dfs(func, else_block.index(), visited, post_order, dead);
-        }
-        ArcTerminator::Switch { cases, default, .. } => {
-            for &(_, target) in cases {
-                rpo_dfs(func, target.index(), visited, post_order, dead);
-            }
-            rpo_dfs(func, default.index(), visited, post_order, dead);
-        }
-        ArcTerminator::Invoke { normal, unwind, .. } => {
-            rpo_dfs(func, normal.index(), visited, post_order, dead);
-            rpo_dfs(func, unwind.index(), visited, post_order, dead);
-        }
-        ArcTerminator::Return { .. } | ArcTerminator::Resume | ArcTerminator::Unreachable => {}
-    }
-
-    post_order.push(idx);
-}
-
-/// Compute Reverse Post-Order (RPO) traversal of ARC function blocks.
-///
-/// RPO guarantees that a block's dominators (and thus variable definitions
-/// from preceding blocks) are visited before the block itself. This is
-/// critical after `expand_reuse`, which appends fast/slow/merge blocks at
-/// the end of the block array — their Invoke terminators target existing
-/// blocks with lower indices, creating forward references if iterated in
-/// array order.
-fn compute_block_rpo(func: &ArcFunction, dead: &rustc_hash::FxHashSet<usize>) -> Vec<usize> {
-    let n = func.blocks.len();
-    let mut visited = vec![false; n];
-    let mut post_order = Vec::with_capacity(n);
-    rpo_dfs(
-        func,
-        func.entry.index(),
-        &mut visited,
-        &mut post_order,
-        dead,
-    );
-    post_order.reverse();
-    post_order
-}
+use super::value_id::{BlockId, FunctionId, ValueId};
 
 // ---------------------------------------------------------------------------
 // ArcIrEmitter
@@ -161,6 +102,10 @@ pub struct ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
     /// Equality thunks have signature `fn(*const u8, *const u8) -> bool` (i1)
     /// and are used by map/set COW operations for key/element comparison.
     eq_thunk_cache: FxHashMap<Idx, FunctionId>,
+    /// Cache: element type `Idx` → already-generated hash thunk `FunctionId`.
+    /// Hash thunks have signature `fn(*const u8) -> i64` and are used by
+    /// hash table map/set operations for key/element hashing.
+    hash_thunk_cache: FxHashMap<Idx, FunctionId>,
     /// The LLVM function being compiled.
     current_function: FunctionId,
     /// Shared function-resolution lookup tables.
@@ -205,6 +150,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             elem_inc_fn_cache: FxHashMap::default(),
             compare_thunk_cache: FxHashMap::default(),
             eq_thunk_cache: FxHashMap::default(),
+            hash_thunk_cache: FxHashMap::default(),
             current_function,
             ctx,
             partial_apply_counter: 0,
@@ -214,130 +160,6 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
             current_block_idx: 0,
             current_instr_idx: 0,
         }
-    }
-
-    /// Get the current instruction's COW mode as an LLVM `i32` constant.
-    ///
-    /// Queries the `ArcFunction`'s `cow_annotations` for the current
-    /// `(block_idx, instr_idx)` coordinate. Returns `Dynamic` (0) when
-    /// no annotation exists — this is the safe default (runtime RC check).
-    pub(crate) fn cow_mode_const(&mut self, arc_func: &ArcFunction) -> ValueId {
-        let mode = arc_func
-            .cow_annotations
-            .get(self.current_block_idx, self.current_instr_idx);
-        self.builder.const_i32(mode as i32)
-    }
-
-    /// Mark `data_ptr` (param 0) as `noalias` on the last emitted call if
-    /// the current instruction's COW mode is [`CowMode::StaticUnique`].
-    ///
-    /// When static uniqueness analysis proves a collection buffer has
-    /// refcount == 1, no other live pointer can reference it. This lets
-    /// LLVM optimize loads/stores in the COW runtime function without
-    /// alias concerns (same principle as Rust's `noalias` on `&mut T`).
-    ///
-    /// Must be called immediately after the `self.builder.call()` that
-    /// invokes the COW runtime function.
-    pub(crate) fn mark_cow_data_noalias_if_unique(&mut self, arc_func: &ArcFunction) {
-        let mode = arc_func
-            .cow_annotations
-            .get(self.current_block_idx, self.current_instr_idx);
-        if mode == CowMode::StaticUnique {
-            self.builder.mark_last_call_param_noalias(0);
-        }
-    }
-
-    /// Resolve an `Idx` to an `LLVMTypeId`.
-    fn resolve_type(&mut self, idx: Idx) -> LLVMTypeId {
-        let llvm_ty = self.type_resolver.resolve(idx);
-        self.builder.register_type(llvm_ty)
-    }
-
-    /// Allocate a heap cell via `ori_rc_alloc(size, align)`.
-    ///
-    /// Returns a `ptr` to the RC-managed allocation. Used for boxing
-    /// recursive enum fields that must be stored as pointers in the payload.
-    fn rc_alloc(&mut self, size: u64, align: u64) -> ValueId {
-        let size_val = self.builder.const_i64(size as i64);
-        let align_val = self.builder.const_i64(align as i64);
-        let rc_alloc_func = self.builder.runtime_fn("ori_rc_alloc");
-        self.builder
-            .call(rc_alloc_func, &[size_val, align_val], "rc.alloc")
-            .unwrap_or_else(|| self.builder.const_null_ptr())
-    }
-
-    /// Compute the store size in bytes for a type index.
-    ///
-    /// Uses `TypeInfo::size()` for well-known types (primitives, str=16, list=24, etc.).
-    /// Falls back to `TypeLayoutResolver::type_store_size()` for compound types
-    /// (struct, tuple, enum) where the size depends on field layout.
-    pub(crate) fn element_store_size(&self, ty: Idx) -> u64 {
-        self.type_info.get(ty).size().unwrap_or_else(|| {
-            let llvm_ty = self.type_resolver.resolve(ty);
-            TypeLayoutResolver::type_store_size(llvm_ty)
-        })
-    }
-
-    /// Compute the ABI alignment in bytes for a type index.
-    ///
-    /// Uses the type's own alignment (from `TypeInfo::alignment()`) rather
-    /// than deriving it from size. Falls back to `element_store_size` for
-    /// compound types whose alignment depends on field layout.
-    pub(crate) fn element_store_align(&self, ty: Idx) -> u64 {
-        let info = self.type_info.get(ty);
-        u64::from(info.alignment())
-    }
-
-    /// Look up the raw LLVM value for an ARC variable.
-    ///
-    /// Returns the underlying `ValueId`, suitable for consumers that don't
-    /// need representation info. For typed access, use [`var_emitted`](Self::var_emitted).
-    ///
-    /// # Panics
-    /// Panics if the stored value is `Pair` or `ZeroSized`. Use `var_emitted()`
-    /// for variables that may hold those variants.
-    ///
-    /// Returns `ValueId::NONE` and logs an error if the variable is not yet defined.
-    fn var(&self, v: ArcVarId) -> ValueId {
-        self.var_emitted(v).into_raw()
-    }
-
-    /// Look up the typed emitted value for an ARC variable.
-    ///
-    /// Returns the full [`EmittedValue`] including representation info.
-    /// Prefer this over [`var`](Self::var) when the consumer needs to
-    /// distinguish between value kinds (e.g., RC operations).
-    fn var_emitted(&self, v: ArcVarId) -> EmittedValue {
-        if let Some(Some(val)) = self.var_map.get(v.index()) {
-            *val
-        } else {
-            tracing::error!(var = v.raw(), "ArcIrEmitter: variable not yet defined");
-            EmittedValue::Immediate(ValueId::NONE)
-        }
-    }
-
-    /// Bind an ARC variable to a typed LLVM value.
-    fn def_var(&mut self, v: ArcVarId, val: EmittedValue) {
-        let idx = v.index();
-        if idx >= self.var_map.len() {
-            self.var_map.resize(idx + 1, None);
-        }
-        self.var_map[idx] = Some(val);
-    }
-
-    /// Bind an ARC variable to a raw LLVM value, inferring its [`EmittedValue`]
-    /// variant from the variable's [`ValueRepr`] in the ARC function.
-    fn def_var_repr(&mut self, v: ArcVarId, val: ValueId, func: &ArcFunction) {
-        let repr = func.var_repr(v).unwrap_or(ValueRepr::Scalar);
-        self.def_var(v, EmittedValue::from_repr(repr, val));
-    }
-
-    /// Look up the LLVM block for an ARC block.
-    ///
-    /// Panics if the block is a dead unwind block (no LLVM block was created).
-    fn block(&self, b: ori_arc::ir::ArcBlockId) -> BlockId {
-        self.block_map[b.index()]
-            .expect("block() called for dead unwind block — invariant violated")
     }
 
     /// Emit an entire `ArcFunction` as LLVM IR.
@@ -516,7 +338,7 @@ impl<'a, 'scx: 'ctx, 'ctx, 'tcx> ArcIrEmitter<'a, 'scx, 'ctx, 'tcx> {
         // - **Cleanup** (terminator = Resume): `landingpad cleanup`, RC cleanup, resume
         // - **Catch** (terminator = Jump): `landingpad catch null`, free exception via
         //   `ori_catch_cleanup`, then jump to catch handler. Used by `catch(expr:)`.
-        let rpo = compute_block_rpo(func, &dead_unwind);
+        let rpo = rpo::compute_block_rpo(func, &dead_unwind);
         let mut landingpad_values: FxHashMap<usize, ValueId> = FxHashMap::default();
         for &block_idx in &rpo {
             let block = &func.blocks[block_idx];

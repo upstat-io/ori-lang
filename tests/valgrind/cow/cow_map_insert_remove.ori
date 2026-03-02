@@ -1,0 +1,78 @@
+// Valgrind test: COW map insert and remove operations.
+// Exercises map insert/remove with string keys (RC'd keys in buffer),
+// int keys, shared ownership, multi-fork, overwrite, empty map sentinel.
+
+@main () -> int = {
+    // Insert to empty map (sentinel → first allocation)
+    let m1: {str: int} = {};
+    let m2 = m1.insert("first", 1);
+    let empty_ok = m1.is_empty() && m2.len() == 1 && m2.get("first").unwrap() == 1;
+
+    // Insert unique owner (in-place)
+    let m3 = {"a": 1}.insert("b", 2);
+    let unique_ok = m3.len() == 2 && m3.get("b").unwrap() == 2;
+
+    // Insert shared owner (COW — original unchanged)
+    let base = {"x": 10, "y": 20};
+    let shared = base;
+    let fork = shared.insert("z", 30);
+    let cow_ok = base.len() == 2 && fork.len() == 3
+        && !base.contains_key("z") && fork.get("z").unwrap() == 30;
+
+    // Overwrite existing key (shared)
+    let m4 = {"a": 1, "b": 2};
+    let m5 = m4.insert("a", 99);
+    let overwrite_ok = m4.get("a").unwrap() == 1 && m5.get("a").unwrap() == 99;
+
+    // Remove unique owner (in-place)
+    let m6 = {"a": 1, "b": 2, "c": 3}.remove("b");
+    let remove_ok = m6.len() == 2 && !m6.contains_key("b");
+
+    // Remove shared owner (COW)
+    let m7 = {"a": 1, "b": 2};
+    let m8 = m7.remove("a");
+    let cow_remove_ok = m7.len() == 2 && m8.len() == 1
+        && m7.contains_key("a") && !m8.contains_key("a");
+
+    // Remove nonexistent key (no crash)
+    let m9 = {"a": 1}.remove("z");
+    let miss_ok = m9.len() == 1;
+
+    // Int keys
+    let m10 = {1: 100, 2: 200}.insert(3, 300);
+    let int_ok = m10.len() == 3 && m10.get(3).unwrap() == 300;
+
+    // String keys with heap strings (RC'd keys)
+    let $long_key = "this is a long key that exceeds SSO";
+    let m11: {str: int} = {};
+    let m11 = m11.insert(long_key, 42);
+    let heap_key_ok = m11.get(long_key).unwrap() == 42;
+
+    // Multi-fork from same base (3+ live references)
+    let root = {"k": 42};
+    let f1 = root.insert("a", 1);
+    let f2 = root.insert("b", 2);
+    let f3 = root.remove("k");
+    let multi_ok = root.len() == 1 && f1.len() == 2
+        && f2.len() == 2 && f3.len() == 0;
+
+    // Chained operations
+    let m12 = {"a": 1}.insert("b", 2).insert("c", 3).remove("a");
+    let chain_ok = m12.len() == 2 && !m12.contains_key("a");
+
+    // Loop insert (100 entries)
+    let acc: {int: int} = {};
+    for i in 0..100 do {
+        acc = acc.insert(i, i * 10);
+    };
+    let loop_ok = acc.len() == 100 && acc.get(50).unwrap() == 500;
+
+    // keys() and values() after COW
+    let m13 = {"a": 10, "b": 20}.insert("c", 30);
+    let kv_ok = m13.keys().len() == 3 && m13.values().len() == 3;
+
+    if empty_ok && unique_ok && cow_ok && overwrite_ok && remove_ok
+        && cow_remove_ok && miss_ok && int_ok && heap_key_ok
+        && multi_ok && chain_ok && loop_ok && kv_ok
+    then 0 else 1
+}

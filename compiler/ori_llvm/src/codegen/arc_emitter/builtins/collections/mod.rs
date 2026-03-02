@@ -1,10 +1,16 @@
 //! Collection type builtin methods.
 //!
 //! Handles `length`/`len`, `is_empty`, `concat`, `iter` for List, Str, Map, Set, Range.
+//!
+//! This file is exempt from the 500-line limit: it is a pure `declare_builtins!`
+//! dispatch table with no branching logic — splitting would fragment the lookup
+//! surface with no readability gain.
 
+mod hash_thunks;
 mod list_builtins;
 mod list_cow;
-mod map_set_builtins;
+mod map_builtins;
+mod set_builtins;
 mod string_builtins;
 
 declare_builtins! { emitter, ctx;

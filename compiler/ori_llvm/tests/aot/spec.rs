@@ -1830,7 +1830,6 @@ type Dir = North | South | East | West;
 }
 
 #[test]
-#[ignore = "AOT gap: list __index builtin not resolved"]
 fn test_aot_list_index() {
     assert_aot_success(
         r#"

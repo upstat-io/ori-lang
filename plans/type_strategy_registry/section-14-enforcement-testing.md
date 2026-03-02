@@ -122,8 +122,8 @@ fn all_type_tags_present() {
         .collect();
 
     // Every TypeTag variant that represents a concrete builtin type
-    // must appear in the registry. TypeTag::SelfType is a placeholder,
-    // not a concrete type, so it is excluded.
+    // must appear in the registry. SelfType and Fresh live on
+    // ReturnTag (not TypeTag), so no exclusion is needed here.
     let expected_tags = TypeTag::all_concrete();
 
     for tag in expected_tags {
@@ -214,8 +214,8 @@ fn no_unsupported_eq() {
 ```rust
 /// If a type supports comparison operators (lt, gt, lt_eq, gt_eq), it must
 /// also support equality (eq, neq). Comparison without equality is nonsensical.
-/// Additionally, if cmp (total ordering) is supported, all individual
-/// comparison operators must be supported.
+/// Additionally, if any ordering operator is supported, all four ordering
+/// operators (lt, gt, lt_eq, gt_eq) must be supported.
 #[test]
 fn operator_consistency() {
     for type_def in BUILTIN_TYPES {
@@ -277,7 +277,7 @@ fn operator_consistency() {
 fn self_type_returns_valid() {
     for type_def in BUILTIN_TYPES {
         for method in type_def.methods {
-            if method.returns == ReturnType::SelfType {
+            if method.returns == ReturnTag::SelfType {
                 // SelfType is valid for:
                 // - clone() -- returns same type
                 // - Operator trait methods (add, sub, etc.) -- T op T -> T
@@ -363,7 +363,7 @@ fn _enforce_exhaustiveness(tag: ori_registry::TypeTag) {
 
 | Crate | File | What it guards |
 |-------|------|----------------|
-| `ori_types` | `src/infer/expr/methods.rs` | Method resolution handles all types |
+| `ori_types` | `src/infer/expr/methods/mod.rs` | Method resolution handles all types |
 | `ori_eval` | `src/methods/mod.rs` | Method dispatch handles all types |
 | `ori_llvm` | `src/codegen/arc_emitter/builtins/mod.rs` | Builtin codegen handles all types |
 | `ori_arc` | `src/borrow/mod.rs` | Borrow inference handles all types |
@@ -1162,7 +1162,7 @@ error, list, map, range, tuple
 
 **What it tracked:** The exported constant in `ori_types` listing every `(type, method)` pair the type checker recognizes. Used by consistency tests for cross-checking.
 
-**Entries:** 426 `(type, method)` pairs in `ori_types/src/infer/expr/methods.rs`
+**Entries:** 426 `(type, method)` pairs in `ori_types/src/infer/expr/methods/mod.rs`
 
 **Why no longer needed:** The type checker reads directly from `ori_registry`. It does not maintain its own method list. Enforcement tests iterate the registry, not `TYPECK_BUILTIN_METHODS`.
 
@@ -1204,7 +1204,7 @@ error, list, map, range, tuple
 
 **What it tracked:** Method names that require DoubleEndedIterator but not plain Iterator (`next_back`, `rev`, `last`, `rfind`, `rfold`).
 
-**Entries:** 5 method names in `ori_types/src/infer/expr/methods.rs`
+**Entries:** 5 method names in `ori_types/src/infer/expr/methods/mod.rs`
 
 **Why no longer needed:** Derivable from the registry: methods on `TypeTag::DoubleEndedIterator` that are not on `TypeTag::Iterator`.
 
@@ -1246,7 +1246,7 @@ These `resolve_*_method()` functions in `ori_types` are replaced by registry loo
 
 | Function | File | Lines | Replacement |
 |----------|------|-------|-------------|
-| `resolve_int_method()` | `ori_types/src/infer/expr/methods.rs` | ~15 | `find_method(Int, name).returns` |
+| `resolve_int_method()` | `ori_types/src/infer/expr/methods/mod.rs` | ~15 | `find_method(Int, name).returns` |
 | `resolve_float_method()` | same | ~15 | `find_method(Float, name).returns` |
 | `resolve_bool_method()` | same | ~10 | `find_method(Bool, name).returns` |
 | `resolve_byte_method()` | same | ~15 | `find_method(Byte, name).returns` |
@@ -1329,7 +1329,7 @@ Each step must pass before proceeding to the next. Failures at any level must be
 **Level 1: Compilation**
 - [ ] `cargo c` -- all workspace crates compile cleanly
 - [ ] `cargo c -p ori_registry` -- registry crate compiles
-- [ ] `cargo bl` -- LLVM build compiles (includes ori_registry)
+- [ ] `cargo b` -- LLVM build compiles (includes ori_registry)
 
 **Level 2: Unit Tests (per-crate)**
 - [ ] `cargo t -p ori_registry` -- registry integrity + purity tests pass
@@ -1354,7 +1354,7 @@ Each step must pass before proceeding to the next. Failures at any level must be
 - [ ] `./fmt-all.sh` -- formatting clean
 
 **Level 6: Release Verification**
-- [ ] `cargo blr` -- release build compiles
+- [ ] `cargo b --release` -- release build compiles
 - [ ] `./test-all.sh` with release binary -- all tests pass under release optimization
 
 ### Checklist
@@ -1454,7 +1454,7 @@ These guarantees are verified by running the full test suite.
 - [ ] `cargo st` passes with zero failures
 - [ ] `./clippy-all.sh` passes with zero warnings
 - [ ] `./fmt-all.sh` passes (no formatting changes needed)
-- [ ] `cargo blr && ./test-all.sh` passes (release build regression check)
+- [ ] `cargo b --release && ./test-all.sh` passes (release build regression check)
 - [ ] No existing test was deleted, modified, or marked `#[ignore]` to achieve a passing suite
 - [ ] No `#[allow(clippy)]` was added without a `reason = "..."` justification
 - [ ] Code journey passes — eval/AOT match, no CRITICAL findings unaddressed

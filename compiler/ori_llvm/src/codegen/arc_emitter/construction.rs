@@ -111,7 +111,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
             CtorKind::MapLiteral => {
                 // Map literal: args are [key0, val0, key1, val1, ...]
-                // Single-buffer layout: [key0..keyN | val0..valN]
+                // Hash table layout: [metadata | keys | values]
                 let count = arg_vals.len() / 2;
                 let type_info = self.type_info.get(ty);
                 let (key_idx, val_idx) = match &type_info {
@@ -124,48 +124,47 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let val_size = self.element_store_size(val_idx);
 
                 let count_val = self.builder.const_i64(count as i64);
+                let ks_val = self.builder.const_i64(key_size as i64);
+                let vs_val = self.builder.const_i64(val_size as i64);
 
-                // Allocate single combined buffer: count * (key_size + val_size)
-                let total_size = count as u64 * (key_size + val_size);
-                let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
-                let total_val = self.builder.const_i64(total_size as i64);
-                let one = self.builder.const_i64(1);
-
+                // Allocate hash table buffer via runtime
+                let i64_ty = self.builder.i64_type();
+                let out_cap = self.builder.alloca(i64_ty, "map.out_cap");
+                let alloc_fn = self.builder.runtime_fn("ori_map_literal_alloc");
                 let data_ptr = self
                     .builder
-                    .call(alloc_fn, &[one, total_val], "map.data")
+                    .call(alloc_fn, &[count_val, ks_val, vs_val, out_cap], "map.data")
+                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                let cap_val = self.builder.load(i64_ty, out_cap, "map.cap");
+
+                // Get hash thunk for the key type
+                let hash_thunk = self
+                    .get_or_create_hash_thunk(key_idx)
                     .unwrap_or_else(|| self.builder.const_null_ptr());
 
-                // Compute values region start: data + count * key_size
-                let i8_ty = self
-                    .builder
-                    .register_type(self.builder.scx().type_i8().into());
-                let vals_offset = self.builder.const_i64((count as u64 * key_size) as i64);
-                let vals_start = self
-                    .builder
-                    .gep(i8_ty, data_ptr, &[vals_offset], "map.vals");
-
-                // Store keys at data[0..] and values at data[count*key_size..]
+                // Insert each key-value pair via runtime
+                let key_tmp = self.builder.alloca(key_llvm_ty, "map.key_tmp");
+                let val_tmp = self.builder.alloca(val_llvm_ty, "map.val_tmp");
+                let put_fn = self.builder.runtime_fn("ori_map_literal_put");
                 for i in 0..count {
-                    let idx = self.builder.const_i64(i as i64);
-                    let key_ptr = self
-                        .builder
-                        .gep(key_llvm_ty, data_ptr, &[idx], "map.key_ptr");
-                    self.builder.store(arg_vals[i * 2], key_ptr);
-
-                    let val_ptr = self
-                        .builder
-                        .gep(val_llvm_ty, vals_start, &[idx], "map.val_ptr");
-                    self.builder.store(arg_vals[i * 2 + 1], val_ptr);
+                    self.builder.store(arg_vals[i * 2], key_tmp);
+                    self.builder.store(arg_vals[i * 2 + 1], val_tmp);
+                    self.builder.call(
+                        put_fn,
+                        &[
+                            data_ptr, cap_val, key_tmp, val_tmp, ks_val, vs_val, hash_thunk,
+                        ],
+                        "map.put",
+                    );
                 }
 
                 // Build map struct: {i64 count, i64 cap, ptr data}
                 self.builder
-                    .build_struct(llvm_ty, &[count_val, count_val, data_ptr], "map")
+                    .build_struct(llvm_ty, &[count_val, cap_val, data_ptr], "map")
             }
 
             CtorKind::SetLiteral => {
-                // Set literal: same layout as list {i64 len, i64 cap, ptr data}
+                // Set literal: hash table layout [metadata | elements]
                 let count = arg_vals.len();
                 let type_info = self.type_info.get(ty);
                 let elem_idx = match &type_info {
@@ -175,26 +174,39 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
                 let elem_llvm_ty = self.resolve_type(elem_idx);
                 let elem_size = self.element_store_size(elem_idx);
 
-                let cap_val = self.builder.const_i64(count as i64);
+                let count_val = self.builder.const_i64(count as i64);
                 let esize_val = self.builder.const_i64(elem_size as i64);
 
-                let alloc_fn = self.builder.runtime_fn("ori_list_alloc_data");
+                // Allocate hash table buffer via runtime
+                let i64_ty = self.builder.i64_type();
+                let out_cap = self.builder.alloca(i64_ty, "set.out_cap");
+                let alloc_fn = self.builder.runtime_fn("ori_set_literal_alloc");
                 let data_ptr = self
                     .builder
-                    .call(alloc_fn, &[cap_val, esize_val], "set.data")
+                    .call(alloc_fn, &[count_val, esize_val, out_cap], "set.data")
+                    .unwrap_or_else(|| self.builder.const_null_ptr());
+                let cap_val = self.builder.load(i64_ty, out_cap, "set.cap");
+
+                // Get hash thunk for the element type
+                let hash_thunk = self
+                    .get_or_create_hash_thunk(elem_idx)
                     .unwrap_or_else(|| self.builder.const_null_ptr());
 
-                for (i, &val) in arg_vals.iter().enumerate() {
-                    let idx = self.builder.const_i64(i as i64);
-                    let elem_ptr = self
-                        .builder
-                        .gep(elem_llvm_ty, data_ptr, &[idx], "set.elem_ptr");
-                    self.builder.store(val, elem_ptr);
+                // Insert each element via runtime
+                let elem_tmp = self.builder.alloca(elem_llvm_ty, "set.elem_tmp");
+                let put_fn = self.builder.runtime_fn("ori_set_literal_put");
+                for &val in &arg_vals {
+                    self.builder.store(val, elem_tmp);
+                    self.builder.call(
+                        put_fn,
+                        &[data_ptr, cap_val, elem_tmp, esize_val, hash_thunk],
+                        "set.put",
+                    );
                 }
 
                 // Build set struct: {i64 len, i64 cap, ptr data}
                 self.builder
-                    .build_struct(llvm_ty, &[cap_val, cap_val, data_ptr], "set")
+                    .build_struct(llvm_ty, &[count_val, cap_val, data_ptr], "set")
             }
 
             CtorKind::Closure { .. } => {

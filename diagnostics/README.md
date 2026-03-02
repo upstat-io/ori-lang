@@ -2,7 +2,7 @@
 
 Quick-access debugging tools for the Ori compiler's AOT/codegen pipeline. These scripts extract more signal in seconds than manual investigation in minutes.
 
-**Prerequisite**: An LLVM-enabled `ori` binary. Build with `cargo bl` (debug) or `cargo blr` (release).
+**Prerequisite**: An LLVM-enabled `ori` binary. Build with `cargo b` (debug) or `cargo b --release` (release).
 
 ## Quick Reference
 

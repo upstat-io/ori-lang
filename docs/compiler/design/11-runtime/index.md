@@ -41,7 +41,7 @@ The crate builds as both an `rlib` (Rust library) and a `staticlib` (C-compatibl
 - **`libori_rt.rlib`** — Used by `ori_llvm` for JIT execution. The LLVM execution engine resolves runtime function addresses directly from the loaded Rust library, enabling `ori run` to call runtime functions without a separate linking step.
 - **`libori_rt.a`** — Linked into AOT-compiled binaries by the system linker. When `ori build` produces a native executable, the linker resolves all `ori_*` symbols against this static archive.
 
-Both artifacts are built by `cargo bl` (debug) or `cargo blr` (release). This dual-output design means the same runtime code serves both the development workflow (JIT) and the production workflow (AOT), eliminating the class of bugs where the JIT runtime behaves differently from the AOT runtime.
+Both artifacts are built by `cargo b` (debug) or `cargo b --release` (release). This dual-output design means the same runtime code serves both the development workflow (JIT) and the production workflow (AOT), eliminating the class of bugs where the JIT runtime behaves differently from the AOT runtime.
 
 ### Data Pointer Convention
 

@@ -15,7 +15,7 @@ subsections:
     title: "tag_to_type_tag() Bridge (ori_types::Tag -> ori_registry::TypeTag)"
     status: not-started
   - id: "09.2"
-    title: "type_tag_to_idx() Bridge (ori_registry::TypeTag -> ori_types::Idx)"
+    title: "return_tag_to_idx() Bridge (ori_registry::ReturnTag -> ori_types::Idx)"
     status: not-started
   - id: "09.3"
     title: "Replace resolve_builtin_method() Dispatcher"
@@ -43,7 +43,7 @@ subsections:
 
 This is the most complex wiring section. The type checker (`ori_types`) is the primary consumer of builtin type knowledge in the compiler. It hard-codes method resolution for 20+ types across 18 `resolve_*_method()` functions, maintains a 426-entry `TYPECK_BUILTIN_METHODS` array, and uses a 5-entry `DEI_ONLY_METHODS` constant for DoubleEndedIterator gating.
 
-All of this gets replaced by `ori_registry` lookups. The key challenge is that the type checker doesn't just need method *names* -- it needs to construct `Idx` return types in the pool, which requires bridging between the registry's `TypeTag` enum and the pool's `Idx` handles. Two bridge functions (`tag_to_type_tag` and `type_tag_to_idx`) mediate this translation.
+All of this gets replaced by `ori_registry` lookups. The key challenge is that the type checker doesn't just need method *names* -- it needs to construct `Idx` return types in the pool, which requires bridging between the registry's `TypeTag` enum and the pool's `Idx` handles. Two bridge functions (`tag_to_type_tag` and `return_tag_to_idx`) mediate this translation.
 
 **Net effect:** ~800 lines of hard-coded method resolution deleted, replaced by ~80 lines of bridge + lookup code.
 
@@ -51,7 +51,7 @@ All of this gets replaced by `ori_registry` lookups. The key challenge is that t
 
 ### Bridge functions live in ori_types, not ori_registry
 
-The `tag_to_type_tag()` and `type_tag_to_idx()` functions live in `ori_types` (likely `infer/expr/methods.rs` or a new `infer/expr/registry_bridge.rs`), not in `ori_registry`. The registry is pure data with zero dependencies. The bridge functions need `ori_types::Tag`, `ori_types::Idx`, `ori_types::Pool`, and `ori_registry::TypeTag` -- they inherently belong to the consuming crate.
+The `tag_to_type_tag()` and `return_tag_to_idx()` functions live in `ori_types` (likely `infer/expr/methods/mod.rs` or a new `infer/expr/registry_bridge.rs`), not in `ori_registry`. The registry is pure data with zero dependencies. The bridge functions need `ori_types::Tag`, `ori_types::Idx`, `ori_types::Pool`, and `ori_registry::TypeTag` -- they inherently belong to the consuming crate.
 
 ### Special logic preserved alongside registry lookups
 
@@ -62,7 +62,7 @@ Some `resolve_*_method` functions contain logic beyond simple return-type mappin
 - **resolve_list_method**: Pool construction for `enumerate` (returns `[int, T]`), `zip` (fresh var for other element).
 - **resolve_named_type_method**: Newtype `.unwrap()` resolution through TypeRegistry.
 
-These cannot be replaced by a simple `find_method().returns -> type_tag_to_idx()` pipeline. The plan preserves this logic as post-lookup refinements that override or augment the registry's static return type.
+These cannot be replaced by a simple `find_method().returns -> return_tag_to_idx()` pipeline. The plan preserves this logic as post-lookup refinements that override or augment the registry's static return type.
 
 ### TYPECK_BUILTIN_METHODS eliminated, not replaced
 
@@ -85,7 +85,7 @@ This function maps the type checker's internal `Tag` enum to the registry's `Typ
 There is no bridge function today. The type checker dispatches directly on `Tag` in `resolve_builtin_method()`:
 
 ```rust
-// BEFORE: compiler/ori_types/src/infer/expr/methods.rs (lines 432-463)
+// BEFORE: compiler/ori_types/src/infer/expr/methods/mod.rs
 pub(crate) fn resolve_builtin_method(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
@@ -184,7 +184,7 @@ pub(crate) fn tag_to_type_tag(tag: Tag) -> Option<TypeTag> {
 
 ---
 
-## 09.2 type_tag_to_idx() Bridge (ori_registry::TypeTag -> ori_types::Idx)
+## 09.2 return_tag_to_idx() Bridge (ori_registry::ReturnTag -> ori_types::Idx)
 
 **File:** `compiler/ori_types/src/infer/expr/registry_bridge.rs` (same file as 09.1)
 
@@ -192,19 +192,19 @@ This is the more complex bridge. It converts the registry's `TypeTag` return typ
 
 ### The Challenge
 
-A registry `MethodDef` declares `returns: TypeTag::Option` for a method like `list.first()`. But the type checker needs `Idx` for `Option<T>` where `T` is the list's element type. The bridge function must:
+A registry `MethodDef` declares `returns: ReturnTag::Concrete(TypeTag::Option)` for a method like `list.first()`. But the type checker needs `Idx` for `Option<T>` where `T` is the list's element type. The bridge function must:
 
-1. Map primitive `TypeTag`s to fixed `Idx` constants (e.g., `TypeTag::Int` -> `Idx::INT`).
-2. Map `TypeTag::SelfType` to the receiver type (`receiver_ty`).
-3. Map parameterized `TypeTag`s (e.g., `TypeTag::Option`) to pool-constructed types using the receiver's inner type(s).
-4. Map `TypeTag::FreshVar` to `engine.pool_mut().fresh_var()` for higher-order methods.
+1. Map `ReturnTag::Concrete(TypeTag::X)` to fixed `Idx` constants or pool-constructed types.
+2. Map `ReturnTag::SelfType` to the receiver type (`receiver_ty`).
+3. Map container-relative tags (`ReturnTag::ElementType`, `ReturnTag::OptionOf(TypeProjection::Element)`, etc.) to pool-constructed types using the receiver's inner type(s).
+4. Map `ReturnTag::Fresh` to `engine.pool_mut().fresh_var()` for higher-order methods.
 
 ### Implementation
 
 ```rust
 // AFTER: compiler/ori_types/src/infer/expr/registry_bridge.rs
 
-use ori_registry::TypeTag;
+use ori_registry::{TypeTag, ReturnTag};
 use crate::{Idx, Tag};
 use super::super::InferEngine;
 
@@ -213,71 +213,106 @@ use super::super::InferEngine;
 ///
 /// `receiver_ty` is the resolved receiver type (e.g., `List<int>`,
 /// `Iterator<str>`). Used to extract inner type parameters when the
-/// return type is parameterized (e.g., `TypeTag::Option` on a list
+/// return type is parameterized (e.g., `ReturnTag::Concrete(TypeTag::Option)` on a list
 /// means `Option<elem>` where `elem` is the list's element type).
-pub(crate) fn type_tag_to_idx(
+pub(crate) fn return_tag_to_idx(
     engine: &mut InferEngine<'_>,
     receiver_ty: Idx,
-    type_tag: TypeTag,
+    return_tag: ReturnTag,
 ) -> Idx {
-    match type_tag {
-        // === Primitives: compile-time constants ===
-        TypeTag::Int => Idx::INT,
-        TypeTag::Float => Idx::FLOAT,
-        TypeTag::Bool => Idx::BOOL,
-        TypeTag::Str => Idx::STR,
-        TypeTag::Char => Idx::CHAR,
-        TypeTag::Byte => Idx::BYTE,
-        TypeTag::Unit => Idx::UNIT,
-        TypeTag::Ordering => Idx::ORDERING,
-        TypeTag::Duration => Idx::DURATION,
-        TypeTag::Size => Idx::SIZE,
-        TypeTag::Error => Idx::ERROR,
+    match return_tag {
+        // === Concrete types: delegate to TypeTag mapping ===
+        ReturnTag::Concrete(type_tag) => match type_tag {
+            // Primitives: compile-time constants
+            TypeTag::Int => Idx::INT,
+            TypeTag::Float => Idx::FLOAT,
+            TypeTag::Bool => Idx::BOOL,
+            TypeTag::Str => Idx::STR,
+            TypeTag::Char => Idx::CHAR,
+            TypeTag::Byte => Idx::BYTE,
+            TypeTag::Unit => Idx::UNIT,
+            TypeTag::Ordering => Idx::ORDERING,
+            TypeTag::Duration => Idx::DURATION,
+            TypeTag::Size => Idx::SIZE,
+            TypeTag::Error => Idx::ERROR,
 
-        // === Self type: receiver itself ===
-        TypeTag::SelfType => receiver_ty,
+            // Parameterized: construct in pool
+            TypeTag::Option => {
+                let elem = extract_elem(engine, receiver_ty);
+                engine.pool_mut().option(elem)
+            }
+            TypeTag::List => {
+                let elem = extract_elem(engine, receiver_ty);
+                engine.pool_mut().list(elem)
+            }
+            TypeTag::Set => {
+                let elem = extract_elem(engine, receiver_ty);
+                engine.pool_mut().set(elem)
+            }
+            TypeTag::Iterator => {
+                let elem = extract_elem(engine, receiver_ty);
+                engine.pool_mut().iterator(elem)
+            }
+            TypeTag::DoubleEndedIterator => {
+                let elem = extract_elem(engine, receiver_ty);
+                engine.pool_mut().double_ended_iterator(elem)
+            }
+            TypeTag::Result => {
+                let ok_ty = engine.pool().result_ok(receiver_ty);
+                let err_ty = engine.pool().result_err(receiver_ty);
+                engine.pool_mut().result(ok_ty, err_ty)
+            }
+            TypeTag::Map => {
+                let key_ty = engine.pool().map_key(receiver_ty);
+                let value_ty = engine.pool().map_value(receiver_ty);
+                engine.pool_mut().map(key_ty, value_ty)
+            }
 
-        // === Parameterized: construct in pool ===
-        TypeTag::Option => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().option(elem)
+            // Remaining concrete tags — ICE if reached (not currently
+            // used as method return types; add pool construction if needed)
+            TypeTag::Never | TypeTag::Channel | TypeTag::Range
+            | TypeTag::Tuple | TypeTag::Function => {
+                unreachable!(
+                    "TypeTag::{:?} appeared as a method return type — \
+                     add pool construction for this tag",
+                    type_tag
+                );
+            }
+        },
+
+        // === Signature-level types (not on TypeTag) ===
+        ReturnTag::SelfType => receiver_ty,
+        ReturnTag::Fresh => engine.pool_mut().fresh_var(),
+        ReturnTag::Unit => Idx::UNIT,
+        ReturnTag::Ordering => Idx::ORDERING,
+
+        // === Container-relative types ===
+        ReturnTag::ElementType => extract_elem(engine, receiver_ty),
+        ReturnTag::OptionOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().option(inner)
         }
-        TypeTag::List => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().list(elem)
+        ReturnTag::ListOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().list(inner)
         }
-        TypeTag::Set => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().set(elem)
+        ReturnTag::IteratorOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().iterator(inner)
         }
-        TypeTag::Iterator => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().iterator(elem)
+        ReturnTag::DoubleEndedIteratorOf(proj) => {
+            let inner = resolve_projection(engine, receiver_ty, proj);
+            engine.pool_mut().double_ended_iterator(inner)
         }
-        TypeTag::DoubleEndedIterator => {
-            let elem = extract_elem(engine, receiver_ty);
-            engine.pool_mut().double_ended_iterator(elem)
-        }
-        TypeTag::Result => {
-            // Result return type: preserves both Ok and Err types
-            let ok_ty = engine.pool().result_ok(receiver_ty);
-            let err_ty = engine.pool().result_err(receiver_ty);
-            engine.pool_mut().result(ok_ty, err_ty)
-        }
-        TypeTag::Map => {
+        ReturnTag::OkType => extract_ok(engine, receiver_ty),
+        ReturnTag::ErrType => extract_err(engine, receiver_ty),
+        ReturnTag::KeyType => engine.pool().map_key(receiver_ty),
+        ReturnTag::ValueType => engine.pool().map_value(receiver_ty),
+        ReturnTag::ListKeyValue => {
             let key_ty = engine.pool().map_key(receiver_ty);
             let value_ty = engine.pool().map_value(receiver_ty);
-            engine.pool_mut().map(key_ty, value_ty)
-        }
-
-        // === Fresh type variable: higher-order methods ===
-        TypeTag::FreshVar => engine.pool_mut().fresh_var(),
-
-        // === Tags that should not appear as return types ===
-        TypeTag::Channel | TypeTag::Range | TypeTag::Tuple => {
-            // These rarely/never appear as method return types.
-            // If they do in the future, add pool construction here.
-            Idx::ERROR
+            let tuple = engine.pool_mut().tuple(vec![key_ty, value_ty]);
+            engine.pool_mut().list(tuple)
         }
     }
 }
@@ -288,7 +323,11 @@ pub(crate) fn type_tag_to_idx(
 /// `Channel<T>`, `Range<T>`: returns `T`.
 /// For `Map<K, V>`: returns `K` (the primary element; use map-specific
 /// extraction for V).
-/// For non-containers (primitives, tuples): returns `Idx::ERROR`.
+///
+/// # Panics
+///
+/// ICE if called on a non-container type (primitive, tuple). The caller
+/// must ensure the receiver is a container before calling this function.
 fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
     let tag = engine.pool().tag(receiver_ty);
     match tag {
@@ -300,53 +339,55 @@ fn extract_elem(engine: &InferEngine<'_>, receiver_ty: Idx) -> Idx {
         Tag::Range => engine.pool().range_elem(receiver_ty),
         Tag::Map => engine.pool().map_key(receiver_ty),
         Tag::Result => engine.pool().result_ok(receiver_ty),
-        _ => Idx::ERROR,
+        _ => ice!("extract_elem called on non-container type {tag:?}"),
     }
 }
 ```
 
 ### Design Notes
 
-- **`TypeTag::SelfType`** resolves to the receiver type. For `Clone` trait's `clone()` method on `int`, the return is `TypeTag::SelfType` which resolves to `Idx::INT`. For `list.clone()`, it resolves to the `List<T>` type. This is the most common return type for trait methods.
-- **`TypeTag::FreshVar`** creates a fresh type variable. This is used for higher-order methods like `map`, `flat_map`, `fold` where the return type depends on the closure argument and cannot be statically determined from the registry alone. The `unify_higher_order_constraints` function in `calls.rs` resolves these variables later.
+- **`ReturnTag::SelfType`** resolves to the receiver type. For `Clone` trait's `clone()` method on `int`, the return is `ReturnTag::SelfType` which resolves to `Idx::INT`. For `list.clone()`, it resolves to the `List<T>` type. This is the most common return type for trait methods.
+- **`ReturnTag::Fresh`** creates a fresh type variable. This is used for higher-order methods like `map`, `flat_map`, `fold` where the return type depends on the closure argument and cannot be statically determined from the registry alone. The `unify_higher_order_constraints` function in `calls/mod.rs` resolves these variables later.
 - **`extract_elem`** is the key helper -- it extracts the "primary inner type" from any container. For most containers this is the element type `T`. For `Map<K, V>` it returns `K`. Methods that need `V` (like `map.values()`) use direct pool accessors.
-- **`TypeTag::Channel`/`Range`/`Tuple` as return types**: Currently no method returns these types (a Channel method never returns a new Channel; Range methods return List/Iterator/Int/Bool; Tuple is only used in computed return types like `enumerate`). The `Idx::ERROR` fallback is defensive, not a workaround.
+- **`resolve_projection`** maps a `TypeProjection` variant to a pool `Idx` from the receiver type: `Element` → `extract_elem()`, `Key` → `pool.map_key()`, `Value` → `pool.map_value()`, `Ok` → `pool.result_ok()`, `Err` → `pool.result_err()`, `Fixed(tag)` → `tag_to_idx(tag)`. This enables the `OptionOf`/`ListOf`/`IteratorOf`/`DoubleEndedIteratorOf` variants to compose with any projection.
+- **`TypeTag::Channel`/`Range`/`Tuple` as return types**: Currently no method returns these types (a Channel method never returns a new Channel; Range methods return List/Iterator/Int/Bool; Tuple is only used in computed return types like `enumerate`). The `extract_elem` function uses `ice!()` for non-container types per the "no silent fallbacks" rule (frozen decision #7).
 
 ### Tasks
 
-- [ ] Implement `type_tag_to_idx()` in `registry_bridge.rs`
+- [ ] Implement `return_tag_to_idx()` in `registry_bridge.rs`
 - [ ] Implement `extract_elem()` helper
-- [ ] Add unit tests: `TypeTag::Int` -> `Idx::INT`, `TypeTag::Float` -> `Idx::FLOAT`, etc. (all primitives)
-- [ ] Add unit test: `TypeTag::SelfType` -> receiver_ty
-- [ ] Add unit test: `TypeTag::Option` on `List<int>` receiver -> `Option<int>`
-- [ ] Add unit test: `TypeTag::List` on `Set<str>` receiver -> `[str]`
-- [ ] Add unit test: `TypeTag::Iterator` on `List<int>` receiver -> `Iterator<int>`
-- [ ] Add unit test: `TypeTag::FreshVar` -> fresh var (check it's a `Tag::Var`)
+- [ ] Implement `resolve_projection()` helper (TypeProjection → Idx)
+- [ ] Add unit tests: `ReturnTag::Concrete(TypeTag::Int)` -> `Idx::INT`, etc. (all primitives)
+- [ ] Add unit test: `ReturnTag::SelfType` -> receiver_ty
+- [ ] Add unit test: `ReturnTag::OptionOf(TypeProjection::Element)` on `List<int>` receiver -> `Option<int>`
+- [ ] Add unit test: `ReturnTag::ListOf(TypeProjection::Element)` on `Set<str>` receiver -> `[str]`
+- [ ] Add unit test: `ReturnTag::IteratorOf(TypeProjection::Element)` on `List<int>` receiver -> `Iterator<int>`
+- [ ] Add unit test: `ReturnTag::Fresh` -> fresh var (check it's a `Tag::Var`)
 - [ ] Verify `cargo c -p ori_types` compiles
 
 ---
 
 ## 09.3 Replace resolve_builtin_method() Dispatcher
 
-**File:** `compiler/ori_types/src/infer/expr/methods.rs`
+**File:** `compiler/ori_types/src/infer/expr/methods/mod.rs`
 
 The central dispatcher `resolve_builtin_method()` currently matches on `Tag` and dispatches to 18+ type-specific functions. After migration, it performs a single registry lookup and converts the result.
 
-### Current Implementation (lines 432-463)
+### Current Implementation
 
-See the full listing in 09.1 above. The function is a 30-line match dispatching to 18+ type-specific resolvers.
+See the full listing in 09.1 above. The function is a match dispatching to 18+ type-specific resolvers across `methods/mod.rs` and `methods/resolve_by_type.rs`.
 
 ### New Implementation
 
 ```rust
-// AFTER: compiler/ori_types/src/infer/expr/methods.rs
+// AFTER: compiler/ori_types/src/infer/expr/methods/mod.rs
 
-use super::registry_bridge::{tag_to_type_tag, type_tag_to_idx};
+use super::registry_bridge::{tag_to_type_tag, return_tag_to_idx};
 
 /// Resolve a built-in method call on a known type tag.
 ///
 /// Performs a single registry lookup via `ori_registry::find_method()`,
-/// then converts the return TypeTag to an Idx via `type_tag_to_idx()`.
+/// then converts the return TypeTag to an Idx via `return_tag_to_idx()`.
 ///
 /// Methods with computed return types (e.g., list.enumerate, iterator.next,
 /// list.zip) fall through to `resolve_computed_return()` which handles
@@ -371,7 +412,7 @@ pub(crate) fn resolve_builtin_method(
     // Registry lookup: tag -> TypeTag -> find_method -> TypeTag -> Idx
     let type_tag = tag_to_type_tag(tag)?;
     let method_def = ori_registry::find_method(type_tag, method_name)?;
-    Some(type_tag_to_idx(engine, receiver_ty, method_def.returns))
+    Some(return_tag_to_idx(engine, receiver_ty, method_def.returns))
 }
 ```
 
@@ -383,7 +424,7 @@ Some methods have return types that depend on runtime pool state and cannot be e
 /// Methods whose return types require dynamic pool construction.
 ///
 /// These are methods where the static `TypeTag` in the registry is not
-/// sufficient. The registry declares them with `TypeTag::FreshVar` or
+/// sufficient. The registry declares them with `ReturnTag::Fresh` or
 /// a simpler approximation, but the type checker needs precise types.
 fn resolve_computed_return(
     engine: &mut InferEngine<'_>,
@@ -531,8 +572,25 @@ fn resolve_computed_return(
         }
         (Tag::DoubleEndedIterator, "rev") => Some(receiver_ty),
 
-        // --- Error computed returns ---
-        (Tag::Error, "trace_entries") => Some(engine.pool_mut().fresh_var()),
+        // --- trace_entries bridge (Error and Result) ---
+        // Current typeck returns unconstrained fresh_var() for both
+        // Error.trace_entries (resolve_by_type.rs:310) and Result.trace_entries
+        // (resolve_by_type.rs:88). Migration constructs [TraceEntry] explicitly.
+        // Requires interner (set_interner must be called in all contexts,
+        // including tests — see test infrastructure task).
+        //
+        // API path: intern_name -> named -> list
+        //   engine.intern_name("TraceEntry") -> Option<Name>  (infer/mod.rs:369)
+        //   engine.pool_mut().named(name) -> Idx               (pool Named type)
+        //   engine.pool_mut().list(elem) -> Idx                (pool List type)
+        (Tag::Error | Tag::Result, "trace_entries") => {
+            // intern_name requires set_interner(). Migration task must update
+            // all test helpers to provide an interner (see tasks below).
+            let name = engine.intern_name("TraceEntry")
+                .expect("trace_entries bridge requires interner — call set_interner() in test setup");
+            let trace_entry = engine.pool_mut().named(name);
+            Some(engine.pool_mut().list(trace_entry))
+        }
 
         _ => None,
     }
@@ -552,12 +610,12 @@ fn resolve_computed_return(
 | `resolve_duration_method` | 641-656 | YES | None | Fully replaced by registry lookup |
 | `resolve_size_method` | 658-672 | YES | None | Fully replaced by registry lookup |
 | `resolve_tuple_method` | 868-877 | YES | None | Fully replaced by registry lookup |
-| `resolve_error_method` | 751-759 | MOSTLY | `trace_entries` -> fresh_var | 1 computed case, rest via registry |
+| `resolve_error_method` | 751-759 | MOSTLY | `trace_entries` -> `[TraceEntry]` (bridge) | 1 computed case (fix bare fresh_var), rest via registry |
 | `resolve_str_method` | 589-611 | MOSTLY | `chars`, `bytes`, `split`, `lines`, `index_of`, `last_index_of`, `to_int`, `parse_int`, `to_float`, `parse_float`, `into` | 11 computed cases |
 | `resolve_channel_method` | 674-687 | MOSTLY | `recv`/`receive`/`try_recv`/`try_receive` -> `Option<T>` | 4 computed cases |
 | `resolve_list_method` | 465-500 | NO | `first`/`last`/`pop`/`get`, `iter`, `enumerate`, `zip`, + 20 HO methods | Complex, many computed |
 | `resolve_option_method` | 502-525 | NO | `ok_or` -> Result, `iter`, HO methods | Several computed |
-| `resolve_result_method` | 527-549 | NO | `ok`, `err`, HO methods | Several computed |
+| `resolve_result_method` | 527-549 | NO | `ok`, `err`, HO methods, `trace_entries` -> `[TraceEntry]` (bridge, same as Error) | Several computed |
 | `resolve_map_method` | 551-572 | NO | `get`, `iter`, `keys`, `values`, `entries` | 5 computed cases |
 | `resolve_set_method` | 574-587 | MOSTLY | `to_list`/`into` -> List<T> | 2 computed cases |
 | `resolve_range_method` | 689-707 | NO | `iter`, `to_list`/`collect` + float rejection | 3 computed + special logic |
@@ -575,7 +633,8 @@ fn resolve_computed_return(
 
 - [ ] Implement new `resolve_builtin_method()` dispatcher with registry lookup
 - [ ] Implement `resolve_computed_return()` for all computed cases
-- [ ] Verify computed returns match current behavior exactly (use existing tests)
+- [ ] **Update test infrastructure:** All `InferEngine` test helpers must call `set_interner()` so that `intern_name("TraceEntry")` succeeds. Current tests (e.g., `tests.rs:2062`) create engines without an interner — these must be updated before the `trace_entries` bridge can land. Create a shared `test_engine()` helper that always provides an interner.
+- [ ] Verify computed returns match current behavior exactly (use existing tests), **except** `trace_entries` which intentionally changes from unconstrained `fresh_var()` to `[TraceEntry]` — update affected tests to assert the new correct type
 - [ ] Delete the 9 trivially-replaced functions after tests pass
 - [ ] Delete the remaining 9 type-specific functions after computed returns are verified
 - [ ] Keep `resolve_named_type_method()` unchanged
@@ -590,7 +649,7 @@ This subsection is the detailed execution plan for deleting each of the 18 type-
 
 ### Phase A: Trivial Replacements (9 functions)
 
-These functions contain ONLY static return type mappings. Every match arm maps to a fixed `Idx` constant. The registry lookup + `type_tag_to_idx()` handles them completely.
+These functions contain ONLY static return type mappings. Every match arm maps to a fixed `Idx` constant. The registry lookup + `return_tag_to_idx()` handles them completely.
 
 **1. `resolve_int_method` (lines 613-625)**
 ```rust
@@ -656,7 +715,7 @@ These functions contain ONLY static return type mappings. Every match arm maps t
 "hash" => Idx::INT
 "to_str"|"debug" => Idx::STR
 ```
-**Registry coverage:** ORDERING TypeDef (Section 05) covers all 12 methods.
+**Registry coverage:** ORDERING TypeDef (Section 05) covers all 14 methods.
 
 **7. `resolve_duration_method` (lines 641-656)**
 ```rust
@@ -687,7 +746,7 @@ These functions contain ONLY static return type mappings. Every match arm maps t
 "len"|"hash" => Idx::INT
 "compare" => Idx::ORDERING
 "equals" => Idx::BOOL
-"clone" => receiver_ty  // TypeTag::SelfType handles this
+"clone" => receiver_ty  // ReturnTag::SelfType handles this
 "debug" => Idx::STR
 ```
 **Registry coverage:** TUPLE TypeDef (Section 06) covers all 5 methods.
@@ -698,7 +757,7 @@ These functions have a few computed cases that go into `resolve_computed_return(
 
 **10. `resolve_error_method` (lines 751-759)**
 - Static: `message`/`to_str`/`debug`/`trace` -> STR, `has_trace` -> BOOL, `clone`/`with_trace` -> ERROR
-- Computed: `trace_entries` -> `fresh_var()` (handled in `resolve_computed_return`)
+- Computed: `trace_entries` -> `[TraceEntry]` (handled in `resolve_computed_return`; **migration must replace current bare `fresh_var()` with explicit `list(TraceEntry)` construction** — see Section 05 bridge task)
 - **7 static, 1 computed**
 
 **11. `resolve_str_method` (lines 589-611)**
@@ -759,7 +818,7 @@ Only 4 arms are truly static: `count` -> INT, `join` -> STR, `any`/`all` -> BOOL
 
 ## 09.5 Replace TYPECK_BUILTIN_METHODS
 
-**File:** `compiler/ori_types/src/infer/expr/methods.rs` (lines 13-426)
+**File:** `compiler/ori_types/src/infer/expr/methods/mod.rs`
 
 ### Current State
 
@@ -827,19 +886,19 @@ This export must be removed. Any external code referencing it must be migrated t
 
 ## 09.7 DEI_ONLY_METHODS Migration
 
-**File:** `compiler/ori_types/src/infer/expr/methods.rs` (line 11) and `compiler/ori_types/src/infer/expr/calls.rs` (lines 816-831)
+**File:** `compiler/ori_types/src/infer/expr/methods/mod.rs` and `compiler/ori_types/src/infer/expr/calls/mod.rs`
 
 ### Current State
 
 ```rust
-// compiler/ori_types/src/infer/expr/methods.rs line 11
+// compiler/ori_types/src/infer/expr/methods/mod.rs
 pub const DEI_ONLY_METHODS: &[&str] = &["last", "next_back", "rev", "rfind", "rfold"];
 ```
 
-Used in `resolve_receiver_and_builtin()` (calls.rs line 819) to emit a diagnostic when a DEI-only method is called on a plain Iterator:
+Used in `resolve_receiver_and_builtin()` (calls/mod.rs) to emit a diagnostic when a DEI-only method is called on a plain Iterator:
 
 ```rust
-// compiler/ori_types/src/infer/expr/calls.rs lines 816-831
+// compiler/ori_types/src/infer/expr/calls/mod.rs
 if tag == Tag::Iterator {
     if let Some(name_str) = method_str {
         if DEI_ONLY_METHODS.contains(&name_str) {
@@ -859,24 +918,25 @@ if tag == Tag::Iterator {
 
 ### Migration Strategy
 
-After the registry is in place, the DEI-only check becomes a registry comparison: "method exists on DoubleEndedIterator but not on Iterator."
+After the registry is in place, the DEI-only check reads the `dei_only` flag directly from the single Iterator `TypeDef` (Section 07 Decision 1). No separate `TypeDef` for `DoubleEndedIterator` exists — all iterator methods live on one `TypeDef`, with `dei_only: true` marking DEI-exclusive methods.
 
 ```rust
-// AFTER: compiler/ori_types/src/infer/expr/calls.rs
+// AFTER: compiler/ori_types/src/infer/expr/calls/mod.rs
 
 // Replace DEI_ONLY_METHODS.contains(&name_str) with:
 fn is_dei_only_method(method_name: &str) -> bool {
-    ori_registry::find_method(TypeTag::DoubleEndedIterator, method_name).is_some()
-        && ori_registry::find_method(TypeTag::Iterator, method_name).is_none()
+    // Look up on DEI tag (sees all methods), then check the flag.
+    ori_registry::find_method(TypeTag::DoubleEndedIterator, method_name)
+        .map_or(false, |m| m.dei_only)
 }
 ```
 
-This is structurally derived from the registry data rather than maintained as a parallel constant. Adding a new DEI-only method to the DoubleEndedIterator TypeDef automatically makes it a DEI-only method -- no manual sync required.
+This is structurally derived from the registry data rather than maintained as a parallel constant. Adding a new method with `dei_only: true` to the Iterator TypeDef automatically makes it DEI-only — no manual sync required. The `find_method` call uses `TypeTag::DoubleEndedIterator` to ensure the full method set is searched (plain `TypeTag::Iterator` would filter out DEI-only methods via the `base_type()` + `dei_only` logic in Section 08).
 
 ### Calling Site Update
 
 ```rust
-// AFTER: compiler/ori_types/src/infer/expr/calls.rs
+// AFTER: compiler/ori_types/src/infer/expr/calls/mod.rs
 if tag == Tag::Iterator {
     if let Some(name_str) = method_str {
         if is_dei_only_method(name_str) {
@@ -899,8 +959,8 @@ The calling site is almost unchanged -- just the predicate source changes from a
 ### Tasks
 
 - [ ] Implement `is_dei_only_method()` using registry lookups
-- [ ] Replace `DEI_ONLY_METHODS.contains(&name_str)` call site in `calls.rs`
-- [ ] Delete `DEI_ONLY_METHODS` constant from `methods.rs`
+- [ ] Replace `DEI_ONLY_METHODS.contains(&name_str)` call site in `calls/mod.rs` (or `calls/method_call.rs`)
+- [ ] Delete `DEI_ONLY_METHODS` constant from `methods/mod.rs`
 - [ ] Verify the 5 current DEI-only methods (`last`, `next_back`, `rev`, `rfind`, `rfold`) are on the DoubleEndedIterator TypeDef but NOT on the Iterator TypeDef in the registry
 - [ ] Verify `cargo st tests/spec/traits/iterator/` passes (DEI rejection diagnostics unchanged)
 - [ ] Verify `cargo t -p ori_types` passes
@@ -985,7 +1045,7 @@ After each subsection is complete, run the following:
 | Subsection | Minimum Tests |
 |-----------|--------------|
 | 09.1 (tag_to_type_tag) | `cargo c -p ori_types` |
-| 09.2 (type_tag_to_idx) | `cargo c -p ori_types`, unit tests in registry_bridge |
+| 09.2 (return_tag_to_idx) | `cargo c -p ori_types`, unit tests in registry_bridge |
 | 09.3 (replace dispatcher) | `cargo t -p ori_types`, `cargo st` |
 | 09.4 (replace all resolvers) | `cargo t -p ori_types`, `cargo st`, `./test-all.sh` |
 | 09.5 (replace TYPECK_BUILTIN_METHODS) | `cargo c -p ori_types`, `cargo t -p oric` |
@@ -1031,9 +1091,9 @@ For each deleted `resolve_*_method` function, verify every match arm is covered:
 
 - [ ] `#[test] fn registry_bridge_all_builtin_tags()` -- every Tag with builtin methods maps to a TypeTag
 - [ ] `#[test] fn registry_bridge_non_builtin_tags()` -- Named, Applied, Var, Function return None
-- [ ] `#[test] fn type_tag_to_idx_primitives()` -- all primitive TypeTags map to correct Idx constants
-- [ ] `#[test] fn type_tag_to_idx_self_type()` -- SelfType returns receiver_ty
-- [ ] `#[test] fn type_tag_to_idx_parameterized()` -- Option/List/Iterator construct correctly in pool
+- [ ] `#[test] fn return_tag_to_idx_primitives()` -- all primitive TypeTags map to correct Idx constants
+- [ ] `#[test] fn return_tag_to_idx_self_type()` -- SelfType returns receiver_ty
+- [ ] `#[test] fn return_tag_to_idx_parameterized()` -- Option/List/Iterator construct correctly in pool
 - [ ] `#[test] fn dei_only_methods_derived()` -- `is_dei_only_method` returns true for exactly the 5 current methods
 - [ ] `#[test] fn every_resolved_method_still_resolvable()` -- iterate all entries from the old `TYPECK_BUILTIN_METHODS` (captured as a test constant), verify each resolves via the new path
 
@@ -1074,10 +1134,10 @@ After full migration, these identifiers must have zero hits outside of test/doc 
 - [ ] Unit tests for all Tag variants
 - [ ] `cargo c -p ori_types` passes
 
-### 09.2 type_tag_to_idx() Bridge
-- [ ] Implement `type_tag_to_idx()` in `registry_bridge.rs`
+### 09.2 return_tag_to_idx() Bridge
+- [ ] Implement `return_tag_to_idx()` in `registry_bridge.rs`
 - [ ] Implement `extract_elem()` helper
-- [ ] Unit tests for primitives, SelfType, parameterized, FreshVar
+- [ ] Unit tests for primitives, SelfType, parameterized, Fresh
 - [ ] `cargo c -p ori_types` passes
 
 ### 09.3 Replace Dispatcher
@@ -1125,7 +1185,7 @@ After full migration, these identifiers must have zero hits outside of test/doc 
 - [ ] **Single registry lookup** in `resolve_builtin_method()` + `resolve_computed_return()`
 - [ ] **DEI gating** uses `is_dei_only_method()` derived from registry, not constant array
 - [ ] **`WellKnownNames`** unchanged and functional
-- [ ] **`registry_bridge.rs`** contains `tag_to_type_tag()`, `type_tag_to_idx()`, `extract_elem()`
+- [ ] **`registry_bridge.rs`** contains `tag_to_type_tag()`, `return_tag_to_idx()`, `extract_elem()`
 - [ ] **`cargo t -p ori_types`** passes (>= baseline)
 - [ ] **`cargo st`** passes (>= baseline)
 - [ ] **`./test-all.sh`** passes

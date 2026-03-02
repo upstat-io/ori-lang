@@ -1,0 +1,77 @@
+// Valgrind test: COW list slice operations.
+// Exercises slice creation, slice-of-slice (double indirection),
+// COW on slices (materialization), drop ordering (slice before original,
+// original before slice), and slice with string elements.
+
+@main () -> int = {
+    // Basic slice
+    let xs = [10, 20, 30, 40, 50];
+    let s1 = xs.slice(start: 1, end: 4);
+    let basic_ok = s1.length() == 3 && s1[0] == 20 && s1[2] == 40;
+
+    // Slice of entire list
+    let full = xs.slice(start: 0, end: 5);
+    let full_ok = full.length() == 5 && full[0] == 10 && full[4] == 50;
+
+    // Empty slice
+    let empty = xs.slice(start: 2, end: 2);
+    let empty_ok = empty.length() == 0;
+
+    // Slice of a slice (double indirection — key edge case)
+    let outer = [1, 2, 3, 4, 5, 6, 7, 8];
+    let s2 = outer.slice(start: 1, end: 7);
+    let s3 = s2.slice(start: 1, end: 4);
+    let double_ok = s3.length() == 3 && s3[0] == 3 && s3[2] == 5;
+
+    // take and drop (sugar for slice)
+    let taken = xs.take(count: 3);
+    let take_ok = taken.length() == 3 && taken[0] == 10 && taken[2] == 30;
+
+    let dropped = xs.drop(count: 2);
+    let drop_ok = dropped.length() == 3 && dropped[0] == 30 && dropped[2] == 50;
+
+    // take then drop (slice chaining)
+    let chained = outer.take(count: 6).drop(count: 2);
+    let chain_ok = chained.length() == 4 && chained[0] == 3 && chained[3] == 6;
+
+    // COW on slice: push materializes a new buffer
+    let cow_base = [1, 2, 3, 4, 5];
+    let cow_slice = cow_base.slice(start: 1, end: 4);
+    let cow_pushed = cow_slice.push(99);
+    let cow_push_ok = cow_pushed.length() == 4 && cow_pushed[3] == 99
+        && cow_slice.length() == 3 && cow_base.length() == 5;
+
+    // COW on slice: set materializes
+    let set_base = [10, 20, 30, 40, 50];
+    let set_slice = set_base.slice(start: 0, end: 3);
+    let set_modified = set_slice.set(1, 999);
+    let cow_set_ok = set_modified[1] == 999 && set_slice[1] == 20
+        && set_base[1] == 20;
+
+    // Drop ordering: slice lives longer than original
+    // (the let bindings ensure slice outlives original's last use)
+    let slice_survives = {
+        let orig = [100, 200, 300, 400];
+        let sl = orig.slice(start: 1, end: 3);
+        // orig goes out of scope first when block ends
+        sl.length() == 2 && sl[0] == 200
+    };
+
+    // Slice with string elements (RC'd)
+    let str_list = ["alpha", "beta", "gamma", "delta"];
+    let str_slice = str_list.slice(start: 1, end: 3);
+    let str_ok = str_slice.length() == 2 && str_slice[0] == "beta"
+        && str_slice[1] == "gamma";
+
+    // Multiple slices from same base
+    let multi_base = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let ms1 = multi_base.slice(start: 0, end: 3);
+    let ms2 = multi_base.slice(start: 3, end: 6);
+    let ms3 = multi_base.slice(start: 6, end: 9);
+    let multi_ok = ms1[0] == 0 && ms2[0] == 3 && ms3[0] == 6;
+
+    if basic_ok && full_ok && empty_ok && double_ok && take_ok && drop_ok
+        && chain_ok && cow_push_ok && cow_set_ok && slice_survives
+        && str_ok && multi_ok
+    then 0 else 1
+}

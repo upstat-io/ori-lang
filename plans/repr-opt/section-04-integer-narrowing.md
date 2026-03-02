@@ -201,9 +201,9 @@ The LLVM backend must emit narrowed types and insert sign-extension/truncation a
 - [ ] Struct field `x: int` in `struct Pair { x: int, y: int }` uses narrowed type when constructor values are bounded
 - [ ] ABI boundaries correctly widen: `sext` visible in LLVM IR at function boundaries
 - [ ] Overflow guards inserted where narrowed arithmetic might overflow
-- [ ] No semantic change: `./scripts/dual-exec-verify.sh` passes (eval and AOT produce identical results)
+- [ ] No semantic change: `./diagnostics/dual-exec-verify.sh` passes (eval and AOT produce identical results)
 - [ ] `./test-all.sh` green
-- [ ] `./scripts/valgrind-aot.sh` clean
+- [ ] `./diagnostics/valgrind-aot.sh` clean
 - [ ] Performance: struct sizes measurably smaller for bounded-range fields
 
 **Exit Criteria:** Compiling a program with `struct Pixel { r: int, g: int, b: int, a: int }` where all fields are `0..255` produces a 4-byte struct (4 × i8) instead of 32-byte struct (4 × i64), verified by checking LLVM IR struct definitions.

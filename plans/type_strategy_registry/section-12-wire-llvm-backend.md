@@ -75,7 +75,7 @@ match op {
 
 **Why the fix is fragile:** The pattern requires every new comparable type to add a new boolean guard AND new match arms for EVERY operator. Missing even one arm for one operator on one type produces silent wrong results with no compiler error, no runtime error, and no test failure unless that exact type/operator combination is tested.
 
-**After this section:** The dispatch table is the registry. Adding `Duration` comparison means adding `OpStrategy::IntInstr` to `DURATION.operators.cmp` in `ori_registry`. The `emit_binary_op` function has no type-specific guards to forget.
+**After this section:** The dispatch table is the registry. Adding `Duration` comparison means setting `OpStrategy::IntInstr` on each of `DURATION.operators.{lt, gt, lt_eq, gt_eq}` in `ori_registry`. The `emit_binary_op` function has no type-specific guards to forget.
 
 ---
 
@@ -177,13 +177,18 @@ fn emit_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId, lhs_ty: I
         OpStrategy::IntInstr => self.emit_int_binary_op(op, lhs, rhs),
         OpStrategy::FloatInstr => self.emit_float_binary_op(op, lhs, rhs),
         OpStrategy::UnsignedCmp => self.emit_unsigned_binary_op(op, lhs, rhs),
-        OpStrategy::BoolInstr => self.emit_bool_binary_op(op, lhs, rhs),
+        OpStrategy::BoolLogic => self.emit_bool_binary_op(op, lhs, rhs),
         OpStrategy::RuntimeCall { fn_name } => {
             self.emit_runtime_binary_op(fn_name, op, lhs, rhs, lhs_ty)
         }
         OpStrategy::Unsupported => {
-            tracing::warn!(?op, ?type_tag, "binary op on type with no OpStrategy");
-            self.builder.const_i64(0)
+            // ICE: the type checker should have rejected this operation.
+            // If we reach here, it's a compiler bug, not a user error.
+            unreachable!(
+                "binary op {:?} on type {:?} reached codegen with Unsupported strategy — \
+                 type checker should have rejected this",
+                op, type_tag
+            );
         }
     }
 }
@@ -218,8 +223,7 @@ fn emit_int_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId) -> Va
         BinaryOp::FloorDiv => self.builder.sdiv(lhs, rhs, "floordiv"),
         BinaryOp::Coalesce => self.emit_coalesce(lhs, rhs),
         BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
-            tracing::warn!(?op, "desugared op in binary expression");
-            self.builder.const_i64(0)
+            ice!("desugared op {op:?} should not reach emit_int_binary_op")
         }
     }
 }
@@ -238,10 +242,7 @@ fn emit_float_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId) -> 
         BinaryOp::Gt => self.builder.fcmp_ogt(lhs, rhs, "gt"),
         BinaryOp::LtEq => self.builder.fcmp_ole(lhs, rhs, "le"),
         BinaryOp::GtEq => self.builder.fcmp_oge(lhs, rhs, "ge"),
-        _ => {
-            tracing::warn!(?op, "unsupported float binary op");
-            self.builder.const_i64(0)
-        }
+        _ => ice!("unsupported float binary op {op:?}"),
     }
 }
 
@@ -259,10 +260,7 @@ fn emit_unsigned_binary_op(&mut self, op: BinaryOp, lhs: ValueId, rhs: ValueId) 
         BinaryOp::GtEq => self.builder.icmp_uge(lhs, rhs, "ge"),
         BinaryOp::And => self.builder.and(lhs, rhs, "and"),
         BinaryOp::Or => self.builder.or(lhs, rhs, "or"),
-        _ => {
-            tracing::warn!(?op, "unsupported unsigned binary op");
-            self.builder.const_i64(0)
-        }
+        _ => ice!("unsupported unsigned binary op {op:?}"),
     }
 }
 
@@ -279,18 +277,11 @@ fn emit_runtime_binary_op(
         BinaryOp::Add => self.emit_str_runtime_call("ori_str_concat", lhs, rhs, true),
         BinaryOp::Eq => self.emit_str_runtime_call("ori_str_eq", lhs, rhs, false),
         BinaryOp::NotEq => self.emit_str_runtime_call("ori_str_ne", lhs, rhs, false),
-        BinaryOp::Lt => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less)
-            .unwrap_or_else(|| self.builder.const_i64(0)),
-        BinaryOp::Gt => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater)
-            .unwrap_or_else(|| self.builder.const_i64(0)),
-        BinaryOp::LtEq => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual)
-            .unwrap_or_else(|| self.builder.const_i64(0)),
-        BinaryOp::GtEq => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual)
-            .unwrap_or_else(|| self.builder.const_i64(0)),
-        _ => {
-            tracing::warn!(?op, base_fn, "unsupported runtime binary op");
-            self.builder.const_i64(0)
-        }
+        BinaryOp::Lt => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Less),
+        BinaryOp::Gt => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::Greater),
+        BinaryOp::LtEq => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::LessOrEqual),
+        BinaryOp::GtEq => self.emit_str_cmp_predicate(lhs, rhs, builtins::CmpPredicate::GreaterOrEqual),
+        _ => ice!("unsupported runtime binary op {op:?} for {base_fn}"),
     }
 }
 ```
@@ -311,16 +302,21 @@ fn op_strategy_for_binary(&self, type_tag: TypeTag, op: BinaryOp) -> OpStrategy 
         BinaryOp::Mul => type_def.operators.mul,
         BinaryOp::Div => type_def.operators.div,
         BinaryOp::Mod => type_def.operators.rem,
-        BinaryOp::Eq | BinaryOp::NotEq => type_def.operators.eq,
-        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => {
-            type_def.operators.cmp
-        }
-        // Logical/bitwise/shift: always IntInstr (only valid on int/bool).
-        BinaryOp::And | BinaryOp::Or => type_def.operators.eq, // bool ops
-        BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor
-        | BinaryOp::Shl | BinaryOp::Shr | BinaryOp::FloorDiv => {
-            type_def.operators.add // int ops
-        }
+        BinaryOp::FloorDiv => type_def.operators.floor_div,
+        BinaryOp::Eq => type_def.operators.eq,
+        BinaryOp::NotEq => type_def.operators.neq,
+        BinaryOp::Lt => type_def.operators.lt,
+        BinaryOp::Gt => type_def.operators.gt,
+        BinaryOp::LtEq => type_def.operators.lt_eq,
+        BinaryOp::GtEq => type_def.operators.gt_eq,
+        BinaryOp::BitAnd => type_def.operators.bit_and,
+        BinaryOp::BitOr => type_def.operators.bit_or,
+        BinaryOp::BitXor => type_def.operators.bit_xor,
+        BinaryOp::Shl => type_def.operators.shl,
+        BinaryOp::Shr => type_def.operators.shr,
+        // Logical ops (&&/||) are short-circuit control flow, desugared before
+        // reaching op_strategy dispatch. Reaching this arm is a compiler bug.
+        BinaryOp::And | BinaryOp::Or => ice!("logical &&/|| in op_strategy dispatch"),
         BinaryOp::Coalesce => OpStrategy::IntInstr, // structural, not type-dependent
         BinaryOp::Range | BinaryOp::RangeInclusive | BinaryOp::MatMul => {
             OpStrategy::Unsupported // desugared before reaching ARC IR
@@ -342,14 +338,14 @@ fn op_strategy_for_binary(&self, type_tag: TypeTag, op: BinaryOp) -> OpStrategy 
 - [ ] Extract `emit_coalesce()` from the current `Coalesce` arm
 - [ ] Rewrite `emit_binary_op()` to use the dispatch pattern shown above
 - [ ] Delete `is_float` and `is_str` local variables
-- [ ] Verify: `cargo cll` (LLVM clippy) passes
+- [ ] Verify: `cargo cl` (LLVM clippy) passes
 - [ ] Verify: `./llvm-test.sh` passes with identical LLVM IR output
 
 ### Critical detail: UnsignedCmp for bool/byte/char
 
 The current code does not distinguish signed vs unsigned comparison for all primitive types. The `is_float` guard handles float, and everything else falls through to signed integer ops (`icmp_slt`, etc.). However, `builtins/traits.rs` already correctly uses unsigned comparison for `bool`, `byte`, and `char` in the *trait method path* (`emit_comparison_predicate` dispatches to `emit_unsigned_predicate`).
 
-After this transformation, the *binary operator path* (`emit_binary_op`) must also use unsigned comparison for `bool`, `byte`, and `char`. This is a correctness improvement: currently `byte_a < byte_b` via the operator path would use signed comparison (`icmp slt`) while `byte_a.is_less(byte_b)` via the trait path would correctly use unsigned comparison (`icmp ult`). The registry unifies this: `BYTE.operators.cmp = OpStrategy::UnsignedCmp`.
+After this transformation, the *binary operator path* (`emit_binary_op`) must also use unsigned comparison for `bool`, `byte`, and `char`. This is a correctness improvement: currently `byte_a < byte_b` via the operator path would use signed comparison (`icmp slt`) while `byte_a.is_less(byte_b)` via the trait path would correctly use unsigned comparison (`icmp ult`). The registry unifies this: `BYTE.operators.lt = OpStrategy::UnsignedCmp` (and all other comparison fields).
 
 ### Critical detail: Coalesce is structural, not type-driven
 
@@ -487,20 +483,17 @@ fn emit_unary_op(&mut self, op: UnaryOp, operand: ValueId, operand_ty: Idx) -> V
                 self.builder.xor(operand, all_ones, "bitnot")
             }
             UnaryOp::Try => {
-                tracing::warn!("try op in unary expression");
-                self.builder.const_i64(0)
+                ice!("try op should not reach unary expression emitter");
             }
         },
         OpStrategy::FloatInstr => match op {
             UnaryOp::Neg => self.builder.fneg(operand, "neg"),
             _ => {
-                tracing::warn!(?op, "unsupported float unary op");
-                self.builder.const_i64(0)
+                ice!("unsupported float unary op {op:?}");
             }
         },
         _ => {
-            tracing::warn!(?op, ?type_tag, "unary op on type with no unary OpStrategy");
-            self.builder.const_i64(0)
+            ice!("unary op {op:?} on type {type_tag:?} with no unary OpStrategy");
         }
     }
 }
@@ -526,7 +519,7 @@ fn op_strategy_for_unary(&self, type_tag: TypeTag, op: UnaryOp) -> OpStrategy {
 - [ ] Implement `op_strategy_for_unary()` as a method on `ArcIrEmitter`
 - [ ] Rewrite `emit_unary_op()` to use strategy dispatch
 - [ ] Delete `is_float` local variable
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 - [ ] Verify: `./llvm-test.sh` passes
 
 ---
@@ -643,7 +636,7 @@ Total: 73 entries (verified against file).
 - [ ] Update `declare_builtins!` macro definition — see 12.5
 - [ ] Update all 161 entries across 6 submodules (remove `, borrow: true`)
 - [ ] Remove all references to `receiver_borrowed` in `BuiltinTable` and related code
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 
 ---
 
@@ -728,7 +721,7 @@ macro_rules! declare_builtins {
 - [ ] Update `option_result.rs`: remove `, borrow: true` from 11 entries
 - [ ] Update `iterator.rs`: remove `, borrow: true` from 15 entries
 - [ ] Update `trampolines.rs`: no entries to change (empty declaration), but verify the empty macro invocation compiles
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 
 ### Mechanical transformation
 
@@ -798,7 +791,7 @@ Or equivalent registry query. Only after the callers are migrated can this funct
 - [ ] Delete the function body at `builtins/mod.rs:266-286`
 - [ ] Delete the re-export at `arc_emitter/mod.rs:17` (`pub use builtins::borrowing_builtin_names;`)
 - [ ] If `receiver_borrowed` was the only reason `BuiltinTable.entries` exposed registration details, simplify `BuiltinTable` accordingly
-- [ ] Verify: `cargo cll` passes
+- [ ] Verify: `cargo cl` passes
 
 ---
 
@@ -922,7 +915,7 @@ fn registry_op_strategies_cover_all_operators() {
         OpStrategy::IntInstr,
         OpStrategy::FloatInstr,
         OpStrategy::UnsignedCmp,
-        OpStrategy::BoolInstr,
+        OpStrategy::BoolLogic,
         // RuntimeCall checked separately per fn_name
     ];
 
@@ -934,9 +927,20 @@ fn registry_op_strategies_cover_all_operators() {
             ("mul", ops.mul),
             ("div", ops.div),
             ("rem", ops.rem),
+            ("floor_div", ops.floor_div),
             ("eq", ops.eq),
-            ("cmp", ops.cmp),
+            ("neq", ops.neq),
+            ("lt", ops.lt),
+            ("gt", ops.gt),
+            ("lt_eq", ops.lt_eq),
+            ("gt_eq", ops.gt_eq),
             ("neg", ops.neg),
+            ("bit_and", ops.bit_and),
+            ("bit_or", ops.bit_or),
+            ("bit_xor", ops.bit_xor),
+            ("bit_not", ops.bit_not),
+            ("shl", ops.shl),
+            ("shr", ops.shr),
         ] {
             match strategy {
                 OpStrategy::Unsupported => {} // Fine, type doesn't support this op
@@ -973,9 +977,9 @@ fn registry_op_strategies_cover_all_operators() {
 ### Build verification
 
 - [ ] `cargo c -p ori_llvm` (standard check)
-- [ ] `cargo cll` (clippy with LLVM feature)
-- [ ] `cargo bl` (debug build: oric + ori_rt)
-- [ ] `cargo blr` (release build: oric + ori_rt)
+- [ ] `cargo cl` (clippy with LLVM feature)
+- [ ] `cargo b` (debug build: oric + ori_rt)
+- [ ] `cargo b --release` (release build: oric + ori_rt)
 
 ### Test verification
 
@@ -1044,8 +1048,8 @@ grep -n 'idx_to_type_tag' compiler/ori_llvm/src/codegen/arc_emitter/mod.rs
 
 Per LLVM backend rules, debug and release can differ due to FastISel behavior. Both must be tested:
 
-- [ ] `cargo bl && ./test-all.sh` (debug)
-- [ ] `cargo blr && ./test-all.sh` (release)
+- [ ] `cargo b && ./test-all.sh` (debug)
+- [ ] `cargo b --release && ./test-all.sh` (release)
 
 ---
 

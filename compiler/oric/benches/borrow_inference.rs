@@ -30,6 +30,7 @@ use ori_arc::ir::{
     CtorKind,
 };
 use ori_arc::ownership::Ownership;
+use ori_arc::uniqueness::{CowAnnotations, DropHints};
 use ori_arc::{compute_sccs, CallGraph};
 use ori_ir::Name;
 use ori_types::{Idx, Pool};
@@ -74,6 +75,8 @@ fn standalone_reader(name: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -107,6 +110,8 @@ fn caller_function(name: Name, callee: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -139,6 +144,8 @@ fn storer_function(name: Name) -> ArcFunction {
         spans: vec![vec![None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -183,6 +190,8 @@ fn modified_reader(name: Name) -> ArcFunction {
         spans: vec![vec![None, None]],
         is_fbip: false,
         num_captures: 0,
+        cow_annotations: CowAnnotations::default(),
+        drop_hints: DropHints::default(),
     }
 }
 
@@ -340,7 +349,7 @@ fn bench_scc_standalone(c: &mut Criterion) {
                 let functions: Vec<ArcFunction> = funcs.into_iter().map(|(_, f)| f).collect();
                 let pool = Pool::new();
                 let classifier = ori_arc::ArcClassifier::new(&pool);
-                let builtins = ori_arc::borrowing_builtin_names(&interner);
+                let builtins = ori_arc::BuiltinOwnershipSets::new(&interner);
                 black_box(ori_arc::borrow::infer_borrows_scc(
                     &functions,
                     &classifier,
@@ -358,7 +367,7 @@ fn bench_scc_standalone(c: &mut Criterion) {
                 let functions: Vec<ArcFunction> = funcs.into_iter().map(|(_, f)| f).collect();
                 let pool = Pool::new();
                 let classifier = ori_arc::ArcClassifier::new(&pool);
-                let builtins = ori_arc::borrowing_builtin_names(&interner);
+                let builtins = ori_arc::BuiltinOwnershipSets::new(&interner);
                 black_box(ori_arc::borrow::infer_borrows_scc(
                     &functions,
                     &classifier,
@@ -564,7 +573,7 @@ fn bench_regression_summary(c: &mut Criterion) {
             let functions: Vec<ArcFunction> = funcs.iter().map(|(_, f)| f.clone()).collect();
             let pool = Pool::new();
             let classifier = ori_arc::ArcClassifier::new(&pool);
-            let builtins = ori_arc::borrowing_builtin_names(&interner);
+            let builtins = ori_arc::BuiltinOwnershipSets::new(&interner);
 
             let start = Instant::now();
             for _ in 0..iters {

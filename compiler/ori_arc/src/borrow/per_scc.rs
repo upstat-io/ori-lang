@@ -5,10 +5,11 @@
 //! fixed point within the SCC only. Both accept pre-resolved external
 //! callee signatures, enabling Salsa-tracked incremental queries.
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 
 use ori_ir::Name;
 
+use crate::borrow::BuiltinOwnershipSets;
 use crate::ir::ArcFunction;
 use crate::ownership::{AnnotatedParam, AnnotatedSig, Ownership};
 use crate::ArcClassification;
@@ -58,26 +59,20 @@ pub fn initialize_single_borrowed(
 /// * `func` — the ARC IR function to analyze.
 /// * `external_sigs` — pre-resolved callee signatures from other SCCs.
 /// * `classifier` — type classifier for scalar vs ref types.
-/// * `borrowing_builtins` — method names whose receiver is always borrowed.
+/// * `builtins` — pre-interned builtin ownership sets.
 #[expect(
     clippy::implicit_hasher,
-    reason = "FxHashMap/FxHashSet are the concrete types used throughout"
+    reason = "FxHashMap is the concrete type used throughout"
 )]
 pub fn infer_borrow_single(
     func: &ArcFunction,
     external_sigs: &FxHashMap<Name, AnnotatedSig>,
     classifier: &dyn ArcClassification,
-    borrowing_builtins: &FxHashSet<Name>,
+    builtins: &BuiltinOwnershipSets,
 ) -> AnnotatedSig {
     let mut sig = initialize_single_borrowed(func, classifier);
     let empty_local = FxHashMap::default();
-    super::update_ownership_inner(
-        func,
-        &mut sig,
-        &empty_local,
-        external_sigs,
-        borrowing_builtins,
-    );
+    super::update_ownership_inner(func, &mut sig, &empty_local, external_sigs, builtins);
     sig
 }
 
@@ -92,16 +87,16 @@ pub fn infer_borrow_single(
 /// * `scc_functions` — ARC IR functions in this SCC (mutually recursive group).
 /// * `external_sigs` — pre-resolved callee signatures from other SCCs.
 /// * `classifier` — type classifier for scalar vs ref types.
-/// * `borrowing_builtins` — method names whose receiver is always borrowed.
+/// * `builtins` — pre-interned builtin ownership sets.
 #[expect(
     clippy::implicit_hasher,
-    reason = "FxHashMap/FxHashSet are the concrete types used throughout"
+    reason = "FxHashMap is the concrete type used throughout"
 )]
 pub fn infer_borrow_fixed_point(
     scc_functions: &[&ArcFunction],
     external_sigs: &FxHashMap<Name, AnnotatedSig>,
     classifier: &dyn ArcClassification,
-    borrowing_builtins: &FxHashSet<Name>,
+    builtins: &BuiltinOwnershipSets,
 ) -> FxHashMap<Name, AnnotatedSig> {
     // Initialize all SCC members.
     let mut local_sigs = FxHashMap::default();
@@ -122,7 +117,7 @@ pub fn infer_borrow_fixed_point(
                 &mut my_sig,
                 &local_sigs,
                 external_sigs,
-                borrowing_builtins,
+                builtins,
             ) {
                 local_sigs.insert(func.name, my_sig);
                 changed = true;

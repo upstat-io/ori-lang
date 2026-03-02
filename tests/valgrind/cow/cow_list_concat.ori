@@ -1,0 +1,67 @@
+// Valgrind test: COW list concatenation operations.
+// Exercises concat of unique and shared lists, empty list concat,
+// string element concat (RC'd elements), chained concat.
+
+@main () -> int = {
+    // Basic concat (unique + unique)
+    let a = [1, 2] + [3, 4];
+    let basic_ok = a.length() == 4 && a[0] == 1 && a[3] == 4;
+
+    // Concat with empty left
+    let b = [] + [1, 2, 3];
+    let empty_left_ok = b.length() == 3 && b[0] == 1;
+
+    // Concat with empty right
+    let c = [1, 2, 3] + [];
+    let empty_right_ok = c.length() == 3 && c[2] == 3;
+
+    // Concat both empty
+    let empty1: [int] = [];
+    let empty2: [int] = [];
+    let d = empty1 + empty2;
+    let both_empty_ok = d.length() == 0;
+
+    // Concat with shared owner (original unchanged)
+    let base = [10, 20];
+    let shared = base;
+    let concatenated = shared + [30, 40];
+    let cow_ok = base.length() == 2 && concatenated.length() == 4
+        && base[0] == 10 && concatenated[3] == 40;
+
+    // Concat with string elements (RC'd)
+    let strs1 = ["hello", "world"];
+    let strs2 = ["foo", "bar"];
+    let strs3 = strs1 + strs2;
+    let str_ok = strs3.length() == 4 && strs3[0] == "hello" && strs3[3] == "bar";
+
+    // Chained concat (push then concat — former double-free case)
+    let e = [1, 2].push(3) + [4, 5];
+    let chain_ok = e.length() == 5 && e[0] == 1 && e[4] == 5;
+
+    // Multi-concat
+    let f = [1] + [2] + [3] + [4] + [5];
+    let multi_ok = f.length() == 5 && f[4] == 5;
+
+    // Loop concat
+    let acc: [int] = [];
+    for i in 0..50 do {
+        acc = acc + [i];
+    };
+    let loop_ok = acc.length() == 50 && acc[25] == 25;
+
+    // Concat large lists
+    let big1: [int] = [];
+    let big2: [int] = [];
+    for i in 0..500 do {
+        big1 = big1.push(i);
+    };
+    for i in 500..1000 do {
+        big2 = big2.push(i);
+    };
+    let big = big1 + big2;
+    let big_ok = big.length() == 1000 && big[0] == 0 && big[999] == 999;
+
+    if basic_ok && empty_left_ok && empty_right_ok && both_empty_ok
+        && cow_ok && str_ok && chain_ok && multi_ok && loop_ok && big_ok
+    then 0 else 1
+}

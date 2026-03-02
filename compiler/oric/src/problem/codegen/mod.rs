@@ -135,9 +135,7 @@ impl CodegenProblem {
                     diag = diag.with_note(format!("searched: {paths}"));
                 }
 
-                diag.with_suggestion(
-                    "build the runtime with `cargo bl` or `cargo build -p ori_rt --release`",
-                )
+                diag.with_suggestion("build the runtime with `cargo build -p ori_rt`")
             }
 
             // ── Linker (E5006) ───────────────────────────────────

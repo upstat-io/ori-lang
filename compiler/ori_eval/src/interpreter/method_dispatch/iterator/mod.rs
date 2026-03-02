@@ -119,7 +119,11 @@ impl Interpreter<'_> {
                 self.eval_iter_collect(iter_val)
             }
             CollectionMethod::IterCollectSet => {
-                Self::expect_arg_count("__collect_set", 0, args)?;
+                Self::expect_arg_count(
+                    ori_ir::builtin_constants::protocol::ProtocolBuiltin::CollectSet.name(),
+                    0,
+                    args,
+                )?;
                 self.eval_iter_collect_set(iter_val)
             }
             CollectionMethod::IterJoin => {

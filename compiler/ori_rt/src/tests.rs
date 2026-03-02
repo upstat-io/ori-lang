@@ -3953,41 +3953,86 @@ extern "C" fn i64_key_eq(a: *const u8, b: *const u8) -> bool {
     unsafe { *a.cast::<i64>() == *b.cast::<i64>() }
 }
 
-/// Helper: allocate an RC'd map buffer with i64 keys and i64 values.
+/// i64 key hash function for COW map tests (identity hash).
+extern "C" fn i64_key_hash(a: *const u8) -> i64 {
+    unsafe { *a.cast::<i64>() }
+}
+
+/// Helper: allocate an RC'd hash table map buffer with i64 keys and i64 values.
 ///
-/// Layout: `[key0..keyN | val0..valN]` with keys at offset 0 and values
-/// at offset `cap * 8`.
-fn rc_alloc_i64_map(keys: &[i64], values: &[i64], capacity: usize) -> *mut u8 {
+/// Returns `(data, actual_cap)`. The capacity is a power-of-two from the hash
+/// table, which may be larger than `min_capacity`. Entries are inserted using
+/// hash probing.
+fn rc_alloc_i64_map(keys: &[i64], values: &[i64], min_capacity: usize) -> (*mut u8, usize) {
     assert_eq!(keys.len(), values.len());
     let len = keys.len();
-    let cap = capacity.max(len);
     let ks = std::mem::size_of::<i64>();
     let vs = std::mem::size_of::<i64>();
-    let total = map::OriMap::buffer_size(cap, ks, vs);
-    if total == 0 {
-        return std::ptr::null_mut();
+    let cap = map::hash_table::next_hash_capacity(min_capacity.max(len));
+    if cap == 0 {
+        return (std::ptr::null_mut(), 0);
     }
-    let data = ori_rc_alloc(total, 8);
+    let data = map::OriMap::alloc_hash_buffer(cap, ks, vs);
     assert!(!data.is_null());
-    for (i, &k) in keys.iter().enumerate() {
-        unsafe { *data.cast::<i64>().add(i) = k };
+    let layout = map::hash_table::HashTableLayout::for_map(cap, ks, vs);
+    for i in 0..len {
+        let hash = keys[i]; // identity hash
+        let bucket = unsafe { map::hash_table::probe_find_slot(data, cap, hash) };
+        unsafe {
+            let key_ptr = data.add(layout.keys_offset + bucket * ks);
+            *key_ptr.cast::<i64>() = keys[i];
+            let val_ptr = data.add(layout.vals_offset + bucket * vs);
+            *val_ptr.cast::<i64>() = values[i];
+            map::hash_table::set_meta(data, bucket, map::hash_table::META_OCCUPIED);
+        }
     }
-    let vals_start = unsafe { data.add(cap * ks) };
-    for (i, &v) in values.iter().enumerate() {
-        unsafe { *vals_start.cast::<i64>().add(i) = v };
-    }
-    data
+    (data, cap)
 }
 
-/// Helper: read key at index from a map buffer.
-unsafe fn map_read_key(data: *const u8, index: usize) -> i64 {
-    *data.cast::<i64>().add(index)
-}
-
-/// Helper: read value at index from a map buffer (values at `cap * key_size`).
-unsafe fn map_read_val(data: *const u8, cap: usize, index: usize) -> i64 {
+/// Helper: look up a key's value in a hash table map buffer.
+unsafe fn map_lookup_val(data: *const u8, cap: usize, key: i64) -> Option<i64> {
     let ks = std::mem::size_of::<i64>();
-    *data.add(cap * ks).cast::<i64>().add(index)
+    let vs = std::mem::size_of::<i64>();
+    let layout = map::hash_table::HashTableLayout::for_map(cap, ks, vs);
+    let hash = key; // identity hash
+    let bucket = map::hash_table::probe_find(
+        data,
+        cap,
+        layout.keys_offset,
+        std::ptr::from_ref(&key).cast(),
+        hash,
+        ks,
+        i64_key_eq,
+    )?;
+    let val_ptr = data.add(layout.vals_offset + bucket * vs);
+    Some(*val_ptr.cast::<i64>())
+}
+
+/// Helper: collect all key-value pairs from a hash table map buffer.
+///
+/// Scans metadata for OCCUPIED buckets and returns all `(key, val)` pairs.
+/// The order is bucket order (not insertion order).
+unsafe fn map_collect_entries(data: *const u8, cap: usize) -> Vec<(i64, i64)> {
+    let ks = std::mem::size_of::<i64>();
+    let vs = std::mem::size_of::<i64>();
+    let layout = map::hash_table::HashTableLayout::for_map(cap, ks, vs);
+    let mut entries = Vec::new();
+    for bucket in 0..cap {
+        if map::hash_table::get_meta(data, bucket) == map::hash_table::META_OCCUPIED {
+            let key = *data.add(layout.keys_offset + bucket * ks).cast::<i64>();
+            let val = *data.add(layout.vals_offset + bucket * vs).cast::<i64>();
+            entries.push((key, val));
+        }
+    }
+    entries
+}
+
+/// Helper: free a hash table map buffer.
+fn free_i64_map(data: *mut u8, cap: usize) {
+    let ks = std::mem::size_of::<i64>();
+    let vs = std::mem::size_of::<i64>();
+    let layout = map::hash_table::HashTableLayout::for_map(cap, ks, vs);
+    ori_rc_free(data, layout.total_size, 8);
 }
 
 #[test]
@@ -4010,6 +4055,7 @@ fn cow_map_insert_into_empty() {
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4021,23 +4067,25 @@ fn cow_map_insert_into_empty() {
     assert_eq!(len, 1, "should have 1 entry");
     assert!(
         cap >= 4,
-        "should get at least MIN_COLLECTION_CAPACITY (4), got {cap}"
+        "should get at least MIN_HASH_CAPACITY (4), got {cap}"
+    );
+    assert!(
+        (cap as usize).is_power_of_two(),
+        "capacity must be power of two"
     );
     assert!(!data.is_null(), "data should be non-null");
     assert_eq!(ori_rc_count(data), 1, "new buffer should have RC=1");
 
-    // Verify key and value
+    // Verify key and value via hash lookup
     unsafe {
-        assert_eq!(map_read_key(data, 0), 100);
-        assert_eq!(map_read_val(data, cap as usize, 0), 200);
+        assert_eq!(map_lookup_val(data, cap as usize, 100), Some(200));
+        let entries = map_collect_entries(data, cap as usize);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0], (100, 200));
     }
 
     // Cleanup
-    ori_rc_free(
-        data,
-        map::OriMap::buffer_size(cap as usize, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4048,8 +4096,8 @@ fn cow_map_insert_unique_new_key_with_capacity() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    // Create map with 2 entries, capacity 8
-    let data = rc_alloc_i64_map(&[10, 20], &[100, 200], 8);
+    // Create map with 2 entries
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20], &[100, 200], 8);
     let original_ptr = data;
 
     let key: i64 = 30;
@@ -4059,12 +4107,13 @@ fn cow_map_insert_unique_new_key_with_capacity() {
     map::cow::ori_map_insert_cow(
         data,
         2, // len
-        8, // cap (room for 6 more)
+        alloc_cap as i64,
         std::ptr::from_ref(&key).cast(),
         std::ptr::from_ref(&val).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4074,29 +4123,24 @@ fn cow_map_insert_unique_new_key_with_capacity() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3, "should have 3 entries");
-    assert_eq!(cap, 8, "capacity unchanged (had room)");
+    assert_eq!(cap, alloc_cap as i64, "capacity unchanged (had room)");
     assert_eq!(
         result_data, original_ptr,
         "FAST PATH: should return same pointer (mutated in place)"
     );
     assert_eq!(ori_rc_count(result_data), 1, "RC should still be 1");
 
-    // Verify all entries
+    // Verify all entries via hash lookup
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 20);
-        assert_eq!(map_read_key(result_data, 2), 30);
-        assert_eq!(map_read_val(result_data, 8, 0), 100);
-        assert_eq!(map_read_val(result_data, 8, 1), 200);
-        assert_eq!(map_read_val(result_data, 8, 2), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(200));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
+        let entries = map_collect_entries(result_data, cap as usize);
+        assert_eq!(entries.len(), 3);
     }
 
     // Cleanup
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(8, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4107,8 +4151,8 @@ fn cow_map_insert_unique_existing_key_overwrites() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    // Create map with 3 entries at full capacity
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    // Create map with 3 entries
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     let original_ptr = data;
 
     // Overwrite key 20's value from 200 to 999
@@ -4119,12 +4163,13 @@ fn cow_map_insert_unique_existing_key_overwrites() {
     map::cow::ori_map_insert_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&key).cast(),
         std::ptr::from_ref(&val).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4137,7 +4182,7 @@ fn cow_map_insert_unique_existing_key_overwrites() {
         len, 3,
         "should still have 3 entries (overwrite, not append)"
     );
-    assert_eq!(cap, 4, "capacity unchanged");
+    assert_eq!(cap, alloc_cap as i64, "capacity unchanged");
     assert_eq!(
         result_data, original_ptr,
         "FAST PATH: should return same pointer (overwritten in place)"
@@ -4145,24 +4190,17 @@ fn cow_map_insert_unique_existing_key_overwrites() {
 
     // Verify value at key 20 was updated, others unchanged
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 20);
-        assert_eq!(map_read_key(result_data, 2), 30);
-        assert_eq!(map_read_val(result_data, 4, 0), 100);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
         assert_eq!(
-            map_read_val(result_data, 4, 1),
-            999,
+            map_lookup_val(result_data, cap as usize, 20),
+            Some(999),
             "should be overwritten"
         );
-        assert_eq!(map_read_val(result_data, 4, 2), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
     }
 
     // Cleanup
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4174,7 +4212,7 @@ fn cow_map_insert_shared_copies() {
     let vs = std::mem::size_of::<i64>() as i64;
 
     // Create a map with 2 entries, then share it (RC=2)
-    let data = rc_alloc_i64_map(&[10, 20], &[100, 200], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20], &[100, 200], 4);
     ori_rc_inc(data);
     assert_eq!(ori_rc_count(data), 2, "should be shared");
 
@@ -4185,12 +4223,13 @@ fn cow_map_insert_shared_copies() {
     map::cow::ori_map_insert_cow(
         data,
         2,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&key).cast(),
         std::ptr::from_ref(&val).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4214,33 +4253,20 @@ fn cow_map_insert_shared_copies() {
 
     // Verify new buffer has all entries
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 20);
-        assert_eq!(map_read_key(result_data, 2), 30);
-        assert_eq!(map_read_val(result_data, cap as usize, 0), 100);
-        assert_eq!(map_read_val(result_data, cap as usize, 1), 200);
-        assert_eq!(map_read_val(result_data, cap as usize, 2), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(200));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
     }
 
     // Verify original buffer is unchanged
     unsafe {
-        assert_eq!(map_read_key(data, 0), 10);
-        assert_eq!(map_read_key(data, 1), 20);
-        assert_eq!(map_read_val(data, 4, 0), 100);
-        assert_eq!(map_read_val(data, 4, 1), 200);
+        assert_eq!(map_lookup_val(data, alloc_cap, 10), Some(100));
+        assert_eq!(map_lookup_val(data, alloc_cap, 20), Some(200));
     }
 
     // Cleanup both buffers
-    ori_rc_free(
-        data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(cap as usize, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(data, alloc_cap);
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4251,22 +4277,24 @@ fn cow_map_insert_unique_needs_growth() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    // Create a map at full capacity (4 entries, cap 4)
-    let data = rc_alloc_i64_map(&[10, 20, 30, 40], &[100, 200, 300, 400], 4);
+    // Create a map with 4 entries (hash table will pick capacity based on load factor)
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30, 40], &[100, 200, 300, 400], 4);
 
+    // Insert a 5th key — may or may not trigger growth depending on alloc_cap
     let key: i64 = 50;
     let val: i64 = 500;
     let mut out = [0u8; 24];
 
     map::cow::ori_map_insert_cow(
         data,
-        4, // len
-        4, // cap (full)
+        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&key).cast(),
         std::ptr::from_ref(&val).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4276,33 +4304,27 @@ fn cow_map_insert_unique_needs_growth() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 5, "should have 5 entries");
+    assert!(cap >= 5, "capacity should fit 5 entries, got {cap}");
     assert!(
-        cap >= 8,
-        "should have doubled capacity (from 4 to at least 8), got {cap}"
+        (cap as usize).is_power_of_two(),
+        "capacity must be power of two, got {cap}"
     );
     assert!(!result_data.is_null(), "data should not be null");
     assert_eq!(ori_rc_count(result_data), 1, "RC should be 1");
 
-    // Verify all 5 entries (values must be at correct new offset after relocation)
+    // Verify all 5 entries via hash lookup
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 20);
-        assert_eq!(map_read_key(result_data, 2), 30);
-        assert_eq!(map_read_key(result_data, 3), 40);
-        assert_eq!(map_read_key(result_data, 4), 50);
-        assert_eq!(map_read_val(result_data, cap as usize, 0), 100);
-        assert_eq!(map_read_val(result_data, cap as usize, 1), 200);
-        assert_eq!(map_read_val(result_data, cap as usize, 2), 300);
-        assert_eq!(map_read_val(result_data, cap as usize, 3), 400);
-        assert_eq!(map_read_val(result_data, cap as usize, 4), 500);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(200));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 40), Some(400));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 50), Some(500));
+        let entries = map_collect_entries(result_data, cap as usize);
+        assert_eq!(entries.len(), 5);
     }
 
-    // Cleanup (old data was either reallocated in place or freed by realloc)
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(cap as usize, ks as usize, vs as usize),
-        8,
-    );
+    // Cleanup
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4331,6 +4353,7 @@ fn cow_map_insert_1000_sequential_amortized() {
             ks,
             vs,
             i64_key_eq,
+            i64_key_hash,
             None,
             None,
             0,
@@ -4348,24 +4371,33 @@ fn cow_map_insert_1000_sequential_amortized() {
         current_cap >= 1000,
         "capacity should be >= 1000, got {current_cap}"
     );
+    assert!(
+        (current_cap as usize).is_power_of_two(),
+        "capacity must be power of two"
+    );
     assert!(!current_data.is_null());
     assert_eq!(ori_rc_count(current_data), 1, "final buffer RC=1");
 
-    // Spot-check a few entries
+    // Spot-check entries via hash lookup
     unsafe {
-        assert_eq!(map_read_key(current_data, 0), 0);
-        assert_eq!(map_read_key(current_data, 999), 999);
-        assert_eq!(map_read_val(current_data, current_cap as usize, 0), 0);
-        assert_eq!(map_read_val(current_data, current_cap as usize, 500), 5000);
-        assert_eq!(map_read_val(current_data, current_cap as usize, 999), 9990);
+        assert_eq!(
+            map_lookup_val(current_data, current_cap as usize, 0),
+            Some(0)
+        );
+        assert_eq!(
+            map_lookup_val(current_data, current_cap as usize, 500),
+            Some(5000)
+        );
+        assert_eq!(
+            map_lookup_val(current_data, current_cap as usize, 999),
+            Some(9990)
+        );
+        let entries = map_collect_entries(current_data, current_cap as usize);
+        assert_eq!(entries.len(), 1000);
     }
 
     // Cleanup
-    ori_rc_free(
-        current_data,
-        map::OriMap::buffer_size(current_cap as usize, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(current_data, current_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4378,7 +4410,7 @@ fn cow_map_remove_key_not_found() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     let original_ptr = data;
 
     let needle: i64 = 999; // not in map
@@ -4387,11 +4419,12 @@ fn cow_map_remove_key_not_found() {
     map::cow::ori_map_remove_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&needle).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4401,18 +4434,14 @@ fn cow_map_remove_key_not_found() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3, "should still have 3 entries");
-    assert_eq!(cap, 4, "capacity unchanged");
+    assert_eq!(cap, alloc_cap as i64, "capacity unchanged");
     assert_eq!(
         result_data, original_ptr,
         "should return same pointer (no-op)"
     );
 
     // Cleanup
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4424,21 +4453,22 @@ fn cow_map_remove_unique_middle() {
     let vs = std::mem::size_of::<i64>() as i64;
 
     // Map: {10: 100, 20: 200, 30: 300}
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     let original_ptr = data;
 
-    // Remove key 20 (middle entry)
+    // Remove key 20
     let needle: i64 = 20;
     let mut out = [0u8; 24];
 
     map::cow::ori_map_remove_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&needle).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4448,26 +4478,30 @@ fn cow_map_remove_unique_middle() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 2, "should have 2 entries");
-    assert_eq!(cap, 4, "capacity unchanged (in-place)");
+    assert_eq!(
+        cap, alloc_cap as i64,
+        "capacity unchanged (in-place tombstone)"
+    );
     assert_eq!(
         result_data, original_ptr,
-        "FAST PATH: same pointer (shifted in place)"
+        "FAST PATH: same pointer (tombstoned in place)"
     );
 
-    // Verify: keys should be [10, 30], values [100, 300]
+    // Verify: key 20 is gone, keys 10 and 30 remain
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 30);
-        assert_eq!(map_read_val(result_data, 4, 0), 100);
-        assert_eq!(map_read_val(result_data, 4, 1), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(
+            map_lookup_val(result_data, cap as usize, 20),
+            None,
+            "key 20 removed"
+        );
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
+        let entries = map_collect_entries(result_data, cap as usize);
+        assert_eq!(entries.len(), 2);
     }
 
     // Cleanup
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4478,21 +4512,22 @@ fn cow_map_remove_unique_first() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     let original_ptr = data;
 
-    // Remove first key
+    // Remove key 10
     let needle: i64 = 10;
     let mut out = [0u8; 24];
 
     map::cow::ori_map_remove_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&needle).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4502,21 +4537,23 @@ fn cow_map_remove_unique_first() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 2);
-    assert_eq!(cap, 4, "capacity unchanged (in-place)");
-    assert_eq!(result_data, original_ptr, "FAST PATH: in-place shift");
+    assert_eq!(
+        cap, alloc_cap as i64,
+        "capacity unchanged (in-place tombstone)"
+    );
+    assert_eq!(result_data, original_ptr, "FAST PATH: in-place tombstone");
 
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 20);
-        assert_eq!(map_read_key(result_data, 1), 30);
-        assert_eq!(map_read_val(result_data, 4, 0), 200);
-        assert_eq!(map_read_val(result_data, 4, 1), 300);
+        assert_eq!(
+            map_lookup_val(result_data, cap as usize, 10),
+            None,
+            "key 10 removed"
+        );
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(200));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
     }
 
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4527,21 +4564,22 @@ fn cow_map_remove_unique_last() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     let original_ptr = data;
 
-    // Remove last key
+    // Remove key 30
     let needle: i64 = 30;
     let mut out = [0u8; 24];
 
     map::cow::ori_map_remove_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&needle).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4551,24 +4589,23 @@ fn cow_map_remove_unique_last() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 2);
-    assert_eq!(cap, 4, "capacity unchanged (in-place)");
     assert_eq!(
-        result_data, original_ptr,
-        "FAST PATH: in-place (no shift needed for last)"
+        cap, alloc_cap as i64,
+        "capacity unchanged (in-place tombstone)"
     );
+    assert_eq!(result_data, original_ptr, "FAST PATH: in-place tombstone");
 
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 20);
-        assert_eq!(map_read_val(result_data, 4, 0), 100);
-        assert_eq!(map_read_val(result_data, 4, 1), 200);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(200));
+        assert_eq!(
+            map_lookup_val(result_data, cap as usize, 30),
+            None,
+            "key 30 removed"
+        );
     }
 
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4580,7 +4617,7 @@ fn cow_map_remove_unique_last_entry_frees() {
     let vs = std::mem::size_of::<i64>() as i64;
 
     // Single-entry map
-    let data = rc_alloc_i64_map(&[42], &[999], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[42], &[999], 4);
     assert_eq!(ori_rc_count(data), 1);
 
     let needle: i64 = 42;
@@ -4589,11 +4626,12 @@ fn cow_map_remove_unique_last_entry_frees() {
     map::cow::ori_map_remove_cow(
         data,
         1,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&needle).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4617,7 +4655,7 @@ fn cow_map_remove_shared_copies() {
     let vs = std::mem::size_of::<i64>() as i64;
 
     // Map: {10: 100, 20: 200, 30: 300}, shared (RC=2)
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     ori_rc_inc(data);
     assert_eq!(ori_rc_count(data), 2);
 
@@ -4628,11 +4666,12 @@ fn cow_map_remove_shared_copies() {
     map::cow::ori_map_remove_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&needle).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4642,7 +4681,10 @@ fn cow_map_remove_shared_copies() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 2, "should have 2 entries");
-    assert_eq!(cap, 2, "tight fit for new allocation");
+    assert!(
+        (cap as usize).is_power_of_two(),
+        "new capacity must be power of two"
+    );
     assert_ne!(
         result_data, data,
         "SLOW PATH: should return different pointer"
@@ -4654,35 +4696,29 @@ fn cow_map_remove_shared_copies() {
         "old buffer RC=1 (was 2, decremented)"
     );
 
-    // Verify new buffer: keys [10, 30], values [100, 300]
+    // Verify new buffer: keys 10 and 30, no key 20
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 30);
-        assert_eq!(map_read_val(result_data, 2, 0), 100);
-        assert_eq!(map_read_val(result_data, 2, 1), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(
+            map_lookup_val(result_data, cap as usize, 20),
+            None,
+            "key 20 removed"
+        );
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
+        let entries = map_collect_entries(result_data, cap as usize);
+        assert_eq!(entries.len(), 2);
     }
 
-    // Verify original unchanged: keys [10, 20, 30], values [100, 200, 300]
+    // Verify original unchanged: all 3 keys still present
     unsafe {
-        assert_eq!(map_read_key(data, 0), 10);
-        assert_eq!(map_read_key(data, 1), 20);
-        assert_eq!(map_read_key(data, 2), 30);
-        assert_eq!(map_read_val(data, 4, 0), 100);
-        assert_eq!(map_read_val(data, 4, 1), 200);
-        assert_eq!(map_read_val(data, 4, 2), 300);
+        assert_eq!(map_lookup_val(data, alloc_cap, 10), Some(100));
+        assert_eq!(map_lookup_val(data, alloc_cap, 20), Some(200));
+        assert_eq!(map_lookup_val(data, alloc_cap, 30), Some(300));
     }
 
     // Cleanup both buffers
-    ori_rc_free(
-        data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(2, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(data, alloc_cap);
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4694,7 +4730,7 @@ fn cow_map_remove_shared_last_entry_decs() {
     let vs = std::mem::size_of::<i64>() as i64;
 
     // Single-entry shared map (RC=2)
-    let data = rc_alloc_i64_map(&[42], &[999], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[42], &[999], 4);
     ori_rc_inc(data);
     assert_eq!(ori_rc_count(data), 2);
 
@@ -4704,11 +4740,12 @@ fn cow_map_remove_shared_last_entry_decs() {
     map::cow::ori_map_remove_cow(
         data,
         1,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&needle).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4727,11 +4764,7 @@ fn cow_map_remove_shared_last_entry_decs() {
     );
 
     // Cleanup original buffer (still alive, RC=1)
-    ori_rc_free(
-        data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(data, alloc_cap);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4753,6 +4786,7 @@ fn cow_map_remove_from_empty() {
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4776,7 +4810,7 @@ fn cow_map_update_key_not_found() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     let original_ptr = data;
 
     let key: i64 = 999; // not in map
@@ -4786,12 +4820,13 @@ fn cow_map_update_key_not_found() {
     map::cow::ori_map_update_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&key).cast(),
         std::ptr::from_ref(&val).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4801,7 +4836,7 @@ fn cow_map_update_key_not_found() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3, "should still have 3 entries (no insertion)");
-    assert_eq!(cap, 4, "capacity unchanged");
+    assert_eq!(cap, alloc_cap as i64, "capacity unchanged");
     assert_eq!(
         result_data, original_ptr,
         "should return same pointer (no-op)"
@@ -4809,16 +4844,12 @@ fn cow_map_update_key_not_found() {
 
     // Values unchanged
     unsafe {
-        assert_eq!(map_read_val(result_data, 4, 0), 100);
-        assert_eq!(map_read_val(result_data, 4, 1), 200);
-        assert_eq!(map_read_val(result_data, 4, 2), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 20), Some(200));
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
     }
 
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4829,7 +4860,7 @@ fn cow_map_update_unique_overwrites_in_place() {
     let ks = std::mem::size_of::<i64>() as i64;
     let vs = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     let original_ptr = data;
 
     // Update key 20's value from 200 to 999
@@ -4840,12 +4871,13 @@ fn cow_map_update_unique_overwrites_in_place() {
     map::cow::ori_map_update_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&key).cast(),
         std::ptr::from_ref(&val).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4855,7 +4887,7 @@ fn cow_map_update_unique_overwrites_in_place() {
     let (len, cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3, "should still have 3 entries");
-    assert_eq!(cap, 4, "capacity unchanged");
+    assert_eq!(cap, alloc_cap as i64, "capacity unchanged");
     assert_eq!(
         result_data, original_ptr,
         "FAST PATH: same pointer (overwritten in place)"
@@ -4863,19 +4895,16 @@ fn cow_map_update_unique_overwrites_in_place() {
 
     // Verify only key 20's value changed
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 20);
-        assert_eq!(map_read_key(result_data, 2), 30);
-        assert_eq!(map_read_val(result_data, 4, 0), 100);
-        assert_eq!(map_read_val(result_data, 4, 1), 999, "should be updated");
-        assert_eq!(map_read_val(result_data, 4, 2), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(
+            map_lookup_val(result_data, cap as usize, 20),
+            Some(999),
+            "should be updated"
+        );
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
     }
 
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4887,7 +4916,7 @@ fn cow_map_update_shared_copies() {
     let vs = std::mem::size_of::<i64>() as i64;
 
     // Shared map (RC=2)
-    let data = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
+    let (data, alloc_cap) = rc_alloc_i64_map(&[10, 20, 30], &[100, 200, 300], 4);
     ori_rc_inc(data);
     assert_eq!(ori_rc_count(data), 2);
 
@@ -4899,12 +4928,13 @@ fn cow_map_update_shared_copies() {
     map::cow::ori_map_update_cow(
         data,
         3,
-        4,
+        alloc_cap as i64,
         std::ptr::from_ref(&key).cast(),
         std::ptr::from_ref(&val).cast(),
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4923,32 +4953,29 @@ fn cow_map_update_shared_copies() {
 
     // Verify new buffer has updated value
     unsafe {
-        assert_eq!(map_read_key(result_data, 0), 10);
-        assert_eq!(map_read_key(result_data, 1), 20);
-        assert_eq!(map_read_key(result_data, 2), 30);
-        assert_eq!(map_read_val(result_data, cap as usize, 0), 100);
-        assert_eq!(map_read_val(result_data, cap as usize, 1), 999, "updated");
-        assert_eq!(map_read_val(result_data, cap as usize, 2), 300);
+        assert_eq!(map_lookup_val(result_data, cap as usize, 10), Some(100));
+        assert_eq!(
+            map_lookup_val(result_data, cap as usize, 20),
+            Some(999),
+            "updated"
+        );
+        assert_eq!(map_lookup_val(result_data, cap as usize, 30), Some(300));
     }
 
     // Verify original unchanged
     unsafe {
-        assert_eq!(map_read_val(data, 4, 0), 100);
-        assert_eq!(map_read_val(data, 4, 1), 200, "original should be 200");
-        assert_eq!(map_read_val(data, 4, 2), 300);
+        assert_eq!(map_lookup_val(data, alloc_cap, 10), Some(100));
+        assert_eq!(
+            map_lookup_val(data, alloc_cap, 20),
+            Some(200),
+            "original should be 200"
+        );
+        assert_eq!(map_lookup_val(data, alloc_cap, 30), Some(300));
     }
 
     // Cleanup both
-    ori_rc_free(
-        data,
-        map::OriMap::buffer_size(4, ks as usize, vs as usize),
-        8,
-    );
-    ori_rc_free(
-        result_data,
-        map::OriMap::buffer_size(cap as usize, ks as usize, vs as usize),
-        8,
-    );
+    free_i64_map(data, alloc_cap);
+    free_i64_map(result_data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -4972,6 +4999,7 @@ fn cow_map_update_on_empty() {
         ks,
         vs,
         i64_key_eq,
+        i64_key_hash,
         None,
         None,
         0,
@@ -4988,26 +5016,70 @@ fn cow_map_update_on_empty() {
 
 // ── COW set insert tests ────────────────────────────────────────────
 
-/// Helper: allocate an RC'd set buffer with i64 elements.
-fn rc_alloc_i64_set(elems: &[i64], capacity: usize) -> *mut u8 {
+/// Helper: allocate an RC'd hash table set buffer with i64 elements.
+///
+/// Returns `(data, actual_cap)`. The capacity is a power-of-two from the hash
+/// table, which may be larger than `min_capacity`. Elements are inserted using
+/// hash probing (identity hash for i64).
+fn rc_alloc_i64_set(elems: &[i64], min_capacity: usize) -> (*mut u8, usize) {
     let len = elems.len();
-    let cap = capacity.max(len);
     let es = std::mem::size_of::<i64>();
-    let total = cap * es;
-    if total == 0 {
-        return std::ptr::null_mut();
+    let cap = map::hash_table::next_hash_capacity(min_capacity.max(len));
+    if cap == 0 {
+        return (std::ptr::null_mut(), 0);
     }
-    let data = ori_rc_alloc(total, 8);
+    let data = set::alloc_set_hash_buffer(cap, es);
     assert!(!data.is_null());
-    for (i, &e) in elems.iter().enumerate() {
-        unsafe { *data.cast::<i64>().add(i) = e };
+    let layout = map::hash_table::HashTableLayout::for_set(cap, es);
+    for &e in elems {
+        let hash = e; // identity hash
+        let bucket = unsafe { map::hash_table::probe_find_slot(data, cap, hash) };
+        unsafe {
+            *data.add(layout.keys_offset + bucket * es).cast::<i64>() = e;
+            map::hash_table::set_meta(data, bucket, map::hash_table::META_OCCUPIED);
+        }
     }
-    data
+    (data, cap)
 }
 
-/// Helper: read element at index from a set buffer.
-unsafe fn set_read_elem(data: *const u8, index: usize) -> i64 {
-    *data.cast::<i64>().add(index)
+/// Helper: check if an element exists in a hash table set buffer.
+unsafe fn set_lookup_elem(data: *const u8, cap: usize, elem: i64) -> bool {
+    let es = std::mem::size_of::<i64>();
+    let layout = map::hash_table::HashTableLayout::for_set(cap, es);
+    let hash = elem; // identity hash
+    map::hash_table::probe_find(
+        data,
+        cap,
+        layout.keys_offset,
+        std::ptr::from_ref(&elem).cast(),
+        hash,
+        es,
+        i64_key_eq,
+    )
+    .is_some()
+}
+
+/// Helper: collect all elements from a hash table set buffer (scan OCCUPIED buckets).
+///
+/// Returns elements in bucket order. Sort the result for deterministic comparison.
+unsafe fn set_collect_elements(data: *const u8, cap: usize) -> Vec<i64> {
+    let es = std::mem::size_of::<i64>();
+    let layout = map::hash_table::HashTableLayout::for_set(cap, es);
+    let mut elems = Vec::new();
+    for bucket in 0..cap {
+        if map::hash_table::get_meta(data, bucket) == map::hash_table::META_OCCUPIED {
+            let val = *data.add(layout.keys_offset + bucket * es).cast::<i64>();
+            elems.push(val);
+        }
+    }
+    elems
+}
+
+/// Helper: free a hash table set buffer using the correct layout size.
+fn free_i64_set(data: *mut u8, cap: usize) {
+    let es = std::mem::size_of::<i64>();
+    let layout = map::hash_table::HashTableLayout::for_set(cap, es);
+    ori_rc_free(data, layout.total_size, 8);
 }
 
 #[test]
@@ -5027,6 +5099,7 @@ fn cow_set_insert_into_empty() {
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
@@ -5035,13 +5108,13 @@ fn cow_set_insert_into_empty() {
     let (len, cap, data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 1);
-    assert!(cap >= 4, "should get MIN_COLLECTION_CAPACITY, got {cap}");
+    assert!(cap >= 4, "should get at least MIN_HASH_CAPACITY, got {cap}");
     assert!(!data.is_null());
     assert_eq!(ori_rc_count(data), 1);
 
-    unsafe { assert_eq!(set_read_elem(data, 0), 42) };
+    unsafe { assert!(set_lookup_elem(data, cap as usize, 42), "42 must be in set") };
 
-    ori_rc_free(data, cap as usize * es as usize, 8);
+    free_i64_set(data, cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5051,7 +5124,8 @@ fn cow_set_insert_unique_new_elem() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[10, 20], 8);
+    // Allocate {10, 20} with min_capacity=4 → actual cap=8 (load factor headroom)
+    let (data, cap) = rc_alloc_i64_set(&[10, 20], 4);
     let original_ptr = data;
 
     let elem: i64 = 30;
@@ -5060,29 +5134,39 @@ fn cow_set_insert_unique_new_elem() {
     set::cow::ori_set_insert_cow(
         data,
         2,
-        8,
+        cap as i64,
         std::ptr::from_ref(&elem).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3);
-    assert_eq!(cap, 8, "capacity unchanged (had room)");
+    assert_eq!(result_cap, cap as i64, "capacity unchanged (had room)");
     assert_eq!(result_data, original_ptr, "FAST PATH: same pointer");
 
     unsafe {
-        assert_eq!(set_read_elem(result_data, 0), 10);
-        assert_eq!(set_read_elem(result_data, 1), 20);
-        assert_eq!(set_read_elem(result_data, 2), 30);
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 10),
+            "10 must be in result"
+        );
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 20),
+            "20 must be in result"
+        );
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 30),
+            "30 must be in result"
+        );
     }
 
-    ori_rc_free(result_data, 8 * es as usize, 8);
+    free_i64_set(result_data, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5092,7 +5176,7 @@ fn cow_set_insert_existing_elem_noop() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (data, cap) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let original_ptr = data;
 
     let elem: i64 = 20; // already in set
@@ -5101,26 +5185,27 @@ fn cow_set_insert_existing_elem_noop() {
     set::cow::ori_set_insert_cow(
         data,
         3,
-        4,
+        cap as i64,
         std::ptr::from_ref(&elem).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3, "no change — element already exists");
-    assert_eq!(cap, 4);
+    assert_eq!(result_cap, cap as i64, "capacity unchanged");
     assert_eq!(
         result_data, original_ptr,
         "should return same pointer (no-op)"
     );
 
-    ori_rc_free(result_data, 4 * es as usize, 8);
+    free_i64_set(result_data, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5130,7 +5215,7 @@ fn cow_set_insert_shared_copies() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[10, 20], 4);
+    let (data, cap) = rc_alloc_i64_set(&[10, 20], 4);
     ori_rc_inc(data);
     assert_eq!(ori_rc_count(data), 2);
 
@@ -5140,38 +5225,45 @@ fn cow_set_insert_shared_copies() {
     set::cow::ori_set_insert_cow(
         data,
         2,
-        4,
+        cap as i64,
         std::ptr::from_ref(&elem).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3);
-    assert!(cap >= 3);
+    assert!(result_cap >= 3);
     assert_ne!(result_data, data, "SLOW PATH: different pointer");
     assert_eq!(ori_rc_count(result_data), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(data), 1, "old buffer RC decremented");
 
     unsafe {
-        assert_eq!(set_read_elem(result_data, 0), 10);
-        assert_eq!(set_read_elem(result_data, 1), 20);
-        assert_eq!(set_read_elem(result_data, 2), 30);
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 10),
+            "10 in result"
+        );
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 20),
+            "20 in result"
+        );
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 30),
+            "30 in result"
+        );
+        // Verify original unchanged
+        assert!(set_lookup_elem(data, cap, 10), "10 still in original");
+        assert!(set_lookup_elem(data, cap, 20), "20 still in original");
     }
 
-    // Verify original unchanged
-    unsafe {
-        assert_eq!(set_read_elem(data, 0), 10);
-        assert_eq!(set_read_elem(data, 1), 20);
-    }
-
-    ori_rc_free(data, 4 * es as usize, 8);
-    ori_rc_free(result_data, cap as usize * es as usize, 8);
+    free_i64_set(data, cap);
+    free_i64_set(result_data, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5181,37 +5273,46 @@ fn cow_set_insert_unique_needs_growth() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    // Full set: 4 elements, cap 4
-    let data = rc_alloc_i64_set(&[10, 20, 30, 40], 4);
+    // Fill a set to load-factor threshold: 6 elements in cap=8 triggers rehash
+    let (data, cap) = rc_alloc_i64_set(&[10, 20, 30, 40, 50, 60], 6);
+    assert_eq!(cap, 8, "next_hash_capacity(6) = 8");
 
-    let elem: i64 = 50;
+    let elem: i64 = 70;
     let mut out = [0u8; 24];
 
     set::cow::ori_set_insert_cow(
         data,
-        4,
-        4,
+        6,
+        cap as i64,
         std::ptr::from_ref(&elem).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
-    assert_eq!(len, 5);
-    assert!(cap >= 8, "should have grown, got {cap}");
+    assert_eq!(len, 7);
+    assert!(
+        result_cap > cap as i64,
+        "should have grown beyond {cap}, got {result_cap}"
+    );
     assert!(!result_data.is_null());
 
     unsafe {
-        assert_eq!(set_read_elem(result_data, 0), 10);
-        assert_eq!(set_read_elem(result_data, 4), 50);
+        for &v in &[10i64, 20, 30, 40, 50, 60, 70] {
+            assert!(
+                set_lookup_elem(result_data, result_cap as usize, v),
+                "{v} must be in result"
+            );
+        }
     }
 
-    ori_rc_free(result_data, cap as usize * es as usize, 8);
+    free_i64_set(result_data, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5223,7 +5324,7 @@ fn cow_set_remove_not_found() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (data, cap) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let original_ptr = data;
 
     let needle: i64 = 999;
@@ -5232,26 +5333,27 @@ fn cow_set_remove_not_found() {
     set::cow::ori_set_remove_cow(
         data,
         3,
-        4,
+        cap as i64,
         std::ptr::from_ref(&needle).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 3);
-    assert_eq!(cap, 4);
+    assert_eq!(result_cap, cap as i64, "capacity unchanged");
     assert_eq!(
         result_data, original_ptr,
         "should return same pointer (no-op)"
     );
 
-    ori_rc_free(result_data, 4 * es as usize, 8);
+    free_i64_set(result_data, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5261,7 +5363,7 @@ fn cow_set_remove_unique_middle() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (data, cap) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let original_ptr = data;
 
     let needle: i64 = 20;
@@ -5270,28 +5372,42 @@ fn cow_set_remove_unique_middle() {
     set::cow::ori_set_remove_cow(
         data,
         3,
-        4,
+        cap as i64,
         std::ptr::from_ref(&needle).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 2);
-    assert_eq!(cap, 4, "capacity unchanged (in-place)");
-    assert_eq!(result_data, original_ptr, "FAST PATH: in-place shift");
+    assert_eq!(
+        result_cap, cap as i64,
+        "capacity unchanged (tombstone in place)"
+    );
+    assert_eq!(result_data, original_ptr, "FAST PATH: same pointer");
 
     unsafe {
-        assert_eq!(set_read_elem(result_data, 0), 10);
-        assert_eq!(set_read_elem(result_data, 1), 30);
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 10),
+            "10 remains"
+        );
+        assert!(
+            !set_lookup_elem(result_data, result_cap as usize, 20),
+            "20 removed"
+        );
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 30),
+            "30 remains"
+        );
     }
 
-    ori_rc_free(result_data, 4 * es as usize, 8);
+    free_i64_set(result_data, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5301,7 +5417,7 @@ fn cow_set_remove_unique_last_entry_frees() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[42], 4);
+    let (data, cap) = rc_alloc_i64_set(&[42], 1);
     assert_eq!(ori_rc_count(data), 1);
 
     let needle: i64 = 42;
@@ -5310,20 +5426,21 @@ fn cow_set_remove_unique_last_entry_frees() {
     set::cow::ori_set_remove_cow(
         data,
         1,
-        4,
+        cap as i64,
         std::ptr::from_ref(&needle).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 0);
-    assert_eq!(cap, 0);
+    assert_eq!(result_cap, 0);
     assert!(result_data.is_null(), "empty sentinel");
     assert_eq!(ori_rc_live_count(), before, "buffer freed, no leaks");
 }
@@ -5334,7 +5451,7 @@ fn cow_set_remove_shared_copies() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (data, cap) = rc_alloc_i64_set(&[10, 20, 30], 4);
     ori_rc_inc(data);
     assert_eq!(ori_rc_count(data), 2);
 
@@ -5344,38 +5461,46 @@ fn cow_set_remove_shared_copies() {
     set::cow::ori_set_remove_cow(
         data,
         3,
-        4,
+        cap as i64,
         std::ptr::from_ref(&needle).cast(),
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result_data) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result_data) = unsafe { read_list_result(&out) };
 
     assert_eq!(len, 2);
-    assert_eq!(cap, 2, "tight fit for new allocation");
+    assert!(result_cap >= 2, "new buffer sized for 2 elements");
     assert_ne!(result_data, data, "SLOW PATH: different pointer");
     assert_eq!(ori_rc_count(result_data), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(data), 1, "old buffer RC decremented");
 
     unsafe {
-        assert_eq!(set_read_elem(result_data, 0), 10);
-        assert_eq!(set_read_elem(result_data, 1), 30);
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 10),
+            "10 in result"
+        );
+        assert!(
+            !set_lookup_elem(result_data, result_cap as usize, 20),
+            "20 removed"
+        );
+        assert!(
+            set_lookup_elem(result_data, result_cap as usize, 30),
+            "30 in result"
+        );
+        // Verify original unchanged
+        assert!(set_lookup_elem(data, cap, 10), "10 still in original");
+        assert!(set_lookup_elem(data, cap, 20), "20 still in original");
+        assert!(set_lookup_elem(data, cap, 30), "30 still in original");
     }
 
-    // Verify original unchanged
-    unsafe {
-        assert_eq!(set_read_elem(data, 0), 10);
-        assert_eq!(set_read_elem(data, 1), 20);
-        assert_eq!(set_read_elem(data, 2), 30);
-    }
-
-    ori_rc_free(data, 4 * es as usize, 8);
-    ori_rc_free(result_data, 2 * es as usize, 8);
+    free_i64_set(data, cap);
+    free_i64_set(result_data, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5396,6 +5521,7 @@ fn cow_set_remove_from_empty() {
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
@@ -5424,9 +5550,11 @@ fn cow_set_union_both_empty() {
         0,
         std::ptr::null(),
         0,
+        0,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
@@ -5445,7 +5573,7 @@ fn cow_set_union_set2_empty_identity() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let data = rc_alloc_i64_set(&[10, 20], 4);
+    let (data, cap) = rc_alloc_i64_set(&[10, 20], 4);
     let original_ptr = data;
     let mut out = [0u8; 24];
 
@@ -5453,23 +5581,25 @@ fn cow_set_union_set2_empty_identity() {
     set::cow::ori_set_union_cow(
         data,
         2,
-        4,
+        cap as i64,
         std::ptr::null(),
+        0,
         0,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
-    assert_eq!(cap, 4);
+    assert_eq!(result_cap, cap as i64, "capacity unchanged");
     assert_eq!(result, original_ptr, "identity: same pointer");
 
-    ori_rc_free(result, 4 * es as usize, 8);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5479,7 +5609,7 @@ fn cow_set_union_set1_empty_copies_set2() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let d2 = rc_alloc_i64_set(&[30, 40], 2);
+    let (d2, cap2) = rc_alloc_i64_set(&[30, 40], 2);
     let mut out = [0u8; 24];
 
     // ∅ ∪ B = B (should allocate new buffer with B's elements)
@@ -5489,27 +5619,35 @@ fn cow_set_union_set1_empty_copies_set2() {
         0,
         d2.cast_const(),
         2,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
-    assert!(cap >= 2);
+    assert!(result_cap >= 2);
     assert!(!result.is_null());
     assert_ne!(result, d2, "new allocation, not same as d2");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 30);
-        assert_eq!(set_read_elem(result, 1), 40);
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 30),
+            "30 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 40),
+            "40 in result"
+        );
     }
 
-    ori_rc_free(d2, 2 * es as usize, 8);
-    ori_rc_free(result, cap as usize * es as usize, 8);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5519,40 +5657,55 @@ fn cow_set_union_unique_extends_in_place() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    // set1 = {10, 20} with cap=8, set2 = {20, 30, 40}
-    let d1 = rc_alloc_i64_set(&[10, 20], 8);
+    // set1 = {10, 20} with plenty of headroom, set2 = {20, 30, 40}
+    // Use min_capacity=4 for d1 → cap=8; union of 4 unique elems fits (4 <= 8*3/4=6)
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20], 4);
     let original_ptr = d1;
-    let d2 = rc_alloc_i64_set(&[20, 30, 40], 3);
+    let (d2, cap2) = rc_alloc_i64_set(&[20, 30, 40], 4);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_union_cow(
         d1,
         2,
-        8,
+        cap1 as i64,
         d2.cast_const(),
         3,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 4, "union: {{10,20}} ∪ {{20,30,40}} = {{10,20,30,40}}");
-    assert_eq!(cap, 8, "capacity unchanged (had room)");
+    assert_eq!(result_cap, cap1 as i64, "capacity unchanged (had room)");
     assert_eq!(result, original_ptr, "FAST PATH: same pointer");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 10);
-        assert_eq!(set_read_elem(result, 1), 20);
-        assert_eq!(set_read_elem(result, 2), 30);
-        assert_eq!(set_read_elem(result, 3), 40);
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 10),
+            "10 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 20),
+            "20 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 30),
+            "30 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 40),
+            "40 in result"
+        );
     }
 
-    ori_rc_free(d2, 3 * es as usize, 8);
-    ori_rc_free(result, 8 * es as usize, 8);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5562,37 +5715,49 @@ fn cow_set_union_unique_needs_growth() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    // set1 = {10, 20} with cap=2 (full), set2 = {30}
-    let d1 = rc_alloc_i64_set(&[10, 20], 2);
-    let d2 = rc_alloc_i64_set(&[30], 1);
+    // set1 = {10, 20} at load factor threshold (cap=4, 2 elems → needs_rehash(3,4)=true)
+    // set2 = {30} — union of 3 elems forces growth
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20], 2);
+    let (d2, cap2) = rc_alloc_i64_set(&[30], 1);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_union_cow(
         d1,
         2,
-        2,
+        cap1 as i64,
         d2.cast_const(),
         1,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3);
-    assert!(cap >= 3, "grown: cap={cap}");
+    assert!(result_cap >= 4, "grown to fit 3 elements: cap={result_cap}");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 10);
-        assert_eq!(set_read_elem(result, 1), 20);
-        assert_eq!(set_read_elem(result, 2), 30);
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 10),
+            "10 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 20),
+            "20 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 30),
+            "30 in result"
+        );
     }
 
-    ori_rc_free(d2, es as usize, 8);
-    ori_rc_free(result, cap as usize * es as usize, 8);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5602,49 +5767,57 @@ fn cow_set_union_shared_copies() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let d1 = rc_alloc_i64_set(&[10, 20], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20], 4);
     ori_rc_inc(d1);
     assert_eq!(ori_rc_count(d1), 2);
 
-    let d2 = rc_alloc_i64_set(&[20, 30], 2);
+    let (d2, cap2) = rc_alloc_i64_set(&[20, 30], 2);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_union_cow(
         d1,
         2,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         2,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3, "union: {{10,20}} ∪ {{20,30}} = {{10,20,30}}");
-    assert!(cap >= 3);
+    assert!(result_cap >= 3);
     assert_ne!(result, d1, "SLOW PATH: new allocation");
     assert_eq!(ori_rc_count(result), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(d1), 1, "old buffer RC decremented");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 10);
-        assert_eq!(set_read_elem(result, 1), 20);
-        assert_eq!(set_read_elem(result, 2), 30);
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 10),
+            "10 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 20),
+            "20 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 30),
+            "30 in result"
+        );
+        // Verify original unchanged
+        assert!(set_lookup_elem(d1, cap1, 10), "10 still in original");
+        assert!(set_lookup_elem(d1, cap1, 20), "20 still in original");
     }
 
-    // Verify original unchanged
-    unsafe {
-        assert_eq!(set_read_elem(d1, 0), 10);
-        assert_eq!(set_read_elem(d1, 1), 20);
-    }
-
-    ori_rc_free(d1, 4 * es as usize, 8);
-    ori_rc_free(d2, 2 * es as usize, 8);
-    ori_rc_free(result, cap as usize * es as usize, 8);
+    free_i64_set(d1, cap1);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5655,32 +5828,34 @@ fn cow_set_union_superset_noop() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // A ⊇ B → A ∪ B = A (no-op)
-    let d1 = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let original_ptr = d1;
-    let d2 = rc_alloc_i64_set(&[10, 20], 2);
+    let (d2, cap2) = rc_alloc_i64_set(&[10, 20], 2);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_union_cow(
         d1,
         3,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         2,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3, "superset: no change");
-    assert_eq!(cap, 4);
+    assert_eq!(result_cap, cap1 as i64, "capacity unchanged");
     assert_eq!(result, original_ptr, "same pointer (no-op)");
 
-    ori_rc_free(d2, 2 * es as usize, 8);
-    ori_rc_free(result, 4 * es as usize, 8);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5693,18 +5868,20 @@ fn cow_set_intersection_either_empty() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // A ∩ ∅ = ∅
-    let d1 = rc_alloc_i64_set(&[10, 20], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20], 4);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_intersection_cow(
         d1,
         2,
-        4,
+        cap1 as i64,
         std::ptr::null(),
+        0,
         0,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
@@ -5724,37 +5901,50 @@ fn cow_set_intersection_unique_compacts() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // {10, 20, 30} ∩ {20, 30, 40} = {20, 30}
-    let d1 = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let original_ptr = d1;
-    let d2 = rc_alloc_i64_set(&[20, 30, 40], 3);
+    let (d2, cap2) = rc_alloc_i64_set(&[20, 30, 40], 4);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_intersection_cow(
         d1,
         3,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         3,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
-    assert_eq!(cap, 4, "capacity preserved (in-place compaction)");
+    assert_eq!(
+        result_cap, cap1 as i64,
+        "capacity preserved (in-place tombstone)"
+    );
     assert_eq!(result, original_ptr, "FAST PATH: same pointer");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 20);
-        assert_eq!(set_read_elem(result, 1), 30);
+        assert!(
+            !set_lookup_elem(result, result_cap as usize, 10),
+            "10 removed"
+        );
+        assert!(set_lookup_elem(result, result_cap as usize, 20), "20 kept");
+        assert!(set_lookup_elem(result, result_cap as usize, 30), "30 kept");
+
+        let mut elems = set_collect_elements(result, result_cap as usize);
+        elems.sort_unstable();
+        assert_eq!(elems, vec![20, 30]);
     }
 
-    ori_rc_free(d2, 3 * es as usize, 8);
-    ori_rc_free(result, 4 * es as usize, 8);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5765,19 +5955,21 @@ fn cow_set_intersection_unique_all_removed() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // {10, 20} ∩ {30, 40} = ∅ (disjoint)
-    let d1 = rc_alloc_i64_set(&[10, 20], 4);
-    let d2 = rc_alloc_i64_set(&[30, 40], 2);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20], 4);
+    let (d2, cap2) = rc_alloc_i64_set(&[30, 40], 2);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_intersection_cow(
         d1,
         2,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         2,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
@@ -5788,7 +5980,7 @@ fn cow_set_intersection_unique_all_removed() {
     assert_eq!(cap, 0);
     assert!(result.is_null());
 
-    ori_rc_free(d2, 2 * es as usize, 8);
+    free_i64_set(d2, cap2);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5798,49 +5990,54 @@ fn cow_set_intersection_shared_copies() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let d1 = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20, 30], 4);
     ori_rc_inc(d1);
     assert_eq!(ori_rc_count(d1), 2);
 
-    let d2 = rc_alloc_i64_set(&[20, 30, 40], 3);
+    let (d2, cap2) = rc_alloc_i64_set(&[20, 30, 40], 4);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_intersection_cow(
         d1,
         3,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         3,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2, "{{10,20,30}} ∩ {{20,30,40}} = {{20,30}}");
-    assert_eq!(cap, 2, "tight allocation on slow path");
+    assert!(result_cap >= 2, "new buffer sized for 2 elements");
     assert_ne!(result, d1, "SLOW PATH: new allocation");
     assert_eq!(ori_rc_count(result), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(d1), 1, "old buffer RC decremented");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 20);
-        assert_eq!(set_read_elem(result, 1), 30);
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 20),
+            "20 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 30),
+            "30 in result"
+        );
+        // Original unchanged
+        assert!(set_lookup_elem(d1, cap1, 10), "10 still in original");
+        assert!(set_lookup_elem(d1, cap1, 20), "20 still in original");
+        assert!(set_lookup_elem(d1, cap1, 30), "30 still in original");
     }
 
-    // Original unchanged
-    unsafe {
-        assert_eq!(set_read_elem(d1, 0), 10);
-        assert_eq!(set_read_elem(d1, 1), 20);
-        assert_eq!(set_read_elem(d1, 2), 30);
-    }
-
-    ori_rc_free(d1, 4 * es as usize, 8);
-    ori_rc_free(d2, 3 * es as usize, 8);
-    ori_rc_free(result, cap as usize * es as usize, 8);
+    free_i64_set(d1, cap1);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5851,32 +6048,40 @@ fn cow_set_intersection_self_identity() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // A ∩ A = A (all elements match)
-    let d1 = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let original_ptr = d1;
-    // Use a separate copy for d2 (d1 is consumed)
-    let d2 = rc_alloc_i64_set(&[10, 20, 30], 3);
+    // Use a separate copy for d2 (d1 is consumed by the call)
+    let (d2, cap2) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_intersection_cow(
         d1,
         3,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         3,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 3, "A ∩ A = A");
     assert_eq!(result, original_ptr, "FAST PATH: all kept in place");
 
-    ori_rc_free(d2, 3 * es as usize, 8);
-    ori_rc_free(result, cap as usize * es as usize, 8);
+    unsafe {
+        let mut elems = set_collect_elements(result, result_cap as usize);
+        elems.sort_unstable();
+        assert_eq!(elems, vec![10, 20, 30]);
+    }
+
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5896,9 +6101,11 @@ fn cow_set_difference_set1_empty() {
         0,
         std::ptr::null(),
         0,
+        0,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
@@ -5918,30 +6125,32 @@ fn cow_set_difference_set2_empty_identity() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // A \ ∅ = A
-    let d1 = rc_alloc_i64_set(&[10, 20], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20], 4);
     let original_ptr = d1;
     let mut out = [0u8; 24];
 
     set::cow::ori_set_difference_cow(
         d1,
         2,
-        4,
+        cap1 as i64,
         std::ptr::null(),
+        0,
         0,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2, "A \\ ∅ = A");
-    assert_eq!(cap, 4);
+    assert_eq!(result_cap, cap1 as i64, "capacity unchanged");
     assert_eq!(result, original_ptr, "identity: same pointer");
 
-    ori_rc_free(result, 4 * es as usize, 8);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5952,37 +6161,54 @@ fn cow_set_difference_unique_compacts() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // {10, 20, 30, 40} \ {20, 40} = {10, 30}
-    let d1 = rc_alloc_i64_set(&[10, 20, 30, 40], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20, 30, 40], 4);
     let original_ptr = d1;
-    let d2 = rc_alloc_i64_set(&[20, 40], 2);
+    let (d2, cap2) = rc_alloc_i64_set(&[20, 40], 2);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_difference_cow(
         d1,
         4,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         2,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2);
-    assert_eq!(cap, 4, "capacity preserved (in-place compaction)");
+    assert_eq!(
+        result_cap, cap1 as i64,
+        "capacity preserved (tombstone in place)"
+    );
     assert_eq!(result, original_ptr, "FAST PATH: same pointer");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 10);
-        assert_eq!(set_read_elem(result, 1), 30);
+        assert!(set_lookup_elem(result, result_cap as usize, 10), "10 kept");
+        assert!(
+            !set_lookup_elem(result, result_cap as usize, 20),
+            "20 removed"
+        );
+        assert!(set_lookup_elem(result, result_cap as usize, 30), "30 kept");
+        assert!(
+            !set_lookup_elem(result, result_cap as usize, 40),
+            "40 removed"
+        );
+
+        let mut elems = set_collect_elements(result, result_cap as usize);
+        elems.sort_unstable();
+        assert_eq!(elems, vec![10, 30]);
     }
 
-    ori_rc_free(d2, 2 * es as usize, 8);
-    ori_rc_free(result, 4 * es as usize, 8);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -5993,19 +6219,21 @@ fn cow_set_difference_self_yields_empty() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // A \ A = ∅
-    let d1 = rc_alloc_i64_set(&[10, 20, 30], 4);
-    let d2 = rc_alloc_i64_set(&[10, 20, 30], 3);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (d2, cap2) = rc_alloc_i64_set(&[10, 20, 30], 4);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_difference_cow(
         d1,
         3,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         3,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
@@ -6016,7 +6244,7 @@ fn cow_set_difference_self_yields_empty() {
     assert_eq!(cap, 0);
     assert!(result.is_null());
 
-    ori_rc_free(d2, 3 * es as usize, 8);
+    free_i64_set(d2, cap2);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -6026,49 +6254,58 @@ fn cow_set_difference_shared_copies() {
     let before = ori_rc_live_count();
     let es = std::mem::size_of::<i64>() as i64;
 
-    let d1 = rc_alloc_i64_set(&[10, 20, 30], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20, 30], 4);
     ori_rc_inc(d1);
     assert_eq!(ori_rc_count(d1), 2);
 
-    let d2 = rc_alloc_i64_set(&[20], 1);
+    let (d2, cap2) = rc_alloc_i64_set(&[20], 1);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_difference_cow(
         d1,
         3,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         1,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2, "{{10,20,30}} \\ {{20}} = {{10,30}}");
-    assert_eq!(cap, 2, "tight allocation on slow path");
+    assert!(result_cap >= 2, "new buffer sized for 2 elements");
     assert_ne!(result, d1, "SLOW PATH: new allocation");
     assert_eq!(ori_rc_count(result), 1, "new buffer RC=1");
     assert_eq!(ori_rc_count(d1), 1, "old buffer RC decremented");
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 10);
-        assert_eq!(set_read_elem(result, 1), 30);
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 10),
+            "10 in result"
+        );
+        assert!(
+            !set_lookup_elem(result, result_cap as usize, 20),
+            "20 removed"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 30),
+            "30 in result"
+        );
+        // Original unchanged
+        assert!(set_lookup_elem(d1, cap1, 10), "10 still in original");
+        assert!(set_lookup_elem(d1, cap1, 20), "20 still in original");
+        assert!(set_lookup_elem(d1, cap1, 30), "30 still in original");
     }
 
-    // Original unchanged
-    unsafe {
-        assert_eq!(set_read_elem(d1, 0), 10);
-        assert_eq!(set_read_elem(d1, 1), 20);
-        assert_eq!(set_read_elem(d1, 2), 30);
-    }
-
-    ori_rc_free(d1, 4 * es as usize, 8);
-    ori_rc_free(d2, es as usize, 8);
-    ori_rc_free(result, cap as usize * es as usize, 8);
+    free_i64_set(d1, cap1);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }
 
@@ -6079,39 +6316,47 @@ fn cow_set_difference_disjoint_noop() {
     let es = std::mem::size_of::<i64>() as i64;
 
     // {10, 20} \ {30, 40} = {10, 20} (no overlap)
-    let d1 = rc_alloc_i64_set(&[10, 20], 4);
+    let (d1, cap1) = rc_alloc_i64_set(&[10, 20], 4);
     let original_ptr = d1;
-    let d2 = rc_alloc_i64_set(&[30, 40], 2);
+    let (d2, cap2) = rc_alloc_i64_set(&[30, 40], 2);
     let mut out = [0u8; 24];
 
     set::cow::ori_set_difference_cow(
         d1,
         2,
-        4,
+        cap1 as i64,
         d2.cast_const(),
         2,
+        cap2 as i64,
         es,
         8,
         i64_key_eq,
+        i64_key_hash,
         None,
         0,
         out.as_mut_ptr(),
     );
 
-    let (len, cap, result) = unsafe { read_list_result(&out) };
+    let (len, result_cap, result) = unsafe { read_list_result(&out) };
     assert_eq!(len, 2, "disjoint: no elements removed");
-    assert_eq!(cap, 4);
+    assert_eq!(result_cap, cap1 as i64, "capacity unchanged");
     assert_eq!(
         result, original_ptr,
         "FAST PATH: same pointer (nothing removed)"
     );
 
     unsafe {
-        assert_eq!(set_read_elem(result, 0), 10);
-        assert_eq!(set_read_elem(result, 1), 20);
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 10),
+            "10 in result"
+        );
+        assert!(
+            set_lookup_elem(result, result_cap as usize, 20),
+            "20 in result"
+        );
     }
 
-    ori_rc_free(d2, 2 * es as usize, 8);
-    ori_rc_free(result, 4 * es as usize, 8);
+    free_i64_set(d2, cap2);
+    free_i64_set(result, result_cap as usize);
     assert_eq!(ori_rc_live_count(), before, "no leaks");
 }

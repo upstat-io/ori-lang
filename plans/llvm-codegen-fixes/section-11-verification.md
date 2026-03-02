@@ -92,23 +92,24 @@ Verify each finding is resolved by its corresponding test.
 |----|-------------|------|--------|
 | H1 | Empty landing pads for all calls | Journey 3 IR has no empty landing pads | [ ] |
 | H2 | Unsound nounwind on runtime calls | nounwind only on provably-nounwind functions | [ ] |
+| H3 | Missing noalias on non-aliasing params | Proven non-aliasing params have `noalias`; shared-buffer params do not | [ ] |
 
 ### MEDIUM Findings
 
 | ID | Description | Test | Status |
 |----|-------------|------|--------|
 | M1 | Prelude overhead | Assessed with measurements | [ ] |
-| M2 | No nsw on arithmetic | Design decision documented | [ ] |
+| M2 | No checked arithmetic (wrapping overflow) | Checked overflow intrinsics + panic on overflow | [ ] |
 | M3 | Dead br label after calls | 0 dead branches in all journey IR | [ ] |
 | M4 | No tail call optimization | Assessed (implemented or deferred) | [ ] |
-| M5 | align 4 on i64 loads | All i64 loads use align 8 | [ ] |
+| M5 | Hardcoded align 4 on i64 loads | All alignment DataLayout-derived, verifier clean | [ ] |
 | M6 | Full struct load for partial access | Assessed (implemented or deferred) | [ ] |
 | M7 | Verbose variant construction | insertvalue chain, no alloca roundtrip | [ ] |
 | M8 | Identical match arms not deduped | Assessed (implemented or deferred) | [ ] |
-| M9 | Range overflow for ..=INT_MAX | Inclusive range uses <= condition | [ ] |
+| M9 | Range overflow for ..=INT_MAX | Runtime step-sign branch (sle/sge/panic); constant-folds for literal steps | [ ] |
 | M10 | Inconsistent nounwind on main | Consistent nounwind analysis | [ ] |
 | M11 | Orphaned landing pads | 0 orphaned blocks | [ ] |
-| M12 | Duplicate drop functions | 1 drop per unique layout | [ ] |
+| M12 | Duplicate drop functions | 1 drop per unique canonical type | [ ] |
 | M13 | Unnecessary Option tuple in iterator | Direct i8 check, no tuple | [ ] |
 | M14 | None loads uninitialized payload | No uninitialized reads | [ ] |
 
@@ -134,9 +135,12 @@ Verify each finding is resolved by its corresponding test.
 - [ ] `./test-all.sh` — green
 - [ ] `./clippy-all.sh` — green
 - [ ] All 4 CRITICAL findings fixed
-- [ ] All 2 HIGH findings fixed
+- [ ] All 3 HIGH findings fixed (H1, H2, H3)
 - [ ] All 14 MEDIUM findings fixed or assessed with documented rationale
 - [ ] All 7 LOW findings assessed with documented rationale
 - [ ] Test matrix (11.4) fully checked
+- [ ] `opt -passes=verify` on generated IR for all 12 journeys — 0 errors
+- [ ] Target matrix: journey runs verified on x86-64 and aarch64 (at minimum verify IR generation for both targets)
+- [ ] **Note:** aarch64 IR-only verification catches alignment and codegen structural issues but does NOT cover runtime ARC/panic behavior differences on ARM hardware. If native aarch64 execution becomes available, re-run dual-exec + valgrind on that target before considering Section 11 fully closed.
 
-**Exit Criteria:** 28/28 findings resolved (fixed, assessed, or deferred with rationale). 12/12 journeys correct. 0 dual-exec mismatches. 0 valgrind errors. Full test suite green.
+**Exit Criteria:** 28/28 findings resolved (fixed, assessed, or deferred with rationale). 12/12 journeys correct. 0 dual-exec mismatches. 0 valgrind errors. `opt -passes=verify` clean on all journey IR. Full test suite green.

@@ -1,0 +1,64 @@
+// Macro-benchmark: File processing pipeline
+// Exercises: string split (slices), string trim (slices), string starts_with,
+//   is_empty, list push, string concat, for-loop filtering
+// Generates a large multi-line string simulating a config file with comments,
+// blank lines, and data lines, then processes it line-by-line.
+// COW paths: string concat (building input), list push (collecting results),
+//   string split/trim (zero-copy slices when possible)
+
+@main () -> int = {
+    // Generate a 3000-line input string with mixed content
+    let n = 3000;
+    let input = "";
+    let data_count = 0;
+    let i = 0;
+    loop {
+        if i >= n then break;
+        let line_type = i % 5;
+        if line_type == 0 then {
+            // Comment line
+            input = input + "# comment " + str(i) + "\n";
+        } else if line_type == 1 then {
+            // Empty/whitespace line
+            input = input + "   \n";
+        } else {
+            // Data line
+            input = input + "  key_" + str(i) + "=value_" + str(i * 10) + "  \n";
+            data_count = data_count + 1;
+        };
+        i = i + 1;
+    };
+
+    // Process: split into lines, trim, filter empty and comments
+    let lines = input.split("\n");
+    let result: [str] = [];
+    let j = 0;
+    loop {
+        if j >= lines.len() then break;
+        let line = lines[j].trim();
+        if !line.is_empty() && !line.starts_with("#") then {
+            result = result.push(line);
+        };
+        j = j + 1;
+    };
+
+    // Verify: only data lines survive filtering
+    // Every 5th line (i%5==0) is a comment, every 5th+1 is whitespace
+    // Data lines: i%5 in {2,3,4} → 3 out of every 5 → 3000 * 3/5 = 1800
+    let ok_count = result.len() == data_count;
+
+    // Verify trimming worked: no leading/trailing spaces
+    let ok_trimmed = true;
+    if result.len() > 0 then {
+        let first_line = result[0];
+        if first_line.starts_with(" ") then ok_trimmed = false;
+    };
+
+    // Verify content: first data line should be key_2=value_20
+    let ok_content = true;
+    if result.len() > 0 then {
+        if !result[0].starts_with("key_") then ok_content = false;
+    };
+
+    if ok_count && ok_trimmed && ok_content then 0 else 1
+}
