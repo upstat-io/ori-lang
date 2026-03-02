@@ -97,10 +97,10 @@ Files ranked by cross-reference count:
 
 ## 05.3 Grammar/Operator Rule References
 
-The current spec references grammar and operator rules via GitHub URLs:
+The current spec references grammar and operator rules via relative links:
 
 ```markdown
-> **Grammar:** See [grammar.ebnf](https://github.com/upstat-io/ori-lang/blob/master/docs/ori_lang/0.1-alpha/spec/grammar.ebnf) § SECTION_NAME
+> **Grammar:** See [grammar.ebnf](grammar.md) § SECTION_NAME
 ```
 
 In ISO format, these become annex references:
@@ -124,4 +124,4 @@ In ISO format, these become annex references:
 - [ ] Operator rule references point to `Annex B`
 - [ ] No remaining references to old filenames (e.g., `06-types.md` when it's now `08-types.md`)
 
-**Exit Criteria:** A link-checking script finds 0 broken internal links. `grep -rn '\[[^]]*\]([0-9][0-9]-' docs/ori_lang/0.1-alpha/spec/*.md` shows all links use new numbering.
+**Exit Criteria:** A link-checking script finds 0 broken internal links. `grep -rn '\[[^]]*\]([0-9][0-9]-' docs/ori_lang/v2026/spec/*.md` shows all links use new numbering.

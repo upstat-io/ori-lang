@@ -103,6 +103,14 @@ fn declare_spec(builder: &mut IrBuilder, spec: &RtFn) -> FunctionId {
         builder.add_noalias_attribute(id, 0);
     }
 
+    // COW functions: last param (out_ptr) is always a fresh stack alloca from
+    // the caller — it never aliases any other accessible pointer. Marking it
+    // noalias lets LLVM optimize stores to the output without alias concerns.
+    if spec.name.ends_with("_cow") && !spec.params.is_empty() {
+        let out_ptr_idx = spec.params.len() as u32 - 1;
+        builder.add_noalias_attribute(id, out_ptr_idx);
+    }
+
     for &attr in spec.attrs {
         apply_attr(builder, id, attr);
     }

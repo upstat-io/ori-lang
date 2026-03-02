@@ -38,7 +38,7 @@ sections:
 
 ## 08.1 Update _template.md
 
-**File(s):** `docs/ori_lang/0.1-alpha/spec/_template.md`
+**File(s):** `docs/ori_lang/v2026/spec/_template.md`
 
 - [ ] Update template to use ISO conventions:
   ```markdown
@@ -46,7 +46,7 @@ sections:
 
   One-line definition.
 
-  > **Grammar:** See [Annex A](annex-a-grammar.md) §A.SECTION_NAME
+  > **Grammar:** See [Annex A](grammar.md) §A.SECTION_NAME
 
   ## N.1 Subsection
 
@@ -109,7 +109,7 @@ sections:
 
 **File(s):** `.claude/rules/ori-syntax.md`
 
-- [ ] Update spec reference at top: "Spec is authoritative: `docs/ori_lang/0.1-alpha/spec/` (clauses 1–27, annexes A–E)"
+- [ ] Update spec reference at top: "Spec is authoritative: `docs/ori_lang/v2026/spec/` (clauses 1–27, annexes A–E)"
 - [ ] Verify all section cross-references use new clause numbers
 
 ---

@@ -213,7 +213,7 @@ INSTRUCTIONS:
    4. Do referenced files, types, functions, and modules actually exist? CHECK by reading source.
    5. Are implementation steps in the right order with correct dependencies?
    6. Any gaps — missing edge cases, unaddressed error handling?
-   7. Is terminology consistent with the Ori codebase and spec (docs/ori_lang/0.1-alpha/spec/)?
+   7. Is terminology consistent with the Ori codebase and spec (docs/ori_lang/v2026/spec/)?
 
    OUTPUT FORMAT (strict):
 

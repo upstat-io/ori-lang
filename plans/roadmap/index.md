@@ -600,7 +600,7 @@ name mangling, $m$, mono function
 body_type_map, type substitution, scheme_var_ids
 ```
 
-> **Design document**: Monomorphization pipeline architecture documented in `docs/ori_lang/0.1-alpha/design/monomorphization-architecture.md`. Covers Phases 1-5, reference compiler study, `GenericArg` enum, ARC lowering integration, name mangling.
+> **Design document**: Monomorphization pipeline architecture documented in `docs/ori_lang/v2026/design/monomorphization-architecture.md`. Covers Phases 1-5, reference compiler study, `GenericArg` enum, ARC lowering integration, name mangling.
 
 ---
 

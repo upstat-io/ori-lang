@@ -5,7 +5,7 @@ paths:
 
 # Ori Quick Reference
 
-**Spec is authoritative**: `docs/ori_lang/0.1-alpha/spec/` (Clauses 1–27, Annexes A–E; `grammar.ebnf` for syntax, `operator-rules.md` for semantics)
+**Spec is authoritative**: `docs/ori_lang/v2026/spec/` (Clauses 1–27, Annexes A–E; `grammar.ebnf` for syntax, `operator-rules.md` for semantics)
 
 > **Pending**: `capability-unification-generics-proposal` (approved 2026-02-20) will change: `#derive(Trait)` → `type T with Trait = {...}`, `T: Trait` → `T with Trait`, `trait Foo: Bar` → `trait Foo with Bar`. Syntax below reflects CURRENT compiler behavior until implementation.
 

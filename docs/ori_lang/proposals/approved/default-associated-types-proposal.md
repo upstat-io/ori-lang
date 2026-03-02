@@ -230,4 +230,4 @@ Infer associated types from method return types.
 
 - Rust: Default associated types (stabilized in 1.0 for some cases)
 - Swift: Associated type defaults
-- Current grammar: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf`
+- Current grammar: `docs/ori_lang/v2026/spec/grammar.ebnf`

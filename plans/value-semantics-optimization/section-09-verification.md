@@ -459,7 +459,7 @@ escalation to map the exact boundary of what works.
 
 - [ ] Update `.claude/rules/ori-syntax.md` if new methods are added (slice, take, drop, etc.)
 
-- [ ] Update `docs/ori_lang/0.1-alpha/spec/` if collection operation semantics change:
+- [ ] Update `docs/ori_lang/v2026/spec/` if collection operation semantics change:
   - Document COW behavior (transparent to the user — value semantics preserved)
   - Document SSO (implementation detail, not user-visible)
   - Document seamless slices (may affect observed allocation behavior)

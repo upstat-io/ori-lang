@@ -4,8 +4,8 @@
 //!
 //! # Specification
 //!
-//! - Lexical grammar: `docs/ori_lang/0.1-alpha/spec/grammar.ebnf` § LEXICAL GRAMMAR
-//! - Prose: `docs/ori_lang/0.1-alpha/spec/03-lexical-elements.md`
+//! - Lexical grammar: `docs/ori_lang/v2026/spec/grammar.ebnf` § LEXICAL GRAMMAR
+//! - Prose: `docs/ori_lang/v2026/spec/03-lexical-elements.md`
 //!
 //! # Lexing
 //!

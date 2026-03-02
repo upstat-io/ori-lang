@@ -252,7 +252,7 @@ pub extern "C-unwind" fn ori_panic_cstr(s: *const i8) {
 /// Called from LLVM-generated catch-all landing pads after extracting the
 /// exception pointer from the `landingpad catch null` result.
 ///
-/// # Current limitations (0.1-alpha)
+/// # Current limitations (2026)
 ///
 /// The Rust panic runtime's `__rust_panic_cleanup` is `#[rustc_std_internal_symbol]`
 /// and inaccessible from external crates. `_Unwind_DeleteException` triggers
