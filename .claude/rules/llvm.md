@@ -44,6 +44,10 @@ paths:
 - **`continue` → latch** (NOT header) — skipping latch = infinite loop
 - **`break` → exit**
 
+### ARM/aarch64 Portability
+- **`c_char` not `i8`** in `ori_rt`: C string pointers MUST use `std::ffi::c_char`. `c_char` is `i8` on x86_64 but `u8` on aarch64 — hardcoding `i8` breaks ARM. LLVM opaque `ptr` is unaffected (Rust-side only).
+- Test AOT on ARM via GCP `t2a-standard-2` instance or macOS CI (Apple Silicon)
+
 ### Inkwell Pitfalls
 - `build_*` fails without `position_at_end(block)` — always position first
 - `build_gep` is `unsafe` — first index = pointer deref (almost always `0`), subsequent = aggregate navigation
