@@ -1,7 +1,7 @@
 ---
 title: "LLVM Backend Overview"
 description: "LLVM backend architecture for JIT compilation and native code generation"
-order: 1
+order: 1000
 section: "LLVM Backend"
 ---
 
@@ -238,7 +238,10 @@ Options: `ORI_AUDIT_STRICT=1` (pessimistic mode), `ORI_AUDIT_FUNCTION=<name>` (f
 ## Documentation Sections
 
 - [AOT Compilation](aot.md) - Native executable and WebAssembly generation
+- [ARC Emitter](arc-emitter.md) - ARC IR to LLVM IR translation, RC lifecycle, drop generation
+- [Builtins Codegen](builtins-codegen.md) - Built-in function LLVM generation and dispatch
 - [Closures](closures.md) - Closure representation and calling conventions
+- [Codegen Verification](codegen-verification.md) - Audit pipeline and RC balance checking
 - [User-Defined Types](user-types.md) - Struct types, impl blocks, and method dispatch
 
 ## Source Files

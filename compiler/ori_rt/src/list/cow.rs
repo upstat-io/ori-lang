@@ -46,6 +46,7 @@ pub extern "C" fn ori_list_push_cow(
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem_ptr.is_null() {
@@ -64,7 +65,12 @@ pub extern "C" fn ori_list_push_cow(
     // FAST PATH: unique owner, non-slice — can mutate in place
     // Slices MUST NOT enter this path: `data` is interior to another
     // allocation, so `ori_rc_is_unique(data)` would read garbage.
-    if !data.is_null() && !is_slice_cap(cap) && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic (normal RC check), 1=static unique (skip check),
+    //           2=static shared (force slow path)
+    let is_unique = !data.is_null()
+        && !is_slice_cap(cap)
+        && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         let old_cap = cap.max(0) as usize;
 
         if old_cap >= new_len {
@@ -171,6 +177,7 @@ pub extern "C" fn ori_list_pop_cow(
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() {
@@ -198,7 +205,10 @@ pub extern "C" fn ori_list_pop_cow(
     let new_len = (len - 1) as usize;
 
     // FAST PATH: unique owner, non-slice — just shrink len
-    if !is_slice_cap(cap) && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique =
+        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         unsafe {
             out_ptr.cast::<i64>().write(new_len as i64);
             out_ptr.cast::<i64>().add(1).write(cap);
@@ -268,6 +278,7 @@ pub extern "C" fn ori_list_set_cow(
     elem_size: i64,
     elem_align: i64,
     inc_fn: Option<extern "C" fn(*mut u8)>,
+    cow_mode: i32,
     out_ptr: *mut u8,
 ) {
     if out_ptr.is_null() || elem_ptr.is_null() {
@@ -294,7 +305,10 @@ pub extern "C" fn ori_list_set_cow(
     let idx = index as usize;
 
     // FAST PATH: unique owner, non-slice — overwrite in place
-    if !is_slice_cap(cap) && ori_rc_is_unique(data) {
+    // cow_mode: 0=dynamic, 1=static unique, 2=static shared
+    let is_unique =
+        !is_slice_cap(cap) && (cow_mode == 1 || (cow_mode != 2 && ori_rc_is_unique(data)));
+    if is_unique {
         unsafe {
             std::ptr::copy_nonoverlapping(elem_ptr, data.add(idx * es), es);
             out_ptr.cast::<i64>().write(len);

@@ -389,6 +389,7 @@ fn cow_push_on_slice_materializes() {
         ELEM_SIZE,
         8,
         None,
+        0,
         push_out.as_mut_ptr(),
     );
 
@@ -435,6 +436,7 @@ fn cow_pop_on_slice_materializes() {
         ELEM_SIZE,
         8,
         None,
+        0,
         pop_out.as_mut_ptr(),
     );
 
@@ -472,6 +474,7 @@ fn cow_set_on_slice_materializes() {
         ELEM_SIZE,
         8,
         None,
+        0,
         set_out.as_mut_ptr(),
     );
 
@@ -510,6 +513,7 @@ fn cow_insert_on_slice_materializes() {
         ELEM_SIZE,
         8,
         None,
+        0,
         insert_out.as_mut_ptr(),
     );
 
@@ -545,6 +549,7 @@ fn cow_remove_on_slice_materializes() {
         ELEM_SIZE,
         8,
         None,
+        0,
         remove_out.as_mut_ptr(),
     );
 
@@ -577,6 +582,7 @@ fn cow_reverse_on_slice_materializes() {
         ELEM_SIZE,
         8,
         None,
+        0,
         rev_out.as_mut_ptr(),
     );
 
@@ -615,6 +621,7 @@ fn cow_concat_with_slice_list1() {
         ELEM_SIZE,
         8,
         None,
+        0,
         concat_out.as_mut_ptr(),
     );
 
@@ -715,6 +722,7 @@ fn cow_push_on_slice_rc_lifecycle() {
         ELEM_SIZE,
         8,
         None,
+        0,
         push_out.as_mut_ptr(),
     );
 

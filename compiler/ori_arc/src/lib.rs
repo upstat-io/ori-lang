@@ -33,10 +33,11 @@
 //!
 //! ```text
 //! CanExpr → lower → ArcFunction
-//!   → borrow inference (Owned/Borrowed per param)
-//!   → derived ownership (all locals)
-//!   → dominator tree
+//!   → borrow inference (Owned/Borrowed per param)       [interprocedural]
+//!   → uniqueness analysis (Unique/MaybeShared/Shared)    [interprocedural]
+//!   → derived ownership (all locals)                     [per-function]
 //!   → liveness + refined liveness
+//!   → COW annotation (CowMode per COW operation)
 //!   → RC insertion (RcInc/RcDec)
 //!   → reset/reuse detection → expansion
 //!   → RC identity propagation (Project roots)
@@ -70,6 +71,7 @@ pub mod rc_elim;
 pub mod rc_identity;
 pub mod rc_insert;
 pub mod reset_reuse;
+pub mod uniqueness;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;
@@ -79,10 +81,10 @@ use ori_types::{Idx, Pool};
 use rustc_hash::FxHashMap;
 
 pub use borrow::{
-    apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names,
+    all_cow_method_names, apply_borrows, borrowing_builtin_names, consuming_receiver_builtin_names,
     consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names, extract_callees,
     infer_borrow_fixed_point, infer_borrow_single, infer_borrows_scc, infer_derived_ownership,
-    initialize_single_borrowed, BuiltinOwnershipSets,
+    initialize_single_borrowed, sharing_builtin_names, BuiltinOwnershipSets,
 };
 pub use classify::ArcClassifier;
 pub use decision_tree::{
@@ -112,16 +114,27 @@ pub use rc_insert::{
     annotate_arg_ownership, insert_external_invoke_cleanup, insert_rc_ops_with_ownership,
 };
 pub use reset_reuse::detect_reset_reuse_cfg;
+pub use uniqueness::inter::{analyze_program, build_cow_summaries};
+pub use uniqueness::intra::{analyze_intraprocedural, analyze_with_summaries, UniquenessResult};
+pub use uniqueness::{
+    compute_cow_annotations, compute_drop_hints, CowAnnotations, CowMode, DropHints, Uniqueness,
+    UniquenessMap, UniquenessSummary,
+};
 
 /// Run the full ARC optimization pipeline on a single function.
 ///
-/// Pipeline order: arg ownership annotation → ownership inference →
-/// dominator tree → refined liveness (includes standard liveness) →
-/// RC insertion → reset/reuse detection → expansion → RC elimination.
+/// Pipeline order: var reprs → derived ownership → liveness →
+/// **uniqueness + COW annotation** → RC insertion → reset/reuse →
+/// expansion → RC identity → RC elimination → FBIP enforcement.
 ///
 /// **Prerequisite:** [`annotate_arg_ownership`] must be called before this
 /// function. It populates per-argument ownership on `Apply`/`Invoke`
 /// instructions so the RC insertion pass can read ownership from the IR.
+///
+/// The `uniqueness_summaries` parameter provides interprocedural uniqueness
+/// information computed by [`run_uniqueness_analysis`]. When non-empty,
+/// the pipeline annotates each COW operation with a [`CowMode`] on the
+/// function's [`cow_annotations`](ArcFunction::cow_annotations) field.
 ///
 /// This is the canonical pass ordering. All consumers should call this function
 /// instead of manually sequencing passes, which avoids duplicating ordering
@@ -133,12 +146,29 @@ pub fn run_arc_pipeline(
     sigs: &FxHashMap<Name, AnnotatedSig>,
     pool: &Pool,
     interner: &ori_ir::StringInterner,
+    uniqueness_summaries: &FxHashMap<Name, UniquenessSummary>,
 ) -> Vec<ArcProblem> {
     // Compute value representations before any passes modify the function.
     func.var_reprs = ir::compute_var_reprs(func, classifier, pool);
 
     let ownership = borrow::infer_derived_ownership(func, sigs);
     let (_, liveness) = liveness::compute_refined_liveness(func, classifier);
+
+    // Uniqueness analysis: determine CowMode for each COW operation.
+    // Runs BEFORE RC insertion because the analysis needs the pre-RC form
+    // (RC ops are handled defensively but add noise). Uses the liveness data
+    // already computed above.
+    if !uniqueness_summaries.is_empty() {
+        let cow_names = borrow::all_cow_method_names(interner);
+        func.cow_annotations = uniqueness::compute_cow_annotations(
+            func,
+            classifier,
+            &liveness,
+            uniqueness_summaries,
+            &cow_names,
+        );
+    }
+
     rc_insert::insert_rc_ops_with_ownership(func, classifier, &liveness, &ownership, sigs, pool);
     rc_insert::insert_external_invoke_cleanup(func, classifier, &liveness, pool);
 
@@ -167,6 +197,11 @@ pub fn run_arc_pipeline(
 
     rc_elim::eliminate_rc_ops_dataflow(func, &ownership);
 
+    // Drop hints: identify RcDec instructions on provably unique collections.
+    // Runs AFTER RC elimination (indices are final). The LLVM emitter uses
+    // these hints to call ori_buffer_drop_unique instead of ori_buffer_rc_dec.
+    func.drop_hints = uniqueness::compute_drop_hints(func, pool);
+
     // FBIP enforcement: check #fbip-annotated functions for missed reuse.
     let mut problems = Vec::new();
     if func.is_fbip {
@@ -181,6 +216,17 @@ pub fn run_arc_pipeline(
             problems.push(problem);
         }
     }
+
+    // Auto FBIP detection: functions with all COW operations proven
+    // StaticUnique achieve FBIP without the `#fbip` attribute.
+    if fbip::is_auto_fbip(func) {
+        let func_name = interner.lookup(func.name);
+        tracing::debug!(
+            function = func_name,
+            cow_ops = func.cow_annotations.len(),
+            "auto FBIP: all COW operations are StaticUnique"
+        );
+    }
     problems
 }
 
@@ -188,8 +234,9 @@ pub fn run_arc_pipeline(
 ///
 /// This is the batch entry point for the entire ARC optimization pass:
 /// 1. Apply borrow inference results to function parameters
-/// 2. Annotate per-argument ownership on call instructions
-/// 3. Run the per-function pipeline on each function
+/// 2. Run interprocedural uniqueness analysis (COW check elimination)
+/// 3. Annotate per-argument ownership on call instructions
+/// 4. Run the per-function pipeline on each function (with uniqueness)
 ///
 /// Consumers should call this instead of manually calling [`apply_borrows`]
 /// followed by a per-function loop over [`run_arc_pipeline`].
@@ -203,13 +250,71 @@ pub fn run_arc_pipeline_all(
     builtins: &BuiltinOwnershipSets,
 ) -> Vec<ArcProblem> {
     borrow::apply_borrows(functions, sigs);
+
+    // Interprocedural uniqueness analysis: compute per-function summaries
+    // AFTER borrow application (uses ownership annotations) but BEFORE
+    // per-function RC insertion (which modifies the IR).
+    let uniqueness_summaries = run_uniqueness_analysis(functions, classifier, interner);
+
     let mut all_problems = Vec::new();
     for func in functions {
         rc_insert::annotate_arg_ownership(func, sigs, interner, builtins, pool);
-        let problems = run_arc_pipeline(func, classifier, sigs, pool, interner);
+        let problems = run_arc_pipeline(
+            func,
+            classifier,
+            sigs,
+            pool,
+            interner,
+            &uniqueness_summaries,
+        );
         all_problems.extend(problems);
     }
     all_problems
+}
+
+/// Run interprocedural uniqueness analysis on all functions.
+///
+/// Computes a [`UniquenessSummary`] for each function by:
+/// 1. Building hardcoded summaries for COW builtins (push → `Unique`, etc.)
+/// 2. Running SCC-based fixpoint analysis across all user functions
+///
+/// The returned summaries should be passed to [`run_arc_pipeline`] so each
+/// function's COW operations are annotated with the correct [`CowMode`].
+///
+/// This is the interprocedural counterpart to the per-function uniqueness
+/// analysis in [`run_arc_pipeline`]. It runs once across all functions to
+/// determine which function return values are provably unique.
+pub fn run_uniqueness_analysis(
+    functions: &[ArcFunction],
+    classifier: &dyn ArcClassification,
+    interner: &ori_ir::StringInterner,
+) -> FxHashMap<Name, UniquenessSummary> {
+    let cow_names = borrow::all_cow_method_names(interner);
+    let sharing_names = borrow::sharing_builtin_names(interner);
+    let builtin_summaries = uniqueness::inter::build_cow_summaries(&cow_names, &sharing_names);
+
+    tracing::debug!(
+        function_count = functions.len(),
+        cow_builtins = cow_names.len(),
+        sharing_builtins = sharing_names.len(),
+        "starting interprocedural uniqueness analysis"
+    );
+
+    let summaries = uniqueness::inter::analyze_program(functions, classifier, &builtin_summaries);
+
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let unique_returns = summaries
+            .values()
+            .filter(|s| s.return_val == Uniqueness::Unique)
+            .count();
+        tracing::debug!(
+            total_summaries = summaries.len(),
+            unique_returns,
+            "interprocedural uniqueness analysis complete"
+        );
+    }
+
+    summaries
 }
 
 /// ARC classification for a type.

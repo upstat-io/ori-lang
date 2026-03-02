@@ -46,9 +46,9 @@ mod derived;
 mod per_scc;
 
 pub use builtins::{
-    borrowing_builtin_names, consuming_receiver_builtin_names,
+    all_cow_method_names, borrowing_builtin_names, consuming_receiver_builtin_names,
     consuming_receiver_only_builtin_names, consuming_second_arg_builtin_names,
-    BuiltinOwnershipSets,
+    sharing_builtin_names, BuiltinOwnershipSets,
 };
 pub use callees::extract_callees;
 pub use derived::infer_derived_ownership;
@@ -247,6 +247,10 @@ fn resolve_alias(var: ArcVarId, aliases: &FxHashMap<ArcVarId, ArcVarId>) -> ArcV
 /// of co-members, while external callees use their stable final sigs.
 ///
 /// Returns `true` if any parameter's ownership changed.
+#[expect(
+    clippy::too_many_lines,
+    reason = "dispatch table over ArcInstr + ArcTerminator variants"
+)]
 pub(super) fn update_ownership_inner(
     func: &ArcFunction,
     my_sig: &mut AnnotatedSig,
@@ -297,6 +301,14 @@ pub(super) fn update_ownership_inner(
                 }
 
                 ArcInstr::PartialApply { args, .. } | ArcInstr::Construct { args, .. } => {
+                    for &arg in args {
+                        changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
+                    }
+                }
+
+                ArcInstr::CollectionReuse { old_var, args, .. } => {
+                    // old_var is consumed (recycled buffer); args are stored elements.
+                    changed |= try_mark_param_owned(*old_var, func, my_sig, &aliases);
                     for &arg in args {
                         changed |= try_mark_param_owned(arg, func, my_sig, &aliases);
                     }

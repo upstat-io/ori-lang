@@ -116,6 +116,28 @@ pub enum ArcInstr {
         args: Vec<ArcVarId>,
     },
 
+    /// Collection buffer reuse: replaces `RcDec(old)` + `Construct(ListLiteral)`.
+    ///
+    /// Unlike struct reuse (which uses `Reset`/`Reuse` → `IsShared` expansion),
+    /// collection reuse is self-contained. The LLVM emitter calls a runtime
+    /// function (`ori_list_reset_buffer`) that checks uniqueness internally:
+    /// - Unique (RC == 1): clean old elements, reuse/realloc buffer
+    /// - Shared (RC > 1): dec old RC, allocate fresh buffer
+    ///
+    /// Only valid for `ListLiteral` and `SetLiteral` constructors.
+    CollectionReuse {
+        /// The old collection being recycled (its `RcDec` was removed).
+        old_var: ArcVarId,
+        /// Destination variable for the new collection.
+        dst: ArcVarId,
+        /// Collection type (must be list or set).
+        ty: Idx,
+        /// Constructor kind (`ListLiteral` or `SetLiteral`).
+        ctor: CtorKind,
+        /// New element values.
+        args: Vec<ArcVarId>,
+    },
+
     /// Conditional value selection: `let dst: ty = if cond then true_val else false_val`.
     ///
     /// Maps directly to LLVM `select`. Used by the decision tree emitter
@@ -152,6 +174,7 @@ impl ArcInstr {
             | ArcInstr::Construct { dst, .. }
             | ArcInstr::IsShared { dst, .. }
             | ArcInstr::Reuse { dst, .. }
+            | ArcInstr::CollectionReuse { dst, .. }
             | ArcInstr::Select { dst, .. } => Some(*dst),
 
             ArcInstr::Reset { token, .. } => Some(*token),
@@ -190,6 +213,13 @@ impl ArcInstr {
             ArcInstr::ApplyIndirect { closure, args, .. } => {
                 let mut vars = SmallVec::with_capacity(1 + args.len());
                 vars.push(*closure);
+                vars.extend_from_slice(args);
+                vars
+            }
+
+            ArcInstr::CollectionReuse { old_var, args, .. } => {
+                let mut vars = SmallVec::with_capacity(1 + args.len());
+                vars.push(*old_var);
                 vars.extend_from_slice(args);
                 vars
             }
@@ -243,6 +273,10 @@ impl ArcInstr {
                 *closure == target || args.contains(&target)
             }
 
+            ArcInstr::CollectionReuse { old_var, args, .. } => {
+                *old_var == target || args.contains(&target)
+            }
+
             ArcInstr::Project { value, .. } => *value == target,
 
             ArcInstr::RcInc { var, .. }
@@ -282,6 +316,9 @@ impl ArcInstr {
             ArcInstr::Construct { args, .. } | ArcInstr::PartialApply { args, .. } => {
                 pos < args.len()
             }
+            // old_var at position 0 is consumed (not owned — RC handled internally).
+            // args at positions 1..=args.len() are owned (stored into buffer).
+            ArcInstr::CollectionReuse { args, .. } => pos >= 1 && pos <= args.len(),
             ArcInstr::Apply {
                 args,
                 arg_ownership,
@@ -324,6 +361,10 @@ impl ArcInstr {
             | ArcInstr::Construct { args, .. } => sub_args(args, old, new),
             ArcInstr::ApplyIndirect { closure, args, .. } => {
                 sub(closure, old, new);
+                sub_args(args, old, new);
+            }
+            ArcInstr::CollectionReuse { old_var, args, .. } => {
+                sub(old_var, old, new);
                 sub_args(args, old, new);
             }
             ArcInstr::Project { value, .. } => sub(value, old, new),

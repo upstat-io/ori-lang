@@ -2,6 +2,9 @@
 title: "Overview"
 description: "Ori Language Server Design — Implementation Guide"
 order: 0
+sidebar_title: "LSP"
+sidebar_order: 4
+sidebar_path: "/docs/lsp"
 ---
 
 # Overview

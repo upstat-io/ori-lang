@@ -1,7 +1,7 @@
 ---
 title: "Appendix C: Error Codes"
 description: "Ori Compiler Design — Appendix C: Error Codes"
-order: 1003
+order: 9003
 section: "Appendices"
 ---
 

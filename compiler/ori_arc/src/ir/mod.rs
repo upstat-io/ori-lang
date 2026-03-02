@@ -17,6 +17,7 @@
 //! Values are named via [`ArcVarId`] (SSA-like). Control flow uses
 //! [`ArcBlockId`] references between blocks.
 
+mod function;
 mod instr;
 mod repr;
 
@@ -28,6 +29,7 @@ use smallvec::{smallvec, SmallVec};
 use ori_ir::{BinaryOp, DurationUnit, Name, SizeUnit, Span, UnaryOp};
 use ori_types::Idx;
 
+use crate::uniqueness::{CowAnnotations, DropHints};
 use crate::Ownership;
 
 // Call-site argument ownership
@@ -391,114 +393,28 @@ pub struct ArcFunction {
     /// skip trampoline wrapper generation.
     #[cfg_attr(feature = "cache", serde(default))]
     pub num_captures: usize,
-}
-
-impl ArcFunction {
-    /// Look up the type of a variable.
+    /// Per-instruction COW mode annotations from uniqueness analysis.
     ///
-    /// # Panics
+    /// Maps `(block_index, instr_index)` to [`CowMode`] for each COW
+    /// operation. The LLVM arc emitter queries this to decide whether to
+    /// emit only the fast path (`StaticUnique`), only the slow path
+    /// (`StaticShared`), or the full runtime check (`Dynamic`).
     ///
-    /// Debug-panics if `var` is out of bounds.
-    #[inline]
-    pub fn var_type(&self, var: ArcVarId) -> Idx {
-        debug_assert!(
-            var.index() < self.var_types.len(),
-            "ArcVarId {} out of bounds (have {} vars)",
-            var.raw(),
-            self.var_types.len(),
-        );
-        self.var_types[var.index()]
-    }
-
-    /// Look up the machine representation of a variable.
+    /// Populated by the ARC pipeline (after uniqueness analysis). Empty
+    /// until then. Skipped during cache serialization — derived from the
+    /// analysis, not an independent data source.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub cow_annotations: CowAnnotations,
+    /// Per-instruction drop hints for unique collection drops.
     ///
-    /// Only valid after [`compute_var_reprs`] has been called (i.e., during
-    /// or after the ARC pipeline). Returns `None` if `var_reprs` is empty
-    /// (pre-pipeline).
-    #[inline]
-    pub fn var_repr(&self, var: ArcVarId) -> Option<ValueRepr> {
-        if self.var_reprs.is_empty() {
-            return None;
-        }
-        debug_assert!(
-            var.index() < self.var_reprs.len(),
-            "ArcVarId {} out of bounds for var_reprs (have {} entries)",
-            var.raw(),
-            self.var_reprs.len(),
-        );
-        Some(self.var_reprs[var.index()])
-    }
-
-    /// Allocate a fresh variable with the given type.
+    /// Identifies `RcDec` instructions where the target collection is
+    /// provably unique (RC == 1), allowing the LLVM emitter to call
+    /// `ori_buffer_drop_unique` instead of `ori_buffer_rc_dec`.
     ///
-    /// Returns a new [`ArcVarId`] that does not collide with any existing
-    /// variable in this function. The variable's type is recorded in
-    /// [`var_types`](Self::var_types).
-    ///
-    /// Used by ARC passes that introduce synthetic variables (e.g., the
-    /// `IsShared` result in constructor reuse expansion, reuse tokens in
-    /// reset/reuse detection).
-    pub fn fresh_var(&mut self, ty: Idx) -> ArcVarId {
-        let id = u32::try_from(self.var_types.len())
-            .unwrap_or_else(|_| panic!("variable count exceeds u32::MAX"));
-        self.var_types.push(ty);
-        // Keep var_reprs in sync if it has been populated.
-        // Uses Scalar as a placeholder — callers that know the correct repr
-        // should use `fresh_var_repr` instead.
-        if !self.var_reprs.is_empty() {
-            self.var_reprs.push(ValueRepr::Scalar);
-        }
-        ArcVarId::new(id)
-    }
-
-    /// Allocate a fresh variable with an explicit [`ValueRepr`].
-    ///
-    /// Like [`fresh_var`](Self::fresh_var), but stores the provided `repr`
-    /// instead of a `Scalar` placeholder. Used by ARC passes that create
-    /// variables of known representation (e.g., reuse tokens, merge params).
-    pub fn fresh_var_repr(&mut self, ty: Idx, repr: ValueRepr) -> ArcVarId {
-        let id = u32::try_from(self.var_types.len())
-            .unwrap_or_else(|_| panic!("variable count exceeds u32::MAX"));
-        self.var_types.push(ty);
-        if !self.var_reprs.is_empty() {
-            self.var_reprs.push(repr);
-        }
-        ArcVarId::new(id)
-    }
-
-    /// Append a new basic block to this function.
-    ///
-    /// The block's `id` must equal the next sequential block index
-    /// (`self.blocks.len()`). Span entries are initialized to `None` for
-    /// each instruction in the block body.
-    ///
-    /// # Panics
-    ///
-    /// Debug-panics if `block.id` does not match the expected index.
-    pub fn push_block(&mut self, block: ArcBlock) {
-        let expected = ArcBlockId::new(
-            u32::try_from(self.blocks.len())
-                .unwrap_or_else(|_| panic!("block count exceeds u32::MAX")),
-        );
-        debug_assert_eq!(
-            block.id,
-            expected,
-            "block ID {} does not match expected index {}",
-            block.id.raw(),
-            expected.raw(),
-        );
-        self.spans.push(vec![None; block.body.len()]);
-        self.blocks.push(block);
-    }
-
-    /// Return the [`ArcBlockId`] that the next [`push_block`](Self::push_block)
-    /// call will use.
-    pub fn next_block_id(&self) -> ArcBlockId {
-        ArcBlockId::new(
-            u32::try_from(self.blocks.len())
-                .unwrap_or_else(|_| panic!("block count exceeds u32::MAX")),
-        )
-    }
+    /// Computed at the end of the ARC pipeline (after RC elimination).
+    /// Skipped during cache serialization — derived data.
+    #[cfg_attr(feature = "cache", serde(skip))]
+    pub drop_hints: DropHints,
 }
 
 // Tests

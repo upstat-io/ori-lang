@@ -24,6 +24,7 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         lhs: ValueId,
         rhs: ValueId,
         lhs_ty: Idx,
+        arc_func: &ori_arc::ir::ArcFunction,
     ) -> ValueId {
         // Trait dispatch for non-primitive types (user-defined operator impls)
         if !lhs_ty.is_primitive() {
@@ -44,7 +45,8 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
         // List + list → concat (same as str + str → concat)
         if matches!(op, BinaryOp::Add) {
             if let super::super::type_info::TypeInfo::List { element } = type_info {
-                if let Some(val) = self.emit_list_concat_cow(lhs, rhs, element) {
+                let cm = self.cow_mode_const(arc_func);
+                if let Some(val) = self.emit_list_concat_cow(lhs, rhs, element, cm) {
                     return val;
                 }
             }

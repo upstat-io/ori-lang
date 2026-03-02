@@ -1,12 +1,15 @@
 //! Sync tests for the builtin method codegen table.
 //!
 //! Verifies that `BuiltinTable` registrations are consistent with
-//! `TYPECK_BUILTIN_METHODS` from `ori_types`. Catches two classes of drift:
+//! `TYPECK_BUILTIN_METHODS` from `ori_types` and `ori_arc`. Catches three
+//! classes of drift:
 //!
 //! 1. **Phantom entries**: codegen claims to handle a method that no pipeline
 //!    path ever emits (would never be called).
 //! 2. **Coverage gaps**: type checker exposes a method that codegen can't
 //!    inline (falls through to runtime — acceptable but tracked).
+//! 3. **Ownership mismatch**: a COW method in `ori_arc`'s consuming sets has
+//!    `receiver_borrowed: true` in the LLVM table (would break COW codegen).
 
 use std::collections::HashSet;
 
@@ -187,5 +190,65 @@ fn borrowing_builtins_sync_with_ori_arc() {
          In LLVM BuiltinTable but not ori_arc: {in_table_not_arc:?}\n\
          In ori_arc but not LLVM BuiltinTable: {in_arc_not_table:?}\n\
          Update ori_arc::borrow::builtins::BORROWING_METHOD_NAMES to match.",
+    );
+}
+
+/// COW methods in `ori_arc` must not be marked as borrowing in the LLVM
+/// `BuiltinTable` for collection types.
+///
+/// This catches drift for Section 07.5 (COW Check Elimination): when the
+/// emitter starts consuming `CowAnnotations`, a method in `ori_arc`'s
+/// `consuming_receiver_builtin_names` or `consuming_receiver_only_builtin_names`
+/// that has `receiver_borrowed: true` in the LLVM table would produce
+/// incorrect RC ownership — the receiver would be borrowed when it should be
+/// consumed for COW.
+///
+/// Only checks collection types (`list`, `map`, `Set`) because the `ori_arc`
+/// consuming sets are name-only (not type-qualified). Methods like `reverse`
+/// and `concat` are COW for lists but borrowing for other types (`Ordering`,
+/// `str`). The type check happens at the RC insertion call site.
+#[test]
+fn consuming_builtins_sync_with_ori_arc() {
+    let interner = StringInterner::default();
+    let table = builtin_table();
+
+    // Types where COW semantics apply
+    let cow_types: HashSet<&str> = ["list", "map", "Set"].into_iter().collect();
+
+    // COW method sets from ori_arc (drive uniqueness analysis)
+    let consuming = ori_arc::consuming_receiver_builtin_names(&interner);
+    let consuming_only = ori_arc::consuming_receiver_only_builtin_names(&interner);
+
+    let mut mismatches = Vec::new();
+
+    for (type_name, method_name) in table.all_registered() {
+        if !cow_types.contains(type_name) {
+            continue;
+        }
+
+        let name = interner.intern(method_name);
+        let is_cow = consuming.contains(&name) || consuming_only.contains(&name);
+
+        if !is_cow {
+            continue;
+        }
+
+        if let Some(reg) = table.lookup(type_name, method_name) {
+            if reg.receiver_borrowed {
+                mismatches.push(format!(
+                    "  ({type_name}, {method_name}): ori_arc says consuming (COW), \
+                     but BuiltinTable has receiver_borrowed=true"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        mismatches.is_empty(),
+        "Consuming-receiver builtin sets out of sync!\n\
+         Methods in ori_arc's COW sets must have receiver_borrowed=false \
+         in the LLVM BuiltinTable for collection types:\n{}\n\
+         Either update the LLVM table or remove from ori_arc's consuming sets.",
+        mismatches.join("\n"),
     );
 }
