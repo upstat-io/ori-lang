@@ -163,7 +163,7 @@ jobs:
     name: ${{ matrix.os }}
     needs: [format, clippy]  # Don't waste CI time if basics fail
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 7
     strategy:
       fail-fast: false
       matrix:
