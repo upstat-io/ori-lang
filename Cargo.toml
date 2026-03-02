@@ -15,14 +15,31 @@ members = [
     "compiler/ori_compiler",
     "compiler/ori_stack",
     "compiler/oric",
-]
-# Excluded crates (still buildable with -p flag, but not part of --workspace):
-# - ori_llvm: Requires LLVM 17; build with: cargo bl / cargo blr
-# - ori_rt: Runtime for AOT; built alongside ori_llvm
-# - ori-lsp: Not yet updated to use new compiler
-exclude = [
     "compiler/ori_llvm",
     "compiler/ori_rt",
+]
+# Default members exclude LLVM crates (require LLVM 17 system libraries).
+# Bare `cargo check`/`cargo test` skip them; use `-p ori_llvm` or `cargo bl` explicitly.
+default-members = [
+    "compiler/ori_ir",
+    "compiler/ori_diagnostic",
+    "compiler/ori_lexer_core",
+    "compiler/ori_lexer",
+    "compiler/ori_types",
+    "compiler/ori_parse",
+    "compiler/ori_patterns",
+    "compiler/ori_eval",
+    "compiler/ori_fmt",
+    "compiler/ori_arc",
+    "compiler/ori_canon",
+    "compiler/ori_compiler",
+    "compiler/ori_stack",
+    "compiler/oric",
+    "compiler/ori_rt",
+]
+# Excluded crates (not part of workspace at all):
+# - ori-lsp: Not yet updated to use new compiler
+exclude = [
     "tools/ori-lsp",
 ]
 

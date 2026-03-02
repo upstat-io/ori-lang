@@ -45,9 +45,11 @@ const TRAIT_DISPATCH_METHODS: &[&str] = &[
 /// reached through paths other than `resolve_builtin_method()`:
 ///
 /// - `__iter_next`: Low-level iteration protocol (ARC lowering)
+/// - `__collect_set`: Type-directed collect rewrite (canonical lowering)
 /// - `to_int`: Identity conversion (int → int in generic paths)
 /// - `add`/`concat`: List operator desugaring (`list + list` → `list.add`)
 const ARC_PIPELINE_METHODS: &[(&str, &str)] = &[
+    ("Iterator", "__collect_set"),
     ("Iterator", "__iter_next"),
     ("Ordering", "to_int"),
     ("int", "to_int"),
