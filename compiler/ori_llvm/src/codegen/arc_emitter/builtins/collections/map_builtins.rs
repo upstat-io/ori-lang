@@ -1,0 +1,355 @@
+//! Map builtin method codegen for LLVM.
+//!
+//! Handles `length`, `len`, `is_empty`, `contains_key`, `keys`, `values`,
+//! `get`, `insert`, `remove`, and `iter` for maps.
+//!
+//! Map mutations use COW semantics: when the collection is uniquely
+//! owned (RC == 1), mutation happens in-place; when shared, a copy is made
+//! first. Each mutating method returns a `{i64 len, i64 cap, ptr data}` struct.
+
+use ori_types::Idx;
+
+use crate::codegen::value_id::{LLVMTypeId, ValueId};
+
+use super::super::super::ArcIrEmitter;
+
+impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
+    /// Emit `map.length` — extract field 0 (len) from `{i64 len, i64 cap, ptr data}`.
+    pub(crate) fn emit_map_length(&mut self, receiver: ValueId) -> Option<ValueId> {
+        self.builder.extract_value(receiver, 0, "map.len")
+    }
+
+    /// Emit `map.is_empty()` — `len == 0`.
+    pub(crate) fn emit_map_is_empty(&mut self, receiver: ValueId) -> Option<ValueId> {
+        let len = self.builder.extract_value(receiver, 0, "map.len")?;
+        let zero = self.builder.const_i64(0);
+        Some(self.builder.icmp_eq(len, zero, "map.is_empty"))
+    }
+
+    /// Emit `map.contains_key(key)` — hash table lookup with type-specific equality.
+    ///
+    /// Calls `ori_map_contains_key(data, cap, len, needle, key_size, key_eq, key_hash)`.
+    /// Map layout: `{i64 len, i64 cap, ptr data}`.
+    pub(crate) fn emit_map_contains_key(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        key_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_contains_key");
+
+        let data = self
+            .builder
+            .extract_value(receiver, 2, "map.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let cap = self
+            .builder
+            .extract_value(receiver, 1, "map.cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let len = self
+            .builder
+            .extract_value(receiver, 0, "map.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let needle_ptr = self.elem_to_ptr(key, key_ty, "contains_key.needle");
+        let key_size = self.element_store_size(key_ty);
+        let key_size_val = self.builder.const_i64(key_size as i64);
+        let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
+
+        let result = self.builder.call(
+            func_id,
+            &[data, cap, len, needle_ptr, key_size_val, key_eq, key_hash],
+            "contains_key",
+        )?;
+
+        // Convert i64 (0/1) to i1 (bool)
+        let zero = self.builder.const_i64(0);
+        Some(self.builder.icmp_ne(result, zero, "contains_key.bool"))
+    }
+
+    /// Emit `map.keys()` — extract keys as a new list.
+    ///
+    /// Calls `ori_map_keys_to_list(data, cap, len, key_size, out_ptr)`.
+    pub(crate) fn emit_map_keys(&mut self, receiver: ValueId, key_ty: Idx) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_keys_to_list");
+
+        let data = self
+            .builder
+            .extract_value(receiver, 2, "map.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let cap = self
+            .builder
+            .extract_value(receiver, 1, "map.cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let len = self
+            .builder
+            .extract_value(receiver, 0, "map.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+
+        let key_size = self.element_store_size(key_ty);
+        let key_size_val = self.builder.const_i64(key_size as i64);
+
+        let list_ty = self.list_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "keys.out", list_ty);
+
+        self.builder
+            .call(func_id, &[data, cap, len, key_size_val, out_alloca], "keys");
+
+        Some(self.builder.load(list_ty, out_alloca, "keys.val"))
+    }
+
+    /// Emit `map.values()` — extract values as a new list.
+    ///
+    /// Calls `ori_map_values_to_list(data, cap, len, key_size, val_size, out_ptr)`.
+    pub(crate) fn emit_map_values(
+        &mut self,
+        receiver: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_values_to_list");
+
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
+
+        let list_ty = self.list_struct_type();
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "values.out", list_ty);
+
+        self.builder.call(
+            func_id,
+            &[data, cap, len, key_size_val, val_size_val, out_alloca],
+            "values",
+        );
+
+        Some(self.builder.load(list_ty, out_alloca, "values.val"))
+    }
+
+    /// Emit `map.get(key)` — returns `Option<V>` via sret.
+    ///
+    /// Calls `ori_map_get(data, cap, len, needle, key_size, val_size, key_eq, key_hash, out_ptr)`.
+    /// Returns `{i64 tag, V value}` — tag 0=Some, 1=None.
+    pub(crate) fn emit_map_get(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_get");
+
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
+
+        let needle_ptr = self.elem_to_ptr(key, key_ty, "get.needle");
+        let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
+
+        // Option<V> layout: {i64 tag, V value}
+        let val_llvm_ty = self.resolve_type(val_ty);
+        let raw_val_ty = self.builder.raw_type(val_llvm_ty);
+        let option_ty = self.builder.register_type(
+            self.builder
+                .scx()
+                .type_struct(&[self.builder.scx().type_i64().into(), raw_val_ty], false)
+                .into(),
+        );
+        let out_alloca =
+            self.builder
+                .create_entry_alloca(self.current_function, "get.out", option_ty);
+
+        self.builder.call(
+            func_id,
+            &[
+                data,
+                cap,
+                len,
+                needle_ptr,
+                key_size_val,
+                val_size_val,
+                key_eq,
+                key_hash,
+                out_alloca,
+            ],
+            "get",
+        );
+
+        Some(self.builder.load(option_ty, out_alloca, "get.val"))
+    }
+
+    /// Extract map data, cap, len and compute key/val sizes from type info.
+    pub(in crate::codegen::arc_emitter) fn extract_map_components(
+        &mut self,
+        receiver: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> (ValueId, ValueId, ValueId, ValueId, ValueId) {
+        let data = self
+            .builder
+            .extract_value(receiver, 2, "map.data")
+            .unwrap_or_else(|| self.builder.const_null_ptr());
+        let cap = self
+            .builder
+            .extract_value(receiver, 1, "map.cap")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let len = self
+            .builder
+            .extract_value(receiver, 0, "map.len")
+            .unwrap_or_else(|| self.builder.const_i64(0));
+        let key_size_val = self
+            .builder
+            .const_i64(self.element_store_size(key_ty) as i64);
+        let val_size_val = self
+            .builder
+            .const_i64(self.element_store_size(val_ty) as i64);
+        (data, cap, len, key_size_val, val_size_val)
+    }
+
+    /// Build the LLVM struct type `{i64, i64, ptr}` for map sret returns.
+    pub(in crate::codegen::arc_emitter) fn map_struct_type(&mut self) -> LLVMTypeId {
+        // Same as list/set — {i64 len, i64 cap, ptr data}
+        self.list_struct_type()
+    }
+
+    /// Emit `map.insert(key, value)` — COW insert returning the (possibly mutated) map.
+    ///
+    /// Calls `ori_map_insert_cow(data, len, cap, key, value, key_size, val_size,
+    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
+    pub(crate) fn emit_map_insert(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        value: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+        cow_mode: ValueId,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_insert_cow");
+
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
+
+        let key_ptr = self.elem_to_ptr(key, key_ty, "insert.key");
+        let val_ptr = self.elem_to_ptr(value, val_ty, "insert.val");
+        let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
+        let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
+        let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
+
+        let map_ty = self.map_struct_type();
+        let out = self
+            .builder
+            .create_entry_alloca(self.current_function, "insert.out", map_ty);
+
+        self.builder.call(
+            func_id,
+            &[
+                data,
+                len,
+                cap,
+                key_ptr,
+                val_ptr,
+                key_size_val,
+                val_size_val,
+                key_eq,
+                key_hash,
+                key_inc,
+                val_inc,
+                cow_mode,
+                out,
+            ],
+            "insert",
+        );
+
+        Some(self.builder.load(map_ty, out, "insert.val"))
+    }
+
+    /// Emit `map.remove(key)` — COW remove returning the (possibly mutated) map.
+    ///
+    /// Calls `ori_map_remove_cow(data, len, cap, key, key_size, val_size,
+    ///         key_eq, key_hash, key_inc, val_inc, cow_mode, out_ptr)`.
+    pub(crate) fn emit_map_remove(
+        &mut self,
+        receiver: ValueId,
+        key: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+        cow_mode: ValueId,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_map_remove_cow");
+
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
+
+        let key_ptr = self.elem_to_ptr(key, key_ty, "remove.key");
+        let key_eq = self.get_or_create_eq_thunk(key_ty)?;
+        let key_hash = self.get_or_create_hash_thunk(key_ty)?;
+        let key_inc = self.get_or_generate_elem_inc_fn(key_ty);
+        let val_inc = self.get_or_generate_elem_inc_fn(val_ty);
+
+        let map_ty = self.map_struct_type();
+        let out = self
+            .builder
+            .create_entry_alloca(self.current_function, "remove.out", map_ty);
+
+        self.builder.call(
+            func_id,
+            &[
+                data,
+                len,
+                cap,
+                key_ptr,
+                key_size_val,
+                val_size_val,
+                key_eq,
+                key_hash,
+                key_inc,
+                val_inc,
+                cow_mode,
+                out,
+            ],
+            "remove",
+        );
+
+        Some(self.builder.load(map_ty, out, "remove.val"))
+    }
+
+    /// Emit `map.iter()` — call `ori_iter_from_map(data, cap, len, ks, vs, owns, k_dec, v_dec)`.
+    ///
+    /// The iterator takes ownership of one RC reference to the data buffer,
+    /// releasing it via `ori_map_buffer_rc_dec` when dropped.
+    pub(crate) fn emit_map_iter(
+        &mut self,
+        receiver: ValueId,
+        key_ty: Idx,
+        val_ty: Idx,
+    ) -> Option<ValueId> {
+        let func_id = self.builder.runtime_fn("ori_iter_from_map");
+
+        let (data, cap, len, key_size_val, val_size_val) =
+            self.extract_map_components(receiver, key_ty, val_ty);
+
+        let owns_data = self.builder.const_bool(true);
+        let key_dec_fn = self.get_or_generate_elem_dec_fn(key_ty);
+        let val_dec_fn = self.get_or_generate_elem_dec_fn(val_ty);
+
+        self.builder.call(
+            func_id,
+            &[
+                data,
+                cap,
+                len,
+                key_size_val,
+                val_size_val,
+                owns_data,
+                key_dec_fn,
+                val_dec_fn,
+            ],
+            "map.iter",
+        )
+    }
+}

@@ -243,9 +243,9 @@ impl<'scx: 'ctx, 'ctx> ArcIrEmitter<'_, 'scx, 'ctx, '_> {
 
     /// Emit `ori_map_buffer_rc_dec` for a map value.
     ///
-    /// Maps use a single combined data buffer `[keys...|vals...]` with one RC
-    /// header. The runtime function handles cleaning up both key and value
-    /// children at their respective offsets.
+    /// Maps use an open-addressing hash table `[metadata | keys | values]` with
+    /// 1-byte metadata per bucket, one RC header. The runtime function handles
+    /// cleaning up both key and value children at their respective offsets.
     pub(super) fn emit_buffer_rc_dec_map(&mut self, val: super::ValueId, resolved: ori_types::Idx) {
         let Some(len) = self.builder.extract_value(val, 0, "rc.len") else {
             return;
