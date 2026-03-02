@@ -437,8 +437,9 @@ pub fn ori_binary() -> PathBuf {
         .find(|p| p.join("Cargo.toml").exists() && p.join("compiler").exists())
         .map_or_else(|| PathBuf::from("/workspace"), Path::to_path_buf);
 
-    let debug_path = workspace_root.join("target/debug/ori");
-    let release_path = workspace_root.join("target/release/ori");
+    let exe = format!("ori{}", std::env::consts::EXE_SUFFIX);
+    let debug_path = workspace_root.join("target/debug").join(&exe);
+    let release_path = workspace_root.join("target/release").join(&exe);
 
     let debug_llvm = debug_path.exists() && has_llvm_support(&debug_path);
     let release_llvm = release_path.exists() && has_llvm_support(&release_path);
@@ -526,7 +527,9 @@ pub fn compile_and_run_capture(source: &str) -> (i32, String, String) {
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let source_path = temp_dir.path().join(format!("test_{id}.ori"));
-    let binary_path = temp_dir.path().join(format!("test_{id}"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_{id}{}", std::env::consts::EXE_SUFFIX));
 
     fs::write(&source_path, source).expect("Failed to write source");
 
@@ -565,7 +568,9 @@ pub fn compile_and_capture_ir(source: &str) -> String {
     let id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let source_path = temp_dir.path().join(format!("test_ir_{id}.ori"));
-    let binary_path = temp_dir.path().join(format!("test_ir_{id}"));
+    let binary_path = temp_dir
+        .path()
+        .join(format!("test_ir_{id}{}", std::env::consts::EXE_SUFFIX));
 
     fs::write(&source_path, source).expect("Failed to write source");
 
